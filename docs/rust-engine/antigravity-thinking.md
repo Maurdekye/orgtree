@@ -46,6 +46,27 @@ stream preference and thinking-before-response rows. A disposable PostgreSQL
 fixture exercises real receipt SQL across replay, writer reload and rollback.
 The red controls at 603f621 executed on 2026-10-17 19:31Z: eight tests,
 one pass and seven predicted assertion failures, raw Cargo exit101. The
-independent red harness compiled in12.75s; the test run took0.11s. Implementation
-compilation, green tests and the PostgreSQL fixture remain queued. No real
-history content is used in author tests.
+independent red harness compiled in12.75s; the test run took0.11s.
+
+At product source `dd8d2d0`, the full engine test binary compiled in 52.12s
+under a 6144 MB kernel Job with Cargo `-j 2`. All 11 focused reader/ordering
+tests passed in 0.15s (raw Cargo exit 0, no signal). The receipt test was
+explicitly ignored in that run, then executed against a newly initialized,
+disposable PostgreSQL cluster: one test passed in 0.04s (raw Cargo exit 0,
+no signal). It verifies actual receipt SQL, thinking-before-response order,
+replay after writer reload, atomic rollback and content-free returned errors.
+The cluster shut down cleanly and left no postmaster PID file or own child.
+No real history content is used in author tests.
+
+The earlier 4096 MB attempt exhausted compiler memory before any tests ran;
+its log and raw Cargo exit 101 are retained separately. The successful 6144 MB
+retry began with 8.98 GiB free RAM. Aggregate build and installer output plus
+a 3,000,000,000-byte reserve stayed below the decimal 100,000,000,000-byte
+ceiling for both successful phases. Evidence is in the author's
+`C:/orgtree-build/hubchat-jumplist-sol/agy-thinking/` directory (`red.log`,
+`green.log`, `pg.log`, matching raw result JSON, and dated budget receipts).
+
+The user switched the current 4.4.0 work to hardening on 2026-10-17 21:46Z:
+rig-sol-b reviews this exact hand-in once, with at most one re-check after
+fixes. The coordinator owns integration, the combined round and alpha.5.
+Installed CLI history visibility remains unmeasured by these synthetic tests.
