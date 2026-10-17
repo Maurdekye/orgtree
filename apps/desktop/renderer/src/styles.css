@@ -1371,6 +1371,9 @@ button.badge.audience-fold.alert {
 .project-desk .cc-head-left .project-mark { color: var(--accent); display: inline-flex; }
 .project-desk .cc-head-left .name { font-weight: 600; }
 .chip.agents.project-activity { padding: 0 5px; }
+.project-last-activity { font-size: 11px; color: var(--dim); white-space: nowrap; }
+.project-last-activity.active { color: var(--accent); }
+.project-last-activity .sq-idle-time { color: inherit; }
 .sq.project .project-meta .project-activity { font-size: 10px; }
 /* the description editor: Markdown until focused, monospace while edited (user 2026-10-17 20:06Z) */
 .project-desk .project-description-md, .project-desk .project-description-edit {

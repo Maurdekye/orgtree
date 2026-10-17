@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
-import type { ToastFn, TreePayload } from '../types'
+import type { ToastFn, TreePayload, TurnStat } from '../types'
 import { AutorenewIcon, FolderIcon, SettingsIcon } from '../icons'
 import { md, USER } from './shared'
 import type { CanvasNode, OpFn } from './shared'
@@ -24,7 +24,7 @@ import { AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket
 import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
 import type { RefRoutes } from './reflinks'
-import { NavChip } from './desk'
+import { LastTurnAge, NavChip } from './desk'
 import { subtreeAgents } from './bulkcompact'
 import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 
@@ -62,6 +62,30 @@ export function projectCounts(node: CanvasNode): { active: number; hired: number
 export function subtreeDocCount(node: CanvasNode): number {
   const own = node.documents_count ?? node.documents?.length ?? 0
   return own + (node.children ?? []).reduce((sum, c) => sum + subtreeDocCount(c), 0)
+}
+
+/** The project's LAST ACTIVITY (user 2026-10-17 22:21Z): active while any
+ *  live agent under it runs a turn; otherwise the newest turn end among them,
+ *  nested projects included; null when none has ever run one. */
+export function projectLastActivity(node: CanvasNode): { active: boolean; turn: TurnStat | null } {
+  const agents = subtreeAgents(node)
+  if (agents.some((a) => a.busy)) return { active: true, turn: null }
+  let newest: TurnStat | null = null
+  for (const a of agents) {
+    const t = a.turns?.[a.turns.length - 1]
+    if (t && (!newest || Date.parse(t.at) > Date.parse(newest.at))) newest = t
+  }
+  return { active: false, turn: newest }
+}
+
+/** "active now" / "quiet for <age>", on the desk header and the middle-zoom
+ *  card beside the activity chip; the age is the agent cards' own clock. */
+export function ProjectLastActivity({ node }: { node: CanvasNode }) {
+  const { active, turn } = projectLastActivity(node)
+  if (active) return <span className="project-last-activity active" title="an agent under this project is running a turn">active now</span>
+  if (!turn) return null
+  return <span className="project-last-activity" title="since the newest turn of any agent under this project ended">
+    quiet for <LastTurnAge turn={turn} variant="inline" /></span>
 }
 
 /** The project's agents as the app header's activity chip shows an org's
@@ -154,6 +178,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             </span>
             <span className="name">{node.id}</span>
             <ProjectActivity node={node} />
+            <ProjectLastActivity node={node} />
             {!live && <span className="badge dim">{node.state}</span>}
           </span>
           <span className="spacer" aria-hidden="true" />

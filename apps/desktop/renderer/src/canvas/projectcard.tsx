@@ -20,7 +20,7 @@ import { NODE_H, NODE_W, useAgentShortcuts, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
 import type { RefRoutes } from './reflinks'
-import { ProjectActivity, ProjectDesk } from './projectdesk'
+import { ProjectActivity, ProjectDesk, ProjectLastActivity } from './projectdesk'
 import { PinnedPlaceholder } from './pins'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
@@ -142,6 +142,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin,
             </div>
             <div className="sq-meta project-meta">
               <ProjectActivity node={node} />
+              <ProjectLastActivity node={node} />
               {node.state !== 'live' && <span className="badge dim">{node.state}</span>}
             </div>
           </div>
