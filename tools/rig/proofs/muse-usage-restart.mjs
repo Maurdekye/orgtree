@@ -31,6 +31,7 @@ export default async function (rig) {
   const before = await rig.api('GET', '/api/muse/usage?force=true')
   p.check('control: fake metadata supplies original dated good reading', before.available === true
     && before.observed_at === observed && before.limits?.find(w => w.group === 'weekly')?.percent === 73, before)
+  p.check('fresh account identity is shown even when the quota observation repeats', before.email === 'rig@example.invalid', before.email)
   const id = (await rig.api('POST', '/api/accounts', { provider: 'muse', kind: 'managed' })).id
   const root = rig.one(`SELECT config_dir FROM ot.accounts WHERE id = '${id}'`)?.config_dir
   if (!root) throw Error('managed Muse fixture has no config_dir')
@@ -65,10 +66,22 @@ export default async function (rig) {
   // An immediate call before discovery tests admission, not cache staleness.
   await rig.waitFor(async () => (await rig.api('GET', '/api/providers'))?.providers?.find(x => x.id === 'muse' && x.muse?.catalog),
     { what: 'fake Muse rediscovery', timeout: 60000 })
+  const identified = await rig.api('GET', '/api/muse/usage')
+  p.check('metadata identity overlays restored quota when usage/read reports none',
+    identified.email === 'rig@example.invalid' && identified.observed_at === observed, identified)
   const board = await rig.tool('rhea', 'orgtree_usage', { accounts: ['muse/primary', id] })
   const text = JSON.stringify(board)
   p.check('cached tool exposes original dates and stale freshness', text.includes(observed) && text.includes(secondaryObserved)
     && text.includes('stale'), board)
+  p.check('cached usage tool names the observed primary account', text.includes('rig@example.invalid'), board)
+  p.check('identity refresh does not enter durable quota or another profile', !JSON.stringify(saved()).includes('rig@example.invalid')
+    && !secondary.email, { saved: saved(), secondary })
+
+  write(path.join(rig.fakeDir, 'muse-account.json'), { state: 'accountLogin', label: '' })
+  const unknownIdentity = await rig.api('GET', '/api/muse/usage?force=true')
+  p.check('missing account label remains unknown without losing quota history', !unknownIdentity.email
+    && unknownIdentity.observed_at === observed && unknownIdentity.limits?.find(w => w.group === 'weekly')?.percent === 73, unknownIdentity)
+  write(path.join(rig.fakeDir, 'muse-account.json'), { state: 'accountLogin', label: 'rig@example.invalid' })
 
   // A newer genuine metadata observation replaces the cached one.
   const newerAt = Date.now() - 1000
