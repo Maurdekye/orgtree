@@ -255,6 +255,22 @@ export default async function (rig) {
   const onAgent = await opTry({ op: 'set_description', node: 'dev5', description: 'x' })
   p.check('set_description refuses an agent', !onAgent.ok, onAgent.ok ? onAgent.v : onAgent.error)
 
+  // ------------------------------------------------------------ hires around a project (point 19, user 2026-10-17 21:24:34Z)
+  const scope0 = { add_dirs: [], tools: { bash: false, web: false, edit: false, subagents: false, mcp: [] }, org_visibility: 'team' }
+  const bossFree2 = free('boss')
+  const besideHire = await opTry({ op: 'hire', name: 'peer1', parent: 'boss', tier: 'haiku', grant: 0, after: 'review', ...scope0 })
+  const sibs = rig.sql(`SELECT name FROM ot.agents WHERE parent_id = ${row('boss').id} AND state = 'live' ORDER BY sibling_order`).map(r => r.name)
+  p.check('a coworker hired beside a project lands next to it', besideHire.ok && sibs.indexOf('peer1') === sibs.indexOf('review') + 1,
+    besideHire.ok ? sibs : besideHire.error)
+  const over = await opTry({ op: 'hire', name: 'lead1', tier: 'haiku', grant: 0, above: 'review', hire_type: 'superior' })
+  const rev2 = node('review'), lead = node('lead1')
+  p.check('a superior hired above a project holds it where it was', over.ok && lead?.parent_id === row('boss').id && rev2?.parent_id === lead?.id
+    && node('carol')?.parent_id === rev2?.id, over.ok ? { lead, review: rev2 } : over.error)
+  p.check('the project above carol stays free and transparent under its new superior', rev2?.seat === 0 && free('review') === 0,
+    { seat: rev2?.seat, free: free('review') })
+  p.check('boss pays the new agents\' seats and nothing for the project', Math.abs((bossFree2 - free('boss')) - 2) < 1e-6,
+    { before: bossFree2, after: free('boss') })
+
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, extra FROM ot.mail ORDER BY id`))
   p.file('tree.json', rig.sql(`SELECT id, name, kind, parent_id, state, seat, grant_credits FROM ot.agents ORDER BY id`))
   p.keep(rig, { agents: ['dev1', 'dev2', 'boss'], grep: /project|fair_queue|dispatch/i })

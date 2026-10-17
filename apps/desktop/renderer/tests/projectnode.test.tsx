@@ -237,6 +237,28 @@ test('§2c a live project has its hire strip with its own project token (a neste
   assert.equal(retired.el.querySelector('.hsof') === null, true, 'no hires under a retired project')
 })
 
+test('§2d coworker and parent hires around a project, as around an agent (user 21:24:34Z)', async (t) => {
+  const side: [string, string][] = []
+  const top: string[] = []
+  const at: string[] = []
+  const view = await mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm" dragging={false}
+    isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={2}
+    hire={{ claudeHire: offer }} seats={seats} onHire={noop} onInbox={noop} onNewProject={noop}
+    onSpawnSide={(tier, s) => side.push([tier, s])} onSpawnTop={(tier) => top.push(tier)}
+    onNewProjectAt={(edge) => at.push(edge)}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  const strip = (s: string) => view.el.querySelector(`.hsof.side-${s}`)
+  for (const s of ['l', 'r', 't']) assert.ok(strip(s), `a ${s} strip`)
+  await inAct(() => { strip('l')!.querySelector<HTMLButtonElement>('button.t-opus')!.click() })
+  await inAct(() => { strip('r')!.querySelector<HTMLButtonElement>('button.t-haiku')!.click() })
+  await inAct(() => { strip('t')!.querySelector<HTMLButtonElement>('button.t-sonnet')!.click() })
+  assert.deepEqual(side, [['opus', 'left'], ['haiku', 'right']], 'coworkers either side')
+  assert.deepEqual(top, ['sonnet'], 'a superior above it')
+  await inAct(() => { strip('t')!.querySelector<HTMLButtonElement>('button.project-token')!.click() })
+  assert.deepEqual(at, ['t'], 'each strip keeps its project token')
+})
+
 /* ─── §3 its menu ───────────────────────────────────────────────────────── */
 
 const labels = (entries: ReturnType<typeof projectMenuEntries>) =>
