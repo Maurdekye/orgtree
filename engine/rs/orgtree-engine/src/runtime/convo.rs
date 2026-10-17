@@ -38,12 +38,16 @@ mod agy_thinking_pg_tests {
         let session="12345678-1234-4321-8765-123456789abc";
         let rows=||crate::runtime::agy_thinking::rows(session,6,Some("synthetic thought"),"synthetic response","now");
         let mut writer=ConvoWriter::load(&client,1).await.unwrap();
-        let saved=writer.append_agy_step(&mut client,session,6,rows()).await.unwrap().unwrap();
+        let (saved,response)=writer.append_agy_step(&mut client,session,6,rows()).await.unwrap();
+        assert!(response);
+        let saved=saved.unwrap();
         assert_eq!(saved.len(),2); assert_eq!(saved[0].1["thinking"],"synthetic thought");
         assert_eq!(saved[1].1["text"],"synthetic response"); assert!(saved[0].0<saved[1].0);
-        assert!(writer.append_agy_step(&mut client,session,6,rows()).await.unwrap().is_none());
+        let (saved,response)=writer.append_agy_step(&mut client,session,6,rows()).await.unwrap();
+        assert!(saved.is_none() && response);
         let mut writer=ConvoWriter::load(&client,1).await.unwrap(); // actor/engine restart
-        assert!(writer.append_agy_step(&mut client,session,6,rows()).await.unwrap().is_none());
+        let (saved,response)=writer.append_agy_step(&mut client,session,6,Vec::new()).await.unwrap();
+        assert!(saved.is_none() && response); // no replayed delta is needed
         assert_eq!((writer.seq,writer.ver),(2,2));
         let mut failed=rows(); failed[1]["synthetic_reject"]=json!(true);
         let failed=writer.append_agy_step(&mut client,session,7,failed).await.unwrap_err();
@@ -53,9 +57,9 @@ mod agy_thinking_pg_tests {
         let receipt:i64=client.query_one("SELECT count(*) FROM ot.agy_step_receipts WHERE step_index=7",&[]).await.unwrap().get(0);
         assert_eq!(receipt,0);
         let count:i64=client.query_one("SELECT count(*) FROM ot.convo",&[]).await.unwrap().get(0); assert_eq!(count,2);
-        assert!(writer.append_agy_step(&mut client,session,7,rows()).await.unwrap().is_some());
+        assert!(writer.append_agy_step(&mut client,session,7,rows()).await.unwrap().0.is_some());
         let other="abcdefab-1234-4321-8765-123456789abc";
-        assert!(writer.append_agy_step(&mut client,other,6,rows()).await.unwrap().is_some());
+        assert!(writer.append_agy_step(&mut client,other,6,rows()).await.unwrap().0.is_some());
         assert_eq!((writer.seq,writer.ver),(6,6));
         drop(client); connection.await.unwrap();
     }
@@ -95,16 +99,21 @@ impl ConvoWriter {
     /// Commit a completed AGY step exactly once, including after actor/engine
     /// restart. A rollback leaves both the receipt and all rows absent.
     #[nolog]
-    pub async fn append_agy_step(&mut self, client: &mut Client, session: &str, index: i64, rows: Vec<Value>) -> Result<Option<Vec<(i64, Value)>>> {
+    pub async fn append_agy_step(&mut self, client: &mut Client, session: &str, index: i64, rows: Vec<Value>) -> Result<(Option<Vec<(i64, Value)>>, bool)> {
         // PG errors can carry a failing row in their detail. Do not propagate
         // that diagnostic through the actor's ordinary error logging.
         let redact = |_| anyhow::anyhow!("AGY transcript transaction failed");
         let tx = client.transaction().await.map_err(redact)?;
+        let response=rows.iter().any(|r|r["text"].as_str().is_some_and(|s|!s.trim().is_empty()));
         let inserted = tx.execute(
-            "INSERT INTO ot.agy_step_receipts (agent_id,session_id,step_index) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
-            &[&self.agent_id,&session,&index],
+            "INSERT INTO ot.agy_step_receipts (agent_id,session_id,step_index,has_response) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+            &[&self.agent_id,&session,&index,&response],
         ).await.map_err(redact)?;
-        if inserted==0 { return Ok(None); }
+        if inserted==0 {
+            let response:bool=tx.query_one("SELECT has_response FROM ot.agy_step_receipts WHERE agent_id=$1 AND session_id=$2 AND step_index=$3",
+                &[&self.agent_id,&session,&index]).await.map_err(redact)?.get(0);
+            return Ok((None,response));
+        }
         let (mut seq,mut ver)=(self.seq,self.ver);
         let mut saved=Vec::with_capacity(rows.len());
         for mut body in rows {
@@ -119,7 +128,7 @@ impl ConvoWriter {
         tx.commit().await.map_err(redact)?;
         self.seq=seq; self.ver=ver;
         for (seq,body) in &saved { self.remember(*seq,body.clone()); }
-        Ok(Some(saved))
+        Ok((Some(saved),response))
     }
 
     #[nolog]

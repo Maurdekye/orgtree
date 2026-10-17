@@ -430,6 +430,9 @@ struct Turn {
     denials: Vec<Value>,
     /// Antigravity: response text so far, by step
     agy_text: HashMap<i64, String>,
+    /// A durable step receipt can suppress result fallback after a replay even
+    /// when this actor did not receive that step's original text deltas.
+    agy_response_seen: bool,
     /// Antigravity: mid-turn mail handed to the steer hook and not yet
     /// emitted: (handoff id, mail ids, the claimed mail rows)
     agy_steer: Option<(String, Vec<i64>, Vec<Value>)>,
@@ -491,6 +494,7 @@ impl Turn {
             codex_runner_hint: false,
             denials: Vec::new(),
             agy_text: HashMap::new(),
+            agy_response_seen: false,
             agy_steer: None,
             exited: false,
             session_ended: false,
@@ -5418,7 +5422,7 @@ impl Actor {
                 };
                 // a response that arrived only in the result still becomes a row
                 let text = r["response"].as_str().unwrap_or("").to_string();
-                let wrote = self.turn.as_ref().map(|t| t.rows.keys().any(|k| k.starts_with("agy-resp-"))).unwrap_or(true);
+                let wrote = self.turn.as_ref().map(|t| t.agy_response_seen || t.rows.keys().any(|k| k.starts_with("agy-resp-"))).unwrap_or(true);
                 if !wrote && !text.trim().is_empty() {
                     let row = json!({ "role": "assistant", "text": text, "tools": [], "ts": now_iso(), "assistant_id": "agy-result" });
                     let client = self.engine.db.get().await?;
@@ -5495,8 +5499,9 @@ impl Actor {
                     let response=self.turn.as_ref().and_then(|t|t.agy_text.get(index)).map(String::as_str).unwrap_or("");
                     let rows=crate::runtime::agy_thinking::rows(session,*index,thinking.as_deref(),response,&now_iso());
                     let mut client=self.engine.db.get().await?;
-                    let saved=Box::pin(self.convo.append_agy_step(&mut client,session,*index,rows)).await?;
+                    let (saved,response_seen)=Box::pin(self.convo.append_agy_step(&mut client,session,*index,rows)).await?;
                     drop(client);
+                    if let Some(t)=self.turn.as_mut() { t.agy_response_seen|=response_seen; }
                     let Some(saved)=saved else {
                         if let Some(t)=self.turn.as_mut() { t.agy_text.remove(index); t.draft.clear(); t.draft_order=None; }
                         return Ok(());
