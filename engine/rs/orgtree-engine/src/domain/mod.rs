@@ -8,6 +8,7 @@ pub mod audiences;
 pub mod docket;
 pub mod docs;
 pub mod html_bundle;
+pub mod hire_requirements;
 pub mod mail;
 pub mod replies;
 pub mod lifecycle;
