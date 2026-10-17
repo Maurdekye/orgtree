@@ -880,9 +880,9 @@ mod startup_card_tests {
                 let eager: Vec<_> = cards.iter().filter(|c| c["_meta"]["anthropic/alwaysLoad"] == true).collect();
                 let descriptions: usize = cards.iter().map(|c| c["description"].as_str().unwrap().len()).sum();
                 println!("TOOL_STARTUP {}",json!({"lane":lane,"profile":profile,"cards":cards.len(),"schema_bytes":bytes,
-                    "description_bytes":descriptions,"tokens_est":bytes.div_ceil(4),"eager_cards":eager.len(),
+                    "description_bytes":descriptions,"tokens_est":bytes.div_ceil(2),"eager_cards":eager.len(),
                     "eligible_eager_bytes":serde_json::to_vec(&eager).unwrap().len(),
-                    "token_method":"inferred bytes/4; canonical MCP JSON, native wrappers/external tools excluded; eager hint savings require client support"}));
+                    "token_method":"inferred bytes/2; canonical MCP JSON, native wrappers/external tools excluded; eager hint savings require client support"}));
             }
         }
     }
