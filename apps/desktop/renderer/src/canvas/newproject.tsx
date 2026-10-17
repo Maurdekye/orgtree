@@ -8,7 +8,8 @@
 import { useEffect, useState } from 'react'
 import { CheckIcon, CloseIcon, FolderIcon } from '../icons'
 import { NODE_H, NODE_W } from './shared'
-import type { DraftState, OpRequest, Pt } from './shared'
+import type { DraftState, Pt } from './shared'
+import type { OpRequest } from '../types'
 
 /** a project draft's `tier`: projects have no model */
 export const PROJECT_DRAFT = 'project'
