@@ -16,6 +16,14 @@
   [decided: user 2026-10-17 22:00Z/22:10Z/22:12Z; coordinator 22:12Z applies
   the existing peer-mail rule to the manager]
 
+- Inline helper transcripts reuse the desk's `Msg`/`ToolChip`/input disclosures,
+  with a separate bounded fold store and no parent input or nested helper reads.
+  New private snapshots preserve native content order with UTF-16 text offsets;
+  legacy snapshots keep their available grouped content. Do not invent missing
+  helper timing or usage. See [helper transcripts](docs/rust-engine/helper-transcripts.md).
+  [decided: user/coordinator 2026-10-17; verified: `canvas/helpertranscript.tsx`,
+  `runtime/helper_transcript.rs`]
+
 - Markdown links to local Windows files may use `file:///C:/...` or another
   drive letter; normalize only this empty-authority form before sanitization and
   keep it reveal-only. Unsupported file URLs stay plain text after sanitization

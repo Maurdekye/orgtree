@@ -3433,7 +3433,7 @@
    "covers": [
     "screen:desk-chat"
    ],
-   "purpose": "The Chat tab: transcript, tool chips, live one-level Claude helper activity, thoughts, event cards and the composer.",
+   "purpose": "The Chat tab: transcript, tool chips, live one-level Claude helpers with normal transcript formatting, thoughts, event cards and the composer.",
    "must_cover": [
     "composer, effort switch, slash hints",
     "event cards"

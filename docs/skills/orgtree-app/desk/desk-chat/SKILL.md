@@ -25,6 +25,12 @@ New Claude Code helpers stream text, supplied thoughts and tool activity while
 their parent turn runs. This first slice supports one transcript level: the
 helper's own helper tools expand ordinary input/result details only.
 
+Helper prose uses the same Markdown and message styling as the agent's Chat
+transcript, with the same thinking disclosures and expandable tool chips.
+New captures keep native content order. Supplied timing/token fields use normal
+slots; missing values remain unknown. The nested view stays visibly marked as
+a helper and scrolls within its own bound.
+
 Collapsed calls do not read helper snapshots. Completed captures remain
 available on reopening; read errors offer Retry, and a size-limit note means
 some activity was omitted. Older calls and other harnesses explain when no

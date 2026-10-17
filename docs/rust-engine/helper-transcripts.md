@@ -25,6 +25,31 @@ per snapshot, 8 tools per message and bounded text/arguments/results.
 Truncation is shown explicitly. Captured output survives reopening the desk;
 unrecorded calls explain that no helper transcript was retained.
 
+## Normal transcript presentation (user feedback 2026-10-17)
+
+Helper rows now use the desk's normal `Msg` and `ToolChip` components: Markdown
+prose, expandable supplied thinking and ordinary input/result disclosures. The
+nested section keeps its helper heading, scroll/height limit and normal message
+typeface instead of inheriting its parent tool row's monospace styling.
+
+Each helper has its own fold store, pruned against retained rows, so a native ID
+cannot open a parent or sibling helper's fold. Child input uses `ToolInputDetails`
+with a retained payload; it never looks up a tool in the parent conversation or
+opens another helper transcript. Clipped arguments stay readable verbatim.
+
+New capture includes at most 64 ordered content fragments per message, within
+the unchanged message/tool/serialized-byte caps. Text and thinking ranges use
+UTF-16 offsets for JavaScript slicing, after NUL removal and text caps. Both
+streamed and completed records retain native text/thinking/tool order; completed
+records replace drafts. Existing snapshots without order use the normal grouped
+fallback. No native history recovery or additional adapter is introduced.
+
+The view passes through supplied thought duration, completed tool clocks and
+task token totals. Current Claude helper capture does not supply those clocks
+or totals; the normal unknown-time slot remains unknown and no parent usage or
+clock is borrowed. Synthetic fixtures with supplied fields test the slots, and
+are not evidence of native provider timing/token availability.
+
 ## Research and deferred adapters
 
 | Harness | Verified format/link | Deferred work |

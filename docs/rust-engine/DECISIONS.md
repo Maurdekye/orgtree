@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Helper transcript formatting, user 2026-10-17 19:32Z:** the expanded helper
+view uses the same normal transcript components for Markdown prose, supplied
+thinking and expandable tool calls. Keep it visibly nested, bounded and one
+level only; show timing/token slots only from supplied snapshot fields. Preserve
+native content order privately and never read a parent tool row for child input.
+See [helper transcripts](helper-transcripts.md).
+
 **Idle turn clocks, coordinator 2026-10-17 17:33Z (user report 16:54Z):**
 completed turns use `ended_at` in the shared `TurnStat.at` projection for every
 harness, falling back to `started_at` only for open or legacy rows without an
