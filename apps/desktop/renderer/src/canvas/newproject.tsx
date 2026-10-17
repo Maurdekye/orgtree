@@ -1,76 +1,83 @@
-// canvas/newproject.tsx — the "New project" form (docs/rust-engine/
-// PROJECT-NODES.md): a name and an optional description for a project node
-// under `parent` (an agent, a project, or the top level). The engine checks
-// the name and the placement; a refusal is toasted by `op` and the form stays.
+// canvas/newproject.tsx — the DRAFT project card (docs/rust-engine/
+// PROJECT-NODES.md; user 2026-10-17 19:14Z: making a project by hand works
+// like a manual hire). "New project here…" and the project hire tokens open a
+// draft card where the project will go, the camera walks to it, and the user
+// gives it a name and a description there. The description is the project's
+// standing charter: every agent under the project receives it.
 
-import { useEffect, useId, useRef, useState } from 'react'
-import type { ToastFn } from '../types'
-import { useEsc, USER } from './shared'
-import type { OpFn } from './shared'
-import { ModalOverPins } from './modalpin'
+import { useEffect, useState } from 'react'
+import { CheckIcon, CloseIcon, FolderIcon } from '../icons'
+import { NODE_H, NODE_W } from './shared'
+import type { DraftState, OpRequest, Pt } from './shared'
 
-export function NewProjectModal({ parent, above, beside, op, toast, close }: {
-  /** the parent node's id, or USER for the top level */
-  parent: string
-  /** instead: the node this project takes the place of, holding it */
-  above?: string
-  /** a side token's sibling slot: the project lands next to `anchor` on
-   *  that side, the way a side hire does (the same follow-up reorder) */
-  beside?: { anchor: string; side: 'left' | 'right' }
-  op: OpFn
-  toast: ToastFn
-  close: () => void
+/** a project draft's `tier`: projects have no model */
+export const PROJECT_DRAFT = 'project'
+
+/** The ops that create the drafted project in its place: one create_project
+ *  (under the draft's parent, at the top level, or above its anchor holding
+ *  it), then for a side token the same reorder a side hire pins. */
+export function projectDraftSteps(draft: DraftState, name: string, description: string): OpRequest[] {
+  const create: OpRequest = { op: 'create_project', name,
+    ...(description.trim() ? { description: description.trim() } : {}),
+    ...(draft.above ? { above: draft.above.anchor } : { parent: draft.parent ?? 'user' }) }
+  const b = draft.beside
+  return b ? [create, { op: 'reorder', node: name, ...(b.side === 'left' ? { before: b.anchor } : { after: b.anchor }) }]
+    : [create]
+}
+
+export function ProjectDraftNode({ pos, onConfirm, onCancel }: {
+  pos: Pt
+  onConfirm: (name: string, description: string) => void
+  onCancel: () => void
 }) {
-  useEsc(close)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [busy, setBusy] = useState(false)
-  const nameRef = useRef<HTMLInputElement>(null)
-  const titleId = useId()
-  useEffect(() => { nameRef.current?.focus() }, [])
-  const where = above ? `above ${above}, holding it`
-    : beside ? `beside ${beside.anchor}`
-    : parent === USER ? 'at the top level' : `under ${parent}`
-  const create = () => {
-    const n = name.trim()
-    if (!n || busy) return
-    setBusy(true)
-    op({ op: 'create_project', name: n, description: description.trim() || undefined,
-         ...(above ? { above } : { parent: parent === USER ? 'user' : parent }) })
-      .then(() => beside
-        ? op({ op: 'reorder', node: n,
-               ...(beside.side === 'left' ? { before: beside.anchor } : { after: beside.anchor }) })
-            .catch(() => undefined)   // `op` toasts it; the project stands, last among its siblings
-        : undefined)
-      .then(() => { toast([`project ${n} created ${where}`]); close() })
-      .catch(() => setBusy(false))
-  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) onCancel() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel])
+  const ok = name.trim().length > 0
+  const create = () => { if (ok) onConfirm(name.trim(), description.trim()) }
   return (
-    <ModalOverPins><div className="overlay" onClick={close} onPointerDown={(e) => e.stopPropagation()}>
-      <div className="settings content-height confirm-box new-project" role="dialog" aria-modal="true"
-        aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
-        <h3 id={titleId}>New project {where}</h3>
-        <div className="confirm-body">
-          A project node stands for one project. It runs no turns and costs nothing: the agents under it
-          work on it, report to the agent above it, and get its folder's AGENTS.md. Its mail goes to the
-          agents that watch it with a fair-queue watchdog.
-        </div>
-        <label className="field">
-          <span>Name</span>
-          <input ref={nameRef} value={name} spellCheck={false} placeholder="e.g. website"
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); create() } }} />
-        </label>
-        <label className="field">
-          <span>Description</span>
-          <textarea value={description} rows={3} placeholder="what the project is (optional)"
-            onChange={(e) => setDescription(e.target.value)} />
-        </label>
-        <div className="row">
-          <button className="solid" disabled={!name.trim() || busy} onClick={create}>create</button>
-          <button onClick={close}>cancel</button>
+    <div className="sq draft project" style={{
+      transform: `translate(${pos.x}px, ${pos.y}px)`, width: NODE_W, height: NODE_H,
+    }} onPointerDown={(e) => e.stopPropagation()}>
+      <div className="draft-tag">new project</div>
+      {/* the hire draft's counter-scaled form, with the folder mark in place
+          of the tier token and no credit bar: a project is free */}
+      <div className="draft-over" onWheel={(e) => e.stopPropagation()}>
+        <div className="draft-inner">
+          <div className="df-head">
+            <span className="project-mark" title="project node: runs no turns, holds no credits">
+              <FolderIcon fontSize="inherit" />
+            </span>
+            <input className="df-name" placeholder="project name…" value={name} spellCheck={false}
+              // focus without scroll, as the hire draft does
+              ref={(el) => {
+                if (el && !el.dataset.f) {
+                  el.dataset.f = '1'
+                  el.focus({ preventScroll: true })
+                }
+              }}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && ok) create() }} />
+          </div>
+          <div className="df-charter-wrap">
+            <textarea className="df-charter"
+              placeholder="description (optional): what the project is. Every agent under it gets this as a standing charter."
+              value={description} onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && ok) { e.preventDefault(); create() } }} />
+          </div>
+          <div className="df-foot">
+            <span className="spacer" />
+            <button onClick={onCancel}><CloseIcon fontSize="inherit" /> cancel</button>
+            <button className="primary" disabled={!ok} onClick={create}
+              title={ok ? undefined : 'give the project a name first'}>
+              <CheckIcon fontSize="inherit" /> create</button>
+          </div>
         </div>
       </div>
-    </div></ModalOverPins>
+    </div>
   )
 }

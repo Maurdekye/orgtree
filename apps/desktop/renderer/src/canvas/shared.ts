@@ -1324,6 +1324,9 @@ export interface View { x: number; y: number; z: number }
 export interface DraftState {
   parent: string | null
   tier: string
+  /** a draft PROJECT card (newproject.tsx; user 2026-10-17 19:14Z), placed
+   *  like a hire draft; its tier is the PROJECT_DRAFT sentinel */
+  project?: boolean
   /** F-03 side hire: the draft is a SIBLING placed to `side` of `anchor` —
    *  the hire lands under the same superior, and after birth a reorder pins
    *  the chosen ordering (left = before, right = after). */
@@ -1824,7 +1827,7 @@ export const saveView = (slug: string, v: View): void => {
 export function withDraftTree(tree: TreePayload, draft: DraftState | null): CanvasNode {
   const draftNode = (): CanvasNode => ({
     id: DRAFT, title: '', tier: draft!.tier, state: 'draft', children: [],
-    seat: 0, grant: 0, free: 0,
+    seat: 0, grant: 0, free: 0, ...(draft!.project ? { kind: 'project' as const } : {}),
   })
   // a side-hire draft (F-03) sits ADJACENT to its anchor sibling, so the form
   // previews the ordering the hire will pin; an insert-superior draft (FR-25)

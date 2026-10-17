@@ -1367,6 +1367,8 @@ button.badge.audience-fold.alert {
 .sq.project .project-desc { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; min-height: 0; }
 .sq.project .project-actions { opacity: 1; }
+/* the draft project card (newproject.tsx): the folder mark takes the tier token's 20px slot */
+.sq.draft.project .df-head .project-mark { width: 20px; height: 20px; justify-content: center; align-items: center; }
 .sq.project .project-mini { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
   color: var(--accent); font-size: 28px; }
 .new-project .field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }

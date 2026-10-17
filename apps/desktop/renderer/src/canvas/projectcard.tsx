@@ -20,7 +20,6 @@ import { useContextMenu } from './contextmenu'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentRetireConfirm, projectMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
-import { NewProjectModal } from './newproject'
 
 export function isProject(node: Pick<CanvasNode, 'kind'> | null | undefined): boolean {
   return node?.kind === 'project'
@@ -40,6 +39,8 @@ interface ProjectSquareProps {
   hire: HireProviders
   seats: Record<string, number>
   onHire: (tier: string) => void
+  /** "New project here…" and its project token: a draft project card under it */
+  onNewProject: () => void
   onInbox: () => void
   onSettings?: () => void
   /** the project's docket: its attached items */
@@ -53,10 +54,9 @@ interface ProjectSquareProps {
 }
 
 export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toast, zoom, hire, seats,
-  onHire, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
+  onHire, onNewProject, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   const [asking, setAsking] = useState<RetireKind | null>(null)
-  const [naming, setNaming] = useState(false)
   const [expandedHire, setExpandedHire] = useState(false)
   const waiting = node.mail_pending ?? 0
   const description = (node.charter ?? '').trim().split('\n')[0] ?? ''
@@ -77,7 +77,7 @@ export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toas
     onPresentations: onOpenGallery ? () => onOpenGallery(node.id) : undefined,
     onSettings: () => onSettings?.(),
     onHire,
-    onNewProject: () => setNaming(true),
+    onNewProject,
     onRetireAsk: setAsking,
   }, hire)
   return (
@@ -123,7 +123,7 @@ export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toas
           claudeHire={hire.claudeHire} codexHire={hire.codexHire} antigravityHire={hire.antigravityHire}
           openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire}
           zoom={zoom} expanded={expandedHire} onToggleExpanded={() => setExpandedHire((v) => !v)}
-          onProject={() => setNaming(true)} />
+          onProject={onNewProject} />
       )}
       {lod !== 'mini' && (node.documents?.length ?? 0) > 0 && onOpenDoc && (
         <DocChips slug={slug} docs={node.documents!} onOpen={onOpenDoc} />
@@ -132,8 +132,6 @@ export function ProjectSquare({ node, pos, lod, dragging, isDrop, op, slug, toas
       {asking && createPortal(
         <AgentRetireConfirm kind={asking} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
-      {naming && createPortal(
-        <NewProjectModal parent={node.id} op={op} toast={toast} close={() => setNaming(false)} />, document.body)}
     </div>
   )
 }

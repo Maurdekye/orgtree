@@ -88,7 +88,7 @@ import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './cont
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import { isProject, ProjectSquare } from './projectcard'
-import { NewProjectModal } from './newproject'
+import { PROJECT_DRAFT, ProjectDraftNode, projectDraftSteps } from './newproject'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
 import type { AgentTooltipInfo } from './agentnav'
@@ -546,10 +546,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const [trayArch, setTrayArch] = useState(false)   // archived rows shown (user
                                                     // spec: hidden by default)
   const [inboxId, setInboxId] = useState<string | null>(null)
-  // the "New project" form's place (parent USER: the top level; `above`: the
-  // node it takes the place of, holding it), docs/rust-engine/PROJECT-NODES.md
-  const [newProject, setNewProject] = useState<{ parent: string; above?: string;
-    beside?: { anchor: string; side: 'left' | 'right' } } | null>(null)
   const [agentDocketId, setAgentDocketId] = useState<string | null>(null)
   // the TEAM docket's root agent — its own surface, deliberately not a mode of
   // the agent docket above: the two are independently pinnable, restorable and
@@ -946,7 +942,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // the grant it opens with, then whatever DraftNode reports (onGrant)
   const [draftGrant, setDraftGrant] = useState<number | null>(null)
   useEffect(() => { if (!draft) setDraftGrant(null) }, [draft])
-  const draftCredits = draft
+  // (a draft project has no bar: a project holds no credits)
+  const draftCredits = draft && !draft.project
     ? (seats[draft.tier] ?? 0) + (draftGrant
       ?? draftOpeningGrant(draft, tree.default_top_grant ?? 50))
     : undefined
@@ -3183,7 +3180,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onHalt: () => { void toggleAgentHalt(slug, n.id, n.halt?.phase, toast) },
       onHire: (tier) => spawn(n.id, tier),
       // the card's "New project here…" too: the row and the card are one menu
-      onNewProject: () => setNewProject({ parent: n.id }),
+      onNewProject: () => spawnProject(n.id),
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
         ? () => dismissRetiredAgent(n.id) : undefined,
@@ -3426,6 +3423,39 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const spawnAbove = (n: CanvasNode, tier: string) => {
     openDraft({ parent: !n.parent || n.parent === USER ? null : n.parent, tier,
                above: { anchor: n.id } })
+  }
+  // A project made by hand opens a DRAFT project card where it will go, which
+  // the camera walks to, exactly like a manual hire (user 2026-10-17 19:14Z):
+  // under a node (the bottom token, "New project here…"), beside it (a side
+  // token) or above it, holding it (the top token).
+  const spawnProject = (parentId: string) =>
+    openDraft({ parent: parentId === USER ? null : parentId, tier: PROJECT_DRAFT, project: true })
+  const spawnProjectAt = (n: CanvasNode, edge: 'b' | 'l' | 'r' | 't') => {
+    if (edge === 'b') return spawnProject(n.id)
+    const parent = !n.parent || n.parent === USER ? null : n.parent
+    openDraft(edge === 't'
+      ? { parent, tier: PROJECT_DRAFT, project: true, above: { anchor: n.id } }
+      : { parent, tier: PROJECT_DRAFT, project: true, beside: { anchor: n.id, side: ringSide(n, edge === 'l' ? 'left' : 'right') } })
+  }
+  const confirmProjectDraft = (name: string, description: string) => {
+    if (!draft) return
+    const [create, reorder] = projectDraftSteps(draft, name, description)
+    op(create!)
+      .then((r) => {
+        const born = typeof r?.node === 'string' && r.node ? r.node : name
+        // the real card replaces the draft in place, as a hire's does
+        const ds = springs.current.get(DRAFT)
+        if (ds) seedRef.current.set(born, { x: ds.x, y: ds.y, at: performance.now() })
+        draftOrigin.current = null
+        draftReturn.current = null
+        if (draftTimer.current !== null) clearTimeout(draftTimer.current)
+        draftTimer.current = null
+        setDraft(null)
+        toast([`project ${born} created`])
+        // a side token's ordering, best-effort like a side hire's
+        if (reorder) void op({ ...reorder, node: born }).catch(() => undefined)
+      })
+      .catch(() => undefined)   // `op` toasts the refusal; the draft stays for a corrected name
   }
   const confirmDraft = (name: string, grant: number, charter: string,
     scope: DraftScope | null) => {
@@ -3933,8 +3963,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                  (user spec 2026-08-19): the gen badge and gear in each panel
                  open the same canvas-level lineage/config surfaces */
               onNodeLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onNodeConfig={toggleConfig}
-              onNewProject={() => setNewProject({ parent: USER })}
+              onNewProject={() => spawnProject(USER)}
               onSpawn={(t) => spawn(USER, t)} />
+          }
+          if (n.id === DRAFT && draft?.project) {
+            return <ProjectDraftNode key={DRAFT} pos={p}
+              onConfirm={confirmProjectDraft} onCancel={cancelDraft} />
           }
           if (n.id === DRAFT) {
             return <DraftNode key={DRAFT} pos={p} draft={draft!} map={map} seats={seats}
@@ -3955,6 +3989,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               hire={{ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire }}
               seats={seats}
               onHire={(t) => spawn(n.id, t)}
+              onNewProject={() => spawnProject(n.id)}
               onSettings={() => toggleConfig(n.id)}
               onInbox={() => toggleNodeSurface('node-inbox', n.id, setInboxId)}
               onDocket={() => toggleNodeSurface('agent-docket', n.id, setAgentDocketId)}
@@ -3992,10 +4027,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onOpenAgentGallery={onOpenAgentGallery}
               onMailLink={openMail} onWorkLink={openWork}
               onRecenter={() => centerOn(n.id)}   /* recenter AND re-zoom to fill */
-              onNewProject={() => setNewProject({ parent: n.id })}
-              onNewProjectAt={(edge) => setNewProject(edge === 'b' ? { parent: n.id }
-                : edge === 't' ? { parent: n.parent ?? USER, above: n.id }
-                : { parent: n.parent ?? USER, beside: { anchor: n.id, side: ringSide(n, edge === 'l' ? 'left' : 'right') } })}
+              onNewProject={() => spawnProject(n.id)}
+              onNewProjectAt={(edge) => spawnProjectAt(n, edge)}
               onJump={centerOn}                   /* F-01 nav chips */
               cascadeAlloc={tree.cascade_alloc !== false}
               maxTop={tree.max_top_grant ?? 1000}
@@ -4359,11 +4392,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         <MaybePortal><DocReader slug={slug} docId={docView} toast={toast}
           refs={docRefs}
           close={() => setDocView(null)} /></MaybePortal>
-      )}
-      {newProject && (
-        <MaybePortal><NewProjectModal parent={newProject.parent} above={newProject.above}
-          beside={newProject.beside} op={op} toast={toast}
-          close={() => setNewProject(null)} /></MaybePortal>
       )}
       {inboxId && map.get(inboxId) && (
         <MaybePortal><NodeInboxModal node={map.get(inboxId)!} slug={slug}
