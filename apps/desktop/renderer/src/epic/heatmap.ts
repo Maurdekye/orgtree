@@ -25,7 +25,7 @@ export class SoundHeatmap {
     try { this.reduced = doc.defaultView?.matchMedia('(prefers-reduced-motion: reduce)') ?? null } catch { /* older host */ }
     this.reduced?.addEventListener?.('change', this.motion)
     // Finds a newly mounted/replaced canvas without installing anything off.
-    this.observer = new MutationObserver(() => { if (!this.canvas.isConnected || this.reduced?.matches) this.wake() })
+    this.observer = new doc.defaultView!.MutationObserver(() => { if (!this.canvas.isConnected || this.reduced?.matches) this.wake() })
     this.observer.observe(doc.body, { childList: true, subtree: true })
   }
   update(sources: readonly ActivitySource[]): void { this.sources = sources; this.wake() }
