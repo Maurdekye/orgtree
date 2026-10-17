@@ -36,3 +36,35 @@ Render limits count mounted Msg components. A single durable mail carrier may
 expand into several segments sharing one row_id; summing those segments gives
 a misleading count. The same probe bundle can target either source worktree
 with ORGTREE_STREAM_SOURCE, so before/after runs use identical instrumentation.
+
+## Author measurement, 2026-10-17
+
+The final paired replay used the same injected probe on baseline `bac345a`
+and candidate `4b45d0e`, with the same debug engine built at `da2c3c7`.
+All stdout/actor/room/socket/receipt token counts and byte sizes matched.
+All text tokens reached paint; text receipt-to-paint p95 stayed 30–49 ms
+before and 30–48 ms after. Token receipt intervals stayed about 20 ms.
+The change reduces settled-row work; it does not add transport buffering.
+
+| Harness | Maximum renders per settled component, before | After |
+| --- | ---: | ---: |
+| Claude Code | 134 | 6 |
+| Codex | 137 | 5 |
+| Antigravity | 103 | 5 |
+| Muse | 134 | 5 |
+| OpenCode | 247 | 7 |
+
+With timing probes off and one transcript open, both variants completed all
+one-agent and ten-agent turns, saved exactly one/ten durable final replies,
+and received zero token frames from the other nine agents.
+
+| Concurrent agents | Engine CPU seconds, before → after | Renderer task seconds, before → after | Renderer script seconds, before → after |
+| --- | --- | --- | --- |
+| 1 | 0.438 → 0.484 | 1.512 → 0.637 | 0.676 → 0.319 |
+| 10 | 2.922 → 2.672 | 1.387 → 0.937 | 0.913 → 0.568 |
+
+These are single synthetic debug runs including fixture overhead, not a
+statistical estimate or provider/native CLI performance claim. Engine behavior
+is unchanged; the one-agent CPU variation is 47 ms. Focused renderer tests
+passed 87/87; measurement controls passed 3/3. The strict compiler reported
+the same 30 baseline diagnostics on both sources, with none introduced.
