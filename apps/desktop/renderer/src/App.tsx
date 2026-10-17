@@ -2720,6 +2720,29 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   const rawBox = useRecordInbox(slug, readBump).value
   const taggedMail=useTaggedUserMail(slug,rawBox,mailTag,folder==='inbox',readBump)
   const box=mailTag.trim()&&folder==='inbox'?taggedMail.box:rawBox
+  const restoreChecked = useRef<string | null>(null)
+  const [restoreMail, setRestoreMail] = useState<{ slug: string; id: string | null } | null>(null)
+  useEffect(() => {
+    if (!rawBox || restoreChecked.current === slug) return
+    restoreChecked.current = slug
+    const arrivalKey = `orgtree-user-inbox-arrivals:${slug}`
+    const openedKey = `orgtree-user-inbox-last-opened:${slug}`
+    const ids = [...rawBox.pending, ...rawBox.delivered].map(m => m.id).filter(Boolean)
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(arrivalKey) ?? 'null')
+      const previous = Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : null
+      const lastOpened = sessionStorage.getItem(openedKey)
+      const newMail = previous !== null && ids.some(id => !previous.includes(id))
+      setRestoreMail({ slug, id: lastOpened && !newMail ? lastOpened : null })
+      sessionStorage.setItem(arrivalKey, JSON.stringify(ids))
+    } catch {
+      setRestoreMail({ slug, id: null })
+    }
+  }, [rawBox, slug])
+  const rememberOpenedMail = useCallback((id: string) => {
+    try { sessionStorage.setItem(`orgtree-user-inbox-last-opened:${slug}`, id) }
+    catch { /* inbox reading still works when session storage is unavailable */ }
+  }, [slug])
   useOpenCommit('mail',slug,box !== null && box !== undefined)
   // a mail read here shows read ON THE CLICK (docket v3-marking-a-mail-as-
   // read-takes-about-half-a-sec): out of the unread group and the unread
@@ -2920,6 +2943,8 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   fileHref={(p, m) => fileUrl(slug, m.from, p)}
                   mdBase={(m) => fileBase(slug, m.from)}
                   waitLabel="unread" selectOldestUnread jumpTo={jumpTo} jumpSeq={jumpSeq}
+                  restoreSelectionId={restoreMail?.slug === slug ? restoreMail.id : null}
+                  onOpenMail={rememberOpenedMail}
                   lookup={userLookup} refs={mailRefs} toast={toast}
                   /* the row's reference for the context menu: this folder IS
                      the user's box (`@mail:org/user/<id>`); an ask row is a

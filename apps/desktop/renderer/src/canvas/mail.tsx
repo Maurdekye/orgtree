@@ -89,6 +89,11 @@ export interface MailListProps {
   jumpTo?: string | null
   /** Only human per-message unread mail opts in; agent delivery is not read state. */
   selectOldestUnread?: boolean
+  /** User inbox only: restore a prior selection after its owner verifies that
+   *  no new mail arrived and that the row is still included by current filters. */
+  restoreSelectionId?: string | null
+  /** Called when an inbox mail is selected into the reading pane. */
+  onOpenMail?: (id: string) => void
   /** the REQUEST's identity: a repeat click on the same target is a new
    *  request, an unrelated repoll is not (`jumpKey`) */
   jumpSeq?: number | null
@@ -163,7 +168,7 @@ export interface MailListProps {
 const MAIL_WINDOW = 40
 
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
-  outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
+  outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
@@ -333,6 +338,15 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     return left.event.variant === right.event.variant
       && left.event.object?.kind === right.event.object?.kind
   })
+  const restoreAttempted = useRef(false)
+  useEffect(() => {
+    if (restoreAttempted.current || !selectOldestUnread || jumpTo || outgoing || !restoreSelectionId) return
+    restoreAttempted.current = true
+    const rowIndex = piles.findIndex((group) => group.some((m) => keyOf(m) === restoreSelectionId))
+    if (rowIndex < 0) return // absent, unretained, or excluded by the active filters
+    setSelId(restoreSelectionId)
+    setVis((n) => Math.max(n, rowIndex + 1))
+  }, [piles, restoreSelectionId, selectOldestUnread, jumpTo, outgoing])
   // selection is still BY ROW IDENTITY, but it resolves through the pile: a
   // notice selected on its own stays selected when a newer one arrives and
   // folds it into a run (the key would otherwise address a row that no
@@ -399,6 +413,10 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // the pane directly rather than pretended into the list, where it would
   // sit in the wrong place in a run of send times.
   const cur = curPile?.[0] ?? (foundOutside ?? undefined)
+  const openedMailId = cur && !cur._ask && selectOldestUnread ? cur.id : null
+  useEffect(() => {
+    if (openedMailId) onOpenMail?.(openedMailId)
+  }, [openedMailId, onOpenMail])
   useOpenCommit('mail-item',`${org ?? refs?.world.org ?? ''}/${keyOf(cur)}`,!!cur,cur)
   // per-mail read (user ruling): a VIEWED unread mail is marked read the
   // moment you click OFF it — select another mail, or leave the list
@@ -560,8 +578,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             rowRef={(el) => {
               // a jump aimed at a folded member lands on the row that now
               // carries it, not on nothing
-              const target = jumpTo ?? (initialSelection ? keyOf(initialSelection) : null)
-              const request = jumpTo ? jumpKey(jumpTo, jumpSeq) : 'initial-selection'
+              const target = jumpTo ?? restoreSelectionId ?? (initialSelection ? keyOf(initialSelection) : null)
+              const request = jumpTo ? jumpKey(jumpTo, jumpSeq)
+                : restoreSelectionId ? `restore-selection:${restoreSelectionId}` : 'initial-selection'
               if (el && target && g.some((x) => keyOf(x) === target)
                 && scrolledRef.current !== request) {
                 scrolledRef.current = request

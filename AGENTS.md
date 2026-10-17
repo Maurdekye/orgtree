@@ -117,6 +117,12 @@
   [verified: `assistantMessages.ts`, `canvas/{desk,transcriptflow}.tsx`;
   2026-10-17; diagnostics: `docs/rust-engine/stream-cadence.md`]
 
+- The user inbox remembers the last opened received mail per org for the current
+  app session. On reopening, it restores and scrolls to that row only when no
+  new inbox message arrived and the row is still retained and included by the
+  active filters. See [inbox screens](docs/skills/orgtree-app/desk/inbox-screens/SKILL.md).
+  [decided: user 2026-10-17; verified: `App.tsx`, `canvas/mail.tsx`]
+
 - Per-node **Subordinates may message each other** defaults ON. OFF gates
   all agent mail between the same actual parent's direct children unless the
   sender holds an active directional audience. Projects remain transparent for

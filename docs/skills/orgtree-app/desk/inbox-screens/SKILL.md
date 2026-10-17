@@ -42,6 +42,12 @@ recipients' copies, sender history and attachment files remain. Tag membership
 and unused tag suggestions disappear with the message. There is no bulk-delete,
 toolbar or keyboard action.
 
+Within the current app session, reopening the user's Inbox restores and scrolls
+to the last opened received message for that org when no new mail has arrived.
+If new mail arrived, the message is no longer retained, or the active filters
+exclude it, the inbox keeps its normal selection behavior. This memory does not
+survive an app restart.
+
 ## Record
 
 The user's Record view shows org operations/events. Search can request the wider record, while the plain view uses a recent window. Event kind, actor and detail are not a conversation transcript. Navigation to an object does not rewrite the recorded operation.
