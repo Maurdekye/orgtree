@@ -61,5 +61,6 @@ pub(crate) async fn save_in(tx:&tokio_postgres::Transaction<'_>,org:i64,mut inco
 #[logged]
 pub(crate) fn published(engine:&Engine,org:i64) {
     if let Some(o)=engine.orgs.by_id(org) { crate::changes::notify(engine,&o,vec![crate::changes::Change::Net]); }
+    engine.app.org_changed(org);
     crate::net::kick(engine);
 }

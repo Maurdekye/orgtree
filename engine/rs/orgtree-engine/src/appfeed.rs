@@ -360,7 +360,9 @@ async fn read_org(engine: &Engine, org_id: i64) -> anyhow::Result<Option<(Value,
     let client = engine.db.get().await?;
     let Some(org) = client
         .query_opt(
-            "SELECT id, uuid::text, slug, name, created_at, net FROM ot.orgs WHERE id = $1 AND state = 'active'",
+            "SELECT id, uuid::text, slug, name, created_at, net,
+                    (SELECT value->>'sha256' FROM ot.meta WHERE key = 'org.picture.' || ot.orgs.id::text)
+             FROM ot.orgs WHERE id = $1 AND state = 'active'",
             &[&org_id],
         )
         .await?
@@ -379,6 +381,7 @@ async fn read_org(engine: &Engine, org_id: i64) -> anyhow::Result<Option<(Value,
     let net: Value = org.get(5);
     let summary = json!({
         "name": org.get::<_, String>(3),
+        "logo_sha256": org.get::<_, Option<String>>(6),
         "created": iso_opt(org.get(4)),
         "net_slug": net.get("identity").and_then(|i| i.get("slug")).cloned().unwrap_or(Value::Null),
         "nodes": counts.get::<_, i64>(0),
