@@ -9,6 +9,7 @@ import type { ToolChip } from '../types'
 import { objectNavProps } from './objectnav'
 import { WorkStatusTransition } from './docketstatus'
 import { HubContactChip } from './agentmentions'
+import { ModelChange } from './modelchange'
 
 /** A docket ticket the call names: a chip that opens it in the docket. The slug
  *  is looked up first; one that does not exist (typo, deleted) stays plain
@@ -37,16 +38,24 @@ function TicketRef({ org, id, onOpen }: { org: string; id: string; onOpen?: Work
  *  the directory (a typo, a name that never existed) gets no link, and a
  *  watchdog that has since fired or been removed keeps a muted card that opens
  *  nothing — the cheaper of the two options the ticket allowed. */
-export function ToolRefs({ refs, owner, agent, org, onWorkLink }: {
+export function ToolRefs({ refs, owner, agent, org, onWorkLink, modelChanges = false }: {
   refs: NonNullable<ToolChip['refs']>; owner: string; agent: (id: string) => ReactNode
-  org: string; onWorkLink?: WorkLinkFn
+  org: string; onWorkLink?: WorkLinkFn; modelChanges?: boolean
 }) {
   const dir = useAgentDirectory()
   const route = useDogRoute()
   return <span className="tool-refs" onClick={(e) => e.stopPropagation()}>
     {refs.map((r, i) => {
-      if (r.kind === 'agent') return dir?.resolve(r.id)
-        ? <span key={'a' + r.id + i} className="tool-ref tool-ref-agent">{agent(r.id)}</span> : null
+      if (r.kind === 'agent') {
+        const current = dir?.resolve(r.id)
+        const change = modelChanges ? r.model_change : undefined
+        if (!current && !change) return null
+        return <span key={'a' + r.id + i} className="tool-ref tool-ref-agent">
+          <ModelChange change={change} currentTier={current?.tier}>
+            {current ? agent(r.id) : <span className="dim">{r.id}</span>}
+          </ModelChange>
+        </span>
+      }
       if (r.kind === 'ticket') return <span key={'t' + r.id + i} className="tool-ref">
         <TicketRef org={org} id={r.id} onOpen={onWorkLink} /><WorkStatusTransition change={r.status_change} />
       </span>

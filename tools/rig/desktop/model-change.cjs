@@ -6,6 +6,6 @@ module.exports=async page=>{
   return page.eval(()=>[...document.querySelectorAll('[data-modelcase]')].map(el=>({
     label:el.querySelector('h3').textContent,
     models:[...el.querySelectorAll('.tier')].map(chip=>[...chip.classList].find(c=>c.startsWith('t-'))),
-    arrow:el.textContent.includes('→'),
+    arrow:el.querySelector('.tool-ref-agent')?.textContent.includes('→') ?? false,
   })))
 }

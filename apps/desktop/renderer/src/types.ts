@@ -972,7 +972,9 @@ export interface ToolChip {
    *  transcript draws a link or card for each beside the call */
   refs?: Array<{ kind: 'agent' | 'watchdog' | 'ticket'; id: string;
     /** Successful docket mutation's real before/after states, not inferred from input. */
-    status_change?: { from: string; to: string } }>
+    status_change?: { from: string; to: string }
+    /** Applied model at call time; null before-state means not recorded. */
+    model_change?: { from: string | null; to: string } }>
   id?: string | null
   result?: string
   result_lines?: number

@@ -8815,6 +8815,7 @@ main:has(> .orgbar.native-header) > .error {
 .tool-refs .tool-ticket { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .tool-refs .tool-ticket-plain { font-family: var(--mono); font-size: 10.5px; }
 .tool-work-transition { display: inline-flex; align-items: baseline; gap: 4px; margin-left: 6px; }
+.tool-model-transition { display: inline-flex; align-items: center; gap: 4px; }
 
 /* Durable attachment transfers share the mail surface; no completion toast. */
 .mail-transfers { flex: 0 0 auto; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; }

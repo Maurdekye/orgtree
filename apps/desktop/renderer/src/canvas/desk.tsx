@@ -4870,6 +4870,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
         {/* the agents and the watchdog this call concerns, as the same links
             and cards the rest of the app draws for them */}
         {!t.error && !shellError && t.refs && t.refs.length > 0 && <ToolRefs refs={t.refs} owner={nid} org={slug} onWorkLink={onWorkLink}
+          modelChanges={!!t.result && ['orgtree_retool', 'orgtree_switch_model'].includes(t.name.split('__').at(-1) ?? '')}
           agent={id => <MailFrom from={id} />} />}
         {/* mail sends carry the inline "open in mailbox" link (user spec):
             straight to the exact mail in whichever box holds it */}
