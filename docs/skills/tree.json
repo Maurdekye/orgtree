@@ -5853,12 +5853,12 @@
    "ui_dynamic_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "component": "NodeConfig",
+     "component": "AgentConfig",
      "label": "label"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "component": "NodeConfig",
+     "component": "AgentConfig",
      "label": "s"
     }
    ]
