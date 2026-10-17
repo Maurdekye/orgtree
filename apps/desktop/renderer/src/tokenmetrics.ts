@@ -15,7 +15,7 @@ export function readToolTokens(value: unknown): Record<string, ToolTokenCount> {
 }
 
 /** A stale transcript poll cannot hide the current turn's agent runtime reading. */
-export function contextReading(node: Pick<TreeNode, 'busy' | 'context_live' | 'occupancy' | 'occupancy_est' | 'context_window'>,
+export function contextReading(node: Partial<Pick<TreeNode, 'busy' | 'context_live' | 'occupancy' | 'occupancy_est' | 'context_window'>>,
   chat?: Pick<ChatPayload, 'occupancy' | 'occupancy_estimated' | 'context_window'> | null) {
   if (node.busy && node.context_live && typeof node.occupancy === 'number') {
     return { used: node.occupancy, estimated: false, window: node.context_window }
