@@ -27,7 +27,7 @@ import type {
   OpRequest, OpResult, OrgListEntry, OrgMdPayload,
   OrgInboxEntry, OrgNetReveal, ProvidersPayload, ReorderRequest,
   RuntimeSettingsPayload,
-  ScopeRequest, ScratchPayload,
+  ScopeRequest,
   SendMessageResult,
   SettingsRequest, SettingsResult, TreePayload, OrgAccountLane,
   AccountsPayload, AccountUsage, UsageAllPayload,
@@ -874,8 +874,6 @@ export const markRead = (slug: string, ids: string[]): Promise<{ read: number }>
   })
 export const getHistory = (slug: string, nid: string): Promise<HistoryPayload> =>
   req(`/api/orgs/${slug}/nodes/${nid}/history`)
-export const getScratch = (slug: string, nid: string, path = ''): Promise<ScratchPayload> =>
-  req(`/api/orgs/${slug}/nodes/${nid}/scratch?path=${encodeURIComponent(path)}`)
 export const getOrgMd = (slug: string): Promise<OrgMdPayload> =>
   req(`/api/orgs/${slug}/orgmd`)
 export const putOrgMd = (

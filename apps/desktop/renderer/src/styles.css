@@ -3309,7 +3309,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .msg.live.tools { align-self: flex-start; background: none; border: none; color: var(--dim); font-family: var(--mono); font-size: 12px; padding: 1px 4px; }
 .msg.oracle { border-color: var(--oracle-line); background: var(--oracle-panel); }
 
-/* desk tabs, history, files */
+/* desk tabs and event history rows */
 .desk-tabs { margin-left: 6px; display: flex; gap: 2px; }
 .desk-tabs button { font-size: 10px; padding: 1px 6px; }
 .hist-row {
@@ -3999,6 +3999,10 @@ main.solo { width: 100%; }
 /* Tab content scrolls; it must not compress the shared header's rows. */
 .settings.cfg > * { flex-shrink: 0; }
 .settings.cfg > h3 { display: flex; }
+.settings.cfg > .agent-settings-header { align-items: center; gap: 12px; }
+.settings.cfg .agent-settings-header-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.settings.cfg > .agent-history-tab { flex: 1; min-height: 0; overflow: hidden; }
+.settings.cfg .agent-history-tab .msgs { flex: 1; min-height: 0; }
 .settings.cfg:not(.modalpin-win):not(.modalpin-detached) { position: relative; }
 .settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .modalpin-bar {
   position: absolute; top: var(--panel-pad-y); right: var(--panel-pad-x); margin: 0;
@@ -5829,7 +5833,7 @@ svg.MuiSvgIcon-root {
 .diffpre .dminus { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
 .diffpre .dhunk { color: var(--dim); opacity: .85; margin-top: 3px; }
 /* files flow BACK (user spec 2026-07-31): orgtree_send_file renders as a
-   download card in the chat; the files tab gets per-file download arrows */
+   download card in the chat; inline images retain their own download link */
 .filecard {
   display: inline-flex; align-items: flex-start; gap: 8px;
   margin: 3px 0; padding: 7px 12px 7px 9px;

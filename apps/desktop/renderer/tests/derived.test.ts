@@ -124,7 +124,7 @@ test('③  liveness is never gated on the data it repairs (D-34)', () => {
 test('④  migrated panels have no direct fetch; remaining panels retain their refresh path', () => {
   // B4c1 panels select records or event-driven readers through dedicated hooks.
   // Those hooks preserve the old protocol only when the capability is off.
-  const migrated = ['getInbox', 'getNodeInbox', 'getEvents', 'getHistory', 'getScratch']
+  const migrated = ['getInbox', 'getNodeInbox', 'getEvents', 'getHistory']
   for (const f of uiFiles) {
     for (const fn of migrated) assert.ok(!new RegExp(`\\b${fn}\\(`).test(code(f)),
       `${f} bypasses the record/event hook with ${fn}`)

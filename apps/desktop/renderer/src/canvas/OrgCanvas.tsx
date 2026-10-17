@@ -4339,6 +4339,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           antigravityProvider={antigravityProvider} openrouterProvider={openrouterProvider}
           langserverProvider={langserverProvider} museProvider={museProvider}
           presence={presence}
+          onScratchFolder={scratchFolderAction(slug, n.id, toast)}
+          onTeamScratchFolder={scratchFolderAction(slug, n.id, toast, 'team')}
+          refs={canvasRefs} onFocusAgent={centerOn}
           close={() => setConfigId(null)} />)}
         </NodeDetailGate></MaybePortal>
       )}

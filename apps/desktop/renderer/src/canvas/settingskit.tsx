@@ -85,16 +85,17 @@ export function SettingsTabs<T extends string>({
 
 /** one tab's region. `hidden` rather than unmounted, so a half-typed field
  *  and a scroll position survive a look at another tab. */
-export function SettingsTabPanel({ id, idBase, active, children }: {
+export function SettingsTabPanel({ id, idBase, active, children, className = 'app-settings-panel' }: {
   id: string
   idBase: string
   active: boolean
   children: ReactNode
+  className?: string
 }) {
   return (
     <div id={`${idBase}-panel-${id}`} role="tabpanel"
       aria-labelledby={`${idBase}-tab-${id}`}
-      hidden={!active} className="app-settings-panel">
+      hidden={!active} className={className}>
       {children}
     </div>
   )

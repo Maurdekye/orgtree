@@ -208,7 +208,7 @@ domTest('§6.7 rapid tab switching keeps the conversation',
     const tab = (name: string) => rows(el, '.cc-tabs button')
       .find((b) => txt(b as HTMLElement).startsWith(name)) as HTMLElement | undefined
     for (let i = 0; i < 12; i++) {
-      for (const name of ['history', 'files', 'inbox', 'chat']) {
+      for (const name of ['inbox', 'docket', 'chat']) {
         const b = tab(name)
         assert.ok(b, `the ${name} tab exists`)
         await inAct(() => { b!.click() })
@@ -226,9 +226,9 @@ domTest('§6.8 unmounting while a panel fetch is in flight is not an error',
     s.latency = 4000
     const m = await mount(deskEl(node(ND), SL, { bare: false }))
     await flush()
-    const hist = rows(m.el, '.cc-tabs button')
-      .find((b) => txt(b as HTMLElement).startsWith('history')) as HTMLElement
-    await inAct(() => { hist.click() })
+    const inbox = rows(m.el, '.cc-tabs button')
+      .find((b) => txt(b as HTMLElement).startsWith('inbox')) as HTMLElement
+    await inAct(() => { inbox.click() })
     await advance(100)
     await m.unmount()
     await advance(8000)
@@ -251,37 +251,6 @@ domTest('§6.9 a very long single message renders whole and does not wedge',
     assert.ok(rows(el, '.msgs p').length >= 400, 'every paragraph is a node')
   })
 
-domTest('§6.10 a panel showing folder A never renders A’s rows under B',
-  async ({ SL, ND, s, mount }) => {
-    // usePolled keeps the last value across a deps change, so a panel whose
-    // identity changed shows the OLD data until the new fetch lands. The
-    // LineagePanel guards this case explicitly (`readingRef`); the polled
-    // panels do not. Measured here on the files tab, which changes identity
-    // on every folder click.
-    void s
-    const { el } = await mount(deskEl(node(ND), SL, { bare: false }))
-    await flush()
-    const files = rows(el, '.cc-tabs button')
-      .find((b) => txt(b as HTMLElement).startsWith('files')) as HTMLElement
-    await inAct(() => { files.click() })
-    await advance(200)
-    // slice(1): the first .hist-row is the breadcrumb, and it changes the
-    // instant the path does — comparing it would make this test pass without
-    // ever looking at the listing
-    const shown = () => rows(el, '.msgs.files .hist-row').slice(1)
-      .map((r) => txt(r as HTMLElement))
-    const root = shown().join('|')
-    // the next fetch is slow — the click must not leave the old listing up
-    // under the new path
-    s.latency = 3000
-    const dir = rows(el, '.msgs.files button')
-      .find((b) => txt(b as HTMLElement).includes('sub')) as HTMLElement | undefined
-    assert.ok(dir, 'the scratch fixture must offer a subfolder, or this proves nothing')
-    await inAct(() => { dir!.click() })
-    await advance(100)
-    assert.notEqual(shown().join('|'), root,
-      'the previous folder’s listing is still on screen under the new path')
-  })
   // ← PROMOTED 2026-08-11 (implementer): `usePolled` now resets to null when
   // `deps` change — in the hook, exactly where the redteam's report said the
   // fix belonged, never per call site. The read-ack bump (89fecd9) moved to a
@@ -468,25 +437,23 @@ domTest('§9.7 the watcher follows the scroller back from another tab',
   async ({ SL, ND, s, mount }) => {
     // Why the observer rides the ref callback and not `useEffect(…, [])`:
     // `.msgs` is conditional on `view === 'chat'`, so it genuinely REMOUNTS
-    // when the reader visits files/history and comes back. A one-shot effect
+    // when the reader visits inbox and comes back. A one-shot effect
     // leaves that returning scroller permanently unwatched — the original bug,
     // back for that panel, for the rest of its mount, silently.
     s.assistantMsg('all green')
     await refreshConvo(SL, ND)
     const { el } = await mount(deskEl(node(ND), SL, { compact: true }))
     await flush()
-    // ⚠ FilesView renders `.msgs files` too — `.msgs` alone is only
-    // unambiguous while the chat tab is up
-    const first = el.querySelector('.msgs:not(.files)')!
+    const first = el.querySelector('.msgs')!
     assert.ok(resizeWatchers(first) > 0, 'watched at first')
     const tab = (label: string) => [...el.querySelectorAll('.cc-tabs button')]
       .find((b) => (b.textContent ?? '').trim() === label) as HTMLElement
-    await inAct(() => { tab('files').click() })
+    await inAct(() => { tab('inbox').click() })
     await flush()
     assert.equal(resizeWatchers(first), 0, 'released when the chat tab left')
     await inAct(() => { tab('chat').click() })
     await flush()
-    const back = el.querySelector('.msgs:not(.files)')!
+    const back = el.querySelector('.msgs')!
     assert.ok(back !== first, 'the scroller really remounted')
     assert.ok(resizeWatchers(back) > 0,
       'and the returning scroller is watched again')

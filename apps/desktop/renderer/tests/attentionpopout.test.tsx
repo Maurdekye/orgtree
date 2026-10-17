@@ -2,7 +2,7 @@
 //
 // User report 2026-09-30 (image-34): the desk in the Attention view's right
 // panel showed TWO ↗ buttons — the panel's own, beside its pin and close, and
-// the desk's, beside "files" and the settings gear. The panel's is kept; the
+// the desk's, beside its tab row and the settings gear. The panel's is kept; the
 // desk drops its own only there (`hidePopout`). What is pinned here:
 //
 //   • a desk in the registry (the real host, `DeskHosts` → `MovableSurface`)

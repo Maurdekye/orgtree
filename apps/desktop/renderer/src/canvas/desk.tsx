@@ -5,7 +5,6 @@ import { revealPendingRun } from './pendingrun'
 import { TranscriptFlow } from './transcriptflow'
 import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
 import { rememberEffort } from '../quickchat'
-import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
 import { hasHelperTranscript, HelperTranscript } from './helpertranscript'
 import { isFailedShellCall } from './shellerror'
@@ -13,7 +12,7 @@ import { ToolOutputDetails } from './tooloutput'
 import { CompactingLine, newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
 import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
-import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
+import { useRecordsEnabled } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
 import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps, agentTooltipProps } from './agentnav'
@@ -43,7 +42,7 @@ import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } fr
 // canvas/desk.tsx — the desk: DeskChat (the zoomed-in per-agent chat window,
 // styled as a miniature Claude Code session) with its transcript renderers
 // (Msg, ToolChip, ThoughtLine, SysLine), the composer's effort controls and
-// slash hints, the history/files tabs, the lineage panel, and the small
+// slash hints, the inbox/docket tabs, the lineage panel, and the small
 // ContextWheel/Activity indicators shared with the cards. Extracted verbatim
 // from Canvas.tsx in the phase-3 split.
 
@@ -51,8 +50,8 @@ import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffec
 import { useNodeMetadata } from '../nodemetadata'
 import type { ReactNode } from 'react'
 import type {
-  CacheForecast, ChatMessage, ChatPayload, CodexRouteInfo, HistoryItem, PendingMail,
-  Denial, Readiness, ScratchPayload, ServingAccount, TreeFrozen, TreeNode, TurnStat,
+  CacheForecast, ChatMessage, ChatPayload, CodexRouteInfo, PendingMail,
+  Denial, Readiness, ServingAccount, TreeFrozen, TreeNode, TurnStat,
   ToolChip as ToolChipData, ToastFn, TurnSlotQueued,
 } from '../types'
 import { openAppSettings } from './settingskit'
@@ -67,7 +66,7 @@ import { openLightbox } from './lightbox'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import {
   ArrowDownIcon, ArrowRightIcon, ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
-  DownloadIcon, EditIcon, EyeIcon, FileIcon, FolderIcon, FrozenIcon,
+  DownloadIcon, EditIcon, EyeIcon, FileIcon, FrozenIcon,
   DocketIcon, HearingIcon, LayersIcon, LockIcon, MailIcon, NotificationsActiveIcon,
   NotificationsIcon, PlayIcon, PsychologyIcon,
   SettingsIcon, SparkIcon, StopIcon, WarnIcon,
@@ -100,6 +99,8 @@ import { DogChip, useDeskDogs } from './deskdogs'
 import { PresentationCard, recentDocumentChips } from './docs'
 import { buildNodeFacts } from './docket'
 import { AgentDirectoryProvider, AgentName, agentFactsSig, useAgentDirectory } from './identity'
+import { HistoryView, MailFrom } from './historyview'
+export { HistoryView } from './historyview'
 import type { AgentDirectory } from './identity'
 import { mailRefTarget, useRefRoutes } from './reflinks'
 import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
@@ -113,7 +114,7 @@ import { eventDedup } from '../events/dedup'
 import { mergeAssistantRows } from '../assistantMessages'
 import { authoredUserLabel, isSegments, SegmentList } from '../events/segments'
 import { useComposerEnter } from '../enterkey'
-import { fmtFull, fmtShort, fmtStamp, localizeFreezeUntil } from '../timefmt'
+import { fmtShort, fmtStamp, localizeFreezeUntil } from '../timefmt'
 
 interface ContextWheelProps {
   occ?: number | null
@@ -2152,7 +2153,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         // 14:16:54): starting a reply must land the cursor in the message
         // box, not just open it. `setView` may still be mounting the chat
         // tab's own textarea this same tick (switching FROM another tab —
-        // files, history — the composer is not in the DOM yet), so a
+        // inbox or docket — the composer is not in the DOM yet), so a
         // synchronous `taRef.current?.focus()` here would silently do
         // nothing on that path; defer one frame so React has committed
         // the tab switch first. `taRef` is declared later in this same
@@ -2296,7 +2297,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // a double-click while the request is in flight; the response/WS tree state
   // remains authoritative if another desk wins the race.
   const [processToggleBusy, setProcessToggleBusy] = useState(false)
-  const [view, setView] = useState<'chat' | 'history' | 'files' | 'inbox' | 'docket' | 'presented'>('chat')     // chat | history | files | inbox | docket | presented
+  const [view, setView] = useState<'chat' | 'inbox' | 'docket' | 'presented'>('chat')
   useEffect(() => {
     if (openPresentedRequest !== undefined) setView('presented')
   }, [openPresentedRequest])
@@ -3421,7 +3422,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             )}
           </span>
           <span className="cc-tabs">
-            {(['chat', 'inbox', 'docket', 'presented', 'history', 'files'] as const).map((v) => (
+            {(['chat', 'inbox', 'docket', 'presented'] as const).map((v) => (
               <button key={v} data-tab={v} className={view === v ? 'on' : ''}
                 onClick={() => setView(v)}>
                 {v}{tabCount(v) > 0
@@ -3989,8 +3990,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             </button>)}
         </div>
       )}
-      {view === 'history' && <HistoryView slug={slug} nid={node.id} refs={deskRefs} />}
-      {view === 'files' && <FilesView slug={slug} nid={node.id} />}
       {/* ⚠ THE SAME `deskRefs` THE CHAT AND THE INBOX USE. This tab was
           building its own narrower world, which left a `@doc:` or `@mail:`
           token live in the message above and inert in the docket below — one
@@ -4110,7 +4109,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         )
       })()}
       {/* №13: the composer is present under EVERY tab — finding a wrong number
-          on the files tab shouldn't cost your place to say so */}
+          on the inbox or docket tab shouldn't cost your place to say so */}
       {replyMenu.node}
       {replyTargets.map(r => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}`} reply={r} available={replyAvailable(r)}
         onLocate={() => locateReply(r)} onRemove={() => setReplyTargets(replyTargets.filter(x => x !== r))} />)}
@@ -4323,71 +4322,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     </div></fieldset>
     </RunningTurnContext.Provider>
     </TurnActiveContext.Provider>
-  )
-}
-export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; refs?: RefRoutes }) {
-  // G5: the agent keeps acting while this tab is open — a fetch-once list is
-  // a photograph of the moment the tab was clicked
-  const history = useRecordHistory(slug, nid)
-  const items = history.value
-  const profile = 'operator'
-  return (
-    <div className="msgs" ref={history.ref} onFocusCapture={history.onFocus}>
-      {history.error ? <div className="dim pad" role="alert">Could not load history. <button onClick={history.retry}>Retry</button></div>
-        : items == null && <div className="dim pad">loading…</div>}
-      {items?.length === 0 && <div className="dim pad">nothing recorded yet</div>}
-      {items?.map((it, i) => {
-        const text = String(it.detail.gist ?? it.detail.text ?? Object.entries(it.detail)
-          .filter(([k]) => k !== 'gist').map(([k, v]) => `${k}=${v}`).join(' · '))
-        const row = {...it, text}
-        const decoded = decodeEventRow(row, profile)
-        return <div key={i} {...eventSurface(row, profile)} className={(decoded.kind === 'legacy' ? 'hist-row ' : 'hist-event ') + eventSurface(row, profile).className}>
-          {decoded.kind === 'legacy' ? <span className="dim">{fmtFull(it.at)}</span>
-            : <header className="event-head"><span className="dim">{fmtFull(it.at)}</span>
-              <EventCard part="header" row={row} profile={profile} org={slug}
-                world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id}/>} /></header>}
-          {decoded.kind === 'legacy' ? <><b>{it.kind}</b><span className="dim hist-actor"><MailFrom from={it.actor}/></span><span>{text}</span></>
-            : <EventCard part="body" row={row} profile={profile} org={slug} world={refs?.world} onOpen={refs?.onOpen}
-                actor={id => <MailFrom from={id}/>} imgBase={fileBase(slug,nid)}/>}
-        </div>
-      })}
-    </div>
-  )
-}
-
-function FilesView({ slug, nid }: { slug: string; nid: string }) {
-  const [path, setPath] = useState('')
-  // G5: same — the agent writes into this very directory while you browse it
-  const scratch = useRecordScratch(slug, nid, path)
-  const data = scratch.data
-  const up = () => setPath(path.split('/').slice(0, -1).join('/'))
-  // union split (type-only narrowing): a scratch payload is a dir listing OR
-  // a file body — the two reads below each see only their variant
-  const entries = data && 'entries' in data ? data.entries : null
-  const content = data && 'content' in data ? data.content : null
-  return (
-    <div className="msgs files" ref={scratch.ref} onFocusCapture={scratch.onFocus}>
-      <div className="hist-row">
-        <button onClick={() => setPath('')}>scratch</button>
-        {path && <button onClick={up}><ArrowUpIcon fontSize="inherit" /> up</button>}
-        <span className="dim mono">/{path}</span>
-      </div>
-      {!data && <div className="dim pad">loading…</div>}
-      {entries && !entries.length && <div className="dim pad">empty</div>}
-      {entries?.map((e) => (
-        <div key={e.name} className="hist-row">
-          {e.dir
-            ? <button onClick={() => setPath(path ? `${path}/${e.name}` : e.name)}><FolderIcon fontSize="inherit" /> {e.name}</button>
-            : <button onClick={() => setPath(path ? `${path}/${e.name}` : e.name)}><FileIcon fontSize="inherit" /> {e.name}</button>}
-          {!e.dir && <span className="dim">{fmtBytes(e.size)}</span>}
-          {!e.dir && (
-            <a className="fdl" title="download"
-              href={fileUrl(slug, nid, path ? `${path}/${e.name}` : e.name)}
-              download={e.name}><DownloadIcon fontSize="inherit" /></a>)}
-        </div>
-      ))}
-      {content != null && <CopyablePre><pre className="filepre">{content}</pre></CopyablePre>}
-    </div>
   )
 }
 interface LineagePanelProps {
@@ -4773,29 +4707,6 @@ export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
  *  plus the `@user`/`@system` sentinels, so the '@' test excludes outsiders by
  *  ORIGIN; and EXISTENCE — the tree on screen must hold the node.
  *  `test_external_mail.py §5` is the check on the boundary half. */
-function MailFrom({ from, nameClass }: { from: string; nameClass?: string }) {
-  const dir = useAgentDirectory()
-  const agent = from && !from.startsWith('@') ? dir?.resolve(from) : undefined
-  // keyed on DESTINATION, supplied by the surface — never `from === nid`.
-  // A pinned window and a switchboard panel show an agent's own self-mail
-  // and must still navigate; only its focused desk is where the click
-  // would go nowhere.
-  const atDest = Boolean(dir?.destination) && dir!.destination === from
-  if (!agent) return <b>{from}</b>
-  // ⚠ THE CHIP IS THE SENDER'S CURRENT MODEL AND SAYS SO. The envelope
-  // records no generation, so it cannot mean "the model that wrote this" the
-  // way a docket actor line's does — same ruling and the same sentence as a
-  // prose mention (workrefs.tsx). An unknown current tier draws NO chip
-  // rather than a guess; TierChip already refuses a null.
-  const why = (agent.tier ? `${from} — current model, ${tierLabel(agent.tier)}.`
-    : `${from} — current model not known.`)
-    + (atDest ? ' This is its own desk.'
-      : dir?.onFocus ? ' Go to its desk.' : '')
-  return <AgentName id={from} tier={agent.tier} nameClass={nameClass}
-    why={why} atDestination={atDest}
-    onFocus={dir?.onFocus ? (id) => dir.onFocus!(id) : undefined} />
-}
-
 /** Live and settled inputs use the same validated composition. */
 function LiveSteerRow({ text, segments, slug, nid, truncated, refs }:
   { text: string; segments?: unknown; slug: string; nid: string; truncated?: boolean; refs?: RefRoutes }) {

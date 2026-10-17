@@ -1269,18 +1269,6 @@ export interface HistoryPayload {
   items: HistoryItem[]
 }
 
-// ------------------------------------------------------------ small payloads
-// GET /api/orgs/{slug}/nodes/{nid}/scratch — dir listing or file content
-export interface ScratchDirEntry {
-  name: string
-  dir: boolean
-  size: number | null
-}
-
-export type ScratchPayload =
-  | { dir: string; entries: ScratchDirEntry[] }
-  | { file: string; content: string }
-
 // GET /api/fs — api.py fs_list (roots listing carries `home`)
 export interface FsPayload {
   path: string

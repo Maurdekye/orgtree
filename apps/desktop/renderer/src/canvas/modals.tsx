@@ -46,6 +46,10 @@ import { registryProviderName } from '../registrylabels'
 import { EFFORT_CHANGE_HELP } from './effort'
 import { EffortBar } from './effortbar'
 import { CreditGrant } from './creditgrant'
+import { AgentHistoryView } from './historyview'
+import { AgentDirectoryProvider } from './identity'
+import type { RefRoutes } from './reflinks'
+import { useRecordHistory } from '../recordpanelhooks'
 
 export interface ConfirmModalProps {
   title: ReactNode
@@ -966,7 +970,7 @@ export function savePopups(
   return r?.warnings ?? []
 }
 
-type NodeConfigTab = 'charter' | 'model' | 'scope' | 'tools'
+type NodeConfigTab = 'charter' | 'model' | 'scope' | 'tools' | 'history'
 const NODE_CONFIG_TABS = [
   { id: 'charter', label: 'Charter' },
   { id: 'model', label: 'Model' },
@@ -993,6 +997,10 @@ interface NodeConfigProps {
    *  optimistic default (everything), so a caller that has not resolved the
    *  payload behaves exactly as this panel did before. */
   presence?: ProviderPresence
+  onScratchFolder?: () => void
+  onTeamScratchFolder?: () => void
+  refs?: RefRoutes
+  onFocusAgent?: (id: string) => void
   close: () => void
 }
 
@@ -1018,13 +1026,19 @@ function ProjectConfig({node,slug,toast,close}:NodeConfigProps) {
 }
 
 function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
-  antigravityProvider, openrouterProvider, langserverProvider, museProvider, presence = ALL_PRESENT, close }: NodeConfigProps) {
+  antigravityProvider, openrouterProvider, langserverProvider, museProvider, presence = ALL_PRESENT,
+  onScratchFolder, onTeamScratchFolder, refs, onFocusAgent, close }: NodeConfigProps) {
   const [tab, setTab] = useState<NodeConfigTab>('charter')
+  const history = useRecordHistory(slug, node.id)
+  const hasHistory = (history.value?.length ?? 0) > 0
   const tabId = useId()
   // the Model tab is a model choice: re-read agy's model list as it opens
   useAgyModelsRefresh(tab === 'model')
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
+  useEffect(() => {
+    if (tab === 'history' && !hasHistory) setTab('charter')
+  }, [tab, hasHistory])
   // Escape belongs to PinFrame now: a CENTRED surface still closes on it, a
   // PINNED window ignores it the way an agent window does.
   const [asking, setAsking] =
@@ -1328,7 +1342,14 @@ function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
     // the click, so backdrop-close and every button in here silently broke
     <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={<span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id)}>{TIER_LETTER[model] ?? '?'}</span>{node.id} · configuration</span>}
       panel={'settings cfg prov-' + providerOf(node.tier ?? '')} close={close}>
-        <h3 data-copy-agent-name={node.id}><span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id)}>{TIER_LETTER[model] ?? '?'}</span>{node.id}</span></h3>
+        <h3 className="agent-settings-header" data-copy-agent-name={node.id}>
+          <span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id)}>{TIER_LETTER[model] ?? '?'}</span>{node.id}</span>
+          {(node.state === 'live' || node.state === 'archived') &&
+            (onScratchFolder || onTeamScratchFolder) && <span className="agent-settings-header-actions">
+              {onScratchFolder && <button type="button" onClick={onScratchFolder}>Open scratch folder</button>}
+              {onTeamScratchFolder && <button type="button" onClick={onTeamScratchFolder}>Open team scratch folder</button>}
+            </span>}
+        </h3>
         {/* FULL identity rename (user ruling 2026-08-05): id, mailbox,
             working folder and session all move; history keeps the old name
             (the warning rides the toast). Refused while mid-turn. */}
@@ -1380,7 +1401,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
             all. Eight identical subtitles would train the reader to skip
             them, and the org-wide ones are the expensive ones to miss. */}
         <p className="set-hint">Some changes restart the agent, as noted below.</p>
-        <SettingsTabs tabs={NODE_CONFIG_TABS} tab={tab} setTab={setTab}
+        <SettingsTabs tabs={[...NODE_CONFIG_TABS, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : [])]} tab={tab} setTab={setTab}
           idBase={tabId} label="Agent settings" />
         {/* Keep every panel mounted: switching tabs preserves all draft fields.
             The shared save below still applies edits from every tab together. */}
@@ -1595,6 +1616,19 @@ function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
         </SetGroup>
 
         </SettingsTabPanel>
+        {hasHistory && <SettingsTabPanel id="history" idBase={tabId} active={tab === 'history'}
+          className="app-settings-panel agent-history-tab">
+          <AgentDirectoryProvider value={{
+            resolve: id => {
+              const agent = map.get(id)
+              return agent ? { tier: agent.tier } : undefined
+            },
+            onFocus: onFocusAgent,
+            destination: node.id,
+          }}>
+            <AgentHistoryView slug={slug} nid={node.id} refs={refs} history={history} />
+          </AgentDirectoryProvider>
+        </SettingsTabPanel>}
         {/* D-106: the cascade preview, BEFORE the save (user ruling) — the
             grant is legal either way, so this warns, never blocks */}
         {cascade.length > 0 && (
