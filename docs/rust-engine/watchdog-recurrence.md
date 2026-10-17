@@ -42,6 +42,11 @@ Ordinary event-mode stream and activity min-gaps are unchanged. A process
 runner still fires only on an observed UP-to-definitively-DOWN edge: a missed
 poll slot is an opportunity to observe, not an invented process-down event.
 
+An in-process runner storage error retains its existing backoff and retry
+probe even when the previous progress write already saved a future slot.
+This retry is distinct from ordinary engine restart and does not move the
+saved future recurrence.
+
 Creation keeps its smoke and immediate initial poll. Explicit resume (including
 rehire of archive-paused dogs) begins a **new** recurrence and resets the quiet
 reference; an ordinary engine restart does neither. The watchdog tool has no

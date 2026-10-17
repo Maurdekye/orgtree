@@ -295,7 +295,7 @@ fn arm_retry(engine: &Arc<Engine>, row: i64, failures: u32) {
                 let missing = matches!(&loaded,Ok(None));
                 let r = match loaded {
                     Ok(Some(dog)) if dog.kind == "event" => events::run(&engine, dog, &event_sub, event_rx, &token).await,
-                    Ok(Some(dog)) => { events::unsubscribe(&engine, id, &event_sub); run(&engine, dog, &token).await },
+                    Ok(Some(dog)) => { events::unsubscribe(&engine, id, &event_sub); run(&engine, dog, &token,failures>0).await },
                     Ok(None) => Ok(()),
                     Err(e) => Err(e),
                 };
@@ -362,7 +362,7 @@ pub fn activity(engine: &Engine, agent: i64, line: &str) {
 }
 
 #[logged]
-async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) -> Result<()> {
+async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken,retrying:bool) -> Result<()> {
     if dog.state != "armed" {
         return Ok(());
     }
@@ -379,22 +379,23 @@ async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) -> Resu
     match dog.kind.as_str() {
         "stream" => run_stream(engine, dog, cancel).await,
         "activity" => run_activity(engine, dog, cancel).await,
-        _ => run_poll(engine, dog.row, cancel).await,
+        _ => run_poll(engine, dog.row, cancel,retrying).await,
     }
 }
 
 // ------------------------------------------------------------ polling dogs
 
 #[logged]
-async fn run_poll(engine: &Arc<Engine>, row: i64, cancel: &CancellationToken) -> Result<()> {
+async fn run_poll(engine: &Arc<Engine>, row: i64, cancel: &CancellationToken,mut retrying:bool) -> Result<()> {
     loop {
         let Some(dog) = load(engine, row).await? else { return Ok(()) };
         if dog.state!="armed" { return Ok(()); }
         let deadline=dog.next_wake();
         tokio::select! {
-            _=tokio::time::sleep(schedule::wait_until(deadline,Utc::now()))=>{},
+            _=tokio::time::sleep(schedule::initial_wait(deadline,Utc::now(),retrying))=>{},
             _=cancel.cancelled()=>return Ok(()),
         }
+        retrying=false;
         let span = crate::trace::request(&format!("dog:{}/{}", dog.uid, dog.owner_name));
         let next = tracing::Instrument::instrument(poll_once(engine, dog), span).await?;
         let Some(wait) = next else { return Ok(()) };

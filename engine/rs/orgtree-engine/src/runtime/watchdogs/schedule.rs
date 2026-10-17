@@ -7,6 +7,13 @@ pub(super) fn wait_until(deadline:DateTime<Utc>,now:DateTime<Utc>) -> Duration {
     (deadline-now).to_std().unwrap_or_default()
 }
 
+/// A runner error is not an engine restart. Keep the existing retry probe
+/// after its backoff, even if a previous progress write already saved a slot.
+#[nolog]
+pub(super) fn initial_wait(deadline:DateTime<Utc>,now:DateTime<Utc>,retrying:bool)->Duration {
+    if retrying {Duration::ZERO}else{wait_until(deadline,now)}
+}
+
 /// Early checks (a shorter quiet deadline) do not consume a future poll slot.
 /// Missed slots are skipped in constant time, including the exact boundary.
 #[nolog]
@@ -60,4 +67,10 @@ mod tests {
         assert_eq!(wait_until(restored,h(8)),Duration::from_secs(4*3600));
         assert_eq!(wait_until(restored,h(9)),Duration::from_secs(3*3600));
     }
+    #[test]
+    fn storage_retry_preserves_its_probe_without_changing_restart_wait() {
+        assert_eq!(initial_wait(h(12),h(7),true),Duration::ZERO);
+        assert_eq!(initial_wait(h(12),h(7),false),Duration::from_secs(5*3600));
+    }
+
 }
