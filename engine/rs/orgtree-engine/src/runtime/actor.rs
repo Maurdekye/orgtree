@@ -3959,7 +3959,6 @@ impl Actor {
             self.retry_admission();
             return Ok(false);
         }
-        self.admit_refusals = 0;
         let turn_id: i64 = tx
             .query_one(
                 "INSERT INTO ot.turns (agent_id, started_at, account, api_key, model) VALUES ($1, now(), $2, $3, $4) RETURNING id",
@@ -4004,10 +4003,19 @@ impl Actor {
             }
         };
         self.session_settle().await;
+        // Placement selection consumes an on-demand session choice. An
+        // admission hold must retain that choice for the original unsent turn.
+        let use_session = self.use_session;
         if let Err(e) = self.ensure_proc(&ctx).await {
             self.return_mail(turn_id, true).await;
+            if e.is::<crate::runtime::session_host::PlacementPending>() {
+                self.use_session = use_session;
+                self.retry_admission();
+                return Ok(false);
+            }
             return Err(e);
         }
+        self.admit_refusals = 0;
         self.session_notes(turn_id, &mut raw).await;
         let handoff = match self.take_handoff(&ctx).await {
             Ok(n) => n,
@@ -7035,7 +7043,7 @@ impl Actor {
         self.changed(vec![Change::Mailbox(self.id)]);
     }
 
-    /// Admission was refused for a configuration change: try again after
+    /// Admission was held for configuration or pending session placement: try again after
     /// ADMIT_RETRY_FIRST, doubling to ADMIT_RETRY_MAX while refusals repeat.
     fn retry_admission(&mut self) {
         let delay = ADMIT_RETRY_FIRST.saturating_mul(1 << self.admit_refusals.min(8)).min(ADMIT_RETRY_MAX);
@@ -7043,7 +7051,7 @@ impl Actor {
         self.admit_retry = Some(Instant::now() + delay);
         if self.admit_refusals > 2 {
             tracing::warn!(agent = %self.name, refusals = self.admit_refusals, retry_ms = delay.as_millis() as u64,
-                "admission keeps being refused for a configuration change; retrying on a backoff");
+                "admission keeps being held; retrying on a backoff");
         }
     }
 

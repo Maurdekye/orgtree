@@ -262,6 +262,18 @@ pub struct Started {
     pub pid: u32,
 }
 
+/// A retained placement whose authenticated lease is temporarily absent.
+/// Callers must hold admission, not report a terminal CLI launch failure.
+#[derive(Debug)]
+pub(crate) struct PlacementPending;
+impl std::fmt::Display for PlacementPending {
+    #[nolog]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("signed-in helper is temporarily unavailable during placement debounce")
+    }
+}
+impl std::error::Error for PlacementPending {}
+
 /// Start a CLI: in the user's session when `host` and the helper starts it,
 /// else here. `build(hosted)` makes the command for where it runs (Codex's
 /// and Muse's sandboxes depend on it); a hosted start that fails is logged and
@@ -292,7 +304,7 @@ pub async fn spawn(
                         // debounce. The actor requeues this unsent turn; never
                         // silently launch it in Session 0 on a transient miss.
                         tracing::info!(agent,session,"host lease temporarily missing; deferring CLI start during placement debounce");
-                        anyhow::bail!("signed-in helper is temporarily unavailable during placement debounce");
+                        return Err(PlacementPending.into());
                     }
                     tracing::warn!(agent, cli = what, reason = %code,
                         "the sign-in helper could not start the CLI; starting it in Session 0");
