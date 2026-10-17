@@ -58,6 +58,26 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
     } else if (key === 'activeAgentsOnly' || key === 'quickChatActiveAgentsOnly' || key === 'attentionDeskActiveAgentsOnly') {
       if (typeof val !== 'boolean') throw new Error('Invalid preference')
       result[key] = val
+    } else if (key === 'activeAgentsByOrg') {
+      if (!val || typeof val !== 'object' || Array.isArray(val)) throw new Error('Invalid preference')
+      const entries = Object.entries(val as Record<string, unknown>)
+      if (entries.length > 200) throw new Error('Invalid preference')
+      const clean: NonNullable<DesktopPreferences['activeAgentsByOrg']> = {}
+      for (const [slug, entry] of entries) {
+        if (!slug || slug.length > 256 || !entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('Invalid preference')
+        const fields = Object.entries(entry)
+        if (!fields.length || fields.length > 3) throw new Error('Invalid preference')
+        const value: NonNullable<DesktopPreferences['activeAgentsByOrg']>[string] = {}
+        for (const [surface, enabled] of fields) {
+          if (typeof enabled !== 'boolean') throw new Error('Invalid preference')
+          if (surface === 'agents') value.agents = enabled
+          else if (surface === 'quickChat') value.quickChat = enabled
+          else if (surface === 'attentionDesk') value.attentionDesk = enabled
+          else throw new Error('Invalid preference')
+        }
+        Object.defineProperty(clean, slug, { value, enumerable: true, writable: true, configurable: true })
+      }
+      result.activeAgentsByOrg = clean
     } else if (key === 'canvasBackground') {
       // optional and absent by default, like epicMode: the sanitizer rebuilds
       // the stored shape from known fields and rejects anything else

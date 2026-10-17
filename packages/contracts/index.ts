@@ -41,6 +41,9 @@ export interface DesktopPreferences extends NotificationPreferences {
   quickChatActiveAgentsOnly?: boolean
   /** The Attention agent desk filters independently; absent means off. */
   attentionDeskActiveAgentsOnly?: boolean
+  /** Per-organization Active filter values. Missing org/surface entries fall
+   *  back to the legacy global value for that surface, then to false. */
+  activeAgentsByOrg?: Record<string, ActiveAgentOrgPreferences>
   onboarded: boolean
   /** Whether an ordinary launch reopens the windows that were open last time,
    *  or starts at a fresh Homepage. See StartupMode. */
@@ -52,6 +55,11 @@ export interface DesktopPreferences extends NotificationPreferences {
   canvasOrgs?: string[]
   /** Patch only, never stored: the main process moves one org between the two lists. */
   orgView?: { slug: string; view: 'attention' | 'canvas' }
+}
+export interface ActiveAgentOrgPreferences {
+  agents?: boolean
+  quickChat?: boolean
+  attentionDesk?: boolean
 }
 export interface DesktopNotification {
   id: string; title: string; body: string; org: string; agent?: string; item?: string

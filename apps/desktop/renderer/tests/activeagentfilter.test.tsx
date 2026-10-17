@@ -1,11 +1,16 @@
 import './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type { CanvasNode } from '../src/canvas/shared'
 import { USER } from '../src/canvas/shared'
 import { ActiveAgentsFilter, AgentTray, trayRows } from '../src/canvas/agenttray'
 import { PinFrame } from '../src/canvas/modalpin'
 import { DEFAULT_PREFERENCES, preferencesPatch } from '../../main/policy'
+import { Preferences } from '../../main/preferences'
+import { activeAgentsOnlyForOrg, mergeActiveAgentsPreference } from '../src/activeagentprefs'
 import { flush, inAct, mountView } from './harness'
 
 const node = (id: string, parent: string | null, busy = false): CanvasNode => ({
@@ -77,4 +82,50 @@ test('active-only state accepts per-organization values for each agent-list surf
   }
   assert.deepEqual(preferencesPatch({ activeAgentsByOrg: scoped }), { activeAgentsByOrg: scoped })
   assert.throws(() => preferencesPatch({ activeAgentsByOrg: { 'org-alpha': { agents: 'yes' } } }), /Invalid preference/)
+})
+
+test('each org and surface resolves its own filter, with legacy values as migration fallback', () => {
+  const prefs = {
+    ...DEFAULT_PREFERENCES,
+    activeAgentsOnly: true,
+    quickChatActiveAgentsOnly: false,
+    attentionDeskActiveAgentsOnly: true,
+    activeAgentsByOrg: {
+      'org-alpha': { agents: false, quickChat: true },
+      'org-beta': { agents: true, quickChat: false, attentionDesk: false },
+    },
+  }
+  assert.equal(activeAgentsOnlyForOrg(prefs, 'org-alpha', 'agents'), false)
+  assert.equal(activeAgentsOnlyForOrg(prefs, 'org-beta', 'agents'), true)
+  assert.equal(activeAgentsOnlyForOrg(prefs, 'org-alpha', 'quickChat'), true)
+  assert.equal(activeAgentsOnlyForOrg(prefs, 'org-beta', 'quickChat'), false)
+  assert.equal(activeAgentsOnlyForOrg(prefs, 'org-alpha', 'attentionDesk'), true,
+    'a surface not yet stored for this org inherits its former global value')
+  assert.equal(activeAgentsOnlyForOrg(prefs, 'org-gamma', 'agents'), true,
+    'an org without scoped state inherits the legacy value')
+  assert.equal(activeAgentsOnlyForOrg(DEFAULT_PREFERENCES, 'org-gamma', 'agents'), false,
+    'a fresh org remains off when no legacy choice exists')
+
+  const changed = mergeActiveAgentsPreference(prefs, 'org-alpha', 'agents', true)
+  assert.equal(activeAgentsOnlyForOrg(changed, 'org-alpha', 'agents'), true)
+  assert.equal(activeAgentsOnlyForOrg(changed, 'org-alpha', 'quickChat'), true,
+    'changing one surface keeps the other surface unchanged')
+  assert.equal(activeAgentsOnlyForOrg(changed, 'org-beta', 'agents'), true,
+    'changing one org keeps another org unchanged')
+})
+
+test('per-org active-filter writes merge across surfaces and persist across reload', t => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'orgtree-active-filters-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const file = path.join(dir, 'desktop-settings.json')
+  const prefs = new Preferences(file)
+  prefs.set({ activeAgentsByOrg: { 'org-alpha': { agents: true, quickChat: false } } })
+  prefs.set({ activeAgentsByOrg: { 'org-beta': { attentionDesk: true } } })
+  prefs.set({ activeAgentsByOrg: { 'org-alpha': { attentionDesk: false } } })
+
+  const saved = new Preferences(file).get().activeAgentsByOrg
+  assert.deepEqual(saved, {
+    'org-alpha': { agents: true, quickChat: false, attentionDesk: false },
+    'org-beta': { attentionDesk: true },
+  }, 'saving one org/surface must not erase another')
 })

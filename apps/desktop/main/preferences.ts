@@ -22,6 +22,18 @@ export class Preferences {
   get(): DesktopPreferences { return { ...this.value } }
   set(patch: unknown): DesktopPreferences {
     const normalized = preferencesPatch(patch)
+    // Filter state is patched one org/surface at a time by multiple windows.
+    // Merge from this live copy so a stale window cannot erase another org's
+    // value or a concurrent surface update.
+    const activeAgentsByOrg = normalized.activeAgentsByOrg
+    delete normalized.activeAgentsByOrg
+    if (activeAgentsByOrg) {
+      const merged = new Map(Object.entries(this.value.activeAgentsByOrg ?? {}))
+      for (const [slug, value] of Object.entries(activeAgentsByOrg)) {
+        merged.set(slug, { ...merged.get(slug), ...value })
+      }
+      normalized.activeAgentsByOrg = Object.fromEntries([...merged.entries()].slice(-200))
+    }
     // The view lists are changed one org at a time from the live copy, never
     // replaced from a window's older snapshot (that erased other windows' records).
     const orgView = normalized.orgView

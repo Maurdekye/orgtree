@@ -8,6 +8,7 @@ import { startPendingMirror, usePendingAttention, waitingNow } from './pending-a
 import { ownsNotifications, useWindowIdentity } from './shell/identity'
 import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
+import { activeAgentsOnlyForOrg, activeAgentsPreferencePatch, mergeActiveAgentsPreference } from './activeagentprefs'
 import { scratchFolderAction } from './scratch-folder'
 import type { NativeDesktop } from './desktop'
 import { WindowControls } from './window-controls'
@@ -785,24 +786,30 @@ export default function App() {
   // desktop preferences, only for the first-run gate below; the onboarding
   // card manages its own live copy once shown
   const [deskPrefs, setDeskPrefs] = useState<NativePreferences | null>(null)
-  const activeAgentsOnly = deskPrefs?.activeAgentsOnly ?? false
+  const activeAgentsOnly = activeAgentsOnlyForOrg(deskPrefs, slug, 'agents')
   const setActiveAgentsOnly = useCallback((activeAgentsOnly: boolean) => {
-    setDeskPrefs(current => current ? { ...current, activeAgentsOnly } : current)
+    if (!slug) return
+    const patch = activeAgentsPreferencePatch(slug, 'agents', activeAgentsOnly)
+    setDeskPrefs(current => current ? mergeActiveAgentsPreference(current, slug, 'agents', activeAgentsOnly) : current)
     const bridge = desktop()
-    if (bridge?.setPreferences) void bridge.setPreferences({ activeAgentsOnly }).catch(() => {})
-  }, [])
-  const quickChatActiveAgentsOnly = deskPrefs?.quickChatActiveAgentsOnly ?? false
+    if (bridge?.setPreferences) void bridge.setPreferences(patch).catch(() => {})
+  }, [slug])
+  const quickChatActiveAgentsOnly = activeAgentsOnlyForOrg(deskPrefs, slug, 'quickChat')
   const setQuickChatActiveAgentsOnly = useCallback((quickChatActiveAgentsOnly: boolean) => {
-    setDeskPrefs(current => current ? { ...current, quickChatActiveAgentsOnly } : current)
+    if (!slug) return
+    const patch = activeAgentsPreferencePatch(slug, 'quickChat', quickChatActiveAgentsOnly)
+    setDeskPrefs(current => current ? mergeActiveAgentsPreference(current, slug, 'quickChat', quickChatActiveAgentsOnly) : current)
     const bridge = desktop()
-    if (bridge?.setPreferences) void bridge.setPreferences({ quickChatActiveAgentsOnly }).catch(() => {})
-  }, [])
-  const attentionDeskActiveAgentsOnly = deskPrefs?.attentionDeskActiveAgentsOnly ?? false
+    if (bridge?.setPreferences) void bridge.setPreferences(patch).catch(() => {})
+  }, [slug])
+  const attentionDeskActiveAgentsOnly = activeAgentsOnlyForOrg(deskPrefs, slug, 'attentionDesk')
   const setAttentionDeskActiveAgentsOnly = useCallback((attentionDeskActiveAgentsOnly: boolean) => {
-    setDeskPrefs(current => current ? { ...current, attentionDeskActiveAgentsOnly } : current)
+    if (!slug) return
+    const patch = activeAgentsPreferencePatch(slug, 'attentionDesk', attentionDeskActiveAgentsOnly)
+    setDeskPrefs(current => current ? mergeActiveAgentsPreference(current, slug, 'attentionDesk', attentionDeskActiveAgentsOnly) : current)
     const bridge = desktop()
-    if (bridge?.setPreferences) void bridge.setPreferences({ attentionDeskActiveAgentsOnly }).catch(() => {})
-  }, [])
+    if (bridge?.setPreferences) void bridge.setPreferences(patch).catch(() => {})
+  }, [slug])
   const persistAttentionOrgs = useCallback((slug: string, view: OrgView) => {
     // a bridge without setPreferences (an older preload, a test double) must
     // not throw out of the effect that restores the view
