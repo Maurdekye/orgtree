@@ -1,6 +1,6 @@
 //! orgtree_message / orgtree_send_notice / orgtree_status / orgtree_inbox.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -349,6 +349,11 @@ fn append_path_references(body: &str, paths: &[String]) -> String {
     out
 }
 
+#[logged]
+fn local_attachment_reference(path: &Path) -> String {
+    path.display().to_string()
+}
+
 /// Send the letter to one recipient. `single` keeps the one-recipient
 /// behaviour exactly (its reply_to resolved after the attachment checks);
 /// in a list the shared reply quote rides only where it belongs.
@@ -393,7 +398,7 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
                 let Some(raw) = a.as_str() else { crate::refuse!(BadRequest, "attachment paths must be strings"); };
                 let path = crate::domain::docs::readable(&presenter, raw)?;
                 if !path.is_file() { crate::refuse!(BadRequest, "attachment is not a file"); }
-                refs.push(format!("- `{}`", path.display()));
+                refs.push(local_attachment_reference(&path));
             }
             out.body = append_path_references(&out.body, &refs);
         }
@@ -754,6 +759,13 @@ mod tests {
             "Please review.\n\nAttached file paths:\n- `C:/shared/a.txt`");
         assert_eq!(append_path_references("", &["C:/shared/a.txt".into()]),
             "Attached file paths:\n- `C:/shared/a.txt`");
+    }
+
+    #[test]
+    fn production_local_attachment_reference_is_formatted_once() {
+        let reference = local_attachment_reference(Path::new("C:/shared/a.txt"));
+        assert_eq!(append_path_references("Please review.", &[reference]),
+            "Please review.\n\nAttached file paths:\n- `C:/shared/a.txt`");
     }
 
     #[test]
