@@ -2174,16 +2174,19 @@ fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier
                 "ok"
             };
             lines.push(format!("{lane}{star} | {window} | {used} | {amount} | {reset} | {observed} | {state}"));
-            // A 5% band plus exact reset boundary and freshness class. No age
+            // A 5% band plus rounded-minute reset and freshness class. No age
             // ticks; a stale/unknown/limited transition is always material.
             let band = pct.map(|p| ((p / 5.0).floor() * 5.0) as i64).map(|b| b.to_string()).unwrap_or_else(|| "-".into());
-            let reset_at = l["resets_at"].as_str().unwrap_or("");
+            // Providers often compute a deadline as now + remaining seconds;
+            // fractional jitter is not a new reset. The passed boundary is
+            // still compared at full precision independently below.
+            let reset_at = l["resets_at"].as_str().and_then(crate::util::parse_ts).map(|t| (t.timestamp() + 30) / 60);
             let reset_passed = l["resets_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t| t <= now);
             let secondary_stop = lane == "openai-1" && l["kind"].as_str().is_some_and(|k| k.starts_with("weekly")) && pct.is_some_and(|p| p >= 80.0);
             let freshness = if age < BOARD_FRESH { "fresh" } else { "stale" };
             if secondary_stop { if let Some(line) = lines.last_mut() { line.push_str("; openai-1 weekly >=80%: ineligible by policy"); } }
             if reset_passed && !key.starts_with("muse:") { if let Some(line) = lines.last_mut() { line.push_str("; reset passed, awaiting reading"); } }
-            key_lines.push(format!("{lane}|{window}|{band}|{reset_at}|{state}|{freshness}|{reset_passed}|{secondary_stop}|{amount}"));
+            key_lines.push(format!("{lane}|{window}|{band}|{reset_at:?}|{state}|{freshness}|{reset_passed}|{secondary_stop}|{amount}"));
             row_ids.push(format!("{lane}|{}|{}|{}|{window}", l["kind"], l["group"], l["model"]));
         }
     }

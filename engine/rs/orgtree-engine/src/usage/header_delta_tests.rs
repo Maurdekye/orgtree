@@ -118,3 +118,20 @@ async fn header_usage_secondary_weekly_stop_and_turn_account_are_explicit() {
     let reset = turn_snapshot(&engine,"openai",Some("openai-1"),"sol","synthetic-header-fixture","s",changed.record.as_ref().unwrap());
     assert!(reset.text.contains("reset passed, awaiting reading"));
 }
+
+#[tokio::test]
+async fn header_usage_reset_deadline_jitter_is_not_a_new_reset() {
+    let engine = synthetic_engine();
+    let key = codex_key(None);
+    let mut data = engine.usage.cache.pin().get(&key).unwrap().data.clone();
+    data["limits"][0]["resets_at"] = json!("2030-01-01T04:59:59.950Z");
+    engine.usage.put(&key,&data);
+    let first = turn_snapshot(&engine,"openai",None,"sol","synthetic-header-fixture","s",&Value::Null);
+    data["limits"][0]["resets_at"] = json!("2030-01-01T05:00:00.050Z");
+    engine.usage.put(&key,&data);
+    let unchanged = turn_snapshot(&engine,"openai",None,"sol","synthetic-header-fixture","s",first.record.as_ref().unwrap());
+    assert_eq!(unchanged.text.lines().count(),1);
+    data["limits"][0]["resets_at"] = json!("2030-01-01T06:00:00Z");
+    engine.usage.put(&key,&data);
+    assert!(turn_snapshot(&engine,"openai",None,"sol","synthetic-header-fixture","s",first.record.as_ref().unwrap()).text.contains("DELTA"));
+}

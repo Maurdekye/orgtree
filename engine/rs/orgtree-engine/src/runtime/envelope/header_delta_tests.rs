@@ -117,3 +117,17 @@ fn header_org_self_safety_and_policy_changes_without_age_refreshes() {
     f.rows[1].status.as_mut().unwrap()["at"] = json!(iso(now));
     assert!(render(&f, &HashMap::new(), now).text.contains("DELTA"), "a new report is material even with the same summary");
 }
+
+#[test]
+fn header_org_runtime_timestamp_without_state_transition_is_not_material() {
+    let (mut f, now) = fixture(3, false);
+    let mut live = HashMap::new();
+    live.insert(2, Live { busy: true, waiting: false });
+    f.rows[1].inflight_at = Some(now);
+    f.prior = render(&f,&live,now).record;
+    f.rows[1].inflight_at = Some(now + chrono::Duration::minutes(1));
+    assert_eq!(render(&f,&live,now).text.lines().count(),1);
+    live.insert(2, Live::default());
+    f.rows[1].inflight_at = None;
+    assert!(render(&f,&live,now).text.contains("DELTA"),"busy-to-finished remains material");
+}

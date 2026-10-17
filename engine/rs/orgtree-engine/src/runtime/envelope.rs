@@ -459,7 +459,7 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
             if r.halted { ", halted — explicit unhalt required" } else { "" },
             if r.frozen { ", frozen (usage limit)" } else { "" }, status_note(r, live, now));
         let before_last = matches!((r.status.as_ref().and_then(|v| ts(v,"at")), r.last_turn), (Some(a),Some(t)) if t>a);
-        let semantic = json!([r.name,r.parent,parent_name,r.tier,r.state,r.halted,r.frozen,r.status,live.busy,live.waiting,r.inflight_at,before_last]);
+        let semantic = json!([r.name,r.parent,parent_name,r.tier,r.state,r.halted,r.frozen,r.status,live.busy,live.waiting,r.inflight_at.is_some(),before_last]);
         entries.insert(format!("agent:{}",r.id), delta::Entry::new(&r.name, &semantic, text.clone()));
         if vis == "self" && r.id == agent_id { own_state = format!("\nYour state: {text}"); }
     }
