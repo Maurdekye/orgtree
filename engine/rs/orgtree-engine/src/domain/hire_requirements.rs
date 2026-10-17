@@ -11,7 +11,7 @@ pub fn missing_hire(req: &Value) -> Vec<&'static str> {
     for field in ["name", "tier"] { if text(req,field).is_none() { missing.push(field); } }
     if req["grant"].as_f64().is_none() { missing.push("grant"); }
     if text(req,"charter").is_none() { missing.push("charter"); }
-    if req.get("index").is_none() { missing.push("index"); }
+    if req["index"].as_u64().is_none() { missing.push("index"); }
     // Superior insertion copies the target's scope and forbids these fields.
     if text(req,"hire_type") != Some("superior") && text(req,"above").is_none() {
         if !req["add_dirs"].is_array() { missing.push("add_dirs"); }
