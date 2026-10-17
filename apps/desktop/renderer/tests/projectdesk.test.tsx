@@ -35,7 +35,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
-import { ProjectDesk } from '../src/canvas/projectdesk'
+import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeConfig } from '../src/canvas/modals'
@@ -379,6 +379,24 @@ test('§8e an idle chip keeps no empty spinner slot; an active one has its spinn
   assert.equal(idle.querySelector('.cc-head .project-activity')?.textContent, '0/1')
   const busy = await desk(t)
   assert.ok(busy.querySelector('.cc-head .project-activity .org-activity .cc-spin'), 'the spinner while active')
+})
+
+test('§9 Open desk: the project desk as a temporary modal that pins and pops out like any panel (point 27, user 23:29:47Z)', async (t) => {
+  serve(t)
+  let closed = 0
+  const nd = project()
+  const view = await mountView(<ProjectDeskModal node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd], ['boss', boss]])}
+    op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs} close={() => { closed++ }} />, (el) => el)
+  t.after(() => view.unmount())
+  await flush(2)
+  const panel = document.querySelector('.project-desk-modal')
+  assert.ok(panel, 'a modal panel')
+  assert.equal(panel!.querySelector('.cc-head-left .name')?.textContent, 'website', 'holding the project desk')
+  assert.deepEqual([...panel!.querySelectorAll('.cc-tabs button')].map((b) => b.getAttribute('data-tab')),
+    ['desk', 'inbox', 'docket', 'presented'])
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await flush(1)
+  assert.equal(closed, 1, 'Escape closes a centred modal')
 })
 
 declare const __SRC_DIR__: string
