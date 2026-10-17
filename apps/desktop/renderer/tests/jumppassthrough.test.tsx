@@ -11,9 +11,11 @@
 //      superior, plus that superior, read top-down (superior first, then the
 //      projects outermost to innermost); an agent directly under an agent
 //      keeps its single card;
-//   §2 down: every project among the reports and every live direct member of
-//      it, recursing through nested projects, in tree order beside the
-//      ordinary reports;
+//   §2 down: every project among the reports and every direct member of it,
+//      recursing through nested live projects, in tree order beside the
+//      ordinary reports; the desk then splits them into live cards and the
+//      retired controls, so retired members inside projects stay reachable
+//      (rig-sol-b review of 93d9bfa);
 //   §3 on a real desk: the up and down rows carry exactly those cards, a
 //      project's card shows the folder mark, and a click jumps to it.
 //
@@ -71,10 +73,10 @@ test('§1 up: the nearest agent superior, then every project down to the agent',
 
 /* ─── §2 down ───────────────────────────────────────────────────────────── */
 
-test('§2 down: each project and its live members, through nested projects, in tree order', () => {
+test('§2 down: each project and its members, through nested live projects, in tree order', () => {
   const { boss } = org()
-  assert.deepEqual(ids(downJumpTargets(boss.children.filter((c) => c.state === 'live'))),
-    ['lead', 'site', 'dev1', 'ui', 'dev2', 'docs'])
+  assert.deepEqual(ids(downJumpTargets(boss.children)),
+    ['lead', 'site', 'dev1', 'ui', 'dev2', 'gone', 'old', 'docs'], 'retired members included, for the retired controls')
 })
 
 /* ─── §3 on a desk ──────────────────────────────────────────────────────── */
@@ -111,4 +113,22 @@ test('§3b a superior with projects below: down cards through them', async (t) =
   const el = await desk(t, boss, map, [])
   const all = rows(el)
   assert.deepEqual(all[all.length - 1], ['lead', 'site', 'dev1', 'ui', 'dev2', 'docs'])
+})
+
+test('§3c retired members inside projects are behind the superior\'s retired control (review of 93d9bfa)', async (t) => {
+  const { map, boss } = org()
+  const jumped: string[] = []
+  const el = await desk(t, boss, map, jumped)
+  const toggle = [...el.querySelectorAll<HTMLButtonElement>('.desk-nav button.desk-nav-chip')]
+    .find((b) => /retired/.test(b.textContent ?? ''))
+  assert.ok(toggle, 'a retired control on boss\'s down row')
+  assert.equal(toggle.textContent, 'show 2 retired', 'old (in site) and gone (in ui)')
+  await inAct(() => { toggle.click() })
+  await flush(2)
+  const all = rows(el)
+  assert.deepEqual(all[all.length - 1], ['lead', 'site', 'dev1', 'ui', 'dev2', 'docs', null, 'gone', 'old'],
+    'the live row, the hide control, then the retired members')
+  const gone = el.querySelector<HTMLButtonElement>('.desk-nav button.desk-nav-chip[data-copy-agent-name="gone"]')!
+  await inAct(() => { gone.click() })
+  assert.deepEqual(jumped, ['gone'])
 })
