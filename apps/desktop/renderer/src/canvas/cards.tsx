@@ -56,6 +56,7 @@ import { ConfirmModal, DraftScopeModal } from './modals'
 import { firstUseName, useFirstUse } from './firstuse'
 import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
 import { EFFORT_LEVELS } from './effortlevels'
+import { normalizeUserEnteredName } from './nameinput'
 
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
@@ -1151,7 +1152,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
     return () => window.removeEventListener('keydown', onKey)
   }, [onCancel])
   const ok = name.trim().length > 0
-  const hire = () => { if (ok) onConfirm(name.trim(), grant, finalCharter(), scope) }
+  const hire = () => { if (ok) onConfirm(normalizeUserEnteredName(name), grant, finalCharter(), scope) }
   // A draft already knows its tier, so it also knows its provider. Do not wait
   // for the hire to become a persisted TreeNode before applying provider
   // chrome: otherwise the dashed "uninitialized" Codex card briefly wears
@@ -1188,7 +1189,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
                   el.focus({ preventScroll: true })
                 }
               }}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => setName(normalizeUserEnteredName(e.target.value))}
               onKeyDown={(e) => { if (e.key === 'Enter' && ok) hire() }} />
             <button className="df-gear"
               title="permissions — folders, tools, MCP, visibility (applied with the hire)"

@@ -144,6 +144,11 @@
   [decided: user 2026-10-16 16:11Z–2026-10-17 19:14Z; verified: `domain/projects.rs`, `domain/ops.rs`,
   `runtime/actor.rs`, migration 0025]
 
+- Names typed into manual hire UI and project-name UI trim leading/trailing spaces and replace
+  each run of spaces with one hyphen before validation. Other invalid characters keep their
+  existing errors; agent hire/staff tools do not normalize. [decided: user 2026-10-17 19:22Z;
+  verified: `canvas/nameinput.ts`, `canvas/cards.tsx`, `canvas/OrgCanvas.tsx`]
+
 - Renderer agent links use the native title tooltip with catalog model/version,
   effort and (only for multi-account providers) bound/default account joined by
   ` · `. The host resolves current `/api/providers` and `/api/accounts` reads,

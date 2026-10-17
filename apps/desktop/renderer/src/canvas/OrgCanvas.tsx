@@ -20,6 +20,7 @@ import { buttonAgentOf, onButtonAgent, setButtonAgent } from '../buttoncolours'
 import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
 import { DeskHosts, useDeskActionsNow } from './deskhosts'
+import { normalizeUserEnteredName } from './nameinput'
 // canvas/OrgCanvas.tsx — the canvas core: the OrgCanvas component itself —
 // camera (pan/zoom/springs/follow), tree layout orchestration, wires and
 // mail sparks, node dragging and re-parenting, the retired/crowd piles, the
@@ -4805,13 +4806,13 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
         </div>
         <div className="field-label">name</div>
         <input value={name} placeholder="lowercase-slug"
-          onChange={(e) => setName(e.target.value.toLowerCase())} />
+          onChange={(e) => setName(normalizeUserEnteredName(e.target.value.toLowerCase()))} />
         <div className="field-label">credit grant</div>
         <input type="number" min={0} value={grant}
           onChange={(e) => setGrant(Math.max(0, Math.round(Number(e.target.value) || 0)))} />
         <div className="row">
           <button className="primary" disabled={!ok}
-            onClick={() => onHire(tier, name.trim(), grant, placement)}>hire</button>
+            onClick={() => onHire(tier, normalizeUserEnteredName(name), grant, placement)}>hire</button>
           <button onClick={onClose}>cancel</button>
         </div>
       </div>
