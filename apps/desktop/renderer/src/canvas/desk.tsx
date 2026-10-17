@@ -619,7 +619,7 @@ export function AgentWorkstate({ node, turn, live = true }: {
   if (visual.kind === 'halted' && node.halt) {
     const haltedAt = node.halt.phase === 'halted'
       ? node.halt.at ?? node.halt.requested_at : null
-    const label = node.halt.phase === 'halting' ? 'Halting…' : 'Halted for'
+    const label = node.halt.phase === 'halting' ? 'Halting…' : 'Halted'
     const statusText = node.halt.phase === 'halting'
       ? 'Turn admission is blocked; the active turn is still ending'
       : haltedAt ? `Halted for ${ago(haltedAt)}`
@@ -860,7 +860,7 @@ export function TurnStatusBanner({ state, turn, inflightAt, halted = false, halt
   const label = active
     ? (state === 'working' ? 'Active'
       : state === 'queued' ? 'Queued' : 'Compacting')
-    : halted ? 'Halted for'
+    : halted ? 'Halted'
       : outOfTurnState
       ? (outOfTurnState.charAt(0).toUpperCase() + outOfTurnState.slice(1))
       : 'Idle'

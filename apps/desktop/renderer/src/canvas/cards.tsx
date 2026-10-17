@@ -1364,7 +1364,6 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
     case 'halted':
       stateIcon = <span className="sq-far-status halted" role="status">
         <StopIcon className="sq-far-icon halted" titleAccess="Halted" />
-        <span>Halted</span>
       </span>
       break
     case 'frozen':

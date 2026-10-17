@@ -16,7 +16,9 @@ A settled halt uses halt.at; an older record without it uses requested_at.
 Halting preserves its Halting label and uses requested_at. An absent timestamp
 shows an em dash, never last-turn or status-report time. The current engine
 writes both at and requested_at in its settled halt record. Execution state,
-halt controls, normal canvas/desk HaltStatus badges and scheduling are unchanged.
+halt controls, duration source and scheduling are unchanged. Canvas desk headers
+and near-zoom cards show `Halted <duration>`; far-zoom cards show only the stop
+icon. Accessible text can retain “Halted for <duration>”.
 
 Precedence matches the current canvas: an explicit durable halt wins a usage
 freeze, including agents carrying both. Usage-frozen agents without a halt keep

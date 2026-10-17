@@ -11,9 +11,10 @@
   `canvas/docket.tsx`, `providers/catalog.rs`]
 
 - A halted agent's status duration is measured from `halt.at` (falling back to
-  `requested_at` for legacy state), not its last turn; the desk header says
-  “Halted for” and the card/list clocks tick from that halt timestamp. Usage
-  freeze remains a separate state. [verified from source: `canvas/desk.tsx`]
+  `requested_at` for legacy state), not its last turn. The desk header and
+  near-zoom card show `Halted <duration>`; far zoom shows only the halt icon.
+  Accessible text may say “Halted for <duration>”. Usage freeze remains a
+  separate state. [verified from source: `canvas/desk.tsx`, `canvas/cards.tsx`]
 
 - Fresh-session recovery leads with current docket scope/blockers/dependencies,
   recorded shell directory and recent superior mail before older context. Shell
