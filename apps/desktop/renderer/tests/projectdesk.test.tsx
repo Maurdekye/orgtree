@@ -7,7 +7,8 @@
 //   §1 a focused project card opens a desk in the agent desk's frame: the
 //      header names the project, the tabs are desk, inbox, docket and
 //      presented (the agent desk's three, user 20:07Z) and there is no chat
-//      or composer; an unfocused card has none;
+//      or composer; an unfocused card has none; the presented tab counts AND
+//      shows the subtree's documents (review P2);
 //   §2 the main tab: jump cards up to the parent and down to the members
 //      (the chat desk's NavChip), and the description editor: Markdown while
 //      not focused, monospace text while focused, saved by set_description on
@@ -31,6 +32,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk } from '../src/canvas/projectdesk'
+import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeConfig } from '../src/canvas/modals'
 import { ActiveAgentSummary } from '../src/shell/treeinfo'
@@ -111,6 +113,27 @@ test('§1c the presented tab counts the project\'s documents and its subtree\'s 
   ] } as never)
   const el = await desk(t, { node: nd })
   assert.equal(el.querySelector('.cc-tabs button[data-tab="presented"] .tab-count')?.textContent, '7')
+})
+
+test('§1d the presented tab SHOWS the subtree\'s documents the engine returns, not only the project\'s (review P2)', async (t) => {
+  const had = globalThis.fetch
+  const at = new Date().toISOString()
+  const docs = [
+    { id: 'p1', node: 'website', title: 'Website plan', at, evicted: false, node_state: 'live', tier: 'project' },
+    { id: 'a1', node: 'dev1', title: 'Dev notes', at, evicted: false, node_state: 'live', tier: 'haiku' },
+    { id: 'a2', node: 'dev2', title: 'UI sketch', at, evicted: false, node_state: 'live', tier: 'sonnet' },
+  ]
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const body = String(input).includes('/documents?')
+      ? { documents: docs, total: docs.length, next_offset: null, offset: 0 } : {}
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = had })
+  const view = await mountView(<AgentGalleryView slug="org" nid="website" node={project()} toast={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(6) })
+  const names = [...view.el.querySelectorAll('.doc-gallery-row .l2')].map((r) => r.getAttribute('data-copy-agent-name'))
+  assert.deepEqual(names.sort(), ['dev1', 'dev2', 'website'], 'the project\'s card and both members\' cards are listed')
 })
 
 const square = (focused: boolean) => mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
