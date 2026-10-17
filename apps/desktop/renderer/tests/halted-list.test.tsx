@@ -45,11 +45,11 @@ test('desk header and zoom card show live halted duration from halt time, not la
   const turn={at:at(7200),killed:true,cost:0,denials:0}
   const v=await mountView(<><TurnStatusBanner state="idle" turn={turn} halted haltedAt={halt.at}/>
     <AgentWorkstate node={node({halt})} turn={turn}/></>,el=>el);t.after(()=>v.unmount())
-  assert.equal(v.el.querySelector('.turn-status-label')?.textContent,'Halted for')
+  assert.equal(v.el.querySelector('.turn-status-label')?.textContent,'Halted')
   assert.ok(v.el.querySelector('.turn-status-banner')?.classList.contains('halted'))
   assert.equal(v.el.querySelector('.turn-status-time')?.textContent,'60m')
   assert.equal(v.el.querySelector('.turn-status-banner')?.getAttribute('aria-label'),'Halted for 60m')
-  assert.equal(v.el.querySelector('.sq-halt-status > span')?.textContent,'Halted for')
+  assert.equal(v.el.querySelector('.sq-halt-status > span')?.textContent,'Halted')
   assert.equal(v.el.querySelector('.sq-halt-status .sq-idle-time')?.textContent,'60m')
   now+=60000;await inAct(()=>pulseAgeClock())
   assert.equal(v.el.querySelector('.turn-status-time')?.textContent,'61m')
