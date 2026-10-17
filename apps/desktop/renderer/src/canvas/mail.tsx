@@ -571,7 +571,6 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
       {menu.node}
       <div {...surface} className={"mailer-read " + surface.className}>
         {replyError && <div role="alert">{replyError}</div>}
-        {replyable && cur && <button className="link" onClick={() => collectReply(cur)}>Add this message to reply</button>}
         {replyTargets.map(m => <div className="mail-reply-target" key={m.id}>
           <span>{m.from}: {String(m.body ?? '').slice(0, 160)}</span>
           <button aria-label="Remove reply target" onClick={() => setReplyTargets(replyTargets.filter(r => r.id !== m.id))}>×</button>
