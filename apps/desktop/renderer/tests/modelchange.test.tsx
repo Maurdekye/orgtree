@@ -47,10 +47,18 @@ test('failed, unchanged, incomplete and staffing calls get no model transition',
   t.after(()=>view.unmount())
   for(const tool of [change('sol','sol'),change('haiku',''),change('haiku','sol',{error:'refused'}),
     {id:'legacy',name:'orgtree_switch_model',arg:'worker sol'},change('haiku','sol',{name:'orgtree_hire'}),
-    change('haiku','sol',{name:'orgtree_staff'}),change('haiku','sol',{result:undefined})]){
+    change('haiku','sol',{name:'orgtree_staff'}),
+    {name:'orgtree_switch_model',preview_input:{node:'worker',tier:'sol',previous_tier:'haiku'},refs:[{kind:'agent' as const,id:'worker'}]}]){
     await view.render(show(tool))
     assert.equal(view.el.querySelector('.tool-model-transition')===null,true)
   }
+})
+
+test('recorded model metadata survives an omitted result body after completion',async t=>{
+  const tool=change('haiku','sol',{result:undefined,ended_at:'2026-10-17T12:00:00Z'})
+  const view=await mountView(show(tool,'astra'),h=>h)
+  t.after(()=>view.unmount())
+  assert.deepEqual(tiers(row(view.el)),['t-haiku','t-sol','t-astra'])
 })
 
 test('historical cards do not fold the call and the agent link still navigates',async t=>{
