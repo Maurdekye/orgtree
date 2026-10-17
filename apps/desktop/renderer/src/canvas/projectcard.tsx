@@ -56,6 +56,12 @@ interface ProjectSquareProps {
   onHire: (tier: string) => void
   /** "New project…" and its project token: a draft project card under it */
   onNewProject: () => void
+  /** coworker and parent hires around the project, as around an agent (user
+   *  2026-10-17 21:24:34Z): a sibling to a side, a superior spliced above */
+  onSpawnSide?: (tier: string, side: 'left' | 'right') => void
+  onSpawnTop?: (tier: string) => void
+  /** the side and top strips' project tokens */
+  onNewProjectAt?: (edge: 'l' | 'r' | 't') => void
   onInbox: () => void
   onSettings?: () => void
   /** the project's docket: its attached items */
@@ -69,18 +75,29 @@ interface ProjectSquareProps {
 }
 
 export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
-  onHire, onNewProject, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
+  onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   // the mailbox hover button obeys "Show agent card shortcuts", like an
   // agent card's hover row (user 2026-10-17 19:37Z)
   const showShortcuts = useAgentShortcuts()
   const [asking, setAsking] = useState<RetireKind | null>(null)
-  const [expandedHire, setExpandedHire] = useState(false)
+  const [expandedHire, setExpandedHire] = useState<'b' | 'l' | 'r' | 't' | null>(null)
+  // the nearest edge shows its strip, as on an agent card (NodeSquare.trackEdge)
+  const [edge, setEdge] = useState<'b' | 'l' | 'r' | 't'>('b')
+  const trackEdge = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    if (!r.width || !r.height) return
+    const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height
+    const d = Math.min(x, 1 - x, 1 - y, y)
+    const next = d === 1 - y ? 'b' : d === y ? 't' : d === x ? 'l' : 'r'
+    if (next !== edge) { setExpandedHire(null); setEdge(next) }
+  }
+  const toggle = (which: 'b' | 'l' | 'r' | 't') => setExpandedHire((v) => v === which ? null : which)
   const waiting = node.mail_pending ?? 0
   const description = (node.charter ?? '').trim().split('\n')[0] ?? ''
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
-  const cls = ['sq', 'project', node.state, deskOpen ? 'desk' : lod, 'edge-b']
+  const cls = ['sq', 'project', node.state, deskOpen ? 'desk' : lod, 'edge-' + edge]
   if (dragging) cls.push('lifted')
   if (isDrop) cls.push('drop')
   const style: React.CSSProperties = {
@@ -104,7 +121,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin,
       aria-label={`project ${node.id}`}
       // a desk's own presses pan the canvas or work its controls, as an agent desk's do
       onPointerDown={(e) => { if (!deskOpen) onDragStart(e, node.id) }}
-      onPointerMove={(e) => onDragMove(e, node.id)}
+      onPointerMove={(e) => { trackEdge(e); onDragMove(e, node.id) }}
       onPointerUp={(e) => onDragEnd(e, node.id, node, false)}
       onPointerCancel={(e) => onDragCancel(e, node.id)}
       onContextMenu={(e) => menu.open(e, menuEntries)}>
@@ -142,8 +159,22 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin,
         <SpawnChips onSpawn={onHire} seats={seats}
           claudeHire={hire.claudeHire} codexHire={hire.codexHire} antigravityHire={hire.antigravityHire}
           openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire}
-          zoom={zoom} expanded={expandedHire} onToggleExpanded={() => setExpandedHire((v) => !v)}
+          zoom={zoom} expanded={expandedHire === 'b'} onToggleExpanded={() => toggle('b')}
           onProject={onNewProject} />
+      )}
+      {node.state === 'live' && onSpawnSide && (['left', 'right'] as const).map((s) => (
+        <SpawnChips key={s} side={s} onSpawn={(t) => onSpawnSide(t, s)} seats={seats}
+          claudeHire={hire.claudeHire} codexHire={hire.codexHire} antigravityHire={hire.antigravityHire}
+          openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire}
+          zoom={zoom} expanded={expandedHire === s[0]} onToggleExpanded={() => toggle(s[0] as 'l' | 'r')}
+          onProject={onNewProjectAt ? () => onNewProjectAt(s[0] as 'l' | 'r') : undefined} />
+      ))}
+      {node.state === 'live' && onSpawnTop && (
+        <SpawnChips side="top" onSpawn={onSpawnTop} seats={seats}
+          claudeHire={hire.claudeHire} codexHire={hire.codexHire} antigravityHire={hire.antigravityHire}
+          openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire}
+          zoom={zoom} expanded={expandedHire === 't'} onToggleExpanded={() => toggle('t')}
+          onProject={onNewProjectAt ? () => onNewProjectAt('t') : undefined} />
       )}
       {deskOpen && (
         <ProjectDesk node={node} slug={slug} tree={tree!} map={map ?? new Map()} toast={toast} refs={refs!}

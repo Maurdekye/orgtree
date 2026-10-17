@@ -3998,6 +3998,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               seats={seats}
               onHire={(t) => spawn(n.id, t)}
               onNewProject={() => spawnProject(n.id)}
+              onSpawnSide={(t, side) => spawnBeside(n, t, side)}
+              onSpawnTop={(t) => spawnAbove(n, t)}
+              onNewProjectAt={(edge) => spawnProjectAt(n, edge)}
               onSettings={() => toggleConfig(n.id)}
               onInbox={() => toggleNodeSurface('node-inbox', n.id, setInboxId)}
               onDocket={() => toggleNodeSurface('agent-docket', n.id, setAgentDocketId)}
