@@ -24,6 +24,10 @@ Project Settings has [Subordinates may message each other](../peer-mail/SKILL.md
 
 A project's folder is `<data>\scratch\<org>\_teams\<project id>`. Every agent under it holds that folder and gets its `AGENTS.md` at session start, labelled as the project's, the way team notes arrive. Every agent above it holds the folder too (its instructions list the projects below it) but does not get the notes.
 
+## Description
+
+A project's description is the standing charter of every agent under it, nested projects included: their instructions carry "Standing charter from project <name>: …" beside their superiors' team charters, outermost first. A CLI that is already running picks it up at its next start.
+
 ## The mailbox and the fair queue
 
 Write to a project with `orgtree_message` to its name. Its mail wakes nobody: it waits in the project's mailbox until an agent that reaches the project watches it with an `orgtree_watchdog` of kind `fair_queue` (target: the project's name). Each waiting mail then goes to **exactly one** watcher, the least recently woken (one never woken first, ties to the oldest watcher), as ordinary mail from its original sender, marked as coming via the project; the project's copy is marked read. Busy, halted and frozen watchers keep their turn; the mail waits in their mailbox. The first watcher to arm gets any backlog. `orgtree_inbox action=list|fetch project=<name>` shows what waits without claiming it.

@@ -5,10 +5,11 @@ always belong to one particular agent. A **project node** is a non-agent node in
 stands for one project: it has its own folder, mailbox and presentations, it runs no turns, and
 the agents under it work on it. A new watchdog kind, the **fair project mail queue**
 (`fair_queue`), load-balances the project's incoming mail across the agents that watch it.
-[decided: user 2026-10-16 16:09Z, 16:11Z, 16:13Z, 16:14Z, 20:21Z, 20:23Z; docket
+[decided: user 2026-10-16 16:09Z, 16:11Z, 16:13Z, 16:14Z, 20:21Z, 20:23Z, 2026-10-17 19:14Z; docket
 `project-nodes-in-the-org-hierarchy-with-a-fair-p`, whose description is the authoritative scope]
 
-Status: slices 1 and 2 are built (engine, agent tools, canvas, docket). Sections marked **(deferred)** are not
+Status: slices 1 and 2 are built (engine, agent tools, canvas, docket), plus draft project cards and
+descriptions as team charters (2026-10-17). Sections marked **(deferred)** are not
 built yet.
 
 ## Data model
@@ -113,6 +114,14 @@ A project's folder is its team workspace, `<data>\scratch\<org>\_teams\<project 
 exactly as a team's [user 16:11Z], labelled as the project's. Every agent above it holds the
 folders of the live projects in its subtree too (no `AGENTS.md` delivery).
 
+## Description: the project's team charter
+
+A project's description (its `charter` column) is the standing charter of everyone under it
+[user 2026-10-17 19:14Z]. The charter cascade an agent's instructions carry (every ancestor's
+`team_charter`, root first) takes a project ancestor's description in its place, as "Standing
+charter from project <name>: …", so nested projects each add theirs, outermost first. Agents above
+the project don't get it. Like a team charter, it reaches a running CLI at its next start.
+
 ## Presentations
 
 `orgtree_present project=<name>` stores the document under the project node (presenter recorded
@@ -148,11 +157,13 @@ co-owns the item with full owner rights.
 - **The project hire token** [user 2026-10-16 21:02Z]: every hire strip ends with a light grey
   square with a folder icon, alone on the outermost row. That covers the eye card, all four
   edges of a card and a project's own strip. Its tooltip says "create a project … (free)" and
-  it has no seat price. It opens the New project form (a name and an optional description) and
-  places the project the way the agent tokens place a hire: under the card, beside it (create,
-  then the side hire's reorder) or above it, holding it (`above`).
+  it has no seat price. Like an agent token it opens a **draft project card** where the project
+  will go and walks the camera to it [user 2026-10-17 19:14Z]: a dashed square with the folder
+  mark, a name and a description, create and cancel (Escape and a click away cancel too). Create
+  places the project the way a hire is placed: under the card, beside it (create, then the side
+  hire's reorder) or above it, holding it (`above`). There is no separate form.
 - Menus: agents get "New project here…" on the card and the Agents List row alike, and the eye
-  card gets "New project…". A project's own menu offers Open (mailbox, folder, presentations),
+  card gets "New project…". Each opens the same draft project card. A project's own menu offers Open (mailbox, folder, presentations),
   Hire under this project, New project here… and Retire project….
 - `orgtree_chart` and `orgtree_state_inspect` list projects with `kind: project`. How a project
   should look in the chart and on the docket is still with the user; this is provisional.

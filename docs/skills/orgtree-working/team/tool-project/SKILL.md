@@ -11,7 +11,7 @@ Requires `team`. `action=create` makes a **project node** (what one is and who r
 - `name` (required): a new name in the organization, 1–64 letters, digits, `-`, `_` or `.`, unique among agents and projects.
 - `index` (required): the zero-based final position among the live siblings under the parent, as for [orgtree-tool-hire](../tool-hire/SKILL.md).
 - `parent` (optional): yourself by default; one of your reports at any depth; or a project you are inside (a nested project). Only the user creates a project at the top level.
-- `description` (optional): what the project is. It is the project's charter, shown on its card.
+- `description` (optional): what the project is. It is shown on its card and is the standing charter of every agent under the project.
 
 A project costs nothing: it has no seat and never holds credits of its own. The agents you later hire under it are paid by the nearest agent above it, so hire under a project with [orgtree-tool-hire](../tool-hire/SKILL.md) `parent=<project>` from an agent above it; an agent below a project is refused (`hiring under project … is paid by the agent above it`).
 

@@ -126,8 +126,10 @@
     least recently woken first.
   - New awaits on the actor's turn path (`load_ctx`, `mail::send`) are `Box::pin`ned. Inline,
     they overflowed the debug engine thread's stack at turn start.
+  - A project's description (`charter`) is the team charter of its subtree: `load_ctx`'s
+    cascade takes it in place of `team_charter` for a project ancestor (user 2026-10-17 19:14Z).
   Design and rulings: [project nodes](docs/rust-engine/PROJECT-NODES.md).
-  [decided: user 2026-10-16 16:11Z–21:02Z; verified: `domain/projects.rs`, `domain/ops.rs`,
+  [decided: user 2026-10-16 16:11Z–2026-10-17 19:14Z; verified: `domain/projects.rs`, `domain/ops.rs`,
   `runtime/actor.rs`, migration 0025]
 
 - Renderer agent links use the native title tooltip with catalog model/version,
