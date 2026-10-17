@@ -40,7 +40,7 @@ The default user feed and exact-id reads project at most eight labels per
 message. Untagged and legacy rows omit the field. `GET /inbox?tag=...` matches
 indexed normalized membership **before** a newest-first 200-row cursor window,
 across incoming pending/read mail. `before` is exclusive. The multi-select
-POST `/inbox/filter` accepts `{tags,before}` and applies every normalized selected
+POST `/inbox/filter` accepts `{tags,before}` (an optional opaque string cursor) and applies every normalized selected
 key before the same bounded window; duplicates cannot duplicate mail. Selecting
 more than eight distinct tags is valid and returns no matches, because a mail
 can carry at most eight tags. Legacy GET single-tag reads remain supported.

@@ -39,14 +39,16 @@ pub struct InboxQuery {
 
 #[derive(Deserialize, Debug)]
 pub struct TagFilter {
-    tags:Vec<String>, before:Option<i64>,
+    tags:Vec<String>, before:Option<String>,
 }
 
 #[logged]
 pub async fn filter_inbox(State(e):State<Arc<Engine>>,Path(slug):Path<String>,Json(body):Json<TagFilter>)->ApiResult<Json<Value>> {
     let o=org(&e,&slug)?;
+    let before=body.before.as_deref().map(str::parse::<i64>).transpose()
+        .map_err(|_|ApiError::bad_request("mail cursor must be a positive id"))?;
     let client=e.db.get().await?;
-    Ok(Json(crate::domain::mail_tags::window_many(&client,o.id,&body.tags,body.before).await?))
+    Ok(Json(crate::domain::mail_tags::window_many(&client,o.id,&body.tags,before).await?))
 }
 
 #[derive(Deserialize, Debug)]
