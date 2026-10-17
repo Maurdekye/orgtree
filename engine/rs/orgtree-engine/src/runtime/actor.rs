@@ -246,6 +246,7 @@ impl std::fmt::Debug for Plan {
 /// disposable read of the agent's session prefix.
 struct Keepalive {
     proc: ClaudeProc,
+    _skills: crate::providers::skills::retention::Lease,
     process: uuid::Uuid,
     /// the session it forked
     session: String,
@@ -762,6 +763,7 @@ struct Actor {
     /// the request stray CLI output is logged under (outside any turn)
     span: tracing::Span,
     proc: Option<Proc>,
+    proc_skills: Option<crate::providers::skills::retention::Lease>,
     proc_print: Option<Fingerprint>,
     /// the org's shared notes block the running CLI started with: a
     /// keepalive reads that CLI's prefix, not the file as it is now
@@ -924,6 +926,7 @@ impl Actor {
             proc: None,
             proc_print: None,
             proc_notes: None,
+            proc_skills: None,
             startup_seen: None,
             startup_checked: Instant::now(),
             proc_effort: None,
@@ -2463,6 +2466,13 @@ impl Actor {
         .await
     }
 
+    #[nolog]
+    async fn skill_use(&self, ctx: &Ctx, plan: &Plan) -> Result<crate::providers::skills::retention::Lease> {
+        let mut paths = skill_folders(ctx);
+        paths.push(plan.skills.snapshot_path(&self.engine.cfg.data_root));
+        crate::providers::skills::retention::hold(&self.engine, paths, ctx.session_id.clone(), ctx.generation).await
+    }
+
     /// The Claude CLI launch for this agent's next turn: binary, launch
     /// files, environment and session. `keepalive`: the same launch as a
     /// disposable prompt-cache read (`SpawnSpec::keepalive`). Also returns the
@@ -2664,6 +2674,7 @@ impl Actor {
         }
         self.close_proc().await;
         self.reconfigured = false;
+        let skill_use = self.skill_use(ctx, &plan).await?;
         let (mut spec, _) = self.claude_spec(ctx, route.as_ref(), &plan, false).await?;
         spec.host = want;
         let resume = spec.resume.clone();
@@ -2693,6 +2704,9 @@ impl Actor {
                 .await?;
         }
         self.engine.credential_bridge.bind(self.id,proc.pid);
+        crate::providers::skills::retention::remember(&self.engine, self.id, &skill_use, Some(&session_id)).await;
+        self.proc_skills = Some(skill_use);
+        crate::providers::skills::retention::schedule(&self.engine);
         self.proc = Some(Proc::Claude(proc));
         self.proc_print = Some(plan.print);
         self.proc_notes = Some(plan.notes);
@@ -2912,6 +2926,7 @@ impl Actor {
         }
         self.close_proc().await;
         self.reconfigured = false;
+        let skill_use = self.skill_use(ctx, &plan).await?;
         let view = self.engine.accounts.view();
         let account = if route.is_some() { None } else { ctx.account.as_deref().and_then(|a| view.get(a).cloned()) };
         let apikey = account.as_ref().map(|a| a.is_apikey()).unwrap_or(false);
@@ -3060,6 +3075,9 @@ impl Actor {
             }
         }
         self.engine.credential_bridge.bind(self.id,proc.pid);
+        crate::providers::skills::retention::remember(&self.engine, self.id, &skill_use, Some(&session_id)).await;
+        self.proc_skills = Some(skill_use);
+        crate::providers::skills::retention::schedule(&self.engine);
         self.proc = Some(Proc::Codex(proc));
         self.proc_print = Some(plan.print);
         self.proc_notes = Some(plan.notes);
@@ -3112,6 +3130,7 @@ impl Actor {
             // Capture the post-migration manifest before saving proc_print.
             plan = self.plan(ctx);
         }
+        let skill_use = self.skill_use(ctx, &plan).await?;
         let tools = &ctx.effective["tools"];
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
         let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
@@ -3148,6 +3167,9 @@ impl Actor {
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         let proc = AgyProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
         self.engine.credential_bridge.bind(self.id,proc.pid);
+        crate::providers::skills::retention::remember(&self.engine, self.id, &skill_use, ctx.session_id.as_deref()).await;
+        self.proc_skills = Some(skill_use);
+        crate::providers::skills::retention::schedule(&self.engine);
         self.proc = Some(Proc::Agy(proc));
         self.proc_print = Some(plan.print);
         self.proc_notes = Some(plan.notes);
@@ -3171,6 +3193,7 @@ impl Actor {
             && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured { return Ok(()); }
         self.close_proc().await;
         self.reconfigured = false;
+        let skill_use = self.skill_use(ctx, &plan).await?;
         let exe = self.engine.providers.state.load().opencode.path.clone()
             .filter(|p| p.is_file()).ok_or_else(|| anyhow!("OpenCode with ACP is not installed or its discovery has not completed"))?;
         std::fs::create_dir_all(&ctx.scratch)?;
@@ -3233,6 +3256,9 @@ impl Actor {
         self.mcp=McpState { state:Some(if proc.mcp_observed {"handshake_observed"} else {"unobserved"}.into()),
             reason:Some("OpenCode registers tools asynchronously; handshake plus catalog settle is not a catalog acknowledgement".into()),
             last_turn_count:self.mcp.last_turn_count,..McpState::default() };
+        crate::providers::skills::retention::remember(&self.engine, self.id, &skill_use, Some(&proc.session_id)).await;
+        self.proc_skills = Some(skill_use);
+        crate::providers::skills::retention::schedule(&self.engine);
         self.proc=Some(Proc::Acp(proc));self.proc_print=Some(plan.print);self.proc_notes=Some(plan.notes);
         self.proc_effort=Some(ctx.effort.clone());self.provider=ctx.provider.clone();self.publish();Ok(())
     }
@@ -3374,6 +3400,7 @@ impl Actor {
         }
         self.close_proc().await;
         self.reconfigured = false;
+        let skill_use = self.skill_use(ctx, &plan).await?;
         let exe = match self.engine.providers.muse_path() {
             Some(p) => p,
             None => tokio::task::spawn_blocking(crate::providers::locate_muse)
@@ -3463,6 +3490,9 @@ impl Actor {
         self.engine.credential_bridge.bind(self.id, proc.pid);
         self.init = json!({ "model": proc.model, "session": proc.session_id, "schema_fingerprint": proc.schema_fingerprint,
                             "identity_by_file": proc.prompt_by_file });
+        crate::providers::skills::retention::remember(&self.engine, self.id, &skill_use, Some(&session_id)).await;
+        self.proc_skills = Some(skill_use);
+        crate::providers::skills::retention::schedule(&self.engine);
         self.proc = Some(Proc::Muse(proc));
         self.proc_print = Some(plan.print);
         self.proc_notes = Some(plan.notes);
@@ -3735,6 +3765,7 @@ impl Actor {
         if let Some(mut p) = self.proc.take() {
             p.close().await;
         }
+        self.proc_skills = None;
         self.proc_print = None;
         self.proc_notes = None;
         self.bg_reset();
@@ -3750,6 +3781,7 @@ impl Actor {
         if let Some(mut p) = self.proc.take() {
             p.kill().await;
         }
+        self.proc_skills = None;
         self.proc_print = None;
         self.proc_notes = None;
         self.bg_reset();
@@ -5290,6 +5322,10 @@ impl Actor {
                             )
                             .await?;
                     }
+                    drop(client);
+                    if let Some(lease) = &self.proc_skills {
+                        crate::providers::skills::retention::remember(&self.engine, self.id, lease, Some(&cid)).await;
+                    }
                 }
                 self.publish();
             }
@@ -6195,6 +6231,7 @@ impl Actor {
             plan.print.org_notes = Some(hash(n));
             plan.notes = n.clone();
         }
+        let skill_use = self.skill_use(&ctx, &plan).await?;
         let (spec, config_dir) = self.claude_spec(&ctx, None, &plan, true).await?;
         // a session with no transcript has no prefix to read
         if spec.resume.as_deref() != Some(session.as_str()) {
@@ -6212,6 +6249,7 @@ impl Actor {
         tracing::info!(agent = %self.name, %process, session = %session, apikey, "prompt-cache keepalive started");
         self.keepalive = Some(Keepalive {
             proc,
+            _skills: skill_use,
             process,
             session,
             fork: None,
@@ -6363,6 +6401,7 @@ impl Actor {
         let host = self.proc.as_ref().and_then(|p| p.host());
         let pid = self.proc.as_ref().map(|p| p.pid()).unwrap_or(0);
         self.proc = None;
+        self.proc_skills = None;
         self.proc_print = None;
         self.proc_notes = None;
         self.unpark();
