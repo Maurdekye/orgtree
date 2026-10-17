@@ -18,6 +18,21 @@ pub struct ConvoWriter {
 #[cfg(test)]
 mod agy_thinking_pg_tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct Capture(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    struct VerboseReset(bool);
+    impl Drop for VerboseReset {
+        fn drop(&mut self) { crate::trace::set_verbose(self.0); }
+    }
 
     /// The author runner supplies a newly initialized disposable cluster. This
     /// test never falls back to the application's DB or an ambient PG URL.
@@ -28,6 +43,13 @@ mod agy_thinking_pg_tests {
         let cfg: tokio_postgres::Config=url.parse().unwrap();
         assert_eq!(cfg.get_dbname(),Some("agy_thinking_fixture"));
         assert_eq!(cfg.get_user(),Some("agy_thinking_fixture"));
+        let capture = Capture(Arc::new(Mutex::new(Vec::new())));
+        let (dispatch, log_guard) = crate::trace::test_sink(capture.clone());
+        let subscriber = tracing::dispatcher::set_default(&dispatch);
+        let _verbose = VerboseReset(crate::trace::set_verbose(true));
+        // Positive control: verbose instrumentation and the real EngineLayer
+        // must both run, otherwise an empty capture would give a vacuous pass.
+        assert_eq!(parse_after("1:1"), Some((1,1)));
         let (mut client,connection)=cfg.connect(tokio_postgres::NoTls).await.unwrap();
         let connection=tokio::spawn(async move { connection.await.unwrap(); });
         client.batch_execute("CREATE SCHEMA ot;
@@ -36,13 +58,15 @@ mod agy_thinking_pg_tests {
             CREATE TABLE ot.convo(agent_id bigint,seq bigint,ver bigint,body jsonb CHECK(NOT body ? 'synthetic_reject'),tool_inputs jsonb,PRIMARY KEY(agent_id,seq));").await.unwrap();
         client.batch_execute(include_str!("../../migrations/0028_agy_thinking.sql")).await.unwrap();
         let session="12345678-1234-4321-8765-123456789abc";
-        let rows=||crate::runtime::agy_thinking::rows(session,6,Some("synthetic thought"),"synthetic response","now");
+        const THOUGHT: &str = "AGYTHINK_CANARY_6fc2";
+        const RESPONSE: &str = "AGYRESP_CANARY_3c17";
+        let rows=||crate::runtime::agy_thinking::rows(session,6,Some(THOUGHT),RESPONSE,"now");
         let mut writer=ConvoWriter::load(&client,1).await.unwrap();
         let (saved,response)=writer.append_agy_step(&mut client,session,6,rows()).await.unwrap();
         assert!(response);
         let saved=saved.unwrap();
-        assert_eq!(saved.len(),2); assert_eq!(saved[0].1["thinking"],"synthetic thought");
-        assert_eq!(saved[1].1["text"],"synthetic response"); assert!(saved[0].0<saved[1].0);
+        assert_eq!(saved.len(),2); assert_eq!(saved[0].1["thinking"],THOUGHT);
+        assert_eq!(saved[1].1["text"],RESPONSE); assert!(saved[0].0<saved[1].0);
         let (saved,response)=writer.append_agy_step(&mut client,session,6,rows()).await.unwrap();
         assert!(saved.is_none() && response);
         let mut writer=ConvoWriter::load(&client,1).await.unwrap(); // actor/engine restart
@@ -51,8 +75,8 @@ mod agy_thinking_pg_tests {
         assert_eq!((writer.seq,writer.ver),(2,2));
         let mut failed=rows(); failed[1]["synthetic_reject"]=json!(true);
         let failed=writer.append_agy_step(&mut client,session,7,failed).await.unwrap_err();
-        assert!(!format!("{failed:?}").contains("synthetic thought"));
-        assert!(!format!("{failed:?}").contains("synthetic response"));
+        assert!(!format!("{failed:?}").contains(THOUGHT));
+        assert!(!format!("{failed:?}").contains(RESPONSE));
         assert_eq!((writer.seq,writer.ver),(2,2));
         let receipt:i64=client.query_one("SELECT count(*) FROM ot.agy_step_receipts WHERE step_index=7",&[]).await.unwrap().get(0);
         assert_eq!(receipt,0);
@@ -61,7 +85,30 @@ mod agy_thinking_pg_tests {
         let other="abcdefab-1234-4321-8765-123456789abc";
         assert!(writer.append_agy_step(&mut client,other,6,rows()).await.unwrap().0.is_some());
         assert_eq!((writer.seq,writer.ver),(6,6));
+        // stamp is also called by ordinary append/update. Their content stays
+        // private, while identity stamping and persisted updates stay intact.
+        let mut ordinary = rows().remove(0);
+        let seq = writer.append(&client, ordinary.clone()).await.unwrap();
+        ordinary["text"] = json!(RESPONSE);
+        writer.update(&client, seq, ordinary).await.unwrap();
+        let body: Value = client.query_one("SELECT body FROM ot.convo WHERE agent_id=1 AND seq=$1", &[&seq])
+            .await.unwrap().get(0);
+        assert_eq!(body["thinking"], THOUGHT);
+        assert_eq!(body["text"], RESPONSE);
+        assert_eq!(body["seq"], seq);
+        assert_eq!(body["row_id"], format!("r{seq}"));
+        assert_eq!(body["event_id"], format!("e{seq}"));
         drop(client); connection.await.unwrap();
+        drop(subscriber);
+        drop(dispatch);
+        drop(log_guard); // drain the actual non-blocking engine log writer
+        let log = String::from_utf8(capture.0.lock().unwrap().clone()).unwrap();
+        if let Ok(path) = std::env::var("ORGTREE_AGY_THINKING_TRACE_PATH") {
+            std::fs::write(path, &log).unwrap();
+        }
+        assert!(log.contains("runtime.convo.parse_after("), "verbose log positive control did not run");
+        assert!(!log.contains(THOUGHT), "thinking canary leaked through the real receipt/append/update write chain");
+        assert!(!log.contains(RESPONSE), "response canary leaked through the real receipt/append/update write chain");
     }
 }
 

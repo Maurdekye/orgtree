@@ -800,6 +800,18 @@ pub struct EngineLayer {
     console: Option<tracing_appender::non_blocking::NonBlocking>,
 }
 
+/// Exercise the real engine formatter without installing a global subscriber
+/// or opening any application diagnostics directory.
+#[cfg(test)]
+pub(crate) fn test_sink(writer: impl std::io::Write + Send + 'static) ->
+    (tracing::Dispatch, tracing_appender::non_blocking::WorkerGuard)
+{
+    use tracing_subscriber::prelude::*;
+    let (file, guard) = tracing_appender::non_blocking(writer);
+    let subscriber = tracing_subscriber::registry().with(EngineLayer { file, console: None });
+    (tracing::Dispatch::new(subscriber), guard)
+}
+
 fn level_name(l: &Level) -> &'static str {
     match *l {
         Level::TRACE => "TRACE",
