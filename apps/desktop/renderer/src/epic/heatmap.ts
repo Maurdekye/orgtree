@@ -17,7 +17,6 @@ export class SoundHeatmap {
   private dead = false
   private reduced: MediaQueryList | null = null
   private observer: MutationObserver
-  private machines = new Map<HTMLElement, { layer: string | null; animation: Animation }>()
   private pulses: { wire: EpicWire; start: number; reverse: boolean }[] = []
   private transport: SVGSVGElement
   private dots: SVGCircleElement[] = []
@@ -48,7 +47,6 @@ export class SoundHeatmap {
     this.sources = []; this.positions.clear(); this.field = null
     this.pulses = []
     this.dots.forEach(dot => dot.setAttribute('visibility', 'hidden'))
-    this.still()
     this.canvas.getContext('2d')?.clearRect(0, 0, this.canvas.width, this.canvas.height)
     this.last = 0
   }
@@ -59,11 +57,7 @@ export class SoundHeatmap {
     this.reduced?.removeEventListener?.('change', this.motion)
     this.canvas.remove(); this.transport.remove(); this.clear()
   }
-  private still(): void {
-    for (const m of this.machines.values()) m.animation.cancel()
-    this.machines.clear()
-  }
-  private motion = () => { this.still(); this.pulses = []; this.field = null; this.wake() }
+  private motion = () => { this.pulses = []; this.field = null; this.wake() }
   /** Short transport pulse along an actual rendered link, never a guessed line. */
   pulse(id: string, other?: string): void {
     if (this.dead || this.reduced?.matches || this.pulses.length >= 24) return
@@ -78,7 +72,7 @@ export class SoundHeatmap {
   }
   private layout(): void {
     const space = this.doc.querySelector<HTMLElement>('.viewport .space')
-    if (!space || space.closest('.canvas-world-hidden')) { this.still(); this.canvas.remove(); this.transport.remove(); this.space = null; return }
+    if (!space || space.closest('.canvas-world-hidden')) { this.canvas.remove(); this.transport.remove(); this.space = null; return }
     if (space !== this.space) {
       this.space = space; this.field = null; space.prepend(this.canvas, this.transport)
     }
@@ -96,8 +90,6 @@ export class SoundHeatmap {
       this.positions.set(id, { x: p.x + size.w / 2, y: p.y + size.h / 2 })
       include(p.x, p.y, size.w, size.h)
     }
-    const active = new Map(this.sources.map(s => [s.id, s.layer]))
-    const seen = new Set<HTMLElement>()
     for (const card of space.querySelectorAll<HTMLElement>('[data-first-use-agent], .sq[data-copy-agent-name]')) {
       const match = /translate\(\s*([-\d.]+)px,\s*([-\d.]+)px\)/.exec(card.style.transform)
       if (!match) continue
@@ -105,24 +97,10 @@ export class SoundHeatmap {
       const w = parseFloat(card.style.width) || 200, h = parseFloat(card.style.height) || 100
       this.positions.set((card.dataset.firstUseAgent ?? card.dataset.copyAgentName)!, { x: x + w / 2, y: y + h / 2 })
       const id = (card.dataset.firstUseAgent ?? card.dataset.copyAgentName)!
-      seen.add(card)
-      const moving = this.machines.get(card)
-      if (moving && (!active.has(id) || this.reduced?.matches || moving.layer !== active.get(id))) {
-        moving.animation.cancel(); this.machines.delete(card)
-      }
-      if (!this.reduced?.matches && active.has(id) && !this.machines.has(card) && typeof card.animate === 'function') {
-        const layer = active.get(id)!
-        const durations: Record<string, number> = { thinking: 1100, writing: 720, toolWriting: 470, tool: 900, waiting: 1800, compacting: 380 }
-        const animation = card.animate([{ translate: '0 0' }, { translate: '0 -1px', offset: 0.12 },
-          { translate: '0 0', offset: 0.28 }, { translate: '0 0' }],
-        { duration: durations[layer ?? ''] ?? 1400, iterations: Infinity })
-        this.machines.set(card, { layer, animation })
-      }
       // DOM-only hosts retain their fallback; mounted dimensions cannot change
       // the domain of cards already covered by the complete canvas geometry.
       if (!geometry?.positions.has(id)) include(x, y, w, h)
     }
-    for (const [card, m] of this.machines) if (!seen.has(card)) { m.animation.cancel(); this.machines.delete(card) }
     // Quantise the domain so small drag/spring movements do not regrid it.
     minX = Math.floor(minX / 512) * 512; minY = Math.floor(minY / 512) * 512
     maxX = Math.ceil(maxX / 512) * 512; maxY = Math.ceil(maxY / 512) * 512

@@ -49,9 +49,10 @@ cooling. This replaces the initial radial-glow proposal; reduced motion shows
 a static field. Every tool signature hashes its normalised name to select
   pitch, interval, timbre and envelope, replacing the proposed family table.
   The 09:41Z factory directive replaces musical/chime voicing with machinery
-  and mechanical impacts. Coordinator-approved 09:42Z motion adds subtle
-  state-driven card piston motion and real-link tool/message transport pulses,
-  disabled under reduced motion and idle states.
+  and mechanical impacts. Real-link tool/message transport pulses remain,
+  disabled under reduced motion. User feedback at 19:33Z removes the working-card
+  piston bump as distracting, replacing the coordinator's 09:42Z approval:
+  working cards stay still. Heat and sound are unchanged.
 4.4.0 only. Details: [EPIC activity sound](epic-activity-sound.md).
 
 **EPIC combo removal, user 2026-10-16 20:45–20:46Z:** remove the combo

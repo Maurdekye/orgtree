@@ -127,10 +127,11 @@
   enabling mid-turn starts immediately. Sounds feed a world-space Jacobi heat
   equation beneath the cards; reduced motion shows a static baseline. Tool
   signatures hash normalised names into mechanical material impacts. Machinery
-  layers, activity-driven 1px piston motion and real-link transport pulses make
-  the working-factory palette; reduced motion disables the animation. Contract and tests:
+  layers and real-link transport pulses make the working-factory palette;
+  reduced motion disables pulses. Working cards stay still: user feedback
+  at 19:33Z removes the piston bump, replacing the coordinator's 09:42Z approval. Contract and tests:
   [EPIC activity sound](docs/rust-engine/epic-activity-sound.md).
-  [decided: user 2026-10-17 09:18–09:41Z; coordinator motion 09:42Z; verified: `epic/{activity,ambience,heatfield,heatmap,toolvoice}.ts`]
+  [decided: user 2026-10-17 09:18–09:41Z, 19:33Z; verified: `epic/{activity,ambience,heatfield,heatmap,toolvoice}.ts`]
 
 - Project nodes (4.4.0) are `ot.agents` rows with `kind = 'project'`: free tree nodes that run
   no turns, with a folder (`_teams/<id>`), a mailbox and presentations. Invariants:

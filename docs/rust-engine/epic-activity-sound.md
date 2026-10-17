@@ -89,14 +89,14 @@ impulse path as other agent action sounds.
 
 ## Factory motion
 
-Coordinator-approved 09:42Z motion uses a 1px piston bump on working cards,
-timed by activity, through the individual CSS `translate` property. It never
-changes the canvas/drag `transform`. Browser animations stop when idle,
-hidden, removed, EPIC off or reduced motion. Existing SVG/GL wire geometry is
+User feedback at 19:33Z on 2026-10-17 removes the working-card piston bump,
+replacing the coordinator's 09:42Z approval. Working cards stay still: the heat
+layer creates no card animations or CSS `translate` changes. Existing SVG/GL wire geometry is
 borrowed at its existing commit point; tool and message events send short
 directional transport pulses along those actual curves. At most 24 pulses
 share an SVG dot pool and the heatmap's 15 Hz timer; there is no per-agent
-DOM overlay or new frame loop. Reduced motion disables both kinds of motion.
+DOM overlay or new frame loop. Reduced motion disables wire pulses. Heat and
+sound retain their existing behavior.
 
 ## Verification
 
