@@ -516,7 +516,9 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
   }, [range])
 
   const view = useMemo(() => {
-    if (!data || data.range !== range) return null
+    // the data on hand, whichever period it is for: a period switch keeps showing it (in place)
+    // until the new period's answer replaces it, rather than blanking the page
+    if (!data) return null
     const since = Date.parse(data.since)
     const until = Date.parse(data.until)
     const now = until
@@ -525,9 +527,11 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
     const gapMs = Math.max((data.keepalive_min + 15) * 60_000, 2 * data.bucket_s * 1000)
     const models = data.series.map((s) => modelSeries(s, data.resets, { now, since, until, gapMs }))
     return { since, until, now, models, to: until + (until - since) * FUTURE_SHARE }
-  }, [data, range])
+  }, [data])
 
   const series = data?.series ?? []
+  // the chosen period's answer has not arrived yet: the previous period stays shown, dimmed
+  const busy = data != null && data.range !== range && !error
   const shown = (view?.models ?? []).filter((m) => lanes.used(m.series.account))
     .filter((m) => (!provider || m.series.provider === provider)
     && (!account || m.series.account === account) && (!win || m.series.window === win)
@@ -549,7 +553,7 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
     <PinFrame kind="usage-history" title="Usage history" panel="settings usage-history-modal" close={close}>
       <div className="uh-header">
         <h3><ShowChartIcon fontSize="inherit" /> Usage history</h3>
-        <div className="uh-ranges" role="group" aria-label="period">
+        <div className="uh-ranges" role="group" aria-label="period" aria-busy={busy}>
           {RANGES.map((r) => (
             <button key={r.id} type="button" className={'uh-range' + (r.id === range ? ' on' : '')}
               aria-pressed={r.id === range} onClick={() => setRange(r.id)}>{r.label}</button>
@@ -567,7 +571,7 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
               .map((s) => ({ id: s.provider, label: providerName(s.provider) })))} />
           <Select label="Account" all="All accounts" value={account} set={setAccount}
             options={uniq(series.filter((s) => lanes.used(s.account))
-              .map((s) => ({ id: s.account, label: s.account_label })))} />
+              .map((s) => ({ id: s.account, label: `${providerName(s.provider)} · ${s.account_label}` })))} />
           <Select label="Window" all="All windows" value={win} set={setWin}
             options={uniq(series.map((s) => ({ id: s.window, label: WINDOW_NAMES[s.window] ?? s.window })))} />
           <Select label="Model scope" all="All models" value={model} set={setModel}
@@ -593,7 +597,7 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
       )}
       {view && data && data.oldest && !series.length && (
         <div className="uh-empty">
-          Nothing was recorded in the last {RANGES.find((r) => r.id === range)?.label}. The oldest kept
+          Nothing was recorded in the last {RANGES.find((r) => r.id === data.range)?.label}. The oldest kept
           reading is from {fmtStamp(data.oldest)} — choose a longer period.
         </div>
       )}
@@ -601,7 +605,7 @@ export function UsageHistoryModal({ close, org }: { close: () => void; org?: str
       {view && [...byAccount].map(([acct, ms]) => {
         const st = lastState(acct)
         return (
-          <div className="uh-account" key={acct}>
+          <div className={'uh-account' + (busy ? ' busy' : '')} key={acct}>
             <div className="uh-account-head">
               <b>{providerName(ms[0]?.series.provider ?? st?.provider ?? '')}</b>
               <span>{ms[0]?.series.account_label ?? st?.account_label ?? acct}</span>
