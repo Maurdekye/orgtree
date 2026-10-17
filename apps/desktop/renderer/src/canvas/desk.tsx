@@ -4078,10 +4078,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       {(() => {
         // reports need somewhere to jump to; without `onJump` only the dogs show
         const jump = onJump ?? (() => {})
-        const reports = onJump
-          ? node.children.filter((c) => c.state !== 'draft' && !c.isBearerOf) : []
-        // projects are passthrough: their live members are jump cards too
-        const alive = downJumpTargets(reports.filter((c) => c.state === 'live'))
+        // projects are passthrough: their members are jump cards too, live
+        // ones as cards and retired ones behind the retired controls
+        const reports = onJump ? downJumpTargets(node.children) : []
+        const alive = reports.filter((c) => c.state === 'live')
         const retired = reports.filter((c) => c.state !== 'live')
         if (!reports.length && !deskDogs) return null
         const dogs = deskDogs?.dogs ?? []

@@ -2026,16 +2026,18 @@ export function upJumpTargets(node: Pick<CanvasNode, 'parent'>, map: Map<string,
   return chain.reverse()
 }
 
-/** A desk's DOWN jump cards through projects: each report, and for a project
- *  also its live direct members, recursing through nested projects, in tree
- *  order (user 2026-10-17 22:13Z). */
+/** A desk's DOWN jump membership through projects: each report, and for a
+ *  live project also its direct members, recursing through nested live
+ *  projects, in tree order (user 2026-10-17 22:13Z). Retired members are
+ *  included: the desk splits the list into live cards and its retired
+ *  controls, so a retired member inside a project stays reachable. Drafts and
+ *  bearer layers are not members. */
 export function downJumpTargets(reports: CanvasNode[]): CanvasNode[] {
   const out: CanvasNode[] = []
   for (const c of reports) {
+    if (c.state === 'draft' || c.isBearerOf) continue
     out.push(c)
-    if (c.kind === 'project') {
-      out.push(...downJumpTargets((c.children ?? []).filter((k) => k.state === 'live' && !k.isBearerOf)))
-    }
+    if (c.kind === 'project' && c.state === 'live') out.push(...downJumpTargets(c.children ?? []))
   }
   return out
 }
