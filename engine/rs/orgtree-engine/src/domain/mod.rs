@@ -73,3 +73,5 @@ pub fn user_err(kind: fn(String) -> UserError, msg: impl Into<String>) -> anyhow
 }
 
 pub mod mail_tags;
+
+pub mod compaction;

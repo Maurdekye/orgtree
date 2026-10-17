@@ -7289,9 +7289,7 @@ impl Actor {
         if ctx.provider == catalog::MUSE {
             return self.muse_command(&ctx, compact).await;
         }
-        let claude_code = ctx.provider == catalog::CLAUDE
-            || ((ctx.provider == catalog::OPENROUTER || ctx.provider == catalog::LANGSERVER)
-                && ctx.harness.as_deref() != Some("codex-cli"));
+        let claude_code = crate::domain::compaction::normal_compact_supported(&ctx.provider,ctx.harness.as_deref());
         if !claude_code {
             return Ok(json!({ "started": false,
                               "reason": "slash commands are Claude Code's; compact this agent with cheap compact instead" }));
