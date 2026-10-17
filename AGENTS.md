@@ -184,11 +184,12 @@
   [decided: user 2026-10-16; verified: `main/jumplist.ts`, `main/index.ts`;
   contract and verification limits: `docs/rust-engine/taskbar-jumplist.md`]
 
-- An uninitialized manual hire's model icon opens the shared hire-tier menu.
+- An uninitialized manual hire's model icon opens the same `SpawnChips` token
+  pyramid as node hiring and Quick chat (replacing the plain tier menu).
   Picking a tier changes the local draft only: preserve form and placement,
   drop incompatible account bindings and map known effort levels as the bar
   does. Final Hire submits that tier through the existing admission gate.
-  [decided: user 2026-10-16 10:54Z; verified: `canvas/cards.tsx`, `canvas/OrgCanvas.tsx`;
+  [decided: user 2026-10-16 10:54Z, 2026-10-17 19:29Z; verified: `canvas/cards.tsx`, `canvas/OrgCanvas.tsx`, `canvas/pickerpopover.tsx`;
   contract: `docs/rust-engine/draft-model-picker.md`]
 
 - New Claude Agent/Task calls retain bounded helper transcripts privately per

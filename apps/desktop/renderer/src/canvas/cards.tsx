@@ -45,6 +45,7 @@ import type { MenuEntry } from './contextmenu'
 import { AgentBatchHaltConfirm, AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import { hireTierChoices, museEffortLevels } from './shared'
 import { scratchFolderAction } from '../scratch-folder'
+import { PickerPopover } from './pickerpopover'
 import type { RetireKind } from './agentmenu'
 import { BulkCompactConfirm, allAgents } from './bulkcompact'
 import { useDeskActionsNow } from './deskhosts'
@@ -1066,10 +1067,12 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   // adjustment needed. null = the org/parent defaults, untouched.
   const [scope, setScope] = useState<DraftScope | null>(null)
   const [permsOpen, setPermsOpen] = useState(false)
-  const modelMenu = useContextMenu()
+  const [modelAnchor, setModelAnchor] = useState<HTMLElement | null>(null)
   const modelButton = useRef<HTMLButtonElement | null>(null)
-  const museHire = useMuseHire()
-  useShowLegacyModels()
+  const closeModelPicker = () => {
+    setModelAnchor(null)
+    modelButton.current?.focus({preventScroll:true})
+  }
   const chooseModel = (tier: string) => {
     if (tier === draft.tier) return
     // Folders, tools and visibility are independent of the model. Only discard
@@ -1095,10 +1098,6 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
     })
     onTierChange?.(tier)
   }
-  // A menu's own Escape consumes the key before this draft's cancel listener.
-  // Reanchor after the tier button updates so normal menu focus restoration
-  // continues to target the live icon.
-  useEffect(() => { modelMenu.reanchor(modelButton.current) }, [draft.tier, modelMenu.reanchor])
   // named charter presets (user ruling): every .md in docs/charters/. Picked
   // presets appear as CARDS, not text (user spec) — click removes, hover
   // shows the source file's path on disk; only finalizing the hire turns
@@ -1176,15 +1175,9 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
               always visible and stages the pre-hire permissions */}
           <div className="df-head">
             <button ref={modelButton} type="button" className={'tier df-model t-' + draft.tier}
-              aria-label={`Change model (${tierLabel(draft.tier)})`} aria-haspopup="menu" aria-expanded={modelMenu.isOpen}
+              aria-label={`Change model (${tierLabel(draft.tier)})`} aria-haspopup="dialog" aria-expanded={!!modelAnchor}
               title={`${tierLabel(draft.tier)} — change the model to hire`} disabled={!onTierChange}
-              onClick={e => modelMenu.open(e, hireTierChoices({ ...hires, museHire: hires.museHire ?? museHire })
-                .map(({ tier, offer, reason }) => ({
-                  label: `${tier === draft.tier ? '✓ ' : ''}${tierLabel(tier)} · ${fmtCredits(seats[tier] ?? anyTierSeat(tier))} seat`
-                    + (offer === 'offer' ? '' : ` — ${reason}`),
-                  title: offer === 'offer' ? `Hire on ${tierLabel(tier)}` : reason,
-                  disabled: offer !== 'offer', onSelect: () => chooseModel(tier),
-                })), e.currentTarget)}>{TIER_LETTER[draft.tier]}</button>
+              onClick={e => modelAnchor ? closeModelPicker() : setModelAnchor(e.currentTarget)}>{TIER_LETTER[draft.tier]}</button>
             <input className="df-name" placeholder="name…" value={name}
               // focus WITHOUT scroll: autoFocus on an element inside the
               // world transform made the browser scroll the overflow:hidden
@@ -1283,7 +1276,11 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
           onSave={(s) => { setScope(s); setPermsOpen(false) }}
           close={() => setPermsOpen(false)} />
       )}
-      {modelMenu.node}
+      {modelAnchor && <PickerPopover anchor={modelAnchor} onClose={closeModelPicker} kind="model"
+        className="draft-model-picker" label="Choose draft model" focusFirst>
+        <SpawnChips onSpawn={tier => { closeModelPicker(); chooseModel(tier) }} seats={seats}
+          soleHire selected={draft.tier} {...hires}/>
+      </PickerPopover>}
     </div>
   )
 }

@@ -20,10 +20,10 @@ module.exports = async (page, { args }) => {
   const hasIcon = await page.eval(() => !!document.querySelector('.df-head button.tier'))
   if (!hasIcon) return { hasIcon, reason: 'model icon is not an actionable control' }
   await page.click('.df-head button.tier')
-  await page.waitFor('.ctxmenu')
+  await page.waitFor('.draft-model-picker .hsof')
   await frames(); await page.screenshot('02-model-picker')
   const before = await page.api('GET', `/api/orgs/${args.org}`)
-  await page.click({ selector: 'button[role="menuitem"]', text: '^sol', regex: true })
+  await page.click('.draft-model-picker .hsof button.t-sol')
   await page.waitFor('.df-head button.t-sol')
   const staged = await page.eval(() => ({
     name: document.querySelector('.df-name').value, charter: document.querySelector('.df-charter').value,

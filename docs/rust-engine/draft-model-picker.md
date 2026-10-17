@@ -1,17 +1,20 @@
 # Model selection before a manual hire
 
 The uninitialized canvas draft previously displayed a passive model token.
-Clicking that icon now opens the existing application menu with the shared
-hire-tier choices. Choosing a tier changes the model that final Hire submits.
-This is the user's 2026-10-16 10:54Z request, for 4.4.0.
+Clicking that icon opens the same `SpawnChips` hire-token pyramid used off a
+node and in Quick chat. It replaces the plain tier menu after the user's
+2026-10-17 19:29Z feedback on the original 2026-10-16 request, for 4.4.0.
+Choosing a token changes the model that final Hire submits.
 
 The draft remains mounted. Its name, manual charter, charter presets, grant,
 parent and sibling/superior placement survive a model choice. Its provider
 theme, icon and credit-bar seat update from the selected tier. Escape closes
 the picker before the draft's own Escape-to-cancel handler. Keyboard button
-activation and the application's existing menu navigation remain available.
+activation, token focus and Tab navigation remain available. Closing restores
+focus to the draft's model icon. The popup shares Quick chat's own-document
+portal, outside-press/Escape dismissal and pointer-leave behavior.
 
-Choices follow `hireTierChoices`, including provider presence, enabled/sign-in
+Choices use `SpawnChips` directly, including provider presence, enabled/sign-in
 state, legacy/conditional models and dynamic OpenRouter/language-server tiers.
 The picker consumes existing availability state; it begins no discovery load.
 Disabled choices show the existing reason. Final Hire remains authoritative

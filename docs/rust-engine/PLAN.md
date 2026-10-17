@@ -317,6 +317,7 @@ See [`taskbar-jumplist.md`](taskbar-jumplist.md).
 Uninitialized manual hires let the user change the proposed model by clicking
 the draft's model icon (user 2026-10-16 10:54Z). This changes only the local
 draft; the final Hire uses the selected tier and existing admission checks.
+The picker uses the shared hire-token pyramid (user 2026-10-17 19:29Z).
 See [draft model picker](draft-model-picker.md).
 
 Popout Close addition (user 2026-10-13): native modal-window Close dismisses
