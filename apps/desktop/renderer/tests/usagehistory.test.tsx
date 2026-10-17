@@ -12,6 +12,10 @@
 //    the sticky/compact rules are checked in the real styles.css (jsdom does no
 //    layout, so the pinned look itself is a screenshot, not a test).
 //
+// §5 (user 2026-10-17) switching the period keeps the content, its elements and
+//    its scroll position until the new data arrives, and swaps it in place; the
+//    account filter names every account with its provider.
+
 // §4 the projected-ahead slider (user 2026-10-17): 0-100 % of the graph's width,
 //    default = the old fixed layout (20 %), live (no refetch), remembered, and the
 //    axis stays right at both ends.
@@ -395,4 +399,66 @@ test('§4.6 a sub-day axis still gets its time labels, whatever hour it starts o
     const step = (ticks[1]!.t - ticks[0]!.t) / H
     assert.ok(ticks.every((k) => k.t >= from && new Date(k.t).getHours() % step === 0), 'on round hours')
   }
+})
+
+// ------------------------------------------------ §5 period switch / account names
+test('§5.1 switching the period keeps the shown content (same elements) until the new data arrives', async () => {
+  const g = globalThis as unknown as Record<string, unknown>
+  const week = payload({ oldest: iso(NOW - 3 * 24 * H), series: [series([bucket(NOW - 2 * H, 10), bucket(NOW - H, 20)])] })
+  const day = payload({ range: '24h', oldest: iso(NOW - 3 * 24 * H), series: [series([bucket(NOW - 2 * H, 10), bucket(NOW - H, 20)])] })
+  let release: () => void = () => {}
+  const seen: string[] = []
+  g.fetch = ((url: string) => {
+    seen.push(String(url))
+    const body = String(url).includes('range=24h') ? day : week
+    const reply = { ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(body) }
+    // the 24 h answer is held back until the test lets it through
+    return String(url).includes('range=24h') ? new Promise((r) => { release = () => r(reply) }) : Promise.resolve(reply)
+  }) as unknown as typeof fetch
+  try {
+    const view = await mountView(<UsageHistoryModal close={() => {}} />, (el) => el)
+    await inAct(async () => { await flush(8) })
+    const card = view.el.querySelector('.uh-card')
+    const head = view.el.querySelector('.uh-account')
+    assert.ok(card && head)
+    const button = [...view.el.querySelectorAll('.uh-header [aria-label="period"] button')][0] as HTMLButtonElement
+    await inAct(async () => { button.click(); await flush(6) })
+    assert.ok(seen.some((u) => u.includes('range=24h')), 'the new period was requested')
+    assert.equal(button.getAttribute('aria-pressed'), 'true', 'the choice shows at once')
+    assert.equal(card!.isConnected && view.el.querySelector('.uh-card') === card, true, 'the old graphs stay mounted while waiting')
+    assert.equal(view.el.querySelector('.uh-account') === head, true)
+    assert.equal(/loading/.test(view.el.textContent ?? ''), false, 'no loading state replaces the content')
+    assert.equal(view.el.querySelector('[aria-busy="true"]') !== null, true, 'a quiet in-place busy hint')
+    await inAct(async () => { release(); await flush(8) })
+    assert.equal(view.el.querySelector('.uh-card') === card, true, 'the new data is swapped in place, not remounted')
+    assert.equal(view.el.querySelector('[aria-busy="true"]') === null, true, 'busy hint cleared')
+    await view.unmount()
+  } finally { delete g.fetch }
+})
+
+test('§5.2 every account in the filter is prefixed with its provider; "All accounts" is not', async () => {
+  const f = stubFetch(payload({
+    oldest: iso(NOW - 3 * 24 * H),
+    series: [
+      series([bucket(NOW - H, 10), bucket(NOW, 20)]),
+      series([bucket(NOW - H, 40)], { account: 'openai/primary', account_label: 'a@example.test', provider: 'openai', window: 'weekly_all', label: 'Weekly' }),
+      series([bucket(NOW - H, 5)], { account: 'or-1', account_label: 'sk-or-v1-3dd...5c0', provider: 'openrouter', window: 'spend', label: 'Spend', kind: 'amount', unit: 'USD' }),
+    ],
+  }))
+  try {
+    const view = await mountView(<UsageHistoryModal close={() => {}} />, (el) => el)
+    await inAct(async () => { await flush(8) })
+    const select = view.el.querySelector('.uh-header select[aria-label="Account"]') as HTMLSelectElement
+    assert.deepEqual([...select.options].map((o) => o.textContent),
+      ['All accounts', 'Claude · a@example.test', 'Codex · a@example.test', 'OpenRouter · sk-or-v1-3dd...5c0'])
+    await inAct(async () => {
+      const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(select), 'value')!.set!
+      set.call(select, 'openai/primary')
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      await flush(4)
+    })
+    assert.equal(view.el.querySelectorAll('.uh-card').length, 1, 'filtering by the prefixed entry still filters')
+    assert.equal(select.selectedOptions[0]!.textContent, 'Codex · a@example.test', 'the closed dropdown carries the prefix too')
+    await view.unmount()
+  } finally { f.restore() }
 })
