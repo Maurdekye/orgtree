@@ -2303,7 +2303,9 @@ impl Actor {
         let view = self.engine.accounts.view();
         let acc = ctx.account.as_deref().and_then(|a| view.get(a));
         if ctx.provider == catalog::GOOGLE {
-            if let Some(failure) = crate::providers::agy_auth::blocked_for(&self.engine, &agy_login) {
+            // Inconclusive metadata reaches ensure_agy's bounded full check;
+            // known refusals still stop before any subprocess can start.
+            if let Some(failure) = crate::providers::agy_auth::blocked_for(&self.engine, &agy_login).filter(|e| !e.transient()) {
                 return Err(anyhow!(failure));
             }
             if let Some(until) = acc.and_then(|a| a.limited_for(&ctx.tier, Utc::now())) {
@@ -3166,7 +3168,7 @@ impl Actor {
             return Err(anyhow!("Antigravity is turned off in App settings"));
         }
         let login = self.agy_login(ctx);
-        if let Some(failure) = crate::providers::agy_auth::blocked_for(&self.engine, &login) {
+        if let Some(failure) = crate::providers::agy_auth::blocked_for(&self.engine, &login).filter(|e| !e.transient()) {
             self.close_proc().await;
             return Err(anyhow!(failure));
         }
@@ -3175,7 +3177,7 @@ impl Actor {
             None => tokio::task::spawn_blocking(crate::providers::locate_agy).await.ok().flatten()
                 .map(|(p, _)| p).ok_or_else(|| anyhow!("the Antigravity CLI is not installed on this machine"))?,
         };
-        let stamp = match crate::providers::agy_auth::preflight_for(&self.engine, &exe, &login).await {
+        let stamp = match crate::providers::agy_auth::launch_preflight_for(&self.engine, &exe, &login).await {
             Ok(stamp) => stamp,
             Err(e) => { self.close_proc().await; return Err(e.into()); }
         };
@@ -3978,11 +3980,12 @@ impl Actor {
         // wakes this pending mail through the usage loop.
         if ctx.provider == catalog::GOOGLE {
             let login = self.agy_login(&ctx);
-            let failure = if let Some(e) = crate::providers::agy_auth::blocked_for(&self.engine, &login) {
-                Some(e)
+            let blocked = crate::providers::agy_auth::blocked_for(&self.engine, &login);
+            let failure = if blocked.is_some_and(|e| !e.transient()) {
+                blocked
             } else if let Some(exe) = self.engine.providers.agy_path() {
-                crate::providers::agy_auth::preflight_for(&self.engine, &exe, &login).await.err()
-            } else { None };
+                crate::providers::agy_auth::launch_preflight_for(&self.engine, &exe, &login).await.err()
+            } else { blocked };
             if let Some(e) = failure {
                 self.last_error = Some(e.to_string());
                 self.close_proc().await;

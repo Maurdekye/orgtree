@@ -14,7 +14,7 @@ export default async function (rig) {
     catch (e) { if (e.code === 'ENOENT') return []; throw e }
   }
   const chat = name => rig.api('GET', `/api/orgs/${rig.org}/nodes/${name}/chat?last=1`)
-  for (const name of ['auth-retry', 'auth-reject']) {
+  for (const name of ['auth-retry', 'auth-metadata', 'auth-reject']) {
     await rig.op({ op: 'hire', name, parent: 'boss', tier: 'flash', title: 'Synthetic auth wake' })
   }
   const before = rig.turns('auth-retry').length
@@ -41,7 +41,29 @@ export default async function (rig) {
   p.check('only one inference turn was created', rig.turns('auth-retry').length === before + 1)
   p.check('transient timeout never creates a sign-out latch',
     !fs.existsSync(path.join(rig.data, 'diagnostics', 'agy-auth-latch.json')))
+  const diagnostics = rig.engineLog().split(/\r?\n/).filter(line =>
+    /Antigravity guarded check failed|Antigravity launch check inconclusive/.test(line))
+  p.check('safe diagnostics identify timeout and bounded retry without account text',
+    diagnostics.some(line => /capture_timeout/.test(line) && /Timeout/.test(line)) &&
+    diagnostics.some(line => /retry_ms=500/.test(line)) && diagnostics.every(line => !line.includes('@')), diagnostics)
   await rig.op({ op: 'halt', nodes: ['auth-retry'] })
+
+  // An unreadable metadata fixture exercises Unavailable, including the
+  // metadata-only gate before preflight. Restore the original synthetic stamp
+  // so the ordinary metadata polling loop cannot be the recovery mechanism.
+  const metadataPath = path.join(rig.data, 'agy-auth-metadata.json')
+  fs.writeFileSync(metadataPath, JSON.stringify({ bad: true }))
+  await rig.userMail('auth-metadata', 'ONE-WAKE-AFTER-METADATA-ERROR')
+  const observed = await rig.waitFor(() => rig.engineLog().split(/\r?\n/).some(line =>
+    /metadata_before_check/.test(line) && /Unavailable/.test(line)),
+    { what: 'inconclusive metadata check', timeout: 2000 }).catch(() => false)
+  fs.writeFileSync(metadataPath, JSON.stringify({ stamp: 1 }))
+  const recovered = await rig.waitFor(() => rig.turns('auth-metadata').find(t => t.ended_at),
+    { what: 'same wake retried after metadata became readable', timeout: 5000 }).catch(e => ({ wait_error: e.message }))
+  p.check('metadata-only gate defers transient failure to bounded full check', observed === true)
+  p.check('unavailable metadata recovers the original wake without asserting sign-out',
+    !!recovered.ended_at && !recovered.error && !fs.existsSync(path.join(rig.data, 'diagnostics', 'agy-auth-latch.json')), recovered)
+  await rig.op({ op: 'halt', nodes: ['auth-metadata'] })
 
   // A clean signed-out reply stays a hard refusal, with no automatic retry.
   fixture({ check: 'reject' })
@@ -55,6 +77,6 @@ export default async function (rig) {
     rejected.filter(c => c.kind === 'check').length === 1 && !rejected.some(c => c.kind === 'runtime'), rejected)
   p.check('signed-out wake creates no inference turn', rig.turns('auth-reject').length === 0)
   p.file('guard-calls.json', calls())
-  p.keep(rig, { agents: ['auth-retry', 'auth-reject'], grep: /agy|Agy|Antigravity/ })
+  p.keep(rig, { agents: ['auth-retry', 'auth-metadata', 'auth-reject'], grep: /agy|Agy|Antigravity/ })
   return p.summary()
 }

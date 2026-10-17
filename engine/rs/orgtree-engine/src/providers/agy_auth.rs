@@ -129,6 +129,11 @@ impl std::fmt::Display for Failure {
 impl std::error::Error for Failure {}
 impl Failure {
     #[nolog]
+    pub fn transient(self) -> bool {
+        matches!(self, Self::Unavailable | Self::Timeout)
+    }
+
+    #[nolog]
     pub fn reading(self) -> Value {
         let mut v = json!({"available":false,"error":self.to_string(),"provider":"google","account":"google/primary"});
         if matches!(self, Self::SignedOut) {
@@ -440,18 +445,26 @@ fn capture(cmd: Command, timeout: Duration) -> BoxFuture<'static, Result<Output,
     Box::pin(capture_inner(cmd, timeout))
 }
 
+/// Only fixed stage names and failure classes; never process output or OS
+/// error strings, which may contain paths or credential material.
+#[nolog]
+fn check_failure(stage: &'static str, failure: Failure) -> Failure {
+    tracing::warn!(stage, reason = ?failure, "Antigravity guarded check failed");
+    failure
+}
+
 #[nolog]
 async fn capture_inner(mut cmd: Command, timeout: Duration) -> Result<Output, Failure> {
-    let mut child = cmd.spawn().map_err(|_| Failure::Unavailable)?;
+    let mut child = cmd.spawn().map_err(|_| check_failure("spawn", Failure::Unavailable))?;
     let job = crate::winproc::child_job(&child);
     drop(child.stdin.take());
-    let stdout = child.stdout.take().ok_or(Failure::Unavailable)?;
-    let stderr = child.stderr.take().ok_or(Failure::Unavailable)?;
-    async fn read(mut stream: impl tokio::io::AsyncRead + Unpin) -> Result<Vec<u8>, Failure> {
+    let stdout = child.stdout.take().ok_or_else(|| check_failure("stdout_pipe", Failure::Unavailable))?;
+    let stderr = child.stderr.take().ok_or_else(|| check_failure("stderr_pipe", Failure::Unavailable))?;
+    async fn read(mut stream: impl tokio::io::AsyncRead + Unpin, stage: &'static str) -> Result<Vec<u8>, Failure> {
         let mut all = Vec::new();
         let mut buf = vec![0u8; 4096];
         loop {
-            let n = stream.read(&mut buf).await.map_err(|_| Failure::Unavailable)?;
+            let n = stream.read(&mut buf).await.map_err(|_| check_failure(stage, Failure::Unavailable))?;
             if n == 0 { return Ok(all); }
             all.extend_from_slice(&buf[..n]);
             // Scan each line (including an unfinished prompt with no newline).
@@ -460,11 +473,11 @@ async fn capture_inner(mut cmd: Command, timeout: Duration) -> Result<Output, Fa
         }
     }
     let result = tokio::time::timeout(timeout, async {
-        let (stdout, stderr, status) = tokio::try_join!(read(stdout), read(stderr), async {
-            child.wait().await.map_err(|_| Failure::Unavailable)
+        let (stdout, stderr, status) = tokio::try_join!(read(stdout, "stdout_read"), read(stderr, "stderr_read"), async {
+            child.wait().await.map_err(|_| check_failure("wait_exit", Failure::Unavailable))
         })?;
         Ok(Output { status, stdout, stderr })
-    }).await.unwrap_or(Err(Failure::Timeout));
+    }).await.unwrap_or_else(|_| Err(check_failure("capture_timeout", Failure::Timeout)));
     if result.is_err() {
         if let Some(job) = &job { job.terminate(); }
         let _ = child.kill().await;
@@ -518,6 +531,29 @@ pub fn preflight_for<'a>(engine: &'a Engine, exe: &'a Path, login: &'a Login) ->
     Box::pin(async move { preflight_inner(engine, exe, login).await.map(|(stamp, _)| stamp) })
 }
 
+/// Agent admission/launch only: retry one inconclusive check, not a known
+/// refusal. Each attempt reacquires the guard and reads current metadata.
+/// The sleep holds neither the guard's mutex nor a database transaction.
+#[nolog]
+pub fn launch_preflight_for<'a>(engine: &'a Engine, exe: &'a Path, login: &'a Login) -> BoxFuture<'a, Result<Stamp, Failure>> {
+    Box::pin(retry_launch(|| preflight_for(engine, exe, login)))
+}
+
+#[nolog]
+async fn retry_launch<C, F>(mut check: C) -> Result<Stamp, Failure>
+where C: FnMut() -> F, F: std::future::Future<Output = Result<Stamp, Failure>> {
+    let first = check().await;
+    if let Err(failure) = first {
+        if failure.transient() {
+            tracing::warn!(reason = ?failure, attempt = 1, retry_ms = 500,
+                "Antigravity launch check inconclusive; retrying once");
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            return check().await;
+        }
+    }
+    first
+}
+
 /// Who a login is signed in as, by the same guarded silent check a launch
 /// runs (the identity read of a registered account). Never logged: the
 /// answer names an account.
@@ -544,7 +580,7 @@ async fn preflight_inner(engine: &Engine, exe: &Path, login: &Login) -> Result<(
     let stamp = match metadata_for(engine, login) {
         Ok(Some(s)) => s,
         Ok(None) => { if *login == Login::Primary { connected(engine, false); } return Err(Failure::SignedOut); }
-        Err(e) => return Err(e),
+        Err(e) => return Err(check_failure("metadata_before_check", e)),
     };
     if let Some(kind) = holding(engine, login, stamp) {
         return Err(if kind == Refusal::NotIsolated { Failure::NotIsolated } else { Failure::SignedOut });
@@ -553,15 +589,17 @@ async fn preflight_inner(engine: &Engine, exe: &Path, login: &Login) -> Result<(
     match result {
         Ok(output) if check_passed(&output) => {
             // A credential changed while checking: don't authorize the old result.
-            if metadata_for(engine, login)? != Some(stamp) { return Err(Failure::Unavailable); }
+            if metadata_for(engine, login).map_err(|e| check_failure("metadata_after_check", e))? != Some(stamp) {
+                return Err(check_failure("metadata_changed_during_check", Failure::Unavailable));
+            }
             if cfg!(windows) && latched(engine, login, stamp) { return Err(Failure::SignedOut); }
             let who = check_identity(&output);
             if *login != Login::Primary {
                 // Fail closed: a profile runs only when its check names an
                 // account and the default sign-in, asked right now, does not
                 // name the same one (shared keyring, measured 2026-10-16).
-                let Some(me) = who.as_deref() else { return Err(Failure::Unavailable) };
-                if default_identity(engine, exe).await?.is_some_and(|d| same_account(&d, me)) {
+                let Some(me) = who.as_deref() else { return Err(check_failure("profile_identity_missing", Failure::Unavailable)) };
+                if default_identity(engine, exe).await.map_err(|e| check_failure("default_identity_check", e))?.is_some_and(|d| same_account(&d, me)) {
                     refuse_for(engine, login, stamp, Refusal::NotIsolated);
                     return Err(Failure::NotIsolated);
                 }
@@ -624,6 +662,9 @@ async fn checked_output_inner(engine: &Engine, exe: &Path, mut cmd: Command, tim
     if matches!(result, Err(Failure::SignedOut)) { refuse_for(engine, login, stamp, Refusal::Untrusted); }
     result
 }
+
+#[cfg(test)]
+mod launch_retry_tests;
 
 #[cfg(test)]
 mod tests {
