@@ -1188,10 +1188,10 @@ function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
   // against the node's current tier on every read anyway.
   const modelVersion = val('modelVersion', scope.model_version ?? '')
   const setModelVersion = set<string>('modelVersion', modelVersion)
-  const supportsFastMode = useFastMode(model, modelVersion)
+  const versions = MODEL_VERSIONS[model] ?? []
+  const supportsFastMode = useFastMode(model, versions.includes(modelVersion) ? modelVersion : undefined)
   const fastMode = val('fastMode', scope.fast_mode === true)
   const setFastMode = set<boolean>('fastMode', fastMode)
-  const versions = MODEL_VERSIONS[model] ?? []
   // a Muse seat's levels and model are the login it runs on, the pinned
   // version's row there (the engine checks the same at the door)
   const museModel = MUSE_TIERS.includes(model)
