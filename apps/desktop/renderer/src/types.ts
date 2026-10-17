@@ -178,6 +178,7 @@ export interface MailAttachment {
 
 // schema.py MailEntry (№11/№17)
 export interface MailEntry {
+  tags?: string[]
   reply_to?: MailReplyWire
   replies?: MailReplyWire[]
   /** Raw wire data is decoded against the generated schema. */
@@ -1226,6 +1227,8 @@ export type SentMailEntry = MailEntry & { to?: string }
 // GET /api/orgs/{slug}/inbox and .../nodes/{nid}/inbox — same shape by user
 // ruling (api.py user_inbox docstring)
 export interface InboxPayload {
+  next_cursor?: string | null
+  tag_choices?: string[]
   pending: MailEntry[]
   delivered: MailEntry[]
   sent: SentMailEntry[]

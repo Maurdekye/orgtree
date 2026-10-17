@@ -9,7 +9,8 @@ import { useStaging, StagingRows } from './staging'
 // split.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent, ReactNode } from 'react'
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
+import { mailTagKey, mailTagHue } from './mailtags'
 import type { InboxPayload, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
 import {
   audienceAction, fileBase, fileUrl, getMailById, getOrgInbox, orgInboxRead,
@@ -50,6 +51,9 @@ import { MailReplyPreview, recordedMailReply } from './mailreply'
 // HIGHLIGHTED but never moved.
 export interface MailListProps {
   tagFilter?: { value: string; choices: string[]; onChange: (tag: string) => void }
+  onLoadMore?: () => void
+  hasMore?: boolean
+  loadingMore?: boolean
   org?: string
   pending?: MailRow[]
   delivered?: MailRow[]
@@ -159,7 +163,7 @@ const MAIL_WINDOW = 40
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
   outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
-  onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible }: MailListProps) {
+  onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
   //
   // Unread used to sort as its own block on top, which meant the list
@@ -309,16 +313,18 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     return actor ? actor.kind === 'user' ? USER : actor.kind === 'system' ? SYSTEM : actor.id : partyOf(m)
   }
   const qn = q.trim().toLowerCase()
+  const tagged = tagFilter?.value.trim() ? all.filter(m => m.tags?.some(t => mailTagKey(t) === mailTagKey(tagFilter.value))) : all
   const shown = qn
-    ? all.filter((m) => String(partyOf(m) ?? '').toLowerCase().includes(qn)
+    ? tagged.filter((m) => String(partyOf(m) ?? '').toLowerCase().includes(qn)
       || String(m.body ?? '').toLowerCase().includes(qn))
-    : all
+    : tagged
   // …then consecutive system notices fold into one ROW (user, 2026-08-28).
   // AFTER the filter, because the fold is about what is on screen: filtering
   // to "@system" should show you the pile, not a run broken by rows the
   // filter removed. Before the window, so `vis` pages entries and not
   // members — otherwise a 40-notice run would spend a whole page on one row.
   const piles = pileNotices(shown, (a, b) => {
+    if(JSON.stringify(a.tags??[])!==JSON.stringify(b.tags??[]))return false
     const left = typedView(a), right = typedView(b)
     if (!left || !right) return decodeEventRow(a, profile).kind === 'legacy'
       && decodeEventRow(b, profile).kind === 'legacy'
@@ -498,7 +504,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // cannot stand as the answer to a reference. An explicit jump renders its
   // own outcome below (found, still asking, or absent) even with nothing in
   // the window; with no jump, this is the whole of what there is to say.
-  if (!all.length && !jumpTo) return <div className="dim pad">no mail yet</div>
+  if (!all.length && !jumpTo && !tagFilter) return <div className="dim pad">no mail yet</div>
   return (
     <CollapsibleMailer collapsible={collapsible} listLabel="message list"
       tabIndex={-1} onKeyDown={onKey} rootRef={rootRef}
@@ -516,9 +522,17 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             && vis < piles.length && !paging.current) {
             paging.current = true
             setVis((v) => v + MAIL_WINDOW)
+          } else if (el.scrollHeight - el.scrollTop - el.clientHeight < 240 && hasMore && !loadingMore) {
+            onLoadMore?.()
           }
         }}>
-        {all.length > 4 && (
+        {tagFilter && <div className="mail-tag-picker">
+          <input aria-label="Filter mail by tag" className="mail-tag-filter" list="user-mail-tag-choices"
+            placeholder="all tags" value={tagFilter.value} onChange={e=>tagFilter.onChange(e.target.value)} />
+          <datalist id="user-mail-tag-choices">{tagFilter.choices.map(t=><option key={mailTagKey(t)} value={t}/>)}</datalist>
+          {tagFilter.value && <button type="button" aria-label="Clear tag filter" onClick={()=>tagFilter.onChange('')}>clear</button>}
+        </div>}
+        {(all.length > 4 || q || tagFilter) && (
           <input className="mail-filter" placeholder="filter…" value={q}
             onChange={(e) => setQ(e.target.value)} />
         )}
@@ -537,7 +551,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
-            party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract}
+            party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter?.onChange}
             rowRef={(el) => {
               // a jump aimed at a folded member lands on the row that now
               // carries it, not on nothing
@@ -590,7 +604,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
                 setReplyTargets(current => current.filter(m => !targets.some(t => t.id === m.id)))
               }
               : undefined}
-            toast={toast} />
+            toast={toast} onTag={tagFilter?.onChange} />
         )}
         {!cur && (
           <div className="dim pad mailer-none">
@@ -630,6 +644,15 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   )
 }
 
+function TagChips({tags,onTag}:{tags?:string[];onTag?:(tag:string)=>void}) {
+  return <>{tags?.map(tag=>{
+    const key=mailTagKey(tag),style={'--mail-tag-hue':mailTagHue(key)} as CSSProperties
+    return onTag ? <button type="button" className="mail-tag" data-tag-key={key} style={style} key={key}
+      title={`Filter by ${tag}`} onClick={e=>{e.stopPropagation();onTag(tag)}}>{tag}</button>
+      : <span className="mail-tag" data-tag-key={key} style={style} key={key}>{tag}</span>
+  })}</>
+}
+
 const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s+/g, ' ').slice(0, 90)
 
 /** ONE MAILBOX ROW — the row every mail list draws, exported so the Attention
@@ -639,8 +662,9 @@ const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s
  *  `MailList` renders its rows through it; `pile` is the size of a folded run
  *  of system notices (1 = a single message). */
 export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, party, mark,
-  onRetract, onClick, onContextMenu, rowRef }: {
+  onRetract, onClick, onContextMenu, rowRef, onTag }: {
   m: MailRow
+  onTag?: (tag:string)=>void
   pile?: number
   /** the typed event this row decodes to, or null for plain mail */
   view: EventView | null
@@ -725,6 +749,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           && <span className="urgentkind" title={m.urgent_reason
             ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
         {mark}
+        <TagChips tags={m.tags} onTag={onTag}/>
         <span className="mtime">{fmtShort(m.at)}</span>
         {m._wait && m.id && onRetract && (
           <button className="chip-x" title="retract (undelivered)"
@@ -754,8 +779,9 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
  *  `.mailer-read`; `MailList` itself draws its pane through it. `onReply` is
  *  passed only when this message may be replied to from here. */
 export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender, party,
-  outgoing, customSender, waitLabel, custom, onReply, toast }: {
+  outgoing, customSender, waitLabel, custom, onReply, toast, onTag }: {
   cur: MailRow
+  onTag?: (tag:string)=>void
   /** a folded run of system notices, newest first; one entry = no run */
   members?: MailRow[]
   org?: string
@@ -804,6 +830,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
         <span className="dim">
           {run ? `${run.length} notices` : typed(cur) ? null : cur.kind}</span>
         {cur.urgent && <span className="urgentkind">urgent</span>}
+        <TagChips tags={cur.tags} onTag={onTag}/>
         {cur.relationship && <span className="dim">{cur.relationship}</span>}
         <span className="dim">{fmtFull(cur.at)}</span>
         {cur._wait && <span className="wait">{waitLabel}</span>}

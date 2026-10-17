@@ -1,3 +1,4 @@
+import { useTaggedUserMail } from './usemailtags'
 import { useOpenCommit } from './opentiming'
 import { publishAgentPanelEvent } from './recordevents'
 import { useRecordInbox, useRecordEvents } from './recordpanelhooks'
@@ -2680,6 +2681,8 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   onOpenMail?: (ref: TypedRef) => void
 }) {
   const [folder, setFolder] = useState('inbox')
+  const [mailTag,setMailTag]=useState('')
+  useEffect(()=>{if(jumpTo)setMailTag('')},[jumpTo,jumpSeq])
   // ⚠ A REFERENCE MUST OPEN THE FOLDER THE MESSAGE IS IN. The user's own sends
   // are a separate folder, so a token naming one arriving with the panel on
   // `inbox` leaves the message an unmarked click away while the panel looks
@@ -2707,15 +2710,17 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // readBump rides the REFRESH key, not deps: deps changes reset the value to
   // null (identity changed — §6.10), and blanking the inbox on every
   // mark-read would regress the instant-ack this bump exists to provide
-  const box = useRecordInbox(slug, readBump).value
+  const rawBox = useRecordInbox(slug, readBump).value
+  const taggedMail=useTaggedUserMail(slug,rawBox,mailTag,folder==='inbox',readBump)
+  const box=mailTag.trim()&&folder==='inbox'?taggedMail.box:rawBox
   useOpenCommit('mail',slug,box !== null && box !== undefined)
   // a mail read here shows read ON THE CLICK (docket v3-marking-a-mail-as-
   // read-takes-about-half-a-sec): out of the unread group and the unread
   // count at once, saved in the background, back to unread if refused
   useLocalReads()
   useEffect(() => {
-    if (box) settleReadsFromBox(slug, box.pending.map((m) => m.id))
-  }, [box, slug])
+    if (rawBox) settleReadsFromBox(slug, rawBox.pending.map((m) => m.id))
+  }, [rawBox, slug])
   const readNow = (m: MailEntry) => markReadNow(slug, m, () => markRead(slug, [m.id]))
     .then(() => { setReadBump((n) => n + 1); refresh?.() })
   const unreadMail = (box?.pending ?? []).filter((m) => !readLocally(slug, m.id))
@@ -2878,7 +2883,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
         )}
         <MailFolders folder={folder} setFolder={setFolder}
           folders={['inbox', 'sent', 'record']}
-          unread={unreadMail.length + askPending.length} />
+          unread={(rawBox?.pending??[]).filter(m=>!readLocally(slug,m.id)).length + askPending.length} />
+        {folder==='inbox'&&mailTag.trim()&&taggedMail.loading&&<div role="status" className="dim">loading matching mail...</div>}
+        {folder==='inbox'&&mailTag.trim()&&taggedMail.error&&<div role="alert">Could not load matching mail. <button onClick={taggedMail.retry}>Retry</button></div>}
         <div className="mailpane">
           {folder === 'record'
             ? <OrgRecord events={events} query={recordQuery}
@@ -2887,6 +2894,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
               ? <MailList pending={[...unreadMail, ...askPending]}
+                  tagFilter={{value:mailTag,choices:taggedMail.choices,onChange:setMailTag}}
+                  hasMore={!!mailTag.trim()&&!!taggedMail.box.next_cursor} loadingMore={taggedMail.loading}
+                  onLoadMore={taggedMail.loadMore}
                   collapsible
                   delivered={[...box.delivered, ...readHere, ...askDone, ...askAnswered]}
                   renderBody={renderAskBody}

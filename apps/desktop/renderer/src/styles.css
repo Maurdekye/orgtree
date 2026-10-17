@@ -8817,3 +8817,18 @@ option.harness-absent, option.harness-sep { color: var(--dim); }
 .helper-transcript summary { cursor: pointer; overflow-wrap: anywhere; }
 .helper-thought { color: var(--dim); }
 .helper-transcript pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* User-mail tag hue is immutable by name; contrast changes only fixed S/L. */
+:root { --mail-tag-bg-l:18%; --mail-tag-ink-l:80%; --mail-tag-border-l:38%; }
+:root:is(.contrast-light,.contrast-solarized-light) { --mail-tag-bg-l:94%; --mail-tag-ink-l:24%; --mail-tag-border-l:70%; }
+.mail-tag {
+  display:inline-flex; align-items:center; padding:1px 6px; border-radius:9px;
+  font-size:11px; line-height:1.5; max-width:100%; overflow-wrap:anywhere;
+  color:hsl(var(--mail-tag-hue) 55% var(--mail-tag-ink-l));
+  background:hsl(var(--mail-tag-hue) 50% var(--mail-tag-bg-l));
+  border:1px solid hsl(var(--mail-tag-hue) 45% var(--mail-tag-border-l));
+}
+button.mail-tag { cursor:pointer; }
+button.mail-tag:hover { filter:brightness(1.12); }
+.mail-tag-picker { display:flex; align-items:center; gap:4px; padding:4px; }
+.mail-tag-filter { min-width:0; flex:1; width:100%; }
