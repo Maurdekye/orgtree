@@ -8,17 +8,22 @@ const PERIODIC = new Set<Watchdog['kind']>(['file', 'command', 'process'])
 
 let second = Math.floor(Date.now() / 1_000)
 let timer: ReturnType<typeof setInterval> | null = null
-const listeners = new Set<() => void>()
+const listeners = new Map<() => void, { read: () => string | undefined; snapshot: string | undefined }>()
 
 function tick() {
   const next = Math.floor(Date.now() / 1_000)
   if (next === second) return
   second = next
-  for (const listener of [...listeners]) listener()
+  for (const [listener, entry] of [...listeners]) {
+    const snapshot = entry.read()
+    if (snapshot === entry.snapshot) continue
+    entry.snapshot = snapshot
+    listener()
+  }
 }
 
-function subscribe(listener: () => void) {
-  listeners.add(listener)
+function subscribe(listener: () => void, read: () => string | undefined) {
+  listeners.set(listener, { read, snapshot: read() })
   if (!timer) {
     second = Math.floor(Date.now() / 1_000)
     timer = setInterval(tick, 1_000)
@@ -33,7 +38,6 @@ function subscribe(listener: () => void) {
 }
 
 const noSubscribe = () => () => {}
-const readSecond = () => Math.floor(Date.now() / 1_000)
 
 function timestamp(value?: string): number | undefined {
   if (!value) return undefined
@@ -74,6 +78,17 @@ export function watchdogCountdownText(dog: Watchdog, nowMs: number): string | un
 
   if (checking) return 'checking…'
   const seconds = Math.max(1, Math.ceil((nextDue - nowMs) / 1_000))
+  const remainingMs = Math.max(0, nextDue - nowMs)
+  if (remainingMs >= 86_400_000) {
+    const days = Math.floor(remainingMs / 86_400_000)
+    const hours = Math.floor((remainingMs % 86_400_000) / 3_600_000)
+    return `next check in ${days}d ${hours}h`
+  }
+  if (remainingMs >= 3_600_000) {
+    const hours = Math.floor(remainingMs / 3_600_000)
+    const minutes = Math.floor((remainingMs % 3_600_000) / 60_000)
+    return `next check in ${hours}h ${minutes}m`
+  }
   return `next check in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
@@ -81,8 +96,9 @@ export function useWatchdogCountdown(dog: Watchdog): string | undefined {
   const shouldTick = PERIODIC.has(dog.kind) && dog.state === 'armed' && !dog.spent
     && Number.isFinite(dog.interval_s) && dog.interval_s > 0
     && timestamp(dog.last_check) !== undefined
-  const nowSecond = useSyncExternalStore(shouldTick ? subscribe : noSubscribe, readSecond, readSecond)
-  return watchdogCountdownText(dog, nowSecond * 1_000)
+  const read = () => watchdogCountdownText(dog, Date.now())
+  const subscribeDog = (listener: () => void) => subscribe(listener, read)
+  return useSyncExternalStore(shouldTick ? subscribeDog : noSubscribe, read, read)
 }
 
 /** A tiny row-local subscriber. It lets list chips update their own tooltip
