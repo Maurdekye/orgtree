@@ -1001,9 +1001,9 @@ mod tests {
         }
     }
 
-    struct Temp(PathBuf);
+    pub(super) struct Temp(pub(super) PathBuf);
     impl Temp {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             let p = std::env::temp_dir().join(format!("orgtree-skills-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&p).unwrap();
             Self(p)
