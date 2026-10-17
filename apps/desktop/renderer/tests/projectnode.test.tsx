@@ -13,7 +13,8 @@
 //      preview tree holds it where it will go; the old form is gone;
 //   §2 a project node draws as a project card: a folder mark, its name and
 //      description, no model, credit bar or desk, its waiting mail on the
-//      mailbox button (which opens the mailbox), and its own project token;
+//      mailbox button (which opens the mailbox; only with "Show agent card
+//      shortcuts" on, like an agent's hover row), and its own project token;
 //   §3 its menu, on the card and wherever agentMenuEntries is used for it
 //      (the Agents List), offers the project's own actions only.
 // The hire token itself is tests/projecttoken.test.tsx; the engine half is
@@ -32,7 +33,7 @@ import { agentMenuEntries, projectMenuEntries } from '../src/canvas/agentmenu'
 import type { AgentMenuHandlers } from '../src/canvas/agentmenu'
 import { agentItems } from '../src/canvas/docket'
 import type { WorkItem } from '../src/types'
-import { DRAFT, withDraftTree } from '../src/canvas/shared'
+import { DRAFT, setAgentShortcutsOn, withDraftTree } from '../src/canvas/shared'
 import type { CanvasNode, DraftState, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -167,7 +168,9 @@ test('§2a a project draws as a project card: no model, credit bar, desk or turn
   assert.equal(sq.getAttribute('aria-label'), 'project website')
   assert.ok(sq.querySelector('.project-mark svg'), 'the folder mark')
   assert.equal(sq.querySelector('.name')?.textContent, 'website')
-  assert.equal(sq.querySelector('.project-kind')?.textContent, 'project')
+  // USER 2026-10-17 19:37Z: no PROJECT word on the card; the folder mark says it
+  assert.equal(sq.querySelector('.project-kind') === null, true, 'no "project" label on the card')
+  assert.equal(/project/i.test(sq.querySelector('.sq-head')?.textContent ?? ''), false, 'nor anywhere in its head')
   assert.equal(sq.querySelector('.project-desc')?.textContent, 'The company website.',
     'the first line of its description')
   // the control: an agent card from the same fixture style does draw them
@@ -185,7 +188,17 @@ test('§2a a project draws as a project card: no model, credit bar, desk or turn
   }
 })
 
+test('§2b0 the mailbox hover button follows "Show agent card shortcuts" (off by default)', async (t) => {
+  // USER 2026-10-17 19:37Z: no inbox hover button unless the hover-buttons setting is on
+  setAgentShortcutsOn(false)
+  const off = await square(project())
+  t.after(() => off.unmount())
+  assert.equal(off.el.querySelector('button.mailbtn') === null, true, 'no mailbox button with the setting off')
+})
+
 test('§2b its waiting mail shows on the mailbox button, which opens the mailbox', async (t) => {
+  setAgentShortcutsOn(true)
+  t.after(() => setAgentShortcutsOn(false))
   let opened = 0
   const view = await square(project(), { inbox: () => { opened++ } })
   t.after(() => view.unmount())
