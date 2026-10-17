@@ -1786,7 +1786,10 @@ plan and this file. Read both before you change anything. All entries below: 202
   floor by an expired/repeated countdown. Select the latest relative, ISO/offset,
   local-clock or structured reset; elapsed local clocks roll to tomorrow. A
   newer successful cached reading may only lengthen the same serving account's
-  applicable full window. Structured evidence is turn-local; quota timers still
+  applicable full window. On 4.4.0, registered Antigravity profiles use their own
+  `agy:<id>` cache; ambient or missing-folder bindings use `agy`, matching the
+  serving login. Missing profile evidence never borrows native usage.
+  Structured evidence is turn-local; quota timers still
   add 60 seconds and manual release keeps its override. Missing reset keeps the
   prior fallback. See [freeze recovery](docs/rust-engine/freeze-recovery.md).
   [decided: user 2026-10-17; verified: `runtime/usage_reset.rs`, `runtime/actor.rs`]

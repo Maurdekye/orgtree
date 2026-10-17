@@ -201,7 +201,11 @@ fn freeze_cached(usage: &Usage, provider: &str, account: Option<&crate::accounts
     let key = match provider {
         catalog::CLAUDE => claude_key(folder),
         catalog::OPENAI => codex_key(folder),
-        catalog::GOOGLE => "agy".to_owned(),
+        // Same physical-login rule as agy_auth::login_of and
+        // antigravity_account: ambient/missing-folder rows use Primary.
+        catalog::GOOGLE => account.filter(|a| !a.ambient)
+            .filter(|a| a.config_dir.as_deref().is_some_and(|d| !d.trim().is_empty()))
+            .map(|a| format!("agy:{}", a.id)).unwrap_or_else(|| "agy".to_owned()),
         catalog::MUSE => muse_key(folder),
         _ => return None,
     };

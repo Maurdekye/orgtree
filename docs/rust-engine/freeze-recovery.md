@@ -107,3 +107,18 @@ seven expected failures and one unchanged fallback pass. Focused green tests
 cover the incident countdown, typed reset units, ISO offset and local rollover,
 later-evidence selection, grace, malformed input, and failed/unrelated cached
 windows. No live writes, provider calls, installation or restart were used.
+
+
+### 4.4.0 registered Antigravity logins
+
+The 4.4.0 login feature stores registered profile observations under `agy:<id>`.
+The freeze lookup follows the same account isolation rule as `agy_auth::login_of`
+and `antigravity_account`: an ambient row or one without a nonempty profile
+folder uses native `agy`; a registered profile reads only its own key. Missing
+profile evidence does not borrow another login's deadline. This is 4.4.0-only;
+the 4.3.2 line still serves only the native Antigravity login.
+
+A cache-only regression uses synthetic native/profile resets of 24h/5h and a
+second profile with no observation. Before the fix it chose the native 24h hold
+for the registered profile. It also checks native aliases and missing-folder
+fallback. No provider process or live data is involved.
