@@ -283,6 +283,17 @@ export default async function (rig) {
   const paged = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=1`)
   p.check('it pages: one card, the full total, a next offset', (paged.documents ?? []).length === 1 && paged.total === gallery.total
     && paged.next_offset === 1, { n: (paged.documents ?? []).length, total: paged.total, next: paged.next_offset })
+  // locate within the project's own list: the window grows to hold the card,
+  // and its index counts the project's subtree, not the org
+  const uiSketch = rig.sql(`SELECT uid FROM ot.documents WHERE title = 'UI sketch'`)[0]?.uid
+  const oldest = (gallery.documents ?? []).at(-1)
+  const located = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=1&locate=${oldest?.id}`)
+  p.check('locate finds a card down the project\'s list and widens the window to it', located.located === oldest?.id
+    && (located.documents ?? []).length === gallery.total && (located.documents ?? []).at(-1)?.id === oldest?.id,
+    { located: located.located, n: (located.documents ?? []).length, total: gallery.total })
+  const newest = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&limit=1&locate=${uiSketch}`)
+  p.check('locate of the newest subtree card needs no wider window', newest.located === uiSketch
+    && (newest.documents ?? []).length === 1 && newest.documents[0].id === uiSketch, { n: (newest.documents ?? []).length })
   const agentGallery = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=dev5&limit=50`)
   p.check('an agent\'s gallery is still its own documents only', (agentGallery.documents ?? []).every(d => d.node === 'dev5')
     && (agentGallery.documents ?? []).some(d => d.title === 'UI sketch'), (agentGallery.documents ?? []).map(d => [d.node, d.title]))
