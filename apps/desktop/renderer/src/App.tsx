@@ -1,4 +1,4 @@
-import { useTaggedUserMail } from './usemailtags'
+import { useTaggedUserMail,useMailTagChoices } from './usemailtags'
 import { useOpenCommit } from './opentiming'
 import { publishAgentPanelEvent } from './recordevents'
 import { useRecordInbox, useRecordEvents } from './recordpanelhooks'
@@ -2688,8 +2688,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   onOpenMail?: (ref: TypedRef) => void
 }) {
   const [folder, setFolder] = useState('inbox')
-  const [mailTag,setMailTag]=useState('')
-  useEffect(()=>{if(jumpTo)setMailTag('')},[jumpTo,jumpSeq])
+  const [mailTag,setMailTag]=useState<string[]>([])
+  const [tagQuery,setTagQuery]=useState('')
+  useEffect(()=>{if(jumpTo)setMailTag([])},[jumpTo,jumpSeq])
   // ⚠ A REFERENCE MUST OPEN THE FOLDER THE MESSAGE IS IN. The user's own sends
   // are a separate folder, so a token naming one arriving with the panel on
   // `inbox` leaves the message an unmarked click away while the panel looks
@@ -2728,7 +2729,8 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // mark-read would regress the instant-ack this bump exists to provide
   const rawBox = useRecordInbox(slug, readBump).value
   const taggedMail=useTaggedUserMail(slug,rawBox,mailTag,folder==='inbox',readBump)
-  const box=mailTag.trim()&&folder==='inbox'?taggedMail.box:rawBox
+  const tagChoices=useMailTagChoices(slug,rawBox,tagQuery,folder==='inbox',readBump)
+  const box=mailTag.length&&folder==='inbox'?taggedMail.box:rawBox
   const restoreChecked = useRef<string | null>(null)
   const [restoreMail, setRestoreMail] = useState<{ slug: string; id: string | null } | null>(null)
   useEffect(() => {
@@ -2928,8 +2930,8 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
         <MailFolders folder={folder} setFolder={setFolder}
           folders={['inbox', 'sent', 'record']}
           unread={(rawBox?.pending??[]).filter(m=>!readLocally(slug,m.id)).length + askPending.length} />
-        {folder==='inbox'&&mailTag.trim()&&taggedMail.loading&&<div role="status" className="dim">loading matching mail...</div>}
-        {folder==='inbox'&&mailTag.trim()&&taggedMail.error&&<div role="alert">Could not load matching mail. <button onClick={taggedMail.retry}>Retry</button></div>}
+        {folder==='inbox'&&mailTag.length>0&&taggedMail.loading&&<div role="status" className="dim">loading matching mail...</div>}
+        {folder==='inbox'&&mailTag.length>0&&taggedMail.error&&<div role="alert">Could not load matching mail. <button onClick={taggedMail.retry}>Retry</button></div>}
         <div className="mailpane">
           {folder === 'record'
             ? <OrgRecord events={events} query={recordQuery}
@@ -2938,8 +2940,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
               ? <MailList pending={[...unreadMail, ...askPending]}
-                  tagFilter={{value:mailTag,choices:taggedMail.choices,onChange:setMailTag}}
-                  hasMore={!!mailTag.trim()&&!!taggedMail.box.next_cursor} loadingMore={taggedMail.loading}
+                  tagFilter={{selected:mailTag,choices:tagChoices.labels,onChange:setMailTag,onSearch:setTagQuery,
+                    onLoadMore:tagChoices.loadMore,hasMore:!!tagChoices.cursor,loading:tagChoices.loading,error:tagChoices.error,onRetry:tagChoices.retry}}
+                  hasMore={!!mailTag.length&&!!taggedMail.box.next_cursor} loadingMore={taggedMail.loading}
                   onLoadMore={taggedMail.loadMore}
                   collapsible
                   delivered={[...box.delivered, ...readHere, ...askDone, ...askAnswered]}

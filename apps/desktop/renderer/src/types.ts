@@ -1233,6 +1233,7 @@ export type SentMailEntry = MailEntry & { to?: string }
 // GET /api/orgs/{slug}/inbox and .../nodes/{nid}/inbox — same shape by user
 // ruling (api.py user_inbox docstring)
 export interface InboxPayload {
+  mail_revision?: string
   next_cursor?: string | null
   tag_choices?: string[]
   pending: MailEntry[]

@@ -22,7 +22,7 @@ pub async fn inbox(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
     if q.tags_only.unwrap_or(false) {
-        return Ok(Json(json!({"tag_choices":crate::domain::mail_tags::choices(&client,o.id,q.prefix.as_deref().unwrap_or("")).await?})));
+        return Ok(Json(crate::domain::mail_tags::choices_page(&client,o.id,q.prefix.as_deref().unwrap_or(""),q.after.as_deref()).await?));
     }
     if let Some(tag)=q.tag.as_deref().filter(|t|!t.trim().is_empty()) {
         return Ok(Json(crate::domain::mail_tags::window(&client,o.id,tag,q.before).await?));
@@ -34,7 +34,19 @@ pub async fn inbox(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query
 
 #[derive(Deserialize, Debug)]
 pub struct InboxQuery {
-    tag:Option<String>, before:Option<i64>, tags_only:Option<bool>, prefix:Option<String>,
+    tag:Option<String>, before:Option<i64>, tags_only:Option<bool>, prefix:Option<String>, after:Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TagFilter {
+    tags:Vec<String>, before:Option<i64>,
+}
+
+#[logged]
+pub async fn filter_inbox(State(e):State<Arc<Engine>>,Path(slug):Path<String>,Json(body):Json<TagFilter>)->ApiResult<Json<Value>> {
+    let o=org(&e,&slug)?;
+    let client=e.db.get().await?;
+    Ok(Json(crate::domain::mail_tags::window_many(&client,o.id,&body.tags,body.before).await?))
 }
 
 #[derive(Deserialize, Debug)]

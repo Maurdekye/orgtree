@@ -9,8 +9,8 @@ export function mailTagHue(tag:string):string {
   return (hash/4294967296*360).toFixed(6)
 }
 
-/** Baseline single-tag matching, extracted for multi-select contract tests. */
+/** All selected keys must be present; an empty selection includes untagged mail. */
 export function mailMatchesTags(tags:readonly string[]|undefined,selected:readonly string[]):boolean {
-  const first=selected[0]
-  return !first||!!tags?.some(t=>mailTagKey(t)===mailTagKey(first))
+  const present=new Set(tags?.map(mailTagKey))
+  return selected.every(t=>present.has(mailTagKey(t)))
 }

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { mailTagKey, mailTagHue, mailMatchesTags } from './mailtags'
 import { MailTagPicker } from './mailtagpicker'
+import type { MailTagPickerProps } from './mailtagpicker'
 import type { InboxPayload, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
 import {
   audienceAction, fileBase, fileUrl, getMailById, getOrgInbox, orgInboxRead,
@@ -52,7 +53,7 @@ import { MailReplyPreview, recordedMailReply } from './mailreply'
 // HIGHLIGHTED but never moved.
 export interface MailListProps {
   hideMailReplyKind?: boolean
-  tagFilter?: { value: string; choices: string[]; onChange: (tag: string) => void }
+  tagFilter?: MailTagPickerProps
   onLoadMore?: () => void
   hasMore?: boolean
   loadingMore?: boolean
@@ -322,7 +323,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     return actor ? actor.kind === 'user' ? USER : actor.kind === 'system' ? SYSTEM : actor.id : partyOf(m)
   }
   const qn = q.trim().toLowerCase()
-  const tagged = tagFilter?.value.trim() ? all.filter(m => mailMatchesTags(m.tags,[tagFilter.value])) : all
+  const tagged = tagFilter?.selected.length ? all.filter(m => mailMatchesTags(m.tags,tagFilter.selected)) : all
   const shown = qn
     ? tagged.filter((m) => String(partyOf(m) ?? '').toLowerCase().includes(qn)
       || String(m.body ?? '').toLowerCase().includes(qn))
@@ -551,8 +552,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             onLoadMore?.()
           }
         }}>
-        {tagFilter && <MailTagPicker selected={tagFilter.value?[tagFilter.value]:[]} choices={tagFilter.choices}
-          onChange={tags=>tagFilter.onChange(tags[0]??'')}/>}
+        {tagFilter && <MailTagPicker {...tagFilter}/>}
         {(all.length > 4 || q || tagFilter) && (
           <input className="mail-filter" placeholder="filter…" value={q}
             onChange={(e) => setQ(e.target.value)} />
@@ -572,7 +572,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
-            party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter?.onChange}
+            party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>{if(!tagFilter.selected.some(t=>mailTagKey(t)===mailTagKey(tag)))tagFilter.onChange([...tagFilter.selected,tag])}:undefined}
             rowRef={(el) => {
               // a jump aimed at a folded member lands on the row that now
               // carries it, not on nothing
@@ -626,7 +626,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
                 setReplyTargets(current => current.filter(m => !targets.some(t => t.id === m.id)))
               }
               : undefined}
-            toast={toast} onTag={tagFilter?.onChange} />
+            toast={toast} onTag={tagFilter ? tag=>{if(!tagFilter.selected.some(t=>mailTagKey(t)===mailTagKey(tag)))tagFilter.onChange([...tagFilter.selected,tag])}:undefined} />
         )}
         {!cur && (
           <div className="dim pad mailer-none">
@@ -666,13 +666,14 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   )
 }
 
-function TagChips({tags,onTag}:{tags?:string[];onTag?:(tag:string)=>void}) {
-  return <>{tags?.map(tag=>{
+function TagChips({tags,onTag,preview=false}:{tags?:string[];onTag?:(tag:string)=>void;preview?:boolean}) {
+  const shown=preview?tags?.slice(0,1):tags
+  return <>{shown?.map(tag=>{
     const key=mailTagKey(tag),style={'--mail-tag-hue':mailTagHue(key)} as CSSProperties
     return onTag ? <button type="button" className="mail-tag" data-tag-key={key} style={style} key={key}
       title={`Filter by ${tag}`} onClick={e=>{e.stopPropagation();onTag(tag)}}>{tag}</button>
-      : <span className="mail-tag" data-tag-key={key} style={style} key={key}>{tag}</span>
-  })}</>
+      : <span className="mail-tag" data-tag-key={key} style={style} key={key} title={tag}>{tag}</span>
+  })}{preview&&tags&&tags.length>1&&<span className="mail-tag mail-tag-more" title={tags.slice(1).join(', ')}>+{tags.length-1}</span>}</>
 }
 
 const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s+/g, ' ').slice(0, 90)
@@ -771,7 +772,6 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           && <span className="urgentkind" title={m.urgent_reason
             ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
         {mark}
-        <TagChips tags={m.tags} onTag={onTag}/>
         <span className="mtime">{fmtShort(m.at)}</span>
         {m._wait && m.id && onRetract && (
           <button className="chip-x" title="retract (undelivered)"
@@ -787,9 +787,10 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           pane, and the `l1` header keeps the row identifiable. */}
       {!isSystemNotice(m)
         && <div className="l2">
-          {reply && <span className="dim" title={[reply.from, reply.at && fmtFull(reply.at), reply.gist].filter(Boolean).join(' · ')}>
+          <TagChips tags={m.tags} onTag={onTag} preview/>
+          <span className="mail-preview-text">{reply && <span className="dim" title={[reply.from, reply.at && fmtFull(reply.at), reply.gist].filter(Boolean).join(' · ')}>
             ↩ {briefLine(reply.gist || 'original unavailable')} · </span>}
-          {briefLine(view ? eventSummary(view.event) : m.body)}</div>}
+          {briefLine(view ? eventSummary(view.event) : m.body)}</span></div>}
     </div>
   )
 }

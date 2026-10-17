@@ -572,6 +572,8 @@ impl Actor {
         }
         // user mail windows
         if let Some((pending, log, sent)) = c.user_mail {
+            // A deletion outside the bounded windows still invalidates filtered mail/catalog reads.
+            self.put_shared("org", "user_mail_revision", json!({"revision":format!("{}:{}",self.incarnation,self.rev+1)}), &mut upserts);
             self.replace_window("user_inbox", pending, &mut upserts, &mut tombstones);
             self.replace_window("user_mail_log:shared", log, &mut upserts, &mut tombstones);
             self.replace_window("user_outbox:shared", sent, &mut upserts, &mut tombstones);

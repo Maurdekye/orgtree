@@ -8,7 +8,9 @@ const rows = <T>(records: RecordTable, entity: string): T[] =>
   [...(records.get(entity) ?? [])].sort(([a], [b]) => numericId(a, b)).map(([, value]) => value as T)
 
 export function projectUserInbox(records: RecordTable): InboxPayload {
+  const revision=records.get('org')?.get('user_mail_revision') as {revision?:string}|undefined
   return {
+    mail_revision:revision?.revision,
     pending: rows<MailEntry>(records, 'user_inbox'),
     delivered: rows<MailEntry>(records, 'user_mail_log:shared'),
     sent: rows<SentMailEntry>(records, 'user_outbox:shared'),

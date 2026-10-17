@@ -13,23 +13,22 @@ const combine=(a:InboxPayload,b:InboxPayload):InboxPayload=>{
 }
 
 /** One bounded read per deliberate filter/page or pushed inbox change. No poll. */
-export function useTaggedUserMail(slug:string,base:InboxPayload|null|undefined,tag:string,visible:boolean,refresh:unknown=0){
-  const key=mailTagKey(tag),identity=JSON.stringify([slug,key])
+export function useTaggedUserMail(slug:string,base:InboxPayload|null|undefined,tags:readonly string[],visible:boolean,refresh:unknown=0){
+  const labels=[...new Map(tags.map(t=>[mailTagKey(t),t.trim()])).values()]
+  const key=JSON.stringify(labels.map(mailTagKey).sort()),active=labels.length>0,identity=JSON.stringify([slug,key])
   const generation=useRef(0),busy=useRef(false)
   const [retryKey,retry]=useState(0)
-  const [choices,setChoices]=useState<{slug:string;labels:string[]}>({slug,labels:[]})
   const [state,setState]=useState<{identity:string;box:InboxPayload;loading:boolean;error:string|null}>({identity,box:empty(),loading:false,error:null})
   // Record views also change for turns and costs; those must not refetch mail.
-  const revision=JSON.stringify([base?.pending.map(m=>m.id),base?.delivered.map(m=>m.id)])
+  const revision=JSON.stringify([base?.mail_revision,base?.pending.map(m=>m.id),base?.delivered.map(m=>m.id)])
   useEffect(()=>{
     const request=++generation.current;busy.current=false
     if(!visible||!base)return
     let live=true
-    void getMailTagChoices(slug,key).then(labels=>{if(live)setChoices({slug,labels})}).catch(()=>{})
-    if(!key){setState({identity,box:empty(),loading:false,error:null});return ()=>{live=false}}
+    if(!active){setState({identity,box:empty(),loading:false,error:null});return ()=>{live=false}}
     busy.current=true
     setState(old=>({identity,box:old.identity===identity?old.box:empty(),loading:true,error:null}))
-    void getTaggedInbox(slug,tag.trim()).then(box=>{
+    void getTaggedInbox(slug,labels).then(box=>{
       if(live&&generation.current===request)setState({identity,box,loading:false,error:null})
     }).catch((e:Error)=>{
       if(live&&generation.current===request)setState(old=>({...old,loading:false,error:e.message}))
@@ -40,16 +39,50 @@ export function useTaggedUserMail(slug:string,base:InboxPayload|null|undefined,t
   },[slug,key,visible,revision,refresh,retryKey])
   const loadMore=useCallback(()=>{
     const cursor=state.identity===identity?state.box.next_cursor:null
-    if(!visible||!key||!cursor||busy.current)return
+    if(!visible||!active||!cursor||busy.current)return
     busy.current=true;const request=generation.current
     setState(old=>({...old,loading:true,error:null}))
-    void getTaggedInbox(slug,tag.trim(),cursor).then(box=>{
+    void getTaggedInbox(slug,labels,cursor).then(box=>{
       if(generation.current===request)setState(old=>({identity,box:combine(old.box,box),loading:false,error:null}))
     }).catch((e:Error)=>{
       if(generation.current===request)setState(old=>({...old,loading:false,error:e.message}))
     }).finally(()=>{if(generation.current===request)busy.current=false})
-  },[slug,key,tag,visible,identity,state])
+  },[slug,key,visible,identity,state])
   useEffect(()=>()=>{++generation.current},[])
-  const current=state.identity===identity?state:{identity,box:empty(),loading:!!key,error:null}
-  return {...current,choices:choices.slug===slug?choices.labels:[],loadMore,retry:()=>retry(v=>v+1)}
+  const current=state.identity===identity?state:{identity,box:empty(),loading:active,error:null}
+  return {...current,loadMore,retry:()=>retry(v=>v+1)}
+}
+
+/** Used tags have their own cursor and search, independent of selected mail filters. */
+export function useMailTagChoices(slug:string,base:InboxPayload|null|undefined,query:string,visible:boolean,refresh:unknown=0){
+  const identity=JSON.stringify([slug,mailTagKey(query)])
+  const revision=JSON.stringify([base?.mail_revision,base?.pending.map(m=>m.id),base?.delivered.map(m=>m.id)])
+  const generation=useRef(0),busy=useRef(false)
+  const [retryKey,setRetry]=useState(0)
+  const [state,setState]=useState({identity,labels:[] as string[],cursor:null as string|null,loading:false,error:null as string|null})
+  const read=useCallback(async(after:string|undefined,request:number,append:boolean)=>{
+    busy.current=true
+    setState(old=>({...old,loading:true,error:null}))
+    try{
+      let cursor=after,labels:string[]=[]
+      do{
+        const page=await getMailTagChoices(slug,query,cursor)
+        if(generation.current!==request)return
+        labels.push(...(page.tag_choices??[]));cursor=page.next_tag_cursor??undefined
+        // Searching a page with no matches must not strand matches on later pages.
+      }while(query.trim()&&labels.length===0&&cursor)
+      if(generation.current===request)setState(old=>({identity,labels:[...new Map([...(append&&old.identity===identity?old.labels:[]),...labels].map(t=>[mailTagKey(t),t])).values()],cursor:cursor??null,loading:false,error:null}))
+    }catch(e){if(generation.current===request)setState(old=>({...old,loading:false,error:(e as Error).message}))}
+    finally{if(generation.current===request)busy.current=false}
+  },[slug,query,identity])
+  useEffect(()=>{
+    const request=++generation.current;busy.current=false
+    if(!visible||!base)return
+    setState(old=>old.identity===identity?old:{identity,labels:[],cursor:null,loading:false,error:null})
+    void read(undefined,request,false)
+    return ()=>{++generation.current;busy.current=false}
+  },[slug,identity,visible,revision,refresh,retryKey])
+  const current=state.identity===identity?state:{identity,labels:[],cursor:null,loading:true,error:null}
+  const loadMore=()=>{if(visible&&current.cursor&&!busy.current)void read(current.cursor,generation.current,true)}
+  return {...current,loadMore,retry:()=>setRetry(v=>v+1)}
 }

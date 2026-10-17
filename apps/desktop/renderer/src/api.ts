@@ -552,10 +552,11 @@ export const getInbox = (slug: string): Promise<InboxPayload> =>
 export const deleteUserMail = (slug: string, id: string): Promise<{ deleted: boolean }> =>
   req(`/api/orgs/${slug}/inbox/${encodeURIComponent(id)}`, { method: 'DELETE' })
 /** Exact tag filter over all retained incoming mail, bounded and cursor-paged. */
-export const getTaggedInbox = (slug:string,tag:string,before?:string):Promise<InboxPayload> =>
-  req(`/api/orgs/${slug}/inbox?tag=${encodeURIComponent(tag)}${before?`&before=${encodeURIComponent(before)}`:''}`)
-export const getMailTagChoices = (slug:string,prefix=''):Promise<string[]> =>
-  req<{tag_choices:string[]}>(`/api/orgs/${slug}/inbox?tags_only=true&prefix=${encodeURIComponent(prefix)}`).then(r=>r.tag_choices??[])
+export const getTaggedInbox = (slug:string,tags:readonly string[],before?:string):Promise<InboxPayload> =>
+  req(`/api/orgs/${slug}/inbox/filter`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags,before})})
+export interface MailTagPage {tag_choices:string[];next_tag_cursor?:string|null}
+export const getMailTagChoices = (slug:string,query='',after?:string):Promise<MailTagPage> =>
+  req(`/api/orgs/${slug}/inbox?tags_only=true&prefix=${encodeURIComponent(query)}${after?`&after=${encodeURIComponent(after)}`:''}`)
 export const getNodeInbox = (slug: string, nid: string): Promise<InboxPayload> =>
   req(`/api/orgs/${slug}/nodes/${nid}/inbox`)
 /** ONE message, by id, from the box that holds it.

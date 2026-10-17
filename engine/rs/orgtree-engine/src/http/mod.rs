@@ -97,6 +97,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/documents/{did}/mockup", get(docs::mockup))
         .route("/api/orgs/{slug}/documents/{did}/download", get(docs::download))
         .route("/api/orgs/{slug}/inbox", get(mailbox::inbox))
+        .route("/api/orgs/{slug}/inbox/filter", post(mailbox::filter_inbox))
         .route("/api/orgs/{slug}/inbox/{id}", delete(mailbox::delete_user_mail))
         .route("/api/orgs/{slug}/inbox/read", post(mailbox::mark_read))
         .route("/api/orgs/{slug}/inbox/clear", post(mailbox::clear))

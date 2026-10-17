@@ -8854,13 +8854,26 @@ option.harness-absent, option.harness-sep { color: var(--dim); }
 /* User-mail tag hue is immutable by name; contrast changes only fixed S/L. */
 :root { --mail-tag-bg-l:18%; --mail-tag-ink-l:80%; --mail-tag-border-l:38%; }
 :root:is(.contrast-light,.contrast-solarized-light) { --mail-tag-bg-l:94%; --mail-tag-ink-l:24%; --mail-tag-border-l:70%; }
-.mail-tag {
-  display:inline-flex; align-items:center; padding:1px 6px; border-radius:9px;
-  font-size:11px; line-height:1.5; max-width:100%; overflow-wrap:anywhere;
-  color:hsl(var(--mail-tag-hue) 55% var(--mail-tag-ink-l));
-  background:hsl(var(--mail-tag-hue) 50% var(--mail-tag-bg-l));
-  border:1px solid hsl(var(--mail-tag-hue) 45% var(--mail-tag-border-l));
+.mail-tag,button.mail-tag,.settings button.mail-tag {
+  display:inline-block; vertical-align:middle; padding:0 4px; border-radius:4px;
+  font-size:10px; line-height:1.4; min-height:0; max-width:160px; flex:0 1 auto;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; overflow-wrap:normal;
+  color:hsl(var(--mail-tag-hue,210) 55% var(--mail-tag-ink-l));
+  background:hsl(var(--mail-tag-hue,210) 50% var(--mail-tag-bg-l));
+  border:1px solid hsl(var(--mail-tag-hue,210) 45% var(--mail-tag-border-l));
 }
+.mailrow .l2 {display:flex;align-items:center;gap:4px;min-width:0;}
+.mailrow .l2 .mail-tag {flex-shrink:0;max-width:110px;}
+.mail-preview-text {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mail-tag-picker {position:relative;display:flex;align-items:center;gap:4px;min-width:0;}
+.mail-tag-trigger {display:flex;gap:4px;flex-wrap:wrap;align-items:center;min-width:0;}
+.mail-tag-popover {position:absolute;top:100%;left:0;width:320px;max-width:calc(100vw - 48px);z-index:60;
+  padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 5px 16px #0005;}
+.mail-tag-popover input {width:100%;box-sizing:border-box;}
+.mail-tag-options {display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px;max-height:220px;overflow:auto;padding:8px 0;}
+button.mail-tag-choice[aria-pressed="true"] {box-shadow:0 0 0 1px currentColor inset;outline:1px solid currentColor;outline-offset:1px;}
+button.mail-tag-choice[aria-pressed="false"] {opacity:.75;}
+
 button.mail-tag { cursor:pointer; }
 button.mail-tag:hover { filter:brightness(1.12); }
 .mail-tag-picker { display:flex; align-items:center; gap:4px; padding:4px; }
