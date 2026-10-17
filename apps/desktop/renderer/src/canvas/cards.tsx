@@ -38,7 +38,7 @@ import {
   MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
 import { EffortLevelBadge } from './effort'
-import { agentNavProps } from './agentnav'
+import { agentNavProps, agentTooltipProps } from './agentnav'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
@@ -1744,7 +1744,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       <div data-copy-agent-name={node.id} data-agent-tooltip={node.id}
         className={cls.join(' ') + ' maplod'} style={style}>
         <div className="map-top">
-          <span className={'tier t-' + node.tier} title={tierLabel(node.tier ?? '')}>{TIER_LETTER[node.tier!] ?? '?'}</span>
+          <span className={'tier t-' + node.tier} {...agentTooltipProps(node.id)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
           <MapModeIndicator node={node} />
           {(dogs ?? 0) > 0 && <span className={'map-dogs' + ((oneShotDogs ?? 0) > 0 ? ' oneshot' : '')}
             aria-label={`${dogs} watchdog${dogs === 1 ? '' : 's'}${(oneShotDogs ?? 0) > 0
@@ -1826,7 +1826,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             status groups separate prevents long names and status controls from
             stealing the context wheel's hit area. */}
         <div className="sq-title">
-          <span className={'tier t-' + node.tier} title={tierLabel(node.tier ?? '')}>{TIER_LETTER[node.tier!] ?? '?'}</span>
+          <span className={'tier t-' + node.tier} {...agentTooltipProps(node.id)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
           <span ref={nameRef} className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
           {fullNameAt && (
             <span className="name-full" aria-hidden="true"

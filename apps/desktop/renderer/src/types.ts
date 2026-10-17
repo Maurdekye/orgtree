@@ -1380,6 +1380,8 @@ export interface ProviderTier {
   accent?: string | null
   /** the display name without its `Vendor: ` prefix (`Claude Sonnet 5`) */
   name?: string
+  /** local server/provider name for a language-server model. */
+  server?: string
   /** the DISPLAY id — the model id without its vendor namespace
    *  (`claude-sonnet-5`), what every surface prints where it used to print
    *  the tier id; the backend keeps two favorites that would read the same

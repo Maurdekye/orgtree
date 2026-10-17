@@ -24,7 +24,8 @@
   marks draft effort `(not started)` and archived models `(retired)`. See
   [agent identity hover tooltip](docs/rust-engine/agent-identity-tooltip.md).
   [decided: user/coordinator 2026-10-17; verified from source:
-  `canvas/agentnav.tsx`, `canvas/OrgCanvas.tsx`, `providers/catalog.rs`]
+  `canvas/agentnav.tsx`, `canvas/OrgCanvas.tsx`, `canvas/contextmenu.tsx`,
+  `canvas/docket.tsx`, `providers/catalog.rs`]
 
 - Standalone engine (4.4.0): `orgtree-engine standalone` runs the engine with
   no desktop — mandatory token (`ORGTREE_STANDALONE_TOKEN` or the generated

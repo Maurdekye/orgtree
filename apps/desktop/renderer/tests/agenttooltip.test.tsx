@@ -68,8 +68,7 @@ test('model badge inherits the agent link identity tooltip instead of its tier l
   await flush()
   const card = v.el.querySelector<HTMLElement>('.sq')!
   const badge = card.querySelector<HTMLElement>('.sq-title .tier')!
-  assert.equal(badge.hasAttribute('title'), false,
-    'tier id title on the nested badge must not override the shared tooltip')
   await inAct(() => badge.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
-  assert.equal(card.title, 'Claude Opus 5.5 · max')
+  assert.equal(badge.title, 'Claude Opus 5.5 · max',
+    'the badge itself resolves the full identity tooltip instead of keeping its tier id')
 })

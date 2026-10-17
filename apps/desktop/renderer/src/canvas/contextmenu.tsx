@@ -97,7 +97,7 @@ import type { CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent
   ReactNode, SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useSurfaceDocument } from '../popout'
-import { AGENT_NAV_ATTR, agentNavElementAt, useAgentNavRegistry } from './agentnav'
+import { AGENT_NAV_ATTR, agentNavElementAt, agentTooltipProps, useAgentNavRegistry } from './agentnav'
 import { OBJECT_NAV_ATTR, OBJECT_ID_ATTR, OBJECT_ORG_ATTR, objectNavElementAt, useObjectNavRegistry } from './objectnav'
 import { useEsc } from './shared'
 import type { ToastFn } from '../types'
@@ -118,6 +118,8 @@ export interface MenuItem {
   /** Caution tint for session-affecting actions such as compaction. */
   warning?: boolean
   title?: string
+  /** Resolve this item's native agent identity tooltip lazily from the shared registry. */
+  agentTooltipId?: string
 }
 export type MenuEntry = MenuItem | 'sep'
 
@@ -577,7 +579,7 @@ function ContextMenu({ state, anchorRef, close }:
     if (next !== null) { e.preventDefault(); list[next]!.focus() }
   }
 
-  const style = { left: pos.x, top: pos.y, '--button-accent': state.buttonAccent } as CSSProperties
+    const style = { left: pos.x, top: pos.y, zIndex: 1600, '--button-accent': state.buttonAccent } as CSSProperties
   return (
     <div ref={el => { ref.current = el; if (el) menuAnchors.set(el, anchorRef) }}
       className="ctxmenu" role="menu" tabIndex={-1} style={style}
@@ -623,6 +625,7 @@ function NestedMenuItem({ entry, close, expanded, expand, collapse, within }: {
   return <div className="ctxmenu-branch" onMouseEnter={expand} onMouseLeave={collapse}>
     <button ref={button} type="button" role="menuitem" tabIndex={-1}
       className={'ctxmenu-item' + (entry.danger ? ' danger' : entry.warning ? ' warning' : '')}
+      {...agentTooltipProps(entry.agentTooltipId)}
       disabled={entry.disabled} aria-disabled={entry.actionDisabled || entry.disabled || undefined}
       aria-haspopup={entry.children ? 'menu' : undefined}
       aria-expanded={entry.children ? expanded : undefined} title={entry.title}

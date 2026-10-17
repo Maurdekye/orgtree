@@ -7,7 +7,7 @@ export function ticketOwnerAction(anchor: Element, name: string | undefined,
   entries: MenuEntry[], toast?: ToastFn): Exclude<MenuEntry, 'sep'> | undefined {
   if (!name) return undefined
   const focus = entries.find(entry => entry !== 'sep' && entry.label === 'Focus')
-  return { label: 'Owner…',
+  return { label: 'Owner…', agentTooltipId: name,
     children: [agentCopyEntry(anchor, name, toast), ...(entries.length ? ['sep' as const, ...entries] : [])],
     actionDisabled: !focus || focus === 'sep' || focus.disabled || focus.actionDisabled,
     onSelect: () => { if (focus && focus !== 'sep' && !focus.disabled && !focus.actionDisabled) focus.onSelect() },
