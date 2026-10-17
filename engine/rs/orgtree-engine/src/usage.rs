@@ -23,6 +23,9 @@ pub mod muse_cache;
 #[cfg(test)]
 mod claude_wait_tests;
 
+#[cfg(test)]
+mod agy_reading_tests;
+
 const TTL: Duration = Duration::from_secs(30);
 const CLAUDE_ATTEMPT_EVERY: Duration = Duration::from_secs(60);
 /// a peek older than this is no claim about now
