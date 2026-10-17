@@ -167,10 +167,12 @@ test('§2.3 the Orgtree menu lists "Usage history…" right under "Usage…" and
 declare const __SRC_DIR__: string
 const CSS = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\r\n/g, '\n')
 const rule = (selector: string): string => {
-  const esc = selector.replace(/[.*+?^${}()|[\]\]/g, '\$&')
-  const m = new RegExp('(?:^|\n)' + esc + '\s*\{([^}]*)\}').exec(CSS)
-  assert.ok(m, `no "${selector}" rule in styles.css`)
-  return m[1]!
+  // the rule is found by its literal selector at the start of a line, then its declaration block is cut out
+  const lines = CSS.split(String.fromCharCode(10))
+  const at = lines.findIndex((l) => l.startsWith(selector + ' {'))
+  assert.ok(at >= 0, `no "${selector}" rule in styles.css`)
+  const body = lines.slice(at).join(' ')
+  return body.slice(body.indexOf('{') + 1, body.indexOf('}'))
 }
 
 const mountPanel = async () => {
