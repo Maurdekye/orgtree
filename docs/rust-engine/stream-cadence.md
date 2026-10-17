@@ -31,3 +31,8 @@ The renderer measurement bundle injects counters at build time; those counters
 are absent from production source. Engine probes require both a synthetic rig
 root and the opt-in stream-probe flag and record only stage, kind, time and byte
 count, never token content. Keep exact source/binary provenance with results.
+
+Render limits count mounted Msg components. A single durable mail carrier may
+expand into several segments sharing one row_id; summing those segments gives
+a misleading count. The same probe bundle can target either source worktree
+with ORGTREE_STREAM_SOURCE, so before/after runs use identical instrumentation.
