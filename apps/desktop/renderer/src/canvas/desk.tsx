@@ -35,7 +35,7 @@ import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useF
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import { firstUseSent } from './firstuse'
-import { FastModeButton } from './fastmode'
+import { FastModeButton } from './fastmodebutton'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { readAttachments, storeAttachments } from '../draftstore'
 import { absorbStrandedDrafts, carryDraftForward, readHistory, recordSent } from '../composerhistory'

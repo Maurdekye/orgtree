@@ -1257,7 +1257,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
   // the wire, and any capability field makes the save lock and re-clamp the
   // node's whole subtree — re-sending untouched folders and tools made an
   // effort-only save on a large manager take about 2 s (agent-settings-save)
-  const scopeBody = Object.keys(edit).length === 1 && 'peerMail' in edit ? {peer_mail:peerMail} : {
+  const scopeBody = Object.keys(edit).length === 1 && 'fastMode' in edit && supportsFastMode ? { fast_mode: fastMode }
+    : Object.keys(edit).length === 1 && 'peerMail' in edit ? {peer_mail:peerMail} : {
     ...('fastMode' in edit && supportsFastMode ? { fast_mode: fastMode } : {}),
     ...('peerMail' in edit ? {peer_mail:peerMail} : {}),
     ...('dirs' in edit ? { add_dirs: dirs } : {}),

@@ -1,8 +1,5 @@
-import { useState, useSyncExternalStore } from 'react'
-import type { ProviderTier, ToastFn } from '../types'
-import type { CanvasNode } from './shared'
-import { saveScope } from '../api'
-import { BoltIcon } from '../icons'
+import { useSyncExternalStore } from 'react'
+import type { ProviderTier } from '../types'
 
 let tiers = new Map<string, ProviderTier>()
 let revision = 0, signature = ''
@@ -25,16 +22,4 @@ export function fastModeSupported(tier?: string, version?: string | null, catalo
 export function useFastMode(tier?: string, version?: string | null): boolean {
   useSyncExternalStore(subscribe, () => revision)
   return fastModeSupported(tier, version)
-}
-export function FastModeButton({ node, slug, toast }: { node: CanvasNode; slug: string; toast: ToastFn }) {
-  const supported = useFastMode(node.tier, node.scope?.model_version)
-  const [saving, setSaving] = useState(false)
-  if (!supported || node.state !== 'live') return null
-  const on = node.scope?.fast_mode === true
-  return <button className={'cc-fast' + (on ? ' on' : '')} type="button" aria-label="Fast mode"
-    aria-pressed={on} title={FAST_MODE_HELP} disabled={saving} onClick={() => {
-      setSaving(true)
-      void saveScope(slug, node.id, { fast_mode: !on })
-        .catch((e: Error) => toast([`error: ${e.message}`])).finally(() => setSaving(false))
-    }}><BoltIcon fontSize="inherit" /></button>
 }
