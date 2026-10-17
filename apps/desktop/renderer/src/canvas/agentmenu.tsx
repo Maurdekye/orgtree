@@ -40,7 +40,7 @@ import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
 import { ConfirmModal } from './modals'
 import { AgentCompactConfirm } from './agentcompact'
-import { fmtCredits, hireTierChoices, tierLabel, USER } from './shared'
+import { fmtCredits, hireTierChoices, subtreeDocCount, tierLabel, USER } from './shared'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
 
 /** Which lifecycle confirm the menu decided on. The choice is the BUILDER's
@@ -329,20 +329,28 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
  */
 export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   s: AgentMenuState = {}): MenuEntry[] {
+  // The agent and switchboard menus' entries, adapted to a project (user
+  // 2026-10-17 22:23Z): what a project holds opens from Open, whole-subtree
+  // versions stand in for compaction and halting, and model, account,
+  // audience and credit entries are left out (a project takes no turns).
   const live = node.state === 'live'
+  const agents = subtreeAgents(node).filter((a) => a.id !== node.id)
+  const entries: MenuEntry[] = [{ label: 'Focus', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk }]
   const open: MenuEntry[] = [{ label: 'Open project mailbox', onSelect: () => h.onInbox() }]
   if (h.onScratchFolder && (live || node.state === 'archived')) {
     open.push({ label: 'Open project folder', onSelect: h.onScratchFolder })
   }
   const presentations = h.onPresentations
-  if (presentations && (node.documents?.length ?? 0) > 0) {
+  if (presentations && subtreeDocCount(node) > 0) {
     open.push({ label: 'Open presentations', onSelect: () => presentations() })
   }
-  // the project's docket: the items attached to it, co-owned by its agents
+  // the project's docket: the items owned by the agents under it
   const docket = h.onDocket
   if (docket) open.push({ label: 'Open project docket', onSelect: () => docket() })
-  const entries: MenuEntry[] = [{ label: 'Open', submenuOnly: true, onSelect: () => {}, children: open }]
-  if (live) entries.push({label:'Settings',onSelect:h.onSettings})
+  const pin = h.onPin, showPin = h.onShowPin
+  if (pin && !s.pinned) open.push({ label: 'Pin desk as a window', onSelect: () => pin() })
+  if (s.pinned && showPin) open.push({ label: 'Show pinned window', onSelect: () => showPin() })
+  entries.push({ label: 'Open', submenuOnly: true, onSelect: () => {}, children: open })
   const hire = h.onHire
   if (live && hire && !s.piled) {
     refreshAgyModels()
@@ -364,6 +372,7 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   if (live && h.onNewProject) {
     entries.push({ label: 'New project…', title: `a project nested in ${node.id}`, onSelect: h.onNewProject })
   }
+  if (live) entries.push({ label: 'Settings', onSelect: h.onSettings })
   if (!live && h.onDismiss) {
     const dismiss = h.onDismiss
     entries.push({ label: 'Dismiss', title: 'hide this retired project again', onSelect: () => dismiss() })
@@ -371,11 +380,26 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const ask = h.onRetireAsk
   if (live && ask) {
     const team = (node.children ?? []).some((c) => c.state === 'live')
-    entries.push('sep', {
+    const lifecycle: MenuEntry[] = []
+    if (agents.length > 0) {
+      lifecycle.push({
+        label: 'Cheap-compact all agents under it…', warning: true,
+        title: `give the ${agents.length} live agents under ${node.id} a fresh session; mid-turn agents are skipped`,
+        onSelect: () => ask('cheap-compact-subtree'),
+      })
+      const unhalt = agents.every((a) => a.halt?.phase === 'halted')
+      lifecycle.push({
+        label: unhalt ? 'Unhalt all agents under it…' : 'Halt all agents under it…', danger: !unhalt,
+        title: `${unhalt ? 'Release' : 'Halt'} the ${agents.length} live agents under ${node.id}`,
+        onSelect: () => ask(unhalt ? 'unhalt-subtree' : 'halt-subtree'),
+      })
+    }
+    lifecycle.push({
       label: 'Retire project…', danger: true,
       title: team ? `retire ${node.id} with the agents and projects under it` : `retire ${node.id}`,
       onSelect: () => ask(team ? 'dissolve' : 'retire'),
     })
+    entries.push('sep', ...lifecycle)
   }
   return entries
 }
@@ -427,9 +451,11 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
     const unhalt = kind.startsWith('unhalt-')
     const descendantsOnly = kind.endsWith('-subordinates')
     const targets = subtreeAgents(node).filter((target) => !descendantsOnly || target.id !== node.id)
-    const scope = descendantsOnly ? `all subordinates of ${node.id}` : `${node.id} and its subtree`
+    const project = node.kind === 'project'
+    const scope = project ? `all agents under project ${node.id}`
+      : descendantsOnly ? `all subordinates of ${node.id}` : `${node.id} and its subtree`
     return <AgentBatchHaltConfirm targets={targets} unhalt={unhalt} scope={scope}
-      detail={descendantsOnly ? `${node.id} stays unchanged. ` : `${node.id} is included. `}
+      detail={project ? '' : descendantsOnly ? `${node.id} stays unchanged. ` : `${node.id} is included. `}
       op={op} toast={toast} close={close} />
   }
   if (kind === 'cheap-compact') {

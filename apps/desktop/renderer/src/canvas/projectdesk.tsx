@@ -16,7 +16,8 @@ import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload, TurnStat } from '../types'
 import { AutorenewIcon, FolderIcon, SettingsIcon } from '../icons'
-import { md, USER } from './shared'
+import { md, subtreeDocCount, USER } from './shared'
+export { subtreeDocCount }
 import type { CanvasNode, OpFn } from './shared'
 import { InboxView } from './mail'
 import { useWorkItems } from './useworkitems'
@@ -56,13 +57,6 @@ export function projectCounts(node: CanvasNode): { active: number; hired: number
   return { active: agents.filter((a) => a.busy).length, hired: agents.length, agents }
 }
 
-/** The presented tab's count: the project's own documents and those of every
- *  node under it, as its gallery lists them (http/docs.rs project_members;
- *  user 2026-10-17 20:07:52Z, docket point 8). */
-export function subtreeDocCount(node: CanvasNode): number {
-  const own = node.documents_count ?? node.documents?.length ?? 0
-  return own + (node.children ?? []).reduce((sum, c) => sum + subtreeDocCount(c), 0)
-}
 
 /** The project's LAST ACTIVITY (user 2026-10-17 22:21Z): active while any
  *  live agent under it runs a turn; otherwise the newest turn end among them,

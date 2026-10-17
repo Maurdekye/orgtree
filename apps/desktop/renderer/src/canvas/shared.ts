@@ -2013,6 +2013,14 @@ export function peerOrder(ids: string[], target: Map<string, Pt>, circular: bool
   return circular ? ids : [...ids].sort((p, q) => (target.get(p)?.x ?? 0) - (target.get(q)?.x ?? 0))
 }
 
+/** The presented tab's count: the project's own documents and those of every
+ *  node under it, as its gallery lists them (http/docs.rs project_members;
+ *  user 2026-10-17 20:07:52Z, docket point 8). */
+export function subtreeDocCount(node: CanvasNode): number {
+  const own = node.documents_count ?? node.documents?.length ?? 0
+  return own + (node.children ?? []).reduce((sum, c) => sum + subtreeDocCount(c), 0)
+}
+
 /** A desk's UP jump cards (user 2026-10-17 22:13Z, "projects are
  *  passthrough"): its nearest agent superior and every project between them,
  *  read top-down — the superior first, then the projects outermost to

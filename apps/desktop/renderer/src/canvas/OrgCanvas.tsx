@@ -3991,6 +3991,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               zoom={view.z}
               focused={n.id === focusId && !worldHidden}
               pinnedFocus={n.id === pinnedFocusId}
+              pinned={pinnedIds.has(n.id)}
+              onFocus={() => centerOn(n.id)}
               onShowPin={() => showPin(slug, n.id, vpSizeNow())}
               tree={tree} map={map} refs={canvasRefs} onJump={centerOn}
               onPin={!isMobile ? () => { pinDesk(n.id) } : undefined}

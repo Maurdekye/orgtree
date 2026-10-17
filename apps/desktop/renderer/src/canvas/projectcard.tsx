@@ -40,6 +40,10 @@ interface ProjectSquareProps {
   focused?: boolean
   /** its desk is a pinned window: the card holds the placeholder */
   pinnedFocus?: boolean
+  /** its desk is pinned (the menu then offers Show pinned window) */
+  pinned?: boolean
+  /** the menu's Focus: walk the camera to its desk */
+  onFocus?: () => void
   onShowPin?: () => void
   /** what the desk reads: the tree (watchdogs, facts), the node map and the
    *  canvas's reference routes; without them a focused card stays a card */
@@ -78,7 +82,7 @@ interface ProjectSquareProps {
   onDragCancel: (e: React.PointerEvent<HTMLDivElement>, id: string) => void
 }
 
-export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
+export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, onFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
   onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   // the mailbox hover button obeys "Show agent card shortcuts", like an
@@ -120,7 +124,10 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, onShowPin,
     onHire,
     onNewProject,
     onRetireAsk: setAsking,
-  }, hire)
+    onOpenDesk: onFocus,
+    onPin,
+    onShowPin,
+  }, { ...hire, pinned })
   return (
     <div data-copy-agent-name={node.id} className={cls.join(' ')} style={style}
       aria-label={`project ${node.id}`}
