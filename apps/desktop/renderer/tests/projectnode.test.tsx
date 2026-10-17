@@ -31,7 +31,7 @@ import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeSquare } from '../src/canvas/cards'
 import { agentMenuEntries, projectMenuEntries } from '../src/canvas/agentmenu'
 import type { AgentMenuHandlers } from '../src/canvas/agentmenu'
-import { agentItems } from '../src/canvas/docket'
+import { agentItems, teamItems } from '../src/canvas/docket'
 import type { WorkItem } from '../src/types'
 import { DRAFT, peerLinkPairs, setAgentShortcutsOn, withDraftTree } from '../src/canvas/shared'
 import type { CanvasNode, DraftState, OpResult } from '../src/canvas/shared'
@@ -299,9 +299,10 @@ test('§3c retiring a project with live agents under it asks for the team retire
   assert.equal(asked, 'dissolve')
 })
 
-/* ─── §4 the project's docket (slice 2) ─────────────────────────────────── */
-// USER 2026-10-16 20:23Z: docket items may attach to a project; every agent
-// under it co-owns them, and the project's desk lists its attached items.
+/* ─── §4 the project's docket ───────────────────────────────────────────── */
+// USER 2026-10-17 22:21Z (superseding 2026-10-16 20:23Z): items no longer
+// attach to projects; a project's docket lists every item OWNED by an agent
+// under it, through nested projects.
 
 test("§4a a project's menu opens its docket when the surface offers one", () => {
   let opened = 0
@@ -313,17 +314,17 @@ test("§4a a project's menu opens its docket when the surface offers one", () =>
   assert.equal(opened, 1)
 })
 
-test('§4b the project docket lists the items attached to it, and only those', () => {
-  const item = (slug: string, extra: Partial<WorkItem>) =>
-    ({ slug, owner: { node: 'dev1', generation: 1 }, reviewer: null, participants: [], ...extra }) as unknown as WorkItem
+test('§4b the project docket lists the items owned under the project, nested included, nothing attached', () => {
+  const item = (slug: string, owner: string, extra: Record<string, unknown> = {}) =>
+    ({ slug, owner: { node: owner, generation: 1 }, reviewer: null, participants: [], ...extra }) as unknown as WorkItem
   const data = { items: [
-    item('attached', { project: { node: 'website' } }),
-    item('elsewhere', { project: { node: 'blog' } }),
-    item('plain', {}),
+    item('dev1-work', 'dev1'), item('dev2-work', 'dev2'), item('outside', 'alice'),
+    item('old-attached', 'alice', { project: { node: 'website' } }),
   ] }
-  assert.deepEqual(agentItems(data, 'website')!.map((i) => i.slug), ['attached'])
-  assert.deepEqual(agentItems(data, 'dev1')!.map((i) => i.slug), ['attached', 'elsewhere', 'plain'],
-    'the owner still sees every item it owns')
+  const roots = [{ id: 'boss', children: [{ id: 'website', kind: 'project', children: [
+    { id: 'dev1', children: [] }, { id: 'ui', kind: 'project', children: [{ id: 'dev2', children: [] }] }] }] }] as never
+  assert.deepEqual(teamItems(data, 'website', roots)!.map((i) => i.slug), ['dev1-work', 'dev2-work'])
+  assert.deepEqual(agentItems(data, 'website')!.map((i) => i.slug), [], 'a stale `project` field attaches nothing')
 })
 
 /* ─── §5 sibling connector lines ────────────────────────────────────────── */
