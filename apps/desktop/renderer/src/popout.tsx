@@ -3,6 +3,7 @@ import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, savedW
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
 import { copyCodeFromEvent, markdownImageFailed, revealFileFromEvent } from './canvas/shared'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
+import { registerAgentNativeTooltipDocument, useAgentTooltipLookup } from './canvas/agentnav'
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode, SyntheticEvent } from 'react'
 import { desktop } from './desktop'
@@ -257,6 +258,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   sourceBox?: () => { x: number; y: number; w: number; h: number } | null
 }) {
   const parent = useSurface()
+  const agentTooltipLookup = useAgentTooltipLookup()
   const layoutKey = windowLayoutKey(kind, org)
   const restoreAllowed = useRestoreWindows()
   const restored = useRef(false)
@@ -646,6 +648,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       d.addEventListener('click', documentClick, true)
       d.addEventListener('error', markdownImageFailed, true)
       cleanups.current.push(() => { d.removeEventListener('pointerdown', note, true); d.removeEventListener('keydown', note, true); d.removeEventListener('click', documentClick, true); d.removeEventListener('error', markdownImageFailed, true) })
+      cleanups.current.push(registerAgentNativeTooltipDocument(d, agentTooltipLookup))
       if (w.closed || transaction !== epoch.current) throw new Error('The new window closed before it was ready.')
       // COMMIT POINT. Even a partially successful append that THEN throws is
       // rolled back below, by adopting the SAME container into its anchor.

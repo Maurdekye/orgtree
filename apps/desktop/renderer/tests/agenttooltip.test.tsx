@@ -2,6 +2,7 @@ import './harness'
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as agentnav from '../src/canvas/agentnav'
 import {
   AgentNavProvider, agentNavProps, useProvideAgentNav,
 } from '../src/canvas/agentnav'
@@ -44,6 +45,29 @@ test('archived agent title keeps the retired model marker', async () => {
   await inAct(() => link.dispatchEvent(new Event('focusin', { bubbles: true })))
   assert.equal(link.title, 'Claude Opus 5.5 (retired) · max')
   await v.unmount()
+})
+
+test('agent tooltip listeners work on an adopted pop-out document and clean up', () => {
+  const popoutDocument = document.implementation.createHTMLDocument('pop-out')
+  const link = document.createElement('button')
+  link.setAttribute('data-agent-tooltip', 'worker')
+  popoutDocument.body.appendChild(popoutDocument.adoptNode(link))
+  const registerListeners = Reflect.get(agentnav, 'registerAgentNativeTooltipDocument') as
+    ((owner: Document, lookup: (id: string) => AgentTooltipInfo | null) => () => void) | undefined
+  assert.equal(typeof registerListeners, 'function', 'the listener can bind to a pop-out owner document')
+  const removeListeners = registerListeners!(popoutDocument, (id: string) =>
+    id === 'worker' ? { title: 'Claude Opus 5.5 · max' } : null)
+
+  link.dispatchEvent(new Event('pointerover', { bubbles: true }))
+  assert.equal(link.title, 'Claude Opus 5.5 · max',
+    'the adopted link receives the native title from its owning document')
+  link.dispatchEvent(new Event('contextmenu', { bubbles: true }))
+  assert.equal(link.hasAttribute('title'), false,
+    'the owning document clears the native title before its context menu opens')
+
+  removeListeners()
+  link.dispatchEvent(new Event('pointerover', { bubbles: true }))
+  assert.equal(link.hasAttribute('title'), false, 'the pop-out listener is removed on cleanup')
 })
 
 test('model badge inherits the agent link identity tooltip instead of its tier label', async t => {

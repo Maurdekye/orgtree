@@ -111,6 +111,42 @@ export function agentTooltipProps(id: string | null | undefined):
   return id ? { [AGENT_TOOLTIP_ATTR]: id } : {}
 }
 
+/** Bind native tooltip handling to the document that owns its agent links.
+ * Pop-out windows adopt the surface DOM into a different document, so their
+ * events do not reach the main window's document listeners. */
+export function registerAgentNativeTooltipDocument(owner: Document,
+                                                   lookup: AgentTooltipLookup): () => void {
+  const target = (event: Event): HTMLElement | null =>
+    (event.target as Element | null)?.closest?.('[' + AGENT_TOOLTIP_ATTR + ']') as HTMLElement | null
+  const show = (event: Event) => {
+    const anchor = target(event)
+    const id = anchor?.getAttribute(AGENT_TOOLTIP_ATTR)
+    if (!anchor || !id) return
+    const title = lookup(id)?.title
+    if (title) anchor.title = title
+  }
+  const clear = (event: Event) => {
+    const anchor = target(event)
+    const related = (event as PointerEvent | FocusEvent).relatedTarget
+    const relatedNode = related && typeof related === 'object' && 'nodeType' in related
+      ? related as Node : null
+    if (event.type !== 'contextmenu' && relatedNode && anchor?.contains(relatedNode)) return
+    if (anchor) anchor.removeAttribute('title')
+  }
+  owner.addEventListener('pointerover', show, true)
+  owner.addEventListener('focusin', show, true)
+  owner.addEventListener('pointerout', clear, true)
+  owner.addEventListener('focusout', clear, true)
+  owner.addEventListener('contextmenu', clear, true)
+  return () => {
+    owner.removeEventListener('pointerover', show, true)
+    owner.removeEventListener('focusin', show, true)
+    owner.removeEventListener('pointerout', clear, true)
+    owner.removeEventListener('focusout', clear, true)
+    owner.removeEventListener('contextmenu', clear, true)
+  }
+}
+
 /** Resolve the title lazily for memo'd links and sibling surfaces. The browser
  * owns the tooltip presentation and delay; clearing title on contextmenu keeps
  * its native tooltip from lingering above the agent menu. */
@@ -118,38 +154,15 @@ function AgentNativeTooltip() {
   const registry = useContext(AgentNavCtx)
   useEffect(() => {
     if (!registry) return
-    const target = (event: Event): HTMLElement | null => {
-      const anchor = (event.target as Element | null)?.closest?.(
-        '[' + AGENT_TOOLTIP_ATTR + ']') as HTMLElement | null
-      return anchor
-    }
-    const show = (event: Event) => {
-      const anchor = target(event)
-      const id = anchor?.getAttribute(AGENT_TOOLTIP_ATTR)
-      if (!anchor || !id) return
-      const title = registry.tooltip?.(id)?.title
-      if (title) anchor.title = title
-    }
-    const clear = (event: Event) => {
-      const anchor = target(event)
-      const related = (event as PointerEvent | FocusEvent).relatedTarget
-      if (event.type !== 'contextmenu' && related instanceof Node && anchor?.contains(related)) return
-      if (anchor) anchor.removeAttribute('title')
-    }
-    document.addEventListener('pointerover', show, true)
-    document.addEventListener('focusin', show, true)
-    document.addEventListener('pointerout', clear, true)
-    document.addEventListener('focusout', clear, true)
-    document.addEventListener('contextmenu', clear, true)
-    return () => {
-      document.removeEventListener('pointerover', show, true)
-      document.removeEventListener('focusin', show, true)
-      document.removeEventListener('pointerout', clear, true)
-      document.removeEventListener('focusout', clear, true)
-      document.removeEventListener('contextmenu', clear, true)
-    }
+    return registerAgentNativeTooltipDocument(document, id => registry.tooltip?.(id) ?? null)
   }, [registry])
   return null
+}
+
+/** A stable thunk that always reads the provider's current tooltip catalog. */
+export function useAgentTooltipLookup(): AgentTooltipLookup {
+  const registry = useContext(AgentNavCtx)
+  return useMemo(() => id => registry?.tooltip?.(id) ?? null, [registry])
 }
 
 /** Read the REGISTRY, not the builder. Callers must dereference `.current`
