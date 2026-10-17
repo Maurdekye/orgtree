@@ -84,6 +84,12 @@ test('the field lives beneath cards in world space; motion preference yields a s
 
 test('working cards stay still while heat and wire pulses follow activity', () => {
   const clock = clockwork(), host = document.createElement('div')
+  // Unlike the quiet default canvas, exercise paint() through its wire pass.
+  const proto = window.HTMLCanvasElement.prototype, hadContext = proto.getContext
+  proto.getContext = (() => ({
+    createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+    clearRect() {}, putImageData() {}, drawImage() {},
+  })) as unknown as typeof proto.getContext
   host.className = 'viewport'
   host.innerHTML = '<div class="space" style="width:1024px;height:1024px"><div data-first-use-agent="a" style="transform:translate(400px,400px);width:200px;height:100px"></div></div>'
   document.body.append(host)
@@ -116,6 +122,6 @@ test('working cards stay still while heat and wire pulses follow activity', () =
     heat.pulse('a')
     assert.equal(starts, 0)
     assert.equal(state.pulses.length, 0)
-  } finally { heat.stop(); host.remove(); clearEpicTree(); window.matchMedia = had; clock.restore() }
+  } finally { heat.stop(); host.remove(); clearEpicTree(); window.matchMedia = had; proto.getContext = hadContext; clock.restore() }
   assert.equal(document.querySelector('.epic-transport') === null, true)
 })
