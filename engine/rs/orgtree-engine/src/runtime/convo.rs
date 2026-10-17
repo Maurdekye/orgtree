@@ -15,6 +15,50 @@ pub struct ConvoWriter {
     pending: std::collections::BTreeMap<i64, Value>,
 }
 
+#[cfg(test)]
+mod agy_thinking_pg_tests {
+    use super::*;
+
+    /// The author runner supplies a newly initialized disposable cluster. This
+    /// test never falls back to the application's DB or an ambient PG URL.
+    #[tokio::test]
+    #[ignore = "requires the isolated AGY thinking author fixture"]
+    async fn agy_thinking_receipts_survive_reload_and_rollback_atomically() {
+        let url=std::env::var("ORGTREE_AGY_THINKING_TEST_URL").expect("synthetic fixture URL required");
+        let cfg: tokio_postgres::Config=url.parse().unwrap();
+        assert_eq!(cfg.get_dbname(),Some("agy_thinking_fixture"));
+        assert_eq!(cfg.get_user(),Some("agy_thinking_fixture"));
+        let (mut client,connection)=cfg.connect(tokio_postgres::NoTls).await.unwrap();
+        let connection=tokio::spawn(async move { connection.await.unwrap(); });
+        client.batch_execute("CREATE SCHEMA ot;
+            CREATE TABLE ot.agents(id bigint PRIMARY KEY);
+            INSERT INTO ot.agents VALUES (1);
+            CREATE TABLE ot.convo(agent_id bigint,seq bigint,ver bigint,body jsonb CHECK(NOT body ? 'synthetic_reject'),tool_inputs jsonb,PRIMARY KEY(agent_id,seq));").await.unwrap();
+        client.batch_execute(include_str!("../../migrations/0028_agy_thinking.sql")).await.unwrap();
+        let session="12345678-1234-4321-8765-123456789abc";
+        let rows=||crate::runtime::agy_thinking::rows(session,6,Some("synthetic thought"),"synthetic response","now");
+        let mut writer=ConvoWriter::load(&client,1).await.unwrap();
+        let saved=writer.append_agy_step(&mut client,session,6,rows()).await.unwrap().unwrap();
+        assert_eq!(saved.len(),2); assert_eq!(saved[0].1["thinking"],"synthetic thought");
+        assert_eq!(saved[1].1["text"],"synthetic response"); assert!(saved[0].0<saved[1].0);
+        assert!(writer.append_agy_step(&mut client,session,6,rows()).await.unwrap().is_none());
+        let mut writer=ConvoWriter::load(&client,1).await.unwrap(); // actor/engine restart
+        assert!(writer.append_agy_step(&mut client,session,6,rows()).await.unwrap().is_none());
+        assert_eq!((writer.seq,writer.ver),(2,2));
+        let mut failed=rows(); failed[1]["synthetic_reject"]=json!(true);
+        assert!(writer.append_agy_step(&mut client,session,7,failed).await.is_err());
+        assert_eq!((writer.seq,writer.ver),(2,2));
+        let receipt:i64=client.query_one("SELECT count(*) FROM ot.agy_step_receipts WHERE step_index=7",&[]).await.unwrap().get(0);
+        assert_eq!(receipt,0);
+        let count:i64=client.query_one("SELECT count(*) FROM ot.convo",&[]).await.unwrap().get(0); assert_eq!(count,2);
+        assert!(writer.append_agy_step(&mut client,session,7,rows()).await.unwrap().is_some());
+        let other="abcdefab-1234-4321-8765-123456789abc";
+        assert!(writer.append_agy_step(&mut client,other,6,rows()).await.unwrap().is_some());
+        assert_eq!((writer.seq,writer.ver),(6,6));
+        drop(client); connection.await.unwrap();
+    }
+}
+
 #[logged]
 impl ConvoWriter {
     pub async fn load(client: &Client, agent_id: i64) -> Result<Self> {

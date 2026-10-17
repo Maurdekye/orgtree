@@ -5495,7 +5495,7 @@ impl Actor {
                     let response=self.turn.as_ref().and_then(|t|t.agy_text.get(index)).map(String::as_str).unwrap_or("");
                     let rows=crate::runtime::agy_thinking::rows(session,*index,thinking.as_deref(),response,&now_iso());
                     let mut client=self.engine.db.get().await?;
-                    let saved=self.convo.append_agy_step(&mut client,session,*index,rows).await?;
+                    let saved=Box::pin(self.convo.append_agy_step(&mut client,session,*index,rows)).await?;
                     drop(client);
                     let Some(saved)=saved else {
                         if let Some(t)=self.turn.as_mut() { t.agy_text.remove(index); t.draft.clear(); t.draft_order=None; }

@@ -6,6 +6,12 @@ harness, falling back to `started_at` only for open or legacy rows without an
 end. Active clocks stay on `inflight_at`; ordinary Antigravity hook mail does
 not start a new turn. See [turn clocks](turn-completion-clock.md).
 
+**Antigravity thinking, user 2026-10-17 17:10Z:** show the thinking stored in
+AGY's native local history after each completed step, before its response, using
+the existing collapsed thinking rendering. Live thinking requires upstream AGY
+support. Read-only exact session/step matching, duplicate-safe persistence and
+no thinking text in logs are required. 4.4.0 only. See [AGY thinking](antigravity-thinking.md).
+
 **Watchdog recurrence, user 2026-10-17 14:46Z/14:48Z:** periodic polling and
 quiet timers retain fixed next timestamps through restarts. Missed slots
 produce at most one immediate catch-up, then continue the original phase

@@ -34,6 +34,14 @@
   [decided: user 2026-10-17 17:26Z; verified: `shared_notes.rs`, `orgs.rs`,
   `runtime/{actor,identity}.rs`, `http/nodes.rs`]
 
+- Antigravity completed-step thinking uses the launched login home and exact
+  process-bound conversation/step, with an immutable bounded history read and
+  no thought text in logs. A receipt and thought-before-response rows commit
+  atomically, preventing replay/restart duplicates. WAL/journal visibility
+  limits and synthetic checks: [AGY thinking](docs/rust-engine/antigravity-thinking.md).
+  [decided: user 2026-10-17 17:10Z; verified: `runtime/agy_thinking.rs`,
+  `runtime/actor.rs`, `runtime/convo.rs`; author checks pending]
+
 - State inspection memoizes effective ancestry only within its immutable
   request snapshot, retaining the total 1024-node ancestry cap and visibility
   refusals. Folder clamps normalize each list entry once; pure path helpers

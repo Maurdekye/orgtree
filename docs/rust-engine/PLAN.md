@@ -344,6 +344,11 @@ their established restoration rules. See [`popout-close.md`](popout-close.md).
 
 ### C. Agent desk
 
+Antigravity thinking addition (user 2026-10-17, 4.4.0): after each completed
+model step, read that exact session/step's native history thinking read-only and
+display it collapsed before the response. No live-thinking claim, backfill,
+duplicate rows or thought text in logs. See [AGY thinking](antigravity-thinking.md).
+
 Helper transcript addition (user 2026-10-16 20:23Z): expanding a helper call
 shows live first-level activity. Initial 4.4.0 alpha slice captures new Claude
 Agent/Task calls only; nested helper tools retain ordinary details. Other
