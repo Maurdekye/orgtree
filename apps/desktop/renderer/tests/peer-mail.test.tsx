@@ -72,7 +72,7 @@ for(const renderer of ['svg','gl'] as const) for(const chart of ['row','circular
     if(renderer==='gl')assert.ok(draws>0,'fake GL path really receives committed wires')
     assert.ok(count(true)>0,'positive control: on draws peer lines')
     const vertical=count(false);assert.ok(vertical>0,'superior/subordinate links exist')
-    const off={...tr,rev:2,roots:[{...root,peer_mail:false,scope:{...root.scope!,peer_mail:false}}]}
+    const off={...tr,rev:2,roots:[{...root,peer_mail:false,scope:{...root.scope!,peer_mail:false}}]} as unknown as TreePayload
     await inAct(async()=>{await v.render(content(off));await flush(8)})
     assert.equal(count(true),0,'OFF removes lateral links before either renderer')
     assert.equal(count(false),vertical,'hierarchy links remain')
