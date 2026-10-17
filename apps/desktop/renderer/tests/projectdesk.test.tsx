@@ -32,6 +32,8 @@
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import { AgentGalleryView } from '../src/canvas/gallery'
@@ -363,4 +365,22 @@ test('§8c the middle-zoom card carries it beside the active/hired chip', async 
 test('§8d a project whose agents never ran a turn shows no activity card', async (t) => {
   const el = await desk(t, { node: project({ children: [] }) })
   assert.equal(el.querySelector('.project-last-activity') === null, true)
+})
+
+// coordinator visual review of the activity capture, 2026-10-17 23:25Z
+
+test('§8e an idle chip keeps no empty spinner slot; an active one has its spinner', async (t) => {
+  const idle = await desk(t, { node: quiet(300) })
+  assert.equal(idle.querySelector('.cc-head .project-activity .org-activity') === null, true, 'no gap where the spinner sits')
+  assert.equal(idle.querySelector('.cc-head .project-activity')?.textContent, '0/1')
+  const busy = await desk(t)
+  assert.ok(busy.querySelector('.cc-head .project-activity .org-activity .cc-spin'), 'the spinner while active')
+})
+
+declare const __SRC_DIR__: string
+test('§8f "quiet for 7m" is one font: the label wears the age\'s font, as an agent card\'s state word does', () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  const rule = /\n\.project-last-activity \{([^}]*)\}/.exec(css)
+  assert.ok(rule, 'the .project-last-activity rule')
+  assert.match(rule[1]!, /font:\s*600 10px\/1 var\(--mono\)/, 'the .sq-idle / .sq-idle-time font')
 })
