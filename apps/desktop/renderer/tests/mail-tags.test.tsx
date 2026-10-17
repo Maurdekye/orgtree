@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import { useState } from 'react'
 import { MailList } from '../src/canvas/mail'
 import type { MailRow } from '../src/canvas/shared'
+import { useTaggedUserMail } from '../src/usemailtags'
+import type { InboxPayload } from '../src/types'
 
 const rows:MailRow[]=Array.from({length:6},(_,i)=>({id:`m${i}`,from:'lead',kind:'message',
   at:`2026-10-17T00:00:0${i}Z`,body:`message${i}`,...(i===0?{tags:['Alpha Build']}:i===1?{tags:['alpha build']}:i===2?{tags:['Progress']}:{}),
@@ -62,4 +64,48 @@ test('tag hue is stable for normalized names and differs across tag keys',async(
     await v.render(<MailList delivered={[...rows].reverse()} tagFilter={{value:'',choices:[],onChange:()=>{}}}/>)
     assert.equal(v.el.querySelector<HTMLElement>('.mail-tag[data-tag-key="alpha build"]')!.style.getPropertyValue('--mail-tag-hue'),hue)
   }finally{await v.unmount()}
+})
+
+const base:InboxPayload={pending:[],delivered:rows,sent:[]}
+function TagPage({tag}:{tag:string}){
+  const page=useTaggedUserMail('tag-org',base,tag,true)
+  return <div data-rows={page.box.delivered.map(m=>m.body).join(',')} data-error={page.error??''}>
+    <button onClick={page.loadMore}>older</button>
+  </div>
+}
+test('tag query reads older matching mail before paging and merges its next cursor window',async()=>{
+  const real=globalThis.fetch,requests:string[]=[]
+  globalThis.fetch=(async(input:RequestInfo|URL)=>{
+    const url=String(input);requests.push(url)
+    const data=url.includes('tags_only=')?{tag_choices:['Alpha Build']}
+      :{pending:[],delivered:[{...rows[0],id:url.includes('before=')?'old2':'old1',body:url.includes('before=')?'older':'old'}],sent:[],next_cursor:url.includes('before=')?null:'99'}
+    return new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}})
+  }) as typeof fetch
+  const v=await mountView(<TagPage tag="Alpha Build"/>,el=>el)
+  try{
+    await inAct(async()=>{await flush(8)})
+    assert.equal(v.el.querySelector('[data-rows]')!.getAttribute('data-rows'),'old')
+    assert.ok(requests.some(u=>u.includes('tag=Alpha%20Build')),'tag is a server query, not a loaded-row-only filter')
+    await inAct(async()=>{v.el.querySelector<HTMLButtonElement>('button')!.click();await flush(8)})
+    assert.equal(v.el.querySelector('[data-rows]')!.getAttribute('data-rows'),'old,older')
+    assert.ok(requests.some(u=>u.includes('before=99')))
+  }finally{await v.unmount();globalThis.fetch=real}
+})
+test('an obsolete tag response cannot replace the current filter',async()=>{
+  const real=globalThis.fetch
+  let finish:((response:Response)=>void)|undefined
+  globalThis.fetch=(async(input:RequestInfo|URL)=>{
+    const url=String(input)
+    if(url.includes('tags_only='))return new Response(JSON.stringify({tag_choices:['Alpha','Progress']}))
+    if(url.includes('tag=Alpha'))return new Promise<Response>(resolve=>{finish=resolve})
+    return new Response(JSON.stringify({pending:[],delivered:[{...rows[0],body:'progress'}],sent:[]}))
+  }) as typeof fetch
+  const v=await mountView(<TagPage tag="Alpha"/>,el=>el)
+  try{
+    await inAct(async()=>{await flush(5)})
+    assert.ok(finish,'positive control: first request is pending')
+    await v.render(<TagPage tag="Progress"/>)
+    await inAct(async()=>{await flush(5);finish!(new Response(JSON.stringify({pending:[],delivered:[{...rows[0],body:'obsolete'}],sent:[]})));await flush(5)})
+    assert.equal(v.el.querySelector('[data-rows]')!.getAttribute('data-rows'),'progress')
+  }finally{await v.unmount();globalThis.fetch=real}
 })
