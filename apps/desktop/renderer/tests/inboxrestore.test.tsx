@@ -85,6 +85,22 @@ test('your inbox reopens the last mail when no new inbox mail arrived', async (t
     'restoring a mail also scrolls its row into view')
 })
 
+test('restoring the last opened mail wins over automatic unread selection', async (t) => {
+  const slug = 'restore-unread-priority'
+  W.sessionStorage.setItem(`orgtree-user-inbox-arrivals:${slug}`, JSON.stringify(['m2', 'm1']))
+  W.sessionStorage.setItem(`orgtree-user-inbox-last-opened:${slug}`, 'm1')
+  const inbox = {
+    pending: [mail('m2', '2026-10-17T11:00:00Z')],
+    delivered: [mail('m1', '2026-10-17T10:00:00Z')],
+    sent: [],
+  }
+  const reopened = await mountInbox(t, inbox, slug)
+  assert.match(pane(reopened.view), /body-m1/,
+    'automatic unread selection must not overwrite the saved message before restore reads it')
+  const selected = reopened.view.el.querySelector<HTMLElement>('.mailrow.on')
+  assert.ok(selected?.textContent?.includes('body-m1'), 'the remembered mail row is selected')
+})
+
 test('a new inbox arrival prevents restoring the previous selection', async (t) => {
   const previous = { pending: [], delivered: [mail('m1', '2026-10-17T10:00:00Z')], sent: [] }
   const first = await mountInbox(t, previous, 'restore-arrival')

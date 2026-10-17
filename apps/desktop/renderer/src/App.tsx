@@ -2714,6 +2714,15 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // dep restarts the effect, which ticks immediately. No optimistic local
   // state: the server answer still decides, it is just asked for now.
   const [readBump, setReadBump] = useState(0)
+  // Snapshot the prior choice during the parent's render, before MailList's
+  // child effects can persist its automatic unread selection on this mount.
+  const rememberedAtOpen = useRef<{ slug: string; id: string | null }>({ slug: '', id: null })
+  if (rememberedAtOpen.current.slug !== slug) {
+    let id: string | null = null
+    try { id = window.sessionStorage.getItem(`orgtree-user-inbox-last-opened:${slug}`) }
+    catch { /* inbox reading still works when session storage is unavailable */ }
+    rememberedAtOpen.current = { slug, id }
+  }
   // readBump rides the REFRESH key, not deps: deps changes reset the value to
   // null (identity changed — §6.10), and blanking the inbox on every
   // mark-read would regress the instant-ack this bump exists to provide
@@ -2726,12 +2735,11 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
     if (!rawBox || restoreChecked.current === slug) return
     restoreChecked.current = slug
     const arrivalKey = `orgtree-user-inbox-arrivals:${slug}`
-    const openedKey = `orgtree-user-inbox-last-opened:${slug}`
     const ids = [...rawBox.pending, ...rawBox.delivered].map(m => m.id).filter(Boolean)
     try {
       const stored = JSON.parse(window.sessionStorage.getItem(arrivalKey) ?? 'null')
       const previous = Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : null
-      const lastOpened = window.sessionStorage.getItem(openedKey)
+      const lastOpened = rememberedAtOpen.current.slug === slug ? rememberedAtOpen.current.id : null
       const newMail = previous !== null && ids.some(id => !previous.includes(id))
       setRestoreMail({ slug, id: lastOpened && !newMail ? lastOpened : null })
       window.sessionStorage.setItem(arrivalKey, JSON.stringify(ids))
