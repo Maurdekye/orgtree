@@ -32,7 +32,7 @@ test('UI name normalization trims ends and collapses space runs without hiding o
   assert.equal(normalizeUserEnteredName('   '), '')
 })
 
-test('manual canvas draft displays the normalized name and submits that same value', async (t) => {
+test('manual canvas draft preserves typed text and submits the normalized name', async (t) => {
   installFetch(new FakeServer())
   let submitted = ''
   const view = await mountView(<DraftNode pos={{ x: 0, y: 0 }} draft={{ parent: null, tier: 'haiku' }}
@@ -41,7 +41,7 @@ test('manual canvas draft displays the normalized name and submits that same val
   t.after(() => view.unmount())
   const input = view.el.querySelector<HTMLInputElement>('.df-name')!
   await enter(input, '  Front   End  ')
-  assert.equal(input.value, 'Front-End', 'the text field shows what will be submitted')
+  assert.equal(input.value, '  Front   End  ', 'spaces remain editable until submission')
   await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.df-foot button.primary')!.click(); await flush() })
   assert.equal(submitted, 'Front-End')
 })
@@ -64,7 +64,7 @@ test('manual canvas draft preserves a space while the name is typed incrementall
   assert.equal(submitted, 'Front-End')
 })
 
-test('hire sheet lowercases and displays the normalized user-entered name before hiring', async (t) => {
+test('hire sheet lowercases while editing and submits the normalized user-entered name', async (t) => {
   installFetch(new FakeServer())
   let hired = ''
   const view = await mountView(<HireSheet anchor={anchor} seats={{ haiku: 1 }}
@@ -74,7 +74,7 @@ test('hire sheet lowercases and displays the normalized user-entered name before
   await flush()
   const input = document.querySelector<HTMLInputElement>('.hire-sheet input:not([type="number"])')!
   await enter(input, '  Front   End  ')
-  assert.equal(input.value, 'front-end', 'the existing lowercase rule still applies')
+  assert.equal(input.value, '  front   end  ', 'the lowercase rule applies while spaces remain editable')
   const hire = [...document.querySelectorAll<HTMLButtonElement>('.hire-sheet button')].find((b) => b.textContent === 'hire')!
   await inAct(async () => { hire.click(); await flush() })
   assert.equal(hired, 'front-end')

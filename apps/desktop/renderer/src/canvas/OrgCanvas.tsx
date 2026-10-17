@@ -4748,7 +4748,8 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   const [grant, setGrant] = useState(defaultGrant)
   const [placement, setPlacement] =
     useState<'below' | 'left' | 'right' | 'above'>('below')
-  const ok = /^[a-z][a-z0-9-]{1,29}$/.test(name.trim()) && !!tier
+  const normalizedName = normalizeUserEnteredName(name.toLowerCase())
+  const ok = /^[a-z][a-z0-9-]{1,29}$/.test(normalizedName) && !!tier
   return (
     <ModalOverPins><div className="overlay" onPointerDown={(e) => e.stopPropagation()}>
       <div className="settings hire-sheet">
@@ -4818,7 +4819,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
         </div>
         <div className="field-label">name</div>
         <input value={name} placeholder="lowercase-slug"
-          onChange={(e) => setName(normalizeUserEnteredName(e.target.value.toLowerCase()))} />
+          onChange={(e) => setName(e.target.value.toLowerCase())} />
         <div className="field-label">credit grant</div>
         <input type="number" min={0} value={grant}
           onChange={(e) => setGrant(Math.max(0, Math.round(Number(e.target.value) || 0)))} />

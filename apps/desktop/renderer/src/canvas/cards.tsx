@@ -1189,7 +1189,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
                   el.focus({ preventScroll: true })
                 }
               }}
-              onChange={(e) => setName(normalizeUserEnteredName(e.target.value))}
+              onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && ok) hire() }} />
             <button className="df-gear"
               title="permissions — folders, tools, MCP, visibility (applied with the hire)"
