@@ -357,6 +357,12 @@
   `usage/muse_cache.rs`, `usage.rs`, `domain/account_removal.rs`; contract and
   measured limits: `docs/rust-engine/muse-usage-cache.md`]
 
+- Native Muse metadata refreshes cached display identity even when quota is
+  absent or unchanged. The overlay preserves quota age and auth evidence;
+  unknown identity clears the prior email and never enters durable quota.
+  [decided: coordinator 2026-10-17; verified: `usage.rs`; contract:
+  `docs/rust-engine/muse-usage-cache.md`]
+
 - Presentations and docket panels share panel-level Alt+Up/Down navigation
   over their filtered, unfolded row order. Their list root takes focus once
   on opening so auto-selected entries accept arrows without a click; keep an

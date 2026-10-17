@@ -32,6 +32,27 @@ Coordinator-opus approved this contract on 2026-10-15 11:47Z for
 
 ## Verification packet and current limits
 
+### Display identity after restart (2026-10-17)
+
+Fresh native `account/read` metadata overlays only the in-memory `email` and
+`label` fields, including when `usage/read` returns null or the same observation.
+Discovery passes its observed label directly because the provider status is
+published after this callback. The atomic overlay preserves the cached clock,
+all quota data and independent authentication evidence. Missing identity clears
+an older email to the generic signed-in label. The existing signed-out refusal
+remains authoritative. Registered profiles do not inherit the native identity,
+and durable quota still excludes it.
+
+The synthetic `muse-usage-restart` proof now includes identity on repeated quota,
+restored quota without a newer observation, cached-tool display, unknown-label
+clearing and durable/profile isolation. At red commit `ed08377`, these produced
+three expected identity failures with 13 passing quota/privacy controls. Two
+focused `muse_identity_tests` additionally check the unchanged in-memory clock
+and auth evidence, absent cache and clearing an old email. Candidate results
+are recorded with the exact hand-in SHA in the docket.
+
+### Original persistence verification
+
 Base `0582efd`, baseline tests committed first at `a9a0f0c`. Rig-sol-b measured
 the permitted `b77512f` baseline with test-only overlay `ca98438`: rebuilt fake
 CLI succeeded; full process proof executed 11 checks (3 pass/8 fail), including

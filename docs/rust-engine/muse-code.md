@@ -6,6 +6,11 @@ UI the Claude Code and Codex lanes have, as far as Muse exposes them. Every
 place it cannot match them is listed below with the reason. Docket item:
 `assess-muse-code-harness-and-provider-integratio`.
 
+Native account identity is refreshed independently of quota: metadata can
+restore the displayed email after an engine restart even if Muse reports no
+new usage. This does not refresh quota age or authentication evidence; an
+unknown label remains unknown. See [usage cache](muse-usage-cache.md).
+
 Evidence labels used throughout: **measured** (observed on this build: the
 real Muse Code, the rig's fake `muse serve`, a rendered UI or a unit test,
 named), **documented** (Muse's help, schema or docs say so; not observed
