@@ -10,7 +10,8 @@ import { useStaging, StagingRows } from './staging'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
-import { mailTagKey, mailTagHue } from './mailtags'
+import { mailTagKey, mailTagHue, mailMatchesTags } from './mailtags'
+import { MailTagPicker } from './mailtagpicker'
 import type { InboxPayload, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
 import {
   audienceAction, fileBase, fileUrl, getMailById, getOrgInbox, orgInboxRead,
@@ -320,7 +321,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     return actor ? actor.kind === 'user' ? USER : actor.kind === 'system' ? SYSTEM : actor.id : partyOf(m)
   }
   const qn = q.trim().toLowerCase()
-  const tagged = tagFilter?.value.trim() ? all.filter(m => m.tags?.some(t => mailTagKey(t) === mailTagKey(tagFilter.value))) : all
+  const tagged = tagFilter?.value.trim() ? all.filter(m => mailMatchesTags(m.tags,[tagFilter.value])) : all
   const shown = qn
     ? tagged.filter((m) => String(partyOf(m) ?? '').toLowerCase().includes(qn)
       || String(m.body ?? '').toLowerCase().includes(qn))
@@ -549,12 +550,8 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             onLoadMore?.()
           }
         }}>
-        {tagFilter && <div className="mail-tag-picker">
-          <input aria-label="Filter mail by tag" className="mail-tag-filter" list="user-mail-tag-choices"
-            placeholder="all tags" value={tagFilter.value} onChange={e=>tagFilter.onChange(e.target.value)} />
-          <datalist id="user-mail-tag-choices">{tagFilter.choices.map(t=><option key={mailTagKey(t)} value={t}/>)}</datalist>
-          {tagFilter.value && <button type="button" aria-label="Clear tag filter" onClick={()=>tagFilter.onChange('')}>clear</button>}
-        </div>}
+        {tagFilter && <MailTagPicker selected={tagFilter.value?[tagFilter.value]:[]} choices={tagFilter.choices}
+          onChange={tags=>tagFilter.onChange(tags[0]??'')}/>}
         {(all.length > 4 || q || tagFilter) && (
           <input className="mail-filter" placeholder="filter…" value={q}
             onChange={(e) => setQ(e.target.value)} />

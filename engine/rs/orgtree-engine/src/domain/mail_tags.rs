@@ -48,12 +48,19 @@ pub async fn attach(tx: &tokio_postgres::Transaction<'_>, org: i64, mail: i64, t
     Ok(())
 }
 
+/// Baseline extraction: one active filter, as before the multi-select request.
+#[nolog]
+pub fn filter_keys(tags:&[String])->Result<Vec<String>> {
+    let labels=normalize(Some(&json!(tags.iter().take(1).collect::<Vec<_>>())))?;
+    Ok(labels.iter().map(|s|key(s)).collect())
+}
+
 /// Exact tag matching happens before the indexed cursor window, not after
 /// the user's ordinary 200-message archive window has already discarded it.
 #[nolog]
 pub async fn window(client: &tokio_postgres::Client, org:i64, tag:&str, before:Option<i64>) -> Result<Value> {
-    let labels=normalize(Some(&json!([tag])))?;
-    let key=key(&labels[0]); let before=before.unwrap_or(i64::MAX);
+    let keys=filter_keys(&[tag.to_string()])?;
+    let key=&keys[0]; let before=before.unwrap_or(i64::MAX);
     if before<1 { crate::refuse!(BadRequest,"mail cursor must be a positive id"); }
     let rows=client.query("SELECT m.id,to_jsonb(m)||jsonb_build_object('tags',ot.mail_tag_labels(m.id))
         FROM ot.mail_tag_links l JOIN ot.mail m ON m.id=l.mail_id AND m.org_id=l.org_id
@@ -119,4 +126,25 @@ mod tests {
         assert_eq!(crate::feed::compute::mail_entry(&tagged)["tags"],json!(["Alpha Build"]));
         assert!(crate::feed::compute::mail_entry(&old).get("tags").is_none());
     }
+    #[test]
+    fn filter_multiple_tags_keep_every_normalized_key() {
+        assert_eq!(filter_keys(&[" Alpha Build ".into(),"Progress".into(),"alpha build".into()]).unwrap(),
+            vec!["alpha build","progress"]);
+    }
+    #[test]
+    fn filter_selection_is_not_limited_by_eight_tags_per_message() {
+        let tags:Vec<String>=(0..20).map(|i|format!("tag{i}")).collect();
+        assert_eq!(filter_keys(&tags).unwrap().len(),20);
+    }
+    #[test]
+    fn filter_rejects_invalid_later_selected_tags_too() {
+        assert!(filter_keys(&["valid".into(),"".into()]).is_err());
+        assert!(filter_keys(&["valid".into(),"x".repeat(33)]).is_err());
+    }
+    #[test]
+    fn filter_empty_and_single_tag_controls() {
+        assert!(filter_keys(&[]).unwrap().is_empty());
+        assert_eq!(filter_keys(&[" Alpha Build ".into()]).unwrap(),vec!["alpha build"]);
+    }
+
 }
