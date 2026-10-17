@@ -112,7 +112,8 @@ test('§3b a superior with projects below: down cards through them', async (t) =
   const { map, boss } = org()
   const el = await desk(t, boss, map, [])
   const all = rows(el)
-  assert.deepEqual(all[all.length - 1], ['lead', 'site', 'dev1', 'ui', 'dev2', 'docs'])
+  assert.deepEqual(all[all.length - 1]!.filter(Boolean), ['lead', 'site', 'dev1', 'ui', 'dev2', 'docs'],
+    'the named cards; the retired toggle follows (§3c)')
 })
 
 test('§3c retired members inside projects are behind the superior\'s retired control (review of 93d9bfa)', async (t) => {
