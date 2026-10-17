@@ -26,6 +26,8 @@ export interface DesktopPreferences extends NotificationPreferences {
   rainbowTheme?: { revealed: boolean; enabled: boolean; epoch: number }
   /** The secret EPIC Mode switch (Settings › Developer). Absent means off. */
   epicMode?: boolean
+  /** Tray-only EPIC audio mute. Absent means audible; visuals stay enabled. */
+  epicMuted?: boolean
   /** Canvas background theme and per-theme intensities (App settings ›
    *  Display); absent means the original dot grid at full strength. */
   canvasBackground?: CanvasBackgroundPreference

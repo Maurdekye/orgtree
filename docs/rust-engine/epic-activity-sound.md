@@ -16,7 +16,24 @@ The seven layer gains rise fourfold from one to fifteen agents, then cap.
 Oscillators are shared rather than allocated per agent. Transitions and final
 context shutdown use 300 ms gain ramps. The layers enter the existing dry
 bus, limiter and master volume, below discrete event sounds. No new audio
-preference, provider read, engine field, frame loop or asset is needed for sound.
+provider read, engine field, frame loop or asset is needed for sound.
+
+## Tray mute
+
+User 2026-10-17 11:06Z adds a checkable **Mute EPIC sounds** tray-menu item,
+visible only while EPIC is enabled. The optional boolean native preference
+`epicMuted` defaults to audible and persists in the same settings file as
+`epicMode`. The existing preference write broadcasts it to every window and
+pop-out; no new IPC channel, subscription or settings control is added.
+An open native menu updates the same item's visibility and checkmark in place.
+
+The audio master gain after the dry/reverb paths and limiter ramps over
+300 ms to zero or the existing 0.85 level. Startup applies saved mute before
+greetings or activity sources. Source scheduling continues, so heat, motion,
+event detection and the show's identity remain unchanged; unmute returns to
+the current activity rather than replaying missed actions. Pending director
+imports use the latest mute reading. Disabled EPIC still loads no director
+or audio and retains only its existing preference subscription.
 
 Enabling during existing work seeds from a borrowed reference to the App's
 already published tree. While EPIC is off this is only a reference assignment

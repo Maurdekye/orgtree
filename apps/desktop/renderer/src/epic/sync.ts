@@ -17,9 +17,12 @@ import type { EpicShow } from './director'
 export function startEpicSync(): () => void {
   let show: EpicShow | null = null
   let wanted = false
+  let muted = false
   let first = true
   let generation = 0
-  const apply = (on: boolean) => {
+  const apply = (on: boolean, silent: boolean) => {
+    muted = silent
+    show?.mute(muted)
     const launch = first
     first = false
     if (on === wanted) return
@@ -30,7 +33,7 @@ export function startEpicSync(): () => void {
       void import('./director')
         .then(m => {
           if (mine !== generation || !wanted || show) return
-          show = m.startEpic({ greet })
+          show = m.startEpic({ greet, muted })
         })
         .catch(() => { /* the chunk did not load: the app stays ordinary */ })
     } else if (show) {

@@ -1,5 +1,11 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**EPIC tray mute, user 2026-10-17 11:06Z:** the tray's right-click menu shows
+a checkable "Mute EPIC sounds" only while EPIC is enabled. All audio fades
+out/in; heat and motion continue. Coordinator defaults retain mute across
+restarts and apply it to all windows/pop-outs, with no other audio control.
+4.4.0 only. See [EPIC tray mute](epic-activity-sound.md#tray-mute).
+
 **EPIC continuous sound and physical heat, user 2026-10-17 09:18–09:25Z:**
 live mid-turn agents hum; their activity adds distinct continuous layers whose
 volume grows with count, capped. The sounds drive a world-space heat-diffusion

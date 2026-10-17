@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- EPIC tray mute (4.4.0) is the optional native boolean `epicMuted`, persisted
+  and broadcast with `epicMode`; its checkbox is visible only while EPIC is on
+  and refreshes even in an open native menu. A 300ms final master gain fade
+  silences ambience, events and reverb without stopping heat/motion. Saved
+  mute applies before startup greetings. [decided: user 2026-10-17 11:06Z;
+  verified: `main/tray-epic.ts`, `epic/{audio,pref,sync}.ts`; contract:
+  [EPIC sound](docs/rust-engine/epic-activity-sound.md#tray-mute)]
+
 - EPIC 4.4.0 activity audio uses the existing busy/activity tree state: one
   shared hum and six capped, count-scaled layers, all on the existing bus.
   The App lends its latest tree reference (no copy/listener/audio off) so

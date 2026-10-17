@@ -17,6 +17,7 @@ import { configureTaskbar, icoFromPng } from './taskbar'
 import { tintTrayBitmap } from './tray-tint'
 import { addAttentionDot } from './tray-dot'
 import { mailhubTrayItem } from './tray-mailhub'
+import { epicMuteTrayItem, refreshTrayEpic } from './tray-epic'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel, RELEASE_APP_ID } from './build-channel'
 import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, shellQuote, unsafeFolderMessage, validateDataRoot } from './policy'
 import { ConversionWindow } from './conversion-window'
@@ -822,6 +823,7 @@ else {
     // replacing an open native menu is deliberately avoided below.
     const startup = trayMenu?.getMenuItemById('run-on-startup')
     if (startup) { startup.checked = prefs.startAtLogin; startup.enabled = !startupChanging }
+    refreshTrayEpic(trayMenu, prefs)
     if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); refreshTrayHub(); return }
     tray.setToolTip(`Orgtree - ${label()}` + (attentionTotal > 0 ? ` - ${attentionTotal} need${attentionTotal === 1 ? 's' : ''} your attention` : ''))
     // Without update support (dev-channel install, unpackaged development)
@@ -864,6 +866,7 @@ else {
         })
       } },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
+      epicMuteTrayItem(prefs, setPreferences),
       { label: 'Notifications', submenu: [
         { label: 'Notifications', type: 'checkbox' as const, checked: prefs.notificationsEnabled, click: (item: Electron.MenuItem) => setPreferences({ notificationsEnabled: item.checked }) },
         { type: 'separator' as const },

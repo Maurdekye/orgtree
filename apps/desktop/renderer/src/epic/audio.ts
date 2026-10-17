@@ -245,8 +245,10 @@ export class EpicSynth {
   private timers = new Set<ReturnType<typeof setTimeout>>()
   private closed = false
   private ambience: ActivityAudio
+  private master: GainNode
+  private muted: boolean
 
-  constructor(Ctor: AudioContextCtor) {
+  constructor(Ctor: AudioContextCtor, opts: { muted?: boolean } = {}) {
     const ctx = new Ctor()
     this.ctx = ctx
     const limiter = ctx.createDynamicsCompressor()
@@ -256,7 +258,9 @@ export class EpicSynth {
     limiter.attack.value = 0.002
     limiter.release.value = 0.2
     const master = ctx.createGain()
-    master.gain.value = 0.85
+    this.master = master
+    this.muted = opts.muted === true
+    master.gain.value = this.muted ? 0 : 0.85
     limiter.connect(master)
     master.connect(ctx.destination)
     this.bus = ctx.createGain()
@@ -272,6 +276,17 @@ export class EpicSynth {
   }
 
   get active(): number { return this.voices }
+
+  /** One final gain after both dry and reverb paths, including ambience.
+   * Keep scheduling voices while muted: activity and heat are unchanged. */
+  setMuted(muted: boolean): void {
+    if (this.closed || muted === this.muted) return
+    this.muted = muted
+    const p = this.master.gain, at = this.ctx.currentTime
+    if (typeof p.cancelAndHoldAtTime === 'function') p.cancelAndHoldAtTime(at)
+    else { p.cancelScheduledValues(at); p.setValueAtTime(p.value, at) }
+    p.linearRampToValueAtTime(muted ? 0 : 0.85, at + 0.3)
+  }
 
   activity(counts: ActivityCounts): void { if (!this.closed) this.ambience.update(counts) }
 

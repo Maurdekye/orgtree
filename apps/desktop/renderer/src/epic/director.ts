@@ -80,9 +80,13 @@ export interface EpicOptions {
   /** how EPIC Mode arrived: the user just turned it on, or a window opened
    *  with it already on */
   greet?: 'enable' | 'launch' | 'none'
+  /** Apply the stored mute before a greeting or continuous layer can play. */
+  muted?: boolean
 }
 
 export interface EpicShow {
+  /** Fade audio only; keep the show, physics and activity state running. */
+  mute(muted: boolean): void
   /** End the show. `farewell` plays the power-down first, then tears down;
    *  `quiet` keeps that power-down silent (a window that only followed the
    *  switch from another window). */
@@ -248,7 +252,7 @@ class Show implements EpicShow {
         ?? (this.view as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext ?? null)
       : opts.audio
     if (Ctor) {
-      try { this.synth = new EpicSynth(Ctor) } catch { this.synth = null }
+      try { this.synth = new EpicSynth(Ctor, { muted: opts.muted }) } catch { this.synth = null }
     }
     this.main = this.theater(this.view)
     // the org's own data, handed over by App.tsx and api.ts
@@ -275,6 +279,7 @@ class Show implements EpicShow {
   }
 
   get staged(): number { return this.count }
+  mute(muted: boolean): void { this.synth?.setMuted(muted) }
 
   private activity(tree: Parameters<typeof activitySources>[0]): void {
     const sources = this.synth ? activitySources(tree) : []

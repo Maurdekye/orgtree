@@ -1,4 +1,4 @@
-/* EPIC Mode — the secret switch's one stored bit.
+/* EPIC Mode — the secret switch and tray audio mute.
 
    A NATIVE DESKTOP PREFERENCE (`DesktopPreferences.epicMode`), like the
    Rainbow theme beside it, because the renderer's own per-origin storage does
@@ -16,22 +16,25 @@ import { desktop } from '../desktop'
 import type { DesktopPreferences } from '../../../../../packages/contracts'
 
 export const EPIC_KEY = 'orgtree-epic-mode'
+export const EPIC_MUTE_KEY = 'orgtree-epic-muted'
 const STORED = 'orgtree:epic-stored'
 
 const epicOf = (prefs: unknown): boolean =>
   !!prefs && typeof prefs === 'object' && (prefs as Partial<DesktopPreferences>).epicMode === true
+const mutedOf = (prefs: unknown): boolean =>
+  !!prefs && typeof prefs === 'object' && (prefs as Partial<DesktopPreferences>).epicMuted === true
 
 /** Follow the stored bit: `accept` runs with the current value and again on
  *  every change, until the returned function stops it. */
-export function watchEpic(accept: (on: boolean) => void): () => void {
+export function watchEpic(accept: (on: boolean, muted: boolean) => void): () => void {
   const bridge = desktop()
   if (!bridge) {
     const read = () => {
-      let on = false
-      try { on = localStorage.getItem(EPIC_KEY) === '1' } catch { /* private mode */ }
-      accept(on)
+      let on = false, muted = false
+      try { on = localStorage.getItem(EPIC_KEY) === '1'; muted = localStorage.getItem(EPIC_MUTE_KEY) === '1' } catch { /* private mode */ }
+      accept(on, muted)
     }
-    const storage = (e: StorageEvent) => { if (e.key === EPIC_KEY || e.key === null) read() }
+    const storage = (e: StorageEvent) => { if (e.key === EPIC_KEY || e.key === EPIC_MUTE_KEY || e.key === null) read() }
     read()
     window.addEventListener('storage', storage)
     window.addEventListener(STORED, read)
@@ -39,11 +42,11 @@ export function watchEpic(accept: (on: boolean) => void): () => void {
   }
   let alive = true, revision = 0
   const stop = bridge.onEvent(e => {
-    if (alive && e.type === 'preferences') { revision++; accept(epicOf(e.data)) }
+    if (alive && e.type === 'preferences') { revision++; accept(epicOf(e.data), mutedOf(e.data)) }
   })
   const initial = revision
   void bridge.getPreferences()
-    .then(p => { if (alive && revision === initial) accept(epicOf(p)) })
+    .then(p => { if (alive && revision === initial) accept(epicOf(p), mutedOf(p)) })
     .catch(() => {})
   return () => { alive = false; stop() }
 }
