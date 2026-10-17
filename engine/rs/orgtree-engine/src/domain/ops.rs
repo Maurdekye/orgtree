@@ -487,6 +487,28 @@ fn muse_admit(engine: &Engine, tier: &str, version: Option<&str>, account: Optio
     }
 }
 
+#[cfg(test)]
+mod agy_placement_tests {
+    use super::validate_account;
+    use crate::usage::agy_reading_tests::placement_engine;
+
+    #[tokio::test]
+    async fn placement_uses_selected_profile_quota_and_preserves_native_refusal() {
+        let engine = placement_engine(100, 12);
+        assert!(validate_account(&engine, "synthetic-agy-placement", "flash", Some("google-2")).is_ok());
+        for native in [None, Some("google/primary"), Some("google-native-alias")] {
+            assert!(validate_account(&engine, "synthetic-agy-placement", "flash", native).is_err());
+        }
+
+        let engine = placement_engine(4, 100);
+        assert!(validate_account(&engine, "synthetic-agy-placement", "flash", Some("google-2")).is_err());
+        for native in [None, Some("google/primary"), Some("google-native-alias")] {
+            assert!(validate_account(&engine, "synthetic-agy-placement", "flash", native).is_ok());
+        }
+        assert!(validate_account(&engine, "synthetic-agy-placement", "flash", Some("google-missing")).is_err());
+    }
+}
+
 /// The seat's pinned model version (its scope's `model_version`).
 #[nolog]
 fn pinned(scope: &Value) -> Option<&str> {

@@ -144,6 +144,14 @@ pub struct Accounts {
 
 #[logged]
 impl Accounts {
+    #[cfg(test)]
+    #[nolog]
+    pub(crate) fn for_tests(rows: Vec<AccountInfo>) -> Self {
+        Self { snap: ArcSwap::from_pointee(Inner {
+            by_id: rows.into_iter().map(|a| (a.id.clone(), a)).collect(),
+        }) }
+    }
+
     #[nolog]
     pub fn view(&self) -> AccountsView {
         AccountsView(self.snap.load_full())

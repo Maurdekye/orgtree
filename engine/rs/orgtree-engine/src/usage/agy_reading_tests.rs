@@ -21,6 +21,37 @@ fn reading(percent: u32, hours: i64) -> Value {
     }]})
 }
 
+pub(crate) fn placement_engine(native: u32, own: u32) -> Arc<Engine> {
+    let mut engine = Engine::for_tests(PathBuf::from("synthetic-unused-agy-placement"));
+    let mut alias = profile("google-native-alias");
+    alias.ambient = true;
+    Arc::get_mut(&mut engine).unwrap().accounts = crate::accounts::Accounts::for_tests(vec![profile("google-2"), alias]);
+    let mut state = crate::providers::State::default();
+    state.agy.installed = true;
+    state.agy.connected = true;
+    state.probed = true;
+    engine.providers.state.store(Arc::new(state));
+    engine.usage.put("agy", &reading(native, 24));
+    engine.usage.put("agy:google-2", &reading(own, 5));
+    engine
+}
+
+#[tokio::test]
+async fn staffing_offers_profile_capacity_when_native_is_exhausted() {
+    let engine = placement_engine(100, 12);
+    let options = crate::domain::staffing::options(&engine, "synthetic-agy-placement");
+    let tier = options["tiers"].as_array().unwrap().iter().find(|t| t["tier"] == "flash")
+        .expect("profile capacity must keep the model available for placement");
+    assert_eq!(tier["default_ok"], false, "native exhaustion must remain enforced");
+    assert_eq!(tier["accounts"].as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["google-2"]);
+
+    let engine = placement_engine(4, 100);
+    let options = crate::domain::staffing::options(&engine, "synthetic-agy-placement");
+    let tier = options["tiers"].as_array().unwrap().iter().find(|t| t["tier"] == "flash").unwrap();
+    assert_eq!(tier["default_ok"], true);
+    assert!(!tier["accounts"].as_array().unwrap().iter().any(|a| a["id"] == "google-2"));
+}
+
 #[tokio::test]
 async fn profile_capacity_does_not_inherit_native_exhaustion() {
     let engine = Engine::for_tests(PathBuf::from("synthetic-unused-agy-reading"));
