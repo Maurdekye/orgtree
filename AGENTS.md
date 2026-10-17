@@ -1713,6 +1713,15 @@ plan and this file. Read both before you change anything. All entries below: 202
   Neither path resumes frozen agents. Unknown imported pools stay manual.
   [verified from source: 2026-10-07, `src/account_marks.rs`, `src/runtime/actor.rs`]
 
+- A refused turn's parsed reset is never shortened to the five-minute probe
+  floor by an expired/repeated countdown. Select the latest relative, ISO/offset,
+  local-clock or structured reset; elapsed local clocks roll to tomorrow. A
+  newer successful cached reading may only lengthen the same serving account's
+  applicable full window. Structured evidence is turn-local; quota timers still
+  add 60 seconds and manual release keeps its override. Missing reset keeps the
+  prior fallback. See [freeze recovery](docs/rust-engine/freeze-recovery.md).
+  [decided: user 2026-10-17; verified: `runtime/usage_reset.rs`, `runtime/actor.rs`]
+
 - Freeze reset recovery accepts RFC3339 `until` and legacy numeric `until_ts`
   (including a version-matched promised wake); old display labels are not clocks.
   Imports normalize them; existing imported rows need no repair. Limit probes still
