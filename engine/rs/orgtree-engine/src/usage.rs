@@ -24,6 +24,9 @@ pub mod muse_cache;
 mod claude_wait_tests;
 
 #[cfg(test)]
+mod muse_identity_tests;
+
+#[cfg(test)]
 pub(crate) mod agy_reading_tests;
 
 const TTL: Duration = Duration::from_secs(30);
@@ -535,6 +538,20 @@ impl Usage {
             self.record_auth(key, data);
         }
         true
+    }
+
+    /// Metadata can know the account while Muse has no newer quota reading.
+    /// Change only its display identity, never quota age or auth evidence.
+    #[nolog]
+    fn muse_identity(&self, key: &str, email: Option<&str>) {
+        let email = email.filter(|s| !s.is_empty());
+        self.cache.pin().compute(key.to_owned(), |existing| {
+            let Some((_, cached)) = existing else { return papaya::Operation::Abort(()) };
+            let mut updated = cached.clone();
+            updated.data["email"] = json!(email);
+            updated.data["label"] = json!(email.unwrap_or("signed-in account"));
+            papaya::Operation::Insert(updated)
+        });
     }
 
     /// The cached readout behind `key` as stored (any age), never a fetch.
@@ -1484,6 +1501,11 @@ pub async fn muse_probed(engine: &Engine, root: Option<&str>, probe: &crate::pro
     if !observed && engine.usage.cached(&key).is_none() {
         engine.usage.put(&key, &json!({ "available": false, "provider": MUSE_NAME,
             "error": "Muse has not reported usage for this account yet; it reports usage after a turn" }));
+    }
+    if root.is_none() {
+        // Discovery publishes providers.state only after this callback. Use
+        // this probe's identity even if usage/read was absent or unchanged.
+        engine.usage.muse_identity(&key, probe.label.as_deref());
     }
 }
 
