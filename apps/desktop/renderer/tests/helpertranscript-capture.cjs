@@ -17,7 +17,14 @@ app.whenReady().then(async () => {
       const state = await win.webContents.executeJavaScript(`new Promise(resolve=>{
         document.documentElement.classList.toggle('contrast-light',${theme === 'light'});
         requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>resolve({text:document.body.innerText,
-          helpers:document.querySelectorAll('.helper-transcript').length}),100)))})`)
+          helpers:document.querySelectorAll('.helper-transcript').length,
+          markdown:document.querySelectorAll('.helper-transcript .msgtext.md strong').length,
+          thoughts:document.querySelectorAll('.helper-transcript .thoughtbody.md').length,
+          chips:document.querySelectorAll('.helper-transcript .tline').length,
+          inputs:document.querySelectorAll('.helper-transcript .toolinput').length,
+          font: getComputedStyle(document.querySelector('.helper-transcript .msgtext')).fontFamily}),100)))})`)
+      if (state.helpers !== 1 || state.markdown < 1 || state.thoughts !== 1 || state.chips !== 2 || state.inputs !== 1)
+        throw new Error('Helper visual fixture did not reach the expected normal transcript state: ' + JSON.stringify(state))
       const image = await win.webContents.capturePage()
       if (image.isEmpty()) throw new Error('Empty screenshot')
       fs.writeFileSync(path.join(root, theme + '.png'), image.toPNG())

@@ -14,8 +14,11 @@ const esbuild = require('esbuild')
 fs.mkdirSync(output, { recursive: true })
 const visual = mode === 'visual' || mode === 'visual-before'
 const entry = path.join(repo, 'apps/desktop/renderer/tests', visual ? 'helpertranscript-visual.tsx' : 'helpertranscript.test.tsx')
+const controls = mode === 'test-controls'
+const controlEntries = ['helpertranscript', 'toolclock-turn', 'toolclock-live', 'foldpersist']
 try {
-  await esbuild.build({ entryPoints: [entry], outfile: path.join(output, visual ? 'fixture.js' : 'test.mjs'), bundle: true,
+  await esbuild.build({ entryPoints: controls ? controlEntries.map(name => path.join(repo, 'apps/desktop/renderer/tests', name + '.test.tsx')) : [entry],
+    ...(controls ? { outdir: output, outExtension: { '.js': '.mjs' } } : { outfile: path.join(output, visual ? 'fixture.js' : 'test.mjs') }), bundle: true,
     format: 'esm', platform: visual ? 'browser' : 'node', target: 'node22', jsx: 'automatic',
     nodePaths: [path.join(path.resolve(deps), 'node_modules')], external: ['node:*'],
     plugins: [{ name: 'external-jsdom', setup(build) { build.onResolve({ filter: /^jsdom$/ }, () => ({ path: pathToFileURL(require.resolve('jsdom')).href, external: true })) } },
@@ -35,7 +38,8 @@ if (visual) {
   command = require('electron'); args = [path.join(repo, 'apps/desktop/renderer/tests/helpertranscript-capture.cjs')]
   delete env.ELECTRON_RUN_AS_NODE
   env.HELPER_CAPTURE_ROOT = path.resolve(output)
-} else { command = process.execPath; args = ['--max-old-space-size=1024', '--test', '--test-reporter=tap', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000', path.join(output, 'test.mjs')] }
+} else { command = process.execPath; args = ['--max-old-space-size=1024', '--test', '--test-reporter=tap', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000',
+  ...(controls ? controlEntries.map(name => path.join(output, name + '.test.mjs')) : [path.join(output, 'test.mjs')])] }
 const result = spawnSync(command, args, { cwd: repo, env, encoding: 'utf8', windowsHide: true })
 fs.writeFileSync(path.join(output, 'result.log'), `${result.stdout || ''}${result.stderr || ''}`)
 console.log(result.stdout || ''); console.error(result.stderr || '')
