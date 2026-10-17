@@ -52,5 +52,13 @@ module.exports = async (page) => {
     }))
     screenshots.push(await page.screenshot(`${prefix}-${scene}-1000x700`))
   }
+  await page.goto('/?scene=jumps')
+  await page.waitFor('.desk-nav', { timeout: 15000 })
+  await page.eval(async () => { await new Promise((r) => setTimeout(r, 800)) })
+  await settle()
+  details.jumps = await page.eval(() => [...document.querySelectorAll('main > div')].map((box) =>
+    [...box.querySelectorAll('.desk-nav')].map((row) =>
+      [...row.querySelectorAll('button.desk-nav-chip')].map((b) => b.textContent.trim()))))
+  screenshots.push(await page.screenshot(`${prefix}-jumps-1000x700`))
   return { details, screenshots }
 }

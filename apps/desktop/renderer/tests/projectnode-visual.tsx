@@ -5,11 +5,15 @@
 //             token in the card's theme colours);
 //   row-end — the REAL canvas: boss with a1, a2 and a project at the row's end
 //             (no neighbour segment reaches the project);
-//   between — the REAL canvas: a1, a project, a2 (one line runs past it).
+//   between — the REAL canvas: a1, a project, a2 (one line runs past it);
+//   jumps   — two real desks: dev2 (in project ui, in project site, under
+//             boss) and boss, showing the up and down jump card rows
+//             passing through projects (user 2026-10-17 22:13Z).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
+import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -74,12 +78,31 @@ function tree(children: unknown[]): TreePayload {
   } as unknown as TreePayload
 }
 
+function Jumps() {
+  const boss = agent('boss', 'eye', { tier: 'opus', model_id: 'opus' }) as unknown as CanvasNode
+  const lead = agent('lead', 'boss') as unknown as CanvasNode
+  const site = projectNode('site', 'boss') as unknown as CanvasNode
+  const dev1 = agent('dev1', 'site') as unknown as CanvasNode
+  const ui = projectNode('ui', 'site') as unknown as CanvasNode
+  const dev2 = agent('dev2', 'ui', { tier: 'sonnet', model_id: 'sonnet' }) as unknown as CanvasNode
+  ui.children = [dev2]
+  site.children = [dev1, ui]
+  boss.children = [lead, site]
+  const map = new Map([boss, lead, site, dev1, ui, dev2].map((x) => [x.id, x]))
+  const box = (node: CanvasNode) => (
+    <div style={{ width: 480, height: 640, border: '1px solid var(--line)', position: 'relative', overflow: 'hidden' }}>
+      <DeskChat node={node} map={map} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} bare onJump={noop} />
+    </div>
+  )
+  return <main style={{ display: 'flex', gap: 16, padding: 12, background: 'var(--bg)' }}>{box(dev2)}{box(boss)}</main>
+}
+
 const scene = new URLSearchParams(location.search).get('scene') || 'cards'
 const rows: Record<string, unknown[]> = {
   'row-end': [agent('a1', 'boss'), agent('a2', 'boss'), projectNode('site', 'boss')],
   between: [agent('a1', 'boss'), projectNode('site', 'boss'), agent('a2', 'boss')],
 }
-createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : (
+createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps /> : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
     <OrgCanvas tree={tree(rows[scene]!)} slug="org" op={() => Promise.resolve({} as OpResult)}
