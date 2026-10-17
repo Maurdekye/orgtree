@@ -4,7 +4,8 @@
 //
 // USER 2026-10-16 21:02Z: "the user should be able to 'hire' a project from
 // the hire tokens like they would hire an agent. its hire token will be
-// square instead of a circle, light grey, and use an appropriate icon instead
+// square instead of a circle, light grey (now the project card's theme colours,
+// user 2026-10-17 21:23:44Z), and use an appropriate icon instead
 // of a letter. its tooltip will reflect that as well." The coordinator, on
 // the same ruling: the token places a project node the way an agent token
 // places a hire, and quotes no seat price, because a project is free.
@@ -90,7 +91,7 @@ test('§1b on the side and top strips it names its place and stays outermost', a
   }
 })
 
-test('§1c the shipped stylesheet draws it as a light grey square; the tier '
+test('§1c the shipped stylesheet draws it as a square in the project card\'s theme colours; the tier '
   + 'tokens stay circles', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   const rule = (sel: string) => {
@@ -101,10 +102,14 @@ test('§1c the shipped stylesheet draws it as a light grey square; the tier '
   assert.match(rule('.hsof button'), /border-radius:\s*50%/, 'the agent tokens are circles')
   const own = rule('.hsof button.project-token')
   assert.match(own, /border-radius:\s*4px/, 'the project token is a square (softened corners)')
-  const bg = own.match(/background:\s*#([0-9a-f]{6})\b/i)
-  assert.ok(bg, 'a fixed background colour, not the theme input colour')
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(bg[1]!.slice(i, i + 2), 16))
-  assert.equal(r === g && g === b && r! >= 0xc0, true, `light grey, got #${bg[1]}`)
+  // USER 2026-10-17 21:23:44Z: "styled with the theme color, same as how
+  // project nodes themselves are" (it replaces the light grey of 21:02Z)
+  const card = rule('.sq.project')
+  const cardBg = card.match(/background:\s*([^;]+);/)![1]!.trim()
+  assert.equal(own.match(/background:\s*([^;]+);/)?.[1]?.trim(), cardBg, 'the card\'s own background')
+  assert.match(own, /border-style:\s*dashed/, 'the card\'s dashed border')
+  assert.match(own, /color:\s*var\(--accent\)/, 'the folder in the theme accent, as on the card')
+  assert.equal(/#[0-9a-f]{6}/i.test(own), false, 'no fixed colour left')
 })
 
 /* ─── §2 where there is no token ────────────────────────────────────────── */
