@@ -44,9 +44,13 @@ remains authoritative. Registered profiles do not inherit the native identity,
 and durable quota still excludes it.
 
 The synthetic `muse-usage-restart` proof now includes identity on repeated quota,
-restored quota without a newer observation, cached-tool display, unknown-label
+restored quota without a newer observation, turn account roster, unknown-label
 clearing and durable/profile isolation. At red commit `ed08377`, these produced
-three expected identity failures with 13 passing quota/privacy controls. Two
+two valid identity failures and 13 passing quota/privacy controls. A third
+failure mistakenly expected identity in the quota-only `orgtree_usage` result;
+that assertion was corrected to inspect the fake Codex turn's account roster
+after restart. The first candidate passed 15/16 with only that invalid assertion
+failing; preserve both receipts. Two
 focused `muse_identity_tests` additionally check the unchanged in-memory clock
 and auth evidence, absent cache and clearing an old email. Candidate results
 are recorded with the exact hand-in SHA in the docket.

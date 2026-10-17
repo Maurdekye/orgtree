@@ -73,7 +73,15 @@ export default async function (rig) {
   const text = JSON.stringify(board)
   p.check('cached tool exposes original dates and stale freshness', text.includes(observed) && text.includes(secondaryObserved)
     && text.includes('stale'), board)
-  p.check('cached usage tool names the observed primary account', text.includes('rig@example.invalid'), board)
+  // The usage tool intentionally returns quota fields only. Identity is
+  // displayed in the turn's account roster, which consumes the same cache.
+  const turns = rig.turns('rhea').filter(t => t.ended_at).length
+  await rig.userMail('rhea', 'MUSE-IDENTITY-HEADER: answer OK.')
+  await rig.waitTurns('rhea', turns + 1)
+  const prompt = rig.fakeLog('rhea').filter(l => l.kind === 'turn').at(-1)?.prompt ?? ''
+  const roster = (prompt.match(/\[ACCOUNTS\][^\n]*/) ?? [''])[0]
+  p.check('turn account roster names the observed primary account after restart',
+    prompt.includes('MUSE-IDENTITY-HEADER') && roster.includes('muse/primary (rig@example.invalid)'), roster)
   p.check('identity refresh does not enter durable quota or another profile', !JSON.stringify(saved()).includes('rig@example.invalid')
     && !secondary.email, { saved: saved(), secondary })
 
