@@ -48,3 +48,18 @@ test('a tag chip selects its filter; agent mail has no user-tag filter control',
     assert.equal(v.el.querySelector('input[aria-label="Filter mail by tag"]')===null,true)
   }finally{await v.unmount()}
 })
+
+test('tag hue is stable for normalized names and differs across tag keys',async()=>{
+  const v=await mountView(<TaggedBox/>,el=>el)
+  try{
+    const same=[...v.el.querySelectorAll<HTMLElement>('.mail-tag[data-tag-key="alpha build"]')]
+    assert.equal(same.length,2,'both case variants render chips with their normalized key')
+    const hue=same[0]!.style.getPropertyValue('--mail-tag-hue')
+    assert.ok(hue.length>0,'a stable hash supplies the chip hue')
+    assert.equal(same[1]!.style.getPropertyValue('--mail-tag-hue'),hue)
+    const other=v.el.querySelector<HTMLElement>('.mail-tag[data-tag-key="progress"]')!
+    assert.notEqual(other.style.getPropertyValue('--mail-tag-hue'),hue)
+    await v.render(<MailList delivered={[...rows].reverse()} tagFilter={{value:'',choices:[],onChange:()=>{}}}/>)
+    assert.equal(v.el.querySelector<HTMLElement>('.mail-tag[data-tag-key="alpha build"]')!.style.getPropertyValue('--mail-tag-hue'),hue)
+  }finally{await v.unmount()}
+})
