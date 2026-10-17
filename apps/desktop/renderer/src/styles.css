@@ -1378,7 +1378,10 @@ button.badge.audience-fold.alert {
 .project-desk .cc-head-left .project-mark { color: var(--accent); display: inline-flex; }
 .project-desk .cc-head-left .name { font-weight: 600; }
 .chip.agents.project-activity { padding: 0 5px; }
-.project-last-activity { font-size: 11px; color: var(--dim); white-space: nowrap; }
+/* one font for the label and its age: an agent card's state word and clock
+   (.sq-idle, .sq-idle-time), so "quiet for 7m" reads as one phrase */
+.project-last-activity { font: 600 10px/1 var(--mono); color: var(--dim); white-space: nowrap; }
+.project-last-activity .sq-idle-time { margin-left: 0; }
 .project-last-activity.active { color: var(--accent); }
 .project-last-activity .sq-idle-time { color: inherit; }
 .sq.project .project-meta .project-activity { font-size: 10px; }

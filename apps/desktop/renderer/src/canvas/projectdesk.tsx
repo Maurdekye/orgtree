@@ -94,11 +94,13 @@ export function ProjectActivity({ node }: { node: CanvasNode }) {
   const { active, hired } = projectCounts(node)
   return (
     <span className="chip agents project-activity" title="active / hired agents under this project">
-      <span className="org-activity">
-        {active > 0 && <span className="working-ct"
+      {/* the spinner's slot only while it spins: an idle chip keeps no gap
+          (coordinator visual review 2026-10-17 23:25Z) */}
+      {active > 0 && <span className="org-activity">
+        <span className="working-ct"
           title={`${active} agent${active === 1 ? '' : 's'} under this project active — a turn executing now`}>
-          <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>}
-      </span>
+          <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>
+      </span>}
       <span className="project-counts org-counts dim">{active}/{hired}</span>
     </span>
   )
