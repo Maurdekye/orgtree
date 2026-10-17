@@ -16,6 +16,7 @@ The pages below distinguish the shared form from separate action buttons and the
 - [orgtree-agent-config](agent-config/SKILL.md): The agent settings window: name, agent actions, save and confirmations.
 - [orgtree-agent-charter-tab](agent-charter-tab/SKILL.md): Charter tab: instructions and team instructions.
 - [orgtree-agent-model-tab](agent-model-tab/SKILL.md): Model tab: tier, model version, thinking effort, pending model change.
+- [orgtree-agent-fast-mode](agent-fast-mode/SKILL.md): Model tab and message box: faster inference at higher usage for supported providers.
 - [orgtree-agent-account-tab](agent-account-tab/SKILL.md): Model tab > account and switch-when-limited.
 - [orgtree-agent-fresh-start](agent-fresh-start/SKILL.md): Model tab > start fresh when needed, conversation size, current session.
 - [orgtree-agent-credit-grant](agent-credit-grant/SKILL.md): Scope tab > credit grant slider.

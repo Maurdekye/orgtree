@@ -26,6 +26,14 @@ Unsupported normal compaction is disabled with the actual harness reason;
 started:false reports refusal. Bulk stays explicitly cheap-only, with no new
 harness support. See [compact choice](compact-choice.md). 4.4.0 only.
 
+**Per-agent fast mode, user 2026-10-17 17:49Z:** supported models offer a
+lightning toggle above Send, an agent Model-tab checkbox and an enabled hover
+label. Unsupported controls are hidden completely. Coordinator 17:52Z approves
+Codex advertised service tiers and first-party Claude Opus flag settings, applied
+next turn without model/account/session changes. Explicit Codex standard-speed
+off overrides global fast. Stored true is ignored when unsupported; native
+refusals and usage remain honest. 4.4.0 only. See [Fast mode](fast-mode.md).
+
 **Watchdog recurrence, user 2026-10-17 14:46Z/14:48Z:** periodic polling and
 quiet timers retain fixed next timestamps through restarts. Missed slots
 produce at most one immediate catch-up, then continue the original phase

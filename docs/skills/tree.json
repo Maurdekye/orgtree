@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 173,
+  "leaves": 174,
   "tools": 45,
   "concepts": 51,
-  "total": 195
+  "total": 196
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -25,7 +25,8 @@
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
   "skilltree-opus": 3,
-  "compaction-cmds-sol": 1
+  "compaction-cmds-sol": 1,
+  "epic-combo-sol": 1
  },
  "nodes": [
   {
@@ -5329,6 +5330,7 @@
     "agent-history-tab",
     "agent-charter-tab",
     "agent-model-tab",
+    "agent-fast-mode",
     "agent-account-tab",
     "agent-fresh-start",
     "agent-credit-grant",
@@ -5533,6 +5535,53 @@
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "needles": [
       "effort"
+     ]
+    }
+   ]
+  },
+  {
+   "path": "orgtree-app/agent-settings/agent-fast-mode",
+   "name": "orgtree-agent-fast-mode",
+   "level": 3,
+   "kind": "setting",
+   "registered": false,
+   "covers": [
+    "node:fast_mode"
+   ],
+   "purpose": "Model tab and message box: faster inference at higher usage for supported providers.",
+   "must_cover": [
+    "hidden unsupported controls",
+    "next-turn same-session application",
+    "provider refusals and reported usage"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/canvas/fastmodebutton.tsx",
+    "apps/desktop/renderer/src/canvas/fastmode.ts",
+    "engine/rs/orgtree-engine/src/providers/fast_mode.rs",
+    "engine/rs/orgtree-engine/src/runtime/codex.rs",
+    "engine/rs/orgtree-engine/src/runtime/claude.rs"
+   ],
+   "see_also": [
+    "agent-model-tab",
+    "agent-account-tab"
+   ],
+   "writer": "epic-combo-sol",
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/fastmodebutton.tsx#FastModeButton"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Fast mode"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "node:fast_mode",
+     "file": "apps/desktop/renderer/src/canvas/fastmode.ts",
+     "needles": [
+      "fast_mode"
      ]
     }
    ]

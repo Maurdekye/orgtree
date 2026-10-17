@@ -304,6 +304,11 @@ toast saying this engine does not support it.
 
 ### B. Organizations and canvas
 
+Fast mode (user 2026-10-17 17:49Z, 4.4.0): supported models have a per-agent
+lightning toggle above Send, a Model-tab checkbox and an enabled hover label.
+The next turn uses native Codex/Claude speed controls in the same conversation;
+unsupported models hide the controls and ignore stored true. See [Fast mode](fast-mode.md).
+
 Peer-mail setting (user 2026-10-17, 4.4.0): each manager/project can turn OFF
 **Subordinates may message each other**. Direct children then need directional
 audiences and their lateral canvas connectors disappear; hierarchy reach/links

@@ -20,8 +20,8 @@ source `de6d356`, including Muse retained usage, personal globals and shared ski
 |---|---|
 | Categories (level 1, registered) | 3 |
 | Sections (level 2) | 19 |
-| Leaves (level 3) | 173: 45 tool, 51 concept, 33 screen, 44 setting |
-| SKILL.md files in total | 195 |
+| Leaves (level 3) | 174: 45 tool, 51 concept, 33 screen, 45 setting |
+| SKILL.md files in total | 196 |
 | Bytes of registered `name` + `description` lines | 548 |
 
 ## 1. Shape and conventions
@@ -188,6 +188,7 @@ leaf in it.
 | skills-docs-sol | app › app-settings; plus the coverage guard, category pages and final source review | 13 |
 | orgsettings-sol | app › org-settings | 13 |
 | agentsettings-sol | app › agent-settings | 9 |
+| epic-combo-sol | app › agent-settings › fast mode | 1 |
 | hubchat-dm-sol | working › team, `tool-org-logo` (4.3.1) | 1 |
 | rig-opus | working › runtime, `tool-session` (4.3.1) | 1 |
 | machine-traps-sol | working › workspace, `machine-traps` (4.3.2) | 1 |
@@ -546,6 +547,7 @@ Agent settings (desk gear or agent menu > Settings): Charter, Model, Scope, Tool
 | `agent-history-tab` | setting | `screen:agent-history` | Agent settings History tab: retained event records, shown only when records exist. Must cover: what kinds of records appear; difference from Chat; eligibility. | `apps/desktop/renderer/src/canvas/modals.tsx#AgentConfig`<br>`apps/desktop/renderer/src/canvas/historyview.tsx#HistoryView` | agent-config, desk-chat |
 | `agent-charter-tab` | setting | `node:charter`, `node:team_charter` | Charter tab: instructions and team instructions. Must cover: delivery to the agent; node-local default-on peer-mail setting. | `apps/desktop/renderer/src/canvas/modals.tsx:1337-1340` | charters, peer-mail |
 | `agent-model-tab` | setting | `node:tier`, `node:model_version`, `node:effort` | Model tab: tier, model version, thinking effort, pending model change. Must cover: pending changes. | `apps/desktop/renderer/src/canvas/modals.tsx:1343-1436` | tool-switch-model |
+| `agent-fast-mode` | setting | `node:fast_mode` | Model tab and message box: faster inference at higher usage. Must cover: hidden unsupported controls, next-turn same-session application, provider refusals and reported usage. | `canvas/fastmodebutton.tsx`, `providers/fast_mode.rs`, `runtime/{codex,claude}.rs` | agent-model-tab, agent-account-tab |
 | `agent-account-tab` | setting | `node:account`, `node:account_fallback` | Model tab > account and switch-when-limited. Must cover: org default vs on/off. | `apps/desktop/renderer/src/canvas/modals.tsx:1392-1399` | account-lanes |
 | `agent-fresh-start` | setting | `node:auto_cheap_compact` | Model tab > start fresh when needed, conversation size, current session. Must cover: defaults. | `apps/desktop/renderer/src/canvas/modals.tsx:1407-1418` | context-and-compaction |
 | `agent-credit-grant` | setting | `node:grant` | Scope tab > credit grant slider. Must cover: limits. | `apps/desktop/renderer/src/canvas/creditgrant.tsx:138` | credits |

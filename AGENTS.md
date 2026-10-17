@@ -64,6 +64,16 @@
   [decided: user/coordinator 2026-10-17; verified: `canvas/agentcompact.tsx`,
   `http/nodes.rs`, `domain/compaction.rs`]
 
+- Per-agent fast mode is node-local and applies next turn without changing
+  model/account/session or restarting a warm CLI. Advertised Codex fast/priority
+  tiers use `serviceTierForTurn` (OFF sends explicit `default`); first-party Opus
+  uses `fastMode` flag settings and acknowledged `apply_flag_settings`, never
+  `/fast`. Hide unsupported controls and ignore stored true on unsupported models.
+  Preserve native refusals and reported usage; never infer a multiplier or cache hit.
+  [decided: user/coordinator 2026-10-17 17:49–17:52Z; verified:
+  `providers/fast_mode.rs`, `runtime/{actor,claude,codex}.rs`, `canvas/fastmode.ts`;
+  contract: [Fast mode](docs/rust-engine/fast-mode.md)]
+
 - State inspection memoizes effective ancestry only within its immutable
   request snapshot, retaining the total 1024-node ancestry cap and visibility
   refusals. Folder clamps normalize each list entry once; pure path helpers

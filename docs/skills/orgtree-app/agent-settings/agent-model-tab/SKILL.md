@@ -41,5 +41,6 @@ The full form is a structural save and can replace processes, so it does not pro
 
 - `orgtree-tool-switch-model` (orgtree-working › team).
 - [orgtree-agent-account-tab](../agent-account-tab/SKILL.md).
+- [orgtree-agent-fast-mode](../agent-fast-mode/SKILL.md).
 - [orgtree-agent-fresh-start](../agent-fresh-start/SKILL.md).
 - [orgtree-agent-config](../agent-config/SKILL.md).

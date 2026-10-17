@@ -50,6 +50,8 @@ test('fast mode bolt above Send persists only the per-agent boolean', async () =
     await v.render(<DeskChat node={node('sol', true)} map={new Map([[n.id, n]])}
       slug="org" op={async () => ({})} toast={() => {}} bare />)
     assert.equal(v.el.querySelector('[aria-label="Fast mode"]')?.getAttribute('aria-pressed'), 'true')
+    await inAct(async () => { v.el.querySelector<HTMLButtonElement>('[aria-label="Fast mode"]')!.click(); await flush(4) })
+    assert.deepEqual(posted.at(-1), { fast_mode: false }, 'off persists an explicit boolean')
   } finally { await v.unmount(); resetConvos() }
 })
 
@@ -83,7 +85,7 @@ test('agent settings expose and save Fast mode only for a supported model', asyn
         const save = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'save')!
         assert.equal(!!save, true)
         await inAct(async () => { save.click(); await flush(4) })
-        assert.equal(posted.at(-1)?.fast_mode, true)
+        assert.deepEqual(posted.at(-1), { fast_mode: true }, 'a speed-only save does not resend structural settings')
       }
     } finally { await v.unmount() }
   }
