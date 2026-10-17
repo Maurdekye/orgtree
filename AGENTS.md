@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+- Markdown links to local Windows files may use `file:///C:/...` or another
+  drive letter; normalize only this empty-authority form before sanitization and
+  keep it reveal-only. Unsupported file URLs stay plain text after sanitization
+  removes their href. [verified: `apps/desktop/renderer/src/canvas/shared.ts`,
+  `apps/desktop/renderer/tests/windowslinks.test.ts`; 2026-10-17]
+
 - State inspection memoizes effective ancestry only within its immutable
   request snapshot, retaining the total 1024-node ancestry cap and visibility
   refusals. Folder clamps normalize each list entry once; pure path helpers

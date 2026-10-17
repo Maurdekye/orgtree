@@ -130,6 +130,9 @@ test('§9 ⭐ unsupported and dangerous schemes never become local-file links', 
     const a = parse(src)
     assert.equal(a?.getAttribute('data-local-path') ?? null, null,
       `${src} was turned into a local-file link`)
+    if (src === '[x](file://server/share/payload.exe)') {
+      assert.equal(a, null, 'a remote file URL remained styled as a link after sanitization')
+    }
     assert.ok(!/javascript:|vbscript:|^data:/i.test(a?.getAttribute('href') ?? ''),
       `${src} kept a dangerous href`)
   }

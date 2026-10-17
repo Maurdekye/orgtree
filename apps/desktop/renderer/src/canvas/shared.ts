@@ -2752,7 +2752,27 @@ const normalizeAngleDest = (seg: string) =>
  *  angle brackets until the close. */
 const BARE_WIN_DEST = /\]\(([A-Za-z]:[\\/][^()<>\s]*)\)/g
 
+/** A local drive file URL is a valid Markdown target, but DOMPurify quite
+ *  correctly removes `file:` from hrefs. Convert only the empty-authority,
+ *  drive-letter form into the existing reveal-only Windows path before
+ *  sanitizing. Remote `file://host/...` and other file URLs stay unsupported. */
+const LOCAL_FILE_URI_DEST = /(^|[^!])\[([^\]\n]*)\]\((file:\/\/\/[A-Za-z]:\/[^()\s<>]*)\)/gi
+const normalizeLocalFileUri = (all: string, before: string, label: string,
+                               dest: string) => {
+  try {
+    const url = new URL(dest)
+    if (url.protocol !== 'file:' || url.hostname || url.username || url.password
+      || url.port || url.search || url.hash) return all
+    const path = decodeURIComponent(url.pathname)
+    const href = winFileHref(path)
+    return href === null ? all : `${before}[${label}](<${href}>)`
+  } catch {
+    return all
+  }
+}
+
 const escapeProse = (s: string) => s
+  .replace(LOCAL_FILE_URI_DEST, normalizeLocalFileUri)
   .replace(BARE_WIN_DEST, (all, dest: string) => {
     const href = winFileHref(dest)
     return href === null ? all : `](${href})`
@@ -2818,6 +2838,13 @@ const wrapCodeBlocks = (html: string, imgBase?: string, agentHtmlResponse?: bool
     && !html.includes('<a')) return html
   const tpl = document.createElement('template')
   tpl.innerHTML = html
+  // DOMPurify removes unsupported schemes such as `file://host/...` but can
+  // leave their now-inert <a> element behind. `.md a` is intentionally
+  // colored, so unwrap anchors with no surviving href to present them as plain
+  // text instead of a blue, non-clickable link.
+  tpl.content.querySelectorAll('a:not([href])').forEach(a => {
+    a.replaceWith(...Array.from(a.childNodes))
+  })
   // render-inline-html-custom-responses: an explicit ```orgtree-html-response
   // fence becomes a sandboxed frame BEFORE the generic pre-wrapping below —
   // it has no code left to attach a copy button to once swapped.
