@@ -24,8 +24,10 @@ Visibility remains the same as the existing chart and roster; self-only readers
 also receive their own safety state. A relationship delta names individual
 reports/peers instead of repeating the entire roster.
 
-Usage keys include five-percent bands, exact reset dates and whether the reset
-has passed, fresh/stale class, unavailable/unknown state and limit marks. A
+Usage keys include five-percent bands, reset dates rounded to the nearest minute and whether the reset
+has passed (checked at full precision), fresh/stale class, unavailable/unknown state and limit marks. Subsecond
+deadline jitter and runtime start-time changes without a sampled busy/waiting
+transition do not resend a row. A
 100% window and openai-1 weekly >=80% surface immediately. The latter names the
 policy restriction; this does not change account eligibility or the user's
 separate openai/primary extra-credit ruling. Every usage reference still names
@@ -62,5 +64,24 @@ Four tests passed (one unrelated HTTP test also matched `header_`). Cargo exited
 101 with no signal; the outer wrapper rejected the extra passing test count.
 All five measurement records and raw statuses are retained under the author's
 assigned build scope, `headers/red-*`. This is measured evidence, not an app
-build or a live provider test. Focused green results and comparisons follow in
-the author hand-in. No 4.4.0 app build is authorized for this task.
+build or a live provider test. No 4.4.0 app build is authorized for this task.
+
+Initial focused green at 798072e: 13/13 product tests passed, cargo exit 0,
+no signal. The same fixtures measured:
+
+| Fixture | Bytes / 40 turns | Full | Deltas | References | Reduction |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Org, quiet coordinator | 5,432 | 1 | 0 | 39 | 88.2% |
+| Org, busy coordinator | 9,832 | 1 | 39 | 0 | 94.2% |
+| Org, small report | 2,660 | 1 | 0 | 39 | 89.2% |
+| Usage, quiet | 4,759 | 1 | 0 | 39 | 2.4% |
+| Usage, one progressing window | 5,863 | 1 | 8 | 31 | 56.5% |
+
+These are synthetic fixture savings, not measurements of a live workload.
+Quiet usage was already well suppressed; most usage savings come from replacing
+changed full boards with individual windows. Initial green artifacts are
+`headers/green-*`. The final focused rerun adds runtime timestamp and reset
+deadline jitter controls; its verdict is recorded in the author hand-in.
+No end-to-end database/process-send failure injection was run: focused product
+tests verify the pure proposal/retry formatter, and source inspection verifies
+accepted-only persistence in the existing actor send path.
