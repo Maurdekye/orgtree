@@ -84,7 +84,7 @@ pub fn normalize_tools(t: &Value) -> Value {
         "orgtree": super::tool_groups::normalize(t) })
 }
 
-#[logged]
+#[nolog]
 pub(crate) fn norm_path(p: &str) -> String {
     #[cfg(test)]
     normalization_measurement::record();
@@ -116,27 +116,37 @@ pub(crate) mod normalization_measurement {
 }
 
 /// Is `child` the same as or inside `parent` (case-insensitive on Windows)?
+#[nolog]
 pub fn path_within(child: &str, parent: &str) -> bool {
     let c = norm_path(child);
     let p = norm_path(parent);
-    c == p || (c.starts_with(&p) && (p.ends_with('\\') || c.as_bytes().get(p.len()) == Some(&b'\\')))
+    normalized_within(&c, &p)
+}
+
+#[nolog]
+fn normalized_within(c: &str, p: &str) -> bool {
+    c == p || (c.starts_with(p) && (p.ends_with('\\') || c.as_bytes().get(p.len()) == Some(&b'\\')))
 }
 
 /// Clamp `dirs` to `ceiling`: a dir survives only inside a ceiling dir, with
 /// the stricter of the two modes.
 pub fn clamp_dirs(dirs: &[Value], ceiling: &[Value]) -> Vec<Value> {
     let mut out = Vec::new();
+    // Normalize each list entry once, preserving its original spelling and
+    // order in the result. Overlapping grants still use the original mode rule.
+    let ceiling: Vec<_> = ceiling.iter().filter_map(|c| {
+        Some((norm_path(c.get("path")?.as_str()?), c.get("mode").and_then(Value::as_str).unwrap_or("rw")))
+    }).collect();
     for d in dirs {
         let Some(path) = d.get("path").and_then(Value::as_str) else { continue };
+        let normalized = norm_path(path);
         let mode = d.get("mode").and_then(Value::as_str).unwrap_or("rw");
         let mut best: Option<&str> = None;
-        for c in ceiling {
-            let Some(cp) = c.get("path").and_then(Value::as_str) else { continue };
-            if path_within(path, cp) {
-                let cm = c.get("mode").and_then(Value::as_str).unwrap_or("rw");
+        for (cp, cm) in &ceiling {
+            if normalized_within(&normalized, cp) {
                 best = Some(match best {
                     Some("rw") => "rw",
-                    _ => cm,
+                    _ => *cm,
                 });
             }
         }

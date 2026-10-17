@@ -256,23 +256,35 @@ pub async fn chart_as_user(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, a
 mod session_measurement_tests;
 
 #[logged]
-fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling: &Value) -> Result<Value> {
+fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling: &Value,
+    cache: &mut HashMap<i64, (Value, usize)>) -> Result<Value> {
     let mut chain = Vec::new();
     let mut next = Some(id);
     let mut seen = std::collections::HashSet::new();
+    let (mut effective, mut depth) = (ceiling.clone(), 0);
     while let Some(at) = next {
         if chain.len() >= 1024 || !seen.insert(at) {
             crate::refuse!(Conflict, "invalid scope ancestry");
         }
+        if let Some((scope, cached_depth)) = cache.get(&at) {
+            // A cached ancestor must not bypass the original total-depth cap.
+            if chain.len() + cached_depth > 1024 {
+                crate::refuse!(Conflict, "invalid scope ancestry");
+            }
+            effective = scope.clone();
+            depth = *cached_depth;
+            break;
+        }
         let Some((parent, sc)) = rows.get(&at) else {
             crate::refuse!(Conflict, "missing scope ancestor");
         };
-        chain.push(sc);
+        chain.push((at, sc));
         next = *parent;
     }
-    let mut effective = ceiling.clone();
-    for sc in chain.into_iter().rev() {
+    for (at, sc) in chain.into_iter().rev() {
         effective = crate::domain::scope::clamp(sc, &effective);
+        depth += 1;
+        cache.insert(at, (effective.clone(), depth));
     }
     Ok(effective)
 }
@@ -350,6 +362,16 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
         }
     }
     tx.commit().await?;
+    drop(client);
+    let (caller_id, caller_name) = (caller.agent_id, caller.name.clone());
+    // The snapshot is coherent and owned. CPU work and verbose scope logging
+    // cannot occupy a Tokio async worker or retain a database-pool client.
+    tokio::task::spawn_blocking(move || inspection_projection(caller_id, caller_name, archived, names, scopes, records, ceiling)).await?
+}
+
+#[logged]
+fn inspection_projection(caller_id: i64, caller_name: String, archived: bool, names: Vec<String>,
+    scopes: HashMap<i64, (Option<i64>, Value)>, records: Vec<(i64, Value)>, ceiling: Value) -> Result<Done> {
     // Rank the complete live sibling set before visibility/name filtering.
     // Archived rows have no live index and do not consume an insertion slot.
     let mut siblings: HashMap<Option<i64>, Vec<(i64, f64)>> = HashMap::new();
@@ -363,18 +385,19 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
         list.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
         for (index, (id, _)) in list.iter().enumerate() { positions.insert(*id, (index, list.len())); }
     }
-    let own_scope = inspection_scope(caller.agent_id, &scopes, &ceiling)?;
+    let mut cache = HashMap::new();
+    let own_scope = inspection_scope(caller_id, &scopes, &ceiling, &mut cache)?;
     // the effective (ancestor-clamped) visibility decides what is shown, as
     // chart's (3.x capability_scope)
     let visibility = own_scope["org_visibility"].as_str().unwrap_or("team");
     let mut out = Vec::new();
     for (id, mut row) in records {
-        if (!archived && row["state"] != "live") || !inspection_visible(id, caller.agent_id, visibility, &scopes) { continue; }
+        if (!archived && row["state"] != "live") || !inspection_visible(id, caller_id, visibility, &scopes) { continue; }
         if !names.is_empty() && !names.iter().any(|n| row["name"] == *n) { continue; }
         row["sibling_index"] = positions.get(&id).map(|p| json!(p.0)).unwrap_or(Value::Null);
         row["live_sibling_count"] = json!(siblings.get(&scopes[&id].0).map(Vec::len).unwrap_or(0));
         row["live_child_count"] = json!(siblings.get(&Some(id)).map(Vec::len).unwrap_or(0));
-        let effective = inspection_scope(id, &scopes, &ceiling)?;
+        let effective = inspection_scope(id, &scopes, &ceiling, &mut cache)?;
         let provider = catalog::provider_of(row["tier"].as_str().unwrap_or("")).to_string();
         row["provider"] = json!(provider);
         row["account_binding"]["provider"] = json!(provider);
@@ -390,7 +413,9 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
             crate::refuse!(Forbidden, "state inspection is outside your visible scope: {name}");
         }
     }
-    Done::json(&json!({"actor":caller.name,"visibility":visibility,"nodes":out}))
+    tracing::info!(snapshot_agents=scopes.len(), evaluated_scopes=cache.len(), returned_agents=out.len(),
+        "state inspection scope projection complete");
+    Done::json(&json!({"actor":caller_name,"visibility":visibility,"nodes":out}))
 }
 
 #[logged]
