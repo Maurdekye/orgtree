@@ -5377,6 +5377,7 @@ impl Actor {
                     return Ok(());
                 }
                 if !cid.is_empty() {
+                    if let Some(Proc::Agy(p)) = self.proc.as_mut() { p.conversation = Some(cid.clone()); }
                     let client = self.engine.db.get().await?;
                     let generation: i32 = client.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[&self.id]).await?.get(0);
                     let changed = client
@@ -5433,6 +5434,7 @@ impl Actor {
     }
 
     /// An Antigravity step: response text, a tool call, or the user's input echoed.
+    #[nolog]
     async fn on_agy_step(&mut self, step: &Value) -> Result<()> {
         if self.turn.is_none() {
             return Ok(());
@@ -5457,6 +5459,55 @@ impl Actor {
                 }
                 if state != "DONE" {
                     return Ok(());
+                }
+                // Persist thinking before the visible response, including the
+                // common thinking-only response steps. No PG client is held
+                // during the bounded read on a blocking worker.
+                let completed = match self.proc.as_ref() {
+                    Some(Proc::Agy(p)) => p.conversation.as_deref()
+                        .and_then(|bound| crate::runtime::agy_thinking::completed(step,bound))
+                        .map(|(session,index)|(session.to_string(),index,p.history_home.clone())),
+                    _ => None,
+                };
+                if let Some((session,index,home)) = &completed {
+                    let thinking = match crate::runtime::agy_thinking::stream_thinking(step) {
+                        Some(native) => native,
+                        None => {
+                            let read = if let Some(home)=home.clone() {
+                                let (session,index)=(session.clone(),*index);
+                                tokio::task::spawn_blocking(move || crate::runtime::agy_thinking::read_history(&home,&session,index))
+                                    .await.unwrap_or(Err(crate::runtime::agy_thinking::Skip::Unavailable))
+                            } else { Err(crate::runtime::agy_thinking::Skip::Unavailable) };
+                            match read {
+                                Ok(text) => text,
+                                Err(reason) => {
+                                    if let Some(Proc::Agy(p))=self.proc.as_mut() {
+                                        if !p.thinking_warned {
+                                            p.thinking_warned=true;
+                                            tracing::info!(agent=self.id,?reason,"AGY thinking history unavailable; continuing without history thinking");
+                                        }
+                                    }
+                                    None
+                                }
+                            }
+                        }
+                    };
+                    let response=self.turn.as_ref().and_then(|t|t.agy_text.get(index)).map(String::as_str).unwrap_or("");
+                    let rows=crate::runtime::agy_thinking::rows(session,*index,thinking.as_deref(),response,&now_iso());
+                    let mut client=self.engine.db.get().await?;
+                    let saved=self.convo.append_agy_step(&mut client,session,*index,rows).await?;
+                    drop(client);
+                    let Some(saved)=saved else {
+                        if let Some(t)=self.turn.as_mut() { t.agy_text.remove(index); t.draft.clear(); t.draft_order=None; }
+                        return Ok(());
+                    };
+                    if let Some(t)=self.turn.as_mut() {
+                        for (seq,row) in saved {
+                            let key=row["assistant_id"].as_str().unwrap_or("").to_string();
+                            t.rows.insert(key.clone(),(seq,row)); t.codex_row=Some(key);
+                        }
+                    }
+                    self.stream("thought",json!({}));
                 }
                 let u = &step["usage"];
                 let n = |k: &str| u[k].as_i64().unwrap_or(0);
@@ -5484,6 +5535,10 @@ impl Actor {
                     t.draft_order = None;
                     t.agy_text.remove(&idx).unwrap_or_default()
                 };
+                if completed.is_some() {
+                    if !text.trim().is_empty() { self.text_landed(); }
+                    return Ok(());
+                }
                 if text.trim().is_empty() {
                     return Ok(());
                 }

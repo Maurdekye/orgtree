@@ -88,6 +88,10 @@ pub struct AgyProc {
     pipe: CancellationToken,
     pub model: String,
     pub auth_stamp: crate::providers::agy_auth::Stamp,
+    /// Home selected at launch, never an actor's later account binding.
+    pub history_home: Option<PathBuf>,
+    pub conversation: Option<String>,
+    pub thinking_warned: bool,
 }
 
 impl Drop for AgyProc {
@@ -201,7 +205,12 @@ impl AgyProc {
             },
             proc_span,
         ));
-        Ok(AgyProc { pid, process, stdin: tx, child: Some(child), job, pipe, model: spec.model, auth_stamp })
+        let history_home = match &spec.login {
+            crate::providers::agy_auth::Login::Primary => crate::rig::home_dir(),
+            crate::providers::agy_auth::Login::Profile { home, .. } => Some(home.clone()),
+        };
+        Ok(AgyProc { pid, process, stdin: tx, child: Some(child), job, pipe, model: spec.model, auth_stamp,
+            history_home, conversation: spec.conversation, thinking_warned: false })
     }
 
     /// One prompt; the process answers with a `result` and waits for the next.

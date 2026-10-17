@@ -46,6 +46,33 @@ impl ConvoWriter {
         Ok(seq)
     }
 
+    /// Commit a completed AGY step exactly once, including after actor/engine
+    /// restart. A rollback leaves both the receipt and all rows absent.
+    #[nolog]
+    pub async fn append_agy_step(&mut self, client: &mut Client, session: &str, index: i64, rows: Vec<Value>) -> Result<Option<Vec<(i64, Value)>>> {
+        let tx = client.transaction().await?;
+        let inserted = tx.execute(
+            "INSERT INTO ot.agy_step_receipts (agent_id,session_id,step_index) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
+            &[&self.agent_id,&session,&index],
+        ).await?;
+        if inserted==0 { return Ok(None); }
+        let (mut seq,mut ver)=(self.seq,self.ver);
+        let mut saved=Vec::with_capacity(rows.len());
+        for mut body in rows {
+            seq+=1; ver+=1;
+            stamp(&mut body,seq);
+            body["convo_revision"]=json!(ver);
+            let inputs=take_tool_inputs(&mut body,seq);
+            tx.execute("INSERT INTO ot.convo (agent_id,seq,ver,body,tool_inputs) VALUES ($1,$2,$3,$4,$5)",
+                &[&self.agent_id,&seq,&ver,&body,&inputs]).await?;
+            saved.push((seq,body));
+        }
+        tx.commit().await?;
+        self.seq=seq; self.ver=ver;
+        for (seq,body) in &saved { self.remember(*seq,body.clone()); }
+        Ok(Some(saved))
+    }
+
     #[nolog]
     pub async fn update(&mut self, client: &Client, seq: i64, mut body: Value) -> Result<()> {
         self.ver += 1;

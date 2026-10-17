@@ -8,19 +8,144 @@ const MAX_THINKING: usize = 20_000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Skip { Identity, Unavailable, Schema, Payload }
 
-// Red control: the driver currently discards all history thinking.
 #[nolog]
-pub fn read_history(_home: &Path, _session: &str, _index: i64) -> Result<Option<String>, Skip> {
-    Ok(None)
+pub fn read_history(home: &Path, session: &str, index: i64) -> Result<Option<String>, Skip> {
+    use rusqlite::{Connection, OpenFlags, OptionalExtension};
+    if !valid_session(session) || index < 0 { return Err(Skip::Identity); }
+    let path = home.join(".gemini/antigravity-cli/conversations").join(format!("{session}.db"));
+    // No writes, SQLite locks, journal recovery or waiting on the live writer.
+    // Immutable cannot see WAL; do not silently read a stale checkpoint instead.
+    for suffix in ["-wal", "-journal"] {
+        if std::fs::metadata(format!("{}{suffix}",path.display())).is_ok_and(|m| m.len()>0) {
+            return Err(Skip::Unavailable);
+        }
+    }
+    if !path.is_file() { return Err(Skip::Unavailable); }
+    let url = url_for(&path)?;
+    let db = Connection::open_with_flags(url,OpenFlags::SQLITE_OPEN_READ_ONLY|OpenFlags::SQLITE_OPEN_URI|OpenFlags::SQLITE_OPEN_NO_MUTEX)
+        .map_err(|_|Skip::Unavailable)?;
+    db.busy_timeout(std::time::Duration::ZERO).map_err(|_|Skip::Unavailable)?;
+    let indexed: bool=db.query_row("SELECT count(*)=1 AND max(name='idx' AND upper(type)='INTEGER') FROM pragma_table_info('steps') WHERE pk>0",
+        [],|r|r.get(0)).map_err(|_|Skip::Schema)?;
+    if !indexed { return Err(Skip::Schema); }
+    let size: Option<i64> = db.query_row("SELECT length(step_payload) FROM steps WHERE idx=?1",[index],|r|r.get(0))
+        .optional().map_err(|_|Skip::Schema)?.flatten();
+    let Some(size)=size else { return Ok(None) };
+    if size<0 || size as usize>MAX_PAYLOAD { return Err(Skip::Payload); }
+    let data: Vec<u8> = db.query_row("SELECT step_payload FROM steps WHERE idx=?1 AND length(step_payload)<=?2",
+        rusqlite::params![index,MAX_PAYLOAD],|r|r.get(0)).map_err(|_|Skip::Schema)?;
+    let Some(planner)=field(&data,20)? else { return Ok(None) };
+    // Neither raw_thinking nor signature fields are transcript content.
+    if scalar(planner,5)?.unwrap_or(0)!=0 { return Ok(None); }
+    let Some(thought)=field(planner,3)? else { return Ok(None) };
+    let text=std::str::from_utf8(thought).map_err(|_|Skip::Payload)?;
+    Ok((!text.trim().is_empty()).then(||clip(text)))
 }
 
 #[nolog]
-pub fn rows(_session: &str, _index: i64, _thinking: Option<&str>, _response: &str, _at: &str) -> Vec<Value> {
-    Vec::new()
+pub fn rows(session: &str, index: i64, thinking: Option<&str>, response: &str, at: &str) -> Vec<Value> {
+    let key=format!("agy-{session}-{index}");
+    let mut out=Vec::new();
+    if let Some(thought)=thinking.filter(|s|!s.trim().is_empty()) {
+        out.push(json!({"role":"assistant","text":"","thinking":clip(thought),"tools":[],"ts":at,"assistant_id":format!("agy-think-{key}")}));
+    }
+    if !response.trim().is_empty() {
+        out.push(json!({"role":"assistant","text":response,"tools":[],"ts":at,"assistant_id":format!("agy-resp-{key}")}));
+    }
+    out
 }
 
 #[nolog]
-pub fn completed<'a>(_step: &'a Value, _bound: &str) -> Option<(&'a str, i64)> { None }
+pub fn completed<'a>(step: &'a Value, bound: &str) -> Option<(&'a str, i64)> {
+    let session=step["conversation_id"].as_str()?;
+    let index=step["step_index"].as_i64()?;
+    (step["state"]=="DONE" && step["step_type"]=="agent_response" && session==bound && valid_session(session) && index>=0)
+        .then_some((session,index))
+}
+
+/// Future native stream support wins even when the CLI explicitly emits empty
+/// or redacted thinking. Never combine native content with the history copy.
+#[nolog]
+pub fn stream_thinking(step: &Value) -> Option<Option<String>> {
+    let thought=step.get("thinking").or_else(||step.pointer("/planner_response/thinking"))?;
+    if step["thinking_redacted"]==true || step.pointer("/planner_response/thinking_redacted")==Some(&Value::Bool(true)) {
+        return Some(None);
+    }
+    Some(thought.as_str().filter(|s|!s.trim().is_empty()).map(clip))
+}
+
+#[nolog]
+fn valid_session(s:&str)->bool {
+    uuid::Uuid::parse_str(s).is_ok_and(|id|id.hyphenated().to_string()==s)
+}
+
+#[nolog]
+fn url_for(path:&Path)->Result<String,Skip> {
+    // Percent encode URI metacharacters in a home directory; flags cannot be injected.
+    let abs=path.canonicalize().map_err(|_|Skip::Unavailable)?;
+    let raw=abs.to_string_lossy().replace('\\',"/");
+    let raw=raw.strip_prefix("//?/").unwrap_or(&raw);
+    let escaped=raw.replace('%',"%25").replace('?',"%3F").replace('#',"%23");
+    Ok(format!("file:{escaped}?mode=ro&immutable=1"))
+}
+
+#[nolog]
+fn clip(s:&str)->String {
+    let mut end=s.len().min(MAX_THINKING);
+    while !s.is_char_boundary(end) { end-=1; }
+    s[..end].to_string()
+}
+
+#[nolog]
+fn varint(input:&[u8],at:&mut usize)->Result<u64,Skip> {
+    let mut value=0;
+    for shift in (0..70).step_by(7) {
+        let b=*input.get(*at).ok_or(Skip::Payload)?; *at+=1;
+        if shift==63 && b>1 { return Err(Skip::Payload); }
+        value|=((b&127) as u64)<<shift;
+        if b&128==0 { return Ok(value); }
+    }
+    Err(Skip::Payload)
+}
+
+/// A small bounded protobuf wire reader, not a decoder for unknown AGY fields.
+/// Reject malformed/duplicate target fields rather than guessing at changed schemas.
+#[nolog]
+fn wire(input:&[u8],wanted:u64)->Result<Option<(u8,&[u8],u64)>,Skip> {
+    let mut at=0; let mut found=None;
+    while at<input.len() {
+        let tag=varint(input,&mut at)?;
+        if tag>>3==0 { return Err(Skip::Payload); }
+        let kind=(tag&7) as u8;
+        let (slice,value)=match kind {
+            0 => (&[][..],varint(input,&mut at)?),
+            1|5 => {
+                let end=at.checked_add(if kind==1 {8}else{4}).ok_or(Skip::Payload)?;
+                let b=input.get(at..end).ok_or(Skip::Payload)?; at=end; (b,0)
+            }
+            2 => {
+                let len=usize::try_from(varint(input,&mut at)?).map_err(|_|Skip::Payload)?;
+                let end=at.checked_add(len).ok_or(Skip::Payload)?;
+                let b=input.get(at..end).ok_or(Skip::Payload)?; at=end; (b,0)
+            }
+            _ => return Err(Skip::Payload),
+        };
+        if tag>>3==wanted {
+            if found.is_some() { return Err(Skip::Payload); }
+            found=Some((kind,slice,value));
+        }
+    }
+    Ok(found)
+}
+
+#[nolog]
+fn field(input:&[u8],wanted:u64)->Result<Option<&[u8]>,Skip> {
+    match wire(input,wanted)? { Some((2,b,_))=>Ok(Some(b)),None=>Ok(None),_=>Err(Skip::Payload) }
+}
+#[nolog]
+fn scalar(input:&[u8],wanted:u64)->Result<Option<u64>,Skip> {
+    match wire(input,wanted)? { Some((0,_,v))=>Ok(Some(v)),None=>Ok(None),_=>Err(Skip::Payload) }
+}
 
 #[cfg(test)]
 mod tests {
@@ -125,5 +250,33 @@ mod tests {
         assert_ne!(r[0]["assistant_id"],rows(OTHER,6,Some("synthetic thought"),"","now")[0]["assistant_id"]);
         assert_eq!(rows(SESSION,1,Some("synthetic"),"","now").len(),1);
         assert!(rows(SESSION,1,None,"","now").is_empty());
+    }
+
+    #[test]
+    fn native_stream_thinking_wins_including_redacted_or_empty() {
+        assert_eq!(stream_thinking(&json!({})),None);
+        assert_eq!(stream_thinking(&json!({"thinking":"native synthetic"})),Some(Some("native synthetic".into())));
+        assert_eq!(stream_thinking(&json!({"thinking":""})),Some(None));
+        assert_eq!(stream_thinking(&json!({"thinking":"secret","thinking_redacted":true})),Some(None));
+    }
+    #[test]
+    fn malformed_wire_data_is_rejected_without_leaking_other_fields() {
+        for data in [vec![0],vec![162,1,128],vec![162,1,255,255,255,255,255,255,255,255,255,2],vec![162,1,2,26]] {
+            assert_eq!(field(&data,20),Err(Skip::Payload));
+        }
+        let mut duplicate=bytes(20,b""); duplicate.extend(bytes(20,b""));
+        assert_eq!(field(&duplicate,20),Err(Skip::Payload));
+        let f=Fixture::new(SESSION);
+        let invalid=bytes(20,&bytes(3,&[255]));
+        Connection::open(&f.db).unwrap().execute("INSERT INTO steps VALUES (1,15,0,?1,0)",[invalid]).unwrap();
+        assert_eq!(read_history(&f.root,SESSION,1),Err(Skip::Payload));
+    }
+    #[test]
+    fn wal_or_changed_primary_key_skips_instead_of_reading_stale_or_scanning() {
+        let f=Fixture::new(SESSION); f.step(1,"synthetic");
+        let wal=PathBuf::from(format!("{}-wal",f.db.display())); std::fs::write(&wal,b"synthetic WAL").unwrap();
+        assert_eq!(read_history(&f.root,SESSION,1),Err(Skip::Unavailable)); std::fs::remove_file(wal).unwrap();
+        Connection::open(&f.db).unwrap().execute_batch("ALTER TABLE steps RENAME TO old_steps; CREATE TABLE steps(idx INTEGER,step_payload BLOB)").unwrap();
+        assert_eq!(read_history(&f.root,SESSION,1),Err(Skip::Schema));
     }
 }
