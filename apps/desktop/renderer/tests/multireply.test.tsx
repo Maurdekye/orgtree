@@ -56,6 +56,25 @@ test('collector accepts different authors only within one transcript identity',(
   }
 })
 
+test('inbox reply has no add-this-message link and still sends one selected message',async()=>{
+  const sends:any[]=[]
+  const row={id:'m1',from:'writer',kind:'message',body:'Single inbox message',at:'2026-10-14T10:00:00Z'}
+  const view=await mountView(<MailList org="org" pending={[row]} onReply={async(m,text,_a,_n,targets)=>{sends.push({m,text,targets})}} />,el=>el)
+  try {
+    await inAct(()=>{(view.el.querySelector('.mailrow') as HTMLElement).click()})
+    assert.equal([...view.el.querySelectorAll('button')].some(button=>button.textContent?.trim()==='Add this message to reply'),false,
+      'inbox has no unsolicited add-to-reply link')
+    const textarea=view.el.querySelector<HTMLTextAreaElement>('.mail-reply textarea')
+    assert.ok(textarea,'single-message inbox Reply remains available')
+    await inAct(()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(textarea,'A single reply');textarea.dispatchEvent(new Event('input',{bubbles:true}))})
+    await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.mail-reply-send')!.click();await flush(5)})
+    assert.equal(sends.length,1)
+    assert.equal(sends[0].m.id,'m1')
+    assert.equal(sends[0].text,'A single reply')
+    assert.deepEqual(sends[0].targets.map((target:any)=>target.id),['m1'])
+  } finally { await view.unmount() }
+})
+
 test('inbox collects different authors within one conversation and sends together',async()=>{
   localStorage.clear();const sends:any[]=[]
   const rows=[{id:'m1',from:'writer',kind:'message',body:'First mail',at:'2026-10-14T10:00:00Z'},{id:'m2',from:'other',kind:'message',body:'Second mail',at:'2026-10-14T10:01:00Z'}]
