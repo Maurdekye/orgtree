@@ -30,3 +30,30 @@ test('legacy panel defaults to event mode', async (t) => {
   assert.match(view.el.textContent ?? '', /on a matching event/)
   assert.doesNotMatch(view.el.textContent ?? '', /on silence/)
 })
+
+test('periodic watchdog detail shows next-check countdown from last_check', async (t) => {
+  const now = Date.parse('2026-10-17T12:00:17.000Z')
+  t.mock.method(Date, 'now', () => now)
+  const view = await mountView(<WatchdogPanel slug="test" dog={{ ...base,
+    kind: 'file', target: 'watch.log', interval_s: 60,
+    last_check: '2026-10-17T12:00:00.000Z' }}
+    toast={noop} close={noop} />, host => host)
+  t.after(() => view.unmount())
+  assert.match(view.el.textContent ?? '', /next check in 0:43/)
+})
+
+test('watchdog countdown is omitted for non-periodic, paused and unknown schedules', async (t) => {
+  const cases: Array<[string, Partial<Watchdog>]> = [
+    ['event', { kind: 'event', last_check: '2026-10-17T12:00:00.000Z' }],
+    ['stream', { kind: 'stream', last_check: '2026-10-17T12:00:00.000Z' }],
+    ['activity', { kind: 'activity', last_check: '2026-10-17T12:00:00.000Z' }],
+    ['paused', { kind: 'file', state: 'paused', last_check: '2026-10-17T12:00:00.000Z' }],
+    ['unknown', { kind: 'file' }],
+  ]
+  for (const [name, patch] of cases) {
+    const view = await mountView(<WatchdogPanel slug="test" dog={{ ...base, ...patch }}
+      toast={noop} close={noop} />, host => host)
+    assert.doesNotMatch(view.el.textContent ?? '', /next check in|checking…/, name)
+    await view.unmount()
+  }
+})
