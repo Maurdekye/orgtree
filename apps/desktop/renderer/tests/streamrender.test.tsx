@@ -65,7 +65,7 @@ test('settled mail replies refresh availability and use the latest locate handle
   let update!: () => void, located = -1
   const wire = replyWire({ org: 'org', agent: 'agent', generation: 0, eventId: 'original', quote: 'quoted' })
   const row: ChatMessage = { role: 'user', text: 'reply', segments: [{ kind: 'mail', rows: [{
-    id: 'mail', from: 'peer', at: '2026-10-17T12:00:00Z', body: 'reply', reply_to: wire,
+    id: 'mail', from: 'peer', kind: 'message', at: '2026-10-17T12:00:00Z', body: 'reply', reply_to: wire,
   }] }] }
   function Probe() {
     const [revision, setRevision] = useState(0)
