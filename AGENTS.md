@@ -10,6 +10,13 @@
   remains on `inflight_at`, including ordinary Antigravity hook mail delivery.
   All harnesses share this projection. See [turn clocks](docs/rust-engine/turn-completion-clock.md).
   [decided: coordinator 2026-10-17; verified: `domain/tree.rs`, `runtime/actor.rs`, `canvas/desk.tsx`]
+- Shared/team scratch initialization creates a header-only `AGENTS.md` if missing,
+  using checked managed components and exclusive creation; existing files, even
+  empty ones, are untouched. Org opening backfills shared notes, launch snapshots
+  initialize held team/project folders before reading notes, and folder serving
+  retries on first use. Agent fallback creation stays limited to writable scope.
+  [decided: user 2026-10-17 17:26Z; verified: `shared_notes.rs`, `orgs.rs`,
+  `runtime/{actor,identity}.rs`, `http/nodes.rs`]
 
 - State inspection memoizes effective ancestry only within its immutable
   request snapshot, retaining the total 1024-node ancestry cap and visibility

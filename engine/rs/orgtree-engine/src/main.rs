@@ -60,6 +60,7 @@ mod providers;
 mod rig;
 mod runtime;
 mod settings;
+mod shared_notes;
 mod tools;
 mod trace;
 mod usage;

@@ -1885,6 +1885,14 @@ impl Actor {
         let below = Box::pin(crate::domain::teams::projects_below(&self.engine, &slug, self.id)).await?;
         let eff = scope::with_team_workspaces(&eff, &teams);
         let eff = scope::with_team_workspaces(&eff, &below);
+        // Initialize before reading notes into the launch snapshot, including
+        // workspaces reached from above. Missing files are backfilled on use.
+        let org_root = self.engine.cfg.scratch_root(&slug);
+        for dir in std::iter::once(&org_notes_dir).chain(teams.iter().chain(&below).map(|t| &t.dir)) {
+            if let Err(error) = crate::shared_notes::ensure(&self.engine.cfg.data_root, &org_root, dir) {
+                tracing::warn!(agent = %name, error = %error, path = %dir.display(), "shared notes could not be initialized");
+            }
+        }
         let team_notes: Vec<(PathBuf, String, Option<String>)> = teams.iter().map(|t| {
             let file = t.dir.join(crate::config::ORG_NOTES_FILE);
             let label = if t.own { "your own team".to_string() }
@@ -2679,19 +2687,6 @@ impl Actor {
             None
         };
         self.account_gate(ctx, route.as_ref())?;
-        // the org's shared notes folder exists before a CLI is given it; the
-        // file is the agents' to create
-        if let Err(e) = std::fs::create_dir_all(&ctx.org_notes_dir) {
-            tracing::warn!(agent = %ctx.name, error = %e, "the org's shared notes folder could not be created");
-        }
-        // and so do the team workspaces it holds
-        for dir in ctx.effective["add_dirs"].as_array().into_iter().flatten().filter(|d| scope::is_team_workspace(d)) {
-            if let Some(path) = dir["path"].as_str() {
-                if let Err(e) = std::fs::create_dir_all(path) {
-                    tracing::warn!(agent = %ctx.name, error = %e, path, "a team workspace could not be created");
-                }
-            }
-        }
         if ctx.harness.as_deref() == Some("opencode") {
             let route = route.as_ref().ok_or_else(|| anyhow!("OpenCode requires an OpenRouter or language-server lane"))?;
             return self.ensure_acp(ctx, route).await;

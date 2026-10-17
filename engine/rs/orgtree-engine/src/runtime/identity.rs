@@ -429,9 +429,8 @@ fn trimmed_folder_rules(org: &str, org_dir: Option<(&str, bool)>, teams: &[&Valu
     if org_dir.is_some() || !teams.is_empty() {
         let writable = org_dir.is_none_or(|d| d.1) && teams.iter().all(|t| t["mode"].as_str() != Some("ro"));
         s.push_str(if writable {
-            "Re-read a shared file right before you change it, make small in-place edits (never write a prompt copy \
-             back), and never put secrets there; nothing there reaches the user unless you send it \
-             (orgtree-shared-folders). "
+            "Re-read shared notes before edits; if the file does not exist yet, create it. Make small edits, never copy \
+             the prompt back, keep secrets out; nothing reaches the user unless sent (orgtree-shared-folders). "
         } else {
             "Your scope lets you read the shared folders, not write there (orgtree-shared-folders). "
         });
@@ -618,7 +617,7 @@ mod group_tests {
             let s = render(&rw, lane, false, None);
             assert!(s.contains("Folders you may work in: E:/repo. "), "{lane:?}");
             assert!(s.contains(&format!("ORG SHARED FOLDER: {dir} is Proof's shared scratch folder. ")), "{lane:?}");
-            assert!(s.contains(&format!("Its AGENTS.md, {file} (it exists once an agent writes it), is the org's shared notes")));
+            assert!(s.contains(&format!("Its AGENTS.md, {file}, is the org's shared notes")));
             assert!(s.contains("You may create, change and delete files and subfolders there with no grant"));
             assert!(s.contains("never put secrets, tokens or credentials there") && s.contains("nothing there reaches the user unless you send it"));
             assert!(!s.contains("Your scope lets you read it, not write there."));
@@ -813,15 +812,16 @@ fn org_notes_rule(org: &str, dir: &str, writable: bool) -> String {
     let edit = if writable {
         "You may create, change and delete files and subfolders there with no grant, to hand files to other agents \
          or keep org-wide material. Use descriptive names or a subfolder per topic or agent, re-read a file right \
-         before you change it (AGENTS.md too: small in-place edits, and never write that copy back over it), and \
+         before you change it (AGENTS.md too: if the file does not exist yet, create it; otherwise small in-place \
+         edits, and never write that copy back over it), and \
          never put secrets, tokens or credentials there; nothing there reaches the user unless you send it."
     } else {
         "Your scope lets you read it, not write there."
     };
     format!(
         "ORG SHARED FOLDER: {dir} is {org}'s shared scratch folder. Every agent of this organization, including \
-         agents hired later, may use it; agents of other organizations never see it. Its AGENTS.md, {} (it exists \
-         once an agent writes it), is the org's shared notes, which every agent gets at session start: put there \
+         agents hired later, may use it; agents of other organizations never see it. Its AGENTS.md, {}, is the org's \
+         shared notes, initialized with a header when missing, which every agent gets at session start: put there \
          what the whole org should know (conventions, decisions, where things live); your own memories stay in \
          your scratch AGENTS.md. When it has content, the copy at the end of this prompt is the file as it was \
          when your CLI started: others may have edited it since, so read the file before relying on a recent \
@@ -849,7 +849,8 @@ fn team_rule(teams: &[&Value]) -> String {
     let how = if writable {
         "You may create, change and delete files and subfolders in them with no grant, by the org folder's rules: \
          descriptive names or a subfolder per topic or agent, re-read a file right before you change it (an \
-         AGENTS.md too: small in-place edits, never its copy written back), no secrets, tokens or credentials, and \
+         AGENTS.md too: if the file does not exist yet, create it; otherwise small in-place edits, never its copy \
+         written back), no secrets, tokens or credentials, and \
          nothing there reaches the user unless you send it."
     } else {
         "Your scope lets you read them, not write there."
@@ -858,7 +859,7 @@ fn team_rule(teams: &[&Value]) -> String {
         "TEAM WORKSPACES: shared folders of the subtrees you are in, nearest first: {}. Every agent inside a \
          subtree holds its workspace and agents outside it never see it, so keep each file in the narrowest one its \
          readers share; if you move in the tree, the set changes from your next session. Each workspace's \
-         AGENTS.md (it exists once an agent writes it) is that team's shared notes, given at session start to every \
+         AGENTS.md is initialized with a header when missing and holds that team's shared notes, given at session start to every \
          agent in the subtree: when it has content, its copy is at the end of this prompt, nearest team first, \
          as the file was when your CLI started. {how} ",
         list.join(", ")
