@@ -307,7 +307,7 @@ pub async fn remember(engine: &Engine, id: i64, lease: &Lease, session: Option<&
 mod tests {
     use super::*;
     use std::time::Duration;
-    use std::fs::{self, File, FileTimes};
+    use std::fs::{self, FileTimes};
 
     struct Temp(PathBuf);
     impl Temp {
@@ -343,7 +343,7 @@ mod tests {
     fn set_age(p: &Path, seconds: u64) {
         let f = if p.is_dir() {
             #[cfg(windows)] { use std::os::windows::fs::OpenOptionsExt; fs::OpenOptions::new().access_mode(0x100).custom_flags(0x02000000).open(p).unwrap() }
-            #[cfg(not(windows))] { File::open(p).unwrap() }
+            #[cfg(not(windows))] { fs::File::open(p).unwrap() }
         } else { fs::OpenOptions::new().write(true).open(p).unwrap() };
         f.set_times(FileTimes::new().set_modified(SystemTime::now() - Duration::from_secs(seconds))).unwrap();
     }
