@@ -1822,7 +1822,7 @@ impl Actor {
                    SELECT id, parent_id, scope, 0 FROM ot.agents WHERE id = $1
                    UNION ALL SELECT a.id, a.parent_id, a.scope, c.depth + 1 FROM ot.agents a JOIN chain c ON a.id = c.parent_id
                     WHERE c.depth < 1024)
-                 SELECT c.scope, c.depth, a.name, a.team_charter FROM chain c JOIN ot.agents a ON a.id = c.id ORDER BY c.depth DESC",
+                 SELECT c.scope, c.depth, a.name, a.team_charter, a.kind, a.charter FROM chain c JOIN ot.agents a ON a.id = c.id ORDER BY c.depth DESC",
                 &[&self.id],
             )
             .await?;
@@ -1894,11 +1894,20 @@ impl Actor {
             (file, label, text)
         }).collect();
         let org_notes = std::fs::read_to_string(org_notes_dir.join(crate::config::ORG_NOTES_FILE)).ok();
-        // §15 cascade: every ancestor's team charter binds its subtree, root first
+        // §15 cascade: every ancestor's team charter binds its subtree, root first.
+        // A project ancestor's description is its team charter (user
+        // 2026-10-17 19:14Z), so nested projects each add theirs.
         let cascade: Vec<(String, String)> = chain
             .iter()
             .filter(|c| c.get::<_, i32>(1) > 0)
-            .filter_map(|c| c.get::<_, Option<String>>(3).filter(|t| !t.trim().is_empty()).map(|t| (c.get::<_, String>(2), t)))
+            .filter_map(|c| {
+                let name: String = c.get(2);
+                if c.get::<_, String>(4) == crate::domain::projects::KIND {
+                    c.get::<_, Option<String>>(5).filter(|t| !t.trim().is_empty()).map(|t| (format!("project {name}"), t))
+                } else {
+                    c.get::<_, Option<String>>(3).filter(|t| !t.trim().is_empty()).map(|t| (format!("your superior {name}"), t))
+                }
+            })
             .collect();
         Ok(Ctx {
             name,

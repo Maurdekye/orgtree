@@ -33,7 +33,8 @@ pub struct Identity<'a> {
     pub charter: Option<&'a str>,
     /// the standing charter THIS agent gives its own team
     pub team_charter: Option<&'a str>,
-    /// ancestors' team charters, root first: (ancestor name, charter)
+    /// ancestors' team charters, root first: (who, charter); who reads
+    /// "your superior <name>", or "project <name>" for a project's description
     pub cascade: &'a [(String, String)],
     /// the superior's name; None for a top-level agent (answers to the user)
     pub superior: Option<&'a str>,
@@ -125,7 +126,7 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     }
     for (who, tc) in i.cascade {
         if !tc.trim().is_empty() {
-            s.push_str(&format!("Standing charter from your superior {who}: {}\n", tc.trim()));
+            s.push_str(&format!("Standing charter from {who}: {}\n", tc.trim()));
         }
     }
     s.push_str(&org_charter(i.org_md));
