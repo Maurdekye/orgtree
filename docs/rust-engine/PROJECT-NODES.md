@@ -172,6 +172,11 @@ agents under the project".
   reader show that agent, so a document presented under a project names its author.
 - **Project presentation chips** [user 2026-10-17 22:47:29Z]: the project card and the desk header
   carry chips for the project's own documents and its subtree's, newest first (`subtreeDocs`).
+- **Fair-queue watcher lines** [user 2026-10-17 22:48Z]: every armed or paused `fair_queue` dog
+  draws a line from its owner to the project it serves (`fairQueueLinks` in `canvas/shared.ts`,
+  matched by the dog's target name, which a rename moves). The line has its own colour token
+  `--fq-line` (rose, deepened in the light themes, used by nothing else); a paused dog's line is
+  dashed and dimmed. It bows out past both cards' right sides so it never lies on a tree edge.
 - **Menus** [user 2026-10-17 22:23Z] take every agent/switchboard entry that applies: Focus; Open >
   mailbox, folder, presentations, project docket, pin / show pinned window; Hire under this
   project; New project…; Settings; Cheap-compact all agents under it…; Halt/Unhalt all agents
