@@ -44,6 +44,7 @@ const env = {
   ORGTREE_FAKECLI_HOME: path.join(data, 'rig-home'),
 }
 if (run.ui) env.ORGTREE_V2_UI_DIR = run.ui
+if (run.streamProbe) env.ORGTREE_RIG_STREAM_PROBE = '1'
 // `up --real-cli`: the installed Claude Code and Codex are the agents' CLIs,
 // so every child's home is the run's fake one. A CLI the engine launches
 // without its own config folder then finds the fake profile (an empty

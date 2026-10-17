@@ -758,6 +758,7 @@ export async function startRun(opts = {}) {
       realMuse,
       // the engine logs no verbose call lines (`up --quiet-log`), as a release build by default
       quietLog: !!opts.quietLog,
+      streamProbe: !!opts.streamProbe,
       // the engine believes it runs under the boot task's S4U logon (`up --boot-isolated`)
       bootIsolated: !!opts.bootIsolated,
       // the engine's Session 0 answer, forced ('1' | '0'); null: measured

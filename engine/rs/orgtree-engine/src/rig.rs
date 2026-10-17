@@ -112,7 +112,7 @@ pub fn stream_probe(stage: &str, agent: &str, value: &serde_json::Value) {
                 Some("agent_thought_chunk") => Some(("thinking", &params["update"]["content"]["text"])),
                 _ => None,
             },
-            _ => value.get("step").filter(|s| s["step_type"] == "agent_response")
+            _ => value.get("step_update").filter(|s| s["step_type"] == "agent_response")
                 .map(|s| ("delta", &s["text_delta"])),
         }};
         if let Some((kind, text)) = candidate.filter(|(_, t)| t.as_str().is_some_and(|s| !s.is_empty())) {
