@@ -1,5 +1,5 @@
 import './harness'
-import {flush,mountView,realClock,useFakeClock} from './harness'
+import {FakeServer,flush,installFetch,mountView,realClock,useFakeClock} from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
@@ -27,11 +27,11 @@ test('history renders typed status and preserves legacy and unsupported content'
 })
 
 test('desk tab row no longer offers Files or History',async t=>{
-  useFakeClock()
+  useFakeClock(); installFetch(new FakeServer()); const old=globalThis.fetch
   const worker:CanvasNode={id:'worker',generation:1,state:'live',tier:'haiku',children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]}}
   const view=await mountView(<DeskChat node={worker} map={new Map([[worker.id,worker]])}
     slug="fixture" op={async()=>({})} toast={()=>{}} bare/>,h=>h)
-  t.after(async()=>{await view.unmount();realClock()})
+  t.after(async()=>{await view.unmount();globalThis.fetch=old;realClock()})
   await flush()
   const deskTabs = [...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
     .map(button => button.textContent?.trim())
