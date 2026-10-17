@@ -173,8 +173,12 @@ cache misses once, at its first turn after the upgrade.
 ## Sign-in and sign-out notices
 
 The user, 2026-10-16 12:07Z (`runtime/session_watch.rs`): an engine in
-Session 0 watches whether any sign-in helper hosts. A change that holds
-for two readings a second apart, from what agents were last told (kept in
+Session 0 watches whether any sign-in helper hosts. Since the user's
+2026-10-17 transient-loss fix, sign-out requires three consecutive two-second
+misses and recovery takes the first good check. Overdue ticks are skipped;
+short recovered losses log once and retain turn placement without extending
+authenticated leases. See [session blips](session-placement-blips.md).
+A confirmed change from what agents were last told (kept in
 `<data>\session-placement.json`, baseline Session 0, so a restart while
 the user stays signed in tells nobody anything; readings start after the
 15 s settle), sends every live agent one passive line: `[ORGTREE SIGN-IN
