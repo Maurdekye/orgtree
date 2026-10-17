@@ -309,7 +309,11 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     ] : undefined,
   })
   if (h.onNewProject && canRetire) {
-    entries.push({ label: 'New project here…', title: `a project node under ${node.id}: its agents work on it and ${node.id} pays for them`,
+    // directly under "Hire a subordinate" (user 2026-10-17 21:18Z); after
+    // Focus when the agent offers no hire
+    const at = entries.findIndex((e) => e !== 'sep' && e.label === 'Hire a subordinate')
+    entries.splice(at >= 0 ? at + 1 : 1, 0, { label: 'New project here…',
+      title: `a project node under ${node.id}: its agents work on it and ${node.id} pays for them`,
       onSelect: h.onNewProject })
   }
   if (lifecycle.length) entries.push('sep', ...lifecycle)
