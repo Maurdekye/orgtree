@@ -89,7 +89,8 @@ export default async function (rig) {
   const seats = (d1?.seat ?? 0) + (d2?.seat ?? 0) + (d1?.grant ?? 0) + (d2?.grant ?? 0)
   p.check('the project holds exactly its agents\' stakes and no free credits (a mirror)', web2.grant === seats && free('website') === 0, { grant: web2.grant, seats })
   p.check('boss, the agent above the project, paid for them', Math.abs((bossFree0 - free('boss')) - seats) < 1e-6, { before: bossFree0, after: free('boss'), seats })
-  const hireBelow = await rig.tool('dev1', 'orgtree_hire', { name: 'dev3', parent: 'website', tier: 'haiku', grant: 0, charter: 'x', index: 0 })
+  const hireBelow = await rig.tool('dev1', 'orgtree_hire', { name: 'dev3', parent: 'website', tier: 'haiku', grant: 0, charter: 'x', index: 0,
+    add_dirs: [], tools: { bash: false, web: false, edit: false, subagents: false, mcp: [] }, org_visibility: 'team' })
   p.check('an agent below the project cannot hire under it: the agent above pays', !hireBelow.ok && /paid by the agent above/.test(hireBelow.text), said(hireBelow))
 
   // ------------------------------------------------------------ the fair queue
