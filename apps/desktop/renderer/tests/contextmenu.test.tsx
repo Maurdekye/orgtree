@@ -694,7 +694,7 @@ uiTest('Owner context-menu entry resolves the assigned agent tooltip', async (t)
   const ownerItem = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-item')]
     .find(button => button.textContent?.trim() === 'Owner… ▸')!
   assert.equal(ownerItem.getAttribute('data-agent-tooltip'), 'agent1')
-  await inAct(() => ownerItem.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  await inAct(() => { ownerItem.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })) })
   assert.equal(ownerItem.title, 'Claude Haiku 5.5 · high')
 })
 
@@ -733,7 +733,7 @@ uiTest('§B4 ticket row: canonical copies, bottom fold and Owner registry action
     .find(button => button.textContent?.trim() === 'Owner… ▸')!
   assert.equal(ownerItem.getAttribute('data-agent-tooltip'), 'agent1',
     'Owner menu entry participates in the shared agent tooltip lookup')
-  await inAct(() => ownerItem.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  await inAct(() => { ownerItem.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })) })
   assert.equal(ownerItem.title, 'Claude Haiku 5.5 · high',
     'Owner menu entry resolves the current owner through the shared native tooltip')
   await pick('Copy reference'); await flush(3)

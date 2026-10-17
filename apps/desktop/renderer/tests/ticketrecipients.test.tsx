@@ -114,14 +114,14 @@ test('reply recipient options share agent tooltip, badge hover and right-click m
     'the option participates in the shared identity tooltip lookup')
   const badge = option.querySelector<HTMLElement>('.tier')!
   assert.ok(badge, 'the recipient item includes its model badge')
-  await inAct(() => badge.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  await inAct(() => { badge.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })) })
   assert.equal(badge.title, 'ChatGPT Sol 6.1 · high · default',
     'hovering the badge shows the same tooltip as the agent link')
 
   const contextEvent = new MouseEvent('contextmenu', {
     bubbles: true, cancelable: true, button: 2, clientX: 12, clientY: 12,
   })
-  await inAct(() => badge.dispatchEvent(contextEvent)); await flush()
+  await inAct(() => { badge.dispatchEvent(contextEvent) }); await flush()
   assert.equal(contextEvent.defaultPrevented, true, 'right-click opens the shared context menu')
   const contextMenu = document.querySelector<HTMLElement>('.ctxmenu:not(.ctxmenu-submenu)')!
   assert.ok([...contextMenu.querySelectorAll('[role="menuitem"]')]

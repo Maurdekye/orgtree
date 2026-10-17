@@ -595,7 +595,9 @@ test('§2c Normal card preservation: non-limit frozen, legacy waiting/error clas
 })
 
 test('far-zoom halted cards show only the stop icon', async () => {
-  const halted = makeNode('far-halted', { halt: { phase: 'halted' } })
+  const halted = makeNode('far-halted', {
+    halt: { phase: 'halted', requested_at: '2026-10-17T17:00:00.000Z', by: 'fixture-agent' },
+  })
   const view = await renderCard(halted, 'mini')
   try {
     const card = view.el.querySelector('.sq')!
@@ -608,7 +610,10 @@ test('far-zoom halted cards show only the stop icon', async () => {
     await view.unmount()
   }
 
-  const frozen = makeNode('far-frozen', { frozen: { until: 'tomorrow', until_ts: 1234567 } })
+  const frozen = makeNode('far-frozen', { frozen: {
+    at: '2026-10-17T17:00:00.000Z', until: '2026-10-18T17:00:00.000Z',
+    until_ts: 1792342800000, error: null,
+  } })
   const frozenView = await renderCard(frozen, 'mini')
   try {
     const card = frozenView.el.querySelector('.sq')!

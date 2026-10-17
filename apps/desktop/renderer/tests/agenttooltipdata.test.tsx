@@ -2,9 +2,13 @@ import './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { agentTooltipInfo } from '../src/canvas/OrgCanvas'
+import type { CanvasNode } from '../src/canvas/shared'
 
 const providers = (displayName = 'Claude Opus 5.5') => [{
-  id: 'claude', tiers: [{ tier: 'opus', display_name: displayName }],
+  id: 'claude', label: 'Claude', cli: 'claude',
+  status: { installed: true }, hire_enabled: true, reason: null,
+  tiers: [{ tier: 'opus', provider: 'claude', seat: 0, model: 'claude-opus-5-5',
+    letter: 'O', display_name: displayName }],
 }]
 const accounts = (ids: string[]) => ({
   accounts: [
@@ -14,8 +18,8 @@ const accounts = (ids: string[]) => ({
 })
 const node = (extra: Record<string, unknown> = {}) => ({
   id: 'worker', state: 'live', tier: 'opus', model_id: 'claude-opus-5-5',
-  effort_effective: 'max', scope: {}, ...extra,
-})
+  effort_effective: 'max', scope: {}, children: [], ...extra,
+} as unknown as CanvasNode)
 
 test('tooltip uses catalog display name/version and omits account for a single configured account', () => {
   assert.deepEqual(agentTooltipInfo(node(), providers(), accounts(['claude/primary']) as never), {

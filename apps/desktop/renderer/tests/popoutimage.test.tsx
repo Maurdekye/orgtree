@@ -2,11 +2,10 @@
 // the document that owns the adopted surface. This exercises the production
 // MovableSurface adoption path with a second DOM document; it is not an
 // installed Electron window proof.
-import { flush, inAct, mountView } from './harness'
+import { flush, inAct, JSDOM, mountView } from './harness'
 import { installBridge, removeBridge } from './shellbridge'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { JSDOM } from 'jsdom'
 import { MovableSurface, PopoutButton } from '../src/popout'
 import { md } from '../src/canvas/shared'
 
