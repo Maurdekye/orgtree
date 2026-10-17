@@ -470,6 +470,24 @@ mod recovery_command_tests {
         assert!(out.contains(&command));
         assert!(!out.contains("truncated"));
     }
+
+    #[test]
+    fn batched_mail_rows_keep_each_sender_in_recovery_views() {
+        let body = json!({
+            "role": "user",
+            "ts": "batch-time",
+            "text": "agent notice\n\nuser reply",
+            "segments": [{ "kind": "mail", "rows": [
+                { "from": "coordinator-opus", "body": "agent notice", "at": "notice-time", "notice": true },
+                { "from": "@user", "body": "user reply", "at": "reply-time" }
+            ]}]
+        });
+        let entries = recovery_user_entries(&body);
+        assert_eq!(entries, vec![
+            ("coordinator-opus".to_string(), "notice-time".to_string(), "agent notice".to_string()),
+            ("user".to_string(), "reply-time".to_string(), "user reply".to_string()),
+        ]);
+    }
 }
 
 /// A plain-text digest of the recent conversation, including bounded commands.
