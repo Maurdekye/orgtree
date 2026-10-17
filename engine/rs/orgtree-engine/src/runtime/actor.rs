@@ -1142,7 +1142,7 @@ impl Actor {
         if self.turn.is_none() && self.keepalive.is_none() && self.startup_checked.elapsed() >= STARTUP_RECHECK {
             self.startup_checked = Instant::now();
             if let Some((inputs, folders, lane, seen)) = self.startup_seen.clone() {
-                let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &folders).for_lane(lane);
+                let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &folders).for_startup(lane, &inputs);
                 let now = shared_startup_digest(&startup::digest(&inputs), &skills);
                 // stale against what the parked CLI was LAUNCHED with, which
                 // an edit during the last turn leaves behind the forecast's
@@ -2031,7 +2031,8 @@ impl Actor {
                 }
             }
         }
-        let startup = startup::snapshot(&self.startup_inputs(ctx));
+        let inputs = self.startup_inputs(ctx);
+        let startup = startup::snapshot(&inputs);
         let folders: Vec<PathBuf> = ctx.effective["add_dirs"].as_array().into_iter().flatten()
             .filter(|d| !scope::is_shared(d))
             .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
@@ -2051,7 +2052,7 @@ impl Actor {
         for (path, _, text) in &ctx.team_notes {
             if let Some(text) = text { instructions.text(path, "team_scratch", text); }
         }
-        let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &skill_folders(ctx)).for_lane(skill_lane(ctx));
+        let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &skill_folders(ctx)).for_startup(skill_lane(ctx), &inputs);
         // the org's shared notes as read now, last in the prompt. A CLI keeps
         // the copy it started with: the text stays out of the system prompt
         // part, so another agent's edit never respawns a warm CLI
@@ -7332,7 +7333,7 @@ impl Actor {
                 let inputs = self.startup_inputs(&ctx);
                 let folders = skill_folders(&ctx);
                 let lane = skill_lane(&ctx);
-                let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &folders).for_lane(lane);
+                let skills = crate::providers::skills::for_agent(&self.engine.providers.skills_registry(), &folders).for_startup(lane, &inputs);
                 let digest = shared_startup_digest(&startup::digest(&inputs), &skills);
                 self.startup_seen = Some((inputs, folders, lane, digest));
                 self.forecast_for(&ctx)

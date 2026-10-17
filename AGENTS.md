@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Claude shared-skill exports account for native discovery: exact launch-profile
+  org metadata selects the personal synced bucket; enabled installed plugins
+  use that profile's settings plus cwd overrides. Identical native bundles omit
+  the bare export, while unknown/disabled sources retain fallback and distinct
+  resources stay distinct. Claude omits the three Codex-only skill families.
+  Launch, idle and forecast share this selection. See [shared skills](docs/rust-engine/shared-skills.md).
+  [decided: coordinator/user 2026-10-17; verified: `providers/skills/native.rs`, `runtime/actor.rs`]
+
 - Renderer agent links use the native title tooltip with catalog model/version,
   effort and (only for multi-account providers) bound/default account joined by
   ` · `. The host resolves current `/api/providers` and `/api/accounts` reads,

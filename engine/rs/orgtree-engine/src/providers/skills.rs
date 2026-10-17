@@ -34,8 +34,23 @@ pub struct Registry {
 impl Registry {
     /// Account for native discovery separately from the shared export.
     #[nolog]
-    pub fn for_startup(&self, lane: crate::runtime::identity::Lane, _inputs: &crate::runtime::startup::Inputs) -> Registry {
-        self.for_lane(lane)
+    pub fn for_startup(&self, lane: crate::runtime::identity::Lane, inputs: &crate::runtime::startup::Inputs) -> Registry {
+        let mut selected = self.for_lane(lane);
+        if lane != crate::runtime::identity::Lane::Claude { return selected; }
+        let native = native::digests(inputs);
+        let supplied: BTreeSet<String> = selected.bundles.iter().filter(|b| !is_builtin(b) && native.contains(&b.digest))
+            .map(|b| b.declared_name.clone()).collect();
+        // Native discovery supplies the chosen bundle, not a foreign fallback
+        // variant. Preserve distinct resource collisions sharing its original name.
+        for bundle in &self.bundles {
+            if supplied.contains(&bundle.declared_name) && !native.contains(&bundle.digest)
+                && !selected.bundles.iter().any(|b| b.digest == bundle.digest) {
+                selected.bundles.push(bundle.clone());
+            }
+        }
+        selected.bundles.retain(|b| is_builtin(b) || (!native.contains(&b.digest)
+            && !matches!(skill_variant(&b.declared_name).0,"openai-docs"|"imagegen"|"skill-installer")));
+        merge(selected.bundles)
     }
 
     /// Select the receiving harness's variants without changing source bundles.
