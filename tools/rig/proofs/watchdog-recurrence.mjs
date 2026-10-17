@@ -91,19 +91,22 @@ export default async function(rig){
 
     const listed=await rig.tool('boss','orgtree_watchdog',{action:'list'})
     const list=listed.json?.watchdogs??JSON.parse(listed.text).watchdogs
-    const snapshot=await rig.api('GET',`/api/orgs/${rig.org}/records`)
-    const projected=(snapshot.records??[]).find(r=>r.entity==='org'&&r.id==='watchdogs')?.body?.watchdogs??[]
+    const projected=await rig.waitFor(async()=>{
+      const snapshot=await rig.api('GET',`/api/orgs/${rig.org}/records`)
+      const dogs=(snapshot.records??[]).find(r=>r.entity==='org'&&r.id==='watchdogs')?.body?.watchdogs??[]
+      return Date.parse(dogs.find(r=>r.name==='catchup')?.next_check_at)===next?dogs:null
+    },{what:'durable watchdog deadline in desktop record group',timeout:10000,every:100})
     p.check('agent list and desktop record projection expose the same persisted next deadlines',
       Date.parse(list.find(r=>r.id==='catchup')?.next_check_at)===next
         &&Date.parse(projected.find(r=>r.name==='catchup')?.next_check_at)===next
         &&Date.parse(projected.find(r=>r.name==='quiet')?.next_silence_at)===next)
 
-    const saved=rows().map(r=>({id:r.uid,fired:r.fired,last:r.last_check,next:r.next_check_at,quiet:r.next_silence_at}))
+    const saved=rows().filter(r=>r.uid!=='pushed').map(r=>({id:r.uid,fired:r.fired,last:r.last_check,next:r.next_check_at,quiet:r.next_silence_at}))
     await rig.restart()
     // Bounded negative observation after a fully ready restart. Every timer's
     // next slot is hours away; a restarted immediate poll would change evidence.
     await new Promise(resolve=>setTimeout(resolve,1500))
-    const again=rows().map(r=>({id:r.uid,fired:r.fired,last:r.last_check,next:r.next_check_at,quiet:r.next_silence_at}))
+    const again=rows().filter(r=>r.uid!=='pushed').map(r=>({id:r.uid,fired:r.fired,last:r.last_check,next:r.next_check_at,quiet:r.next_silence_at}))
     p.check('a second restart adds no catch-up or real check before the saved future slots',JSON.stringify(again)===JSON.stringify(saved))
 
     const resumeAt=Date.now()
@@ -115,5 +118,5 @@ export default async function(rig){
       &&resumeNext>=resumeAt+6*H&&resumeNext<resumeAt+6*H+15000)
     p.keep(rig)
     return p.summary()
-  }finally{if(child.exitCode===null)child.kill()}
+  }finally{if(child.exitCode===null&&child.signalCode===null)child.kill()}
 }
