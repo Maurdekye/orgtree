@@ -629,6 +629,21 @@ mod group_tests {
         assert!(!render(&json!({}), Lane::Claude, false, None).contains("ORG SHARED FOLDER"));
     }
 
+    #[test]
+    fn shared_notes_bootstrap_full_rules_explain_missing_file_creation_without_granting_readonly_writes() {
+        let teams = crate::domain::teams::workspaces(std::path::Path::new("D:/proof/_teams"), &[(7, "ivy".into())]);
+        let rw = crate::domain::scope::with_team_workspaces(
+            &crate::domain::scope::with_org_notes(&json!({}), "D:/proof/_shared"), &teams);
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            let text = render(&rw, lane, false, None);
+            assert!(text.contains("if the file does not exist yet, create it"), "{lane:?}");
+            assert!(!text.contains("it exists once an agent writes it"), "{lane:?}");
+        }
+        let ro = crate::domain::scope::with_team_workspaces(
+            &crate::domain::scope::with_org_notes(&json!({"tools":{"edit":false}}), "D:/proof/_shared"), &teams);
+        assert!(!render(&ro, Lane::Antigravity, false, None).contains("if the file does not exist yet, create it"));
+    }
+
     /// Team workspaces are listed nearest first on every lane, apart from the
     /// granted folders, with the seat's write right; none without any.
     #[test]
@@ -1374,6 +1389,14 @@ mod trim_tests {
 
     fn all_on() -> Value {
         json!({ "permission_mode": "acceptEdits", "add_dirs": [{ "path": "E:/repo", "mode": "rw" }] })
+    }
+
+    #[test]
+    fn shared_notes_bootstrap_trim_rules_explain_missing_file_creation() {
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            assert!(render(&all_on(), lane, false, true).contains("if the file does not exist yet, create it"), "{lane:?}");
+            assert!(!render(&json!({"tools":{"edit":false}}), lane, false, true).contains("if the file does not exist yet, create it"), "{lane:?}");
+        }
     }
 
     /// The approved budget: well under Antigravity's 24 KB per file, measured on the

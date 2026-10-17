@@ -1048,6 +1048,53 @@ mod scratch_folder_tests {
     }
 
     #[test]
+    fn shared_notes_bootstrap_creates_header_only_notes_for_both_folder_kinds() {
+        let root = root();
+        let org = root.join("scratch/org");
+        for (target, expected) in [
+            (org.join("_shared"), "# Shared standing notes for this organization\n"),
+            (org.join("_teams/17"), "# Shared standing notes for this team\n"),
+        ] {
+            let dir = managed_scratch_directory(&root, &org, &target).unwrap();
+            let notes = std::fs::read(dir.join("AGENTS.md")).expect("shared notes must exist before native view_file");
+            assert_eq!(notes, expected.as_bytes());
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shared_notes_bootstrap_never_overwrites_existing_notes_including_empty_files() {
+        let root = root();
+        let org = root.join("scratch/org");
+        for target in [org.join("_shared"), org.join("_teams/17")] {
+            std::fs::create_dir_all(&target).unwrap();
+            for original in [b"".as_slice(), b"# Keep my notes\r\n\nopaque:\xff\0".as_slice()] {
+                std::fs::write(target.join("AGENTS.md"), original).unwrap();
+                managed_scratch_directory(&root, &org, &target).unwrap();
+                managed_scratch_directory(&root, &org, &target).unwrap();
+                assert_eq!(std::fs::read(target.join("AGENTS.md")).unwrap(), original);
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shared_notes_bootstrap_backfills_existing_folders_idempotently() {
+        let root = root();
+        let org = root.join("scratch/org");
+        for target in [org.join("_shared"), org.join("_teams/17")] {
+            std::fs::create_dir_all(&target).unwrap();
+            std::fs::write(target.join("other.txt"), "untouched").unwrap();
+            managed_scratch_directory(&root, &org, &target).unwrap();
+            let first = std::fs::read(target.join("AGENTS.md")).expect("backfill missing notes");
+            managed_scratch_directory(&root, &org, &target).unwrap();
+            assert_eq!(std::fs::read(target.join("AGENTS.md")).unwrap(), first);
+            assert_eq!(std::fs::read_to_string(target.join("other.txt")).unwrap(), "untouched");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn managed_scratch_refuses_escape_and_file_ancestors_before_creation() {
         let root = root();
         let org = root.join("scratch/org");
