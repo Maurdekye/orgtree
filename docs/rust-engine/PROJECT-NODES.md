@@ -160,6 +160,11 @@ co-owns the item with full owner rights.
   tier/provider stripe; at middle zoom its meta row carries `ProjectActivity`, the app header's
   activity chip (spinner while any agent under it works, then active/hired). The app header's own
   count (`liveCounts`) skips project nodes.
+- **Neighbour lines** [user 2026-10-17 21:23Z]: `peerLinkPairs` joins consecutive AGENT siblings
+  only, so a project at a row's end has no neighbour segment and agents on either side of a project
+  are joined by one line running past it; message sparks follow the same lines.
+- **The project token** [user 2026-10-17 21:23:44Z] wears the project card's theme colours
+  (background, dashed border, accent folder) instead of the earlier light grey.
 - **The project desk** [user 2026-10-17 19:38Z–20:10Z]: a click, or zooming in, walks the
   camera to the project and opens its desk (`canvas/projectdesk.tsx`) in the agent desk's frame
   and header; a click never opens a modal (20:04Z). No chat: a project takes no turns. It pins as
@@ -189,7 +194,7 @@ co-owns the item with full owner rights.
 - **`set_description`** (op; `orgtree_project action=describe` for agents) replaces a project's
   description. It is authorized like rename (the user, agents above or below the project) and
   reconfigures the subtree.
-- **The project hire token** [user 2026-10-16 21:02Z]: every hire strip ends with a light grey
+- **The project hire token** [user 2026-10-16 21:02Z]: every hire strip ends with a (since 21:23:44Z theme-coloured)
   square with a folder icon, alone on the outermost row. That covers the eye card, all four
   edges of a card and a project's own strip. Its tooltip says "create a project … (free)" and
   it has no seat price. Like an agent token it opens a **draft project card** where the project

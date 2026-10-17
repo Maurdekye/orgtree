@@ -34,7 +34,7 @@ writeFileSync(path.join(output, 'probe.css'),
   readFileSync(css || path.join(root, 'apps/desktop/renderer/src/styles.css')))
 
 const server = createServer((req, res) => {
-  if (req.url === '/') {
+  if (req.url.split('?')[0] === '/') {
     res.setHeader('Content-Type', 'text/html')
     res.end('<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/probe.css"><div id="root"></div><script src="/probe.js"></script>')
     return

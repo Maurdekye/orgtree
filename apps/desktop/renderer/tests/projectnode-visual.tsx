@@ -1,30 +1,85 @@
-// projectnode-visual.tsx — the project card at the canvas's two card zooms,
-// for projectnode-visual.mjs (user 2026-10-17 21:20Z: no left-edge stripe,
-// a much larger folder when zoomed out). The cards sit in a scaled world, as
-// the canvas draws them; an agent card beside each is the comparison.
+// projectnode-visual.tsx — project nodes on screen, for projectnode-visual.mjs
+// (user 2026-10-17 21:20Z–21:23:44Z). ?scene=
+//   cards   — the project card at far and middle zoom beside the project hire
+//             token (no left stripe, a large folder, the activity chip, the
+//             token in the card's theme colours);
+//   row-end — the REAL canvas: boss with a1, a2 and a project at the row's end
+//             (no neighbour segment reaches the project);
+//   between — the REAL canvas: a1, a project, a2 (one line runs past it).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
+import { SpawnChips } from '../src/canvas/cards'
+import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import type { CanvasNode, OpResult } from '../src/canvas/shared'
+import type { TreePayload } from '../src/types'
 
 const noop = () => {}
-const project = {
-  id: 'website', title: 'website', kind: 'project', state: 'live', tier: 'project', model_id: '',
-  seat: 0, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] }, charter: 'The company website.',
-  children: [], lineage: [], turns: [], audiences_held: [], mail_pending: 0,
+const answer = (body: unknown, status = 200) =>
+  Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }))
+window.fetch = ((input: RequestInfo | URL) => {
+  const p = new URL(String(input), location.href).pathname
+  if (p.endsWith('/api/providers')) return answer({ providers: [] })
+  if (p.endsWith('/api/accounts')) return answer({ version: 2, primary: null, keys: [], assignments: {}, accounts: [] })
+  return answer({ detail: 'not in the fixture' }, 404)
+}) as typeof fetch
+
+const agent = (id: string, parent: string, extra: Record<string, unknown> = {}) => ({
+  id, title: id, tier: 'haiku', model_id: 'haiku', state: 'live', parent,
+  seat: 1, grant: 0, free: 0, ui_order: 0, cost_usd: 0, occupancy: null,
+  context_window: null, charter: null, mail_pending: 0, limit_locked: false,
+  last_status: null, prev_status: null, inflight_at: null, last_denials: [],
+  turns: [], frozen: null, audiences_held: [], bearer_state: null,
+  generation: 1, children: [], lineage: [],
+  scope: { permission_mode: 'default', add_dirs: [], tools: {}, org_visibility: 'team' },
+  ...extra,
+})
+const projectNode = (id: string, parent: string, children: unknown[] = []) =>
+  agent(id, parent, { kind: 'project', tier: 'project', model_id: '', seat: 0, charter: 'The site.', children })
+
+const card = {
+  ...projectNode('website', 'boss', [agent('dev1', 'website', { busy: true }), agent('dev2', 'website')]),
 } as unknown as CanvasNode
 
-function Card({ lod, x }: { lod: 'mini' | 'norm'; x: number }) {
-  return <ProjectSquare node={project} pos={{ x, y: 0 }} lod={lod} dragging={false} isDrop={false}
-    op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={lod === 'mini' ? 0.4 : 1.2}
-    hire={{}} seats={{}} onHire={noop} onNewProject={noop} onInbox={noop}
+function Cards() {
+  const sq = (lod: 'mini' | 'norm', x: number) => <ProjectSquare node={card} pos={{ x, y: 0 }} lod={lod}
+    dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop}
+    zoom={lod === 'mini' ? 0.4 : 1.2} hire={{}} seats={{}} onHire={noop} onNewProject={noop} onInbox={noop}
     onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+  return (
+    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      <div id="world" style={{ position: 'absolute', left: 60, top: 120, transform: 'scale(2.4)', transformOrigin: '0 0' }}>
+        {sq('mini', 0)}
+        {sq('norm', 170)}
+      </div>
+      <div id="token" style={{ position: 'absolute', left: 60, top: 520, transform: 'scale(2)', transformOrigin: '0 0' }}>
+        <SpawnChips onSpawn={noop} seats={{ haiku: 1 }} claudeHire={{ enabled: true, installed: true, reason: null }}
+          onProject={noop} zoom={1} expanded />
+      </div>
+    </main>
+  )
 }
 
-createRoot(document.getElementById('root')!).render(
-  <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
-    <div id="world" style={{ position: 'absolute', left: 60, top: 160, transform: 'scale(2.4)', transformOrigin: '0 0' }}>
-      <Card lod="mini" x={0} />
-      <Card lod="norm" x={170} />
-    </div>
-  </main>,
-)
+function tree(children: unknown[]): TreePayload {
+  return {
+    slug: 'org', name: 'org', workspace: null, dirs: [], max_top_grant: 1000, default_top_grant: 50,
+    compact_at: 0, default_tools: null, default_visibility: 'team', default_effort: '', credit_requests: [],
+    tiers: { haiku: 1, sonnet: 3, opus: 5 }, audiences: [], cost_usd_total: 0,
+    roots: [agent('boss', '', { parent: null, tier: 'opus', model_id: 'opus', seat: 5, grant: 20, children })],
+    audit: { live_nodes: 1, top_level_holds: 0, no_overdraft: true, problems: [] },
+    user_inbox_count: 0, user_inbox_newest: null, fable_lock: null, auto_resume: false,
+    fable_limit_policy: 'freeze', fable_filter_policy: 'halt', cascade_hire: false, cascade_alloc: true,
+    audience_requests: [], org_inbox: null, net: null,
+  } as unknown as TreePayload
+}
+
+const scene = new URLSearchParams(location.search).get('scene') || 'cards'
+const rows: Record<string, unknown[]> = {
+  'row-end': [agent('a1', 'boss'), agent('a2', 'boss'), projectNode('site', 'boss')],
+  between: [agent('a1', 'boss'), projectNode('site', 'boss'), agent('a2', 'boss')],
+}
+createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : (
+  <div style={{ position: 'fixed', inset: 0 }}>
+    <OrgCanvas tree={tree(rows[scene]!)} slug="org" op={() => Promise.resolve({} as OpResult)}
+      toast={noop} mailEvt={null} onOpenAgentGallery={noop} />
+  </div>
+))
