@@ -315,16 +315,16 @@ export default async function (rig) {
   p.check('an agent\'s docket is unchanged: its own items only', (agentPage.rows ?? []).length > 0
     && (agentPage.rows ?? []).every(i => i.owner?.node === 'dev1')
     && (agentPage.rows ?? []).some(i => i.title === 'Site launch checklist'), (agentPage.rows ?? []).map(i => [i.owner?.node, i.title]))
-  // migration 0028 on a row that still carries the old attachment: nothing is lost
+  // migration 0029 on a row that still carries the old attachment: nothing is lost
   rig.exec(`UPDATE ot.work_items SET extra = extra || jsonb_build_object('project_id', ${web.id}) WHERE slug = '${slug}'`)
-  const before0028 = rig.one(`SELECT title, owner, objective, done_so_far FROM ot.work_items WHERE slug = '${slug}'`)
-  rig.exec(fs.readFileSync(path.resolve('engine/rs/orgtree-engine/migrations/0028_project_items_detach.sql'), 'utf8'))
-  const after0028 = rig.one(`SELECT title, owner, objective, done_so_far, extra FROM ot.work_items WHERE slug = '${slug}'`)
-  p.check('migration 0028 keeps the item whole and records the old project as former_project_id',
-    after0028.extra.project_id === undefined && Number(after0028.extra.former_project_id) === web.id
-    && JSON.stringify([after0028.title, after0028.owner, after0028.objective, after0028.done_so_far])
-       === JSON.stringify([before0028.title, before0028.owner, before0028.objective, before0028.done_so_far]),
-    { before: before0028, after: after0028 })
+  const before0029 = rig.one(`SELECT title, owner, objective, done_so_far FROM ot.work_items WHERE slug = '${slug}'`)
+  rig.exec(fs.readFileSync(path.resolve('engine/rs/orgtree-engine/migrations/0029_project_items_detach.sql'), 'utf8'))
+  const after0029 = rig.one(`SELECT title, owner, objective, done_so_far, extra FROM ot.work_items WHERE slug = '${slug}'`)
+  p.check('migration 0029 keeps the item whole and records the old project as former_project_id',
+    after0029.extra.project_id === undefined && Number(after0029.extra.former_project_id) === web.id
+    && JSON.stringify([after0029.title, after0029.owner, after0029.objective, after0029.done_so_far])
+       === JSON.stringify([before0029.title, before0029.owner, before0029.objective, before0029.done_so_far]),
+    { before: before0029, after: after0029 })
 
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, extra FROM ot.mail ORDER BY id`))
   p.file('tree.json', rig.sql(`SELECT id, name, kind, parent_id, state, seat, grant_credits FROM ot.agents ORDER BY id`))

@@ -139,7 +139,7 @@ agents under the project".
 - A project's docket (the desk's docket tab, "Open project docket" in its menu) lists every item
   OWNED by an agent under the project, through nested projects: the page query's `agent=<project>`
   reads as the team view rooted at the project, and the renderer uses `teamItems`.
-- Migration `0028_project_items_detach` moves any `extra.project_id` to `extra.former_project_id`,
+- Migration `0029_project_items_detach` moves any `extra.project_id` to `extra.former_project_id`,
   a plain record with no rights attached. The item keeps its owner, history and every other field,
   so nothing is lost; an item whose owner sits under the project still shows on its docket.
 
