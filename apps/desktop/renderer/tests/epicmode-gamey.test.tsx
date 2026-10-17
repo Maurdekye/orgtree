@@ -32,7 +32,9 @@ for (const profile of profiles) test(`4.3.x ${profile.name} keeps its musical ph
   try {
     assert.equal(synth.play(profile.name, { pitch: 1 }), true)
     assert.deepEqual(frequencies.map(n => Math.round(n * 1000)), profile.frequencies.map(n => Math.round(n * 1000)))
-    const lifetime = Math.round((profile.seconds + .1) * 1000)
+    // MockTimers retains fractional delays: (1.3 + .1) * 1000 is slightly
+    // above 1400ms. Cross that scheduled boundary without rounding it down.
+    const lifetime = Math.ceil((profile.seconds + .1) * 1000)
     t.mock.timers.tick(lifetime - 1)
     assert.equal(synth.active, 1, 'the original phrase owns a voice until its tail ends')
     t.mock.timers.tick(1)
