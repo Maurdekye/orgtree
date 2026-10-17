@@ -385,3 +385,14 @@ test('§4.5 the chosen share is remembered across a reopen and survives bad stor
     UH.setAheadShare(20)
   } finally { f.restore() }
 })
+
+test('§4.6 a sub-day axis still gets its time labels, whatever hour it starts on', () => {
+  // the future pane alone (100 %) and the 24-hour range are both spans of this kind
+  for (const start of ['2026-10-17T16:19:00', '2026-10-17T03:40:00', '2026-10-17T22:05:00']) {
+    const from = new Date(start).getTime()
+    const ticks = UH.timeTicks(from, from + 42 * H)
+    assert.ok(ticks.length >= 3, `${start}: ${ticks.length} ticks`)
+    const step = (ticks[1]!.t - ticks[0]!.t) / H
+    assert.ok(ticks.every((k) => k.t >= from && new Date(k.t).getHours() % step === 0), 'on round hours')
+  }
+})
