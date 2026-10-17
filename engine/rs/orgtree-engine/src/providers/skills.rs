@@ -29,6 +29,12 @@ pub struct Registry {
 }
 
 impl Registry {
+    /// Select the receiving harness's variants without changing source bundles.
+    #[nolog]
+    pub fn for_lane(&self, _lane: crate::runtime::identity::Lane) -> Registry {
+        self.clone()
+    }
+
     #[nolog]
     pub fn public(&self) -> Value {
         json!({"skills":self.bundles.iter().map(|b| json!({"name":b.name,"sources":b.sources})).collect::<Vec<_>>(),"digest":self.digest})
@@ -791,6 +797,116 @@ mod tests {
             (PathBuf::from("SKILL.md"), format!("---\nname: {name}\ndescription: 'Use this fixture'\n---\n{body}\nSee references/data.txt\n").into_bytes()),
             (PathBuf::from("references/data.txt"), resource.as_bytes().to_vec()),
         ]), source, name).unwrap()
+    }
+
+    #[test]
+    fn skills_import_lane_prefers_explicit_variant_and_keeps_unpaired_skills() {
+        use crate::runtime::identity::Lane;
+        let registry = merge(vec![
+            fixture("docx", "Claude", "a", "claude"),
+            fixture("docx-codex", "Codex", "b", "claude"),
+            fixture("solo-codex", "Only version", "c", "codex"),
+        ]);
+        assert_eq!(registry.for_lane(Lane::Claude).names(), ["docx", "solo-codex"]);
+        assert_eq!(registry.for_lane(Lane::Codex).names(), ["docx-codex", "solo-codex"]);
+        for lane in [Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            assert_eq!(registry.for_lane(lane).names(), ["docx", "solo-codex"]);
+        }
+        assert_eq!(registry.names().len(), 3, "global inventory must stay complete");
+    }
+
+    #[test]
+    fn skills_import_lane_uses_provenance_without_losing_same_source_collisions() {
+        use crate::runtime::identity::Lane;
+        let registry = merge(vec![
+            fixture("pdf", "Claude", "a", "claude"),
+            fixture("pdf", "Codex", "b", "codex"),
+            fixture("other", "One", "a", "workspace"),
+            fixture("other", "Two", "b", "workspace"),
+        ]);
+        let selected = registry.for_lane(Lane::Codex);
+        assert!(selected.names().contains(&"pdf-codex".to_string()));
+        assert!(!selected.names().contains(&"pdf".to_string()));
+        assert_eq!(selected.bundles.iter().filter(|b| b.name.starts_with("other")).count(), 2);
+    }
+
+    #[test]
+    fn skills_import_lane_dedupes_renamed_copies_and_keeps_resource_differences() {
+        use crate::runtime::identity::Lane;
+        let registry = merge(vec![
+            fixture("guide", "Same", "same", "claude"),
+            fixture("guide-codex", "Same", "same", "codex"),
+            fixture("other", "Same", "first", "codex"),
+            fixture("other", "Same", "second", "codex"),
+        ]);
+        let selected = registry.for_lane(Lane::Codex);
+        assert_eq!(selected.names().iter().filter(|n| n.starts_with("guide")).count(), 1);
+        assert_eq!(selected.bundles.iter().filter(|b| b.name.starts_with("other")).count(), 2);
+    }
+
+    #[test]
+    fn skills_import_lane_digest_ignores_unselected_edits_and_retains_builtin_names() {
+        use crate::runtime::identity::Lane;
+        let make = |body| {
+            let mut bundles = builtin();
+            bundles.extend([
+                fixture("docx", body, "a", "claude"),
+                fixture("docx-codex", "Codex", "b", "codex"),
+            ]);
+            merge(bundles).for_lane(Lane::Codex)
+        };
+        let first = make("original");
+        assert_eq!(first.digest, make("edited foreign variant").digest);
+        assert!(first.names().contains(&"orgtree-workflows".to_string()));
+        assert_eq!(first.digest, first.for_lane(Lane::Codex).digest);
+    }
+
+    /// Explicit read-only skill corpus measurement; never read credentials or
+    /// start native CLIs. JSON catalog bytes exclude native path/wrapper overhead.
+    #[test]
+    fn skills_import_measure_startup_context() {
+        use crate::runtime::identity::Lane;
+        let Some(home) = std::env::var_os("ORGTREE_SKILL_MEASURE_HOME").map(PathBuf::from) else { return };
+        let mut bundles = builtin();
+        for (source, dirs) in [
+            ("claude", vec![".claude/skills"]),
+            ("codex", vec![".agents/skills", ".codex/skills"]),
+            ("antigravity", vec![".gemini/antigravity-cli/skills", ".gemini/config/skills", ".gemini/antigravity/skills"]),
+            ("muse", vec![".config/muse/skills", ".agents/skills"]),
+            ("opencode", vec![".config/opencode/skills", ".config/opencode/skill"]),
+        ] {
+            for dir in dirs { scan(&home.join(dir), source, 0, &mut bundles); }
+        }
+        plugin_skills(&home, &[], &mut bundles);
+        let registry = merge(bundles);
+        let off = json!({"orgtree": crate::domain::tool_groups::GROUPS.iter().map(|g| ((*g).to_owned(), json!(false))).collect::<serde_json::Map<_, _>>()});
+        for (lane, name, shape) in [
+            (Lane::Claude, "claude", crate::tools::defs::MailShape::Split),
+            (Lane::Codex, "codex", crate::tools::defs::MailShape::Split),
+            (Lane::Antigravity, "antigravity", crate::tools::defs::MailShape::Flat),
+            (Lane::Muse, "muse", crate::tools::defs::MailShape::Split),
+            (Lane::OpenCode, "opencode", crate::tools::defs::MailShape::Split),
+        ] {
+            let catalog = |r: &Registry| -> Vec<Value> { r.bundles.iter().map(|b| {
+                let text = String::from_utf8_lossy(&b.files[Path::new("SKILL.md")]);
+                let description = text.lines().find_map(|l| l.strip_prefix("description:")).unwrap_or("").trim();
+                json!({"name": b.name, "description": description})
+            }).collect() };
+            let selected = registry.for_lane(lane);
+            let before = serde_json::to_vec(&catalog(&registry)).unwrap().len();
+            let after = serde_json::to_vec(&catalog(&selected)).unwrap().len();
+            for (profile, tools) in [("all-groups", json!({})), ("all-groups-off", off.clone())] {
+                let cards = crate::tools::defs::scoped_as(&tools, shape);
+                let card_bytes = serde_json::to_vec(&cards).unwrap().len();
+                let descriptions: usize = cards.iter().map(|c| c["description"].as_str().unwrap_or("").len()).sum();
+                println!("STARTUP_CONTEXT {}", json!({"lane":name,"profile":profile,"corpus_digest":registry.digest,
+                    "skill_count_before":registry.bundles.len(),"skill_count_after":selected.bundles.len(),
+                    "skill_catalog_bytes_before":before,"skill_catalog_bytes_after":after,
+                    "skill_tokens_est_before":before.div_ceil(4),"skill_tokens_est_after":after.div_ceil(4),
+                    "tool_count":cards.len(),"tool_schema_bytes":card_bytes,"tool_description_bytes":descriptions,
+                    "tool_tokens_est":card_bytes.div_ceil(4),"token_method":"inferred bytes/4, not provider tokenizer; native wrappers/paths and external tools excluded"}));
+            }
+        }
     }
 
     struct Temp(PathBuf);
