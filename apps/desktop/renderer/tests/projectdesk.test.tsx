@@ -20,6 +20,9 @@
 //      only where a pin handler is given.
 //   §6 project settings carry the agent settings' items that apply (name,
 //      description, peer mail, actions) and none of the turn-only ones.
+//   §7 the middle-zoom card shows the header chip (spinner, active/hired);
+//      the app header counts agents, not project nodes; zoomed out the card
+//      is its folder (the stripe and size are measured by projectnode-visual).
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs projectdesk
 
@@ -30,6 +33,7 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeConfig } from '../src/canvas/modals'
+import { ActiveAgentSummary } from '../src/shell/treeinfo'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -241,4 +245,43 @@ test('§6 project settings: name, description, peer mail, actions; no turn-only 
   const save = [...document.querySelectorAll('button')].find((b) => b.textContent === 'save')!
   await inAct(async () => { save.click(); await flush(4) })
   assert.deepEqual(ops, [{ op: 'set_description', node: 'website', description: 'New text.' }])
+})
+
+/* ─── §7 the card's count and the app header ────────────────────────────── */
+// USER 2026-10-17 21:21Z: the middle-zoom card shows active/hired like the header.
+
+test('§7a the middle-zoom project card shows the header\'s chip: spinner and active/hired', async (t) => {
+  serve(t)
+  const view = await mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
+    dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org"
+    toast={noop} zoom={1.2} hire={{}} seats={{}}
+    onHire={noop} onNewProject={noop} onInbox={noop}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  const chip = view.el.querySelector('.sq.project .sq-head .chip.agents.project-activity')
+  assert.ok(chip, 'the activity chip on the card')
+  assert.equal(chip.querySelector('.org-counts')?.textContent, '1/2')
+  assert.ok(chip.querySelector('.working-ct svg.cc-spin'), 'the spinner while dev1 works')
+})
+
+test('§7b the app header counts agents only, never project nodes', async (t) => {
+  serve(t)
+  const view = await mountView(<ActiveAgentSummary tree={{ slug: 'org', name: 'Org', roots: [project()] } as unknown as TreePayload} />, (el) => el)
+  t.after(() => view.unmount())
+  assert.equal(view.el.querySelector('.org-counts')?.textContent, '1/2', 'website and ui are not hired agents')
+})
+
+test('§7c zoomed out, a project is its folder: no tier stripe class hook, the large folder', async (t) => {
+  serve(t)
+  const view = await mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="mini"
+    dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org"
+    toast={noop} zoom={0.4} hire={{}} seats={{}}
+    onHire={noop} onNewProject={noop} onInbox={noop}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  const sq = view.el.querySelector('.sq.project.mini')!
+  assert.ok(sq.querySelector('.project-mini svg'), 'the folder')
+  assert.equal(sq.querySelector('.project-activity') === null, true, 'no count at far zoom')
+  // jsdom applies no stylesheet: the stripe and size are held by the capture
+  // (projectnode-visual.mjs), which measures ::before and the icon's size
 })
