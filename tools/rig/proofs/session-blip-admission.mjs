@@ -41,6 +41,7 @@ export default async function(rig){
   try{
     rig.scenario({default:{turns:[{steps:[{text:'OK.'}]}]}})
     await seed(rig,{org:{name:'Session Blip Admission'},agents})
+    for(const name of names)await rig.userMail(name,'SESSION-BLIP-WARMUP')
     await rig.waitFor(quiet,{what:'initial fake turns',timeout:45000})
     for(const name of names){
       let helper=start()
