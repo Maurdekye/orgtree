@@ -156,12 +156,35 @@ co-owns the item with full owner rights.
   mailbox button with the waiting-mail count shows only with Show agent card shortcuts on, like
   an agent card's hover row [user 2026-10-17 19:37Z]). It has
   no model, credit bar or turn controls.
-- **The project desk** [user 2026-10-17 19:38Z]: a click, or zooming in, walks the camera to
-  the project and opens its desk (`canvas/projectdesk.tsx`) in the agent desk's frame and header,
-  with tabs mail (its inbox, the mail waiting and its fair-queue watchers), docket (attached
-  items), presented, members (the nodes under it, each a jump) and about (the description, named
-  as the standing charter, with settings and the folder). No chat: a project takes no turns. It
-  pins as a window like an agent desk.
+- **The project desk** [user 2026-10-17 19:38Z–20:10Z]: a click, or zooming in, walks the
+  camera to the project and opens its desk (`canvas/projectdesk.tsx`) in the agent desk's frame
+  and header; a click never opens a modal (20:04Z). No chat: a project takes no turns. It pins as
+  a window like an agent desk.
+  - Tabs: **desk**, then the agent desk's three: **inbox** (its mailbox), **docket** (items
+    attached to it) and **presented** (documents presented under it with `orgtree_present
+    project=`; documents agents present beside their own seats stay on their own desks).
+  - The desk tab holds the chat desk's jump cards (up to the parent, down to its live members)
+    and the description editor: Markdown (`md`) while unfocused, a monospace text box while
+    focused. Leaving the box saves a change with `set_description`; Escape drops it.
+  - Header: active/hired agents under it (live agents, nested projects crossed, project nodes
+    not counted; active = a turn executing, the org list's rule) with the spinner while any is
+    active; halt all / unhalt all (the agent batch-halt confirmation); dissolve project (the
+    agent dissolve confirmation; retire when nobody is under it); restore when retired; pin; the
+    settings gear.
+- **Dissolving a project** is the agent `dissolve`: the project and every agent under it are
+  archived with context kept, fair_queue and other dogs of the archived agents pause, and each
+  comes back with rehire (a restored project comes back alone, its agents stay retired until
+  rehired). Its folder, mailbox (waiting mail stays), presentations and attached docket items
+  are untouched; the items keep their `project_id` and named owner, but with nobody live under
+  the project nobody co-owns them until agents are restored.
+- **Project settings** (`ProjectConfig`, 20:10Z): Open project folder, Name (rename), Project
+  actions (retire or dissolve, restore, delete permanently), Description, Subordinates may
+  message each other, and History when the node has records. Left out as turn- or credit-only:
+  model, effort, account, rescind, credit grant, visible agents, file and command access,
+  tools/MCP and turn limits.
+- **`set_description`** (op; `orgtree_project action=describe` for agents) replaces a project's
+  description. It is authorized like rename (the user, agents above or below the project) and
+  reconfigures the subtree.
 - **The project hire token** [user 2026-10-16 21:02Z]: every hire strip ends with a light grey
   square with a folder icon, alone on the outermost row. That covers the eye card, all four
   edges of a card and a project's own strip. Its tooltip says "create a project … (free)" and

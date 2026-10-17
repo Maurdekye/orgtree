@@ -5371,6 +5371,14 @@
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "label": "Agent actions"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Project actions"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Description"
     }
    ],
    "key_sources": [
