@@ -3711,11 +3711,14 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
   box-shadow: 0 2px 6px rgba(0, 0, 0, .4);
 }
 .hsof button:hover:not(:disabled) { background: var(--panel-2); }
-/* the PROJECT token (user 2026-10-16 21:02Z): a light grey SQUARE with a
-   folder instead of a tier letter (docs/rust-engine/PROJECT-NODES.md) */
-.hsof button.project-token { border-radius: 4px; background: #d6d6d6; border-color: #b4b4b4; color: #3c3c3c;
+/* the PROJECT token (user 2026-10-16 21:02Z): a SQUARE with a folder instead of
+   a tier letter, in the project card's own theme colours (user 2026-10-17
+   21:23:44Z, replacing the light grey) (docs/rust-engine/PROJECT-NODES.md) */
+.hsof button.project-token { border-radius: 4px; background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%);
+  border-style: dashed; border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--accent);
   font-size: 14px; display: inline-flex; align-items: center; justify-content: center; }
-.hsof button.project-token:hover:not(:disabled) { background: #e6e6e6; border-color: #8a8a8a; }
+.hsof button.project-token:hover:not(:disabled) { background: color-mix(in srgb, var(--panel) 75%, var(--accent) 25%);
+  border-color: var(--accent); }
 .hsof button:disabled { opacity: .35; }
 /* each chip wears its model's color (same idiom as the .tier badge) */
 .hsof button.t-haiku { color: var(--tier-haiku); border-color: color-mix(in srgb, var(--tier-haiku) 45%, var(--line)); }
