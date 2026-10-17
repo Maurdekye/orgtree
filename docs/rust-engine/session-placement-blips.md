@@ -23,7 +23,12 @@ The per-engine bridge retains only a placement hint during the debounce.
 Queries and turn placement use it, but credentials, pipe operations, host PID
 proofs and launches still require their original live authenticated lease. If a
 retained host is temporarily unreachable, the unsent turn is deferred rather
-than silently launched in Session 0. Once the loss is confirmed, normal Session
+than silently launched in Session 0. The launcher returns typed
+`session_host::PlacementPending`; the actor returns claimed unsent mail,
+retains any on-demand session choice, and schedules its existing bounded
+admission-retry timer. This hold does not enter the terminal launch-failure
+path. The refusal backoff resets only after process initialization succeeds.
+Once the loss is confirmed, normal Session
 0 fallback resumes. No authentication or credential lease is extended.
 
 ## Read-only evidence
