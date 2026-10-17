@@ -866,6 +866,61 @@ mod hire_contract_tests {
 }
 
 #[cfg(test)]
+mod startup_card_tests {
+    use super::*;
+
+    #[test]
+    fn startup_card_measurements() {
+        let off = json!({"orgtree": crate::domain::tool_groups::GROUPS.iter().map(|g| ((*g).to_owned(), json!(false))).collect::<serde_json::Map<_,_>>()});
+        for (lane, shape) in [("claude",MailShape::Split),("codex",MailShape::Split),
+            ("antigravity",MailShape::Flat),("muse",MailShape::Split),("opencode",MailShape::Split)] {
+            for (profile, scope) in [("all-groups",json!({})),("all-groups-off",off.clone())] {
+                let cards = scoped_as(&scope,shape);
+                let bytes = serde_json::to_vec(&cards).unwrap().len();
+                let eager: Vec<_> = cards.iter().filter(|c| c["_meta"]["anthropic/alwaysLoad"] == true).collect();
+                let descriptions: usize = cards.iter().map(|c| c["description"].as_str().unwrap().len()).sum();
+                println!("TOOL_STARTUP {}",json!({"lane":lane,"profile":profile,"cards":cards.len(),"schema_bytes":bytes,
+                    "description_bytes":descriptions,"tokens_est":bytes.div_ceil(4),"eager_cards":eager.len(),
+                    "eligible_eager_bytes":serde_json::to_vec(&eager).unwrap().len(),
+                    "token_method":"inferred bytes/4; canonical MCP JSON, native wrappers/external tools excluded; eager hint savings require client support"}));
+            }
+        }
+    }
+
+    #[test]
+    fn startup_card_descriptions_fit_caps_and_point_to_real_guides() {
+        let manifest: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),"/../../../docs/skills/tree.json"))).unwrap();
+        for shape in [MailShape::Split,MailShape::Flat] {
+            let cards = scoped_as(&json!({}),shape);
+            let mut total = 0;
+            for card in cards {
+                let name = card["name"].as_str().unwrap();
+                let guide = format!("orgtree-tool-{}",name.strip_prefix("orgtree_").unwrap().replace('_',"-"));
+                assert!(manifest["nodes"].as_array().unwrap().iter().any(|n| n["name"] == guide),"missing guide {guide}");
+                let description = card["description"].as_str().unwrap();
+                assert!(description.contains(&guide),"{name}: missing guide pointer");
+                assert!(description.len() <= 900,"{name}: {} bytes",description.len());
+                total += description.len();
+            }
+            assert!(total <= 12000,"description total {total}");
+        }
+    }
+
+    #[test]
+    fn startup_card_rare_hints_preserve_scope_and_common_tools() {
+        let off = json!({"orgtree": crate::domain::tool_groups::GROUPS.iter().map(|g| ((*g).to_owned(), json!(false))).collect::<serde_json::Map<_,_>>()});
+        assert_eq!(scoped(&off).len(),4,"scope must still omit denied groups");
+        let cards = scoped(&json!({}));
+        for name in ["orgtree_message","orgtree_status","orgtree_work","orgtree_inbox","orgtree_next_turn","orgtree_session"] {
+            assert_eq!(cards.iter().find(|c| c["name"] == name).unwrap()["_meta"]["anthropic/alwaysLoad"],true,"common {name}");
+        }
+        for name in ["orgtree_org_logo","orgtree_transfers","orgtree_account_mark","orgtree_swap","orgtree_self_subjugate"] {
+            assert_eq!(cards.iter().find(|c| c["name"] == name).unwrap()["_meta"]["anthropic/alwaysLoad"],false,"rare {name}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod mail_shape_tests {
     use super::*;
 
