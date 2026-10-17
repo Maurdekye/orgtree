@@ -84,6 +84,8 @@ export interface MailListProps {
    *  plain agent id (the @-sentinels route elsewhere). */
   canReply?: (m: MailRow) => boolean
   onRetract?: (m: MailRow) => void
+  /** User-inbox-only permanent deletion. Other MailList surfaces omit it. */
+  onDeleteUserMail?: (m: MailRow) => void
   jumpTo?: string | null
   /** Only human per-message unread mail opts in; agent delivery is not read state. */
   selectOldestUnread?: boolean
@@ -161,7 +163,7 @@ export interface MailListProps {
 const MAIL_WINDOW = 40
 
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
-  outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
+  outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
@@ -452,6 +454,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     }
     if (m._wait && m.id && onRetract) {
       entries.push({ label: 'Retract (undelivered)', onSelect: () => onRetract(m) })
+    }
+    if (!outgoing && onDeleteUserMail && m.id && !m._ask) {
+      entries.push({ label: 'Delete', onSelect: () => onDeleteUserMail(m) })
     }
     entries.push('sep')
     const el = rootRef.current

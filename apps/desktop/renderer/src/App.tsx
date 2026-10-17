@@ -25,7 +25,7 @@ import type { NativePreferences } from './desktop'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import {
-  audienceAction, clearInbox, createOrg, deleteOrg,
+  audienceAction, clearInbox, createOrg, deleteOrg, deleteUserMail,
   fileBase, fileUrl, getAudiences, getDefaults, getHost,
   getMailById, getOrgMd,
   getAccountRegistry, getRegisteredAccountUsage,
@@ -2730,6 +2730,12 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   }, [rawBox, slug])
   const readNow = (m: MailEntry) => markReadNow(slug, m, () => markRead(slug, [m.id]))
     .then(() => { setReadBump((n) => n + 1); refresh?.() })
+  const deleteMail = (m: MailEntry) => {
+    if (!m.id || !window.confirm('Delete this message from your inbox? This permanently removes your copy.')) return
+    return deleteUserMail(slug, m.id)
+      .then(() => { setReadBump((n) => n + 1); refresh?.() })
+      .catch((e: Error) => toast([`could not delete mail: ${e.message}`]))
+  }
   const unreadMail = (box?.pending ?? []).filter((m) => !readLocally(slug, m.id))
   const readHere = (box?.pending ?? []).filter((m) => readLocally(slug, m.id))
   // the exact question for a reference that landed outside this window —
@@ -2922,6 +2928,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                     ? refToken({ kind: 'mail', org: slug, box: 'user', id: m.id }) : null}
                   onRead={(m: MailEntry) => readNow(m)
                     .catch((e: Error) => toast([`could not mark read: ${e.message}`]))}
+                  onDeleteUserMail={deleteMail}
                   onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean, targets?: MailEntry[]) => {
                     const originals = targets?.length ? targets : [m]
                     return sendLinkedReply(slug, m.from, text, originals.length > 1

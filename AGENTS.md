@@ -88,6 +88,13 @@
   See [mail tags](docs/rust-engine/mail-tags.md). [decided: user/coordinator
   2026-10-17; verified: `domain/mail_tags.rs`, `usemailtags.ts`, `canvas/mailtags.ts`]
 
+- User inbox deletion (4.4.0) is available only from a received-message row
+  context menu and requires confirmation. The engine deletes only a user-recipient
+  copy, prunes unused tag labels in the same transaction, then publishes
+  `Change::UserMail`; sender history, other mailbox copies and attachment files
+  remain. See [mail tags](docs/rust-engine/mail-tags.md#deleting-a-user-inbox-message-440).
+  [decided: user 2026-10-17; verified: `http/mailbox.rs`, `canvas/mail.tsx`, `App.tsx`]
+
 - Per-node **Subordinates may message each other** defaults ON. OFF gates
   all agent mail between the same actual parent's direct children unless the
   sender holds an active directional audience. Projects remain transparent for

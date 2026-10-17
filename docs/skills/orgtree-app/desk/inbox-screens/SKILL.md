@@ -36,6 +36,12 @@ spelling in the org supplies every chip's label. Agents use `orgtree_message`
 with `tags:["alpha build"]`; see `orgtree-tool-message` (orgtree-working, mail).
 The tool accepts up to eight tags for user-bound mail only; tags stay local.
 
+The user's Inbox row context menu also offers **Delete** for a received message.
+It asks for confirmation, then permanently removes only the user's copy; other
+recipients' copies, sender history and attachment files remain. Tag membership
+and unused tag suggestions disappear with the message. There is no bulk-delete,
+toolbar or keyboard action.
+
 ## Record
 
 The user's Record view shows org operations/events. Search can request the wider record, while the plain view uses a recent window. Event kind, actor and detail are not a conversation transcript. Navigation to an object does not rewrite the recorded operation.

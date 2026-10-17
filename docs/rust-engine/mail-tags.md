@@ -73,3 +73,14 @@ including first spelling, partial fan-out, older-than-window results, bounded
 pages and opposite-order concurrent tag sets. Record the measured results in
 the docket; prepared or skipped checks are not passes. Real provider calls and
 live data are outside these tests.
+
+## Deleting a user-inbox message (4.4.0)
+
+The user may permanently delete one incoming message from its row context menu;
+the action asks for confirmation and has no toolbar, keyboard or bulk-delete
+entry. `DELETE /api/orgs/{slug}/inbox/{id}` removes only the `recipient_kind =
+'user'` copy in a short transaction, then prunes tag dictionary labels that no
+longer have memberships and publishes `Change::UserMail`. That refreshes inbox,
+unread and tag/search views. Sender transcript rows, other recipients' copies
+and attachment files are left intact. A non-user mailbox id is not deletable
+through this route.

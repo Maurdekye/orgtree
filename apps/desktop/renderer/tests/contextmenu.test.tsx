@@ -500,6 +500,28 @@ uiTest('§B2c mail row: a Sent list (no refOf) offers no reference; an outgoing 
   assert.deepEqual(labels(), ['Open', 'Copy message text'])
 })
 
+uiTest('§B2e the user inbox can delete only through its message context menu', async (t) => {
+  const deleted: string[] = []
+  const delivered = ROW({ id: 'user-copy', from: 'agent-one' })
+  const v = await mountView(
+    <MailList org="org" delivered={[delivered]} onDeleteUserMail={(m) => { deleted.push(m.id!) }} />,
+    (h) => h)
+  const row = v.el.querySelector('.mailrow') as HTMLElement
+  await rightClick(row)
+  assert.ok(labels().includes('Delete'), 'the user inbox row menu exposes Delete')
+  assert.equal(v.el.querySelector('button[aria-label="Delete mail"]') === null, true,
+    'there is no separate row or toolbar delete button')
+  await pick('Delete')
+  assert.deepEqual(deleted, ['user-copy'])
+  await v.unmount()
+
+  const sent = await mountView(<MailList org="org" outgoing delivered={[ROW({ id: 'sent-copy' })]} />,
+    (h) => h)
+  t.after(() => sent.unmount())
+  await rightClick(sent.el.querySelector('.mailrow')!)
+  assert.ok(!labels().includes('Delete'), 'sent and other shared MailList surfaces do not get delete')
+})
+
 uiTest('§B2d the node inbox wires the node-box reference; the desk\'s scaled row still gets a body-level menu', async (t) => {
   const had = (globalThis as { fetch?: typeof fetch }).fetch
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string) => Promise.resolve({

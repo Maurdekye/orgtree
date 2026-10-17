@@ -549,6 +549,8 @@ export const getFs = (path = ''): Promise<FsPayload> =>
   req(`/api/fs?path=${encodeURIComponent(path)}`)
 export const getInbox = (slug: string): Promise<InboxPayload> =>
   req(`/api/orgs/${slug}/inbox`)
+export const deleteUserMail = (slug: string, id: string): Promise<{ deleted: boolean }> =>
+  req(`/api/orgs/${slug}/inbox/${encodeURIComponent(id)}`, { method: 'DELETE' })
 /** Exact tag filter over all retained incoming mail, bounded and cursor-paged. */
 export const getTaggedInbox = (slug:string,tag:string,before?:string):Promise<InboxPayload> =>
   req(`/api/orgs/${slug}/inbox?tag=${encodeURIComponent(tag)}${before?`&before=${encodeURIComponent(before)}`:''}`)

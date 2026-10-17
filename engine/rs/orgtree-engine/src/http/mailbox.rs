@@ -74,6 +74,34 @@ pub async fn clear(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> Ap
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Permanently remove one message copy addressed to the user. Sender history,
+/// other recipients' copies and attachment files are independent records.
+#[logged]
+pub async fn delete_user_mail(
+    State(e): State<Arc<Engine>>,
+    Path((slug, uid)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    let mut client = e.db.get().await?;
+    let tx = client.transaction().await?;
+    let deleted = tx.query_opt(
+        "DELETE FROM ot.mail WHERE org_id = $1 AND uid = $2 AND recipient_kind = 'user' RETURNING id",
+        &[&o.id, &uid],
+    ).await?;
+    if deleted.is_none() {
+        return Err(ApiError::not_found("user inbox message not found"));
+    }
+    tx.execute(
+        "DELETE FROM ot.mail_tags t WHERE t.org_id = $1
+           AND NOT EXISTS (SELECT 1 FROM ot.mail_tag_links l WHERE l.org_id = t.org_id AND l.tag_key = t.key)",
+        &[&o.id],
+    ).await?;
+    tx.commit().await?;
+    drop(client);
+    changes::notify(&e, &o, vec![Change::UserMail]);
+    Ok(Json(json!({ "deleted": true })))
+}
+
 #[derive(Deserialize, Debug)]
 pub struct NodeQuery {
     node: Option<String>,
