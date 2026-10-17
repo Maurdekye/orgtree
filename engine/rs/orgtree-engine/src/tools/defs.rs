@@ -820,6 +820,18 @@ fn all() -> Vec<Value> {
 }
 
 #[cfg(test)]
+mod hire_contract_tests {
+    use super::*;
+
+    #[test]
+    fn hire_contract_cards_emit_validation_schemas() {
+        let cards: Vec<_> = list().into_iter().filter(|c| matches!(c["name"].as_str(),Some("orgtree_hire"|"orgtree_rehire"|"orgtree_staff"))).collect();
+        assert_eq!(cards.len(),3);
+        println!("HIRE_SCHEMAS {}",serde_json::to_string(&cards).unwrap());
+    }
+}
+
+#[cfg(test)]
 mod mail_shape_tests {
     use super::*;
 
