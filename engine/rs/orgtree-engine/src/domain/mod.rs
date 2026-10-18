@@ -5,6 +5,7 @@ pub mod account_removal;
 pub mod asks;
 pub mod correspondence;
 pub mod audiences;
+pub(crate) mod audience_notices;
 pub mod docket;
 pub mod docs;
 pub mod dnd;
