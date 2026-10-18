@@ -9,5 +9,5 @@ export const ackTree={slug:'synthetic',roots:[]} as unknown as TreePayload
 export function mockAckSettings(checkups=true) {
   globalThis.fetch=(async(url)=>({ok:true,status:200,headers:new Headers(),json:async()=>
     String(url).includes('/app-settings/runtime')?{working_checkups_enabled:checkups}:
-    String(url).includes('history')?{history:[]}: {}} as Response)) as typeof fetch
+    String(url).includes('history')?{items:[]}: {}} as Response)) as typeof fetch
 }
