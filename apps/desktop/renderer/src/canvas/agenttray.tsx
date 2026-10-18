@@ -212,7 +212,9 @@ export function AgentTray({
                 job (`.tray-sum-text` is ellipsis-clipped). The AGE is its own
                 element so the ellipsis eats the summary's tail rather than the
                 one fact beside it that the summary does not contain. */}
-              <div className={'tray-sum' + (stat?._stale ? ' stale' : '')}
+              {/* Projects without an agent status have no second line. Keep
+                  ordinary agent placeholders and any supplied summary. */}
+              {(nodeTierOf(n) !== 'project' || stat?.summary) && <div className={'tray-sum' + (stat?._stale ? ' stale' : '')}
                 title={stat?.summary || undefined}>
                 {stat?.summary ? <>
                 <span className="tray-sum-text">
@@ -220,7 +222,7 @@ export function AgentTray({
                 </span>
                 {stat.at && <span className="tray-sum-at"> · {ago(stat.at)} ago</span>}
                 </> : <span className="tray-sum-text" aria-hidden="true">&nbsp;</span>}
-              </div>
+              </div>}
           </div>
         )
       })}
