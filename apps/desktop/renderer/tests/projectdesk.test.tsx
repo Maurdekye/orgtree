@@ -290,32 +290,55 @@ test('§2f the description has no border or background while not edited; the edi
 
 /* ─── §10 the message box ─────────────────────────────────────────────────── */
 
-test("§10 the desk's message box sends ONE broadcast to every agent under the project, with the notice toggle (user 2026-10-18 07:33Z)", async (t) => {
+test("§10 the desk's message box: by default one mail to the project's own inbox; with the megaphone on, one broadcast to every agent under it (user 2026-10-18 07:33Z, 07:43Z)", async (t) => {
   const el = await desk(t)
   const sent: { path: string; body: unknown }[] = []
   const inner = globalThis.fetch
   globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
-    if (String(url).includes('/broadcast')) {
-      sent.push({ path: new URL(String(url), 'http://x').pathname, body: JSON.parse(String(init?.body)) })
-      return Promise.resolve(new Response(JSON.stringify({ accepted: true, sent: [{ to: 'dev1' }, { to: 'dev2' }], refused: [] }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const path = new URL(String(url), 'http://x').pathname
+    if (init?.method === 'POST' && /\/nodes\/website\/(message|broadcast)$/.test(path)) {
+      sent.push({ path, body: JSON.parse(String(init.body)) })
+      const answer = path.endsWith('/broadcast')
+        ? { accepted: true, project: 'website', notice: false, sent: [{ to: 'dev1' }, { to: 'dev2' }], refused: [] }
+        : { accepted: true, id: 'm1', delivery: 'queued in project website' }
+      return Promise.resolve(new Response(JSON.stringify(answer), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     }
     return inner(url, init)
   }) as typeof fetch
   t.after(() => { globalThis.fetch = inner })
+  const composer = () => el.querySelector<HTMLElement>('.project-composer')!
   const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')
   assert.ok(box, 'a message box on the desk')
-  assert.equal(box!.placeholder, 'message all 2 agents under website…', 'the live agents under it, nested included')
-  assert.ok(el.querySelector('.project-composer button.cc-attach'), 'an attach button')
-  await inAct(() => { el.querySelector<HTMLButtonElement>('.project-composer button.cc-notice-toggle')!.click() })
-  await inAct(() => { setText(box!, 'Status, everyone?') })
-  await inAct(() => { box!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+  assert.ok(composer().querySelector('button.cc-attach'), 'an attach button')
+  const enter = () => inAct(() => { box!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+  // the default: the project's own mailbox, which one agent under it claims
+  assert.equal(box!.placeholder, 'message project website: one agent under it takes it…')
+  await inAct(() => { composer().querySelector<HTMLButtonElement>('button.cc-notice-toggle')!.click() })
+  await inAct(() => { setText(box!, 'Who can take this?') })
+  await enter()
   await flush(4)
-  assert.deepEqual(sent, [{ path: '/api/orgs/org/nodes/website/broadcast', body: { text: 'Status, everyone?', notice: true } }], 'one send')
+  assert.deepEqual(sent, [{ path: '/api/orgs/org/nodes/website/message', body: { text: 'Who can take this?', notice: true } }],
+    'one mail to the project, as a notice')
   assert.equal(box!.value, '', 'the box is cleared')
+  // the megaphone: everyone under it
+  const mega = composer().querySelector<HTMLButtonElement>('button.cc-broadcast-toggle')!
+  assert.ok(mega, 'a megaphone toggle')
+  assert.equal(mega.getAttribute('aria-pressed'), 'false')
+  await inAct(() => { mega.click() })
+  assert.equal(mega.getAttribute('aria-pressed'), 'true')
+  assert.ok(composer().classList.contains('broadcast-armed'), 'the box shows it is armed')
+  assert.equal(box!.placeholder, 'message all 2 agents under website…', 'the live agents under it, nested included')
+  await inAct(() => { setText(box!, 'Status, everyone?') })
+  await enter()
+  await flush(4)
+  assert.deepEqual(sent.slice(1), [{ path: '/api/orgs/org/nodes/website/broadcast', body: { text: 'Status, everyone?' } }], 'one broadcast')
   await inAct(() => { el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="inbox"]')!.click() })
   await flush(2)
   assert.ok(el.querySelector('.project-composer textarea'), 'under every tab, as on an agent desk')
+})
+
+test('§10b the megaphone border brightens over the plain and focused box', () => {
+  assert.ok(cssLast('box-shadow', '.cc-composer.project-composer.broadcast-armed'), 'a glow while armed')
 })
 
 /* ─── §3 the header count ───────────────────────────────────────────────── */
