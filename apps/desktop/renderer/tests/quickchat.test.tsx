@@ -17,6 +17,7 @@ import {
 import type { OpRequest, TreePayload } from '../src/types'
 import { trayRows } from '../src/canvas/agenttray'
 import type { CanvasNode } from '../src/canvas/shared'
+import { resetStaffingOptionsForTests, type StaffingTier } from '../src/canvas/staffingoptions'
 
 const noop = () => {}
 const node = (id: string, state = 'live', children: unknown[] = [], tier = 'sonnet') =>
@@ -27,13 +28,20 @@ const tree = {
   roots: [node('boss', 'live', [node('old-hand', 'archived')])],
 } as unknown as TreePayload
 
-function providers(enabled: string[]) {
+function providers(enabled: string[], choices?: StaffingTier[]) {
+  resetStaffingOptionsForTests()
+  const models = choices ?? [
+    ...(['claude'].some(p => enabled.includes(p)) ? ['opus', 'sonnet', 'haiku'] : []),
+    ...(enabled.includes('openai') ? ['astra', 'sol', 'luna'] : []),
+    ...(enabled.includes('google') ? ['flash', 'argon'] : []),
+    ...(enabled.includes('muse') ? ['wonder'] : []),
+  ].map(tier => ({ tier, seat: tier === 'opus' ? 4 : 2, efforts: [], accounts: [], default_ok: true }))
   globalThis.fetch = legacyAppBackend((async (url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const payload = path === '/api/providers'
       ? { providers: ['claude', 'openai', 'google', 'openrouter'].map(id => ({
           id, hire_enabled: enabled.includes(id), status: { installed: enabled.includes(id) } })) }
-      : {}
+      : path.endsWith('/staffing-options') ? { tiers: models, loading: false, errors: [], stale: false, at: 0, generation: 0 } : {}
     return { ok: true, status: 200, headers: new Headers(), json: async () => payload }
   }) as typeof fetch)
 }
@@ -63,9 +71,9 @@ const click = async (el: Element | null) => inAct(async () => {
 const pickerItems = () => [...document.querySelectorAll('.quickchat-pop .tray-name')]
   .map(b => (b.textContent || '').trim())
 
-async function mount(ops: OpRequest[], hired: string[], reply: Record<string, unknown> = {}) {
+async function mount(ops: OpRequest[], hired: string[], reply: Record<string, unknown> = {}, currentTree = tree) {
   const op = async (b: OpRequest) => { ops.push(b); return { node: b.name, ...reply } }
-  const view = await mountView(<QuickChat slug="org" tree={tree} op={op as never}
+  const view = await mountView(<QuickChat slug="org" tree={currentTree} op={op as never}
     toast={noop} onHired={(id) => hired.push(id)} />, el => el)
   await inAct(async () => { await flush(8) })
   return view
@@ -166,6 +174,53 @@ test('the top-level superior shares the option-list eye and agent selections ret
     await click(document.querySelector('.quickchat-top .tray-main'))
     assert.equal(shown(view.el).superior, 'top level')
     assert.ok(selected().querySelector('.quickchat-user-mark .eye'), 'choosing top level restores its eye')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('availability excludes exhausted defaults and keeps a compatible alternative account for the hire', async () => {
+  localStorage.clear()
+  const row = (tier: string, extra = {}): StaffingTier => ({ tier, seat: 2,
+    efforts: ['low', 'high'], accounts: [], default_ok: false, ...extra })
+  providers(['claude', 'openai'], [row('opus'), row('sol', { accounts: [
+    { value: 'openai-other', id: 'openai-other', provider: 'openai', ambient: false, kind: 'subscription' },
+  ] })])
+  const ops: OpRequest[] = []
+  const view = await mount(ops, [])
+  try {
+    assert.equal(shown(view.el).model, 'sol', 'a signed-in provider alone does not prove a model is hireable')
+    await type(view.el.querySelector('.quickchat-input')!, 'check model eligibility')
+    await enter(view.el.querySelector('.quickchat-input')!)
+    assert.equal(ops[0]?.tier, 'sol')
+    assert.equal(ops[0]?.account, 'openai-other', 'the hire uses the eligible account that made the model available')
+    assert.equal('effort' in ops[0]!, false, 'an automatic model follows its default effort')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('availability respects no-cascade credits and a remembered model returns when its superior can afford it', async () => {
+  localStorage.clear(); rememberHire('org', { tier: 'opus', superior: 'boss' })
+  providers(['claude', 'openai'])
+  const limited = { ...tree, cascade_hire: false,
+    roots: [{ ...node('boss'), free: 2, grant: 2 }],
+  } as unknown as TreePayload
+  const view = await mount([], [], {}, limited)
+  try {
+    assert.equal(shown(view.el).model, 'sol', 'an unaffordable remembered model yields to a hireable fallback')
+    await click(view.el.querySelector('.quickchat-superior'))
+    await click(document.querySelector('.quickchat-top .tray-main'))
+    assert.equal(shown(view.el).model, 'opus', 'remembered model is retained, not overwritten by the fallback')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('availability offers no fallback when every account is exhausted', async () => {
+  localStorage.clear(); providers(['claude', 'openai'], [])
+  const ops: OpRequest[] = []
+  const view = await mount(ops, [])
+  try {
+    assert.equal(shown(view.el).model, undefined)
+    assert.equal(view.el.querySelector('.quickchat-model')?.textContent, 'no model')
+    await type(view.el.querySelector('.quickchat-input')!, 'cannot hire')
+    await enter(view.el.querySelector('.quickchat-input')!)
+    assert.equal(ops.length, 0)
   } finally { await view.unmount(); localStorage.clear() }
 })
 
