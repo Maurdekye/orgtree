@@ -42,7 +42,7 @@ if (visual) {
   }
   const css = pathToFileURL(before ? path.join(output,'baseline.css') : path.join(repo, 'apps/desktop/renderer/src/styles.css')).href
   fs.writeFileSync(path.join(output,'source.json'),JSON.stringify({baseline:before ? baseline : null,mode},null,2))
-  fs.writeFileSync(path.join(output, 'fixture.html'), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${css}"><style>body{background:var(--bg);color:var(--text);font:14px system-ui}</style></head><body><div id="root"></div><script type="module" src="fixture.js"></script></body></html>`)
+  fs.writeFileSync(path.join(output, 'fixture.html'), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${css}"><style>body{background:var(--bg);color:var(--ink);font:14px system-ui}</style></head><body><div id="root"></div><script type="module" src="fixture.js"></script></body></html>`)
   command = require('electron'); args = [path.join(repo, 'apps/desktop/renderer/tests/watchdog-card-capture.cjs')]
   delete env.ELECTRON_RUN_AS_NODE
   env.WATCHDOG_CAPTURE_ROOT = path.resolve(output)
