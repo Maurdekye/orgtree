@@ -194,8 +194,10 @@
   --draft-stripe: var(--panel-2);
 }
 /* Status text retains its hue with darker ink on the two light surfaces.
-   Provider/tier identities keep their colors; tier labels have a dark backing
-   so even the pale Astra and Flash labels remain legible. */
+   Tier identities keep their colors; tier labels have a dark backing so even
+   the pale Astra and Flash labels remain legible. Provider colours and the
+   app themes take deep same-family partners there (the light-partner blocks
+   beside the Orgtree Grey theme rule). */
 :root:is(.contrast-light, .contrast-solarized-light) {
   --ok: #23722d;
   --bad: #bf2929;
@@ -6323,6 +6325,23 @@ svg.MuiSvgIcon-root {
 }
 .effort-bar-fill { transition: width .15s ease-in-out; }
 .effort-bar.dragging .effort-bar-pip, .effort-bar.dragging .effort-bar-fill { transition: none; }
+/* The effort bar on the light surfaces (light slice 2): its #3f3f46 rail was a
+   dark island there, and the deep accent partners vanished into it. It
+   becomes a light control: the hover-grey rail with a hairline edge; the fill
+   the accent, or a desk's provider colour, at 85 % on that grey, 4.2:1 or
+   more from the rail for every preset and provider; near-white dots on the
+   fill, grey dots on the rail and a white knob; an inherited level in a
+   neutral grey (3.3:1 or more); and a dark keyboard ring, as the white one
+   vanished. lightaccent.test.tsx */
+:root:is(.contrast-light, .contrast-solarized-light) .effort-bar-rail { background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); }
+:root:is(.contrast-light, .contrast-solarized-light) .effort-bar-fill { background: color-mix(in srgb, var(--provider-accent, var(--accent)) 85%, var(--panel-2)); }
+:root:is(.contrast-light, .contrast-solarized-light) .effort-bar-dot { background: color-mix(in srgb, var(--dim) 55%, var(--panel-2)); }
+:root:is(.contrast-light, .contrast-solarized-light) .effort-bar-dot.below { background: color-mix(in srgb, var(--provider-accent, var(--accent)) 12%, #fff); }
+:root:is(.contrast-light, .contrast-solarized-light) .effort-bar-pip { background: #ffffff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .2), 0 1px 2px rgba(0, 0, 0, .3); }
+:root:is(.contrast-light, .contrast-solarized-light) .effort-bar.inherited .effort-bar-fill { background: #737b85; }
+:root:is(.contrast-light, .contrast-solarized-light) .effort-bar.inherited .effort-bar-dot.below { background: #ffffff; }
+:root:is(.contrast-light, .contrast-solarized-light) .effort-bar.inherited .effort-bar-pip { background: #ffffff; }
+:root:is(.contrast-light, .contrast-solarized-light) .effort-bar-track:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink) 50%, transparent); }
 @media (prefers-reduced-motion: reduce) { .effort-bar-pip, .effort-bar-fill { transition: none; } }
 
 /* №12: read-only bearer transcript inside the lineage panel */
@@ -8883,22 +8902,23 @@ main:has(> .orgbar.native-header) > .error {
      dev.meta.ai/images/landing/model_api_muse_glimmer.png (sha256
      9680c092536b...). 11.28:1 on --panel, 12.15:1 on --bg, 9.59:1 on
      --input, 14.02:1 on obsidian --panel. On the light surfaces it is
-     1.36:1, so there the accent is the same hue (199.5 deg) at 34.6 %
-     lightness, #0077b0: 4.92:1 on --panel #fff, 4.59:1 on --bg #f6f7f9,
-     4.76:1 / 4.56:1 on the solarized --panel / --bg (3.8-4.3:1 on the
-     --panel-2 and --side greys). (#0078b2, at 35 %, was 4.497:1 on the
-     solarized --bg.)
+     1.36:1, so there the accent is the same hue at 25 % lightness, #005680:
+     4.8:1 or more on every light and solarized surface, the --panel-2 and
+     --side greys and the accent washes of selected and urgent rows (light
+     slice 2, 2026-10-18; the earlier #0077b0, at 34.6 %, read 3.8-4.3:1 on
+     those greys and 3.1:1 on a hovered urgent row).
    - KNOWN COLLISIONS, KEPT BY DECISION (CIE76, normal vision): #afe5ff is
      1.9 from --tier-flash #aee2f9 and 6.5 from the frozen --ice #a8d4ea;
-     #0077b0 is 7.8 from the light --work #23679e. Every one is carried by
+     #005680 is 10.6 from the light --work #23679e (#0077b0 was 7.8). Every
+     one is carried by
      more than colour: a Muse card has the Muse rail and its own W/F/S tier
      letter and colour, a Flash card the Antigravity blue rail and its F, a
      frozen agent the snowflake icon and its freeze label, a working task
      the word "working".
    - --prov-muse-ink is the text on an accent fill: dark on the cyan
-     (12.97:1; white would be 1.36:1), white on the deep cyan (4.92:1). */
+     (12.97:1; white would be 1.36:1), white on the deep cyan (7.95:1). */
 :root { --prov-muse: #afe5ff; --prov-muse-ink: #17191d; }
-:root:is(.contrast-light, .contrast-solarized-light) { --prov-muse: #0077b0; --prov-muse-ink: #ffffff; }
+:root:is(.contrast-light, .contrast-solarized-light) { --prov-muse: #005680; --prov-muse-ink: #ffffff; }
 :root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
   .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
   .tab-count, .badge, .mailbtn .count).prov-muse {
@@ -8962,17 +8982,19 @@ main:has(> .orgbar.native-header) > .error {
 :root:is(.contrast-light, .contrast-solarized-light) .account-swatch.swatch-muse { box-shadow: inset 0 0 0 1px var(--prov-muse); }
 /* The Muse Eggshell app theme (visual-theme preset `muse`) on the light surfaces:
    its pale accent would paint text at 1.36:1 there, so the accent becomes the
-   same partner the provider uses, #0077b0 (4.56:1 or more; white ink on it
-   4.92:1). applyTheme sets the accent inline: these declarations outrank it
-   only for this theme on these two surfaces. */
+   same partner the provider uses, #005680 (4.8:1 or more on every light
+   surface and row wash; white ink on it 7.95:1), its hover #004060 at three
+   quarters of that lightness, as the other presets' below. applyTheme sets
+   the accent inline: these declarations outrank it only for this theme on
+   these two surfaces. */
 :root[data-visual-theme="muse"]:is(.contrast-light, .contrast-solarized-light) {
-  --accent: #0077b0 !important;
-  --accent-hover: #4099c4 !important;
-  --accent-soft: rgba(0, 119, 176, .16) !important;
+  --accent: #005680 !important;
+  --accent-hover: #004060 !important;
+  --accent-soft: rgba(0, 86, 128, .16) !important;
   --accent-ink: #ffffff !important;
-  --org-accent: #0077b0 !important;
-  --org-accent-hover: #4099c4 !important;
-  --org-accent-soft: rgba(0, 119, 176, .16) !important;
+  --org-accent: #005680 !important;
+  --org-accent-hover: #004060 !important;
+  --org-accent-soft: rgba(0, 86, 128, .16) !important;
 }
 /* The Orgtree Grey app theme (visual-theme preset `orgtree`) on the light
    surfaces (user 2026-10-18 15:34Z): its pale accent #b6bdc8 painted text at
@@ -8994,16 +9016,98 @@ main:has(> .orgbar.native-header) > .error {
   --org-accent-hover: #39404c !important;
   --org-accent-soft: rgba(76, 85, 101, .16) !important;
 }
+/* The other presets on the light surfaces (light slice 2, user 2026-10-18
+   15:35Z: polish light mode as a whole). Their pale accents painted text at
+   1.6-3.1:1 there, so each takes a partner by Orgtree Grey's rule: the
+   preset's own hue and saturation, darkened until every light and solarized
+   surface, the hover grey and the accent washes of selected and urgent rows
+   read 4.6:1 or more (a hovered urgent row on solarized light binds), with
+   its hover at three quarters of that lightness and white ink on both (7.8:1
+   or more). Each preset shares its partner with its provider's colour, as
+   Muse Eggshell already did, so a desk and the app agree. MEASURED, CIE76
+   normal vision / simulated protanopia and deuteranopia (Machado 2009, a
+   model, not a measurement of anyone's vision):
+   - Claude Terracotta and --prov-claude #89391f (4.78:1 at worst): 27.2 from
+     the light --bad and 19.3 from --danger-ink, as the dark palette keeps
+     terracotta 27.9 and 25.2 from theirs; 4.2-4.8 simulated (dark: 5.3).
+   - Codex Teal and --prov-openai #035b46 (4.89:1): turned 20 deg towards
+     OpenAI's green, because the same-hue partner landed 7.4 from the light
+     --backlog teal; now 14.6 from it, 11.2 simulated (dark: 15.4 / 4.0).
+   - Antigravity Navy and --prov-google #0045c7 (4.69:1): from the preset's
+     blue. The provider blue's own partner sat 9.1 from --deploy-ready; this
+     one is 23.7 (dark: 16.3).
+   - OpenRouter Lavender and --prov-openrouter #5f0bdf (4.69:1): the provider
+     violet deepened, as it read 3.8:1 on the washes. Its dark value, a known
+     defect kept by decision, is untouched.
+   - LS Gold takes --prov-langserver's partner #4d3a02 (6.47:1).
+   The six provider colours stay 31 or more apart on the light surfaces
+   (Claude and LS Gold the nearest pair, 8.7 simulated). lightaccent.test.tsx */
+:root:is(.contrast-light, .contrast-solarized-light) {
+  --prov-claude: #89391f;
+  --prov-openai: #035b46;
+  --prov-google: #0045c7;
+  --prov-openrouter: #5f0bdf;
+}
+:root[data-visual-theme="claude"]:is(.contrast-light, .contrast-solarized-light) {
+  --accent: #89391f !important;
+  --accent-hover: #672b17 !important;
+  --accent-soft: rgba(137, 57, 31, .16) !important;
+  --accent-ink: #ffffff !important;
+  --org-accent: #89391f !important;
+  --org-accent-hover: #672b17 !important;
+  --org-accent-soft: rgba(137, 57, 31, .16) !important;
+}
+:root[data-visual-theme="codex"]:is(.contrast-light, .contrast-solarized-light) {
+  --accent: #035b46 !important;
+  --accent-hover: #024434 !important;
+  --accent-soft: rgba(3, 91, 70, .16) !important;
+  --accent-ink: #ffffff !important;
+  --org-accent: #035b46 !important;
+  --org-accent-hover: #024434 !important;
+  --org-accent-soft: rgba(3, 91, 70, .16) !important;
+}
+:root[data-visual-theme="antigravity"]:is(.contrast-light, .contrast-solarized-light) {
+  --accent: #0045c7 !important;
+  --accent-hover: #003495 !important;
+  --accent-soft: rgba(0, 69, 199, .16) !important;
+  --accent-ink: #ffffff !important;
+  --org-accent: #0045c7 !important;
+  --org-accent-hover: #003495 !important;
+  --org-accent-soft: rgba(0, 69, 199, .16) !important;
+}
+:root[data-visual-theme="openrouter"]:is(.contrast-light, .contrast-solarized-light) {
+  --accent: #5f0bdf !important;
+  --accent-hover: #4708a7 !important;
+  --accent-soft: rgba(95, 11, 223, .16) !important;
+  --accent-ink: #ffffff !important;
+  --org-accent: #5f0bdf !important;
+  --org-accent-hover: #4708a7 !important;
+  --org-accent-soft: rgba(95, 11, 223, .16) !important;
+}
+:root[data-visual-theme="langserver"]:is(.contrast-light, .contrast-solarized-light) {
+  --accent: #4d3a02 !important;
+  --accent-hover: #3a2c02 !important;
+  --accent-soft: rgba(77, 58, 2, .16) !important;
+  --accent-ink: #ffffff !important;
+  --org-accent: #4d3a02 !important;
+  --org-accent-hover: #3a2c02 !important;
+  --org-accent-soft: rgba(77, 58, 2, .16) !important;
+}
 /* The agents chips keep their dark backing on the light surfaces (the rule
-   near the top of this file) and the effort bar its dark rail, so the deep
-   partners above would vanish inside them: the working spinner drew #4c5565
-   on #313131 at 1.7:1 and the effort fill all but merged with the rail. Inside
-   them these themes keep the pale accent they have on the dark surfaces
-   (6.9:1 and 9.6:1 on the chip), and the chip's active/hired count the
-   charcoal grey (4.8:1; the light grey read 2.0:1 there). lightaccent.test.tsx */
+   near the top of this file), so the deep partners above would vanish inside
+   them: the working spinner drew #4c5565 on #313131 at 1.7:1. Inside them
+   every preset keeps the pale accent it has on the dark surfaces (4.2:1 or
+   more on the chip), and the chip's active/hired count the charcoal grey
+   (4.8:1; the light grey read 2.0:1 there). The effort bar is a light control
+   instead (its own block). lightaccent.test.tsx */
 :root:is(.contrast-light, .contrast-solarized-light) .chip.agents { --dim: #9d9d9d; }
-:root[data-visual-theme="orgtree"]:is(.contrast-light, .contrast-solarized-light) :is(.chip.agents, .effort-bar) { --accent: #b6bdc8; }
-:root[data-visual-theme="muse"]:is(.contrast-light, .contrast-solarized-light) :is(.chip.agents, .effort-bar) { --accent: #afe5ff; }
+:root[data-visual-theme="orgtree"]:is(.contrast-light, .contrast-solarized-light) .chip.agents { --accent: #b6bdc8; }
+:root[data-visual-theme="claude"]:is(.contrast-light, .contrast-solarized-light) .chip.agents { --accent: #d97757; }
+:root[data-visual-theme="codex"]:is(.contrast-light, .contrast-solarized-light) .chip.agents { --accent: #22c4bd; }
+:root[data-visual-theme="antigravity"]:is(.contrast-light, .contrast-solarized-light) .chip.agents { --accent: #75a5ff; }
+:root[data-visual-theme="openrouter"]:is(.contrast-light, .contrast-solarized-light) .chip.agents { --accent: #b69afa; }
+:root[data-visual-theme="langserver"]:is(.contrast-light, .contrast-solarized-light) .chip.agents { --accent: #cda206; }
+:root[data-visual-theme="muse"]:is(.contrast-light, .contrast-solarized-light) .chip.agents { --accent: #afe5ff; }
 /* Muse's tiers: routine colours inside the tier design (lead 2026-10-13),
    MEASURED (tools tier_pick / tier_check): at least 4.5:1 on --panel and on
    the badge fill --input, then as far as the hue allows from every tier,
