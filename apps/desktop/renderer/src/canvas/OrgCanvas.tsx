@@ -4103,7 +4103,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onTierChange={tier => setDraft(current => current ? { ...current, tier } : null)}
               hires={{ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire }}
               onGrant={setDraftGrant} form={draftForm ?? undefined}
-              onFormChange={update => setDraftForm(update)} />
+              onFormChange={update => setDraftForm(current => current ? update(current) : current)} />
           }
           if (hidden.has(n.id)) return null   // piled-away: no card, no space
           if (isProject(n)) {
@@ -4772,7 +4772,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           hires: { claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire },
           onGrant: setDraftGrant,
           form: draftForm ?? undefined,
-          onFormChange: update => setDraftForm(update),
+          onFormChange: update => setDraftForm(current => current ? update(current) : current),
         } : null,
         onOpenItem: onWorkItem,
         onFocusAgent: centerOn,
