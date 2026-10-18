@@ -540,6 +540,8 @@
   shares the UI effective-harness resolver and never starts an actor. Compact
   rechecks authority at actor admission and keeps agent origin (no user-contact
   grant/deep-reach notice). started means admitted, never completed; no fallback.
+  A later native unsupported result overrides an earlier capability hint if the
+  route changes between preflight and admission.
   Actor impl already applies #[logged] to methods; adding it again duplicates
   generated wrappers and fails compilation (orgtree-logged/src/lib.rs).
   [decided: coordinator 2026-10-18 18:26Z; verified: tools/compaction.rs,

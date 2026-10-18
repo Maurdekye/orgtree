@@ -33,6 +33,16 @@ impl CommandOrigin {
     #[nolog]
     pub fn establishes_user_contact(self) -> bool { matches!(self, Self::User) }
 }
+
+/// The native admission read is later than the capability preflight. A route
+/// changed in between must keep its native unsupported result, not the old hint.
+#[nolog]
+pub fn normal_compact_admission(capability: &Value, mut result: Value) -> Value {
+    if result.get("supported").is_none() {
+        result["supported"] = capability["supported"].clone();
+    }
+    result
+}
 #[nolog]
 pub fn normal_compact_supported(provider: &str, harness: Option<&str>) -> bool {
     matches!(provider, "claude" | "muse")
@@ -61,6 +71,21 @@ pub fn normal_compact_capability(provider: &str, harness: Option<&str>) -> serde
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn normal_compact_native_refusal_overrides_preflight_capability() {
+        use serde_json::json;
+        let cap = json!({"supported":true,"reason":null});
+        let changed = normal_compact_admission(&cap,
+            json!({"supported":false,"started":false,"reason":"Codex"}));
+        assert_eq!(changed["supported"], false);
+        assert_eq!(changed["reason"], "Codex");
+        let busy = normal_compact_admission(&cap, json!({"started":false,"reason":"busy"}));
+        assert_eq!(busy["supported"], true);
+        assert_eq!(busy["started"], false);
+        let admitted = normal_compact_admission(&cap, json!({"started":true}));
+        assert_eq!(admitted["supported"], true);
+        assert_eq!(admitted["started"], true);
+    }
     #[test]
     fn normal_compact_agent_origin_never_establishes_user_contact() {
         assert!(!CommandOrigin::Agent.establishes_user_contact());

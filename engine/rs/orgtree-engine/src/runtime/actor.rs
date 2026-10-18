@@ -7676,9 +7676,8 @@ impl Actor {
         let cap = crate::domain::compaction::node_capability(&self.engine, self.id).await?;
         if cap["supported"] != true { return Ok(cap); }
         self.cancel_keepalive().await;
-        let mut result = self.command("/compact", crate::domain::compaction::CommandOrigin::Agent).await?;
-        result["supported"] = cap["supported"].clone();
-        Ok(result)
+        let result = self.command("/compact", crate::domain::compaction::CommandOrigin::Agent).await?;
+        Ok(crate::domain::compaction::normal_compact_admission(&cap, result))
     }
 
     /// A slash command as its own turn, retaining its user or agent origin.
@@ -7709,7 +7708,7 @@ impl Actor {
             let reason=if compact {
                 crate::domain::compaction::normal_compact_capability(&ctx.provider,ctx.harness.as_deref())["reason"].clone()
             } else {json!("slash commands are Claude Code's; compact this agent with cheap compact instead")};
-            return Ok(json!({ "started": false, "reason": reason }));
+            return Ok(json!({ "supported": false, "started": false, "reason": reason }));
         }
         if ctx.state != "live" || ctx.halted || ctx.killswitch {
             return Ok(json!({ "started": false, "reason": "this agent is not running (retired, halted or stopped)" }));
