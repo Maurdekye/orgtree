@@ -19,7 +19,9 @@ effective grants before and after. Passive start/end mail is inserted in that
 same transaction, deduplicated by agent/target/source. Mailbox notifications
 publish only after commit; failed operations and serialization retries cannot
 leave a false notice. Serializable snapshots plus bounded retries prevent
-concurrent changes from being described as this operation's change. Direct
+concurrent changes from being described as this operation's change.
+Multi-step gestures and undo/redo compare only their transaction's initial and
+final routes, so intermediate moves do not manufacture start/end mail. Direct
 membership, project targets, explicit overlap and inactive/nested exclusions
 continue to come from the existing effective view; no audience rows are copied.
 

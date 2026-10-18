@@ -504,6 +504,7 @@ async fn history_now(engine: &Engine, org: i64) -> Result<Value> {
 /// What a gesture's steps leave to publish after commit.
 #[derive(Default)]
 struct Pending {
+    audience_mailboxes: Vec<i64>,
     ops: Vec<(usize, Effects)>,
     scopes: Vec<(usize, crate::http::nodes::ScopeEffects)>,
     /// agents whose scope an inverse wrote back directly
@@ -527,6 +528,7 @@ async fn publish(engine: &Arc<Engine>, org: &Arc<OrgHandle>, pending: Pending, r
         results[i] = crate::http::nodes::apply_scope_effects(engine, org, sfx).await;
     }
     let mut ch: Vec<crate::changes::Change> = pending.rescoped.iter().map(|id| crate::changes::Change::Agent(*id)).collect();
+    ch.extend(pending.audience_mailboxes.iter().map(|id|crate::changes::Change::Mailbox(*id)));
     if pending.org_settings {
         ch.push(crate::changes::Change::Org);
     }
@@ -627,6 +629,9 @@ async fn gesture_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, steps: &[Value
         }
     }
     // the facts before: every agent a step names (a newborn has none)
+    let inherited_before = if matches!(kind,"move"|"hire"|"retire") {
+        Some(super::audience_notices::snapshot(&*tx,org.id).await?)
+    } else { None };
     let mut before: Vec<(i64, Place)> = Vec::new();
     let mut retool_before: Vec<(i64, Map<String, Value>)> = Vec::new();
     let mut teams: Vec<(i64, Place, Vec<(i64, i64, f64)>)> = Vec::new();
@@ -679,7 +684,7 @@ async fn gesture_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, steps: &[Value
             pending.scopes.push((i, sfx));
         } else {
             let mut fx = Effects::default();
-            let out = ops::run_in_tx(engine, org, &tx, &Actor::User, &step, &mut fx).await?;
+            let out = ops::run_in_tx_without_audience_notices(engine, org, &tx, &Actor::User, &step, &mut fx).await?;
             results.push(out);
             pending.ops.push((i, fx));
         }
@@ -795,6 +800,10 @@ async fn gesture_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, steps: &[Value
         out["history_entry"] = json!({ "id": id, "kind": kind, "label": label });
         true
     } else { false };
+    if let Some(before)=inherited_before {
+        let after=super::audience_notices::snapshot(&*tx,org.id).await?;
+        pending.audience_mailboxes.extend(super::audience_notices::record_delta_tx(&*tx,org.id,&before,&after).await?);
+    }
     tx.commit().await?;
     Ok((out, pending, recorded))
 }
@@ -1051,6 +1060,9 @@ async fn step_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64
     }
     tx.batch_execute("SAVEPOINT undo_apply").await?;
     let mut pending = Pending::default();
+    let inherited_before = if matches!(kind.as_str(),"move"|"hire"|"retire") {
+        Some(super::audience_notices::snapshot(&*tx,org.id).await?)
+    } else { None };
     let applied = match kind.as_str() {
         "move" => apply_move(engine, org, &tx, dir, &data, &mut pending).await,
         "hire" => apply_hire(engine, org, &tx, dir, &data, &mut pending).await,
@@ -1060,6 +1072,10 @@ async fn step_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64
     };
     match applied {
         Ok(next) => {
+            if let Some(before)=inherited_before {
+                let after=super::audience_notices::snapshot(&*tx,org.id).await?;
+                pending.audience_mailboxes.extend(super::audience_notices::record_delta_tx(&*tx,org.id,&before,&after).await?);
+            }
             let state = if dir == Dir::Undo { "undone" } else { "done" };
             tx.execute("UPDATE ot.undo_entries SET state = $2, data = $3, changed_at = now() WHERE id = $1", &[&id, &state, &next]).await?;
             bump(&tx, org.id).await?;
@@ -1084,7 +1100,7 @@ async fn step_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64
 #[logged]
 async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, req: Value, pending: &mut Pending) -> Result<Value> {
     let mut fx = Effects::default();
-    let out = ops::run_in_tx(engine, org, tx, &Actor::User, &req, &mut fx).await?;
+    let out = ops::run_in_tx_without_audience_notices(engine, org, tx, &Actor::User, &req, &mut fx).await?;
     pending.ops.push((pending.ops.len(), fx));
     Ok(out)
 }

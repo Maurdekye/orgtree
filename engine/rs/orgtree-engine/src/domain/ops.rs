@@ -685,6 +685,22 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, _op
 #[logged]
 pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
                             req: &Value, fx: &mut Effects) -> Result<Value> {
+    let before = if super::audience_notices::topology_changes_audiences(canonical_op(req["op"].as_str().unwrap_or(""))) {
+        Some(super::audience_notices::snapshot(tx,org.id).await?)
+    } else { None };
+    let out=run_in_tx_without_audience_notices(engine,org,tx,actor,req,fx).await?;
+    if let Some(before)=before {
+        let after=super::audience_notices::snapshot(tx,org.id).await?;
+        fx.mailboxes.extend(super::audience_notices::record_delta_tx(tx,org.id,&before,&after).await?);
+    }
+    Ok(out)
+}
+
+/// Multi-step undo/gesture callers record one net audience delta at their
+/// transaction boundary, so an intermediate move cannot send a false notice.
+#[logged]
+pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
+                            req: &Value, fx: &mut Effects) -> Result<Value> {
     let op = req["op"].as_str().unwrap_or("");
     // User retool/rehire can raise org defaults. Staffing audience composites
     // also acquire the org in grant_tx, for either actor. Take it before any
@@ -695,9 +711,6 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
     if user_scope || staffing_audiences {
         tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org.id]).await?;
     }
-    let inherited_before = if super::audience_notices::topology_changes_audiences(canonical_op(op)) {
-        Some(super::audience_notices::snapshot(tx, org.id).await?)
-    } else { None };
     let mut out = match canonical_op(op) {
         "hire" => hire(engine, org, &tx, actor, req, fx).await?,
         "create_project" => create_project(engine, org, &tx, actor, req, fx).await?,
@@ -812,10 +825,6 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
     }
     // projects stay transparent in the credit hierarchy (user 2026-10-16 20:40Z)
     fx.agents.extend(crate::domain::projects::settle_credits(tx, org.id).await?);
-    if let Some(before) = inherited_before {
-        let after = super::audience_notices::snapshot(tx, org.id).await?;
-        fx.mailboxes.extend(super::audience_notices::record_delta_tx(tx, org.id, &before, &after).await?);
-    }
     if crate::runtime::watchdogs::events::interested(engine,"agents.live") {
         let ids=tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live' AND kind='agent'", &[&org.id]).await?.iter().map(|r|r.get(0)).collect();
         fx.pulses.push(crate::changes::Change::EngineEvent(crate::runtime::watchdogs::events::live_count(org.id,ids)));
