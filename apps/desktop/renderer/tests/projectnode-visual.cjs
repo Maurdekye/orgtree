@@ -12,6 +12,64 @@ module.exports = async (page) => {
   const details = {}
   // PROJECTNODE_VISUAL_ONLY=slots: only the project-slots scenes (one quick capture)
   const only = process.env.PROJECTNODE_VISUAL_ONLY
+  // PROJECTNODE_VISUAL_ONLY=hosts: the four desk hosts (user 2026-10-18
+  // 11:14Z) — pinned agent and project, temporary agent and project — then
+  // one page setting the shots side by side
+  if (only === 'hosts') {
+    const fs = require('fs')
+    const openTemp = (sel) => page.eval(async (sel) => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+      const card = document.querySelector(sel)
+      if (!card) return 'no card ' + sel
+      const r = card.getBoundingClientRect()
+      card.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 20 }))
+      await wait(300)
+      const item = (label) => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')].find((b) => b.textContent.trim().startsWith(label))
+      const open = item('Open')
+      if (!open) return 'no Open: ' + [...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map((b) => b.textContent).join('|')
+      open.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); open.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }))
+      open.click()
+      await wait(300)
+      const deskItem = item('Desk')
+      if (!deskItem) return 'no Desk: ' + [...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map((b) => b.textContent).join('|')
+      deskItem.click()
+      await wait(900)
+      return 'ok'
+    }, sel)
+    const headOf = () => page.eval(() => [...document.querySelectorAll('.tempdesk-panel, .pinwin')].map((p) => ({
+      cls: p.className,
+      bar: (p.querySelector('.tempdesk-head, .pinwin-title, .modalpin-bar') || {}).textContent,
+      barTop: (p.querySelector('.tempdesk-head, .pinwin-title, .modalpin-bar') || { getBoundingClientRect: () => ({}) }).getBoundingClientRect().top,
+      deskNameShown: [...p.querySelectorAll('.cc-head-left > .name, .cc-head-left > .cc-name')].some((n) => getComputedStyle(n).display !== 'none'),
+      headTop: (p.querySelector('.cc-head') || { getBoundingClientRect: () => ({}) }).getBoundingClientRect().top,
+      head: (p.querySelector('.cc-head-top') || {}).textContent,
+    })))
+    await page.goto('/?scene=hosts')
+    await page.waitFor('.pinwin', { timeout: 15000 })
+    await page.eval(async () => { await new Promise((r) => setTimeout(r, 1500)) })
+    await settle()
+    details.pinned = await headOf()
+    const shots = []
+    shots.push(await page.screenshot(`${prefix}-pinned-1000x700`))
+    details.tempAgent = await openTemp('.sq[data-first-use-agent="sa"]')
+    await settle()
+    details.tempAgentHead = await headOf()
+    shots.push(await page.screenshot(`${prefix}-temp-agent-1000x700`))
+    await page.eval(async () => { document.querySelector('.tempdesk-close')?.click(); await new Promise((r) => setTimeout(r, 400)) })
+    details.tempProject = await openTemp('.sq.project')
+    await settle()
+    details.tempProjectHead = await headOf()
+    shots.push(await page.screenshot(`${prefix}-temp-project-1000x700`))
+    screenshots.push(...shots)
+    const urls = shots.map((s) => 'data:image/png;base64,' + fs.readFileSync(typeof s === 'string' ? s : s.file).toString('base64'))
+    await page.eval((urls) => {
+      document.body.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#111;padding:6px">'
+        + urls.map((u, i) => `<figure style="margin:0"><figcaption style="color:#ddd;font:12px sans-serif">${['pinned: agent sb (left), project build (right)', 'temporary: agent sa', 'temporary: project build'][i]}</figcaption><img src="${u}" style="width:100%"></figure>`).join('') + '</div>'
+    }, urls)
+    await page.eval(async () => { await new Promise((r) => setTimeout(r, 500)) })
+    screenshots.push(await page.screenshot(`${prefix}-side-by-side-1000x700`))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=cardfix: sa's slot chip in its card's chip row on
   // the real canvas, then the overflowing project cards and the desk headers
   if (only === 'cardfix') {

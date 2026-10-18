@@ -35,13 +35,18 @@
 //             one (0 of 2);
 //   cardfix — project cards whose "2/19 Active 80s" and "12/140 Active 1h 5m"
 //             ran off the card (user 2026-10-18 10:51Z), beside the desk
-//             headers of slot holder sa and waiting sb (10:52:50Z).
+//             headers of slot holder sa and waiting sb (10:52:50Z);
+//   hosts   — the REAL canvas with sb and project build pinned as windows;
+//             the capture script also opens sa's and build's temporary
+//             desks, so the four desk hosts can be set side by side (user
+//             2026-10-18 11:14Z: one title bar, no empty strip).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { DeskChat } from '../src/canvas/desk'
 import { DeskDogsProvider } from '../src/canvas/deskdogs'
+import { addPin } from '../src/canvas/pins'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
 import { NodeConfig } from '../src/canvas/modals'
@@ -274,7 +279,14 @@ if (scene === 'activity') { try { localStorage.setItem('orgtree-agent-shortcuts'
 // here it is held open for the capture
 if (scene === 'activity') document.head.insertAdjacentHTML('beforeend',
   '<style>.sq.project .sq-actions .mailbtn { opacity: .8 !important; visibility: visible !important; }</style>')
+if (scene === 'hosts') {
+  addPin('org', 'sb', { x: 20, y: 330, w: 470, h: 300 })
+  addPin('org', 'build', { x: 510, y: 330, w: 470, h: 300 })
+}
 const rows: Record<string, unknown[]> = {
+  hosts: [agent('sa', 'boss'), agent('sb', 'boss', { cost_usd: 1.03 }),
+    { ...buildProject([agent('sc', 'build', { busy: true, inflight_at: minsAgo(22) })], 1),
+      charter: 'Build machine permit: claim the slot before any heavy phase.' }],
   'row-end': [agent('a1', 'boss'), agent('a2', 'boss'), projectNode('site', 'boss')],
   between: [agent('a1', 'boss'), projectNode('site', 'boss'), agent('a2', 'boss')],
   fairqueue: [agent('lead', 'boss'), projectNode('site', 'boss', [agent('dev1', 'site'), agent('dev2', 'site')])],
