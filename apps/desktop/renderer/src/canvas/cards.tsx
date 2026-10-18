@@ -1044,6 +1044,8 @@ export interface DraftNodeProps {
    *  the same in-progress hire without losing edits when the host changes. */
   form?: DraftForm
   onFormChange?: (update: (current: DraftForm) => DraftForm) => void
+  /** The Attention desk presents this same form as a full-area editor. */
+  attentionFill?: boolean
 }
 
 export type CharterPreset = {
@@ -1078,7 +1080,7 @@ export function presetLabels(presets: CharterPreset[]): Map<string, string> {
 
 export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   tree, zoom, pxc, onConfirm, onCancel, onGrant, onTierChange, hires = {},
-  form, onFormChange }: DraftNodeProps) {
+  form, onFormChange, attentionFill = false }: DraftNodeProps) {
   const [localName, setLocalName] = useState('')
   const name = form?.name ?? localName
   const setName = (next: string | ((current: string) => string)) => {
@@ -1208,7 +1210,9 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   // Claude terracotta and flips to teal only after creation.
   const providerClass = ' prov-' + providerOf(draft.tier)
   return (
-    <div className={'sq draft' + providerClass} style={{
+    <div className={'sq draft' + providerClass + (attentionFill ? ' draft-attention-fill' : '')} style={attentionFill ? {
+      transform: 'none', width: '100%', height: '100%', boxSizing: 'border-box', padding: 0,
+    } : {
       transform: `translate(${pos.x}px, ${pos.y}px)`, width: NODE_W, height: NODE_H,
     }} onPointerDown={(e) => e.stopPropagation()}>
       <CreditBar seat={seats[draft.tier] ?? 0} grant={grant} committed={0}
@@ -1219,7 +1223,9 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
           the card — the desk's inverted-scale regime, on a 200px surface so
           the whole hiring flow stays near overview zoom */}
       <div className="draft-over" onWheel={(e) => e.stopPropagation()}>
-        <div className="draft-inner">
+        <div className="draft-inner" style={attentionFill ? {
+          width: '100%', height: '100%', transform: 'none', boxSizing: 'border-box', padding: 16,
+        } : undefined}>
           {/* top row: tier token · name entry · gear — one flex row, all three
               the same height with equal gaps (user ruling); the gear is
               always visible and stages the pre-hire permissions */}
@@ -1280,7 +1286,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
           )}
           {/* the picked cards live INSIDE the charter box (user spec) — they
               visually ARE part of the charter, compiled to text at hire */}
-          <div className="df-charter-wrap">
+          <div className="df-charter-wrap" style={attentionFill ? { flex: '1 1 auto', minHeight: 0 } : undefined}>
             {chosen.length > 0 && (
               <div className="preset-cards">
                 {chosen.map((c) => (
@@ -1295,6 +1301,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
             <textarea className="df-charter"
               placeholder="charter (optional): standing role notes…"
               value={charter} onChange={(e) => setCharter(e.target.value)}
+              style={attentionFill ? { flex: '1 1 auto', minHeight: 0 } : undefined}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && ok && !isMobile) { e.preventDefault(); hire() } }} />
           </div>
           {cut.length > 0 && (

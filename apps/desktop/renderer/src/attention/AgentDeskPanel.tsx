@@ -331,7 +331,7 @@ export function AgentDeskPanel({
         data-attn-desk-claim={claim ?? 'none'}>
         {attentionDraft
           ? <div className="attn-draft-stage" data-attn-draft="yes">
-              <div className="attn-draft-scale"><DraftNode {...attentionDraft} /></div>
+              <div className="attn-draft-scale"><DraftNode {...attentionDraft} attentionFill /></div>
             </div>
           : selected?.kind === 'project'
           ? (projectDesk ? projectDesk(selected)

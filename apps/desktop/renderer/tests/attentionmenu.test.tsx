@@ -172,6 +172,17 @@ test('Hire from an Attention desk header opens its draft in that desk', async (t
   await inAct(() => flush(8))
   assert.equal(!!v.el.querySelector('.attn-desk .sq.draft'), true,
     'the desk action replaces the Attention agent desk with the uninitialized desk')
+  const draft = v.el.querySelector<HTMLElement>('.attn-desk .sq.draft')!
+  assert.equal(draft.style.width, '100%', 'the Attention draft fills its desk width')
+  assert.equal(draft.style.height, '100%', 'the Attention draft fills its desk height')
+  assert.equal(draft.classList.contains('draft-attention-fill'), true,
+    'the Attention-only layout leaves the canvas draft presentation unchanged')
+  assert.equal(draft.querySelector<HTMLElement>('.draft-inner')?.style.height, '100%',
+    'the Attention form uses the full desk content height')
+  assert.equal(draft.querySelector<HTMLElement>('.df-charter-wrap')?.style.minHeight, '0px',
+    'the charter region can shrink when the desk is short')
+  assert.equal(draft.querySelector<HTMLTextAreaElement>('.df-charter')?.style.flexGrow, '1',
+    'the charter textarea grows into the remaining desk height')
   const name = v.el.querySelector<HTMLInputElement>('.attn-desk .df-name')!
   await inAct(() => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(name, 'shared draft name')
