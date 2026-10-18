@@ -30,7 +30,7 @@ import { useWorkItems } from './useworkitems'
 import { AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner, revealAgentPanelTab } from './panelcorner'
-import { AgentTeamView } from './team'
+import { AgentTeamView, liveTeamCount } from './team'
 import { PopoutButton, PopoutWindowControls, useSurface } from '../popout'
 import type { RefRoutes } from './reflinks'
 import { ageClockNow, LastTurnAge, NavChip, subscribeAgeClock } from './desk'
@@ -425,6 +425,10 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, on
 export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig, onPin, onPopout, onOpenDoc }: ProjectDeskProps) {
   const surface = useSurface()
   const [view, setView] = useState<Tab>('desk')
+  const teamCount = liveTeamCount(map, node.id)
+  useEffect(() => {
+    if (view === 'team' && teamCount === 0) setView('desk')
+  }, [view, teamCount])
   const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | 'purge' | null>(null)
   const fallbackMenu = useContextMenu(toast)
   const mentionRef = useRef<{
@@ -455,9 +459,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const parent = node.parent && map.has(node.parent) && !(bare && node.parent === USER) ? map.get(node.parent)! : null
   const members = node.children.filter((c) => c.state === 'live')
   const slots = projectSlotState(node.id, slotCount(node), tree.slot_leases ?? [], tree.watchdogs ?? [])
-  const tabs: Tab[] = slots.total > 0 ? [...PROJECT_DESK_TABS, 'slots'] : [...PROJECT_DESK_TABS]
+  const tabs: Tab[] = (slots.total > 0 ? [...PROJECT_DESK_TABS, 'slots' as const] : [...PROJECT_DESK_TABS])
+    .filter(v => v !== 'team' || teamCount > 0)
   const shown: Tab = tabs.includes(view) ? view : 'desk'
-  const count = (tab: Tab) => tab === 'inbox' ? node.mail_pending ?? 0
+  const count = (tab: Tab) => tab === 'team' ? teamCount : tab === 'inbox' ? node.mail_pending ?? 0
     : tab === 'docket' ? mine?.length ?? 0
       // its own presentations (point 27, user 2026-10-17 23:28Z)
       : tab === 'presented' ? (node.documents_count ?? node.documents?.length ?? 0) : 0

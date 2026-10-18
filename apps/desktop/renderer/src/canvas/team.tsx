@@ -12,6 +12,14 @@ import { PinFrame } from './modalpin'
 export const TeamListOrder = createContext<((a: CanvasNode, b: CanvasNode) => number) | null>(null)
 export const TeamListNavigation = createContext<((id: string) => void) | null>(null)
 
+/** The tab badge counts live direct subordinates, not the full Team subtree.
+ * Read the current feed map, like teamMap, rather than retained child objects. */
+export function liveTeamCount(map: Map<string, CanvasNode>, nid: string): number {
+  let count = 0
+  for (const n of map.values()) if (n.id !== nid && n.parent === nid && n.state === 'live') count++
+  return count
+}
+
 /** Re-root the shared map at this node. Walk parent edges, not retained child
  * objects: a feed update may replace a child without replacing its ancestor. */
 export function teamMap(map: Map<string, CanvasNode>, nid: string): Map<string, CanvasNode> {

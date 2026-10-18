@@ -105,7 +105,7 @@ import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems, teamItems } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner, useAgentSurfaceRoutes, revealAgentPanelTab } from './panelcorner'
-import { AgentTeamView } from './team'
+import { AgentTeamView, liveTeamCount } from './team'
 import { DogChip, useDeskDogs, useDogRoute } from './deskdogs'
 import { AgentSlotChips } from './slotchips'
 import { PresentationCard, recentDocumentChips } from './docs'
@@ -2345,7 +2345,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // a double-click while the request is in flight; the response/WS tree state
   // remains authoritative if another desk wins the race.
   const [processToggleBusy, setProcessToggleBusy] = useState(false)
-  const [view, setView] = useState<'chat' | 'inbox' | 'docket' | 'presented' | 'team'>('chat')
+  const teamCount = liveTeamCount(map, node.id)
+  const [selectedView, setView] = useState<'chat' | 'inbox' | 'docket' | 'presented' | 'team'>('chat')
+  const view = selectedView === 'team' && teamCount === 0 ? 'chat' : selectedView
+  useEffect(() => {
+    if (selectedView === 'team' && teamCount === 0) setView('chat')
+  }, [selectedView, teamCount])
   useEffect(() => {
     if (openPresentedRequest !== undefined) setView('presented')
   }, [openPresentedRequest])
@@ -2394,7 +2399,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     [teamDocket, work, node.id, map, showArchivedDocket])
   const docketCount = useMemo(() => (!teamDocket ? work?.assigned_count : undefined) ?? actionableAssignedCount(work, node.id),
     [teamDocket, work, node.id])
-  const tabCount = (tab: string) => tab === 'inbox' ? node.mail_pending ?? 0
+  const tabCount = (tab: string) => tab === 'team' ? teamCount : tab === 'inbox' ? node.mail_pending ?? 0
     : tab === 'docket' ? docketCount
       : tab === 'presented' ? node.documents_count ?? node.documents?.length ?? 0 : 0
   // the identity facts the docket rows read (which model an owner ran under,
@@ -3575,7 +3580,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             )}
           </span>
           <span className="cc-tabs">
-            {(['chat', 'inbox', 'docket', 'presented', 'team'] as const).map((v) => (
+            {(['chat', 'inbox', 'docket', 'presented', 'team'] as const).filter(v => v !== 'team' || teamCount > 0).map((v) => (
               <button key={v} data-tab={v} className={view === v ? 'on' : ''}
                 onClick={() => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v) }}>
                 {v}{tabCount(v) > 0
