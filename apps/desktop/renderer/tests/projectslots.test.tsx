@@ -78,11 +78,11 @@ test('§1 the slot count, holders and line come from the scope, the leases and t
     'first come first: the paused claim and other projects\' claims are out')
   assert.equal(slotBadgeText(s), '1/1 held · 2 waiting')
   assert.equal(slotHeaderText(s), 'slots 1/1 · 2 waiting')
-  assert.equal(slotLeadText(s), '1 of 1 slot held')
+  assert.equal(slotLeadText(s), '1 of 1 concurrency slot held', 'spelled out (user 2026-10-18 12:16Z)')
   const free = projectSlotState('build', 2, [], [])
   assert.equal(slotBadgeText(free), '0/2 held', 'a free slot: no waiting count')
   assert.equal(slotHeaderText(free), 'slots 0/2')
-  assert.equal(slotLeadText(free), '0 of 2 slots held')
+  assert.equal(slotLeadText(free), '0 of 2 concurrency slots held')
   assert.equal(slotBadgeText(projectSlotState('build', 0, [], [])), null, 'no badge without slots')
   assert.deepEqual([1, 2, 3, 4, 11, 12, 13, 21, 22, 101].map(ordinal),
     ['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '101st'])
@@ -119,11 +119,11 @@ test('§2 an agent\'s several lines to one project lie side by side; a lone line
 
 test('§3 a slot claim\'s card says its place in line and who holds; after the grant, its lease', () => {
   assert.equal(slotClaimText(dogs[1], dogs, leases, 1),
-    'Slot claim: 1st in line for project build (behind nobody; 1 of 1 held by sa).')
+    'Concurrency slot claim: 1st in line for project build (behind nobody; 1 of 1 held by sa).')
   assert.equal(slotClaimText(dogs[0], dogs, leases, 1),
-    'Slot claim: 2nd in line for project build (behind sc; 1 of 1 held by sa).')
+    'Concurrency slot claim: 2nd in line for project build (behind sc; 1 of 1 held by sa).')
   assert.equal(slotClaimText(claim('sa', 'x', '2026-10-18T08:59:00.000Z', { state: 'spent', spent: true, lease: 's7a20', slot: 1 }), dogs, leases, 1),
-    'Granted slot 1 of build (lease s7a20).')
+    'Granted concurrency slot 1 of build (lease s7a20).')
   assert.match(slotClaimText(dogs[2], dogs, leases, 1), /paused: out of the line; resuming rejoins at the back/)
   assert.deepEqual(slotHoldsOf('sa', leases).map((l) => [l.project, l.slot]), [['build', 1]])
   assert.deepEqual(slotHoldsOf('sb', leases), [])
@@ -213,11 +213,11 @@ test('§4 the Slots count: 0 (none) by default, no switch; saving sends one set_
     slug="org" op={async (b) => { ops.push(b); return {} as OpResult }} toast={noop} close={noop} />, (el) => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(6) })
-  const input = document.querySelector<HTMLInputElement>('input[aria-label="Slots"]')
-  assert.ok(input, 'a Slots count')
+  const input = document.querySelector<HTMLInputElement>('input[aria-label="Concurrency slots"]')
+  assert.ok(input, 'a Concurrency slots count (user 12:16Z)')
   assert.equal(input!.value, '0', 'none by default')
   assert.equal(input!.type, 'number')
-  assert.match(row('Slots')?.textContent ?? '', /0 = no slots/, 'the hint says 0 is none')
+  assert.match(row('Concurrency slots')?.textContent ?? '', /0 = no concurrency slots/, 'the hint says 0 is none')
   await inAct(() => { typeInto(input!, '1') })
   const b = [...document.querySelectorAll('button')].find((x) => x.textContent === 'save')!
   await inAct(async () => { b.click(); await flush(4) })
@@ -265,7 +265,8 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   const panel = view.el.querySelector<HTMLElement>('.project-slots')!
   assert.ok(panel, 'the slots panel')
   assert.deepEqual(ops.filter((o) => o.op === 'slot_status'), [{ op: 'slot_status', node: 'build' }])
-  assert.equal(panel.querySelector('.slots-lead')?.textContent?.startsWith('1 of 1 slot held'), true)
+  assert.equal(panel.querySelector('.slots-lead')?.textContent?.startsWith('1 of 1 concurrency slot held'), true)
+  assert.match(view.el.querySelector('.cc-tabs button[data-tab="slots"]')?.textContent ?? '', /^concurrency slots 1\/1$/, 'the tab spelled out, its count short')
   const sections = [...panel.querySelectorAll('h4')].map((h) => h.textContent)
   assert.deepEqual(sections, ['Holding', 'Line', 'Recent holds'])
   const holding = panel.querySelector('.slots-holding')!.textContent ?? ''
@@ -278,7 +279,7 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   // force release: nothing before the confirmation
   await inAct(() => { panel.querySelector<HTMLButtonElement>('button[data-action="force-release"]')!.click() })
   assert.equal(ops.some((o) => o.op === 'slot_release'), false, 'nothing before the confirmation')
-  assert.match(document.body.textContent ?? '', /take slot 1 of build back from sa\?/)
+  assert.match(document.body.textContent ?? '', /take concurrency slot 1 of build back from sa\?/)
   assert.match(document.body.textContent ?? '', /the next in line, sc, gets it at once/)
   const go = [...document.querySelectorAll('button')].find((b) => b.textContent === 'force release' && !b.closest('.project-slots'))!
   await inAct(async () => { go.click(); await flush(3) })
@@ -298,9 +299,9 @@ test('§5 the empty state says how to claim and that nobody waits', async (t) =>
   assert.equal(card?.textContent, 'slots 0/2')
   assert.equal(card?.classList.contains('full'), false, 'an outline while a slot is free')
   const panel = view.el.querySelector<HTMLElement>('.project-slots')!
-  assert.equal(panel.querySelector('.slots-lead')?.textContent, '0 of 2 slots held')
-  assert.match(panel.textContent ?? '', /Nobody holds a slot\./)
+  assert.equal(panel.querySelector('.slots-lead')?.textContent, '0 of 2 concurrency slots held')
+  assert.match(panel.textContent ?? '', /Nobody holds a concurrency slot\./)
   assert.match(panel.textContent ?? '', /orgtree_watchdog action=create kind=slot target=build/)
   assert.match(panel.textContent ?? '', /Nobody is waiting\./)
-  assert.match(panel.textContent ?? '', /No slot has been held yet\./)
+  assert.match(panel.textContent ?? '', /No concurrency slot has been held yet\./)
 })

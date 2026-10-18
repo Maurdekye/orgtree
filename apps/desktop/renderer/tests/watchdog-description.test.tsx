@@ -16,14 +16,14 @@ test('slot claim tracks its place from the current line and names its spent gran
   const first: Watchdog = { ...base, id: 'first/slot', kind: 'slot', target: 'builds', once: true, queued_at: '2026-10-18T07:00:00Z' }
   const second: Watchdog = { ...first, id: 'worker/slot', queued_at: '2026-10-18T07:01:00Z' }
   for (const [dog, dogs, expected] of [
-    [second, [first, second], /Slot claim: 2nd in line for builds/],
-    [second, [second], /Slot claim: 1st in line for builds/],
+    [second, [first, second], /Concurrency slot claim: 2nd in line for builds/],
+    [second, [second], /Concurrency slot claim: 1st in line for builds/],
     [{ ...second, state: 'paused' }, [first, second], /paused.*resuming rejoins at the back/],
-    [{ ...second, state: 'spent', spent: true, slot: 2, lease: 's_fixture' }, [first], /Granted slot 2 of builds \(lease s_fixture\), spent/],
+    [{ ...second, state: 'spent', spent: true, slot: 2, lease: 's_fixture' }, [first], /Granted concurrency slot 2 of builds \(lease s_fixture\), spent/],
   ] as Array<[Watchdog, Watchdog[], RegExp]>) {
     const view = await mountView(<WatchdogPanel slug="synthetic" dog={dog} dogs={dogs} toast={noop} close={noop} />, host => host)
     try {
-      assert.equal(view.el.querySelector('.wd-type')?.textContent, 'Slot claim')
+      assert.equal(view.el.querySelector('.wd-type')?.textContent, 'Concurrency slot claim', 'spelled out (user 2026-10-18 12:16Z)')
       assert.match(view.el.querySelector('.wd-description')?.textContent ?? '', expected)
       assert.doesNotMatch(view.el.textContent ?? '', /checked every|matching event|command \(/)
     } finally { await view.unmount() }
