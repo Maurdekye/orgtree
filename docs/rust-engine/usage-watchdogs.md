@@ -59,7 +59,7 @@ threshold/reset/freshness/lifecycle edges. No global threshold events are
 published, because each dog chooses its own threshold. Observation publication
 runs beside usage-history storage; no provider I/O or long transaction is added.
 
-Author evidence (2026-10-18, partial): watchdog desktop suite 14/14 passed,
+Author evidence (2026-10-18): watchdog desktop suite 14/14 passed,
 zero skips/cancellations, and a synthetic 1000x700 capture passed and was
 personally inspected. Five changed renderer files have no strict TypeScript
 diagnostics; the raw compiler still exits 1 with 27 lines of transitive
@@ -68,10 +68,23 @@ expected uppercase controls; the actual lowercase controls are now asserted.
 One existing unchecked string index in the modified description helper was
 made safe for strict indexed-access checks.
 
-Engine semantic red/green, tool-schema regression and cargo check remain
-unexecuted: grant-time RAM was 4,447,888 KiB, below the 5 GiB cargo floor.
-The renderer used a 3072MB kernel Job; its slot was released before waiting
-on the RAM watchdog. Evidence: the author's assigned build scope contains
-`usage-renderer-green`, `usage-visual` and `tmp/usage-typecheck.json`, plus
-the raw transitive diagnostic log. No live account, usage or hierarchy
-mutation is part of verification.
+The frozen engine red checkpoint `37c16f1` ran six intended semantic failures,
+0 passes/ignored, exit 101. At implementation `74b5828`, all 25 watchdog tests
+passed (including 12 usage-transition cases and configuration validation),
+0 failures/ignored. The tool-card schema regression passed 1/1. Cargo check
+passed, with one pre-existing unused HashMap import warning in unchanged
+`domain/tree.rs`. Commands used `-p orgtree-engine --bin orgtree-engine -j1`;
+test filters were `runtime::watchdogs::` and
+`all_tool_json_matches_pre_split_snapshot`. Engine phases used a 6144MB kernel
+Job; fresh starting RAM was 5,793,896 / 7,086,836 / 7,559,112 / 7,584,484 KiB
+for red/green/schema/check. Elapsed seconds: 471.939 / 99.447 / 1.034 / 39.932.
+Both grants were released immediately after their batches. The first grant
+had insufficient engine RAM, so only renderer work ran before release and a
+RAM watchdog/reclaim; no cargo was started below the 5 GiB floor.
+
+Evidence in the author's assigned build scope: `usage-verification` raw logs
+and process receipts, `usage-renderer-green`, `usage-visual`, and
+`tmp/usage-typecheck.json` with the raw transitive diagnostic log. These are
+focused unit/compile and synthetic UI checks, not a PostgreSQL runner/delivery
+or real-provider end-to-end test. No live account, usage or hierarchy mutation
+is part of verification. The final evidence edit changes documentation only.
