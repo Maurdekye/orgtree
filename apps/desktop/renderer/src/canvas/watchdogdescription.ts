@@ -55,7 +55,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
       : dog.kind === 'process' ? `an observed up-to-down transition from ${target}`
       : dog.kind === 'activity' ? `${pattern} turns and tool calls from ${target}`
       : `${pattern} ${target} engine events`
-    summary = `${alert[0].toUpperCase() + alert.slice(1)} after ${quiet} without ${source}. Only matching events reset this timer; other activity does not.`
+    summary = `${alert.charAt(0).toUpperCase() + alert.slice(1)} after ${quiet} without ${source}. Only matching events reset this timer; other activity does not.`
   }
   const polling = ['file', 'command', 'process'].includes(dog.kind)
   const cadence = dog.kind === 'slot' ? 'Granted when a project concurrency slot is free; no polling interval.'
