@@ -109,7 +109,7 @@ test('§2 the team gallery asks for team=1', async (t) => {
   assert.ok(urls.some((u) => u.includes('/documents?') && u.includes('node=boss') && u.includes('team=1')), JSON.stringify(urls))
 })
 
-test('§3 a project’s row names the project, with the agent that presented it beneath (user 2026-10-18 07:30Z)', async (t) => {
+test('§3 a project’s row names the project, with the agent that presented it inline (user 2026-10-18 07:30Z, 77170c0)', async (t) => {
   stubDocuments(t, [doc('d1', 'website', 'boss', 'Website plan'), doc('d2', 'dev5', 'dev5', 'UI sketch')])
   const view = await mountView(<AgentGalleryView slug="org" nid="boss" toast={noop} team />, (el) => el)
   t.after(() => view.unmount())
@@ -118,8 +118,8 @@ test('§3 a project’s row names the project, with the agent that presented it 
   assert.deepEqual(rows.map((r) => r.getAttribute('data-copy-agent-name')), ['website', 'dev5'],
     'the project, and an agent’s own card under the agent')
   assert.ok(rows[0]!.querySelector('.project-mark'), 'the project’s folder mark')
-  assert.equal(rows[0]!.querySelector('.doc-presented-by')?.textContent, 'presented by boss')
-  assert.equal(rows[1]!.querySelector('.doc-presented-by') === null, true, 'no extra line for an agent’s own card')
+  assert.equal(rows[0]!.querySelector('.doc-row-attribution')?.textContent, 'by boss')
+  assert.equal(rows[1]!.querySelector('.doc-row-attribution') === null, true, 'no extra attribution for an agent’s own card')
 })
 
 test('§3d the viewer’s header names the project and says who presented it (user 2026-10-18 07:30Z)', async (t) => {
@@ -144,29 +144,36 @@ test('§3d the viewer’s header names the project and says who presented it (us
   assert.deepEqual(focused, ['boss'], 'the agent’s name is a link')
 })
 
-test('§3b the presenter is a LINK: a click focuses that agent and does not select the row (review of a590555)', async (t) => {
+test('§3b the detail header presenter is a LINK while list row identities stay plain (77170c0)', async (t) => {
   stubDocuments(t, [doc('d1', 'website', 'boss', 'Website plan'), doc('d2', 'dev5', 'dev5', 'UI sketch')])
   const focused: string[] = []
   const view = await mountView(<AgentGalleryView slug="org" nid="boss" toast={noop} team
-    onFocusAgent={(id) => { focused.push(id) }} />, (el) => el)
+    onFocusAgent={(id) => { focused.push(id) }} initialDocument="d2" />, (el) => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(6) })
-  const selected = () => [...view.el.querySelectorAll('.doc-gallery-row.on')].length
-  const before = selected()
-  const link = view.el.querySelectorAll('.doc-gallery-row .l2')[1]?.querySelector<HTMLButtonElement>('button.cc-name-jump')
-  assert.ok(link, 'the second row\'s presenter is a button')
+  assert.equal(view.el.querySelectorAll('.doc-gallery-row .l2 button.cc-name-jump').length, 0,
+    'list row identities are plain text')
+  const link = view.el.querySelector<HTMLButtonElement>('.doc-pane-head button.cc-name-jump')
+  assert.ok(link, 'the detail pane header presenter is a button')
   assert.equal(link.textContent, 'dev5')
   await inAct(() => { link.click() })
   assert.deepEqual(focused, ['dev5'], 'focuses the presenting agent')
-  assert.equal(selected(), before, 'the row selection did not change')
 })
 
-test('§3c the team gallery header says whose documents it holds', async (t) => {
-  stubDocuments(t, [])
-  const team = await mountView(<AgentGalleryView slug="org" nid="boss" toast={noop} team />, (el) => el)
-  t.after(() => team.unmount())
+test('§3c the team gallery header says whose documents it holds, and the Team checkbox toggles between single-agent and team scope', async (t) => {
+  const urls = stubDocuments(t, [])
+  const view = await mountView(<AgentGalleryView slug="org" nid="boss" toast={noop} />, (el) => el)
+  t.after(() => view.unmount())
   await inAct(async () => { await flush(4) })
-  assert.match(team.el.textContent ?? '', /documents and HTML previews from boss and the agents under it/)
+  const check = view.el.querySelector('.gallery-team-check input[type="checkbox"]') as HTMLInputElement | null
+  assert.ok(check, 'the Presentations view carries the Team checkbox')
+  assert.equal(check.checked, false, 'unchecked by default')
+  assert.doesNotMatch(view.el.textContent ?? '', /and the agents under it/)
+  await inAct(() => { check.click() })
+  await inAct(async () => { await flush(6) })
+  assert.equal(check.checked, true, 'checking Team switches the same view to team scope')
+  assert.match(view.el.textContent ?? '', /documents and HTML previews from boss and the agents under it/)
+  assert.ok(urls.some((u) => u.includes('/documents?') && u.includes('node=boss') && u.includes('team=1')), JSON.stringify(urls))
 })
 
 /* ─── §4 a project's presentation chips ─────────────────────────────────── */

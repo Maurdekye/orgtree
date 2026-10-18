@@ -100,7 +100,7 @@ import { ConfirmModal, PilePicker } from './modals'
 import { AudienceFold, InboxView, RetiredFold } from './mail'
 import { AskCard } from './asks'
 import { useWorkItems } from './useworkitems'
-import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
+import { AgentDocketView, actionableAssignedCount, agentItems, teamItems } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner, useAgentSurfaceRoutes, revealAgentPanelTab } from './panelcorner'
 import { AgentTeamView } from './team'
@@ -2364,14 +2364,19 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const [workBump, setWorkBump] = useState(0)
   const [showArchivedDocket, setShowArchivedDocket] = useState(false)
   const [showBacklogDocket, setShowBacklogDocket] = useState(false)
+  const [teamDocket, setTeamDocket] = useState(false)
+  const [teamPresented, setTeamPresented] = useState(false)
   const [workPageFilter, setWorkPageFilter] = useState<import('../workpages').WorkPageOptions>({})
   const workFeed = useWorkItems(slug, view === 'docket' && showArchivedDocket,
-    view === 'docket' && showBacklogDocket, 15000, workBump, {...workPageFilter,agent:node.id})
+    view === 'docket' && showBacklogDocket, 15000, workBump,
+    { ...workPageFilter, ...(view === 'docket' && teamDocket ? { team: node.id } : { agent: node.id }) })
   const work = workFeed.value
-  const myWork = useMemo(() => agentItems(work, node.id, showArchivedDocket),
-    [work, node.id, showArchivedDocket])
-  const docketCount = useMemo(() => work?.assigned_count ?? actionableAssignedCount(work, node.id),
-    [work, node.id])
+  const myWork = useMemo(() => teamDocket
+    ? teamItems(work, node.id, [...map.values()], showArchivedDocket)
+    : agentItems(work, node.id, showArchivedDocket),
+    [teamDocket, work, node.id, map, showArchivedDocket])
+  const docketCount = useMemo(() => (!teamDocket ? work?.assigned_count : undefined) ?? actionableAssignedCount(work, node.id),
+    [teamDocket, work, node.id])
   const tabCount = (tab: string) => tab === 'inbox' ? node.mail_pending ?? 0
     : tab === 'docket' ? docketCount
       : tab === 'presented' ? node.documents_count ?? node.documents?.length ?? 0 : 0
@@ -4112,6 +4117,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <PanelCorner kind="agent-docket" slug={slug} nid={node.id} />
         <AgentDocketView slug={slug} nid={node.id} paging={{...workFeed.paging,setFilter:setWorkPageFilter}}
           mine={myWork} facts={workFacts} toast={toast} onFocusAgent={onJump}
+          team={teamDocket} onTeam={setTeamDocket}
           showArchived={showArchivedDocket}
           onShowArchived={setShowArchivedDocket}
           onShowBacklog={setShowBacklogDocket}
@@ -4127,6 +4133,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <div className="desk-tabpanel">
           <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
           <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast}
+            team={teamPresented} onTeam={setTeamPresented}
             onFocusAgent={onJump} refs={deskRefs}
             onReplyToDoc={canMail ? (d) => replyToPresentation(d) : undefined}
             onChanged={() => refresh(true)} />

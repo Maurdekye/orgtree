@@ -583,7 +583,32 @@ canvasTest('§10d the single-agent docket is still its own entry and still its o
       'ITS filter is unchanged: lead\'s own work, not its team\'s')
     assert.ok([...document.querySelectorAll('h3')].some((h) =>
       /· Docket/.test(h.textContent ?? '')), 'and it is still titled as itself')
+    const teamCheck = panel.querySelector('.docket-team input[type="checkbox"]') as HTMLInputElement | null
+    assert.ok(teamCheck, 'the Docket modal carries the Team checkbox')
+    assert.equal(teamCheck.checked, false, 'unchecked when opened via Docket')
+    await inAct(() => { teamCheck.click() })
+    await flush(6)
+    assert.equal(teamCheck.checked, true, 'checking Team switches the same modal to team scope')
+    assert.deepEqual(rowNames(panel), ['lead-task', 'mid-task'],
+      'the same modal now shows lead and its descendant')
+    assert.ok([...document.querySelectorAll('h3')].some((h) =>
+      /· Team docket/.test(h.textContent ?? '')), 'and updates its title to Team docket')
+    await inAct(() => { teamCheck.click() })
+    await flush(6)
+    assert.equal(teamCheck.checked, false, 'unchecking Team returns to single-agent scope')
+    assert.deepEqual(rowNames(panel), ['lead-task'])
   })
+
+test('§1e teamNodeIds also follows flat parent edges for the agent desk map', () => {
+  const flat = [
+    mkNode('lead'),
+    mkNode('mid', { parent: 'lead' }),
+    mkNode('deep', { parent: 'mid' }),
+    mkNode('outsider'),
+  ]
+  assert.deepEqual([...teamNodeIds(flat, 'lead')].sort(), ['deep', 'lead', 'mid'])
+  assert.deepEqual([...teamNodeIds(flat, 'mid')].sort(), ['deep', 'mid'])
+})
 
 // ------------------------------------------ §11/§12 what must not have moved
 test('§11 the single-agent filter is untouched — owner OR reviewer, at any generation', () => {

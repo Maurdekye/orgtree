@@ -2801,6 +2801,7 @@ button.cc-name:hover {
   min-width: 0;
 }
 .desk-presented-head .dim { overflow-wrap: anywhere; }
+.gallery-team-check { margin-left: auto; }
 .desk-presented-list {
   display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
   min-height: 0; max-height: min(45vh, 420px); overflow-y: auto;

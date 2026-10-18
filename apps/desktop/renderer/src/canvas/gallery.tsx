@@ -708,13 +708,14 @@ export interface AgentGalleryViewProps {
   /** TEAM presentations (user 2026-10-17 22:47Z): this node's and everyone's
    *  under it, passing through projects. A project's gallery is always so. */
   team?: boolean
+  onTeam?: (team: boolean) => void
 }
 
 /** Agent-scoped presentation gallery opened from a card action.  The list and
  * reader remain AgentGalleryView's single implementation; this wrapper only
  * gives that view the same movable/pinnable shell as inbox and docket. */
 export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
-  onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind = 'agent-gallery', team }: AgentGalleryViewProps & { close: () => void }) {
+  onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind = 'agent-gallery', team, onTeam }: AgentGalleryViewProps & { close: () => void }) {
   /** WHICH PRESENTATION THIS SURFACE IS SHOWING — the row on screen right now,
    *  NOT the one it was opened on.
    *
@@ -736,15 +737,19 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
    *  `setShown` is a useState setter, so its identity is stable and the
    *  report-upward effect below does not re-run on the render it causes. */
   const [shown, setShown] = useState<string | null>(initialDocument ?? null)
+  const [localTeam, setLocalTeam] = useState(!!team)
+  useEffect(() => { setLocalTeam(!!team) }, [team])
+  const effectiveTeam = onTeam ? !!team : localTeam
+  const handleTeam = (next: boolean) => { setLocalTeam(next); onTeam?.(next) }
   return (
-    <PinFrame kind={pinKind} title={team ? `Team presentations for ${nid}` : `Presented documents for ${nid}`}
-      restore={{ agent: nid, generation: node?.generation, ...(shown ? {document:shown} : {}), ...(team ? { team: true } : {}) }}
+    <PinFrame kind={pinKind} title={effectiveTeam ? `Team presentations for ${nid}` : `Presented documents for ${nid}`}
+      restore={{ agent: nid, generation: node?.generation, ...(shown ? {document:shown} : {}), ...(effectiveTeam ? { team: true } : {}) }}
       panel="settings wide gallery-modal" close={close}
       onPanelClick={openLightboxIfEligibleImage}>
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}
         onFocusAgent={onFocusAgent} onReply={onReply} refs={refs} onShown={setShown}
         onChanged={onChanged} initialDocument={initialDocument} initialLoaded={initialLoaded} selectedRow={selectedRow}
-        collapsible team={team} />
+        collapsible team={effectiveTeam} onTeam={handleTeam} />
     </PinFrame>
   )
 }
@@ -753,16 +758,22 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  Shares the org presentation layout (.mailer with left-hand list and
  *  right-hand reading pane) and behaviors (inline markdown reading, HTML
  *  mockup new-tab link, viewer dismiss, reply box, selection by ID),
- *  limited strictly to presentations made by the selected agent. */
+ *  limited strictly to presentations made by the selected agent (or its
+ *  subtree when the "Team" checkbox is checked). */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply,
   onReplyToDoc, refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
-  collapsible, team }: AgentGalleryViewProps) {
-  const w = useDocWindow(slug, nid, '', 0, team)
+  collapsible, team, onTeam }: AgentGalleryViewProps) {
+  const [localTeam, setLocalTeam] = useState(!!team)
+  useEffect(() => { setLocalTeam(!!team) }, [team])
+  const isProject = (node as { kind?: string } | undefined)?.kind === 'project'
+  const effectiveTeam = onTeam ? !!team : localTeam
+  const setTeam = (next: boolean) => { setLocalTeam(next); onTeam?.(next) }
+  const w = useDocWindow(slug, nid, '', 0, effectiveTeam)
   // a team list holds other nodes' cards, and a project's own list may hold
   // cards presented under its old name (the engine reads a project by id,
   // point 27): the engine scoped both, so their rows are not narrowed to `nid`
   // here (review of f50fc1e)
-  const wide = !!team || (node as { kind?: string } | undefined)?.kind === 'project'
+  const wide = effectiveTeam || isProject
   const [dismissed, setDismissed] = useState<string[]>([])
   const fallbackRows: DocRow[] = useMemo(() => {
     return (node?.documents ?? []).map((d) => ({
@@ -846,7 +857,15 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
       onClick={openLightboxIfEligibleImage}>
       <div className="gallery-head desk-presented-head">
         <b>Presented</b>
-        <span className="dim" data-copy-agent-name={nid}>documents and HTML previews from {nid}{team ? ' and the agents under it' : ''}</span>
+        <span className="dim" data-copy-agent-name={nid}>documents and HTML previews from {nid}{effectiveTeam ? ' and the agents under it' : ''}</span>
+        {!isProject && (
+          <label className="docket-check gallery-team-check"
+            title="include presentations from every agent under this one">
+            <input type="checkbox" checked={effectiveTeam}
+              onChange={(e) => setTeam(e.target.checked)} />
+            Team
+          </label>
+        )}
       </div>
       {rows.length === 0 ? (
         <DocListEmpty w={w} className="desk-presented-empty">

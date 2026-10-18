@@ -1997,6 +1997,7 @@ export default function App() {
       )}
       {agentGalleryId && slug && (
         <AgentGalleryModal slug={slug} nid={agentGalleryId} team={agentGalleryTeam}
+          onTeam={setAgentGalleryTeam}
           node={tree ? flatNodes(tree).get(agentGalleryId) : undefined}
           toast={toast}
           refs={galleryRefs}

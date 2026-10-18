@@ -771,6 +771,7 @@ function DocketSearchBox({ searchId, query, setQuery, boxRef, onKeyDown, onClear
 function DocketControlBar({ idBase, heading, search, disclosure,
   showArchived, onShowArchived, archivedCount,
   showBacklog, onShowBacklog, backlogCount,
+  team, onTeam,
   groupMode, onGroup, sortMode, onSort }: {
   /** prefix for the controls' ids: `<idBase>-group`, `-sort`, `-view-options` */
   idBase: string
@@ -784,6 +785,8 @@ function DocketControlBar({ idBase, heading, search, disclosure,
   showBacklog: boolean
   onShowBacklog: (show: boolean) => void
   backlogCount?: number
+  team?: boolean
+  onTeam?: (team: boolean) => void
   groupMode: DocketGroupMode
   onGroup: (m: DocketGroupMode) => void
   sortMode: DocketSortMode
@@ -841,6 +844,14 @@ function DocketControlBar({ idBase, heading, search, disclosure,
           <span id={`${idBase}-sort-why`} className="docket-sort-why">{why}</span>
         </div>
         <div className="docket-filterbar">
+          {onTeam && (
+            <label className="docket-check docket-team"
+              title="include work items owned by any descendant of this agent">
+              <input type="checkbox" checked={!!team}
+                onChange={(e) => onTeam(e.target.checked)} />
+              Team
+            </label>
+          )}
           <label className="docket-check docket-showarchived"
             title="include archived work items — done items an hour after their last docket update, dropped items at once">
             <input type="checkbox" checked={showArchived}
@@ -1657,14 +1668,27 @@ export function agentItems(data: {
  *  ⚠ READ FRESH, NEVER CACHED. Membership is recomputed from whatever tree the
  *  caller is holding, so a reparent or a hire shows up on the next refresh
  *  without anyone invalidating anything. */
-export function teamNodeIds(roots: TreeNode[] | undefined,
+export function teamNodeIds(roots: readonly (TreeNode & { parent?: string })[] | undefined,
                             rootId: string): Set<string> {
   const ids = new Set<string>([rootId])
-  const collect = (n: TreeNode) => {
-    if (n.id) ids.add(n.id)
-    for (const c of n.children ?? []) collect(c)
+  const byParent = new Map<string, (TreeNode & { parent?: string })[]>()
+  const index = (nodes?: readonly (TreeNode & { parent?: string })[]) => {
+    for (const n of nodes ?? []) {
+      if (n.parent) {
+        const list = byParent.get(n.parent) ?? []
+        list.push(n)
+        byParent.set(n.parent, list)
+      }
+      index(n.children)
+    }
   }
-  const find = (nodes?: TreeNode[]): boolean => {
+  index(roots)
+  const collect = (n: TreeNode & { parent?: string }) => {
+    if (n.id) ids.add(n.id)
+    for (const c of n.children ?? []) if (!ids.has(c.id)) collect(c)
+    for (const c of byParent.get(n.id) ?? []) if (!ids.has(c.id)) collect(c)
+  }
+  const find = (nodes?: readonly (TreeNode & { parent?: string })[]): boolean => {
     for (const n of nodes ?? []) {
       if (n.id === rootId) { collect(n); return true }
       if (find(n.children)) return true
@@ -1742,7 +1766,8 @@ export function actionableAssignedCount(data: {
  *  the work is yours. */
 export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   onChanged, showArchived = false, onShowArchived = () => {}, refs,
-  emptyText, onShowBacklog, references, boundedReferences = false, workRevision, paging }: {
+  emptyText, onShowBacklog, references, boundedReferences = false, workRevision, paging,
+  team, onTeam }: {
   slug: string
   nid: string
   /** this agent's items, already selected by `agentItems` — null while the
@@ -1761,6 +1786,8 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   references?: WorkItemsPayload['references']
   boundedReferences?: boolean
   workRevision?: string
+  team?: boolean
+  onTeam?: (team: boolean) => void
   /** THE DESK'S OWN REFERENCE WIRING, passed down whole rather than rebuilt.
    *  Required, not optional: a fallback world here would be a second answer to
    *  the same question on the same desk, and the two would drift. */
@@ -1911,6 +1938,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
         <DocketControlBar idBase={controlsId}
           search={{ searchId, query, setQuery, boxRef: searchBox, onKeyDown: onSearchKey, onClear: clearSearch,
             count: searching ? (paging ? `${paging.total} match` : `${rowCount} of ${searchableCount} match`) : '' }}
+          team={team} onTeam={onTeam}
           showArchived={showArchived} onShowArchived={onShowArchived}
           showBacklog={showBacklog} onShowBacklog={setShowBacklog}
           groupMode={groupMode} onGroup={mode => { setGroupMode(mode); writeGroupMode(mode) }}
@@ -1925,10 +1953,13 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
           ? searching
             ? <div className="dim pad docket-nomatch">no items match “{query}”</div>
             : <div className="dim pad">
-              {emptyText ?? <>
+              {emptyText ?? (team ? <>
+                no docket items are assigned to {nid} or to any agent below it —
+                this team has nothing on the docket
+              </> : <>
                 no docket items are assigned to {nid} — assignment is ownership,
                 so this is everything it is responsible for
-              </>}
+              </>)}
             </div>
           : (
             <div className="mailer" tabIndex={-1} ref={steps.rootRef} onKeyDown={steps.onKeyDown}>
@@ -1941,12 +1972,15 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
                 {rowWindow.windows.map(section => {
                   const categoryFolded = Boolean(section.heading && !searching && collapsedCategories.has(section.key))
                   const rowsId = `${controlsId}-${section.key}-rows`
-                  const categoryName = `${section.heading}`
+                  const categoryName = section.agent ? `${section.agent} category` : `${section.heading}`
                   return (
                     <div key={section.key}
                       className={'docket-section' + (section.tone ? ' tone-' + section.tone : '')}>
                       {section.heading && <div className="docket-group-head" data-docket-measure={'head:' + section.key}>
-                        <span>{section.heading}</span>
+                        {section.agent
+                          ? <GroupAgentHead agent={section.agent} items={section.items}
+                              facts={facts} onFocusAgent={onFocusAgent} />
+                          : <span>{section.heading}</span>}
                         <button type="button" className="docket-category-toggle"
                           title={`${categoryFolded ? 'expand' : 'collapse'} ${categoryName}`}
                           aria-label={`${categoryFolded ? 'Expand' : 'Collapse'} ${categoryName}`}
