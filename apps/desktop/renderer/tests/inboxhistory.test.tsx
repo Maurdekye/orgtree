@@ -53,7 +53,7 @@ for (const folder of ['inbox', 'sent'] as const) test(`user ${folder} scrolls pa
   for (let i = 0; i < 24; i++) await inAct(async () => {
     list.dispatchEvent(new window.Event('scroll', { bubbles: true })); await flush(2)
   })
-  assert.equal(view.el.textContent!.includes(`${folder === 'sent' ? 'sent' : 'incoming'}-history-1`), true, 'the oldest retained mail must be reachable beyond the feed cap')
+  assert.equal(new RegExp(`${folder === 'sent' ? 'sent' : 'incoming'}-history-1(?![0-9])`).test(view.el.textContent!), true, 'the oldest retained mail must be reachable beyond the feed cap')
   assert.equal(list.scrollTop, 900, 'appending older rows must retain scroll offset')
   assert.equal(view.el.querySelector('.mailer-read')?.textContent, selected, 'paging must retain the selected mail')
   const requested = calls.filter(c => c.folder === folder)
