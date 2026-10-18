@@ -30,7 +30,7 @@ app.whenReady().then(async () => {
       assert.deepEqual(state.counts.map(c => c.label), ['approximately 1,234 output tokens', 'approximately 42 output tokens', '321 thinking tokens', '0 output tokens'])
       if (mode === 'after') {
         for (const [i, suffix] of ['~1.2kt', '~42t', '321t', '0t'].entries()) assert.equal(state.counts[i].text.endsWith(suffix), true)
-        assert.deepEqual(state.counts.map(c => c.title.split('\n')[0]), ['~1,234t', '~42t', '321t', '0t'])
+        assert.deepEqual(state.counts.map(c => c.title.split('\n')[0]), ['tool output: ~1,234t', 'tool output: ~42t', 'thinking: 321t', 'tool output: 0t'])
       }
       for (const count of state.counts) {
         if (mode === 'before') assert.equal(count.svg, 1)

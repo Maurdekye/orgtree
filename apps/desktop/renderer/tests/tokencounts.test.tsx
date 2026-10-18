@@ -25,14 +25,14 @@ test('compact token previews append t and kt with existing k rounding', async t 
 test('hover shows the full token figure and preserves estimate qualification', async t => {
   const view = await mountView(<TokenCount count={4321} />, text)
   t.after(() => view.unmount())
-  assert.equal(view.el.querySelector('.token-count')?.getAttribute('title')?.split('\n')[0], '4,321t')
+  assert.equal(view.el.querySelector('.token-count')?.getAttribute('title')?.split('\n')[0], 'tool output: 4,321t')
   await view.render(<TokenCount count={4321} estimated sampled />)
   const title = view.el.querySelector('.token-count')?.getAttribute('title') ?? ''
-  assert.equal(title.split('\n')[0], '~4,321t')
+  assert.equal(title.split('\n')[0], 'tool output: ~4,321t')
   assert.match(title, /estimated.*sampled/is)
   assert.equal(view.el.querySelector('.token-count')?.getAttribute('aria-label'), 'approximately 4,321 output tokens')
   await view.render(<TokenCount count={4321} thinking />)
-  assert.equal(view.el.querySelector('.token-count')?.getAttribute('title')?.split('\n')[0], '4,321t')
+  assert.equal(view.el.querySelector('.token-count')?.getAttribute('title')?.split('\n')[0], 'thinking: 4,321t')
 })
 
 test('tool output tokens retain the tilde while running and after completion', async t => {
