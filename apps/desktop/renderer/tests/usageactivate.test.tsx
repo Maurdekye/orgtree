@@ -83,8 +83,8 @@ test('open-behind activation raises the pinned window instead of closing it', as
   assert.ok(usage.z() <= MODAL_Z_TOP && docket.z() <= MODAL_Z_TOP,
     'both windows stay inside the pinned band, below canvas HUD')
 
-  // on top, the same click means what it always meant: toggle off
-  assert.equal(modalToggleAction('usage', true, ORG), 'close')
+  // USER 2026-10-18 12:09Z: an open action still activates the top pin.
+  assert.equal(modalToggleAction('usage', true, ORG), 'raise')
   // and closed means open, front by fresh registration
   assert.equal(modalToggleAction('usage', false, ORG), 'open')
   // an unpinned surface keeps the buttons' historical answer
@@ -119,13 +119,14 @@ test('toggleOrRaiseModal is kind-agnostic: every toggle button gets the same rul
   })
   assert.deepEqual(sets, [], 'raise leaves the open state untouched')
   assert.ok(docket.z() > gallery.z(), 'the docket window came to the front')
-  // on top: the click means close, exactly as before
+  // on top: an open action keeps the window open (user 2026-10-18 12:09Z)
   toggleOrRaiseModal('docket', true, (v) => sets.push(v), ORG)
-  assert.deepEqual(sets, [false], 'on top, the toggle still closes')
-  // closed: the click opens
+  assert.deepEqual(sets, [], 'on top, opening still only activates')
+  // A closed panel has unmounted its live surface; its saved pin may remain.
+  await docket.unmount()
   toggleOrRaiseModal('docket', false, (v) => sets.push(v), ORG)
-  assert.deepEqual(sets, [false, true], 'closed, the toggle opens')
-  await gallery.unmount(); await docket.unmount()
+  assert.deepEqual(sets, [true], 'closed, the opener mounts it again')
+  await gallery.unmount()
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
 })
 

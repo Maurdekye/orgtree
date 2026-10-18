@@ -105,6 +105,19 @@ const windowLives = (surface: WindowSurface): boolean => {
   try { return !surface.window.closed } catch { return false }
 }
 
+/** Live panel in this organization, optionally constrained to what its current
+ * content shows. Tabs must not surface another node's panel; shell openers may
+ * retarget the one panel of that kind before revealing its existing window. */
+export const detachedPanel = (kind: string, org: string | null, identity?: WindowRestore): WindowSurface | undefined =>
+  openSurfaces().find(s => s.kind === kind && s.org === org && windowLives(s)
+    && (!identity || Object.entries(identity).every(([key, value]) =>
+      s.identity?.()?.[key as keyof WindowRestore] === value)))
+
+export function revealDetachedPanel(kind: string, org: string | null, identity?: WindowRestore): boolean {
+  const surface = detachedPanel(kind, org, identity)
+  return surface ? revealSurface(surface) : false
+}
+
 /** The popped-out window already showing this exact presentation, if there is
  *  one. Identity is the document's own id WITHIN its organization: two orgs
  *  are separate namespaces, so a window belonging to another org is never an

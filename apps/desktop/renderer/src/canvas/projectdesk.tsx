@@ -25,7 +25,7 @@ import { InboxView } from './mail'
 import { useWorkItems } from './useworkitems'
 import { AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { AgentGalleryView } from './gallery'
-import { PanelCorner } from './panelcorner'
+import { PanelCorner, revealAgentPanelTab } from './panelcorner'
 import { AgentTeamView } from './team'
 import { PopoutButton, PopoutWindowControls, useSurface } from '../popout'
 import type { RefRoutes } from './reflinks'
@@ -399,7 +399,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             </span>
             <span className="cc-tabs">
               {tabs.map((v) => (
-                <button key={v} data-tab={v} className={shown === v ? 'on' : ''} onClick={() => setView(v)}>
+                <button key={v} data-tab={v} className={shown === v ? 'on' : ''}
+                  onClick={() => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v) }}>
                   {v}{v === 'slots' ? <>{' '}<span className="tab-count">{slots.held.length}/{slots.total}</span></>
                     : count(v) > 0 ? <>{' '}<span className="tab-count">{count(v)}</span></> : ''}
                 </button>

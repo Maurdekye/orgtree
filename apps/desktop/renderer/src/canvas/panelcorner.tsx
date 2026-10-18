@@ -26,10 +26,10 @@ import { createContext, useContext, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { DocIcon, DocketIcon, MailIcon, PinIcon, ViewListIcon } from '../icons'
 import { isMobile } from '../mobile'
-import { openSurfaces, revealSurface, subscribeWindows, windowRevision } from '../windowlife'
+import { detachedPanel, revealSurface, subscribeWindows, windowRevision } from '../windowlife'
 import {
   forgetModalOpen, modalPinsAvailable, requestSurfaceAction, unpinModal,
-  useModalPin,
+  useModalPin, revealOpenPanel,
 } from './modalpin'
 
 /** The agent-scoped surfaces that have BOTH a desk tab and a modal of their
@@ -43,12 +43,10 @@ export type AgentPanelKind = 'agent-gallery' | 'agent-docket' | 'node-inbox' | '
  *  route of its own, because "the same as right-clicking the agent" is the
  *  requirement. So the shell hands its EXISTING openers down. */
 export interface AgentSurfaceRoutes {
-  /** exactly what the agent's right-click entry for this surface invokes,
-   *  toggle-off rule and all */
+  /** Exactly the node menu's activation route: reveal an existing window or
+   * show the panel. Opening never closes an already visible pinned panel. */
   open: (kind: AgentPanelKind, agentId: string) => void
-  /** the same destination WITHOUT the entry's toggle-off. Pin and pop out both
-   *  need a surface to act on, so they may not use an opener that can close the
-   *  very thing they are about to move. */
+  /** Ensure the surface exists for its pin/pop-out action to act on. */
   show: (kind: AgentPanelKind, agentId: string) => void
   /** the agent's settings and lineage panels — exactly what the canvas card's
    *  gear and `gen N` badge invoke. A desk falls back to these when its host
@@ -81,8 +79,18 @@ const PANELS: Record<AgentPanelKind, { noun: string; icon: ReactNode }> = {
 }
 
 /** the popped-out window this surface is in, if it is in one */
-const windowFor = (kind: AgentPanelKind, org: string | null) =>
-  openSurfaces().find((s) => s.kind === kind && s.org === org)
+const windowFor = (kind: AgentPanelKind, org: string | null, nid: string) =>
+  detachedPanel(kind, org, { agent: nid })
+
+const PANEL_TABS: Readonly<Record<string, AgentPanelKind | undefined>> = {
+  inbox: 'node-inbox', docket: 'agent-docket', presented: 'agent-gallery', team: 'agent-team',
+}
+/** Both kinds of desk use the same mapping and activation rule. A missing
+ * panel leaves normal inline tab selection intact. */
+export function revealAgentPanelTab(tab: string, org: string, agent: string, generation?: number): boolean {
+  const kind = PANEL_TABS[tab]
+  return !!kind && revealOpenPanel(kind, org, { agent, ...(generation === undefined ? {} : { generation }) })
+}
 
 /**
  * The three corner buttons for one desk tab.
@@ -106,7 +114,7 @@ export function PanelCorner({ kind, slug, nid }: {
   // 2026-09-10 raise-instead-of-close ruling was about.
   const pinned = useModalPin(kind, slug) !== null
   useSyncExternalStore(subscribeWindows, windowRevision)
-  const detached = !!windowFor(kind, slug)
+  const detached = !!windowFor(kind, slug, nid)
   if (!routes || isMobile) return null
   const { noun, icon } = PANELS[kind]
   const windows = modalPinsAvailable()
@@ -131,7 +139,7 @@ export function PanelCorner({ kind, slug, nid }: {
     // second one — the same answer "Show desk window" gives in the agent menu.
     // Redocking is deliberately NOT offered from out here: the title bar's ↙ is
     // in the window, where the reader can see what they are returning.
-    const open = windowFor(kind, slug)
+    const open = windowFor(kind, slug, nid)
     if (open) { revealSurface(open); return }
     routes.show(kind, nid)
     requestSurfaceAction(kind, slug, 'popout')

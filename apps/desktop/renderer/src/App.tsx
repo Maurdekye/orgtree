@@ -132,7 +132,7 @@ import { usageRefreshDisabledReason } from './usagerefreshpolicy'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
-import { closeIfCentred, isModalPinned, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
+import { closeIfCentred, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
@@ -1871,21 +1871,9 @@ export default function App() {
                 openDocAt={docJump}
                 onOpenDocHandled={() => setDocJump(null)}
                 onOpenAgentGallery={(id, opts) => {
-                  // the same shortcut again is an activation click: raise a
-                  // pinned window sitting behind, toggle off only from on top
-                  // — EXCEPT for `keepOpen`, which is the desk corner's pin and
-                  // pop-out asking for a surface to act on. Those two must never
-                  // close the very panel they are about to move, so they opt out
-                  // of the toggle and keep the rest of the route.
-                  // the same agent in the OTHER scope switches the window over
-                  // rather than toggling it off (review of a590555)
-                  const sameScope = agentGalleryTeam === !!opts?.team
+                  // Open always activates the one gallery surface, preserving
+                  // its native window and retargeting its content if necessary.
                   setAgentGalleryTeam(!!opts?.team)
-                  if (!opts?.keepOpen && sameScope && agentGalleryId === id && isModalPinned('agent-gallery', slug)) {
-                    if (pinnedModalBehind('agent-gallery', slug)) raisePinnedModal('agent-gallery', slug)
-                    else setAgentGalleryId(null)
-                    return
-                  }
                   setAgentGalleryId(id)
                   raisePinnedModal('agent-gallery', slug)
                 }}

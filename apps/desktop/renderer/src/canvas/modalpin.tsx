@@ -2,7 +2,7 @@ import { beginOpen } from '../opentiming'
 import { pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap, onViewportGeometry } from './pinspace'
 import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, PopoutWindowControls, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
-import { detachedKind } from '../windowlife'
+import { detachedKind, revealDetachedPanel } from '../windowlife'
 // canvas/modalpin.tsx — PINNING A MODAL TO THE WINDOW (user spec 2026-09-06):
 // "most openable modals in the app should be able to be pinned to the window
 // and dragged around, like pinned agent windows. this goes for inboxes,
@@ -344,30 +344,41 @@ export const pinnedModalBehind = (kind: string, org: string | null = null): bool
   if (!me) return false
   return peers.some((p) => p.order > me.order)
 }
-/** raise a pinned surface in BOTH stores: the persistent modal-pin band and
- *  the transient shared plane the live z actually comes from */
+/** Activate the owning native window when detached; otherwise raise the pin
+ * in BOTH stores, including the transient plane the live z comes from. */
 export const raisePinnedModal = (kind: string, org: string | null = null): void => {
+  if (revealDetachedPanel(kind, org)) return
   raiseModal(kind, org)
   raisePinSurface(pinSurfaceKey(org ?? '', kind, true))
 }
-/** What a header TOGGLE button's click should do to its surface (user ruling
- *  2026-09-10 16:36: clicking a button to toggle ON a pinned modal must bring
- *  it to the FRONT). The already-open-behind case is the trap: a plain toggle
- *  CLOSES the hidden window — the user, who clicked to bring it up, sees
- *  nothing happen and has to click twice. So: raise when open-but-behind,
- *  close only when open on top, open otherwise. An unpinned surface keeps the
- *  buttons' historical answer — open (its centred overlay covers the button,
- *  so a re-press is only ever a restore edge case, never a dismissal). */
+/** Open actions activate a live window before changing local open/tab state.
+ * A saved pin alone is not a mounted panel. Identity constraints are used by
+ * desk tabs, which must leave another node's panel alone. */
+export function revealOpenPanel(kind: string, org: string | null, identity?: WindowRestore): boolean {
+  if (revealDetachedPanel(kind, org, identity)) return true
+  const key = pinSurfaceKey(org ?? '', kind, true)
+  if (!isModalPinned(kind, org) || !readPinSurfaces().some(s => s.key === key)) return false
+  if (identity) {
+    const current = readModalOpen(org).find(s => s.kind === kind)?.restore
+    if (!Object.entries(identity).every(([key, value]) => current?.[key as keyof WindowRestore] === value)) return false
+  }
+  raisePinnedModal(kind, org)
+  return true
+}
+/** USER 2026-10-18 12:09Z supersedes the old top-pin toggle-off rule:
+ * opening a panel activates it even when already on top. Closing stays in
+ * the panel's own controls. An unpinned or closed surface opens normally. */
 export const modalToggleAction = (kind: string, open: boolean,
-  org: string | null = null): 'open' | 'close' | 'raise' => {
+  org: string | null = null): 'open' | 'raise' => {
   if (!isModalPinned(kind, org)) return 'open'
   if (!open) return 'open'
-  return pinnedModalBehind(kind, org) ? 'raise' : 'close'
+  return 'raise'
 }
 /** the one-call form every toggle button uses: applies modalToggleAction to
  *  the button's own open state — raise leaves `open` untouched */
 export const toggleOrRaiseModal = (kind: string, open: boolean,
   set: (v: boolean) => void, org: string | null = null): void => {
+  if (revealOpenPanel(kind, org)) return
   const action = modalToggleAction(kind, open, org)
   if (action === 'open' && (kind === 'docket' || kind === 'inbox'))
     beginOpen(kind === 'inbox' ? 'mail' : 'docket',org ?? '')

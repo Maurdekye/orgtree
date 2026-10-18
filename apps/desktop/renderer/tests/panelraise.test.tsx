@@ -2,7 +2,7 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { toggleOrRaiseModal, pinModal, forgetModalPins, forgetModalOpenCache, rememberModalOpen, pinnedModalBehind } from '../src/canvas/modalpin'
+import { toggleOrRaiseModal, pinModal, forgetModalPins, forgetModalOpenCache, rememberModalOpen, pinnedModalBehind, revealOpenPanel } from '../src/canvas/modalpin'
 import { pinSurfaceKey, updatePinSurface, removePinSurface, readPinSurfaces } from '../src/canvas/pinspace'
 import { registerWindow, openSurfaces } from '../src/windowlife'
 import { DeskChat } from '../src/canvas/desk'
@@ -10,6 +10,7 @@ import { ProjectDesk } from '../src/canvas/projectdesk'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { AgentNavProvider, useAgentNavRegistry } from '../src/canvas/agentnav'
 import { resetConvos } from '../src/convo'
+import { CurrentOrg, MovableSurface, PopoutButton } from '../src/popout'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
@@ -119,4 +120,63 @@ test('global opener ignores another organization and opens normally', t => {
   setup(t); const raised = detached(t, 'inbox', undefined, 'other-org'), state: boolean[] = []
   toggleOrRaiseModal('inbox', false, v => state.push(v), org)
   assert.equal(raised(), 0); assert.deepEqual(state, [true])
+})
+
+test('closed windows and another node/generation do not swallow a normal tab open', t => {
+  setup(t)
+  const closed = detached(t, 'node-inbox', 'worker', org, true)
+  const state: boolean[] = []
+  toggleOrRaiseModal('node-inbox', false, v => state.push(v), org)
+  assert.equal(closed(), 0); assert.deepEqual(state, [true])
+  const other = detached(t, 'agent-team', 'other-worker')
+  assert.equal(revealOpenPanel('agent-team', org, { agent: 'worker', generation: 1 }), false)
+  assert.equal(other(), 0)
+  const generation = detached(t, 'agent-docket', 'worker')
+  assert.equal(revealOpenPanel('agent-docket', org, { agent: 'worker', generation: 2 }), false)
+  assert.equal(generation(), 0)
+})
+
+test('a dormant saved pin is not an open panel; a mismatched pinned identity stays behind', t => {
+  setup(t); pinModal('agent-team', rect, org)
+  assert.equal(revealOpenPanel('agent-team', org, { agent: 'worker' }), false)
+  rememberModalOpen('agent-team', org, { agent: 'other-worker', generation: 1 })
+  updatePinSurface(pinSurfaceKey(org, 'agent-team', true), org, rect, true)
+  updatePinSurface(pinSurfaceKey(org, 'covering-desk'), org, rect, false)
+  assert.equal(revealOpenPanel('agent-team', org, { agent: 'worker', generation: 1 }), false)
+  assert.equal(pinnedModalBehind('agent-team', org), true)
+})
+
+test('a real MovableSurface opener reuses its window and sends its exact native focus command', async t => {
+  setup(t)
+  const realOpen = window.open, host = window as Window & { orgtreeDesktop?: unknown }, realBridge = host.orgtreeDesktop
+  const g = globalThis as Record<string, unknown>, realObserver = g.MutationObserver
+  g.MutationObserver = (window as unknown as Record<string, unknown>).MutationObserver
+  const doc = document.implementation.createHTMLDocument('synthetic panel')
+  let opened = 0, focused = 0
+  const commands: string[] = []
+  const child = { document: doc, closed: false, focus: () => { focused++ }, close: noop,
+    screenX: 0, screenY: 0, outerWidth: 900, outerHeight: 700,
+    addEventListener: noop, removeEventListener: noop,
+    requestAnimationFrame: (cb: (at: number) => void) => setTimeout(() => cb(0), 0), cancelAnimationFrame: clearTimeout }
+  Object.defineProperty(doc, 'defaultView', { value: child, configurable: true })
+  window.open = (() => { opened++; return child as unknown as Window }) as typeof window.open
+  host.orgtreeDesktop = { focusPopout: (name: string) => { commands.push(name); return Promise.resolve() } }
+  const view = await mountView(<CurrentOrg.Provider value={org}>
+    <MovableSurface kind="inbox" title="Inbox" org={org}><input defaultValue="retained draft" /><PopoutButton /></MovableSurface>
+  </CurrentOrg.Provider>, el => el)
+  t.after(async () => {
+    await view.unmount(); window.open = realOpen
+    if (realBridge === undefined) delete host.orgtreeDesktop; else host.orgtreeDesktop = realBridge
+    if (realObserver === undefined) delete g.MutationObserver; else g.MutationObserver = realObserver
+  })
+  const input = view.el.querySelector('input')
+  await inAct(async () => { view.el.querySelector<HTMLButtonElement>('[aria-label="Open in new window"]')!.click(); await flush() })
+  const state: boolean[] = []
+  toggleOrRaiseModal('inbox', true, v => state.push(v), org)
+  assert.equal(opened, 1, 'no second window.open')
+  assert.equal(focused > 0, true)
+  assert.equal(commands.length, 1, 'native restore/focus requested once')
+  assert.match(commands[0]!, /^orgtree-popout-\d+$/)
+  assert.equal(doc.querySelector('input'), input, 'same live DOM and draft retained')
+  assert.equal(input?.value, 'retained draft'); assert.deepEqual(state, [])
 })

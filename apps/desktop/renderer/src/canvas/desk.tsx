@@ -102,7 +102,7 @@ import { AskCard } from './asks'
 import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
-import { PanelCorner, useAgentSurfaceRoutes } from './panelcorner'
+import { PanelCorner, useAgentSurfaceRoutes, revealAgentPanelTab } from './panelcorner'
 import { AgentTeamView } from './team'
 import { DogChip, useDeskDogs, useDogRoute } from './deskdogs'
 import { AgentSlotChips } from './slotchips'
@@ -3555,7 +3555,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           <span className="cc-tabs">
             {(['chat', 'inbox', 'docket', 'presented', 'team'] as const).map((v) => (
               <button key={v} data-tab={v} className={view === v ? 'on' : ''}
-                onClick={() => setView(v)}>
+                onClick={() => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v) }}>
                 {v}{tabCount(v) > 0
                   ? <>{' '}<span className={'tab-count prov-'
                       + providerOf(node.tier ?? '')}>

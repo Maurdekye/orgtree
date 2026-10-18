@@ -81,7 +81,7 @@ import { clearRegion, fitZoom } from './clearRect'
 import type { Region } from './clearRect'
 import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
-import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, requestSurfaceAction, usePersistedModalOpen } from './modalpin'
+import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
@@ -513,20 +513,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }, [])
   const toggleNodeSurface = useCallback((kind: string, id: string,
     set: (v: string | null | ((current: string | null) => string | null)) => void) => {
-    if (pinnedModalBehind(kind, slug)) {
-      raisePinnedModal(kind, slug); set(id); return
-    }
-    set((current) => isModalPinned(kind, slug) && current === id ? null : id)
-  }, [])
-  /** The same route WITHOUT the toggle-off above. A desk corner's pin and
-   *  pop-out have to end with the surface on screen — it is what they measure
-   *  and what they move — so an opener that can close it is the one thing they
-   *  cannot use. Everything else about the route is shared. */
-  const showNodeSurface = useCallback((kind: string, id: string,
-    set: (v: string | null | ((current: string | null) => string | null)) => void) => {
-    if (pinnedModalBehind(kind, slug)) raisePinnedModal(kind, slug)
     set(id)
-  }, [])
+    raisePinnedModal(kind, slug)
+  }, [slug])
+  // USER 2026-10-18 12:09Z: an open action activates an existing panel even
+  // when it is already on top. Pin/pop-out and the menu share this same route.
+  const showNodeSurface = toggleNodeSurface
   const toggleDog = useCallback((id: string) => {
     if (pinnedModalBehind('watchdog', slug)) {
       raisePinnedModal('watchdog', slug); setDogView(id); return
@@ -3651,10 +3643,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // ⚠ THE DESK'S CORNER BUTTONS GET THE SHELL'S OWN OPENERS, NOT COPIES. These
   // are literally the callbacks the agent's context menu is handed a few
   // hundred lines above (`trayRowMenu`, and the card's own props below), so
-  // "the modal button does the same as right-clicking the agent" is true by
-  // construction rather than by two call sites agreeing today. `show` is the
-  // same route without the toggle-off, for pin and pop-out — see
-  // canvas/panelcorner.tsx.
+  // The modal button and canonical menu share one activation route. Pin and
+  // pop-out use its ensure-open form — see canvas/panelcorner.tsx.
   const agentSurfaceRoutes = useMemo((): AgentSurfaceRoutes => ({
     open: (kind, id) => {
       if (kind === 'agent-gallery') onOpenAgentGallery?.(id)
@@ -4257,7 +4247,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             aria-label="org inbox"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
-              if (pinnedModalBehind('org-inbox', slug)) { raisePinnedModal('org-inbox', slug); return }
+              if (revealOpenPanel('org-inbox', slug)) return
               setOiOpen((v) => isModalPinned('org-inbox', slug) ? !v : true)
             }}>
             {lod === 'mini' ? <PublicIcon className="oi-far-icon" fontSize="inherit" /> : <>
