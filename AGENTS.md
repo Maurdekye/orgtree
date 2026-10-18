@@ -19,6 +19,9 @@
   external-inbox visibility, read/delivery states and project queue metadata.
   Loaded older rows merge with the live head without rewinding the cursor or
   changing selection; replies, reads and deletion keep their original routes.
+  Normalize omitted/null live folders before indexing them; validate pages
+  before React state updates so malformed 2xx bodies retain rows/cursor and
+  offer Retry. Null/undefined live windows keep their loading meaning.
   See [mail history paging](docs/rust-engine/mail-history-paging.md).
   [decided: user/coordinator 2026-10-18; verified: `domain/mail_history.rs`,
   `http/{mailbox,nodes}.rs`, `usemailhistory.ts`, `App.tsx`, `canvas/mail.tsx`]

@@ -80,6 +80,17 @@ const tree = {
 function serve(t: TestContext) {
   const had = (globalThis as { fetch?: typeof fetch }).fetch
   installFetch(new FakeServer())
+  const inner = globalThis.fetch
+  // The generic FakeServer fallback is {ok:true}, not an inbox response.
+  // Both the live window and its explicit history page use the folder contract.
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(url), 'http://fixture.invalid').pathname
+    if ((init?.method ?? 'GET') === 'GET' && /\/nodes\/[^/]+\/inbox$/.test(path)) {
+      return Promise.resolve(new Response(JSON.stringify({ pending: [], delivered: [], sent: [], next_cursor: null }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    }
+    return inner(url, init)
+  }) as typeof fetch
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
 }
 
@@ -335,6 +346,7 @@ test("§10 the desk's message box: by default one mail to the project's own inbo
   await inAct(() => { el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="inbox"]')!.click() })
   await flush(2)
   assert.ok(el.querySelector('.project-composer textarea'), 'under every tab, as on an agent desk')
+  assert.equal(el.textContent!.includes('Could not load older mail'), false, 'the inbox fixture implements live and history response shapes')
 })
 
 test("§10c a failed audience grant after delivery says so in the toast (coordinator 2026-10-18 09:43Z)", async (t) => {

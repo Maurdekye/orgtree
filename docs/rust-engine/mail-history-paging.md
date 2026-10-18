@@ -28,6 +28,13 @@ rows, retaining scroll offset and selection. User read/delete acknowledgements
 also update retained older rows. A failed history request retains the current
 list and offers Retry. Tag-filtered mail keeps its existing separate pager.
 
+Live windows normalize missing/null folder arrays before reading membership or
+merging pages. An omitted live window still means loading. Partial pages can
+omit unused folders, but malformed page bodies, rows or cursors fail before
+the React state updater runs, retaining the current rows and cursor for Retry.
+The projectdesk fixture explicitly serves mailbox responses; its generic
+FakeServer fallback `{ok:true}` is not a mailbox contract.
+
 ## Focused evidence and limits
 
 `apps/desktop/renderer/tests/inboxhistory.test.tsx` mounts the actual user panel
