@@ -54,6 +54,11 @@ const openAsk = (nid: string): AskInfo => ({
   options: [{ label: 'yes' }, { label: 'no' }],
 })
 
+const creditAsk = (nid: string): AskInfo => ({
+  id: 'credit-1', node: nid, kind: 'credit', status: 'open',
+  at: '2026-09-10T13:00:00Z', old: 1, new: 3,
+})
+
 const answeredAsk = (nid: string): AskInfo => ({
   ...openAsk(nid), status: 'answered', resolved_at: '2026-09-10T13:01:00Z',
   answer: { selected: ['yes'] }, answer_mail: MAIL,
@@ -391,4 +396,43 @@ domTest('§15 single-question form: a failed submit brings the card back and unq
     assert.deepEqual(c, { card: 1, queued: 0, transcript: 0 }, JSON.stringify(c))
     assert.match(el.querySelector('.ask-submit-failed')?.textContent ?? '', /not sent/)
     assert.ok(option(el, 'yes')?.classList.contains('on'), "the user's choice is kept")
+  })
+
+domTest('successful question, batch and credit resolutions do not toast',
+  async ({ ND, mount }) => {
+    const notices: string[][] = []
+    const toast = (lines: string[]) => { notices.push(lines) }
+    const question = await mount(<AskCard ask={{ ...openAsk(ND), id: 'ask-question' }}
+      slug={SL} toast={toast} />)
+    await flush()
+    await click(option(question, 'yes'))
+    await click(question.querySelector('.askcard .ask-submit'))
+    await flush()
+
+    const batch = await mount(<AskCard ask={{ ...batchAsk(`${ND}-batch`), id: 'ask-batch' }}
+      slug={SL} toast={toast} />)
+    await flush()
+    await click(option(batch, 'yes'))
+    await click(batch.querySelector('.askcard .ask-submit'))
+    await flush()
+
+    const credit = await mount(<AskCard ask={creditAsk(`${ND}-credit`)} slug={SL} toast={toast} />)
+    await flush()
+    await click(credit.querySelector('.askcard .ask-submit'))
+    await flush()
+
+    assert.deepEqual(notices, [], 'successful resolutions are visible in the cards/mail state')
+  })
+
+domTest('failed question resolution still shows its error toast',
+  async ({ ND, s, mount }) => {
+    const notices: string[][] = []
+    const el = await mount(<AskCard ask={openAsk(ND)} slug={SL}
+      toast={(lines) => { notices.push(lines) }} />)
+    await flush()
+    await click(option(el, 'yes'))
+    s.fail = 500
+    await click(el.querySelector('.askcard .ask-submit'))
+    await flush()
+    assert.deepEqual(notices, [['error: boom 500']])
   })
