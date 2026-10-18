@@ -42,9 +42,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { DeskChat } from '../src/canvas/desk'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import { messageCopyText } from '../src/canvas/copytext'
 import type { CanvasNode } from '../src/canvas/shared'
 import { addPending, refreshConvo, resetConvos } from '../src/convo'
+import { MailList } from '../src/canvas/mail'
+import { pickIn } from './menuhelp'
 import type { ChatMessage, Segment } from '../src/types'
 import type { Event } from '../src/generated/events'
 
@@ -375,3 +378,375 @@ test('§8 a live selection still keeps the browser menu, and Reply still works',
     assert.deepEqual(clip.writes, [], 'and copies nothing on the way')
   } finally { clip.restore(); await m.unmount() }
 })
+
+// ─────────────────────────────────────── §9 mail cards inside a transcript
+
+test('§9 right-clicking incoming agent, user, external, or pending mail copies that mail card’s body', async () => {
+  const clip = stubClipboard()
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer()
+  server.messages = [
+    {
+      role: 'user',
+      text: '[MAIL — 3 message(s)]\n...',
+      seq: 0,
+      event_id: 'turn-mail-batch-1',
+      segments: [
+        {
+          kind: 'mail',
+          rows: [
+            { id: 'm-agent', from: 'coordinator-opus', kind: 'message', body: 'Agent body one', at: '2026-10-18T17:00:00.000Z' },
+            { id: 'm-user', from: '@user', kind: 'message', body: 'User body two', at: '2026-10-18T17:01:00.000Z' },
+            { id: 'm-ext', from: '@net:alice.1234', kind: 'message', body: 'External body three', at: '2026-10-18T17:02:00.000Z' },
+            { id: 'm-empty', from: 'peer-sol', kind: 'message', body: '   ', at: '2026-10-18T17:03:00.000Z' },
+          ],
+        },
+      ] as Segment[],
+    },
+  ]
+  server.pending_mail = [
+    { id: 'm-pend', event_id: 'ev-pend', from: 'rig-sol-b', kind: 'message', body: 'Queued pending agent mail', at: '2026-10-18T17:04:00.000Z' },
+  ]
+  installFetch(server)
+  const toasts: string[][] = []
+  const view = await mountView(
+    <DeskChat node={writer} map={new Map([[writer.id, writer]])} slug="org"
+      op={async () => ({})} toast={lines => { toasts.push(lines) }} bare />,
+    el => el)
+  await inAct(async () => {
+    await refreshConvo('org', 'writer')
+    await flush(5)
+  })
+  try {
+    const agentCard = view.el.querySelector('[data-reply-mail="m-agent"] .event-body') as HTMLElement
+    assert.ok(agentCard, 'fixture: incoming agent mail card is rendered')
+    await rightClick(agentCard)
+    assert.equal(itemNamed('Copy contents')!.disabled, false, 'incoming agent mail enables Copy contents')
+    await pick('Copy contents')
+    assert.equal(clip.writes[0], 'Agent body one')
+
+    const userCard = view.el.querySelector('[data-reply-mail="m-user"] .event-body') as HTMLElement
+    await rightClick(userCard)
+    assert.equal(itemNamed('Copy contents')!.disabled, false, 'incoming user mail enables Copy contents')
+    await pick('Copy contents')
+    assert.equal(clip.writes[1], 'User body two')
+
+    const extCard = view.el.querySelector('[data-reply-mail="m-ext"] .event-body') as HTMLElement
+    await rightClick(extCard)
+    assert.equal(itemNamed('Copy contents')!.disabled, false, 'external sender mail enables Copy contents')
+    await pick('Copy contents')
+    assert.equal(clip.writes[2], 'External body three')
+
+    const pendCard = view.el.querySelector('[data-reply-mail="m-pend"] .event-body') as HTMLElement
+    assert.ok(pendCard, 'fixture: pending mail card is rendered')
+    await rightClick(pendCard)
+    assert.equal(itemNamed('Copy contents')!.disabled, false, 'pending mail card enables Copy contents')
+    await pick('Copy contents')
+    assert.equal(clip.writes[3], 'Queued pending agent mail')
+
+    const emptyCard = view.el.querySelector('[data-reply-mail="m-empty"]') as HTMLElement
+    await rightClick(emptyCard)
+    assert.equal(itemNamed('Copy contents')!.disabled, true, 'truly empty mail card disables Copy contents')
+  } finally {
+    clip.restore()
+    await view.unmount()
+    resetConvos()
+  }
+})
+
+// ───────────────────── §10 preview-only and chunked mail fetches full body
+
+test('§10 preview-only and chunked mail rows fetch the full body on Copy in transcript and inbox/project MailList', async () => {
+  const clip = stubClipboard()
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer()
+  const previewBody = '[MAIL BY REFERENCE - original body: 25000 UTF-8 bytes. This is a preview, not the complete message.]\nPreview head...'
+  const fullRefBody = 'FULL-REFERENCE-BODY-' + 'X'.repeat(500)
+  const chunk0 = 'CHUNK-0-START-'
+  const chunk1 = 'CHUNK-1-MIDDLE-'
+  const chunk2 = 'CHUNK-2-END'
+  server.messages = [
+    {
+      role: 'user',
+      text: previewBody,
+      seq: 0,
+      event_id: 'turn-ref-1',
+      segments: [
+        {
+          kind: 'mail',
+          rows: [
+            { id: 'm-ref', from: 'coordinator-opus', kind: 'message', body: previewBody, at: '2026-10-18T17:10:00.000Z' },
+            { id: 'm-chunked', from: 'coordinator-opus', kind: 'message', body: chunk0, chunk_total: 3, complete: false, at: '2026-10-18T17:11:00.000Z' } as any,
+          ],
+        },
+      ] as Segment[],
+    },
+  ]
+  installFetch(server)
+  const origFetch = globalThis.fetch
+  const mailRequests: string[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = new URL(String(input), 'http://localhost')
+    if (u.pathname.includes('/mail/')) {
+      mailRequests.push(u.pathname + u.search)
+      const id = decodeURIComponent(u.pathname.split('/').pop() ?? '')
+      const chunkParam = u.searchParams.get('chunk')
+      if (id === 'm-ref') {
+        return {
+          ok: true, status: 200, headers: new Headers({ 'X-Orgtree-Instance': server.instance }),
+          json: async () => ({ found: true, mail: { id: 'm-ref', from: 'coordinator-opus', to: 'writer', body: fullRefBody, at: '2026-10-18T17:10:00.000Z' } }),
+        } as Response
+      }
+      if (id === 'm-chunked') {
+        const idx = chunkParam != null ? Number(chunkParam) : 0
+        const parts = [chunk0, chunk1, chunk2]
+        return {
+          ok: true, status: 200, headers: new Headers({ 'X-Orgtree-Instance': server.instance }),
+          json: async () => ({
+            found: true,
+            mail: {
+              id: 'm-chunked', from: 'coordinator-opus', to: 'writer',
+              body: parts[idx] ?? '', content: parts[idx] ?? '',
+              chunk_index: idx, chunk_total: 3, complete: idx >= 2,
+              at: '2026-10-18T17:11:00.000Z',
+            },
+          }),
+        } as Response
+      }
+    }
+    return origFetch(input, init)
+  }) as typeof fetch
+
+  const toasts: string[][] = []
+  const view = await mountView(
+    <DeskChat node={writer} map={new Map([[writer.id, writer]])} slug="org"
+      op={async () => ({})} toast={lines => { toasts.push(lines) }} bare />,
+    el => el)
+  await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+
+  const mailView = await mountView(
+    <MailList org="org" projectMail
+      delivered={[
+        { id: 'm-ref', from: 'coordinator-opus', to: 'build-slot', body: '', preview: 'Short preview only', truncated: true, at: '2026-10-18T17:10:00.000Z' } as any,
+        { id: 'm-chunked', from: 'coordinator-opus', to: 'build-slot', body: chunk0, chunk_total: 3, complete: false, at: '2026-10-18T17:11:00.000Z' } as any,
+        { id: 'm-empty', from: 'coordinator-opus', to: 'build-slot', body: '', at: '2026-10-18T17:09:00.000Z' },
+      ]}
+      toast={lines => { toasts.push(lines) }} />,
+    el => el)
+
+  try {
+    // 1. Transcript preview-by-reference mail row fetches full body
+    const refCard = view.el.querySelector('[data-reply-mail="m-ref"] .event-body') as HTMLElement
+    await rightClick(refCard)
+    assert.equal(itemNamed('Copy contents')!.disabled, false)
+    await pick('Copy contents')
+    await flush(5)
+    assert.equal(clip.writes[0], fullRefBody, 'transcript reference mail fetches and copies full body')
+
+    // 2. Transcript chunked mail row fetches all chunks and reassembles
+    const chunkCard = view.el.querySelector('[data-reply-mail="m-chunked"] .event-body') as HTMLElement
+    await rightClick(chunkCard)
+    assert.equal(itemNamed('Copy contents')!.disabled, false)
+    await pick('Copy contents')
+    await flush(5)
+    assert.equal(clip.writes[1], chunk0 + chunk1 + chunk2, 'transcript chunked mail fetches all chunks in order')
+
+    // 3. MailList (inbox / project desk) preview-only row enables Copy message text and fetches full body
+    const rows = [...mailView.el.querySelectorAll('.mailrow')] as HTMLElement[]
+    assert.equal(rows.length, 3, 'fixture: 3 rows in MailList')
+    // sorted newest-first: m-chunked (17:11), m-ref (17:10), m-empty (17:09)
+    await rightClick(rows[1]!)
+    assert.equal(itemNamed('Copy message text')!.disabled, false, 'preview-only MailList row enables Copy message text')
+    await pick('Copy message text')
+    await flush(5)
+    assert.equal(clip.writes[2], fullRefBody, 'MailList preview row fetches and copies full body')
+
+    // 4. MailList chunked row fetches all chunks
+    await rightClick(rows[0]!)
+    assert.equal(itemNamed('Copy message text')!.disabled, false, 'chunked MailList row enables Copy message text')
+    await pick('Copy message text')
+    await flush(5)
+    assert.equal(clip.writes[3], chunk0 + chunk1 + chunk2, 'MailList chunked row fetches and copies all chunks')
+
+    // 5. MailList empty row disables Copy message text
+    await rightClick(rows[2]!)
+    assert.equal(itemNamed('Copy message text')!.disabled, true, 'empty MailList row disables Copy message text')
+    assert.ok(mailRequests.length >= 4, 'full mail endpoints were queried')
+  } finally {
+    globalThis.fetch = origFetch
+    clip.restore()
+    await view.unmount()
+    await mailView.unmount()
+    resetConvos()
+  }
+})
+
+// ─────── §11 reply links: Copy contents + Sender… submenu & hover tooltip
+
+test('§11 right-clicking a reply link offers Copy contents (fetching full body) and Sender… submenu with hover tooltip', async () => {
+  const clip = stubClipboard()
+  localStorage.clear(); resetConvos()
+  const server = new FakeServer()
+  const previewBody = '[MAIL BY REFERENCE - original body: 25000 UTF-8 bytes. This is a preview, not the complete message.]\nShort preview'
+  const fullRefBody = 'FULL-REFERENCED-MAIL-BODY-' + 'Z'.repeat(300)
+  const coord: CanvasNode = {
+    id: 'coordinator-opus', generation: 1, state: 'live', tier: 'opus', children: [writer],
+    seat: 1, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] },
+  }
+  server.messages = [
+    {
+      role: 'user',
+      text: previewBody,
+      seq: 0,
+      event_id: 'turn-ref-mail',
+      segments: [
+        {
+          kind: 'mail',
+          rows: [
+            { id: 'm-ref-src', from: 'coordinator-opus', kind: 'message', body: previewBody, at: '2026-10-18T18:00:00.000Z' },
+          ],
+        },
+      ] as Segment[],
+    },
+    {
+      role: 'user',
+      text: 'Replying to coordinator mail',
+      seq: 1,
+      event_id: 'reply-to-mail-1',
+      segments: [
+        {
+          kind: 'mail',
+          rows: [
+            {
+              id: 'm-reply-1',
+              from: '@user',
+              kind: 'message',
+              body: 'Replying to coordinator mail',
+              at: '2026-10-18T18:01:00.000Z',
+              reply_to: {
+                source_event_ref: { org: 'org', agent: 'writer', generation: 2, eventId: 'mail:m-ref-src' },
+                quoted_context: 'Short gist only',
+                mail_id: 'm-ref-src',
+                sender: 'coordinator-opus',
+              },
+            },
+          ],
+        },
+      ] as Segment[],
+    },
+  ]
+  installFetch(server)
+  const origFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = new URL(String(input), 'http://localhost')
+    if (u.pathname.endsWith('/m-ref-src')) {
+      return {
+        ok: true, status: 200, headers: new Headers({ 'X-Orgtree-Instance': server.instance }),
+        json: async () => ({
+          found: true,
+          mail: { id: 'm-ref-src', from: 'coordinator-opus', to: 'writer', body: fullRefBody, at: '2026-10-18T18:00:00.000Z' },
+        }),
+      } as Response
+    }
+    return origFetch(input, init)
+  }) as typeof fetch
+
+  const focused: string[] = []
+  const toasts: string[][] = []
+  const RegNav = () => {
+    useProvideAgentNav((id: string) => [{ label: 'Focus', onSelect: () => { focused.push(id) } }])
+    return null
+  }
+
+  const view = await mountView(
+    <AgentNavProvider>
+      <RegNav />
+      <DeskChat node={writer} map={new Map([[writer.id, writer], [coord.id, coord]])} slug="org"
+        op={async () => ({})} toast={lines => { toasts.push(lines) }} bare />
+    </AgentNavProvider>,
+    el => el)
+  await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
+
+  const mailView = await mountView(
+    <AgentNavProvider>
+      <RegNav />
+      <MailList org="org" projectMail
+        onOpenMail={() => {}}
+        delivered={[
+          {
+            id: 'm-reply-row', from: 'writer', to: 'build-slot', body: 'My reply',
+            at: '2026-10-18T18:05:00.000Z',
+            reply_to: {
+              id: 'm-ref-src', kind: 'mail', box: 'user',
+              from: 'coordinator-opus', to: 'writer',
+              at: '2026-10-18T18:00:00.000Z', gist: 'Short gist only',
+            },
+          },
+        ]}
+        toast={lines => { toasts.push(lines) }} />
+    </AgentNavProvider>,
+    el => el)
+
+  try {
+    // 1. Transcript ReplyPreview context menu has Copy contents, Sender… ▸, and Jump to message
+    const replyLink = view.el.querySelector('.reply-preview') as HTMLElement
+    assert.ok(replyLink, 'fixture: transcript reply link is rendered')
+    await rightClick(replyLink.querySelector('.reply-preview-content')!)
+    const menuItems = labels()
+    assert.ok(menuItems.includes('Copy contents'), `expected Copy contents in ${JSON.stringify(menuItems)}`)
+    assert.ok(menuItems.some(l => l.startsWith('Sender…')), `expected Sender… in ${JSON.stringify(menuItems)}`)
+    assert.ok(menuItems.includes('Jump to message'), `expected Jump to message in ${JSON.stringify(menuItems)}`)
+
+    // Sender… carries data-agent-tooltip="coordinator-opus" for hover tooltip
+    const senderBtn = [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
+      .find(b => (b.textContent ?? '').startsWith('Sender…')) as HTMLElement | undefined
+    assert.ok(senderBtn, 'Sender… menu item exists')
+    assert.equal(senderBtn!.getAttribute('data-agent-tooltip'), 'coordinator-opus',
+      'Sender… carries data-agent-tooltip for native link hover tooltip')
+
+    // Clicking Copy contents fetches and copies the full body of the referenced mail
+    await pick('Copy contents')
+    await flush(5)
+    assert.equal(clip.writes[0], fullRefBody, 'reply link Copy contents fetches full referenced mail body')
+
+    // Re-open reply link context menu and pick Sender… -> Mention (inserts @coordinator-opus into desk composer)
+    await rightClick(replyLink.querySelector('.reply-preview-content')!)
+    await pickIn('Sender…', 'Mention')
+    await flush(3)
+    const ta = view.el.querySelector('textarea') as HTMLTextAreaElement
+    assert.equal(ta.value, '@coordinator-opus ', 'Sender… > Mention inserts @coordinator-opus into the desk composer')
+
+    // Re-open reply link context menu and pick Sender… -> Focus
+    await rightClick(replyLink.querySelector('.reply-preview-content')!)
+    await pickIn('Sender…', 'Focus')
+    await flush(2)
+    assert.deepEqual(focused, ['coordinator-opus'], 'Sender… > Focus invokes the sender agent’s Focus action')
+
+    // 2. MailList reading pane MailReplyPreview context menu
+    const mailRow = mailView.el.querySelector('.mailrow') as HTMLElement
+    await inAct(() => { mailRow.click() })
+    await flush(3)
+    const mailReplyLink = mailView.el.querySelector('.reply-preview') as HTMLElement
+    assert.ok(mailReplyLink, 'fixture: MailReplyPreview is rendered in MailList')
+    await rightClick(mailReplyLink)
+    const mailMenuItems = labels()
+    assert.ok(mailMenuItems.includes('Copy contents'), `expected Copy contents in ${JSON.stringify(mailMenuItems)}`)
+    assert.ok(mailMenuItems.some(l => l.startsWith('Sender…')), `expected Sender… in ${JSON.stringify(mailMenuItems)}`)
+
+    const mailSenderBtn = [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
+      .find(b => (b.textContent ?? '').startsWith('Sender…')) as HTMLElement | undefined
+    assert.equal(mailSenderBtn?.getAttribute('data-agent-tooltip'), 'coordinator-opus')
+
+    await pick('Copy contents')
+    await flush(5)
+    assert.equal(clip.writes[1], fullRefBody, 'MailReplyPreview Copy contents fetches full referenced mail body')
+  } finally {
+    globalThis.fetch = origFetch
+    clip.restore()
+    await view.unmount()
+    await mailView.unmount()
+    resetConvos()
+  }
+})
+
+
