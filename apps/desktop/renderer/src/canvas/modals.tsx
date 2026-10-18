@@ -19,6 +19,7 @@ import { lineageCount } from '../archived'
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { FAST_MODE_HELP, useFastMode } from './fastmode'
+import { FastHireDefaults } from './fastdefaults'
 import type { ReactNode } from 'react'
 import type {
   ChatInit, DirGrant, McpServerInfo, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog, OrgtreeToolGroup,
@@ -311,6 +312,8 @@ interface HireDefaultsTabProps {
   account?: string
   setAccount?: (v: string) => void
   accounts?: AccountChoiceRow[]
+  fastDefaults?: Record<string,boolean>
+  setFastDefaults?: (v: Record<string,boolean>) => void
 }
 
 /** the org's folder holdings as the server reports them, workspace excluded
@@ -355,7 +358,7 @@ export function McpCurrentServers({ servers, details = [] }: {
 
 export function HireDefaultsTab({ tree, slug, toast, close,
   tools, setTools, vis, setVis, pm, setPm, dirs, setDirs,
-  servers: propServers, account, setAccount, accounts: propAccounts }: HireDefaultsTabProps) {
+  servers: propServers, account, setAccount, accounts: propAccounts, fastDefaults, setFastDefaults }: HireDefaultsTabProps) {
   // its default-model choice: re-read agy's model list on opening
   useAgyModelsRefresh()
   const [asking, setAsking] = useState(false)   // dissolve-all confirmation
@@ -487,6 +490,8 @@ export function HireDefaultsTab({ tree, slug, toast, close,
 
       <SetGroup title="Scope"
         note="Defaults for future hires; existing agents keep their settings">
+        {setFastDefaults && <FastHireDefaults tiers={Object.keys(tree.tiers ?? {})}
+          values={fastDefaults ?? {}} onChange={setFastDefaults} />}
         <SetRow label="Visible agents" hint={VISIBLE_AGENTS_HINT}>
           <select value={vis} aria-label="Visible agents"
             onChange={(e) => setVis(e.target.value)}>

@@ -849,6 +849,8 @@ export interface TreePayload {
   /** org-wide effort fallback ("" = fall through to effort_default) — live
    *  inherit for unset nodes */
   default_effort: string
+  /** Per-tier speed defaults for new hires, absent/false = OFF. */
+  default_fast_mode?: Record<string,boolean>
   /** what "" resolves to, so no UI string hardcodes it (ledger DEFAULT_EFFORT) */
   effort_default?: string
   /** Quick chat's starting choices in this org, set by the template it was
@@ -2420,6 +2422,7 @@ export interface ScopeRequest {
 
 // api.py Settings — shared by /api/defaults and /api/orgs/{slug}/settings
 export interface SettingsRequest {
+  default_fast_mode?: Record<string,boolean>
   account_fallback_default?: boolean | null
   /** the account lanes this org may not use (Org settings › Accounts) */
   disabled_accounts?: string[] | null

@@ -3202,6 +3202,8 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   const setHirePm = set<string>('hire.pm', hirePm)
   const hireAccount = val('hire.account', tree.default_account ?? '')
   const setHireAccount = set<string>('hire.account', hireAccount)
+  const hireFast = val<Record<string,boolean>>('hire.fast', tree.default_fast_mode ?? {})
+  const setHireFast = set<Record<string,boolean>>('hire.fast', hireFast)
   const srvDirs = useMemo(() => orgDirHoldings(tree), [tree])
   const hireDirs = val<DirGrant[]>('hire.dirs', srvDirs)
   const setHireDirs = set<DirGrant[]>('hire.dirs', hireDirs)
@@ -3369,7 +3371,8 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
             vis={hireVis} setVis={setHireVis}
             pm={hirePm} setPm={setHirePm}
             dirs={hireDirs} setDirs={setHireDirs}
-            account={hireAccount} setAccount={setHireAccount} />}
+            account={hireAccount} setAccount={setHireAccount}
+            fastDefaults={hireFast} setFastDefaults={setHireFast} />}
         </SettingsTabPanel>
 
         {/* ── Policies (was the advanced modal's "general" tab) ─────────── */}
@@ -3478,7 +3481,8 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
                   // `org_dirs` still makes the server sweep every node.
                   org_dirs: hireEdited ? hireDirs : undefined,
                   permission_mode: hireEdited ? hirePm : undefined,
-                  default_account: hireEdited ? hireAccount : undefined }),
+                  default_account: hireEdited ? hireAccount : undefined,
+                  default_fast_mode: edit['hire.fast'] !== undefined ? hireFast : undefined }),
               // pass the org.md warnings through rather than swallowing them:
               // a save that delivers less than it stored has to SAY so, and
               // this array is already how every other job reaches the toast
