@@ -32,7 +32,8 @@ test('a whole-quote jump loads older history and centers only its own transcript
     assert.equal(!!list.querySelector('[data-reply-event="event-0"]'),false,'positive control: target is outside the loaded window')
     const block=view.el.querySelector<HTMLElement>('.reply-preview-composing')!
     assert.equal(block.querySelector<HTMLButtonElement>('.reply-preview-jump')!.disabled,false,'older history is a reachable destination')
-    await inAct(async()=>{block.querySelector<HTMLElement>('blockquote')!.click();await flush(40)})
+    await inAct(()=>block.querySelector<HTMLElement>('blockquote')!.click())
+    for(let page=0;page<6;page++)await inAct(async()=>{await flush(6)})
     assert.ok(list.querySelector('[data-reply-event="event-0"]'),'the exact source is loaded')
     assert.ok(server.requests.some(r=>r.before),'jump requests older cursor pages')
     assert.equal(frame.scrollTop,77);assert.ok(list.scrollTop>0,'only the list is centered')
