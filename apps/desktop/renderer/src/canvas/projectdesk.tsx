@@ -531,7 +531,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             title="retract every mail waiting in this project's queue; mail already handed to an agent stays">
             Purge waiting mail</button>
         </div>}
-        <InboxView slug={slug} nid={node.id} tier="project" unreadCount={node.mail_pending} toast={toast}
+        <InboxView slug={slug} nid={node.id} tier="project" projectMail unreadCount={node.mail_pending} toast={toast}
           tierOf={(id) => {
             const n = map.get(id)
             return n?.kind === 'project' ? 'project' : n?.tier

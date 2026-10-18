@@ -62,6 +62,10 @@ export interface MailListProps {
   selectionRequest?: InboxSelectionRequest
   hiddenUnread?: {count:number;onOpen:()=>void}
   hideMailReplyKind?: boolean
+  /** a project's own mailbox (projectdesk.tsx): every row that has chips
+   *  carries them on the meta line, as a row with a queue state does
+   *  anywhere, so its rows read alike whether or not an agent holds them */
+  projectMail?: boolean
   tagFilter?: MailTagPickerProps
   onLoadMore?: () => void
   hasMore?: boolean
@@ -183,7 +187,8 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   compoundHeader,
   outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
-  onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind,selectionRequest,hiddenUnread }: MailListProps) {
+  onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind,selectionRequest,hiddenUnread,
+  projectMail }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
   //
   // Unread used to sort as its own block on top, which meant the list
@@ -602,7 +607,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           const m = g[0]!
           const view = typedView(m)
           return (
-          <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view} hideMailReplyKind={hideMailReplyKind}
+          <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view} hideMailReplyKind={hideMailReplyKind} projectMail={projectMail}
             onFocusAgent={onFocusAgent} hasAgent={hasAgent}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
@@ -722,7 +727,9 @@ const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s
  *  `MailList` renders its rows through it; `pile` is the size of a folded run
  *  of system notices (1 = a single message). */
 export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, party, mark,
-  onRetract, onClick, onContextMenu, rowRef, onTag, hideMailReplyKind, onFocusAgent, hasAgent }: {
+  onRetract, onClick, onContextMenu, rowRef, onTag, hideMailReplyKind, onFocusAgent, hasAgent, projectMail }: {
+  /** a project's own mailbox: chips always take the meta line (MailListProps) */
+  projectMail?: boolean
   onFocusAgent?: (id: string) => void
   hasAgent?: (id: string) => boolean
   hideMailReplyKind?: boolean
@@ -752,18 +759,22 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
   // sender, a kind chip, that name and the time: the name wrapped letter by
   // letter and the kind chip stretched with it. So a row that shows a queue
   // state moves its chips and that state to a line under the sender, and
-  // line 1 is the sender and the time, as in every other mailbox. A row with
-  // no queue state to show is unchanged.
+  // line 1 is the sender and the time, as in every other mailbox. In a
+  // project's own mailbox every row with chips does, so a mail no agent
+  // holds yet reads like the rest. Any other row is unchanged.
   const queued = !m._ask && showsQueueState(m.queue)
+  const kind = !m._ask && view && view.event.variant !== 'ordinary.message'
+    && view.event.variant !== 'ordinary.notice'
+    && !(hideMailReplyKind && view.event.variant === 'reply.mail') ? view.title : null
+  const noticeRun = !m._ask && isMailNotice(m) && isPile
+  const urgent = !m._ask && Boolean(m.urgent)
+  const metaLine = queued || (Boolean(projectMail) && Boolean(kind || m._ask || noticeRun || urgent))
   const chips = <>
-    {!m._ask && view && view.event.variant !== 'ordinary.message'
-      && view.event.variant !== 'ordinary.notice'
-      && !(hideMailReplyKind && view.event.variant === 'reply.mail')
-      && <span className="event-row-kind">{view.title}</span>}
+    {kind && <span className="event-row-kind">{kind}</span>}
     {m._ask && <span className="askkind">{m.kind ?? 'ask'}</span>}
     {/* Plain notices are unmarked. A folded run keeps its existing
         count so its hidden members remain discoverable. */}
-    {!m._ask && isMailNotice(m) && isPile
+    {noticeRun
       && <span className="noticekind"
         title={`${pile} system notices — open to read them`}>
         {pile} notices</span>}
@@ -772,7 +783,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
         was still unused. Its tooltip carries the sender's reason,
         which is the whole point of requiring one: the user judges
         the interruption instead of just receiving it. */}
-    {!m._ask && m.urgent
+    {urgent
       && <span className="urgentkind" title={m.urgent_reason
         ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
   </>
@@ -812,7 +823,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
            folded member must not scroll to a row that then sits there
            unmarked */
         + (flash ? ' jflash' : '')
-        + (queued ? ' project-mail' : '')}
+        + (queued || projectMail ? ' project-mail' : '')}
       onClick={onClick}
       onContextMenu={onContextMenu}>
       <div className="l1">
@@ -824,7 +835,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
         <span className="mfrom">
           {outgoing ? '→ ' : ''}{party}
         </span>
-        {!queued && chips}
+        {!metaLine && chips}
         {mark}
         {!m._ask && m.dnd_held && <span className="dnd-mail-state">held (do not disturb)</span>}
         {!m._ask && m.dnd_read && <span className="dnd-mail-state">read</span>}
@@ -834,9 +845,9 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
             onClick={(e) => { e.stopPropagation(); onRetract(m) }}>
             <CloseIcon fontSize="inherit" /></button>)}
       </div>
-      {queued && <div className="lmeta">
+      {metaLine && <div className="lmeta">
         {chips}
-        <QueueChip q={m.queue!} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />
+        {queued && <QueueChip q={m.queue!} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />}
       </div>}
       {/* the preview line is what makes a row two lines tall, so a
           SYSTEM notice simply does not render one (user, 2026-08-28:
@@ -1286,6 +1297,8 @@ interface InboxViewProps {
    *  surface around it is narrow. The MODAL form sets it; the same view on the
    *  agent desk does not (see MailListProps.collapsible). */
   collapsible?: boolean
+  /** a project's mailbox: forwarded to both folders (MailListProps.projectMail) */
+  projectMail?: boolean
 }
 
 // Only a plain delivery uses the compact marker. Ack/release/dead-letter
@@ -1335,7 +1348,7 @@ export function QueueChip({ q, onFocusAgent, hasAgent }: {
 }
 
 export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, tier, onFocusAgent, toast,
-  tierOf, hasAgent, refs, collapsible }: InboxViewProps) {
+  tierOf, hasAgent, refs, collapsible, projectMail }: InboxViewProps) {
   const [folder, setFolder] = useState('inbox')
   // G5: was a fetch keyed on the `pulse` prop, which meant it refreshed on turn
   // events and on nothing else — and a mail DELIVERY is not a turn event, so
@@ -1433,7 +1446,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
           : folder === 'inbox'
             ? <MailList org={slug} pending={pending} delivered={box.delivered}
                 hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
-                collapsible={collapsible}
+                collapsible={collapsible} projectMail={projectMail}
                 tierOf={tierOf} hasAgent={hasAgent} refs={refs} toast={toast}
                 /* the row's reference: this folder IS the node's received
                    box, so the token is exact (`@mail:org/node/<nid>/<id>`).
@@ -1466,7 +1479,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
                list does not read an unfinished or failed one as an absence. */
             : <MailList org={slug} delivered={box.sent ?? []} outgoing jumpTo={jumpTo}
                 hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
-                collapsible={collapsible}
+                collapsible={collapsible} projectMail={projectMail}
                 jumpSeq={jumpSeq} tierOf={tierOf} hasAgent={hasAgent} refs={refs}
                 askState={jumpAsk}
                 onAskRetry={() => setAskAgain((n) => n + 1)}
