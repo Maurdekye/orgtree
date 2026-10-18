@@ -375,6 +375,48 @@ pub async fn below(client: &impl GenericClient, agent: i64) -> Result<Vec<(i64, 
         .collect())
 }
 
+/// Whether anyone could take the project's next mail: an armed fair_queue dog
+/// on it, owned by a live agent that still reaches it (the set `hand_one`
+/// picks from).
+#[logged]
+pub async fn watched(client: &impl GenericClient, org_id: i64, project: i64) -> Result<bool> {
+    let rows = client
+        .query(
+            "SELECT w.owner_agent_id FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+              WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed'
+                AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
+              ORDER BY w.id LIMIT 64",
+            &[&org_id, &project],
+        )
+        .await?;
+    for r in &rows {
+        if reaches(client, r.get(0), project).await? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// The one agent asked to arm a fair_queue dog when the user writes to a
+/// project nobody watches (user 2026-10-18 07:46Z; coordinator 07:47Z): a
+/// live, unhalted agent directly under the project, an idle one first, else
+/// the first in sibling order.
+#[logged]
+pub async fn nudge_target(engine: &Engine, client: &impl GenericClient, project: i64) -> Result<Option<(i64, String)>> {
+    let rows = client
+        .query(
+            "SELECT id, name FROM ot.agents WHERE parent_id = $1 AND state = 'live' AND kind = 'agent' AND halt IS NULL
+              ORDER BY sibling_order, id LIMIT 64",
+            &[&project],
+        )
+        .await?;
+    let members: Vec<(i64, String)> = rows.iter().map(|r| (r.get(0), r.get(1))).collect();
+    let busy = |id: i64| engine.agents.get(id)
+        .map(|h| h.view.load().get("busy").and_then(Value::as_bool).unwrap_or(false))
+        .unwrap_or(false);
+    Ok(members.iter().find(|(id, _)| !busy(*id)).or_else(|| members.first()).cloned())
+}
+
 /// The live agents under `project`, through live nested projects (the
 /// projects themselves left out), nearest first: who a message from the
 /// project desk reaches (user 2026-10-18 07:33Z, "broadcasts the message to

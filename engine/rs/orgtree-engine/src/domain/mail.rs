@@ -427,11 +427,42 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         Some(h) => format!(
             "Delivered to project {}'s mailbox; its fair queue handed it to {} (fair_queue watchdog {}), who now has it as ordinary mail from you.",
             project.name, h.watcher, h.dog),
+        None if matches!(out.from, From::User) => Box::pin(nudge_project(engine, org.id, &project)).await?,
         None => format!(
             "Queued in project {}'s mailbox. No agent watches the project with a fair_queue watchdog right now, so it waits there until one does; agents above or below the project can see it with orgtree_inbox project={}.",
             project.name, project.name),
     };
     Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false })
+}
+
+/// The user wrote to a project and no watcher took it (user 2026-10-18
+/// 07:46Z): when nobody watches the project at all, wake one agent directly
+/// under it (`projects::nudge_target`) and ask it to arm a fair_queue dog;
+/// with nobody to ask, say that nobody can pick the mail up. Returns the
+/// send's delivery note.
+#[logged]
+async fn nudge_project(engine: &Arc<Engine>, org_id: i64, project: &crate::domain::projects::Project) -> Result<String> {
+    let client = engine.db.get().await?;
+    if crate::domain::projects::watched(&**client, org_id, project.id).await? {
+        return Ok(format!(
+            "Queued in project {}'s mailbox; it goes to the next of its fair_queue watchers to become eligible.", project.name));
+    }
+    let Some((_, name)) = crate::domain::projects::nudge_target(engine, &**client, project.id).await? else {
+        return Ok(format!(
+            "Queued in project {}'s mailbox, but no live, unhalted agent works directly under it, so nobody can pick it up until one is hired or unhalted.",
+            project.name));
+    };
+    drop(client);
+    let body = format!(
+        "The user wrote to project {p}'s mailbox, and no agent watches project {p} with a fair_queue watchdog, so nobody will receive it. \
+         Arm one now: orgtree_watchdog action=create kind=fair_queue target={p}. Arming it hands you the waiting mail.",
+        p = project.name);
+    let mut nudge = Outgoing::new(From::System, &name, &body);
+    nudge.grant_reply_audience = false;
+    Box::pin(send(engine, org_id, nudge)).await?;
+    Ok(format!(
+        "Queued in project {p}'s mailbox. No agent watches project {p} with a fair_queue watchdog, so {name} was woken and asked to arm one; the mail goes to whoever arms first.",
+        p = project.name))
 }
 
 /// A bare recipient is resolved only when no internal agent has that name.
