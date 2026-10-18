@@ -40,7 +40,7 @@ export default async function (rig) {
     let cursor;const ids=[];let pages=0,queueNote=''
     do {const v=await inbox('boss',{action:'list',limit:200,...(cursor?{cursor}:{})});ids.push(...v.messages.map(m=>m.id));cursor=v.next_cursor;queueNote=v.queue;pages++}while(cursor)
     check('waiting backlog beyond200 pages completely without duplicates',pages===2&&ids.length===205&&new Set(ids).size===205)
-    check('history preserves the integrated ACK queue-state note',typeof queueNote==='string'&&queueNote.includes('queue')&&queueNote.includes('listener'))
+    check('history preserves the integrated ACK queue-state note',typeof queueNote==='string'&&queueNote.includes('queue')&&queueNote.includes('fair_queue'))
     const history=await inbox('worker-a',{action:'list',folder:'inbox',limit:200})
     check('project member can read delivered history and continue it',history.messages.some(m=>m.status==='acked')&&history.has_more)
     const changed=await rig.tool('boss','orgtree_inbox',{action:'list',project:'queue',folder:'sent',cursor:history.next_cursor})
