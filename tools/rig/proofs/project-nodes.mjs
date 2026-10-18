@@ -343,6 +343,10 @@ export default async function (rig) {
   p.check('a renamed agent keeps its earlier presentations in its own gallery', renamedAgent.ok
     && (before.documents ?? []).length > 0 && keptTitles.includes('UI sketch') && after.total === (before.documents ?? []).length,
     { before: (before.documents ?? []).map(d => d.title), after: keptTitles, total: after.total, rename: renamedAgent.ok || renamedAgent.error })
+  // the rows name the agent as it is called NOW: the gallery's own filter, its
+  // focus link and its labels all read `node`
+  p.check('a renamed agent\'s rows carry its current name', (after.documents ?? []).length > 0
+    && (after.documents ?? []).every(d => d.node === 'dev5-renamed'), (after.documents ?? []).map(d => d.node))
   const sketchId = (after.documents ?? []).find(d => d.title === 'UI sketch')?.id
   const locatedRenamed = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=dev5-renamed&limit=1&locate=${sketchId}`)
   p.check('locate finds it in the renamed agent\'s gallery', !!sketchId && locatedRenamed.located === sketchId
