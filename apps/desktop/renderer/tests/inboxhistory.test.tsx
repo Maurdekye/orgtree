@@ -4,6 +4,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { InboxPanel } from '../src/App'
+import { InboxView } from '../src/canvas/mail'
 import { CurrentOrg } from '../src/popout'
 import type { TreePayload } from '../src/types'
 
@@ -13,7 +14,8 @@ if (!window.HTMLElement.prototype.scrollIntoView) window.HTMLElement.prototype.s
 const mail = (n: number, sent = false) => ({ id: `${sent ? 's' : 'm'}${n}`, from: sent ? '@user' : 'peer', to: sent ? 'peer' : '@user',
   at: new Date(Date.UTC(2026, 9, 1, 0, 0, n)).toISOString(), body: `${sent ? 'sent' : 'incoming'}-history-${n}`, kind: 'message' })
 
-for (const folder of ['inbox', 'sent'] as const) test(`user ${folder} scrolls past the 200-row feed cap to the oldest row without moving the reader`, async t => {
+for (const scope of ['user', 'agent', 'project'] as const) for (const folder of ['inbox', 'sent'] as const) test(`${scope} ${folder} scrolls past the feed cap to the oldest row without moving the reader`, async t => {
+  const pageSize = scope === 'user' ? 200 : 150
   const archive = Array.from({ length: 650 }, (_, i) => mail(i + 1)).reverse()
   const outgoing = Array.from({ length: 430 }, (_, i) => mail(i + 1, true)).reverse()
   const calls: { folder: string; before: string | null }[] = []
@@ -25,17 +27,19 @@ for (const folder of ['inbox', 'sent'] as const) test(`user ${folder} scrolls pa
       const f = url.searchParams.get('folder')!, before = url.searchParams.get('before')
       calls.push({ folder: f, before })
       const all = (f === 'sent' ? outgoing : archive).filter(m => !before || Number(m.id.slice(1)) < Number(before))
-      const rows = all.slice(0, 200)
+      const rows = all.slice(0, pageSize)
       body = { pending: [], delivered: f === 'inbox' ? rows : [], sent: f === 'sent' ? rows : [],
-        next_cursor: all.length > 200 ? rows.at(-1)!.id.slice(1) : null }
+        next_cursor: all.length > pageSize ? rows.at(-1)!.id.slice(1) : null }
     } else if (url.searchParams.has('tags_only')) body = { tag_choices: [] }
-    else if (url.pathname.endsWith('/inbox')) body = { pending: [], delivered: archive.slice(0, 200), sent: outgoing.slice(0, 200) }
+    else if (url.pathname.endsWith('/inbox')) body = { pending: [], delivered: archive.slice(0, pageSize), sent: outgoing.slice(0, pageSize) }
     else if (url.pathname.endsWith('/audiences')) body = { audiences: [], requests: [] }
     else if (url.pathname.endsWith('/events')) body = { events: [] }
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }) as typeof fetch)
   t.after(() => { globalThis.fetch = oldFetch })
-  const view = await mountView(<CurrentOrg.Provider value="history"><InboxPanel slug="history" tree={TREE} close={() => {}} jumpTo={null} toast={() => {}} /></CurrentOrg.Provider>, el => el)
+  const view = await mountView(<CurrentOrg.Provider value="history">{scope === 'user'
+    ? <InboxPanel slug="history" tree={TREE} close={() => {}} jumpTo={null} toast={() => {}} />
+    : <InboxView slug="history" nid={scope} toast={() => {}} />}</CurrentOrg.Provider>, el => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(10) })
   if (folder === 'sent') {
@@ -57,5 +61,7 @@ for (const folder of ['inbox', 'sent'] as const) test(`user ${folder} scrolls pa
   assert.equal(list.scrollTop, 900, 'appending older rows must retain scroll offset')
   assert.equal(view.el.querySelector('.mailer-read')?.textContent, selected, 'paging must retain the selected mail')
   const requested = calls.filter(c => c.folder === folder)
-  assert.deepEqual(requested.map(c => c.before), folder === 'sent' ? [null, '231', '31'] : [null, '451', '251', '51'], 'bounded pages seek from the prior numeric id, never offset or dates')
+  const cursors: (string | null)[] = [null]
+  for (let n = (folder === 'sent' ? 430 : 650) - pageSize + 1; n > 1; n -= pageSize) cursors.push(String(n))
+  assert.deepEqual(requested.map(c => c.before), cursors, 'bounded pages seek from the prior numeric id, never offset or dates')
 })
