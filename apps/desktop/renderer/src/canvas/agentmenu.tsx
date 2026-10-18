@@ -412,12 +412,15 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   if (live && hire && !s.piled) {
     refreshAgyModels()
     const choices = hireTierChoices(s)
+    const quickTier = choices.find(c => c.tier === s.quickChatTier && c.offer === 'offer')?.tier
     entries.push({
       label: 'Hire under this project',
-      title: 'agents under a project work on it; the agent above the project pays for them',
-      submenuOnly: true,
+      title: 'Click to open the hire form for the current Quick chat model; hover or press Right to choose a tier. '
+        + 'If no Quick chat model is set or it is unavailable here, click opens the tier submenu. '
+        + 'Agents under a project work on it; the agent above the project pays for them.',
+      submenuOnly: !quickTier,
       disabled: choices.length === 0,
-      onSelect: () => {},
+      onSelect: () => { if (quickTier) hire(quickTier) },
       children: choices.map(({ tier, offer, reason }) => ({
         label: tierLabel(tier),
         disabled: offer !== 'offer',

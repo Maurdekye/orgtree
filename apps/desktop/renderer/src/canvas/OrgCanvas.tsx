@@ -4097,6 +4097,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                  open the same canvas-level lineage/config surfaces */
               onNodeLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onNodeConfig={toggleConfig}
               onNewProject={() => spawnProject(USER)}
+              quickChatDefaults={tree.quick_chat}
               onSpawn={(t) => spawn(USER, t)} />
           }
           if (n.id === DRAFT && draft?.project) {

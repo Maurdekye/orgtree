@@ -67,6 +67,8 @@ import { AgentSlotChips } from './slotchips'
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
   onAgents?: () => void
+  /** Org template defaults; manual Quick chat picks are read at menu-open time. */
+  quickChatDefaults?: TreePayload['quick_chat']
   pos: Pt
   isDrop: boolean
   stats: { circ: number; seats: number; free: number }
@@ -127,7 +129,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   antigravityHire, openrouterHire, langserverHire,
   pxc, zoom, onInbox, onDocket, onPresentations, onGear, onSpawn, onAgents,
   onMailLink, onWorkLink,
-  focused, eyeW, onFocus, posX, onJump, map, op, slug, toast,
+  focused, eyeW, onFocus, posX, onJump, map, op, slug, toast, quickChatDefaults,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
   pinnedIds, onShowPin, onNewProject }: UserNodeProps) {
   // the eye's hire chips collapse behind the same far-zoom ⋯ toggle as every
@@ -161,10 +163,15 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     // the menu just opened on a model choice: re-read agy's model list
     refreshAgyModels()
     const choices = hireTierChoices({ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire })
+    const remembered = readQuickChat(slug, quickChatDefaults).tier
+    const quickTier = choices.find(c => c.tier === remembered && c.offer === 'offer')?.tier
     const entries: MenuEntry[] = [
       { label: 'Focus', onSelect: () => onFocus?.(), disabled: !onFocus },
-      { label: 'Hire an agent', title: 'Choose a tier to open its hire form',
-        submenuOnly: true, disabled: choices.length === 0, onSelect: () => {},
+      { label: 'Hire an agent',
+        title: 'Click to open the hire form for the current Quick chat model; hover or press Right to choose a tier. '
+          + 'If no Quick chat model is set or it is unavailable here, click opens the tier submenu.',
+        submenuOnly: !quickTier, disabled: choices.length === 0,
+        onSelect: () => { if (quickTier) onSpawn(quickTier) },
         children: choices.map(({ tier, offer, reason }) => ({
           label: tierLabel(tier), disabled: offer !== 'offer',
           title: offer === 'offer' ? `Open a ${tierLabel(tier)} hire at the top level` : reason,

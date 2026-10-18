@@ -95,11 +95,12 @@
   verified: `canvas/{deskjumpcards,desk,projectdesk}.tsx`]
 
 - Agent/project Open menu parents click/Enter the existing temporary-desk
-  action; hover/Right still expand. Hire a subordinate uses the org's current
+  action; hover/Right still expand. Hire a subordinate, Hire under this project
+  and the switchboard's Hire an agent use the org's current
   remembered/template Quick chat tier only if that exact tier is offered,
   otherwise expands without substituting. Read the choice at menu-open time.
   See [menu parent actions](docs/rust-engine/menu-parent-actions.md).
-  [decided: user 2026-10-18 14:25Z/14:34Z; verified: `canvas/{agentmenu,cards,OrgCanvas}.tsx`]
+  [decided: user 2026-10-18 14:25Z/14:34Z/17:14Z; verified: `canvas/{agentmenu,cards,OrgCanvas}.tsx`]
 
 - Unread user mail with a standalone @user in visible prose/quotes shares
   urgent mailbox counts, notifications, needs-attention and read clearing;

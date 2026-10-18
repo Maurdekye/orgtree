@@ -24,10 +24,11 @@ scrollbar, on agent/project desks including narrow desks. Reuse the existing
 PanelCorner buttons, sizes and routes. Active shares the reserved row and the
 filter uses the full tray width. See [Team panel chrome](team-panel-chrome.md).
 
-**Context menu parent actions, user 2026-10-18 14:25Z and 14:34Z (4.4.0):**
+**Context menu parent actions, user 2026-10-18 14:25Z, 14:34Z and 17:14Z (4.4.0):**
 click/Enter on an agent's or project's Open parent opens its temporary desk
-and closes the menu. Hire a subordinate opens the draft with the Quick chat
-tier selected when it is offered there; absent/unavailable choices expand the
+and closes the menu. Hire a subordinate, Hire under this project and the
+switchboard's Hire an agent open the draft with the Quick chat tier selected
+when it is offered there; absent/unavailable choices expand the
 submenu. Hover/Right keep expanding without activation. Update Hire's tooltip
 to explain the default. See [menu parent actions](menu-parent-actions.md).
 
