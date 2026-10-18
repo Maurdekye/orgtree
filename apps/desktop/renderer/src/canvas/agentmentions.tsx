@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import type { ReactNode, RefObject } from 'react'
 import type { TreeNode, TreePayload, UserMentionInfo } from '../types'
-import { markMentionSeen } from '../api'
+import { markMentionSeen, req } from '../api'
 import { TierChip } from './identity'
 import { requestOpenOrg } from '../shell/openorg'
 
@@ -285,6 +285,26 @@ export function useAgentMentions({
 const knownOrgSlugs = new Set<string>()
 let hubchatPcInstalled = false
 const hubStateListeners = new Set<() => void>()
+const HUBCHAT_FRESH_MS = 60_000
+let hubchatCheckedAt = -Infinity
+let hubchatRevision = 0
+let hubchatRequest: Promise<void> | null = null
+
+// Chip consumers must discover this without the phone panel. Share one read
+// across Markdown/prose/tool chips; focus refreshes a stale answer, without a
+// per-chip poll or repeatedly running the engine's cached Windows probes.
+function refreshHubchatInstalled(): void {
+  if (hubchatRequest || Date.now() - hubchatCheckedAt < HUBCHAT_FRESH_MS) return
+  hubchatCheckedAt = Date.now()
+  const revision = hubchatRevision
+  hubchatRequest = req<{ hubchat_pc?: unknown } | null>('/api/desktop/phone')
+    .then(v => {
+      // A newer phone-panel read wins over this request's older snapshot.
+      if (typeof v?.hubchat_pc === 'boolean' && revision === hubchatRevision) setHubchatInstalled(v.hubchat_pc)
+    })
+    .catch(() => { /* preserve the known state; a later focus can retry */ })
+    .finally(() => { hubchatRequest = null })
+}
 
 function notifyHubState() {
   for (const fn of hubStateListeners) fn()
@@ -314,6 +334,8 @@ export function isKnownLocalOrg(slug: string): boolean {
 }
 
 export function setHubchatInstalled(installed: boolean): void {
+  hubchatCheckedAt = Date.now()
+  hubchatRevision++
   if (hubchatPcInstalled === installed) return
   hubchatPcInstalled = installed
   notifyHubState()
@@ -363,7 +385,12 @@ export function useHubAddressState(): number {
   useEffect(() => {
     const fn = () => setTick(n => n + 1)
     hubStateListeners.add(fn)
-    return () => { hubStateListeners.delete(fn) }
+    if (hubStateListeners.size === 1) window.addEventListener('focus', refreshHubchatInstalled)
+    refreshHubchatInstalled()
+    return () => {
+      hubStateListeners.delete(fn)
+      if (!hubStateListeners.size) window.removeEventListener('focus', refreshHubchatInstalled)
+    }
   }, [])
   return tick
 }

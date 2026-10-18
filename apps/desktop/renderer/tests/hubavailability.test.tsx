@@ -24,7 +24,10 @@ function fixture(t: TestContext) {
     return { ok: true, status: 200, headers: new Headers(), json: async () => answer }
   }) as typeof fetch
   window.open = ((url: string | URL) => { opened.push(String(url)); return null }) as typeof window.open
-  t.after(() => { globalThis.fetch = oldFetch; window.open = oldOpen; setKnownOrgs([]); setHubchatInstalled(false) })
+  t.after(async () => {
+    globalThis.fetch = oldFetch; window.open = oldOpen
+    await inAct(async () => { setKnownOrgs([]); setHubchatInstalled(false); await flush(2) })
+  })
   return { requests, opened, answer: (v: unknown) => { answer = v } }
 }
 
@@ -77,6 +80,8 @@ test('focus refreshes stale availability once and updates mounted chips after un
   f.answer({ hubchat_pc: true })
   const view = await mountView(<div><HubContactChip address="@net:alice.123456" />
     <HubContactChip address="@net:bob.abcdef" /></div>, h => h)
+  let unmounted = false
+  t.after(async () => { if (!unmounted) await view.unmount() })
   await inAct(async () => { await flush(5) })
   assert.equal(f.requests.length, 1)
   await inAct(async () => { window.dispatchEvent(new Event('focus')); await flush(3) })
@@ -87,6 +92,7 @@ test('focus refreshes stale availability once and updates mounted chips after un
   assert.equal(f.requests.length, 2, 'one refresh shared by mounted consumers')
   assert.equal(view.el.querySelectorAll('[aria-disabled="true"]').length, 2)
   await view.unmount()
+  unmounted = true
   now += 61_000
   window.dispatchEvent(new Event('focus'))
   await flush(3)

@@ -15,6 +15,13 @@
   [decided: user 2026-10-18 12:47Z; verified: `domain/{mail,runtime_notices}.rs`,
   `http/nodes.rs`]
 
+- Hub-contact chip consumers discover `hubchat_pc` through one shared full
+  desktop phone-status read, independently of the phone panel. The cheap phone
+  card omits that fact. Window focus refreshes stale availability after 60s;
+  failures/malformed values preserve the known state. Local orgs retain local
+  routing; genuinely absent Hubchat chips remain inert. [decided: user 2026-10-18 12:51Z;
+  verified: `canvas/agentmentions.tsx`, `tests/hubavailability.test.tsx`]
+
 - Project acknowledgement timeout uses `scope.mail_queue_ack_reminders` (1–10,
   default 3) for BOTH held mail and idle concurrency slots. It sends that many
   20-minute reminders, then reclaims at the next checkup; timeout/checkup gates

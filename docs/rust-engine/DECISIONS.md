@@ -1,5 +1,14 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Hub-contact availability, user 2026-10-18 12:51Z (4.4.0):** external
+contact chips must work when Hubchat is installed without opening phone setup.
+The shared chip subscription reads full desktop phone status once and on focus
+when its 60-second cache expires, coalescing consumers and preserving the known
+state on failed/malformed reads. The cheap phone-card response has no installed
+fact. Installed contacts keep the existing Hubchat conversation deep link;
+local organizations keep their local opener and missing installs stay inert.
+See `canvas/agentmentions.tsx` and `tests/hubavailability.test.tsx`.
+
 **Panel open actions activate existing windows, user 2026-10-18 12:09Z:**
 global inbox/docket/presentations openers, node Open menus and desk tabs raise
 the existing detached panel and restore it if minimized, without opening a
