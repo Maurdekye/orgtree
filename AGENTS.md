@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Org outbox reading headers group the sender's shared `AgentLink` (badge
+  inside), `as @org`, hub recipient and delivery glyph as one wrapping
+  attribution. Reply/time form a trailing, baseline-aligned group. The same
+  MailList header survives pop-out adoption; ordinary inbox/transcript headers
+  retain their own layout. Never wrap the fragment-based `AgentName` in a
+  plain bold element for compound attribution. [decided: user 2026-10-18 13:18Z;
+  verified: `canvas/mail.tsx`, `styles.css`, `tests/outboxheader*`]
+
 - Project mail's plain delivery marker uses `→ @recipient` through shared
   `AgentName`, in list rows and reading panes (including pop-outs). Recipient
   width yields before the sender; kind chips remain. Full delivery details live
