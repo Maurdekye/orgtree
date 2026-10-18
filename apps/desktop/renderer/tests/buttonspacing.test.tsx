@@ -8,6 +8,7 @@ import path from 'node:path'
 declare const __SRC_DIR__: string
 const shell = readFileSync(path.join(__SRC_DIR__, 'shell.css'), 'utf8')
 const attention = readFileSync(path.join(__SRC_DIR__, 'attention/attention.css'), 'utf8')
+const styles = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
 const rule = (css: string, selector: string) => {
   const start = css.indexOf(selector + ' {')
   assert.ok(start >= 0, `missing ${selector}`)
@@ -33,13 +34,16 @@ test('the desk and scrim begin after the complete agents rail', () => {
   assert.match(rule(attention, '.attn-agents-scrim'), /left:\s*0;/)
 })
 
-test('drawer rows reclaim the rail below the toggle while the filter keeps its clearance', () => {
+test('drawer rows reclaim the rail and the filter uses the full row width', () => {
   // The approved name-width change extends only the drawer's row area into
   // the empty rail. Requiring left:0 for the whole drawer wastes that width.
   const drawer = rule(attention, '.attn-agents')
   assert.match(drawer, /left:\s*calc\(-1\s*\*\s*var\(--attn-agent-rail,\s*0px\)\);/)
   assert.match(drawer, /width:\s*calc\(232px\s*\+\s*var\(--attn-agent-rail,\s*0px\)\);/)
-  const filterRow = rule(attention, '.attn-agents .tray-filter-row')
-  assert.match(filterRow, /padding-left:\s*var\(--attn-agent-rail,\s*0px\);/,
-    'the filter row keeps clear of the collapse-button rail')
+  assert.doesNotMatch(attention,
+    /\.attn-agents\s+\.tray-filter-row\s*\{[^}]*padding-left:\s*var\(--attn-agent-rail,\s*0px\);/s,
+    'the filter row does not reserve the old collapse-button rail')
+  assert.match(rule(styles, '.tray-filter-row'), /display:\s*flex;/)
+  assert.match(rule(styles, '.tray-filter-row .tray-filter'), /flex:\s*1;\s*min-width:\s*0;/,
+    'the filter input can shrink beside Active at narrow widths')
 })

@@ -267,11 +267,6 @@
   border: 0;
   box-shadow: none;
 }
-/* Keep the collapse-button rail clear while the active checkbox stays at the
-   right edge of the filter row. */
-.attn-agents .tray-filter-row {
-  padding-left: var(--attn-agent-rail, 0px);
-}
 @media (prefers-reduced-motion: reduce) {
   .attn-agents, .attn-agents-wrap.list-open .attn-agents,
   .attn-agents-scrim { transition: none; }
