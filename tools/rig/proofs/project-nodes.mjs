@@ -372,6 +372,15 @@ export default async function (rig) {
   const toEmpty = await rig.userMail('empty', 'Anyone?').then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
   p.check('with no live agent under the project, the send says nobody can pick it up', empty.ok && toEmpty.ok
     && /nobody can pick it up/.test(toEmpty.v.delivery ?? ''), { empty: empty.ok || empty.error, said: toEmpty.ok ? toEmpty.v : toEmpty.error })
+  // Runtime settings can turn the wake off (user 2026-10-18 07:47Z); it is on by default
+  const rt0 = await rig.api('GET', '/api/app-settings/runtime')
+  const off = await rig.api('PUT', '/api/app-settings/runtime', { project_listener_wake_enabled: false })
+  const dev5Mid = mailTo(node('dev5').id).length
+  const quietUi = await rig.userMail('ui', 'Second, with the wake off.').then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
+  p.check('with the wake turned off in Runtime settings, nobody is woken and the send says why', rt0.project_listener_wake_enabled === true
+    && off.project_listener_wake_enabled === false && quietUi.ok && mailTo(node('dev5').id).length === dev5Mid
+    && /Runtime settings/.test(quietUi.v.delivery ?? ''), { before: rt0.project_listener_wake_enabled, said: quietUi.ok ? quietUi.v : quietUi.error })
+  await rig.api('PUT', '/api/app-settings/runtime', { project_listener_wake_enabled: true })
   // dev5 was woken: let its turn end before the rename below
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'dev5 nudge turn', timeout: 60000 }).catch(() => {})
 
