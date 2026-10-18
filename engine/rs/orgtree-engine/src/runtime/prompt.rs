@@ -100,7 +100,7 @@ pub fn batch(mail: &[Mail], context: &str, rels: &HashMap<String, String>, hando
     let render = |ms: &[Mail]| {
         let mut text = if steering { steer_text(ms, rels) } else { turn_text(ms, context, rels, handoff) };
         let remaining = mail.len().saturating_sub(ms.len());
-        if remaining > 0 {
+        if remaining > 0 && !ms.is_empty() {
             text.push_str(&format!("\n[ORGTREE MAIL CONTINUES]\n{remaining} more messages follow automatically in order, within the input byte budget. No inbox read is needed to receive them.\n[END MAIL CONTINUES]\n"));
         }
         text
