@@ -2929,7 +2929,7 @@
    "covers": [
     "screen:quick-chat"
    ],
-   "purpose": "The quick chat box: hiring and starting a new agent from the window chrome.",
+     "purpose": "The quick chat box: hiring and starting a new agent, with the top-level eye and eligible Opus/Sol/Argon/Wonder defaults.",
    "must_cover": [
     "superior/model/files popovers",
     "placement setting"

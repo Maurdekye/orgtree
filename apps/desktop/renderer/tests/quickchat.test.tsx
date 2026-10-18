@@ -188,8 +188,8 @@ test('availability excludes exhausted defaults and keeps a compatible alternativ
   const view = await mount(ops, [])
   try {
     assert.equal(shown(view.el).model, 'sol', 'a signed-in provider alone does not prove a model is hireable')
-    await type(view.el.querySelector('.quickchat-input')!, 'check model eligibility')
-    await enter(view.el.querySelector('.quickchat-input')!)
+    await type(view.el.querySelector<HTMLInputElement>('.quickchat-input')!, 'check model eligibility')
+    await enter(view.el.querySelector<HTMLInputElement>('.quickchat-input')!)
     assert.equal(ops[0]?.tier, 'sol')
     assert.equal(ops[0]?.account, 'openai-other', 'the hire uses the eligible account that made the model available')
     assert.equal('effort' in ops[0]!, false, 'an automatic model follows its default effort')
@@ -218,8 +218,8 @@ test('availability offers no fallback when every account is exhausted', async ()
   try {
     assert.equal(shown(view.el).model, undefined)
     assert.equal(view.el.querySelector('.quickchat-model')?.textContent, 'no model')
-    await type(view.el.querySelector('.quickchat-input')!, 'cannot hire')
-    await enter(view.el.querySelector('.quickchat-input')!)
+    await type(view.el.querySelector<HTMLInputElement>('.quickchat-input')!, 'cannot hire')
+    await enter(view.el.querySelector<HTMLInputElement>('.quickchat-input')!)
     assert.equal(ops.length, 0)
   } finally { await view.unmount(); localStorage.clear() }
 })

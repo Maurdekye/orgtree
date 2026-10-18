@@ -44,6 +44,16 @@
   a current DND recipient. [decided: user 2026-10-18 17:42–17:43Z;
   verified: `canvas/{cards,desk,dnd,projectdesk}.tsx`, `styles.css`]
 
+- Quick chat shares the Agents-list switchboard mark for the selected top-level
+  superior and its option row. Default models prefer Opus, Sol, Argon, Wonder,
+  then any hireable tier; shared staffing availability gates account/model-spent
+  usage, with `native_ok` separate from the existing `default_ok` host flag.
+  Credit checks follow user cascade/project transparency and the top grant cap.
+  Keep per-org manual > template > app-wide manual precedence; an unavailable
+  remembered model stays stored while a fallback follows default effort.
+  [decided: user 2026-10-18 17:13–17:15Z; verified:
+  `QuickChatBox.tsx`, `quickchat-availability.ts`, `domain/staffing.rs`]
+
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the
   existing urgent-mail badge appearance, newest-first focus, highlight and
