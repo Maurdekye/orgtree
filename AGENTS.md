@@ -287,6 +287,26 @@
   `runtime/{actor,watchdogs}.rs`, `tools/defs.rs`, `canvas/modals.tsx`,
   `tools/rig/proofs/project-queue-busy.mjs`]
 
+- Project dead-letter queue (user 2026-10-18 19:38Z-19:40Z): a job that runs out
+  of `max_attempts` (`projects::reclaim`) stays in the project's own mail row
+  (`state='read'`, `extra.dead_letter` {by,by_id,why,how,attempts,at}) with
+  `extra.attempt_log` (one entry per hand-out: n,by,copy,at, `ended` {how
+  acked|released|timed_out, why, at}). `domain/dead_letters.rs`: ops
+  `dead_letters` (list / read with `id`), `dead_letter_retry` (state back to
+  pending, attempts 0, `extra.retried` appended, history kept, queue run after
+  commit via `Effects.queue_runs`), `dead_letter_drop` (reason required,
+  `extra.dead_letter_dropped`; leaves the open count). Reach is
+  `projects::reaches` (above or below the project, or the user), not org
+  visibility; tool `orgtree_project` actions `dead_letters`/`retry_dead_letter`/
+  `drop_dead_letter` are open to watchdogs-only callers like the slot actions.
+  Event `project.dead_letter` (scope Agent(org, project)) is checked against
+  `reaches` in `events::Access`. The tree node carries `dead_letters` (open
+  count, `x_dead_letters` in `feed/compute.rs`) and the project desk shows a
+  Dead letters tab (`canvas/deaddesk.tsx`). No forward-to-agent action yet.
+  [decided: user 2026-10-18 19:38Z-19:40Z; verified: `domain/{dead_letters,projects,ops}.rs`,
+  `runtime/watchdogs/events.rs`, `tools/{defs,treetools}.rs`, `canvas/deaddesk.tsx`,
+  `tools/rig/proofs/project-dead-letters.mjs`, `tests/deadletters.test.tsx`]
+
 - Panel buttons hide an already open local pin, even behind another panel,
   and reopen it at its saved placement on the next click. This replaces the
   12:09Z always-raise rule for buttons (user 2026-10-18 16:42Z). Detached windows

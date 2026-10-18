@@ -140,6 +140,7 @@ Events are pushed. Creation smoke reports current exact conditions where availab
 | `account.signed_in`, `account.signed_out`, `account.limit.reached`, `account.limit.reset` | Published account authentication/limit changes, without credentials. |
 | `hub.up`, `hub.down`, `hub.changed` | Org hub connection or network change. |
 | `credits.changed` | Visible agent grant/free-credit changes. |
+| `project.dead_letter` | An ack-queue job ran out of attempts and became a dead letter (see [orgtree-tool-project](../../team/tool-project/SKILL.md)); only agents above or below the project see it. Payload: project, mail id, sender, attempts, last holder, reason. `pattern=<project>` narrows it to one project. |
 | `documents.created`, `documents.updated`, `documents.changed` | Presentation create/update/feed change, without document body. |
 | `audience.requested`, `audience.granted`, `audience.denied`, `audience.revoked` | Committed audience changes. |
 | `cli.started`, `cli.ready`, `cli.cold`, `cli.evicted` | Another visible agent's process/warmth transitions. |
