@@ -25,9 +25,10 @@
 
 - Team panels reuse the canvas Agents `tray-panel` frame and direct `AgentTray`,
   with Active in `PinFrame.headerActions`; no settings wrapper or bottom Close.
-  The inline desk Team tab keeps its filter-row Active. See
+  The inline desk Team tab puts Active and existing PanelCorner buttons in an
+  in-flow toolbar outside the tray, leaving a full-width filter below. See
   [Team panel chrome](docs/rust-engine/team-panel-chrome.md).
-  [decided: user 2026-10-18 14:22Z; verified: `canvas/team.tsx`, `styles.css`]
+  [decided: user 2026-10-18 14:22Z/14:44Z; verified: `canvas/{team,desk,projectdesk}.tsx`, `styles.css`]
 
 - Org outbox reading headers group the sender's shared `AgentLink` (badge
   inside), `as @org`, hub recipient and delivery glyph as one wrapping

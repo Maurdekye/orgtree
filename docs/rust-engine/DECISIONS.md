@@ -6,6 +6,12 @@ counted button and expand/collapse behavior everywhere they appear, via shared
 `DeskJumpCards`. Parent navigation remains outside the member row; agent
 retired controls and watchdog ordering stay unchanged. See [project nodes](PROJECT-NODES.md).
 
+**Inline Team tab controls, user 2026-10-18 14:44Z (4.4.0):** pin/pop-out/modal
+buttons own a row above the Team tray instead of floating over its content or
+scrollbar, on agent/project desks including narrow desks. Reuse the existing
+PanelCorner buttons, sizes and routes. Active shares the reserved row and the
+filter uses the full tray width. See [Team panel chrome](team-panel-chrome.md).
+
 **Context menu parent actions, user 2026-10-18 14:25Z and 14:34Z (4.4.0):**
 click/Enter on an agent's or project's Open parent opens its temporary desk
 and closes the menu. Hire a subordinate opens the draft with the Quick chat
