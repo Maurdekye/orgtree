@@ -1,7 +1,7 @@
 import { CredentialBridge } from './credential-bridge'
 import { CoreLifecycle } from './core-lifecycle'
 import { recordCoreControlFailure } from './core-exit-log'
-import { openAgentScratchFolder } from './scratch-folder'
+import { agentScratchAgentsFileExists, openAgentScratchAgentsFile, openAgentScratchFolder } from './scratch-folder'
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
@@ -2032,6 +2032,32 @@ else {
         return { ok: false, error: 'Open this agent from its local organization window.' }
       }
       return openAgentScratchFolder(engine, org, node, directory => shell.openPath(directory), scope)
+    })
+    handle('desktop:agent-scratch-agents-file-exists', (caller, org, node, scope) => {
+      if (!engineRestartOptions?.dataRoot || windows.identity(caller.id)?.org !== org) {
+        return { ok: false, error: 'Open this folder from its local organization window.' }
+      }
+      return agentScratchAgentsFileExists(engine, org, node, scope)
+    })
+    handle('desktop:open-agent-scratch-agents-file', (caller, org, node, scope) => {
+      if (!engineRestartOptions?.dataRoot || windows.identity(caller.id)?.org !== org) {
+        return { ok: false, error: 'Open this folder from its local organization window.' }
+      }
+      return openAgentScratchAgentsFile(engine, org, node, async file => {
+        const associationError = await shell.openPath(file)
+        if (!associationError) return ''
+        if (process.platform !== 'win32') return associationError
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const child = spawnProcess('notepad.exe', [file], { detached: true, stdio: 'ignore' })
+            child.once('error', reject)
+            child.once('spawn', () => { child.unref(); resolve() })
+          })
+          return ''
+        } catch (error) {
+          return error instanceof Error ? error.message : associationError
+        }
+      }, scope)
     })
     handleApp('desktop:open-charter-folder', async () => {
       const dir = path.join(os.homedir(), '.orgtree', 'charters')

@@ -184,6 +184,10 @@ export interface DesktopBridge {
   /** Personal/team identity, or an empty node for the org-wide shared folder.
    * Paths are resolved by the authenticated local engine, never the renderer. */
   openAgentScratchFolder?(org: string, node: string, scope?: 'team' | 'shared'): Promise<{ ok: boolean; error?: string }>
+  /** Query/open the exact scratch folder's root AGENTS.md. Only identities and
+   *  scopes cross IPC; the native process resolves and validates the path. */
+  agentScratchAgentsFileExists?(org: string, node: string, scope?: 'team' | 'shared'): Promise<{ ok: boolean; exists?: boolean; error?: string }>
+  openAgentScratchAgentsFile?(org: string, node: string, scope?: 'team' | 'shared'): Promise<{ ok: boolean; error?: string }>
   /** Reveal an absolute local file in the OS file manager — Explorer opens
    *  with the file SELECTED and nothing is launched. Deliberately not an
    *  "open" (user ruling, 2026-09-13): links come from agent-written markdown,

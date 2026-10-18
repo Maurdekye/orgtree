@@ -124,6 +124,32 @@ export interface MenuItem {
 }
 export type MenuEntry = MenuItem | 'sep'
 
+type FolderAgentsAction = (() => void) & {
+  folderAgentsFile?: { exists: () => Promise<boolean>; edit: () => void }
+}
+
+/** Native folder callbacks carry only identity-bound capabilities, never a
+ *  filesystem path. Resolve them when the menu opens so absence leaves the
+ *  existing folder entry untouched. */
+async function resolveFolderAgentsEntries(entries: MenuEntry[]): Promise<MenuEntry[]> {
+  return Promise.all(entries.map(async entry => {
+    if (entry === 'sep') return entry
+    const currentChildren = entry.children
+      ? await resolveFolderAgentsEntries(entry.children) : undefined
+    const note = (entry.onSelect as FolderAgentsAction).folderAgentsFile
+    if (!note) return currentChildren ? { ...entry, children: currentChildren } : entry
+    let exists = false
+    try { exists = await note.exists() } catch { /* a missing folder keeps today's menu */ }
+    if (!exists) return currentChildren ? { ...entry, children: currentChildren } : entry
+    const children: MenuEntry[] = [
+      { label: 'Open folder', onSelect: entry.onSelect },
+      { label: 'Edit AGENTS.md', onSelect: note.edit },
+      ...(currentChildren ?? []),
+    ]
+    return { ...entry, children, submenuOnly: true }
+  }))
+}
+
 // Explicit object identities, never inferred from textContent: a card also
 // contains status/model text, and a ticket row displays its slug, not title.
 const COPY_OBJECT = '[data-copy-agent-name], [data-copy-ticket-title]'
@@ -417,10 +443,11 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     const inside = measured && e.clientX >= r.left && e.clientX <= r.right
       && e.clientY >= r.top && e.clientY <= r.bottom
     anchorRef.current = el
+    const id = ++opening.current
     setState({
       // Portals leave the agent's DOM scope; retain its button colour.
       buttonAccent: doc.defaultView?.getComputedStyle(el).getPropertyValue('--button-accent').trim() || 'var(--line-hover)',
-      opening: ++opening.current,
+      opening: id,
       x: inside ? e.clientX : r.left,
       y: inside ? e.clientY : r.bottom,
       entries: list,
@@ -428,14 +455,17 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       keyboard: !inside,
       doc,
     })
+    void resolveFolderAgentsEntries(list).then(resolved => setState(s =>
+      s && s.opening === id && opening.current === id ? { ...s, entries: resolved } : s))
     if (objectPending) {
-      const id = opening.current
-      void objectPending.then(resolved => setState(s => {
+      void objectPending.then(async resolved => {
+        const withFolderActions = await resolveFolderAgentsEntries(resolved)
+        return setState(s => {
         if (!s || opening.current !== id) return s
         if (objectNav?.org !== objectOrg || !objectEl?.isConnected) return null
         const copy = object ? objectCopyEntry(object, feedback) : null
-        return { ...s, entries: copy && !resolved.some(r => r !== 'sep' && r.label === copy.label) ? [copy, 'sep', ...resolved] : resolved }
-      })).catch(() => setState(s => {
+        return { ...s, entries: copy && !withFolderActions.some(r => r !== 'sep' && r.label === copy.label) ? [copy, 'sep', ...withFolderActions] : withFolderActions }
+      })}).catch(() => setState(s => {
         if (!s || opening.current !== id) return s
         if (objectNav?.org !== objectOrg || !objectEl?.isConnected) return null
         return { ...s, entries: [{ label: 'Object unavailable', disabled: true, onSelect: () => {} }] }
