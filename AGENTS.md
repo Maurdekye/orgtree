@@ -12,7 +12,9 @@
   the name, at text height. Pushed `picture_revision` changes refresh it; a
   missing/removed/failed logo leaves no image or reserved space. The shared
   component also covers legacy and separate Organization settings headers.
-  [decided: user 2026-10-18 15:54Z; verified: `shell/{header,orgheaderlogo}.tsx`, `App.tsx`]
+  Centered headers remeasure nested title changes against intrinsic text width,
+  so a late logo does not leave the org name clipped to its old allocation.
+  [decided: user 2026-10-18 15:54Z; verified: `shell/{header,orgheaderlogo}.tsx`, `shell/equalsides.ts`, `App.tsx`]
 
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the

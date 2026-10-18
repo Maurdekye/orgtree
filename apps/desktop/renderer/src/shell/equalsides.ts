@@ -22,7 +22,12 @@ export function useEqualSides(on: boolean) {
       const cs = getComputedStyle(el)
       const kids = [...el.children] as HTMLElement[]
       const gap = parseFloat(cs.columnGap) || 0
-      return kids.reduce((w, k) => w + k.getBoundingClientRect().width, 0)
+      // A logo can arrive inside the title after the first measurement. Its
+      // old flex allocation may clip it without growing the observed box.
+      const width = (k: HTMLElement) => k.classList.contains('shell-header-title')
+        ? Math.max(k.getBoundingClientRect().width, k.scrollWidth)
+        : k.getBoundingClientRect().width
+      return kids.reduce((w, k) => w + width(k), 0)
         + gap * Math.max(0, kids.length - 1)
         + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
     }
@@ -38,7 +43,8 @@ export function useEqualSides(on: boolean) {
     }
     // a control that appears later (an update notice, the killswitch) counts too
     const kids = typeof MutationObserver === 'undefined' ? null : new MutationObserver(watch)
-    kids?.observe(a, { childList: true }); kids?.observe(b, { childList: true })
+    kids?.observe(a, { childList: true, subtree: true, characterData: true })
+    kids?.observe(b, { childList: true, subtree: true, characterData: true })
     watch()
     return () => { sizes.disconnect(); kids?.disconnect() }
   }, [on])
