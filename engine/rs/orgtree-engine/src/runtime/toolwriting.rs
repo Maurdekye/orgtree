@@ -62,11 +62,13 @@ impl ToolWriting {
             if let Some(partial) = partial_input(&c.input).as_object() {
                 if let Some(base) = input.as_object_mut() { base.extend(partial.clone()); }
             }
+            let file_paths = super::convo::tool_file_paths(&c.name, &input);
             json!({
             "event_id": format!("tool-writing-{turn}-{id}"), "role": "assistant", "kind": "tool_writing",
             "text": c.name, "tool_id": id, "started_at": c.at, "stream_order": c.order,
             "tool": { "id": id, "name": c.name, "arg": super::convo::tool_arg(&c.name, &input),
-                "preview_input": input, "writing_started_at": c.at,
+            "preview_input": input, "writing_started_at": c.at,
+                "file_paths": file_paths,
                 "refs": super::convo::tool_refs(&c.name, &input, None) },
         }) }).collect();
         rows.sort_by_key(|r| r["stream_order"].as_u64());

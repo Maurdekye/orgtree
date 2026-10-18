@@ -4958,6 +4958,11 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
             : <DotIcon fontSize="inherit" className="tooldot" />}
         {' '}{shortTool(t.name)}
         {t.arg ? <span className="targ"> {t.arg}</span> : null}
+        {t.file_paths?.map((file, i) => file.link
+          ? <a key={`${file.path}-${i}`} className="local-file tool-file-link" href="#"
+              data-local-path={file.path} title={`Show in folder — ${file.path}`}
+              onClick={e => e.stopPropagation()}>{' '}{file.path}</a>
+          : <span key={`${file.path}-${i}`} className="tool-file-path"> {file.path}</span>)}
         {t.diff && <span className="tdiffn"> +{t.diff.plus} −{t.diff.minus}</span>}
         {t.task && (
           <span className="dim"> · {t.task.tools ?? '?'} tools

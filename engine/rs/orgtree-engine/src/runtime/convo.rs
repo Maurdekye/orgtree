@@ -368,6 +368,10 @@ pub fn take_tool_inputs(body: &mut Value, seq: i64) -> Value {
             let Some(id) = chip["id"].as_str().map(str::to_string) else { continue };
             let Some(chip) = chip.as_object_mut() else { continue };
             let mut kept = serde_json::Map::new();
+            let paths = chip.get("input").and_then(|input| {
+                tool_file_paths(chip.get("name").and_then(Value::as_str).unwrap_or(""), input)
+            });
+            if let Some(paths) = paths { chip.insert("file_paths".into(), paths); }
             if let Some(input) = chip.remove("input") {
                 let source = chip.remove("input_source");
                 kept.insert("input".into(), input);
@@ -382,6 +386,69 @@ pub fn take_tool_inputs(body: &mut Value, seq: i64) -> Value {
         }
     }
     Value::Object(inputs)
+}
+
+/// Extract only explicit file arguments from known file tools. Shell command
+/// strings are deliberately never inspected. This metadata stays on the public
+/// transcript chip while the full input remains in the private tool-input row.
+#[nolog]
+pub fn tool_file_paths(name: &str, input: &Value) -> Option<Value> {
+    let tool = name.rsplit("__").next().unwrap_or(name).to_ascii_lowercase();
+    if !matches!(tool.as_str(), "read" | "write" | "edit" | "multiedit" | "multi_edit" | "notebookedit" | "notebook_edit" | "apply_patch"
+        | "read_file" | "write_file" | "edit_file" | "view_file" | "replace_file_content" | "create_file"
+        | "readfile" | "writefile" | "editfile" | "viewfile" | "skill" | "read_skill") {
+        return None;
+    }
+
+    fn collect(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for key in ["file_path", "filePath", "filepath", "path", "notebook_path", "notebookPath", "target_file", "targetFile"] {
+                    if let Some(path) = map.get(key).and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
+                        if !out.iter().any(|old| old == path) { out.push(path.to_owned()); }
+                    }
+                }
+                // Codex's structured patch carries every changed path here.
+                if let Some(changes) = map.get("changes").and_then(Value::as_array) {
+                    for change in changes { collect(change, out); }
+                }
+            }
+            Value::Array(items) => for item in items { collect(item, out); },
+            _ => {}
+        }
+    }
+
+    let mut paths = Vec::new();
+    collect(input, &mut paths);
+    // Skill tools often identify the skill by its directory or SKILL.md path.
+    // Do not guess from a display name alone; ordinary Read calls that carry
+    // the resolved SKILL.md path are handled by the normal explicit path fields.
+    if matches!(tool.as_str(), "skill" | "read_skill") {
+        paths.retain(|path| path.ends_with("SKILL.md"));
+        for key in ["skill_path", "skillPath", "path", "file_path", "filePath"] {
+            if let Some(path) = input.get(key).and_then(Value::as_str) {
+                if path.ends_with("SKILL.md") && !paths.iter().any(|old| old == path) {
+                    paths.push(path.to_owned());
+                }
+            }
+        }
+    }
+    if paths.is_empty() { return None; }
+    let cwd = ["cwd", "working_directory", "workingDirectory"]
+        .iter().find_map(|key| input.get(*key).and_then(Value::as_str))
+        .map(std::path::PathBuf::from).filter(|p| p.is_absolute());
+    let result: Vec<Value> = paths.into_iter().map(|raw| {
+        let path = std::path::Path::new(&raw);
+        let resolved = if path.is_absolute() { Some(path.to_path_buf()) }
+            else { cwd.as_ref().map(|cwd| cwd.join(path)) };
+        let shown = resolved.as_ref().map(|p| {
+            let path = p.to_string_lossy().into_owned();
+            if cfg!(windows) { path.replace('/', "\\") } else { path }
+        }).unwrap_or(raw);
+        let link = resolved.as_ref().is_some_and(|p| p.is_absolute());
+        json!({"path":shown,"link":link})
+    }).collect();
+    Some(json!(result))
 }
 
 /// Provider-reported failed shell output only. Kept separately from chat/feed.
@@ -442,6 +509,35 @@ mod failed_shell_output_tests {
         use base64::Engine as _;
         let decoded = base64::engine::general_purpose::STANDARD.decode(retained["nul"]["failed_shell_output"]["output_base64"].as_str().unwrap()).unwrap();
         assert_eq!(decoded, b"before\0after");
+    }
+}
+
+#[cfg(test)]
+mod tool_file_path_tests {
+    use super::*;
+
+    #[test]
+    fn extracts_explicit_paths_only_from_file_tools_and_uses_event_cwd() {
+        let files = tool_file_paths("Read", &json!({"file_path":"notes/todo.md", "cwd":"C:/agent"})).unwrap();
+        assert_eq!(files[0]["path"], "C:\\agent\\notes\\todo.md");
+        assert_eq!(files[0]["link"], true);
+        let relative = tool_file_paths("Read", &json!({"file_path":"notes/todo.md"})).unwrap();
+        assert_eq!(relative[0]["path"], "notes/todo.md");
+        assert_eq!(relative[0]["link"], false);
+        assert!(tool_file_paths("Bash", &json!({"command":"cat C:/private.txt"})).is_none());
+    }
+
+    #[test]
+    fn apply_patch_links_each_changed_file_and_skill_links_only_an_explicit_skill_path() {
+        let patched = tool_file_paths("apply_patch", &json!({"changes":[{"path":"C:/repo/a.rs"},{"path":"C:/repo/b.rs"}]})).unwrap();
+        assert_eq!(patched.as_array().unwrap().len(), 2);
+        assert_eq!(patched[1]["path"], "C:\\repo\\b.rs");
+        let skill = tool_file_paths("Skill", &json!({"skill":"orgtree-working"}));
+        assert!(skill.is_none(), "a name alone is ambiguous and must not become a guessed link");
+        assert!(tool_file_paths("Skill", &json!({"path":"C:/shared/orgtree-working"})).is_none(),
+            "a skill directory is not the requested SKILL.md file");
+        let explicit = tool_file_paths("Skill", &json!({"skill_path":"C:/shared/orgtree-working/SKILL.md"})).unwrap();
+        assert_eq!(explicit[0]["path"], "C:\\shared\\orgtree-working\\SKILL.md");
     }
 }
 

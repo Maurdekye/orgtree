@@ -22,6 +22,6 @@ test('relative file paths without an event working directory stay plain text', a
   const view = await mountView(<ToolChip t={{ id: 'read-2', name: 'Read',
     file_paths: [{ path: 'notes/todo.md', link: false }] }} slug="org" nid="agent" />, el => el)
   t.after(() => view.unmount())
-  assert.equal(view.el.querySelector('a[data-local-path]'), null)
+  assert.equal(view.el.querySelector('a[data-local-path]') === null, true)
   assert.match(view.el.querySelector('.tline')?.textContent ?? '', /notes\/todo\.md/)
 })

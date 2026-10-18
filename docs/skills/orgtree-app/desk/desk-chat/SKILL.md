@@ -6,6 +6,8 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Desk Chat tab
 
+File-reading/writing tool calls show an explicit path as a local-file link immediately after the tool chip. Skill reads link when the event includes the resolved `SKILL.md` path; name-only Skill calls remain unlinked until transcript writing can resolve a unique skill file.
+
 Chat is the conversation surface. It includes messages, thoughts when supplied, tools, typed events, attachments and pending delivery rows. Opening another tab does not stop the agent. Earlier messages load on demand; failure offers retry rather than claiming the transcript ends there.
 
 Chat Markdown can display inline images. Relative image paths resolve within the author's files; absolute Windows paths and HTTP(S) URLs use the checked image endpoint. PNG, JPEG, GIF and WebP are supported there; an image that cannot be loaded falls back to a link (local files can be revealed in their folder).
