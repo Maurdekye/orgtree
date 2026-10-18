@@ -1,5 +1,14 @@
 # AGENTS.md — working on Orgtree
 
+- Agent-facing Orgtree tool results append engine-measured `execution time: 0.432ms`
+  as a final text block (Codex: separate `inputText`), preserving the primary
+  text byte-for-byte and its JSON parseability. Measure with a monotonic clock
+  around common dispatch, including refusals; do not fabricate harness-native
+  tool timings. The synthetic rig's primary-text API keeps its JSON contract.
+  See [tool result timing](docs/rust-engine/tool-result-timing.md).
+  [decided: user/coordinator 2026-10-18; verified: `tools/{mod,result_timing}.rs`,
+  `runtime/{claude,codex}.rs`, `bridge.rs`]
+
 - `orgtree_present project=P` needs no user audience for agents strictly below
   P, including nested-project members. Ancestors still need the user audience;
   unrelated projects still fail reach, and no-project calls keep the audience

@@ -2,17 +2,23 @@
 use std::time::Duration;
 use serde_json::{json, Value};
 
-/// Baseline seam: the existing result is unchanged before timing is added.
-#[nolog]
-pub(super) fn finish(result: Value, _elapsed: Duration) -> Value { result }
+/// Append presentation metadata without changing the tool's primary JSON/text.
+#[nolog] // hot, pure presentation helper; tool text may contain private data
+pub(super) fn finish(mut result: Value, elapsed: Duration) -> Value {
+    if let Some(content) = result.get_mut("content").and_then(Value::as_array_mut) {
+        content.push(json!({"type":"text", "text":format!(
+            "execution time: {:.3}ms", elapsed.as_secs_f64() * 1000.0)}));
+    }
+    result
+}
 
-/// Baseline extraction of the dynamic-tool adapter's existing text view.
-#[nolog]
+/// Codex dynamic replies carry each MCP text block as a separate input item.
+#[nolog] // pure adapter; do not log private tool result text again
 pub(crate) fn codex_result(result: &Value) -> Value {
-    let text = result["content"].as_array().map(|a| a.iter()
-        .filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n")).unwrap_or_default();
-    json!({"success":!result["isError"].as_bool().unwrap_or(false),
-        "contentItems":[{"type":"inputText","text":text}]})
+    let items: Vec<Value> = result["content"].as_array().into_iter().flatten()
+        .filter_map(|c| c["text"].as_str())
+        .map(|text| json!({"type":"inputText", "text":text})).collect();
+    json!({"success":!result["isError"].as_bool().unwrap_or(false), "contentItems":items})
 }
 
 #[cfg(test)]

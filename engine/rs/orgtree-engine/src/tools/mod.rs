@@ -157,14 +157,16 @@ pub async fn call_agent_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, 
     call(engine, caller, &params).await
 }
 
-/// Legacy text view used by the synthetic rig's JSON-aware tool endpoint.
+/// Legacy primary text view used by the synthetic rig's JSON-aware endpoint.
+/// Real harnesses use MCP blocks or call_agent_tool, including the final timing block.
 #[logged]
 pub async fn call_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value, tool_use: Option<&str>) -> (bool, String) {
     let r = call_agent_tool(engine, caller, name, args, tool_use).await;
     let text = r["content"]
         .as_array()
-        .map(|a| a.iter().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n"))
-        .unwrap_or_default();
+        .and_then(|a| a.first())
+        .and_then(|c| c["text"].as_str())
+        .unwrap_or_default().to_owned();
     (!r["isError"].as_bool().unwrap_or(false), text)
 }
 

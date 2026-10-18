@@ -579,3 +579,25 @@ pub fn ensure_session(cwd: &Path, session: &str, config_dir: Option<&str>, other
     }
     false
 }
+
+#[cfg(test)]
+mod tool_result_timing_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn tool_result_timing_claude_control_keeps_final_text_block() {
+        let engine = Engine::for_tests(PathBuf::from("unused-tool-result-timing"));
+        let caller = Caller { org_id:1, org_slug:"fixture".into(), agent_id:7, name:"fixture".into() };
+        let (actor, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let result = answer_control(&engine, &caller, &actor,
+            &json!({"subtype":"mcp_message", "server_name":"orgtree", "message":{
+                "jsonrpc":"2.0", "id":73, "method":"tools/call", "params":{
+                    "name":"orgtree_chart", "arguments":[]}}})).await.unwrap();
+        assert_eq!(result["mcp_response"]["id"],73);
+        assert_eq!(result["mcp_response"]["result"]["isError"],true);
+        let content = result["mcp_response"]["result"]["content"].as_array().unwrap();
+        assert_eq!(content.len(),2);
+        assert_eq!(content[0]["text"],"orgtree_chart: the arguments must be a JSON object");
+        crate::tools::result_timing::assert_time_line(content[1]["text"].as_str().unwrap());
+    }
+}
