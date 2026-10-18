@@ -98,13 +98,14 @@ function serve(t: TestContext) {
 
 async function desk(t: TestContext, h: { jump?: (id: string) => void; config?: () => void;
   pin?: () => void; popout?: () => void; bare?: boolean; node?: CanvasNode; ops?: OpRequest[]
-  toast?: (lines: string[]) => void } = {}) {
+  toast?: (lines: string[]) => void; openDoc?: (id: string) => void } = {}) {
   serve(t)
   const nd = h.node ?? project()
   const ops = h.ops ?? []
   const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd], ['boss', boss]])}
     op={(b) => { ops.push(b); return Promise.resolve({} as OpResult) }}
-    toast={h.toast ?? noop} refs={refs} bare={h.bare} onJump={h.jump} onConfig={h.config} onPin={h.pin} onPopout={h.popout} />, (el) => el)
+    toast={h.toast ?? noop} refs={refs} bare={h.bare} onJump={h.jump} onConfig={h.config} onPin={h.pin} onPopout={h.popout}
+    onOpenDoc={h.openDoc} />, (el) => el)
   t.after(() => view.unmount())
   await flush(2)
   return view.el
@@ -145,7 +146,7 @@ test('§1c the presented tab counts the project\'s OWN documents (point 27, repl
 
 test('project presentation Reply context action stages the document target and focuses the project composer', async (t) => {
   const doc = { id: 'p1', title: 'Release plan', at: new Date().toISOString(), node: 'website' }
-  const el = await desk(t, { node: project({ documents: [doc] } as never) })
+  const el = await desk(t, { node: project({ documents: [doc] } as never), openDoc: noop })
   const card = el.querySelector<HTMLElement>('.desk-docs [data-doc-id="p1"]')!
   assert.ok(card, 'the project header presentation card')
   await inAct(() => {
@@ -187,9 +188,10 @@ test('project presentation reader can broadcast a reply while preserving its doc
   await inAct(() => { el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="presented"]')!.click() })
   await inAct(async () => { await flush(5) })
   const gallery = el.querySelector('.desk-presented')!
-  const card = gallery.querySelector<HTMLElement>('.doc-gallery-row[data-doc-id="p1"]')!
-  assert.ok(card, 'the presented tab has the document card')
-  await inAct(() => { card.click() })
+  const card = gallery.querySelector<HTMLElement>('.doc-gallery-row')
+  assert.equal(card?.querySelector('.mfrom')?.textContent, 'Release plan', 'the presented tab has the document card')
+  assert.ok(card)
+  await inAct(() => { card!.click() })
   await inAct(async () => { await flush(4) })
   const reply = gallery.querySelector<HTMLTextAreaElement>('.mailer-read textarea')
   assert.ok(reply, 'the selected presentation has a reply box')
