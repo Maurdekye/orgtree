@@ -64,6 +64,14 @@ pub fn list() -> Vec<Value> {
 pub fn scoped(tools: &Value) -> Vec<Value> {
     list().into_iter().filter(|t| {
         t["name"].as_str().is_some_and(|name| crate::domain::tool_groups::allows(tools, name))
+    }).map(|mut card| {
+        if card["name"] == "orgtree_project" && !crate::domain::tool_groups::enabled(tools,"team") {
+            card["inputSchema"]["properties"].as_object_mut().unwrap()
+                .retain(|key,_| ["action","name","lease","note"].contains(&key.as_str()));
+            card["inputSchema"]["properties"]["action"]["enum"] = json!(["slots","release_slot"]);
+            card["description"] = json!("Release your own concurrency slot: release_slot with lease and optional note. slots with project name reads only your holds, line entries and history. Available with watchdogs or team; other project actions and force release require team. Normal project reach and lease ownership checks apply. Guide: orgtree-tool-project.");
+        }
+        card
     }).collect()
 }
 

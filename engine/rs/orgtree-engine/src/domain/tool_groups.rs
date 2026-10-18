@@ -69,12 +69,22 @@ pub fn required(name: &str) -> Option<&'static [&'static str]> {
 
 #[nolog]
 pub fn allows(tools: &Value, name: &str) -> bool {
+    // Project administration is team-gated; watchdog-only callers get a
+    // restricted card and call gate so every slot claimant can release.
+    if name == "orgtree_project" {
+        return enabled(tools,"team") || enabled(tools,"watchdogs");
+    }
     required(name).is_some_and(|groups| groups.iter().all(|g| enabled(tools, g)))
 }
 
 /// Shared dispatch boundary for action-bearing tools.
 #[nolog]
-pub fn allows_call(tools: &Value, name: &str, _args: &Value) -> bool {
+pub fn allows_call(tools: &Value, name: &str, args: &Value) -> bool {
+    if name == "orgtree_project" && !enabled(tools,"team") {
+        return enabled(tools,"watchdogs")
+            && matches!(args["action"].as_str(),Some("slots"|"release_slot"))
+            && !args["force"].as_bool().unwrap_or(false);
+    }
     allows(tools, name)
 }
 

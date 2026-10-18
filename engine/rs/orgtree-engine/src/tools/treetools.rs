@@ -74,9 +74,52 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
         },
         _ => {}
     }
+    let own_slots = op == "create_project" && arg_str(args,"action") == Some("slots")
+        && !crate::domain::tool_groups::enabled(&super::caller_tools(engine,caller).await?,"team");
     let actor = Actor::Agent { id: me.id, name: me.name.clone() };
     let out = ops::run(engine, &org, actor, &req).await?;
+    let out = if own_slots { own_slot_status(out,&me.name) } else { out };
     Ok(Done { text: serde_json::to_string_pretty(&out).unwrap_or_default(), card: None })
+}
+
+/// Watchdog-only exposure is for finding and releasing the caller's own lease.
+/// Canonical slot_status has already checked project reach; team callers keep
+/// its full response. Do not expose other agents' reasons or lease ids here.
+#[nolog]
+fn own_slot_status(mut status: Value, agent: &str) -> Value {
+    for key in ["holders","line","history"] {
+        if let Some(rows) = status[key].as_array_mut() {
+            rows.retain(|row| row["agent"].as_str() == Some(agent));
+        }
+    }
+    status["held"] = json!(status["holders"].as_array().map_or(0,Vec::len));
+    status["own_only"] = json!(true);
+    status
+}
+
+#[cfg(test)]
+mod slot_release_projection_tests {
+    use super::*;
+
+    #[test]
+    fn own_state_keeps_lease_and_line_position_without_other_agents() {
+        let out=own_slot_status(json!({"project":"build","slots":2,"held":2,
+            "holders":[{"agent":"me","lease":"mine"},{"agent":"other","lease":"theirs"}],
+            "line":[{"agent":"other","position":1},{"agent":"me","position":2}],
+            "history":[{"agent":"me","lease":"old"},{"agent":"other","lease":"secret"}]}),"me");
+        assert_eq!(out,json!({"project":"build","slots":2,"held":1,"own_only":true,
+            "holders":[{"agent":"me","lease":"mine"}],"line":[{"agent":"me","position":2}],
+            "history":[{"agent":"me","lease":"old"}]}));
+    }
+
+    #[test]
+    fn no_own_records_is_empty_even_when_other_agents_hold_slots() {
+        let out=own_slot_status(json!({"project":"build","slots":1,"held":1,
+            "holders":[{"agent":"other","lease":"theirs"}],"line":[],"history":[]}),"me");
+        assert_eq!(out["holders"],json!([]));
+        assert_eq!(out["held"],0);
+        assert_eq!(out["own_only"],true);
+    }
 }
 
 /// Megaphone convenience; ordinary message scope, reach and attachment rules apply to EVERY send.
