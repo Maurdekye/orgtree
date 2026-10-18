@@ -50,7 +50,8 @@
   usage, with `native_ok` separate from the existing `default_ok` host flag.
   Credit checks follow user cascade/project transparency and the top grant cap.
   Keep per-org manual > template > app-wide manual precedence; an unavailable
-  remembered model stays stored while a fallback follows default effort.
+  remembered model stays stored while a fallback follows default effort. See
+  [Quick chat defaults](docs/rust-engine/quickchat-model-defaults.md).
   [decided: user 2026-10-18 17:13–17:15Z; verified:
   `QuickChatBox.tsx`, `quickchat-availability.ts`, `domain/staffing.rs`]
 

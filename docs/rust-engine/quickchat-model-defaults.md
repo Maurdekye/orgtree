@@ -39,6 +39,11 @@ effort, while a supported remembered/manual model retains its effort choice.
 - The synthetic 1000×700 Electron capture reports equal 16×16 marks, 8 px gaps,
   colour and markup; its PNG was inspected. The first capture exposed an
   18-versus-16 size mismatch and is retained as failed evidence.
+- `cargo check -p orgtree-engine --bin orgtree-engine -j2` passed in 3m18s
+  under a 6 GB kernel Job, with one unused import warning in unchanged
+  `domain/tree.rs`. Strict TypeScript 7 checking reported no diagnostics in
+  the eight changed source/test files, but exited 1 on 23 diagnostics in
+  unchanged transitive files; this is not a full renderer typecheck pass.
 
 This is synthetic renderer evidence, not live provider eligibility or native
 mouse-input proof. Phase 1 omits broad suites and simulated-org proofs.
