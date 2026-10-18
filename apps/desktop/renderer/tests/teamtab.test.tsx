@@ -7,6 +7,9 @@ import { AgentTray, trayRows } from '../src/canvas/agenttray'
 import { AgentSurfaceRoutesProvider } from '../src/canvas/panelcorner'
 import { claimSurfaceRequests, forgetSurfaceRequests } from '../src/canvas/modalpin'
 import { resetConvos } from '../src/convo'
+import { agentMenuEntries } from '../src/canvas/agentmenu'
+import { UserNode } from '../src/canvas/cards'
+import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -29,6 +32,37 @@ function fixture(project: boolean) {
   return { root, busy, idle, map, tree }
 }
 const names = (el: Element) => [...el.querySelectorAll('.tray-row')].map(e => e.getAttribute('data-copy-agent-name'))
+const allEntries = (entries: MenuEntry[]): MenuItem[] => entries.flatMap(e => e === 'sep' ? [] : [e, ...allEntries(e.children ?? [])])
+
+test('shared agent and project Open menus expose the Team view', () => {
+  for (const project of [false, true]) {
+    let opened = 0
+    const handlers = { onInbox: noop, onSettings: noop, onTeam: () => opened++ }
+    const entries = agentMenuEntries(fixture(project).root, handlers)
+    const entry = allEntries(entries).find(e => e.label === 'Team')
+    assert.equal(!!entry, true, 'Team is in the shared node menu')
+    entry!.onSelect(); assert.equal(opened, 1)
+  }
+})
+
+test('switchboard menu opens the global agents list', async t => {
+  installFetch(new FakeServer())
+  let opened = 0
+  const extra = { onAgents: () => opened++ }
+  const view = await mountView(<UserNode pos={{ x: 0, y: 0 }} isDrop={false}
+    stats={{ circ: 0, seats: 0, free: 0 }} pip={null} seats={{ sol: 2 }} pxc={1} zoom={1}
+    onSpawn={noop} onMailLink={noop} focused={false} eyeW={124} posX={() => 0}
+    map={new Map()} op={op} slug="synthetic" toast={noop} {...extra} />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => {
+    view.el.querySelector('.sq.user')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2, clientX: 10, clientY: 10 }))
+    await flush()
+  })
+  const entry = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu button')].find(e => e.textContent?.includes('Agents list'))
+  assert.equal(!!entry, true, 'global list entry exists on switchboard')
+  await inAct(async () => { entry!.click() })
+  assert.equal(opened, 1)
+})
 
 for (const project of [false, true]) test(`${project ? 'project' : 'agent'} Team tab reuses subtree rows, filter, active state and window routes`, async t => {
   installFetch(new FakeServer()); resetConvos(); localStorage.clear(); forgetSurfaceRequests()
