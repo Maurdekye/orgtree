@@ -363,11 +363,15 @@ async fn resolve_tool_reply_target(
     }
     if let Some(source) = target.get("source_event_ref") {
         let agent = source["agent"].as_str().ok_or_else(|| anyhow::anyhow!("transcript target needs its agent"))?;
-        return Ok(crate::http::nodes::resolve_event_reply(engine, org, agent, target).await?);
+        return Ok(crate::http::nodes::resolve_event_reply(engine, org, agent, target)
+            .await
+            .map_err(|error| anyhow::anyhow!(error.detail))?);
     }
     let mut normalized = target.clone();
     if normalized["kind"] == "presentation" { normalized["kind"] = json!("document"); }
-    crate::http::nodes::resolve_target(engine, org, &normalized, Some(me.id)).await?
+    crate::http::nodes::resolve_target(engine, org, &normalized, Some(me.id))
+        .await
+        .map_err(|error| anyhow::anyhow!(error.detail))?
         .ok_or_else(|| anyhow::anyhow!("reply target did not resolve"))
 }
 
