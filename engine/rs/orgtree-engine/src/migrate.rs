@@ -39,6 +39,9 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0031_slot_leases", include_str!("../migrations/0031_slot_leases.sql")),
 ];
 
+#[cfg(test)]
+mod project_user_contact_tests;
+
 #[logged]
 fn checksum(sql: &str) -> String {
     // line endings normalised so a CRLF checkout hashes like an LF one
