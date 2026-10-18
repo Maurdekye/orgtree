@@ -654,8 +654,8 @@ async fn answer(engine: &Arc<Engine>, caller: &Caller, actor: &AgentTx, method: 
             let tool = params["tool"].as_str().unwrap_or("");
             let call_id = params["callId"].as_str().map(str::to_string);
             let args = if params["arguments"].is_object() { params["arguments"].clone() } else { json!({}) };
-            let (ok, text) = crate::tools::call_tool(engine, caller, tool, &args, call_id.as_deref()).await;
-            Ok(json!({ "success": ok, "contentItems": [{ "type": "inputText", "text": text }] }))
+            let result = crate::tools::call_agent_tool(engine, caller, tool, &args, call_id.as_deref()).await;
+            Ok(crate::tools::result_timing::codex_result(&result))
         }
         m if m.ends_with("requestApproval") || m == "applyPatchApproval" || m == "execCommandApproval" => {
             let file = m.contains("fileChange") || m == "applyPatchApproval";
@@ -950,5 +950,26 @@ mod fast_mode_tests {
             let (started,())=tokio::join!(proc.start_turn("hello",vec![],tier),response);
             assert_eq!(started.unwrap(),"next");
         }
+    }
+}
+
+#[cfg(test)]
+mod tool_result_timing_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn tool_result_timing_codex_answer_keeps_primary_and_timing_separate() {
+        let engine = Engine::for_tests(PathBuf::from("unused-tool-result-timing"));
+        let caller = Caller { org_id: 1, org_slug: "fixture".into(), agent_id: 7, name: "fixture".into() };
+        let (actor, _rx) = mpsc::unbounded_channel();
+        let result = answer(&engine, &caller, &actor, "item/tool/call",
+            &json!({"tool":"not_a_real_tool","arguments":{},"callId":"call-1"}),
+            Policy { may_write: false, may_shell: false }, uuid::Uuid::nil()).await.unwrap();
+        assert_eq!(result["success"], false);
+        let items = result["contentItems"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["type"], "inputText");
+        assert_eq!(items[0]["text"], "unknown tool not_a_real_tool");
+        crate::tools::result_timing::assert_time_line(items[1]["text"].as_str().unwrap());
     }
 }

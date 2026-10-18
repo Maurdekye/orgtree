@@ -13,6 +13,7 @@ mod treetools;
 mod usage;
 mod logo;
 mod next_turn;
+pub(crate) mod result_timing;
 
 use std::sync::Arc;
 
@@ -81,6 +82,13 @@ pub fn mcp_handshake(msg: &Value, cards: Vec<Value>) -> Value {
 
 #[logged]
 async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
+    let started = std::time::Instant::now();
+    let result = call_inner(engine, caller, params).await;
+    result_timing::finish(result, started.elapsed())
+}
+
+#[logged]
+async fn call_inner(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
     let name = params["name"].as_str().unwrap_or("");
     // a tool's arguments are a JSON object: anything else is refused here,
     // before a handler writes into it (writing a key into an array or a
@@ -139,14 +147,20 @@ async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
     }
 }
 
-/// A tool call from a driver without MCP (Codex dynamic tools): (ok, text).
+/// A tool call from a driver without MCP, preserving its content blocks.
 #[logged]
-pub async fn call_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value, tool_use: Option<&str>) -> (bool, String) {
+pub async fn call_agent_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value, tool_use: Option<&str>) -> Value {
     let mut params = json!({ "name": name, "arguments": args });
     if let Some(t) = tool_use {
         params["_meta"] = json!({ "claudecode/toolUseId": t });
     }
-    let r = call(engine, caller, &params).await;
+    call(engine, caller, &params).await
+}
+
+/// Legacy text view used by the synthetic rig's JSON-aware tool endpoint.
+#[logged]
+pub async fn call_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value, tool_use: Option<&str>) -> (bool, String) {
+    let r = call_agent_tool(engine, caller, name, args, tool_use).await;
     let text = r["content"]
         .as_array()
         .map(|a| a.iter().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n"))

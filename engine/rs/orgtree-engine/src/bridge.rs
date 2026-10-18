@@ -453,6 +453,34 @@ mod tests {
         serde_json::from_str(&line.unwrap().expect("an answer, not the end")).unwrap()
     }
 
+    /// All MCP bridge harnesses receive every content block on the wire.
+    #[tokio::test]
+    async fn tool_result_timing_bridge_keeps_both_text_blocks() {
+        for shape in [MailShape::Split, MailShape::Flat] {
+            let base = std::env::var_os("ORGTREE_TEST_ROOT").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+            let root = base.join(format!("orgtree-tool-result-timing-{}", crate::util::random_hex(4)));
+            std::fs::create_dir_all(&root).unwrap();
+            let cancel = CancellationToken::new();
+            let name = serve(Engine::for_tests(root.clone()), caller(), cancel.clone(), shape).unwrap();
+            let (cli, stdio) = tokio::io::duplex(1 << 20);
+            let (stdin, stdout) = tokio::io::split(stdio);
+            let relay = tokio::spawn(async move { relay_io(&name, stdin, stdout).await });
+            let (from_bridge, mut to_bridge) = tokio::io::split(cli);
+            let mut lines = BufReader::new(from_bridge).lines();
+            let out = ask(&mut to_bridge, &mut lines, json!({"jsonrpc":"2.0","id":72,
+                "method":"tools/call","params":{"name":"orgtree_chart","arguments":[]}})).await;
+            // Drain before assertions, including a valid red failure.
+            to_bridge.shutdown().await.unwrap();
+            tokio::time::timeout(Duration::from_secs(10), relay).await.unwrap().unwrap().unwrap();
+            cancel.cancel();
+            assert_eq!(out["id"],72);
+            assert_eq!(out["result"]["isError"],true);
+            assert_eq!(out["result"]["content"][0]["text"],"orgtree_chart: the arguments must be a JSON object");
+            assert_eq!(out["result"]["content"].as_array().unwrap().len(),2);
+            crate::tools::result_timing::assert_time_line(out["result"]["content"][1]["text"].as_str().unwrap());
+        }
+    }
+
     /// What an Antigravity agent's MCP client does through `mcp-bridge`:
     /// initialize, list the tools and call one, through `serve` and the relay
     /// (a named pipe on Windows, a Unix socket elsewhere).
