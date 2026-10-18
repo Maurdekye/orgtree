@@ -3639,7 +3639,8 @@
    "writer": "providers-sol",
    "status": "fixed",
    "components": [
-    "apps/desktop/renderer/src/canvas/agentdocket.tsx#AgentDocketModal",
+     "apps/desktop/renderer/src/canvas/agentdocket.tsx#AgentDocketModal",
+     "apps/desktop/renderer/src/canvas/slotspanel.tsx#ProjectSlotsModal",
     "apps/desktop/renderer/src/canvas/docket.tsx#DocketModal",
     "apps/desktop/renderer/src/canvas/docket.tsx#AgentDocketView",
     "apps/desktop/renderer/src/canvas/teamdocket.tsx#TeamDocketModal"

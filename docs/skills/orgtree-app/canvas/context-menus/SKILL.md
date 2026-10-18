@@ -10,6 +10,7 @@ Right-click a recognized object to open its menu. Copy actions come from that ob
 
 | Agent-menu item | Meaning/gate |
 | --- | --- |
+| Project Open → Slots | One direct entry opens the standalone slots modal; present only while that project has slots > 0. Pin and pop-out are in the modal's standard controls and the slots tab's shortcut row, rather than a menu submenu. |
 | Focus | Navigate to the agent; present but disabled when this surface has no focus handler. |
 | Hire a subordinate | Opens a tier's existing draft form, creating no seat until confirmation; offered for an eligible live card with free hire edges, not a pile front. |
 | New project… | Directly under Hire a subordinate (after Focus when no hire is offered): opens a draft project card under the agent, creating nothing until create. |

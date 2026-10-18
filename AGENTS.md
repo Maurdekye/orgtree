@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Project Open → Slots is one modal entry, offered only with positive slot
+  capacity. Its standard `project-slots` PinFrame supports pin, pop-out and
+  remembered org/project-generation placement; the slots tab shares the three
+  PanelCorner shortcuts. It reuses SlotsView and shows a safe empty state if
+  capacity becomes zero. Data/tool actions remain `orgtree_project slots` and
+  existing release/unqueue. [decided: user 2026-10-18 19:31–19:33Z; verified:
+  `canvas/{agentmenu,OrgCanvas,panelcorner,slotspanel,projectdesk}.tsx`]
+
 - Project settings explain round-robin as a load balancer, ACK as a FIFO work
   queue, one slot as a shared lock (mutex), and multiple slots as a counting
   semaphore. These are descriptions of existing cooperative behavior; FIFO is

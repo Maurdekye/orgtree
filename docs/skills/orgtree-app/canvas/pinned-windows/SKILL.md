@@ -18,6 +18,14 @@ Pinnable modals have frame controls/menu entries to Pin to window or Unpin, Open
 
 ## Separate windows and Close
 
+A project's Open → Slots entry opens the canonical slot list as a modal, only
+while capacity is positive. The slots tab's shared pin, pop-out and modal
+shortcuts target that same panel. Its standard controls remember placement per
+org and project generation, close it independently, and retain live holders,
+line, history, agent links and age updates. If capacity becomes zero while it
+is open, it shows a safe empty state. Agent data access already exists through
+`orgtree_project action=slots name=<project>`; no new tool is needed to read it.
+
 Open in new window detaches the mounted surface. Explicit Pop in/Return to main window brings it back. Native window Close dismisses a closeable modal instead of reopening it in the main window. Its existing draft-storage rules still apply; closing is not an automatic engine mutation or a promise that a form was saved.
 
 A persistent desk keeps its canonical content. Native Close returns it only to an already connected destination; if none is mounted it stays retained off-screen until a real destination appears. It does not force navigation to create a missing main-view slot. Explicit return retains its normal destination activation. Failure recovery, parent-window lifecycle and temporary borrowing follow their own restoration paths; do not treat an accidental popup failure as a deliberate dismiss.
