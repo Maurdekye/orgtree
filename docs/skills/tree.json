@@ -868,6 +868,7 @@
     "top-level vs. non-top-level differences",
     "a minimal correct example call",
     "release_slot and own slots status with team OR watchdogs; other project actions and force release need team",
+    "dead_letters / retry_dead_letter / drop_dead_letter (team OR watchdogs, project reach), the project.dead_letter event, the desk's dead letters tab",
     "settings analogies: round-robin load balancer, ACK FIFO work queue, one-slot mutex, multiple-slot counting semaphore; FIFO handout not completion order"
    ],
    "sources": [
@@ -7303,6 +7304,7 @@
     "how to ack: reply_to the handed mail, completion record",
     "ack timeout after 3 checkup wakes, front of queue",
     "max attempts default 3, dead letter told to the superior",
+    "dead letters kept with attempt history; list/read/retry/drop by agents above or below; project.dead_letter event watchdog",
     "both need the 20-minute checkup",
     "release on retire, halt or stopped watching",
     "honest queued-reply wording (all listeners busy with position, halted, paused, nobody) and one fair_queue dog per agent per project",
