@@ -44,6 +44,7 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk, ProjectDeskModal, sourceOffset } from '../src/canvas/projectdesk'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { pinAccentClass } from '../src/canvas/pins'
+import { CurrentOrg } from '../src/popout'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeConfig } from '../src/canvas/modals'
 import { ActiveAgentSummary } from '../src/shell/treeinfo'
@@ -708,7 +709,6 @@ test("§11c the editable description shows it is clickable: the theme's hover ba
     assert.equal(cssLast('background', md + state), 'var(--panel-2)', state)
 })
 
-import { CurrentOrg } from '../src/popout'
 declare const __SRC_DIR__: string
 test("§8g the activity line stays inside the card: the meta row wraps, and the word truncates before the clock (user 2026-10-18 10:51Z)", () => {
   assert.equal(cssLast('flex-wrap', '.sq.project .project-meta'), 'wrap', "'Active 80s' drops under the chip instead of running off the card")
