@@ -9,6 +9,7 @@ import { claimSurfaceRequests, forgetSurfaceRequests } from '../src/canvas/modal
 import { resetConvos } from '../src/convo'
 import { agentMenuEntries } from '../src/canvas/agentmenu'
 import { UserNode } from '../src/canvas/cards'
+import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
@@ -33,6 +34,24 @@ function fixture(project: boolean) {
 }
 const names = (el: Element) => [...el.querySelectorAll('.tray-row')].map(e => e.getAttribute('data-copy-agent-name'))
 const allEntries = (entries: MenuEntry[]): MenuItem[] => entries.flatMap(e => e === 'sep' ? [] : [e, ...allEntries(e.children ?? [])])
+
+test('the switchboard entry reaches the actual canvas global list', async t => {
+  installFetch(new FakeServer()); resetConvos(); localStorage.clear()
+  const f = fixture(true)
+  const tree = { ...f.tree, name: 'synthetic', dirs: [], tiers: { sol: 2 }, audiences: [],
+    credit_requests: [], audience_requests: [], audit: { live_nodes: 5, top_level_holds: 0, problems: [] },
+    user_inbox_count: 0, max_top_grant: 1000, default_top_grant: 50 } as unknown as TreePayload
+  const view = await mountView(<OrgCanvas tree={tree} slug="synthetic" op={op} toast={noop} mailEvt={null} />, el => el)
+  t.after(async () => { await view.unmount(); resetConvos() })
+  await inAct(async () => {
+    view.el.querySelector('.sq.user')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 }))
+  })
+  const entry = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu button')].find(e => e.textContent?.includes('Agents list'))
+  assert.equal(!!entry, true)
+  await inAct(async () => { entry!.click() })
+  assert.equal(view.el.querySelector('.tray-panel') !== null, true, 'the shell opened the actual global list')
+  assert.equal(names(view.el).includes('unrelated-worker'), true, 'global scope is unchanged')
+})
 
 test('shared agent and project Open menus expose the Team view', () => {
   for (const project of [false, true]) {

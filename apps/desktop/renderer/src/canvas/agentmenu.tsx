@@ -158,10 +158,10 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       + 'agent, pinning it, or opening a window — closing puts everything back',
     onSelect: () => temporary(),
   })
-    openEntries.push(
-      { label: 'Inbox', onSelect: () => h.onInbox() },
-    )
-    if (h.onTeam) openEntries.push({ label: 'Team', onSelect: h.onTeam })
+  openEntries.push(
+    { label: 'Inbox', onSelect: () => h.onInbox() },
+  )
+  if (h.onTeam) openEntries.push({ label: 'Team', onSelect: h.onTeam })
   const canScratch = live || node.state === 'archived'
   const scratch = canScratch ? h.onScratchFolder : undefined
   const teamScratch = canScratch ? h.onTeamScratchFolder : undefined
