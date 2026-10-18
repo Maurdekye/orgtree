@@ -55,6 +55,8 @@ export default async function (rig) {
     return all
   }
   const tool = (who, args) => rig.tool(who, 'orgtree_project', args)
+  // a refusal that is the action's own, not the tool not knowing the action
+  const refused = r => !r.ok && !/orgtree_project takes/.test(r.text ?? '')
   const list = (who, extra = {}) => tool(who, { action: 'dead_letters', name: 'dl', ...extra })
 
   // ------------------------------------------------------------ the project, its members and watchers
@@ -91,7 +93,7 @@ export default async function (rig) {
   const member = await list('dz')
   p.check('an agent below the project lists them too', member.ok && member.json?.total === 1, said(member))
   const outsider = await list('xo')
-  p.check('an agent outside the project\'s reach is refused', !outsider.ok && /above or below|reach|only/i.test(outsider.text ?? ''), said(outsider))
+  p.check('an agent outside the project\'s reach is refused', refused(outsider) && /above or below|reach|only/i.test(outsider.text ?? ''), said(outsider))
   const nodes = await tree()
   p.check('the project in the tree carries its open dead-letter count', nodes.find(n => n.id === 'dl')?.dead_letters === 1
     && !(nodes.find(n => n.id === 'dz')?.dead_letters > 0), nodes.filter(n => n.id === 'dl' || n.id === 'dz').map(n => [n.id, n.dead_letters]))
@@ -106,7 +108,7 @@ export default async function (rig) {
 
   // ------------------------------------------------------------ retry
   const xoRetry = await tool('xo', { action: 'retry_dead_letter', name: 'dl', id: dead?.uid })
-  p.check('retry is refused outside the project\'s reach and leaves the letter', !xoRetry.ok && !!dlMail('Doomed task')?.extra?.dead_letter, said(xoRetry))
+  p.check('retry is refused outside the project\'s reach and leaves the letter', refused(xoRetry) && !!dlMail('Doomed task')?.extra?.dead_letter, said(xoRetry))
   const retried = await tool('boss', { action: 'retry_dead_letter', name: 'dl', id: dead?.uid })
   await rig.waitFor(() => holder('Doomed task') === 'dz', { what: 'the retried job handed out again', timeout: 20000 }).catch(() => {})
   const after = dlMail('Doomed task')
@@ -116,7 +118,7 @@ export default async function (rig) {
   const l2 = await list('boss')
   p.check('the dead-letter list is empty again', l2.ok && l2.json?.total === 0, said(l2))
   const again = await tool('boss', { action: 'retry_dead_letter', name: 'dl', id: dead?.uid })
-  p.check('retrying a job that is no longer a dead letter is refused', !again.ok, said(again))
+  p.check('retrying a job that is no longer a dead letter is refused', refused(again), said(again))
 
   // ------------------------------------------------------------ drop
   const acked = await rig.tool('dz', 'orgtree_message', { metadata: { to: 'dl', reply_to: after?.extra?.claimed?.copy }, body: 'Done.' })
@@ -124,9 +126,9 @@ export default async function (rig) {
   await kill('Second doomed')
   const second = dlMail('Second doomed')
   const noReason = await tool('boss', { action: 'drop_dead_letter', name: 'dl', id: second?.uid })
-  p.check('dropping a dead letter needs a reason', !noReason.ok && /reason/i.test(noReason.text ?? '') && !!dlMail('Second doomed')?.extra?.dead_letter && !dlMail('Second doomed')?.extra?.dead_letter_dropped, said(noReason))
+  p.check('dropping a dead letter needs a reason', refused(noReason) && /reason/i.test(noReason.text ?? '') && !!dlMail('Second doomed')?.extra?.dead_letter && !dlMail('Second doomed')?.extra?.dead_letter_dropped, said(noReason))
   const xoDrop = await tool('xo', { action: 'drop_dead_letter', name: 'dl', id: second?.uid, reason: 'not mine' })
-  p.check('dropping is refused outside the project\'s reach', !xoDrop.ok && !dlMail('Second doomed')?.extra?.dead_letter_dropped, said(xoDrop))
+  p.check('dropping is refused outside the project\'s reach', refused(xoDrop) && !dlMail('Second doomed')?.extra?.dead_letter_dropped, said(xoDrop))
   const dropped = await tool('dz', { action: 'drop_dead_letter', name: 'dl', id: second?.uid, reason: 'obsolete request' })
   const l3 = await list('boss')
   const l4 = await list('boss', { include_dropped: true })
@@ -134,7 +136,7 @@ export default async function (rig) {
     dropped.ok && l3.json?.total === 0 && l4.json?.letters?.length === 1 && l4.json.letters[0].dropped?.reason === 'obsolete request'
       && l4.json.letters[0].dropped?.by === 'dz', { dropped: said(dropped), l3: said(l3), l4: said(l4) })
   const retryDropped = await tool('boss', { action: 'retry_dead_letter', name: 'dl', id: second?.uid })
-  p.check('a dropped letter cannot be retried', !retryDropped.ok && dlMail('Second doomed')?.state === 'read', said(retryDropped))
+  p.check('a dropped letter cannot be retried', refused(retryDropped) && dlMail('Second doomed')?.state === 'read', said(retryDropped))
   const nodes2 = await tree()
   p.check('the tree count follows (no open dead letters left)', !(nodes2.find(n => n.id === 'dl')?.dead_letters > 0), nodes2.find(n => n.id === 'dl')?.dead_letters)
 
