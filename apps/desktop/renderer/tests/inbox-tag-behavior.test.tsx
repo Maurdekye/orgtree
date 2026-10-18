@@ -6,6 +6,9 @@ import { InboxPanel } from '../src/App'
 import { MailTagPicker } from '../src/canvas/mailtagpicker'
 import { CurrentOrg } from '../src/popout'
 import type { InboxPayload, MailEntry, TreePayload } from '../src/types'
+import { useInboxTagSelection,includeSelectedMail } from '../src/inboxselection'
+import { MailList } from '../src/canvas/mail'
+const noLookup=async()=>null
 
 const tree={slug:'behavior',name:'Behavior',roots:[],nodes:[],tiers:{},default_tools:{},default_visibility:'full'} as unknown as TreePayload
 const mail=(id:string,tags=['alpha','build']):MailEntry=>({id,from:'lead',kind:'message',body:`body-${id}`,at:`2026-10-18T10:00:${id==='new'? '03':id==='other'?'02':'01'}Z`,tags})
@@ -92,4 +95,30 @@ test('server hidden-unread count clears tags and selects the global oldest unrea
     assert.match(v.el.querySelector('.mailer-read')?.textContent??'',/body-ancient/)
     assert.deepEqual(JSON.parse(localStorage.getItem('orgtree-user-mail-tags:filter-unread')! ),[])
   }finally{await v.dispose()}
+})
+test('live partial arrivals leave selection alone; only a new ALL-tags match changes it',async()=>{
+  const slug='filter-live',old=mail('old'),fresh=mail('new'),partial=mail('other',['alpha'])
+  window.sessionStorage.setItem(`orgtree-user-inbox-arrivals:${slug}`,JSON.stringify(['old']))
+  window.sessionStorage.setItem(`orgtree-user-inbox-last-opened:${slug}`,'old')
+  function View({rows}:{rows:MailEntry[]}){
+    const selected=useInboxTagSelection(slug,box(rows),['alpha','build'],true,noLookup)
+    const current=includeSelectedMail(box(rows),selected.extra,['alpha','build'])!
+    return <MailList delivered={current.delivered} selectOldestUnread selectionRequest={selected.request}
+      onOpenMail={selected.remember} tagFilter={{selected:['alpha','build'],choices:[],onChange:()=>{}}}/>
+  }
+  const v=await mountView(<View rows={[old]}/>,el=>el)
+  try{
+    assert.match(selected(v.el),/body-old/)
+    await v.render(<View rows={[partial,old]}/>);assert.match(selected(v.el),/body-old/)
+    await v.render(<View rows={[fresh,partial,old]}/>);assert.match(selected(v.el),/body-new/)
+    await inAct(()=>[...v.el.querySelectorAll<HTMLElement>('.mailrow')].find(r=>r.textContent?.includes('body-old'))!.click())
+    assert.match(selected(v.el),/body-old/)
+    await v.render(<View rows={[mail('unrelated',['other']),fresh,partial,old]}/>);assert.match(selected(v.el),/body-old/)
+  }finally{await v.unmount()}
+})
+test('a missing remembered mail and an older mail without ALL tags leave no selection',async()=>{
+  for(const row of [undefined,mail('old',['alpha'])]){
+    const v=await inbox(`filter-missing-${row?'partial':'gone'}`,box([]),box([]),row)
+    try{assert.equal(v.el.querySelector('.mailrow.on')===null,true)}finally{await v.dispose()}
+  }
 })
