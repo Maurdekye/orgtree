@@ -69,9 +69,19 @@ the browse popover (user 2026-10-18 10:58Z). Each picker choice closes the popov
 and returns focus to its trigger; reopen it to add or remove another tag. Escape
 and an outside pointer still dismiss it without changing the selection. Filter
 chips are separate buttons beside the browse trigger, without nested buttons.
-The tag box, clear button and message search use matching 24px border-box heights
-and centered pills even inside a settings modal. A fixed tag popover overrides
-the modal centering transform to stay anchored to its control.
+A fixed tag popover overrides the modal centering transform to stay anchored to
+its control.
+
+The filter bar is one field (user 2026-10-18 11:32Z: "it does not look good",
+replacing three separate 24px boxes). A single 24px border-box control, also
+inside a settings modal, holds a quiet tag-icon trigger, the selected chips, the
+message text filter and, while tags are selected, the clear button at its right
+end. The trigger reads "all tags" when nothing is chosen. `MailList` passes its
+text filter to `MailTagPicker` as `children`; a mailbox without tags shows the
+same field holding only the text. Only the field draws a frame: a quiet fill at
+rest, the input fill and accent edge while typing, and a hairline between the
+tags and the text. Clear still removes only the tags and returns focus to the
+trigger; the typed text stays. The popover search is the same compact 24px field.
 Ordinary neighbour views, Sent and Record keep their
 existing behavior. A new mail reference clears the active tag filter so it can
 open its target. The ordinary unread badge keeps the whole inbox count.
@@ -84,12 +94,21 @@ and confirmation paths.
 
 User 12:45Z requested chip colours. `canvas/mailtags.ts` hashes the normalized
 key with 32-bit FNV-1a over Unicode code points and maps it to a fractional hue.
-Every chip uses that same helper, independent of order/session. Saturation and
-lightness are fixed by the dark/light contrast palette in `styles.css`; only
-hue comes from the hash. All surfaces use the same 10px nowrap pill with an
-ellipsis for long labels. Rows put one tag plus a +N pill at the start of the
-existing preview line, keeping sender/kind/time space. The user inbox omits only
-the reply.mail kind label/icon, retaining its quote and other kinds. Hashes are deterministic, not a guarantee that all
+Every chip uses that same helper, independent of order/session. Lightness,
+chroma and alpha come from one palette per contrast family in `styles.css`
+(`--mail-tag-ink`, `--mail-tag-tint`, `--mail-tag-fill`, `--mail-tag-edge` and
+their `-on` variants for hover and pressed); only hue comes from the hash. A chip
+is a tint of its surface with the hue carried by its text (user 2026-10-18
+11:32Z asked for calmer chips; the previous opaque L .88 C .12 fill lay outside
+sRGB for most hues and rendered as neon). Every palette value stays inside sRGB
+for all 360 hues and keeps 4.5:1 text on each theme's `--bg`, `--input`,
+`--panel` and `--panel-2`, at rest and pressed; `tests/mail-filter-bar.test.tsx`
+recomputes this from the stylesheet. All surfaces use the same 10px sans nowrap
+pill with an ellipsis for long labels, including the mono reading-pane header.
+Rows put one tag plus a neutral +N pill at the start of the existing preview
+line, on its baseline, keeping sender/kind/time space and the row height.
+Pressed popover choices carry a check as well as a stronger tint.
+The user inbox omits only the reply.mail kind label/icon, retaining its quote and other kinds. Hashes are deterministic, not a guarantee that all
 possible names can have distinct colours.
 
 ## Verification

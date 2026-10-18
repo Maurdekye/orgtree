@@ -22,7 +22,9 @@ app.whenReady().then(async()=>{
         background:getComputedStyle(document.body).backgroundColor};
     })()`)
     assert.equal(metrics.controls.length,3)
-    for(const control of metrics.controls){assert.ok(Math.abs(control.height-24)<.1,JSON.stringify(metrics));assert.ok(Math.abs(control.center-metrics.controls[0].center)<.1,JSON.stringify(metrics))}
+    // one 24px field (the first match); its text filter and clear sit inside it on its centre line
+    assert.ok(Math.abs(metrics.controls[0].height-24)<.1,JSON.stringify(metrics))
+    for(const control of metrics.controls){assert.ok(control.height<=24.1,JSON.stringify(metrics));assert.ok(Math.abs(control.center-metrics.controls[0].center)<.75,JSON.stringify(metrics))}
     assert.equal(metrics.selected.length,2)
     for(const chip of metrics.selected)assert.ok(Math.abs(chip.center-metrics.controls[0].center)<.1,JSON.stringify(metrics))
     assert.equal(metrics.choices.length,5)

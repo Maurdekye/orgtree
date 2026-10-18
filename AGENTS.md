@@ -313,11 +313,16 @@
   precedes bounded cursor windows: all selected toggles must match (AND). Used
   tags cursor-page indexed memberships; a dedicated UserMail revision refreshes
   filtered mail/catalogs even after deletion outside the visible windows. Chips hash
-  the normalized name to a stable hue with fixed dark/light contrast values.
-  Every mail/filter/popover tag chip toggles its normalized key. Picking closes
-  the popover and returns focus to its trigger; reopening preserves multi-tag
-  AND selection. Scoped border-box controls stay 24px tall inside `.settings`,
-  and the fixed tag popover must override the modal's centering transform.
+  the normalized name to a stable hue; `--mail-tag-*` (one palette per contrast
+  family) makes them in-sRGB tints with AA text on every surface, which
+  `tests/mail-filter-bar.test.tsx` recomputes (replaced the opaque, gamut-clipped
+  L .88 fill, user 2026-10-18 11:32Z). Every mail/filter/popover tag chip toggles
+  its normalized key. Picking closes the popover and returns focus to its trigger;
+  reopening preserves multi-tag AND selection. The inbox filter bar is ONE 24px
+  border-box field, also inside `.settings`: tag-icon trigger, chips, the text
+  filter (MailTagPicker `children`) and clear sit inside it (replaced three
+  separate 24px boxes). The fixed tag popover must override the modal's
+  centering transform.
   [decided: user 2026-10-18; verified: `canvas/mail.tsx`, `canvas/mailtagpicker.tsx`, `canvas/mailtags.ts`, `styles.css`]
   See [mail tags](docs/rust-engine/mail-tags.md). [decided: user/coordinator
   2026-10-17; verified: `domain/mail_tags.rs`, `usemailtags.ts`, `canvas/mailtags.ts`]
