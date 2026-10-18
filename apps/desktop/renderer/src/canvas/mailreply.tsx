@@ -8,6 +8,7 @@ import { ReplyPreview, ReplyPreviewFrame } from './replypreview'
 import { RefChip, resolveRef } from './reflinks'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
+import { usePresentationTitle } from './presentationtitle'
 
 interface ReplyRow { reply_to?: unknown; replies?: unknown[]; ev?: unknown }
 
@@ -37,6 +38,7 @@ export function recordedMailReply(row: ReplyRow, org: string) {
   const title = event?.object && 'title' in event.object ? event.object.title : ''
   return {
     ref,
+    title:text(snapshot?.title)||title,
     from: text(snapshot?.from) || quote?.from || '',
     at: text(snapshot?.at) || quote?.at || '',
     gist: (text(snapshot?.gist) || text(snapshot?.quoted_context) || quote?.gist || title).slice(0, MAX_REPLY_QUOTE),
@@ -57,15 +59,32 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
   const reply = recordedMailReply(row, org)
   if (!reply) return null
   const target = reply.ref ? resolveRef(reply.ref, world ?? { org, handles: new Set() }) : null
+  if(target?.ref.kind==='doc')return <PresentationReply reply={reply} target={target} world={world??{org}} onOpen={onOpen}/>
   const unavailable = target?.outcome === 'absent'
     ? 'Reply to a message or item that is no longer available; quoted context is retained.'
     : !target || target.outcome !== 'ready' || !onOpen
       ? 'Original unavailable here; quoted context is retained.' : undefined
-  return <ReplyPreviewFrame label="Reply context" unavailable={unavailable} action={<>
+  const activate=target?.outcome==='ready'&&onOpen?()=>onOpen(target):undefined
+  return <ReplyPreviewFrame label="Reply context" unavailable={unavailable} onActivate={activate} actionTitle={activate?target!.why:unavailable} action={<>
     <ReplyIcon fontSize="inherit" aria-hidden="true" />
     <span>In reply to{reply.from ? ` ${reply.from}` : ''}{reply.at ? ` · ${fmtFull(reply.at)}` : ''}</span>
     {target && <RefChip r={target} onOpen={onOpen} />}
   </>}>
     <blockquote>{reply.gist || 'Reply to a message that is no longer available.'}</blockquote>
+  </ReplyPreviewFrame>
+}
+
+function PresentationReply({reply,target,world,onOpen}:{reply:NonNullable<ReturnType<typeof recordedMailReply>>;target:ResolvedRef;world:RefWorld;onOpen?: (ref:ResolvedRef)=>void}){
+  const title=usePresentationTitle(target.ref.org,target.ref.id,world,reply.title)
+  const activate=title.ready&&target.outcome==='ready'&&onOpen?()=>onOpen({...target,label:title.label,why:title.why}):undefined
+  return <ReplyPreviewFrame label="Reply context" onActivate={activate} actionTitle={title.why}
+    unavailable={!title.ready?title.why:!activate?'Original unavailable here; quoted context is retained.':undefined} action={<>
+      <ReplyIcon fontSize="inherit" aria-hidden="true"/>
+      <span>In reply to{reply.from?` ${reply.from}`:''}{reply.at?` · ${fmtFull(reply.at)}`:''}</span>
+      {activate?<button type="button" className="reply-preview-jump reply-presentation-link" title={title.why}
+        onClick={e=>{e.stopPropagation();activate()}}><span>{title.label}</span></button>
+        :<span className="reply-presentation-link" title={title.why}>{title.label}</span>}
+    </>}>
+    <blockquote>{reply.gist||'Retained presentation reply context.'}</blockquote>
   </ReplyPreviewFrame>
 }

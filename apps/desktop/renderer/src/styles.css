@@ -8171,6 +8171,11 @@ html.mobile .popout-button { display: none; }
 .reply-preview { margin: 6px 0; display: block; width: auto; border-right: 0; }
 .reply-preview blockquote { max-height: 2.8em; }
 .reply-preview { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.reply-preview[role="link"] { cursor:pointer; }
+.reply-preview[role="link"]:hover { background:color-mix(in srgb,var(--accent) 7%,var(--panel)); }
+.reply-preview[role="link"]:focus-visible { outline:2px solid var(--button-accent); outline-offset:2px; }
+.reply-preview-head > .reply-presentation-link { display:inline-flex; min-width:0; max-width:55%; flex:0 1 auto; margin-left:auto; }
+.reply-presentation-link > span { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .reply-preview-content { max-height: 10rem; overflow: auto; overflow-wrap: anywhere; margin-top: 5px; overscroll-behavior: contain; }
 .reply-preview-content:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .reply-source-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--dim); }
