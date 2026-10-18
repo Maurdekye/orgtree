@@ -1,3 +1,5 @@
+import { UrgentAgentOptions, type UrgentAgentMail } from './dnd'
+import { useDndRecipients } from '../nodemetadata'
 // canvas/projectdesk.tsx — the PROJECT DESK (docs/rust-engine/
 // PROJECT-NODES.md; user 2026-10-17 19:38Z–20:10Z). A focused project card,
 // and a pinned project window, show this desk in the agent desk's frame and
@@ -246,8 +248,8 @@ function DescriptionEditor({ node, op, toast, editable }: {
  *  (`broadcastMessage`). Attachments upload into the project's own uploads
  *  folder and ride either kind of send. No slash commands: a project has no
  *  CLI. */
-function ProjectComposer({ node, slug, toast, members }: {
-  node: CanvasNode; slug: string; toast: ToastFn; members: number
+function ProjectComposer({ node, slug, toast, members, recipients }: {
+  node: CanvasNode; slug: string; toast: ToastFn; members: number; recipients: CanvasNode[]
 }) {
   const messageDraftKey = draftKey(slug, `project:${node.id}`, 0)
   const [text, setTextState] = useState(() => {
@@ -268,6 +270,8 @@ function ProjectComposer({ node, slug, toast, members }: {
   const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
   const [notice, setNotice] = useState(false)
   const [megaphone, setMegaphone] = useState(false)
+  const [urgentMail,setUrgentMail]=useState<UrgentAgentMail | undefined>()
+  const dndRecipients=useDndRecipients(slug,recipients)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const enterKey = useComposerEnter()
@@ -279,6 +283,7 @@ function ProjectComposer({ node, slug, toast, members }: {
   }
   const send = () => {
     if (!can || busy || (!text.trim() && attached.length === 0)) return
+    if(megaphone && dndRecipients.length && urgentMail && !urgentMail.urgent_reason.trim()) {toast(['Urgent mail needs a reason.']);return}
     setBusy(true)
     const asNotice = notice
     const files = attached.map((a) => a.path)
@@ -293,7 +298,7 @@ function ProjectComposer({ node, slug, toast, members }: {
       toast(lines)
     }
     ;(megaphone
-      ? broadcastMessage(slug, node.id, text, files, asNotice).then((r) => done([
+      ? broadcastMessage(slug, node.id, text, files, asNotice, dndRecipients.length ? urgentMail : undefined).then((r) => done([
         `sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${node.id}`
           + (asNotice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`), ...grant(r.audience_grant)]))
       : sendMessage(slug, node.id, text, files, undefined, undefined, asNotice).then((r) => done([
@@ -336,6 +341,7 @@ function ProjectComposer({ node, slug, toast, members }: {
           onClick={() => setAttached((x) => x.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
       </span>)}
     </div>}
+    <UrgentAgentOptions active={megaphone && dndRecipients.length>0} value={urgentMail} onChange={setUrgentMail} />
     <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')
       + (megaphone ? ' broadcast-armed' : '')}>
       <div className="cc-btnstack">
@@ -552,7 +558,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       </div>}
       {shown === 'slots' && <SlotsView node={node} state={slots} op={op} toast={toast} />}
       {/* under every tab, as the agent desk's composer is */}
-      <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} toast={toast} members={agents.length} />
+      <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} toast={toast} members={agents.length} recipients={agents} />
     </>
   )
   return (

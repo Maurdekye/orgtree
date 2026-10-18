@@ -89,6 +89,21 @@ export function clearNodeMetadata(org: string): void {
   if (previous) for (const id of previous.keys()) notify(org, id)
 }
 
+/** Live DND eligibility for a project's multi-recipient composer. */
+export function useDndRecipients(org: string, nodes: { id:string; dnd?:boolean; generation?:number }[]): string[] {
+  const subscribe=useCallback((fn:()=>void)=>{
+    const keys=nodes.map(n=>keyOf(org,n.id))
+    for(const key of keys) {const set=listeners.get(key)??new Set<()=>void>();listeners.set(key,set);set.add(fn)}
+    return ()=>{for(const key of keys){const set=listeners.get(key);set?.delete(fn);if(!set?.size)listeners.delete(key)}}
+  },[org,nodes])
+  const snapshot=useCallback(()=>nodes.filter(n=>{
+    const entry=orgs.get(org)?.get(n.id)
+    return entry && entry.generation===n.generation ? entry.value.dnd : n.dnd
+  }).map(n=>n.id).join('\0'),[org,nodes])
+  const ids=useSyncExternalStore(subscribe,snapshot,snapshot)
+  return ids ? ids.split('\0') : []
+}
+
 /** The desk owns this subscription, so a badge update cannot invalidate the
  * chart's topology, layout or sibling cards. Portals use the same store. */
 export function useNodeMetadata<T extends { id: string; generation?: number }>(org: string, node: T): T {

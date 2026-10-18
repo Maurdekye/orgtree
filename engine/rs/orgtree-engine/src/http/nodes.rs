@@ -276,6 +276,10 @@ pub struct BroadcastBody {
     attachments: Vec<String>,
     #[serde(default)]
     notice: bool,
+    #[serde(default)]
+    urgent: bool,
+    #[serde(default)]
+    urgent_reason: Option<String>,
 }
 
 /// The project desk's message box (user 2026-10-18 07:33Z): one send from
@@ -310,10 +314,17 @@ pub async fn broadcast(
     let mut sent = Vec::new();
     let mut refused = Vec::new();
     let mut notices = crate::domain::runtime_notices::ForwardedUserNotices::default();
+    crate::domain::dnd::validate_urgent(b.urgent,b.urgent_reason.as_deref(),true,false)?;
     for to in &members {
-        let out = project_broadcast_message(to, &text, b.notice, &attachments);
+        let mut out = project_broadcast_message(to, &text, b.notice, &attachments);
+        if b.urgent {
+            let c=e.db.get().await?;
+            let on:bool=c.query_one("SELECT coalesce((SELECT ot.agent_dnd(id) FROM ot.agents WHERE org_id=$1 AND name=$2),false)",&[&org.id,to]).await?.get(0);
+            if on {out.urgent=true;out.urgent_reason=b.urgent_reason.clone();}
+        }
+        let urgent=out.urgent;
         match mail::send_with_notices(&e, org.id, out, &mut notices).await {
-            Ok(s) => sent.push(json!({ "to": to, "id": s.uid, "delivery": s.delivery, "deferred": s.deferred })),
+            Ok(s) => sent.push(json!({ "to": to, "id": s.uid, "delivery": s.delivery, "deferred": s.deferred, "dnd_held":s.dnd_held, "urgent":urgent, "urgent_ignored":b.urgent && !urgent })),
             Err(err) => refused.push(json!({ "to": to, "why": err.to_string() })),
         }
     }
