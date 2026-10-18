@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Desk send returns to Chat, user 2026-10-18 10:57Z:** after an agent desk's
+composer send succeeds, select its Chat tab to reveal the conversation.
+Pending or failed sends retain the current tab. Only that desk's local tab
+changes; pinned/popped-out hosts and other desks are retained. Project desks
+currently have no Chat tab, so this does not change their send behavior.
+See `canvas/desk.tsx` and `tests/desksendtab.test.tsx`.
+
 **EPIC pointer stability, user 2026-10-18 07:49Z:** watchdog chips must remain
 clickable while EPIC is on. The shared window shake stops during pointer
 movement or a held press, settles for 250ms, and stays off while a clickable

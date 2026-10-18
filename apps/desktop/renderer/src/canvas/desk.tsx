@@ -3150,6 +3150,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     sendMessage(slug, node.id, t, paths, pluralWire ? undefined : sentReply ? replyWire(sentReply) : undefined, op, armedNotice,
       pluralWire ? sentReplies.map(replyWire) : undefined)
       .then((r) => {
+        // User 2026-10-18: reveal this desk's conversation after a successful
+        // send. Pending/refused sends retain the tab the reader selected.
+        setView('chat')
         bindPendingMail(slug, node.id, ghostId, r)
         if (!r.command) firstUseSent(slug, node.id)
         // review C3: name every real outcome — "delivering" as the fallback

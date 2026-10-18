@@ -71,8 +71,8 @@ for (const tab of ['inbox', 'docket', 'presented']) {
       assert.equal(f.selected(), tab, 'an unconfirmed send keeps the current tab')
       await f.finish(true)
       assert.equal(f.selected(), 'chat', 'the accepted send reveals the transcript')
-      assert.equal(!!f.host.querySelector('.msgs'), true)
-      assert.match(f.host.querySelector('.msgs')!.textContent!, /new message/)
+      assert.equal(!!f.host.querySelector('.msgs-wrap .msgs'), true)
+      assert.match(f.host.querySelector('.msgs-wrap .msgs')!.textContent!, /new message/)
     } finally { await f.close() }
   })
 }
@@ -85,7 +85,7 @@ test('a refused desk send leaves the selected tab open', async () => {
     await f.finish(false)
     assert.equal(f.selected(), 'docket')
     assert.equal(f.warnings.some(line => line.includes('send refused')), true, 'failure was handled')
-    assert.equal(f.host.querySelector('.msgs') === null, true)
+    assert.equal(f.host.querySelector('.msgs-wrap') === null, true)
   } finally { await f.close() }
 })
 

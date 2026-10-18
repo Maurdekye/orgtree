@@ -8,6 +8,11 @@
   Running CLIs retain startup tool schemas: verify claim AND release before taking
   a slot. [decided: user/coordinator 2026-10-18 10:51Z–10:57Z; verified:
   `domain/ops.rs`, `tools/{treetools,orgview,defs}.rs`]
+- A successful agent-desk composer send selects that desk's Chat tab after
+  acknowledgement. Pending/refused sends retain the selected tab; desk hosts,
+  pins, pop-outs and other desks are retained. Project desks have no Chat tab.
+  [decided: user 2026-10-18 10:57Z; verified: `canvas/desk.tsx`,
+  `tests/desksendtab.test.tsx`]
 
 - In an agent's desk context, presentation context menus on both the desk-header
   presentation chips (`.desk-docs .doc-badge`) and rows in the Presented tab
