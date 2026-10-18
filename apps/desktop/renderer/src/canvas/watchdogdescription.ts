@@ -1,11 +1,12 @@
 import type { Watchdog } from '../types'
+import { ordinal, slotPlace } from './slots'
 
 // Presentation only. Match the native runners, not the shared storage shape:
 // fair_queue is pushed mail, process ignores regex, and silence counts matches.
 // Full target/pattern remain expanded below even if the lead needs a short form.
 const short = (text: string) => text.length > 160 ? text.slice(0, 159) + '…' : text
 
-export function watchdogDescription(dog: Watchdog) {
+export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
   const target = short(dog.target)
   const pattern = dog.pattern ? `matching /${short(dog.pattern)}/` : 'matching'
   const lineMatch = dog.pattern ? `matches /${short(dog.pattern)}/` : 'is nonempty'
@@ -15,16 +16,17 @@ export function watchdogDescription(dog: Watchdog) {
   const types: Record<Watchdog['kind'], string> = {
     file: 'File listener', command: 'Periodic command listener', process: 'Process listener',
     stream: 'Stream listener', activity: 'Activity listener',
-    event: `Orgtree event listener · ${target}`, fair_queue: 'Mail queue listener',
+    event: `Orgtree event listener · ${target}`, fair_queue: 'Mail queue listener', slot: 'Slot claim',
   }
   const labels: Record<Watchdog['kind'], string> = {
     file: 'watched file', command: 'command (each interval)', process: 'watched process',
-    stream: 'listening command (realtime)', activity: 'watched agent', event: 'engine event', fair_queue: 'project',
+    stream: 'listening command (realtime)', activity: 'watched agent', event: 'engine event', fair_queue: 'project', slot: 'project',
   }
   const count = dog.kind === 'event' && ['agents.active', 'agents.live'].includes(dog.target)
   const scope = dog.event_scope === 'org' ? 'visible organization' : 'visible subtree'
   const counted = dog.target === 'agents.active' ? 'agents in turns' : 'live agents'
   let summary: string
+  const place = dog.kind === 'slot' ? slotPlace(dog, dogs) : null
   switch (dog.kind) {
     case 'file': summary = `Watches new ${dog.pattern ? `lines ${pattern}` : 'nonempty lines'} appended to ${target} and ${alert}.`; break
     case 'command': summary = `Runs “${target}” every ${dog.interval_s}s and ${alert} when an output line ${lineMatch}.`; break
@@ -37,6 +39,12 @@ export function watchdogDescription(dog: Watchdog) {
         ? `Watches ${target} and ${alert} when the count of ${counted} changes in the ${scope}, excluding ${dog.owner}${dog.pattern ? `, with an event payload ${pattern}` : ''}.`
         : `Listens for ${target} and ${alert} when ${pattern} engine events arrive.`; break
     case 'fair_queue': summary = `Delivers mail waiting in project ${target} to ${dog.owner}, one message at a time, shared fairly with other armed listeners. Each message goes to one listener, the least recently served first.`; break
+    case 'slot': summary = dog.slot != null && dog.lease
+      ? `Granted slot ${dog.slot} of ${target} (lease ${dog.lease})${dog.spent ? ', spent' : '; grant notification pending'}.`
+      : dog.state === 'paused' ? `Slot claim for ${target} is paused; resuming rejoins at the back of the line.`
+      : place != null
+        ? `Slot claim: ${ordinal(place)} in line for ${target}.`
+        : `Slot claim for ${target}; queue position unavailable.`; break
   }
   if (silence && dog.kind !== 'fair_queue') {
     const source = dog.kind === 'file' ? `${pattern} appended lines in ${target}`
@@ -47,7 +55,8 @@ export function watchdogDescription(dog: Watchdog) {
     summary = `${alert[0].toUpperCase() + alert.slice(1)} after ${quiet} without ${source}. Only matching events reset this timer; other activity does not.`
   }
   const polling = ['file', 'command', 'process'].includes(dog.kind)
-  const cadence = dog.kind === 'fair_queue' ? 'Delivered when project mail is waiting; no polling interval.'
+  const cadence = dog.kind === 'slot' ? 'Granted when a project slot is free; no polling interval.'
+    : dog.kind === 'fair_queue' ? 'Delivered when project mail is waiting; no polling interval.'
     : polling ? `Checked every ${dog.interval_s}s`
     : silence ? 'Listens continuously; alerts follow the silence timer.'
     : `Listens continuously · minimum alert gap ${dog.interval_s}s (at most one alert per gap)`
@@ -58,6 +67,7 @@ export function watchdogDescription(dog: Watchdog) {
       : `Alert mail wakes ${dog.owner}.`
   const fireMode = silence
     ? `fires after ${quiet} of silence — ${quiet} without a matching event; resets after each match and fire`
+    : dog.kind === 'slot' ? 'once, when granted a project slot'
     : dog.kind === 'fair_queue' ? 'on each assigned project message'
     : dog.kind === 'process' ? 'on an observed up-to-down transition'
     : dog.kind === 'command' ? 'on matching output or a command timeout'

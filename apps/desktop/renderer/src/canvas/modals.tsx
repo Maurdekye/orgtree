@@ -170,9 +170,10 @@ export function ConfirmModal({ title, body, confirmLabel, onConfirm, close,
 // file they're watching. they have a mail tab showing the events they've
 // sent out"). Read-only over the dog's config (a dog is re-created, not
 // edited) + the user's pause/resume/remove.
-export function WatchdogPanel({ slug, dog, toast, close }: {
+export function WatchdogPanel({ slug, dog, dogs, toast, close }: {
   slug: string
   dog: Watchdog
+  dogs?: Watchdog[]
   toast: ToastFn
   close: () => void
 }) {
@@ -182,7 +183,7 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
   // in view; the click survives as a collapse for a screen-filling one.
   const [expTarget, setExpTarget] = useState(true)
   const [expPattern, setExpPattern] = useState(true)
-  const description = watchdogDescription(dog)
+  const description = watchdogDescription(dog, dogs)
   const act = (a: 'pause' | 'resume' | 'remove') =>
     watchdogAction(slug, dog.id, a)
       .then((r) => { toast([`${dog.name}: ${r.state}`]); if (a === 'remove') close() })
@@ -219,7 +220,7 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
         <div className={'chip mono grow wd-cmd' + (expTarget ? ' wd-expand' : '')}
           title={expTarget ? 'click to collapse' : 'click to see the full text'}
           onClick={() => setExpTarget((v) => !v)}>{dog.target}</div>
-        {dog.pattern && dog.kind !== 'process' && dog.kind !== 'fair_queue' && <>
+        {dog.pattern && dog.kind !== 'process' && dog.kind !== 'fair_queue' && dog.kind !== 'slot' && <>
           <div className="field-label">{description.patternLabel}</div>
           <div className={'chip mono grow wd-cmd' + (expPattern ? ' wd-expand' : '')}
             title={expPattern ? 'click to collapse' : 'click to see the full text'}

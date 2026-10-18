@@ -4501,6 +4501,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       {/* no lineage panel: Orgtree 4 keeps no prior generations (ledger B1) */}
       {dogView && (tree.watchdogs ?? []).some((w) => w.id === dogView) && (
         <MaybePortal><WatchdogPanel slug={slug} toast={toast}
+          dogs={tree.watchdogs}
           dog={(tree.watchdogs ?? []).find((w) => w.id === dogView)!}
           close={() => setDogView(null)} /></MaybePortal>
       )}
