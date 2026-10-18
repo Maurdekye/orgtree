@@ -36,11 +36,14 @@ import type {
 // distinction at use time so every caller can safely share md().
 const sanitizeMarkdown = (html: string): string => {
   const candidate = DOMPurify as unknown as {
-    sanitize?: (value: string) => string
-  } & ((window: Window) => { sanitize(value: string): string })
+    sanitize?: (value: string, config: { ADD_TAGS: string[] }) => string
+  } & ((window: Window) => { sanitize(value: string, config: { ADD_TAGS: string[] }): string })
+  // KaTeX's MathML source annotation is text-only. Preserve it for assistive
+  // readers; authored raw HTML has already been escaped by escapeAngles.
+  const config = { ADD_TAGS: ['annotation'] }
   return typeof candidate.sanitize === 'function'
-    ? candidate.sanitize(html)
-    : candidate(window).sanitize(html)
+    ? candidate.sanitize(html, config)
+    : candidate(window).sanitize(html, config)
 }
 
 // One display alphabet for every provider-backed tier. Keeping the Codex rows

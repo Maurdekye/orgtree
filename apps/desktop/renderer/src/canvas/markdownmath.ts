@@ -16,6 +16,7 @@ function mathToken(src: string, block: boolean): MathToken | undefined {
   const display = open === '$$' || open === '\\['
   const close = open === '\\[' ? '\\]' : open === '\\(' ? '\\)' : open
   if (open === '$' && (!src[1] || /[\s$]/.test(src[1]!))) return
+  if (open === '$' && /[({]/.test(src[1]!)) return // shell ${VAR} and $(command)
   let end = open.length
   for (; end < src.length; end++) {
     if (!display && /[\r\n]/.test(src[end]!)) return
