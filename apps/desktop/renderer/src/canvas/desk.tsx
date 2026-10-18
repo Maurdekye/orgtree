@@ -2406,8 +2406,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const [showJump, setShowJump] = useChangedState(false)
   const atBottom = () => {
     const el = scroller.current
-    // scrollTop can be fractional while the height measurements are rounded.
-    return !el || el.scrollHeight - el.scrollTop - el.clientHeight <= 1
+    // A small tail margin covers fractional layout and hand-scrolled stops.
+    return !el || el.scrollHeight - el.scrollTop - el.clientHeight <= 8
   }
   const setStuck = (v: boolean) => {
     stickRef.current = v
@@ -3834,10 +3834,15 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             const echo = anchorEcho.current !== null
               && Math.abs(top - anchorEcho.current) <= 1
             const direction = userScrollDirection()
-            const manual = direction !== null && !echo
+            // Momentum may reach the tail after the recent-input window.
+            // Remember its downward direction until reversed/cancelled, but
+            // require real downward movement and reject our own anchor echo.
+            const returningToBottom = !echo && top > previous && atBottom()
+              && (direction === 0 || scrollIntent.current?.direction === 1)
+            const manual = (direction !== null || returningToBottom) && !echo
             if (manual) {
               if (direction === 0 && top < previous) setStuck(false)
-              else if (direction >= 0 && top > previous && atBottom()) setStuck(true)
+              else if (returningToBottom) setStuck(true)
             }
             followTop.current = top
             if (stickRef.current) pin()

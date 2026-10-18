@@ -2283,9 +2283,10 @@ plan and this file. Read both before you change anything. All entries below: 202
 - Transcript auto-follow releases only on user scroll intent: upward wheel/keys,
   scrollbar drag or touch drag. A scroll event or changed scrollTop alone is not
   intent: browser anchoring, streams, images, prepends, resize and disclosure/jump-card
-  clicks keep the bottom pin. Resume only on user movement down to the bottom or
+  clicks keep the bottom pin. Resume only on user movement down to within 8px
+  of the bottom (including delayed downward momentum) or
   jump-to-bottom; retain 3.x's row anchors, paging and context-menu hold.
-  [decided: user 2026-10-07 09:31/09:37Z; verified-from-source and mounted smoke:
+  [decided: user 2026-10-07 09:31/09:37Z; 2026-10-18 13:36Z; verified-from-source and mounted smoke:
   renderer `canvas/desk.tsx`, `docs/rust-engine/transcript-scroll-intent.md`]
 
 - Failed transcript first loads and earlier pages retry every five seconds through

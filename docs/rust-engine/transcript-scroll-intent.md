@@ -21,17 +21,24 @@ clicking a disclosure is not scroll intent.
   is retained on pointer release.
 - A one-finger touch drag tracks vertical direction. A downward finger movement
   is an upward transcript scroll and releases immediately.
-- Directional input stays recent for one second to cover delayed default
-  scrolling and momentum. This is a timestamp, not a timer. Window blur clears
-  gesture state; document listeners are removed when the desk unmounts.
+- Directional input stays recent for one second for general scroll/anchor
+  handling. A remembered downward direction also permits a later momentum
+  scroll to resume follow, only when scrollTop actually increases into the
+  bottom margin and the event is not our anchor's echo. Upward input, blur,
+  explicit navigation and gesture cancellation clear that permission. No
+  timer is scheduled; document listeners are removed when the desk unmounts.
 - Ordinary content clicks and pointer presses carry no scrolling permission.
   While pinned, layout scrolls pin back to the bottom. While reading history,
   layout alone does not resume follow; user movement down to the bottom or the
-  jump-to-bottom button does. Bottom detection keeps the existing one-pixel
-  rounding allowance.
+  jump-to-bottom button does. User feedback on 2026-10-18 at 13:36Z gives the
+  return an eight-pixel bottom margin, replacing the one-pixel rounding-only
+  allowance. Reattachment hides the jump card, leaves history and follows new
+  output through the existing pin path; another upward gesture detaches again.
 
 The shared DeskChat path covers full, temporary, mini and detached desks.
 Existing row-based history anchors and the context-menu hold remain in place.
+`centerTranscriptTarget` remains the only centered-jump path and scrolls only
+the transcript list, preserving its desk frame.
 
 ## Measured smoke and limits
 
@@ -48,6 +55,10 @@ movement before its scroll event, pointer release before that event, and touch
 drag escape survive streaming. Content pointer presses do not release follow;
 being near the bottom and layout-only movement to the bottom do not resume it.
 User wheel/touch return to the bottom and jump-to-bottom resume following.
+
+The focused `transcriptfollow` regression covers an eight-pixel return in full,
+pinned and second-document desk hosts, output growth after reattachment,
+upward detachment, delayed downward momentum and layout/blur controls.
 
 The smoke uses jsdom and synthetic geometry/events; it is not a native browser
 measurement of Windows scrollbar or touch delivery. It touches no live data or

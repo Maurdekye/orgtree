@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Manual return to transcript follow, user 2026-10-18 13:36Z:** scrolling
+down to within 8px of the transcript tail hides the jump-to-bottom card and
+reattaches live follow, including momentum arriving after the recent-input
+window. Upward input detaches again. Preserve input-only transitions, history
+anchors, context-menu holds and transcript-only centered navigation across
+full, pinned and popped-out desks. See [scroll intent](transcript-scroll-intent.md).
+
 **Hub-contact availability, user 2026-10-18 12:51Z (4.4.0):** external
 contact chips must work when Hubchat is installed without opening phone setup.
 The shared chip subscription reads full desktop phone status once and on focus
