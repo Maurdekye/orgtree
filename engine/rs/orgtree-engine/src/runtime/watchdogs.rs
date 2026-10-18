@@ -1641,12 +1641,12 @@ async fn slot_claim_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::p
     Box::pin(crate::domain::slots::grant(engine, org_id, p.id)).await?;
     let client = engine.db.get().await?;
     if let Some(r) = client
-        .query_opt("SELECT uid, slot_no FROM ot.slot_leases WHERE dog_id = $1 AND ended_at IS NULL", &[&row])
+        .query_opt("SELECT uid FROM ot.slot_leases WHERE dog_id = $1 AND ended_at IS NULL", &[&row])
         .await?
     {
-        let (lease, slot): (String, i32) = (r.get(0), r.get(1));
+        let lease: String = r.get(0);
         return Ok(format!(
-            "CONCURRENCY SLOT CLAIM: claimed concurrency slot {slot} of project {} (lease {lease}). It fired at once with the grant; release the concurrency slot when \
+            "CONCURRENCY SLOT CLAIM: claimed a concurrency slot of project {} (lease {lease}). It fired at once with the grant; release the concurrency slot when \
              the work ends: orgtree_project action=release_slot lease={lease}", p.name));
     }
     let line = crate::domain::slots::line(&**client, p.id).await?;

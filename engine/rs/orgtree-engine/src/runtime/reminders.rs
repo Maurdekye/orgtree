@@ -361,7 +361,7 @@ fn slot_note(slots: &[(i32, String, String)]) -> Option<String> {
         return None;
     }
     let lines: Vec<String> = slots.iter()
-        .map(|(n, p, l)| format!("- concurrency slot {n} of project {p} (lease {l}): release it if you are done with orgtree_project action=release_slot lease={l}"))
+        .map(|(_, p, l)| format!("- concurrency slot of project {p} (lease {l}): release it if you are done with orgtree_project action=release_slot lease={l}"))
         .collect();
     Some(format!("You still hold a project concurrency slot that others may be waiting for:\n{}", lines.join("\n")))
 }

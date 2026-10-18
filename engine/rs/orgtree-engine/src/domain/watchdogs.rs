@@ -62,7 +62,7 @@ pub fn view(w: &Value, owner: &str) -> Value {
         if let Some(q) = w["memo"]["queued_at"].as_i64().and_then(chrono::DateTime::from_timestamp_millis) {
             o.insert("queued_at".into(), json!(crate::util::iso(q)));
         }
-        for key in ["lease", "slot"] { if let Some(v)=w["memo"].get(key).filter(|v|!v.is_null()){o.insert(key.into(),v.clone());} }
+        for key in ["lease"] { if let Some(v)=w["memo"].get(key).filter(|v|!v.is_null()){o.insert(key.into(),v.clone());} }
     }
     Value::Object(o)
 }

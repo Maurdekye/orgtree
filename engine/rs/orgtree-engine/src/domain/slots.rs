@@ -56,8 +56,8 @@ struct Granted {
 
 /// The grant line a slot dog fires with.
 #[nolog]
-fn grant_line(project: &str, slot: i32, lease: &str) -> String {
-    format!("You now hold concurrency slot {slot} of project {project} (lease {lease}). Release it as soon as the work that needs it \
+fn grant_line(project: &str, _slot: i32, lease: &str) -> String {
+    format!("You now hold a concurrency slot of project {project} (lease {lease}). Release it as soon as the work that needs it \
              ends: orgtree_project action=release_slot lease={lease}. Until you do, nobody else in line gets it. If that tool is missing, your CLI has an old startup schema: start a fresh CLI before another claim, and ask a project ancestor to force-release this lease.")
 }
 
@@ -173,8 +173,7 @@ pub async fn status(client: &impl GenericClient, project: i64, name: &str, scope
         )
         .await?
         .iter()
-        .map(|r| json!({ "lease": r.get::<_, String>(0), "agent": r.get::<_, String>(1), "slot": r.get::<_, i32>(2),
-                         "reason": r.get::<_, Option<String>>(3), "since": iso(r.get::<_, DateTime<Utc>>(4)),
+        .map(|r| json!({ "lease": r.get::<_, String>(0), "agent": r.get::<_, String>(1), "reason": r.get::<_, Option<String>>(3), "since": iso(r.get::<_, DateTime<Utc>>(4)),
                          "reminders": r.get::<_, i32>(5) }))
         .collect();
     let waiting: Vec<Value> = line(client, project).await?.into_iter().enumerate()
@@ -189,8 +188,7 @@ pub async fn status(client: &impl GenericClient, project: i64, name: &str, scope
         )
         .await?
         .iter()
-        .map(|r| json!({ "lease": r.get::<_, String>(0), "agent": r.get::<_, String>(1), "slot": r.get::<_, i32>(2),
-                         "reason": r.get::<_, Option<String>>(3), "since": iso(r.get::<_, DateTime<Utc>>(4)),
+        .map(|r| json!({ "lease": r.get::<_, String>(0), "agent": r.get::<_, String>(1), "reason": r.get::<_, Option<String>>(3), "since": iso(r.get::<_, DateTime<Utc>>(4)),
                          "ended": r.get::<_, Option<DateTime<Utc>>>(5).map(iso), "how": r.get::<_, Option<String>>(6),
                          "by": r.get::<_, Option<String>>(7) }))
         .collect();
@@ -259,9 +257,9 @@ pub async fn check(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()
     }
     tx.commit().await?;
     drop(client);
-    for (who, lease, slot) in tell {
+    for (who, lease, _slot) in tell {
         notify(engine, org_id, &who, &format!(
-            "Your concurrency slot {slot} of project {pname} (lease {lease}) was taken back because you were halted; the next in line has it now. \
+            "Your concurrency slot of project {pname} (lease {lease}) was taken back because you were halted; the next in line has it now. \
              Claim again with a slot watchdog when you are unhalted.")).await;
     }
     Box::pin(grant(engine, org_id, project)).await?;
@@ -327,7 +325,7 @@ pub async fn idle_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: 
             drop(c);
             if ended {
                 notify(engine, org_id, name, &format!(
-                    "Your concurrency slot {slot} of project {pname} (lease {lease}) was taken back: you did not release it after {reminders} \
+                    "Your concurrency slot of project {pname} (lease {lease}) was taken back: you did not release it after {reminders} \
                      reminders. The next in line has it now; claim again with a slot watchdog if you still need it.")).await;
                 Box::pin(grant(engine, org_id, project)).await?;
             }

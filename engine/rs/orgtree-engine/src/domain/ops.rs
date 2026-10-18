@@ -2230,7 +2230,7 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     fx.agents.insert(holder);
     fx.agents.insert(project);
     fx.slot_grants.push(project);
-    Ok(json!({ "project": pname, "lease": lease, "slot": slot, "released": true, "how": how,
+    Ok(json!({ "project": pname, "lease": lease, "released": true, "how": how,
                "next": "the concurrency slot goes to the next in line, if any" }))
 }
 

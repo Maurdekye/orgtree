@@ -90,6 +90,7 @@ fn own_slot_status(mut status: Value, agent: &str) -> Value {
     for key in ["holders","line","history"] {
         if let Some(rows) = status[key].as_array_mut() {
             rows.retain(|row| row["agent"].as_str() == Some(agent));
+            for row in rows { if let Some(row) = row.as_object_mut() { row.remove("slot"); } }
         }
     }
     status["held"] = json!(status["holders"].as_array().map_or(0,Vec::len));
