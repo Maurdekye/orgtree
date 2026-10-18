@@ -46,10 +46,13 @@ function fixture(project: boolean) {
   const root = { id: 'worker', title: 'worker', generation: 1, state: 'live', tier: project ? 'project' : 'sol',
     ...(project ? { kind: 'project' } : {}), parent: null, children: [], turns: [], seat: 2, grant: 0, free: 0,
     scope: { tools: {}, add_dirs: [] } } as CanvasNode
+  // Team tabs are offered only when there is a live report to show.
+  const report = { ...root, id: 'report', title: 'report', parent: root.id, tier: 'sol', kind: 'agent', children: [] } as CanvasNode
+  root.children = [report]
   const tree = { slug: org, name: org, roots: [root], dirs: [], tiers: { sol: 2 }, audiences: [],
     credit_requests: [], audience_requests: [], audit: { live_nodes: 1, top_level_holds: 0, problems: [] },
     user_inbox_count: 0, max_top_grant: 1000, default_top_grant: 50 } as unknown as TreePayload
-  return { root, tree, map: new Map([[root.id, root]]) }
+  return { root, tree, map: new Map([[root.id, root], [report.id, report]]) }
 }
 const flatten = (entries: MenuEntry[]): MenuItem[] => entries.flatMap(e => e === 'sep' ? [] : [e, ...flatten(e.children ?? [])])
 
