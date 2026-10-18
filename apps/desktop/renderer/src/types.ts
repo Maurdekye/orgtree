@@ -2365,6 +2365,13 @@ export interface OpRequest {
   /** create_project — what the project is (its charter, shown on its card);
    *  `parent` or `above` places it (docs/rust-engine/PROJECT-NODES.md) */
   description?: string | null
+  /** set_slots — a project's slot count, 0 (none) to 64 */
+  capacity?: number
+  /** slot_release — the lease; `force` for the user's force release */
+  lease?: string
+  force?: boolean
+  /** slot_unqueue — the agent removed from the line */
+  agent?: string
 }
 
 // api.py Scope (POST .../nodes/{nid}/scope)

@@ -114,7 +114,7 @@ export function SlotsView({ node, state, op, toast }: {
         <ConfirmModal title={`take slot ${asking.slot} of ${node.id} back from ${asking.agent}?`}
           body={`${asking.agent} has held it for ${span(asking.since)}${asking.reason ? ` (${asking.reason})` : ''}. `
             + `It is recorded as "released (forced by @user)", ${asking.agent} is told, and `
-            + (line.length ? `the next in line, ${line[0].agent}, gets it at once.` : 'the slot is free again.')}
+            + (line[0] ? `the next in line, ${line[0].agent}, gets it at once.` : 'the slot is free again.')}
           confirmLabel="force release" close={() => setAsking(null)}
           onConfirm={() => {
             const h = asking
