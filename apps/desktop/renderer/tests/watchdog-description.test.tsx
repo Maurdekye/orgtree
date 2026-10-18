@@ -20,8 +20,9 @@ test('usage watchdog displays exact filters, edge semantics and existing control
   assert.match(view.el.textContent ?? '', /98%/)
   assert.match(view.el.textContent ?? '', /unknown readings never count as zero/)
   assert.match(view.el.textContent ?? '', /No provider requests/)
-  assert.match(view.el.textContent ?? '', /Pause/)
-  assert.match(view.el.textContent ?? '', /Remove/)
+  const controls = Array.from(view.el.querySelectorAll('button')).map(button => button.textContent?.trim())
+  assert.ok(controls.includes('pause'))
+  assert.ok(controls.includes('remove'))
   assert.doesNotMatch(view.el.textContent ?? '', /checked every|next check/i)
 })
 
