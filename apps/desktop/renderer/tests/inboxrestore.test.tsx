@@ -69,9 +69,15 @@ const pane = (view: { el: HTMLElement }) =>
 
 test('your inbox reopens the last mail when no new inbox mail arrived', async (t) => {
   const oldScroll = W.HTMLElement.prototype.scrollIntoView
-  const scrolled: HTMLElement[] = []
-  W.HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this) }
-  t.after(() => { W.HTMLElement.prototype.scrollIntoView = oldScroll })
+  const oldRect=W.HTMLElement.prototype.getBoundingClientRect
+  const descriptors=['clientHeight','offsetHeight','scrollHeight'].map(key=>[key,Object.getOwnPropertyDescriptor(W.HTMLElement.prototype,key)] as const)
+  W.HTMLElement.prototype.scrollIntoView = function () { throw Error('restoration must not scroll ancestors') }
+  const rect=(top:number,height:number)=>({left:0,right:200,top,bottom:top+height,width:200,height,x:0,y:top,toJSON(){}})
+  W.HTMLElement.prototype.getBoundingClientRect=function(){return this.classList.contains('mailer-list')?rect(100,200):this.classList.contains('mailrow')?rect(500,40):oldRect.call(this)}
+  for(const [key,prior] of descriptors)Object.defineProperty(W.HTMLElement.prototype,key,{configurable:true,get(){return this.classList.contains('mailer-list')?(key==='scrollHeight'?1000:200):prior?.get?.call(this)??0}})
+  t.after(() => { W.HTMLElement.prototype.scrollIntoView = oldScroll;W.HTMLElement.prototype.getBoundingClientRect=oldRect
+    for(const [key,prior] of descriptors){if(prior)Object.defineProperty(W.HTMLElement.prototype,key,prior);else delete (W.HTMLElement.prototype as unknown as Record<string,unknown>)[key]}
+  })
   const inbox = { pending: [], delivered: [mail('m1', '2026-10-17T10:00:00Z')], sent: [] }
   const first = await mountInbox(t, inbox, 'restore-same')
   await openRow(first.view, 0)
@@ -81,8 +87,8 @@ test('your inbox reopens the last mail when no new inbox mail arrived', async (t
   const reopened = await mountInbox(t, inbox, 'restore-same')
   assert.match(pane(reopened.view), /body-m1/,
     'reopening the inbox with the same arrival set should restore the last opened mail')
-  assert.ok(scrolled.some(row => row.classList.contains('mailrow')),
-    'restoring a mail also scrolls its row into view')
+  assert.ok((reopened.view.el.querySelector('.mailer-list')?.scrollTop??0)>0,
+    'restoring a mail centers its row by scrolling only the mailbox list')
 })
 
 test('selected inbox tags survive reopening and stay scoped to their inbox', async (t) => {
@@ -102,13 +108,14 @@ test('selected inbox tags survive reopening and stay scoped to their inbox', asy
   const option = (name: string) => [...first.view.el.ownerDocument.querySelectorAll<HTMLButtonElement>('button.mail-tag-choice')]
     .find(button => button.textContent?.trim() === name)
   await inAct(() => option('Alpha')!.click())
+  await inAct(() => trigger.click())
   await inAct(() => option('Review')!.click())
   assert.deepEqual(JSON.parse(W.localStorage.getItem(key) ?? 'null'), ['Alpha', 'Review'],
     'selection is persisted as soon as it changes')
   await first.dispose()
 
   const reopened = await mountInbox(t, inbox, slug, ['Alpha', 'Review'])
-  const restored = reopened.view.el.querySelector<HTMLButtonElement>('button[aria-label="Filter mail by tags"]')
+  const restored = reopened.view.el.querySelector<HTMLElement>('.mail-tag-control')
   assert.match(restored?.textContent ?? '', /Alpha/)
   assert.match(restored?.textContent ?? '', /Review/)
 

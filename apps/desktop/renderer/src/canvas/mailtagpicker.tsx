@@ -1,10 +1,11 @@
-import { useEffect,useId,useLayoutEffect,useRef,useState } from 'react'
+import { useCallback,useEffect,useId,useLayoutEffect,useRef,useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CSSProperties,ReactNode } from 'react'
 import { useSurfaceDocument } from '../popout'
 import { mailTagKey,mailTagHue,toggleMailTag } from './mailtags'
 import { useEsc } from './shared'
 import { CheckIcon,LabelIcon } from '../icons'
+import { useTagPointerDismiss } from './tagpointerdismiss'
 
 export interface MailTagPickerProps {
   selected:string[]
@@ -28,6 +29,8 @@ export function MailTagPicker({selected,choices,onChange,onSearch,onLoadMore,has
   const root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),search=useRef<HTMLInputElement>(null)
   const control=useRef<HTMLDivElement>(null)
   const ownerDocument=useSurfaceDocument(),id=useId(),popover=useRef<HTMLDivElement>(null)
+  const closePointer=useCallback(()=>setOpen(false),[])
+  useTagPointerDismiss(open,query,ownerDocument,control,popover,closePointer)
   const [position,setPosition]=useState({left:8,top:8,width:320,maxHeight:310})
   useEsc(()=>{setOpen(false);trigger.current?.focus()},open,ownerDocument)
   useLayoutEffect(()=>{
