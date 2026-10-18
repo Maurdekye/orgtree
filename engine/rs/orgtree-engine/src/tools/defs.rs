@@ -280,7 +280,7 @@ fn message_meta() -> Value {
     });
     props["replies"] = json!({
         "type":"array", "items":reply_target_schema(), "minItems":1, "maxItems":50,
-        "description":"optional: identities this answers, in order; reply_to, if also supplied, must equal the first. String IDs must be mail you received or sent. Object targets are identity-only; the engine authorizes and resolves them. Multi-recipient sends filter each recipient's context to their conversation, including only targets belonging to it."
+        "description":"optional: identities this answers, in order; reply_to, if also supplied, must equal the first. String IDs must be mail you received or sent. Object targets are identity-only; the engine authorizes and resolves them. For multiple recipients, the engine filters each recipient's context to their conversation, including only targets belonging to it."
     });
     props
 }
