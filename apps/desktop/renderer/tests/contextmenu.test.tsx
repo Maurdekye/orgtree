@@ -592,7 +592,7 @@ uiTest('§B3b gallery row: Dismiss runs the pane\'s dismiss — the same DELETE;
   const rows = [...v.el.querySelectorAll('.doc-gallery-row')] as HTMLElement[]
   assert.equal(rows.length, 1, 'positive control: the row rendered')
   await rightClick(rows[0]!)
-  assert.deepEqual(labels(), ['Close', 'Copy title', 'Copy reference', 'Download as Markdown', 'Dismiss'])
+  assert.deepEqual(labels(), ['Close', 'Presenter… ▸', '· Copy mention', 'Copy title', 'Copy reference', 'Download as Markdown', 'Dismiss'])
   assert.ok(rows[0]!.classList.contains('on'), 'selected on open, not by the right-click')
   await pick('Dismiss')
   await flush(3)
@@ -604,8 +604,8 @@ uiTest('§B3b gallery row: Dismiss runs the pane\'s dismiss — the same DELETE;
 uiTest('§B3d agent desk presentations: header chips and Presented tab rows offer Reply to, staging a reply in the desk message box', async (t) => {
   localStorage.clear(); resetConvos()
   const docs = [
-    { id: 'd1', node: 'me', title: 'Architecture Plan', at: '2026-09-07T10:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
-    { id: 'd2', node: 'me', title: 'Interactive Mock', at: '2026-09-07T09:00:00Z', format: 'html' as const, evicted: false, node_state: 'live', tier: 'haiku' },
+    { id: 'd1', node: 'me', presented_by: 'me', title: 'Architecture Plan', at: '2026-09-07T10:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
+    { id: 'd2', node: 'me', presented_by: 'me', title: 'Interactive Mock', at: '2026-09-07T09:00:00Z', format: 'html' as const, evicted: false, node_state: 'live', tier: 'haiku' },
   ]
   const sends: { url: string; body: Record<string, unknown> }[] = []
   const opened: string[] = []
@@ -641,7 +641,7 @@ uiTest('§B3d agent desk presentations: header chips and Presented tab rows offe
   assert.equal(document.activeElement === textarea, false, 'baseline: bare desk does not autofocus on mount')
 
   await rightClick(chips[0]!)
-  assert.deepEqual(labels(), ['Open reader', 'Reply to', 'Copy title', 'Copy reference', 'Download as Markdown'])
+  assert.deepEqual(labels(), ['Open reader', 'Reply to', 'Presenter… ▸', '· Copy mention', 'Copy title', 'Copy reference', 'Download as Markdown'])
   await pick('Reply to')
   await advance(50, 16); await flush(2)
   assert.equal(document.activeElement === textarea, true, 'Reply to on a desk header chip focuses the desk message box')
@@ -656,7 +656,7 @@ uiTest('§B3d agent desk presentations: header chips and Presented tab rows offe
   assert.deepEqual(opened, ['d1'], 'clicking the reply chip jump control opens the presentation')
 
   await rightClick(chips[1]!)
-  assert.deepEqual(labels(), ['Open reader', 'Open HTML mockup in a new tab', 'Reply to', 'Copy title', 'Copy reference', 'Download HTML prototype'])
+  assert.deepEqual(labels(), ['Open reader', 'Open HTML mockup in a new tab', 'Reply to', 'Presenter… ▸', '· Copy mention', 'Copy title', 'Copy reference', 'Download HTML prototype'])
   await key(document.body, 'Escape')
 
   const presentedTab = [...v.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
@@ -666,7 +666,7 @@ uiTest('§B3d agent desk presentations: header chips and Presented tab rows offe
   const rows = [...v.el.querySelectorAll('.desk-presented-card')] as HTMLElement[]
   assert.equal(rows.length, 2, 'positive control: Presented tab rows rendered')
   await rightClick(rows[1]!)
-  assert.deepEqual(labels(), ['Open', 'Open HTML mockup in a new tab', 'Reply to', 'Copy title', 'Copy reference', 'Download HTML prototype', 'Dismiss'])
+  assert.deepEqual(labels(), ['Open', 'Open HTML mockup in a new tab', 'Reply to', 'Presenter… ▸', '· Copy mention', 'Copy title', 'Copy reference', 'Download HTML prototype', 'Dismiss'])
   await pick('Reply to')
   await advance(50, 16); await flush(2)
   assert.equal(previews().length, 2, 'Reply to in Presented tab appends to the desk message box reply targets')
