@@ -30,10 +30,12 @@ export function teamMap(map: Map<string, CanvasNode>, nid: string): Map<string, 
   return new Map([...map].filter(([id]) => ids.has(id)))
 }
 
-export function AgentTeamView({ map, nid, onPick, refs, compactAt }: {
+type TeamListProps = {
   map: Map<string, CanvasNode>; nid: string; onPick?: (id: string) => void
   refs?: RefRoutes; compactAt?: number
-}) {
+}
+
+function useTeamList({ map, nid, onPick, refs, compactAt }: TeamListProps, framed = false) {
   const [query, setQuery] = useState('')
   const [archived, setArchived] = useState(false)
   const [active, setActive] = useState(false)
@@ -43,26 +45,34 @@ export function AgentTeamView({ map, nid, onPick, refs, compactAt }: {
   const rows = trayRows(members, { query, archived, activeOnly: active, compare })
   const registry = useAgentNavRegistry()
   const menu = useContextMenu()
-  return <div className="team-list">
+  const activeControl = <ActiveAgentsFilter checked={active} onChange={setActive} />
+  const list = <>
     <AgentTray map={members} rows={rows} query={query} onQuery={setQuery}
       archived={archived} onArchived={setArchived} onPick={id => navigate?.(id)}
-      filterActions={<ActiveAgentsFilter checked={active} onChange={setActive} />}
+      filterActions={framed ? undefined : activeControl}
       filterLabel={`filter ${nid}'s team`} refs={refs} compactAt={compactAt}
       showQueuedModelBadge={false}
       onRowMenu={(e, node) => menu.open(e, () => registry?.current?.(node.id, e.currentTarget) ?? [])}
       empty={<div className="dim team-empty">no agents match these filters</div>} />
     {menu.node}
-  </div>
+  </>
+  return { list, activeControl }
+}
+
+export function AgentTeamView(props: TeamListProps) {
+  const { list } = useTeamList(props)
+  return <div className="team-list">{list}</div>
 }
 
 export function TeamModal({ map, nid, onPick, refs, compactAt, close }: {
   map: Map<string, CanvasNode>; nid: string; onPick: (id: string) => void
   refs: RefRoutes; compactAt?: number; close: () => void
 }) {
-  return <PinFrame kind="agent-team" title={`${nid} · Team`} panel="settings team-panel"
-    restore={{ agent: nid, generation: map.get(nid)?.generation }} close={close}>
+  const { list, activeControl } = useTeamList({ map, nid, onPick, refs, compactAt }, true)
+  return <PinFrame kind="agent-team" title={`${nid} · Team`} panel="tray-panel team-panel"
+    restore={{ agent: nid, generation: map.get(nid)?.generation }} close={close}
+    dialogLabel={`${nid} · Team`} headerActions={activeControl}>
     <h3 data-copy-agent-name={nid}>{nid} <span className="dim">· Team</span></h3>
-    <AgentTeamView map={map} nid={nid} onPick={onPick} refs={refs} compactAt={compactAt} />
-    <div className="row"><button className="primary" onClick={close}>Close</button></div>
+    {list}
   </PinFrame>
 }

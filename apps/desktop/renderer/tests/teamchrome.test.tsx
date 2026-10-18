@@ -17,7 +17,7 @@ async function panels(t: TestContext, pinned = true) {
   const view = await mountView(<TeamChromeFixture onClose={() => closed++} />, el => el)
   t.after(async () => { await view.unmount(); resetConvos(); globalThis.fetch = oldFetch
     localStorage.clear(); forgetModalPins(); forgetModalOpenCache() })
-  await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.tray-toggle')!.click(); await flush(2) })
+  if (pinned) await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.tray-toggle')!.click(); await flush(2) })
   const team = () => document.querySelector<HTMLElement>('.team-panel')!
   const agents = () => document.querySelector<HTMLElement>('.tray-panel:not(.team-panel)')!
   return { team, agents, closed: () => closed }
@@ -56,9 +56,16 @@ test('modal Team also has no nested list frame/padding or bottom Close button', 
   assert.equal(!!p.team().querySelector(':scope > .tray'), true)
 })
 
-test('modal Team still closes with Escape and the existing backdrop', async t => {
+test('modal Team still closes with Escape', async t => {
   const p = await panels(t, false)
   await inAct(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  assert.equal(p.closed(), 1)
+  assert.equal(p.team() === null, true)
+})
+
+test('modal Team still closes with the existing backdrop', async t => {
+  const p = await panels(t, false)
+  await inAct(() => p.team().closest<HTMLElement>('.overlay')!.click())
   assert.equal(p.closed(), 1)
   assert.equal(p.team() === null, true)
 })
