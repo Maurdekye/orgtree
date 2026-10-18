@@ -5239,6 +5239,13 @@ span.ref-chip.ref-chip {
   width: min(620px, calc(100vw - 40px)); max-width: calc(100vw - 40px);
   overflow: hidden;
 }
+.bulk-compact-summary { display: flex; flex-direction: column; gap: 12px; }
+.bulk-compact-summary p { margin: 0; }
+.bulk-compact-summary section, .bulk-compact-summary [data-compact-shared-skips] {
+  display: flex; flex-direction: column; gap: 5px;
+}
+.bulk-compact-summary [data-compact-shared-skips]:empty { display: none; }
+.bulk-compact-summary .bulk-compact-note { color: var(--dim); }
 .settings.content-height.confirm-box:has([data-compact-preview]) > .confirm-body {
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
 }

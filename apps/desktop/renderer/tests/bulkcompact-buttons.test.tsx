@@ -37,10 +37,11 @@ test('both counted actions and both target/skip previews are visible without a r
   const cheap=dialog().querySelector('[data-compact-preview="cheap"]')
   const normal=dialog().querySelector('[data-compact-preview="normal"]')
   assert.ok(cheap);assert.ok(normal)
-  assert.match(cheap.textContent??'',/one, unsupported, sessionless/)
-  assert.match(cheap.textContent??'',/busy.*mid-turn/)
-  for(const word of ['one','unsupported','Unsupported harness','sessionless','no conversation session','busy','mid-turn'])
-    assert.ok(normal.textContent?.includes(word),word)
+  assert.equal(cheap.querySelector<HTMLElement>('[data-compact-count]')?.title,'one, unsupported, sessionless')
+  assert.equal(normal.querySelector<HTMLElement>('[data-compact-count]')?.title,'one')
+  assert.equal(dialog().querySelector<HTMLElement>('[data-compact-skip="busy"]')?.title,'busy')
+  for(const reason of ['do not support compaction','no conversation session'])assert.ok(normal.textContent?.includes(reason),reason)
+  assert.equal(normal.textContent?.includes('mid-turn'),false,'shared busy summary is not repeated')
   assert.equal(requests.length,2,'capability reads start on opening for session-bearing candidates only')
   assert.equal(requests.every(r=>r.startsWith('GET ')),true)
   assert.deepEqual(ops,[])
@@ -68,13 +69,14 @@ test('pending normal capability disables only normal, leaving cheap ready with n
  }finally{release(reply({supported:true}));await settled();await view.unmount()}
 })
 
-test('all skipped selection disables both actions and keeps per-type reasons visible',async()=>{
+test('all skipped selection disables both actions and shows one shared reason',async()=>{
  const view=await mountView(modal([agent('busy',{busy:true})]),el=>el)
  try{
   assert.equal(action()?.textContent,'cheap-compact 0 agents');assert.equal(action()?.disabled,true)
   assert.equal(action(true)?.textContent,'compact 0 agents');assert.equal(action(true)?.disabled,true)
-  for(const section of dialog().querySelectorAll('[data-compact-preview]'))
-    assert.match(section.textContent??'',/busy.*mid-turn/)
+  const shared=dialog().querySelector<HTMLElement>('[data-compact-skip="busy"]')
+  assert.equal(shared?.title,'busy');assert.match(shared?.textContent??'',/1 agent mid-turn/)
+  assert.equal(dialog().querySelectorAll('[data-compact-skip]').length,1)
  }finally{await view.unmount()}
 })
 

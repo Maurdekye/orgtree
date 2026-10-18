@@ -84,3 +84,23 @@ test('counted confirmation buttons and Cancel remain unchanged and opening never
   assert.equal(posts,0);assert.equal(closed,1)
  }finally{await view.unmount()}
 })
+
+test('mixed unsupported harnesses merge while unknown reasons and failed reads stay distinct',async()=>{
+ globalThis.fetch=(async url=>{
+  const id=targetId(url)
+  if(id==='offline')throw new Error('offline transport')
+  return response({supported:false,reason:id==='codex'?'Normal compaction is not available for Codex in Orgtree.'
+   :id==='other'?'Unsupported harness':'Waiting for engine maintenance'})
+ }) as typeof fetch
+ const view=await mount([agent('codex'),agent('other'),agent('policy'),agent('offline'),agent('reset',{compacted_unrun:true})])
+ try{
+  await settle();const lines=skipLines()
+  assert.equal(lines.length,4)
+  const unsupported=lines.find(p=>p.textContent?.includes('do not support'))
+  assert.match(unsupported?.textContent??'',/^2 agents/);assert.equal(unsupported?.title,'codex, other')
+  const unknown=lines.find(p=>p.textContent?.includes('Waiting for engine maintenance'))
+  assert.match(unknown?.textContent??'',/^1 agent:/);assert.equal(unknown?.title,'policy')
+  assert.equal(lines.find(p=>p.textContent?.includes('could not be checked'))?.title,'offline')
+  assert.equal(lines.find(p=>p.textContent?.includes('already compacted'))?.title,'reset')
+ }finally{await view.unmount()}
+})

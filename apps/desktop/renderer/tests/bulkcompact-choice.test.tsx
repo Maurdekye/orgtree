@@ -39,13 +39,14 @@ test('shared agent and project bulk entries use plain Compact wording', () => {
   assert.equal(project.some(e => e.label === 'Compact all agents under it\u2026'), true)
 })
 
-test('both action previews name agents/skips; opening only reads Normal support and never compacts', async () => {
+test('both action previews count agents with hover names; opening only reads support and never compacts', async () => {
   const ops: unknown[] = [], gets: string[] = []
   globalThis.fetch = (async url => { gets.push(String(url)); return response({ supported: true }) }) as typeof fetch
   const view = await mountView(modal([agent('one'), agent('busy', { busy: true })], async b => { ops.push(b); return {} as never }), el => el)
   try {
-    assert.match(dialog().textContent ?? '', /one/)
-    assert.match(dialog().textContent ?? '', /busy.*mid-turn/)
+    assert.equal(dialog().querySelector<HTMLElement>('[data-compact-count="cheap"]')?.title, 'one')
+    assert.equal(dialog().querySelector<HTMLElement>('[data-compact-skip="busy"]')?.title, 'busy')
+    assert.match(dialog().textContent ?? '', /1 agent mid-turn/)
     await ready('cheap')
     assert.equal(dialog().querySelector('input[type="radio"]') === null, true)
     assert.equal(go().disabled, false)
@@ -89,7 +90,9 @@ test('Normal preview skips unsupported, sessionless, busy and unreadable seats; 
     await ready('normal')
     const text = dialog().textContent ?? ''
     assert.match(text, /2 agents/)
-    for (const word of ['one', 'two', 'unsupported', 'Codex', 'sessionless', 'session', 'unreadable', 'capability read unavailable', 'busy', 'mid-turn']) assert.ok(text.includes(word), word)
+    const titles = [...dialog().querySelectorAll<HTMLElement>('[data-compact-count], [data-compact-skip]')].map(p => p.title).join(', ')
+    for (const name of ['one', 'two', 'unsupported', 'sessionless', 'unreadable', 'busy']) assert.ok(titles.includes(name), name)
+    for (const reason of ['do not support compaction', 'no conversation session', 'could not be checked', 'mid-turn']) assert.ok(text.includes(reason), reason)
     assert.deepEqual(posts, []); assert.deepEqual(ops, [])
     await inAct(async () => { go().click(); await flush(5) })
     assert.deepEqual(posts, ['one', 'two']); assert.deepEqual(ops, [])

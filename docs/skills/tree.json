@@ -1996,7 +1996,7 @@
     "cheap compact: what the summary carries",
     "auto cheap compact policy",
     "handoff notes and breadcrumbs after compaction",
-    "two counted bulk actions and simultaneous type previews, actual capability skips, sequential admission and truthful partial outcomes"
+    "two counted bulk actions, count-only mode and skip summaries with hover names, deduplicated shared reasons, actual capability skips, sequential admission and truthful partial outcomes"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/domain/ops.rs:2023",
@@ -3259,7 +3259,7 @@
    "must_cover": [
     "bulk actions",
     "shared scratch folder context entry on overview and focused switchboard",
-    "Compact all agents counted cheap/normal actions and simultaneous eligible/skipped previews"
+    "Compact all agents counted cheap/normal actions and concise count summaries with covered names on hover"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/cards.tsx:113",
@@ -3409,7 +3409,7 @@
     "every agent-menu item",
     "agents and projects: Desk, Desk as a pinned window, Desk in a separate window in that order; keep existing actions",
     "own-led numeric-id team scratch next to personal scratch",
-    "plain bulk Compact entries open two counted confirm buttons with simultaneous per-type previews, disabled zero targets and cancellation"
+    "plain bulk Compact entries open two counted buttons and count-only summaries with hover names, shared reasons once, disabled zero targets and cancellation"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/contextmenu.tsx:461",

@@ -23,7 +23,7 @@ The switchboard's auto toggle controls whether a newly arriving direct line open
 | Open presentations | Organization document gallery; see [presentations](../../desk/presentations/SKILL.md). |
 | Open shared scratch folder | Open this org's shared scratch folder in the OS file manager, creating it on demand. Supported native shells only; available on the overview card and focused switchboard header. |
 | Org settings | Full org settings dialog, including hire defaults. |
-| Compact all agents… | Shared two-action confirmation for the live set: compact N agents and cheap-compact N agents, plus Cancel. Both type previews name eligible/skipped agents and reasons; zero-target actions are disabled. Each action runs sequentially and Cancel changes nothing. Busy agents are skipped. |
+| Compact all agents… | Shared two-action confirmation for the live set: compact N agents and cheap-compact N agents, plus Cancel. Acting and skip reasons use count-only summaries; hover each line for all covered agent names. Shared reasons appear once and Normal-only reasons under Normal. Zero-target actions are disabled. Each action runs sequentially and Cancel changes nothing. Busy agents are skipped. |
 | Halt all agents… / Unhalt all agents… | Counted live set; the label becomes Unhalt only when every target is halted. Read per-target results. |
 | Retire all agents… | Whole-organization retirement confirmation; context retention does not mean unfinished docket work is complete. |
 

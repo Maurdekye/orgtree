@@ -193,6 +193,38 @@ export async function normalCompactAgents(scope: string, plan: BulkCompactPlan,
   return outcome
 }
 
+/** Presentation-only grouping: plans and admission keep their original reasons. */
+function conciseSkip(reason: string): { key: string; suffix: string } {
+  if (reason === SKIP_BUSY) return { key: 'busy', suffix: 'mid-turn will not be compacted.' }
+  if (reason === SKIP_EMPTY) return { key: 'empty', suffix: 'with no measured context.' }
+  if (reason === SKIP_UNRUN) return { key: 'unrun', suffix: 'already compacted and not run since.' }
+  if (reason === 'no conversation session to compact') return { key: 'sessionless', suffix: 'with no conversation session.' }
+  if (reason === 'the organization is unavailable') return { key: 'org', suffix: 'with an unavailable organization.' }
+  if (reason.startsWith('Could not check normal compaction:')) {
+    return { key: 'support-check', suffix: 'whose normal-compaction support could not be checked.' }
+  }
+  if (/unsupported|no normal support|(?:normal compaction|harness|codex).*(?:not available|unavailable|not supported|cannot|does not support|doesn't support)/i.test(reason)) {
+    return { key: 'unsupported', suffix: 'on harnesses that do not support compaction.' }
+  }
+  return { key: reason, suffix: ': ' + reason }
+}
+
+const coveredNames = (rows: { id: string }[]) => rows.map(row => row.id).join(', ')
+
+function SkipCounts({ rows }: { rows: BulkCompactPlan['skipped'] }) {
+  const groups = new Map<string, { ids: string[]; suffix: string }>()
+  for (const row of rows) {
+    const { key, suffix } = conciseSkip(row.reason)
+    const group = groups.get(key)
+    if (group) group.ids.push(row.id)
+    else groups.set(key, { ids: [row.id], suffix })
+  }
+  return <>{[...groups].map(([key, group]) =>
+    <p key={key} data-compact-skip={key} title={group.ids.join(', ')}>
+      {plural(group.ids.length, 'agent') + (group.suffix.startsWith(':') ? '' : ' ') + group.suffix}
+    </p>)}</>
+}
+
 /** Two explicit actions with simultaneous previews. Preview reads never compact; confirmation snapshots the
  *  selected plan, while each backend action retains its existing admission. */
 export function BulkCompactConfirm({ title, scope, targets, op, toast, close, slug: explicitSlug }: {
@@ -243,27 +275,27 @@ export function BulkCompactConfirm({ title, scope, targets, op, toast, close, sl
   }
   const cheapCount = base.eligible.length
   const normalCount = normal.eligible.length
-  const body = <>
+  const body = <div className="bulk-compact-summary">
     <section data-compact-preview="cheap">
-      <h4>Cheap compact</h4>
-      <p>Start a fresh session with a summary handoff; keep the agent's settings and team.</p>
-      <p>{cheapCount
-        ? `${plural(cheapCount, 'agent')} will be cheap-compacted, one at a time: ${base.eligible.map(t => t.id).join(', ')}.`
-        : 'No agents can be cheap-compacted right now.'}</p>
-      {base.skipped.length > 0 && <p>{`Skipped (${base.skipped.length}): ${listed(base.skipped)}.`}</p>}
+      <p><strong>Cheap compact:</strong> fresh session with a summary handoff (keeps settings and team)</p>
+      <p data-compact-count="cheap" title={coveredNames(base.eligible)}>
+        {plural(cheapCount, 'agent') + ' will be cheap-compacted, one at a time.'}
+      </p>
     </section>
     <section data-compact-preview="normal">
-      <h4>Normal compact</h4>
-      <p>The supported harness compacts its existing conversation.</p>
+      <p><strong>Normal compact:</strong> the harness compacts its conversation</p>
       {checking
-        ? <p role="status">Checking normal compaction support for {plural(base.eligible.length, 'agent')}: {base.eligible.map(t => t.id).join(', ')}.</p>
-        : <p>{normalCount
-          ? `Normal compaction will be requested for ${plural(normalCount, 'agent')}, one at a time: ${normal.eligible.map(t => t.id).join(', ')}.`
-          : 'No agents can use normal compaction right now.'}</p>}
-      {normal.skipped.length > 0 && <p>{`Skipped (${normal.skipped.length}): ${listed(normal.skipped)}.`}</p>}
+        ? <p role="status" title={coveredNames(base.eligible)}>
+            {'Checking normal compaction support for ' + plural(base.eligible.length, 'agent') + '.'}
+          </p>
+        : <p data-compact-count="normal" title={coveredNames(normal.eligible)}>
+            {plural(normalCount, 'agent') + ' will be compacted, one at a time.'}
+          </p>}
+      <SkipCounts rows={normal.skipped.slice(base.skipped.length)} />
     </section>
-    <p>No running turn is interrupted. Each request is checked again; one refusal does not stop the others. The final summary names every outcome.</p>
-  </>
+    <div data-compact-shared-skips><SkipCounts rows={base.skipped} /></div>
+    <p className="bulk-compact-note">Running turns are never interrupted; you'll get a summary of every outcome.</p>
+  </div>
   return <ConfirmModal title={title} body={body}
     confirmLabel={`compact ${plural(normalCount, 'agent')}`}
     confirmDisabled={checking || normalCount === 0}

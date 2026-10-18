@@ -329,8 +329,10 @@ test('§4a the Agents List row: confirm names the branch and its skips, sends '
   assert.ok(box, 'no confirmation appeared')
   assert.match(box!.querySelector('h3')?.textContent ?? '', /Compact subtree of boss\?/)
   const text = box!.textContent ?? ''
-  assert.match(text, /4 agents will be cheap-compacted, one at a time: boss, kid-a, kid-b, grandkid/)
-  assert.match(text, /Skipped \(1\): kid-busy \(mid-turn/)
+  assert.match(text, /4 agents will be cheap-compacted, one at a time/)
+  assert.equal(box!.querySelector<HTMLElement>('[data-compact-count="cheap"]')?.title, 'boss, kid-a, kid-b, grandkid')
+  assert.equal(box!.querySelector<HTMLElement>('[data-compact-skip="busy"]')?.title, 'kid-busy')
+  assert.match(text, /1 agent mid-turn/)
   assert.equal(ops.length, 0, 'nothing may be sent before the confirm')
   await confirm()
   assert.deepEqual(ops.map((o) => o.node), ['boss', 'kid-a', 'kid-b', 'grandkid'])
@@ -369,7 +371,8 @@ test('§4b the eye card: "Compact all agents…" confirms, then compacts '
   assert.ok(box, 'no confirmation appeared before compacting every agent')
   assert.match(box!.querySelector('h3')?.textContent ?? '', /Compact all agents\?/)
   assert.match(box!.textContent ?? '', /2 agents will be cheap-compacted/)
-  assert.match(box!.textContent ?? '', /idle-empty \(no measured context/)
+  assert.match(box!.textContent ?? '', /1 agent with no measured context/)
+  assert.equal(box!.querySelector<HTMLElement>('[data-compact-skip="empty"]')?.title, 'idle-empty')
   assert.equal(ops.length, 0, 'nothing may be sent before the confirm')
   await confirm()
   assert.deepEqual(ops, [

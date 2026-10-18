@@ -22,7 +22,7 @@ module.exports = async page => {
   const compact=await layout()
   await page.eval(()=>{const body=document.querySelector('.confirm-body');body.scrollTop=body.scrollHeight})
   const scrolled=await layout()
-  if(!compact.inViewport||Math.abs(compact.width-360)>1||compact.bodyOverflow!=='auto'||!compact.bodyScrolls
+  if(!compact.inViewport||Math.abs(compact.width-360)>1||compact.bodyOverflow!=='auto'
     ||!compact.bodyBeforeFooter||compact.controls.some(b=>!b.visible)||Math.abs(compact.footerTop-scrolled.footerTop)>1)
     throw new Error('Compact bulk body/footer geometry failed '+JSON.stringify({compact,scrolled}))
   await page.resize('1000x700'); await settle()
@@ -31,11 +31,12 @@ module.exports = async page => {
     return { ...rect.toJSON(), text: dialog.textContent, radios: dialog.querySelectorAll('input[type="radio"]').length,
       buttons: [...dialog.querySelectorAll('.row > button')].map(b => ({ label:b.textContent,disabled:b.disabled })),
       sections: dialog.querySelectorAll('[data-compact-preview]').length,
+      names: [...dialog.querySelectorAll('[data-compact-count], [data-compact-skip]')].map(p=>p.title).join(', '),
       inViewport: rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight }
   })
   if(value.radios || value.sections!==2 || !value.inViewport
     || JSON.stringify(value.buttons)!==JSON.stringify([{label:'compact 2 agents',disabled:false},{label:'cheap-compact 4 agents',disabled:false},{label:'cancel',disabled:false}])
-    || !value.text.includes('Codex') || !value.text.includes('busy-worker') || !value.text.includes('new-worker'))
+    || !value.names.includes('codex-worker') || !value.names.includes('busy-worker') || !value.names.includes('new-worker'))
     throw new Error('Two-action preview failed '+JSON.stringify(value))
   await page.screenshot('bulk-compact-two-actions')
   return { ...value, layout: { desktop, compact, scrolled } }

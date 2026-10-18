@@ -440,7 +440,11 @@
   unreadable capability disables normal with a reason. A POST started:false is
   a refusal, never a success toast. Direct Halt/Unhalt have no ellipsis; team
   bulk compaction uses two counted confirm buttons (normal/cheap), plus Cancel,
-  with both target/skip previews visible and no radios. Opening only reads Normal
+  with count-only summaries and covered agent names in each line's tooltip,
+  not inline lists. Shared skip reasons appear once; Normal-only reasons stay
+  under Normal, with unsupported harnesses grouped. No expanders or radios.
+  [decided: user/coordinator 2026-10-18 17:28-17:58Z]
+  Opening only reads Normal
   support; pending/zero-target Normal is disabled while eligible Cheap remains
   available. Normal previews unsupported/sessionless/unreadable seats as skips and only reports
   admitted requests as started; there is no fallback to Cheap. The single-agent

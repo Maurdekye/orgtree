@@ -35,8 +35,13 @@ and Normal each have a counted confirm button, plus Cancel. User 2026-10-18
 14:29-14:30Z replaced the radio choice with these two actions. The single-agent
 modal is unchanged. Cancel performs no compaction.
 
-Both per-type previews stay visible together, naming eligible and skipped
-agents with counts and reasons. Buttons read compact N agents and cheap-compact
+Both mode descriptions and acting counts stay visible together. Each acting
+or skipped-reason count has a hover tooltip listing every covered agent name;
+names do not appear in the body. Shared skip reasons appear once below the
+modes, and Normal-only reasons stay under Normal. Unsupported harnesses share
+one count; unknown refusal reasons retain a short count line. There are no
+chips, expanders or repeated per-agent prose. The footer is one short line.
+[User 2026-10-18 17:28-17:30Z; coordinator 17:58Z m589667bd7538.] Buttons read compact N agents and cheap-compact
 N agents; zero-target actions are disabled. Both
 choices retain the existing live-seat, idle, measured-context and already-reset
 bulk plan. Cheap retains cheap_compact with if_idle per target. Opening the dialog reads
@@ -52,8 +57,9 @@ never completed. The summary names every outcome; one refusal does not abort the
 rest. No backend authority or harness support is widened.
 
 The bulk-only confirmation is capped at min(620px, viewport minus 40px).
-Its preview body scrolls independently and its footer stays visible, with
-wrapping buttons on narrow screens. Single-agent layout is unchanged.
+The count-only common case fits at1000x700 without body scrolling. Large or
+narrow cases retain the independently scrolling body and visible footer, with
+wrapping buttons. Single-agent layout is unchanged.
 [Coordinator approved 2026-10-18 14:36Z m839abac337e2.]
 
 ## Focused evidence
