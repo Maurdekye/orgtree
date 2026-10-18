@@ -14,6 +14,14 @@
   See [menu parent actions](docs/rust-engine/menu-parent-actions.md).
   [decided: user 2026-10-18 14:25Z/14:34Z; verified: `canvas/{agentmenu,cards,OrgCanvas}.tsx`]
 
+- Unread user mail with a standalone @user in visible prose/quotes shares
+  urgent mailbox counts, notifications, needs-attention and read clearing;
+  it never acquires an urgent flag/reason. A matching sender/prose mention
+  blurb is represented once by the mail and cleared atomically on read;
+  unrelated mentions and transcript highlights remain. [decided: user
+  2026-10-18 14:38–14:41Z; verified: `domain/mail_attention.rs`,
+  `http/mailbox.rs`, `mailattention.ts`, `attention/feed.ts`]
+
 - Do Not Disturb is a durable per-turn flag controlled by self status.dnd.
   Every harness gates ordinary mail before steering or interrupt; only urgent
   bypasses, and agent urgency requires current DND plus a reason. Turn end and

@@ -78,3 +78,8 @@ Retry, Cancel transfer and (for eligible failed/cancelled outgoing files) Remove
 
 - See `orgtree-mail-basics` (orgtree-working › mail).
 - [orgtree-ask-cards](../ask-cards/SKILL.md)
+
+## Mail mentioning the user
+
+Unread mail with a standalone @user in its visible prose, title/subject or quoted context shares urgent mailbox attention and clears when read. It is not labeled urgent unless its sender actually marked it urgent. The needs-attention list shows one mail row instead of a duplicate matching mention blurb. Failed reads restore unread attention.
+

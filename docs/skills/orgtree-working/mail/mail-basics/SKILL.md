@@ -32,3 +32,8 @@ Delivery timing depends on the harness and its available boundaries. Mail that m
 - [orgtree-tool-message](../tool-message/SKILL.md)
 - [orgtree-tool-send-notice](../tool-send-notice/SKILL.md)
 - [orgtree-tool-inbox](../tool-inbox/SKILL.md)
+
+## Mentions in user mail
+
+Unread mail to the user that contains a standalone @user in its body, visible event title/subject or quoted reply context gets the same mailbox attention as urgent mail: inbox pulse/count, row emphasis, needs-attention entry and configured desktop/tray/window cues. It remains ordinary mail; no urgent mark or reason is invented. Reading it clears that attention through the normal read path, including immediate local feedback and restoration after a failed read. A matching sender/prose mention blurb is represented by the mail once, and reading it clears only that matching marker. Unrelated mentions and persistent transcript highlights remain. This does not bypass agent DND or change Hubchat.
+

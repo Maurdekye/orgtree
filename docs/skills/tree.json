@@ -1057,14 +1057,17 @@
     "alpha build",
     "eight",
     "first committed",
-    "non-user"
+    "non-user",
+    "user-mention mail shares urgent attention without urgency; one needs-attention entry cleared by read"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/tools/defs.rs:170",
     "engine/rs/orgtree-engine/src/tools/mailtools.rs message(..,false)",
     "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()",
     "engine/rs/orgtree-engine/src/domain/peer_mail.rs",
-    "engine/rs/orgtree-engine/src/domain/mail_tags.rs"
+    "engine/rs/orgtree-engine/src/domain/mail_tags.rs",
+    "engine/rs/orgtree-engine/src/domain/mail_attention.rs",
+    "apps/desktop/renderer/src/mailattention.ts"
    ],
    "writer": "comms-sol",
    "status": "fixed",
@@ -1258,7 +1261,8 @@
     "reply_to/replies threading",
     "mail delivered mid-task and its marker",
     "never wait for replies inside a turn",
-    "MENTIONS: agent, project and docket item mentions in all reader-facing text; no code spans; @user attention-only"
+    "MENTIONS: agent, project and docket item mentions in all reader-facing text; no code spans; @user attention-only",
+    "user-mention mail shares urgent attention without urgency; one needs-attention entry cleared by read"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/runtime/identity.rs MENTIONS, TOOLS_SENTENCE, AUTHENTIC_CHANNEL",
@@ -1266,7 +1270,9 @@
     "engine/rs/orgtree-engine/src/domain/notices.rs",
     "engine/rs/orgtree-engine/src/domain/replies.rs",
     "docs/mail-delivery-boundaries.md",
-    "docs/rust-engine/multi-replies.md"
+    "docs/rust-engine/multi-replies.md",
+    "engine/rs/orgtree-engine/src/domain/mail_attention.rs",
+    "apps/desktop/renderer/src/mailattention.ts"
    ],
    "see_also": [
     "tool-message",
@@ -3066,12 +3072,15 @@
    "purpose": "The Attention view: the needs-attention queue and the agent desk panel.",
    "must_cover": [
     "queue contents",
-    "panels pin/popout"
+    "panels pin/popout",
+    "user-mention mail shares urgent attention without urgency; one needs-attention entry cleared by read"
    ],
    "sources": [
     "apps/desktop/renderer/src/attention/AttentionView.tsx:353",
     "apps/desktop/renderer/src/attention/AttentionQueue.tsx:108",
-    "apps/desktop/renderer/src/attention/AgentDeskPanel.tsx:140"
+    "apps/desktop/renderer/src/attention/AgentDeskPanel.tsx:140",
+    "engine/rs/orgtree-engine/src/domain/mail_attention.rs",
+    "apps/desktop/renderer/src/mailattention.ts"
    ],
    "see_also": [
     "docket-review-and-attention",
@@ -3528,7 +3537,8 @@
     "chip",
     "hue",
     "bounded",
-    "Retry"
+    "Retry",
+    "user-mention mail shares urgent attention without urgency; one needs-attention entry cleared by read"
    ],
    "sources": [
     "apps/desktop/renderer/src/App.tsx:2631",
@@ -3538,7 +3548,9 @@
     "apps/desktop/renderer/src/canvas/mail.tsx:1424",
     "apps/desktop/renderer/src/canvas/transfers.tsx:29",
     "apps/desktop/renderer/src/usemailtags.ts",
-    "apps/desktop/renderer/src/canvas/mailtags.ts"
+    "apps/desktop/renderer/src/canvas/mailtags.ts",
+    "engine/rs/orgtree-engine/src/domain/mail_attention.rs",
+    "apps/desktop/renderer/src/mailattention.ts"
    ],
    "see_also": [
     "mail-basics",
