@@ -774,6 +774,19 @@ pub fn ensure_rollout(thread: &str, home: Option<&str>, others: &[std::path::Pat
     false
 }
 
+/// Codex keeps a thread's dynamic tools from its START: `thread/resume` takes
+/// no `dynamicTools` (codex-cli 0.160.0, measured 2026-10-18: a resumed turn
+/// offered the model only the start-time cards) and restores them from the
+/// rollout's first line, `session_meta.payload.dynamic_tools`. Before a resume
+/// the current cards go there, so tools added since (an engine upgrade, a scope
+/// change, a schema fix) reach the agent. Only line 1 changes; the rest is
+/// copied byte for byte. Returns whether the rollout was rewritten.
+#[logged]
+pub fn sync_rollout_tools(thread: &str, home: Option<&str>, cards: &[Value]) -> bool {
+    let _ = (thread, home, cards);
+    false
+}
+
 /// `-c` overrides attaching granted MCP servers (quoted TOML names when needed).
 #[nolog]
 pub fn mcp_overrides(servers: &serde_json::Map<String, Value>) -> (Vec<String>, Vec<String>) {
@@ -971,5 +984,69 @@ mod tool_result_timing_tests {
         assert_eq!(items[0]["type"], "inputText");
         assert_eq!(items[0]["text"], "unknown tool not_a_real_tool");
         crate::tools::result_timing::assert_time_line(items[1]["text"].as_str().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod rollout_tool_tests {
+    use super::*;
+
+    fn card(name: &str) -> Value {
+        json!({ "type": "function", "name": name, "description": format!("probe {name}"),
+                "inputSchema": { "type": "object", "properties": {}, "required": [] } })
+    }
+
+    /// a CODEX_HOME holding one thread's rollout, laid out as Codex lays it out
+    fn home_with(thread: &str, first: &str, rest: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let home = std::env::temp_dir().join(format!("orgtree-rollout-tools-{}", crate::util::random_hex(8)));
+        let dir = home.join("sessions").join("2026").join("10").join("18");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(format!("rollout-2026-10-18T13-00-00-{thread}.jsonl"));
+        std::fs::write(&file, format!("{first}\n{rest}")).unwrap();
+        (home, file)
+    }
+
+    fn meta(tools: Vec<Value>) -> String {
+        json!({ "timestamp": "2026-10-18T13:00:00.000Z", "type": "session_meta",
+                "payload": { "id": "t1", "cwd": "C:/scratch", "base_instructions": { "text": "keep me" },
+                             "dynamic_tools": tools, "history_mode": "full" } }).to_string()
+    }
+
+    const REST: &str = r#"{"type":"turn_context","payload":{"model":"m"}}
+{"type":"response_item","payload":{"text":"café \u00e9"}}
+"#;
+
+    #[test]
+    fn a_resume_gets_the_current_cards_in_the_rollout_and_nothing_else_changes() {
+        let (home, file) = home_with("t1", &meta(vec![card("orgtree_status")]), REST);
+        let now = vec![card("orgtree_status"), card("orgtree_project")];
+        assert!(sync_rollout_tools("t1", home.to_str(), &now), "the cards differ, so the rollout is rewritten");
+        let text = std::fs::read_to_string(&file).unwrap();
+        let (first, rest) = text.split_once('\n').unwrap();
+        let m: Value = serde_json::from_str(first).unwrap();
+        assert_eq!(m["payload"]["dynamic_tools"], Value::Array(now.clone()), "the thread now carries orgtree_project");
+        assert_eq!(m["payload"]["base_instructions"]["text"], "keep me", "the rest of session_meta stays");
+        assert_eq!(m["type"], "session_meta");
+        assert_eq!(rest, REST, "every later line is byte-identical");
+        let left = std::fs::read_dir(file.parent().unwrap()).unwrap().count();
+        assert_eq!(left, 1, "no temporary file is left beside the rollout");
+        assert!(!sync_rollout_tools("t1", home.to_str(), &now), "the same cards again: nothing to write");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_rollout_is_left_alone_when_the_cards_match_or_it_is_not_one_codex_wrote() {
+        let same = vec![card("orgtree_status")];
+        let (home, file) = home_with("t2", &meta(same.clone()), REST);
+        let before = std::fs::read(&file).unwrap();
+        assert!(!sync_rollout_tools("t2", home.to_str(), &same));
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+        assert!(!sync_rollout_tools("missing", home.to_str(), &same), "no rollout for the thread");
+        let (home2, file2) = home_with("t3", r#"{"type":"turn_context"}"#, REST);
+        let before2 = std::fs::read(&file2).unwrap();
+        assert!(!sync_rollout_tools("t3", home2.to_str(), &[card("orgtree_project")]), "line 1 is not a session_meta");
+        assert_eq!(std::fs::read(&file2).unwrap(), before2);
+        let _ = std::fs::remove_dir_all(&home);
+        let _ = std::fs::remove_dir_all(&home2);
     }
 }
