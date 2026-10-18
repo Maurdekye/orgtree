@@ -111,6 +111,16 @@ test('§3c the team gallery header says whose documents it holds', async (t) => 
   assert.match(team.el.textContent ?? '', /documents and HTML previews from boss and the agents under it/)
 })
 
+test('§3d a renamed agent keeps its earlier cards: the engine scoped them by id, and they carry the old name (docket org/rename item)', async (t) => {
+  stubDocuments(t, [doc('d9', 'dev5', 'dev5', 'UI sketch')])
+  const renamed = { id: 'dev5-renamed', title: 'dev5-renamed', tier: 'haiku', state: 'live', children: [], documents: [] } as unknown as CanvasNode
+  const view = await mountView(<AgentGalleryView slug="org" nid="dev5-renamed" node={renamed} toast={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(6) })
+  const titles = [...view.el.querySelectorAll('.doc-gallery-row .mfrom')].map((r) => r.textContent)
+  assert.deepEqual(titles, ['UI sketch'], 'the card presented before the rename is listed')
+})
+
 /* ─── §4 a project's presentation chips ─────────────────────────────────── */
 
 const withDocs = () => ({
