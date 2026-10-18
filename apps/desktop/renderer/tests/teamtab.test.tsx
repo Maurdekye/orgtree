@@ -78,6 +78,12 @@ for (const project of [false, true]) test(`${project ? 'project' : 'agent'} Team
   assert.equal(!!tab, true, 'Team tab is offered')
   await inAct(async () => { tab!.click() })
   assert.deepEqual(names(view.el), ['team-root', 'nested-project', 'busy-worker', 'idle-worker'])
+  await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.tray-row[data-copy-agent-name="busy-worker"] .tray-main')!.click() })
+  assert.deepEqual(picked, ['busy-worker'], 'row activation uses the host navigation')
+  await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.tray-arch')!.click() })
+  assert.equal(names(view.el).includes('retired-worker'), true, 'archived toggle stays within the subtree')
+  assert.equal(names(view.el).includes('unrelated-worker'), false)
+  await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.tray-arch')!.click() })
   const box = view.el.querySelector<HTMLInputElement>('.tray-filter')!
   assert.equal(!!box, true, 'same agents filter box')
   await inAct(async () => {

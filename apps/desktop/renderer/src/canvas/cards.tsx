@@ -63,6 +63,7 @@ import { AgentSlotChips } from './slotchips'
 
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
+  onAgents?: () => void
   pos: Pt
   isDrop: boolean
   stats: { circ: number; seats: number; free: number }
@@ -121,7 +122,7 @@ interface UserNodeProps {
 
 export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire, onNoHarness,
   antigravityHire, openrouterHire, langserverHire,
-  pxc, zoom, onInbox, onDocket, onPresentations, onGear, onSpawn,
+  pxc, zoom, onInbox, onDocket, onPresentations, onGear, onSpawn, onAgents,
   onMailLink, onWorkLink,
   focused, eyeW, onFocus, posX, onJump, map, op, slug, toast,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
@@ -174,6 +175,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     }
     if (onInbox) entries.push({ label: 'Open inbox', onSelect: () => onInbox() })
     if (onDocket) entries.push({ label: 'Open global docket', onSelect: () => onDocket() })
+    if (onAgents) entries.push({ label: 'Agents list', onSelect: onAgents })
     if (onPresentations) entries.push({ label: 'Open presentations', onSelect: () => onPresentations() })
     const sharedScratch = scratchFolderAction(slug, '', toast, 'shared')
     if (sharedScratch) entries.push({ label: 'Open shared scratch folder', onSelect: sharedScratch })
@@ -1316,6 +1318,7 @@ interface NodeSquareProps {
   onSpawnTop?: (tier: string) => void
   onConfig: () => void
   onInbox: () => void
+  onTeam?: () => void
   onDocket?: () => void
   /** the context menu's "Open team docket" — this agent's docket widened to
    *  its whole subtree. There is no button for it on the card: the ticket's
@@ -1501,7 +1504,7 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
 }
 
 export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, map, op, slug,
-  toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
+  toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onTeam, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, onNewProject, onNewProjectAt, cascadeAlloc, maxTop, pile, compactAt,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, deskEligible = true, dogs, oneShotDogs, slotHolds, pinned, pinnedFocus, onPin, onShowPin,
@@ -1551,6 +1554,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     return agentMenuEntries(node, {
       onOpenDesk: onRecenter,
       onInbox,
+      onTeam,
       onScratchFolder: scratchFolderAction(slug, node.id, toast),
       onTeamScratchFolder: scratchFolderAction(slug, node.id, toast, 'team'),
       onDocket,

@@ -5016,6 +5016,12 @@ span.ref-chip.ref-chip {
   display: flex; flex-direction: column;
 }
 .desk-tabpanel > .mailwrap, .desk-tabpanel > .msgs { flex: 1; min-height: 0; }
+.team-list { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.team-list > .tray { flex: 1; min-height: 0; min-width: 0; max-width: none; }
+.team-tabpanel .tray-filter-row { margin-right: 76px; }
+.team-empty { padding: 12px 8px; }
+.team-panel { width: 660px; }
+.team-panel > .team-list { min-height: 100px; }
 /* ABOVE the panel, never in its flow: an extra row would cost the reading pane
    height on a desk that has little to spare, and these three buttons are chrome
    for the panel rather than part of what it lists. */

@@ -24,7 +24,7 @@
 
 import { createContext, useContext, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
-import { DocIcon, DocketIcon, MailIcon, PinIcon } from '../icons'
+import { DocIcon, DocketIcon, MailIcon, PinIcon, ViewListIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { openSurfaces, revealSurface, subscribeWindows, windowRevision } from '../windowlife'
 import {
@@ -36,7 +36,7 @@ import {
  *  own. The string is the modal's PinFrame `kind` — the same identity its pin
  *  geometry, its open marker and its saved window are all stored under, so
  *  there is no second name for a surface anywhere in this file. */
-export type AgentPanelKind = 'agent-gallery' | 'agent-docket' | 'node-inbox'
+export type AgentPanelKind = 'agent-gallery' | 'agent-docket' | 'node-inbox' | 'agent-team'
 
 /** How the shell opens each of these surfaces. The desk cannot open any of them
  *  itself — the modals are owned by App/OrgCanvas — and it must not invent a
@@ -74,6 +74,7 @@ export const useAgentSurfaceRoutes = (): AgentSurfaceRoutes | null => useContext
  *  reader the thing it is about to open. Pin and pop out, being the same action
  *  on every surface, keep the one glyph each already has elsewhere. */
 const PANELS: Record<AgentPanelKind, { noun: string; icon: ReactNode }> = {
+  'agent-team': { noun: 'team', icon: <ViewListIcon fontSize="inherit" /> },
   'agent-gallery': { noun: 'presented documents', icon: <DocIcon fontSize="inherit" /> },
   'agent-docket': { noun: 'docket', icon: <DocketIcon fontSize="inherit" /> },
   'node-inbox': { noun: 'inbox', icon: <MailIcon fontSize="inherit" /> },

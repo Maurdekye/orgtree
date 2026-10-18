@@ -102,6 +102,7 @@ import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner, useAgentSurfaceRoutes } from './panelcorner'
+import { AgentTeamView } from './team'
 import { DogChip, useDeskDogs, useDogRoute } from './deskdogs'
 import { AgentSlotChips } from './slotchips'
 import { PresentationCard, recentDocumentChips } from './docs'
@@ -2322,7 +2323,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // a double-click while the request is in flight; the response/WS tree state
   // remains authoritative if another desk wins the race.
   const [processToggleBusy, setProcessToggleBusy] = useState(false)
-  const [view, setView] = useState<'chat' | 'inbox' | 'docket' | 'presented'>('chat')
+  const [view, setView] = useState<'chat' | 'inbox' | 'docket' | 'presented' | 'team'>('chat')
   useEffect(() => {
     if (openPresentedRequest !== undefined) setView('presented')
   }, [openPresentedRequest])
@@ -3535,7 +3536,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             )}
           </span>
           <span className="cc-tabs">
-            {(['chat', 'inbox', 'docket', 'presented'] as const).map((v) => (
+            {(['chat', 'inbox', 'docket', 'presented', 'team'] as const).map((v) => (
               <button key={v} data-tab={v} className={view === v ? 'on' : ''}
                 onClick={() => setView(v)}>
                 {v}{tabCount(v) > 0
@@ -4098,6 +4099,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           references={work?.references} boundedReferences workRevision={work?.revision}
           refs={deskRefs}
           onChanged={() => setWorkBump((n) => n + 1)} />
+      </div>}
+      {view === 'team' && <div className="desk-tabpanel team-tabpanel">
+        <PanelCorner kind="agent-team" slug={slug} nid={node.id} />
+        <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={deskRefs} compactAt={compactAt} />
       </div>}
       {view === 'presented' && (
         <div className="desk-tabpanel">

@@ -74,6 +74,7 @@ interface ProjectSquareProps {
   /** the side and top strips' project tokens */
   onNewProjectAt?: (edge: 'l' | 'r' | 't') => void
   onInbox: () => void
+  onTeam?: () => void
   onSettings?: () => void
   /** the project's docket: its attached items */
   onDocket?: () => void
@@ -90,7 +91,7 @@ interface ProjectSquareProps {
 }
 
 export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, onFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
-  onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onSettings, onDocket, onOpenDoc, onOpenGallery,
+  onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onTeam, onSettings, onDocket, onOpenDoc, onOpenGallery,
   onOpenTemporary, onPopout, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   // the mailbox hover button obeys "Show agent card shortcuts", like an
@@ -129,6 +130,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   if (zoom > 0) Object.assign(style, { '--invzf': Math.max(1 / Z_MAX, 1 / zoom).toFixed(3) })
   const menuEntries = () => projectMenuEntries(node, {
     onInbox,
+    onTeam,
     onDocket,
     onScratchFolder: scratchFolderAction(slug, node.id, toast),
     onPresentations: onOpenGallery ? () => onOpenGallery(node.id) : undefined,

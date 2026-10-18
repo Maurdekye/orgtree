@@ -26,6 +26,7 @@ import { useWorkItems } from './useworkitems'
 import { AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
+import { AgentTeamView } from './team'
 import { useSurface } from '../popout'
 import type { RefRoutes } from './reflinks'
 import { ageClockNow, LastTurnAge, NavChip, subscribeAgeClock } from './desk'
@@ -39,7 +40,7 @@ import { ConfirmModal } from './modals'
 import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
 
-export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented'] as const
+export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
 /** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
 type Tab = typeof PROJECT_DESK_TABS[number] | 'slots'
 
@@ -467,6 +468,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
         {/* nid = the project: the engine widens a project's gallery to its subtree */}
         <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs} />
+      </div>}
+      {shown === 'team' && <div className="desk-tabpanel team-tabpanel">
+        <PanelCorner kind="agent-team" slug={slug} nid={node.id} />
+        <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={refs} compactAt={tree.compact_at} />
       </div>}
       {shown === 'slots' && <SlotsView node={node} state={slots} op={op} toast={toast} />}
       {/* under every tab, as the agent desk's composer is */}

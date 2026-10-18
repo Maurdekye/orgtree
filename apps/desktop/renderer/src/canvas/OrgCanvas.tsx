@@ -70,6 +70,7 @@ import { DeskDogsProvider } from './deskdogs'
 import type { DeskDogs } from './deskdogs'
 import type { AgentSurfaceRoutes } from './panelcorner'
 import { TeamDocketModal } from './teamdocket'
+import { TeamListNavigation, TeamListOrder, TeamModal } from './team'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
 import { museHireAccount } from './musehire'
 import { DraftNode, NodeSquare, UserNode } from './cards'
@@ -570,6 +571,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                                                     // spec: hidden by default)
   const [inboxId, setInboxId] = useState<string | null>(null)
   const [agentDocketId, setAgentDocketId] = useState<string | null>(null)
+  const [teamId, setTeamId] = useState<string | null>(null)
   // the TEAM docket's root agent — its own surface, deliberately not a mode of
   // the agent docket above: the two are independently pinnable, restorable and
   // poppable windows, and one agent's docket and that agent's team docket are
@@ -841,6 +843,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   usePersistedModalOpen('lineage', slug, lineageId !== null, lineageId ? { agent: lineageId, generation: map.get(lineageId)?.generation } : undefined)
   usePersistedModalOpen('node-inbox', slug, inboxId !== null, inboxId ? { agent: inboxId, generation: map.get(inboxId)?.generation } : undefined)
   usePersistedModalOpen('agent-docket', slug, agentDocketId !== null, agentDocketId ? { agent: agentDocketId, generation: map.get(agentDocketId)?.generation } : undefined)
+  usePersistedModalOpen('agent-team', slug, teamId !== null, teamId ? { agent: teamId, generation: map.get(teamId)?.generation } : undefined)
   usePersistedModalOpen('team-docket', slug, teamDocketId !== null, teamDocketId ? { agent: teamDocketId, generation: map.get(teamDocketId)?.generation } : undefined)
   usePersistedModalOpen('watchdog', slug, dogView !== null, dogView ? { watchdog: dogView } : undefined)
   useEffect(() => { if (tree.org_inbox?.enabled === false) setOiOpen(false) }, [tree.org_inbox?.enabled])
@@ -871,6 +874,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     setInboxId(pinnedKind('node-inbox') ? (agent('node-inbox') ?? pinnedAgent('node-inbox')) : agent('node-inbox'))
     setAgentDocketId(pinnedKind('agent-docket') ? (agent('agent-docket') ?? pinnedAgent('agent-docket')) : agent('agent-docket'))
     setTeamDocketId(pinnedKind('team-docket') ? (agent('team-docket') ?? pinnedAgent('team-docket')) : agent('team-docket'))
+    setTeamId(pinnedKind('agent-team') ? (agent('agent-team') ?? pinnedAgent('agent-team')) : agent('agent-team'))
     setOiOpen(pinnedKind('org-inbox') || rows.some(r => r.kind === 'org-inbox'))
     setTrayOpen(pinnedKind('agent-list') || rows.some(r => r.kind === 'agent-list'))
     const watchdogRow = pinned.find(r => r.kind === 'watchdog') || rows.find(r => r.kind === 'watchdog')
@@ -3066,7 +3070,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const selectedTreeState = JSON.stringify({
     include: [...new Set([...(restoredModalOrg.current === slug ? [] : savedSelection.include),
       ...restoreDesks.map(([, id]) => id), ...pins.map(pin => pin.id), ...shownRetired,
-      configId, lineageId, inboxId, agentDocketId, teamDocketId, tempDeskId, sheetId,
+      configId, lineageId, inboxId, agentDocketId, teamDocketId, teamId, tempDeskId, sheetId,
       draftOrigin.current?.target?.id, draftReturn.current?.target?.id,
       focusId, draft?.parent, draft?.beside?.anchor, draft?.above?.anchor, pendingJump?.id,
     ].filter((id): id is string => !!id && id !== USER && id !== DRAFT))].sort(),
@@ -3118,12 +3122,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     setInboxId((cur) => (cur === id ? null : cur))
     setAgentDocketId((cur) => (cur === id ? null : cur))
     setTeamDocketId((cur) => (cur === id ? null : cur))
+    setTeamId((cur) => (cur === id ? null : cur))
     setSheetId((cur) => (cur === id ? null : cur))
 
     const wasFocused = focusRef.current === id || nearestId === id
       || (camIntent.current?.kind === 'focus' && camIntent.current.id === id)
     const hasActiveSurface = configId === id || lineageId === id || inboxId === id
-      || agentDocketId === id || teamDocketId === id || sheetId === id
+      || agentDocketId === id || teamDocketId === id || teamId === id || sheetId === id
       || pinnedIdsRef.current.has(id)
     const parentId = mapRef.current.get(id)?.parent
     const validParent = parentId && mapRef.current.has(parentId) && !prunedRef.current.has(parentId)
@@ -3150,7 +3155,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // retired-list token reachable.
     if (wasFocused || hasActiveSurface) centerOn(fallbackId)
   }, [slug, nearestId, shownRetired, configId, lineageId, inboxId,
-    agentDocketId, teamDocketId, sheetId, centerOn])
+    agentDocketId, teamDocketId, teamId, sheetId, centerOn])
 
   // THE AGENTS LIST ROW'S CONTEXT MENU (user request 2026-09-12: a row must
   // offer exactly what the agent's own card offers, "with the same ordering,
@@ -3188,6 +3193,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     return agentMenuEntries(n, {
       onOpenDesk: go,
       onInbox: () => toggleNodeSurface('node-inbox', n.id, setInboxId),
+      onTeam: () => toggleNodeSurface('agent-team', n.id, setTeamId),
       onScratchFolder: scratchFolderAction(slug, n.id, toast),
       onTeamScratchFolder: scratchFolderAction(slug, n.id, toast, 'team'),
       onDocket: () => toggleNodeSurface('agent-docket', n.id, setAgentDocketId),
@@ -3653,12 +3659,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     open: (kind, id) => {
       if (kind === 'agent-gallery') onOpenAgentGallery?.(id)
       else toggleNodeSurface(kind, id,
-        kind === 'agent-docket' ? setAgentDocketId : setInboxId)
+        kind === 'agent-docket' ? setAgentDocketId : kind === 'agent-team' ? setTeamId : setInboxId)
     },
     show: (kind, id) => {
       if (kind === 'agent-gallery') onOpenAgentGallery?.(id, { keepOpen: true })
       else showNodeSurface(kind, id,
-        kind === 'agent-docket' ? setAgentDocketId : setInboxId)
+        kind === 'agent-docket' ? setAgentDocketId : kind === 'agent-team' ? setTeamId : setInboxId)
     },
     settings: toggleConfig,
     lineage: (id) => toggleNodeSurface('lineage', id, setLineageId),
@@ -3866,6 +3872,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     <OrgDefaultEffort.Provider
       value={resolveOrgDefault(tree.default_effort, tree.effort_default)}>
     <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
+    <TeamListOrder.Provider value={canvasTrayCompare()}>
+    <TeamListNavigation.Provider value={goToAgent}>
     <DeskDogsProvider value={deskDogs}>
     <ObjectNavHost org={slug} dogs={tree.watchdogs ?? []} openDog={toggleDog}
       openTicket={onWorkItem} focusAgent={goToAgent} toast={toast} />
@@ -4056,6 +4064,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                 onInbox?.()
               }}
               onGear={onOrgSettings}
+              onAgents={() => showNodeSurface('agent-list', '', () => setTrayOpen(true))}
               onDocket={onDocket} onPresentations={onPresentations}
               onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
               /* switchboard panel headers mirror the desk header identically
@@ -4102,6 +4111,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onNewProjectAt={(edge) => spawnProjectAt(n, edge)}
               onSettings={() => toggleConfig(n.id)}
               onInbox={() => toggleNodeSurface('node-inbox', n.id, setInboxId)}
+              onTeam={() => toggleNodeSurface('agent-team', n.id, setTeamId)}
               onDocket={() => toggleNodeSurface('agent-docket', n.id, setAgentDocketId)}
               onOpenDoc={openDocView}
               onOpenGallery={onOpenAgentGallery}
@@ -4133,6 +4143,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onSpawnTop={(t) => spawnAbove(n, t)}
               onConfig={() => toggleConfig(n.id)}
               onInbox={() => toggleNodeSurface('node-inbox', n.id, setInboxId)} onLineage={() => toggleNodeSurface('lineage', n.id, setLineageId)}
+              onTeam={() => toggleNodeSurface('agent-team', n.id, setTeamId)}
               onDocket={() => toggleNodeSurface('agent-docket', n.id, setAgentDocketId)}
               onTeamDocket={() => toggleNodeSurface('team-docket', n.id, setTeamDocketId)}
               onOpenDoc={openDocView}
@@ -4532,6 +4543,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           nid={agentDocketId} tree={tree} toast={toast} refs={canvasRefs}
           close={() => setAgentDocketId(null)} /></MaybePortal>
       )}
+      {teamId && map.has(teamId) && (
+        <MaybePortal><TeamModal key={`${slug}/${teamId}`} map={map} nid={teamId}
+          refs={canvasRefs} onPick={goToAgent} compactAt={tree.compact_at}
+          close={() => setTeamId(null)} /></MaybePortal>
+      )}
       {/* THE TEAM DOCKET, GATED ON THE VIEWER'S OWN MAP exactly as the agent
           docket above is: a root this viewer's tree does not hold opens
           nothing, rather than opening a panel that would have to invent a
@@ -4761,6 +4777,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     </div>}
     </DeskHosts>
     </DeskDogsProvider>
+    </TeamListNavigation.Provider>
+    </TeamListOrder.Provider>
     </AgentSurfaceRoutesProvider>
     </OrgDefaultEffort.Provider>
     </ForegroundViewContext.Provider>

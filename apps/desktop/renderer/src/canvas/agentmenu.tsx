@@ -53,6 +53,7 @@ export type RetireKind = 'retire' | 'dissolve' | 'retire-all' | 'cheap-compact' 
   | 'halt-subtree' | 'halt-subordinates' | 'unhalt-subtree' | 'unhalt-subordinates'
 
 export interface AgentMenuHandlers {
+  onTeam?: () => void
   /** open this agent's desk — the card re-centres the camera on itself, the
    *  Agents List row glides to it. Absent leaves the entry disabled rather
    *  than dropping it: "Focus" is the first thing a reader looks for, and
@@ -157,9 +158,10 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       + 'agent, pinning it, or opening a window — closing puts everything back',
     onSelect: () => temporary(),
   })
-  openEntries.push(
-    { label: 'Inbox', onSelect: () => h.onInbox() },
-  )
+    openEntries.push(
+      { label: 'Inbox', onSelect: () => h.onInbox() },
+    )
+    if (h.onTeam) openEntries.push({ label: 'Team', onSelect: h.onTeam })
   const canScratch = live || node.state === 'archived'
   const scratch = canScratch ? h.onScratchFolder : undefined
   const teamScratch = canScratch ? h.onTeamScratchFolder : undefined
@@ -378,6 +380,7 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   if (s.pinned && showPin) desk.push({ label: 'Show pinned window', onSelect: () => showPin() })
   const open: MenuEntry[] = [...desk, ...(desk.length ? ['sep' as const] : []),
     { label: 'Project mailbox', onSelect: () => h.onInbox() }]
+  if (h.onTeam) open.push({ label: 'Team', onSelect: h.onTeam })
   if (h.onScratchFolder && (live || node.state === 'archived')) {
     open.push({ label: 'Project folder', onSelect: h.onScratchFolder })
   }
