@@ -28,7 +28,7 @@ if (visual) {
 } else {
   command = process.execPath
   args = ['--max-old-space-size=1024', '--test', '--test-reporter=tap', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000',
-    ...(mode === 'red' ? ['--test-name-pattern=with no history:|top-level superior shares'] : []), path.join(output, 'test.mjs')]
+    ...(mode === 'red' ? ['--test-name-pattern=with no history:|top-level superior shares|model with no history'] : []), path.join(output, 'test.mjs')]
 }
 const result = spawnSync(command, args, { cwd: repo, env, encoding: 'utf8', windowsHide: true })
 fs.writeFileSync(path.join(output, 'result.log'), `${result.stdout || ''}${result.stderr || ''}`)

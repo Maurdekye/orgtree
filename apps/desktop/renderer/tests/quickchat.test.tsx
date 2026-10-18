@@ -109,9 +109,13 @@ test('the Quick chat position is Top by default, kept, and only top/bottom/none'
   localStorage.clear()
 })
 
-test('the model with no history prefers Opus, then Sol, then Flash, then anything offered', () => {
+test('the model with no history prefers Opus, then Sol, then Argon, then Wonder, then anything hireable', () => {
   assert.equal(quickChatTier(undefined, ['haiku', 'sonnet', 'opus', 'sol']), 'opus')
   assert.equal(quickChatTier(undefined, ['luna', 'sol', 'flash']), 'sol')
+  assert.equal(quickChatTier(undefined, ['flash', 'wonder', 'argon', 'sol', 'opus']), 'opus')
+  assert.equal(quickChatTier(undefined, ['flash', 'wonder', 'argon', 'sol']), 'sol')
+  assert.equal(quickChatTier(undefined, ['flash', 'wonder', 'argon']), 'argon')
+  assert.equal(quickChatTier(undefined, ['flash', 'wonder']), 'wonder')
   assert.equal(quickChatTier(undefined, ['pro', 'flash']), 'flash')
   assert.equal(quickChatTier(undefined, ['terra']), 'terra')
   assert.equal(quickChatTier(undefined, []), '')
