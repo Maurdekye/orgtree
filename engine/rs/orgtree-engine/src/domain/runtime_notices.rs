@@ -210,15 +210,16 @@ pub async fn deep_reach(engine:&Arc<Engine>,org_id:i64,agent_id:i64,text:&str,co
 pub(super) async fn deep_reach_tx(
     c:&impl tokio_postgres::GenericClient,org_id:i64,agent_id:i64,text:&str,command:bool,
 )->Result<Vec<crate::changes::Change>> {
-    Ok(deep_reach_batch_tx(c,org_id,agent_id,text,command,&ForwardedUserNotices::default()).await?.0)
+    Ok(deep_reach_batch_tx(c,org_id,agent_id,text,command,true,&ForwardedUserNotices::default()).await?.0)
 }
 
 /// Projects share agent forwarding, but retain their separate post-delivery
 /// project audience grant. The caller records returned ancestors only on commit.
+/// Project broadcast copies disable personal contact grants, never forwarding.
 #[logged]
 pub(super) async fn deep_reach_batch_tx(
     c:&impl tokio_postgres::GenericClient,org_id:i64,agent_id:i64,text:&str,command:bool,
-    notices:&ForwardedUserNotices,
+    grant_contact:bool,notices:&ForwardedUserNotices,
 )->Result<(Vec<crate::changes::Change>,Vec<i64>)> {
     use crate::changes::Change;
     // Same per-org serialization as explicit grants, compatible with FK key-share reads.
@@ -228,7 +229,7 @@ pub(super) async fn deep_reach_batch_tx(
     let name:String=r.get(0);
     let org:String=r.get(2);
     let mut changed=Vec::new();
-    let fresh=r.get::<_,String>(4)=="agent" && c.query_opt(USER_CONTACT_AUDIENCE_SQL, &[&org_id,&name]).await?.is_none();
+    let fresh=grant_contact && r.get::<_,String>(4)=="agent" && c.query_opt(USER_CONTACT_AUDIENCE_SQL, &[&org_id,&name]).await?.is_none();
     if fresh {
         let reason=if command {"user ran a command directly"} else {"user messaged directly"};
         c.execute("INSERT INTO ot.audiences(org_id,grantee,grantor,reason) VALUES($1,$2,'@user',$3)", &[&org_id,&name,&reason]).await?;
@@ -251,7 +252,7 @@ pub(super) async fn deep_reach_batch_tx(
     Ok((changed,forwarded))
 }
 
-const USER_CONTACT_AUDIENCE_SQL: &str = "SELECT 1 FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor='@user' AND revoked_at IS NULL AND NOT paused LIMIT 1";
+const USER_CONTACT_AUDIENCE_SQL: &str = "SELECT 1 FROM ot.effective_audiences WHERE org_id=$1 AND grantee=$2 AND grantor='@user' AND revoked_at IS NULL AND NOT paused LIMIT 1";
 
 #[cfg(test)]
 mod project_user_contact_tests {

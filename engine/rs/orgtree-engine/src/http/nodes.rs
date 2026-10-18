@@ -320,6 +320,9 @@ pub async fn broadcast(
 #[nolog]
 fn project_broadcast_message(to: &str, text: &str, notice: bool, attachments: &[Value]) -> Outgoing {
     let mut out = Outgoing::new(From::User, to, text);
+    // Project contact, not independent direct contact with every recipient.
+    // Ancestor forwarding remains enabled; only personal grants are suppressed.
+    out.grant_reply_audience = false;
     out.notice = notice;
     out.attachments = attachments.to_vec();
     out

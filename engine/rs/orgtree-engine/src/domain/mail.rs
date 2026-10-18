@@ -152,7 +152,8 @@ pub struct Outgoing {
     /// Receipt identity supplied only by the inbound hub transport.
     pub net_id: Option<String>,
     pub net_hub: Option<String>,
-    /// Automatic notices use existing rights without granting a reply audience.
+    /// Automatic notices and project broadcasts use existing rights without
+    /// granting a personal reply audience; user ancestor forwarding is separate.
     pub grant_reply_audience: bool,
     /// false: store the mail and leave the recipient's wake to the caller
     /// (an automatic reminder wakes an idle agent only, `runtime::wake_idle`)
@@ -334,7 +335,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
     }
     let tx = client.transaction().await?;
     let (contact_changes,forwarded) = if direct_user_contact(&out.from, out.ev.as_ref()) {
-        super::runtime_notices::deep_reach_batch_tx(&*tx,org_id,target_id,&out.body,false,notices).await?
+        super::runtime_notices::deep_reach_batch_tx(&*tx,org_id,target_id,&out.body,false,out.grant_reply_audience,notices).await?
     } else { (Vec::new(),Vec::new()) };
     tx
         .execute(
@@ -451,7 +452,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         return Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false });
     }
     let (contact_changes,forwarded) = if direct_user_contact(&out.from, out.ev.as_ref()) {
-        super::runtime_notices::deep_reach_batch_tx(&*tx,org.id,project.id,&out.body,false,notices).await?
+        super::runtime_notices::deep_reach_batch_tx(&*tx,org.id,project.id,&out.body,false,out.grant_reply_audience,notices).await?
     } else { (Vec::new(),Vec::new()) };
     tx.execute(
         "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
