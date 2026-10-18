@@ -25,7 +25,14 @@
 //   settings — project settings: the frame's pop-out and pin against the
 //             header's Open project folder (07:24Z);
 //   corner  — an inbox tab with the Transfers box under the tab's
-//             pin/pop-out/mail corner (07:27Z).
+//             pin/pop-out/mail corner (07:27Z);
+//   slotlines — the REAL canvas: project build with 1 slot held by sa (who
+//             also listens with a fair_queue dog and holds an audience to
+//             it: three lines side by side), sc and sb waiting (dashed); the
+//             card badge, sa's holder chip and the waiters' chips (user
+//             2026-10-18, the approved slots mockup);
+//   slots   — a bare project desk with its Slots tab (full), beside an empty
+//             one (0 of 2).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
@@ -98,9 +105,10 @@ function Cards() {
   )
 }
 
-function tree(children: unknown[], watchdogs: unknown[] = []): TreePayload {
+function tree(children: unknown[], watchdogs: unknown[] = [], extra: Record<string, unknown> = {}): TreePayload {
   return {
     watchdogs,
+    ...extra,
     slug: 'org', name: 'org', workspace: null, dirs: [], max_top_grant: 1000, default_top_grant: 50,
     compact_at: 0, default_tools: null, default_visibility: 'team', default_effort: '', credit_requests: [],
     tiers: { haiku: 1, sonnet: 3, opus: 5 }, audiences: [], cost_usd_total: 0,
@@ -188,11 +196,48 @@ function Presented() {
     </main>
   )
 }
+const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+const slotDog = (owner: string, name: string, m: number) => ({ id: owner + '/w1', owner, name, kind: 'slot', target: 'build',
+  interval_s: 5, state: 'armed', at: minsAgo(m), queued_at: minsAgo(m), fired: 0, once: true, spent: false })
+const slotLease = { project: 'build', agent: 'sa', slot: 1, lease: 's3f1c', reason: 'alpha7-build', since: minsAgo(7), reminders: 0 }
+const buildProject = (children: unknown[], slots: number) =>
+  ({ ...projectNode('build', 'boss', children), charter: 'The build machine.',
+    configured_scope: { tools: {}, add_dirs: [], slots_capacity: slots } })
+const slotStatus = {
+  project: 'build', slots: 1, held: 1, holders: [{ ...slotLease }],
+  line: [{ position: 1, agent: 'sc', dog: 'w1', since: minsAgo(4) }, { position: 2, agent: 'sb', dog: 'w1', since: minsAgo(1) }],
+  history: [
+    { lease: 's1', agent: 'sb', slot: 1, reason: 'cargo', since: minsAgo(21), ended: minsAgo(9), how: 'released', by: 'sb' },
+    { lease: 's2', agent: 'sc', slot: 1, reason: null, since: minsAgo(140), ended: minsAgo(76), how: 'idle: not released after 3 reminders', by: 'orgtree' },
+    { lease: 's3', agent: 'sa', slot: 1, reason: null, since: minsAgo(200), ended: minsAgo(178), how: 'released (forced by @user)', by: '@user' },
+    { lease: 's4', agent: 'sb', slot: 1, reason: null, since: minsAgo(300), ended: minsAgo(297), how: 'halted', by: 'orgtree' }],
+}
+function Slots() {
+  const full = buildProject([agent('sa', 'build'), agent('sb', 'build'), agent('sc', 'build')], 1) as unknown as CanvasNode
+  const empty = buildProject([agent('sa', 'build')], 2) as unknown as CanvasNode
+  const t = tree([], [slotDog('sc', 'tests-ui', 4), slotDog('sb', 'cargo-test', 1)], { slot_leases: [slotLease] })
+  const desk = (nd: CanvasNode, tr: TreePayload, status: unknown, left: number) => (
+    <div className="slots-desk" style={{ position: 'absolute', left, top: 10, width: 480, height: 680, border: '1px solid var(--line)' }}>
+      <ProjectDesk bare node={nd} slug="org" tree={tr} map={new Map([[nd.id, nd]])}
+        op={(b) => Promise.resolve((b.op === 'slot_status' ? status : {}) as unknown as OpResult)}
+        toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} onConfig={noop} />
+    </div>)
+  return (
+    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      {desk(full, t, slotStatus, 10)}
+      {desk(empty, tree([]), { project: 'build', slots: 2, held: 0, holders: [], line: [], history: [] }, 505)}
+    </main>
+  )
+}
 if (new URLSearchParams(location.search).get('theme') === 'light') document.documentElement.classList.add('contrast-light')
 const fqDog = (id: string, owner: string, state: string) => ({ id, owner, name: id, kind: 'fair_queue', target: 'site',
   interval_s: 5, state, at: new Date().toISOString(), fired: 0, once: false })
 const dogs: Record<string, unknown[]> = {
   fairqueue: [fqDog('q1', 'dev1', 'armed'), fqDog('q2', 'boss', 'paused')],
+  slotlines: [{ ...fqDog('q1', 'sa', 'armed'), target: 'build' }, slotDog('sc', 'tests-ui', 4), slotDog('sb', 'cargo-test', 1)],
+}
+const extras: Record<string, Record<string, unknown>> = {
+  slotlines: { slot_leases: [slotLease], audiences: [{ grantor: 'sa', grantee: 'build', reason: 'reports', at: minsAgo(30) }] },
 }
 if (scene === 'activity') { try { localStorage.setItem('orgtree-agent-shortcuts', '1') } catch { /* private mode */ } }
 // the hover row reveals its buttons on the card's :hover, as on an agent card;
@@ -203,6 +248,7 @@ const rows: Record<string, unknown[]> = {
   'row-end': [agent('a1', 'boss'), agent('a2', 'boss'), projectNode('site', 'boss')],
   between: [agent('a1', 'boss'), projectNode('site', 'boss'), agent('a2', 'boss')],
   fairqueue: [agent('lead', 'boss'), projectNode('site', 'boss', [agent('dev1', 'site'), agent('dev2', 'site')])],
+  slotlines: [agent('sa', 'boss'), agent('sb', 'boss'), buildProject([agent('sc', 'build')], 1)],
 }
 createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps />
   : scene === 'presented' ? <Presented />
@@ -221,10 +267,11 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
         </div>
       </AgentSurfaceRoutesProvider>
     </main>)
-  : scene === 'activity' ? <Activity /> : (
+  : scene === 'activity' ? <Activity />
+  : scene === 'slots' ? <Slots /> : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
-    <OrgCanvas tree={tree(rows[scene]!, dogs[scene])} slug="org" op={() => Promise.resolve({} as OpResult)}
+    <OrgCanvas tree={tree(rows[scene]!, dogs[scene], extras[scene])} slug="org" op={() => Promise.resolve({} as OpResult)}
       toast={noop} mailEvt={null} onOpenAgentGallery={noop} />
   </div>
 ))

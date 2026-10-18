@@ -10,6 +10,49 @@ module.exports = async (page) => {
   await page.resize('1000x700')
   const screenshots = []
   const details = {}
+  // PROJECTNODE_VISUAL_ONLY=slots: only the project-slots scenes (one quick capture)
+  const only = process.env.PROJECTNODE_VISUAL_ONLY
+  if (only === 'slots') {
+    await page.goto('/?scene=slotlines')
+    await page.waitFor('.sq.project', { timeout: 15000 })
+    await page.eval(async () => {
+      await new Promise((r) => setTimeout(r, 800))
+      const fit = document.querySelector('.zoomhud button[title="Fit the whole org"]')
+      if (fit) fit.click()
+      await new Promise((r) => setTimeout(r, 1500))
+    })
+    await settle()
+    details.slotlines = await page.eval(() => ({
+      lines: [...document.querySelectorAll('.edge.slot-line, .edge.fq-line, .edge.aud-line')].map((e) => ({
+        cls: e.getAttribute('class'), probe: e.hasAttribute('data-glprobe'), d: e.getAttribute('d'),
+        stroke: getComputedStyle(e).stroke, dash: getComputedStyle(e).strokeDasharray, width: getComputedStyle(e).strokeWidth })),
+      badge: [...document.querySelectorAll('.project-slots-badge')].map((b) => [b.textContent, b.className,
+        getComputedStyle(b).backgroundColor, getComputedStyle(b).color]),
+      holds: [...document.querySelectorAll('.chip.slot-hold')].map((c) => c.textContent),
+      waiters: [...document.querySelectorAll('.wd-chip.slot')].map((c) => c.textContent),
+    }))
+    screenshots.push(await page.screenshot(`${prefix}-slotlines-1000x700`))
+    await page.goto('/?scene=slots')
+    await page.waitFor('.project-slots-card', { timeout: 15000 })
+    await page.eval(async () => {
+      for (const b of document.querySelectorAll('.project-slots-card')) b.click()
+      await new Promise((r) => setTimeout(r, 600))
+    })
+    await settle()
+    details.slots = await page.eval(() => [...document.querySelectorAll('.slots-desk')].map((d) => ({
+      card: d.querySelector('.project-slots-card')?.textContent,
+      tab: d.querySelector('.cc-tabs button.on')?.textContent,
+      lead: d.querySelector('.slots-lead')?.textContent,
+      sections: [...d.querySelectorAll('.project-slots h4')].map((h) => h.textContent),
+      rows: [...d.querySelectorAll('.project-slots .slot-row')].map((r) => r.textContent),
+    })))
+    screenshots.push(await page.screenshot(`${prefix}-slots-desk-1000x700`))
+    await page.eval(() => { document.querySelector('.slots-desk button[data-action="force-release"]')?.click() })
+    await settle()
+    details.forceRelease = await page.eval(() => document.querySelector('.modal, [role="dialog"], [role="alertdialog"]')?.textContent ?? null)
+    screenshots.push(await page.screenshot(`${prefix}-slots-force-1000x700`))
+    return { details, screenshots }
+  }
 
   await page.goto('/?scene=cards')
   await page.waitFor('.sq.project.mini', { timeout: 8000 })
