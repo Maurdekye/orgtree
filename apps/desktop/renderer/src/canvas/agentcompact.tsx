@@ -29,10 +29,18 @@ export function AgentCompactConfirm({ node, slug: explicitSlug, op, toast, close
     : !node.session_id ? 'No conversation to compact yet.' : null
   const reason = gate ?? error ?? (!cap ? 'Checking harness support…'
     : !cap.supported ? cap.reason ?? 'Normal compaction is unavailable for this harness.' : null)
+  // Only backend evidence can call the next turn known-cold. An old turn
+  // alone supplies neither a cache receipt nor the provider lane's TTL.
+  const forecast = node.cache_forecast
+  const cold = forecast?.state === 'known_incompatible' || forecast?.state === 'expired_known_entry'
+  const coldLabel = forecast?.state === 'known_incompatible'
+    ? 'incompatible with the last observed cache entry' : 'past the derived cache TTL'
   return <ConfirmModal title={`Compact ${node.id}?`}
     body={<>
       <p>Normal compact: the harness compacts the existing conversation.</p>
       <p>Cheap compact: start a fresh session with a summary handoff; keep this agent’s settings and team.</p>
+      {cold && <p className="compact-cache-warning">The next-turn cache forecast is {coldLabel}
+        {forecast?.reason ? `: ${forecast.reason}` : ''}.</p>}
       {reason && <p role="status">{reason}</p>}
     </>}
     confirmLabel="Normal compact" confirmDisabled={!!reason} confirmTitle={reason ?? undefined}

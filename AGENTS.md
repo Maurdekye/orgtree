@@ -67,7 +67,9 @@
   wheel. Normal capability comes from the actual harness route; unsupported or
   unreadable capability disables normal with a reason. A POST started:false is
   a refusal, never a success toast. Direct Halt/Unhalt have no ellipsis; team
-  compaction stays explicitly cheap-only. See [compact choice](docs/rust-engine/compact-choice.md).
+  compaction stays explicitly cheap-only. The shared modal retains a cold-cache
+  warning only for backend known-incompatible/expired evidence, never idle age.
+  See [compact choice](docs/rust-engine/compact-choice.md).
   [decided: user/coordinator 2026-10-17; verified: `canvas/agentcompact.tsx`,
   `http/nodes.rs`, `domain/compaction.rs`]
 

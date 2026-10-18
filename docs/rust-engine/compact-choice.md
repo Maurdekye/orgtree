@@ -11,6 +11,10 @@ same choice modal as the desk context wheel. Each option has one explanation:
 normal uses the harness's existing conversation compaction; cheap starts a fresh
 session with a summary handoff on the same agent, keeping settings and team.
 Cancel takes initial focus, Tab stays inside and Escape restores the opener.
+The modal also retains the next-turn cache forecast warning when backend
+state is known_incompatible or expired_known_entry, including its supplied
+reason. Ready, uncertain or absent evidence never becomes cold merely because
+the last turn is old; the warning makes no fork or pricing claims.
 
 The modal reads GET /api/orgs/{slug}/nodes/{nid}/compact. This read resolves the
 same effective OpenRouter stamp/account setting or language-server route as the
