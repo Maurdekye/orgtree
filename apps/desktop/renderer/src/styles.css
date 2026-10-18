@@ -645,7 +645,6 @@ main {
    (projectdesk.tsx ProjectDeskModal, user 2026-10-18 08:25Z): the frame above
    inside a PinFrame, whose bar reads these paddings (see `.settings`) */
 .project-desk-modal { --panel-pad-y: 6px; --panel-pad-x: 8px; }
-.project-desk-modal > .modalpin-bar:not(.on):not(.detached) { margin: 0; padding: 4px 8px 0; }
 /* as in a pinned window, the title bar already names the agent */
 .tempdesk-panel .cc-head-left > .tier, .tempdesk-panel .cc-head-left > .cc-name { display: none; }
 
@@ -1387,7 +1386,20 @@ button.badge.audience-fold.alert {
 /* the project desk (projectdesk.tsx): the agent desk's frame with a project's tabs */
 .project-desk .cc-head-left { display: inline-flex; align-items: center; gap: 6px; }
 .project-desk .cc-head-left .project-mark { color: var(--accent); display: inline-flex; }
-.project-desk .cc-head-left .name { font-weight: 600; }
+.project-desk .cc-head-left .name { font-weight: 600; white-space: nowrap; }
+/* under a title bar that names the project, the desk does not name it again:
+   the temporary, pinned and popped-out desk (user 2026-10-18 11:14Z), as an
+   agent's desk under its title bar */
+.project-desk-modal .project-desk .cc-head-left > .project-mark,
+.project-desk-modal .project-desk .cc-head-left > .name,
+.pinwin-body .project-desk .cc-head-left > .project-mark,
+.pinwin-body .project-desk .cc-head-left > .name { display: none; }
+/* the centred project desk's bar is a title bar, as the agent temporary
+   desk's `.tempdesk-head` (modalpin.tsx deskTitle): full width, not a handle */
+.project-desk-modal > .modalpin-bar.desk-title {
+  margin: 0; padding: 0 4px 0 8px; height: 28px; flex: none; font-size: 13px;
+  background: var(--panel-2, var(--panel)); border-bottom: 1px solid var(--line); cursor: default; }
+.modalpin-name .project-mark { color: var(--accent); display: inline-flex; margin-right: 5px; vertical-align: -2px; }
 .chip.agents.project-activity { padding: 0 5px; }
 /* "Active 5m" / "Idle 5m": an agent card's state word and clock (.sq-idle,
    .sq-idle-time) with their own spacing and colours (user 2026-10-18 07:42Z) */
@@ -1404,6 +1416,10 @@ button.badge.audience-fold.alert {
   flex: 1; min-height: 240px; overflow: auto; box-sizing: border-box; width: 100%;
   padding: 10px 12px; border-radius: 4px; background: var(--input); border: 1px solid var(--line); }
 .project-desk .project-description-md { cursor: text; }
+/* an editable description shows it is clickable (user 2026-10-18 11:14Z) */
+.project-desk .project-description-md[role="textbox"] { cursor: pointer; }
+.project-desk .project-description-md[role="textbox"]:hover { background: var(--panel-2); }
+.project-desk .project-description-md[role="textbox"]:focus-visible { background: var(--panel-2); outline: none; }
 /* not being edited: no border or background (user 2026-10-18 07:14Z); the
    transparent border keeps the text where the editor will put it */
 .project-desk .project-description-md { background: transparent; border-color: transparent; }

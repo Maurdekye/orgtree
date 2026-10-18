@@ -27,7 +27,7 @@ import { AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket
 import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
 import { AgentTeamView } from './team'
-import { useSurface } from '../popout'
+import { PopoutButton, useSurface } from '../popout'
 import type { RefRoutes } from './reflinks'
 import { ageClockNow, LastTurnAge, NavChip, subscribeAgeClock } from './desk'
 import { PresentationCard, recentDocumentChips } from './docs'
@@ -403,6 +403,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
                 </button>
               ))}
             </span>
+            {/* in its own window frame (the modal, pinned or popped out) the
+                frame's pop-out, beside the tabs as on the agent desk (user 11:14Z) */}
+            {surface && <PopoutButton />}
             {onPopout && !surface && (
               <button type="button" className="popout-button" title="Open in new window" aria-label="Open in new window"
                 onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPopout() }}>↗</button>
@@ -521,7 +524,10 @@ export function ProjectDeskModal({ close, ...props }: ProjectDeskProps & { close
       // the agent temporary desk's frame, not a settings panel's type and
       // buttons, so it reads as the canvas desk does (user 2026-10-18 08:25Z);
       // pin-project: the org theme, as a pinned project window
-      panel="tempdesk-panel pin-project project-desk-modal" close={close}>
+      panel="tempdesk-panel pin-project project-desk-modal" close={close}
+      // one title bar, as the agent desk's: folder and name, pin and close;
+      // the desk below does not repeat the name (styles.css, user 11:14Z)
+      deskTitle titleBar={<><span className="project-mark"><FolderIcon fontSize="inherit" /></span>{props.node.id}</>}>
       <ProjectDesk {...props} bare />
     </PinFrame>
   )
