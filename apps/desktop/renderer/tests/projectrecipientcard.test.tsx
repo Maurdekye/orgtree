@@ -12,7 +12,8 @@
 //      their labels: "<agent> · awaiting ack", "acked by <agent>",
 //      "released (<agent>)";
 //   §3 a Sent folder's mail to a project carries the same card;
-//   §4 the project desk's sent tab draws its recipients with cards;
+//   §4 the project desk's sent tab draws its recipients with cards, in the
+//      row and after "to" in the open message's header;
 //   §5 no resolver, or an id it cannot place, draws no card (TierChip's
 //      no-invented-identity rule).
 //
@@ -169,6 +170,14 @@ test('§4 the project desk\'s sent tab draws its recipients with cards', async (
   const row = view.el.querySelector('.mailrow')
   assert.ok(row, 'positive control: the sent row')
   cardOf(row!.querySelector('.mfrom'), 'coordinator-opus', 'sent tab recipient')
+  // the open message names its recipient after "to", with the same card
+  await inAct(async () => { (row!.querySelector<HTMLElement>('.l2') ?? row as HTMLElement).click(); await flush(2) })
+  const head = view.el.querySelector('.mailer-head')
+  assert.ok(head, 'positive control: the sent mail opens')
+  // the header's words abut in textContent ("...-solto..."), so find the "to" itself
+  const to = [...head!.querySelectorAll('span.dim')].find((s) => s.textContent?.trim() === 'to')
+  assert.ok(to, 'positive control: the header reads "to" before its recipient')
+  cardOf(to!.nextElementSibling, 'coordinator-opus', 'sent tab reading pane')
 })
 
 /* ─── §5 honesty ───────────────────────────────────────────────────────── */
