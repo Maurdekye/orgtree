@@ -15,12 +15,12 @@ Ordinary [mail reach](../tool-message/SKILL.md) already includes direct superior
 
 | Action | Required fields | Optional fields and result |
 | --- | --- | --- |
-| `request` | `target`: agent, `user`, or `extern`. | `reason`, default empty. Named agent/user decides directly; an extern request goes to your top-level agent. The answer arrives as mail. |
+| `request` | `target`: agent, project, `user`, or `extern`. | `reason`, default empty; `from` may name a project you manage. Named agent/user decides directly; a project’s manager decides for it; an extern request goes to your top-level agent. The answer arrives as mail. |
 | `grant` | `from`: grantee. | `target` is the grantor when not yourself; `reason` defaults empty. For `target: extern`, omitting from selects yourself. Handler also accepts `grantee` as a from alias, but prefer the schema's from field. |
 | `deny` | `from`: pending requester. | Optional `target` selects a request; without it, the handler resolves pending requests from that requester that wait on you. |
 | `revoke` | `grantee`: current holder. | Optional `target` names the grantor instead of you; from is accepted as a grantee alias. |
 
-`action` is required. Public party spellings are `user`/`extern`; the engine also normalizes `@user`, `@extern`, `org-inbox` and `org_inbox`. Agent targets must be live. Reasons are explanatory text, not an authority source.
+`action` is required. Public party spellings are `user`/`extern`; the engine also normalizes `@user`, `@extern`, `org-inbox` and `org_inbox`. Agent and project targets must be live. Reasons are explanatory text, not an authority source.
 
 Minimal request:
 
@@ -51,6 +51,17 @@ You can revoke audiences with yourself, an extern holder can revoke its own exte
 ## Refusals to act on
 
 Missing target/from/grantee fields are reported with the action that needs them. Other common refusals are no live named agent, self-request/self-grant, already-held audience, no request waiting on you, grantee outside the allowed relationship for that grant, non-top-level user grant, invalid grantor relationship, no current grant to revoke, or disabled outside inbox. Apply the pending-request exceptions above before treating an outside-subtree grantee as forbidden. Correct the relationship/party field or ask the actual holder; changing an audience is not a way to expand your own tools or settings authority.
+
+
+## Project audiences
+
+A live project can be the grantee or the named grantor of an audience. Its active, explicit grants are effective for its live **direct members only**. A nested project may itself inherit access, but never relays inherited grants: its members need that nested project's own explicit grant. Moving out, retirement, pause and revoke remove inherited access immediately; moving in gains it. Independent explicit grants remain in force. Chart and state inspection identify the source project.
+
+Sending from either the project's default message box or its megaphone broadcast grants the project the user audience after a successful delivery. A post-delivery grant failure is reported explicitly as “delivered but audience grant failed”. System fair-queue nudges do not grant user access.
+
+A project's nearest real-agent superior manages its requests and decisions; the user does so when none exists. Direct members cannot manage project grants. Request on a managed project's behalf with `action=request from=project-name target=agent-or-project`; a request to a project routes to its manager. Grant/deny/revoke accept project endpoints under the same actual-caller authority checks. The project context menu offers Acquire/Drop audience after Settings. Inherited-only access has no personal revoke button; change the source project's grant instead.
+
+The org inbox/outside-mail audience remains agent-only and is not inherited from projects. The separate permission to present under one's own project includes nested members; it does not imply recursive audience inheritance.
 
 ## See also
 

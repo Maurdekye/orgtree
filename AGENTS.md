@@ -16,6 +16,15 @@
   See [tool result timing](docs/rust-engine/tool-result-timing.md).
   [decided: user/coordinator 2026-10-18; verified: `tools/{mod,result_timing}.rs`,
   `runtime/{claude,codex}.rs`, `bridge.rs`]
+- Projects hold explicit audiences and pass them to live direct members only;
+  inherited grants never relay through nested projects. Permission checks use
+  migration 0030's effective view, while menus revoke explicit grants only. Project
+  requests/decisions route to the nearest real-agent superior (user if none); members
+  cannot manage the project's grants. Both user project-send modes grant project
+  user access after delivery, with explicit partial-failure reporting. Org-inbox
+  access remains agent-only. See [project audiences](docs/rust-engine/project-audiences.md).
+  [decided: user 2026-10-18 07:39Z–07:44Z; verified: `domain/audiences.rs`, `0030_project_audiences.sql`]
+
 
 - `orgtree_present project=P` needs no user audience for agents strictly below
   P, including nested-project members. Ancestors still need the user audience;

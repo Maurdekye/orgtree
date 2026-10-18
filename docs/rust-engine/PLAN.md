@@ -304,6 +304,11 @@ toast saying this engine does not support it.
 
 ### B. Organizations and canvas
 
+Project audiences (user 2026-10-18): explicit grants on a project become effective for
+its direct live members only; no nested relay or copied grants. Both project user-send
+modes grant its user audience. See [project audiences](project-audiences.md).
+
+
 Fast mode (user 2026-10-17 17:49Z, 4.4.0): supported models have a per-agent
 lightning toggle above Send, a Model-tab checkbox and an enabled hover label.
 The next turn uses native Codex/Claude speed controls in the same conversation;

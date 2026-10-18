@@ -23,6 +23,17 @@ If the route is missing, use [orgtree_audience](../tool-audience/SKILL.md). That
 
 Use deny for an outstanding request and revoke for access already granted. Check current access when a route stops working; an earlier grant notice does not establish that it remains active. The audience tool's action rules cover the top-level waiting-requester exception as well as descendant-only cases; do not infer the rule merely from subtree membership.
 
+
+## Project audiences
+
+A live project can be the grantee or the named grantor of an audience. Its active, explicit grants are effective for its live **direct members only**. A nested project may itself inherit access, but never relays inherited grants: its members need that nested project's own explicit grant. Moving out, retirement, pause and revoke remove inherited access immediately; moving in gains it. Independent explicit grants remain in force. Chart and state inspection identify the source project.
+
+Sending from either the project's default message box or its megaphone broadcast grants the project the user audience after a successful delivery. A post-delivery grant failure is reported explicitly as “delivered but audience grant failed”. System fair-queue nudges do not grant user access.
+
+A project's nearest real-agent superior manages its requests and decisions; the user does so when none exists. Direct members cannot manage project grants. Request on a managed project's behalf with `action=request from=project-name target=agent-or-project`; a request to a project routes to its manager. Grant/deny/revoke accept project endpoints under the same actual-caller authority checks. The project context menu offers Acquire/Drop audience after Settings. Inherited-only access has no personal revoke button; change the source project's grant instead.
+
+The org inbox/outside-mail audience remains agent-only and is not inherited from projects. The separate permission to present under one's own project includes nested members; it does not imply recursive audience inheritance.
+
 ## See also
 
 - [orgtree-tool-audience](../tool-audience/SKILL.md)
