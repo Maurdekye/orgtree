@@ -1,5 +1,15 @@
 # Team panel chrome
 
+## Project row spacing and Active alignment (2026-10-18 16:44–16:45Z)
+
+The shared Agents/Team row omits its empty status-summary line for a project.
+Real project summaries remain visible, and ordinary agent rows retain their
+existing status/placeholder line. Project and agent names keep the same shared
+font, icon cell and hierarchy indentation; Team has no separate row stylesheet.
+The inline Team toolbar groups Active with the pin/pop-out/modal controls on
+the right. Pinned and detached Team retain Active in the shared right-hand
+header actions. This does not change membership, row order or navigation.
+
 User ruling, 2026-10-18 14:22Z, Orgtree 4.4.0: pinned Team and Agents
 panels share the same frame, filter, Active control placement, rows and scrollbar.
 Only their heading and scoped content differ. The centered Team panel also loses

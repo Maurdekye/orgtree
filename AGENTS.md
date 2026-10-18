@@ -79,6 +79,13 @@
   [decided: coordinator 2026-10-18 17:29Z;
   verified: `runtime/watchdogs.rs`]
 
+- Agents/Team trays omit an empty project status-summary line, retaining real
+  summaries and ordinary agent placeholders. Keep shared name font, icon cells
+  and hierarchy indentation. Inline Team groups Active with its right-hand
+  pin/pop-out/modal controls; pinned/detached Team uses header actions. See
+  [Team chrome](docs/rust-engine/team-panel-chrome.md).
+  [decided: user 2026-10-18 16:44–16:45Z; verified: `canvas/agenttray.tsx`, `styles.css`]
+
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the
   existing urgent-mail badge appearance, newest-first focus, highlight and

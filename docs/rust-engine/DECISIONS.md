@@ -12,6 +12,12 @@ surfaces support inline and display LaTeX. Bundle KaTeX CSS/fonts locally;
 preserve code, currency, shell text and invalid source. Keep math untrusted
 and macro definitions formula-local. See [Markdown math](markdown-math.md).
 
+**Team formatting and Active, user 2026-10-18 16:44–16:45Z:** Team shares the
+Agents list's font, icon cells and hierarchy indentation. Empty project status
+lines must not leave a gap before members; real summaries and ordinary agent
+placeholders remain. Inline Active belongs with the right-hand view controls;
+pinned/detached Active remains in header actions. See [Team chrome](team-panel-chrome.md).
+
 **Project desk jump-card collapse, user 2026-10-18 14:45Z:** project desks
 use the agent desk's same collapse preference, threshold (more than 16),
 counted button and expand/collapse behavior everywhere they appear, via shared
