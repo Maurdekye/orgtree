@@ -243,8 +243,12 @@
 - Transcript tool counts (4.4.0) are always `~` estimates from one lazy
   gzip o200k_base plus one process-local correction per harness. Token slots
   use the shared decorative serif capital `T` marker
-  (user 2026-10-18), preserving full accessible count labels. Count observed
-  output before display clipping; do not tokenize in React or use status/input
+  (user 2026-10-18), preserving full accessible count labels. Token
+  previews use `t`/`kt`; hover keeps the estimate qualifier and full comma-grouped
+  figure with `tool output:`/`thinking:` labels. Time hover uses labeled ms with
+  three decimals only from sufficient source precision; coarse stamps say so.
+  [decided: user 2026-10-18; verified: `canvas/{tokencount,toolclock}.tsx`]
+  Count observed output before display clipping; do not tokenize in React or use status/input
   summaries as output. Calibrate only complete attributed text receipts; child
   totals and prompt deltas are not result receipts. Provider thinking totals
   require one completed thought in the response scope; Claude fragments share

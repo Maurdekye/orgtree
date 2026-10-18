@@ -7,6 +7,18 @@ labels remain available to assistive technology. Finished thoughts show a provid
 only where one completed thought unambiguously owns that response's receipt.
 Historical rows without observations acquire no invented count.
 
+Compact counts use `t` below 1,000 and `kt` at or above it, with the existing
+one-decimal k rounding. Hover shows the complete figure with a label and comma
+grouping, such as `tool output: ~4,321t` or `thinking: 4,321t`. The existing `~`
+qualifier continues to identify estimates, including their exact-number hover.
+
+Writing and execution hover labels show recorded milliseconds with three
+decimals (`writing time: 4.330ms`, `execution time: 0.432ms`). Recorded writing
+seconds retain their supplied precision; timestamp durations preserve fractional
+parts without adding tiny fractions to epoch-sized numbers. Coarse stamps
+without millisecond precision say that precision is unavailable. Live hovers
+sample elapsed time on hover/focus and keep the normal whole-second clock cadence.
+
 ## Estimates and receipts
 
 The single generic encoding is OpenAI's MIT-licensed `o200k_base`, pinned with
