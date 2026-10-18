@@ -19,7 +19,7 @@ test('fast defaults save explicit per-tier values and survive settings tab chang
     }
     return original(url,init)
   }) as typeof fetch
-  const tree={slug:'org',name:'Org',tiers:{sol:2,luna:1,astra:4},dirs:[],agents:[],
+  const tree={slug:'org',name:'Org',tiers:{sol:2,luna:1,astra:4},dirs:[],nodes:[],edges:[],roots:[],
     default_fast_mode:{sol:true},default_tools:{mcp:[]}} as unknown as TreePayload
   const v=await mountView(<SettingsPanel tree={tree} toast={()=>{}} close={()=>{}}
     initialTab="hiredefaults" />,el=>el)
