@@ -655,7 +655,7 @@ fn build_tool_withdraw_ask() -> Value {
 fn build_tool_present() -> Value {
     tool(
         "orgtree_present",
-        "Present documents the user should READ (reports, plans, Markdown); requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. project places it under a reachable project. Otherwise send to your superior.",
+        "Present documents the user should READ (reports, plans, Markdown). project places it under a reachable project; members (nested included) need no user audience for their own project. Otherwise requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. Otherwise send to your superior.",
         json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
                 "replaces": { "type": "string" },
                 "project": { "type": "string", "description": "a project's name: present under that project" } }),
@@ -1161,12 +1161,17 @@ mod effort_enum_tests {
 
 #[cfg(test)]
 mod builder_stack_tests {
-    /// Exact all() bytes captured from the unchanged c89111b constructor before
-    /// extraction, including field and tool order (serde_json preserve_order).
+    /// Keep the pre-split card bytes/order, except the explicitly approved
+    /// own-project presentation permission description (user 2026-10-18).
     #[test]
     fn all_tool_json_matches_pre_split_snapshot() {
-        let bytes = serde_json::to_vec(&super::all()).unwrap();
-        assert!(bytes.as_slice() == include_bytes!("../../testdata/tool-cards-c89111b.json"),
-            "all() JSON differs from the pre-split c89111b capture (tool order, key order, descriptions and schemas count)");
+        let mut expected: serde_json::Value = serde_json::from_slice(include_bytes!("../../testdata/tool-cards-c89111b.json")).unwrap();
+        let present = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_present").unwrap();
+        present["description"] = serde_json::json!(concat!(
+            "Present documents the user should READ (reports, plans, Markdown). project places it under a reachable project; members (nested included) need no user audience for their own project. Otherwise requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. Otherwise send to your superior.",
+            "\nGuide: orgtree-tool-present."
+        ));
+        assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
+            "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }
 }

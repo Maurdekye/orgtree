@@ -161,7 +161,8 @@ fn markdown_file(f: &Path, raw: &str) -> Result<String> {
 /// `orgtree_present`. Returns (text, chip card).
 #[logged]
 pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, args: &Value) -> Result<(String, Value)> {
-    if !p.may_present {
+    let project_name = args["project"].as_str().map(str::trim).filter(|s| !s.is_empty());
+    if !p.may_present && project_name.is_none() {
         refuse!(Forbidden, "presenting to the user needs a user audience (top-level agents hold one); send it to your superior instead");
     }
     let title = args["title"].as_str().map(str::trim).filter(|t| !t.is_empty());
@@ -201,7 +202,7 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
     let client = engine.db.get().await?;
     // under the caller's own seat, or under a project it reaches (its own
     // presentations bucket, user 2026-10-16 16:09Z / 16:11Z)
-    let (owner_id, owner_name, under) = match args["project"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
+    let (owner_id, owner_name, under) = match project_name {
         Some(name) => {
             let Some(pr) = crate::domain::projects::by_name(&**client, org.id, name).await? else {
                 refuse!(NotFound, "no project named {name} in this organization");
@@ -210,6 +211,23 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
                 refuse!(Conflict, "project {} is retired", pr.name);
             }
             crate::domain::projects::require_reach(&**client, p.id, &pr, "present under it").await?;
+            if !p.may_present {
+                // Project members may present to their own project, including
+                // through nested projects. Reach also includes ancestors, so
+                // it alone cannot replace the user-audience requirement.
+                let member: bool = client.query_one(
+                    "WITH RECURSIVE up(id, parent_id, depth) AS (
+                       SELECT id, parent_id, 0 FROM ot.agents WHERE id = $1 AND org_id = $2
+                       UNION ALL SELECT a.id, a.parent_id, up.depth + 1
+                       FROM ot.agents a JOIN up ON a.id = up.parent_id
+                       WHERE a.org_id = $2 AND up.depth < 1024)
+                     SELECT EXISTS (SELECT 1 FROM up WHERE id = $3 AND depth > 0)",
+                    &[&p.id, &org.id, &pr.id],
+                ).await?.get(0);
+                if !member {
+                    refuse!(Forbidden, "presenting outside your own project needs a user audience (top-level agents hold one); send it to your superior instead");
+                }
+            }
             (pr.id, pr.name.clone(), Some(pr.name))
         }
         None => (p.id, p.name.clone(), None),

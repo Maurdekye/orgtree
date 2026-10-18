@@ -9,7 +9,7 @@ Up: [orgtree-user](../SKILL.md)
 
 Use for anything the user is meant to read: report, plan, proposal, write-up, summary or `.md` document. It creates a reader/gallery card associated with your seat. For a file wanted as a file, such as an installer/log/export/image/archive, use [orgtree_send_file](../tool-send-file/SKILL.md).
 
-Required tool group: `user`, through the ancestor chain. Presenting also requires a user audience; top-level agents already have access. Without it, give the path/context to your superior to present or request an [audience](../../mail/tool-audience/SKILL.md). A tool grant alone is insufficient.
+Required tool group: `user`, through the ancestor chain. With `project=<P>`, an agent inside P may present to that project without a user audience; this includes agents inside nested projects. An agent above P still needs a user audience. Presenting with no project, or outside a project you belong to, requires a user audience; top-level agents already have access. Project reach remains required, so a user audience alone does not grant access to an unrelated project. Without the required authority, give the path/context to your superior to present or request an [audience](../../mail/tool-audience/SKILL.md). A tool grant alone is insufficient.
 
 ## Parameters and limits
 
@@ -19,7 +19,7 @@ Required tool group: `user`, through the ancestor chain. Presenting also require
 | `body` | Markdown text, at most 64 KiB of UTF-8 bytes. Use exactly one of body or path. |
 | `path` | Existing `.md`/`.markdown`, or `.html`/`.htm`, instead of body. Relative paths start at your scratch folder; absolute paths still require authority. |
 | `replaces` | Optional existing presentation ID belonging to you in this org. Updates that card in place instead of creating another. Empty value behaves as omitted. |
-| `project` | Optional project node name. The card goes under that project instead of beside your seat; you must be above or below the project ([orgtree-projects](../../team/projects/SKILL.md)). |
+| `project` | Optional live project node name. The card goes under that project instead of beside your seat; you must be above or below it ([orgtree-projects](../../team/projects/SKILL.md)). Members, including nested descendants, need no user audience for this project; agents above it still need one. |
 
 Minimal call:
 

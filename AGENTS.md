@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- `orgtree_present project=P` needs no user audience for agents strictly below
+  P, including nested-project members. Ancestors still need the user audience;
+  unrelated projects still fail reach, and no-project calls keep the audience
+  requirement. This recursive presentation exception is separate from direct-only
+  project audience inheritance. [decided: user 2026-10-18 07:38Z; verified:
+  `domain/docs.rs`, `tools/rig/proofs/project-present.mjs`]
+
 - Exact tracing-event-count tests must isolate process-global callsite caches
   from parallel tests. The session-blip regression runs its assertion in one
   exact child test, primes the no-subscriber-first case, then rebuilds interest
