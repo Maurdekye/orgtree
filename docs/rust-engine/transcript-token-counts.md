@@ -42,7 +42,7 @@ exact model encoding. No private transcript text or identifiers are vendored.
 | --- | --- | --- |
 | Claude Code | Complete root `tool_result` text; child events stay private | Group response fragments by `message.id`; finalize at a later response/result boundary. Use optional `usage.output_tokens_details.thinking_tokens` only with one thought block |
 | Codex | Command output deltas and complete command/dynamic/MCP/result text; omit synthesized file-change/status labels and query-as-output fallbacks | `last.reasoningOutputTokens`, only with one completed reasoning item since the preceding receipt and the matching turn |
-| Antigravity | Actual completed tool result/output/response text | No separate thought row exists in this adapter, so omit |
+| Antigravity | Actual completed tool result/output/response text | Recovered thought rows exist; no thinking-count attribution is implemented in this adapter yet, so omit |
 | Muse | Visible tool-output deltas/snapshots and complete visible results | Completion `usage.reasoningTokens`, only with one completed reasoning item in that scope |
 | OpenCode ACP | Original tool-content snapshots before preview clipping | No attributed field in the captured protocol, so omit |
 
@@ -72,6 +72,13 @@ Both HTTP and the desk header use the live reading; the header does not let a
 stale chat snapshot hide newer runtime occupancy. Missing/invalid values retain
 the last known observation, and explicit reported zero stays distinguishable
 from unknown. The engine's compaction/next-turn query shares the source helper.
+Muse and Antigravity initialize cumulative spend separately from occupancy:
+`last_prompt` stays absent until a validated prompt receipt arrives. A missing
+or invalid first receipt therefore cannot manufacture a measured zero.
+
+For Claude results, an explicitly observed empty string or text block supports
+an estimated zero. Missing/null content, malformed text blocks and results
+containing only non-text blocks provide no textual observation and no count.
 
 ## Verification
 
@@ -82,3 +89,8 @@ frames without extra reads/partial retirement, Unicode/chunk boundaries, public
 BPE control counts, receipt ambiguity and coalescing. Final engine/renderer and
 synthetic smoke results are recorded on the docket; do not infer a pass from
 this source document alone.
+
+The actual-adapter regression proofs `token-result-observations` and
+`context-receipt-observations` cover absent/malformed versus explicitly empty
+Claude text, missing/invalid versus reported-zero Muse/Antigravity prompts,
+retention of previous occupancy, and cumulative spend controls.

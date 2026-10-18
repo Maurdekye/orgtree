@@ -180,7 +180,9 @@
   totals and prompt deltas are not result receipts. Provider thinking totals
   require one completed thought in the response scope; Claude fragments share
   `message.id`. Live occupancy is provider-only, coalesced in an agent runtime
-  overlay, without mid-turn DB/tree writes. Contract and measured limits:
+  overlay, without mid-turn DB/tree writes. Usage accumulators leave occupancy
+  absent until a valid receipt; reported zero is real. Only observed Claude text
+  (including explicit empty text) supports an output count. Contract and limits:
   [transcript tokens](docs/rust-engine/transcript-token-counts.md).
   [decided: user/coordinator 2026-10-17; verified: `runtime/{token_counts,live_usage,actor,next_turn}.rs`, `canvas/{tokencount,toolclock,desk}.tsx`]
 
