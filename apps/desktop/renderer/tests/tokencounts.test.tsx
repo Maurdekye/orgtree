@@ -18,7 +18,7 @@ test('compact token previews append t and kt with existing k rounding', async t 
   const counts = [0, 41, 999, 1000, 1234, 41000, 999999, 1000000]
   const view = await mountView(<>{counts.map(n => <TokenCount key={n} count={n} estimated={n === 41 || n === 1234 || n === 41000} />)}</>, text)
   t.after(() => view.unmount())
-  assert.deepEqual([...view.el.querySelectorAll('.token-count')].map(el => text(el).replace(/^· T /, '')),
+  assert.deepEqual([...view.el.querySelectorAll('.token-count')].map(el => text(el).replace(/^·(?: T)? /, '')),
     ['0t', '~41t', '999t', '1kt', '~1.2kt', '~41kt', '1000kt', '1000kt'])
 })
 
@@ -40,9 +40,9 @@ test('tool output tokens retain the tilde while running and after completion', a
   t.after(() => view.unmount())
   assert.match(view.last(), /~1\.2k/)
   const glyph = view.el.querySelector('.tool-output-tokens .token-glyph')
-  assert.equal(glyph?.textContent, 'T')
+  assert.equal(glyph?.tagName.toLowerCase(), 'svg')
   assert.equal(glyph?.getAttribute('aria-hidden'), 'true')
-  assert.equal(!!view.el.querySelector('.tool-output-tokens svg'), false)
+  assert.equal(glyph?.getAttribute('data-testid'), 'TextCursorIcon')
   await view.render(<ToolTimes tool={{ ...tool, output_tokens: 1234, output_tokens_estimated: true }} />)
   assert.match(view.last(), /~1\.2k/)
   assert.match(view.last(), /1\.0s/)
@@ -73,8 +73,8 @@ test('finished thoughts show provider counts and icon only when attributed', asy
   const view = await mountView(<Msg m={row} slug="synthetic" nid="worker" />, text)
   t.after(() => view.unmount())
   assert.equal(view.el.querySelector('.thinking-tokens')?.getAttribute('aria-label'), '321 thinking tokens')
-  assert.equal(view.el.querySelector('.thinking-tokens .token-glyph')?.textContent, 'T')
-  assert.equal(!!view.el.querySelector('.thinking-tokens svg'), false)
+  assert.equal(view.el.querySelector('.thinking-tokens .token-glyph')?.getAttribute('data-testid'), 'TextCursorIcon')
+  assert.equal(view.el.querySelector('.thinking-tokens .token-glyph')?.getAttribute('aria-hidden'), 'true')
   await view.render(<Msg m={{ ...row, thinking_tokens: undefined }} slug="synthetic" nid="worker" />)
   assert.equal(!!view.el.querySelector('.thinking-tokens'), false)
 })
