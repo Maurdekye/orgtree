@@ -266,8 +266,8 @@ See', 'a rendered-only character is skipped')
 
 test('§2f the description has no border or background while not edited; the editor keeps its look (user 07:14Z)', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({ sel: m[1]!.trim(), body: m[2]! }))
-  const last = (prop: string, sel: string) => rules.filter((r) => r.sel.split(',').some((s) => s.trim().replace(/^\/\*[\s\S]*\*\/\s*/, '') === sel))
+  const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({ sel: m[1]!.trim(), body: m[2]! }))
+  const last = (prop: string, sel: string) => rules.filter((r) => r.sel.split(',').some((s) => s.trim() === sel))
     .map((r) => new RegExp(`(?:^|;)\s*${prop}\s*:\s*([^;]+)`).exec(r.body)?.[1]?.trim()).filter(Boolean).pop()
   const md = '.project-desk .project-description-md'
   assert.equal(last('background', md), 'transparent', 'no background at rest')
