@@ -11,13 +11,15 @@
 // of hired, with the spinner while any is active (20:08Z), and has halt all,
 // dissolve project (20:09Z) and the settings gear (20:09:45Z).
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload, TurnStat } from '../types'
 import { ArrowUpIcon, AttachIcon, AutorenewIcon, CampaignIcon, CloseIcon, FileIcon, FolderIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
 import { broadcastMessage, sendMessage, uploadFile } from '../api'
 import { useComposerEnter } from '../enterkey'
+import { readHistory, recordSent, type HistoryEntry } from '../composerhistory'
+import { draftKey } from '../draftstore'
 import { ago, md, subtreeDocCount, subtreeDocs, USER } from './shared'
 export { subtreeDocCount }
 import type { CanvasNode, OpFn } from './shared'
@@ -247,7 +249,22 @@ function DescriptionEditor({ node, op, toast, editable }: {
 function ProjectComposer({ node, slug, toast, members }: {
   node: CanvasNode; slug: string; toast: ToastFn; members: number
 }) {
-  const [text, setText] = useState('')
+  const messageDraftKey = draftKey(slug, `project:${node.id}`, 0)
+  const [text, setTextState] = useState(() => {
+    try { return localStorage.getItem(messageDraftKey) || '' } catch { return '' }
+  })
+  const setText = (next: string) => {
+    setTextState(next)
+    try {
+      if (next) localStorage.setItem(messageDraftKey, next)
+      else localStorage.removeItem(messageDraftKey)
+    } catch { /* best-effort browser persistence, like the agent composer */ }
+  }
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [sentHistory, setSentHistory] = useState<HistoryEntry[]>(() => readHistory(slug, node.id))
+  const [histAt, setHistAt] = useState<number | null>(null)
+  const histStash = useRef('')
+  const histCaret = useRef(false)
   const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
   const [notice, setNotice] = useState(false)
   const [megaphone, setMegaphone] = useState(false)
@@ -268,7 +285,13 @@ function ProjectComposer({ node, slug, toast, members }: {
     // a failed audience grant leaves the mail delivered: say so (coordinator 09:43Z)
     const grant = (g?: { granted: boolean; error?: string } | null) => g && !g.granted
       ? [`sent, but the project's user audience couldn't be granted${g.error ? ` (${g.error})` : ''}`] : []
-    const done = (lines: string[]) => { setText(''); setAttached([]); setNotice(false); toast(lines) }
+    const done = (lines: string[]) => {
+      if (recordSent(slug, node.id, text)) setSentHistory(readHistory(slug, node.id))
+      setText(''); setAttached([]); setNotice(false)
+      if (megaphone) setMegaphone(false)
+      setHistAt(null); histStash.current = ''
+      toast(lines)
+    }
     ;(megaphone
       ? broadcastMessage(slug, node.id, text, files, asNotice).then((r) => done([
         `sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${node.id}`
@@ -278,6 +301,33 @@ function ProjectComposer({ node, slug, toast, members }: {
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setBusy(false))
   }
+  const histBack = () => {
+    if (!sentHistory.length) return false
+    if (histAt === null) histStash.current = text
+    const next = histAt === null ? 0 : Math.min(histAt + 1, sentHistory.length - 1)
+    const entry = sentHistory[sentHistory.length - 1 - next]
+    if (next === histAt || !entry) return false
+    setHistAt(next); setText(entry.text); histCaret.current = true
+    return true
+  }
+  const histForward = () => {
+    if (histAt === null) return false
+    if (histAt === 0) {
+      setHistAt(null); setText(histStash.current); histCaret.current = true
+      return true
+    }
+    const next = histAt - 1
+    const entry = sentHistory[sentHistory.length - 1 - next]
+    if (!entry) return false
+    setHistAt(next); setText(entry.text); histCaret.current = true
+    return true
+  }
+  useLayoutEffect(() => {
+    if (!histCaret.current) return
+    histCaret.current = false
+    const el = textareaRef.current
+    if (el) el.selectionStart = el.selectionEnd = el.value.length
+  }, [text])
   return <>
     {attached.length > 0 && <div className="attach-row">
       {attached.map((a, i) => <span key={a.path + i} className="attach-chip">
@@ -302,7 +352,7 @@ function ProjectComposer({ node, slug, toast, members }: {
       </div>
       <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
         onChange={(e) => { [...e.target.files!].forEach(attach); e.target.value = '' }} />
-      <textarea rows={2} value={text} disabled={!can} title={enterKey.hint}
+      <textarea ref={textareaRef} rows={2} value={text} disabled={!can} title={enterKey.hint}
         aria-label={`message every agent under project ${node.id}`}
         placeholder={node.state !== 'live' ? `project ${node.id} is ${node.state}`
           : !megaphone ? `message project ${node.id}: one agent under it takes it…`
@@ -313,6 +363,20 @@ function ProjectComposer({ node, slug, toast, members }: {
         }}
         onKeyDown={(e) => {
           if (e.altKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); e.stopPropagation(); setNotice((v) => !v); return }
+          if (e.altKey && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); e.stopPropagation(); setMegaphone((v) => !v); return }
+          if ((e.key === 'ArrowUp' || e.key === 'ArrowDown')
+            && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+            const el = e.currentTarget
+            const from = el.selectionStart ?? 0
+            const to = el.selectionEnd ?? 0
+            const edge = e.key === 'ArrowUp'
+              ? !el.value.slice(0, from).includes('\n')
+              : !el.value.slice(to).includes('\n')
+            if (from === to && edge && (e.key === 'ArrowUp' ? histBack() : histForward())) {
+              e.preventDefault()
+              return
+            }
+          }
           if (enterKey.sends(e)) { e.preventDefault(); send() }
         }} />
       <div className="cc-btnstack">
@@ -321,8 +385,8 @@ function ProjectComposer({ node, slug, toast, members }: {
           aria-label={megaphone ? `Megaphone on: messages go to all ${members} agents under ${node.id}`
             : `Megaphone: send to all ${members} agents under ${node.id} instead of the project's inbox`}
           title={members === 0 ? `no agent works under ${node.id} yet`
-            : megaphone ? `on: each message goes to all ${members} agents under ${node.id}; click to send to the project's inbox again`
-              : `send to all ${members} agents under ${node.id} at once, instead of the project's inbox that one agent claims`}
+            : megaphone ? `on: each message goes to all ${members} agents under ${node.id}; click or press Alt+B to send to the project's inbox again`
+              : `send to all ${members} agents under ${node.id} at once, instead of the project's inbox that one agent claims (Alt+B)`}
           onClick={() => setMegaphone((v) => !v)}>
           <CampaignIcon fontSize="inherit" />
         </button>
@@ -488,7 +552,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       </div>}
       {shown === 'slots' && <SlotsView node={node} state={slots} op={op} toast={toast} />}
       {/* under every tab, as the agent desk's composer is */}
-      <ProjectComposer node={node} slug={slug} toast={toast} members={agents.length} />
+      <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} toast={toast} members={agents.length} />
     </>
   )
   return (

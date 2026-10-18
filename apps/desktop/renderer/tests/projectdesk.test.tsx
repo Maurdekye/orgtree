@@ -49,6 +49,7 @@ import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeConfig } from '../src/canvas/modals'
 import { ActiveAgentSummary } from '../src/shell/treeinfo'
 import { readHistory } from '../src/composerhistory'
+import { draftKey } from '../src/draftstore'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -355,9 +356,10 @@ test('§10d project message history recalls sent messages with Up/Down and resto
   localStorage.clear()
   serve(t)
   const node = project()
-  const mount = () => mountView(<ProjectDesk node={node} slug="org" tree={tree}
-    map={new Map([[node.id, node], ['boss', boss]])} op={async () => ({} as OpResult)} toast={noop}
-    refs={refs} bare />, el => el)
+  const view = (current: CanvasNode) => <ProjectDesk node={current} slug="org" tree={tree}
+    map={new Map([[current.id, current], ['boss', boss]])} op={async () => ({} as OpResult)} toast={noop}
+    refs={refs} bare />
+  const mount = () => mountView(view(node), el => el)
   const inner = globalThis.fetch
   globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(url), 'http://fixture.invalid').pathname
@@ -372,19 +374,25 @@ test('§10d project message history recalls sent messages with Up/Down and resto
   const box = () => first.el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
   try {
     assert.ok(box())
-    setText(box(), 'sent from project')
+    await inAct(() => { setText(box(), 'sent from project') })
     await inAct(() => { box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
     await flush(4)
     assert.deepEqual(readHistory('org', 'website'), [{ text: 'sent from project', delivered: true }],
       'project sends use the shared bounded composer history keyed by project identity')
-    setText(box(), 'unfinished project draft')
-    await flush(2)
+    assert.equal(localStorage.getItem(draftKey('org', 'project:website', 0)), null,
+      'a successful send clears the saved project draft')
+    await inAct(() => { setText(box(), 'unfinished\nproject draft') })
   } finally { await first.unmount() }
 
   const second = await mount()
   try {
     const restored = second.el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
-    assert.equal(restored.value, 'unfinished project draft', 'the per-project draft survives the composer unmount')
+    assert.equal(restored.value, 'unfinished\nproject draft', 'the per-project draft survives the composer unmount')
+    restored.selectionStart = restored.selectionEnd = restored.value.indexOf('project') + 2
+    const middleUp = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })
+    await inAct(() => { restored.dispatchEvent(middleUp) })
+    assert.equal(middleUp.defaultPrevented, false, 'Up within a multiline draft remains native caret movement')
+    assert.equal(restored.value, 'unfinished\nproject draft')
     restored.selectionStart = restored.selectionEnd = 0
     const up = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })
     await inAct(() => { restored.dispatchEvent(up) })
@@ -395,7 +403,13 @@ test('§10d project message history recalls sent messages with Up/Down and resto
     restored.selectionStart = restored.selectionEnd = restored.value.length
     await inAct(() => { restored.dispatchEvent(down) })
     await flush(2)
-    assert.equal(restored.value, 'unfinished project draft', 'Down past newest restores the draft that was present before recall')
+    assert.equal(restored.value, 'unfinished\nproject draft', 'Down past newest restores the draft that was present before recall')
+    await second.render(view(project({ id: 'another' })))
+    assert.equal(second.el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!.value, '',
+      'another project never inherits this project\'s draft')
+    await second.render(view(node))
+    assert.equal(second.el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!.value,
+      'unfinished\nproject draft', 'switching back restores the original project\'s draft')
   } finally { await second.unmount() }
 })
 
@@ -429,7 +443,7 @@ test('§10f a rejected project broadcast keeps broadcast mode armed', async (t) 
   const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
   const mega = el.querySelector<HTMLButtonElement>('button.cc-broadcast-toggle')!
   await inAct(() => { mega.click() })
-  setText(box, 'try broadcast')
+  await inAct(() => { setText(box, 'try broadcast') })
   await inAct(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
   await flush(4)
   assert.equal(mega.getAttribute('aria-pressed'), 'true', 'a failed send does not disarm broadcast')

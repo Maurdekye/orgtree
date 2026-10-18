@@ -111,6 +111,12 @@
   pins, pop-outs and other desks are retained. Project desks have no Chat tab.
   [decided: user 2026-10-18 10:57Z; verified: `canvas/desk.tsx`,
   `tests/desksendtab.test.tsx`]
+- The project composer keeps its unsent text by project identity and shares the
+  bounded per-node sent history; unmodified Up/Down recall only at the first/
+  last line with no selection, preserving the pre-recall draft. Alt+B toggles
+  broadcast alongside Alt+N for notice; a successful broadcast disarms, while
+  a failed request leaves it armed. [decided: user 2026-10-18 13:56–13:59Z;
+  verified: `canvas/projectdesk.tsx`, `tests/projectdesk.test.tsx`]
 - Agent replies, mail, docket descriptions and presentations must name agents,
   projects and docket items as mentions, outside code spans. The unconditional
   MENTIONS paragraph reaches full/trimmed profiles even without messaging tools;
