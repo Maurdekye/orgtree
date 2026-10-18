@@ -1,11 +1,13 @@
 ﻿import './harness'
-import { mountView } from './harness'
+import { inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { EventCard } from '../src/events/card'
 import { FAMILIES } from '../src/generated/events'
+import { DeskDogsProvider } from '../src/canvas/deskdogs'
+import type { Watchdog } from '../src/types'
 declare const __SRC_DIR__: string
 const directory = path.resolve(__SRC_DIR__, '../tests/fixtures/events')
 const fixtures = readdirSync(directory).filter(f => f.endsWith('.json')).map(f => JSON.parse(readFileSync(path.join(directory, f), 'utf8')))
@@ -83,5 +85,41 @@ test('explicit received-mail fallback keeps the preview without classifying its 
     assert.ok(view.el.textContent!.includes(body))
     assert.equal(view.el.querySelectorAll('.event-assignment').length,0)
     assert.equal(view.el.querySelectorAll('.event-unsupported').length,unsupported?1:0)
+  }
+})
+
+test('watchdog fire mail links its name only while the watchdog is still openable', async t => {
+  const fixture = fixtures.find(f => f.variant === 'monitor.watchdog_fired')!
+  const id = 'owner/w1'
+  const dog: Watchdog = {
+    id, owner: 'owner', name: 'build-done', kind: 'event', target: 'turn.finished',
+    interval_s: 30, state: 'armed', at: '2026-10-18T00:00:00Z', fired: 1,
+    once: false, spent: false,
+  }
+  const event = {
+    ...fixture.private,
+    actor: { kind: 'watchdog', id },
+    object: { ...fixture.private.object, org: 'fixture', id, name: dog.name, owner: dog.owner },
+  }
+  const opened: string[] = []
+  const active = await mountView(<DeskDogsProvider value={{ org: 'fixture', dogs: [dog], open: value => opened.push(value) }}>
+    <EventCard org="fixture" profile="operator" row={{ ev: event, body: fixture.body }} preview />
+  </DeskDogsProvider>, h => h)
+  t.after(() => active.unmount())
+  const link = active.el.querySelector<HTMLElement>('.event-actor .desk-dog-chip')
+  assert.ok(link, 'the fire event name is a watchdog link')
+  assert.equal(link!.getAttribute('data-object-nav'), 'watchdog')
+  assert.match(link!.textContent ?? '', /build-done/)
+  await inAct(async () => { link!.click() })
+  assert.deepEqual(opened, [id], 'clicking the event link opens the existing watchdog detail route')
+
+  for (const dogs of [[], [{ ...dog, spent: true, state: 'spent' as const }]]) {
+    const unavailable = await mountView(<DeskDogsProvider value={{ org: 'fixture', dogs, open: () => assert.fail('spent watchdog opened') }}>
+      <EventCard org="fixture" profile="operator" row={{ ev: event, body: fixture.body }} preview />
+    </DeskDogsProvider>, h => h)
+    t.after(() => unavailable.unmount())
+    assert.ok(!unavailable.el.querySelector('.event-actor .desk-dog-chip'),
+      'a missing or spent watchdog stays plain text instead of a broken link')
+    assert.match(unavailable.el.querySelector('.event-actor')!.textContent ?? '', /build-done/)
   }
 })
