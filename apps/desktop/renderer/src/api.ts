@@ -550,8 +550,8 @@ export const getFs = (path = ''): Promise<FsPayload> =>
 export const getInbox = (slug: string): Promise<InboxPayload> =>
   req(`/api/orgs/${slug}/inbox`)
 /** Bounded retained history, independent of the pushed newest-mail windows. */
-export const getMailHistory = (slug: string, folder: 'inbox' | 'sent', before?: string): Promise<InboxPayload> =>
-  req(`/api/orgs/${slug}/inbox?folder=${folder}${before ? `&before=${encodeURIComponent(before)}` : ''}`)
+export const getMailHistory = (slug: string, folder: 'inbox' | 'sent', before?: string, node?: string): Promise<InboxPayload> =>
+  req(`/api/orgs/${slug}/${node ? `nodes/${encodeURIComponent(node)}/` : ''}inbox?folder=${folder}${before ? `&before=${encodeURIComponent(before)}` : ''}`)
 export const deleteUserMail = (slug: string, id: string): Promise<{ deleted: boolean }> =>
   req(`/api/orgs/${slug}/inbox/${encodeURIComponent(id)}`, { method: 'DELETE' })
 /** Exact tag filter over all retained incoming mail, bounded and cursor-paged. */

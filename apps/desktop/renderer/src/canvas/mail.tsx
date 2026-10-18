@@ -1,5 +1,6 @@
 import { beginOpen, useOpenCommit } from '../opentiming'
 import { useRecordMailbox } from '../recordpanelhooks'
+import { useMailboxHistory } from '../usemailhistory'
 import { useStaging, StagingRows } from './staging'
 // canvas/mail.tsx — the mail interfaces: the shared webmail MailList +
 // MailFolders, a node's InboxView tab and its modal form (NodeInboxModal),
@@ -1257,7 +1258,8 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
   // the one panel whose whole job is showing mail was the one that did not
   // learn when mail arrived. Polled while mounted instead.
   const mailbox = useRecordMailbox(slug, nid)
-  const box = mailbox.value
+  const history = useMailboxHistory(slug, mailbox.value, folder, true, 0, nid)
+  const box = history.box
   // the exact question, for a reference that landed outside the window this
   // poll returns. Same box, same access — it is the one-row form of the
   // fetch above, not a wider one.
@@ -1341,10 +1343,12 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
         unread={unreadCount === undefined ? pending.length : Math.max(0, unreadCount
           - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier} />
       <div className="mailpane">
+        {history.error&&<div role="alert">Could not load older mail. <button onClick={history.retry}>Retry</button></div>}
         {mailbox.error ? <div className="dim pad" role="alert">Could not load mailbox. <button onClick={mailbox.retry}>Retry</button></div> : box == null
           ? <div className="dim pad">loading…</div>
           : folder === 'inbox'
             ? <MailList org={slug} pending={pending} delivered={box.delivered}
+                hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
                 collapsible={collapsible}
                 tierOf={tierOf} hasAgent={hasAgent} refs={refs} toast={toast}
                 /* the row's reference: this folder IS the node's received
@@ -1364,6 +1368,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
                       // the server no longer lists, so without this a failed
                       // retract hid the mail here while it stayed on the server
                       Promise.resolve(onRetract(m))
+                        .then(() => history.acknowledge(id))
                         .catch(() => setDropped((d) => d.filter((x) => x !== id)))
                     }
                   : undefined} />
@@ -1376,6 +1381,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
                hands down the OUTCOME of that question (`askState`) so this
                list does not read an unfinished or failed one as an absence. */
             : <MailList org={slug} delivered={box.sent ?? []} outgoing jumpTo={jumpTo}
+                hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
                 collapsible={collapsible}
                 jumpSeq={jumpSeq} tierOf={tierOf} hasAgent={hasAgent} refs={refs}
                 askState={jumpAsk}

@@ -38,6 +38,24 @@ pub async fn user_page(client: &Client, org: i64, folder: &str, before: Option<i
     Ok(project(rows, sent, 200))
 }
 
+/// Agent and project boxes share admitted ids and mail state projection.
+#[nolog]
+pub async fn agent_page(client: &Client, org: i64, agent: i64, folder: &str, before: Option<i64>) -> Result<Value> {
+    let before = before_id(before)?;
+    let sent = sent_folder(folder)?;
+    let predicate = if sent { "m.sender_agent_id=$3".to_string() }
+        else { format!("m.recipient_agent_id=$3 AND m.recipient_kind='agent' AND (m.state IN {} OR m.state IN ('delivered','read','retracted'))", crate::domain::mail::UNREAD_STATES) };
+    let sql = format!("SELECT m.id,to_jsonb(m) FROM ot.mail m
+        WHERE m.org_id=$1 AND {predicate} AND m.id<$2
+        AND ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
+          AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable'
+          AND m.extra->>'transfer_failure' IS NULL)
+          OR NOT EXISTS (SELECT 1 FROM ot.orgs o WHERE o.id=m.org_id AND o.settings->'org_inbox_enabled'='false'::jsonb))
+        ORDER BY m.id DESC LIMIT 151");
+    let rows = client.query(&sql, &[&org, &before, &agent]).await?;
+    Ok(project(rows, sent, 150))
+}
+
 #[nolog]
 fn project(rows: Vec<tokio_postgres::Row>, sent: bool, limit: usize) -> Value {
     let more = rows.len() > limit;

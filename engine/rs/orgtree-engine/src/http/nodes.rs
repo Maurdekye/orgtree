@@ -1288,11 +1288,15 @@ mod scratch_folder_tests {
 }
 
 /// `GET /nodes/{nid}/inbox`: the agent's mailbox (pending, delivered, sent).
-#[logged]
-pub async fn inbox(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
+// Mail bodies are private, including retained history pages.
+#[nolog]
+pub async fn inbox(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>, Query(q): Query<MailPageQuery>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
     let client = e.db.get().await?;
+    if let Some(folder) = q.folder.as_deref() {
+        return Ok(Json(crate::domain::mail_history::agent_page(&client,org.id,a.id,folder,q.before).await?));
+    }
     let rows = crate::feed::compute::agent_mailbox(&client, a.id).await?;
     drop(client);
     let mut out = Map::new();
@@ -1307,6 +1311,9 @@ pub async fn inbox(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String
     }
     Ok(Json(Value::Object(out)))
 }
+
+#[derive(serde::Deserialize, Debug, Default)]
+pub struct MailPageQuery { folder: Option<String>, before: Option<i64> }
 
 #[derive(serde::Deserialize, Debug, Default)]
 pub struct ToolImgQuery {

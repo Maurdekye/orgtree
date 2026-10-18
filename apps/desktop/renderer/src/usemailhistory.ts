@@ -18,8 +18,8 @@ function merge(a: InboxPayload, b: InboxPayload): InboxPayload {
 
 /** One bounded page on open/change/scroll, never an unbounded history refresh.
  * Keep older pages when the live head changes; invalidate old identity responses. */
-export function useMailboxHistory(slug: string, base: InboxPayload | null | undefined, folder: string, visible: boolean, refresh: unknown = 0) {
-  const identity = JSON.stringify([slug, folder])
+export function useMailboxHistory(slug: string, base: InboxPayload | null | undefined, folder: string, visible: boolean, refresh: unknown = 0, node?: string) {
+  const identity = JSON.stringify([slug, node ?? null, folder])
   const [state, setState] = useState({ identity, box: empty(), cursor: null as string | null,
     paged: false, ready: false, loading: false, error: null as string | null, deleted: [] as string[], read: [] as string[] })
   const current = state.identity === identity ? state : { ...state, identity, box: empty(), cursor: null, paged: false, ready: false, loading: false, error: null, deleted: [], read: [] }
@@ -30,7 +30,7 @@ export function useMailboxHistory(slug: string, base: InboxPayload | null | unde
     if (busy.current || (folder !== 'inbox' && folder !== 'sent')) return
     busy.current = true; retryCursor.current = before
     setState(old => ({ ...(old.identity === identity ? old : { ...current }), identity, loading: true, error: null }))
-    void getMailHistory(slug, folder, before).then(page => {
+    void getMailHistory(slug, folder, before, node).then(page => {
       if (generation.current !== request) return
       setState(old => ({ ...old, identity, box: merge(old.identity === identity ? old.box : empty(), page),
         cursor: !before && old.identity === identity && old.paged ? old.cursor : page.next_cursor ?? null,
@@ -40,7 +40,7 @@ export function useMailboxHistory(slug: string, base: InboxPayload | null | unde
     }).finally(() => { if (generation.current === request) busy.current = false })
   // The request's identity, not the current rows, owns the response.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, folder, identity])
+  }, [slug, node, folder, identity])
   useEffect(() => {
     const request = ++generation.current; busy.current = false
     if (visible && base) read(undefined, request)
