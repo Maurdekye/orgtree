@@ -32,6 +32,13 @@ const question: MailRow = {
   body: 'Please check the project item.', queue: { held_by: 'coordinator-opus', ack: false },
 }
 const classes = (el: Element | null) => [...(el?.children ?? [])].map((c) => c.className)
+/** an element's words without its model cards' letters: since the user's
+ *  2026-10-18 17:01Z ruling the recipient wears its card, as the sender does */
+const words = (el: Element | null | undefined) => {
+  const copy = el?.cloneNode(true) as Element | undefined
+  copy?.querySelectorAll('.tier').forEach((c) => c.remove())
+  return copy?.textContent
+}
 const only = async (rows: MailRow[], extra: Partial<Parameters<typeof MailList>[0]> = {}) => {
   const v = await mountView(<MailList delivered={rows} hasAgent={() => true} onFocusAgent={() => {}}
     tierOf={() => 'sol'} {...extra} />, (el) => el)
@@ -49,8 +56,9 @@ test('§1 a project mail row gives its kind and queue state a line of their own'
   assert.deepEqual(classes(row!.querySelector(':scope > .l1')), ['mfrom', 'mtime'], 'line 1 holds only the sender and the time')
   const meta = row!.querySelector(':scope > .lmeta')
   assert.deepEqual(classes(meta), ['event-row-kind', 'queuekind queue-delivery'], 'kind chip, then the delivery marker')
-  assert.equal(meta?.textContent, 'Question→@coordinator-opus')
+  assert.equal(words(meta), 'Question→@coordinator-opus')
   assert.ok(meta?.querySelector('button[data-agent-nav="coordinator-opus"]'), 'the recipient keeps the shared agent link')
+  assert.ok(meta?.querySelector('.queue-delivery .tier.t-sol'), 'and wears its model card')
   assert.equal(row!.querySelector(':scope > .l2')?.textContent, 'Please check the project item.')
 })
 
@@ -70,7 +78,7 @@ test('§2 every queue state sits on the meta line, never beside the sender', asy
     t.after(() => v.unmount())
     assert.deepEqual(classes(row!), ['l1', 'lmeta', 'l2'], label)
     assert.equal(row!.querySelector(':scope > .l1 .queuekind') === null, true, `${label}: not on line 1`)
-    assert.equal(row!.querySelector(':scope > .lmeta > .queuekind')?.textContent, label)
+    assert.equal(words(row!.querySelector(':scope > .lmeta > .queuekind')), label)
   }
 })
 
@@ -84,9 +92,10 @@ test('§2 an urgent project mail keeps its urgent chip beside its kind', async (
 /* ─── §3 the Sent folder ─────────────────────────────────────────────────── */
 
 test('§3 a Sent row for mail to a project is the same three-line row', async (t) => {
-  // the user's Sent folder names the recipient as plain text (App.tsx)
+  // the user's Sent folder names the recipient as plain text and passes no
+  // model resolver (App.tsx)
   const { v, rows: [row] } = await only([{ ...question, from: '@user', to: 'build-slot' }],
-    { outgoing: true, rowSender: (id: string) => <span>{id}</span> })
+    { outgoing: true, rowSender: (id: string) => <span>{id}</span>, tierOf: undefined })
   t.after(() => v.unmount())
   assert.deepEqual(classes(row!), ['l1', 'lmeta', 'l2'])
   assert.equal(row!.querySelector(':scope > .l1 > .mfrom')?.textContent, '→ build-slot')
