@@ -176,7 +176,7 @@
   user 17:01Z; verified: `canvas/mail.tsx`, `styles.css`, `feed/compute.rs`]
 - Project `release_slot` and own `slots` status are available with either team
   or watchdogs. Watchdog-only cards expose just those actions; dispatch refuses
-  other project actions and force release, and status filters other agents. Full
+  other project actions and force release. Status shows all holders and the line, hiding foreign lease IDs. Full
   project control still needs team. Scope denial is checked on each call.
   [decided: user 2026-10-18 12:55Z; verified: `domain/tool_groups.rs`,
   `tools/{defs,mod,treetools}.rs`]
