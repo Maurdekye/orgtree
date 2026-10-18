@@ -119,6 +119,19 @@ No claim is made of live end-to-end fanout, a renderer screen check, or the abse
 
 ## Direct user contact restores reply authority (2026-10-13)
 
+User mail to a project uses the same admission transaction and passive
+`context.deep_reach` event as agent mail to inform its live real-agent ancestors
+(2026-10-18). The existing project audience grant remains post-delivery; this
+forwarding does not create a second project grant. Fair-queue member copies are
+already admitted mail and do not forward again.
+
+A user fan-out shares one request-local `ForwardedUserNotices` across recipient
+admissions. Each ancestor is forwarded the user message once, using the first
+committed recipient in its chain. Only a successful commit records that ancestor;
+a failed admission cannot consume the notice. Independent sends start fresh,
+including identical text sent again. The project megaphone uses this path for
+all members while preserving independent recipient permissions and outcomes.
+
 A user message or linked reply to a non-top-level agent grants `@user` reply
 access, emits the canonical passive `access.audience_changed` / `user_audience`
 notice, and notifies every live superior with `context.deep_reach`. The incoming

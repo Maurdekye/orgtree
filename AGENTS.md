@@ -7,6 +7,13 @@
   the message's sent-at; absent claim time says so. Other queue-state labels
   retain their meaning. [decided: user/coordinator 2026-10-18 12:46–12:49Z;
   verified: `canvas/mail.tsx`, `styles.css`, `feed/compute.rs`]
+- User mail to projects shares the agent `context.deep_reach` ancestor-notice
+  transaction. User fan-out shares `ForwardedUserNotices` for one logical send:
+  each live real-agent ancestor receives one passive notice, and only a committed
+  admission consumes it. Project fair-queue copies do not forward again. Agent
+  reply grants and the post-delivery project audience grant retain their paths.
+  [decided: user 2026-10-18 12:47Z; verified: `domain/{mail,runtime_notices}.rs`,
+  `http/nodes.rs`]
 
 - Project acknowledgement timeout uses `scope.mail_queue_ack_reminders` (1–10,
   default 3) for BOTH held mail and idle concurrency slots. It sends that many
