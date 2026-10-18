@@ -286,8 +286,12 @@
   uses `fastMode` flag settings and acknowledged `apply_flag_settings`, never
   `/fast`. Hide unsupported controls and ignore stored true on unsupported models.
   Preserve native refusals and reported usage; never infer a multiplier or cache hit.
+  The fast next-turn badge compares saved scope to `fast_mode_current`, captured
+  only after native turn acceptance; idle/unknown/command turns clear it. Keep
+  the field in the runtime overlay allowlist, never infer it from save success.
   [decided: user/coordinator 2026-10-17 17:49–17:52Z; verified:
-  `providers/fast_mode.rs`, `runtime/{actor,claude,codex}.rs`, `canvas/fastmode.ts`;
+  `providers/fast_mode.rs`, `runtime/{actor,claude,codex}.rs`, `canvas/fastmode.ts`,
+  `recordoverlay.ts`, `canvas/fastmodebutton.tsx`; user 2026-10-18 12:51Z;
   contract: [Fast mode](docs/rust-engine/fast-mode.md)]
 
 - State inspection memoizes effective ancestry only within its immutable

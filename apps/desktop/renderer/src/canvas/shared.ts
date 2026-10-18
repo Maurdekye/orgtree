@@ -1125,6 +1125,8 @@ export interface CanvasNode {
   effort_effective?: string
   effort_current?: string | null
   pending_effort?: string | null
+  /** Accepted running-turn speed override; null/absent means unknown or idle. */
+  fast_mode_current?: boolean | null
   cost_usd?: number
   occupancy?: number | null
   /** …and it was estimated, not measured (post-compaction, pre-next-turn) */

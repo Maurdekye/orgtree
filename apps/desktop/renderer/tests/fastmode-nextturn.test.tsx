@@ -1,6 +1,7 @@
 import { mountView, inAct, flush, installFetch, FakeServer } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { RecordOverlay } from '../src/recordoverlay'
 import { FastModeButton } from '../src/canvas/fastmodebutton'
 import { syncProviderRegistries } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -65,4 +66,31 @@ test('unsupported and retired seats hide the bolt and pending fast badge togethe
       assert.equal(badge(view.el) === null, true)
     } finally { await view.unmount() }
   }
+})
+
+
+test('runtime feed carries accepted speed, clears on idle, and ignores stale frames', async () => {
+  const identity = { org_uuid: 'fixture-org', incarnation: 'fixture-engine' }
+  const frame = (seq: number, busy: boolean, current: boolean | null) => ({
+    ...identity, type: 'agent_runtime' as const, epoch: 'host', seq, full: true,
+    agents: { worker: { epoch: 'host', seq, busy, fast_mode_current: current } },
+  })
+  let overlay = new RecordOverlay(identity).receive(frame(1, true, false), true)
+  const projected = () => ({ ...node(true, undefined), ...overlay.values.get('worker') } as CanvasNode)
+  assert.equal(projected().fast_mode_current, false, 'serving false must survive the runtime allowlist')
+  const view = await mountView(control(projected()), el => el)
+  try {
+    assert.equal(!!badge(view.el), true)
+    overlay = overlay.receive(frame(2, false, null))
+    await view.render(control(projected()))
+    assert.equal(projected().fast_mode_current, null)
+    assert.equal(badge(view.el) === null, true)
+    overlay = overlay.receive(frame(1, true, false))
+    await view.render(control(projected()))
+    assert.equal(badge(view.el) === null, true, 'stale serving evidence cannot resurrect a pending change')
+    overlay = overlay.receive(frame(3, true, true))
+    await view.render(control(projected()))
+    assert.equal(projected().fast_mode_current, true)
+    assert.equal(badge(view.el) === null, true)
+  } finally { await view.unmount() }
 })

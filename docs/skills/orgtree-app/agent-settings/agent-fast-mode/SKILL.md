@@ -21,6 +21,11 @@ separate from thinking effort. Agents explain the setting; the user changes it.
 - The choice applies to the next turn in the same conversation. A speed-only save
   does not switch model, account or session and does not restart the CLI. A running
   turn keeps its existing speed. There is no promise of a prompt-cache hit.
+- While a turn is running, a badge beside the lightning button says **next turn ?
+  fast on** or **next turn ? fast off** when the saved choice differs from the
+  speed request sent to that turn. Its tooltip gives both values. It clears on
+  next admission, turn completion or reverting the choice. Unknown serving state
+  shows no badge; saving alone does not prove a change is pending.
 - The agent hover tooltip includes **fast mode** when saved on for a supported model.
   Changing to an unsupported model ignores the stored choice and hides the controls.
   Switching back restores the saved preference.

@@ -5913,6 +5913,8 @@ svg.MuiSvgIcon-root {
   display: flex; flex-direction: column; align-items: center;
   gap: 4px; flex: none;
 }
+.cc-fast-row { display: flex; align-items: center; gap: 4px; }
+.cc-btnstack:has(.cc-fast-row) { align-items: flex-end; }
 .cc-fast {
   width: 24px; height: 24px; padding: 0; flex: none; border-radius: 50%;
   background: none; border: 1px solid var(--line); color: var(--dim);

@@ -5601,6 +5601,7 @@
    "must_cover": [
     "hidden unsupported controls",
     "next-turn same-session application",
+    "next-turn fast on/off badge from running-turn serving evidence, clearing and unknown states",
     "provider refusals and reported usage"
    ],
    "sources": [

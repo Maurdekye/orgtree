@@ -481,6 +481,8 @@ export interface TreeNode {
   /** Actor effort evidence while a turn is running; deferred changes only. */
   effort_current?: string | null
   pending_effort?: string | null
+  /** Accepted running-turn speed override; null/absent means unknown or idle. */
+  fast_mode_current?: boolean | null
   last_denials: Denial[]
   /** codex lane (2026-09-05): last turn's APPROVED escalations, same row
    *  shape as last_denials; absent when the lane cannot report it */

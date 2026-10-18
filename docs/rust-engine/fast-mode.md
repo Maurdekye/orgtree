@@ -45,3 +45,23 @@ Rust `fast_mode` tests exercise exact model gating, strict boolean validation,
 non-inheritance, both native wire formats, explicit standard speed, same-session
 behavior and Claude control refusal. All checks use synthetic inputs, no auth or
 provider inference.
+
+
+## Queued change badge (2026-10-18)
+
+A running accepted turn publishes `fast_mode_current` from the native speed
+setting actually sent, separately from `scope.fast_mode`. Speed-only saves do
+not mutate that snapshot. Codex records it only when an advertised per-turn tier
+was sent; Claude records it only after the flag acknowledgement and prompt send
+succeed. Command/compaction turns and unknown routes leave it null. Idle actor
+snapshots and the no-actor defaults clear it; the runtime overlay preserves the
+field with its usual epoch/sequence ordering.
+
+Beside the lightning button, the shared next-turn badge says `next turn ? fast
+on` or `next turn ? fast off` only when this serving evidence differs from the
+saved choice during a running turn. Matching, absent/unknown, idle or unsupported
+states show no pending badge. The tooltip names the agent and current/next
+values. A successful save alone never supplies serving evidence. New admission,
+turn completion or reverting the saved choice removes the badge. Native provider
+entitlement and acceleration remain outside this evidence: it records the sent
+speed request, not a claim about observed latency or billing.

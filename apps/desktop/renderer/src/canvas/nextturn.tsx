@@ -3,7 +3,7 @@ import { tierLabel } from './shared'
 
 /** The requested target is separate from the value serving this turn. */
 export function NextTurnBadge({ agent, kind, current, next }: {
-  agent: string; kind: 'account' | 'model' | 'effort'; current: string; next: string
+  agent: string; kind: 'account' | 'model' | 'effort' | 'fast'; current: string; next: string
 }) {
   const detail = `${agent}'s ${kind} will change from ${current} to ${next} next turn`
   return <span className="badge queued next-turn" data-next-turn={kind}
