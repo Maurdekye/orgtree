@@ -2238,8 +2238,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }, [chat?.messages, chat?.transient, chat?.pending_mail, live_feed,
     convo.draft, convo.draftEventId, convo.thinking, convo.thinkingEventId])
   const replyAvailable = (r: ReplyContext) => sameReplyIdentity(r) &&
-    ((r.mailId && (chat?.pending_mail?.some(m => m.id === r.mailId) || chat?.messages?.some(m =>
-      isSegments(m.segments, 'operator') && m.segments.some(s => s.kind === 'mail' && s.rows.some(row => row.id === r.mailId)))))
+    ((r.docId && (Boolean(onOpenDoc) || (node.documents ?? []).some(d => d.id === r.docId)
+      || Boolean(surfaceDocument.querySelector(`[data-doc-id="${r.docId}"]`))))
+      || (r.mailId && (chat?.pending_mail?.some(m => m.id === r.mailId) || chat?.messages?.some(m =>
+        isSegments(m.segments, 'operator') && m.segments.some(s => s.kind === 'mail' && s.rows.some(row => row.id === r.mailId)))))
       || sourceIds.has(r.eventId) || transient.some(row => row.event_id === r.eventId)
       || r.eventId === convo.draftEventId || r.eventId === convo.thinkingEventId)
   const replySources = useMemo(() => indexReplySources({
@@ -2258,6 +2260,13 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
   const locateReplyNow = (r: ReplyContext) => {
     if (!sameReplyIdentity(r)) return
+    if (r.docId) {
+      onOpenDoc?.(r.docId)
+      const docEl = [...surfaceDocument.querySelectorAll<HTMLElement>('[data-doc-id]')]
+        .find(el => el.dataset.docId === r.docId)
+      docEl?.scrollIntoView?.({ block: 'center' })
+      return
+    }
     const rows = [...surfaceDocument.querySelectorAll<HTMLElement>('[data-reply-event]')]
     const durable = durableOf.get(r.eventId)
     const element = rows.find(el => el.dataset.replyEvent === r.eventId)
@@ -3099,6 +3108,13 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // an archived agent still RECEIVES mail (user ruling) — it queues in its
   // inbox and gets acted on at rehire; only unrecoverable nodes refuse
   const canMail = !staleIdentity && (live || node.state === 'archived')
+  const replyToPresentation = (doc: { id: string; title: string }) => {
+    const source = replyFromRow(slug, node.id, node.generation ?? 0, { event_id: `doc:${doc.id}` }, `document: ${doc.title}`)
+    if (!source || !canMail) return
+    try { setReplyTargets(appendReplyTarget(replyTargets, { ...source, sender: node.id, docId: doc.id })) }
+    catch (e) { toast([String((e as Error).message)]); return }
+    requestAnimationFrame(() => taRef.current?.focus())
+  }
   const send = () => {
     let t = text.trim()
     if ((!t && !attached.length) || !canMail) return
@@ -3128,7 +3144,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     if (live && !node.halt && !armedNotice) markBusy(slug, node.id)
     flashMode('')   // the previous send's receipt must not outlive this one
     toBottom()
-    const pluralWire = sentReplies.length > 1 || sentReplies.some(r => !!r.mailId)
+    const pluralWire = sentReplies.length > 1 || sentReplies.some(r => !!r.mailId || !!r.docId)
     sendMessage(slug, node.id, t, paths, pluralWire ? undefined : sentReply ? replyWire(sentReply) : undefined, op, armedNotice,
       pluralWire ? sentReplies.map(replyWire) : undefined)
       .then((r) => {
@@ -3675,7 +3691,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <div className="desk-docs">
           {recentDocumentChips(node.documents!).map((d) => (
             <PresentationCard key={d.id} slug={slug} doc={d} toast={toast}
-              className="doc-badge" direct onOpen={onOpenDoc}>
+              className="doc-badge" direct onOpen={onOpenDoc}
+              onReply={canMail ? () => replyToPresentation(d) : undefined}>
               <DocIcon fontSize="inherit" /><span>{d.title}</span>
             </PresentationCard>
           ))}
@@ -4078,6 +4095,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
           <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast}
             onFocusAgent={onJump} refs={deskRefs}
+            onReplyToDoc={canMail ? (d) => replyToPresentation(d) : undefined}
             onChanged={() => refresh(true)} />
         </div>
       )}
@@ -4173,7 +4191,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       {/* №13: the composer is present under EVERY tab — finding a wrong number
           on the inbox or docket tab shouldn't cost your place to say so */}
       {replyMenu.node}
-      {replyTargets.map(r => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}`} reply={r} available={replyAvailable(r)}
+      {replyTargets.map(r => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}/${r.docId ?? ''}`} reply={r} available={replyAvailable(r)}
         onLocate={() => locateReply(r)} onRemove={() => setReplyTargets(replyTargets.filter(x => x !== r))} />)}
       {replyTargets.length > 1 && <button className="link" onClick={() => setReply(null)}>Cancel all replies</button>}
       {sendMode && <div className="sendmode dim">{sendMode}</div>}

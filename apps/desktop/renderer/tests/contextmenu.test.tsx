@@ -42,7 +42,10 @@ import { nativeMenuPreferred, useContextMenu } from '../src/canvas/contextmenu'
 import type { MenuEntry } from '../src/canvas/contextmenu'
 import { useEsc } from '../src/canvas/shared'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
+import { DeskChat } from '../src/canvas/desk'
 import { resetConvos } from '../src/convo'
+import { draftKey } from '../src/draftstore'
+import { readReplies } from '../src/eventReply'
 import { InboxView, MailList } from '../src/canvas/mail'
 import { PresentationCard, presentationMenu } from '../src/canvas/docs'
 import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
@@ -596,6 +599,90 @@ uiTest('§B3b gallery row: Dismiss runs the pane\'s dismiss — the same DELETE;
   const del = calls.find((c) => c.method === 'DELETE')
   assert.ok(del, 'the existing dismiss path: DELETE /documents/d1')
   assert.match(del!.url, /\/documents\/d1$/)
+})
+
+uiTest('§B3d agent desk presentations: header chips and Presented tab rows offer Reply to, staging a reply in the desk message box', async (t) => {
+  localStorage.clear(); resetConvos()
+  const docs = [
+    { id: 'd1', node: 'me', title: 'Architecture Plan', at: '2026-09-07T10:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
+    { id: 'd2', node: 'me', title: 'Interactive Mock', at: '2026-09-07T09:00:00Z', format: 'html' as const, evicted: false, node_state: 'live', tier: 'haiku' },
+  ]
+  const sends: { url: string; body: Record<string, unknown> }[] = []
+  const opened: string[] = []
+  const had = (globalThis as { fetch?: typeof fetch }).fetch
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string, init?: RequestInit) => {
+    const method = init?.method ?? 'GET'
+    const path = String(url)
+    if (method === 'POST' && path.endsWith('/nodes/me/message')) {
+      sends.push({ url: path, body: JSON.parse(String(init?.body ?? '{}')) })
+      return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
+        json: () => Promise.resolve({ accepted: true, id: 'm-sent', queued: 0 }) })
+    }
+    const one = path.match(/\/documents\/([^/?]+)$/)
+    const body = method !== 'GET' ? {}
+      : one ? { ...docs.find((d) => d.id === one[1]!), body: `body of ${one[1]}` }
+        : path.includes('/documents') ? { documents: docs, total: docs.length } : {}
+    return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
+      json: () => Promise.resolve(body) })
+  }) as unknown as typeof fetch)
+  t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had; resetConvos() })
+
+  const me = mkNode('me', { generation: 2, documents_count: 2, documents: docs }) as CanvasNode
+  const v = await mountView(
+    <DeskChat node={me} map={new Map([['me', me]])} slug="org"
+      op={async () => ({})} toast={noop} bare onOpenDoc={(id) => { opened.push(id) }} />,
+    (h) => h)
+  t.after(() => v.unmount())
+  await flush(3)
+
+  const chips = [...v.el.querySelectorAll('.desk-docs .doc-badge')] as HTMLElement[]
+  assert.equal(chips.length, 2, 'positive control: both desk header presentation chips rendered')
+  const textarea = v.el.querySelector<HTMLTextAreaElement>('textarea')!
+  assert.equal(document.activeElement === textarea, false, 'baseline: bare desk does not autofocus on mount')
+
+  await rightClick(chips[0]!)
+  assert.deepEqual(labels(), ['Open reader', 'Reply to', 'Copy title', 'Copy reference', 'Download as Markdown'])
+  await pick('Reply to')
+  await advance(50, 16); await flush(2)
+  assert.equal(document.activeElement === textarea, true, 'Reply to on a desk header chip focuses the desk message box')
+  assert.deepEqual(readReplies(draftKey('org', 'me', 2)).map((r) => ({ eventId: r.eventId, docId: r.docId, quote: r.quote })),
+    [{ eventId: 'doc:d1', docId: 'd1', quote: 'document: Architecture Plan' }])
+  const previews = () => [...v.el.querySelectorAll('.reply-preview.reply-preview-composing')] as HTMLElement[]
+  assert.equal(previews().length, 1)
+  assert.match(previews()[0]!.textContent ?? '', /document: Architecture Plan/)
+  const jumpBtn = previews()[0]!.querySelector<HTMLButtonElement>('.reply-preview-jump')!
+  assert.equal(jumpBtn.disabled, false, 'composing reply chip jump control is enabled')
+  await inAct(() => { jumpBtn.click() })
+  assert.deepEqual(opened, ['d1'], 'clicking the reply chip jump control opens the presentation')
+
+  await rightClick(chips[1]!)
+  assert.deepEqual(labels(), ['Open reader', 'Open HTML mockup in a new tab', 'Reply to', 'Copy title', 'Copy reference', 'Download HTML prototype'])
+  await key(document.body, 'Escape')
+
+  const presentedTab = [...v.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
+    .find((b) => b.getAttribute('data-tab') === 'presented')!
+  await inAct(() => { presentedTab.click() })
+  await flush(); await advance(200, 16); await flush()
+  const rows = [...v.el.querySelectorAll('.desk-presented-card')] as HTMLElement[]
+  assert.equal(rows.length, 2, 'positive control: Presented tab rows rendered')
+  await rightClick(rows[1]!)
+  assert.deepEqual(labels(), ['Open', 'Open HTML mockup in a new tab', 'Reply to', 'Copy title', 'Copy reference', 'Download HTML prototype', 'Dismiss'])
+  await pick('Reply to')
+  await advance(50, 16); await flush(2)
+  assert.equal(previews().length, 2, 'Reply to in Presented tab appends to the desk message box reply targets')
+  assert.deepEqual(readReplies(draftKey('org', 'me', 2)).map((r) => r.docId), ['d1', 'd2'])
+
+  await inAct(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Looks good')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await inAct(() => { v.el.querySelector<HTMLButtonElement>('.cc-send')!.click() })
+  await flush(5)
+  assert.equal(sends.length, 1)
+  assert.equal(sends[0]!.body.text, 'Looks good')
+  assert.deepEqual((sends[0]!.body.replies as { kind?: string; id?: string }[]).map((r) => ({ kind: r.kind, id: r.id })),
+    [{ kind: 'document', id: 'd1' }, { kind: 'document', id: 'd2' }])
+  assert.equal(readReplies(draftKey('org', 'me', 2)).length, 0)
 })
 
 uiTest('§B3c org gallery row: Close closes the OPEN document and nothing else — '

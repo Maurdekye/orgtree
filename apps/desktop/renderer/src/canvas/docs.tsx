@@ -56,6 +56,7 @@ export function presentationMenu(el: Element | null, slug: string,
   acts: {
     open?: () => void
     openLabel?: string
+    reply?: () => void
     toast?: ToastFn
     dismiss?: () => void
   }): MenuEntry[] {
@@ -72,6 +73,7 @@ export function presentationMenu(el: Element | null, slug: string,
       },
     })
   }
+  if (acts.reply && !gone) entries.push({ label: 'Reply to', onSelect: acts.reply })
   const copied = (what: string) => (ok: boolean) =>
     acts.toast?.([ok ? `copied ${what}` : `could not copy ${what} — clipboard unavailable`])
   const ref = refToken({ kind: 'doc', org: slug, id: doc.id })
@@ -94,8 +96,9 @@ export function presentationMenu(el: Element | null, slug: string,
 
 /** The same activation in the canvas chips and titled desk cards. Markdown
  *  and HTML both open the owning agent collection; the preview is inside it. */
-export function PresentationCard({ slug, doc, onOpen, className, children, compact = false, toast, inert = false, direct = false }: {
+export function PresentationCard({ slug, doc, onOpen, onReply, className, children, compact = false, toast, inert = false, direct = false }: {
   slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format'> & { at?: string; viewed_at?: string | null }; onOpen: (id: string) => void
+  onReply?: () => void
   className: string; children: ReactNode; compact?: boolean
   /** for the context menu's copy/download confirmations; optional because
    *  the canvas chips have no toast to hand */
@@ -130,12 +133,12 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
   }
   const onContextMenu = (e: ReactMouseEvent<HTMLElement>) => menu.open(e, () =>
     presentationMenu(e.currentTarget, slug, doc, {
-      open: () => onOpen(doc.id), toast,
+      open: () => onOpen(doc.id), reply: onReply, toast,
     }))
   const body = <>{doc.format === 'html' && <MockupBadge compact={compact} />}{children}</>
   const mark = unread ? ' doc-' + unread : ''
-  if (inert) return <span className={className + ' inert' + mark} data-doc-unread={unread ?? undefined} aria-hidden="true">{body}</span>
-  return <button className={className + mark} data-doc-unread={unread ?? undefined}
+  if (inert) return <span className={className + ' inert' + mark} data-doc-id={doc.id} data-doc-unread={unread ?? undefined} aria-hidden="true">{body}</span>
+  return <button className={className + mark} data-doc-id={doc.id} data-doc-unread={unread ?? undefined}
     title={unread ? `${unread === 'new' ? 'new' : 'updated'}: read ${doc.title}` : `read ${doc.title}`}
     onPointerDown={(e) => e.stopPropagation()}
     onClick={(e) => { e.stopPropagation(); open(e) }}

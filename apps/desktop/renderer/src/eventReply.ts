@@ -1,6 +1,6 @@
 /** Server-issued identity. Display positions and rendered text never identify a source. */
 export interface EventSourceRef { org: string; agent: string; generation: number; eventId: string }
-export interface ReplyContext extends EventSourceRef { quote: string; sender?: string; mailId?: string }
+export interface ReplyContext extends EventSourceRef { quote: string; sender?: string; mailId?: string; docId?: string }
 export interface EventReplyWire { source_event_ref: EventSourceRef; quoted_context: string; mail_id?: string }
 /** Mailbox/object replies retain a small source snapshot independently of delivery. */
 export interface MailReplySnapshot {
@@ -19,9 +19,20 @@ export function validReply(value: unknown): value is ReplyContext {
     && typeof r.quote === 'string' && r.quote.length <= MAX_REPLY_QUOTE
     && (r.sender === undefined || (typeof r.sender === 'string' && !!r.sender))
     && (r.mailId === undefined || (typeof r.mailId === 'string' && !!r.mailId))
+    && (r.docId === undefined || (typeof r.docId === 'string' && !!r.docId))
 }
 
-export function replyWire(r: ReplyContext): EventReplyWire {
+export function replyWire(r: ReplyContext): MailReplyWire {
+  if (r.docId) {
+    return {
+      id: r.docId,
+      kind: 'document',
+      org: r.org,
+      from: r.sender ?? r.agent,
+      at: '',
+      gist: r.quote.slice(0, MAX_REPLY_QUOTE),
+    }
+  }
   return { source_event_ref: { org: r.org, agent: r.agent, generation: r.generation, eventId: r.eventId },
     quoted_context: r.quote.slice(0, MAX_REPLY_QUOTE), ...(r.mailId ? { mail_id: r.mailId } : {}) }
 }
@@ -70,7 +81,7 @@ export function storeReplies(key: string, replies: ReplyContext[]): void {
 }
 export function appendReplyTarget(current: ReplyContext[], next: ReplyContext): ReplyContext[] {
   if (current.some(r => r.org !== next.org || r.agent !== next.agent || r.generation !== next.generation)) throw Error('A multi-reply can only answer events in this transcript.')
-  if (current.some(r => r.agent === next.agent && r.generation === next.generation && r.eventId === next.eventId && r.mailId === next.mailId)) return current
+  if (current.some(r => r.agent === next.agent && r.generation === next.generation && r.eventId === next.eventId && r.mailId === next.mailId && r.docId === next.docId)) return current
   if (current.length >= 50) throw Error('A multi-reply can answer at most 50 messages.')
   return [...current, next]
 }

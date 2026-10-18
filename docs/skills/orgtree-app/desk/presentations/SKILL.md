@@ -20,7 +20,7 @@ Organization and agent presentation modals collapse the list into a menu-control
 
 ## Copy, download and reply
 
-Document menus can copy title/reference, open/close, download Markdown or the HTML prototype bundle, and dismiss when the surface permits it. Contextual replies address the presentation's source and support attachments where available. A failed reply does not amend the document.
+Document menus can copy title/reference, open/close, download Markdown or the HTML prototype bundle, stage a reply in the desk composer (`Reply to` on presentation chips in an agent's desk header and rows in its Presented tab), and dismiss when the surface permits it. Contextual replies address the presentation's source and support attachments where available. A failed reply does not amend the document.
 
 Download saves a file; it is not proof the user read the card or that a file was sent through a different delivery route. File cards/images have their own view/download behavior and custody. Do not suggest that moving a scratch file into a folder will make it appear in Presented.
 

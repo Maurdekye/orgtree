@@ -1,6 +1,6 @@
 import { configureOpenTiming } from './opentiming'
 import type { QuickChatDefaults } from './quickchat'
-import type { EventReplyWire } from './eventReply'
+import type { MailReplyWire } from './eventReply'
 import type { ReplyTarget } from './generated/events'
 import { forgetNodeDetail, hydrateTree } from './archived'
 import type { NodeDetail } from './archived'
@@ -1415,10 +1415,10 @@ export const fileUrl = (slug: string, nid: string, path: string): string =>
   fileBase(slug, nid) + encodeURIComponent(path)
 export const sendMessage = (
   slug: string, nid: string, text: string, attachments?: string[],
-  replyTo?: { id?: string; from: string; at?: string; gist: string } | EventReplyWire,
+  replyTo?: { id?: string; from: string; at?: string; gist: string } | MailReplyWire,
   clientOp?: string,
   notice?: boolean,
-  replies?: EventReplyWire[],
+  replies?: MailReplyWire[],
   targets?: ReplyTarget[],
 ): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {

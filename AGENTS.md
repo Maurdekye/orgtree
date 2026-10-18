@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- In an agent's desk context, presentation context menus on both the desk-header
+  presentation chips (`.desk-docs .doc-badge`) and rows in the Presented tab
+  (`AgentGalleryView`) offer `Reply to` when the desk accepts mail (`canMail` and
+  not evicted). Choosing it stages a `kind: 'document'` reply target in the desk
+  composer using the same reply-target mechanism as replying to mail. [decided:
+  user 2026-10-18 08:54Z; verified: `canvas/docs.tsx`, `canvas/gallery.tsx`,
+  `canvas/desk.tsx`, `eventReply.ts`, `tests/contextmenu.test.tsx`]
+
 - Agent-facing Orgtree tool results append engine-measured `execution time: 0.432ms`
   as a final text block (Codex: separate `inputText`), preserving the primary
   text byte-for-byte and its JSON parseability. Measure with a monotonic clock

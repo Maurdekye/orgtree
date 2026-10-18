@@ -675,6 +675,9 @@ export interface AgentGalleryViewProps {
   toast: ToastFn
   onFocusAgent?: (agentId: string) => void
   onReply?: (node: string, text: string, target: ReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  /** Desk context-menu action: stages a reply to this presentation in the
+   *  desk composer (using the same reply-target chip as replying to mail). */
+  onReplyToDoc?: (doc: DocRow) => void
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
   onChanged?: () => void
   initialDocument?: string
@@ -739,7 +742,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  mockup new-tab link, viewer dismiss, reply box, selection by ID),
  *  limited strictly to presentations made by the selected agent. */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply,
-  refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
+  onReplyToDoc, refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
   collapsible, team }: AgentGalleryViewProps) {
   const w = useDocWindow(slug, nid, '', 0, team)
   // a team list holds other nodes' cards, and a project's own list may hold
@@ -802,6 +805,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
     presentationMenu(e.currentTarget, slug, r, {
       open: () => setSelId(r.id === selId ? null : r.id),
       openLabel: r.id === selId ? 'Close' : 'Open',
+      reply: onReplyToDoc && !r.evicted ? () => onReplyToDoc(r) : undefined,
       toast,
       dismiss: () => dismissDoc(slug, r.id, r.title, toast, () => {
         setDismissed((d) => [...d, r.id])
