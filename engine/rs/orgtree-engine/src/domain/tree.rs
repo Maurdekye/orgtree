@@ -414,6 +414,7 @@ pub fn idle_runtime() -> Vec<(String, Value)> {
         ("turn_started_at".into(), Value::Null),
         ("effort_current".into(), Value::Null),
         ("pending_effort".into(), Value::Null),
+        ("fast_mode_current".into(), Value::Null),
         ("waiting".into(), json!(false)),
         ("queued_for_slot".into(), Value::Null),
         ("loading_model".into(), Value::Null),
@@ -575,6 +576,7 @@ mod idle_runtime_tests {
         // running turn's (docket tool-calls-left-open-by-an-earlier-turn-count-up)
         let idle: HashMap<String, Value> = idle_runtime().into_iter().collect();
         assert_eq!(idle.get("turn_started_at"), Some(&Value::Null));
+        assert_eq!(idle.get("fast_mode_current"), Some(&Value::Null));
         assert_eq!(idle.get("busy"), Some(&json!(false)));
     }
 }

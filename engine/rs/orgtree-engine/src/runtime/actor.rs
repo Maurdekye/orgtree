@@ -377,6 +377,8 @@ struct Turn {
     serving_account: Option<String>,
     serving_provider: String,
     serving_tier: String,
+    /// Speed override acknowledged for this admitted turn; commands/unknown routes have no evidence.
+    fast_mode: Option<bool>,
     limit_signal: bool,
     last_event: Instant,
     /// API message id → (convo seq, the row as built so far)
@@ -466,6 +468,7 @@ impl Turn {
             serving_account: None,
             serving_provider: String::new(),
             serving_tier: String::new(),
+            fast_mode: None,
             limit_signal: false,
             last_event: Instant::now(),
             rows: HashMap::new(),
@@ -4214,6 +4217,14 @@ impl Actor {
         turn.serving_account = self.serving_account_of(&ctx);
         turn.serving_provider = ctx.provider.clone();
         turn.serving_tier = ctx.tier.clone();
+        // Capture only after the native turn send succeeds. Scope can change
+        // during this turn without changing the speed actually sent to it.
+        turn.fast_mode = match self.proc.as_ref() {
+            Some(Proc::Codex(_)) if service_tier.is_some() => Some(fast),
+            Some(Proc::Claude(_)) if ctx.provider == catalog::CLAUDE
+                && crate::providers::fast_mode::claude_model(&ctx.model) => Some(fast),
+            _ => None,
+        };
         turn.codex_turn = codex_turn;
         turn.acp = self.proc.as_ref().is_some_and(Proc::is_acp);
         turn.usage_base = self.codex_total.clone();
@@ -7709,6 +7720,7 @@ impl Actor {
             "turn_started_at": self.turn.as_ref().map(|t| iso(t.admitted_at)),
             "effort_current": if busy { self.proc_effort.clone() } else { None },
             "pending_effort": if busy { self.pending_effort.clone() } else { None },
+            "fast_mode_current": self.turn.as_ref().and_then(|t| t.fast_mode),
             "waiting": self.waiting_since.is_some(),
             "loading_model": self.loading,
             "queued_for_slot": queued_for_slot,
