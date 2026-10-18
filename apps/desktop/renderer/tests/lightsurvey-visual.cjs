@@ -66,7 +66,9 @@ module.exports = async (page, { out, args }) => {
     for (const e of document.querySelectorAll('body *')) {
       if (!shown(e)) continue
       const s = getComputedStyle(e)
-      if (s.opacity === '0') continue
+      // a node under a faded-out ancestor (a hover tooltip, the hire strip)
+      // is not on screen: its own opacity says 1, the composite says 0
+      if (opacity(e) < 0.05) continue
       if (ownText(e)) {
         texts++
         const color = toRgb(s.color), back = backdrop(e), fg = over([color[0], color[1], color[2], color[3] * opacity(e)], back)
@@ -122,7 +124,8 @@ module.exports = async (page, { out, args }) => {
     await page.click('button.ask-bell[aria-label="Inbox"]')
     await page.waitFor('.mailrow', { timeout: 15000 })
   }, async () => {
-    await page.click('[aria-label="close this window"]')
+    // an unpinned modal has no close button: Escape closes it (App.tsx)
+    await page.press('Escape')
     await page.waitFor('.mailrow', { gone: true, timeout: 5000 }); await paint()
   })
   await step('menu', async () => {
