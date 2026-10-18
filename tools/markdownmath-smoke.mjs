@@ -10,11 +10,12 @@ if (!deps || !/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(path.
 const require = createRequire(path.join(path.resolve(deps), 'package.json'))
 const esbuild = require('esbuild')
 const visual = mode === 'visual'
-const suites = ['markdownmath']
+const suites = mode === 'tests' && process.env.MATH_PHASE === 'green'
+  ? ['markdownmath.test.ts', 'refmd.test.tsx'] : ['markdownmath.test.ts']
 fs.mkdirSync(output, { recursive: true })
 try {
   await esbuild.build({ entryPoints: visual ? [path.join(repo, 'apps/desktop/renderer/tests/markdownmath-visual.tsx')]
-      : suites.map(s => path.join(repo, `apps/desktop/renderer/tests/${s}.test.ts`)),
+      : suites.map(s => path.join(repo, `apps/desktop/renderer/tests/${s}`)),
     ...(visual ? { outfile: path.join(output, 'fixture.js') } : { outdir: output, outExtension: { '.js': '.mjs' } }),
     bundle: true, format: 'esm', platform: visual ? 'browser' : 'node', target: 'node22', jsx: 'automatic',
     nodePaths: [process.env.MATH_NODE_MODULES, path.join(path.resolve(deps), 'node_modules')].filter(Boolean),
@@ -24,13 +25,12 @@ try {
 } finally { esbuild.stop() }
 let command, args, env = { ...process.env }
 if (visual) {
-  const css = pathToFileURL(path.join(repo, 'apps/desktop/renderer/src/styles.css')).href
-  fs.writeFileSync(path.join(output, 'fixture.html'), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><link rel="stylesheet" href="${css}"><style>html,body{margin:0}body{background:var(--bg);color:var(--ink);font:15px system-ui}main{padding:20px}.sample{border:1px solid var(--line);border-radius:8px;padding:12px;max-width:850px}h1{font-size:20px}h2{font-size:15px;color:var(--muted)}</style></head><body><div id="root"></div><script type="module" src="fixture.js"></script></body></html>`)
+  fs.writeFileSync(path.join(output, 'fixture.html'), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><style>html,body{margin:0}body{background:var(--bg);color:var(--ink);font:15px system-ui}main{padding:20px}.sample{border:1px solid var(--line);border-radius:8px;padding:12px;max-width:850px}h1{font-size:20px}h2{font-size:15px;color:var(--muted)}</style></head><body><div id="root"></div><script type="module" src="fixture.js"></script></body></html>`)
   command = require('electron'); args = [path.join(repo, 'apps/desktop/renderer/tests/markdownmath-capture.cjs')]
   delete env.ELECTRON_RUN_AS_NODE
   env.MATH_CAPTURE_ROOT = path.resolve(output)
 } else {
-  command = process.execPath; args = ['--max-old-space-size=1024', '--test', '--test-reporter=tap', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000', ...suites.map(s => path.join(output, s+'.test.mjs'))]
+  command = process.execPath; args = ['--max-old-space-size=1024', '--test', '--test-reporter=tap', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000', ...suites.map(s => path.join(output, s.replace(/\.tsx?$/,'.mjs')))]
 }
 const result = spawnSync(command, args, { cwd: repo, env, encoding: 'utf8', windowsHide: true })
 fs.writeFileSync(path.join(output, 'result.log'), `${result.stdout || ''}${result.stderr || ''}`)
