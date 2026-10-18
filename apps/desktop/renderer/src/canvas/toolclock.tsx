@@ -62,7 +62,9 @@ export function executionTime(startedAt?: unknown, endedAt?: unknown): string {
 }
 
 function exactTimeTitle(label: string, ms: number): string {
-  return Number.isFinite(ms) && ms >= 0 ? `${label}: ${ms.toFixed(3)}ms` : `${label}: not observed for this call`
+  if (!Number.isFinite(ms) || ms < 0) return `${label}: not observed for this call`
+  const seconds = (ms / 1000).toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
+  return `${label}: ${seconds}s`
 }
 
 /** Keep the sub-ms part separate: adding it to a large epoch loses digits.

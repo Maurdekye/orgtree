@@ -5,7 +5,7 @@ import type { ToolTokenCount } from '../types'
 export const LiveTokenContext = createContext<Record<string, ToolTokenCount>>({})
 
 /** Counts are supplied by the engine; rendering never tokenizes transcript text. */
-export function TokenCount({ count, estimated = false, thinking = false, sampled = false }:
+export function TokenCount({ count, estimated = false, thinking = false }:
   { count?: number; estimated?: boolean; thinking?: boolean; sampled?: boolean }) {
   if (!Number.isSafeInteger(count) || count! < 0) return null
   const n = count!
@@ -14,9 +14,8 @@ export function TokenCount({ count, estimated = false, thinking = false, sampled
   const kind = thinking ? 'thinking' : 'output'
   const label = `${estimated ? 'approximately ' : ''}${n.toLocaleString('en-US')} ${kind} tokens`
   const detail = thinking ? `${n.toLocaleString('en-US')} thinking tokens reported for this response`
-    : estimated ? `Estimated text output tokens, calibrated o200k_base${sampled ? '; sampled output' : ''}. Images are excluded.`
-    : `${n.toLocaleString('en-US')} output tokens reported for this result`
-  const title = `${thinking ? 'thinking' : 'tool output'}: ${estimated ? '~' : ''}${n.toLocaleString('en-US')}t\n${detail}`
+    : estimated ? '' : `${n.toLocaleString('en-US')} output tokens reported for this result`
+  const title = `${thinking ? 'thinking' : 'tool output'}: ${estimated ? '~' : ''}${n.toLocaleString('en-US')}t${detail ? `\n${detail}` : ''}`
   return <span className={`dim token-count ${thinking ? 'thinking-tokens' : 'tool-output-tokens'}`}
     title={title} aria-label={label}>
     {' · '}<SvgIcon className="token-glyph" fontSize="inherit" aria-hidden="true" data-testid="TextCursorIcon">
