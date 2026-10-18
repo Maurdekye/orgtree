@@ -637,7 +637,10 @@ async fn project_inbox(client: &tokio_postgres::Client, me: &super::Me, name: &s
             .query_one("SELECT count(*) FROM ot.watchdogs WHERE kind = 'fair_queue' AND state = 'armed' AND (memo->>'target_id')::bigint = $1", &[&p.id])
             .await?
             .get(0);
-        return Done::json(&json!({ "project": p.name, "waiting": total, "fair_queue_watchers": watchers, "messages": messages, "note": note }));
+        let st = projects::queue_state(client, me.org_id, p.id, None).await?;
+        return Done::json(&json!({ "project": p.name, "waiting": total, "fair_queue_watchers": watchers,
+            "queue": projects::wait_note(&p.name, &projects::QueueState { position: (total > 0).then_some(1), ..st }),
+            "messages": messages, "note": note }));
     }
     let a = args["message_ids"].as_array().ok_or_else(|| anyhow::anyhow!("fetch needs message_ids"))?;
     if a.is_empty() || a.len() > 20 || a.iter().any(|v| !v.is_string()) {

@@ -84,6 +84,14 @@ pub fn max_attempts(scope: &Value) -> i64 {
     scope.get("mail_queue_max_attempts").and_then(Value::as_i64).filter(|n| (1..=100).contains(n)).unwrap_or(3)
 }
 
+/// Does the project remind a listener at once when it ends a turn still holding
+/// an un-acked job (`scope.mail_queue_turn_end_reminder`, default ON; user
+/// 2026-10-18 18:05Z-18:06Z)? Only ack mode holds jobs.
+#[nolog]
+pub fn turn_end_reminder(scope: &Value) -> bool {
+    scope.get("mail_queue_turn_end_reminder").and_then(Value::as_bool) != Some(false)
+}
+
 /// SQL: a project mail (alias `m`) handed in ack mode and not acked yet.
 const OUTSTANDING: &str = "m.state = 'read' AND coalesce((m.extra->'claimed'->>'ack')::boolean, false)
     AND m.extra->'claimed'->>'acked_at' IS NULL";
@@ -828,6 +836,186 @@ pub async fn watched(client: &impl GenericClient, org_id: i64, project: i64) -> 
     Ok(false)
 }
 
+/// How a project's queue stands, for the note a waiting mail's sender is given.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct QueueState {
+    /// agents with an armed fair_queue dog on the project that still reach it
+    pub listeners: i64,
+    /// of those, ack mode: holding an un-acked job from the project
+    pub holding: i64,
+    /// of those, ack mode: halted (handed nothing)
+    pub halted: i64,
+    /// agents whose only fair_queue dogs on the project are paused
+    pub paused: i64,
+    /// the mail's place among the project's waiting mail (1 = next), when known
+    pub position: Option<i64>,
+}
+
+/// The sender's note for mail that waits in the queue (it was not handed out
+/// at once). Says who could take it and why not, with its place in line.
+#[nolog]
+pub fn wait_note(project: &str, st: &QueueState) -> String {
+    let place = st.position.map(|k| format!(" (position {k} in line)")).unwrap_or_default();
+    let who = |n: i64| if n == 1 { "1 listener".to_string() } else { format!("{n} listeners") };
+    if st.listeners == 0 && st.paused == 0 {
+        return format!(
+            "Queued in project {project}'s mailbox{place}. No agent watches the project with a fair_queue watchdog right now, so it waits there until one does; agents above or below the project can see it with orgtree_inbox project={project}.");
+    }
+    if st.listeners == 0 {
+        return format!(
+            "Queued in project {project}'s mailbox{place}. Its {} paused (their fair_queue watchdogs are paused), so it waits there until one resumes or another agent starts watching.",
+            if st.paused == 1 { "only listener is".to_string() } else { format!("{} listeners are", st.paused) });
+    }
+    let n = st.listeners;
+    let paused = if st.paused > 0 { format!("; {} more paused", who(st.paused)) } else { String::new() };
+    if st.holding == n {
+        return format!(
+            "Queued in project {project}'s mailbox{place}: {}, all holding an un-acked job; it is handed out as soon as one of them acks{paused}.", who(n));
+    }
+    if st.holding + st.halted == n && st.halted > 0 {
+        let holding = if st.holding > 0 { format!("{} holding an un-acked job, ", st.holding) } else { String::new() };
+        return format!(
+            "Queued in project {project}'s mailbox{place}: {}, {holding}{} halted; it is handed out when one is free to take it{paused}.", who(n), st.halted);
+    }
+    format!("Queued in project {project}'s mailbox{place}; it goes to the next of its {} to become eligible{paused}.", who(n))
+}
+
+/// Read how a project's queue stands now; `mail` is the waiting mail whose
+/// place in line is wanted (its uid).
+#[logged]
+pub async fn queue_state(client: &impl GenericClient, org_id: i64, project: i64, mail: Option<&str>) -> Result<QueueState> {
+    let ack = match client.query_opt("SELECT scope FROM ot.agents WHERE id = $1", &[&project]).await? {
+        Some(r) => ack_mode(&r.get::<_, Value>(0)),
+        None => false,
+    };
+    let rows = client
+        .query(
+            &format!("SELECT a.id, a.halt IS NOT NULL,
+                    EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = $2
+                             AND (m.extra->'claimed'->>'by_id')::bigint = a.id AND {OUTSTANDING})
+               FROM ot.agents a
+              WHERE a.state = 'live' AND a.kind = 'agent' AND a.id IN (
+                    SELECT w.owner_agent_id FROM ot.watchdogs w WHERE w.org_id = $1 AND w.kind = 'fair_queue'
+                       AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $2)
+              ORDER BY a.id LIMIT 64"),
+            &[&org_id, &project],
+        )
+        .await?;
+    let mut st = QueueState::default();
+    for r in &rows {
+        let id: i64 = r.get(0);
+        if !reaches(client, id, project).await? {
+            continue;
+        }
+        st.listeners += 1;
+        if ack {
+            if r.get::<_, bool>(1) {
+                st.halted += 1;
+            } else if r.get::<_, bool>(2) {
+                st.holding += 1;
+            }
+        }
+    }
+    st.paused = client
+        .query_one(
+            "SELECT count(DISTINCT w.owner_agent_id) FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+              WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'paused' AND (w.memo->>'target_id')::bigint = $2
+                AND a.state = 'live' AND a.kind = 'agent'
+                AND NOT EXISTS (SELECT 1 FROM ot.watchdogs x WHERE x.kind = 'fair_queue' AND x.state = 'armed'
+                                 AND x.owner_agent_id = w.owner_agent_id AND (x.memo->>'target_id')::bigint = $2)",
+            &[&org_id, &project],
+        )
+        .await?
+        .get(0);
+    if let Some(uid) = mail {
+        st.position = client
+            .query_opt(
+                "SELECT count(*) FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                    AND id <= (SELECT id FROM ot.mail WHERE uid = $2)",
+                &[&project, &uid],
+            )
+            .await?
+            .map(|r| r.get::<_, i64>(0))
+            .filter(|n| *n > 0);
+    }
+    Ok(st)
+}
+
+/// First line of a job, for the reminder (the mail body, cut short).
+#[nolog]
+fn first_line(body: &str) -> String {
+    gist(body.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim(), 120)
+}
+
+/// A listener ended a turn: remind it ONCE, right away, of every un-acked job
+/// it still holds whose project has the setting on (user 2026-10-18
+/// 18:05Z-18:06Z). Skipped for a job whose handed copy the agent has not read
+/// yet (its next turn will), for an agent that is halted, retired or whose
+/// latest status, set after it took the job, is `blocked` with a reason (those
+/// jobs get only the normal 20-minute reminders), and for a job already
+/// reminded. The caller does not call this for a turn that was interrupted,
+/// failed, hit a usage limit or froze the agent. The reminder is system mail,
+/// which starts one new turn; it does not force the turn to keep running.
+/// Returns how many jobs it named.
+#[logged]
+pub async fn remind_unfinished(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &str) -> Result<usize> {
+    let rows = {
+        let client = engine.db.get().await?;
+        client
+            .query(
+                &format!("SELECT m.id, m.extra->'claimed'->>'copy', p.name, m.body
+                            FROM ot.mail m JOIN ot.agents p ON p.id = m.recipient_agent_id AND p.kind = 'project'
+                            JOIN ot.agents a ON a.id = $1
+                           WHERE (m.extra->'claimed'->>'by_id')::bigint = $1 AND {OUTSTANDING}
+                             AND a.state = 'live' AND a.halt IS NULL
+                             AND coalesce((p.scope->>'mail_queue_turn_end_reminder')::boolean, true)
+                             AND m.extra->'claimed'->>'reminded_at' IS NULL
+                             AND EXISTS (SELECT 1 FROM ot.mail c WHERE c.uid = m.extra->'claimed'->>'copy'
+                                          AND c.state NOT IN ('pending', 'delivering', 'retracted'))
+                             AND NOT (a.last_status->>'status' = 'blocked'
+                                      AND length(trim(coalesce(a.last_status->>'summary', ''))) > 0
+                                      AND (a.last_status->>'at')::timestamptz >= (m.extra->'claimed'->>'at')::timestamptz)
+                           ORDER BY m.id LIMIT 20"),
+                &[&agent],
+            )
+            .await?
+    };
+    let mut named = Vec::new();
+    for r in &rows {
+        let (row, copy, pname, body): (i64, Option<String>, String, String) = (r.get(0), r.get(1), r.get(2), r.get(3));
+        let marked = engine.db.get().await?
+            .execute(
+                "UPDATE ot.mail SET extra = jsonb_set(extra, '{claimed,reminded_at}', to_jsonb(now()))
+                  WHERE id = $1 AND extra->'claimed'->>'reminded_at' IS NULL",
+                &[&row],
+            )
+            .await?;
+        if marked == 1 {
+            if let Some(c) = copy {
+                named.push((c, pname, first_line(&body)));
+            }
+        }
+    }
+    if named.is_empty() {
+        return Ok(0);
+    }
+    let list = named.iter()
+        .map(|(c, p, line)| format!("- {c} (project {p}): {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let how = named.iter().map(|(c, p, _)| format!("orgtree_message to={p} reply_to={c}")).collect::<Vec<_>>().join(" / ");
+    let body = format!(
+        "You still hold {} un-acked job{} from a project work queue; your turn ended without acking {}:\n{list}\n\
+         Finish {} and ack {} ({how} with a short completion record), or set your status to blocked with the reason \
+         (orgtree_status status=blocked summary=...). Until you ack, the project hands you no more jobs.",
+        named.len(), if named.len() == 1 { "" } else { "s" }, if named.len() == 1 { "it" } else { "them" },
+        if named.len() == 1 { "it" } else { "them" }, if named.len() == 1 { "it" } else { "each" });
+    let mut out = crate::domain::mail::Outgoing::new(crate::domain::mail::From::System, name, &body);
+    out.grant_reply_audience = false;
+    Box::pin(crate::domain::mail::send(engine, org_id, out)).await?;
+    Ok(named.len())
+}
+
 /// The one agent asked to arm a fair_queue dog when the user writes to a
 /// project nobody watches (user 2026-10-18 07:46Z; coordinator 07:47Z): a
 /// live, unhalted agent directly under the project, an idle one first, else
@@ -898,6 +1086,49 @@ mod tests {
         let twins = vec![w(7, Some(5), 3), w(4, Some(5), 3)];
         assert_eq!(pick(&twins).map(|x| x.row), Some(4), "same age too: the lower row");
         assert!(pick(&[]).is_none());
+    }
+
+    fn st(listeners: i64, holding: i64, halted: i64, paused: i64, position: Option<i64>) -> QueueState {
+        QueueState { listeners, holding, halted, paused, position }
+    }
+
+    #[test]
+    fn nobody_watching_keeps_the_old_text() {
+        let t = wait_note("q", &st(0, 0, 0, 0, Some(1)));
+        assert!(t.contains("No agent watches") && t.contains("position 1"), "{t}");
+    }
+
+    #[test]
+    fn all_listeners_holding_a_job_is_said_with_the_place_in_line() {
+        let t = wait_note("q", &st(3, 3, 0, 0, Some(2)));
+        assert!(t.contains("3 listeners, all holding an un-acked job") && t.contains("position 2 in line"), "{t}");
+        assert!(!t.contains("No agent watches"), "{t}");
+        assert!(wait_note("q", &st(1, 1, 0, 0, None)).contains("1 listener, all holding"), "singular");
+        assert!(!wait_note("q", &st(2, 2, 0, 0, None)).contains("position"), "no place when it is unknown");
+    }
+
+    #[test]
+    fn halted_and_paused_listeners_are_named_not_called_absent() {
+        let t = wait_note("q", &st(3, 1, 2, 0, Some(1)));
+        assert!(t.contains("1 holding an un-acked job, 2 halted"), "{t}");
+        let p = wait_note("q", &st(0, 0, 0, 1, Some(1)));
+        assert!(p.contains("only listener is paused") && !p.contains("No agent watches"), "{p}");
+        let m = wait_note("q", &st(2, 2, 0, 1, None));
+        assert!(m.contains("1 listener more paused") || m.contains("1 listener paused") || m.contains("more paused"), "{m}");
+    }
+
+    #[test]
+    fn the_turn_end_reminder_is_on_unless_the_project_turns_it_off() {
+        assert!(turn_end_reminder(&json!({})));
+        assert!(turn_end_reminder(&json!({"mail_queue_turn_end_reminder": true})));
+        assert!(!turn_end_reminder(&json!({"mail_queue_turn_end_reminder": false})));
+        assert!(turn_end_reminder(&json!({"mail_queue_turn_end_reminder": "no"})), "only an explicit false turns it off");
+    }
+
+    #[test]
+    fn a_job_is_named_by_its_first_non_empty_line() {
+        assert_eq!(first_line("\n\n  Fix the build  \nmore"), "Fix the build");
+        assert_eq!(first_line(""), "");
     }
 
     #[test]

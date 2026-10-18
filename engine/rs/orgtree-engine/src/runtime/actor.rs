@@ -7428,6 +7428,17 @@ impl Actor {
             }
         }
         self.changed(ch);
+        // a listener's turn ended still holding an un-acked project job (ack mode): one reminder
+        // turn right away (project setting, on by default); a failed, limited or frozen turn
+        // and an interrupt are not "ended its turn"
+        if !turn.interrupted && !turn.killed && !turn.compact && !turn.session_ended && error.is_none() && limit.is_none() && freeze_rec.is_none() {
+            let (engine, org_id, id, name) = (self.engine.clone(), self.org_id, self.id, self.name.clone());
+            tokio::spawn(async move {
+                if let Err(e) = crate::domain::projects::remind_unfinished(&engine, org_id, id, &name).await {
+                    tracing::warn!(agent = %name, error = %format!("{e:#}"), "the unfinished-job reminder could not be sent");
+                }
+            });
+        }
         if let Some(rec) = &freeze_rec {
             freeze::schedule(&self.engine, self.org_id, self.id, &self.name, rec);
             if let Some((tier, account, org_slug)) = fall_back {

@@ -513,9 +513,12 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
             "Delivered to project {}'s mailbox; its fair queue handed it to {} (fair_queue watchdog {}), who now has it as ordinary mail from you.",
             project.name, h.watcher, h.dog),
         None if matches!(out.from, From::User) => Box::pin(nudge_project(engine, org.id, &project)).await?,
-        None => format!(
-            "Queued in project {}'s mailbox. No agent watches the project with a fair_queue watchdog right now, so it waits there until one does; agents above or below the project can see it with orgtree_inbox project={}.",
-            project.name, project.name),
+        None => {
+            // who could take it and why not: every listener busy, halted or paused is not "nobody watches"
+            let client = engine.db.get().await?;
+            let st = crate::domain::projects::queue_state(&**client, org.id, project.id, Some(&mail_uid)).await?;
+            crate::domain::projects::wait_note(&project.name, &st)
+        }
     };
     Ok(Sent { dnd_held: false, transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false })
 }
@@ -530,8 +533,18 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
 async fn nudge_project(engine: &Arc<Engine>, org_id: i64, project: &crate::domain::projects::Project) -> Result<String> {
     let client = engine.db.get().await?;
     if crate::domain::projects::watched(&**client, org_id, project.id).await? {
-        return Ok(format!(
-            "Queued in project {}'s mailbox; it goes to the next of its fair_queue watchers to become eligible.", project.name));
+        let st = crate::domain::projects::queue_state(&**client, org_id, project.id, None).await?;
+        // the user's post is the newest waiting mail: its place is the queue's length
+        let waiting: i64 = client
+            .query_one("SELECT count(*) FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'", &[&project.id])
+            .await?
+            .get(0);
+        return Ok(crate::domain::projects::wait_note(&project.name, &crate::domain::projects::QueueState { position: Some(waiting).filter(|n| *n > 0), ..st }));
+    }
+    let paused = crate::domain::projects::queue_state(&**client, org_id, project.id, None).await?;
+    if paused.paused > 0 {
+        // a listener exists but its dog is paused: nobody is missing, so nobody is asked to arm one
+        return Ok(crate::domain::projects::wait_note(&project.name, &paused));
     }
     if !engine.settings.project_listener_wake() {
         return Ok(format!(

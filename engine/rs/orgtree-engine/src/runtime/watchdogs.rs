@@ -1718,6 +1718,20 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
             refuse!(Conflict, "project {} is retired", p.name);
         }
         crate::domain::projects::require_reach(&**client, owner, &p, "watch its mailbox").await?;
+        // one listener per agent per project: a second dog adds no share of the queue
+        // (and, in ack mode, would never let the agent hold more than one job anyway)
+        if let Some(r) = client
+            .query_opt(
+                "SELECT uid, state FROM ot.watchdogs WHERE kind = 'fair_queue' AND owner_agent_id = $1
+                    AND state IN ('armed', 'paused') AND (memo->>'target_id')::bigint = $2 ORDER BY id LIMIT 1",
+                &[&owner, &p.id],
+            )
+            .await?
+        {
+            let (uid, state): (String, String) = (r.get(0), r.get(1));
+            refuse!(Conflict, "you already watch project {} with fair_queue watchdog {} ({}); one listener per agent per project, a second would not give you more of its mail. Keep using that one{}",
+                p.name, uid, state, if state == "paused" { " (resume it)" } else { "" });
+        }
         if args["fire_mode"].as_str().is_some_and(|m| !m.is_empty() && m != "event") || args.get("quiet_period_s").is_some_and(|q| !q.is_null()) {
             refuse!(BadRequest, "a fair_queue watchdog fires on each mail it is handed; it has no silence mode");
         }
