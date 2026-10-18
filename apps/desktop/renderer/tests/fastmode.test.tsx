@@ -35,7 +35,7 @@ async function desk(n: CanvasNode) {
     op={async () => ({})} toast={() => {}} bare />, el => el)
 }
 
-test('fast mode bolt above Send persists only the per-agent boolean', async () => {
+test('fast mode bolt beside Send persists only the per-agent boolean', async () => {
   const posted = setup(), n = node(), v = await desk(n)
   try {
     const toggle = v.el.querySelector<HTMLButtonElement>('[aria-label="Fast mode"]')
@@ -43,8 +43,10 @@ test('fast mode bolt above Send persists only the per-agent boolean', async () =
     assert.equal(toggle!.getAttribute('aria-pressed'), 'false')
     assert.match(toggle!.title, /higher usage/i)
     assert.match(toggle!.title, /next turn/i)
-    assert.equal(toggle!.nextElementSibling?.classList.contains('cc-send'), true,
-      'one button column puts the toggle immediately above Send')
+    const controls = toggle!.closest('.cc-controls')
+    assert.equal(!!controls, true, 'the toggle belongs to the shared wrapping controls row')
+    assert.equal(controls!.querySelector('.cc-send') !== null, true,
+      'the same row owns Send beside the speed and effort controls')
     await inAct(async () => { toggle!.click(); await flush(4) })
     assert.deepEqual(posted, [{ fast_mode: true }])
     await v.render(<DeskChat node={node('sol', true)} map={new Map([[n.id, n]])}
