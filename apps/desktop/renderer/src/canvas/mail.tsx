@@ -15,7 +15,7 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { mailTagKey, mailTagHue, mailMatchesTags, toggleMailTag } from './mailtags'
 import { MailTagPicker } from './mailtagpicker'
 import type { MailTagPickerProps } from './mailtagpicker'
-import type { InboxPayload, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
+import type { InboxPayload, MailQueueState, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
 import {
   audienceAction, fileBase, fileUrl, getMailById, getOrgInbox, orgInboxRead,
   uploadFile,
@@ -746,6 +746,36 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
 }) {
   const isPile = pile > 1
   const reply = recordedMailReply(m, '')
+  // A PROJECT MAIL TAKES THREE LINES (user 2026-10-18 14:24Z: "maybe a third
+  // row of content per mail item in the list for project mail is
+  // necessary?"). Its queue state names an agent, and line 1 cannot hold the
+  // sender, a kind chip, that name and the time: the name wrapped letter by
+  // letter and the kind chip stretched with it. So a row that shows a queue
+  // state moves its chips and that state to a line under the sender, and
+  // line 1 is the sender and the time, as in every other mailbox. A row with
+  // no queue state to show is unchanged.
+  const queued = !m._ask && showsQueueState(m.queue)
+  const chips = <>
+    {!m._ask && view && view.event.variant !== 'ordinary.message'
+      && view.event.variant !== 'ordinary.notice'
+      && !(hideMailReplyKind && view.event.variant === 'reply.mail')
+      && <span className="event-row-kind">{view.title}</span>}
+    {m._ask && <span className="askkind">{m.kind ?? 'ask'}</span>}
+    {/* Plain notices are unmarked. A folded run keeps its existing
+        count so its hidden members remain discoverable. */}
+    {!m._ask && isMailNotice(m) && isPile
+      && <span className="noticekind"
+        title={`${pile} system notices — open to read them`}>
+        {pile} notices</span>}
+    {/* the FILLED chip — every other chip in this list is an
+        outline, so filled is the one step up the vocabulary that
+        was still unused. Its tooltip carries the sender's reason,
+        which is the whole point of requiring one: the user judges
+        the interruption instead of just receiving it. */}
+    {!m._ask && m.urgent
+      && <span className="urgentkind" title={m.urgent_reason
+        ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
+  </>
   return (
     <div ref={rowRef}
       className={'mailrow' + (view ? ' event-row event-' + view.family : '') + (selected ? ' on' : '') + (m._wait ? ' unread' : '')
@@ -781,7 +811,8 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
         /* …and it FLASHES on the same test it scrolls on: a jump at a
            folded member must not scroll to a row that then sits there
            unmarked */
-        + (flash ? ' jflash' : '')}
+        + (flash ? ' jflash' : '')
+        + (queued ? ' project-mail' : '')}
       onClick={onClick}
       onContextMenu={onContextMenu}>
       <div className="l1">
@@ -793,35 +824,20 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
         <span className="mfrom">
           {outgoing ? '→ ' : ''}{party}
         </span>
-        {!m._ask && view && view.event.variant !== 'ordinary.message'
-          && view.event.variant !== 'ordinary.notice'
-          && !(hideMailReplyKind && view.event.variant === 'reply.mail')
-          && <span className="event-row-kind">{view.title}</span>}
-        {m._ask && <span className="askkind">{m.kind ?? 'ask'}</span>}
-        {/* Plain notices are unmarked. A folded run keeps its existing
-            count so its hidden members remain discoverable. */}
-        {!m._ask && isMailNotice(m) && isPile
-          && <span className="noticekind"
-            title={`${pile} system notices — open to read them`}>
-            {pile} notices</span>}
-        {/* the FILLED chip — every other chip in this list is an
-            outline, so filled is the one step up the vocabulary that
-            was still unused. Its tooltip carries the sender's reason,
-            which is the whole point of requiring one: the user judges
-            the interruption instead of just receiving it. */}
-        {!m._ask && m.urgent
-          && <span className="urgentkind" title={m.urgent_reason
-            ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
+        {!queued && chips}
         {mark}
         {!m._ask && m.dnd_held && <span className="dnd-mail-state">held (do not disturb)</span>}
         {!m._ask && m.dnd_read && <span className="dnd-mail-state">read</span>}
-        {!m._ask && m.queue && <QueueChip q={m.queue} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />}
         <span className="mtime">{fmtShort(m.at)}</span>
         {m._wait && m.id && onRetract && (
           <button className="chip-x" title="retract (undelivered)"
             onClick={(e) => { e.stopPropagation(); onRetract(m) }}>
             <CloseIcon fontSize="inherit" /></button>)}
       </div>
+      {queued && <div className="lmeta">
+        {chips}
+        <QueueChip q={m.queue!} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />
+      </div>}
       {/* the preview line is what makes a row two lines tall, so a
           SYSTEM notice simply does not render one (user, 2026-08-28:
           "much narrower in height"). Not hidden in CSS — not built:
@@ -1272,17 +1288,36 @@ interface InboxViewProps {
   collapsible?: boolean
 }
 
-/** A project mail's queue state, beside its time (user 2026-10-18 08:01Z):
- *  handed to an agent, waiting for its ack, acked, released back to the
- *  queue, or an ack record. */
+// Only a plain delivery uses the compact marker. Ack/release/dead-letter
+// states retain their distinct labels; the recorded claim time is not sent-at.
+const plainDelivery = (q: MailQueueState) =>
+  Boolean(q.held_by && !q.ack && !q.acked_at && !q.ack_of && !q.dead_letter && !q.purged && !q.released)
+/** every other queue state's label and tooltip; an empty label shows nothing */
+function queueLabel(q: MailQueueState): [string, string] {
+  return q.ack_of ? [`ack of ${q.ack_of}`, `the completion record that acks mail ${q.ack_of}`]
+    : q.dead_letter ? ['dead letter', `handed out ${q.dead_letter.attempts ?? '?'} times without an ack; the last holder, `
+      + `${q.dead_letter.by ?? '?'}, ${q.dead_letter.why ?? 'let it go'}. It will not be handed out again.`]
+    : q.purged ? ['purged', `purged from the queue by ${q.purged.by ?? '?'} before anyone took it`]
+    : q.released ? [`released (${q.released.by ?? '?'})`, `back in the queue: ${q.released.by ?? 'its holder'} ${q.released.why ?? 'let it go'}`]
+      : q.acked_at ? [`acked by ${q.held_by}`, `${q.held_by} acked it${q.ack_mail ? ` with ${q.ack_mail}` : ''}`]
+        : q.ack ? [`${q.held_by} · awaiting ack`, `handed to ${q.held_by}, who gets no more project mail until it acks this one`]
+          : q.held_by ? [`delivered to ${q.held_by}`, `the project's queue delivered it to ${q.held_by}`
+            + (q.ack_waived_at ? ' (its ack was waived when the queue left ack mode)' : '')] : ['', '']
+}
+/** does this queue state draw a QueueChip? A row that shows one gives it a
+ *  line of its own (MailRowView). */
+export const showsQueueState = (q: MailQueueState | undefined) =>
+  Boolean(q && (plainDelivery(q) || queueLabel(q)[0]))
+
+/** A project mail's queue state, on its row's meta line and in the reading
+ *  pane's header (user 2026-10-18 08:01Z): handed to an agent, waiting for
+ *  its ack, acked, released back to the queue, or an ack record. */
 export function QueueChip({ q, onFocusAgent, hasAgent }: {
-  q: import('../types').MailQueueState
+  q: MailQueueState
   onFocusAgent?: (id: string) => void
   hasAgent?: (id: string) => boolean
 }) {
-  // Only a plain delivery uses the compact marker. Ack/release/dead-letter
-  // states retain their distinct labels; the recorded claim time is not sent-at.
-  if (q.held_by && !q.ack && !q.acked_at && !q.ack_of && !q.dead_letter && !q.purged && !q.released) {
+  if (plainDelivery(q) && q.held_by) {
     const title = `delivered to ${q.held_by}`
       + (q.held_at ? ` at ${fmtFull(q.held_at)}` : ' — delivery time not recorded')
       + (q.ack_waived_at ? ' (its ack was waived when the queue left ack mode)' : '')
@@ -1293,15 +1328,7 @@ export function QueueChip({ q, onFocusAgent, hasAgent }: {
         onFocus={focus && hasAgent?.(q.held_by) ? id => focus(id) : undefined} />
     </span>
   }
-  const [text, title] = q.ack_of ? [`ack of ${q.ack_of}`, `the completion record that acks mail ${q.ack_of}`]
-    : q.dead_letter ? ['dead letter', `handed out ${q.dead_letter.attempts ?? '?'} times without an ack; the last holder, `
-      + `${q.dead_letter.by ?? '?'}, ${q.dead_letter.why ?? 'let it go'}. It will not be handed out again.`]
-    : q.purged ? ['purged', `purged from the queue by ${q.purged.by ?? '?'} before anyone took it`]
-    : q.released ? [`released (${q.released.by ?? '?'})`, `back in the queue: ${q.released.by ?? 'its holder'} ${q.released.why ?? 'let it go'}`]
-      : q.acked_at ? [`acked by ${q.held_by}`, `${q.held_by} acked it${q.ack_mail ? ` with ${q.ack_mail}` : ''}`]
-        : q.ack ? [`${q.held_by} · awaiting ack`, `handed to ${q.held_by}, who gets no more project mail until it acks this one`]
-          : q.held_by ? [`delivered to ${q.held_by}`, `the project's queue delivered it to ${q.held_by}`
-            + (q.ack_waived_at ? ' (its ack was waived when the queue left ack mode)' : '')] : ['', '']
+  const [text, title] = queueLabel(q)
   if (!text) return null
   return <span className={'queuekind' + (q.ack && !q.acked_at && !q.released ? ' awaiting' : '') + (q.dead_letter ? ' dead' : '')}
     title={title}>{text}</span>
