@@ -1035,8 +1035,19 @@ org no longer reaches you."
     } else if is(oc, "declined") {
         "The user declined your audience request.".into()
     } else {
+        // For rescinded events, `other` names a remaining project. Empty means
+        // checked absence; historical null/missing events cannot assert current loss.
+        if is(oc, "rescinded") && opt(ev,"other").as_str().is_some_and(|p|!p.is_empty()) {
+            let target=if target.starts_with('@'){target}else{format!("@{target}")};
+            let project=if other.starts_with('@'){other}else{format!("@{other}")};
+            return Some(format!("Your explicit audience with {target} was rescinded. You still reach {target} through project {project}. This audience remains usable; for @user this includes mail to=user, questions and presentations."));
+        }
         let label = if is(target_v, USER) { "the user".to_string() } else { target };
-        format!("Your audience with {label} was rescinded — fall back to the parent chain.")
+        if is(oc,"rescinded") && opt(ev,"other").as_str()==Some("") {
+            format!("Your explicit audience with {label} was rescinded. No project-inherited audience remains; use the normal hierarchy or request an audience where needed.")
+        } else {
+            format!("Your explicit audience with {label} was rescinded. This removes only the personal grant: check Your effective audiences in the current ORG STATE for project-inherited access that may remain.")
+        }
     })
 }
 

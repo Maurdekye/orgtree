@@ -672,8 +672,7 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, _op
     // protects empty/root sets. Membership/order writers participate too,
     // so a move/restore/archive cannot escape the placement snapshot.
     // run retries 40001; no global topology lock is introduced.
-    let isolation = if matches!(canonical_op(_op), "hire" | "create_project" | "reorder" | "rehire" | "move" | "moves"
-        | "swap" | "self_subjugate" | "retire" | "dissolve" | "rescind" | "delete") {
+    let isolation = if canonical_op(_op)=="reorder" || super::audience_notices::topology_changes_audiences(canonical_op(_op)) {
         tokio_postgres::IsolationLevel::Serializable
     } else { tokio_postgres::IsolationLevel::ReadCommitted };
     let tx = client.build_transaction().isolation_level(isolation).start().await?;
@@ -696,6 +695,9 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
     if user_scope || staffing_audiences {
         tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org.id]).await?;
     }
+    let inherited_before = if super::audience_notices::topology_changes_audiences(canonical_op(op)) {
+        Some(super::audience_notices::snapshot(tx, org.id).await?)
+    } else { None };
     let mut out = match canonical_op(op) {
         "hire" => hire(engine, org, &tx, actor, req, fx).await?,
         "create_project" => create_project(engine, org, &tx, actor, req, fx).await?,
@@ -810,6 +812,10 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
     }
     // projects stay transparent in the credit hierarchy (user 2026-10-16 20:40Z)
     fx.agents.extend(crate::domain::projects::settle_credits(tx, org.id).await?);
+    if let Some(before) = inherited_before {
+        let after = super::audience_notices::snapshot(tx, org.id).await?;
+        fx.mailboxes.extend(super::audience_notices::record_delta_tx(tx, org.id, &before, &after).await?);
+    }
     if crate::runtime::watchdogs::events::interested(engine,"agents.live") {
         let ids=tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live' AND kind='agent'", &[&org.id]).await?.iter().map(|r|r.get(0)).collect();
         fx.pulses.push(crate::changes::Change::EngineEvent(crate::runtime::watchdogs::events::live_count(org.id,ids)));

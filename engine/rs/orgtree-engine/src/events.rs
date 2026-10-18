@@ -220,6 +220,8 @@ const AUDIENCE_OUTCOMES: &[&str] = &[
 ];
 
 /// `access.audience_changed`: what a grant or revoke means for `node`.
+/// For `rescinded`, `other` is the remaining project source (empty = checked
+/// absence; None = historical/unknown). Other outcomes keep their peer name.
 pub fn audience_changed(org: &str, node: &str, generation: i64, outcome: &str, by: &str, target: &str, other: Option<&str>) -> Option<Value> {
     if !AUDIENCE_OUTCOMES.contains(&outcome) {
         return None;

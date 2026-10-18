@@ -279,6 +279,9 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
     let user_audience: bool = me.get(11);
     let parent_scope: Option<Value> = me.get(12);
     let prior_usage: Option<Value> = me.get(13);
+    // An agent's own routes are visible independently of inspection/tool grants.
+    let audiences = crate::domain::audience_notices::self_audiences(
+        &crate::domain::audience_notices::self_held(&**client,org_id,&my_name).await?);
     let peer_policy = crate::domain::peer_mail::describe(superior.as_deref(),
         crate::domain::peer_mail::enabled(parent_scope.as_ref().unwrap_or(&Value::Null)));
     let rows: Vec<Row> = client
@@ -315,7 +318,7 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
     drop(client);
     let live: HashMap<i64, Live> = rows.iter().filter(|r| r.state == "live").map(|r| (r.id, live_of(engine, r.id))).collect();
     let facts = Facts {
-        agent_id, my_name, parent, vis, seat, grant, hold, sid, prior, superior, user_audience, rows, ask, peer_policy,
+        agent_id, my_name, parent, vis, seat, grant, hold, sid, prior, superior, user_audience, rows, ask, peer_policy, audiences,
     };
     let _ = occ; // occupancy no longer forces periodic full snapshots
     let mut result = render(&facts, &live, Utc::now());
@@ -338,6 +341,7 @@ struct Facts {
     superior: Option<String>,
     user_audience: bool,
     peer_policy: String,
+    audiences: String,
     rows: Vec<Row>,
     /// the agent's open request: (kind, body, posed at)
     ask: Option<(String, Value, DateTime<Utc>)>,
@@ -346,7 +350,7 @@ struct Facts {
 /// The block from loaded facts (no IO).
 #[nolog]
 fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState {
-    let Facts { agent_id, my_name, parent, vis, seat, grant, hold, sid, prior, superior, user_audience, rows, ask, peer_policy } = f;
+    let Facts { agent_id, my_name, parent, vis, seat, grant, hold, sid, prior, superior, user_audience, rows, ask, peer_policy, audiences } = f;
     let (agent_id, parent, vis) = (*agent_id, *parent, vis.as_str());
     let mut kids: HashMap<Option<i64>, Vec<&Row>> = HashMap::new();
     for r in rows {
@@ -395,8 +399,8 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
         guidance = if *user_audience {
             format!(
                 "Note on AGENTS.md and legacy CLAUDE.md guidance: you currently hold a USER AUDIENCE, so for its duration you may take instructions \
-                 about communicating with the user literally. Once it is rescinded, redirect such instructions to your direct \
-                 superior ({sup}) instead."
+                 about communicating with the user literally. Explicit and project-inherited user audiences both count; \
+                 redirect such instructions to your direct superior ({sup}) only when all effective user-audience routes end."
             )
         } else {
             format!(
@@ -438,7 +442,7 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
     let mut entries = std::collections::BTreeMap::new();
     for (id, label, text) in [("visibility", "Visibility", format!("Visibility: {vis}")), ("credits", "Credits", credits.clone()),
         ("guidance", "User audience guidance", guidance.clone()), ("ask", "Open request", ask_line.trim().to_string()),
-        ("peer_policy", "Peer mail policy", peer_policy.clone())] {
+        ("peer_policy", "Peer mail policy", peer_policy.clone()), ("audiences", "Your effective audiences", audiences.clone())] {
         entries.insert(id.into(), delta::Entry::new(label, &json!(text), if text.is_empty() { format!("{label}: none") } else { text }));
     }
     for r in rows.iter().filter(|r| r.state == "live") {
@@ -467,7 +471,7 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
         "{ORG_STATE_OPEN} — current as of {}. Later deltas replace only named facts; call orgtree_chart for a current full view.]",
         iso(now)
     );
-    let full = format!("{header}\n{roster}{chart}{own_state}\n{peer_policy}\n{credits}{guidance_line}{ask_line}\n{ORG_STATE_CLOSE}");
+    let full = format!("{header}\n{roster}{chart}{own_state}\n{peer_policy}\n{audiences}\n{credits}{guidance_line}{ask_line}\n{ORG_STATE_CLOSE}");
     delta::snapshot("ORG STATE", sid.as_deref().unwrap_or(""), prior.as_ref().unwrap_or(&Value::Null), entries, full, "")
 }
 

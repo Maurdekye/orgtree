@@ -243,15 +243,30 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
 /// Give `grantee` an audience with `grantor`.
 #[logged]
 pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, grantee: &str, target: Option<&str>, reason: &str) -> Result<Value> {
+    for attempt in 1..=4 {
+        match grant_once(engine,org,actor,grantee,target,reason).await {
+            Err(e) if attempt<4 && super::ops::retryable(&e) => tokio::time::sleep(std::time::Duration::from_millis(20*attempt)).await,
+            outcome => return outcome,
+        }
+    }
+    unreachable!()
+}
+
+#[logged]
+async fn grant_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, grantee: &str, target: Option<&str>, reason: &str) -> Result<Value> {
     let mut client = engine.db.get().await?;
-    let tx = client.transaction().await?;
+    let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await?;
+    let inherited_before = super::audience_notices::snapshot(&*tx, org.id).await?;
     let (out, gid) = grant_tx(engine, &*tx, org, actor, grantee, target, reason).await?;
+    let inherited_after = super::audience_notices::snapshot(&*tx, org.id).await?;
+    let inherited_recipients = super::audience_notices::record_delta_tx(&*tx, org.id, &inherited_before, &inherited_after).await?;
     let recipient = notice_recipient(&*tx, org.id, out["grantee"].as_str().unwrap_or(grantee)).await?;
     let notice_id: Option<i64> = tx.query_opt("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND kind='agent' AND state='live'", &[&org.id, &recipient]).await?.map(|r| r.get(0));
     tx.commit().await?;
     drop(client);
     if out["granted"] != true && out["answered"] != true { return Ok(out); }
     let mut changes = vec![Change::Audiences, Change::OrgInbox, Change::Events, Change::Agent(gid), Change::Mailbox(gid), Change::UserMail];
+    changes.extend(inherited_recipients.into_iter().map(Change::Mailbox));
     if let Some(id) = notice_id { if id != gid { changes.push(Change::Mailbox(id)); } }
     changes::notify(engine, org, changes);
     crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("audience.granted",crate::runtime::watchdogs::events::Scope::Agent(org.id,gid),json!({"agent_id":gid})));
@@ -395,7 +410,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
 }
 
 #[logged]
-async fn decision_notice_tx(client: &impl tokio_postgres::GenericClient, org_id: i64, grantee: &str, body: &str, notice: bool, ev: Option<Value>) -> Result<()> {
+pub(super) async fn decision_notice_tx(client: &impl tokio_postgres::GenericClient, org_id: i64, grantee: &str, body: &str, notice: bool, ev: Option<Value>) -> Result<()> {
     let to = notice_recipient(client, org_id, grantee).await?;
     let id: Option<i64> = if to == USER { None } else {
         Some(client.query_one("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND state='live'", &[&org_id, &to]).await?.get(0))
@@ -483,38 +498,52 @@ pub async fn deny(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, req
 /// itself, and a top-level agent for user and org-inbox grants in its subtree.
 #[logged]
 pub async fn revoke(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, grantee: &str, grantor: Option<&str>) -> Result<Value> {
+    for attempt in 1..=4 {
+        match revoke_once(engine,org,actor,grantee,grantor).await {
+            Err(e) if attempt<4 && super::ops::retryable(&e) => tokio::time::sleep(std::time::Duration::from_millis(20*attempt)).await,
+            outcome => return outcome,
+        }
+    }
+    unreachable!()
+}
+
+#[logged]
+async fn revoke_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, grantee: &str, grantor: Option<&str>) -> Result<Value> {
     let grantee = grantee.trim().trim_start_matches('@').to_string();
-    let client = engine.db.get().await?;
+    let mut connection = engine.db.get().await?;
+    let tx = connection.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await?;
+    let client = &*tx;
     let grantor = match (actor, grantor.map(str::trim).filter(|g| !g.is_empty())) {
         (Actor::Agent { name, .. }, None) => name.clone(),
         (_, g) => party(g),
     };
     if let Actor::Agent { id, name } = actor {
-        if project_manager(&**client, org.id, &grantee).await?.is_some() {
-            let (gid, _) = live(&**client, org.id, &grantee).await?;
-            if descends(&**client, gid, *id).await? { refuse!(Forbidden, "project members do not manage the project's grants"); }
+        if project_manager(client, org.id, &grantee).await?.is_some() {
+            let (gid, _) = live(client, org.id, &grantee).await?;
+            if descends(client, gid, *id).await? { refuse!(Forbidden, "project members do not manage the project's grants"); }
         }
         let allowed = if grantor == *name {
             true
         } else if grantor == EXTERN && grantee == *name {
             true
         } else if grantor == EXTERN || grantor == USER {
-            let (_, my_parent) = live(&**client, org.id, name).await?;
+            let (_, my_parent) = live(client, org.id, name).await?;
             let gid: Option<i64> = client
                 .query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2", &[&org.id, &grantee])
                 .await?
                 .map(|r| r.get(0));
             my_parent.is_none() && match gid {
-                Some(g) => descends(&**client, *id, g).await?,
+                Some(g) => descends(client, *id, g).await?,
                 None => false,
             }
         } else {
-            project_manager(&**client, org.id, &grantor).await?.as_deref() == Some(name.as_str())
+            project_manager(client, org.id, &grantor).await?.as_deref() == Some(name.as_str())
         };
         if !allowed {
             refuse!(Forbidden, "you can rescind only audiences you granted (and, top-level, user and org-inbox grants in your subtree)");
         }
     }
+    let inherited_before = super::audience_notices::snapshot(client, org.id).await?;
     let n = client
         .execute(
             "UPDATE ot.audiences SET revoked_at = now() WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL",
@@ -522,7 +551,7 @@ pub async fn revoke(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, g
         )
         .await?;
     if n == 0 {
-        refuse!(NotFound, "{grantee} holds no audience with {}", spoken(&grantor));
+        refuse!(NotFound, "{grantee} holds no explicit audience with {}; inherited project access is unchanged", spoken(&grantor));
     }
     let by = match actor {
         Actor::User => USER.to_string(),
@@ -538,20 +567,30 @@ pub async fn revoke(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, g
         .query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org.id, &grantee])
         .await?
         .map(|r| r.get(0));
-    drop(client);
+    let inherited_after = super::audience_notices::snapshot(client, org.id).await?;
+    let inherited_recipients = super::audience_notices::record_delta_tx(client, org.id, &inherited_before, &inherited_after).await?;
+    let mut explicit_recipient = None;
     if gid.is_some() && by != grantee {
-        let generation: i64 = {
-            let client = engine.db.get().await?;
-            client
+        let generation: i64 = client
                 .query_opt("SELECT generation FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org.id, &grantee])
                 .await?
                 .map(|r| r.get::<_, i32>(0) as i64)
-                .unwrap_or(1)
-        };
-        let ev = crate::events::audience_changed(&org.slug, &grantee, generation, "rescinded", &by, &grantor, None);
-        tell(engine, org.id, &grantee, format!("Your audience with {} was rescinded by {}.", spoken(&grantor), spoken(&by)), false, ev).await;
+                .unwrap_or(1);
+        let held = gid.and_then(|id| inherited_after.get(&id)).map(|h|h.grants.as_slice()).unwrap_or(&[]);
+        let sources = super::audience_notices::inherited_pairs(held);
+        let project = sources.iter().find(|(target,_)|target==&grantor).map(|(_,p)|p.as_str());
+        // Empty source means a checked absence; None on historical events means unknown.
+        let ev = crate::events::audience_changed(&org.slug, &grantee, generation, "rescinded", &by, &grantor, Some(project.unwrap_or("")));
+        let body = super::audience_notices::revoke_body(&grantor, &by, held);
+        decision_notice_tx(client, org.id, &grantee, &body, true, ev).await?;
+        let recipient = notice_recipient(client, org.id, &grantee).await?;
+        explicit_recipient = client.query_opt("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND state='live' AND kind='agent'", &[&org.id,&recipient]).await?.map(|r|r.get::<_,i64>(0));
     }
-    let mut ch = vec![Change::Audiences, Change::Events];
+    tx.commit().await?;
+    drop(connection);
+    let mut ch = vec![Change::Audiences, Change::Events, Change::UserMail];
+    ch.extend(inherited_recipients.into_iter().map(Change::Mailbox));
+    if let Some(id) = explicit_recipient { ch.push(Change::Mailbox(id)); }
     if let Some(g) = gid {
         ch.push(Change::Agent(g));
     }

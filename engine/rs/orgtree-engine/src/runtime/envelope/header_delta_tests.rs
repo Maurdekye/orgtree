@@ -13,7 +13,31 @@ fn fixture(reports: usize, small_report: bool) -> (Facts, DateTime<Utc>) {
         parent: small_report.then_some(1), vis: if small_report { "self".into() } else { "full".into() },
         seat: 2.0, grant: (reports * 4) as f64, hold: (reports * 2) as f64,
         sid: Some("synthetic-session".into()), prior: None, peer_policy: "Peers may message each other.".into(),
+        audiences: "Your effective audiences: none.".into(),
         superior: small_report.then(|| "coordinator".into()), user_audience: false, rows, ask: None }, now)
+}
+
+#[test]
+fn audience_notice_self_only_header_shows_sources_and_semantic_changes() {
+    use crate::domain::{audience_notices::self_audiences,audiences::EffectiveGrant};
+    let (mut facts,now)=fixture(1,true);
+    facts.user_audience=true;
+    facts.audiences=self_audiences(&[
+        EffectiveGrant{grantor:"@user".into(),source_project:Some("team".into())},
+        EffectiveGrant{grantor:"expert".into(),source_project:None},
+    ]);
+    let first=render(&facts,&HashMap::new(),now);
+    assert!(first.text.contains("@user (through project @team)"));
+    assert!(first.text.contains("@expert (explicit)"));
+    assert!(first.text.contains("all effective user-audience routes end"));
+    facts.prior=first.record;
+    assert!(render(&facts,&HashMap::new(),now).text.contains("unchanged since"));
+    facts.audiences=self_audiences(&[EffectiveGrant{grantor:"expert".into(),source_project:None}]);
+    facts.user_audience=false;
+    let changed=render(&facts,&HashMap::new(),now);
+    assert!(changed.text.contains("DELTA"));
+    assert!(changed.text.contains("@expert (explicit)"));
+    assert!(!changed.text.contains("project @team"));
 }
 
 #[test]
