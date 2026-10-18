@@ -177,7 +177,10 @@ export function AgentDeskPanel({
   // press on its row
   const refs = useRefRoutes(slug, map, {
     onFocusAgent: select,
-    tierOf: (id: string) => map.get(id)?.tier,
+    tierOf: (id: string) => {
+      const n = map.get(id)
+      return n?.kind === 'project' ? 'project' : n?.tier
+    },
     view: tree.foreground,
   })
 

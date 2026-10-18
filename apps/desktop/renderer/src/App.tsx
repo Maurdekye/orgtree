@@ -2669,7 +2669,10 @@ function useShellRefs(slug: string, tree: TreePayload | null, routes: {
   // a shell panel is not AT an agent either — it can only say what each
   // one is running
   const tierOf = useCallback(
-    (id: string) => nodes?.get(id)?.tier, [nodes])
+    (id: string) => {
+      const n = nodes?.get(id)
+      return n?.kind === 'project' ? 'project' : n?.tier
+    }, [nodes])
   return useRefRoutes(slug, nodes, { ...routes, tierOf, view: tree?.foreground })
 }
 

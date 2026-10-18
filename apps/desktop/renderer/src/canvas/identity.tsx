@@ -19,8 +19,19 @@
 import { createContext, useContext } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { FolderIcon } from '../icons'
-import { agentNavProps, agentTooltipProps } from './agentnav'
+import { AGENT_NAV_ATTR, AGENT_TOOLTIP_ATTR, agentNavProps, agentTooltipProps } from './agentnav'
+import { nodeMenuAction, nodeMenuEntry, ticketOwnerAction } from './objectactions'
 import { TIER_LETTER, tierLabel } from './shared'
+
+export { nodeMenuAction, nodeMenuEntry, ticketOwnerAction }
+
+/** Resolve the identity tier for any tree node (agent or project). */
+export function nodeTierOf(
+  node?: { kind?: string | null; tier?: string | null } | null,
+): string | null | undefined {
+  if (!node) return undefined
+  return node.kind === 'project' ? 'project' : node.tier
+}
 
 /** The model card: the letter chip every surface uses for a tier.
  *
@@ -34,7 +45,7 @@ export function TierChip({ tier, agentName }: { tier?: string | null; agentName?
     return (
       <span data-copy-agent-name={agentName} {...agentTooltipProps(agentName)}
         className="project-mark" title={agentName ? undefined : 'Project'}>
-        <FolderIcon fontSize="inherit" />
+        <FolderIcon fontSize="inherit" fill="currentColor" />
       </span>
     )
   }
@@ -44,6 +55,48 @@ export function TierChip({ tier, agentName }: { tier?: string | null; agentName?
       {TIER_LETTER[tier] ?? tier.slice(0, 1).toUpperCase()}
     </span>
   )
+}
+
+/** Build the DOM equivalent of `<TierChip />` for markdown DOM linkification (`refmd.tsx`). */
+export function createTierChipEl(
+  doc: Document,
+  tier?: string | null,
+  agentName?: string | null,
+): HTMLElement | null {
+  if (!tier) return null
+  if (tier === 'project') {
+    const span = doc.createElement('span')
+    span.className = 'project-mark'
+    if (agentName) {
+      span.setAttribute('data-copy-agent-name', agentName)
+      span.setAttribute(AGENT_TOOLTIP_ATTR, agentName)
+    } else {
+      span.title = 'Project'
+    }
+    const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('class', 'MuiSvgIcon-root MuiSvgIcon-fontSizeInherit')
+    svg.setAttribute('focusable', 'false')
+    svg.setAttribute('aria-hidden', 'true')
+    svg.setAttribute('viewBox', '0 0 24 24')
+    svg.setAttribute('fill', 'currentColor')
+    svg.setAttribute('width', '1em')
+    svg.setAttribute('height', '1em')
+    const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', 'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2m0 12H4V8h16z')
+    svg.appendChild(path)
+    span.appendChild(svg)
+    return span
+  }
+  const t = doc.createElement('span')
+  t.className = 'tier t-' + tier
+  if (agentName) {
+    t.setAttribute('data-copy-agent-name', agentName)
+    t.setAttribute(AGENT_TOOLTIP_ATTR, agentName)
+  } else {
+    t.title = tierLabel(tier)
+  }
+  t.textContent = TIER_LETTER[tier] ?? tier.slice(0, 1).toUpperCase()
+  return t
 }
 
 export interface AgentNameProps {
@@ -99,7 +152,7 @@ export function AgentName({
     return (
       <>
         <TierChip tier={tier} agentName={id} />
-        <span data-copy-agent-name={id} className={'cc-name' + extra}
+        <span data-copy-agent-name={id} {...(nativeTitle ? agentTooltipProps(id) : {})} className={'cc-name' + extra}
           title={nativeTitle ? why ?? undefined : undefined}>{label}</span>
       </>
     )
@@ -123,6 +176,87 @@ export function AgentName({
       </button>
     </>
   )
+}
+
+export interface NodeLinkProps {
+  id: string
+  tier?: string | null
+  label?: string
+  why?: string | null
+  onFocus?: (id: string, e: ReactMouseEvent<HTMLButtonElement>) => void
+  atDestination?: boolean
+  className?: string
+  nativeTitle?: boolean
+}
+
+/** Shared inline agent/project link base (`button.ref-chip.ref-agent.ref-ready`
+ *  when live, `span` when inert/atDestination) so mentions, chips, and inline
+ *  agent/project references all share the same badge, rich tooltip, context
+ *  menu, click behavior, and style. */
+export function NodeLink({
+  id, tier, label, why, onFocus, atDestination, className, nativeTitle = true,
+}: NodeLinkProps) {
+  const text = label ?? id
+  const cls = className ?? ('ref-chip ref-agent ref-ready' + (atDestination ? ' ref-here' : ''))
+  const defaultTitle = atDestination
+    ? `${id} — this is its own desk`
+    : `open the ${tier === 'project' ? 'project' : 'agent'} ${id}`
+  const title = nativeTitle ? (why ?? defaultTitle) : undefined
+  if (onFocus && !atDestination) {
+    return (
+      <button type="button" data-copy-agent-name={id} {...agentNavProps(id)}
+        className={cls} title={title}
+        onClick={(e) => { e.stopPropagation(); onFocus(id, e) }}>
+        <TierChip tier={tier} agentName={id} />
+        {text}
+      </button>
+    )
+  }
+  return (
+    <span data-copy-agent-name={id} {...agentTooltipProps(id)}
+      className={cls} title={title}>
+      <TierChip tier={tier} agentName={id} />
+      {text}
+    </span>
+  )
+}
+
+export function AgentLink(props: NodeLinkProps) {
+  return <NodeLink {...props} />
+}
+
+export function ProjectLink(props: Omit<NodeLinkProps, 'tier'>) {
+  return <NodeLink {...props} tier="project" />
+}
+
+/** DOM equivalent of `<NodeLink />` for markdown DOM linkification (`refmd.tsx`). */
+export function createNodeLinkEl(
+  doc: Document,
+  opts: {
+    id: string
+    tier?: string | null
+    label?: string
+    why?: string | null
+    live?: boolean
+    atDestination?: boolean
+    className?: string
+  },
+): HTMLElement {
+  const live = Boolean(opts.live && !opts.atDestination)
+  const el = doc.createElement(live ? 'button' : 'span')
+  if (live) (el as HTMLButtonElement).type = 'button'
+  el.className = opts.className ?? ('ref-chip ref-agent ref-ready' + (opts.atDestination ? ' ref-here' : ''))
+  const defaultTitle = opts.atDestination
+    ? `${opts.id} — this is its own desk`
+    : `open the ${opts.tier === 'project' ? 'project' : 'agent'} ${opts.id}`
+  el.title = opts.why ?? defaultTitle
+  el.setAttribute('data-copy-agent-name', opts.id)
+  el.setAttribute(AGENT_TOOLTIP_ATTR, opts.id)
+  if (live) el.setAttribute(AGENT_NAV_ATTR, opts.id)
+  const chip = createTierChipEl(doc, opts.tier, opts.id)
+  if (chip) el.appendChild(chip)
+  el.appendChild(doc.createTextNode(opts.label ?? opts.id))
+  return el
 }
 
 /** What a deep surface knows about the agents it names. Supplied by context

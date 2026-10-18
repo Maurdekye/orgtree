@@ -246,10 +246,18 @@ export function useAgentMentions({
     return false
   }, [open, matches, clampedIndex, complete, queryKey])
 
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    if (!open || !menuRef.current) return
+    const active = menuRef.current.querySelector('.agent-mention-item.active') as HTMLElement | null
+    active?.scrollIntoView?.({ block: 'nearest' })
+  }, [open, clampedIndex])
+
   const portalBody = inputRef.current?.ownerDocument?.body ?? (typeof document !== 'undefined' ? document.body : null)
   const menu = open && portalBody
     ? createPortal(
         <div
+          ref={menuRef}
           className="agent-mentions"
           role="listbox"
           aria-label="Agent and project mentions"
@@ -261,7 +269,7 @@ export function useAgentMentions({
               type="button"
               role="option"
               aria-selected={idx === clampedIndex}
-              className={'agent-mention-item' + (idx === clampedIndex ? ' active' : '')}
+              className={'agent-mention-item' + (idx === clampedIndex ? ' active on' : '')}
               onMouseDown={e => {
                 e.preventDefault()
                 e.stopPropagation()

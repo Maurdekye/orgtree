@@ -83,7 +83,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, stripMarkdownCode, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -108,7 +108,7 @@ import { DogChip, useDeskDogs, useDogRoute } from './deskdogs'
 import { AgentSlotChips } from './slotchips'
 import { PresentationCard, recentDocumentChips } from './docs'
 import { buildNodeFacts } from './docket'
-import { AgentDirectoryProvider, AgentName, agentFactsSig, useAgentDirectory } from './identity'
+import { AgentDirectoryProvider, AgentName, TierChip, agentFactsSig, nodeTierOf, useAgentDirectory } from './identity'
 import { HistoryView, MailFrom } from './historyview'
 export { HistoryView } from './historyview'
 import type { AgentDirectory } from './identity'
@@ -1812,10 +1812,7 @@ export function NavChip({ n, dir, onJump }:
         {dir === 'up' ? <ArrowUpIcon fontSize="inherit" /> : <ArrowDownIcon fontSize="inherit" />}
         {eye
           ? <><EyeIcon fontSize="inherit" /> switchboard</>
-          : n.kind === 'project'
-            ? <><span className="project-mark"><FolderIcon fontSize="inherit" /></span>{n.id}</>
-            : <><span className={'tier t-' + n.tier} {...agentTooltipProps(n.id)}>{TIER_LETTER[n.tier!] ?? '?'}</span>
-              {n.id}</>}
+          : <><TierChip tier={nodeTierOf(n)} agentName={n.id} />{n.id}</>}
         {n.busy && <DestinationBusy tier={n.tier} />}
         {(n.mail_pending ?? 0) > 0 &&
           <b className={'eye-count' + prov}>{n.mail_pending}</b>}
@@ -3462,10 +3459,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // desk is somewhere you already are, so a pinned window and a switchboard
     // panel both still navigate
     destination,
-    tierOf: (id: string) => {
-      const n = mapRef.current.get(id)
-      return n?.kind === 'project' ? 'project' : n?.tier
-    },
+    tierOf: (id: string) => nodeTierOf(mapRef.current.get(id)),
   }), [routeSig, destination])
   const deskRefs = useRefRoutes(slug, agentIndex, deskRoutes)
   const resolveReplySource = useCallback((r: ReplyContext) => {
@@ -3507,7 +3501,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               wrap at their own source. That is precisely why the bare handoff
               would be a quiet trap for the next caller to pass centerOn
               straight in. */}
-          <AgentName id={node.id} tier={node.tier} atDestination={!bare}
+          <AgentName id={node.id} tier={nodeTierOf(node)} atDestination={!bare}
             why={bare ? undefined
               : (node.charter || '').split('\n')[0] || node.id}
             onFocus={onJump ? (id: string) => onJump(id) : undefined}
@@ -4148,9 +4142,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           model is unknown navigates without a chip. */}
       {view === 'inbox' && <div className="desk-tabpanel">
         <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
-        <InboxView slug={slug} nid={node.id} tier={node.tier} unreadCount={node.mail_pending}
+        <InboxView slug={slug} nid={node.id} tier={nodeTierOf(node)} unreadCount={node.mail_pending}
           toast={toast}
-          tierOf={(id) => map.get(id)?.tier}
+          tierOf={(id) => nodeTierOf(map.get(id))}
           hasAgent={(id) => map.has(id)}
           refs={deskRefs}
           onFocusAgent={onJump}
@@ -4505,7 +4499,10 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   const canFocus = Boolean(onFocusAgent)
   const lineageFacts = agentFactsSig(map)
   const lineageDir = useMemo<AgentDirectory>(() => ({
-    resolve: (id: string) => mapRef.current?.get(id),
+    resolve: (id: string) => {
+      const n = mapRef.current?.get(id)
+      return n && n.kind === 'project' ? { ...n, tier: 'project' } : n
+    },
     onFocus: canFocus
       ? (id: string) => { closeIfCentred('lineage', closeRef.current, slug); focusRef.current?.(id) }
       : undefined,
@@ -4587,7 +4584,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
         {gens.map((b) => (
           <div key={b.id}>
             <div data-copy-agent-name={b.id} className={'lin-row' + (b.state === 'archived' ? '' : ' live')}>
-              <span className={'tier t-' + b.tier} {...agentTooltipProps(b.id)}>{TIER_LETTER[b.tier] ?? '?'}</span>
+              <TierChip tier={nodeTierOf(b)} agentName={b.id} />
               <div className="lin-id">
                 <b className="mono">{b.id}</b>
                 <span className="dim">
@@ -4997,7 +4994,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
 /** A message's own prose is the durable source of its mention highlight.
  *  Shared by settled Msg rows and the genuine assistant live/draft lanes. */
 export function userMentionClass(role: string, text?: string): string {
-  return role === 'assistant' && /(^|[^0-9A-Za-z._%+-])@user(?![0-9A-Za-z_@/-]|\.[0-9A-Za-z])/i.test(text ?? '')
+  return role === 'assistant' && /(^|[^0-9A-Za-z._%+-])@user(?![0-9A-Za-z_@/-]|\.[0-9A-Za-z])/i.test(stripMarkdownCode(text ?? ''))
     ? ' mention-highlight' : ''
 }
 

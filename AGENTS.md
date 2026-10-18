@@ -3653,3 +3653,17 @@ Cold archived docket projections covered by the existing policy spec use its typ
   still race component checks; this is a documented threat-model limit. See
   [Markdown image embeds](docs/rust-engine/markdown-image-embeds.md).
   [verified: `engine/rs/orgtree-engine/src/http/markdown_image.rs`, 2026-10-17]
+
+- Agent and project links share one renderer base (`NodeLink`, `AgentLink`,
+  `ProjectLink`, `createNodeLinkEl`, `TierChip`, `nodeTierOf`, and re-exported
+  `nodeMenuAction` / `ticketOwnerAction` in `canvas/identity.tsx`), giving
+  mentions, agents-list rows, docket actors, mail/transcript senders, and
+  context-menu submenus (`Owner…`, `Presenter…`, `Project…`) the same `16×16`
+  inline badge/folder icon (`.project-mark` in `--org-accent`), org-theme mention
+  colour (`--org-agent-text` / `--org-accent`), navigation/copy attributes, and
+  rich hover tooltip (`agentTooltipInfo` in `canvas/OrgCanvas.tsx`). Markdown
+  inline backtick spans (single or multi-backtick) and fenced code blocks never
+  parse or highlight mentions (`splitInlineCodeSpans` / `stripMarkdownCode` in
+  `canvas/shared.ts`). [decided: user 2026-10-18; verified: `canvas/identity.tsx`,
+  `canvas/reflinks.tsx`, `canvas/refmd.tsx`, `canvas/agentmentions.tsx`]
+

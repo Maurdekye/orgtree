@@ -289,3 +289,144 @@ test('@user attention row shows centered cut-out blurb and clicking it removes i
   clearMentionHighlight('org','worker-alpha')
 })
 
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
+import { agentTooltipInfo } from '../src/canvas/OrgCanvas'
+import { AgentLink, NodeLink, ProjectLink, createNodeLinkEl, nodeMenuAction, ticketOwnerAction } from '../src/canvas/identity'
+import { userMentionClass } from '../src/canvas/desk'
+
+test('inline single- and multi-backtick code spans and fenced blocks never parse or mangle @<name> or mentions',()=>{
+  const raw='Write `@<name>` or `` `@worker-alpha` `` or `@user` or `@net:alice.77ded7`, then real @worker-alpha and @worker-project.\n\n```ts\nconst s = "@worker-alpha @<name> @user"\n```'
+  const host=document.createElement('div')
+  host.innerHTML=md(raw).__html
+  linkifyRefs(host,world)
+
+  const codes=[...host.querySelectorAll('code')].map(c=>c.textContent)
+  assert.ok(codes.includes('@<name>'),'`@<name>` in code span must stay intact without angle-escaping mangling')
+  assert.ok(codes.includes('`@worker-alpha`'),'multi-backtick code span must stay intact')
+  for(const codeEl of host.querySelectorAll('code, pre')){
+    assert.equal(codeEl.querySelector('.ref-chip')===null,true,'no ref-chip may be created inside code or pre')
+    assert.equal(codeEl.querySelector('[data-agent-nav]')===null,true,'no agent nav chip inside code or pre')
+  }
+  const chips=[...host.querySelectorAll<HTMLElement>('.ref-chip[data-agent-nav]')]
+  assert.deepEqual(chips.map(c=>c.getAttribute('data-agent-nav')),['worker-alpha','worker-project'])
+
+  const runs=splitTypedRefs('In code: `@<name>` and `` `@worker-alpha` `` and `@agent:org/worker-beta`, outside: @worker-alpha',world)
+  assert.deepEqual(runs.filter(r=>r.ref).map(r=>r.ref!.ref.id),['worker-alpha'],'splitTypedRefs skips inline backtick code spans')
+
+  assert.equal(userMentionClass('assistant','Use `@user` in your reply'),'',
+    '@user inside inline code span does not trigger mention-highlight')
+  assert.equal(userMentionClass('assistant','```md\n@user\n```'),'',
+    '@user inside fenced code block does not trigger mention-highlight')
+  assert.equal(userMentionClass('assistant','See `@user` and then @user here'),' mention-highlight',
+    'real @user outside code spans still triggers mention-highlight')
+})
+
+test('agent and project mentions share the rich tooltip and shared NodeLink base across DOM and React',async t=>{
+  const alphaNode={
+    id:'worker-alpha',state:'live',tier:'sol',model_id:'gpt-5.4',effort_effective:'high',
+    children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]},
+  } as unknown as CanvasNode
+  const projNode={
+    id:'worker-project',state:'live',kind:'project',tier:'project',charter:'Build slot coordination\nMore details',
+    children:[],seat:0,grant:0,free:0,configured_scope:{slots_capacity:2},scope:{slots:2,tools:{},add_dirs:[]},
+  } as unknown as CanvasNode
+  const map=new Map<string,CanvasNode>([[alphaNode.id,alphaNode],[projNode.id,projNode]])
+  const providers=[{id:'openai',tiers:[{tier:'sol',display_name:'GPT-5.4'}]}] as never
+
+  const alphaTip=agentTooltipInfo(alphaNode,providers,null,'high')
+  const projTip=agentTooltipInfo(projNode,providers,null,'high')
+  assert.equal(alphaTip?.title,'GPT-5.4 · high')
+  assert.equal(projTip?.title,'Project · 2 slots · Build slot coordination')
+
+  function Host(){
+    useProvideAgentNav(()=>[],id=>agentTooltipInfo(map.get(id),providers,null,'high'))
+    return (
+      <div>
+        <AgentLink id="worker-alpha" tier="sol" label="@worker-alpha" onFocus={()=>{}} />
+        <ProjectLink id="worker-project" label="@worker-project" onFocus={()=>{}} />
+        <div className="md-host" />
+      </div>
+    )
+  }
+  const view=await mountView(<AgentNavProvider><Host /></AgentNavProvider>,h=>h)
+  t.after(()=>view.unmount())
+  await flush(2)
+
+  const mdHost=view.el.querySelector<HTMLElement>('.md-host')!
+  mdHost.innerHTML=md('Ping @worker-alpha and @worker-project').__html
+  linkifyRefs(mdHost,{
+    org:'org',
+    agents:new Map([['worker-alpha','worker-alpha'],['worker-project','worker-project']]),
+    tierOf:id=>map.get(id)?.kind==='project'?'project':map.get(id)?.tier,
+  })
+
+  for(const el of view.el.querySelectorAll<HTMLElement>('[data-agent-tooltip="worker-alpha"]')){
+    await inAct(()=>{el.dispatchEvent(new window.MouseEvent('pointerover',{bubbles:true}))})
+    assert.equal(el.title,'GPT-5.4 · high','agent mention and AgentLink show rich model tooltip on hover')
+  }
+  for(const el of view.el.querySelectorAll<HTMLElement>('[data-agent-tooltip="worker-project"]')){
+    await inAct(()=>{el.dispatchEvent(new window.MouseEvent('pointerover',{bubbles:true}))})
+    assert.equal(el.title,'Project · 2 slots · Build slot coordination','project mention and ProjectLink show rich project tooltip on hover')
+    const svg=el.querySelector('.project-mark svg')
+    assert.ok(svg,'project link renders folder SVG')
+    assert.equal(svg.getAttribute('fill'),'currentColor','project folder SVG uses currentColor for org theme tint')
+  }
+
+  const domNode=createNodeLinkEl(document,{id:'worker-alpha',tier:'sol',label:'@worker-alpha',className:'ref-chip ref-agent',live:true})
+  assert.equal(domNode.getAttribute('data-agent-tooltip'),'worker-alpha')
+  assert.equal(domNode.getAttribute('data-agent-nav'),'worker-alpha')
+  assert.equal(domNode.getAttribute('data-copy-agent-name'),'worker-alpha')
+  assert.equal(nodeMenuAction,ticketOwnerAction.length>=0?nodeMenuAction:nodeMenuAction)
+  const menuEntry=nodeMenuAction('Owner…',domNode,'worker-alpha',[{label:'Focus on canvas',onSelect:()=>{}}])
+  assert.equal(menuEntry?.agentTooltipId,'worker-alpha')
+})
+
+test('@ suggestion list supports Up/Down highlight + scrollIntoView, Enter/Tab completion, and Escape close',async t=>{
+  const old=globalThis.fetch
+  globalThis.fetch=legacyAppBackend((async()=>({ok:true,status:200,headers:new Headers(),json:async()=>({providers:[]})})) as typeof fetch)
+  t.after(()=>{globalThis.fetch=old})
+  const node=(id:string,state='live',kind='agent')=>({id,state,kind,tier:kind==='project'?'project':'haiku',children:[]})
+  const tree={slug:'org',roots:[node('worker-alpha'),node('worker-beta'),node('worker-project','live','project')]} as unknown as TreePayload
+  let sent=0
+  const scrolled:Element[]=[]
+  const origScroll=window.HTMLElement.prototype.scrollIntoView
+  window.HTMLElement.prototype.scrollIntoView=function(){scrolled.push(this)}
+  t.after(()=>{window.HTMLElement.prototype.scrollIntoView=origScroll})
+
+  const view=await mountView(<QuickChat slug="org" tree={tree} op={async()=>{sent++;return {} as never}} toast={()=>{}} onHired={()=>{}}/>,h=>h)
+  t.after(()=>view.unmount())
+  const box=view.el.querySelector<HTMLInputElement>('.quickchat-input')!
+
+  await type(box,'Hi @worker-')
+  let items=[...document.querySelectorAll<HTMLElement>('.agent-mention-item')]
+  assert.equal(items.length,3)
+  assert.equal(items[0]!.getAttribute('aria-selected'),'true')
+
+  const downEv=new window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true})
+  await inAct(async()=>{box.dispatchEvent(downEv);await flush(3)})
+  assert.equal(downEv.defaultPrevented,true,'ArrowDown prevents default cursor movement')
+  items=[...document.querySelectorAll<HTMLElement>('.agent-mention-item')]
+  assert.equal(items[1]!.getAttribute('aria-selected'),'true','ArrowDown moves highlight to second item')
+  assert.ok(scrolled.includes(items[1]!), 'ArrowDown scrolls active suggestion into view')
+
+  const upEv=new window.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true})
+  await inAct(async()=>{box.dispatchEvent(upEv);await flush(3)})
+  assert.equal(upEv.defaultPrevented,true,'ArrowUp prevents default cursor movement')
+  items=[...document.querySelectorAll<HTMLElement>('.agent-mention-item')]
+  assert.equal(items[0]!.getAttribute('aria-selected'),'true','ArrowUp moves highlight back to first item')
+
+  const escEv=new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})
+  await inAct(async()=>{box.dispatchEvent(escEv);await flush(3)})
+  assert.equal(escEv.defaultPrevented,true,'Escape prevents default')
+  assert.equal(document.querySelector('.agent-mentions')===null,true,'Escape closes suggestion list')
+
+  await type(box,'Hi @worker-b')
+  assert.ok(document.querySelector('.agent-mentions'),'typing further reopens suggestion list')
+  const enterEv=new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true})
+  await inAct(async()=>{box.dispatchEvent(enterEv);await flush(3)})
+  assert.equal(enterEv.defaultPrevented,true,'Enter completes highlighted suggestion instead of submitting')
+  assert.equal(box.value,'Hi @worker-beta ')
+  assert.equal(sent,0,'Enter while suggestion list is open does not submit composer')
+})
+
+

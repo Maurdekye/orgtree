@@ -23,12 +23,11 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { FolderIcon } from '../icons'
-import { agentNavProps, agentTooltipProps } from './agentnav'
 import { HubContactChip } from './agentmentions'
+import { NodeLink, nodeTierOf } from './identity'
 import { objectNavProps } from './objectnav'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
-import { TIER_LETTER, tierLabel } from './shared'
+import { splitInlineCodeSpans } from './shared'
 import { useHistoricalWorkReferences } from './workrefresolve'
 import { agentReferences } from '../api'
 import type { TreePayload } from '../types'
@@ -309,6 +308,15 @@ export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> |
   }): RefRoutes {
   const { onOpenItem, onFocusAgent, onOpenDoc, onOpenMail,
     destination, tierOf } = routes
+  const effectiveTierOf = useMemo(() => {
+    if (!tierOf && !agents) return undefined
+    return (id: string) => {
+      const fromMap = agents?.get(id) as { kind?: string | null; tier?: string | null } | undefined
+      const mapTier = nodeTierOf(fromMap)
+      if (mapTier === 'project') return 'project'
+      return tierOf ? tierOf(id) : mapTier
+    }
+  }, [tierOf, agents])
   const inherited = useContext(ForegroundViewContext)
   const view = 'view' in routes ? routes.view : inherited
   const agentOutcome = useAgentOutcome(org, agents, view)
@@ -329,11 +337,11 @@ export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> |
           : agentOutcome ? agentOutcome(String(r.node ?? ''))
             : agents.has(String(r.node ?? '')) ? 'ready' : 'absent'),
       destination: destination ?? null,
-      tierOf,
+      tierOf: effectiveTierOf,
       handles,
     }
   }, [org, agents, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail,
-    destination, tierOf, agentOutcome])
+    destination, effectiveTierOf, agentOutcome])
   const onOpen = useCallback((r: ResolvedRef) => {
     // ⚠ THE DESTINATION IS NOT A ROUTE. A chip at its own desk renders inert,
     // but a click can still arrive — a keyboard, an old chip, a caller that
@@ -394,11 +402,63 @@ function pushPlainRun(out: RefRun[], text: string): void {
   else out.push({ text })
 }
 
+function markdownCodeRanges(src: string): Array<[number, number]> {
+  if (!src.includes('`') && !src.includes('~') && !src.includes('<code') && !src.includes('<pre')) return []
+  const ranges: Array<[number, number]> = []
+  const lines = src.split('\n')
+  let offset = 0
+  let fence: { ch: string; len: number; start: number } | null = null
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]!
+    const lineEnd = offset + l.length
+    const openMatch = /^ {0,3}(`{3,}[^`\n]*|~{3,}.*)$/.exec(l)
+    const closeMatch = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(l)
+    if (fence) {
+      if (closeMatch && closeMatch[1]![0] === fence.ch && closeMatch[1]!.length >= fence.len) {
+        ranges.push([fence.start, lineEnd])
+        fence = null
+      }
+      offset = lineEnd + 1
+      continue
+    }
+    if (openMatch) {
+      const run = /^(`{3,}|~{3,})/.exec(openMatch[1]!)![1]!
+      fence = { ch: run[0]!, len: run.length, start: offset }
+      offset = lineEnd + 1
+      continue
+    }
+    if (l.includes('`')) {
+      const parts = splitInlineCodeSpans(l)
+      let pos = offset
+      for (let j = 0; j < parts.length; j++) {
+        const part = parts[j]!
+        if (j % 2 === 1) ranges.push([pos, pos + part.length])
+        pos += part.length
+      }
+    }
+    offset = lineEnd + 1
+  }
+  if (fence) ranges.push([fence.start, src.length])
+  for (const m of src.matchAll(/<(code|pre)\b[^>]*>[\s\S]*?<\/\1>/gi)) {
+    ranges.push([m.index!, m.index! + m[0].length])
+  }
+  ranges.sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  return ranges
+}
+
+function inCodeRange(ranges: ReadonlyArray<readonly [number, number]>, start: number, end: number): boolean {
+  for (const [rStart, rEnd] of ranges) {
+    if (start < rEnd && end > rStart) return true
+  }
+  return false
+}
+
 export function scanInlineMentions(
   chunk: string,
   world: RefWorld,
 ): Array<{ index: number; token: string; ref?: ResolvedRef; hub?: string }> {
   if (!chunk || !chunk.includes('@')) return []
+  const codeRanges = markdownCodeRanges(chunk)
   const agents = world.agents instanceof Map ? world.agents : null
   const hits: Array<{ index: number; token: string; ref?: ResolvedRef; hub?: string }> = []
   INLINE_AT_RE.lastIndex = 0
@@ -406,6 +466,7 @@ export function scanInlineMentions(
     const idx = m.index
     const tok = m[0]
     const end = idx + tok.length
+    if (codeRanges.length && inCodeRange(codeRanges, idx, end)) continue
     if (!isLeftMentionBoundary(chunk, idx) || !isRightMentionBoundary(chunk, end)) continue
     if (m[1]) {
       hits.push({ index: idx, token: tok, hub: tok.toLowerCase() })
@@ -449,16 +510,8 @@ function appendPlainWithMentions(chunk: string, world: RefWorld, out: RefRun[]):
   if (last < chunk.length) pushPlainRun(out, chunk.slice(last))
 }
 
-/** Prose split into runs, every canonical token decided. Concatenating every
- *  `text` reproduces the input exactly — same losslessness contract as
- *  `splitRefs`, and for the same reason: these surfaces are `pre-wrap`.
- *
- *  Text that merely LOOKS like a token — an email address, a stray `@item:` —
- *  never matches in the first place, so it is left exactly as written. */
-export function splitTypedRefs(text: string, world: RefWorld): RefRun[] {
-  const s = String(text ?? '')
-  if (!s) return []
-  const out: RefRun[] = []
+function splitTypedRefsSegment(s: string, world: RefWorld, out: RefRun[]): void {
+  if (!s) return
   let last = 0
   // ⚠ THE SHARED SCANNER, not a second loop over the same pattern. Both
   // boundaries — a token ends at one, and starts at one — live in `scanRefs`,
@@ -469,6 +522,32 @@ export function splitTypedRefs(text: string, world: RefWorld): RefRun[] {
     last = hit.index + hit.token.length
   }
   if (last < s.length) appendPlainWithMentions(s.slice(last), world, out)
+}
+
+/** Prose split into runs, every canonical token decided. Concatenating every
+ *  `text` reproduces the input exactly — same losslessness contract as
+ *  `splitRefs`, and for the same reason: these surfaces are `pre-wrap`.
+ *
+ *  Text that merely LOOKS like a token — an email address, a stray `@item:` —
+ *  never matches in the first place, so it is left exactly as written. */
+export function splitTypedRefs(text: string, world: RefWorld): RefRun[] {
+  const s = String(text ?? '')
+  if (!s) return []
+  const out: RefRun[] = []
+  const codeRanges = markdownCodeRanges(s)
+  if (!codeRanges.length) {
+    splitTypedRefsSegment(s, world, out)
+    return out
+  }
+  let cursor = 0
+  for (const [rStart, rEnd] of codeRanges) {
+    if (rEnd <= cursor) continue
+    const start = Math.max(cursor, rStart)
+    if (start > cursor) splitTypedRefsSegment(s.slice(cursor, start), world, out)
+    pushPlainRun(out, s.slice(start, rEnd))
+    cursor = rEnd
+  }
+  if (cursor < s.length) splitTypedRefsSegment(s.slice(cursor), world, out)
   return out
 }
 
@@ -485,29 +564,31 @@ export function RefChip({ r, onOpen }: {
   }
   const cls = `ref-chip ref-${r.ref.kind} ref-${r.outcome}`
     + (r.atDestination ? ' ref-here' : '')
-  // an agent's CURRENT model, the same claim its name carries elsewhere. No
-  // tier means no icon and a working control: an unknown model is not an
-  // unknown agent.
-  const icon = r.ref.kind === 'agent' && r.tier
-    ? (r.tier === 'project'
-      ? <span className="project-mark" {...agentTooltipProps(r.ref.id)}><FolderIcon fontSize="inherit" /></span>
-      : <span className={'tier t-' + r.tier} {...agentTooltipProps(r.ref.id)}>{TIER_LETTER[r.tier] ?? '?'}</span>)
-    : null
-  // ⚠ AT THE DESTINATION IT IS IDENTITY, NOT A ROUTE: real, resolvable, and
-  // nowhere to go, so it keeps its icon and loses its control.
+  if (r.ref.kind === 'agent' && r.outcome === 'ready') {
+    return (
+      <NodeLink
+        id={r.ref.id}
+        tier={r.tier}
+        label={r.label}
+        why={r.why}
+        atDestination={r.atDestination}
+        className={cls}
+        onFocus={onOpen ? () => onOpen(r) : undefined}
+      />
+    )
+  }
   if (r.outcome === 'ready' && onOpen && !r.atDestination) {
     return (
       <button type="button" {...copy}
         {...(r.ref.kind === 'item' ? objectNavProps('ticket', r.ref.id, r.ref.org) : {})}
-        {...agentNavProps(r.ref.kind === 'agent' ? r.ref.id : undefined)}
         className={cls} title={r.why}
         onClick={(e) => { e.stopPropagation(); onOpen(r) }}>
-        {icon}{r.label}
+        {r.label}
       </button>
     )
   }
   if (r.outcome === 'ready') {
-    return <span {...copy} className={cls} title={r.why}>{icon}{r.label}</span>
+    return <span {...copy} className={cls} title={r.why}>{r.label}</span>
   }
   // ⚠ THE TOKEN IS SHOWN ON A FAILED REF, not the bare id. Whoever has to fix
   // the reference needs to see what was actually written, and on `foreign`

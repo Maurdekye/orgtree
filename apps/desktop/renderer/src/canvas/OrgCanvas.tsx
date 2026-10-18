@@ -98,6 +98,7 @@ import { PROJECT_DRAFT, ProjectDraftNode, projectDraftSteps } from './newproject
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
 import type { AgentTooltipInfo } from './agentnav'
+import { TierChip, nodeTierOf } from './identity'
 import { ObjectNavProvider, objectNavProps } from './objectnav'
 import { WatchdogCountdown, WatchdogCountdownTitle } from './watchdogcountdown'
 import { ObjectNavHost } from './objectnavhost'
@@ -105,7 +106,7 @@ import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 import { setAttentionLayout } from '../attention/mode'
 import type { CanvasShortcutRef } from '../shell/appshortcuts'
-import { ordinal, projectLineLanes, slotLinks, slotPlace } from './slots'
+import { ordinal, projectLineLanes, slotCount, slotLinks, slotPlace } from './slots'
 import type { ProjectLine, SlotLease } from './slots'
 
 /** What the org host hands a view rendered in its slot. Every field is
@@ -384,6 +385,19 @@ export function agentTooltipInfo(n: CanvasNode | undefined,
   providers: ProviderInfo[] = [], accounts?: AccountRegistryPayload | null,
   defaultEffort?: string, effortLevels?: readonly string[]): AgentTooltipInfo | null {
   if (!n || n.state === 'user') return null
+  if (n.kind === 'project' || n.tier === 'project') {
+    const retired = n.state !== 'live' && n.state !== 'draft'
+    const rawScopeSlots = (n.scope as { slots?: unknown } | undefined)?.slots
+    const count = slotCount(n) || (typeof rawScopeSlots === 'number' && rawScopeSlots > 0 ? rawScopeSlots : 0)
+    const slotsLabel = count > 0 ? `${count} ${count === 1 ? 'slot' : 'slots'}` : undefined
+    const charterFirstLine = n.charter?.split(/\r?\n/).find(l => l.trim().length > 0)?.trim()
+    const charterSummary = charterFirstLine
+      ? (charterFirstLine.length > 64 ? charterFirstLine.slice(0, 61) + '…' : charterFirstLine)
+      : undefined
+    const values = ['Project' + (retired ? ' (retired)' : ''), slotsLabel, charterSummary]
+      .filter((value): value is string => !!value?.trim())
+    return { title: values.join(' · ') }
+  }
   const draftTier = n.state === 'draft' && !!n.tier
   const provider = n.tier ? providerOf(n.tier) : null
   const retired = n.state !== 'live' && n.state !== 'draft'
@@ -4407,7 +4421,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onPointerDown={(ev) => ev.stopPropagation()}
           onClick={() => centerOn(e.n.id)}>
           {e.side === 'l' && <ChevronLeftIcon fontSize="inherit" />}
-          <span className={'tier t-' + e.n.tier} {...agentTooltipProps(e.n.id)}>{TIER_LETTER[e.n.tier!] ?? '?'}</span>
+          <TierChip tier={nodeTierOf(e.n)} agentName={e.n.id} />
           <QueuedModelBadge node={e.n} />
           <span className="ej-name">{e.n.id}</span>
           {e.n.busy && <DestinationBusy tier={e.n.tier} />}
@@ -4532,10 +4546,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       {inboxId && map.get(inboxId) && (
         <MaybePortal><NodeInboxModal node={map.get(inboxId)!} slug={slug}
           toast={toast}
-          tierOf={(id) => {
-            const n = map.get(id)
-            return n?.kind === 'project' ? 'project' : n?.tier
-          }}
+          tierOf={(id) => nodeTierOf(map.get(id))}
           hasAgent={(id) => map.has(id)}
           refs={canvasRefs}
           jumpTo={nodeInboxJump?.id ?? null} jumpSeq={nodeInboxJump?.seq}
@@ -4597,7 +4608,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           <MaybePortal>
             <div className="mobsheet">
               <header className="mobsheet-head">
-                <span className={'tier t-' + n.tier} {...agentTooltipProps(n.id)}>{TIER_LETTER[n.tier ?? ''] ?? '?'}</span>
+                <TierChip tier={nodeTierOf(n)} agentName={n.id} />
                 <b className="ms-name" data-copy-agent-name={n.id}>{n.id}</b>
                 <TrayStatus node={n} turn={sheetLastTurn} live={n.state === 'live'} />
                 <span className="spacer" />

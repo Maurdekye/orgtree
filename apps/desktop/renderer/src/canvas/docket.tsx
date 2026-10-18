@@ -48,7 +48,7 @@ import { AskCard } from './asks'
 import { DocReader } from './docs'
 import { revealDetachedDocument } from '../windowlife'
 import { closeIfCentred, PinFrame } from './modalpin'
-import { AgentName } from './identity'
+import { AgentName, nodeTierOf, ticketOwnerAction } from './identity'
 import { MailReplyBox } from './mail'
 import { ago, jumpKey, useEsc } from './shared'
 import { useWorkItems, useSelectedWork } from './useworkitems'
@@ -58,7 +58,7 @@ import type { MentionIndex } from './workrefs'
 import { ForegroundViewContext, RefProse, refToken, resolveRef, useAgentOutcome } from './reflinks'
 import { DocketDescription } from './docketdesc'
 import { copyToClipboard, useContextMenu } from './contextmenu'
-import { ticketOwnerAction, ticketReferenceActions } from './objectactions'
+import { ticketReferenceActions } from './objectactions'
 import { quickStaffEntry, quickStaffPath } from './quickstaff'
 import { peekQuickStaff, prefetchQuickStaff, queueStaffingWarm } from './staffingoptions'
 import type { QuickStaffPreview } from './quickstaff'
@@ -233,7 +233,7 @@ export function buildNodeFacts(roots?: TreeNode[]): Map<string, NodeFacts> {
     for (const n of nodes ?? []) {
       if (n.id) {
         map.set(n.id, {
-          tier: n.tier,
+          tier: nodeTierOf(n) ?? n.tier,
           generation: Number(n.generation ?? 0),
           live: n.state === 'live',
         })
@@ -3000,15 +3000,8 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
             <div className="docket-question-box">
               <div className="docket-question-head">
               Question from{' '}
-              {/* a third hand-rolled copy of AgentName's navigating button
-                  (App.tsx's SenderChip is the second). Found by
-                  agentnavmenu.test.tsx §4, not by reading — which is why that
-                  check is a source scan rather than a list of surfaces. */}
-              <button className="cc-name cc-name-jump" {...agentNavProps(q.node)}
-                title={`focus ${q.node}'s desk`}
-                onClick={() => { close(); onFocusAgent?.(q.node) }}>
-                {q.node}
-              </button>
+              <AgentName id={q.node} tier={facts.get(q.node)?.tier}
+                onFocus={(id) => { close(); onFocusAgent?.(id) }} />
               </div>
             {otherTabs && (
               <div className="dim docket-question-note">

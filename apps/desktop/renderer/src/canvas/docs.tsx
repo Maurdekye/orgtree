@@ -22,7 +22,7 @@ import { fmtFull } from '../timefmt'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { refToken } from './reflinks'
-import { nodeMenuAction } from './objectactions'
+import { nodeMenuAction } from './identity'
 import { useAgentNavRegistry } from './agentnav'
 import type { AgentNavMenu } from './agentnav'
 

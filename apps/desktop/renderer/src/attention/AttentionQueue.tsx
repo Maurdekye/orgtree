@@ -196,7 +196,10 @@ export function AttentionQueue({
     // ⚠ CONDITIONAL, because `useRefRoutes` reads the PRESENCE of this handler
     // to decide whether a mail token is something this surface can open at all.
     onOpenMail: onOpenMail ? (r: TypedRef) => onOpenMail(mailRefTarget(r)) : undefined,
-    tierOf: (id: string) => nodeMap.get(id)?.tier,
+    tierOf: (id: string) => {
+      const n = nodeMap.get(id)
+      return n?.kind === 'project' ? 'project' : n?.tier
+    },
     view: tree.foreground,
   })
 

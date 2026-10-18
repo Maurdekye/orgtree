@@ -2875,6 +2875,94 @@ const escapeProse = (s: string) => s
   .split(LINK_DEST)
   .map((seg, k) => (k % 2 ? normalizeAngleDest(seg) : seg.replace(/</g, '&lt;')))
   .join('')
+/** Split a single line into alternating [prose, codeSpan, prose, codeSpan, ...]
+ *  segments using CommonMark's exact backtick-run length matching rule, so
+ *  multi-backtick spans like `` `` `@<name>` `` `` stay intact as one code span. */
+export const splitInlineCodeSpans = (line: string): string[] => {
+  const parts: string[] = []
+  let proseStart = 0
+  let i = 0
+  while (i < line.length) {
+    if (line[i] !== '`') {
+      i++
+      continue
+    }
+    let openEnd = i
+    while (openEnd < line.length && line[openEnd] === '`') openEnd++
+    const tickLen = openEnd - i
+    let j = openEnd
+    let closeEnd = -1
+    while (j < line.length) {
+      if (line[j] !== '`') {
+        j++
+        continue
+      }
+      let runEnd = j
+      while (runEnd < line.length && line[runEnd] === '`') runEnd++
+      if (runEnd - j === tickLen) {
+        closeEnd = runEnd
+        break
+      }
+      j = runEnd
+    }
+    if (closeEnd !== -1) {
+      parts.push(line.slice(proseStart, i))
+      parts.push(line.slice(i, closeEnd))
+      proseStart = closeEnd
+      i = closeEnd
+    } else {
+      i = openEnd
+    }
+  }
+  parts.push(line.slice(proseStart))
+  return parts
+}
+
+/** Return `src` with fenced code blocks, indented code blocks, and inline
+ *  backtick code spans replaced by spaces so prose scanners (`@user`, etc.)
+ *  never trigger on code. */
+export const stripMarkdownCode = (src: string): string => {
+  const lines = src.split('\n')
+  let fence: { ch: string; len: number } | null = null
+  let indented = false
+  let prevBlank = true
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]!
+    const openMatch = /^ {0,3}(`{3,}[^`\n]*|~{3,}.*)$/.exec(l)
+    const closeMatch = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(l)
+    if (fence) {
+      if (closeMatch && closeMatch[1]![0] === fence.ch && closeMatch[1]!.length >= fence.len) fence = null
+      prevBlank = false
+      lines[i] = ''
+      continue
+    }
+    if (openMatch) {
+      const run = /^(`{3,}|~{3,})/.exec(openMatch[1]!)![1]!
+      fence = { ch: run[0]!, len: run.length }
+      prevBlank = false
+      lines[i] = ''
+      continue
+    }
+    const blank = /^\s*$/.test(l)
+    if (indented) {
+      if (!blank && !/^(?: {4}|\t)/.test(l)) indented = false
+      else { prevBlank = blank; lines[i] = ''; continue }
+    } else if (prevBlank && /^(?: {4}|\t)/.test(l) && !blank) {
+      indented = true
+      prevBlank = false
+      lines[i] = ''
+      continue
+    }
+    prevBlank = blank
+    const parts = splitInlineCodeSpans(l)
+    for (let j = 1; j < parts.length; j += 2) {
+      parts[j] = ' '
+    }
+    lines[i] = parts.join('')
+  }
+  return lines.join('\n')
+}
+
 const escapeAngles = (src: string) => {
   const lines = src.split('\n')
   let fence: { ch: string; len: number } | null = null   // {ch, len} of the open fence
@@ -2882,15 +2970,17 @@ const escapeAngles = (src: string) => {
   let prevBlank = true                   // indented blocks open after a blank
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]!
-    const m = /^ {0,3}(`{3,}|~{3,})/.exec(l)
+    const openMatch = /^ {0,3}(`{3,}[^`\n]*|~{3,}.*)$/.exec(l)
+    const closeMatch = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(l)
     if (fence) {
       // closed only by a run of the SAME char, at least as long as the opener
-      if (m && m[1]![0] === fence.ch && m[1]!.length >= fence.len) fence = null // nUIA: group 1 is unconditional in the regex
+      if (closeMatch && closeMatch[1]![0] === fence.ch && closeMatch[1]!.length >= fence.len) fence = null // nUIA: group 1 is unconditional in the regex
       prevBlank = false
       continue
     }
-    if (m) {
-      fence = { ch: m[1]![0]!, len: m[1]!.length } // nUIA: group 1 is unconditional and non-empty ({3,})
+    if (openMatch) {
+      const run = /^(`{3,}|~{3,})/.exec(openMatch[1]!)![1]!
+      fence = { ch: run[0]!, len: run.length } // nUIA: group 1 is unconditional and non-empty ({3,})
       prevBlank = false
       continue
     }
@@ -2904,8 +2994,8 @@ const escapeAngles = (src: string) => {
       continue
     }
     prevBlank = blank
-    // prose line: escape < outside inline `spans`
-    const parts = l.split(/(`[^`\n]*`)/)
+    // prose line: escape < outside inline `spans` (including multi-backtick spans)
+    const parts = splitInlineCodeSpans(l)
     for (let j = 0; j < parts.length; j += 2) {
       parts[j] = escapeProse(parts[j]!)
     }

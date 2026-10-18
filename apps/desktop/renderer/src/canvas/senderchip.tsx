@@ -4,7 +4,8 @@
 // the same chip (user 2026-09-29: bodies identical to their own detail views).
 
 import { agentNavProps, agentTooltipProps } from './agentnav'
-import { SYSTEM, TIER_LETTER, tierLabel, USER } from './shared'
+import { TierChip, nodeTierOf } from './identity'
+import { SYSTEM, tierLabel, USER } from './shared'
 import type { TreeNode } from '../types'
 
 export function SenderChip({ id, nodes, onFocusAgent }: {
@@ -18,9 +19,11 @@ export function SenderChip({ id, nodes, onFocusAgent }: {
   // ⚠ ONLY AN ESTABLISHED LOCAL NODE NAVIGATES: a name this tree does not hold
   // stays readable and loses a route that was never there.
   if (!n) return <b>{id}</b>
+  const tier = nodeTierOf(n)
   const chip = (
-    <span data-copy-agent-name={id} className={'sender ' + (n?.state ?? '')} title={n ? `${tierLabel(n.tier)} · ${n.state}` : id}>
-      {n && <span className={'tier t-' + n.tier} {...agentTooltipProps(id)}>{TIER_LETTER[n.tier] ?? '?'}</span>}
+    <span data-copy-agent-name={id} {...agentTooltipProps(id)}
+      className={'sender ' + (n?.state ?? '')} title={n ? `${tierLabel(tier ?? n.tier)} · ${n.state}` : id}>
+      {n && <TierChip tier={tier} agentName={id} />}
       <b>{id}</b>
     </span>
   )

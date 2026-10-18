@@ -26,15 +26,14 @@
 //     destroy the reader's text selection every time an unrelated poll
 //     landed. `linkifyRefs` compares first and returns having touched no node.
 
-import { AGENT_NAV_ATTR } from './agentnav'
 import { resolveHubAddressAction, triggerHubAddress, useHubAddressState } from './agentmentions'
+import { createNodeLinkEl } from './identity'
 import { objectNavProps } from './objectnav'
 import { useEffect, useRef } from 'react'
 import { resolveRef, refToken, scanInlineMentions } from './reflinks'
 import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
 import { parseRef, scanRefs, splitRefs } from './workrefs'
 import type { MentionRef } from './workrefs'
-import { TIER_LETTER } from './shared'
 
 /** the attribute that makes an injected chip findable again on the next pass.
  *  It holds the ORIGINAL TOKEN, so undoing the injection is exact — the chip's
@@ -61,7 +60,7 @@ const SKIP = new Set(['CODE', 'PRE', 'A', 'BUTTON'])
 
 function inSkipped(node: Node): boolean {
   for (let p = node.parentElement; p; p = p.parentElement) {
-    if (SKIP.has(p.tagName)) return true
+    if (SKIP.has(p.tagName.toUpperCase())) return true
   }
   return false
 }
@@ -76,21 +75,6 @@ function chipSig(r: ResolvedRef, live: boolean): string {
   return [r.outcome, live ? '1' : '0', r.label, r.why,
     r.tier ?? '', r.atDestination ? '1' : '0', r.copyTitle === undefined ? '0' : '1',
     r.copyTitle ?? ''].join(' ')
-}
-
-function projectMarkEl(doc: Document): HTMLElement {
-  const span = doc.createElement('span')
-  span.className = 'project-mark'
-  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('class', 'MuiSvgIcon-root MuiSvgIcon-fontSizeInherit')
-  svg.setAttribute('focusable', 'false')
-  svg.setAttribute('aria-hidden', 'true')
-  svg.setAttribute('viewBox', '0 0 24 24')
-  const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path')
-  path.setAttribute('d', 'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2m0 12H4V8h16z')
-  svg.appendChild(path)
-  span.appendChild(svg)
-  return span
 }
 
 function hubChipSig(address: string): string {
@@ -128,35 +112,35 @@ function hubChipEl(doc: Document, token: string): HTMLElement {
 function chipEl(doc: Document, r: ResolvedRef,
   clickable: boolean): HTMLElement {
   const live = r.outcome === 'ready' && clickable && !r.atDestination
+  const cls = `ref-chip ref-${r.ref.kind} ref-${r.outcome}`
+    + (r.atDestination ? ' ref-here' : '')
+  if (r.ref.kind === 'agent' && r.outcome === 'ready') {
+    const el = createNodeLinkEl(doc, {
+      id: r.ref.id,
+      tier: r.tier,
+      label: r.label,
+      why: r.why,
+      live,
+      atDestination: r.atDestination,
+      className: cls,
+    })
+    el.setAttribute(TOK, r.token)
+    el.setAttribute(OUT, r.outcome)
+    el.setAttribute(SIG, chipSig(r, live))
+    return el
+  }
   const el = doc.createElement(live ? 'button' : 'span')
   if (live) (el as HTMLButtonElement).type = 'button'
-  el.className = `ref-chip ref-${r.ref.kind} ref-${r.outcome}`
-    + (r.atDestination ? ' ref-here' : '')
+  el.className = cls
   el.title = r.why
   el.setAttribute(TOK, r.token)
   el.setAttribute(OUT, r.outcome)
   el.setAttribute(SIG, chipSig(r, live))
   if (r.ref.kind === 'agent') el.setAttribute('data-copy-agent-name', r.ref.id)
-  // the marker tracks `live`, the same predicate the element type does: an
-  // inert chip is not a navigation target and does not gain the agent's menu
-  if (live && r.ref.kind === 'agent') el.setAttribute(AGENT_NAV_ATTR, r.ref.id)
   if (live && r.ref.kind === 'item') for (const [key, value] of Object.entries(objectNavProps('ticket', r.ref.id, r.ref.org))) {
     if (value !== undefined) el.setAttribute(key, value)
   }
   if (r.copyTitle !== undefined) el.setAttribute('data-copy-ticket-title', r.copyTitle)
-  // an agent's CURRENT model, the same claim its name carries elsewhere. No
-  // tier means no icon and a working control — an unknown model is not an
-  // unknown agent.
-  if (r.ref.kind === 'agent' && r.tier) {
-    if (r.tier === 'project') {
-      el.appendChild(projectMarkEl(doc))
-    } else {
-      const t = doc.createElement('span')
-      t.className = 'tier t-' + r.tier
-      t.textContent = TIER_LETTER[r.tier] ?? '?'
-      el.appendChild(t)
-    }
-  }
   // ⚠ APPENDED, NOT ASSIGNED: `textContent =` wipes the model icon above.
   //
   // ⚠ THE TOKEN IS SHOWN ON A FAILED REF, the label only on a live one —

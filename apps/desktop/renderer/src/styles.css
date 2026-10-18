@@ -5208,9 +5208,10 @@ html.mobile .conn-chip { max-width: 46vw; }
 .node.unrecoverable > .card { border-color: var(--bad); opacity: .75; }
 
 .tier {
-  width: 22px; height: 22px; flex: none; display: grid; place-items: center;
+  width: 22px; height: 22px; flex: none; display: inline-grid; place-items: center;
   border-radius: 4px; font-weight: 700; font-size: 11px; font-family: var(--mono);
   background: var(--input); border: 1px solid var(--line); color: var(--dim);
+  vertical-align: middle; text-decoration: none;
 }
 .name { font-weight: 600; font-family: var(--mono); font-size: 12.5px; color: var(--ink-strong); }
 
@@ -9125,7 +9126,7 @@ button.mail-tag-link, .settings button.mail-tag-link { align-self:flex-start; mi
   background:none; color:var(--accent); font-size:11px; line-height:1.4; text-decoration:underline; text-underline-offset:2px; }
 button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:none; color:var(--accent-hover); }
 
-/* Agent and project @-mention completion popover + Hub contact link chips */
+/* Agent and project @-mention completion popover + shared agent/project link chips */
 .agent-mentions {
   display: flex; flex-direction: column; gap: 2px;
   max-height: 220px; overflow-y: auto;
@@ -9140,23 +9141,52 @@ button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:no
   color: var(--ink); font-family: var(--mono); font-size: 12px;
   text-align: left; cursor: pointer;
 }
-.agent-mention-item.on, .agent-mention-item:hover {
+.agent-mention-item.on, .agent-mention-item.active, .agent-mention-item:hover {
   background: color-mix(in srgb, var(--accent) 16%, var(--input));
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
   color: var(--ink-strong);
 }
 .agent-mention-item .tier, .agent-mention-item .project-mark {
-  width: 16px; height: 16px; font-size: 9.5px; flex: none;
+  width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px; flex: none;
   display: inline-grid; place-items: center;
 }
 .agent-mention-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-mark {
+  color: var(--org-accent, var(--accent));
+  text-decoration: none;
+}
+.project-mark svg {
+  fill: currentColor;
+  width: 1em;
+  height: 1em;
+}
+.ref-chip.ref-agent,
+button.ref-chip.ref-agent,
+span.ref-chip.ref-agent,
+.node-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  vertical-align: baseline;
+  font-family: var(--mono);
+}
+button.ref-chip.ref-chip {
+  color: var(--mention-accent, var(--org-agent-text, var(--org-accent, var(--accent))));
+}
+button.ref-chip.ref-chip:hover { color: var(--ink-strong); }
+.ref-chip .tier, .ref-chip .project-mark,
+.node-link .tier, .node-link .project-mark,
+.sender .tier, .sender .project-mark,
+.docket-actor .tier, .docket-actor .project-mark,
+.docket-group-agent .tier, .docket-group-agent .project-mark,
+.docket-question-head .tier, .docket-question-head .project-mark,
+.mail-from .tier, .mail-from .project-mark,
+.tray-main .tier, .tray-main .project-mark {
+  width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px;
+  flex: none; display: inline-grid; place-items: center;
+  vertical-align: middle; margin: 0; text-decoration: none;
+}
 .ref-chip.ref-hub { cursor: pointer; }
 .ref-chip.ref-hub.inert, .ref-chip.ref-hub:disabled {
   opacity: .72; cursor: not-allowed; text-decoration: none;
-}
-.ref-chip .project-mark {
-  display: inline-flex; align-items: center; justify-content: center;
-  margin-right: 3px; color: var(--tier-project, var(--accent));
 }
 /* A permanent message-level mark, independent of dismissible attention.
    Never tint the inner paragraph again: two layers made mentions too strong. */

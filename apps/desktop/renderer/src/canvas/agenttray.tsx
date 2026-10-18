@@ -22,7 +22,7 @@ import type { RefRoutes } from './reflinks'
 import { Written } from './reflinks'
 import { charterLine } from '../archived'
 import { agentTooltipProps } from './agentnav'
-import { TierChip } from './identity'
+import { TierChip, nodeTierOf } from './identity'
 
 export interface TrayRow {
   node: CanvasNode
@@ -183,9 +183,9 @@ export function AgentTray({
               <button type="button" className="tray-main" title={`go to ${n.id}`}
                 {...agentTooltipProps(n.id)}
                 {...mainProps?.(n)}>
-                <TierChip tier={n.tier} agentName={n.id} />
+                <TierChip tier={nodeTierOf(n)} agentName={n.id} />
                 {showQueuedModelBadge && <QueuedModelBadge node={n} />}
-                <span className="tray-name"
+                <span className="tray-name" {...agentTooltipProps(n.id)}
                   title={charterLine(n) || n.id}>{n.id}</span>
                 <ContextWheel occ={n.occupancy} cw={n.context_window}
                   est={n.occupancy_est} compactAt={compactAt} />
