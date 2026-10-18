@@ -100,7 +100,8 @@ mod tests {
         assert!(v.get("lease").is_none());
         let granted=json!({"uid":"w1","kind":"slot","memo":{"queued_at":1767225600000_i64,"lease":"sab","slot":1}});
         let g=view(&granted,"builder");
-        assert_eq!((g["lease"].clone(),g["slot"].clone()),(json!("sab"),json!(1)));
+        assert_eq!(g["lease"],json!("sab"));
+        assert!(g.get("slot").is_none(), "permit indexes stay internal");
         assert!(view(&json!({"uid":"x","kind":"command","memo":{"queued_at":1}}),"b").get("queued_at").is_none());
     }
 }

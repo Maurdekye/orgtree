@@ -19,7 +19,7 @@ test('slot claim tracks its place from the current line and names its spent gran
     [second, [first, second], /Concurrency slot claim: 2nd in line for builds/],
     [second, [second], /Concurrency slot claim: 1st in line for builds/],
     [{ ...second, state: 'paused' }, [first, second], /paused.*resuming rejoins at the back/],
-    [{ ...second, state: 'spent', spent: true, slot: 2, lease: 's_fixture' }, [first], /Granted concurrency slot 2 of builds \(lease s_fixture\), spent/],
+    [{ ...second, state: 'spent', spent: true, slot: 2, lease: 's_fixture' }, [first], /Granted a concurrency slot of builds \(lease s_fixture\), spent/],
   ] as Array<[Watchdog, Watchdog[], RegExp]>) {
     const view = await mountView(<WatchdogPanel slug="synthetic" dog={dog} dogs={dogs} toast={noop} close={noop} />, host => host)
     try {

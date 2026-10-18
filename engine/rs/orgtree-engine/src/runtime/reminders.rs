@@ -448,7 +448,8 @@ mod checkup_tests {
     fn a_slot_checkup_names_the_slot_and_the_release() {
         assert_eq!(slot_note(&[]), None);
         let note = slot_note(&[(1, "build".into(), "s1".into())]).unwrap();
-        assert!(note.contains("slot 1 of project build (lease s1)"), "{note}");
+        assert!(note.contains("concurrency slot of project build (lease s1)"), "{note}");
+        assert!(!note.contains("slot 1"), "{note}");
         assert!(note.contains("release_slot lease=s1"), "{note}");
     }
 

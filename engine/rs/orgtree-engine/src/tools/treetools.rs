@@ -104,9 +104,9 @@ mod slot_release_projection_tests {
     #[test]
     fn own_state_keeps_lease_and_line_position_without_other_agents() {
         let out=own_slot_status(json!({"project":"build","slots":2,"held":2,
-            "holders":[{"agent":"me","lease":"mine"},{"agent":"other","lease":"theirs"}],
+            "holders":[{"agent":"me","lease":"mine","slot":37},{"agent":"other","lease":"theirs","slot":2}],
             "line":[{"agent":"other","position":1},{"agent":"me","position":2}],
-            "history":[{"agent":"me","lease":"old"},{"agent":"other","lease":"secret"}]}),"me");
+            "history":[{"agent":"me","lease":"old","slot":37},{"agent":"other","lease":"secret","slot":2}]}),"me");
         assert_eq!(out,json!({"project":"build","slots":2,"held":1,"own_only":true,
             "holders":[{"agent":"me","lease":"mine"}],"line":[{"agent":"me","position":2}],
             "history":[{"agent":"me","lease":"old"}]}));
