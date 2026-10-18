@@ -1398,7 +1398,17 @@ impl Actor {
             }
             AgentMsg::Command(text, reply) => {
                 self.cancel_keepalive().await;
-                let r = match self.command(&text).await {
+                let r = match self.command(&text, crate::domain::compaction::CommandOrigin::User).await {
+                    Ok(v) => v,
+                    Err(e) => json!({ "started": false, "reason": format!("{e:#}") }),
+                };
+                let _ = reply.send(r);
+            }
+            AgentMsg::CompactFromAgent { caller, reply } => {
+                if reply.is_closed() { return Ok(()); }
+                // Recheck the tool scope and strict descendant relation in the actor's
+                // queue, before cancelling keepalive or asking the native harness.
+                let r = match self.compact_from_agent(&caller).await {
                     Ok(v) => v,
                     Err(e) => json!({ "started": false, "reason": format!("{e:#}") }),
                 };
@@ -7661,9 +7671,20 @@ impl Actor {
     }
 
     /// A slash command as its own turn (`/compact` compacts the session).
-    async fn command(&mut self, text: &str) -> Result<Value> {
+    #[logged]
+    async fn compact_from_agent(&mut self, caller: &Caller) -> Result<Value> {
+        crate::tools::compaction::authorize_id(&self.engine, caller, self.id).await?;
+        let cap = crate::domain::compaction::node_capability(&self.engine, self.id).await?;
+        if cap["supported"] != true { return Ok(cap); }
+        self.cancel_keepalive().await;
+        let mut result = self.command("/compact", crate::domain::compaction::CommandOrigin::Agent).await?;
+        result["supported"] = cap["supported"].clone();
+        Ok(result)
+    }
+
+    async fn command(&mut self, text: &str, origin: crate::domain::compaction::CommandOrigin) -> Result<Value> {
         let result = self.command_inner(text).await?;
-        if result["started"].as_bool().unwrap_or(false) {
+        if origin.establishes_user_contact() && result["started"].as_bool().unwrap_or(false) {
             // All admitted user commands, including compact on any supported harness.
             // Provider admission cannot join the DB transaction; the grant and notices do.
             if let Err(e) = crate::domain::runtime_notices::deep_reach(&self.engine,self.org_id,self.id,text,true).await {

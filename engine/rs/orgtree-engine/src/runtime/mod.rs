@@ -89,6 +89,8 @@ pub enum AgentMsg {
     Unhalt(oneshot::Sender<Value>),
     /// a slash command typed on the desk (`/compact`, ...), sent to the CLI as is
     Command(String, oneshot::Sender<Value>),
+    /// Native compact requested by an agent, with authority rechecked at admission.
+    CompactFromAgent { caller: Caller, reply: oneshot::Sender<Value> },
     /// effort saved (the level the agent resolved to before the save): a
     /// running Claude turn is sent the level it resolves to now
     Effort(String, oneshot::Sender<Value>),

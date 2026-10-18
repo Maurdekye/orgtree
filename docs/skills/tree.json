@@ -1630,6 +1630,7 @@
     "tool-unhalt",
     "tool-unstick",
     "tool-cheap-compact",
+    "tool-compact",
     "turns-and-wakes",
     "turn-envelope",
     "checkups-and-reminders",
@@ -1896,6 +1897,38 @@
     "checkups-and-reminders",
     "context-and-compaction",
     "halts-and-restarts"
+   ]
+  },
+  {
+   "path": "orgtree-working/runtime/tool-compact",
+   "name": "orgtree-tool-compact",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_compact"
+   ],
+   "tool_group": "team",
+   "purpose": "Read native normal-compaction capability or request admission for one descendant.",
+   "must_cover": [
+    "node, action capability or compact, compact default; no self or bulk",
+    "inherited team gate and strict descendants including top-level callers",
+    "side-effect-free capability and native harness support",
+    "supported versus started, refusal reasons and admission never completion",
+    "agent-origin admission gives no user-contact grants or deep-reach notices",
+    "minimal examples and no cheap fallback"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/compaction.rs",
+    "engine/rs/orgtree-engine/src/domain/compaction.rs",
+    "engine/rs/orgtree-engine/src/runtime/actor.rs",
+    "engine/rs/orgtree-engine/src/tools/defs.rs"
+   ],
+   "writer": "compaction-cmds-sol",
+   "status": "fixed",
+   "registered": false,
+   "see_also": [
+    "tool-cheap-compact",
+    "context-and-compaction"
    ]
   },
   {

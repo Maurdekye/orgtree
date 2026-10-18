@@ -49,6 +49,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_reallocate",
         "orgtree_switch_model",
         "orgtree_cheap_compact",
+        "orgtree_compact",
         "orgtree_retool",
         "orgtree_swap",
         "orgtree_self_subjugate",
@@ -106,7 +107,7 @@ fn deferred(name: &str) -> bool {
         "orgtree_account_mark" | "orgtree_withdraw_ask" | "orgtree_project" |
         "orgtree_retire" | "orgtree_dissolve" | "orgtree_retool" | "orgtree_switch_model" |
         "orgtree_move" | "orgtree_rename" | "orgtree_reorder" | "orgtree_reallocate" |
-        "orgtree_cheap_compact" | "orgtree_request_credits" | "orgtree_request_scope" |
+        "orgtree_cheap_compact" | "orgtree_compact" | "orgtree_request_credits" | "orgtree_request_scope" |
         "orgtree_swap" | "orgtree_self_subjugate")
 }
 
@@ -370,6 +371,7 @@ fn all() -> Vec<Value> {
         build_tool_reorder(),
         build_tool_reallocate(),
         build_tool_cheap_compact(),
+        build_tool_compact(),
         build_tool_request_credits(),
         build_tool_request_scope(),
         build_tool_audience(),
@@ -837,6 +839,15 @@ fn build_tool_reallocate() -> Value {
 #[nolog]
 fn build_tool_cheap_compact() -> Value {
     tool("orgtree_cheap_compact", "Restart an agent below you on a fresh session with a summary of the old one.", json!({ "node": { "type": "string" } }), &["node"])
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_compact() -> Value {
+    tool("orgtree_compact", "Check native normal-compaction capability or request compaction for one agent below you. Team scope required; no self, bulk or cheap fallback. Returns node, supported, started and reason. started:true means admitted, never finished. Capability has no side effects; agent calls do not establish user contact.", json!({
+        "node": { "type": "string" },
+        "action": { "type": "string", "enum": ["capability", "compact"], "default": "compact" }
+    }), &["node"])
 }
 
 #[inline(never)]
@@ -1415,6 +1426,9 @@ mod builder_stack_tests {
             assert_eq!(*want,*got,"{name}: differs beyond fast_mode");
             *want=got.clone();
         }
+        // G7 adds exactly one approved card; all older cards retain their bytes/order.
+        let at = expected.as_array().unwrap().iter().position(|c| c["name"] == "orgtree_cheap_compact").unwrap() + 1;
+        expected.as_array_mut().unwrap().insert(at, super::build_tool_compact());
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }

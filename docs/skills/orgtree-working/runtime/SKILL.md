@@ -27,6 +27,7 @@ Your turns and sessions: status, wakes, checkups, context, compaction, halts and
 - [orgtree-tool-halt](tool-halt/SKILL.md): Halt agents below you.
 - [orgtree-tool-unhalt](tool-unhalt/SKILL.md): Release halted agents.
 - [orgtree-tool-unstick](tool-unstick/SKILL.md): Release a usage-limit freeze.
+- [orgtree-tool-compact](tool-compact/SKILL.md): Read native support or request normal compaction of one descendant; admission and refusal reporting.
 - [orgtree-tool-cheap-compact](tool-cheap-compact/SKILL.md): Restart an agent on a fresh session with a summary; what carries over.
 
 For another topic, return to the category above. References to another category use its skill name and breadcrumb; open that category to locate them.

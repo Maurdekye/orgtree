@@ -31,6 +31,8 @@ Read the handoff and breadcrumbs, then recover conversations with correspondents
 
 ## See also
 
+- [orgtree-tool-compact](../tool-compact/SKILL.md): Native normal compaction, capability and admission reporting.
+
 - [orgtree-tool-cheap-compact](../tool-cheap-compact/SKILL.md)
 - [orgtree-cache-continuity](../../accounts/cache-continuity/SKILL.md)
 - [orgtree-breadcrumbs](../../workspace/breadcrumbs/SKILL.md)

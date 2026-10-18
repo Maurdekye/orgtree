@@ -69,3 +69,16 @@ routes falsely supported) and two passing controls. Corrected renderer red at
 2d8cdd7: nine cases, six intended failures and three controls, raw exit1; the
 first modal fixture's invalid portal queries are retained separately. Author
 green results and exact SHA are recorded in the docket/hand-in after execution.
+
+## Agent normal-compaction tool (G7)
+
+orgtree_compact accepts one node and action capability or compact (default).
+Effective team scope and the same strict descendant boundary as cheap compact
+apply, including to top-level callers. Self, projects and bulk are refused.
+The HTTP capability read and tool share domain::compaction::node_capability;
+capability never creates an actor. Native actor admission rechecks tool scope
+and hierarchy, preserves busy/session/runtime refusals, and uses Agent origin.
+Only User-origin admitted commands perform user-contact/deep-reach notices.
+The result node/supported/started/reason never reports completion; unsupported
+routes have supported:false and started:false. There is no cheap fallback.
+See the orgtree-tool-compact glossary page for parameters and examples.

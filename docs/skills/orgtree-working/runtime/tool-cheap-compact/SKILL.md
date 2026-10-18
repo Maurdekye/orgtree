@@ -37,6 +37,8 @@ Refusals include `you cannot compact yourself`, `you can only compact agents bel
 
 ## See also
 
+- [orgtree-tool-compact](../tool-compact/SKILL.md): Native normal compaction, capability and admission reporting.
+
 - [orgtree-turns-and-wakes](../turns-and-wakes/SKILL.md)
 - [orgtree-turn-envelope](../turn-envelope/SKILL.md)
 - [orgtree-checkups-and-reminders](../checkups-and-reminders/SKILL.md)

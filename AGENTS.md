@@ -536,6 +536,12 @@
   available. Normal previews unsupported/sessionless/unreadable seats as skips and only reports
   admitted requests as started; there is no fallback to Cheap. The single-agent
   modal retains a cold-cache warning only for backend evidence, never idle age.
+  Agent orgtree_compact is team-gated and strict-descendant only; capability
+  shares the UI effective-harness resolver and never starts an actor. Compact
+  rechecks authority at actor admission and keeps agent origin (no user-contact
+  grant/deep-reach notice). started means admitted, never completed; no fallback.
+  [decided: coordinator 2026-10-18 18:26Z; verified: tools/compaction.rs,
+  domain/compaction.rs, runtime/actor.rs]
   See [compact choice](docs/rust-engine/compact-choice.md).
   [decided: user/coordinator 2026-10-17/18; verified: `canvas/agentcompact.tsx`,
   `canvas/bulkcompact.tsx`, `http/nodes.rs`, `domain/compaction.rs`]

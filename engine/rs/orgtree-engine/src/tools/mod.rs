@@ -3,6 +3,7 @@
 //! A call names no identity: the process it came from is the caller.
 
 pub(crate) mod control;
+pub(crate) mod compaction;
 pub mod defs;
 pub mod usermcp;
 mod mailtools;
@@ -245,6 +246,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_reallocate" => treetools::run(engine, caller, args, "reallocate").await,
         "orgtree_switch_model" => treetools::run(engine, caller, args, "switch_model").await,
         "orgtree_cheap_compact" => treetools::run(engine, caller, args, "cheap_compact").await,
+        "orgtree_compact" => compaction::run(engine, caller, args).await,
         "orgtree_retool" => treetools::run(engine, caller, args, "retool").await,
         "orgtree_fast_defaults" => treetools::run(engine, caller, args, "fast_defaults").await,
         "orgtree_swap" => treetools::run(engine, caller, args, "swap").await,
