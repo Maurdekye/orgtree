@@ -1110,7 +1110,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
     <SetRow label="Project actions" hint="Retire or restore the project; agents under it are retired with it and keep their context.">
       <span className="agent-identity-row">
         {live && !members && <button className="danger" onClick={() => setAsking('retire')}>retire project</button>}
-        {live && members && <button className="danger" onClick={() => setAsking('dissolve')}>dissolve project</button>}
+        {live && members && <button className="danger" onClick={() => setAsking('dissolve')}>dissolve</button>}
         {node.state === 'archived' && <button className="primary" onClick={() =>
           op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>restore</button>}
         <button className="danger delete" onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
@@ -1119,8 +1119,8 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
     <SettingsTabs tabs={[{ id: 'project' as const, label: 'Project' }, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : [])]}
       tab={tab} setTab={setTab} idBase={tabId} label="Project settings" />
     <SettingsTabPanel id="project" idBase={tabId} active={tab === 'project'}>
-      <SetBlock label="Description" hint="The standing charter of every agent under this project, nested projects included; it reaches a running agent at its next start.">
-        <textarea rows={10} className="charterbox" aria-label="Project description" value={description}
+      <SetBlock label="Summary" hint="The standing charter of every agent under this project, nested projects included; it reaches a running agent at its next start.">
+        <textarea rows={10} className="charterbox" aria-label="Project Summary" value={description}
           onChange={(e) => setDescription(e.target.value)} /></SetBlock>
       <SetToggle label="Subordinates may message each other" checked={on} disabled={busy} onChange={setEdit}
         hint="Off requires an audience between this project's direct agents and hides their peer connector lines. Changes apply immediately." />

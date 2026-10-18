@@ -114,9 +114,9 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         sources: [R('canvas/cards.tsx')] },
       { keys: ['Escape'], action: 'Cancel a new project you are drafting',
         sources: [R('canvas/newproject.tsx')] },
-      { keys: ['Enter'], action: 'Create the drafted project', note: 'in the name or description; Shift+Enter: new line in the description',
+      { keys: ['Enter'], action: 'Create the drafted project', note: 'in the name or Summary; Shift+Enter: new line in the Summary',
         sources: [R('canvas/newproject.tsx')] },
-      { keys: ['Escape'], action: 'Discard the project description edit', note: 'while editing the description',
+      { keys: ['Escape'], action: 'Discard the project Summary edit', note: 'while editing the Summary',
         sources: [R('canvas/projectdesk.tsx')] },
     ] },
     { title: 'Attention view', items: [

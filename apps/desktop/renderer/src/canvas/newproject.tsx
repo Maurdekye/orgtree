@@ -69,7 +69,8 @@ export function ProjectDraftNode({ pos, onConfirm, onCancel }: {
           </div>
           <div className="df-charter-wrap">
             <textarea className="df-charter"
-              placeholder="description (optional): what the project is. Every agent under it gets this as a standing charter."
+              aria-label="Project Summary"
+              placeholder="Summary (optional): what the project is. Every agent under it gets this as a standing charter."
               value={description} onChange={(e) => setDescription(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && ok) { e.preventDefault(); create() } }} />
           </div>

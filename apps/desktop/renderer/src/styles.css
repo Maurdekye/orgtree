@@ -1417,8 +1417,10 @@ button.badge.audience-fold.alert {
 /* the description editor: Markdown until focused, monospace while edited (user 2026-10-17 20:06Z) */
 .project-desk .project-description-md, .project-desk .project-description-edit {
   flex: 1; min-height: 240px; overflow: auto; box-sizing: border-box; width: 100%;
-  padding: 10px 12px; border-radius: 4px; background: var(--input); border: 1px solid var(--line); }
+  padding: 12px; border-radius: 4px; background: var(--input); border: 1px solid var(--line); }
 .project-desk .project-description-md { cursor: text; }
+/* The first Markdown block's browser margin must not add a top-only inset. */
+.project-desk .project-description-md > :first-child { margin-top: 0; }
 /* an editable description shows it is clickable (user 2026-10-18 11:14Z) */
 .project-desk .project-description-md[role="textbox"] { cursor: pointer; }
 .project-desk .project-description-md[role="textbox"]:hover { background: var(--panel-2); }

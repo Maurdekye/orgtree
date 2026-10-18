@@ -266,7 +266,7 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   assert.ok(panel, 'the slots panel')
   assert.deepEqual(ops.filter((o) => o.op === 'slot_status'), [{ op: 'slot_status', node: 'build' }])
   assert.equal(panel.querySelector('.slots-lead')?.textContent?.startsWith('1 of 1 concurrency slot held'), true)
-  assert.match(view.el.querySelector('.cc-tabs button[data-tab="slots"]')?.textContent ?? '', /^concurrency slots 1\/1$/, 'the tab spelled out, its count short')
+  assert.match(view.el.querySelector('.cc-tabs button[data-tab="slots"]')?.textContent ?? '', /^slots$/, 'the tab omits redundant held/total counts')
   const sections = [...panel.querySelectorAll('h4')].map((h) => h.textContent)
   assert.deepEqual(sections, ['Holding', 'Line', 'Recent holds'])
   const holding = panel.querySelector('.slots-holding')!.textContent ?? ''

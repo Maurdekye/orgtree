@@ -215,12 +215,12 @@ function DescriptionEditor({ node, op, toast, editable }: {
     setEditing(false)
     if (draft.trim() === saved.trim()) return
     op({ op: 'set_description', node: node.id, description: draft })
-      .then(() => toast([`description of ${node.id} saved`]))
+        .then(() => toast([`Summary of ${node.id} saved`]))
       .catch(() => setDraft(saved))   // `op` toasts the refusal
   }
   if (editing) {
     return <textarea ref={box} className="project-description-edit" value={draft} spellCheck={false}
-      aria-label={`description of project ${node.id}`}
+      aria-label={`Summary of project ${node.id}`}
       onChange={(e) => setDraft(e.target.value)} onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDraft(saved); setEditing(false) }
@@ -228,8 +228,8 @@ function DescriptionEditor({ node, op, toast, editable }: {
   }
   const empty = !saved.trim()
   return <div className={'project-description-md' + (empty ? ' dim' : '')} tabIndex={editable ? 0 : -1}
-    role={editable ? 'textbox' : undefined} aria-label={`description of project ${node.id}`}
-    title={editable ? 'click to edit; it is the standing charter of every agent under this project' : undefined}
+    role={editable ? 'textbox' : undefined} aria-label={`Summary of project ${node.id}`}
+    title={editable ? 'click to edit the Summary; it is the standing charter of every agent under this project' : undefined}
     onMouseDown={(e) => {
       if (!editable || empty || e.button !== 0) return
       const shown = shownBefore(e.currentTarget, e.clientX, e.clientY)
@@ -237,7 +237,7 @@ function DescriptionEditor({ node, op, toast, editable }: {
     }}
     onFocus={() => { if (editable) setEditing(true) }}
     onClick={() => { if (editable) setEditing(true) }}
-    {...(empty ? { children: editable ? 'Describe the project: every agent under it gets this as a standing charter.' : 'No description.' }
+    {...(empty ? { children: editable ? 'Add a Summary: every agent under this project gets it as a standing charter.' : 'No Summary.' }
       : { dangerouslySetInnerHTML: md(saved) })} />
 }
 
@@ -476,7 +476,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             {/* slots held/total while slots are enabled; it opens the Slots tab (user 08:46Z) */}
             {slots.total > 0 && <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
               title={`${slots.held.length} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
-                + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '') + ': open the Concurrency slots tab'}
+                + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '') + ': open the slots tab'}
               onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>}
             {!live && <span className="badge dim">{node.state}</span>}
           </span>
@@ -491,7 +491,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               )}
               {live && <button className="danger" data-action="dissolve"
                 title="retire the project and every agent under it; context is kept and rehire brings each back"
-                onClick={() => setAsking('dissolve')}>dissolve project</button>}
+                onClick={() => setAsking('dissolve')}>dissolve</button>}
               {!live && node.state === 'archived' && <button data-action="restore"
                 onClick={() => { void op({ op: 'rehire', node: node.id }).catch(() => {}) }}>restore</button>}
             </span>
@@ -499,9 +499,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               {tabs.map((v) => (
                 <button key={v} data-tab={v} className={shown === v ? 'on' : ''}
                   onClick={() => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v) }}>
-                  {/* spelled out (user 2026-10-18 12:16Z); the id stays `slots` */}
-                  {v === 'slots' ? 'concurrency slots' : v}{v === 'slots' ? <>{' '}<span className="tab-count">{slots.held.length}/{slots.total}</span></>
-                    : count(v) > 0 ? <>{' '}<span className="tab-count">{count(v)}</span></> : ''}
+                  {/* Presentation labels only: existing tab routes stay stable. */}
+                  {v === 'desk' ? 'Summary' : v}{v !== 'slots' && count(v) > 0
+                    ? <>{' '}<span className="tab-count">{count(v)}</span></> : ''}
                 </button>
               ))}
             </span>
