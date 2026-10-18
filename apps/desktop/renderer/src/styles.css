@@ -8929,6 +8929,26 @@ main:has(> .orgbar.native-header) > .error {
   --org-accent-hover: #4099c4 !important;
   --org-accent-soft: rgba(0, 119, 176, .16) !important;
 }
+/* The Orgtree Grey app theme (visual-theme preset `orgtree`) on the light
+   surfaces (user 2026-10-18 15:34Z): its pale accent #b6bdc8 painted text at
+   1.5-1.9:1 there, so the accent becomes the same blue-grey at 35 %
+   lightness, #4c5565: 4.6:1 or more on every light and solarized surface,
+   the hover grey, and the accent wash of a selected (13 %), selected-urgent
+   (21 %) or hovered-urgent (16 % on the hover grey) row, so unread senders,
+   pills, @user marks and links read; white ink on it 7.5:1. Its hover goes
+   DARKER, #39404c (10.4:1 under white ink), where the dark surfaces' goes
+   lighter: either way the hover moves away from the background. applyTheme
+   sets the accent inline: these declarations outrank it only for this theme
+   on these two surfaces (lightaccent.test.tsx). */
+:root[data-visual-theme="orgtree"]:is(.contrast-light, .contrast-solarized-light) {
+  --accent: #4c5565 !important;
+  --accent-hover: #39404c !important;
+  --accent-soft: rgba(76, 85, 101, .16) !important;
+  --accent-ink: #ffffff !important;
+  --org-accent: #4c5565 !important;
+  --org-accent-hover: #39404c !important;
+  --org-accent-soft: rgba(76, 85, 101, .16) !important;
+}
 /* Muse's tiers: routine colours inside the tier design (lead 2026-10-13),
    MEASURED (tools tier_pick / tier_check): at least 4.5:1 on --panel and on
    the badge fill --input, then as far as the hue allows from every tier,
