@@ -3362,13 +3362,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const heldRet = held.filter((g) => g !== USER && g !== EXTERN
     && map.get(g)?.state !== 'live')
   const heldChip = (g: string, dim = false) => (
-    <span key={g} className={'badge ' + (g === USER ? 'free aud-user' : dim ? 'dim' : '')}>
+    <span key={g} className={'badge ' + (g === USER ? 'free aud-user' : dim ? 'dim' : '')}
+      title={node.audiences_inherited?.filter((a) => a.grantor === g).map((a) => `Inherited from project ${a.project}`).join('; ') || undefined}>
       <HearingIcon fontSize="inherit" />
       {g === USER ? 'user' : g === EXTERN ? 'org inbox' : g}
-      <button className="chip-x"
+      {(node.audiences_explicit ?? held).includes(g) && <button className="chip-x"
         onClick={() => audienceAction(slug, 'revoke', node.id, g)
           .then(() => toast([`audience ${node.id}→${g} rescinded`]))
-          .catch((e: Error) => toast([`error: ${e.message}`]))}><CloseIcon fontSize="inherit" /></button>
+          .catch((e: Error) => toast([`error: ${e.message}`]))}><CloseIcon fontSize="inherit" /></button>}
     </span>
   )
   // The desk's own tree, handed to the transcript's mail cards. The lookup

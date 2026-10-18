@@ -275,7 +275,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   }
   entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
   if (live && !node.isBearerOf && h.onToggleUserAudience) {
-    const hasUserAudience = node.audiences_held?.includes(USER) ?? false
+    const hasUserAudience = (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ?? false
     entries.push({
       label: hasUserAudience ? 'Drop audience' : 'Acquire audience',
       title: hasUserAudience ? 'Revoke this agent\'s user audience' : 'Grant this agent the user audience',
@@ -351,7 +351,8 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
 /**
  * A PROJECT NODE's menu (docs/rust-engine/PROJECT-NODES.md; user 2026-10-16):
  * its mailbox, folder and presentations, hires and nested projects under it,
- * and its retirement. No settings, audience, halt or compaction on the project
+ * and its retirement. Audiences belong to the project and its direct members.
+ * No halt or compaction on the project
  * itself (whole-subtree versions stand in for its agents): a project runs no
  * turns. Shared by the project card and the Agents List row.
  */
@@ -423,6 +424,12 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     entries.push({ label: 'New project…', title: `a project nested in ${node.id}`, onSelect: h.onNewProject })
   }
   if (live) entries.push({ label: 'Settings', onSelect: h.onSettings })
+  if (live && h.onToggleUserAudience) {
+    const explicit = (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ?? false
+    entries.push({ label: explicit ? 'Drop audience' : 'Acquire audience',
+      title: explicit ? "Revoke this project's user audience" : 'Grant this project the user audience for its direct members',
+      onSelect: h.onToggleUserAudience })
+  }
   if (!live && h.onDismiss) {
     const dismiss = h.onDismiss
     entries.push({ label: 'Dismiss', title: 'hide this retired project again', onSelect: () => dismiss() })

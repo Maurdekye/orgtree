@@ -14,10 +14,11 @@
 // a card on it moves that card in.
 
 import { useState } from 'react'
+import { audienceAction } from '../api'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
 import { DocIcon, DocketIcon, FolderIcon, MailIcon } from '../icons'
-import { NODE_H, NODE_W, subtreeDocs, useAgentShortcuts, Z_MAX } from './shared'
+import { NODE_H, NODE_W, subtreeDocs, useAgentShortcuts, USER, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
 import type { RefRoutes } from './reflinks'
@@ -135,6 +136,9 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     onOpenTemporary,
     onPopout,
     onSettings: () => onSettings?.(),
+    onToggleUserAudience: () => audienceAction(slug,
+      (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ? 'revoke' : 'grant', node.id, USER)
+      .catch((e: Error) => toast(['error: ' + e.message])),
     onHire,
     onHireBeside: onSpawnSide ? (t) => onSpawnSide(t, 'right') : undefined,
     onHireAbove: onSpawnTop,

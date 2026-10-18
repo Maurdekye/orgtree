@@ -536,7 +536,7 @@ export function EyeDesk({ map, op, slug, toast,
               </button>}
               {/* ✕ only on audience-granted lines; closing RESCINDS the grant
                   (user spec) — top-level lines have no ✕, they are intrinsic */}
-              {a.parent !== USER && a.audiences_held?.includes(USER) &&
+              {a.parent !== USER && (a.audiences_explicit ?? a.audiences_held)?.includes(USER) &&
                 <button className="eye-tab-x"
                   title="close this line (rescinds its audience with you)"
                   onClick={() => audienceAction(slug, 'revoke', a.id, USER)
@@ -1562,7 +1562,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onLineage,
       onSettings: onConfig,
       onToggleUserAudience: () => audienceAction(slug,
-        node.audiences_held?.includes(USER) ? 'revoke' : 'grant', node.id, USER)
+        (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ? 'revoke' : 'grant', node.id, USER)
         .catch((e: Error) => toast([`error: ${e.message}`])),
       onPin,
       onShowPin,

@@ -488,6 +488,8 @@ export interface TreeNode {
   halt?: { phase: 'halting' | 'halted'; requested_at: string; at?: string; by: string } | null
   halt_queued?: number
   audiences_held: string[]
+  audiences_explicit?: string[]
+  audiences_inherited?: { grantor: string; project: string }[]
   bearer_state: BearerState
   generation: number
   children: TreeNode[]

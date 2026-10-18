@@ -1154,6 +1154,8 @@ export interface CanvasNode {
   halt?: TreeNode['halt']
   halt_queued?: number
   audiences_held?: string[]
+  audiences_explicit?: string[]
+  audiences_inherited?: { grantor: string; project: string }[]
   bearer_state?: TreeNode['bearer_state']
   generation?: number
   lineage?: TreeNode['lineage']
