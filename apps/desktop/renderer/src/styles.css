@@ -1,3 +1,9 @@
+@import 'katex/dist/katex.min.css';
+
+/* Long formulas scroll within their Markdown surface, including detached windows. */
+.md .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 3px 0; }
+.md .katex { color: inherit; }
+
 /* Claude Code (VS Code extension) visual language: dark greys, terracotta-orange
    accents, VS Code type scale, tight radii, hairline borders, soft shadows.
    The five-CHANNEL encoding (§9.3 — tier hue, lifecycle fill, permission border,

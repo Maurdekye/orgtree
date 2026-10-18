@@ -8,7 +8,7 @@ import { isNoticeRow } from '../events/decode'
 // Canvas.tsx in the phase-3 split; all comments ride with their code.
 
 import DOMPurify from 'dompurify'
-import { marked } from 'marked'
+import { mathMarkdown } from './markdownmath'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 // side effect: the document-level "click a markdown image → full-size viewer"
 // listener — loaded here because every .md surface renders through this module
@@ -3317,7 +3317,7 @@ export const md = (text: string | null | undefined,
   let hit = store.get(key) ?? (live ? _mdCache.get(key) : undefined)
   if (hit === undefined) {
     hit = { __html: wrapCodeBlocks(sanitizeMarkdown(
-      marked.parse(escapeAngles(local),
+      mathMarkdown.parse(escapeAngles(local),
         { gfm: true, breaks: true, async: false })), imgBase, agentHtmlResponse) }
     // LRU eviction, not clear-all (perf-redesign 2026-09-12): a long
     // expanded chat plus mail previews cycles past the bound, and the old

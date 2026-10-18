@@ -60,6 +60,7 @@ const SKIP = new Set(['CODE', 'PRE', 'A', 'BUTTON'])
 
 function inSkipped(node: Node): boolean {
   for (let p = node.parentElement; p; p = p.parentElement) {
+    if (p.classList.contains('katex') || p.classList.contains('katex-display')) return true
     if (SKIP.has(p.tagName.toUpperCase())) return true
   }
   return false
