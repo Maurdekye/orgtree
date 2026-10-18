@@ -123,7 +123,7 @@ test('§3 a slot claim\'s card says its place in line and who holds; after the g
   assert.equal(slotClaimText(dogs[0], dogs, leases, 1),
     'Concurrency slot claim: 2nd in line for project build (behind sc; 1 of 1 held by sa).')
   assert.equal(slotClaimText(claim('sa', 'x', '2026-10-18T08:59:00.000Z', { state: 'spent', spent: true, lease: 's7a20', slot: 1 }), dogs, leases, 1),
-    'Granted concurrency slot 1 of build (lease s7a20).')
+    'Granted a concurrency slot of build (lease s7a20).')
   assert.match(slotClaimText(dogs[2], dogs, leases, 1), /paused: out of the line; resuming rejoins at the back/)
   assert.deepEqual(slotHoldsOf('sa', leases).map((l) => [l.project, l.slot]), [['build', 1]])
   assert.deepEqual(slotHoldsOf('sb', leases), [])
@@ -149,7 +149,8 @@ test("§3b the agent card wears its slot chip in the chip row, and the status ro
   t.after(() => view.unmount())
   assert.ok(!view.el.querySelector('.sq-meta .chip.slot-hold'), 'nothing slot-shaped on the status row')
   const chips = [...view.el.querySelectorAll('.sq-badges .chip.slot-hold')].map((c) => c.textContent)
-  assert.deepEqual(chips, ['⬢ build #1'])
+  assert.deepEqual(chips, ['⬢ build'])
+  assert.doesNotMatch(view.el.querySelector('.slot-hold')?.getAttribute('title') ?? '', /slot \d/)
 })
 
 async function slotDesk(t: TestContext, me: CanvasNode) {
@@ -170,7 +171,7 @@ test("§3c the agent desk's header carries a holder's slot chip right after the 
   const el = await slotDesk(t, agentNode('sa', { cost_usd: 4.56 } as Partial<CanvasNode>))
   const chip = el.querySelector('.cc-head .chip.slot-hold')
   assert.ok(chip, 'the holder chip in the desk header')
-  assert.equal(chip!.textContent, '⬢ build #1')
+  assert.equal(chip!.textContent, '⬢ build')
   assert.match(chip!.previousElementSibling?.textContent ?? '', /^\$4\.56/, 'right after the estimated-cost chip')
 })
 
@@ -270,16 +271,17 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   const sections = [...panel.querySelectorAll('h4')].map((h) => h.textContent)
   assert.deepEqual(sections, ['Holding', 'Line', 'Recent holds'])
   const holding = panel.querySelector('.slots-holding')!.textContent ?? ''
-  assert.match(holding, /#1/); assert.match(holding, /sa/); assert.match(holding, /alpha7-build/); assert.match(holding, /s3f1c/)
+  assert.doesNotMatch(holding, /#\d/); assert.match(holding, /sa/); assert.match(holding, /alpha7-build/); assert.match(holding, /s3f1c/)
   const line = [...panel.querySelectorAll('.slots-line .slot-row')].map((r) => r.textContent ?? '')
   assert.equal(line.length, 2)
   assert.match(line[0], /1st.*sc/); assert.match(line[1], /2nd.*sb/)
   const hist = panel.querySelector('.slots-history')!.textContent ?? ''
+  assert.doesNotMatch(hist, /#\d/)
   assert.match(hist, /released/); assert.match(hist, /idle: not released after 3 reminders/)
   // force release: nothing before the confirmation
   await inAct(() => { panel.querySelector<HTMLButtonElement>('button[data-action="force-release"]')!.click() })
   assert.equal(ops.some((o) => o.op === 'slot_release'), false, 'nothing before the confirmation')
-  assert.match(document.body.textContent ?? '', /take concurrency slot 1 of build back from sa\?/)
+  assert.match(document.body.textContent ?? '', /take the concurrency slot of build back from sa\?/)
   assert.match(document.body.textContent ?? '', /the next in line, sc, gets it at once/)
   const go = [...document.querySelectorAll('button')].find((b) => b.textContent === 'force release' && !b.closest('.project-slots'))!
   await inAct(async () => { go.click(); await flush(3) })

@@ -386,6 +386,14 @@ pub async fn startup(engine: &Arc<Engine>) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn grants_identify_the_lease_without_numbering_the_permit() {
+        let text = grant_line("build", 37, "slease");
+        assert!(text.contains("You now hold a concurrency slot of project build (lease slease)"));
+        assert!(!text.contains("37"));
+        assert!(text.contains("orgtree_project action=release_slot lease=slease"));
+    }
+
     /// User 2026-10-18 08:42Z: a slot count, 0 (the default) is none.
     #[test]
     fn the_slot_count_defaults_to_none() {
