@@ -88,6 +88,8 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   if (path === '/api/orgs') return json([{ slug: SLUG, name: 'Studio', live: workers.length + 1, seats: workers.length + 1 }])
   if (path === `/api/orgs/${SLUG}` || path === `/api/orgs/${SLUG}/foreground-tree`) return json(tree)
   if (path === '/api/providers') return json({ providers: [] })
+  // the hire picker's answer, which Quick chat's defaults also read: an empty catalog, not `{}` (no tiers threw)
+  if (path === `/api/orgs/${SLUG}/staffing-options`) return json({ tiers: [], at: 0, stale: false, errors: [], loading: false, generation: 0 })
   if (path === `/api/orgs/${SLUG}/inbox`) return json({ pending, delivered, sent: [], tag_choices: ['alpha', 'captures', 'light mode'] })
   if (/inbox|mailbox|\/mail/.test(path)) {
     return json({ pending: [], delivered: [], sent: [], history: [], messages: [], items: [], unread: 0 })
