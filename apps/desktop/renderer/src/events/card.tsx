@@ -14,6 +14,7 @@ import { RefChip, resolveRef } from '../canvas/reflinks'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import type { TypedRef } from '../canvas/workrefs'
 import { md } from '../canvas/shared'
+import { DogChip, useDogRoute } from '../canvas/deskdogs'
 import { AnsweredAsk, AnsweredCard, ResolvedSections, batchAskQuestions, resolvedSectionKinds } from './answered'
 
 const FAMILY_MARK: Record<Family, string> = {
@@ -55,6 +56,16 @@ function Fields({ fields, ...props }: ValueProps & { fields: EventField[] }) {
     <Value value={humanValue(f.value, f.type, props.profile)} {...props} />
   </div>)}</>
 }
+function WatchdogObjectLabel({ object }: { object: Extract<NonNullable<Event['object']>, { kind: 'watchdog' }> }) {
+  const route = useDogRoute()
+  const id = object.id.includes('/') ? object.id : `${object.owner}/${object.id}`
+  const dog = route?.org === object.org
+    ? route.dogs.find(candidate => candidate.id === id && !candidate.spent && candidate.state !== 'spent')
+    : undefined
+  return dog && route
+    ? <DogChip dog={dog} onOpen={route.open} />
+    : <span className="event-object">{object.name}</span>
+}
 export function eventReference(event: KnownEvent, enclosingOrg: string): TypedRef | null {
   const object = event.object
   if (!object) return null
@@ -71,6 +82,7 @@ export function eventReference(event: KnownEvent, enclosingOrg: string): TypedRe
 function ObjectLabel({ event, org, world, onOpen }: { event: Event; org: string } & ContentProps) {
   const object = event.object
   if (!object) return null
+  if (object.kind === 'watchdog') return <WatchdogObjectLabel object={object} />
   const ref = eventReference(event, org)
   if (ref) {
     const resolved = resolveRef(ref, world ?? { org, handles: new Set() })
