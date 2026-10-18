@@ -22,7 +22,7 @@ import { readOnlyAgent } from '../archived'
 import { accountTint } from '../accounttint'
 import { THEMES } from '../themes'
 import {
-  AutorenewIcon, CheckIcon, CloseIcon, DocketIcon, FocusIcon, FullscreenIcon, FrozenIcon, LayersIcon,
+  AutorenewIcon, BoltIcon, CheckIcon, CloseIcon, DocketIcon, FocusIcon, FullscreenIcon, FrozenIcon, LayersIcon,
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon, FolderIcon,
 } from '../icons'
 import {
@@ -39,6 +39,7 @@ import {
   MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
 import { EffortLevelBadge } from './effort'
+import { useFastMode } from './fastmode'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
@@ -1556,6 +1557,10 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // drag — which a pinned placeholder shares with an open desk. Only the
   // DeskChat mount itself keys on `deskOpen`.
   const showShortcuts = useAgentShortcuts()
+  const supportsFast = useFastMode(node.tier, node.scope?.model_version)
+  // Active speed, never a queued preference: unknown running evidence is silent.
+  const activeFast = supportsFast && (node.busy
+    ? node.fast_mode_current === true : node.scope?.fast_mode === true)
   const focused = deskOpen || !!pinnedFocus
   // pile fronts zoom on a plain CENTER click (user spec) — track the
   // pointer-down point so a drag's trailing click doesn't re-zoom
@@ -2028,6 +2033,9 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
                   itself. Same guard as the desk badge in desk.tsx. */}
               {!node.limit_locked && node.frozen.provenance === 'inferred'
                 ? ' (inferred)' : ''}</ActionBadge>}
+          {activeFast && <span className="badge fast-mode" title="fast" aria-label="fast">
+            <BoltIcon fontSize="inherit" />
+          </span>}
           {node.remote_controlled &&
             <span className="badge frozen"
               title="the user is driving this session from another device — mail queues until release (gear panel)">

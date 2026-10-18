@@ -21,14 +21,19 @@ separate from thinking effort. Agents explain the setting; the user changes it.
 - The choice applies to the next turn in the same conversation. A speed-only save
   does not switch model, account or session and does not restart the CLI. A running
   turn keeps its existing speed. There is no promise of a prompt-cache hit.
-- While a turn is running, a badge beside the lightning button says **next turn ?
-  fast on** or **next turn ? fast off** when the saved choice differs from the
+- While a turn is running, a badge beside the lightning button says **next turn →
+  fast on** or **next turn → fast off** when the saved choice differs from the
   speed request sent to that turn. Its tooltip gives both values. It clears on
   next admission, turn completion or reverting the choice. Unknown serving state
   shows no badge; saving alone does not prove a change is pending.
-- The agent hover tooltip includes **fast mode** when saved on for a supported model.
+- The agent hover tooltip includes **fast** when saved on for a supported model.
   Changing to an unsupported model ignores the stored choice and hides the controls.
   Switching back restores the saved preference.
+- At near canvas zoom, a passive lightning icon card has the tooltip **fast**.
+  It shows known active speed during a running turn, and the saved setting while
+  idle. Queued-on does not mark a standard-speed running turn; queued-off keeps
+  the still-active fast bolt. Busy with unknown/null speed, off or unsupported
+  routes, and far/map views show no bolt.
 - Provider entitlement, organization policy, credits or availability may still
   refuse faster inference. Such refusals remain visible as turn errors; a saved
   checkbox is a request, not proof that the provider accepted fast inference.

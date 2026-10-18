@@ -312,6 +312,11 @@
   The fast next-turn badge compares saved scope to `fast_mode_current`, captured
   only after native turn acceptance; idle/unknown/command turns clear it. Keep
   the field in the runtime overlay allowlist, never infer it from save success.
+  Near-zoom cards show a passive bolt (tooltip "fast") for supported active speed:
+  busy reads known fast_mode_current; idle reads saved scope. Unknown busy speed
+  is silent. The rich agent hover ends with "fast"; desk speed help is unchanged.
+  [decided: user/coordinator 2026-10-18 14:15-14:17Z; verified:
+  canvas/cards.tsx, canvas/OrgCanvas.tsx]
   [decided: user/coordinator 2026-10-17 17:49–17:52Z; verified:
   `providers/fast_mode.rs`, `runtime/{actor,claude,codex}.rs`, `canvas/fastmode.ts`,
   `recordoverlay.ts`, `canvas/fastmodebutton.tsx`; user 2026-10-18 12:51Z;

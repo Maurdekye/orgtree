@@ -424,7 +424,7 @@ export function agentTooltipInfo(n: CanvasNode | undefined,
   const account = accountCount > 1
     ? n.account_label?.trim() || n.account || 'default'
     : undefined
-  const fast = n.scope?.fast_mode && fastModeSupported(n.tier, version, catalogTier) ? 'fast mode' : undefined
+  const fast = n.scope?.fast_mode && fastModeSupported(n.tier, version, catalogTier) ? 'fast' : undefined
   const values = [model ? model + (retired ? ' (retired)' : '') : undefined, effort, account, fast]
     .filter((value): value is string => !!value?.trim())
   return values.length ? { title: values.join(' · ') } : null

@@ -65,3 +65,17 @@ values. A successful save alone never supplies serving evidence. New admission,
 turn completion or reverting the saved choice removes the badge. Native provider
 entitlement and acceleration remain outside this evidence: it records the sent
 speed request, not a claim about observed latency or billing.
+
+## Near-zoom active indicator (2026-10-18)
+
+The ordinary near-zoom card's status badge row includes a passive lightning
+icon with title/accessible label "fast". The current provider and pinned model
+must advertise support. While busy, only fast_mode_current=true shows it; an
+unknown/null serving value stays hidden. While idle, scope.fast_mode=true shows
+it. A queued-on request does not label the standard-speed running turn, and
+queued-off does not remove the bolt from a still-fast turn. Completion adopts
+the saved setting. The existing far/map locator and open-desk exclusions remain.
+
+The rich agent model hover's final segment reads "fast" instead of "fast mode";
+its existing support and saved-preference gating remains. The desk speed
+button's help/accessible name and the Model-tab setting retain their wording.

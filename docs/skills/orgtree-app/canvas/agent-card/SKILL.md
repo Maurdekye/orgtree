@@ -21,6 +21,7 @@ At ordinary overview zoom, a card has identity, state and shortcut rows. Its tie
 | Pinned | Its desk is hosted in a canvas window; focusing can raise that window. |
 | Secondary serving-account badge | The account actually serving the turn when supplied; ambient/default serving accounts do not get this badge. |
 | Next turn → account/model/effort | A queued requested value, distinct from the current serving configuration. |
+| Lightning bolt (tooltip: fast) | Near-zoom supported active fast speed: a busy turn uses known serving speed; idle uses the saved setting. Queued-on/current-off and unknown busy speed do not show it. Queued-off keeps it until the fast turn ends. |
 | Effort badge | An agent-specific effort override; it can appear even when equal to the org default. |
 | Watchdog count/one-shot mark | Attached watchers; the satellite/detail controls are separate from agents. |
 | Stack/layers count | More agents share this visible stack; use [piles](../piles/SKILL.md) to choose its front. |

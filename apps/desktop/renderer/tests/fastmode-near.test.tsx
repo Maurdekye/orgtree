@@ -73,7 +73,7 @@ test('near fast badge follows turn completion, preference changes and lost provi
 
 test('agent rich-hover tooltip ends with fast instead of fast mode', () => {
   const title = agentTooltipInfo(agent())?.title ?? ''
-  assert.match(title, /(?:^| ? )fast$/)
+  assert.match(title, /(?:^| \u00b7 )fast$/)
   assert.doesNotMatch(title, /fast mode/)
-  assert.doesNotMatch(agentTooltipInfo(agent(false))?.title ?? '', /(?:^| ? )fast$/)
+  assert.doesNotMatch(agentTooltipInfo(agent(false))?.title ?? '', /(?:^| \u00b7 )fast$/)
 })
