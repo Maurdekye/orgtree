@@ -576,6 +576,10 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         const hue = root.style.getPropertyValue('--rainbow-accent')
         root.className = document.documentElement.className
         root.style.cssText = document.documentElement.style.cssText
+        // the visual theme's light-surface rules key on this attribute (styles.css)
+        const theme = document.documentElement.dataset.visualTheme
+        if (theme === undefined) delete root.dataset.visualTheme
+        else root.dataset.visualTheme = theme
         if (hue && root.classList.contains('rainbow-theme')) root.style.setProperty('--rainbow-accent', hue)
       }
       const syncStyles = () => {
@@ -628,7 +632,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         } catch { recover(STYLING_FAILED) }   // failure route (1)
       })
       observer.observe(document.head, { childList: true, subtree: true, characterData: true, attributes: true })
-      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class', 'data-visual-theme'] })
       cleanups.current.push(() => observer.disconnect())
       const cssom = window.setInterval(() => {
         if (transaction !== epoch.current) return
