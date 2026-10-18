@@ -155,21 +155,28 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
 /// a project's too, is its own: a project's presentations are the documents
 /// attributed to it, and the subtree's are its team presentations (point 27,
 /// user 2026-10-17 23:28Z, replacing point 8's subtree-wide project gallery).
+/// A project's own list is read by its id, not its name: a document keeps the
+/// `node_name` it was presented under, and a renamed project must keep its
+/// presentations (rig: website renamed to site).
 /// One recursive read per request; the page query itself stays bounded by LIMIT.
 #[logged]
 async fn subtree_members(client: &tokio_postgres::Client, o: &crate::orgs::OrgHandle, node: &str, team: bool) -> ApiResult<Option<Vec<i64>>> {
-    if node.is_empty() || !team {
+    if node.is_empty() {
         return Ok(None);
     }
-    let root: Option<i64> = client
+    let root: Option<(i64, bool)> = client
         .query_opt(
-            "SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'
+            "SELECT id, kind = 'project' FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'
               ORDER BY (state = 'live') DESC, id DESC LIMIT 1",
             &[&o.id, &node],
         )
         .await?
-        .map(|r| r.get(0));
-    let Some(root) = root else { return Ok(None) };
+        .map(|r| (r.get(0), r.get(1)));
+    let Some((root, project)) = root else { return Ok(None) };
+    if !team {
+        // an agent's own list stays the `node_name` filter it always was
+        return Ok(project.then(|| vec![root]));
+    }
     let rows = client
         .query(
             "WITH RECURSIVE below(id, depth) AS (
