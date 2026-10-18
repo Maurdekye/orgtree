@@ -93,10 +93,10 @@ test('agent settings expose and save Fast mode only for a supported model', asyn
 
 test('agent identity tooltip shows fast mode only while enabled and supported', () => {
   setup()
-  assert.match(agentTooltipInfo(node('sol', true))?.title ?? '', /fast mode/)
-  assert.doesNotMatch(agentTooltipInfo(node('sol', false))?.title ?? '', /fast mode/)
-  assert.doesNotMatch(agentTooltipInfo(node('haiku', true))?.title ?? '', /fast mode/)
+  assert.match(agentTooltipInfo(node('sol', true))?.title ?? '', /(?:^| ? )fast$/)
+  assert.doesNotMatch(agentTooltipInfo(node('sol', false))?.title ?? '', /(?:^| ? )fast$/)
+  assert.doesNotMatch(agentTooltipInfo(node('haiku', true))?.title ?? '', /(?:^| ? )fast$/)
   syncProviderRegistries({ providers: [] })
-  assert.doesNotMatch(agentTooltipInfo(node('sol', true))?.title ?? '', /fast mode/,
+  assert.doesNotMatch(agentTooltipInfo(node('sol', true))?.title ?? '', /(?:^| ? )fast$/,
     'loss of advertised support removes a stale fast-mode claim')
 })
