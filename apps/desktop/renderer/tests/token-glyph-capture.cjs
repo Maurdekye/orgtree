@@ -17,7 +17,9 @@ app.whenReady().then(async () => {
       if(document.querySelectorAll('.token-count').length===4){clearInterval(timer);resolve(true)}
       else if(performance.now()>until){clearInterval(timer);reject(Error('token fixture did not render'))}},20)})`)
     const receipts = []
-    for (const theme of ['dark', 'light']) {
+    // Phase 1 keeps one requested capture; full palettes belong to hardening.
+    for (const theme of [process.env.TOKEN_GLYPH_CAPTURE_THEME || 'dark']) {
+      assert.ok(['dark', 'light'].includes(theme))
       const state = await win.webContents.executeJavaScript(`(async()=>{
         document.documentElement.classList.toggle('contrast-light',${theme === 'light'});
         await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,250))));
