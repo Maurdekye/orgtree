@@ -356,6 +356,26 @@ export default async function (rig) {
     .then(v => ({ ok: true, v }), e => ({ ok: false, status: e.status, error: e.message }))
   p.check('only a project broadcasts', !castAgent.ok && castAgent.status === 400, castAgent)
 
+  // the message box's default send (user 2026-10-18 07:43Z-07:46Z): one mail to
+  // the project's own mailbox; when nobody watches the project with a
+  // fair_queue dog, its first live, unhalted direct member is woken and asked
+  // to arm one, and with no live agent under it the send says nobody can
+  // pick it up
+  const dev5Before = mailTo(node('dev5').id).length
+  const toUi = await rig.userMail('ui', 'Who takes the UI work?').then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
+  const nudge = mailTo(node('dev5').id).slice(dev5Before)
+  p.check('a user send to an unwatched project asks its first direct member to arm a fair_queue dog', toUi.ok
+    && nudge.length === 1 && nudge[0].sender !== '@user' && nudge[0].notice === false
+    && /fair_queue/.test(nudge[0].body) && /\bui\b/.test(nudge[0].body), { said: toUi.ok ? toUi.v : toUi.error, nudge })
+  p.check('the send says so, and the mail itself waits in the project', toUi.ok && /dev5/.test(toUi.v.delivery ?? '')
+    && rig.one(`SELECT state FROM ot.mail WHERE uid = '${toUi.v?.id}'`)?.state === 'pending', toUi.ok ? toUi.v : toUi.error)
+  const empty = await opTry({ op: 'create_project', name: 'empty', parent: 'boss', description: 'Nobody here yet.' })
+  const toEmpty = await rig.userMail('empty', 'Anyone?').then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
+  p.check('with no live agent under the project, the send says nobody can pick it up', empty.ok && toEmpty.ok
+    && /nobody can pick it up/.test(toEmpty.v.delivery ?? ''), { empty: empty.ok || empty.error, said: toEmpty.ok ? toEmpty.v : toEmpty.error })
+  // dev5 was woken: let its turn end before the rename below
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'dev5 nudge turn', timeout: 60000 }).catch(() => {})
+
   // ------------------------------------------------------------ a renamed agent keeps its presentations
   // docket docket-a-selected-archive-item-and-its-draft-sur: a document keeps
   // the node_name it was presented under, so an agent's own gallery reads by id
