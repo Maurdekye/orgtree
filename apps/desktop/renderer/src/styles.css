@@ -5846,6 +5846,21 @@ svg.MuiSvgIcon-root {
   opacity: .5;
   cursor: not-allowed;
 }
+/* the project message box's megaphone (projectdesk.tsx, user 2026-10-18
+   07:43Z): the notice toggle's look; armed, the whole box brightens, since
+   every agent under the project will get the message */
+.cc-broadcast-toggle {
+  width: 24px; height: 24px; padding: 0; flex: none; border-radius: 50%;
+  background: none; border: 1px solid var(--line); color: var(--dim);
+  display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer;
+}
+.cc-broadcast-toggle:hover { color: var(--agent-accent-text, var(--accent)); border-color: var(--button-accent); }
+.cc-broadcast-toggle.armed { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.cc-broadcast-toggle:disabled { opacity: .5; cursor: not-allowed; }
+.cc-composer.project-composer.broadcast-armed {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);
+}
 
 /* ------------------------------------------------- desk parity (2026-07-31)
    №1/№9/№10: tool chips carry their argument; results and diffs expand in

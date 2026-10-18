@@ -15,8 +15,8 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload, TurnStat } from '../types'
-import { ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, FileIcon, FolderIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
-import { broadcastMessage, uploadFile } from '../api'
+import { ArrowUpIcon, AttachIcon, AutorenewIcon, CampaignIcon, CloseIcon, FileIcon, FolderIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
+import { broadcastMessage, sendMessage, uploadFile } from '../api'
 import { useComposerEnter } from '../enterkey'
 import { ago, md, subtreeDocCount, subtreeDocs, USER } from './shared'
 export { subtreeDocCount }
@@ -226,22 +226,27 @@ function DescriptionEditor({ node, op, toast, editable }: {
       : { dangerouslySetInnerHTML: md(saved) })} />
 }
 
-/** The project desk's message box (user 2026-10-18 07:33Z): the agent
- *  composer's notice toggle (Alt+N, one message at a time), attach button and
- *  Enter-key rule, and ONE send that reaches every live agent under the
- *  project, nested projects included (`broadcastMessage`). Attachments upload
- *  into the project's own uploads folder; every recipient gets the same files.
- *  No slash commands: a project has no CLI. */
+/** The project desk's message box (user 2026-10-18 07:33Z, 07:43Z): the
+ *  agent composer's notice toggle (Alt+N, one message at a time), attach
+ *  button and Enter-key rule. By default a send is ONE mail to the project's
+ *  own mailbox, the fair-queue project mail one agent under it claims
+ *  (`sendMessage` to the project node). With the megaphone on (it stays on
+ *  until turned off, and the box's border brightens) a send reaches every
+ *  live agent under the project, nested projects included
+ *  (`broadcastMessage`). Attachments upload into the project's own uploads
+ *  folder and ride either kind of send. No slash commands: a project has no
+ *  CLI. */
 function ProjectComposer({ node, slug, toast, members }: {
   node: CanvasNode; slug: string; toast: ToastFn; members: number
 }) {
   const [text, setText] = useState('')
   const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
   const [notice, setNotice] = useState(false)
+  const [megaphone, setMegaphone] = useState(false)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const enterKey = useComposerEnter()
-  const can = node.state === 'live' && members > 0
+  const can = node.state === 'live' && (!megaphone || members > 0)
   const attach = (file: File) => {
     uploadFile(slug, node.id, file)
       .then((r) => setAttached((a) => [...a, { name: file.name, path: r.path, bytes: r.bytes }]))
@@ -251,12 +256,14 @@ function ProjectComposer({ node, slug, toast, members }: {
     if (!can || busy || (!text.trim() && attached.length === 0)) return
     setBusy(true)
     const asNotice = notice
-    broadcastMessage(slug, node.id, text, attached.map((a) => a.path), asNotice)
-      .then((r) => {
-        setText(''); setAttached([]); setNotice(false)
-        toast([`sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${node.id}`
-          + (asNotice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`)])
-      })
+    const files = attached.map((a) => a.path)
+    const done = (lines: string[]) => { setText(''); setAttached([]); setNotice(false); toast(lines) }
+    ;(megaphone
+      ? broadcastMessage(slug, node.id, text, files, asNotice).then((r) => done([
+        `sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${node.id}`
+          + (asNotice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`)]))
+      : sendMessage(slug, node.id, text, files, undefined, undefined, asNotice).then((r) => done([
+        `to project ${node.id}${asNotice ? ' as a notice' : ''}: ${r.delivery ?? 'sent'}`])))
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setBusy(false))
   }
@@ -268,8 +275,19 @@ function ProjectComposer({ node, slug, toast, members }: {
           onClick={() => setAttached((x) => x.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
       </span>)}
     </div>}
-    <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')}>
+    <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')
+      + (megaphone ? ' broadcast-armed' : '')}>
       <div className="cc-btnstack">
+        <button className={'cc-broadcast-toggle' + (megaphone ? ' armed' : '')} type="button"
+          disabled={node.state !== 'live' || members === 0} aria-pressed={megaphone}
+          aria-label={megaphone ? `Megaphone on: messages go to all ${members} agents under ${node.id}`
+            : `Megaphone: send to all ${members} agents under ${node.id} instead of the project's inbox`}
+          title={members === 0 ? `no agent works under ${node.id} yet`
+            : megaphone ? `on: each message goes to all ${members} agents under ${node.id}; click to send to the project's inbox again`
+              : `send to all ${members} agents under ${node.id} at once, instead of the project's inbox that one agent claims`}
+          onClick={() => setMegaphone((v) => !v)}>
+          <CampaignIcon fontSize="inherit" />
+        </button>
         <button className={'cc-notice-toggle' + (notice ? ' armed' : '')} type="button" disabled={!can}
           aria-label={notice ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
           title={notice ? 'Notice-send armed: the next message arrives as a passive notice, waking nobody (Alt+N)'
@@ -285,8 +303,9 @@ function ProjectComposer({ node, slug, toast, members }: {
         onChange={(e) => { [...e.target.files!].forEach(attach); e.target.value = '' }} />
       <textarea rows={2} value={text} disabled={!can} title={enterKey.hint}
         aria-label={`message every agent under project ${node.id}`}
-        placeholder={can ? `message all ${members} agent${members === 1 ? '' : 's'} under ${node.id}…`
-          : node.state !== 'live' ? `project ${node.id} is ${node.state}` : `no agent works under ${node.id} yet`}
+        placeholder={node.state !== 'live' ? `project ${node.id} is ${node.state}`
+          : !megaphone ? `message project ${node.id}: one agent under it takes it…`
+            : `message all ${members} agent${members === 1 ? '' : 's'} under ${node.id}…`}
         onChange={(e) => setText(e.target.value)}
         onPaste={(e) => {
           if (e.clipboardData?.files?.length) { e.preventDefault(); [...e.clipboardData.files].forEach(attach) }
