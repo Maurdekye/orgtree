@@ -263,6 +263,11 @@
   tags cursor-page indexed memberships; a dedicated UserMail revision refreshes
   filtered mail/catalogs even after deletion outside the visible windows. Chips hash
   the normalized name to a stable hue with fixed dark/light contrast values.
+  Every mail/filter/popover tag chip toggles its normalized key. Picking closes
+  the popover and returns focus to its trigger; reopening preserves multi-tag
+  AND selection. Scoped border-box controls stay 24px tall inside `.settings`,
+  and the fixed tag popover must override the modal's centering transform.
+  [decided: user 2026-10-18; verified: `canvas/mail.tsx`, `canvas/mailtagpicker.tsx`, `canvas/mailtags.ts`, `styles.css`]
   See [mail tags](docs/rust-engine/mail-tags.md). [decided: user/coordinator
   2026-10-17; verified: `domain/mail_tags.rs`, `usemailtags.ts`, `canvas/mailtags.ts`]
 

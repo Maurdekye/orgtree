@@ -63,7 +63,16 @@ records do not cause tag reads. The renderer projects it as `mail_revision`.
 
 The filter intersects the existing sender/body search. Clearing it restores the
 ordinary feed, including untagged mail and asks. The user can click a chip in a
-row or its reading pane to add that selection. Ordinary neighbour views, Sent and Record keep their
+row or its reading pane to toggle that selection. Clicking an already selected
+tag removes its filter everywhere: mail rows, the reading pane, filter chips and
+the browse popover (user 2026-10-18 10:58Z). Each picker choice closes the popover
+and returns focus to its trigger; reopen it to add or remove another tag. Escape
+and an outside pointer still dismiss it without changing the selection. Filter
+chips are separate buttons beside the browse trigger, without nested buttons.
+The tag box, clear button and message search use matching 24px border-box heights
+and centered pills even inside a settings modal. A fixed tag popover overrides
+the modal centering transform to stay anchored to its control.
+Ordinary neighbour views, Sent and Record keep their
 existing behavior. A new mail reference clears the active tag filter so it can
 open its target. The ordinary unread badge keeps the whole inbox count.
 
