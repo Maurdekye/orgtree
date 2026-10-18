@@ -154,12 +154,7 @@ function Activity() {
 const scene = new URLSearchParams(location.search).get('scene') || 'cards'
 
 function Desc() {
-  const nd = { ...card, charter: '# The website
-
-Deploy from **main** only, after the [release checklist](https://example.invalid/checklist) passes.
-
-- keep the build green
-- review every change' } as CanvasNode
+  const nd = { ...card, charter: '# The website\n\nDeploy from **main** only, after the [release checklist](https://example.invalid/checklist) passes.\n\n- keep the build green\n- review every change' } as CanvasNode
   const map = new Map([[nd.id, nd]])
   return (
     <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>

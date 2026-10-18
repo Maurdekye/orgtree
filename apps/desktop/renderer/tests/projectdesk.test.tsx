@@ -242,31 +242,17 @@ test('§2d a click opens the editor with the caret at about the clicked spot (us
   await flush(2)
   const box = el.querySelector<HTMLTextAreaElement>('textarea.project-description-edit')!
   assert.ok(box, 'the editor opened')
-  // '# The site
-
-Deploy from **ma|in** only.'
-  assert.equal(box.value.slice(0, box.selectionStart), '# The site
-
-Deploy from **ma', 'the caret sits where the click was')
+  // '# The site\n\nDeploy from **ma|in** only.'
+  assert.equal(box.value.slice(0, box.selectionStart), '# The site\n\nDeploy from **ma', 'the caret sits where the click was')
   assert.equal(box.selectionEnd, box.selectionStart, 'a caret, not a selection')
 })
 
 test('§2e the source offset steps over markup and skips what the source lacks', () => {
-  const src = '# Title
-
-See [the docs](https://x.y/z) and **bold** text.'
+  const src = '# Title\n\nSee [the docs](https://x.y/z) and **bold** text.'
   assert.equal(sourceOffset(src, ''), 0)
-  assert.equal(src.slice(0, sourceOffset(src, 'Title
-See the d')), '# Title
-
-See [the d')
-  assert.equal(src.slice(0, sourceOffset(src, 'Title
-See the docs and bo')), '# Title
-
-See [the docs](https://x.y/z) and **bo')
-  assert.equal(src.slice(0, sourceOffset(src, 'Title… See')), '# Title
-
-See', 'a rendered-only character is skipped')
+  assert.equal(src.slice(0, sourceOffset(src, 'Title\nSee the d')), '# Title\n\nSee [the d')
+  assert.equal(src.slice(0, sourceOffset(src, 'Title\nSee the docs and bo')), '# Title\n\nSee [the docs](https://x.y/z) and **bo')
+  assert.equal(src.slice(0, sourceOffset(src, 'Title… See')), '# Title\n\nSee', 'a rendered-only character is skipped')
 })
 
 /** styles.css as rules, comments dropped; `cssLast` is the last value a rule
