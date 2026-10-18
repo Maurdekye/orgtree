@@ -33,7 +33,7 @@ export default async function (rig) {
   const holding = () => leases().filter(l => !l.ended_at).map(l => l.holder).sort()
   const leaseOf = who => leases().find(l => l.holder === who && !l.ended_at)
   const claim = (who, name = 'build-slot') => rig.tool(who, 'orgtree_watchdog', { action: 'create', name, kind: 'slot', target: 'build' })
-  const granted = who => rig.sql(`SELECT body FROM ot.mail WHERE recipient_agent_id = ${node(who).id} AND body LIKE '%You now hold slot%' ORDER BY id`)
+  const granted = who => rig.sql(`SELECT body FROM ot.mail WHERE recipient_agent_id = ${node(who).id} AND body LIKE '%You now hold concurrency slot%' ORDER BY id`)
 
   // ------------------------------------------------------------ a project with slots
   const made = await opTry({ op: 'create_project', name: 'build', parent: 'boss', description: 'The build machine.' })
@@ -41,14 +41,14 @@ export default async function (rig) {
   for (const n of ['sa', 'sb', 'sc']) hires.push(await opTry({ op: 'hire', name: n, parent: 'build', tier: 'haiku', grant: 0, title: `Builder ${n}` }))
   await settle('hire turns')
   const off = await claim('sa', 'too-early')
-  p.check('a project has no slots until its count is set (user 08:42Z: 0 is off)', !off.ok && /no slots/.test(off.text), said(off))
+  p.check('a project has no slots until its count is set (user 08:42Z: 0 is off)', !off.ok && /no concurrency slots/.test(off.text), said(off))
   const on = await opTry({ op: 'set_slots', node: 'build', capacity: 1 })
   p.check('set_slots gives a project its slot count', made.ok && hires.every(h => h.ok) && on.ok
     && node('build').scope?.slots_capacity === 1, on.ok ? on.v : on.error)
 
   // ------------------------------------------------------------ claim and the line
   const ca = await claim('sa')
-  p.check('a claim with a slot free is granted at once, and says so', ca.ok && /claimed slot 1/.test(ca.text) && /lease/.test(ca.text)
+  p.check('a claim with a slot free is granted at once, and says so', ca.ok && /claimed concurrency slot 1/.test(ca.text) && /lease/.test(ca.text)
     && JSON.stringify(holding()) === JSON.stringify(['sa']), { said: said(ca), holding: holding() })
   await rig.waitFor(() => granted('sa').length === 1, { what: 'sa\'s grant mail', timeout: 20000 }).catch(() => {})
   p.check('the slot dog fires with the grant', granted('sa').length === 1 && /release_slot/.test(granted('sa')[0]?.body ?? ''), granted('sa'))

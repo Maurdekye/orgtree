@@ -1646,7 +1646,7 @@ async fn slot_claim_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::p
     {
         let (lease, slot): (String, i32) = (r.get(0), r.get(1));
         return Ok(format!(
-            "SLOT CLAIM: claimed slot {slot} of project {} (lease {lease}). It fired at once with the grant; release the slot when \
+            "CONCURRENCY SLOT CLAIM: claimed concurrency slot {slot} of project {} (lease {lease}). It fired at once with the grant; release the concurrency slot when \
              the work ends: orgtree_project action=release_slot lease={lease}", p.name));
     }
     let line = crate::domain::slots::line(&**client, p.id).await?;
@@ -1654,8 +1654,8 @@ async fn slot_claim_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::p
     let ahead: Vec<String> = line.iter().take(at.saturating_sub(1)).map(|(_, _, a, _)| a.clone()).collect();
     let ord = match at % 100 { 11..=13 => "th", _ => match at % 10 { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" } };
     Ok(format!(
-        "SLOT CLAIM: every slot of project {} is held, so this dog is your place in line: {at}{ord} in line{}. It fires and wakes \
-         you when you are granted a slot; removing or pausing it leaves the line (resuming rejoins at the back)",
+        "CONCURRENCY SLOT CLAIM: every concurrency slot of project {} is held, so this dog is your place in line: {at}{ord} in line{}. It fires and wakes \
+         you when you are granted a concurrency slot; removing or pausing it leaves the line (resuming rejoins at the back)",
         p.name, if ahead.is_empty() { String::new() } else { format!(" behind {}", ahead.join(", ")) }))
 }
 
@@ -1733,15 +1733,15 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         // a claim on one of the project's slots (domain/slots.rs): only the
         // agents above or below it, one claim each, and only while it has slots
         let Some(p) = crate::domain::projects::by_name(&**client, org_id, &target).await? else {
-            refuse!(NotFound, "no project named {} to claim a slot of; a slot watchdog takes a project's name as target", target.trim_start_matches('@'));
+            refuse!(NotFound, "no project named {} to claim a concurrency slot of; a slot watchdog takes a project's name as target", target.trim_start_matches('@'));
         };
         if p.state != "live" {
             refuse!(Conflict, "project {} is retired", p.name);
         }
-        crate::domain::projects::require_reach(&**client, owner, &p, "claim its slots").await?;
+        crate::domain::projects::require_reach(&**client, owner, &p, "claim its concurrency slots").await?;
         let scope: Value = client.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&p.id]).await?.get(0);
         if crate::domain::slots::capacity(&scope) == 0 {
-            refuse!(Conflict, "project {} has no slots (its slot count in Project settings is 0)", p.name);
+            refuse!(Conflict, "project {} has no concurrency slots (its slot count in Project settings is 0)", p.name);
         }
         let mine = client
             .query_one(
@@ -1752,16 +1752,16 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
             )
             .await?;
         if mine.get::<_, bool>(0) {
-            refuse!(Conflict, "you already hold a slot of project {}; release it first (orgtree_project action=slots name={} lists your lease)", p.name, p.name);
+            refuse!(Conflict, "you already hold a concurrency slot of project {}; release it first (orgtree_project action=slots name={} lists your lease)", p.name, p.name);
         }
         if mine.get::<_, bool>(1) {
-            refuse!(Conflict, "you already have a slot claim on project {} (one per agent); remove it to leave the line", p.name);
+            refuse!(Conflict, "you already have a concurrency slot claim on project {} (one per agent); remove it to leave the line", p.name);
         }
         if args["fire_mode"].as_str().is_some_and(|m| !m.is_empty() && m != "event") || args.get("quiet_period_s").is_some_and(|q| !q.is_null()) {
-            refuse!(BadRequest, "a slot watchdog fires once, when you are granted the slot; it has no silence mode");
+            refuse!(BadRequest, "a slot watchdog fires once, when you are granted the concurrency slot; it has no silence mode");
         }
         if args["pattern"].as_str().is_some_and(|p| !p.trim().is_empty()) {
-            refuse!(BadRequest, "a slot watchdog fires when you are granted the slot; it has no pattern");
+            refuse!(BadRequest, "a slot watchdog fires when you are granted the concurrency slot; it has no pattern");
         }
         memo["target_id"] = json!(p.id);
         memo["queued_at"] = json!(Utc::now().timestamp_millis());
@@ -1846,7 +1846,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     let cwd = scratch.is_dir().then_some(scratch);
     let smoked = if kind=="event" { events::smoke(engine,owner,&target,args).await? }
         else if let Some(p) = &queue_project { queue_smoke(engine, org_id, p).await? }
-        else if slot_project.is_some() { json!({ "ran": "a slot claim has nothing to run" }) }
+        else if slot_project.is_some() { json!({ "ran": "a concurrency slot claim has nothing to run" }) }
         else { smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await };
     if let Some(n)=smoked["current"]["count"].as_i64(){memo["run"]["count"]=json!(n);}
     if smoked["current"]["credits"].is_object(){memo["run"]["credits"]=smoked["current"]["credits"].clone();}
@@ -2005,7 +2005,7 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
         }
         "resume" => {
             if dog.kind == "slot" && dog.state == "spent" {
-                refuse!(Conflict, "this slot claim was granted and is spent; create a new one to claim again");
+                refuse!(Conflict, "this concurrency slot claim was granted and is spent; create a new one to claim again");
             }
             if dog.state == "spent" {
                 refuse!(Conflict, "a spent one-shot watchdog cannot be resumed; create a new one");

@@ -703,10 +703,10 @@ fn build_tool_hire() -> Value {
 fn build_tool_project() -> Value {
     tool(
         "orgtree_project",
-        "Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. settings reads all values; configure (name, settings) patches name/description, peer mail, queue/ack policy and slots atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment authority. presentations lists project/team cards; read_presentation reads document. Slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent).",
+        "Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. settings reads all values; configure (name, settings) patches name/description, peer mail, queue/ack policy and concurrency slots atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment authority. presentations lists project/team cards; read_presentation reads document. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent).",
         json!({
             "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","broadcast","presentations","read_presentation"] },
-            "lease": { "type": "string", "description": "release_slot: the lease your slot grant named" },
+            "lease": { "type": "string", "description": "release_slot: the lease your concurrency slot grant named" },
             "note": { "type": "string", "description": "release_slot: optional, e.g. build ok 265s" },
             "settings": {"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"slots":{"type":"integer","minimum":0,"maximum":64}}},
             "force": {"type":"boolean","description":"release_slot: any project ancestor may force release"},
@@ -875,7 +875,7 @@ fn build_tool_audience() -> Value {
 fn build_tool_watchdog() -> Value {
     tool(
         "orgtree_watchdog",
-        "Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target; command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project slot, firing when granted. Event/count/silence semantics and catalog are in the guide. No added authority.",
+        "Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target; command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. Event/count/silence semantics and catalog are in the guide. No added authority.",
         json!({
             "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
@@ -1228,7 +1228,7 @@ mod builder_stack_tests {
         let project = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_project").unwrap();
         let actual: Vec<serde_json::Value> = serde_json::from_slice(&serde_json::to_vec(&super::all()).unwrap()).unwrap();
         let actual_project = actual.iter().find(|card| card["name"] == "orgtree_project").unwrap().clone();
-        assert!(actual_project["description"].as_str().unwrap().contains("Slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours."));
+        assert!(actual_project["description"].as_str().unwrap().contains("Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours."));
         project["description"] = actual_project["description"].clone();
         let schema = &mut project["inputSchema"];
         schema["properties"]["action"]["enum"] = serde_json::json!(["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","broadcast","presentations","read_presentation"]);
@@ -1242,12 +1242,12 @@ mod builder_stack_tests {
         schema["properties"]["body"] = serde_json::json!({"type":"string","description":"broadcast: message to every live agent under the project"});
         schema["properties"]["attachments"] = serde_json::json!({"type":"array","items":{"type":"string"},"maxItems":10});
         schema["properties"]["notice"] = serde_json::json!({"type":"boolean"});
-        schema["properties"]["lease"] = serde_json::json!({ "type": "string", "description": "release_slot: the lease your slot grant named" });
+        schema["properties"]["lease"] = serde_json::json!({ "type": "string", "description": "release_slot: the lease your concurrency slot grant named" });
         schema["properties"]["note"] = serde_json::json!({ "type": "string", "description": "release_slot: optional, e.g. build ok 265s" });
         schema["required"] = serde_json::json!(["action"]);
         let dog = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_watchdog").unwrap();
         dog["description"] = serde_json::json!(dog["description"].as_str().unwrap().replace(
-            "fair_queue delivers project mail to one watcher.", "fair_queue delivers project mail to one watcher; slot (one-shot) claims a project slot, firing when granted."));
+            "fair_queue delivers project mail to one watcher.", "fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted."));
         let dschema = &mut dog["inputSchema"];
         dschema["properties"]["kind"]["enum"] = serde_json::json!(["file", "command", "process", "stream", "activity", "event", "fair_queue", "slot"]);
         dschema["properties"]["target"]["description"] = serde_json::json!(dschema["properties"]["target"]["description"].as_str().unwrap()

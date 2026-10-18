@@ -60,7 +60,7 @@ struct Granted {
 /// The grant line a slot dog fires with.
 #[nolog]
 fn grant_line(project: &str, slot: i32, lease: &str) -> String {
-    format!("You now hold slot {slot} of project {project} (lease {lease}). Release it as soon as the work that needs it \
+    format!("You now hold concurrency slot {slot} of project {project} (lease {lease}). Release it as soon as the work that needs it \
              ends: orgtree_project action=release_slot lease={lease}. Until you do, nobody else in line gets it. If that tool is missing, your CLI has an old startup schema: start a fresh CLI before another claim, and ask a project ancestor to force-release this lease.")
 }
 
@@ -137,7 +137,7 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
     tx.commit().await?;
     drop(client);
     for g in &granted {
-        tracing::info!(project = %g.project, slot = g.slot, lease = %g.lease, "a project slot was granted");
+        tracing::info!(project = %g.project, slot = g.slot, lease = %g.lease, "a project concurrency slot was granted");
         Box::pin(crate::runtime::watchdogs::fire_slot(engine, g.dog, grant_line(&g.project, g.slot, &g.lease))).await?;
         changes::notify_id(engine, org_id, vec![Change::Agent(g.owner)]);
     }
@@ -264,7 +264,7 @@ pub async fn check(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()
     drop(client);
     for (who, lease, slot) in tell {
         notify(engine, org_id, &who, &format!(
-            "Your slot {slot} of project {pname} (lease {lease}) was taken back because you were halted; the next in line has it now. \
+            "Your concurrency slot {slot} of project {pname} (lease {lease}) was taken back because you were halted; the next in line has it now. \
              Claim again with a slot watchdog when you are unhalted.")).await;
     }
     Box::pin(grant(engine, org_id, project)).await?;
@@ -278,7 +278,7 @@ async fn notify(engine: &Arc<Engine>, org_id: i64, to: &str, body: &str) {
     out.notice = true;
     out.grant_reply_audience = false;
     if let Err(e) = Box::pin(crate::domain::mail::send(engine, org_id, out)).await {
-        tracing::warn!(error = %format!("{e:#}"), "telling a slot holder failed");
+        tracing::warn!(error = %format!("{e:#}"), "telling a concurrency slot holder failed");
     }
 }
 
@@ -329,7 +329,7 @@ pub async fn idle_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: 
             drop(c);
             if ended {
                 notify(engine, org_id, name, &format!(
-                    "Your slot {slot} of project {pname} (lease {lease}) was taken back: you did not release it after {IDLE_WAKES} \
+                    "Your concurrency slot {slot} of project {pname} (lease {lease}) was taken back: you did not release it after {IDLE_WAKES} \
                      reminders. The next in line has it now; claim again with a slot watchdog if you still need it.")).await;
                 Box::pin(grant(engine, org_id, project)).await?;
             }
@@ -379,7 +379,7 @@ pub async fn startup(engine: &Arc<Engine>) {
     };
     for (project, org) in projects {
         if let Err(e) = check(engine, org, project).await {
-            tracing::warn!(project, error = %format!("{e:#}"), "re-checking a project's slots at start failed");
+            tracing::warn!(project, error = %format!("{e:#}"), "re-checking a project's concurrency slots at start failed");
         }
     }
 }

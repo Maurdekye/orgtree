@@ -885,7 +885,7 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     }
     for p in &fx.slot_grants {
         if let Err(e) = Box::pin(crate::domain::slots::grant(engine, org.id, *p)).await {
-            tracing::warn!(project = p, error = %format!("{e:#}"), "granting a project's free slots failed");
+            tracing::warn!(project = p, error = %format!("{e:#}"), "granting a project's free concurrency slots failed");
         }
     }
 }
@@ -2152,11 +2152,11 @@ async fn project_presentations(org:&Arc<OrgHandle>,tx:&Transaction<'_>,actor:&Ac
 async fn set_slots(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     if !n.project() {
-        refuse!(BadRequest, "{} is an agent: only a project has slots", n.name);
+        refuse!(BadRequest, "{} is an agent: only a project has concurrency slots", n.name);
     }
-    authorize(tx, actor, &n, "set its slots").await?;
+    authorize(tx, actor, &n, "set its concurrency slots").await?;
     let Some(count) = req.get("capacity").and_then(Value::as_i64).filter(|c| (0..=crate::domain::slots::MAX_CAPACITY).contains(c)) else {
-        refuse!(BadRequest, "capacity is the number of slots, 0 (none) to {}", crate::domain::slots::MAX_CAPACITY);
+        refuse!(BadRequest, "capacity is the number of concurrency slots, 0 (none) to {}", crate::domain::slots::MAX_CAPACITY);
     };
     tx.execute("UPDATE ot.agents SET scope = jsonb_set(coalesce(scope, '{}'::jsonb), '{slots_capacity}', to_jsonb($2::bigint)),
                        row_version = row_version + 1 WHERE id = $1", &[&n.id, &count]).await?;
@@ -2181,7 +2181,7 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
         )
         .await?
     else {
-        refuse!(NotFound, "no slot lease {lease}; orgtree_project action=slots name=<project> lists the leases");
+        refuse!(NotFound, "no concurrency slot lease {lease}; orgtree_project action=slots name=<project> lists the leases");
     };
     let (id, project, holder, slot, ended, how, holder_name, pname): (i64, i64, i64, i32, bool, String, String, String) =
         (l.get(0), l.get(1), l.get(2), l.get(3), l.get(4), l.get(5), l.get(6), l.get(7));
@@ -2192,7 +2192,7 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     let how = match actor {
         Actor::Agent { id: me, .. } if *me == holder => "released".to_string(),
         Actor::Agent { id: me, .. } if force && within(tx, *me, project).await? => format!("released (forced by {})", actor.label()),
-        Actor::Agent { .. } => refuse!(Forbidden, "lease {lease} is {holder_name}'s; its holder releases it, or any project ancestor uses force=true. If orgtree_project is absent from your CLI, start a fresh CLI to load current tools before claiming another slot"),
+        Actor::Agent { .. } => refuse!(Forbidden, "lease {lease} is {holder_name}'s; its holder releases it, or any project ancestor uses force=true. If orgtree_project is absent from your CLI, start a fresh CLI to load current tools before claiming another concurrency slot"),
         _ => format!("released (forced by {})", actor.label()),
     };
     // the project's row first, as the grant takes it
@@ -2204,7 +2204,7 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     fx.agents.insert(project);
     fx.slot_grants.push(project);
     Ok(json!({ "project": pname, "lease": lease, "slot": slot, "released": true, "how": how,
-               "next": "the slot goes to the next in line, if any" }))
+               "next": "the concurrency slot goes to the next in line, if any" }))
 }
 
 /// A project's slots: holders, the line, recent history (`orgtree_project
@@ -2213,11 +2213,11 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
 async fn slot_status(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     if !n.project() {
-        refuse!(BadRequest, "{} is an agent: only a project has slots", n.name);
+        refuse!(BadRequest, "{} is an agent: only a project has concurrency slots", n.name);
     }
     if let Actor::Agent { id, .. } = actor {
         if !crate::domain::projects::reaches(tx, *id, n.id).await? {
-            refuse!(Forbidden, "only the agents above or below project {} see its slots", n.name);
+            refuse!(Forbidden, "only the agents above or below project {} see its concurrency slots", n.name);
         }
     }
     let scope: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
@@ -2230,11 +2230,11 @@ async fn slot_status(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, 
 async fn slot_unqueue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     if !n.project() {
-        refuse!(BadRequest, "{} is an agent: only a project has slots", n.name);
+        refuse!(BadRequest, "{} is an agent: only a project has concurrency slots", n.name);
     }
     if let Actor::Agent { id, .. } = actor {
         if !within(tx, *id, n.id).await? {
-            refuse!(Forbidden, "only an agent above the project (any ancestor), or the user, removes an agent from its slot line");
+            refuse!(Forbidden, "only an agent above the project (any ancestor), or the user, removes an agent from its concurrency slot line");
         }
     }
     let who = str_arg(req, "agent").unwrap_or("");
@@ -2248,7 +2248,7 @@ async fn slot_unqueue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
         )
         .await?;
     if rows.is_empty() {
-        refuse!(NotFound, "{who} is not in project {}'s slot line", n.name);
+        refuse!(NotFound, "{who} is not in project {}'s concurrency slot line", n.name);
     }
     for r in &rows {
         fx.dogs_off.push(r.get(0));

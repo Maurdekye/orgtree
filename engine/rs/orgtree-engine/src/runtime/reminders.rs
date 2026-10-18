@@ -361,9 +361,9 @@ fn slot_note(slots: &[(i32, String, String)]) -> Option<String> {
         return None;
     }
     let lines: Vec<String> = slots.iter()
-        .map(|(n, p, l)| format!("- slot {n} of project {p} (lease {l}): release it if you are done with orgtree_project action=release_slot lease={l}"))
+        .map(|(n, p, l)| format!("- concurrency slot {n} of project {p} (lease {l}): release it if you are done with orgtree_project action=release_slot lease={l}"))
         .collect();
-    Some(format!("You still hold a project slot that others may be waiting for:\n{}", lines.join("\n")))
+    Some(format!("You still hold a project concurrency slot that others may be waiting for:\n{}", lines.join("\n")))
 }
 
 /// What a checkup adds for an agent holding un-acked project mail: each
