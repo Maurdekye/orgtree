@@ -1162,3 +1162,16 @@ mod tests {
         assert_eq!(order, vec![1, 2, 3, 1, 2, 3]);
     }
 }
+
+#[cfg(test)]
+mod attempt_log_tests {
+    use super::closed_attempt;
+
+    #[test]
+    fn ending_an_attempt_only_touches_a_mail_that_has_a_log() {
+        let sql = closed_attempt("m.extra", "$6::text", "$4::text");
+        assert!(sql.contains("jsonb_array_length(coalesce(m.extra->'attempt_log', '[]'::jsonb)) > 0"), "{sql}");
+        assert!(sql.contains("jsonb_build_object('how', $6::text, 'why', $4::text, 'at', now())"), "{sql}");
+        assert!(sql.trim_end().ends_with("ELSE m.extra END"), "{sql}");
+    }
+}

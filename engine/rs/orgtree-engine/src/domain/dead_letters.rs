@@ -162,3 +162,33 @@ async fn check_open(tx: &impl GenericClient, project: i64, pname: &str, uid: &st
         _ => Ok(()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_summary_names_the_last_holder_the_reason_and_any_drop_or_retry() {
+        let extra = json!({
+            "dead_letter": { "by": "dz", "why": "was halted", "how": "released", "attempts": 2, "at": "2026-10-18T19:05:00Z" },
+            "retried": [{ "by": "boss" }],
+            "dead_letter_dropped": { "by": "boss", "reason": "obsolete", "at": "2026-10-18T19:10:00Z", "extra": 1 },
+        });
+        let v = summary("m1", "@user", "message", &extra);
+        assert_eq!(v["id"], "m1");
+        assert_eq!(v["by"], "dz");
+        assert_eq!(v["attempts"], 2);
+        assert_eq!(v["why"], "was halted");
+        assert_eq!(v["retried"], 1);
+        assert_eq!(v["dropped"]["reason"], "obsolete");
+        assert!(v["dropped"].get("extra").is_none(), "only by, reason and at are shown");
+        let open = summary("m2", "boss", "message", &json!({ "dead_letter": { "by": "dz", "attempts": 3 } }));
+        assert!(open.get("dropped").is_none() && open.get("retried").is_none());
+    }
+
+    #[test]
+    fn the_open_filter_leaves_dropped_letters_out() {
+        assert!(OPEN.contains("NOT (m.extra ? 'dead_letter_dropped')"));
+        assert!(!ANY.contains("dead_letter_dropped"));
+    }
+}
