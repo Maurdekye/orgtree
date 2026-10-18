@@ -1,6 +1,6 @@
 // Proof: project slots (docket project-slots-first-come-permits-claimed-through;
 // user 2026-10-18 08:37Z-08:40Z), through the real engine.
-//   set_slots turns a project's slots on with a capacity
+//   set_slots gives a project its slot count (0, the default, is no slots)
 //   a one-shot `slot` watchdog claims: with a slot free it is granted at once
 //   (the create result names the slot and lease, and the dog fires); with
 //   none free the armed dog is the agent's place in a first-come line
@@ -40,9 +40,11 @@ export default async function (rig) {
   const hires = []
   for (const n of ['sa', 'sb', 'sc']) hires.push(await opTry({ op: 'hire', name: n, parent: 'build', tier: 'haiku', grant: 0, title: `Builder ${n}` }))
   await settle('hire turns')
-  const on = await opTry({ op: 'set_slots', node: 'build', enabled: true, capacity: 1 })
-  p.check('set_slots turns a project\'s slots on with a capacity', made.ok && hires.every(h => h.ok) && on.ok
-    && node('build').scope?.slots_enabled === true && node('build').scope?.slots_capacity === 1, on.ok ? on.v : on.error)
+  const off = await claim('sa', 'too-early')
+  p.check('a project has no slots until its count is set (user 08:42Z: 0 is off)', !off.ok && /no slots/.test(off.text), said(off))
+  const on = await opTry({ op: 'set_slots', node: 'build', capacity: 1 })
+  p.check('set_slots gives a project its slot count', made.ok && hires.every(h => h.ok) && on.ok
+    && node('build').scope?.slots_capacity === 1, on.ok ? on.v : on.error)
 
   // ------------------------------------------------------------ claim and the line
   const ca = await claim('sa')
