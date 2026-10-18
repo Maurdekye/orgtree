@@ -1443,7 +1443,12 @@ export interface BroadcastResult {
   accepted: boolean; project: string; notice: boolean
   sent: { to: string; id: string; delivery: string; deferred: boolean }[]
   refused: { to: string; why: string }[]
+  /** the project's audience to the user, granted after delivery (null: none applied) */
+  audience_grant?: AudienceGrantResult | null
 }
+/** A user send to a project grants it the user's audience after delivery; a
+ *  failed grant leaves the mail delivered. */
+export interface AudienceGrantResult { granted: boolean; error?: string }
 export const broadcastMessage = (slug: string, project: string, text: string, attachments?: string[],
   notice?: boolean): Promise<BroadcastResult> =>
   req(`/api/orgs/${slug}/nodes/${project}/broadcast`, {

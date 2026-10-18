@@ -262,13 +262,16 @@ function ProjectComposer({ node, slug, toast, members }: {
     setBusy(true)
     const asNotice = notice
     const files = attached.map((a) => a.path)
+    // a failed audience grant leaves the mail delivered: say so (coordinator 09:43Z)
+    const grant = (g?: { granted: boolean; error?: string } | null) => g && !g.granted
+      ? [`sent, but the project's user audience couldn't be granted${g.error ? ` (${g.error})` : ''}`] : []
     const done = (lines: string[]) => { setText(''); setAttached([]); setNotice(false); toast(lines) }
     ;(megaphone
       ? broadcastMessage(slug, node.id, text, files, asNotice).then((r) => done([
         `sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${node.id}`
-          + (asNotice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`)]))
+          + (asNotice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`), ...grant(r.audience_grant)]))
       : sendMessage(slug, node.id, text, files, undefined, undefined, asNotice).then((r) => done([
-        `to project ${node.id}${asNotice ? ' as a notice' : ''}: ${r.delivery ?? 'sent'}`])))
+        `to project ${node.id}${asNotice ? ' as a notice' : ''}: ${r.delivery ?? 'sent'}`, ...grant(r.audience_grant)])))
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setBusy(false))
   }

@@ -2481,6 +2481,9 @@ export interface SettingsResult {
 // mail accept, /compact start, immediate command, or send_message's result
 export interface SendMessageResult extends Partial<TypedReplyReceipt> {
   accepted?: boolean
+  /** a mail to a project: the project's audience to the user, granted after
+   *  delivery (api.ts AudienceGrantResult; null when none applied) */
+  audience_grant?: { granted: boolean; error?: string } | null
   deferred?: boolean | string
   queued?: number
   frozen?: boolean
