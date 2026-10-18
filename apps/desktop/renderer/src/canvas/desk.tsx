@@ -2361,7 +2361,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     if (!historyVisible || view !== 'chat') return
     if (orgView === 'attention') return
     if (node.user_mention && hasUnseenUserMention(node, slug)) {
-      void dismissUserMention(slug, node.id, node.user_mention.id, node.user_mention.event_id, { highlight: true })
+      // ⚠ highlight: false. Seeing the mention here (this chat is open) only acknowledges it. A
+      // highlight is the EXPLICIT jump (the header "@" button, an attention row): its layout
+      // effect below calls leaveBottom() and centers the line, which turned follow off and showed
+      // "jump to bottom" for a reader already at the tail (user 2026-10-18, alpha.9). The reply's
+      // own glow comes from its text, not from this.
+      void dismissUserMention(slug, node.id, node.user_mention.id, node.user_mention.event_id, { highlight: false })
     }
   }, [historyVisible, view, orgView, slug, node.id, node.user_mention?.id, node.user_mention?.event_id])
   // THE AGENT'S OWN DOCKET (user ruling 2026-09-05 21:07). It replaced the
