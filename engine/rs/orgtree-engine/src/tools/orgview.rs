@@ -419,7 +419,7 @@ fn inspection_projection(caller_id: i64, caller_name: String, archived: bool, na
         // the folders are the effective ones, as its CLI is started with them
         row["scope"] = json!({"org_visibility":effective["org_visibility"], "permission_mode":effective["permission_mode"],
             "tools": {"bash":effective["tools"]["bash"],"web":effective["tools"]["web"],"edit":effective["tools"]["edit"],"subagents":effective["tools"]["subagents"],"orgtree":effective["tools"]["orgtree"]}, "mcp":effective["tools"]["mcp"],
-            "add_dirs": effective["add_dirs"]});
+            "add_dirs": effective["add_dirs"], "fast_mode": effective["fast_mode"].as_bool().unwrap_or(false)});
         row["visibility"] = effective["org_visibility"].clone();
         out.push(row);
     }
@@ -431,6 +431,23 @@ fn inspection_projection(caller_id: i64, caller_name: String, archived: bool, na
     tracing::info!(snapshot_agents=scopes.len(), evaluated_scopes=cache.len(), returned_agents=out.len(),
         "state inspection scope projection complete");
     Done::json(&json!({"actor":caller_name,"visibility":visibility,"nodes":out}))
+}
+
+#[cfg(test)]
+mod fast_tools_tests {
+    use super::*;
+    #[test]
+    fn fast_tools_inspection_reports_node_local_speed_without_inheritance() {
+        let ceiling=json!({"org_visibility":"full","tools":{},"add_dirs":[]});
+        let scopes=HashMap::from([(1,(None,json!({"org_visibility":"full","fast_mode":true}))),
+            (2,(Some(1),json!({}))), (3,(Some(1),json!({"fast_mode":true})))]);
+        let records=(1..=3).map(|id|(id,json!({"name":format!("n{id}"),"state":"live","tier":"sol"}))).collect();
+        let d=inspection_projection(1,"n1".into(),false,vec![],scopes,records,ceiling).unwrap();
+        let out:Value=serde_json::from_str(&d.text).unwrap();
+        assert_eq!(out["nodes"][0]["scope"]["fast_mode"],true);
+        assert_eq!(out["nodes"][1]["scope"]["fast_mode"],false);
+        assert_eq!(out["nodes"][2]["scope"]["fast_mode"],true);
+    }
 }
 
 #[logged]

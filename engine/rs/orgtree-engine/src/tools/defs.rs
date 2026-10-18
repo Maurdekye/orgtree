@@ -38,6 +38,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_request_credits",
         "orgtree_request_scope",
         "orgtree_hire",
+        "orgtree_fast_defaults",
         "orgtree_project",
         "orgtree_rehire",
         "orgtree_retire",
@@ -100,7 +101,7 @@ pub fn sdk_server() -> Value { json!({ "type": "sdk", "name": "orgtree" }) }
 #[nolog]
 fn deferred(name: &str) -> bool {
     matches!(name,
-        "orgtree_org_logo" | "orgtree_transfers" | "orgtree_list_orgs" |
+        "orgtree_fast_defaults" | "orgtree_org_logo" | "orgtree_transfers" | "orgtree_list_orgs" |
         "orgtree_halt" | "orgtree_unhalt" | "orgtree_unstick" | "orgtree_continue_on" |
         "orgtree_account_mark" | "orgtree_withdraw_ask" | "orgtree_project" |
         "orgtree_retire" | "orgtree_dissolve" | "orgtree_retool" | "orgtree_switch_model" |
@@ -299,8 +300,9 @@ fn scope_props(dirs: &str) -> Value {
             "orgtree": crate::domain::tool_groups::schema() } },
         "org_visibility": { "type": "string", "enum": VIS },
         "permission_mode": { "type": "string", "enum": PM },
-        "effort": { "type": "string", "enum": EFFORT,
-            "description": "a level its tier's own harness and model name (staffing options list them per tier); \"\" inherits" },
+          "effort": { "type": "string", "enum": EFFORT,
+              "description": "a level its tier's own harness and model name (staffing options list them per tier); \"\" inherits" },
+          "fast_mode": { "type": "boolean", "description": "next-turn speed; unsupported true refuses. Hire omission uses org tier default; rehire/retool omission keeps saved speed" },
         "account": { "type": "string", "description": "provider account id (default: inherited)" },
         "account_fallback": { "type": "boolean", "description": "move to another account of the same provider when this one hits its usage limit" },
         "clear_account_fallback": { "type": "boolean" },
@@ -356,6 +358,7 @@ fn all() -> Vec<Value> {
         build_tool_present(),
         build_tool_send_file(),
         build_tool_hire(),
+        build_tool_fast_defaults(),
         build_tool_project(),
         build_tool_rehire(),
         build_tool_retire(),
@@ -1288,8 +1291,22 @@ mod effort_enum_tests {
     }
 }
 
+#[inline(never)]
+#[nolog]
+fn build_tool_fast_defaults() -> Value {
+    tool("orgtree_fast_defaults", "Read per-tier fast-mode defaults for new hires (including Quick chat). set patches tiers and is restricted to top-level agents whose superior is the user. Supported tiers only; explicit hire fast_mode wins. Existing agents and rehires keep saved speed.",
+        json!({"action":{"type":"string","enum":["read","set"]},
+            "tiers":{"type":"object","additionalProperties":{"type":"boolean"},"maxProperties":64,"description":"set: tier-to-boolean patch, e.g. sol=true, luna=true"}}), &[])
+}
+
 #[cfg(test)]
 mod fast_tools_tests {
+    #[test]
+    fn fast_tools_defaults_card_is_implemented_and_team_gated() {
+        let cards=super::list();
+        assert!(cards.iter().any(|c| c["name"]=="orgtree_fast_defaults"));
+        assert!(!crate::domain::tool_groups::allows(&serde_json::json!({"orgtree":{"team":false}}),"orgtree_fast_defaults"));
+    }
     #[test]
     fn fast_tools_four_seat_cards_expose_boolean() {
         let cards=super::all();
@@ -1385,6 +1402,18 @@ mod builder_stack_tests {
             let got = actual.iter().find(|card| card["name"] == name).unwrap();
             assert_eq!(*want, *got, "{name}: differs beyond the approved slot changes");
             *want = got.clone();
+        }
+        // Approved fast-mode additions: one card after hire and one shared
+        // boolean on the four seat cards. Preserve every other byte.
+        let fast=actual.iter().find(|c|c["name"]=="orgtree_fast_defaults").unwrap();
+        let index=expected.as_array().unwrap().iter().position(|c|c["name"]=="orgtree_hire").unwrap()+1;
+        expected.as_array_mut().unwrap().insert(index,fast.clone());
+        for name in ["orgtree_hire","orgtree_rehire","orgtree_staff","orgtree_retool"] {
+            let want=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
+            let got=actual.iter().find(|c|c["name"]==name).unwrap();
+            want["inputSchema"]["properties"]["fast_mode"]=got["inputSchema"]["properties"]["fast_mode"].clone();
+            assert_eq!(*want,*got,"{name}: differs beyond fast_mode");
+            *want=got.clone();
         }
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");

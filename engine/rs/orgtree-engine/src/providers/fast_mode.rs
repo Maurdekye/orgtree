@@ -26,6 +26,28 @@ pub fn validate(st: &State, tier: &str, version: Option<&str>, value: &Value) ->
     Ok(enabled)
 }
 
+/// Exact per-tier defaults; false remains valid when advertised support disappears.
+#[nolog]
+pub fn validate_defaults(st: &State, value: &Value) -> anyhow::Result<Value> {
+    let Some(rows) = value.as_object().filter(|o| o.len() <= 64) else {
+        crate::refuse!(BadRequest, "default_fast_mode must be an object of at most 64 tier booleans")
+    };
+    for (tier, enabled) in rows {
+        if catalog::tier(tier).is_none() { crate::refuse!(BadRequest, "unknown fast-mode tier {tier}"); }
+        validate(st,tier,None,enabled)?;
+    }
+    Ok(value.clone())
+}
+
+/// Explicit hire values are validated; a stale default never forces an unsupported model.
+#[nolog]
+pub fn hire_enabled(st: &State, tier: &str, req: &Value, settings: &Value) -> anyhow::Result<bool> {
+    match req.get("fast_mode") {
+        Some(value) => validate(st,tier,None,value),
+        None => Ok(settings["default_fast_mode"][tier].as_bool().unwrap_or(false) && supported(st,tier,None)),
+    }
+}
+
 /// Explicit default prevents an inherited global fast tier from sticking.
 #[nolog]
 pub fn codex_tier(st: &State, model: &str, enabled: bool) -> Option<String> {
@@ -46,6 +68,23 @@ pub fn advertised_tier(row: &Value) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn fast_tools_hire_validation_and_stale_defaults() {
+        let mut st=State::default();
+        st.codex_fast_modes.insert("gpt-6.1-sol".into(),"priority".into());
+        let settings=json!({"default_fast_mode":{"sol":true,"haiku":true}});
+        assert!(hire_enabled(&st,"sol",&json!({}),&settings).unwrap());
+        assert!(!hire_enabled(&st,"sol",&json!({"fast_mode":false}),&settings).unwrap());
+        assert!(!hire_enabled(&st,"haiku",&json!({}),&settings).unwrap());
+        assert!(hire_enabled(&st,"haiku",&json!({"fast_mode":true}),&settings).is_err());
+        for v in [json!(null),json!("false"),json!(0)] {
+            assert!(hire_enabled(&st,"sol",&json!({"fast_mode":v}),&settings).is_err());
+        }
+        assert!(validate_defaults(&st,&json!({"sol":true,"luna":false})).is_ok());
+        for v in [json!({"haiku":true}),json!({"typo":false}),json!({"sol":null}),json!([])] {
+            assert!(validate_defaults(&st,&v).is_err(),"{v}");
+        }
+    }
     #[test]
     fn fast_mode_uses_only_advertised_speed_tiers() {
         assert_eq!(advertised_tier(&json!({"serviceTiers":[{"id":"default"},{"id":"priority"}]})).as_deref(),Some("priority"));

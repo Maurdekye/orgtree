@@ -22,7 +22,7 @@ const ORG_KEYS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "default_account",
     "permission_mode", "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact", "cascade_hire",
     "cascade_alloc", "org_inbox_enabled", "org_inbox_multi_holder", "account_fallback_default", "headless", "disabled_accounts",
-    "quick_chat",
+    "quick_chat", "default_fast_mode",
 ];
 
 /// Settings of removed features: accepted and ignored (the UI no longer shows them).
@@ -132,6 +132,7 @@ async fn sweep_top_grants(
 fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Value> {
     let bad = |why: String| Err(ApiError::unprocessable(why));
     match key {
+        "default_fast_mode" => Ok(crate::providers::fast_mode::validate_defaults(&e.providers.state.load(),v)?),
         // Quick chat's starting choices in this org (set by a template)
         "quick_chat" => crate::domain::templates::quick_chat(v).map_err(ApiError::unprocessable),
         // the lanes this org may not use (Org settings › Accounts)

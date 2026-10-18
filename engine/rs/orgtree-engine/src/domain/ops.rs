@@ -20,6 +20,7 @@ use crate::refuse;
 use crate::runtime::AgentMsg;
 
 mod ordering;
+mod fast_defaults;
 
 /// Who asks.
 #[derive(Clone, Debug)]
@@ -756,6 +757,7 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         "swap" => swap(engine, org, &tx, actor, req, fx).await?,
         "self_subjugate" => self_subjugate(engine, org, &tx, actor, req, fx).await?,
         "retool" => retool(engine, org, &tx, actor, req, fx, false, Dirs::Add).await?,
+        "fast_defaults" => fast_defaults::run(engine, org, tx, actor, req, fx).await?,
         "moves" => moves(engine, org, &tx, actor, req, fx).await?,
         "reprice" => reprice(engine, org, &tx, actor, fx).await?,
         other => refuse!(BadRequest, "unknown op {other}"),
@@ -955,6 +957,8 @@ fn hire_scope(caps: &OrgCaps, req: &Value) -> Value {
         "org_visibility": str_arg(req, "org_visibility").unwrap_or(s["default_visibility"].as_str().unwrap_or("subtree")),
         "add_dirs": req.get("add_dirs").filter(|v| v.is_array()).cloned().unwrap_or(json!([])),
         "tools": tools,
+        "fast_mode": req.get("fast_mode").cloned().unwrap_or_else(|| json!(
+            s["default_fast_mode"][req["tier"].as_str().unwrap_or("")].as_bool().unwrap_or(false))),
     });
     if let Some(e) = str_arg(req, "effort") {
         out["effort"] = json!(e);
@@ -1198,7 +1202,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         }
     };
     let mut warnings: Vec<String> = Vec::new();
-    let sc = if let Some(a) = &anchor {
+    let mut sc = if let Some(a) = &anchor {
         if a.state != "live" { refuse!(Conflict, "superior insertion needs a live target"); }
         if !self_parent { insertion_authority(tx, actor, a).await?; }
         for field in ["add_dirs", "tools", "org_visibility", "permission_mode"] {
@@ -1224,6 +1228,8 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         warnings = hire_scope_rules(tx, actor, parent.as_ref(), &caps, req, &mut sc).await?;
         sc
     };
+    sc["fast_mode"] = json!(crate::providers::fast_mode::hire_enabled(
+        &engine.providers.state.load(), &tier, req, &caps.settings)?);
     // An omitted choice uses only a valid compatible org default, never the
     // parent's bound account. Explicit empty/primary means provider primary.
     let explicit = req.get("account").and_then(Value::as_str);
@@ -1332,7 +1338,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         actor,
         Some(id),
         json!({ "node": name, "parent": parent.as_ref().map(|p| p.name.clone()), "tier": tier, "grant": grant,
-                "above": anchor.as_ref().map(|a| a.name.clone()), "cascaded": raised }), fx)
+                "above": anchor.as_ref().map(|a| a.name.clone()), "cascaded": raised, "fast_mode": sc["fast_mode"] }), fx)
     .await?;
     fx.agents.insert(id);
     if let Some(p) = &parent {
@@ -2939,7 +2945,20 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     } else if !preauthorized {
         authorize(tx, actor, &n, "retool").await?;
     }
+    let fast = req.get("fast_mode").map(|value| crate::providers::fast_mode::validate(
+        &engine.providers.state.load(), &n.tier, pinned(&n.scope), value)).transpose()?;
+    // Speed is node-local and read at the next turn. A speed-only tool call
+    // must not restart the CLI or walk/reconfigure its descendants.
+    if let Some(enabled) = fast.filter(|_| req.as_object().is_some_and(|o|
+        o.keys().all(|k| matches!(k.as_str(), "op" | "node" | "fast_mode")))) {
+        let mut next=n.scope.clone(); next["fast_mode"]=json!(enabled);
+        tx.execute("UPDATE ot.agents SET scope=$2,row_version=row_version+1 WHERE id=$1", &[&n.id,&next]).await?;
+        event(tx,org.id,"retool",actor,Some(n.id),json!({"node":n.name,"change":{"fast_mode":enabled}}),fx).await?;
+        fx.agents.insert(n.id); fx.events=true;
+        return Ok(json!({"node":n.name,"fast_mode":enabled,"applies":"next_turn","cascaded":[]}));
+    }
     let mut sc = scope::normalize(&n.scope);
+    if let Some(enabled) = fast { sc["fast_mode"]=json!(enabled); }
     let dirs_before = sc["add_dirs"].as_array().cloned().unwrap_or_default();
     let same = |d: &Value, path: &str| scope::norm_path(d["path"].as_str().unwrap_or("")) == scope::norm_path(path);
     // the folders this call names: they alone are granted, and checked against the caller
@@ -3063,7 +3082,7 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     // an effort change alone restarts nobody's process (the delivery after
     // commit settles the agent's own), as on the user's settings path
     let effort_only = req.as_object().is_some_and(|o| {
-        o.iter().all(|(k, v)| ["op", "node", "effort"].contains(&k.as_str()) || v.is_null())
+        o.iter().all(|(k, v)| ["op", "node", "effort", "fast_mode"].contains(&k.as_str()) || v.is_null())
     });
     let mut cascaded = Vec::new();
     // the folders each raised ancestor gained, and each descendant lost

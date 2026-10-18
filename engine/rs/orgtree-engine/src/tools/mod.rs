@@ -246,6 +246,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_switch_model" => treetools::run(engine, caller, args, "switch_model").await,
         "orgtree_cheap_compact" => treetools::run(engine, caller, args, "cheap_compact").await,
         "orgtree_retool" => treetools::run(engine, caller, args, "retool").await,
+        "orgtree_fast_defaults" => treetools::run(engine, caller, args, "fast_defaults").await,
         "orgtree_swap" => treetools::run(engine, caller, args, "swap").await,
         "orgtree_self_subjugate" => treetools::run(engine, caller, args, "self_subjugate").await,
         other if other.starts_with("orgtree_") => {
