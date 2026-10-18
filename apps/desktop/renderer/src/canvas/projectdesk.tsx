@@ -495,7 +495,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
 export function ProjectDeskModal({ close, ...props }: ProjectDeskProps & { close: () => void }) {
   return (
     <PinFrame kind="project-desk" title={`Project ${props.node.id}`}
-      panel="settings wide project-desk-modal" close={close}>
+      // the agent temporary desk's frame, not a settings panel's type and
+      // buttons, so it reads as the canvas desk does (user 2026-10-18 08:25Z);
+      // pin-project: the org theme, as a pinned project window
+      panel="tempdesk-panel pin-project project-desk-modal" close={close}>
       <ProjectDesk {...props} bare />
     </PinFrame>
   )

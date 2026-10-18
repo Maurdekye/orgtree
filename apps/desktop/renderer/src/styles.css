@@ -636,6 +636,11 @@ main {
    pinned window puts on `.pinwin-body` goes on the desk body itself here. */
 .tempdesk-panel > .desk-slot { flex: 1; min-height: 0; }
 .tempdesk-panel .desk-body { flex: 1; min-height: 0; padding: 6px 8px 8px; }
+/* the project desk as a modal, pinned window or popped-out window
+   (projectdesk.tsx ProjectDeskModal, user 2026-10-18 08:25Z): the frame above
+   inside a PinFrame, whose bar reads these paddings (see `.settings`) */
+.project-desk-modal { --panel-pad-y: 6px; --panel-pad-x: 8px; }
+.project-desk-modal > .modalpin-bar:not(.on):not(.detached) { margin: 0; padding: 4px 8px 0; }
 /* as in a pinned window, the title bar already names the agent */
 .tempdesk-panel .cc-head-left > .tier, .tempdesk-panel .cc-head-left > .cc-name { display: none; }
 
