@@ -1378,12 +1378,9 @@ button.badge.audience-fold.alert {
 .project-desk .cc-head-left .project-mark { color: var(--accent); display: inline-flex; }
 .project-desk .cc-head-left .name { font-weight: 600; }
 .chip.agents.project-activity { padding: 0 5px; }
-/* one font for the label and its age: an agent card's state word and clock
-   (.sq-idle, .sq-idle-time), so "quiet for 7m" reads as one phrase */
-.project-last-activity { font: 600 10px/1 var(--mono); color: var(--dim); white-space: nowrap; }
-.project-last-activity .sq-idle-time { margin-left: 0; }
-.project-last-activity.active { color: var(--accent); }
-.project-last-activity .sq-idle-time { color: inherit; }
+/* "Active 5m" / "Idle 5m": an agent card's state word and clock (.sq-idle,
+   .sq-idle-time) with their own spacing and colours (user 2026-10-18 07:42Z) */
+.project-last-activity { display: inline-flex; align-items: baseline; white-space: nowrap; }
 .sq.project .project-meta .project-activity { font-size: 10px; }
 /* the description editor: Markdown until focused, monospace while edited (user 2026-10-17 20:06Z) */
 .project-desk .project-description-md, .project-desk .project-description-edit {

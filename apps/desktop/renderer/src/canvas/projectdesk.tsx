@@ -11,14 +11,14 @@
 // of hired, with the spinner while any is active (20:08Z), and has halt all,
 // dissolve project (20:09Z) and the settings gear (20:09:45Z).
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload, TurnStat } from '../types'
 import { ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, FileIcon, FolderIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
 import { broadcastMessage, uploadFile } from '../api'
 import { useComposerEnter } from '../enterkey'
-import { md, subtreeDocCount, subtreeDocs, USER } from './shared'
+import { ago, md, subtreeDocCount, subtreeDocs, USER } from './shared'
 export { subtreeDocCount }
 import type { CanvasNode, OpFn } from './shared'
 import { InboxView } from './mail'
@@ -28,7 +28,7 @@ import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
 import { useSurface } from '../popout'
 import type { RefRoutes } from './reflinks'
-import { LastTurnAge, NavChip } from './desk'
+import { ageClockNow, LastTurnAge, NavChip, subscribeAgeClock } from './desk'
 import { PresentationCard, recentDocumentChips } from './docs'
 import { DocIcon } from '../icons'
 import { subtreeAgents } from './bulkcompact'
@@ -73,9 +73,9 @@ export function projectCounts(node: CanvasNode): { active: number; hired: number
 /** The project's LAST ACTIVITY (user 2026-10-17 22:21Z): active while any
  *  live agent under it runs a turn; otherwise the newest turn end among them,
  *  nested projects included; null when none has ever run one. */
-export function projectLastActivity(node: CanvasNode): { active: boolean; turn: TurnStat | null } {
+export function projectLastActivity(node: CanvasNode): { active: boolean; turn: TurnStat | null; since?: string | null } {
   const agents = subtreeAgents(node)
-  if (agents.some((a) => a.busy)) return { active: true, turn: null }
+  if (agents.some((a) => a.busy)) return { active: true, turn: null, since: activeSince(agents) }
   let newest: TurnStat | null = null
   for (const a of agents) {
     const t = a.turns?.[a.turns.length - 1]
@@ -84,14 +84,40 @@ export function projectLastActivity(node: CanvasNode): { active: boolean; turn: 
   return { active: false, turn: newest }
 }
 
-/** "active now" / "quiet for <age>", on the desk header and the middle-zoom
- *  card beside the activity chip; the age is the agent cards' own clock. */
+/** When the project became active (user 2026-10-18 07:43Z): its first agent
+ *  turning active after all were idle. The earliest turn still running, walked
+ *  back through every finished turn that overlapped the run (`at` is a turn's
+ *  end, `ms` its length); a turn that ended before the run began does not
+ *  count. Null when no running turn says when it started. */
+function activeSince(agents: CanvasNode[]): string | null {
+  const running = agents.filter((a) => a.busy && a.inflight_at).map((a) => Date.parse(a.inflight_at!))
+  if (!running.length) return null
+  let start = Math.min(...running)
+  const done = agents.flatMap((a) => a.turns ?? []).filter((t) => t.ms)
+    .map((t) => ({ end: Date.parse(t.at), begin: Date.parse(t.at) - t.ms! }))
+  for (let moved = true; moved;) {
+    moved = false
+    for (const t of done) if (t.end >= start && t.begin < start) { start = t.begin; moved = true }
+  }
+  return new Date(start).toISOString()
+}
+
+/** "Active <age>" / "Idle <age>", in the agent card's own words and style
+ *  (user 2026-10-18 07:42Z-07:43Z; it said "active now" / "quiet for" before),
+ *  on the desk header and the middle-zoom card beside the activity chip. */
 export function ProjectLastActivity({ node }: { node: CanvasNode }) {
-  const { active, turn } = projectLastActivity(node)
-  if (active) return <span className="project-last-activity active" title="an agent under this project is running a turn">active now</span>
+  useSyncExternalStore(subscribeAgeClock, ageClockNow, ageClockNow)
+  const { active, turn, since } = projectLastActivity(node)
+  if (active) {
+    return <span className="project-last-activity" title="an agent under this project is running a turn">
+      <span className="sq-idle working active">Active</span>
+      <span className="sq-idle-time" title={since ? 'active since ' + since : undefined}>{since ? ago(since) : '—'}</span>
+    </span>
+  }
   if (!turn) return null
   return <span className="project-last-activity" title="since the newest turn of any agent under this project ended">
-    quiet for <LastTurnAge turn={turn} variant="inline" /></span>
+    <span className="sq-idle idle">Idle</span>
+    <LastTurnAge turn={turn} variant="inline" /></span>
 }
 
 /** The project's agents as the app header's activity chip shows an org's

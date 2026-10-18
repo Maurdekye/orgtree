@@ -204,6 +204,8 @@ export const pulseAgeClock = () => {
   ageClockSecond = next
   for (const fn of [...ageClockSubs]) fn()
 }
+/** the shared second, for a `useSyncExternalStore` snapshot */
+export const ageClockNow = () => ageClockSecond
 export const subscribeAgeClock = (fn: () => void) => {
   ageClockSubs.add(fn)
   if (ageClockSubs.size === 1) {
