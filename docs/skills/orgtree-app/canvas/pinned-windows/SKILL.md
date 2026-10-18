@@ -22,9 +22,9 @@ Open in new window detaches the mounted surface. Explicit Pop in/Return to main 
 
 A persistent desk keeps its canonical content. Native Close returns it only to an already connected destination; if none is mounted it stays retained off-screen until a real destination appears. It does not force navigation to create a missing main-view slot. Explicit return retains its normal destination activation. Failure recovery, parent-window lifecycle and temporary borrowing follow their own restoration paths; do not treat an accidental popup failure as a deliberate dismiss.
 
-## Temporary Open desk
+## Temporary Desk modal
 
-Open → Open desk borrows the existing desk into a modal for a glance without changing focus, adding a pin or saving a layout of its own. Closing by Escape/backdrop/control returns the desk to its prior placement, including its draft and scroll state. Actions inside are the real desk's actions, not a read-only replica. If a Pin control is offered, the user can deliberately turn this temporary view into a persistent pin.
+Open → Desk borrows the existing desk into a modal for a glance without changing focus, adding a pin or saving a layout of its own. Closing by Escape/backdrop/control returns the desk to its prior placement, including its draft and scroll state. Actions inside are the real desk's actions, not a read-only replica. If a Pin control is offered, the user can deliberately turn this temporary view into a persistent pin.
 
 A browser can block a requested popup and report an error; native focusing and screen placement also depend on the available desktop capability. These descriptions are source behavior, not evidence that a particular device/window arrangement has been visually verified.
 

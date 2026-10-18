@@ -43,7 +43,7 @@ Every handed mail's wrapper says whether it needs an ack and how, and every watc
 
 ## Docket items
 
-A project's docket lists every item owned by an agent under the project, nested projects included: the project desk's docket tab and "Open project docket" in its menu. Items are not attached to a project, and nobody co-owns an item because of one; give an item an owner under the project to put it on that docket. (`orgtree_work` refuses a `project` argument.)
+A project's docket lists every item owned by an agent under the project, nested projects included: the project desk's docket tab and "Open → Project docket" in its menu. Items are not attached to a project, and nobody co-owns an item because of one; give an item an owner under the project to put it on that docket. (`orgtree_work` refuses a `project` argument.)
 
 ## Presentations
 
@@ -51,7 +51,7 @@ On the canvas, each agent with a fair_queue watchdog on a project has a rose lin
 
 The project desk's message box sends the user's mail to the project's own mailbox by default. If nobody watches the project with a fair_queue dog, one agent directly under it (an idle one first) is woken and asked to arm one: arming it hands you the waiting mail. With the megaphone on, the box instead sends the same message (attachments and notice flag included) to every live agent under the project, nested projects included, one delivery each.
 
-`orgtree_present project=<name>` puts a document under the project instead of beside your seat (the same user-audience rule applies). The project's card and the presentations gallery show it under the project. The project's own gallery (its desk's presented tab) lists the documents attributed to the project. Its team presentations add every document presented by the agents below it, nested projects included, and so do the presentation chips on its card and desk header. A document presented under the project names the project as its presenter, with a "presented by <agent>" line for the agent that presented it. An agent's "Open team presentations" covers its whole team the same way, through projects.
+`orgtree_present project=<name>` puts a document under the project instead of beside your seat (the same user-audience rule applies). The project's card and the presentations gallery show it under the project. The project's own gallery (its desk's presented tab and "Open → Presentations" in its menu) lists the documents attributed to the project. Its team presentations ("Open → Presentations → Team presentations") add every document presented by the agents below it, nested projects included, and so do the presentation chips on its card and desk header. A document presented under the project names the project as its presenter, with a "presented by <agent>" line for the agent that presented it. An agent's "Open → Presentations → Team presentations" covers its whole team the same way, through projects.
 
 ## See also
 

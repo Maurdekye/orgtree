@@ -45,7 +45,7 @@ The separate Halt and Stop controls are consequential: Stop interrupts a respons
 - [Docket](../docket-screens/SKILL.md): its work items.
 - [Presented](../presentations/SKILL.md): document collection.
 
-Agent event history is available in the agent settings panel when the agent has retained records. Scratch folders open in the OS file explorer through **Open scratch folder** in the agent menu or settings header.
+Agent event history is available in the agent settings panel when the agent has retained records. Scratch folders open in the OS file explorer through **Open → Scratch folder** in the agent menu or **Open scratch folder** in the settings header.
 
 Counts appear for Inbox, Docket and Presented when nonzero. For configuration fields see [agent settings](../../agent-settings/agent-config/SKILL.md).
 

@@ -19,9 +19,9 @@ Claude launch setup writes `.orgtree-identity.md`, `.orgtree-settings.json` and 
 
 ## Opening and sharing
 
-The native desktop's agent menu offers **Open > Open scratch folder** for live and archived agents. It opens an existing directory in the OS file manager; a missing folder reports an error rather than being created. That native action is unavailable in a plain browser or phone client.
+The native desktop's agent menu offers **Open > Scratch folder** for live and archived agents. It opens an existing directory in the OS file manager; a missing folder reports an error rather than being created. That native action is unavailable in a plain browser or phone client.
 
-Next to it, **Open team scratch folder** opens the team that agent leads,
+In its submenu, **Open > Scratch folder > Team scratch folder** (or inline under **Open** when only the team action exists) opens the team that agent leads,
 keyed by its numeric agent id, even when it has no reports. It does not select
 the parent's team for a leaf. The switchboard context menu and **Org settings
 > Basic** both offer **Open shared scratch folder** for the org-wide `_shared`
