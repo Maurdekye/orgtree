@@ -84,7 +84,9 @@ button's help/accessible name and the Model-tab setting retain their wording.
 
 The agent composer places the queued badge, lightning toggle, effort pill and
 Send/Stop in one horizontal wrapping group. All are 30px tall; wrapping moves
-whole controls. The attachment/notice column retains its existing layout.
+whole controls. The text field keeps a 10ch minimum so controls wrap before
+it becomes cramped. The attachment/notice column retains its existing layout.
+The minimum was approved by the coordinator at 15:08Z (m8f7f620d6103).
 
 Near-zoom cards reuse QueuedFastBadge and its exact NextTurnBadge text and
 explanatory tooltip. They require a supported live agent, busy=true and a known

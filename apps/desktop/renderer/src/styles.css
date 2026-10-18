@@ -5941,7 +5941,9 @@ svg.MuiSvgIcon-root {
   display: flex; flex-direction: column; align-items: center;
   gap: 4px; flex: none;
 }
-/* Agent composer controls wrap as whole items with a shared 30px baseline. */
+/* Agent composer controls wrap as whole items with a shared 30px baseline.
+   Preserve readable typing width before shrinking/wrapping the controls. */
+.cc-composer:has(> .cc-controls) textarea { min-width: 10ch; }
 .cc-controls {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
   gap: 6px; flex: 0 1 auto; min-width: 0; max-width: calc(100% - 64px);
