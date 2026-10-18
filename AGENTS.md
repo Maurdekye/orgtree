@@ -22,6 +22,14 @@
   so a late logo does not leave the org name clipped to its old allocation.
   [decided: user 2026-10-18 15:54Z; verified: `shell/{header,orgheaderlogo}.tsx`, `shell/equalsides.ts`, `App.tsx`]
 
+- Audience revocation removes the explicit grant only. Passive notices name
+  remaining project sources and announce inherited route starts/ends once per
+  committed change. Every agent's ORG STATE lists its own effective audiences
+  and sources, without inspection permission. Historical revoke events do not
+  assert that inherited access is gone. See [project audiences](docs/rust-engine/project-audiences.md).
+  [decided: user 2026-10-18 16:53Z; verified: `domain/{audiences,audience_notices,ops}.rs`,
+  `runtime/{envelope,event_text}.rs`]
+
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the
   existing urgent-mail badge appearance, newest-first focus, highlight and

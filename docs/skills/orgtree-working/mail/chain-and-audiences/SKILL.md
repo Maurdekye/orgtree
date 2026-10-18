@@ -23,6 +23,14 @@ If the route is missing, use [orgtree_audience](../tool-audience/SKILL.md). That
 
 Use deny for an outstanding request and revoke for access already granted. Check current access when a route stops working; an earlier grant notice does not establish that it remains active. The audience tool's action rules cover the top-level waiting-requester exception as well as descendant-only cases; do not infer the rule merely from subtree membership.
 
+Revocation removes only the explicit personal grant. An audience inherited
+through your project remains usable, and the revocation notice names that
+source. Your own ORG STATE lists all effective audiences as explicit or through
+a named project, without requiring inspection rights. Passive notices also tell
+you once when a project-inherited route starts or ends. Read the current state
+when interpreting an older withdrawal notice; it may describe only a personal
+grant that was removed while inherited access remained.
+
 
 ## Project audiences
 

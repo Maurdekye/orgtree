@@ -304,6 +304,12 @@ toast saying this engine does not support it.
 
 ### B. Organizations and canvas
 
+Audience source visibility (user 2026-10-18 16:53Z): the agent's own ORG STATE
+lists explicit and project-inherited routes without inspection permission.
+Revocation notices distinguish personal grants from remaining inherited access;
+passive notices report inherited route starts and ends. Admission rules stay
+unchanged. See [project audiences](project-audiences.md).
+
 Project audiences (user 2026-10-18, clarified 14:09–14:12Z): every project-held
 audience works as its direct live members' own, with no nested relay or copied rows.
 A project target includes its direct agents; reverse access needs a reverse grant.

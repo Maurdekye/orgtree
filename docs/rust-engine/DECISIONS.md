@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Audience source visibility, user 2026-10-18 16:53Z (4.4.0):** revoking a
+personal audience removes only its explicit grant. Notices must name any
+remaining project source; members hear once when inherited access starts or
+ends. Every agent can see its own effective audiences and sources without
+inspection rights. This changes presentation only, preserving the project
+audience rulings below. See [project audiences](project-audiences.md).
+
 **Project desk jump-card collapse, user 2026-10-18 14:45Z:** project desks
 use the agent desk's same collapse preference, threshold (more than 16),
 counted button and expand/collapse behavior everywhere they appear, via shared

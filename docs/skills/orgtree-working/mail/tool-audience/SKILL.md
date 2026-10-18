@@ -48,6 +48,12 @@ In the default single-holder org-inbox mode, a new extern grant revokes previous
 
 You can revoke audiences with yourself, an extern holder can revoke its own extern access, and a top-level agent can revoke user/extern grants in its subtree. Other grants are not yours to rescind. Deny is for a pending request; revoke is for an existing grant. Neither deletes correspondence.
 
+Revoke removes only the explicit grant, not an audience inherited through a
+project. A remaining project route stays usable and its source is named in the
+notice. Your own ORG STATE lists effective audiences and their explicit/project
+sources without inspection rights. Passive notices announce when inherited
+access starts or ends, including joining/leaving a project with an audience.
+
 ## Refusals to act on
 
 Missing target/from/grantee fields are reported with the action that needs them. Other common refusals are no live named agent, self-request/self-grant, already-held audience, no request waiting on you, grantee outside the allowed relationship for that grant, non-top-level user grant, invalid grantor relationship, no current grant to revoke, or disabled outside inbox. Apply the pending-request exceptions above before treating an outside-subtree grantee as forbidden. Correct the relationship/party field or ask the actual holder; changing an audience is not a way to expand your own tools or settings authority.

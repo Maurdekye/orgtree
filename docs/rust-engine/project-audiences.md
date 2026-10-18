@@ -1,5 +1,28 @@
 # Project audiences
 
+## Agent-visible sources and notices
+
+Each agent's ORG STATE includes its own effective audiences, labelled explicit
+or through a named project, independently of inspection/tool grants. The line
+participates in semantic header deltas: unchanged routes are not repeated.
+Existing mail/ask/present/tool-group gates retain their original behavior.
+
+Revoke changes only the explicit row. Its passive notice names a remaining
+project route or says that inherited access is gone. The typed event renderer
+must preserve this information: for rescinded events, `other` carries the
+remaining project name, an empty string means checked absence, and historical
+null/missing values direct the agent to its current org state instead of
+asserting access loss. No event schema change is needed.
+
+Grant/revoke and membership/topology transactions compare active, org-scoped
+effective grants before and after. Passive start/end mail is inserted in that
+same transaction, deduplicated by agent/target/source. Mailbox notifications
+publish only after commit; failed operations and serialization retries cannot
+leave a false notice. Serializable snapshots plus bounded retries prevent
+concurrent changes from being described as this operation's change. Direct
+membership, project targets, explicit overlap and inactive/nested exclusions
+continue to come from the existing effective view; no audience rows are copied.
+
 Projects retain explicit grants in `ot.audiences`. Migration 0030 adds the read-only
 `ot.effective_audiences` view: an active explicit grant, plus each live direct member
 of its live project holder. The inherited branch reads the base grant table, never
