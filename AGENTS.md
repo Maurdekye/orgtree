@@ -155,14 +155,16 @@
   See [tool result timing](docs/rust-engine/tool-result-timing.md).
   [decided: user/coordinator 2026-10-18; verified: `tools/{mod,result_timing}.rs`,
   `runtime/{claude,codex}.rs`, `bridge.rs`]
-- Projects hold explicit audiences and pass them to live direct members only;
-  inherited grants never relay through nested projects. Permission checks use
-  migration 0030's effective view, while menus revoke explicit grants only. Project
-  requests/decisions route to the nearest real-agent superior (user if none); members
-  cannot manage the project's grants. Both user project-send modes grant project
-  user access after delivery, with explicit partial-failure reporting. Org-inbox
-  access remains agent-only. See [project audiences](docs/rust-engine/project-audiences.md).
-  [decided: user 2026-10-18 07:39Z–07:44Z; verified: `domain/audiences.rs`, `0030_project_audiences.sql`]
+- Projects pass active audiences to live direct members as their own; no nested
+  relay. Migration 0032 also expands project grantors to their direct live agents:
+  A->B reaches B's members; reverse access needs B->A. User project mail/broadcast
+  grants only the project, never personal member rows. Direct user contact grants
+  only without effective user access; manual Acquire still creates an explicit
+  grant while inherited. Keep ancestor forwarding separate from contact grants.
+  Operational checks use the effective view; explicit grant administration does
+  not. Org-inbox remains agent-only. See [project audiences](docs/rust-engine/project-audiences.md).
+  [decided: user/coordinator 2026-10-18 14:09–14:12Z; verified:
+  `domain/{mail,runtime_notices,audiences}.rs`, `http/nodes.rs`, `0032_project_member_audiences.sql`]
 
 
 - `orgtree_present project=P` needs no user audience for agents strictly below

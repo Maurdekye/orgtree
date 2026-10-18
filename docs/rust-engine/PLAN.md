@@ -304,9 +304,12 @@ toast saying this engine does not support it.
 
 ### B. Organizations and canvas
 
-Project audiences (user 2026-10-18): explicit grants on a project become effective for
-its direct live members only; no nested relay or copied grants. Both project user-send
-modes grant its user audience. See [project audiences](project-audiences.md).
+Project audiences (user 2026-10-18, clarified 14:09–14:12Z): every project-held
+audience works as its direct live members' own, with no nested relay or copied rows.
+A project target includes its direct agents; reverse access needs a reverse grant.
+User project mail/broadcast grants only the project. Direct user contact does not
+add a personal grant while effective access exists; manual Acquire still can.
+See [project audiences](project-audiences.md).
 
 
 Fast mode (user 2026-10-17 17:49Z, 4.4.0): supported models have a per-agent

@@ -1,5 +1,15 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Project audience clarification, user 2026-10-18 14:09–14:12Z:** project
+audiences remain effective for direct members at every operational check. User
+project mail/broadcast grants only the project; no member gets a personal grant.
+Direct agent mail/commands do not add one while effective user access exists.
+Manual Acquire audience can create an independent grant, or remove the project
+grant and then contact the agent. A project audience target includes its direct
+live agents; reverse access needs a separate reverse grant. Nested members never
+relay inherited access. See [project audiences](project-audiences.md) and the
+project/project-management glossary pages.
+
 **Manual return to transcript follow, user 2026-10-18 13:36Z:** scrolling
 down to within 8px of the transcript tail hides the jump-to-bottom card and
 reattaches live follow, including momentum arriving after the recent-input
