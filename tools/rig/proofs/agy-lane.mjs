@@ -164,7 +164,10 @@ export default async function (rig) {
   p.check('lia: held until the countdown the wall named (2h53m47s)', held !== null && Math.abs(held - 10427) <= 5,
     { held_s: held, until: lf?.until })
 
-  // ---------------------------------------------------------------- nia, ora, pia: the countdown anchored once
+  // ---------------------------------------------------------------- nia, ora, pia: fresh countdown evidence
+  // Current reset rule (AGENTS.md; runtime/recovery.rs::countdown_until):
+  // a fresh refusal may extend an old deadline, never shorten it. An expired
+  // earlier countdown cannot replace a newly parsed reset with a probe floor.
   const freezeOf = name => rig.agentRow(name)?.frozen
   const nextFreeze = async (name, after) => rig.waitFor(() => { const f = freezeOf(name); return f && f.at !== after ? f : null },
     { what: `${name} to be frozen`, timeout: 30000 })
@@ -172,8 +175,9 @@ export default async function (rig) {
   const n1 = await nextFreeze('nia')
   await rig.tool('boss', 'orgtree_unstick', { node: 'nia' })
   const n2 = await nextFreeze('nia', n1.at)
-  p.check('nia: the same countdown while its deadline is ahead keeps that deadline', n1.until === n2.until
-    && Math.abs((Date.parse(n1.until) - Date.parse(n1.at)) / 1000 - 10427) <= 5, { first: n1.until, again: n2.until })
+  p.check('nia: a fresh countdown never shortens the prior deadline', Date.parse(n2.until) >= Date.parse(n1.until)
+    && [n1, n2].every(f => Math.abs((Date.parse(f.until) - Date.parse(f.at)) / 1000 - 10427) <= 5),
+    { first: n1.until, again: n2.until })
   await rig.userMail('ora', 'PROOF-STALE: please do the thing.')
   const o1 = await nextFreeze('ora')
   const o1Held = (Date.parse(o1.until) - Date.parse(o1.at)) / 1000
@@ -184,7 +188,8 @@ export default async function (rig) {
     await rig.tool('boss', 'orgtree_unstick', { node: 'ora' })
     const o2 = await nextFreeze('ora', o1.at)
     const oHeld = (Date.parse(o2.until) - Date.parse(o2.at)) / 1000
-    p.check('ora: the same countdown after its deadline passed is stale: only the probe floor (5 min)', Math.abs(oHeld - 300) <= 5,
+    p.check('ora: a fresh parsed 3 s reset remains authoritative after the old deadline passed', oHeld > 0
+      && Math.abs(oHeld - 3) <= 1 && Date.parse(o2.until) > Date.parse(o1.until),
       { first: { at: o1.at, until: o1.until }, again: { at: o2.at, until: o2.until, held_s: oHeld } })
     await rig.tool('boss', 'orgtree_unstick', { node: 'ora' })
     const ot = await rig.waitTurns('ora', 3, { timeout: 30000 })
