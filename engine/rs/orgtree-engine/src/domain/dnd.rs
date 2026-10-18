@@ -21,11 +21,6 @@ pub fn validate_urgent(urgent: bool, reason: Option<&str>, to_user: bool, active
 }
 
 #[logged]
-pub async fn active(client: &Client, agent: i64) -> Result<bool> {
-    Ok(client.query_one("SELECT ot.agent_dnd($1)",&[&agent]).await?.get(0))
-}
-
-#[logged]
 pub async fn set(engine: &Arc<Engine>, client: &Client, org: i64, agent: i64, on: bool) -> Result<Value> {
     let row=client.query_opt("UPDATE ot.turns SET do_not_disturb=$2 WHERE id=(SELECT id FROM ot.turns WHERE agent_id=$1 ORDER BY id DESC LIMIT 1) AND ended_at IS NULL RETURNING id",&[&agent,&on]).await?;
     if on && row.is_none() { crate::refuse!(Conflict,"Do Not Disturb needs your own running turn"); }
@@ -78,7 +73,7 @@ mod tests {
     }
     #[test] fn real_actor_gate_precedes_the_antigravity_handoff() {
         let source=include_str!("../runtime/actor.rs");
-        let wake=source.split("async fn on_wake(").nth(1).unwrap().split("async fn cancel_warm").next().unwrap();
+        let wake=source.split("async fn on_wake(").nth(1).unwrap().split("fn cancel_warm").next().unwrap();
         assert!(wake.find("dnd::may_steer").unwrap()<wake.find("self.steer_agy()").unwrap());
         assert!(wake.find("dnd::may_steer").unwrap()<wake.find("self.steer_codex()").unwrap());
         assert!(source.contains("THEN NULL ELSE 64 END"),"released batch has no ordinary row cap");

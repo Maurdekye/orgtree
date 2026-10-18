@@ -6,7 +6,7 @@ import { AgentWorkstate } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
 import { UrgentAgentOptions, type UrgentAgentMail } from '../src/canvas/dnd'
 import { MailList } from '../src/canvas/mail'
-import { useNodeMetadata, replaceNodeMetadata, clearNodeMetadata } from '../src/nodemetadata'
+import { useNodeMetadata, useDndRecipients, replaceNodeMetadata, clearNodeMetadata } from '../src/nodemetadata'
 import type { TreeNode } from '../src/types'
 import { sendMessage } from '../src/api'
 
@@ -62,11 +62,23 @@ test('agent composer API sends the existing urgent pair together', async t => {
   let sent: Record<string,unknown>={}
   globalThis.fetch=(async(_url,init)=>{
     sent=JSON.parse(String(init?.body))
-    return {ok:true,json:async()=>({accepted:true})} as Response
+    return new Response(JSON.stringify({accepted:true}),{status:200,headers:{'Content-Type':'application/json'}})
   }) as typeof fetch
   t.after(()=>{globalThis.fetch=original})
   await sendMessage('dnd','focused-agent','Now',undefined,undefined,undefined,false,undefined,undefined,
     {urgent:true,urgent_reason:'Deadline before turn end'})
   assert.equal(sent.urgent,true)
   assert.equal(sent.urgent_reason,'Deadline before turn end')
+})
+
+test('broadcast urgency eligibility tracks only the currently DND recipients', async t => {
+  const slug='dnd-multi'
+  const members=[{...node(false),id:'one',generation:1,children:[]},{...node(true),id:'two',generation:1,children:[]}] as unknown as TreeNode[]
+  function Recipients(){return <span data-eligible>{useDndRecipients(slug,members).join(',')}</span>}
+  replaceNodeMetadata(slug,members)
+  const v=await mountView(<Recipients/>,el=>el)
+  t.after(async()=>{await v.unmount();clearNodeMetadata(slug)})
+  assert.equal(v.el.querySelector('[data-eligible]')?.textContent,'two')
+  await inAct(()=>replaceNodeMetadata(slug,members.map(n=>({...n,dnd:false}))))
+  assert.equal(v.el.querySelector('[data-eligible]')?.textContent,'')
 })
