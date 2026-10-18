@@ -250,6 +250,7 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
     let notice_id: Option<i64> = tx.query_opt("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND kind='agent' AND state='live'", &[&org.id, &recipient]).await?.map(|r| r.get(0));
     tx.commit().await?;
     drop(client);
+    if out["granted"] != true && out["answered"] != true { return Ok(out); }
     let mut changes = vec![Change::Audiences, Change::OrgInbox, Change::Events, Change::Agent(gid), Change::Mailbox(gid), Change::UserMail];
     if let Some(id) = notice_id { if id != gid { changes.push(Change::Mailbox(id)); } }
     changes::notify(engine, org, changes);
