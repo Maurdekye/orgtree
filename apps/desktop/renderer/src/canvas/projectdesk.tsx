@@ -27,7 +27,7 @@ import { AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket
 import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
 import { AgentTeamView } from './team'
-import { PopoutButton, useSurface } from '../popout'
+import { PopoutButton, PopoutWindowControls, useSurface } from '../popout'
 import type { RefRoutes } from './reflinks'
 import { ageClockNow, LastTurnAge, NavChip, subscribeAgeClock } from './desk'
 import { PresentationCard, recentDocumentChips } from './docs'
@@ -423,6 +423,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               </button>
             )}
           </span>
+          {/* the window controls, last on the header row as on a popped-out
+              agent desk (user 2026-10-18 11:47Z); rendered only popped out */}
+          <PopoutWindowControls />
         </div>
       </div>
       {/* its presentations and its subtree's, on their own strip under the

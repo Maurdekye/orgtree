@@ -1388,10 +1388,11 @@ button.badge.audience-fold.alert {
 .project-desk .cc-head-left .project-mark { color: var(--accent); display: inline-flex; }
 .project-desk .cc-head-left .name { font-weight: 600; white-space: nowrap; }
 /* under a title bar that names the project, the desk does not name it again:
-   the temporary, pinned and popped-out desk (user 2026-10-18 11:14Z), as an
-   agent's desk under its title bar */
-.project-desk-modal .project-desk .cc-head-left > .project-mark,
-.project-desk-modal .project-desk .cc-head-left > .name,
+   the temporary and pinned desk (user 2026-10-18 11:14Z), as an agent's desk
+   under its title bar. Popped out there is no title bar: the desk's own row
+   names it and carries the window controls (11:47Z) */
+.project-desk-modal:not(.modalpin-detached) .project-desk .cc-head-left > .project-mark,
+.project-desk-modal:not(.modalpin-detached) .project-desk .cc-head-left > .name,
 .pinwin-body .project-desk .cc-head-left > .project-mark,
 .pinwin-body .project-desk .cc-head-left > .name { display: none; }
 /* the centred project desk's bar is a title bar, as the agent temporary

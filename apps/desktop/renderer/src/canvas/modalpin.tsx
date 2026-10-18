@@ -527,9 +527,11 @@ export interface PinFrameProps {
   /** compact actions beside pin/pop-out in the title bar */
   headerActions?: ReactNode
   /** A DESK'S TITLE BAR (user 2026-10-18 11:14Z, the project desk): the bar
-   *  is the surface's title bar in every mode, as the agent temporary desk's
-   *  (tempdesk.tsx). Centred it carries the title and a close button too, and
-   *  no pop-out: the desk puts that in its own header beside its tabs. */
+   *  is the surface's title bar centred and pinned, as the agent temporary
+   *  desk's (tempdesk.tsx). Centred it carries the title and a close button
+   *  too, and no pop-out: the desk puts that in its own header beside its
+   *  tabs. Popped out there is no bar at all (11:47Z): the desk's header row
+   *  is the window's, with the window controls, as a popped-out agent desk. */
   deskTitle?: boolean
   /** what the bar shows as the title, where it differs from `title` (which
    *  also names the window to the window layout) */
@@ -822,7 +824,9 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, panel, close,
             desk (an 884px header) moved fine. Detached it takes the title bar
             a pinned window already has: the surface's name, the full width,
             and the panel's own duplicate heading stood down. */}
-        <div className={'modalpin-bar' + (pinned ? ' on' : '') + (ownWindow ? ' detached' : '')
+        {/* a desk popped out is its own header row, as a popped-out agent
+            desk (user 2026-10-18 11:47Z): no title strip above it */}
+        {!(deskTitle && ownWindow) && <div className={'modalpin-bar' + (pinned ? ' on' : '') + (ownWindow ? ' detached' : '')
           + (deskTitle && !pinned && !ownWindow ? ' desk-title' : '')}
           data-copy-agent-name={restore?.agent}
           title={pinned
@@ -875,7 +879,7 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, panel, close,
           )}
           {/* Last, where a title bar puts them; renders only when popped out. */}
           <PopoutWindowControls />
-        </div>
+        </div>}
         {children}
       </div>
       {/* Outside the scrolling panel: all handles stay at the visible frame
