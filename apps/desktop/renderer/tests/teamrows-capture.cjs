@@ -6,6 +6,7 @@ app.setPath('userData',path.join(root,'user-data'));app.disableHardwareAccelerat
 app.whenReady().then(async()=>{
  const win=new BrowserWindow({width:1000,height:700,useContentSize:true,show:false,paintWhenInitiallyHidden:true,
   webPreferences:{contextIsolation:true,sandbox:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}})
+ const deadline=setTimeout(()=>{console.error('Team capture deadline');win.destroy();app.exit(2)},15000)
  try{
   await win.loadFile(path.join(root,'fixture.html'))
   await win.webContents.executeJavaScript(`new Promise((resolve,reject)=>{let n=0;const check=()=>{const b=document.querySelector('.tray-toggle');
@@ -13,8 +14,8 @@ app.whenReady().then(async()=>{
   let state,image,actual
   for(let attempt=0;attempt<5;attempt++){
    win.webContents.invalidate()
-   state=await win.webContents.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>{
-    const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height}};
+   state=await win.webContents.executeJavaScript(`new Promise((resolve,reject)=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>{try{
+    const rect=e=>{if(!e)throw Error('Missing measured fixture element');const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height}};
     const measure=s=>{const panel=document.querySelector(s);return{rect:rect(panel),rows:[...panel.querySelectorAll('.tray-row')].map(row=>{
       const n=row.querySelector('.tray-name'),p=row.querySelector('.tray-primary'),c=getComputedStyle(n),r=getComputedStyle(row),mark=row.querySelector('.tier,.project-mark');
       return{id:row.dataset.copyAgentName,font:c.font,family:c.fontFamily,name:rect(n),primary:rect(p),rect:rect(row),paddingLeft:r.paddingLeft,
@@ -22,7 +23,7 @@ app.whenReady().then(async()=>{
     const toolbar=document.querySelector('[data-inline-team] .team-tab-toolbar'),active=toolbar.querySelector('.modalpin-active-filter'),corner=toolbar.querySelector('.panel-corner');
     const panel=document.querySelector('.team-panel'),pinActive=panel.querySelector('.modalpin-active-filter'),pinActions=panel.querySelector('.modalpin-actions');
     resolve({agents:measure('.tray-panel:not(.team-panel)'),team:measure('.team-panel'),inline:{toolbar:rect(toolbar),active:rect(active),corner:rect(corner)},
-      pinned:{active:rect(pinActive),actions:rect(pinActions)},background:getComputedStyle(document.body).backgroundColor})},250))))`)
+      pinned:{active:rect(pinActive),actions:rect(pinActions)},background:getComputedStyle(document.body).backgroundColor})}catch(e){reject(e)}},250))))`)
    image=await win.webContents.capturePage();if(image.isEmpty())throw Error('Empty PNG')
    const b=image.toBitmap();actual=`rgb(${b[2]}, ${b[1]}, ${b[0]})`;if(actual===state.background)break
   }
@@ -39,5 +40,5 @@ app.whenReady().then(async()=>{
   for(const r of state.team.rows){const a=state.agents.rows.find(a=>a.id===r.id);if(!a||a.font!==r.font||a.paddingLeft!==r.paddingLeft||Math.abs(a.rect.h-r.rect.h)>1)throw Error('Pinned row parity changed')}
   if(state.inline.corner.x-(state.inline.active.x+state.inline.active.w)>12||state.inline.active.x<state.inline.toolbar.x+state.inline.toolbar.w/2)throw Error('Inline Active is separated from the right-hand controls')
   if(state.pinned.active.x<state.pinned.actions.x||state.pinned.active.x+state.pinned.active.w>state.pinned.actions.x+state.pinned.actions.w+1)throw Error('Pinned Active left the right-hand control group')
- }finally{win.destroy()}
+ }finally{clearTimeout(deadline);win.destroy()}
 }).then(()=>app.exit(0),e=>{console.error(e.stack||e);app.exit(1)})
