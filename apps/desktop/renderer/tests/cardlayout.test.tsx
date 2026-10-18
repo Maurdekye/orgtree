@@ -48,8 +48,9 @@ function node(id: string, tier: string, busy: boolean): CanvasNode {
 
 function card(n: CanvasNode, lod: 'mini' | 'norm', onPin: () => void,
   pinned = false, onDocket: (() => void) | undefined = undefined,
-  onOpenAgentGallery: ((id: string) => void) | undefined = undefined) {
-  return <NodeSquare key={n.id} node={n} pos={{ x: 0, y: 0 }} lod={lod} focused={false}
+  onOpenAgentGallery: ((id: string) => void) | undefined = undefined,
+  focused = false, onRecenter: () => void = noop) {
+  return <NodeSquare key={n.id} node={n} pos={{ x: 0, y: 0 }} lod={lod} focused={focused}
     dragging={false} isDrop={false} seats={seats} codexHire={hire}
     antigravityHire={hire} claudeHire={hire} map={new Map([[n.id, n]])}
     op={op} slug="render" toast={noop} pxc={1} zoom={lod === 'mini' ? .4 : .8}
@@ -58,10 +59,22 @@ function card(n: CanvasNode, lod: 'mini' | 'norm', onPin: () => void,
     onConfig={noop} onInbox={noop} onLineage={noop} onOpenDoc={noop}
     onOpenAgentGallery={onOpenAgentGallery}
     onDocket={onDocket}
-    onRecenter={noop} onJump={noop} onMailLink={noop}
+    onRecenter={onRecenter} onJump={noop} onMailLink={noop}
     onDragStart={noop} onDragMove={noop} onDragEnd={noop}
     onDragCancel={noop} onPin={onPin} pinned={pinned} />
 }
+
+test('clicking an already-open agent desk focuses it again without triggering controls', async () => {
+  let focuses = 0
+  const view = await mountView(card(node('open-agent', 'haiku', false), 'norm', noop,
+    false, undefined, undefined, true, () => { focuses++ }), (el) => el)
+  try {
+    await inAct(() => { view.el.querySelector('.sq')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    assert.equal(focuses, 1, 'clicking the open desk requests focus again')
+    await inAct(() => { view.el.querySelector<HTMLButtonElement>('.gearbtn')!.click() })
+    assert.equal(focuses, 1, 'clicking a desk control keeps its own action')
+  } finally { await view.unmount() }
+})
 
 function centre(r: { left: number; top: number; width: number; height: number }) {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 }

@@ -155,9 +155,9 @@ test('§1d point 27: the project\'s own gallery is the cards the engine attribut
   assert.deepEqual(titles(teamView.el).sort(), ['Dev notes', 'UI sketch', 'Website plan'], 'and the members\' cards')
 })
 
-const square = (focused: boolean) => mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
+const square = (focused: boolean, onFocus: () => void = noop) => mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
   focused={focused} dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org"
-  toast={noop} zoom={8} hire={{}} seats={{}} tree={tree} map={new Map()} refs={refs}
+  toast={noop} zoom={8} hire={{}} seats={{}} tree={tree} map={new Map()} refs={refs} onFocus={onFocus}
   onHire={noop} onNewProject={noop} onInbox={noop}
   onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
 
@@ -171,6 +171,18 @@ test('§1b a focused project card is a desk; an unfocused one is a card', async 
   const off = await square(false)
   t.after(() => off.unmount())
   assert.equal(off.el.querySelector('.desk-over') === null, true, 'no desk on an unfocused card')
+})
+
+test('clicking an already-open project desk focuses it again', async (t) => {
+  serve(t)
+  let focuses = 0
+  const view = await square(true, () => { focuses++ })
+  t.after(() => view.unmount())
+  await inAct(() => { view.el.querySelector('.sq.project')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+  assert.equal(focuses, 1, 'clicking the existing project desk requests focus again')
+  assert.equal(view.el.querySelectorAll('.desk-over').length, 1, 'the existing desk remains a single instance')
+  await inAct(() => { view.el.querySelector<HTMLButtonElement>('.mailbtn')!.click() })
+  assert.equal(focuses, 1, 'the project mailbox control does not refocus the card')
 })
 
 /* ─── §2 the main tab ───────────────────────────────────────────────────── */
