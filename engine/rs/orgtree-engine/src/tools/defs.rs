@@ -1251,6 +1251,47 @@ mod startup_card_tests {
 }
 
 #[cfg(test)]
+mod typed_reply_target_contract_tests {
+    use super::*;
+
+    fn accepts_string_and_object(schema: &Value) -> bool {
+        schema["anyOf"].as_array().is_some_and(|choices| {
+            choices.iter().any(|choice| choice["type"] == "string")
+                && choices.iter().any(|choice| choice["type"] == "object")
+        })
+    }
+
+    fn assert_reply_shape(props: &Value, owner: &str) {
+        assert!(accepts_string_and_object(&props["reply_to"]), "{owner}.reply_to must accept legacy mail IDs and typed targets");
+        assert!(accepts_string_and_object(&props["replies"]["items"]), "{owner}.replies must accept legacy mail IDs and typed targets");
+        let targets = &props["reply_to"]["anyOf"];
+        let Some(object) = targets.as_array().and_then(|a| a.iter().find(|v| v["type"] == "object")) else {
+            panic!("{owner}.reply_to lacks an object target schema");
+        };
+        assert!(object["oneOf"].as_array().is_some_and(|variants| variants.len() >= 3), "{owner} must document document, docket and transcript target forms");
+    }
+
+    #[test]
+    fn message_reply_fields_accept_legacy_ids_and_typed_targets_for_both_harness_shapes() {
+        for shape in [MailShape::Flat, MailShape::Split] {
+            let [message, _] = mail_tools(shape);
+            let props = if shape == MailShape::Flat {
+                &message["inputSchema"]["properties"]
+            } else {
+                &message["inputSchema"]["properties"]["metadata"]["properties"]
+            };
+            assert_reply_shape(props, "orgtree_message");
+        }
+    }
+
+    #[test]
+    fn project_broadcast_uses_the_same_typed_reply_target_contract() {
+        let project = build_tool_project();
+        assert_reply_shape(&project["inputSchema"]["properties"], "orgtree_project.broadcast");
+    }
+}
+
+#[cfg(test)]
 mod mail_shape_tests {
     use super::*;
 
