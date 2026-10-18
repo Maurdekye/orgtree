@@ -64,6 +64,13 @@
   See [math](docs/rust-engine/markdown-math.md). [decided: user 2026-10-18
   15:59Z; verified: `canvas/{shared,markdownmath,refmd}.ts*`, `styles.css`]
 
+- Concurrency slots are unnumbered in presentation: counts and queue ordinals
+  remain, leases identify holds. Project header row two contains the yellow
+  count card, held facts and shared model-icon agent links; Holding, Line and
+  Recent holds use those links too. [decided: user 2026-10-18 17:02–17:07Z;
+  verified: `canvas/{projectdesk,slotsdesk,slotchips}.tsx`,
+  `domain/{slots,watchdogs}.rs`, `runtime/{watchdogs,reminders}.rs`]
+
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the
   existing urgent-mail badge appearance, newest-first focus, highlight and

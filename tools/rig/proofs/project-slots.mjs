@@ -48,7 +48,7 @@ export default async function (rig) {
 
   // ------------------------------------------------------------ claim and the line
   const ca = await claim('sa')
-  p.check('a claim with a slot free is granted at once, and says so', ca.ok && /claimed concurrency slot 1/.test(ca.text) && /lease/.test(ca.text)
+  p.check('a claim with a slot free is granted at once, and says so', ca.ok && /claimed a concurrency slot of project build/.test(ca.text) && /lease/.test(ca.text)
     && JSON.stringify(holding()) === JSON.stringify(['sa']), { said: said(ca), holding: holding() })
   await rig.waitFor(() => granted('sa').length === 1, { what: 'sa\'s grant mail', timeout: 20000 }).catch(() => {})
   p.check('the slot dog fires with the grant', granted('sa').length === 1 && /release_slot/.test(granted('sa')[0]?.body ?? ''), granted('sa'))

@@ -27,7 +27,7 @@ Everything else uses the usual tools with the project's name: [orgtree-tool-move
 
 **Concurrency slots.** A collaboration semaphore, not a limit: holding one throttles or permits nothing by itself, it only counts agents who agreed to claim before some shared work (see [orgtree-projects](../projects/SKILL.md#concurrency-slots)). A project with a slot count (Project settings, 0 by default) gives out that many concurrency slots, first come first served; claim one with an [orgtree-tool-watchdog](../../watchdogs/tool-watchdog/SKILL.md) of kind `slot`. Two actions go with them:
 
-- `action=slots` with `name`: the project's slot count, its holders (agent, concurrency slot, lease, since, reminders), the line in order (place, agent, since) and its last 20 holds with how each ended. Agents above or below the project may look.
+- `action=slots` with `name`: the project's slot count, its holders (agent, lease, since, reminders; no slot number), the line in order (place, agent, since) and its last 20 holds with how each ended. Agents above or below the project may look.
 - `action=release_slot` with `lease` (and an optional `note`, e.g. `build ok 265s`): releases the concurrency slot you hold; the next in line is granted it at once. The holder releases its own lease; any project ancestor may use force=true; another member or unrelated agent is refused (`lease … is …'s; only its holder releases it`). A released or reclaimed lease is refused (`lease … has already ended (…)`).
 
 ```json

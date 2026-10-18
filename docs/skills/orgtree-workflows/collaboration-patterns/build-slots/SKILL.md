@@ -28,8 +28,8 @@ Before claiming, confirm your current CLI exposes both the slot watchdog kind an
 Batch the assigned red, green and capture work into one grant. A coordinator-declared priority build overrides normal scheduling: non-priority holders release immediately and follow the coordinator's instructions.
 
 1. **Claim** before the assigned batch starts: `orgtree_watchdog action=create kind=slot target=build-machine name=<what you build>`. The name is shown to everyone as the reason.
-   - Free concurrency slot: the result says `claimed concurrency slot k of project build-machine (lease L)` and the dog fires at once. Check memory before starting.
-   - Taken: the result says `2nd in line behind …`. End your turn or do light work; the dog wakes you with `You now hold concurrency slot k … (lease L)` when it is yours. Do not poll.
+   - Free concurrency slot: the result says `claimed a concurrency slot of project build-machine (lease L)` and the dog fires at once. Check memory before starting.
+   - Taken: the result says `2nd in line behind …`. End your turn or do light work; the dog wakes you with `You now hold a concurrency slot … (lease L)` when it is yours. Do not poll.
 2. **Check memory immediately before each phase:** at least **6 GB free RAM for engine phases; 3 GB otherwise**, including renderer and packaging. Slots do not check memory. If RAM is low after a grant, **keep the slot**, arm one once RAM watchdog for that floor, read its smoke output, and end the turn. Run when it fires and the floor is met; do not release or requeue for low RAM. If the lease is actually reclaimed, obtain a new grant before running.
 3. **Run the assigned batch** in the foreground, with its resource/Job limits. Keep Cargo at `-j 2` for Rust work.
 4. **Release right after the batch**, before writing reports or mail: `orgtree_project action=release_slot lease=L note="cargo build ok 82s"`. The next builder in line is granted the concurrency slot at once.
@@ -38,7 +38,7 @@ If you are halted or retired while holding the concurrency slot it is taken back
 
 ## Watching the machine
 
-The project desk's **slots** tab shows the held count against configured capacity (e.g. "1 of 1 concurrency slot held") and the holders, then the line in order with how long each has waited, and the last holds with how each ended (released, idle, halted, forced). `orgtree_project action=slots name=build-machine` gives the same as JSON with team access. Watchdog-only status shows just your own records, so `held=0` is not proof of global availability. The project's superior or the user can force-release a stuck concurrency slot or remove someone from the line there.
+The project desk's second header row contains the yellow held/total count card, "1 of 1 concurrency slot held" and the holder cards. The **slots** tab shows Holding, the line in order with how long each has waited, and recent holds with how each ended (released, idle, halted, forced). Agent entries use shared jump links with model icons. Slots have no displayed number; a lease identifies each hold, while queue ordinals still show waiting order. `orgtree_project action=slots name=build-machine` gives the same as JSON. The project's superior or the user can force-release a stuck concurrency slot or remove someone from the line there.
 
 For what a project is and its other features, see `orgtree-projects` (orgtree-working › team); for the `slot` and `command` watchdogs, `orgtree-tool-watchdog` (orgtree-working › watchdogs); for release and status, `orgtree-tool-project` (orgtree-working › team).
 
