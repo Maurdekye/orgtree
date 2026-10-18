@@ -13,10 +13,10 @@ import { sendMessage } from '../src/api'
 const node = (dnd: boolean) => ({ id:'focused-agent',tier:'sol',state:'live',busy:true,
   phase:'thinking',dnd,last_status:{status:'working',summary:'Focused work'} } as unknown as CanvasNode)
 
-test('do not disturb is visible alongside the running agent state', async t => {
+test('do not disturb leaves the running status row for the header tokens', async t => {
   const v=await mountView(<AgentWorkstate node={node(true)} />,el=>el)
   t.after(()=>v.unmount())
-  assert.equal(v.el.querySelector('.dnd-badge')?.textContent,'DND','focused turn needs DND badge')
+  assert.equal(v.el.querySelector('.dnd-badge')===null,true,'DND belongs to tokens, not status')
 })
 
 test('ordinary running state does not show DND', async t => {
@@ -38,14 +38,19 @@ test('urgent options appear and disappear live with target DND', async t => {
   t.after(async()=>{await v.unmount();clearNodeMetadata(slug)})
   assert.equal(v.el.querySelector('input')===null,true)
   await inAct(()=>replaceNodeMetadata(slug,[{...base,dnd:true}]))
-  const checkbox=v.el.querySelector<HTMLInputElement>('input[type="checkbox"]')
-  assert.ok(checkbox)
-  await inAct(()=>checkbox.click())
+  const toggle=v.el.querySelector<HTMLButtonElement>('button[aria-label="Urgent: bypass Do Not Disturb"]')
+  assert.ok(toggle)
+  assert.equal(toggle.textContent,'!')
+  assert.equal(toggle.getAttribute('aria-pressed'),'false')
+  assert.equal(toggle.type,'button')
+  assert.match(toggle.title,/urgent|disturb/i)
+  await inAct(()=>toggle.click())
+  assert.equal(toggle.getAttribute('aria-pressed'),'true')
   assert.ok(v.el.querySelector('input[aria-label="Urgent reason"]'))
   await inAct(()=>replaceNodeMetadata(slug,[{...base,dnd:false}]))
   assert.equal(v.el.querySelector('input')===null,true)
   await inAct(()=>replaceNodeMetadata(slug,[{...base,dnd:true}]))
-  assert.equal(v.el.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked,false,'old urgency must not rearm')
+  assert.equal(v.el.querySelector('button[aria-label="Urgent: bypass Do Not Disturb"]')?.getAttribute('aria-pressed'),'false','old urgency must not rearm')
 })
 
 test('sender sees held and explicit-read states instead of delivered', async t => {
