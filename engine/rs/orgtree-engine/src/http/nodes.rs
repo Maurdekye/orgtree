@@ -233,10 +233,14 @@ pub async fn message(
     }
     let sent = mail::send(&e, org.id, out).await?;
     let halted = sent.delivery.contains("is halted");
+    // the user writing to a project grants it an audience to the user, after
+    // the delivery committed; a failed grant leaves the mail delivered
+    let to_project = crate::domain::projects::is_project(&**e.db.get().await?, a.id).await?;
+    let audience = if to_project { Some(project_audience(&e, org.id, a.id).await) } else { None };
     Ok(Json(json!({
         "accepted": true, "id": sent.uid, "ref": format!("@mail:{}", sent.uid),
         "deferred": sent.deferred, "delivery": sent.delivery, "recipient_state": sent.recipient_state,
-        "halted": halted, "notice": b.notice,
+        "halted": halted, "notice": b.notice, "audience_grant": audience,
         "steering": e.agents.get(a.id).map(|h| h.view.load().get("busy").and_then(Value::as_bool).unwrap_or(false)).unwrap_or(false),
     })))
 }
@@ -307,7 +311,24 @@ pub async fn broadcast(
             Err(err) => refused.push(json!({ "to": to, "why": err.to_string() })),
         }
     }
-    Ok(Json(json!({ "accepted": !sent.is_empty(), "project": a.name, "sent": sent, "refused": refused, "notice": b.notice })))
+    // at least one committed delivery: the project gets its audience to the user
+    let audience = if sent.is_empty() { None } else { Some(project_audience(&e, org.id, a.id).await) };
+    Ok(Json(json!({ "accepted": !sent.is_empty(), "project": a.name, "sent": sent, "refused": refused, "notice": b.notice,
+                    "audience_grant": audience })))
+}
+
+/// Grant a project the user's audience after the user's mail to it was
+/// delivered (`audiences::grant_user_audience_to_project`). A failure does
+/// not undo the delivery: it is reported as "delivered but audience grant failed".
+#[logged]
+async fn project_audience(e: &Arc<Engine>, org_id: i64, project: i64) -> Value {
+    match crate::domain::audiences::grant_user_audience_to_project(e, org_id, project).await {
+        Ok(()) => json!({ "granted": true }),
+        Err(err) => {
+            tracing::warn!(project, error = %format!("{err:#}"), "granting a project the user's audience failed");
+            json!({ "granted": false, "error": format!("delivered but audience grant failed: {err:#}") })
+        }
+    }
 }
 
 /// Plural event targets carry identity keys; the quoted bytes and sender are
