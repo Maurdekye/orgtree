@@ -95,7 +95,6 @@
   clears its selection to agent Chat/project Desk; a later hire does not reopen
   it. The Team panel still lists the full subtree. [decided: user 2026-10-18
   17:08Z; verified: `canvas/{team,desk,projectdesk}.tsx`]
-=======
 - Mail admission uses the shared hard byte budget without separate row caps;
   deferred notices retain ordered follow-up eligibility and the input announces
   remaining mail. Explicit fetch/chunk consumes returned pending received mail
