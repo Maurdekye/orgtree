@@ -25,10 +25,14 @@ test('project Drop audience reflects an explicit user grant', () => {
 
 test('inherited audience never offers a misleading Drop for an agent or project', () => {
   for(const kind of ['agent','project']){
+    let manualGrants=0
     const node=make({kind,audiences_held:['@user'],audiences_explicit:[]})
-    const rows=(kind==='project'?projectMenuEntries:agentMenuEntries)(node,handlers(()=>{}))
+    const rows=(kind==='project'?projectMenuEntries:agentMenuEntries)(node,handlers(()=>manualGrants++))
     assert.equal(rows.some(r=>r!=='sep'&&r.label==='Drop audience'),false)
     assert.equal(rows.some(r=>r!=='sep'&&r.label==='Acquire audience'),true)
+    const acquire=rows.find(r=>r!=='sep'&&r.label==='Acquire audience')
+    if(acquire&&acquire!=='sep')acquire.onSelect?.()
+    assert.equal(manualGrants,1)
   }
 })
 
