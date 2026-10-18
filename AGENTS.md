@@ -540,6 +540,8 @@
   shares the UI effective-harness resolver and never starts an actor. Compact
   rechecks authority at actor admission and keeps agent origin (no user-contact
   grant/deep-reach notice). started means admitted, never completed; no fallback.
+  Actor impl already applies #[logged] to methods; adding it again duplicates
+  generated wrappers and fails compilation (orgtree-logged/src/lib.rs).
   [decided: coordinator 2026-10-18 18:26Z; verified: tools/compaction.rs,
   domain/compaction.rs, runtime/actor.rs]
   See [compact choice](docs/rust-engine/compact-choice.md).

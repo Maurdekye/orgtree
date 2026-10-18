@@ -7670,8 +7670,7 @@ impl Actor {
         Ok(json!({ "halted": true, "settled": true, "status": "halted" }))
     }
 
-    /// A slash command as its own turn (`/compact` compacts the session).
-    #[logged]
+    // Actor impl supplies #[logged] to each method; do not annotate twice.
     async fn compact_from_agent(&mut self, caller: &Caller) -> Result<Value> {
         crate::tools::compaction::authorize_id(&self.engine, caller, self.id).await?;
         let cap = crate::domain::compaction::node_capability(&self.engine, self.id).await?;
@@ -7682,6 +7681,7 @@ impl Actor {
         Ok(result)
     }
 
+    /// A slash command as its own turn, retaining its user or agent origin.
     async fn command(&mut self, text: &str, origin: crate::domain::compaction::CommandOrigin) -> Result<Value> {
         let result = self.command_inner(text).await?;
         if origin.establishes_user_contact() && result["started"].as_bool().unwrap_or(false) {
