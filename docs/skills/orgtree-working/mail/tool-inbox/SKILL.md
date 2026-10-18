@@ -15,10 +15,10 @@ Use to recover your own mail context, especially after a fresh session or compac
 
 | Action | Fields and defaults | Returned content |
 | --- | --- | --- |
-| `list` | Optional `limit`, default 50, clamped to 1–200; optional `cursor`; optional `project`. | Your pending/delivering mail in ID order, with IDs, sender, kind, time, state, notice flag and previews. |
+| `list` | Optional `limit`, default 50, clamped to 1–200; optional `cursor`; optional `project`, with `folder`/`status` for project reads. | Your pending/delivering mail in ID order, or project history newest first, with IDs and previews. |
 | `conversation` | Required `peer`; optional `limit`, default 20, clamped to 1–100; optional `cursor`. | Both directions with one correspondent, newest page first, oldest to newest within that page. Previews only. |
-| `fetch` | Required `message_ids`, one to twenty strings; duplicate IDs collapse; optional `project`. | Mail you received or sent, including your own outside sends; first content chunk plus metadata, attachments and replies. |
-| `chunk` | Required `delivery_id`, `message_id`, zero-based nonnegative `chunk_index`. | One content chunk from the immutable fetched message. |
+| `fetch` | Required `message_ids`, one to twenty strings; duplicate IDs collapse; optional `project`, with `folder`/`status` for project reads. | First content chunk plus metadata; own-mail reads include attachments and replies, project reads include queue metadata and attachments. |
+| `chunk` | Required `delivery_id`, `message_id`, zero-based nonnegative `chunk_index`; repeat `project`, `folder` and `status` for project reads. | One content chunk from the immutable fetched message. |
 
 `project=<name>` supports list, fetch and chunk for a reachable project. An omitted folder preserves waiting-only list behavior; `folder=inbox` or `folder=sent` explicitly selects full history. Optional `status=waiting|delivered|claimed|acked|dead-letter` filters queue stages. List returns at most 200 previews and `has_more`/`next_cursor`; repeat the same project, folder and status with that cursor until complete. Cursors bind the caller, project and filters. Fetch accepts historical IDs in the selected folder (not only waiting mail); chunk uses the returned delivery handle plus project/folder and a chunk index. Fetch returns `not_found` and `deferred_ids` (and the legacy `not_waiting` missing-ID alias). Every read rechecks current project reach; no project read claims, acknowledges or marks mail read, even during DND. Only agents above or below the project may read it ([orgtree-projects](../../team/projects/SKILL.md)).
 

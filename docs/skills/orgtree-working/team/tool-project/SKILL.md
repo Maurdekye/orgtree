@@ -11,7 +11,8 @@ Up: [orgtree-team](../SKILL.md)
 Project administration requires `team`. `action=describe` with `name` and `description` replaces a project's Summary (you must be above or below the project; its agents carry the new text from their next start). `action=create` makes a **project node** (what one is and who reaches it: [orgtree-projects](../projects/SKILL.md)).
 
 - `name` (required): a new name in the organization, 1–64 letters, digits, `-`, `_` or `.`, unique among agents and projects.
-- `index` (required): the zero-based final position among the live siblings under the parent, as for [orgtree-tool-hire](../tool-hire/SKILL.md).
+- `index` (required unless `above` is supplied): the zero-based final position among the live siblings under the parent, as for [orgtree-tool-hire](../tool-hire/SKILL.md).
+- `above` (optional): wrap this node atomically at its current position; see Atomic create above below.
 - `parent` (optional): yourself by default; one of your reports at any depth; or a project you are inside (a nested project). Only the user creates a project at the top level.
 - `description` (optional): the project’s **Summary**, shown on the **summary** tab of its desk and used as the standing charter of every agent under the project. The wire field keeps its `description` name for compatibility.
 
