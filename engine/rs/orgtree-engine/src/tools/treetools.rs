@@ -103,23 +103,24 @@ mod slot_release_projection_tests {
     use super::*;
 
     #[test]
-    fn own_state_keeps_lease_and_line_position_without_other_agents() {
+    fn member_state_shows_line_and_holders_but_hides_foreign_leases() {
         let out=own_slot_status(json!({"project":"build","slots":2,"held":2,
             "holders":[{"agent":"me","lease":"mine","slot":37},{"agent":"other","lease":"theirs","slot":2}],
             "line":[{"agent":"other","position":1},{"agent":"me","position":2}],
             "history":[{"agent":"me","lease":"old","slot":37},{"agent":"other","lease":"secret","slot":2}]}),"me");
-        assert_eq!(out,json!({"project":"build","slots":2,"held":1,"own_only":true,
-            "holders":[{"agent":"me","lease":"mine"}],"line":[{"agent":"me","position":2}],
-            "history":[{"agent":"me","lease":"old"}]}));
+        assert_eq!(out,json!({"project":"build","slots":2,"held":2,"own_only":false,
+            "holders":[{"agent":"me","lease":"mine"},{"agent":"other"}],
+            "line":[{"agent":"other","position":1},{"agent":"me","position":2}],
+            "history":[{"agent":"me","lease":"old"},{"agent":"other"}]}));
     }
 
     #[test]
-    fn no_own_records_is_empty_even_when_other_agents_hold_slots() {
+    fn members_without_a_hold_still_see_other_holders_without_leases() {
         let out=own_slot_status(json!({"project":"build","slots":1,"held":1,
             "holders":[{"agent":"other","lease":"theirs"}],"line":[],"history":[]}),"me");
-        assert_eq!(out["holders"],json!([]));
-        assert_eq!(out["held"],0);
-        assert_eq!(out["own_only"],true);
+        assert_eq!(out["holders"],json!([{"agent":"other"}]));
+        assert_eq!(out["held"],1);
+        assert_eq!(out["own_only"],false);
     }
 }
 
