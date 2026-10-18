@@ -5,13 +5,13 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { CurrentOrg } from '../src/popout'
 import { forgetModalOpenCache, forgetModalPins, isModalPinned, pinModal, PinFrame, readModalOpen,
   toggleOrRaiseModal, usePersistedModalOpen } from '../src/canvas/modalpin'
-import { registerWindow, openSurfaces } from '../src/windowlife'
+import { registerWindow } from '../src/windowlife'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { AgentNavProvider, useAgentNavRegistry } from '../src/canvas/agentnav'
 import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
-import { pinSurfaceKey, removePinSurface, updatePinSurface } from '../src/canvas/pinspace'
+import { pinSurfaceKey, readPinSurfaces, removePinSurface, updatePinSurface } from '../src/canvas/pinspace'
 
 const org = 'pin-toggle', rect = { x: 10, y: 20, w: 600, h: 400 }, noop = () => {}
 function setup(t: TestContext) {
@@ -33,14 +33,14 @@ for (const kind of ['docket', 'usage', 'usage-history', 'inbox', 'gallery', 'org
     t.after(() => view.unmount())
     const press = async (name: string) => inAct(async () => { view.el.querySelector<HTMLButtonElement>(`[data-opener="${name}"]`)!.click(); await flush(4) })
     await press(kind); await press('sibling')
-    assert.equal(openSurfaces().some(s => s.org === org && s.kind === kind), true, 'pin is genuinely mounted')
+    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'pin is genuinely mounted')
     await press(kind)
-    assert.equal(openSurfaces().some(s => s.org === org && s.kind === kind), false, 'same button closes even behind a sibling')
+    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), false, 'same button closes even behind a sibling')
     assert.equal(readModalOpen(org).some(s => s.kind === kind), false, 'close is durable')
-    assert.equal(openSurfaces().some(s => s.org === org && s.kind === 'sibling'), true, 'other panel stays open')
+    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, 'sibling', true)), true, 'other panel stays open')
     assert.equal(isModalPinned(kind, org), true, 'saved placement survives hiding')
     await press(kind)
-    assert.equal(openSurfaces().some(s => s.org === org && s.kind === kind), true, 'next click reopens')
+    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'next click reopens')
   })
 }
 
@@ -80,13 +80,13 @@ for (const [label, kind] of [['Inbox', 'node-inbox'], ['Team', 'agent-team'], ['
       flatten(registry!.current!('worker')).find(e => e.label === label)!.onSelect(); await flush(5)
     })
     await select(); await inAct(() => { pinModal(kind, rect, org) }); await flush(3)
-    assert.equal(openSurfaces().some(s => s.org === org && s.kind === kind), true)
+    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true)
     const cover = pinSurfaceKey(org, 'covering-panel')
     await inAct(() => { updatePinSurface(cover, org, rect, false) })
     t.after(() => removePinSurface(cover))
     await select()
-    assert.equal(openSurfaces().some(s => s.org === org && s.kind === kind), false, 'same node button closes its pinned panel')
+    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), false, 'same node button closes its pinned panel')
     await select()
-    assert.equal(openSurfaces().some(s => s.org === org && s.kind === kind), true, 'same opener reopens')
+    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'same opener reopens')
   })
 }
