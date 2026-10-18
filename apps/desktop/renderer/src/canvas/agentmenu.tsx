@@ -522,7 +522,7 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
     const descendantsOnly = kind === 'cheap-compact-subordinates'
     const scope = descendantsOnly ? `all subordinates of ${node.id}` : `subtree of ${node.id}`
     return (
-      <BulkCompactConfirm title={`Compact ${scope}?`} slug={historyOrg}
+      <BulkCompactConfirm title={`Compact ${scope}?`} slug={historyOrg ?? undefined}
         scope={scope} targets={subtreeAgents(node).filter((target) => !descendantsOnly || target.id !== node.id)}
         op={op} toast={toast} close={close} />
     )
