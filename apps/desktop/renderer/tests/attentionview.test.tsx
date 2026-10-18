@@ -175,6 +175,24 @@ test('the Agent desk active filter invokes its own preference callback', async t
   assert.equal(deskSelected, true, 'checking it updates the Attention desk preference')
 })
 
+test('the Agent desk agents-list toggle is in the bottom rail beside the composer', async t => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  t.after(() => v.unmount())
+  await inAct(() => flush())
+
+  const rail = document.querySelector('.attn-panel-desk .attn-agents-bar-bottom')
+  assert.ok(rail, 'the agents-list control uses the bottom rail beside the desk composer')
+  const toggle = rail!.querySelector<HTMLButtonElement>('.attn-agents-toggle')
+  assert.ok(toggle, 'the bottom rail keeps the existing agents-list button')
+  assert.equal(toggle!.getAttribute('aria-expanded'), 'false')
+  await inAct(() => toggle!.click())
+  assert.equal(toggle!.getAttribute('aria-expanded'), 'true', 'the relocated button still opens the list')
+  assert.ok(document.querySelector('.attn-panel-desk .attn-agents-wrap.list-open .attn-agents'),
+    'opening the list still reveals the existing drawer')
+})
+
 test('§2 on the canvas, neither panel is on screen and the stage is hidden', async () => {
   reset()
   const v = await mountView(view(), () => shape())
