@@ -104,7 +104,7 @@ test('Attention Hire a subordinate opens the draft in the Agent desk panel', asy
     { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })) })
   await inAct(() => flush(3))
   const hire = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu button')]
-    .find(button => button.textContent?.trim() === 'Hire a subordinate')
+    .find(button => button.textContent?.trim().startsWith('Hire a subordinate'))
   assert.equal(!!hire, true, 'the canonical Hire submenu is available')
   await inAct(() => { hire!.click() })
   await inAct(() => flush(3))
