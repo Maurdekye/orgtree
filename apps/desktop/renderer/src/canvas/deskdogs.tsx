@@ -11,6 +11,7 @@
 // for the desk's tab modals), so there is no second way to open a watchdog.
 import { createContext, useContext } from 'react'
 import type { Watchdog } from '../types'
+import type { SlotLease } from './slots'
 import { objectNavProps } from './objectnav'
 import { WatchdogCountdown } from './watchdogcountdown'
 
@@ -18,6 +19,8 @@ export interface DeskDogs {
   org?: string
   /** the organization's watchdogs, as the tree carries them */
   dogs: Watchdog[]
+  /** the org's held project slots (`tree.slot_leases`): the desk header's slot chips */
+  slotLeases?: SlotLease[]
   /** exactly what the canvas satellite chip's click does */
   open: (id: string) => void
 }

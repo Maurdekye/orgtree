@@ -3665,8 +3665,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface, toggleConfig])
   // every desk's watchdog cards open the SAME modal the satellite chip does
   // (canvas/deskdogs.tsx)
-  const deskDogs = useMemo((): DeskDogs => ({ org: slug, dogs: tree.watchdogs ?? [], open: toggleDog }),
-    [slug, tree.watchdogs, toggleDog])
+  const deskDogs = useMemo((): DeskDogs => ({ org: slug, dogs: tree.watchdogs ?? [], slotLeases: tree.slot_leases ?? [], open: toggleDog }),
+    [slug, tree.watchdogs, tree.slot_leases, toggleDog])
 
   // ------------------------------------------------------ wires, one list
   // Every wire the org view draws, in paint order, built from exactly the

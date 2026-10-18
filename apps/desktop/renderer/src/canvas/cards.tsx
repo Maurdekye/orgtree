@@ -59,6 +59,7 @@ import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
 import { EFFORT_LEVELS } from './effortlevels'
 import { normalizeUserEnteredName } from './nameinput'
 import type { SlotLease } from './slots'
+import { AgentSlotChips } from './slotchips'
 
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
@@ -1844,11 +1845,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         <div className="sq-meta">
           <ContextWheel occ={node.occupancy} cw={node.context_window}
             est={node.occupancy_est} compactAt={compactAt} />
-          {slotHolds?.map((l) => (
-            <span key={l.lease} className="chip slot-hold"
-              title={`holds slot ${l.slot} of project ${l.project} since ${l.since} (lease ${l.lease})${l.reason ? ': ' + l.reason : ''}`}>
-              ⬢ {l.project} #{l.slot}</span>
-          ))}
           <div className="sq-workstate">
             {node.halt || isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
               <AgentWorkstate node={node} turn={lastTurn} live={live} />
@@ -1927,6 +1923,10 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       {!focused && lod !== 'mini' && (
         <div className="sq-badges">
           {/* no seat/free badges — the credit bar carries all of that */}
+          {/* the project slots it holds, in the chip row and not on the
+              status row (user 2026-10-18 10:52Z); a waiting claim is its
+              own satellite chip, so no dogs here */}
+          <AgentSlotChips agent={node.id} leases={slotHolds ?? []} />
           {/* LIFECYCLE AND PROVENANCE ARE TWO FACTS AND GET TWO CHIPS (user
               report 2026-08-28: "it looks retired… the ui is too similar; it
               needs to look more like a normal agent"). These used to share one

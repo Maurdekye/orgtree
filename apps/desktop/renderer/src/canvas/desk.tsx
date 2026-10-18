@@ -102,7 +102,8 @@ import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner, useAgentSurfaceRoutes } from './panelcorner'
-import { DogChip, useDeskDogs } from './deskdogs'
+import { DogChip, useDeskDogs, useDogRoute } from './deskdogs'
+import { AgentSlotChips } from './slotchips'
 import { PresentationCard, recentDocumentChips } from './docs'
 import { buildNodeFacts } from './docket'
 import { AgentDirectoryProvider, AgentName, agentFactsSig, useAgentDirectory } from './identity'
@@ -2316,6 +2317,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const [retiredMenuOpen, setRetiredMenuOpen] = useState(false)
   // this agent's own watchdogs, as cards in the bottom jump row (deskdogs.tsx)
   const deskDogs = useDeskDogs(node.id)
+  const dogRoute = useDogRoute()
   // The process control is a server-side CAS. This local latch only prevents
   // a double-click while the request is in flight; the response/WS tree state
   // remains authoritative if another desk wins the race.
@@ -3639,6 +3641,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <RetiredFold ids={heldRet}
           render={(g) => heldChip(g, true)} />
         <SpendBadge node={node} />
+        {/* its project slots, held and waiting, right after the $ chip
+            (user 2026-10-18 10:52:50Z) */}
+        {dogRoute && <AgentSlotChips agent={node.id} leases={dogRoute.slotLeases ?? []} dogs={dogRoute.dogs} />}
         {(chat?.queued ?? 0) > 0 && <span className="badge">{chat!.queued} queued</span>}
         {/* WHICH POOL A LUNA IS ON (item 12; user spec 2026-09-04: a token on
             the header's second row when Luna runs on reserve). Same slot and

@@ -1391,7 +1391,13 @@ button.badge.audience-fold.alert {
 .chip.agents.project-activity { padding: 0 5px; }
 /* "Active 5m" / "Idle 5m": an agent card's state word and clock (.sq-idle,
    .sq-idle-time) with their own spacing and colours (user 2026-10-18 07:42Z) */
-.project-last-activity { display: inline-flex; align-items: baseline; white-space: nowrap; }
+.project-last-activity { display: inline-flex; align-items: baseline; white-space: nowrap;
+  min-width: 0; max-width: 100%; overflow: hidden; }
+/* the activity line never runs off the card (user 2026-10-18 10:51Z, "2/19
+   Active 80s"): it wraps under the chip when the row is too narrow, and alone
+   on its line the word truncates (.sq-idle's ellipsis) before the clock */
+.sq.project .project-meta { flex-wrap: wrap; row-gap: 2px; }
+.sq.project .project-meta .project-activity { flex: none; }
 .sq.project .project-meta .project-activity { font-size: 10px; }
 /* the description editor: Markdown until focused, monospace while edited (user 2026-10-17 20:06Z) */
 .project-desk .project-description-md, .project-desk .project-description-edit {
@@ -3051,6 +3057,8 @@ textarea.ask-free-response-input { resize: vertical; }
 .project-slots-card { cursor: pointer; font: inherit; font-size: 11px; }
 .chip.slot-hold { font-size: 10px; padding: 0 5px; border-radius: 8px; white-space: nowrap;
   background: var(--slot); color: var(--slot-ink); border: 1px solid var(--slot); }
+.chip.slot-wait { font-size: 10px; padding: 0 5px; border-radius: 8px; white-space: nowrap;
+  background: transparent; color: var(--slot); border: 1px dashed var(--slot); }
 .wd-chip.slot { border-color: var(--slot); }
 .wd-chip.slot .wd-glyph { color: var(--slot); }
 /* the desk's Slots tab */
