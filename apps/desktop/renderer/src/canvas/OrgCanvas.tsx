@@ -61,6 +61,7 @@ import { DocReader } from './docs'
 import { ForegroundViewContext, mailRefTarget, useRefRoutes } from './reflinks'
 import type { ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
+import { liveMentionCandidatesFromTree, noteKnownOrg, setOrgMentionCandidates } from './agentmentions'
 import { NodeInboxModal, OrgInboxModal } from './mail'
 import { AgentDocketModal } from './agentdocket'
 import { AgentSurfaceRoutesProvider } from './panelcorner'
@@ -821,6 +822,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     return counts
   }, [map, hideRetired, prunedView])
   const nodeKnowledge = useMemo(() => treePresence(tree, slug, map), [tree, slug, map])
+  useEffect(() => {
+    noteKnownOrg(slug)
+    setOrgMentionCandidates(slug, liveMentionCandidatesFromTree(tree))
+  }, [slug, tree])
   usePersistedModalOpen('node-config', slug, configId !== null, configId ? { agent: configId, generation: map.get(configId)?.generation } : undefined)
   usePersistedModalOpen('lineage', slug, lineageId !== null, lineageId ? { agent: lineageId, generation: map.get(lineageId)?.generation } : undefined)
   usePersistedModalOpen('node-inbox', slug, inboxId !== null, inboxId ? { agent: inboxId, generation: map.get(inboxId)?.generation } : undefined)
@@ -2109,7 +2114,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     onOpenMail: (r: TypedRef) => { openMailRef.current?.(mailRefTarget(r)) },
     // the canvas is not AT any agent, so every name here is somewhere to
     // go; it can say what each one is running
-    tierOf: (id: string) => map.get(id)?.tier,
+    tierOf: (id: string) => {
+      const n = map.get(id)
+      return n?.kind === 'project' ? 'project' : n?.tier
+    },
     view: tree.foreground,
   })
   // the DOCUMENT READER's own copy: same world, same routes, plus the one
@@ -4445,7 +4453,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       {inboxId && map.get(inboxId) && (
         <MaybePortal><NodeInboxModal node={map.get(inboxId)!} slug={slug}
           toast={toast}
-          tierOf={(id) => map.get(id)?.tier}
+          tierOf={(id) => {
+            const n = map.get(id)
+            return n?.kind === 'project' ? 'project' : n?.tier
+          }}
           hasAgent={(id) => map.has(id)}
           refs={canvasRefs}
           jumpTo={nodeInboxJump?.id ?? null} jumpSeq={nodeInboxJump?.seq}

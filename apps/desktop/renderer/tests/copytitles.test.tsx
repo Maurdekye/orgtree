@@ -120,7 +120,7 @@ for (const variant of ['linked', 'own desk', 'read only', 'prefix', 'archived ge
       prefix={variant === 'prefix' ? '@' : undefined} atDestination={variant === 'own desk'} />)
     await copy(v.el.querySelector('.cc-name')!, 'Copy agent name')
     await copy(v.el.querySelector('.tier')!, 'Copy agent name')
-    assert.deepEqual(writes, [id, id])
+    assert.deepEqual(writes, ['@' + id, '@' + id])
   })
 }
 
@@ -138,7 +138,7 @@ for (const variant of ['normal', 'mini', 'map', 'archived', 'unrecoverable', 'be
       onDragMove={BAD} onDragEnd={BAD} onDragCancel={BAD}
       mapMode={variant === 'map'} />)
     await copy(v.el.querySelector('.sq')!, 'Copy agent name')
-    assert.deepEqual(writes, [n.id])
+    assert.deepEqual(writes, ['@' + n.id])
   })
 }
 
@@ -153,7 +153,7 @@ ui('Focused desk, switchboard/pinned/mobile desk headers and jump cards', async 
   await copy(nav.el.querySelector('.desk-nav-chip')!, 'Copy agent name')
   const placeholder = await mount(<PinnedPlaceholder id={n.id} onShow={BAD} />)
   await copy(placeholder.el.querySelector('.pin-placeholder')!, 'Copy agent name')
-  assert.deepEqual(writes, ['worker', 'worker', 'worker', 'worker'])
+  assert.deepEqual(writes, ['@worker', '@worker', '@worker', '@worker'])
 })
 
 ui('Lineage rows and live/retired pile picker entries', async ({ mount, writes }) => {
@@ -170,8 +170,8 @@ ui('Lineage rows and live/retired pile picker entries', async ({ mount, writes }
     for (const row of rows) await copy(row, 'Copy agent name')
     await pile.unmount()
   }
-  assert.equal(writes.filter(s => s === 'worker@2').length, 3)
-  assert.equal(writes.filter(s => s === 'worker').length, 2)
+  assert.equal(writes.filter(s => s === '@worker@2').length, 3)
+  assert.equal(writes.filter(s => s === '@worker').length, 2)
 })
 
 ui('Agents List live and archived rows leave the camera and selection untouched', async ({ mount, writes }) => {
@@ -187,7 +187,7 @@ ui('Agents List live and archived rows leave the camera and selection untouched'
   for (const row of rows) await copy(row, 'Copy agent name')
   await advance(800, 50)
   assert.equal((v.el.querySelector('.space') as HTMLElement).style.transform, before)
-  assert.deepEqual(writes.sort(), ['gone', 'worker'])
+  assert.deepEqual(writes.sort(), ['@gone', '@worker'])
   await context(rows[0]!)
   await inAct(() => W.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
   assert.equal(document.querySelector('.ctxmenu'), null)
@@ -207,7 +207,7 @@ for (const kind of ['node-config', 'lineage', 'node-inbox', 'agent-docket', 'age
     await copy(document.querySelector('.modalpin-bar')!, 'Copy agent name')
     const heading = document.querySelector('h3[data-copy-agent-name], .gallery-head [data-copy-agent-name]')
     if (heading) await copy(heading, 'Copy agent name')
-    assert.ok(writes.every(s => s === 'worker@2'))
+    assert.ok(writes.every(s => s === '@worker@2'))
     assert.ok(document.querySelector('.settings'), 'surface remains open')
   })
 }
@@ -220,7 +220,7 @@ ui('Switchboard tabs retain their open state while their agent name is copied', 
   const before = tab.className
   await copy(tab, 'Copy agent name')
   assert.equal(tab.className, before)
-  assert.deepEqual(writes, ['worker'])
+  assert.deepEqual(writes, ['@worker'])
 })
 
 ui('Mail list, reading pane, and transcript sender identities preserve the message', async ({ mount, writes }) => {
@@ -238,7 +238,7 @@ ui('Mail list, reading pane, and transcript sender identities preserve the messa
       slug="mine" nid="receiver" world={{ org: 'mine' }} />
   </AgentDirectoryProvider>)
   await copy(transcript.el.querySelector('.cc-name')!, 'Copy agent name')
-  assert.deepEqual(writes, ['worker', 'worker', 'worker'])
+  assert.deepEqual(writes, ['@worker', '@worker', '@worker'])
 })
 
 for (const scope of ['agent', 'org']) {
@@ -257,7 +257,7 @@ for (const scope of ['agent', 'org']) {
       'copying the publisher does not change document selection')
     await flush(3)
     await copy(document.querySelector('.doc-pane-meta-row .cc-name')!, 'Copy agent name')
-    assert.deepEqual(writes, ['worker', 'worker'])
+    assert.deepEqual(writes, ['@worker', '@worker'])
     await context(row)
     assert.equal([...document.querySelectorAll('.ctxmenu button')].some(b => b.textContent === 'Copy ticket title'), false)
   })
@@ -268,7 +268,7 @@ for (const status of ['open', 'answered']) {
     const v = await mount(<AskCard ask={{ id: 'q1', node: 'worker', kind: 'question', status,
       questions: [{ question: 'Choose?', options: [] }] } as never} slug="mine" toast={noop} />)
     await copy(v.el.querySelector('[data-copy-agent-name]')!, 'Copy agent name')
-    assert.deepEqual(writes, ['worker'])
+    assert.deepEqual(writes, ['@worker'])
   })
 }
 
@@ -284,7 +284,7 @@ ui('Pinned agent title keeps its pin position and does not jump or unpin', async
   const before = structuredClone(readPins('mine'))
   await copy(document.querySelector('.pinwin[data-id="worker"] .pinwin-title')!, 'Copy agent name')
   assert.deepEqual(readPins('mine'), before)
-  assert.deepEqual(writes, ['worker'])
+  assert.deepEqual(writes, ['@worker'])
 })
 
 for (const scope of ['org', 'agent']) {
@@ -309,14 +309,16 @@ for (const scope of ['org', 'agent']) {
     const rows = [...document.querySelectorAll<HTMLElement>('.docket-row')]
     assert.equal(rows.length, 4, 'all four ticket variants rendered')
     for (const row of rows) {
+      const selectedOnOpen = row.classList.contains('on')
+      assert.equal(selectedOnOpen, scope === 'org' && row === rows[0])
       const expected = items.find(it => it.slug === row.querySelector('.docket-rowname')?.textContent)!.title
       await copy(row, 'Copy ticket title')
       assert.equal(writes.at(-1), expected)
-      assert.equal(row.classList.contains('on'), false)
+      assert.equal(row.classList.contains('on'), selectedOnOpen)
     }
     await copy(rows[0]!.querySelector('.docket-actor-name')!, 'Copy agent name')
-    assert.equal(writes.at(-1), 'worker', 'the inner agent has its own copy identity')
-    await inAct(() => rows[0]!.click()); await flush(4)
+    assert.equal(writes.at(-1), '@worker', 'the inner agent has its own copy identity')
+    if (!rows[0]!.classList.contains('on')) { await inAct(() => rows[0]!.click()); await flush(4) }
     for (const selector of ['.docket-pane-head', '.docket-slug-text']) {
       const el = document.querySelector(selector)!
       await copy(el, 'Copy ticket title')
@@ -339,7 +341,7 @@ ui('React, Markdown and bare references copy authoritative names/titles, never s
     for (const el of v.el.querySelectorAll('[data-copy-agent-name]')) await copy(el, 'Copy agent name')
     for (const el of v.el.querySelectorAll('[data-copy-ticket-title]')) await copy(el, 'Copy ticket title')
   }
-  assert.equal(writes.filter(s => s === 'worker@2').length, 4)
+  assert.equal(writes.filter(s => s === '@worker@2').length, 4)
   assert.equal(writes.filter(s => s === TITLE).length, 6)
   assert.equal(writes.includes('repair-resume'), false)
 })
@@ -383,7 +385,7 @@ ui('Native edit/link/selected-text menus and unknown-title references are preser
   assert.equal(await context(v.el.querySelector('.text')!), false)
   window.getSelection()!.removeAllRanges()
   await copy(v.el.querySelector('.text')!, 'Copy agent name')
-  assert.deepEqual(writes, ['worker'])
+  assert.deepEqual(writes, ['@worker'])
 })
 
 for (const unavailable of ['absent', 'no writeText', 'denied', 'throws']) {
@@ -420,7 +422,7 @@ ui('Detached surface uses the child clipboard, menu, feedback and Escape stack',
     name.focus()
     await copy(name, 'Copy agent name')
     assert.equal(win.document.activeElement, name, 'focus returns in the owning window')
-    assert.deepEqual(childWrites, ['worker']); assert.deepEqual(writes, [])
+    assert.deepEqual(childWrites, ['@worker']); assert.deepEqual(writes, [])
     assert.deepEqual(feedback, [['copied agent name']])
     await context(win.document.querySelector('.cc-name')!)
     await inAct(() => win.dispatchEvent(new child.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))

@@ -10,9 +10,11 @@ module.exports = async (page, {args}) => {
   const hints=await page.eval(()=>!!document.querySelector('.agent-mentions'))
   if(args.baseline)return {hints}
   if(!hints)throw Error('agent mention hints missing')
+  const projectHint=await page.eval(()=>!!document.querySelector('.agent-mentions .project-mark'))
+  if(!projectHint)throw Error('project mention folder icon missing')
   await page.press('Tab')
   await frames();await page.screenshot('02-completed-mention')
   const text=await page.eval(()=>document.querySelector('.quickchat-input').value)
   if(text!=='Ask @worker-alpha ')throw Error('Tab did not insert the selected agent mention')
-  return {hints,text}
+  return {hints,projectHint,text}
 }

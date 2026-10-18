@@ -30,6 +30,7 @@ import {
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
 import { AgentName } from './identity'
+import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
 import { RefMdBody } from './refmd'
 import { refToken } from './reflinks'
 import type { RefWorld, ResolvedRef } from './reflinks'
@@ -289,8 +290,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   const isAgentId = (id: string) => Boolean(id && !id.startsWith('@') && id !== USER && id !== 'system' && id !== 'SYSTEM')
   const defaultIdentity = (id: string) => {
     if (id === USER) return <span>@user</span>
-    // an @org / @net address is not an agent in this org: no chip, no jump,
-    // and no identity invented for it
+    if (id.startsWith('@net:') || id.startsWith('@org:')) return <HubContactChip address={id} />
     if (!isAgentId(id)) return <span>{id}</span>
     // …and neither is a name this tree does not hold: a since-retired agent or
     // an id off an archived envelope was drawn as a jump that focused nothing.
@@ -963,6 +963,15 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   toast?: ToastFn
 }) {
   const [draft, setDraft] = useState('')
+  const taRef = useRef<HTMLTextAreaElement | null>(null)
+  const mentionCandidates = useOrgMentionCandidates(slug)
+  const mentions = useAgentMentions({
+    value: draft,
+    onChange: setDraft,
+    inputRef: taRef,
+    candidates: mentionCandidates,
+    disabled: sendDisabled,
+  })
   const enterKey = useComposerEnter()
   // what happened to the last send, said in the box: `sending` from the click,
   // `sent` once the server accepted it, `failed` (with the reason) when it
@@ -1069,10 +1078,13 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             [...(e.target.files ?? [])].forEach(attach)
             e.target.value = ''
           }} />
-        <textarea rows={2} value={draft}
+        <textarea ref={taRef} rows={2} value={draft}
           title={enterKey.hint}
           placeholder={placeholder ?? (target ? `reply to ${target}…` : 'reply…')}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => { setDraft(e.target.value); mentions.syncCaret() }}
+          onSelect={mentions.syncCaret}
+          onClick={mentions.syncCaret}
+          onKeyUp={mentions.syncCaret}
           onPaste={(e) => {
             if (attachable && e.clipboardData?.files?.length) {
               e.preventDefault()
@@ -1080,6 +1092,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             }
           }}
           onKeyDown={(e) => {
+            if (mentions.onKeyDown(e)) return
             // Alt+N, the desk composer's own shortcut. Checked BEFORE Enter so
             // the two can never race, and it returns rather than falling
             // through — Alt+N is not a send.
@@ -1093,6 +1106,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
               send()
             }
           }} />
+        {mentions.menu}
         {/* a stable class, not `.mail-reply button:last-of-type` — this used
             to be the ONLY button `.mail-reply` had, and several tests query
             it that way; the new attach button ahead of it made that
@@ -1691,20 +1705,19 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                        one of our agents — an external `luna-reserve` is not
                        our `luna-reserve`, and resolving against `map` would
                        hand it our agent's model chip and a jump into our tree.
-                       Plain text, always. (The OUTGOING side below differs:
+                       Hub addresses (@net:/@org:) render as hub contact links.
+                       (The OUTGOING side below differs:
                        `_by` is recorded locally as the agent that sent, so it
                        stays eligible.) */
-                    sender={(id) => <b>{id}</b>} />
+                    sender={(id) => (id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>} />
                 : <MailList org={slug} delivered={out} outgoing jumpTo={jumpTo}
                     collapsible
                     jumpSeq={jumpSeq} refs={refs} lookup={orgLookup}
                     rowMark={glyph}
                     /* the list row names the RECIPIENT only — the pane's
                        "@agent as @org → @recipient" line is three identities
-                       and does not belong in a row. Plain text for the same
-                       reason as the inbox side: this recipient is an outside
-                       party, whatever it happens to be called. */
-                    rowSender={(id) => <b>{id}</b>}
+                       and does not belong in a row. */
+                    rowSender={(id) => (id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>}
                     sender={(id, m) => {
                       const byIsLocalAgent = Boolean(m?._by && map.has(m._by))
                       return (
@@ -1725,7 +1738,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                           </b>
                           <span className="dim"> as </span><b>@{slug}</b>
                           <span className="dim"> → </span>
-                          <b>{id}</b>
+                          {(id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>}
                           {m && glyph(m)}
                         </span>
                       )

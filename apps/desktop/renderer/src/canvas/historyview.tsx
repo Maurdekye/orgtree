@@ -4,6 +4,7 @@ import { fmtFull } from '../timefmt'
 import { EventCard, eventSurface } from '../events/card'
 import { decodeEventRow } from '../events/decode'
 import { AgentName, useAgentDirectory } from './identity'
+import { HubContactChip } from './agentmentions'
 import { tierLabel } from './shared'
 import type { RefRoutes } from './reflinks'
 
@@ -53,10 +54,14 @@ export function AgentHistoryView({ slug, nid, refs, history }: {
  * plain name when this surface cannot vouch for it. Facts by context. */
 export function MailFrom({ from, nameClass }: { from: string; nameClass?: string }) {
   const dir = useAgentDirectory()
+  if (from && (from.startsWith('@net:') || from.startsWith('@org:'))) {
+    return <HubContactChip address={from} className={nameClass} />
+  }
   const agent = from && !from.startsWith('@') ? dir?.resolve(from) : undefined
   const atDest = Boolean(dir?.destination) && dir!.destination === from
   if (!agent) return <b>{from}</b>
-  const why = (agent.tier ? `${from} — current model, ${tierLabel(agent.tier)}.`
+  const why = (agent.tier === 'project' ? `${from} — project.`
+    : agent.tier ? `${from} — current model, ${tierLabel(agent.tier)}.`
     : `${from} — current model not known.`)
     + (atDest ? ' This is its own desk.'
       : dir?.onFocus ? ' Go to its desk.' : '')

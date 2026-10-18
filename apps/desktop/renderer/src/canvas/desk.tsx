@@ -20,6 +20,7 @@ import { transcriptViewport } from '../transcriptViewport'
 import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { objectNavProps } from './objectnav'
+import { useAgentMentions, useOrgMentionCandidates } from './agentmentions'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
 import { appendReplyTarget, readReplies, replyContext, replyFromRow, replyWire, storeReplies } from '../eventReply'
@@ -3195,6 +3196,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     const el = taRef.current
     if (el) el.selectionStart = el.selectionEnd = el.value.length
   }, [text])
+  const mentionCandidates = useOrgMentionCandidates(slug, null, map)
+  const mentions = useAgentMentions({
+    value: text,
+    onChange: (next) => { flashMode(''); setText(next) },
+    inputRef: taRef,
+    candidates: mentionCandidates,
+    disabled: !canMail,
+  })
   // №6: dropping a file anywhere on the desk uploads it (and prevents the
   // browser's default navigate-away, which would also eat the draft)
   const dropProps = {
@@ -3294,7 +3303,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const destination = bare ? null : node.id
   const facts = agentFactsSig(map)
   const agentDir = useMemo<AgentDirectory>(() => ({
-    resolve: (id: string) => mapRef.current.get(id),
+    resolve: (id: string) => {
+      const n = mapRef.current.get(id)
+      return n && n.kind === 'project' ? { ...n, tier: 'project' } : n
+    },
     onFocus: canJump ? (id: string) => jumpRef.current?.(id) : undefined,
     destination,
   }), [canJump, destination, facts])
@@ -3340,7 +3352,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // desk is somewhere you already are, so a pinned window and a switchboard
     // panel both still navigate
     destination,
-    tierOf: (id: string) => mapRef.current.get(id)?.tier,
+    tierOf: (id: string) => {
+      const n = mapRef.current.get(id)
+      return n?.kind === 'project' ? 'project' : n?.tier
+    },
   }), [routeSig, destination])
   const deskRefs = useRefRoutes(slug, agentIndex, deskRoutes)
   const resolveReplySource = useCallback((r: ReplyContext) => {
@@ -4172,7 +4187,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           placeholder={live ? `message ${node.id}…`
             : node.state === 'archived'
               ? `message ${node.id} — queued until rehire…` : node.state}
-          onChange={(e) => { flashMode(''); setText(e.target.value); grow() }}
+          onChange={(e) => { flashMode(''); setText(e.target.value); grow(); mentions.syncCaret() }}
+          onSelect={mentions.syncCaret}
+          onClick={mentions.syncCaret}
+          onKeyUp={mentions.syncCaret}
           onFocus={() => {
             setActiveChatKey(chatKey)
             setComposerFocused(true)
@@ -4186,6 +4204,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             }
           }}
           onKeyDown={(e) => {
+            if (mentions.onKeyDown(e)) return
             if (e.altKey && (e.key === 'n' || e.key === 'N')) {
               e.preventDefault()
               e.stopPropagation()
@@ -4214,6 +4233,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             }
             if (enterKey.sends(e)) { e.preventDefault(); send() }
           }} />
+        {mentions.menu}
         <EffortButton value={node.scope?.effort ?? ''}
           effective={node.effort_effective ?? ''}
           // a Muse seat's levels are its model's row on the login it runs on

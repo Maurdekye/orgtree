@@ -17,6 +17,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PickerPopover as Pop } from './canvas/pickerpopover'
+import { useAgentMentions, useOrgMentionCandidates } from './canvas/agentmentions'
 import { useAppRead } from './appfeed'
 import { getProviders, sendMessage, uploadFile } from './api'
 import { ActiveAgentsFilter, AgentTray, trayRows, type TrayRow } from './canvas/agenttray'
@@ -101,6 +102,15 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   const [busy, setBusy] = useState(false)
   const [pop, setPop] = useState<{ kind: PopKind; anchor: HTMLElement } | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const mentionCandidates = useOrgMentionCandidates(slug, tree)
+  const mentions = useAgentMentions({
+    value: text,
+    onChange: setText,
+    inputRef,
+    candidates: mentionCandidates,
+    disabled: busy,
+  })
   const open = (kind: PopKind) => (e: { currentTarget: HTMLElement }) => {
     const anchor = e.currentTarget
     setPop(p => p?.kind === kind ? null : { kind, anchor })
@@ -193,17 +203,22 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     <div className={'quickchat' + (busy ? ' busy' : '')} data-testid="quickchat"
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault() }}
       onDrop={(e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); addFiles(e.dataTransfer.files) } }}>
-      <input className="quickchat-input" value={text} disabled={busy}
+      <input ref={inputRef} className="quickchat-input" value={text} disabled={busy}
         placeholder={`${label} — message a new agent, Enter to hire`}
         title={`${label} — message a new agent, Enter to hire`}
         aria-label={`${label} message`}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => { setText(e.target.value); mentions.syncCaret() }}
+        onSelect={mentions.syncCaret}
+        onClick={mentions.syncCaret}
+        onKeyUp={mentions.syncCaret}
         onPaste={(e) => { if (e.clipboardData?.files?.length) { e.preventDefault(); addFiles(e.clipboardData.files) } }}
         onKeyDown={(e) => {
+          if (mentions.onKeyDown(e)) return
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault(); void send()
           }
         }} />
+      {mentions.menu}
       <button type="button" className="quickchat-btn quickchat-model"
         title={tier ? `model for the new agent: ${tierLabel(tier)}`
           + (preview ? ` — it will be named ${preview}` : '') : 'no model is available to hire'}

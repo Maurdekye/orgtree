@@ -50,6 +50,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { listOrgs } from './api'
 import { useAppFeed } from './appfeed'
+import { setKnownOrgs } from './canvas/agentmentions'
 import { projectOrgs } from './recordprojection'
 import type { OrgListEntry } from './types'
 
@@ -178,6 +179,7 @@ export function useOrgStatus(opts: OrgStatusOptions): OrgStatus {
       if (issued < applied.current) return
       applied.current = issued
       setSnapshot({ orgs: rows, at: issued, error: null })
+      setKnownOrgs(rows.map(r => r.slug))
       setKnown(true)
       cbs.current.onOk?.()
     } catch (e) {
@@ -220,7 +222,9 @@ export function useOrgStatus(opts: OrgStatusOptions): OrgStatus {
   if (!legacy) {
     const records = new Map([['registry_org', new Map((appFeed.state.registry?.records ?? [])
       .map(row => [row.id, row.body]))]])
-    return { orgs: projectOrgs(records, appFeed.state), known: !!appFeed.state.registry,
+    const orgs = projectOrgs(records, appFeed.state)
+    if (appFeed.state.registry) setKnownOrgs(orgs.map(r => r.slug))
+    return { orgs, known: !!appFeed.state.registry,
       freshness: appFeed.status === 'current' ? 'current' : appFeed.state.registry ? 'stale' : 'loading',
       ageMs: appFeed.status === 'current' ? 0 : Math.max(0, Date.now() - now),
       error: appFeed.error, refresh }

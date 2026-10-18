@@ -1083,7 +1083,11 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
     let mut refs: Vec<Value> = Vec::new();
     let mut agent = |v: &Value| {
         if let Some(a) = v.as_str().map(str::trim) {
-            if !a.is_empty() && a != "user" && !a.starts_with('@') && !refs.iter().any(|r| r["kind"] == "agent" && r["id"] == a) {
+            if a.starts_with("@net:") || a.starts_with("@org:") {
+                if !refs.iter().any(|r| r["kind"] == "hub" && r["id"] == a) {
+                    refs.push(json!({ "kind": "hub", "id": a }));
+                }
+            } else if !a.is_empty() && a != "user" && !a.starts_with('@') && !refs.iter().any(|r| r["kind"] == "agent" && r["id"] == a) {
                 refs.push(json!({ "kind": "agent", "id": a }));
             }
         }
@@ -1107,7 +1111,11 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
         }
         "orgtree_retool" | "orgtree_retire" | "orgtree_dissolve" | "orgtree_interrupt" | "orgtree_unstick" | "orgtree_continue_on"
         | "orgtree_cheap_compact" | "orgtree_switch_model" | "orgtree_read_transcript" | "orgtree_read_scratch" | "orgtree_rename"
-        | "orgtree_reallocate" | "orgtree_rehire" | "orgtree_halt" | "orgtree_unhalt" => args(&["node", "nodes"], &mut agent),
+        | "orgtree_reallocate" | "orgtree_halt" | "orgtree_unhalt" => args(&["node", "nodes"], &mut agent),
+        "orgtree_reorder" => args(&["node", "nodes", "before", "after"], &mut agent),
+        "orgtree_rehire" => args(&["node", "nodes", "parent", "target"], &mut agent),
+        "orgtree_project" => args(&["name", "parent"], &mut agent),
+        "orgtree_present" | "orgtree_inbox" => args(&["project"], &mut agent),
         "orgtree_move" => {
             args(&["node", "new_parent"], &mut agent);
             for m in input["moves"].as_array().into_iter().flatten() {
@@ -1115,16 +1123,20 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
             }
         }
         "orgtree_swap" => args(&["a", "b"], &mut agent),
-        "orgtree_hire" | "orgtree_staff" => args(&["name", "node"], &mut agent),
+        "orgtree_hire" => args(&["name", "node", "parent", "target"], &mut agent),
+        "orgtree_staff" => args(&["name", "node"], &mut agent),
         "orgtree_audience" => args(&["from", "grantee"], &mut agent),
-        "orgtree_work" => match input["action"].as_str() {
-            Some("assign") | Some("create") => args(&["owner"], &mut agent),
-            Some("handoff") => args(&["target"], &mut agent),
-            _ => {}
-        },
+        "orgtree_work" => {
+            match input["action"].as_str() {
+                Some("assign") | Some("create") | Some("update") => args(&["owner"], &mut agent),
+                Some("handoff") => args(&["target"], &mut agent),
+                _ => {}
+            }
+            args(&["project"], &mut agent);
+        }
         "orgtree_watchdog" => {
-            if input["kind"] == "activity" {
-                args(&["target"], &mut agent);
+            if input["kind"] == "activity" || input["kind"] == "fair_queue" {
+                args(&["target", "project"], &mut agent);
             }
             let id = input["id"].as_str().map(str::to_string).or_else(|| {
                 if input["action"] != "create" { return None; }
@@ -1381,19 +1393,49 @@ mod tool_refs_tests {
     use serde_json::json;
 
     #[test]
-    fn message_names_agents_not_the_user_or_addresses() {
+    fn message_names_agents_and_hub_addresses_not_the_user() {
         let r = tool_refs("mcp__orgtree__orgtree_message", &json!({ "to": "alice", "body": "x" }), None);
         assert_eq!(r, json!([{ "kind": "agent", "id": "alice" }]));
         assert_eq!(tool_refs("orgtree_message", &json!({ "to": "user" }), None), json!([]));
-        assert_eq!(tool_refs("orgtree_message", &json!({ "to": "@org:other" }), None), json!([]));
+        assert_eq!(
+            tool_refs("orgtree_message", &json!({ "to": "@org:other" }), None),
+            json!([{ "kind": "hub", "id": "@org:other" }])
+        );
     }
 
     #[test]
-    fn the_split_message_shape_names_its_agents_too() {
+    fn the_split_message_shape_names_its_agents_and_hub_addresses_too() {
         let input = json!({ "metadata": { "to": ["bob", "user", "@net:x.y"], "kind": "message" }, "body": "x" });
-        assert_eq!(tool_refs("mcp__orgtree__orgtree_message", &input, None), json!([{ "kind": "agent", "id": "bob" }]));
+        assert_eq!(
+            tool_refs("mcp__orgtree__orgtree_message", &input, None),
+            json!([{ "kind": "agent", "id": "bob" }, { "kind": "hub", "id": "@net:x.y" }])
+        );
         let notice = json!({ "metadata": { "to": "carol" }, "body": "x" });
         assert_eq!(tool_refs("orgtree_send_notice", &notice, None), json!([{ "kind": "agent", "id": "carol" }]));
+    }
+
+    #[test]
+    fn project_tools_name_their_project_nodes() {
+        assert_eq!(
+            tool_refs("orgtree_project", &json!({ "action": "create", "name": "proj-a", "parent": "coord" }), None),
+            json!([{ "kind": "agent", "id": "proj-a" }, { "kind": "agent", "id": "coord" }])
+        );
+        assert_eq!(
+            tool_refs("orgtree_reorder", &json!({ "node": "proj-a", "before": "proj-b" }), None),
+            json!([{ "kind": "agent", "id": "proj-a" }, { "kind": "agent", "id": "proj-b" }])
+        );
+        assert_eq!(
+            tool_refs("orgtree_present", &json!({ "action": "send", "project": "proj-a" }), None),
+            json!([{ "kind": "agent", "id": "proj-a" }])
+        );
+        assert_eq!(
+            tool_refs("orgtree_inbox", &json!({ "project": "proj-a" }), None),
+            json!([{ "kind": "agent", "id": "proj-a" }])
+        );
+        assert_eq!(
+            tool_refs("orgtree_watchdog", &json!({ "action": "create", "name": "q-dog", "kind": "fair_queue", "project": "proj-a" }), Some(r#"{"id":"q-dog","status":"armed"}"#)),
+            json!([{ "kind": "agent", "id": "proj-a" }, { "kind": "watchdog", "id": "q-dog" }])
+        );
     }
 
     #[test]
@@ -1414,8 +1456,8 @@ mod tool_refs_tests {
 
     #[test]
     fn tickets_from_the_slug_the_work_item_or_the_create_result() {
-        let r = tool_refs("mcp__orgtree__orgtree_work", &json!({ "action": "update", "slug": "fix-x", "owner": "bob" }), None);
-        assert_eq!(r, json!([{ "kind": "ticket", "id": "fix-x" }]));
+        let r = tool_refs("mcp__orgtree__orgtree_work", &json!({ "action": "update", "slug": "fix-x", "owner": "bob", "project": "proj-a" }), None);
+        assert_eq!(r, json!([{ "kind": "agent", "id": "bob" }, { "kind": "agent", "id": "proj-a" }, { "kind": "ticket", "id": "fix-x" }]));
         let c = tool_refs("orgtree_work", &json!({ "action": "create", "title": "T" }), Some(r#"{"created":"t-1","slug":"t-1","rev":1}"#));
         assert_eq!(c, json!([{ "kind": "ticket", "id": "t-1" }]));
         assert_eq!(tool_refs("orgtree_work", &json!({ "action": "list" }), Some(r#"{"slug":"zz"}"#)), json!([]));

@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { req } from '../api'
 import { desktop as desktopBridge } from '../desktop'
 import { onHeldEvent } from '../events/heldbus'
+import { setHubchatInstalled } from './agentmentions'
 import './phonelink.css'
 
 export const SETUP_GUIDE_URL = 'https://github.com/Maurdekye/orgtree-hubchat/blob/main/docs/setup.md'
@@ -52,6 +53,7 @@ const openExternal = (url: string) => { window.open(url, '_blank', 'noopener') }
 async function readPhone<T>(path: string, keys: string[]): Promise<T> {
   const v = await req<T>(path) as unknown as Record<string, unknown> | null
   if (!v || typeof v !== 'object' || keys.some(k => !v[k] || typeof v[k] !== 'object')) throw Error('Phone linking is not available from this engine.')
+  if (typeof v.hubchat_pc === 'boolean') setHubchatInstalled(v.hubchat_pc)
   return v as unknown as T
 }
 

@@ -7,6 +7,21 @@
   cached interest. Production placement/logging code is unchanged.
   [verified: `runtime/session_watch.rs` tests, tracing-core 0.1.36; 2026-10-18]
 
+- Agent, project and hub contact mentions (4.4.0): typing `@` in Quick chat, the
+  desk composer and `MailReplyBox` offers live agents and projects (`state ===
+  'live'`), with projects wearing the `.project-mark` folder icon; `Tab`/`Enter`
+  completes `@<name> ` without sending. Inline `@<name>` tokens matching
+  `world.agents` link in Markdown (`refmd.tsx`) and plain text (`reflinks.tsx`)
+  and carry project folder icons/context menus; `runtime/convo.rs` `tool_refs`
+  emits project chips for project tool calls. `@net:<address>` and
+  `@org:<slug>` render as `HubContactChip`: an adjacent `@org:<slug>` on this
+  install opens in a new window (`requestOpenOrg`), otherwise `hubchat_pc`
+  opens `hubchat://chat?to=<address>` (`policy.ts`, `windows.ts`) or shows an
+  inert `"Hubchat isn't installed"` tooltip. `Copy agent name` copies `@<name>`.
+  [decided: user 2026-10-17; verified: `canvas/agentmentions.tsx`,
+  `canvas/reflinks.tsx`, `canvas/refmd.tsx`, `runtime/convo.rs`,
+  `runtime/identity.rs`, `tests/agentmentions.test.tsx`]
+
 - Tool-card JSON literals stay in separate `#[inline(never)]` pure builders:
   a monolithic debug `defs::all()` frame overflows during default-stack actor
   admission. Keep the outer logging boundary and serialized tool order/contracts;

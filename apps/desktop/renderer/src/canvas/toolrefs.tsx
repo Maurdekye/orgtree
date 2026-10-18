@@ -8,6 +8,7 @@ import { DogChip, useDogRoute } from './deskdogs'
 import type { ToolChip } from '../types'
 import { objectNavProps } from './objectnav'
 import { WorkStatusTransition } from './docketstatus'
+import { HubContactChip } from './agentmentions'
 
 /** A docket ticket the call names: a chip that opens it in the docket. The slug
  *  is looked up first; one that does not exist (typo, deleted) stays plain
@@ -48,6 +49,9 @@ export function ToolRefs({ refs, owner, agent, org, onWorkLink }: {
         ? <span key={'a' + r.id + i} className="tool-ref tool-ref-agent">{agent(r.id)}</span> : null
       if (r.kind === 'ticket') return <span key={'t' + r.id + i} className="tool-ref">
         <TicketRef org={org} id={r.id} onOpen={onWorkLink} /><WorkStatusTransition change={r.status_change} />
+      </span>
+      if ((r.kind as string) === 'hub') return <span key={'h' + r.id + i} className="tool-ref">
+        <HubContactChip address={r.id} />
       </span>
       // `owner/uid` names a team member's dog; a bare id is this agent's own
       const handle = r.id.includes('/') ? r.id : `${owner}/${r.id}`

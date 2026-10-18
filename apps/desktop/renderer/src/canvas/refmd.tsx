@@ -27,9 +27,10 @@
 //     landed. `linkifyRefs` compares first and returns having touched no node.
 
 import { AGENT_NAV_ATTR } from './agentnav'
+import { resolveHubAddressAction, triggerHubAddress, useHubAddressState } from './agentmentions'
 import { objectNavProps } from './objectnav'
 import { useEffect, useRef } from 'react'
-import { resolveRef, refToken } from './reflinks'
+import { resolveRef, refToken, scanInlineMentions } from './reflinks'
 import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
 import { parseRef, scanRefs, splitRefs } from './workrefs'
 import type { MentionRef } from './workrefs'
@@ -74,7 +75,52 @@ function inSkipped(node: Node): boolean {
 function chipSig(r: ResolvedRef, live: boolean): string {
   return [r.outcome, live ? '1' : '0', r.label, r.why,
     r.tier ?? '', r.atDestination ? '1' : '0', r.copyTitle === undefined ? '0' : '1',
-    r.copyTitle ?? ''].join('')
+    r.copyTitle ?? ''].join(' ')
+}
+
+function projectMarkEl(doc: Document): HTMLElement {
+  const span = doc.createElement('span')
+  span.className = 'project-mark'
+  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('class', 'MuiSvgIcon-root MuiSvgIcon-fontSizeInherit')
+  svg.setAttribute('focusable', 'false')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', 'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2m0 12H4V8h16z')
+  svg.appendChild(path)
+  span.appendChild(svg)
+  return span
+}
+
+function hubChipSig(address: string): string {
+  const action = resolveHubAddressAction(address.toLowerCase())
+  return ['hub', action.kind, action.title].join('|')
+}
+
+function hubChipEl(doc: Document, token: string): HTMLElement {
+  const addr = token.toLowerCase()
+  const action = resolveHubAddressAction(addr)
+  const inert = action.kind === 'inert'
+  const el = doc.createElement('button')
+  el.type = 'button'
+  el.className = `ref-chip ref-hub ${inert ? 'inert' : 'live'}`
+  el.title = action.title
+  el.setAttribute(TOK, token)
+  el.setAttribute('data-hub-ref', addr)
+  el.setAttribute('data-hub-address', addr)
+  if (inert) el.setAttribute('aria-disabled', 'true')
+  el.setAttribute(SIG, hubChipSig(token))
+  el.addEventListener('click', e => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (!inert) triggerHubAddress(addr)
+  })
+  const span = doc.createElement('span')
+  span.className = 'ref-id'
+  span.textContent = token
+  el.appendChild(span)
+  return el
 }
 
 /** build one chip as DOM. Mirrors `RefChip`; `refchip.test` holds the two
@@ -102,10 +148,14 @@ function chipEl(doc: Document, r: ResolvedRef,
   // tier means no icon and a working control — an unknown model is not an
   // unknown agent.
   if (r.ref.kind === 'agent' && r.tier) {
-    const t = doc.createElement('span')
-    t.className = 'tier t-' + r.tier
-    t.textContent = TIER_LETTER[r.tier] ?? '?'
-    el.appendChild(t)
+    if (r.tier === 'project') {
+      el.appendChild(projectMarkEl(doc))
+    } else {
+      const t = doc.createElement('span')
+      t.className = 'tier t-' + r.tier
+      t.textContent = TIER_LETTER[r.tier] ?? '?'
+      el.appendChild(t)
+    }
   }
   // ⚠ APPENDED, NOT ASSIGNED: `textContent =` wipes the model icon above.
   //
@@ -194,20 +244,27 @@ Map<string, MentionRef> | null {
  *  of docket items, and a multi-kilobyte attribute on a rendered description
  *  is a poor place for a cache. Absence can only cost one extra rebuild, so
  *  the record failing to be there is always safe. */
-const SCANNED = new WeakMap<HTMLElement, { names: Set<string>; live: boolean }>()
+const SCANNED = new WeakMap<HTMLElement, { names: Set<string>; agents: Set<string> | null; live: boolean }>()
 
 function sameScan(host: HTMLElement, items: Map<string, MentionRef> | null,
-  live: boolean): boolean {
+  live: boolean, world: RefWorld): boolean {
   const prev = SCANNED.get(host)
   if (!prev || prev.live !== live) return false
   if (prev.names.size !== (items ? items.size : 0)) return false
   if (items) for (const name of items.keys()) if (!prev.names.has(name)) return false
+  const curAgents = world.agents instanceof Map ? world.agents : null
+  if ((prev.agents === null) !== (curAgents === null)) return false
+  if (prev.agents && curAgents) {
+    if (prev.agents.size !== curAgents.size) return false
+    for (const a of curAgents.keys()) if (!prev.agents.has(a)) return false
+  }
   return true
 }
 
 function rememberScan(host: HTMLElement, items: Map<string, MentionRef> | null,
-  live: boolean): void {
-  SCANNED.set(host, { names: new Set(items ? items.keys() : []), live })
+  live: boolean, world: RefWorld): void {
+  const curAgents = world.agents instanceof Map ? new Set(world.agents.keys()) : null
+  SCANNED.set(host, { names: new Set(items ? items.keys() : []), agents: curAgents, live })
 }
 
 /** everything one mention chip renders, for the cheap exit — the mirror of
@@ -285,7 +342,7 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
     // reader's selection on every poll that changed nothing; a pass that
     // trusted the chips alone would never notice a name entering the index
     // (see `SCANNED`).
-    const same = sameScan(host, items, live) && existing.every((el) => {
+    const same = sameScan(host, items, live, world) && existing.every((el) => {
       const name = el.getAttribute(MEN)
       if (name !== null) {
         // a bare name is judged against the index the caller holds NOW: an
@@ -294,9 +351,21 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
         const ref = items?.get(name)
         return !!ref && el.getAttribute(SIG) === mentionSig(ref, live)
       }
-      const parsed = parseRef(el.getAttribute(TOK) ?? '')
-      if (!parsed) return false
-      const r = resolveRef(parsed, world)
+      const tok = el.getAttribute(TOK) ?? ''
+      if (/^@(?:net|org):/i.test(tok)) {
+        return el.getAttribute(SIG) === hubChipSig(tok)
+      }
+      let r: ResolvedRef | null = null
+      const parsed = parseRef(tok)
+      if (parsed) {
+        r = resolveRef(parsed, world)
+      } else if (tok.startsWith('@') && !tok.includes(':')) {
+        const id = tok.slice(1).toLowerCase()
+        if (world.agents instanceof Map && world.agents.has(id)) {
+          r = { ...resolveRef({ kind: 'agent', org: world.org, id }, world), token: tok }
+        }
+      }
+      if (!r) return false
       // ⚠ THE WHOLE RENDERED ANSWER, not just the outcome — see `chipSig`.
       // `clickable` is part of it: one `ready` reference is a control on a
       // surface with a handler and inert text on one without.
@@ -322,10 +391,7 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
     const s = t.data
     const parts: Node[] = []
     let made = 0
-    /** the prose BETWEEN typed tokens — where bare names may still be found.
-     *  Typed tokens are matched first and their spans are never re-scanned,
-     *  so the slug inside `@item:org/slug` can never also become a mention. */
-    const plain = (text: string) => {
+    const bareText = (text: string) => {
       if (!text) return
       if (!items) { parts.push(doc.createTextNode(text)); return }
       for (const part of splitRefs(text, items)) {
@@ -334,6 +400,31 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
           made += 1
         } else parts.push(doc.createTextNode(part.text))
       }
+    }
+    /** the prose BETWEEN typed tokens — where `@<name>`, `@net:`, `@org:` and
+     *  bare docket names may still be found. Typed tokens are matched first and
+     *  their spans are never re-scanned, so the slug inside `@item:org/slug`
+     *  can never also become a mention. */
+    const plain = (text: string) => {
+      if (!text) return
+      const inlineHits = scanInlineMentions(text, world)
+      if (!inlineHits.length) {
+        bareText(text)
+        return
+      }
+      let cur = 0
+      for (const h of inlineHits) {
+        if (h.index > cur) bareText(text.slice(cur, h.index))
+        if (h.ref) {
+          parts.push(chipEl(doc, h.ref, clickable))
+          made += 1
+        } else if (h.hub) {
+          parts.push(hubChipEl(doc, h.token))
+          made += 1
+        }
+        cur = h.index + h.token.length
+      }
+      if (cur < text.length) bareText(text.slice(cur))
     }
     let last = 0
     // ⚠ THE SHARED SCANNER, not a second loop over the same pattern: both
@@ -356,7 +447,7 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
   // found none" is the fact the next pass needs; without it a host with no
   // chips would be indistinguishable from one never scanned, and the exit
   // above would have nothing to compare when chips do appear.
-  rememberScan(host, items, live)
+  rememberScan(host, items, live, world)
   return count
 }
 
@@ -385,14 +476,29 @@ export function refClickHandler(worldOf: () => RefWorld | null | undefined,
       m.onPick(name)
       return
     }
-    const parsed = parseRef(el.getAttribute(TOK) ?? '')
-    if (!parsed) return
+    const tok = el.getAttribute(TOK) ?? ''
+    if (/^@(?:net|org):/i.test(tok)) {
+      e.stopPropagation()
+      e.preventDefault()
+      triggerHubAddress(tok.toLowerCase())
+      return
+    }
     // ⚠ THE WORLD IS CHECKED BEFORE IT IS USED. The listener outlives the
     // world it was attached with, and `resolveRef` reads `world.org`
     // immediately — so a click on a stale chip throws before any later guard.
     const world = worldOf()
     if (!world) return
-    const r = resolveRef(parsed, world)
+    const parsed = parseRef(tok)
+    let r: ResolvedRef | null = null
+    if (parsed) {
+      r = resolveRef(parsed, world)
+    } else if (tok.startsWith('@') && !tok.includes(':')) {
+      const id = tok.slice(1).toLowerCase()
+      if (world.agents instanceof Map && world.agents.has(id)) {
+        r = { ...resolveRef({ kind: 'agent', org: world.org, id }, world), token: tok }
+      }
+    }
+    if (!r) return
     // ⚠ `atDestination` IS REFUSED HERE, not only by the renderer that draws
     // it as a span. This listener is delegated on the container, so a click
     // can reach it from a chip the renderer did not draw this pass — and a
@@ -419,6 +525,7 @@ export function refClickHandler(worldOf: () => RefWorld | null | undefined,
 export function useRefMd(world: RefWorld | null | undefined,
   onOpen?: (r: ResolvedRef) => void,
   mentions?: MentionWorld | null) {
+  useHubAddressState()
   const host = useRef<HTMLDivElement | null>(null)
   const worldRef = useRef(world)
   worldRef.current = world

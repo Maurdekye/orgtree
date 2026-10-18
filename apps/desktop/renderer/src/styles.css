@@ -8893,3 +8893,38 @@ button.mail-tag { cursor:pointer; }
 button.mail-tag:hover { filter:brightness(1.12); }
 .mail-tag-picker { display:flex; align-items:center; gap:4px; padding:4px; }
 .mail-tag-filter { min-width:0; flex:1; width:100%; }
+
+/* Agent and project @-mention completion popover + Hub contact link chips */
+.agent-mentions {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 220px; overflow-y: auto;
+  padding: 4px; border-radius: 6px;
+  background: var(--panel); border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+.agent-mention-item {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 4px 8px; border-radius: 4px;
+  border: 1px solid transparent; background: transparent;
+  color: var(--ink); font-family: var(--mono); font-size: 12px;
+  text-align: left; cursor: pointer;
+}
+.agent-mention-item.on, .agent-mention-item:hover {
+  background: color-mix(in srgb, var(--accent) 16%, var(--input));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--ink-strong);
+}
+.agent-mention-item .tier, .agent-mention-item .project-mark {
+  width: 16px; height: 16px; font-size: 9.5px; flex: none;
+  display: inline-grid; place-items: center;
+}
+.agent-mention-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-chip.ref-hub { cursor: pointer; }
+.ref-chip.ref-hub.inert, .ref-chip.ref-hub:disabled {
+  opacity: .72; cursor: not-allowed; text-decoration: none;
+}
+.ref-chip .project-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-right: 3px; color: var(--tier-project, var(--accent));
+}
+

@@ -379,16 +379,16 @@ fn trimmed_tool_instructions(tools: &Value, top: bool) -> String {
     // the tool list itself reaches the agent as tool definitions; naming them
     // again here would only repeat it
     let mut text = String::from(
-        "Your Orgtree tools are the orgtree tools you were given: each one's own description is its contract, and \
-         its skill page (orgtree-tool-<name without the orgtree_ prefix, dashes for underscores>) has the procedure. ",
+        "Your Orgtree tools: each tool's description is its contract, and \
+         its skill page (orgtree-tool-<name without orgtree_, dashes for underscores>) has the procedure. ",
     );
     if group("messaging") {
-        text.push_str("orgtree_message wakes its recipient; orgtree_send_notice is passive and wakes nobody. ");
+        text.push_str("orgtree_message wakes its recipient; orgtree_send_notice wakes nobody. Write `@<name>` to link an agent or project in prose. ");
     }
     if group("team") {
         text.push_str(
-            "HIRING ALONE STARTS NO ONE: pass `kickoff`, or message the hire, or it sits idle forever. State the charter, \
-             folders, every tool switch, visibility and index on each hire, and never grant above your own scope. On \
+            "HIRING ALONE STARTS NO ONE: pass `kickoff` or message the hire. State charter, \
+             folders, tool switches, visibility and index on each hire; never grant above your scope. On \
              your own id orgtree_retool changes only team_charter; your own charter and scope are your superior's. ",
         );
     }
@@ -403,13 +403,13 @@ fn trimmed_tool_instructions(tools: &Value, top: bool) -> String {
 #[logged]
 fn trimmed_folder_rules(org: &str, org_dir: Option<(&str, bool)>, teams: &[&Value], projects: &[&Value]) -> String {
     let mut s = String::from(
-        "Your scratch folder is your own; keep standing notes in its AGENTS.md (CLAUDE.md notes still apply), \
-         delivered at the start of every session. ",
+        "Your scratch folder is your own; keep standing notes in its AGENTS.md (CLAUDE.md still applies), \
+         delivered each session start. ",
     );
     if let Some((dir, _)) = org_dir {
         s.push_str(&format!(
             "ORG SHARED FOLDER: {dir} is shared by every agent of {org}; its AGENTS.md holds org-wide notes, copied at \
-             the end of this prompt as it was when your CLI started — re-read the file before relying on a recent entry. "
+             the end of this prompt from CLI start — re-read the file before relying on a recent entry. "
         ));
     }
     let list: Vec<String> = teams.iter().filter_map(|t| {
@@ -479,7 +479,7 @@ fn scoped_tool_instructions(tools: &Value) -> String {
         crate::domain::tool_groups::allows(tools, name)).copied().collect::<Vec<_>>();
     let mut text = format!("Your available Orgtree tools: {}. ", names.join(", "));
     if crate::domain::tool_groups::enabled(tools, "messaging") {
-        text.push_str("orgtree_message wakes its recipient; orgtree_send_notice is passive and wakes nobody. Peers may require a directional audience when their actual parent's \"Subordinates may message each other\" setting is OFF; audience requests still work (orgtree-peer-mail). Send only to authorized audiences. ");
+        text.push_str("orgtree_message wakes its recipient; orgtree_send_notice is passive and wakes nobody. Write `@<name>` when referring to another agent or project in prose so it renders as a link. Peers may require a directional audience when their actual parent's \"Subordinates may message each other\" setting is OFF; audience requests still work (orgtree-peer-mail). Send only to authorized audiences. ");
     }
     if crate::domain::tool_groups::enabled(tools, "team") {
         text.push_str("On hire state the charter, folders, tool switches, visibility and index explicitly. index is zero-based among live siblings; 0 is first and live_child_count appends. Superior insertion excludes its target from the former sibling set. orgtree_reorder changes only a live descendant's sibling position. ");
@@ -1357,12 +1357,11 @@ harness's own delivery, genuine and not injection; each message carries exactly 
 mail outranks your chain). Mail that misses the window arrives when your response ends, so end long work at natural \
 milestones (orgtree-mail-basics). REQUIRED: call orgtree_status when you finish (done) or get stuck (blocked)";
 
-const TRIM_CHECKUPS: &str = "While you stay in working status, automatic checkups may wake you after 20 minutes to \
-continue unfinished work (orgtree-checkups-and-reminders). Always yours: orgtree_next_turn forecasts your next \
-turn's prefix changes and compaction (orgtree-tool-next-turn); orgtree_session shows whether your turns run in Session 0, \
-without the user's desktop, or in their signed-in session (orgtree-tool-session); orgtree_interrupt on yourself ends \
-your own turn (orgtree-tool-interrupt). Session 0 has no desktop; check your session and use \
-orgtree-session-0-ui-testing for UI work. ";
+const TRIM_CHECKUPS: &str = "While in working status, automatic checkups may wake you after 20 minutes \
+(orgtree-checkups-and-reminders). Always yours: orgtree_next_turn forecasts next-turn prefix changes and compaction \
+(orgtree-tool-next-turn); orgtree_session shows whether your turns run in Session 0 or the user's signed-in session \
+(orgtree-tool-session); orgtree_interrupt on yourself ends your turn (orgtree-tool-interrupt). Session 0 has no \
+desktop; check your session and use orgtree-session-0-ui-testing for UI work. ";
 
 /// The trimmed instructions (docket shrink-agents-built-in-instructions-by-moving-ho,
 /// user approval 2026-10-15 12:41Z: D1 split approved, D3 docket summary about 1.3 KB).
@@ -1444,6 +1443,7 @@ mod trim_tests {
         assert!(s.contains("HOW-TO LIVES IN SKILLS") && s.contains("orgtree-working") && s.contains("orgtree-app") && s.contains("orgtree-workflows"));
         assert!(s.contains(EXTERNAL_AUTHORITY.trim()) && s.contains(BACKGROUND));
         assert!(s.contains("ALWAYS answer with orgtree_message to that @net: address"));
+        assert!(s.contains("Write `@<name>`"));
         assert!(s.contains("HIRING ALONE STARTS NO ONE"));
         assert!(s.contains("DOCUMENTS ARE PRESENTED, FILES ARE SENT (user rule 2026-10-09)"));
         assert!(s.contains("NEVER start a model on an account where a usage window that model spends is at 100%"));

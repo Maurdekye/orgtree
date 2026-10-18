@@ -23,7 +23,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { FolderIcon } from '../icons'
 import { agentNavProps, agentTooltipProps } from './agentnav'
+import { HubContactChip } from './agentmentions'
 import { objectNavProps } from './objectnav'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
 import { TIER_LETTER, tierLabel } from './shared'
@@ -191,7 +193,7 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
     ...(ref.kind === 'item' && outcome === 'ready' && world.itemTitles?.has(ref.id)
       ? { copyTitle: world.itemTitles.get(ref.id)! } : {}),
     why: atDestination ? `${ref.id} — this is its own desk`
-      : outcome === 'ready' ? `open the ${kind} ${ref.id}`
+      : outcome === 'ready' ? `open the ${tier === 'project' ? 'project' : kind} ${ref.id}`
         : outcome === 'pending' ? `still loading this org's ${kind}s`
           : `no ${kind} named ${ref.id} in this org`,
   }
@@ -367,6 +369,72 @@ export function Written({ text, refs }: { text: string; refs?: RefRoutes }) {
 export interface RefRun {
   text: string
   ref?: ResolvedRef
+  hub?: string
+}
+
+const INLINE_AT_RE = /@(?:(net:[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?|org:[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)|([a-z0-9][a-z0-9_-]*(?:@[0-9]+)?))/gi
+
+function isLeftMentionBoundary(s: string, atIndex: number): boolean {
+  if (atIndex <= 0) return true
+  return !/[0-9A-Za-z._%+-]/.test(s[atIndex - 1]!)
+}
+
+function isRightMentionBoundary(s: string, endIndex: number): boolean {
+  if (endIndex >= s.length) return true
+  const next = s[endIndex]!
+  if (/[0-9A-Za-z_@/-]/.test(next)) return false
+  if (next === '.' && endIndex + 1 < s.length && /[0-9A-Za-z]/.test(s[endIndex + 1]!)) return false
+  return true
+}
+
+function pushPlainRun(out: RefRun[], text: string): void {
+  if (!text) return
+  const prev = out[out.length - 1]
+  if (prev && !prev.ref && !prev.hub) prev.text += text
+  else out.push({ text })
+}
+
+export function scanInlineMentions(
+  chunk: string,
+  world: RefWorld,
+): Array<{ index: number; token: string; ref?: ResolvedRef; hub?: string }> {
+  if (!chunk || !chunk.includes('@')) return []
+  const agents = world.agents instanceof Map ? world.agents : null
+  const hits: Array<{ index: number; token: string; ref?: ResolvedRef; hub?: string }> = []
+  INLINE_AT_RE.lastIndex = 0
+  for (let m = INLINE_AT_RE.exec(chunk); m; m = INLINE_AT_RE.exec(chunk)) {
+    const idx = m.index
+    const tok = m[0]
+    const end = idx + tok.length
+    if (!isLeftMentionBoundary(chunk, idx) || !isRightMentionBoundary(chunk, end)) continue
+    if (m[1]) {
+      hits.push({ index: idx, token: tok, hub: tok.toLowerCase() })
+    } else if (m[2] && agents) {
+      const id = m[2].toLowerCase()
+      if (agents.has(id)) {
+        const resolved = resolveRef({ kind: 'agent', org: world.org, id }, world)
+        hits.push({ index: idx, token: tok, ref: { ...resolved, token: tok } })
+      }
+    }
+  }
+  return hits
+}
+
+function appendPlainWithMentions(chunk: string, world: RefWorld, out: RefRun[]): void {
+  if (!chunk) return
+  const hits = scanInlineMentions(chunk, world)
+  if (!hits.length) {
+    pushPlainRun(out, chunk)
+    return
+  }
+  let last = 0
+  for (const h of hits) {
+    if (h.index > last) pushPlainRun(out, chunk.slice(last, h.index))
+    if (h.ref) out.push({ text: h.token, ref: h.ref })
+    else if (h.hub) out.push({ text: h.token, hub: h.hub })
+    last = h.index + h.token.length
+  }
+  if (last < chunk.length) pushPlainRun(out, chunk.slice(last))
 }
 
 /** Prose split into runs, every canonical token decided. Concatenating every
@@ -384,11 +452,11 @@ export function splitTypedRefs(text: string, world: RefWorld): RefRun[] {
   // boundaries — a token ends at one, and starts at one — live in `scanRefs`,
   // and a renderer with its own loop is a renderer that can miss one of them.
   for (const hit of scanRefs(s)) {
-    if (hit.index > last) out.push({ text: s.slice(last, hit.index) })
+    if (hit.index > last) appendPlainWithMentions(s.slice(last, hit.index), world, out)
     out.push({ text: hit.token, ref: resolveRef(hit.ref, world) })
     last = hit.index + hit.token.length
   }
-  if (last < s.length) out.push({ text: s.slice(last) })
+  if (last < s.length) appendPlainWithMentions(s.slice(last), world, out)
   return out
 }
 
@@ -409,7 +477,9 @@ export function RefChip({ r, onOpen }: {
   // tier means no icon and a working control: an unknown model is not an
   // unknown agent.
   const icon = r.ref.kind === 'agent' && r.tier
-    ? <span className={'tier t-' + r.tier} {...agentTooltipProps(r.ref.id)}>{TIER_LETTER[r.tier] ?? '?'}</span>
+    ? (r.tier === 'project'
+      ? <span className="project-mark" {...agentTooltipProps(r.ref.id)}><FolderIcon fontSize="inherit" /></span>
+      : <span className={'tier t-' + r.tier} {...agentTooltipProps(r.ref.id)}>{TIER_LETTER[r.tier] ?? '?'}</span>)
     : null
   // ⚠ AT THE DESTINATION IT IS IDENTITY, NOT A ROUTE: real, resolvable, and
   // nowhere to go, so it keeps its icon and loses its control.
@@ -467,10 +537,12 @@ export function RefProse({ text, world: baseWorld, onOpen, index: baseIndex, onP
     <>
       {runs.map((p, i) => (p.ref
         ? <RefChip key={i} r={p.ref} onOpen={onOpen} />
-        : (itemIndex?.size && onPick
-          ? <WorkRefText key={i} text={p.text} index={itemIndex}
-              onPick={onPick} />
-          : <span key={i}>{p.text}</span>)))}
+        : p.hub
+          ? <HubContactChip key={i} address={p.hub} />
+          : (itemIndex?.size && onPick
+            ? <WorkRefText key={i} text={p.text} index={itemIndex}
+                onPick={onPick} />
+            : <span key={i}>{p.text}</span>)))}
     </>
   )
 }
@@ -488,7 +560,9 @@ export function TypedRefText({ text, world, onOpen, render }: {
       {runs.map((p, i) => (p.ref
         ? (render ? render(p.ref, i)
           : <RefChip key={i} r={p.ref} onOpen={onOpen} />)
-        : <span key={i}>{p.text}</span>))}
+        : p.hub
+          ? <HubContactChip key={i} address={p.hub} />
+          : <span key={i}>{p.text}</span>))}
     </>
   )
 }

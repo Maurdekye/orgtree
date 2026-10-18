@@ -18,6 +18,7 @@
 
 import { createContext, useContext } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import { FolderIcon } from '../icons'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { TIER_LETTER, tierLabel } from './shared'
 
@@ -29,6 +30,14 @@ import { TIER_LETTER, tierLabel } from './shared'
  *  existing importers are untouched. */
 export function TierChip({ tier, agentName }: { tier?: string | null; agentName?: string }) {
   if (!tier) return null
+  if (tier === 'project') {
+    return (
+      <span data-copy-agent-name={agentName} {...agentTooltipProps(agentName)}
+        className="project-mark" title={agentName ? undefined : 'Project'}>
+        <FolderIcon fontSize="inherit" />
+      </span>
+    )
+  }
   return (
     <span data-copy-agent-name={agentName} {...agentTooltipProps(agentName)}
       className={'tier t-' + tier} title={agentName ? undefined : tierLabel(tier)}>

@@ -497,6 +497,15 @@ export function externalHttpUrl(value: string): boolean {
   } catch { return false }
 }
 
+/** A Hubchat desktop deep link (`hubchat://chat?to=@net:...`) opened by a
+ *  HubContactChip when Hubchat is installed on this PC. */
+export function hubchatChatUrl(value: string): boolean {
+  try {
+    const u = new URL(value)
+    return u.protocol === 'hubchat:' && !u.username && !u.password
+  } catch { return false }
+}
+
 export function closeAction(exitOnClose: boolean, quitting: boolean, otherVisibleViews = 0): 'hide' | 'quit' | 'close' {
   return quitting ? 'close' : exitOnClose && otherVisibleViews === 0 ? 'quit' : 'hide'
 }
