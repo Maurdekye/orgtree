@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {ProjectDesk} from '../src/canvas/projectdesk'
 import {NodeConfig} from '../src/canvas/modals'
-import {ProjectDraftNode} from '../src/canvas/newproject'
+import {ProjectDraftNode,projectDraftSteps} from '../src/canvas/newproject'
 import type {CanvasNode,OpRequest} from '../src/canvas/shared'
 import type {TreePayload} from '../src/types'
 const node={id:'website',title:'website',kind:'project',tier:'project',state:'live',parent:'user',charter:'A standing charter.',
@@ -12,6 +12,12 @@ const node={id:'website',title:'website',kind:'project',tier:'project',state:'li
 const tree={slug:'org',roots:[node],slot_leases:[{project:'website',agent:'dev',slot:1,lease:'lease',since:'2026-10-18T17:00:00Z'}],watchdogs:[]} as unknown as TreePayload
 const noop=()=>{}
 function serve(t:{after:(fn:()=>void)=>void}) {const old=globalThis.fetch;installFetch(new FakeServer());t.after(()=>{globalThis.fetch=old})}
+
+test('project wire field remains description',()=>{
+  assert.deepEqual(projectDraftSteps({parent:'user'} as never,'website','Saved summary'),[
+    {op:'create_project',name:'website',parent:'user',description:'Saved summary'},
+  ])
+})
 
 test('project Summary tab and plain slots label preserve their internal routes',async t=>{
   serve(t)
