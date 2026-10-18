@@ -1004,6 +1004,8 @@ export interface ToolChip {
   writing_started_at?: string
   /** Bounded ephemeral input already observed while generating the call. */
   preview_input?: unknown
+  /** Explicit file paths extracted from this tool input before it is retained off-row. */
+  file_paths?: Array<{ path: string; link: boolean }>
   /** the agents, the watchdog and the docket tickets the call concerns (engine `tool_refs`); the
    *  transcript draws a link or card for each beside the call */
   refs?: Array<{ kind: 'agent' | 'watchdog' | 'ticket'; id: string;
