@@ -5857,6 +5857,8 @@ svg.MuiSvgIcon-root {
 .cc-broadcast-toggle:hover { color: var(--agent-accent-text, var(--accent)); border-color: var(--button-accent); }
 .cc-broadcast-toggle.armed { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .cc-broadcast-toggle:disabled { opacity: .5; cursor: not-allowed; }
+/* at the desk's foot under every tab, as the agent desk's composer sits */
+.project-desk .attach-row:has(+ .project-composer), .project-desk .project-composer:not(.attach-row + .project-composer) { margin-top: auto; }
 .cc-composer.project-composer.broadcast-armed {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);

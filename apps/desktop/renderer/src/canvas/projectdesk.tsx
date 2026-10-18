@@ -278,16 +278,6 @@ function ProjectComposer({ node, slug, toast, members }: {
     <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')
       + (megaphone ? ' broadcast-armed' : '')}>
       <div className="cc-btnstack">
-        <button className={'cc-broadcast-toggle' + (megaphone ? ' armed' : '')} type="button"
-          disabled={node.state !== 'live' || members === 0} aria-pressed={megaphone}
-          aria-label={megaphone ? `Megaphone on: messages go to all ${members} agents under ${node.id}`
-            : `Megaphone: send to all ${members} agents under ${node.id} instead of the project's inbox`}
-          title={members === 0 ? `no agent works under ${node.id} yet`
-            : megaphone ? `on: each message goes to all ${members} agents under ${node.id}; click to send to the project's inbox again`
-              : `send to all ${members} agents under ${node.id} at once, instead of the project's inbox that one agent claims`}
-          onClick={() => setMegaphone((v) => !v)}>
-          <CampaignIcon fontSize="inherit" />
-        </button>
         <button className={'cc-notice-toggle' + (notice ? ' armed' : '')} type="button" disabled={!can}
           aria-label={notice ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
           title={notice ? 'Notice-send armed: the next message arrives as a passive notice, waking nobody (Alt+N)'
@@ -315,6 +305,16 @@ function ProjectComposer({ node, slug, toast, members }: {
           if (enterKey.sends(e)) { e.preventDefault(); send() }
         }} />
       <div className="cc-btnstack">
+        <button className={'cc-broadcast-toggle' + (megaphone ? ' armed' : '')} type="button"
+          disabled={node.state !== 'live' || members === 0} aria-pressed={megaphone}
+          aria-label={megaphone ? `Megaphone on: messages go to all ${members} agents under ${node.id}`
+            : `Megaphone: send to all ${members} agents under ${node.id} instead of the project's inbox`}
+          title={members === 0 ? `no agent works under ${node.id} yet`
+            : megaphone ? `on: each message goes to all ${members} agents under ${node.id}; click to send to the project's inbox again`
+              : `send to all ${members} agents under ${node.id} at once, instead of the project's inbox that one agent claims`}
+          onClick={() => setMegaphone((v) => !v)}>
+          <CampaignIcon fontSize="inherit" />
+        </button>
         <button className="cc-send" type="button" title={enterKey.hint}
           disabled={!can || busy || (!text.trim() && attached.length === 0)} onClick={send}>
           <ArrowUpIcon fontSize="inherit" /></button>
