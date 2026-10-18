@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Agent/project Open menu parents click/Enter the existing temporary-desk
+  action; hover/Right still expand. Hire a subordinate uses the org's current
+  remembered/template Quick chat tier only if that exact tier is offered,
+  otherwise expands without substituting. Read the choice at menu-open time.
+  See [menu parent actions](docs/rust-engine/menu-parent-actions.md).
+  [decided: user 2026-10-18 14:25Z/14:34Z; verified: `canvas/{agentmenu,cards,OrgCanvas}.tsx`]
+
 - Do Not Disturb is a durable per-turn flag controlled by self status.dnd.
   Every harness gates ordinary mail before steering or interrupt; only urgent
   bypasses, and agent urgency requires current DND plus a reason. Turn end and

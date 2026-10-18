@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Context menu parent actions, user 2026-10-18 14:25Z and 14:34Z (4.4.0):**
+click/Enter on an agent's or project's Open parent opens its temporary desk
+and closes the menu. Hire a subordinate opens the draft with the Quick chat
+tier selected when it is offered there; absent/unavailable choices expand the
+submenu. Hover/Right keep expanding without activation. Update Hire's tooltip
+to explain the default. See [menu parent actions](menu-parent-actions.md).
+
 **Project audience clarification, user 2026-10-18 14:09–14:12Z:** project
 audiences remain effective for direct members at every operational check. User
 project mail/broadcast grants only the project; no member gets a personal grant.
