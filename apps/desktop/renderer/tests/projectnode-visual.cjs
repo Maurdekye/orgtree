@@ -143,6 +143,25 @@ module.exports = async (page) => {
   await settle()
   details.settings = await overlap([['.modalpin-bar', '.agent-settings-header-actions button']])
   screenshots.push(await page.screenshot(`${prefix}-settings-1000x700`))
+  // the project desk modal against the canvas desk (user 2026-10-18 08:25Z):
+  // the same tab and chip type, no settings-panel buttons
+  const deskLook = () => page.eval(() => {
+    const tab = document.querySelector('.project-desk .cc-tabs button')
+    const name = document.querySelector('.project-desk .cc-head-left .name')
+    const panel = document.querySelector('.project-desk-modal')
+    const cs = (el) => el ? getComputedStyle(el) : null
+    return { tabFont: cs(tab)?.fontSize, tabPad: cs(tab)?.padding, nameFont: cs(name)?.fontSize,
+      panel: panel ? [...panel.classList] : null }
+  })
+  await page.goto('/?scene=desc')
+  await page.waitFor('.project-desk .cc-tabs button', { timeout: 15000 })
+  await settle()
+  const canvasLook = await deskLook()
+  await page.goto('/?scene=modal')
+  await page.waitFor('.project-desk-modal .cc-tabs button', { timeout: 15000 })
+  await settle()
+  details.modal = { canvas: canvasLook, modal: await deskLook() }
+  screenshots.push(await page.screenshot(`${prefix}-modal-1000x700`))
   await page.goto('/?scene=corner')
   await page.waitFor('.mail-transfers', { timeout: 15000 })
   await settle()

@@ -32,7 +32,7 @@ import { SpawnChips } from '../src/canvas/cards'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { DeskChat } from '../src/canvas/desk'
 import { AgentGalleryView } from '../src/canvas/gallery'
-import { ProjectDesk } from '../src/canvas/projectdesk'
+import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
 import { NodeConfig } from '../src/canvas/modals'
 import { InboxView } from '../src/canvas/mail'
 import { AgentSurfaceRoutesProvider, PanelCorner } from '../src/canvas/panelcorner'
@@ -207,6 +207,8 @@ const rows: Record<string, unknown[]> = {
 createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps />
   : scene === 'presented' ? <Presented />
   : scene === 'desc' ? <Desc />
+  : scene === 'modal' ? <ProjectDeskModal node={card} slug="org" tree={tree([])} map={new Map([[card.id, card]])}
+    op={() => Promise.resolve({} as OpResult)} toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} close={noop} />
   : scene === 'settings' ? <NodeConfig node={card} map={new Map([[card.id, card]])} tree={tree([])} slug="org"
     op={() => Promise.resolve({} as OpResult)} toast={noop} close={noop} onScratchFolder={noop} />
   : scene === 'corner' ? (
