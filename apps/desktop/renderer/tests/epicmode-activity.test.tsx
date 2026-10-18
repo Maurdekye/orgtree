@@ -16,7 +16,7 @@ const node = (id: string, phase: string, extra = {}): TreeNode =>
   ({ id, state: 'live', busy: true, activity: { phase }, children: [], ...extra }) as unknown as TreeNode
 const tree = (...roots: TreeNode[]): TreePayload => ({ slug: 'test', roots }) as unknown as TreePayload
 
-test('only mid-turn agents feed the shared hum and their actual activity layer', () => {
+test('only mid-turn agents feed their actual activity layer', () => {
   const sources = activitySources(tree(node('think', 'thinking'), node('write', 'writing'),
     node('args', 'tool_writing'), node('run', 'tool'), node('mcp', 'thinking', { mcp_readiness_waiting: true }),
     node('compact', 'thinking', { phase: 'compacting' }), node('unknown', 'provider-starting'),
@@ -24,7 +24,8 @@ test('only mid-turn agents feed the shared hum and their actual activity layer',
     node('frozen', 'thinking', { frozen: {} }), node('halted', 'thinking', { halt: { phase: 'halted' } }),
     node('retired', 'thinking', { state: 'archived' }),
     node('project', 'thinking', { kind: 'project', children: [node('child', 'thinking')] })))
-  assert.deepEqual(countActivity(sources), { hum: 8, thinking: 2, writing: 1, toolWriting: 1, tool: 1, waiting: 1, compacting: 1 })
+  assert.deepEqual(countActivity(sources), { thinking: 2, writing: 1, toolWriting: 1, tool: 1, waiting: 1, compacting: 1 })
+  assert.equal(sources.some(s => s.id === 'unknown' && s.layer === null), true, 'unclassified work remains available to heat')
   assert.equal(activitySources({ ...tree(node('a', 'thinking')), killswitch: {} } as TreePayload).length, 0)
 })
 
@@ -48,15 +49,15 @@ test('one shared voice per layer, crossfades and idle cleanup, including smooth 
     }
     createOscillator() { const o = super.createOscillator(); o.stop = () => { stops++ }; return o }
   }
-  const synth = new EpicSynth(Audio), counts = { ...emptyActivity(), hum: 1, thinking: 1 }
+  const synth = new EpicSynth(Audio), counts = { ...emptyActivity(), thinking: 1 }
   synth.activity(counts)
   const nodes = base.log.nodes
   for (let i = 0; i < 1000; i++) synth.activity(counts)
   assert.equal(base.log.nodes, nodes, 'updates never stack per-agent oscillators')
   const first = ramps.filter(r => r.value > 0).map(r => r.value)
   synth.activity({ ...counts, thinking: 15 })
-  assert.equal(ramps.some(r => r.value >= first[1]! * 3.9), true, 'actual audio gain follows agent count')
-  synth.activity({ ...emptyActivity(), hum: 1, writing: 1 })
+  assert.equal(ramps.some(r => r.value >= first[0]! * 3.9), true, 'actual audio gain follows agent count')
+  synth.activity({ ...emptyActivity(), writing: 1 })
   assert.equal(ramps.at(-2)?.value, 0, 'old activity fades out')
   assert.equal(ramps.at(-1)!.value > 0, true, 'new activity fades in')
   assert.equal(stops, 0, 'a crossfade never cuts a voice off at the transition')
@@ -67,7 +68,7 @@ test('one shared voice per layer, crossfades and idle cleanup, including smooth 
   assert.equal(ramps.at(-1)!.at, ACTIVITY_FADE_MS / 1000)
   t.mock.timers.tick(ACTIVITY_FADE_MS + 45)
   assert.equal(base.log.closed, 1)
-  assert.equal(stops, 6)
+  assert.equal(stops, 4)
   synth.activity(counts)
   assert.equal(base.log.closed, 1, 'closed show cannot restart its layers')
 })
@@ -84,11 +85,11 @@ test('director seeds existing work immediately and follows state changes, discon
     assert.equal(readings.at(-1)!.toolWriting, 0)
     assert.equal(readings.at(-1)!.tool, 1)
     taps.epic?.frame('test', { type: 'epic_link', up: false })
-    assert.equal(readings.at(-1)!.hum, 0)
+    assert.deepEqual(readings.at(-1), emptyActivity())
     taps.epic?.tree('test', tree(node('a', 'writing')))
     assert.equal(readings.at(-1)!.writing, 1)
     clearEpicTree()
-    assert.equal(readings.at(-1)!.hum, 0)
+    assert.deepEqual(readings.at(-1), emptyActivity())
   } finally { show.stop(); clearEpicTree(); EpicSynth.prototype.activity = original }
 })
 
@@ -106,7 +107,27 @@ test('normalised tool names determine all signature parameters across harness pr
     assert.equal(v.duration >= 0.14 && v.duration <= 0.36, true)
     assert.equal(v.attack > 0 && v.attack < v.duration, true)
   }
-  assert.equal(ACTIVITY_LAYERS.length, 7)
+  assert.equal(ACTIVITY_LAYERS.length, 6)
+})
+
+test('unclassified working agents are silent, while all six activity sounds and event sounds remain', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const base = fakeAudio(), synth = new EpicSynth(base.Ctor)
+  const baseline = base.log.nodes
+  synth.activity(countActivity(activitySources(tree(node('busy', 'provider-starting')))))
+  assert.equal(base.log.started, 0, 'working alone must not start a background drone')
+  assert.equal(base.log.nodes, baseline, 'no silent leftover audio graph for unclassified work')
+  for (const layer of ['thinking', 'writing', 'toolWriting', 'tool', 'waiting', 'compacting'] as const) {
+    const started = base.log.started
+    synth.activity({ ...emptyActivity(), [layer]: 1 })
+    assert.equal(base.log.started, started + 3, `${layer} retains its carrier, modulator and friction source`)
+  }
+  const started = base.log.started
+  assert.equal(synth.play('click'), true)
+  assert.equal(base.log.started > started, true, 'discrete event audio remains audible')
+  synth.close()
+  t.mock.timers.tick(ACTIVITY_FADE_MS + 45)
+  assert.equal(base.log.closed, 1)
 })
 
 test('tool names reach the synth and only accepted agent sounds inject heat', () => {
