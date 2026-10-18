@@ -197,7 +197,7 @@ test('availability excludes exhausted defaults and keeps a compatible alternativ
 })
 
 test('availability respects no-cascade credits and a remembered model returns when its superior can afford it', async () => {
-  localStorage.clear(); rememberHire('org', { tier: 'opus', superior: 'boss' })
+  localStorage.clear(); rememberHire('org', { tier: 'opus', superior: 'boss', effort: 'low' })
   providers(['claude', 'openai'])
   const limited = { ...tree, cascade_hire: false,
     roots: [{ ...node('boss'), free: 2, grant: 2 }],
@@ -205,6 +205,7 @@ test('availability respects no-cascade credits and a remembered model returns wh
   const view = await mount([], [], {}, limited)
   try {
     assert.equal(shown(view.el).model, 'sol', 'an unaffordable remembered model yields to a hireable fallback')
+    assert.equal(shown(view.el).effort, 'low', 'a manual effort choice still overrides the fallback default')
     await click(view.el.querySelector('.quickchat-superior'))
     await click(document.querySelector('.quickchat-top .tray-main'))
     assert.equal(shown(view.el).model, 'opus', 'remembered model is retained, not overwritten by the fallback')
