@@ -1042,15 +1042,19 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   // the project's mail queue (user 2026-10-18 08:01Z-08:08Z): round-robin by
   // default or ack mode, and whether a sender may be handed its own mail
   const queueScope = (node.configured_scope ?? {}) as unknown as { mail_queue?: string; mail_queue_exclude_sender?: boolean
-    mail_queue_ack_timeout?: boolean; mail_queue_max_attempts?: number }
+    mail_queue_ack_timeout?: boolean; mail_queue_max_attempts?: number; mail_queue_ack_reminders?: number }
   const savedMode = queueScope.mail_queue === 'ack' ? 'ack' : 'round_robin'
   const savedExclude = queueScope.mail_queue_exclude_sender === true
   const savedTimeout = queueScope.mail_queue_ack_timeout !== false
   const savedAttempts = queueScope.mail_queue_max_attempts ?? 3
+  const savedReminders = Number.isInteger(queueScope.mail_queue_ack_reminders)
+    && queueScope.mail_queue_ack_reminders! >= 1 && queueScope.mail_queue_ack_reminders! <= 10
+    ? queueScope.mail_queue_ack_reminders! : 3
   const [modeEdit, setModeEdit] = useState<'ack' | 'round_robin' | undefined>()
   const [excludeEdit, setExcludeEdit] = useState<boolean | undefined>()
   const [timeoutEdit, setTimeoutEdit] = useState<boolean | undefined>()
   const [attemptsEdit, setAttemptsEdit] = useState<number | undefined>()
+  const [remindersEdit, setRemindersEdit] = useState<number | undefined>()
   // the project's slot count (user 2026-10-18 08:42Z: a count, 0 = none, no switch)
   const savedSlots = slotCount(node)
   const [slotsEdit, setSlotsEdit] = useState<number | undefined>()
@@ -1059,6 +1063,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   const exclude = excludeEdit ?? savedExclude
   const timeout = timeoutEdit ?? savedTimeout
   const attempts = attemptsEdit ?? savedAttempts
+  const reminders = remindersEdit ?? savedReminders
   // the ack timeout and max attempts ride the 20-minute checkup (user 08:11Z)
   const [checkups, setCheckups] = useState<boolean | null>(null)
   useEffect(() => {
@@ -1075,11 +1080,12 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
         await op({ op: 'set_description', node: node.id, description })
       if (on !== savedPeer)
         await userGesture(slug,[{op:'scope',node:node.id,peer_mail:on}],`Settings: ${node.id}`)
-      if (mode !== savedMode || exclude !== savedExclude || timeout !== savedTimeout || attempts !== savedAttempts)
+      if (mode !== savedMode || exclude !== savedExclude || timeout !== savedTimeout || attempts !== savedAttempts || reminders !== savedReminders)
         await op({ op: 'set_mail_queue', node: node.id,
           ...(mode !== savedMode ? { mode } : {}), ...(exclude !== savedExclude ? { exclude_sender: exclude } : {}),
           ...(timeout !== savedTimeout ? { ack_timeout: timeout } : {}),
-          ...(attempts !== savedAttempts ? { max_attempts: attempts } : {}) })
+          ...(attempts !== savedAttempts ? { max_attempts: attempts } : {}),
+          ...(reminders !== savedReminders ? { ack_reminders: reminders } : {}) })
       if (slots !== savedSlots) await op({ op: 'set_slots', node: node.id, capacity: slots })
       close()
     } catch (e) { toast([`error: ${(e as Error).message}`]) } finally { setBusy(false) }
@@ -1129,24 +1135,31 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
       </SetRow>
       <SetToggle label="Never hand an agent its own mail" checked={exclude} disabled={busy} onChange={setExcludeEdit}
         hint="On: mail an agent sends to the project goes to another watcher, and waits if the sender is the only one." />
-      {mode === 'ack' && <>
-        <SetToggle label="Ack timeout" checked={timeout} disabled={busy || checkups === false} onChange={setTimeoutEdit}
-          hint={checkups === false
-            ? 'Inactive: it rides the 20-minute checkup ("check on working agents after 20 minutes" in Runtime settings), which is off.'
-            : 'An agent sitting on an un-acked mail gets the 20-minute checkup up to 3 times; after that the mail is taken back and handed to someone else.'} />
-        <SetRow label="Max attempts" hint={checkups === false
-          ? 'Inactive while the 20-minute checkup is off.'
-          : 'A mail handed out this many times without an ack goes to the dead-letter list and you are told.'}>
-          <input type="number" aria-label="Max attempts" min={1} max={100} value={attempts} disabled={busy || checkups === false}
-            onChange={(e) => setAttemptsEdit(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
-        </SetRow>
-      </>}
       <SetRow label="Concurrency slots" hint={"How many agents may hold one of this project's concurrency slots at once (for work only N may do at once, such as a heavy build). "
         + '0 = no concurrency slots. Agents above or below the project claim one with a slot watchdog; the line is first-come. '
         + 'An idle holder is reminded and then loses its concurrency slot when the ack timeout is on. Lowering the count takes none from a holder; it applies as concurrency slots free up.'}>
         <input type="number" aria-label="Concurrency slots" min={0} max={MAX_SLOTS} value={slots} disabled={busy}
           onChange={(e) => setSlotsEdit(Math.max(0, Math.min(MAX_SLOTS, Math.floor(Number(e.target.value)) || 0)))} />
       </SetRow>
+      {(mode === 'ack' || slots >= 1) && <section className="project-ack-settings" aria-label="Acknowledgement">
+        <h4>Acknowledgement</h4>
+        <SetToggle label="Ack timeout" checked={timeout} disabled={busy || checkups === false} onChange={setTimeoutEdit}
+          hint={checkups === false
+            ? 'Inactive: it rides the 20-minute checkup ("check on working agents after 20 minutes" in Runtime settings), which is off.'
+            : `An agent holding un-acked mail or an idle concurrency slot gets up to ${reminders} reminders, one per 20-minute checkup; at the next checkup it is taken back and handed to someone else.`} />
+        <SetRow label="Max attempts" hint={checkups === false
+          ? 'Inactive while the 20-minute checkup is off.'
+          : 'A mail handed out this many times without an ack goes to the dead-letter list and you are told.'}>
+          <input type="number" aria-label="Max attempts" min={1} max={100} value={attempts} disabled={busy || checkups === false}
+            onChange={(e) => setAttemptsEdit(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
+        </SetRow>
+        <SetRow label="Ack reminders" hint={checkups === false
+          ? 'Inactive while the 20-minute checkup is off.'
+          : 'How many reminders a holder gets before un-acked mail or an idle concurrency slot is taken back. Default 3; from 1 to 10.'}>
+          <input type="number" aria-label="Ack reminders" min={1} max={10} value={reminders} disabled={busy || checkups === false}
+            onChange={(e) => setRemindersEdit(Math.max(1, Math.min(10, Math.floor(Number(e.target.value)) || 1)))} />
+        </SetRow>
+      </section>}
     </SettingsTabPanel>
     {hasHistory && <SettingsTabPanel id="history" idBase={tabId} active={tab === 'history'}
       className="app-settings-panel agent-history-tab">

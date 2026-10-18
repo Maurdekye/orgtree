@@ -4315,6 +4315,8 @@ main.solo { width: 100%; }
 .doc-row-attribution { font-size: 10px; }
 .doc-gallery-row .project-mark { flex-shrink: 0; }
 .badge.evicted { color: var(--dim); }
+.project-ack-settings { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+.project-ack-settings h4 { margin: 0 0 10px; font-size: 13px; }
 /* THE END OF A CONTINUOUS LIST (canvas/gallery.tsx): the "Newer"/"Older"
    buttons are gone and the list loads as it is scrolled, so the only thing
    left at the bottom is a quiet status line — a page on its way, a failed one
