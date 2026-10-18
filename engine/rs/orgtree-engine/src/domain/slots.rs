@@ -61,7 +61,7 @@ struct Granted {
 #[nolog]
 fn grant_line(project: &str, slot: i32, lease: &str) -> String {
     format!("You now hold slot {slot} of project {project} (lease {lease}). Release it as soon as the work that needs it \
-             ends: orgtree_project action=release_slot lease={lease}. Until you do, nobody else in line gets it.")
+             ends: orgtree_project action=release_slot lease={lease}. Until you do, nobody else in line gets it. If that tool is missing, your CLI has an old startup schema: start a fresh CLI before another claim, and ask a project ancestor to force-release this lease.")
 }
 
 /// Give free slots to the first in line: one short transaction holding the

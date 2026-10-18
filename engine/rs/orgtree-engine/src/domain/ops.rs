@@ -710,6 +710,9 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         "set_mail_queue" => set_mail_queue(org, &tx, actor, req, fx).await?,
         "purge_mail_queue" => purge_mail_queue(org, &tx, actor, req, fx).await?,
         "set_slots" => set_slots(org, &tx, actor, req, fx).await?,
+        "project_settings" => project_settings(org, &tx, actor, req).await?,
+        "configure_project" => configure_project(org, &tx, actor, req, fx).await?,
+        "project_presentations" => project_presentations(org, &tx, actor, req).await?,
         "slot_release" => slot_release(org, &tx, actor, req, fx).await?,
         "slot_status" => slot_status(org, &tx, actor, req).await?,
         "slot_unqueue" => slot_unqueue(org, &tx, actor, req, fx).await?,
@@ -2049,6 +2052,98 @@ async fn set_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Acto
                "max_attempts": crate::domain::projects::max_attempts(&next), "mode_changed": mode_changed }))
 }
 
+/// Read the complete Project settings values with the desktop's project reach.
+#[logged]
+async fn project_settings(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value) -> Result<Value> {
+    let n=node_by_name(tx,org.id,str_arg(req,"node").unwrap_or("")).await?;
+    if !n.project() { refuse!(BadRequest,"{} is not a project",n.name); }
+    authorize(tx,actor,&n,"read project settings").await?;
+    let description:Option<String>=tx.query_one("SELECT charter FROM ot.agents WHERE id=$1", &[&n.id]).await?.get(0);
+    Ok(json!({"node":n.name,"state":n.state,"settings":{
+        "name":n.name,"description":description.unwrap_or_default(),"peer_mail":super::peer_mail::enabled(&n.scope),
+        "mail_queue":if super::projects::ack_mode(&n.scope) {super::projects::MODE_ACK} else {super::projects::MODE_ROUND_ROBIN},
+        "exclude_sender":super::projects::exclude_sender(&n.scope),"ack_timeout":super::projects::ack_timeout(&n.scope),
+        "max_attempts":super::projects::max_attempts(&n.scope),"slots":super::slots::capacity(&n.scope)
+    }}))
+}
+
+/// Prepare an explicit patch; canonical operations retain value validation and effects.
+#[nolog]
+fn project_setting_ops(node:&str, settings:&Value) -> Result<Vec<Value>> {
+    let Some(fields)=settings.as_object() else { refuse!(BadRequest,"settings must be an object"); };
+    if fields.is_empty() { refuse!(BadRequest,"configure needs at least one setting"); }
+    for (k,v) in fields {
+        let valid=match k.as_str() {
+            "name"|"description"=>v.is_string(),
+            "peer_mail"|"exclude_sender"|"ack_timeout"=>v.is_boolean(),
+            "mail_queue"=>matches!(v.as_str(),Some("ack"|"round_robin")),
+            "slots"=>v.as_i64().is_some_and(|n|(0..=super::slots::MAX_CAPACITY).contains(&n)),
+            "max_attempts"=>v.as_i64().is_some_and(|n|(1..=100).contains(&n)),
+            _=>refuse!(BadRequest,"unknown project setting {k}"),
+        };
+        if !valid { refuse!(BadRequest,"invalid project setting {k}"); }
+    }
+    let mut out=Vec::new();
+    if let Some(v)=settings.get("description") { out.push(json!({"op":"set_description","node":node,"description":v})); }
+    let mut queue=json!({"op":"set_mail_queue","node":node});
+    for (from,to) in [("mail_queue","mode"),("exclude_sender","exclude_sender"),("ack_timeout","ack_timeout"),("max_attempts","max_attempts")] {
+        if let Some(v)=settings.get(from) { queue[to]=v.clone(); }
+    }
+    if queue.as_object().unwrap().len()>2 { out.push(queue); }
+    if let Some(v)=settings.get("slots") { out.push(json!({"op":"set_slots","node":node,"capacity":v})); }
+    if let Some(v)=settings.get("peer_mail") { out.push(json!({"op":"project_peer_mail","node":node,"peer_mail":v})); }
+    // Rename last: every earlier operation addresses the original identity.
+    if let Some(v)=settings.get("name") { valid_name(v.as_str().unwrap())?; out.push(json!({"op":"rename","node":node,"name":v})); }
+    Ok(out)
+}
+
+#[logged]
+async fn configure_project(org:&Arc<OrgHandle>,tx:&Transaction<'_>,actor:&Actor,req:&Value,fx:&mut Effects)->Result<Value> {
+    let n=node_by_name(tx,org.id,str_arg(req,"node").unwrap_or("")).await?;
+    if !n.project() { refuse!(BadRequest,"{} is not a project",n.name); }
+    authorize(tx,actor,&n,"configure").await?;
+    let settings=&req["settings"];
+    for step in project_setting_ops(&n.name,settings)? {
+        match step["op"].as_str().unwrap() {
+            "set_description"=>{set_description(org,tx,actor,&step,fx).await?;},
+            "set_mail_queue"=>{set_mail_queue(org,tx,actor,&step,fx).await?;},
+            "set_slots"=>{set_slots(org,tx,actor,&step,fx).await?;},
+            "rename"=>{rename(org,tx,actor,&step,fx,false).await?;},
+            "project_peer_mail"=>{
+                let current:Value=tx.query_one("SELECT scope FROM ot.agents WHERE id=$1",&[&n.id]).await?.get(0);
+                let next=super::peer_mail::with_setting(&current,step["peer_mail"].as_bool().unwrap());
+                tx.execute("UPDATE ot.agents SET scope=$2,row_version=row_version+1 WHERE id=$1",&[&n.id,&next]).await?;
+                event(tx,org.id,"scope",actor,Some(n.id),json!({"node":n.name,"change":{"peer_mail":step["peer_mail"]}}),fx).await?;
+                fx.agents.insert(n.id);
+            },
+            _=>unreachable!(),
+        }
+    }
+    let name=settings["name"].as_str().unwrap_or(&n.name);
+    project_settings(org,tx,actor,&json!({"node":name})).await
+}
+
+#[logged]
+async fn project_presentations(org:&Arc<OrgHandle>,tx:&Transaction<'_>,actor:&Actor,req:&Value)->Result<Value> {
+    let n=node_by_name(tx,org.id,str_arg(req,"node").unwrap_or("")).await?;
+    if !n.project() { refuse!(BadRequest,"{} is not a project",n.name); }
+    authorize(tx,actor,&n,"read project presentations").await?;
+    let mut members=if req["team"].as_bool().unwrap_or(false) {subtree(tx,n.id).await?} else {Vec::new()};
+    members.push(n.id);
+    let document=str_arg(req,"document");
+    if req["action"]=="read_presentation" && document.is_none() {refuse!(BadRequest,"read_presentation needs document id");}
+    let limit=req["limit"].as_i64().unwrap_or(50).clamp(1,100);
+    let offset=req["offset"].as_i64().unwrap_or(0).max(0);
+    let rows=tx.query("SELECT d.uid,d.node_name,d.title,d.at,d.format,d.bytes,CASE WHEN $4::text IS NULL THEN NULL ELSE substring(coalesce(d.body,''),1,60001) END FROM ot.documents d WHERE d.org_id=$1 AND (d.agent_id=ANY($2) OR (d.agent_id IS NULL AND d.node_name=$3)) AND ($4::text IS NULL OR d.uid=$4) ORDER BY d.id DESC OFFSET $5 LIMIT $6", &[&org.id,&members,&n.name,&document,&offset,&limit]).await?;
+    if document.is_some() && rows.is_empty() {refuse!(NotFound,"presentation is not in the requested project gallery");}
+    let docs:Vec<Value>=rows.iter().map(|r|{
+        let mut d=json!({"id":r.get::<_,String>(0),"node":r.get::<_,String>(1),"title":r.get::<_,String>(2),"at":crate::util::iso(r.get(3)),"format":r.get::<_,String>(4),"bytes":r.get::<_,i32>(5)});
+        if let Some(body)=r.get::<_,Option<String>>(6) {let (body,cut)=crate::runtime::convo::clip(&body,60000);d["body"]=json!(body);d["truncated"]=json!(cut);}
+        d
+    }).collect();
+    Ok(json!({"project":n.name,"documents":docs,"offset":offset,"next_offset":if rows.len()==limit as usize {Some(offset+limit)} else {None}}))
+}
+
 /// Set a project's slot count (domain/slots.rs; user 2026-10-18 08:42Z: a
 /// count, 0 is none). Whoever controls the project may. Lowering it takes no
 /// slot from a holder; the new count applies as slots free up. Free slots
@@ -2097,7 +2192,7 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     let how = match actor {
         Actor::Agent { id: me, .. } if *me == holder => "released".to_string(),
         Actor::Agent { id: me, .. } if force && within(tx, *me, project).await? => format!("released (forced by {})", actor.label()),
-        Actor::Agent { .. } => refuse!(Forbidden, "lease {lease} is {holder_name}'s; only its holder releases it (or the project's superior, forcing it)"),
+        Actor::Agent { .. } => refuse!(Forbidden, "lease {lease} is {holder_name}'s; its holder releases it, or any project ancestor uses force=true. If orgtree_project is absent from your CLI, start a fresh CLI to load current tools before claiming another slot"),
         _ => format!("released (forced by {})", actor.label()),
     };
     // the project's row first, as the grant takes it
@@ -2139,7 +2234,7 @@ async fn slot_unqueue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     }
     if let Actor::Agent { id, .. } = actor {
         if !within(tx, *id, n.id).await? {
-            refuse!(Forbidden, "only the project's superior or the user removes an agent from its slot line");
+            refuse!(Forbidden, "only an agent above the project (any ancestor), or the user, removes an agent from its slot line");
         }
     }
     let who = str_arg(req, "agent").unwrap_or("");
@@ -2532,6 +2627,35 @@ async fn cheap_compact(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transact
 }
 
 // ------------------------------------------------------------ seats
+
+#[cfg(test)]
+mod project_settings_tests {
+    use super::*;
+    #[test]
+    fn full_patch_preserves_false_zero_and_renames_last() {
+        let ops=project_setting_ops("alpha",&json!({"name":"beta","description":"","peer_mail":false,
+            "mail_queue":"ack","exclude_sender":false,"ack_timeout":false,"max_attempts":100,"slots":0})).unwrap();
+        assert_eq!(ops.len(),5);
+        assert_eq!(ops.last().unwrap(),&json!({"op":"rename","node":"alpha","name":"beta"}));
+        assert_eq!(ops[1]["ack_timeout"],false);
+        assert_eq!(ops[1]["exclude_sender"],false);
+        assert_eq!(ops[2]["capacity"],0);
+        assert_eq!(ops[3]["peer_mail"],false);
+    }
+    #[test]
+    fn partial_patch_never_resets_untouched_values() {
+        assert_eq!(project_setting_ops("alpha",&json!({"slots":1})).unwrap(),vec![json!({"op":"set_slots","node":"alpha","capacity":1})]);
+        assert_eq!(project_setting_ops("alpha",&json!({"description":""})).unwrap(),vec![json!({"op":"set_description","node":"alpha","description":""})]);
+    }
+    #[test]
+    fn invalid_patch_fails_before_any_canonical_write() {
+        for bad in [json!(null),json!([]),json!({}),json!({"account":"secret"}),json!({"peer_mail":"false"}),
+            json!({"slots":-1}),json!({"slots":65}),json!({"slots":1.5}),json!({"max_attempts":0}),json!({"max_attempts":101}),
+            json!({"mail_queue":"fifo"}),json!({"name":"bad/name"}),json!({"description":null})] {
+            assert!(project_setting_ops("alpha",&bad).is_err(),"accepted invalid patch {bad}");
+        }
+    }
+}
 
 /// Two agents exchange seats: each seat keeps its superior, reports, grant,
 /// team charter and scope; each agent keeps its identity, session, charter,

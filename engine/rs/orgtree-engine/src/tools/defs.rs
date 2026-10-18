@@ -703,11 +703,21 @@ fn build_tool_hire() -> Value {
 fn build_tool_project() -> Value {
     tool(
         "orgtree_project",
-        "Create a project node, or edit its description: no turns/credits; its agents report to and are paid by the nearest agent above. Has folder, mailbox and presentations; fair_queue delivers each mail to one watcher. Reach/control is limited to agents above/below it. create requires name/index; parent defaults you. The description is the standing charter of every agent under it; describe (name, description) replaces it. Slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours.",
+        "Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. settings reads all values; configure (name, settings) patches name/description, peer mail, queue/ack policy and slots atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment authority. presentations lists project/team cards; read_presentation reads document. Slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent).",
         json!({
-            "action": { "type": "string", "enum": ["create", "describe", "slots", "release_slot"] },
+            "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","broadcast","presentations","read_presentation"] },
             "lease": { "type": "string", "description": "release_slot: the lease your slot grant named" },
             "note": { "type": "string", "description": "release_slot: optional, e.g. build ok 265s" },
+            "settings": {"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"slots":{"type":"integer","minimum":0,"maximum":64}}},
+            "force": {"type":"boolean","description":"release_slot: any project ancestor may force release"},
+            "agent": {"type":"string","description":"unqueue_slot: agent to remove from line"},
+            "team": {"type":"boolean","description":"presentations/read_presentation: include the project subtree"},
+            "document": {"type":"string","description":"read_presentation: document id"},
+            "limit": {"type":"integer","minimum":1,"maximum":100},
+            "offset": {"type":"integer","minimum":0},
+            "body": {"type":"string","description":"broadcast: message to every live agent under the project"},
+            "attachments": {"type":"array","items":{"type":"string"},"maxItems":10},
+            "notice": {"type":"boolean"},
             "name": { "type": "string" }, "parent": { "type": "string" },
             "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
             "description": { "type": "string", "description": "what the project is: shown on its card and to its agents" },
@@ -995,7 +1005,7 @@ mod project_settings_contract_tests {
     fn project_can_read_and_configure_settings() {
         let c=card();
         let actions=c["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap();
-        for action in ["settings","configure"] { assert!(actions.contains(&json!(action)),"missing project action {action}"); }
+        for action in ["settings","configure","purge_waiting","broadcast","presentations","read_presentation"] { assert!(actions.contains(&json!(action)),"missing project action {action}"); }
     }
     #[test]
     fn project_exposes_every_desktop_setting_with_typed_patch_fields() {
@@ -1221,7 +1231,17 @@ mod builder_stack_tests {
         assert!(actual_project["description"].as_str().unwrap().contains("Slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours."));
         project["description"] = actual_project["description"].clone();
         let schema = &mut project["inputSchema"];
-        schema["properties"]["action"]["enum"] = serde_json::json!(["create", "describe", "slots", "release_slot"]);
+        schema["properties"]["action"]["enum"] = serde_json::json!(["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","broadcast","presentations","read_presentation"]);
+        schema["properties"]["settings"] = serde_json::json!({"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"slots":{"type":"integer","minimum":0,"maximum":64}}});
+        schema["properties"]["force"] = serde_json::json!({"type":"boolean","description":"release_slot: any project ancestor may force release"});
+        schema["properties"]["agent"] = serde_json::json!({"type":"string","description":"unqueue_slot: agent to remove from line"});
+        schema["properties"]["team"] = serde_json::json!({"type":"boolean","description":"presentations/read_presentation: include the project subtree"});
+        schema["properties"]["document"] = serde_json::json!({"type":"string","description":"read_presentation: document id"});
+        schema["properties"]["limit"] = serde_json::json!({"type":"integer","minimum":1,"maximum":100});
+        schema["properties"]["offset"] = serde_json::json!({"type":"integer","minimum":0});
+        schema["properties"]["body"] = serde_json::json!({"type":"string","description":"broadcast: message to every live agent under the project"});
+        schema["properties"]["attachments"] = serde_json::json!({"type":"array","items":{"type":"string"},"maxItems":10});
+        schema["properties"]["notice"] = serde_json::json!({"type":"boolean"});
         schema["properties"]["lease"] = serde_json::json!({ "type": "string", "description": "release_slot: the lease your slot grant named" });
         schema["properties"]["note"] = serde_json::json!({ "type": "string", "description": "release_slot: optional, e.g. build ok 265s" });
         schema["required"] = serde_json::json!(["action"]);

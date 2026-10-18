@@ -532,7 +532,9 @@ pub async fn read_scratch(engine: &Arc<Engine>, caller: &Caller, args: &Value) -
     let me = me(&client, caller).await?;
     let t = target(&client, me.org_id, node).await?;
     if t.id != me.id {
-        downward(&client, &me, &t, "read the folder of").await?;
+        if let Some(project) = crate::domain::projects::by_name(&**client,me.org_id,&t.name).await? {
+            crate::domain::projects::require_reach(&**client,me.id,&project,"read its folder").await?;
+        } else { downward(&client, &me, &t, "read the folder of").await?; }
     }
     let root = super::mailtools::scratch_of(engine, &client, caller, t.id).await?;
     drop(client);
