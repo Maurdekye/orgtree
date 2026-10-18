@@ -85,5 +85,38 @@ module.exports = async (page) => {
       link: !!r.querySelector('button.cc-name-jump') })),
   }))
   screenshots.push(await page.screenshot(`${prefix}-presented-1000x700`))
+  // the description at rest, then a REAL click (CDP, trusted) into the middle
+  // of "checklist" in the Markdown: the editor should open with the caret
+  // there (user 2026-10-18 07:14Z)
+  await page.goto('/?scene=desc')
+  await page.waitFor('.project-description-md a', { timeout: 15000 })
+  await settle()
+  const rest = await page.eval(() => {
+    const md = document.querySelector('.project-description-md')
+    const cs = getComputedStyle(md)
+    const link = md.querySelector('a').firstChild
+    const r = document.createRange(); r.setStart(link, 12); r.setEnd(link, 13)   // "release chec|k"
+    const b = r.getBoundingClientRect()
+    const pop = document.querySelector('.cc-head button.popout-button')
+    return { background: cs.backgroundColor, borderColor: cs.borderTopColor, borderWidth: cs.borderTopWidth,
+      popout: pop ? [pop.getAttribute('aria-label'), pop.textContent] : null,
+      x: Math.round(b.left + 1), y: Math.round(b.top + b.height / 2) }
+  })
+  screenshots.push(await page.screenshot(`${prefix}-desc-rest-1000x700`))
+  await page.mouse('mouseMoved', rest.x, rest.y)
+  await page.mouse('mousePressed', rest.x, rest.y)
+  await page.mouse('mouseReleased', rest.x, rest.y)
+  await settle()
+  const edit = await page.eval(() => {
+    const box = document.querySelector('textarea.project-description-edit')
+    if (!box) return { open: false }
+    const cs = getComputedStyle(box)
+    return { open: true, focused: document.activeElement === box, caret: box.selectionStart, end: box.selectionEnd,
+      before: box.value.slice(Math.max(0, box.selectionStart - 30), box.selectionStart),
+      after: box.value.slice(box.selectionStart, box.selectionStart + 12),
+      background: cs.backgroundColor, borderColor: cs.borderTopColor }
+  })
+  details.desc = { rest, edit }
+  screenshots.push(await page.screenshot(`${prefix}-desc-editing-1000x700`))
   return { details, screenshots }
 }

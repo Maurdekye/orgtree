@@ -17,12 +17,17 @@
 //   fairqueue — the REAL canvas: dev1 holds an armed fair_queue dog on project
 //             site, boss a paused one; &theme=light draws the light theme
 //             (point 26, user 2026-10-17 22:48Z).
+//   desc    — a bare project desk: the description at rest (no border or
+//             background) and the header's pop-out button; the capture
+//             script clicks into the Markdown to open the editor (user
+//             2026-10-18 07:14Z-07:15Z).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { DeskChat } from '../src/canvas/desk'
 import { AgentGalleryView } from '../src/canvas/gallery'
+import { ProjectDesk } from '../src/canvas/projectdesk'
 import type { CanvasNode, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -138,6 +143,25 @@ function Activity() {
 
 const scene = new URLSearchParams(location.search).get('scene') || 'cards'
 
+function Desc() {
+  const nd = { ...card, charter: '# The website
+
+Deploy from **main** only, after the [release checklist](https://example.invalid/checklist) passes.
+
+- keep the build green
+- review every change' } as CanvasNode
+  const map = new Map([[nd.id, nd]])
+  return (
+    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      <div style={{ position: 'absolute', left: 20, top: 20, width: 600, height: 660, border: '1px solid var(--line)' }}>
+        <ProjectDesk bare node={nd} slug="org" tree={tree([])} map={map} op={() => Promise.resolve({} as OpResult)}
+          toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} onConfig={noop}
+          onPin={noop} onPopout={noop} />
+      </div>
+    </main>
+  )
+}
+
 function Presented() {
   const nd = { ...card, documents: [{ id: 'd1', title: 'Website plan', at: new Date(Date.now() - 180_000).toISOString() }],
     documents_count: 1, children: [{ ...(card.children ?? [])[0]!, documents: [{ id: 'd2', title: 'Dev notes',
@@ -174,6 +198,7 @@ const rows: Record<string, unknown[]> = {
 }
 createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps />
   : scene === 'presented' ? <Presented />
+  : scene === 'desc' ? <Desc />
   : scene === 'activity' ? <Activity /> : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
