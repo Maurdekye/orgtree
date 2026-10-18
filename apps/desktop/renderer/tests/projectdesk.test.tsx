@@ -83,13 +83,14 @@ function serve(t: TestContext) {
 }
 
 async function desk(t: TestContext, h: { jump?: (id: string) => void; config?: () => void;
-  pin?: () => void; popout?: () => void; bare?: boolean; node?: CanvasNode; ops?: OpRequest[] } = {}) {
+  pin?: () => void; popout?: () => void; bare?: boolean; node?: CanvasNode; ops?: OpRequest[]
+  toast?: (lines: string[]) => void } = {}) {
   serve(t)
   const nd = h.node ?? project()
   const ops = h.ops ?? []
   const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd], ['boss', boss]])}
     op={(b) => { ops.push(b); return Promise.resolve({} as OpResult) }}
-    toast={noop} refs={refs} bare={h.bare} onJump={h.jump} onConfig={h.config} onPin={h.pin} onPopout={h.popout} />, (el) => el)
+    toast={h.toast ?? noop} refs={refs} bare={h.bare} onJump={h.jump} onConfig={h.config} onPin={h.pin} onPopout={h.popout} />, (el) => el)
   t.after(() => view.unmount())
   await flush(2)
   return view.el
@@ -333,6 +334,38 @@ test("§10 the desk's message box: by default one mail to the project's own inbo
   await inAct(() => { el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="inbox"]')!.click() })
   await flush(2)
   assert.ok(el.querySelector('.project-composer textarea'), 'under every tab, as on an agent desk')
+})
+
+test("§10c a failed audience grant after delivery says so in the toast (coordinator 2026-10-18 09:43Z)", async (t) => {
+  const toasts: string[][] = []
+  const el = await desk(t, { toast: (l) => toasts.push(l) })
+  const inner = globalThis.fetch
+  const failed = { granted: false, error: 'delivered but audience grant failed: boom' }
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(url), 'http://x').pathname
+    if (init?.method === 'POST' && /\/nodes\/website\/(message|broadcast)$/.test(path)) {
+      const answer = path.endsWith('/broadcast')
+        ? { accepted: true, project: 'website', notice: false, sent: [{ to: 'dev1' }], refused: [], audience_grant: failed }
+        : { accepted: true, id: 'm1', delivery: 'queued in project website', audience_grant: failed }
+      return Promise.resolve(new Response(JSON.stringify(answer), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    }
+    return inner(url, init)
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = inner })
+  const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
+  const enter = () => inAct(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+  await inAct(() => { setText(box, 'hello') })
+  await enter()
+  await flush(4)
+  await inAct(() => { el.querySelector<HTMLButtonElement>('button.cc-broadcast-toggle')!.click() })
+  await inAct(() => { setText(box, 'all of you') })
+  await enter()
+  await flush(4)
+  assert.equal(toasts.length, 2, 'one toast per send')
+  for (const lines of toasts) {
+    assert.ok(lines.some((l) => l.startsWith("sent, but the project's user audience couldn't be granted")),
+      JSON.stringify(lines))
+  }
 })
 
 test('§10b the megaphone border brightens over the plain and focused box', () => {
