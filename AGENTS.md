@@ -961,6 +961,17 @@
   are unchanged. [decided: user 2026-10-14 23:01–23:02UTC; verified:
   `themes.tsx`, `canvas/accounts.tsx`, `packages/contracts/visual-theme.ts`]
 
+- On the light surfaces (`contrast-light`, `contrast-solarized-light`) a pale
+  preset accent gets a darker same-hue partner in a
+  `:root[data-visual-theme="<preset>"]` rule whose declarations are all
+  `!important`, because `applyTheme` sets the accent inline: Muse Eggshell
+  #0077b0, Orgtree Grey #4c5565 (4.6:1 or more on every light surface and row
+  wash; its hover goes darker, #39404c). Accent text, fills (white ink) and
+  borders follow; charcoal and obsidian keep the preset's own accent. Pop-outs
+  mirror `data-visual-theme` with the root classes and style, or those rules
+  miss them. [decided: user 2026-10-18 15:34Z; verified: `styles.css`,
+  `popout.tsx`, `tests/lightaccent.test.tsx`]
+
 - Antigravity committed mid-turn mail clears only the next-tool row pointer
   (`Turn.codex_row`); keep existing tool-to-row mappings so in-flight results
   finish on their original rows. Invocation-hook injection does not restart or
