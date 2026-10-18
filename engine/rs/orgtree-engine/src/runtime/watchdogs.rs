@@ -5,7 +5,7 @@
 //! through lock-free maps: pausing or removing a watchdog cancels its token,
 //! and activity dogs listen on a per-agent fan-out the actor publishes to.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -2080,6 +2080,20 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
           ORDER BY w.id"
     );
     let rows = client.query(&sql, &[&agent]).await?;
+    // A slot claim is pushed, so report its position instead of polling health.
+    // Resolve each distinct project's canonical live line once per list call.
+    let mut projects = HashSet::new();
+    let mut positions = HashMap::new();
+    for row in &rows {
+        let dog = dog_of(row);
+        if dog.kind == "slot" && dog.state == "armed" && dog.memo.get("lease").is_none() {
+            if let Some(project) = dog.memo["target_id"].as_i64().filter(|p| projects.insert(*p)) {
+                for (index, (row, _, _, _)) in crate::domain::slots::line(&**client, project).await?.into_iter().enumerate() {
+                    positions.insert(row, index + 1);
+                }
+            }
+        }
+    }
     let dogs: Vec<Value> = rows
         .iter()
         .map(|r| {
@@ -2109,6 +2123,11 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
             put("exit", json!(d.exit));
             put("quiet_period_s", json!(d.quiet_s));
             put("silence_since", json!(d.silence_since.map(iso)));
+            if let Some(position) = positions.get(&d.row) {
+                put("line_position", json!(position));
+                put("line", json!(slot_line_label(*position)));
+            }
+            if d.kind == "slot" { put("lease", d.memo["lease"].clone()); }
             put("health", json!(engine.dogs.event_health.pin().get(&d.row).cloned().or_else(||health(&d))));
             v
         })
@@ -2147,7 +2166,7 @@ fn health(d: &Dog) -> Option<String> {
                 hours(age)
             )
         }),
-        "activity" | "event" | "fair_queue" => None,
+        "activity" | "event" | "fair_queue" | "slot" => None,
         _ if runs == 0 => (age >= NEVER_RAN_AGE_S)
             .then(|| format!("⚠ armed {} ago but has NEVER RUN A CHECK — the engine has not picked it up; report this.", hours(age))),
         _ => (d.fired == 0 && runs >= QUIET_CHECKS && age >= QUIET_AGE_S).then(|| {
@@ -2158,6 +2177,12 @@ fn health(d: &Dog) -> Option<String> {
             )
         }),
     }
+}
+
+#[nolog]
+fn slot_line_label(position: usize) -> String {
+    let suffix = match position % 100 { 11..=13 => "th", _ => match position % 10 { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" } };
+    format!("in line: {position}{suffix}")
 }
 
 /// Pause the armed dogs of agents leaving the tree (archive); returns their rows.
@@ -2263,6 +2288,13 @@ mod tests {
     fn polling_dogs_still_warn_when_checks_never_started() {
         for kind in ["file", "command", "process"] {
             assert!(health(&quiet_dog(kind)).unwrap().contains("NEVER RUN A CHECK"), "{kind}");
+        }
+    }
+
+    #[test]
+    fn slot_line_labels_show_queue_order_without_numbering_permits() {
+        for (place, text) in [(1, "1st"), (2, "2nd"), (3, "3rd"), (11, "11th"), (12, "12th"), (21, "21st")] {
+            assert_eq!(slot_line_label(place), format!("in line: {text}"));
         }
     }
 
