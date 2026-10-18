@@ -326,7 +326,7 @@ test('§5 the empty state says how to claim and that nobody waits', async (t) =>
   assert.equal(card?.textContent, 'slots 0/2')
   assert.equal(card?.classList.contains('full'), false, 'an outline while a slot is free')
   const panel = view.el.querySelector<HTMLElement>('.project-slots')!
-  assert.equal(panel.querySelector('.slots-lead')?.textContent, '0 of 2 concurrency slots held')
+  assert.match(view.el.querySelector('.project-slots-meta')?.textContent ?? '', /0 of 2 concurrency slots held/)
   assert.match(panel.textContent ?? '', /Nobody holds a concurrency slot\./)
   assert.match(panel.textContent ?? '', /orgtree_watchdog action=create kind=slot target=build/)
   assert.match(panel.textContent ?? '', /Nobody is waiting\./)
