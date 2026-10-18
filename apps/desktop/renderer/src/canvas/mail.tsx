@@ -608,7 +608,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           const view = typedView(m)
           return (
           <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view} hideMailReplyKind={hideMailReplyKind} projectMail={projectMail}
-            onFocusAgent={onFocusAgent} hasAgent={hasAgent}
+            onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
             party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>tagFilter.onChange(toggleMailTag(tagFilter.selected,tag)):undefined}
@@ -655,7 +655,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
         {cur && (
           <MailReadPane cur={cur} members={curPile} org={org} refs={refs} hideMailReplyKind={hideMailReplyKind}
             compoundHeader={compoundHeader}
-            onFocusAgent={onFocusAgent} hasAgent={hasAgent}
+            onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf}
             mdBase={mdBase} fileHref={fileHref} sender={S} outgoing={outgoing}
             customSender={customS} waitLabel={waitLabel} custom={custom}
             party={displayParty(cur)!}
@@ -727,11 +727,13 @@ const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s
  *  `MailList` renders its rows through it; `pile` is the size of a folded run
  *  of system notices (1 = a single message). */
 export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, party, mark,
-  onRetract, onClick, onContextMenu, rowRef, onTag, hideMailReplyKind, onFocusAgent, hasAgent, projectMail }: {
+  onRetract, onClick, onContextMenu, rowRef, onTag, hideMailReplyKind, onFocusAgent, hasAgent, tierOf, projectMail }: {
   /** a project's own mailbox: chips always take the meta line (MailListProps) */
   projectMail?: boolean
   onFocusAgent?: (id: string) => void
   hasAgent?: (id: string) => boolean
+  /** the model card of an agent the queue state names (MailListProps.tierOf) */
+  tierOf?: (id: string) => string | null | undefined
   hideMailReplyKind?: boolean
   m: MailRow
   onTag?: (tag:string)=>void
@@ -847,7 +849,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
       </div>
       {metaLine && <div className="lmeta">
         {chips}
-        {queued && <QueueChip q={m.queue!} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />}
+        {queued && <QueueChip q={m.queue!} onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf} />}
       </div>}
       {/* the preview line is what makes a row two lines tall, so a
           SYSTEM notice simply does not render one (user, 2026-08-28:
@@ -873,10 +875,12 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
  *  `.mailer-read`; `MailList` itself draws its pane through it. `onReply` is
  *  passed only when this message may be replied to from here. */
 export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender, party,
-  outgoing, customSender, waitLabel, custom, onReply, toast, onTag, hideMailReplyKind, onFocusAgent, hasAgent, compoundHeader }: {
+  outgoing, customSender, waitLabel, custom, onReply, toast, onTag, hideMailReplyKind, onFocusAgent, hasAgent, tierOf, compoundHeader }: {
   compoundHeader?: boolean
   onFocusAgent?: (id: string) => void
   hasAgent?: (id: string) => boolean
+  /** the model card of an agent the queue state names (MailListProps.tierOf) */
+  tierOf?: (id: string) => string | null | undefined
   hideMailReplyKind?: boolean
   cur: MailRow
   onTag?: (tag:string)=>void
@@ -923,7 +927,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
     {cur.urgent && <span className="urgentkind">urgent</span>}
     <TagChips tags={cur.tags} onTag={onTag}/>
     {cur.relationship && <span className="dim">{cur.relationship}</span>}
-    {!cur._ask && cur.queue && <QueueChip q={cur.queue} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />}
+    {!cur._ask && cur.queue && <QueueChip q={cur.queue} onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf} />}
     <span className="dim">{fmtFull(cur.at)}</span>
     {cur._wait && <span className="wait">{waitLabel}</span>}
   </>
@@ -1305,46 +1309,63 @@ interface InboxViewProps {
 // states retain their distinct labels; the recorded claim time is not sent-at.
 const plainDelivery = (q: MailQueueState) =>
   Boolean(q.held_by && !q.ack && !q.acked_at && !q.ack_of && !q.dead_letter && !q.purged && !q.released)
+interface QueueLabel {
+  text: string
+  title: string
+  /** the agent the label names, split out of its words: [before, id, after] */
+  named?: [string, string, string]
+}
 /** every other queue state's label and tooltip; an empty label shows nothing */
-function queueLabel(q: MailQueueState): [string, string] {
-  return q.ack_of ? [`ack of ${q.ack_of}`, `the completion record that acks mail ${q.ack_of}`]
-    : q.dead_letter ? ['dead letter', `handed out ${q.dead_letter.attempts ?? '?'} times without an ack; the last holder, `
-      + `${q.dead_letter.by ?? '?'}, ${q.dead_letter.why ?? 'let it go'}. It will not be handed out again.`]
-    : q.purged ? ['purged', `purged from the queue by ${q.purged.by ?? '?'} before anyone took it`]
-    : q.released ? [`released (${q.released.by ?? '?'})`, `back in the queue: ${q.released.by ?? 'its holder'} ${q.released.why ?? 'let it go'}`]
-      : q.acked_at ? [`acked by ${q.held_by}`, `${q.held_by} acked it${q.ack_mail ? ` with ${q.ack_mail}` : ''}`]
-        : q.ack ? [`${q.held_by} · awaiting ack`, `handed to ${q.held_by}, who gets no more project mail until it acks this one`]
-          : q.held_by ? [`delivered to ${q.held_by}`, `the project's queue delivered it to ${q.held_by}`
-            + (q.ack_waived_at ? ' (its ack was waived when the queue left ack mode)' : '')] : ['', '']
+function queueLabel(q: MailQueueState): QueueLabel {
+  const naming = (before: string, id: string | undefined, after: string, title: string): QueueLabel =>
+    ({ text: before + (id ?? '?') + after, title, named: id ? [before, id, after] : undefined })
+  return q.ack_of ? { text: `ack of ${q.ack_of}`, title: `the completion record that acks mail ${q.ack_of}` }
+    : q.dead_letter ? { text: 'dead letter', title: `handed out ${q.dead_letter.attempts ?? '?'} times without an ack; the last holder, `
+      + `${q.dead_letter.by ?? '?'}, ${q.dead_letter.why ?? 'let it go'}. It will not be handed out again.` }
+    : q.purged ? { text: 'purged', title: `purged from the queue by ${q.purged.by ?? '?'} before anyone took it` }
+    : q.released ? naming('released (', q.released.by, ')', `back in the queue: ${q.released.by ?? 'its holder'} ${q.released.why ?? 'let it go'}`)
+      : q.acked_at ? naming('acked by ', q.held_by, '', `${q.held_by} acked it${q.ack_mail ? ` with ${q.ack_mail}` : ''}`)
+        : q.ack ? naming('', q.held_by, ' · awaiting ack', `handed to ${q.held_by}, who gets no more project mail until it acks this one`)
+          : q.held_by ? { text: `delivered to ${q.held_by}`, title: `the project's queue delivered it to ${q.held_by}`
+            + (q.ack_waived_at ? ' (its ack was waived when the queue left ack mode)' : '') } : { text: '', title: '' }
 }
 /** does this queue state draw a QueueChip? A row that shows one gives it a
  *  line of its own (MailRowView). */
 export const showsQueueState = (q: MailQueueState | undefined) =>
-  Boolean(q && (plainDelivery(q) || queueLabel(q)[0]))
+  Boolean(q && (plainDelivery(q) || queueLabel(q).text))
 
 /** A project mail's queue state, on its row's meta line and in the reading
  *  pane's header (user 2026-10-18 08:01Z): handed to an agent, waiting for
- *  its ack, acked, released back to the queue, or an ack record. */
-export function QueueChip({ q, onFocusAgent, hasAgent }: {
+ *  its ack, acked, released back to the queue, or an ack record. Every agent
+ *  it names is the shared `AgentName` wearing that agent's model card, as the
+ *  sender beside it does (user 2026-10-18 17:01Z: "recipients are still
+ *  missing model icon cards in project mailboxes"). `queue-agent`: an outline
+ *  chip whose words name that agent. */
+export function QueueChip({ q, onFocusAgent, hasAgent, tierOf }: {
   q: MailQueueState
   onFocusAgent?: (id: string) => void
   hasAgent?: (id: string) => boolean
+  /** the named agent's model, for its card: MailListProps.tierOf's contract */
+  tierOf?: (id: string) => string | null | undefined
 }) {
+  const focus = onFocusAgent
+  const agent = (id: string, why: string, prefix?: string) => <AgentName id={id} prefix={prefix} why={why}
+    tier={tierOf?.(id)} onFocus={focus && hasAgent?.(id) ? (aid: string) => focus(aid) : undefined} />
   if (plainDelivery(q) && q.held_by) {
     const title = `delivered to ${q.held_by}`
       + (q.held_at ? ` at ${fmtFull(q.held_at)}` : ' — delivery time not recorded')
       + (q.ack_waived_at ? ' (its ack was waived when the queue left ack mode)' : '')
-    const focus = onFocusAgent
     return <span className="queuekind queue-delivery" title={title}>
       <span aria-hidden="true">→</span>
-      <AgentName id={q.held_by} prefix="@" why={title}
-        onFocus={focus && hasAgent?.(q.held_by) ? id => focus(id) : undefined} />
+      {agent(q.held_by, title, '@')}
     </span>
   }
-  const [text, title] = queueLabel(q)
+  const { text, title, named } = queueLabel(q)
   if (!text) return null
-  return <span className={'queuekind' + (q.ack && !q.acked_at && !q.released ? ' awaiting' : '') + (q.dead_letter ? ' dead' : '')}
-    title={title}>{text}</span>
+  const cls = 'queuekind' + (q.ack && !q.acked_at && !q.released ? ' awaiting' : '') + (q.dead_letter ? ' dead' : '')
+  if (!named) return <span className={cls} title={title}>{text}</span>
+  const [before, id, after] = named
+  return <span className={cls + ' queue-agent'} title={title}>{before}{agent(id, title)}{after}</span>
 }
 
 export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, tier, onFocusAgent, toast,
