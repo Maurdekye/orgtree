@@ -593,7 +593,7 @@ async fn reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, row: i64, hold
             json!({ "project": pname, "mail": uid, "from": sender, "attempts": attempts, "by": by, "why": why })));
         let body = format!(
             "Project {pname} gave up on mail {uid}: it was handed out {attempts} times without an ack (the last holder, {by}, {why}). \
-             It is in the project's dead letters (orgtree_project action=dead_letters name={pname}) and will not be handed out again              unless someone retries it.");
+             It is in the project's dead-letter list (orgtree_project action=dead_letters name={pname}) and will not be handed out again              unless someone retries it.");
         // to the project's superior, the nearest live agent above it; the user
         // for a top-level project (user 2026-10-18 08:13Z)
         let to = superior(engine, project).await.unwrap_or_else(|| "user".into());
