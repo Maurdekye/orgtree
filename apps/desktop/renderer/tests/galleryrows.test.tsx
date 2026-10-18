@@ -10,7 +10,7 @@ for (const surface of ['modal','desk'] as const) {
     const focused:string[]=[]
     const props={slug:'synthetic',toast:()=>{},onFocusAgent:(id:string)=>focused.push(id)}
     const v=await mountView(surface==='modal' ? <DocGalleryModal {...props} close={()=>{}} />
-      : <AgentGalleryView {...props} nid="test-project" node={{id:'test-project',kind:'project'} as any} />)
+      : <AgentGalleryView {...props} nid="test-project" node={{id:'test-project',kind:'project'} as any} />, host=>host)
     t.after(async()=>{await v.unmount();realClock()})
     await flush()
     const rows=[...v.el.querySelectorAll<HTMLElement>('.doc-gallery-row')]
@@ -34,7 +34,7 @@ test('details keep project and presenter navigation',async t=>{
   useFakeClock();installGalleryFixture()
   const focus:string[]=[]
   const v=await mountView(<AgentGalleryView slug="synthetic" nid="test-project" node={{id:'test-project',kind:'project'} as any}
-    toast={()=>{}} onFocusAgent={id=>focus.push(id)} initialDocument="project" />)
+    toast={()=>{}} onFocusAgent={id=>focus.push(id)} initialDocument="project" />,host=>host)
   t.after(async()=>{await v.unmount();realClock()});await flush()
   const links=[...v.el.querySelectorAll<HTMLButtonElement>('.doc-pane-head button.cc-name')]
   assert.deepEqual(links.map(b=>b.textContent),['test-project','test-proj-worker-c'])
