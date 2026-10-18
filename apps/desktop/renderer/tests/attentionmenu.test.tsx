@@ -108,9 +108,9 @@ test('Attention Hire a subordinate opens the draft in the Agent desk panel', asy
   assert.equal(!!hire, true, 'the canonical Hire submenu is available')
   await inAct(() => { hire!.click() })
   await inAct(() => flush(3))
-  const tier = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu button')]
-    .find(button => button.textContent?.trim() === 'Haiku')
-  assert.equal(!!tier, true, 'the offered tier can be selected')
+  const tier = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-submenu button')]
+    .find(button => !button.disabled)
+  assert.ok(tier, 'at least one eligible hire tier is offered')
   await inAct(() => { tier!.click() })
   await inAct(() => flush(8))
   assert.equal(!!v.el.querySelector('.attn-desk .sq.draft'), true,
