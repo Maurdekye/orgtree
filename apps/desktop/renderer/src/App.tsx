@@ -1,4 +1,5 @@
 import { useTaggedUserMail,useMailTagChoices } from './usemailtags'
+import { useInboxTagSelection,includeSelectedMail } from './inboxselection'
 import { useMailboxHistory } from './usemailhistory'
 import { useOpenCommit } from './opentiming'
 import { publishAgentPanelEvent } from './recordevents'
@@ -2752,7 +2753,16 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   const history = useMailboxHistory(slug, rawBox, folder, !mailTag.length || folder === 'sent', readBump)
   const taggedMail=useTaggedUserMail(slug,rawBox,mailTag,folder==='inbox',readBump)
   const tagChoices=useMailTagChoices(slug,rawBox,tagQuery,folder==='inbox',readBump)
-  const box=mailTag.length&&folder==='inbox'?taggedMail.box:history.box
+  const userLookup = useCallback(
+    (id: string) => getMailById(slug, 'user', id).then((r) => r.mail as MailEntry | null),
+    [slug])
+  const tagSelection=useInboxTagSelection(slug,rawBox,mailTag,folder==='inbox',userLookup)
+  const [lookedUpMail,setLookedUpMail]=useState<{slug:string;mail:MailEntry}|null>(null)
+  const [unreadJump,setUnreadJump]=useState<{slug:string;id:string;seq:number}|null>(null)
+  const inboxJump=jumpTo??(unreadJump?.slug===slug?unreadJump.id:null)
+  const inboxJumpSeq=jumpTo?jumpSeq:unreadJump?.seq
+  const box=includeSelectedMail(includeSelectedMail(mailTag.length&&folder==='inbox'?taggedMail.box:history.box,
+    folder==='inbox'?tagSelection.extra:null,mailTag),folder==='inbox'&&lookedUpMail?.slug===slug?lookedUpMail.mail:null,mailTag)
   const restoreChecked = useRef<string | null>(null)
   const [restoreMail, setRestoreMail] = useState<{ slug: string; id: string | null } | null>(null)
   useEffect(() => {
@@ -2772,9 +2782,8 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
     }
   }, [rawBox, slug])
   const rememberOpenedMail = useCallback((id: string) => {
-    try { window.sessionStorage.setItem(`orgtree-user-inbox-last-opened:${slug}`, id) }
-    catch { /* inbox reading still works when session storage is unavailable */ }
-  }, [slug])
+    tagSelection.remember(id)
+  }, [tagSelection.remember])
   useOpenCommit('mail',slug,box !== null && box !== undefined)
   // a mail read here shows read ON THE CLICK (docket v3-marking-a-mail-as-
   // read-takes-about-half-a-sec): out of the unread group and the unread
@@ -2795,9 +2804,6 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   const readHere = (box?.pending ?? []).filter((m) => readLocally(slug, m.id))
   // the exact question for a reference that landed outside this window —
   // one id, asked once, never on the poll
-  const userLookup = useCallback(
-    (id: string) => getMailById(slug, 'user', id).then((r) => r.mail as MailRow | null),
-    [slug])
   // the panel's own question, for the folder that has no `lookup` and so is
   // not the one asking, plus the deliberate retry that goes with it
   const [jumpAsk, setJumpAsk] = useState<'asking' | 'failed' | null>(null)
@@ -2976,9 +2982,15 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   // SENDER — the file sits in that agent's own outbox/.
                   fileHref={(p, m) => fileUrl(slug, m.from, p)}
                   mdBase={(m) => fileBase(slug, m.from)}
-                  waitLabel="unread" selectOldestUnread jumpTo={jumpTo} jumpSeq={jumpSeq}
-                  restoreSelectionId={restoreMail?.slug === slug ? restoreMail.id : null}
+                  waitLabel="unread" selectOldestUnread jumpTo={inboxJump} jumpSeq={inboxJumpSeq}
+                  restoreSelectionId={!mailTag.length&&restoreMail?.slug === slug ? restoreMail.id : null}
+                  selectionRequest={tagSelection.request}
+                  hiddenUnread={{count:taggedMail.box.hidden_unread??0,onOpen:()=>{
+                    const id=taggedMail.box.oldest_unread_id;if(!id)return
+                    tagSelection.remember(id);setMailTag([]);setTagQuery('');setUnreadJump({slug,id,seq:Date.now()})
+                  }}}
                   onOpenMail={rememberOpenedMail}
+                  onFound={m=>setLookedUpMail({slug,mail:m as MailEntry})}
                   lookup={userLookup} refs={mailRefs} toast={toast}
                   /* the row's reference for the context menu: this folder IS
                      the user's box (`@mail:org/user/<id>`); an ask row is a

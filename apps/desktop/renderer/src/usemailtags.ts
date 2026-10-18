@@ -9,7 +9,7 @@ const combine=(a:InboxPayload,b:InboxPayload):InboxPayload=>{
   for(const row of [...a.pending,...a.delivered,...b.pending,...b.delivered])rows.set(row.id,row)
   const unread=new Set([...a.pending,...b.pending].map(m=>m.id))
   for(const row of b.delivered)unread.delete(row.id)
-  return {pending:[...rows.values()].filter(m=>unread.has(m.id)),delivered:[...rows.values()].filter(m=>!unread.has(m.id)),sent:[],next_cursor:b.next_cursor}
+  return {...b,pending:[...rows.values()].filter(m=>unread.has(m.id)),delivered:[...rows.values()].filter(m=>!unread.has(m.id)),sent:[],next_cursor:b.next_cursor}
 }
 
 /** One bounded read per deliberate filter/page or pushed inbox change. No poll. */

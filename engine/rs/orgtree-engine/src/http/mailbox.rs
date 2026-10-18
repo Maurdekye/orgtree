@@ -147,7 +147,12 @@ pub async fn mail_by_id(
                 &[&o.id, &id],
             )
             .await?
-            .map(|r| compute::mail_entry(&r.get::<_, Value>(0))),
+            .map(|r| {
+                let raw:Value=r.get(0);
+                let mut entry=compute::mail_entry(&raw);
+                entry["unread"]=json!(raw["state"]=="pending");
+                entry
+            }),
         "node" => {
             let name = q.node.unwrap_or_default();
             client

@@ -126,11 +126,16 @@ pub async fn window_many(
     }
     // More selected tags is valid, but a mail can carry only eight distinct tags.
     if keys.len() > MAX_TAGS {
-        return Ok(json!({"pending":[],"delivered":[],"sent":[],"next_cursor":null}));
+        let mut result=json!({"pending":[],"delivered":[],"sent":[],"next_cursor":null});
+        add_unread_summary(client,org,&keys,&mut result).await?;
+        return Ok(result);
     }
     let rows=client.query("SELECT m.id,to_jsonb(m)||jsonb_build_object('tags',ot.mail_tag_labels(m.id))
         FROM ot.mail_tag_links l JOIN ot.mail m ON m.id=l.mail_id AND m.org_id=l.org_id
         WHERE l.org_id=$1 AND l.tag_key=$2 AND l.mail_id<$3 AND m.recipient_kind='user' AND m.state IN ('pending','read')
+          AND ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
+            AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL)
+            OR NOT EXISTS (SELECT 1 FROM ot.orgs o WHERE o.id=m.org_id AND o.settings->'org_inbox_enabled'='false'::jsonb))
           AND NOT EXISTS (SELECT 1 FROM unnest($4::text[]) wanted(key)
               WHERE NOT EXISTS (SELECT 1 FROM ot.mail_tag_links match_tag
                   WHERE match_tag.mail_id=m.id AND match_tag.tag_key=wanted.key))
@@ -149,9 +154,27 @@ pub async fn window_many(
             delivered.push(entry);
         }
     }
-    Ok(
-        json!({"pending":pending,"delivered":delivered,"sent":[],"next_cursor":if more {cursor} else {None}}),
-    )
+    let mut result=json!({"pending":pending,"delivered":delivered,"sent":[],"next_cursor":if more {cursor} else {None}});
+    add_unread_summary(client,org,&keys,&mut result).await?;
+    Ok(result)
+}
+
+/// Aggregate only the current unread set, never materialize retained history or
+/// count a bounded client page. The oldest target is global, before tag filtering.
+#[nolog]
+async fn add_unread_summary(client:&tokio_postgres::Client,org:i64,keys:&[String],result:&mut Value)->Result<()> {
+    let row=client.query_one("WITH unread AS MATERIALIZED (
+        SELECT m.id,m.uid,m.created_at,NOT EXISTS (SELECT 1 FROM unnest($2::text[]) wanted(key)
+          WHERE NOT EXISTS (SELECT 1 FROM ot.mail_tag_links l WHERE l.mail_id=m.id AND l.tag_key=wanted.key)) AS matches
+        FROM ot.mail m WHERE m.org_id=$1 AND m.recipient_kind='user' AND m.state='pending'
+        AND ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
+          AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL)
+          OR NOT EXISTS (SELECT 1 FROM ot.orgs o WHERE o.id=m.org_id AND o.settings->'org_inbox_enabled'='false'::jsonb)))
+        SELECT count(*) FILTER (WHERE NOT matches),
+          (SELECT uid FROM unread ORDER BY created_at,id LIMIT 1) FROM unread",&[&org,&keys]).await?;
+    result["hidden_unread"]=json!(row.get::<_,i64>(0));
+    result["oldest_unread_id"]=json!(row.get::<_,Option<String>>(1));
+    Ok(())
 }
 
 /// Cursor-page distinct used keys with indexed seeks, not a scan of old mail.

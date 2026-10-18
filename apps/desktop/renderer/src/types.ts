@@ -1290,6 +1290,9 @@ export type SentMailEntry = MailEntry & { to?: string }
 // GET /api/orgs/{slug}/inbox and .../nodes/{nid}/inbox — same shape by user
 // ruling (api.py user_inbox docstring)
 export interface InboxPayload {
+  /** Server count across every unread row excluded by the ALL-tags filter. */
+  hidden_unread?: number
+  oldest_unread_id?: string | null
   mail_revision?: string
   next_cursor?: string | null
   tag_choices?: string[]

@@ -48,6 +48,7 @@ import type { EventView } from '../events/project'
 import { EventCard, eventSurface } from '../events/card'
 import { MailReplyPreview, recordedMailReply } from './mailreply'
 import { centerTranscriptTarget } from './deskscroll'
+import type { InboxSelectionRequest } from '../inboxselection'
 
 // One mail interface, everywhere (user ruling: the user's and the agents'
 // inboxes function identically), laid out like a webmail client: the list on
@@ -55,6 +56,8 @@ import { centerTranscriptTarget } from './deskscroll'
 // selected message opened in the reading pane on the right. Unread mail is
 // HIGHLIGHTED but never moved.
 export interface MailListProps {
+  selectionRequest?: InboxSelectionRequest
+  hiddenUnread?: {count:number;onOpen:()=>void}
   hideMailReplyKind?: boolean
   tagFilter?: MailTagPickerProps
   onLoadMore?: () => void
@@ -176,7 +179,7 @@ const MAIL_WINDOW = 40
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
   outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
-  onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind }: MailListProps) {
+  onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind,selectionRequest,hiddenUnread }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
   //
   // Unread used to sort as its own block on top, which meant the list
@@ -244,12 +247,12 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // and agent-delivery folders keep the unselected opening; later arrivals
   // never steal the selection. Clicking a selected row still deselects it.
   const [initialSelection] = useState(() => {
-    if (!selectOldestUnread || jumpTo || outgoing) return undefined
+    if (!selectOldestUnread || jumpTo || outgoing || selectionRequest) return undefined
     const oldestFirst = [...all].reverse()
     return oldestFirst.find(m => m._wait && !m._ask)
       ?? oldestFirst.find(m => m._wait && m._ask)
   })
-  const [selId, setSelId] = useState<string | null>(jumpTo ?? (initialSelection ? keyOf(initialSelection) : null))
+  const [selId, setSelId] = useState<string | null>(jumpTo ?? selectionRequest?.id ?? (initialSelection ? keyOf(initialSelection) : null))
   // ⚠ WHICH JUMP HAS BEEN HANDLED, NOT WHETHER ONE HAS. A boolean latch meant
   // the FIRST link into an open mailbox worked and every one after it did
   // nothing at all — the box was already mounted, so the initial `useState`
@@ -353,6 +356,17 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     setSelId(restoreSelectionId)
     setVis((n) => Math.max(n, rowIndex + 1))
   }, [piles, restoreSelectionId, selectOldestUnread, jumpTo, outgoing])
+  const selectionHandled=useRef<string|null>(null)
+  useEffect(()=>{
+    if(!selectionRequest||jumpTo||selectionHandled.current===selectionRequest.key)return
+    selectionHandled.current=selectionRequest.key;setSelId(selectionRequest.id)
+  },[selectionRequest?.key,jumpTo])
+  useEffect(()=>{
+    const id=jumpTo??selectionRequest?.id
+    if(!id)return
+    const index=piles.findIndex(group=>group.some(m=>keyOf(m)===id))
+    if(index>=0)setVis(n=>Math.max(n,index+1))
+  },[piles,jumpTo,selectionRequest?.key])
   // selection is still BY ROW IDENTITY, but it resolves through the pile: a
   // notice selected on its own stays selected when a newer one arrives and
   // folds it into a run (the key would otherwise address a row that no
@@ -563,6 +577,8 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             {tagFilter ? <MailTagPicker {...tagFilter}>{filterBox}</MailTagPicker> : filterBox}
           </div>
         )}
+        {tagFilter?.selected.length&&hiddenUnread&&hiddenUnread.count>0?<button type="button" className="mail-hidden-unread"
+          title="Clear tag filters and open the oldest unread mail" onClick={hiddenUnread.onOpen}>({hiddenUnread.count} unread)</button>:null}
         {shown.length === 0 && <div className="dim pad">no matches</div>}
         {/* windowed like the transcript: a long-lived org's folders grow
             without bound and every row is a live DOM node. Newest MAIL_WINDOW
@@ -582,9 +598,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             rowRef={(el) => {
               // a jump aimed at a folded member lands on the row that now
               // carries it, not on nothing
-              const target = jumpTo ?? restoreSelectionId ?? (initialSelection ? keyOf(initialSelection) : null)
+              const target = jumpTo ?? selectionRequest?.id ?? restoreSelectionId ?? (initialSelection ? keyOf(initialSelection) : null)
               const request = jumpTo ? jumpKey(jumpTo, jumpSeq)
-                : restoreSelectionId ? `restore-selection:${restoreSelectionId}` : 'initial-selection'
+                : selectionRequest ? selectionRequest.key : restoreSelectionId ? `restore-selection:${restoreSelectionId}` : 'initial-selection'
               if (el && target && g.some((x) => keyOf(x) === target)
                 && scrolledRef.current !== request) {
                 scrolledRef.current = request
