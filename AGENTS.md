@@ -101,16 +101,18 @@
   opens `hubchat://chat?to=<address>` (`policy.ts`, `windows.ts`) or shows an
   inert `"Hubchat isn't installed"` tooltip. `Copy mention` on every agent and
   project context menu copies `@<name>`. Agent and project `Open` submenus omit
-  the word `"Open"` (`Desk`, `Desk in a new window`, `Pin desk as a window`,
+  the word `"Open"` (`Desk`, `Desk as a pinned window`, `Desk in a separate window`,
   `Inbox`, `Scratch folder`, `Docket`, `Presentations`, `Project mailbox`,
   `Project folder`, `Project docket`), nest team opens (`Team scratch folder`,
   `Team docket`, `Team presentations`) in submenus of their individual items
   when both exist (inline when only one exists), offer both individual and team
-  `Presentations` unconditionally when handlers are supplied, place `Pin desk as
-  a window` / `Show pinned window` in the top `desk` section of the project
-  `Open` menu, and offer only `Hire under this project` and `New project…` in
+  `Presentations` unconditionally when handlers are supplied. Both node kinds
+  start `Open` with `Desk`, `Desk as a pinned window`, `Desk in a separate window`
+  in that order; labels stay fixed when the existing callback raises an already
+  placed desk. Team and the other entries follow below. Offer only
+  `Hire under this project` and `New project…` in
   the project context menu (hiring above/beside uses the card's hire tokens).
-  [decided: user 2026-10-17, 2026-10-18 07:10Z–07:28Z; verified: `canvas/agentmentions.tsx`,
+  [decided: user 2026-10-17, 2026-10-18 07:10Z–07:28Z, 11:16Z (replaces differing desk labels/order); verified: `canvas/agentmentions.tsx`,
   `canvas/agentmenu.tsx`, `canvas/contextmenu.tsx`, `canvas/projectdesk.tsx`,
   `canvas/reflinks.tsx`, `canvas/refmd.tsx`, `runtime/convo.rs`,
   `runtime/identity.rs`, `tests/agentmentions.test.tsx`, `tests/projectnode.test.tsx`]

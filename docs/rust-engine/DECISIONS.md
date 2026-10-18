@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Shared Open desk entries, user 2026-10-18 11:16Z (4.4.0):** both agents
+and projects use exactly `Desk`, `Desk as a pinned window`, `Desk in a separate
+window`, in that order, before Team and other entries. Keep existing temporary,
+pin and pop-out callbacks and availability; placed desks retain their existing
+raise behavior under these same labels. This replaces the differing names and
+order from the earlier 07:18Z–07:22Z menu wording.
+
 **Desk send returns to Chat, user 2026-10-18 10:57Z:** after an agent desk's
 composer send succeeds, select its Chat tab to reveal the conversation.
 Pending or failed sends retain the current tab. Only that desk's local tab

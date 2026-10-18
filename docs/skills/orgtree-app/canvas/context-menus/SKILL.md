@@ -1,12 +1,12 @@
 ---
 name: orgtree-context-menus
-description: Read the shared agent menu and its state-dependent navigation, placement and lifecycle actions.
+description: Read the shared agent and project menus, their desk opening choices and lifecycle actions.
 ---
 Up: [orgtree-canvas](../SKILL.md)
 
 # Context menus
 
-Right-click a recognized object to open its menu. Copy actions come from that object's own identity attributes; an agent or project target supplies Copy mention (copying `@<name>`). The menu then uses the same action definition on cards, list rows and other registered navigation surfaces. Availability depends on the actual object state and the handlers its surface supports, so a missing action is not evidence that every build supports it elsewhere. Project menus offer Copy mention, Focus, Open (Desk, Pop out to new window, Pin desk as a window / Show pinned window in the top desk section, Project mailbox, Project folder, Presentations → Team presentations, Project docket), Hire under this project, New project… (hiring beside or above uses the card's hire tokens), Settings, and subtree compact/halt/retire actions.
+Right-click a recognized object to open its menu. Copy actions come from that object's own identity attributes; an agent or project target supplies Copy mention (copying `@<name>`). The menu then uses the same action definition on cards, Agents List rows, Team rows and other registered navigation surfaces, including the Attention view. Availability depends on the actual object state and the handlers its surface supports, so a missing action is not evidence that every build supports it elsewhere. Both agents and projects start Open with **Desk**, **Desk as a pinned window**, **Desk in a separate window**, in that order when supported. Team and the other entries follow below. Project menus offer Copy mention, Focus, Open (the three desk entries, Project mailbox, Team, Project folder, Presentations → Team presentations, Project docket), Hire under this project, New project… (hiring beside or above uses the card's hire tokens), Settings, and subtree compact/halt/retire actions.
 
 | Agent-menu item | Meaning/gate |
 | --- | --- |
@@ -14,9 +14,10 @@ Right-click a recognized object to open its menu. Copy actions come from that ob
 | Hire a subordinate | Opens a tier's existing draft form, creating no seat until confirmation; offered for an eligible live card with free hire edges, not a pile front. |
 | New project… | Directly under Hire a subordinate (after Focus when no hire is offered): opens a draft project card under the agent, creating nothing until create. |
 | Open → Desk | Temporary desk glance without changing focused agent/layout. |
-| Open → Desk in a new window / Show desk window | Detach a desk, or raise its existing native window. |
-| Open → Pin desk as a window / Show pinned window | Pin or raise its canvas window (sits in the top desk section for both agents and projects). |
+| Open → Desk as a pinned window | Pin the desk, or raise its existing pinned canvas window. Second in the desk section for both agents and projects. |
+| Open → Desk in a separate window | Detach the desk, or raise its existing native window. Third in the desk section for both agents and projects. |
 | Open → Inbox | The agent's own mailbox. |
+| Open → Team | The node itself and every descendant in the existing Agents List, with its filter and Active checkbox; also available as a desk tab, pinnable or popped out. |
 | Open → Scratch folder | Existing local directory, offered on supported native surfaces for live/archived identities; missing paths error without creating them. |
 | Open → Scratch folder → Team scratch folder | Submenu under Scratch folder when both are offered (inline under Open when only one exists); the team this agent leads, keyed by its numeric id even with no reports. Creates a missing managed folder on demand; supported native shells only. |
 | Open → Docket | Agent-scoped work view when supported. |

@@ -3359,9 +3359,10 @@
    "covers": [
     "screen:context-menus"
    ],
-   "purpose": "Context menus, above all the agent menu and every item in it.",
+   "purpose": "Shared agent/project context menus: Open starts with Desk, Desk as a pinned window, Desk in a separate window.",
    "must_cover": [
     "every agent-menu item",
+    "agents and projects: Desk, Desk as a pinned window, Desk in a separate window in that order; keep existing actions",
     "own-led numeric-id team scratch next to personal scratch"
    ],
    "sources": [
