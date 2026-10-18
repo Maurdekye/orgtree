@@ -8,7 +8,10 @@
 //      the card badge, the desk header card and the tab's lead line;
 //   §2 the canvas lines: a holder's solid, a waiter's dashed, and an agent's
 //      several lines to one project side by side, never on one another;
-//   §3 a slot claim's card text and a holder's chip;
+//   §3 a slot claim's card text and a holder's chip; the agent card carries
+//      the chip in its chip row, never on the status row, and the agent
+//      desk's header beside the $ chip, a waiting claim's too (user
+//      2026-10-18 10:52Z);
 //   §4 project settings: a "Slots" count (0 = none), one set_slots on save;
 //   §5 the desk's Slots tab: shown only with a count, its lead, Holding, Line
 //      and Recent holds, the empty state, force release after a
@@ -19,7 +22,11 @@
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
+import { FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
+import { NodeSquare } from '../src/canvas/cards'
+import { DeskChat } from '../src/canvas/desk'
+import { DeskDogsProvider } from '../src/canvas/deskdogs'
+import { resetConvos } from '../src/convo'
 import { NodeConfig } from '../src/canvas/modals'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import {
@@ -120,6 +127,59 @@ test('§3 a slot claim\'s card says its place in line and who holds; after the g
   assert.match(slotClaimText(dogs[2], dogs, leases, 1), /paused: out of the line; resuming rejoins at the back/)
   assert.deepEqual(slotHoldsOf('sa', leases).map((l) => [l.project, l.slot]), [['build', 1]])
   assert.deepEqual(slotHoldsOf('sb', leases), [])
+})
+
+const agentNode = (id: string, extra: Partial<CanvasNode> = {}): CanvasNode => ({
+  id, state: 'live', tier: 'haiku', model_id: 'haiku', children: [], seat: 1, grant: 0, free: 0,
+  scope: { tools: {}, add_dirs: [] }, ...extra,
+} as unknown as CanvasNode)
+
+test("§3b the agent card wears its slot chip in the chip row, and the status row is as before slots (user 2026-10-18 10:52Z)", async (t) => {
+  installFetch(new FakeServer())
+  const nd = agentNode('sa')
+  const view = await mountView(
+    <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
+      dragging={false} isDrop={false} seats={{ used: 1, total: 4 }}
+      map={new Map([[nd.id, nd]])} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop}
+      pxc={1} zoom={1} compactAt={0.8} maxTop={0} cascadeAlloc slotHolds={slotHoldsOf('sa', leases)}
+      onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
+      onInbox={noop} onLineage={noop} onOpenDoc={noop} onRecenter={noop}
+      onJump={noop} onMailLink={noop} onDragStart={noop} onDragMove={noop}
+      onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  assert.ok(!view.el.querySelector('.sq-meta .chip.slot-hold'), 'nothing slot-shaped on the status row')
+  const chips = [...view.el.querySelectorAll('.sq-badges .chip.slot-hold')].map((c) => c.textContent)
+  assert.deepEqual(chips, ['⬢ build #1'])
+})
+
+async function slotDesk(t: TestContext, me: CanvasNode) {
+  useFakeClock()
+  installFetch(new FakeServer())
+  t.after(() => { resetConvos(); realClock() })
+  const view = await mountView(
+    <DeskDogsProvider value={{ dogs, slotLeases: leases, open: noop }}>
+      <DeskChat node={me} map={new Map([[me.id, me]])} op={() => Promise.resolve({} as OpResult)}
+        slug="org" toast={noop} bare />
+    </DeskDogsProvider>, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(4) })
+  return view.el
+}
+
+test("§3c the agent desk's header carries a holder's slot chip right after the $ chip (user 2026-10-18 10:52:50Z)", async (t) => {
+  const el = await slotDesk(t, agentNode('sa', { cost_usd: 4.56 } as Partial<CanvasNode>))
+  const chip = el.querySelector('.cc-head .chip.slot-hold')
+  assert.ok(chip, 'the holder chip in the desk header')
+  assert.equal(chip!.textContent, '⬢ build #1')
+  assert.match(chip!.previousElementSibling?.textContent ?? '', /^\$4\.56/, 'right after the estimated-cost chip')
+})
+
+test("§3d a waiting claim's chip sits in the desk header too: '⏳ build 2nd' (user 2026-10-18 10:52:50Z)", async (t) => {
+  const el = await slotDesk(t, agentNode('sb'))
+  const chips = [...el.querySelectorAll('.cc-head .chip.slot-wait')]
+  assert.deepEqual(chips.map((c) => c.textContent), ['⏳ build 2nd'], "sb's claim, behind sc's")
+  assert.match(chips[0]!.getAttribute('title') ?? '', /2nd in line for project build/)
+  assert.ok(!el.querySelector('.cc-head .chip.slot-hold'), 'sb holds nothing')
 })
 
 /* ─── §4 settings ────────────────────────────────────────────────────────── */

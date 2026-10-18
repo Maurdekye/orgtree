@@ -670,6 +670,13 @@ test('§9 Open desk: the project desk as a temporary modal that pins and pops ou
 })
 
 declare const __SRC_DIR__: string
+test("§8g the activity line stays inside the card: the meta row wraps, and the word truncates before the clock (user 2026-10-18 10:51Z)", () => {
+  assert.equal(cssLast('flex-wrap', '.sq.project .project-meta'), 'wrap', "'Active 80s' drops under the chip instead of running off the card")
+  assert.equal(cssLast('min-width', '.project-last-activity'), '0')
+  assert.equal(cssLast('max-width', '.project-last-activity'), '100%')
+  assert.equal(cssLast('overflow', '.project-last-activity'), 'hidden', 'alone on its line and still too long: clipped, never past the edge')
+})
+
 test("§8f the word and its age keep the agent card's own spacing and colours (user 2026-10-18 07:42Z: 'in the same style')", () => {
   assert.equal(cssRules().some((r) => r.sel.split(',').some((s) => s.trim().startsWith('.project-last-activity .sq-idle'))), false,
     'no project override of .sq-idle or .sq-idle-time')
