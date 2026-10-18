@@ -109,6 +109,8 @@ test('§1a the project desk: the agent desk frame, the project\'s name, the agen
   assert.ok(el.querySelector('.desk-over .desk-inner.desk-body .cc-head'), 'the agent desk\'s frame and header')
   assert.equal(el.querySelector('.cc-head-left .name')?.textContent, 'website')
   assert.ok(el.querySelector('.cc-head-left .project-mark svg'), 'the folder mark')
+  assert.equal(el.querySelector('.cc-head-left .name')?.getAttribute('title'), 'project website',
+    'the project desk name carries the same identity hover as its project card')
   assert.deepEqual(tabs(el), ['desk', 'inbox', 'docket', 'presented'])
   assert.equal(el.querySelector('.cc-tabs button[data-tab="desk"]')?.classList.contains('on'), true, 'it opens on its main tab')
   assert.equal(el.querySelector('.cc-tabs button[data-tab="inbox"] .tab-count')?.textContent, '2')

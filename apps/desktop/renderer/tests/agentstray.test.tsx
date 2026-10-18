@@ -32,6 +32,7 @@ import type { TreePayload } from '../src/types'
 import type { CanvasNode } from '../src/canvas/shared'
 import { MODAL_OPEN_KEY, MODAL_PINS_KEY, forgetModalOpenCache, forgetModalPins, pinModal, rememberModalOpen } from '../src/canvas/modalpin'
 import { savedWindows, WINDOW_LAYOUT_KEY } from '../src/windowlayout'
+import { prefetchStaffingOptions } from '../src/canvas/staffingoptions'
 
 const noop = () => {}
 const txt = (el: HTMLElement) => el.textContent ?? ''
@@ -170,6 +171,78 @@ uiTest('§2b a Codex agent row carries the provider-theme class for its context 
       + 'back to the global Claude-orange accent')
     assert.ok(row?.querySelector('.ctxwheel .fill'),
       'the fixture context wheel did not render')
+  })
+
+uiTest('project rows in the Agents list use the project folder icon',
+  async ({ mount }) => {
+    const { CurrentOrg } = await import('../src/popout')
+    const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+    const fixture = tree(['website', 'haiku-agent'])
+    Object.assign(fixture.roots[0]!, { kind: 'project', tier: 'project', model_id: '' })
+    const { el } = await mount(
+      <CurrentOrg.Provider value="mine"><OrgCanvas tree={fixture}
+        op={() => Promise.resolve({} as never)} slug="mine" toast={noop} mailEvt={null} />
+      </CurrentOrg.Provider>)
+    await flush()
+    await inAct(() => { (el.querySelector('.tray-toggle') as HTMLElement).click() })
+    await flush()
+
+    const rowFor = (id: string) => [...el.querySelectorAll<HTMLElement>('.tray-row')]
+      .find(row => row.querySelector('.tray-name')?.textContent === id)
+    const projectRow = rowFor('website')
+    const agentRow = rowFor('haiku-agent')
+    assert.ok(projectRow, 'the project remains in the Agents List')
+    assert.ok(agentRow, 'the agent remains in the Agents List')
+    assert.equal(projectRow!.querySelector('.tray-main .project-mark svg') !== null, true,
+      'the project row uses the same folder icon as other project identities')
+    assert.equal(projectRow!.querySelector('.tray-main .tier') !== null, false,
+      'the project row does not show a model-style badge')
+    assert.ok(agentRow!.querySelector('.tray-main .tier.t-haiku'),
+      'ordinary agent rows keep their tier badge')
+  })
+
+uiTest('desk effort control is absent for no-effort models and has a concise tooltip otherwise',
+  async ({ mount }) => {
+    const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+    const priorFetch = globalThis.fetch
+    const openDesk = async (id: string, tier: string, efforts: string[], effort: string) => {
+      const slug = `effort-${tier}`
+      globalThis.fetch = (async () => new Response(JSON.stringify({
+        tiers: [{ tier, efforts, accounts: [], default_ok: true }],
+        at: Date.now(), stale: false, errors: [], loading: false, generation: 1,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+      await prefetchStaffingOptions(slug)
+      const fixture = tree([id])
+      fixture.slug = slug
+      Object.assign(fixture.roots[0]!, {
+        tier, model_id: id, effort_effective: effort,
+        scope: { permission_mode: 'default', add_dirs: [], tools: {},
+          org_visibility: 'team', effort },
+      })
+      const { el } = await mount(
+        <OrgCanvas tree={fixture} op={() => Promise.resolve({} as never)}
+          slug={slug} toast={noop} mailEvt={null} />)
+      await flush()
+      await inAct(() => { (el.querySelector('.tray-toggle') as HTMLElement).click() })
+      await flush()
+      await inAct(() => { (el.querySelector('.tray-main') as HTMLElement).click() })
+      await advance(800, 50)
+      await flush(2)
+      return el
+    }
+    try {
+      const local = await openDesk('qwen3.8-27b-iq3xxs',
+        'ls-llamacpp-qwen3-8-27b-iq3xxs', [], 'high')
+      assert.equal(local.querySelector('.cc-eff') !== null, false,
+        'a language-server seat with no offered efforts still shows the desk button')
+
+      const claude = await openDesk('claude-opus-5-5', 'opus',
+        ['low', 'medium', 'high', 'xhigh', 'max'], 'medium')
+      assert.equal(claude.querySelector('.cc-eff')?.getAttribute('title'),
+        'Thinking effort: medium. Changes apply from the next model call.')
+    } finally {
+      globalThis.fetch = priorFetch
+    }
   })
 
 uiTest('every Claude tier in the Agents list uses the shared Claude theme',

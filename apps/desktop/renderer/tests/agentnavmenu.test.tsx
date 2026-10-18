@@ -239,6 +239,21 @@ uiTest('§2 the desk header name offers the agent whole menu, not just Copy ment
     }
   })
 
+uiTest('desk header hover uses the shared agent tooltip and has no competing name title',
+  async (t) => {
+    const c = await mountCanvas(t, [mkNode('boss', { children: [mkNode('worker', { parent: 'boss' })] })])
+    await openDesk(c, 'worker')
+    const name = c.el.querySelector('.cc-head-left .cc-name') as HTMLElement | null
+    const head = c.el.querySelector('.cc-head-left') as HTMLElement | null
+    assert.ok(name && head, 'the focused desk header and agent name rendered')
+    assert.equal(name!.getAttribute('title'), null,
+      'the plain charter/name title competes with the shared model tooltip')
+    await inAct(() => { name!.dispatchEvent(new W.MouseEvent('pointerover', { bubbles: true })) })
+    await flush(2)
+    assert.match(head!.getAttribute('title') ?? '', /haiku/,
+      'hovering the name resolves the shared model identity on the header')
+  })
+
 // --------------------------------------- §3 EVERY MARKED TARGET, ENUMERATED
 uiTest('§3 every navigation target on screen offers the SAME menu as that agent Agents List row',
   async (t) => {

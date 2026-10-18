@@ -142,7 +142,8 @@ pub fn effective_effort(scope: &serde_json::Value, settings: &serde_json::Value)
 /// under its own name goes as it is; otherwise the highest offered level at
 /// or below its rank, else the lowest offered: the same clamp the effort
 /// bar shows. The saved value itself is never rewritten, so switching back
-/// restores it. No offered list: the level goes unchanged.
+/// restores it. An empty offered list means this model accepts no effort
+/// argument; callers represent an unknown offer as `None` before reaching it.
 #[logged]
 pub fn launch_effort(level: &str, offered: &[String]) -> (String, bool) {
     if offered.is_empty() || offered.iter().any(|o| o == level) {
@@ -382,8 +383,8 @@ mod effort_tests {
         assert_eq!(launch_effort("minimal", &codex), ("minimal".into(), false));
         let full = v(&["minimal", "low", "medium", "high", "xhigh"]);
         assert_eq!(launch_effort("max", &full), ("xhigh".into(), true));
-        // nothing known: unchanged
-        assert_eq!(launch_effort("max", &[]), ("max".into(), false));
+        // A known model with no effort setting receives no launch argument.
+        assert_eq!(launch_effort("max", &[]), (String::new(), false));
         // an unknown saved name takes the lowest offered, never an invented one
         assert_eq!(launch_effort("ultra", &codex), ("minimal".into(), true));
     }

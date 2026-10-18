@@ -108,3 +108,14 @@ test('tooltip shows the resolved org default when the agent has no effort settin
     title: 'Claude Opus 5.5 · medium',
   })
 })
+
+test('tooltip omits effective effort when the tier offers no effort levels', () => {
+  assert.deepEqual(agentTooltipInfo(node({
+    tier: 'ls-llamacpp-qwen3-8-27b-iq3xxs', model_id: 'qwen3.8-27b-iq3xxs',
+    effort_effective: 'high', scope: {},
+  }), [{ id: 'langserver', tiers: [{
+    tier: 'ls-llamacpp-qwen3-8-27b-iq3xxs', label: 'Qwen3.8 27B IQ3_XXS',
+  }] }] as never, accounts([]) as never, undefined, []), {
+    title: 'llama.cpp Qwen3.8 27B IQ3_XXS',
+  })
+})

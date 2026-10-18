@@ -551,6 +551,18 @@ test('the badge renders nothing at all — not an empty span — when silent',
     assert.equal(view.el.innerHTML, '', 'the silent badge still emitted markup')
   })
 
+test('an agent with no offered effort levels has no effort badge', async (t: TestContext) => {
+  const view = await mountView(
+    <OrgDefaultEffort.Provider value={ORG_DEFAULT}>
+      <EffortLevelBadge node={agent('high', 'high')} effortLevels={[]} />
+    </OrgDefaultEffort.Provider>, (el) => el)
+  t.after(() => view.unmount())
+  await flush()
+  assert.equal(view.el.querySelector('.effort-level') !== null, false,
+    'a default effort was displayed despite this model offering no levels')
+})
+
+
 test('THE NAME AND NOTHING ELSE: no direction cue, whatever the default',
   async (t: TestContext) => {
     // ⚠ THIS TEST USED TO ASSERT THE OPPOSITE. The first landed candidate
