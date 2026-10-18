@@ -75,7 +75,7 @@ pub async fn mark_read(State(e): State<Arc<Engine>>, Path(slug): Path<String>, J
         )
         .await?;
     let read_mail:Vec<Value>=rows.iter().map(|r|r.get(0)).collect();
-    let affected=crate::domain::mail_attention::clear_read_mentions(&tx,o.id,&read_mail).await?;
+    let affected=crate::domain::mail_attention::clear_read_mentions(&*tx,o.id,&read_mail).await?;
     tx.commit().await?;
     let n=rows.len();
     drop(client);
@@ -97,7 +97,7 @@ pub async fn clear(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> Ap
         )
         .await?;
     let read_mail:Vec<Value>=rows.iter().map(|r|r.get(0)).collect();
-    let affected=crate::domain::mail_attention::clear_read_mentions(&tx,o.id,&read_mail).await?;
+    let affected=crate::domain::mail_attention::clear_read_mentions(&*tx,o.id,&read_mail).await?;
     tx.commit().await?;
     drop(client);
     let mut changed=vec![Change::UserMail];
