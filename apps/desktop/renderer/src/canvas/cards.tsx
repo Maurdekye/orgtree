@@ -187,9 +187,8 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     // bulk cheap compaction of every live agent (canvas/bulkcompact.tsx).
     // Each target still runs the normal op and its checks.
     entries.push('sep', {
-      label: 'Cheap-compact all agents…', warning: true,
-      title: 'give every live agent a fresh session; old sessions stay '
-        + 'consultable, mid-turn agents are skipped',
+      label: 'Compact all agents…', warning: true,
+      title: 'Choose cheap or supported normal compaction for live agents; mid-turn agents are skipped',
       onSelect: () => setAskingCompactAll(true),
     })
     const targets = allAgents(map)
@@ -336,7 +335,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
             .catch((e: Error) => toast([`error: ${e.message}`]))}
           close={() => setAskingRetireAll(false)} />, document.body)}
       {askingCompactAll && createPortal(
-        <BulkCompactConfirm title="cheap-compact all agents?"
+        <BulkCompactConfirm title="Compact all agents?" slug={slug}
           scope="all agents" targets={allAgents(map)} op={op} toast={toast}
           close={() => setAskingCompactAll(false)} />, document.body)}
     </div>

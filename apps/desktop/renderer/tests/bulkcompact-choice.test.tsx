@@ -136,3 +136,31 @@ test('a running Cheap batch prevents overlapping Normal execution', async () => 
     assert.equal(posts, 0); assert.match(said.flat().join(' '), /already running/)
   } finally { release(); await first; await view.unmount() }
 })
+
+
+test('Normal waits for each admission and continues after a transport failure', async () => {
+  let release!: (v: Response) => void
+  const first = new Promise<Response>(resolve => { release = resolve })
+  const posts: string[] = [], said: string[][] = []
+  globalThis.fetch = (async (url, init) => {
+    const id = String(url).split('/nodes/')[1]!.split('/')[0]!
+    if (init?.method !== 'POST') return response({ supported: true })
+    posts.push(id)
+    if (id === 'one') return first
+    if (id === 'two') throw new Error('network down')
+    return response({ started: true })
+  }) as typeof fetch
+  const view = await mountView(modal([agent('one'), agent('two'), agent('three')], async () => { throw new Error('Cheap fallback must never run') }, said), el => el)
+  try {
+    await choose('normal')
+    await inAct(async () => { go().click(); await flush(2) })
+    assert.deepEqual(posts, ['one'], 'next admission waits for the first response')
+    await inAct(async () => { release(response({ started: true })); await flush(5) })
+    assert.deepEqual(posts, ['one', 'two', 'three'])
+    const summary = said.flat().join(' ')
+    assert.match(summary, /Started normal compaction.*one, three/)
+    assert.match(summary, /Could not request normal compaction.*two.*network down/)
+  } finally {
+    release(response({ started: true })); await inAct(async () => { await flush(2) }); await view.unmount()
+  }
+})

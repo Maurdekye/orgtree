@@ -196,11 +196,13 @@
   wheel. Normal capability comes from the actual harness route; unsupported or
   unreadable capability disables normal with a reason. A POST started:false is
   a refusal, never a success toast. Direct Halt/Unhalt have no ellipsis; team
-  compaction stays explicitly cheap-only. The shared modal retains a cold-cache
-  warning only for backend known-incompatible/expired evidence, never idle age.
+  bulk compaction uses the shared Cheap-default/Normal type picker. Normal
+  previews unsupported/sessionless/unreadable seats as skips and only reports
+  admitted requests as started; there is no fallback to Cheap. The single-agent
+  modal retains a cold-cache warning only for backend evidence, never idle age.
   See [compact choice](docs/rust-engine/compact-choice.md).
-  [decided: user/coordinator 2026-10-17; verified: `canvas/agentcompact.tsx`,
-  `http/nodes.rs`, `domain/compaction.rs`]
+  [decided: user/coordinator 2026-10-17/18; verified: `canvas/agentcompact.tsx`,
+  `canvas/bulkcompact.tsx`, `http/nodes.rs`, `domain/compaction.rs`]
 
 - Per-agent fast mode is node-local and applies next turn without changing
   model/account/session or restarting a warm CLI. Advertised Codex fast/priority

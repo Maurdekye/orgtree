@@ -1,33 +1,12 @@
-// canvas/bulkcompact.tsx — CHEAP-COMPACT MANY AGENTS AT ONCE (docket
-// `add-bulk-cheap-compact-context-menu-actions`, user request 2026-09-23:
-// "cheap-compacting agents one at a time is cumbersome when the intended target
-// is every agent or an entire branch of the organization").
-//
-// TWO DOORS, ONE IMPLEMENTATION. "Cheap-compact all agents…" on the eye card
-// and "Cheap-compact subtree…" in every agent's menu (agentmenu.tsx, so the
-// card, the Agents List row and every agent-nav chip carry it alike) both
-// build a target list and hand it to the SAME plan, confirm and executor here.
-//
-// ⚠ NOTHING HERE IS A NEW DEFINITION OF "MAY BE CHEAP-COMPACTED". Each target
-// goes through the one existing operator op, `cheap_compact`, which keeps every
-// backend check it already had (authority, live seat, no open background
-// tasks). The plan's skip rules follow the desk's own `canCompactContext` gate
-// (desk.tsx; planBulkCompact names the one, safe-side difference) — the only
-// door the single action has — plus ONE rule the single
-// action does not need: an agent that is MID-TURN is skipped, never interrupted
-// and never has its session swapped out from under the running turn. The
-// single op has no in-flight guard (supervisor.py says so at the cli-compaction
-// site), so the bulk run asks the backend for one explicitly (`if_idle`), which
-// re-checks under the document lock and refuses with 409 instead — that covers
-// an agent that STARTED a turn between the confirm and its turn in the queue.
-//
-// SEQUENTIAL, ON PURPOSE. Each compaction is a locked load-mutate-save of the
-// whole org document plus a transcript export, so running them in parallel
-// would only queue them on the same lock while making the outcome order
-// unreadable. One at a time, and a failure is recorded and the run carries on:
-// one refusal never aborts an otherwise eligible batch.
+// One target plan, confirmation and run guard for every bulk Compact menu.
+// Cheap retains the existing operator op and if_idle guard. Normal checks the
+// actual per-agent harness capability and uses the existing admission endpoint.
+// Both run sequentially and report every target; neither interrupts a busy turn.
 
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { compactCapability, compactNode } from '../api'
+import { useCurrentOrg } from '../popout'
 import type { ToastFn } from '../types'
 import { ConfirmModal } from './modals'
 import type { CanvasNode, OpFn } from './shared'
@@ -146,7 +125,7 @@ export function bulkCompactSummary(scope: string, o: BulkCompactOutcome): string
 export async function cheapCompactAgents(scope: string, plan: BulkCompactPlan,
   op: OpFn, toast: ToastFn): Promise<BulkCompactOutcome | null> {
   if (running) {
-    toast(['A bulk cheap-compaction is already running; wait for its summary '
+    toast(['A bulk compaction is already running; wait for its summary '
       + 'before starting another.'])
     return null
   }
@@ -180,39 +159,114 @@ export async function cheapCompactAgents(scope: string, plan: BulkCompactPlan,
   return outcome
 }
 
-/** The confirm both doors raise: it states the exact selection — who will be
- *  compacted and who will be skipped, and why — before anything happens. */
-export function BulkCompactConfirm({ title, scope, targets, op, toast, close }: {
+/** Normal results distinguish admission from completion and refusal from a
+ *  failed transport. The actor still rechecks current session/turn state. */
+export async function normalCompactAgents(scope: string, plan: BulkCompactPlan,
+  slug: string, toast: ToastFn): Promise<(BulkCompactOutcome & {
+    refused: { id: string; reason: string }[]
+  }) | null> {
+  if (running) {
+    toast(['A bulk compaction is already running; wait for its summary before starting another.'])
+    return null
+  }
+  running = true
+  const outcome = { compacted: [] as string[], skipped: [...plan.skipped],
+    failed: [] as { id: string; reason: string }[], refused: [] as { id: string; reason: string }[] }
+  try {
+    if (plan.eligible.length) toast([`Requesting normal compaction for ${plural(plan.eligible.length, 'agent')} (${scope}), one at a time; a summary follows.`])
+    for (const target of plan.eligible) {
+      try {
+        const result = await compactNode(slug, target.id)
+        if (result.started) outcome.compacted.push(target.id)
+        else outcome.refused.push({ id: target.id, reason: result.reason ?? 'the request was not admitted' })
+      } catch (e) {
+        outcome.failed.push({ id: target.id, reason: (e as Error).message || 'request failed' })
+      }
+    }
+  } finally { running = false }
+  const lines: string[] = []
+  if (outcome.compacted.length) lines.push(`Started normal compaction for ${plural(outcome.compacted.length, 'agent')} (${scope}): ${outcome.compacted.join(', ')}.`)
+  if (outcome.skipped.length) lines.push(`Skipped ${plural(outcome.skipped.length, 'agent')}: ${listed(outcome.skipped)}.`)
+  if (outcome.refused.length) lines.push(`Refused normal compaction for ${plural(outcome.refused.length, 'agent')}: ${listed(outcome.refused)}.`)
+  if (outcome.failed.length) lines.push(`Could not request normal compaction for ${plural(outcome.failed.length, 'agent')}: ${listed(outcome.failed)}.`)
+  toast(lines.length ? lines : [`No agents to compact (${scope}); nothing changed.`])
+  return outcome
+}
+
+/** Shared type picker. Preview reads never compact; confirmation snapshots the
+ *  selected plan, while each backend action retains its existing admission. */
+export function BulkCompactConfirm({ title, scope, targets, op, toast, close, slug: explicitSlug }: {
   title: ReactNode
-  /** short words for the selection, used in the toasts ("all agents",
-   *  "subtree of lead") */
   scope: string
   targets: CanvasNode[]
   op: OpFn
   toast: ToastFn
   close: () => void
+  slug?: string
 }) {
-  const plan = planBulkCompact(targets)
+  const currentOrg = useCurrentOrg()
+  const slug = explicitSlug ?? currentOrg
+  const [type, setType] = useState<'cheap' | 'normal'>('cheap')
+  const base = useMemo(() => planBulkCompact(targets), [targets])
+  const capKey = JSON.stringify([slug, base.eligible.map(n => [n.id, n.session_id, n.tier, n.model_id])])
+  const [caps, setCaps] = useState<{ key: string; reasons: Record<string, string | null> } | null>(null)
+  useEffect(() => {
+    if (type !== 'normal') return
+    let live = true
+    const check = async () => {
+      const reasons: Record<string, string | null> = Object.create(null)
+      for (const target of base.eligible) {
+        if (!live) return
+        if (!target.session_id) reasons[target.id] = 'no conversation session to compact'
+        else if (!slug) reasons[target.id] = 'the organization is unavailable'
+        else {
+          try {
+            const cap = await compactCapability(slug, target.id)
+            reasons[target.id] = cap.supported ? null : cap.reason ?? 'Normal compaction is unavailable for this harness.'
+          } catch (e) {
+            reasons[target.id] = `Could not check normal compaction: ${(e as Error).message}`
+          }
+        }
+      }
+      if (live) setCaps({ key: capKey, reasons })
+    }
+    void check()
+    return () => { live = false }
+    // The key contains every candidate identity/session/route input. A fresh
+    // tree object alone must not restart all reads while a preview is loading.
+  }, [type, capKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const reasons = caps?.key === capKey ? caps.reasons : null
+  const checking = type === 'normal' && !reasons && base.eligible.length > 0
+  const plan: BulkCompactPlan = type === 'cheap' ? base : {
+    eligible: reasons ? base.eligible.filter(n => reasons[n.id] === null) : [],
+    skipped: [...base.skipped, ...(reasons ? base.eligible.filter(n => reasons[n.id] !== null)
+      .map(n => ({ id: n.id, reason: reasons[n.id] ?? 'Normal capability is unavailable.' })) : [])],
+  }
   const n = plan.eligible.length
   const body = <>
-    <p>{n
-      ? `${plural(n, 'agent')} will be cheap-compacted, one at a time: `
-        + `${plan.eligible.map((t) => t.id).join(', ')}. Each keeps its seat, `
-        + 'name, team, charter and mailbox and starts its next turn with a fresh, '
-        + 'empty session; its old session is archived in place as a consultable '
-        + 'knowledge bearer.'
-      : 'No agent in this selection can be cheap-compacted right now; nothing '
-        + 'will change.'}</p>
-    {plan.skipped.length > 0 && (
-      <p>{`Skipped (${plan.skipped.length}): ${listed(plan.skipped)}.`}</p>)}
-    {n > 0 && <p>No running turn is interrupted: an agent that is mid-turn when
-      its compaction comes up is skipped. A refusal for one agent does not stop
-      the others; the final summary names every outcome.</p>}
+    <fieldset className="bulk-compact-types">
+      <legend>Compaction type</legend>
+      <label><input type="radio" name="bulk-compact-type" value="cheap" checked={type === 'cheap'}
+        onChange={() => setType('cheap')} /> Cheap compact</label>
+      <p>Start a fresh session with a summary handoff; keep the agent's settings and team.</p>
+      <label><input type="radio" name="bulk-compact-type" value="normal" checked={type === 'normal'}
+        onChange={() => { setCaps(null); setType('normal') }} /> Normal compact</label>
+      <p>The supported harness compacts its existing conversation.</p>
+    </fieldset>
+    {checking ? <p role="status">Checking normal compaction support for {plural(base.eligible.length, 'agent')}: {base.eligible.map(t => t.id).join(', ')}.</p>
+      : <p>{n
+        ? type === 'cheap'
+          ? `${plural(n, 'agent')} will be cheap-compacted, one at a time: ${plan.eligible.map(t => t.id).join(', ')}. Each keeps its seat, name, team, charter and mailbox; the old session remains consultable in its lineage.`
+          : `Normal compaction will be requested for ${plural(n, 'agent')}, one at a time: ${plan.eligible.map(t => t.id).join(', ')}.`
+        : 'No agent in this selection can use this compaction type right now; nothing will change.'}</p>}
+    {plan.skipped.length > 0 && <p>{`Skipped (${plan.skipped.length}): ${listed(plan.skipped)}.`}</p>}
+    {n > 0 && <p>No running turn is interrupted. The backend checks each request again; a refusal for one agent does not stop the others. The final summary names every outcome.</p>}
   </>
-  return (
-    <ConfirmModal title={title} body={body}
-      confirmLabel={n ? `cheap-compact ${plural(n, 'agent')}` : 'ok'}
-      onConfirm={() => { if (n) void cheapCompactAgents(scope, plan, op, toast) }}
-      close={close} />
-  )
+  return <ConfirmModal title={title} body={body} confirmDisabled={checking || n === 0}
+    confirmLabel={n ? `${type === 'cheap' ? 'cheap' : 'normal'}-compact ${plural(n, 'agent')}` : 'Compact agents'}
+    onConfirm={() => {
+      if (!n || checking) return
+      if (type === 'cheap') void cheapCompactAgents(scope, plan, op, toast)
+      else if (slug) void normalCompactAgents(scope, plan, slug, toast)
+    }} close={close} />
 }

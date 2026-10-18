@@ -297,11 +297,11 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       : 'Choose normal harness compaction or a fresh session with a summary handoff',
     onSelect: () => ask('cheap-compact'),
     children: hasTeam ? [
-      { label: 'Cheap compact subtree…', warning: true,
-        title: `Cheap-compact ${node.id} and its live descendants; busy agents are skipped`,
+      { label: 'Compact subtree…', warning: true,
+        title: `Choose compaction for ${node.id} and its live descendants; busy agents are skipped`,
         onSelect: () => ask('cheap-compact-subtree') },
-      { label: 'Cheap compact all subordinates…', warning: true,
-        title: `Cheap-compact live descendants only; ${node.id} stays unchanged`,
+      { label: 'Compact all subordinates…', warning: true,
+        title: `Choose compaction for live descendants only; ${node.id} stays unchanged`,
         onSelect: () => ask('cheap-compact-subordinates') },
     ] : undefined,
   })
@@ -440,8 +440,8 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     const lifecycle: MenuEntry[] = []
     if (agents.length > 0) {
       lifecycle.push({
-        label: 'Cheap-compact all agents under it…', warning: true,
-        title: `give the ${agents.length} live agents under ${node.id} a fresh session; mid-turn agents are skipped`,
+        label: 'Compact all agents under it…', warning: true,
+        title: `Choose compaction for the ${agents.length} live agents under ${node.id}; mid-turn agents are skipped`,
         onSelect: () => ask('cheap-compact-subtree'),
       })
       const unhalt = agents.every((a) => a.halt?.phase === 'halted')
@@ -522,7 +522,7 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
     const descendantsOnly = kind === 'cheap-compact-subordinates'
     const scope = descendantsOnly ? `all subordinates of ${node.id}` : `subtree of ${node.id}`
     return (
-      <BulkCompactConfirm title={`cheap-compact ${scope}?`}
+      <BulkCompactConfirm title={`Compact ${scope}?`} slug={historyOrg}
         scope={scope} targets={subtreeAgents(node).filter((target) => !descendantsOnly || target.id !== node.id)}
         op={op} toast={toast} close={close} />
     )

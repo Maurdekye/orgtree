@@ -1973,11 +1973,13 @@
     "compact_at threshold",
     "cheap compact: what the summary carries",
     "auto cheap compact policy",
-    "handoff notes and breadcrumbs after compaction"
+    "handoff notes and breadcrumbs after compaction",
+    "bulk Cheap-default/Normal choice, actual capability skips, sequential admission and truthful partial outcomes"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/domain/ops.rs:2023",
-    "engine/rs/orgtree-engine/src/domain/lifecycle.rs:142"
+    "engine/rs/orgtree-engine/src/domain/lifecycle.rs:142",
+    "apps/desktop/renderer/src/canvas/bulkcompact.tsx"
    ],
    "see_also": [
     "tool-cheap-compact",
@@ -3217,14 +3219,16 @@
     "screen:user-node",
     "screen:overseer-eye"
    ],
-   "purpose": "The user's root card and its overseer eye with bulk halt, dissolve and cheap compact.",
+   "purpose": "The user's root card and its overseer eye with bulk halt, dissolve and compaction type choice.",
    "must_cover": [
     "bulk actions",
-    "shared scratch folder context entry on overview and focused switchboard"
+    "shared scratch folder context entry on overview and focused switchboard",
+    "Compact all agents type picker and eligible/skipped preview"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/cards.tsx:113",
-    "apps/desktop/renderer/src/canvas/cards.tsx:368"
+    "apps/desktop/renderer/src/canvas/cards.tsx:368",
+    "apps/desktop/renderer/src/canvas/bulkcompact.tsx"
    ],
    "see_also": [
     "confirm-dialogs"
@@ -3367,14 +3371,16 @@
    "purpose": "Shared agent/project context menus: Open starts with Desk, Desk as a pinned window, Desk in a separate window.",
    "must_cover": [
     "every agent-menu item",
-    "agents and projects: Desk, Desk as a pinned window, Desk in a separate window in that order; keep existing actions",
-    "own-led numeric-id team scratch next to personal scratch"
+     "agents and projects: Desk, Desk as a pinned window, Desk in a separate window in that order; keep existing actions",
+     "own-led numeric-id team scratch next to personal scratch",
+     "plain bulk Compact entries open Cheap-default/Normal picker with per-target preview, confirmation and cancellation"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/contextmenu.tsx:461",
     "apps/desktop/renderer/src/canvas/agentmenu.tsx",
     "apps/desktop/renderer/src/canvas/shared.ts:1381",
-    "apps/desktop/renderer/src/api.ts:889"
+    "apps/desktop/renderer/src/api.ts:889",
+    "apps/desktop/renderer/src/canvas/bulkcompact.tsx"
    ],
    "see_also": [
     "agent-card"
