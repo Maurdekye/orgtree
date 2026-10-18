@@ -38,7 +38,7 @@ If you are halted or retired while holding the concurrency slot it is taken back
 
 ## Watching the machine
 
-The project desk's **Concurrency slots** tab shows the held count against configured capacity and the holders, then the line in order with how long each has waited, and the last holds with how each ended (released, idle, halted, forced). `orgtree_project action=slots name=build-machine` gives the same as JSON with team access. Watchdog-only status shows just your own records, so `held=0` is not proof of global availability. The project's superior or the user can force-release a stuck concurrency slot or remove someone from the line there.
+The project desk's **slots** tab shows the held count against configured capacity (e.g. "1 of 1 concurrency slot held") and the holders, then the line in order with how long each has waited, and the last holds with how each ended (released, idle, halted, forced). `orgtree_project action=slots name=build-machine` gives the same as JSON with team access. Watchdog-only status shows just your own records, so `held=0` is not proof of global availability. The project's superior or the user can force-release a stuck concurrency slot or remove someone from the line there.
 
 For what a project is and its other features, see `orgtree-projects` (orgtree-working › team); for the `slot` and `command` watchdogs, `orgtree-tool-watchdog` (orgtree-working › watchdogs); for release and status, `orgtree-tool-project` (orgtree-working › team).
 

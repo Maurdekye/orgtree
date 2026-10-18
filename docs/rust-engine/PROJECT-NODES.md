@@ -114,11 +114,11 @@ A project's folder is its team workspace, `<data>\scratch\<org>\_teams\<project 
 exactly as a team's [user 16:11Z], labelled as the project's. Every agent above it holds the
 folders of the live projects in its subtree too (no `AGENTS.md` delivery).
 
-## Description: the project's team charter
+## Summary: the project's team charter
 
-A project's description (its `charter` column) is the standing charter of everyone under it
+A project's Summary (`description` in tools/API, its `charter` column) is the standing charter of everyone under it
 [user 2026-10-17 19:14Z]. The charter cascade an agent's instructions carry (every ancestor's
-`team_charter`, root first) takes a project ancestor's description in its place, as "Standing
+`team_charter`, root first) takes a project ancestor's Summary in its place, as "Standing
 charter from project <name>: …", so nested projects each add theirs, outermost first. Agents above
 the project don't get it. Like a team charter, it reaches a running CLI at its next start.
 
@@ -236,11 +236,11 @@ agents under the project".
     own mailbox a mail nobody holds yet puts its kind chip on that middle line too. Nothing in
     it wraps: the recipient yields with an ellipsis [user 2026-10-18 14:24Z].
   - The desk tab holds the chat desk's jump cards (up to the parent, down to its live members)
-    and the description editor: Markdown (`md`) while unfocused, a monospace text box while
+    and the Summary editor: Markdown (`md`) while unfocused, a monospace text box while
     focused. Leaving the box saves a change with `set_description`; Escape drops it.
   - Header: active/hired agents under it (live agents, nested projects crossed, project nodes
     not counted; active = a turn executing, the org list's rule) with the spinner while any is
-    active; halt all / unhalt all (the agent batch-halt confirmation); dissolve project (the
+    active; halt all / unhalt all (the agent batch-halt confirmation); dissolve (the
     agent dissolve confirmation; retire when nobody is under it); restore when retired; pin; the
     settings gear.
 - **Dissolving a project** is the agent `dissolve`: the project and every agent under it are
@@ -249,19 +249,19 @@ agents under the project".
   rehired). Its folder, mailbox (waiting mail stays) and presentations are untouched; docket
   items stay with their owners.
 - **Project settings** (`ProjectConfig`, 20:10Z): Open project folder, Name (rename), Project
-  actions (retire or dissolve, restore, delete permanently), Description, Subordinates may
+  actions (retire or dissolve, restore, delete permanently), Summary, Subordinates may
   message each other, and History when the node has records. Left out as turn- or credit-only:
   model, effort, account, rescind, credit grant, visible agents, file and command access,
   tools/MCP and turn limits.
 - **`set_description`** (op; `orgtree_project action=describe` for agents) replaces a project's
-  description. It is authorized like rename (the user, agents above or below the project) and
+  Summary. It is authorized like rename (the user, agents above or below the project) and
   reconfigures the subtree.
 - **The project hire token** [user 2026-10-16 21:02Z]: every hire strip ends with a (since 21:23:44Z theme-coloured)
   square with a folder icon, alone on the outermost row. That covers the eye card, all four
   edges of a card and a project's own strip. Its tooltip says "create a project … (free)" and
   it has no seat price. Like an agent token it opens a **draft project card** where the project
   will go and walks the camera to it [user 2026-10-17 19:14Z]: a dashed square with the folder
-  mark, a name and a description, create and cancel (Escape and a click away cancel too). Create
+  mark, a name and a Summary, create and cancel (Escape and a click away cancel too). Create
   places the project the way a hire is placed: under the card, beside it (create, then the side
   hire's reorder) or above it, holding it (`above`). Spaces in the typed name become hyphens,
   as in a hire (`normalizeUserEnteredName`). There is no separate form.

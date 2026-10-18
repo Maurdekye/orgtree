@@ -1,6 +1,6 @@
 ---
 name: orgtree-tool-project
-description: Create a project node (a free, turn-less node with its own folder, mailbox and presentations), edit its description, or see and release its concurrency slots.
+description: Create a project node (a free, turn-less node with its own folder, mailbox and presentations), edit its Summary, or see and release its concurrency slots.
 ---
 Up: [orgtree-team](../SKILL.md)
 
@@ -8,12 +8,12 @@ Up: [orgtree-team](../SKILL.md)
 
 `orgtree_project` slot release and status need **either team or watchdogs**. With watchdogs on and team off, its card exposes only `action=release_slot` (your own lease, optional note) and `action=slots` (your own holds, line entries and history, marked `own_only`; `held` counts your holds). Project reach and lease ownership still apply. All other project actions, full slot status and force release require team. With both groups off, the project tool is absent and calls are refused. Missing switches still default on; inherited denials still apply.
 
-Project administration requires `team`. `action=describe` with `name` and `description` replaces a project's description (you must be above or below the project; its agents carry the new text from their next start). `action=create` makes a **project node** (what one is and who reaches it: [orgtree-projects](../projects/SKILL.md)).
+Project administration requires `team`. `action=describe` with `name` and `description` replaces a project's Summary (you must be above or below the project; its agents carry the new text from their next start). `action=create` makes a **project node** (what one is and who reaches it: [orgtree-projects](../projects/SKILL.md)).
 
 - `name` (required): a new name in the organization, 1–64 letters, digits, `-`, `_` or `.`, unique among agents and projects.
 - `index` (required): the zero-based final position among the live siblings under the parent, as for [orgtree-tool-hire](../tool-hire/SKILL.md).
 - `parent` (optional): yourself by default; one of your reports at any depth; or a project you are inside (a nested project). Only the user creates a project at the top level.
-- `description` (optional): what the project is. It is shown on its card and is the standing charter of every agent under the project.
+- `description` (optional): the project’s **Summary**, shown on the Summary tab of its desk and used as the standing charter of every agent under the project. The wire field keeps its `description` name for compatibility.
 
 A project costs nothing: it has no seat and never holds credits of its own. The agents you later hire under it are paid by the nearest agent above it, so hire under a project with [orgtree-tool-hire](../tool-hire/SKILL.md) `parent=<project>` from an agent above it; an agent below a project is refused (`hiring under project … is paid by the agent above it`).
 
@@ -44,12 +44,12 @@ These describe cooperative patterns: slot holders agree to claim and release per
 
 ## Settings and desktop parity
 
-`action=settings name=P` reads all Project settings. `action=configure name=P settings={...}` changes only the supplied fields, atomically, with the same project reach, value validation and post-commit queue/slot notifications as the desktop. Omitted fields stay unchanged; explicit false, zero and an empty description are retained. Unknown fields, nulls and invalid types/ranges are refused before any write. Rename is applied last; the result uses the new name. Agents above or below the project may configure it.
+`action=settings name=P` reads all Project settings. `action=configure name=P settings={...}` changes only the supplied fields, atomically, with the same project reach, value validation and post-commit queue/slot notifications as the desktop. Omitted fields stay unchanged; explicit false, zero and an empty Summary are retained. Unknown fields, nulls and invalid types/ranges are refused before any write. Rename is applied last; the result uses the new name. Agents above or below the project may configure it.
 
 | Field in settings | Type/default |
 | --- | --- |
 | name | Valid project name; rename keeps the project identity |
-| description | String; empty clears it |
+| description | Project Summary; string, empty clears it |
 | peer_mail | Boolean, true |
 | mail_queue | round_robin (default) or ack |
 | exclude_sender | Boolean, false |

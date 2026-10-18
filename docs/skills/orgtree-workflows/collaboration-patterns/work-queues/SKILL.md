@@ -46,7 +46,7 @@ A project's nearest real-agent superior manages its audience requests and decisi
 
 ## Recipe
 
-1. Create the project and hire the workers under it; put the job's standing instructions in the project's description (it is every worker's standing charter).
+1. Create the project and hire the workers under it; put the job's standing instructions in the project's Summary (`description` setting; it is every worker's standing charter).
 2. Have each worker arm `orgtree_watchdog action=create kind=fair_queue target=<project>`. With the listener wake on, the first user mail to an unwatched project asks one worker to do this.
 3. Choose the mode in project settings: round-robin when jobs are quick and independent; ack mode when each job needs a completion record or must not pile up on one worker. In ack mode, keep the ack timeout on and set max attempts to how often a job may be retried.
 4. Post jobs to the project, one mail per job (`orgtree_message to=<project>`, or the project desk's message box with the megaphone off).
