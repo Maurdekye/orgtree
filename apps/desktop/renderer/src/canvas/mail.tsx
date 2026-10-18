@@ -337,6 +337,13 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     ? tagged.filter((m) => String(partyOf(m) ?? '').toLowerCase().includes(qn)
       || String(m.body ?? '').toLowerCase().includes(qn))
     : tagged
+  const filterKey=JSON.stringify([org??'',tagFilter?.selected.map(mailTagKey).sort()??[],qn])
+  const previousFilter=useRef(filterKey)
+  useEffect(()=>{
+    const changed=previousFilter.current!==filterKey
+    previousFilter.current=filterKey
+    if(changed&&selId!==null&&!jumpTo&&!shown.some(m=>keyOf(m)===selId))setSelId(null)
+  },[filterKey,selId,jumpTo,shown])
   // …then consecutive system notices fold into one ROW (user, 2026-08-28).
   // AFTER the filter, because the fold is about what is on screen: filtering
   // to "@system" should show you the pile, not a run broken by rows the

@@ -52,6 +52,12 @@ export function useInboxTagSelection(slug:string,base:InboxPayload|null|undefine
     const publish=(row:MailEntry|null)=>{
       if(generation.current!==request)return
       const valid=!!row&&row.id===candidate&&mailMatchesTags(row.tags,tags)
+      // Once a tag change hides the remembered open mail, do not silently
+      // reopen it when the filter is later cleared.
+      if(!valid&&tags.length&&candidate===previous.id){
+        previous.id=null
+        try{window.sessionStorage.removeItem(openedKey(slug))}catch{/* storage is optional */}
+      }
       setState({identity,request:{key:`${identity}:${++sequence.current}`,id:valid?row!.id:null},extra:valid?row:null})
     }
     if(!candidate){publish(null);return}

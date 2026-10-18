@@ -208,6 +208,12 @@ test('changing selected tags keeps the current list and unread control while res
   assert.ok(row && controls && hiddenUnread, 'positive control: filtered mail and unread control are rendered')
   await openRow(mounted.view, 0)
   assert.match(pane(mounted.view), /body-m1/)
+  const trigger = mounted.view.el.querySelector<HTMLButtonElement>('button[aria-label="Filter mail by tags"]')
+  assert.ok(trigger)
+  await inAct(() => trigger.click())
+  assert.equal(mounted.view.el.querySelector('.mail-list-controls') === controls, true,
+    'opening the tag picker keeps its filter bar mounted')
+  await inAct(() => trigger.click())
 
   const removeReview = mounted.view.el.querySelector<HTMLButtonElement>('button[aria-label="Remove Review filter"]')
   assert.ok(removeReview, 'positive control: selected tag has a remove control')
@@ -248,14 +254,15 @@ test('tag and text filters close a detail pane when they hide its mail', async (
   await openRow(mounted.view, 0)
   const search = mounted.view.el.querySelector<HTMLInputElement>('input.mail-filter')
   assert.ok(search)
+  const setSearch = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(search), 'value')!.set!
   await inAct(async () => {
-    search.value = 'no matching body'
+    setSearch.call(search, 'no matching body')
     search.dispatchEvent(new W.Event('input', { bubbles: true }))
     await flush(3)
   })
   assert.doesNotMatch(pane(mounted.view), /body-m1/, 'a text filter closes a detail pane for an excluded mail')
   await inAct(async () => {
-    search.value = ''
+    setSearch.call(search, '')
     search.dispatchEvent(new W.Event('input', { bubbles: true }))
     await flush(3)
   })

@@ -18,18 +18,21 @@ export function useTaggedUserMail(slug:string,base:InboxPayload|null|undefined,t
   const key=JSON.stringify(labels.map(mailTagKey).sort()),active=labels.length>0,identity=JSON.stringify([slug,key])
   const generation=useRef(0),busy=useRef(false)
   const [retryKey,retry]=useState(0)
-  const [state,setState]=useState<{identity:string;box:InboxPayload;loading:boolean;error:string|null}>({identity,box:empty(),loading:false,error:null})
+  const [state,setState]=useState<{identity:string;slug:string;box:InboxPayload;loading:boolean;error:string|null}>({identity,slug,box:empty(),loading:false,error:null})
   // Record views also change for turns and costs; those must not refetch mail.
   const revision=JSON.stringify([base?.mail_revision,base?.pending.map(m=>m.id),base?.delivered.map(m=>m.id)])
   useEffect(()=>{
     const request=++generation.current;busy.current=false
     if(!visible||!base)return
     let live=true
-    if(!active){setState({identity,box:empty(),loading:false,error:null});return ()=>{live=false}}
+    if(!active){setState({identity,slug,box:empty(),loading:false,error:null});return ()=>{live=false}}
     busy.current=true
-    setState(old=>({identity,box:old.identity===identity?old.box:empty(),loading:true,error:null}))
+    // Keep the last result for this inbox while the next filter is loading.
+    // MailList applies the new selection locally, so matching rows remain in
+    // place and aggregate controls do not disappear between requests.
+    setState(old=>({identity,slug,box:old.slug===slug?old.box:empty(),loading:true,error:null}))
     void getTaggedInbox(slug,labels).then(box=>{
-      if(live&&generation.current===request)setState({identity,box,loading:false,error:null})
+      if(live&&generation.current===request)setState({identity,slug,box,loading:false,error:null})
     }).catch((e:Error)=>{
       if(live&&generation.current===request)setState(old=>({...old,loading:false,error:e.message}))
     }).finally(()=>{if(generation.current===request)busy.current=false})
@@ -43,13 +46,13 @@ export function useTaggedUserMail(slug:string,base:InboxPayload|null|undefined,t
     busy.current=true;const request=generation.current
     setState(old=>({...old,loading:true,error:null}))
     void getTaggedInbox(slug,labels,cursor).then(box=>{
-      if(generation.current===request)setState(old=>({identity,box:combine(old.box,box),loading:false,error:null}))
+      if(generation.current===request)setState(old=>({identity,slug,box:combine(old.box,box),loading:false,error:null}))
     }).catch((e:Error)=>{
       if(generation.current===request)setState(old=>({...old,loading:false,error:e.message}))
     }).finally(()=>{if(generation.current===request)busy.current=false})
   },[slug,key,visible,identity,state])
   useEffect(()=>()=>{++generation.current},[])
-  const current=state.identity===identity?state:{identity,box:empty(),loading:active,error:null}
+  const current=state.identity===identity?state:{identity,slug,box:state.slug===slug?state.box:empty(),loading:active&&visible,error:null}
   return {...current,loadMore,retry:()=>retry(v=>v+1)}
 }
 
