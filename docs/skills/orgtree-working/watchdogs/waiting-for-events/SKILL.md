@@ -7,6 +7,14 @@ Up: [orgtree-watchdogs](../SKILL.md)
 
 # Waiting for events
 
+For account allowance thresholds, resets, stale/recovered readings and usage
+refusals, choose `kind=usage` instead of a periodic tick command. It consumes
+existing usage observations, not secrets or provider refreshes. Example:
+`accounts:["claude-5"], windows:["weekly"], usage_events:["above"], threshold_percent:98`.
+Current high values seed quietly; only later crossings fire, once until the
+reading falls below or resets. Unknown is never zero. See the watchdog tool
+page for exact filters, event names, notice and once behavior.
+
 Choose an observable completion signal and arrange a persistent watcher before yielding. The [watchdog tool](../tool-watchdog/SKILL.md) owns the exact kinds, parameters, event catalog, shell rules and limits; use that reference to make the watcher concrete.
 
 ## Pick a signal you can verify

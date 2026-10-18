@@ -10,7 +10,7 @@ pub(crate) use mailtools::typing_peers;
 mod orgview;
 mod session;
 mod treetools;
-mod usage;
+pub(crate) mod usage;
 mod logo;
 mod next_turn;
 pub(crate) mod result_timing;

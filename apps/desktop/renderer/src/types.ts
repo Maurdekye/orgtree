@@ -738,7 +738,11 @@ export interface Watchdog {
   id: string
   owner: string
   name: string
-  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'fair_queue' | 'slot'
+  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'usage' | 'fair_queue' | 'slot'
+  accounts?: string[]
+  windows?: string[]
+  usage_events?: string[]
+  threshold_percent?: number
   /** a `slot` claim (project slots): when it joined the line, its order */
   queued_at?: string
   /** a granted `slot` claim: its lease and slot number */

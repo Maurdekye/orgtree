@@ -884,11 +884,15 @@ fn build_tool_audience() -> Value {
 fn build_tool_watchdog() -> Value {
     tool(
         "orgtree_watchdog",
-        "Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target; command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. Event/count/silence semantics and catalog are in the guide. No added authority.",
+        "Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. Event/count/silence semantics and catalog are in the guide. No added authority.",
         json!({
             "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
-            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "fair_queue", "slot"] },
+            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot"] },
+            "accounts": {"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact visible account ids; omitted = any"},
+            "windows": {"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact kind, group or display label; omitted = any"},
+            "usage_events": {"type":"array","items":{"type":"string","enum":["above","below","reset","limit","stale","unreadable","recovered","account_added","account_removed","refused","frozen"]},"minItems":1,"maxItems":32,"description":"usage only: omitted = all detectable edges (above/below need threshold_percent)"},
+            "threshold_percent": {"type":"number","minimum":0,"maximum":100,"description":"usage only: percentage for above/below crossings; above means >=, below means <. Spend caps use the same percentage."},
             "fire_mode": { "type": "string", "enum": ["event", "silence"], "description": "create: on event (default), or after silence" },
             "threshold": {"type":"string","description":"event counts only: below N or at least N; fires only on false-to-true crossing, never repeatedly while satisfied"},
             "event_scope": {"type":"string","enum":["subtree","org"],"description":"count targets only: visible descendants (default), or org (requires full visibility); excludes the watcher"},
@@ -1322,8 +1326,15 @@ mod builder_stack_tests {
         let dog = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_watchdog").unwrap();
         dog["description"] = serde_json::json!(dog["description"].as_str().unwrap().replace(
             "fair_queue delivers project mail to one watcher.", "fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted."));
+        dog["description"] = serde_json::json!(dog["description"].as_str().unwrap()
+            .replace("Create requires kind/target;", "Create requires kind/target (usage defaults target=usage);")
+            .replace("Event/count/silence semantics", "usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. Event/count/silence semantics"));
         let dschema = &mut dog["inputSchema"];
-        dschema["properties"]["kind"]["enum"] = serde_json::json!(["file", "command", "process", "stream", "activity", "event", "fair_queue", "slot"]);
+        dschema["properties"]["kind"]["enum"] = serde_json::json!(["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot"]);
+        dschema["properties"]["accounts"] = serde_json::json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact visible account ids; omitted = any"});
+        dschema["properties"]["windows"] = serde_json::json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact kind, group or display label; omitted = any"});
+        dschema["properties"]["usage_events"] = serde_json::json!({"type":"array","items":{"type":"string","enum":["above","below","reset","limit","stale","unreadable","recovered","account_added","account_removed","refused","frozen"]},"minItems":1,"maxItems":32,"description":"usage only: omitted = all detectable edges (above/below need threshold_percent)"});
+        dschema["properties"]["threshold_percent"] = serde_json::json!({"type":"number","minimum":0,"maximum":100,"description":"usage only: percentage for above/below crossings; above means >=, below means <. Spend caps use the same percentage."});
         dschema["properties"]["target"]["description"] = serde_json::json!(dschema["properties"]["target"]["description"].as_str().unwrap()
             .replace("(fair_queue) project name", "(fair_queue, slot) project name"));
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();

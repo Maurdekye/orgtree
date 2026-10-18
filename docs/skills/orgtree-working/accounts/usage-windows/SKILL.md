@@ -6,6 +6,16 @@ Up: [orgtree-accounts](../SKILL.md)
 
 # Usage windows
 
+Usage changes can wake an agent through `orgtree_watchdog kind=usage` without
+polling mail or credential scripts. Exact account/window filters select the
+same visible cache lanes; window kind, provider group or display label can
+match. Above/below thresholds, reset, 100% crossing, stale/unreadable/recovered,
+account lifecycle and detected turn usage refusals/freezes are available.
+Unknown/stale never means 0%, and a 100% event is a reading rather than a
+claim of exhaustion. OpenRouter spend-cap percent is supported; unreported
+percent or uncapped balance cannot form a percentage threshold. See
+[watchdog tool](../../watchdogs/tool-watchdog/SKILL.md).
+
 A provider has multiple allowances; “usage” is not one interchangeable number. Read the account, window/model scope, percentage or amount, reset and observation time together. The usage board is cache-only and may point to an earlier numbered snapshot when materially unchanged. Its starred lane is the current turn's account. Some unobserved lanes are omitted; absence is not room.
 
 ## Applicable windows

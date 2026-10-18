@@ -232,6 +232,22 @@ fn row(
     v
 }
 
+/// Same org lane/origin/allowlist and sanitized fields as cached usage. No
+/// inspection grant is needed for the usage already in every turn envelope.
+#[nolog]
+pub(crate) fn watchdog_rows(engine: &Engine, org: &str) -> Vec<Value> {
+    lanes(engine,org).values().map(|l| {
+        let mut projected=row(engine,l,"",&Selection::default(),auth_required(engine,l));
+        // Registered Google profiles have their own cache; never borrow Primary.
+        if let Some(a)=l.account.as_ref().filter(|a|a.provider=="google" && !a.ambient && a.config_dir.as_deref().is_some_and(|s|!s.is_empty())) {
+            let mut reading=engine.usage.snapshot_selected(&format!("agy:{}",a.id),Utc::now(),&Selection::default());
+            crate::usage::query::overlay_auth(&mut reading,engine.usage.cached_reauth_required(&format!("agy:{}",a.id)));
+            if let Some(o)=reading.as_object(){for (k,v) in o{projected[k]=v.clone();}}
+        }
+        projected
+    }).collect()
+}
+
 #[logged]
 pub async fn usage(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let Some(object) = args.as_object() else {

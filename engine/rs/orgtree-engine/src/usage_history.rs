@@ -167,6 +167,7 @@ fn readings(value: &Value) -> Vec<Reading> {
 /// Record one readout of `account`, observed (asked) at `observed`.
 #[nolog]
 pub async fn record(engine: &Engine, account: &str, provider: &str, observed: DateTime<Utc>, value: &Value) {
+    crate::runtime::watchdogs::usage::reading(engine,account,provider,observed,value);
     tracing::info!(account, provider, available = value["available"].as_bool().unwrap_or(false),
         window_count = value["limits"].as_array().map_or(0, Vec::len), "usage history observation");
     if let Err(e) = write(engine, account, provider, observed, value).await {

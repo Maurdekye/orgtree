@@ -8,6 +8,7 @@ const base: Watchdog = { id: 'worker/watch', owner: 'test-proj-worker-b', name: 
   kind: 'fair_queue', target: 'test-project', state: 'armed', interval_s: 60, fired: 2,
   once: false, spent: false, at: '2026-10-18T07:00:00Z', events: [] }
 const cases: Record<string, Partial<Watchdog> & { notice?: boolean }> = {
+  usage: { name: 'weekly-budget', kind: 'usage', target: 'usage', accounts: ['claude-5'], windows: ['weekly'], usage_events: ['above', 'stale', 'recovered'], threshold_percent: 98, notice: true },
   queue: {},
   command: { name: 'build-finished', kind: 'command', target: 'type C:\\synthetic\\build-status.txt', pattern: '^BUILD COMPLETE$', once: true },
   silence: { name: 'worker-quiet', kind: 'activity', target: 'builder', fire_mode: 'silence', quiet_period_s: 600, pattern: '^tool_call', notice: true },

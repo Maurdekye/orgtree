@@ -2302,6 +2302,15 @@ impl Actor {
     /// An inactive account (App settings › Providers) serves no new turn:
     /// the agent's mail waits, and a running turn finishes.
     fn account_gate(&self, ctx: &Ctx, route: Option<&OrRoute>) -> Result<()> {
+        let usage_refused=|until:Option<DateTime<Utc>>| {
+            let view=self.engine.accounts.view();
+            let account=ctx.account.as_deref().and_then(|id|view.get(id)).map(crate::org_accounts::lane_of)
+                .unwrap_or_else(||crate::org_accounts::primary(&ctx.provider));
+            crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event(
+                "usage.refused",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),
+                json!({"agent_id":self.id,"account":account,"window":null,"old_percent":null,"new_percent":null,
+                    "threshold_percent":null,"resets_at":until.map(iso),"observed_at":iso(Utc::now())})));
+        };
         // an OpenRouter seat bills the stored key, not an account
         if route.is_some() {
             return Ok(());
@@ -2313,6 +2322,7 @@ impl Actor {
         // the default sign-in's own readout; a registered account is judged by its marks below
         if agy_login == crate::providers::agy_auth::Login::Primary {
             if let Some(reason) = crate::usage::antigravity_limit(&self.engine, &ctx.tier) {
+                usage_refused(None);
                 return Err(anyhow!(reason));
             }
         }
@@ -2325,11 +2335,13 @@ impl Actor {
                 return Err(anyhow!(failure));
             }
             if let Some(until) = acc.and_then(|a| a.limited_for(&ctx.tier, Utc::now())) {
+                usage_refused(Some(until));
                 return Err(anyhow!("Antigravity {} quota is marked exhausted until {until}", catalog::antigravity_pool(&ctx.tier)));
             }
         }
         if ctx.provider == catalog::MUSE {
             if let Some(until) = acc.and_then(|a| a.limited_for(&ctx.tier, Utc::now())) {
+                usage_refused(Some(until));
                 return Err(anyhow!("Muse refused {} for its quota until {until}", ctx.tier));
             }
         }
@@ -7425,6 +7437,15 @@ impl Actor {
             recovery::parked(&self.engine, self.org_id, self.id, kind, error.as_deref().unwrap_or("")).await;
         }
         self.apply_pending_config().await?;
+        if let Some(until)=limit {
+            use crate::runtime::watchdogs::events as usage_events;
+            let account=account_now.clone().unwrap_or_else(||crate::org_accounts::primary(&turn.serving_provider));
+            let payload=json!({"agent_id":self.id,"account":account,
+                "window":super::usage_reset::window(turn.rate_limit.as_ref()),"old_percent":null,"new_percent":null,
+                "threshold_percent":null,"resets_at":iso(until),"observed_at":iso(Utc::now())});
+            usage_events::emit(&self.engine,usage_events::event("usage.refused",usage_events::Scope::Agent(self.org_id,self.id),payload.clone()));
+            if freeze_rec.is_some(){usage_events::emit(&self.engine,usage_events::event("usage.frozen",usage_events::Scope::Agent(self.org_id,self.id),payload));}
+        }
         if (error.is_some() && !turn.session_ended) || limit.is_some() {
             crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event(
                 if limit.is_some(){"turn.limited"}else{"turn.failed"},

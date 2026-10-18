@@ -7,6 +7,12 @@
   capacity becomes zero. Data/tool actions remain `orgtree_project slots` and
   existing release/unqueue. [decided: user 2026-10-18 19:31–19:33Z; verified:
   `canvas/{agentmenu,OrgCanvas,panelcorner,slotspanel,projectdesk}.tsx`]
+- Usage watchdogs consume sanitized cache observations and scoped usage refusals;
+  no provider refresh or credential read. Per-account/window edges and pending
+  delivery persist in memo. Unknown/stale never means zero; current conditions
+  seed without firing, reset clocks carry unknown new values. Tool creation only;
+  desktop list/detail retains normal management. See [usage watchdogs](docs/rust-engine/usage-watchdogs.md).
+  [decided: user/coordinator 2026-10-18 19:44Z/19:49Z; verified: `runtime/watchdogs/{usage,usage_eval}.rs`]
 
 - Project settings explain round-robin as a load balancer, ACK as a FIFO work
   queue, one slot as a shared lock (mutex), and multiple slots as a counting

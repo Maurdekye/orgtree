@@ -11,6 +11,25 @@ Use a watchdog to be told when an observable condition happens, instead of spend
 
 ## Actions and parameters
 
+`kind: "usage"` watches cached allowance edges without provider requests.
+For example: `{"action":"create","kind":"usage","accounts":["claude-5"],"windows":["weekly"],"usage_events":["above"],"threshold_percent":98,"once":true}`.
+Its target defaults to `usage`; account/window/event filters omitted mean any.
+Explicit lists contain 1–32 exact strings. Windows match kind, group or display
+label; account IDs are exact and subject to the org's current usage visibility.
+Events are `above`, `below`, `reset`, `limit`, `stale`, `unreadable`, `recovered`,
+`account_added`, `account_removed`, `refused`, `frozen`. Above means <N to >=N;
+below reverses it. Above/below need `threshold_percent` (0–100). Staying above
+does not repeat; falling below or a reset re-arms. Initial cache seeds without
+firing. Unknown/stale is never zero or a crossing. Reset clocks report unknown
+new usage. Current reset/freshness/account changes are detected within 15s.
+OpenRouter spend caps use reported percent; uncapped balance has no percent.
+Mail names account/window, old/new percent, threshold, reset and observation
+times. Once/notice/pause/resume/remove work normally; resume seeds current
+cache. `interval_s` is the minimum gap (floor 5s), not provider polling.
+Usage dogs have no regex or silence mode. Desktop list/detail shows the dog;
+creation stays tool-only. Event dogs may instead match safe `usage.reading`,
+`usage.refused` or `usage.frozen` source events, without per-dog threshold logic.
+
 The effective tool permission is `tools.orgtree.watchdogs`. The owner is the caller; there is no create-on-behalf-of parameter. Top-level callers follow the same owner and visibility rules as other agents.
 
 | Parameter | Applies to | Default / meaning |

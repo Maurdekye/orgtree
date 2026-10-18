@@ -17,10 +17,12 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
     file: 'File listener', command: 'Periodic command listener', process: 'Process listener',
     stream: 'Stream listener', activity: 'Activity listener',
     event: `Orgtree event listener · ${target}`, fair_queue: 'Mail queue listener', slot: 'Concurrency slot claim',
+    usage: 'Usage event listener',
   }
   const labels: Record<Watchdog['kind'], string> = {
     file: 'watched file', command: 'command (each interval)', process: 'watched process',
     stream: 'listening command (realtime)', activity: 'watched agent', event: 'engine event', fair_queue: 'project', slot: 'project',
+    usage: 'usage',
   }
   const count = dog.kind === 'event' && ['agents.active', 'agents.live'].includes(dog.target)
   const scope = dog.event_scope === 'org' ? 'visible organization' : 'visible subtree'
@@ -28,6 +30,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
   let summary: string
   const place = dog.kind === 'slot' ? slotPlace(dog, dogs) : null
   switch (dog.kind) {
+    case 'usage': summary = `Watches ${dog.accounts?.join(', ') || 'all visible accounts'} · ${dog.windows?.join(', ') || 'all windows'} and ${alert} on ${dog.usage_events?.join(', ') || 'usage edges'}${dog.threshold_percent != null ? ` at ${dog.threshold_percent}%` : ''}. Repeated readings do not fire; unknown readings never count as zero.`; break
     case 'file': summary = `Watches new ${dog.pattern ? `lines ${pattern}` : 'nonempty lines'} appended to ${target} and ${alert}.`; break
     case 'command': summary = `Runs “${target}” every ${dog.interval_s}s and ${alert} when an output line ${lineMatch}.`; break
     case 'process': summary = `Watches ${target} and ${alert} on an observed transition from up to down. A target already down must first be seen up.`; break
@@ -56,6 +59,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
   }
   const polling = ['file', 'command', 'process'].includes(dog.kind)
   const cadence = dog.kind === 'slot' ? 'Granted when a project concurrency slot is free; no polling interval.'
+    : dog.kind === 'usage' ? 'Cached provider events; clock checks within 15s for stale/reset edges. No provider requests.'
     : dog.kind === 'fair_queue' ? 'Delivered when project mail is waiting; no polling interval.'
     : polling ? `Checked every ${dog.interval_s}s`
     : silence ? 'Listens continuously; alerts follow the silence timer.'

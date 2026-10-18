@@ -137,7 +137,7 @@ async fn identity(engine: &Engine, owner: i64) -> Result<crate::tools::Me> {
 }
 
 /// One permission snapshot for a drained batch, including its pending delivery.
-struct Access {
+pub(super) struct Access {
     me: crate::tools::Me,
     org_slug: String,
     visible: Option<HashSet<i64>>,
@@ -150,7 +150,7 @@ struct Access {
 }
 #[logged]
 impl Access {
-    async fn read(engine: &Engine, d: &Dog, events: &[Event]) -> Result<Self> {
+    pub(super) async fn read(engine: &Engine, d: &Dog, events: &[Event]) -> Result<Self> {
         let me=identity(engine,d.owner).await?;
         let c=engine.db.get().await?;
         let visible=crate::tools::visible(&c,&me).await?;
@@ -173,12 +173,14 @@ impl Access {
         let org_slug=engine.orgs.by_id(me.org_id).map(|o|o.slug.clone()).unwrap_or_default();
         Ok(Self{me,org_slug,visible,names,ids,live,down,docket,credits})
     }
-    fn sees(&self,e:&Event)->bool {
+    pub(super) fn sees(&self,e:&Event)->bool {
         if e.suppressed_owner==Some(self.me.id){return false;}
+        if e.name.starts_with("usage.") && !e.payload["account"].as_str().is_some_and(|id|crate::org_accounts::allowed(Some(&self.org_slug),id)){return false;}
         let id=match &e.scope {
             Scope::Machine=>return true,
             Scope::Org(org)=>return *org==self.me.org_id && (self.me.visibility!="self" || matches!(e.name.as_str(),"agents.active"|"agents.live")),
-            Scope::Account(org)=>return org.as_ref().map(|s|s==&self.org_slug).unwrap_or(true),
+            Scope::Account(org)=>return org.as_ref().map(|s|s==&self.org_slug).unwrap_or(true)
+                && (!e.name.starts_with("usage.") || e.payload["account"].as_str().is_some_and(|id|crate::org_accounts::allowed(Some(&self.org_slug),id))),
             Scope::Agent(org,id)=>{if *org!=self.me.org_id{return false;}*id},
             Scope::NamedAgent(org,n)=>{if *org!=self.me.org_id{return false;}let Some(id)=self.names.get(n)else{return false;};*id},
             Scope::Docket(org,slug)=>return *org==self.me.org_id && self.docket.contains(slug),

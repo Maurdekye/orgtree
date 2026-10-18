@@ -59,6 +59,7 @@ const SHELL_ERRORS: &[&str] = &[
 pub mod events;
 mod schedule;
 mod usage_eval;
+pub mod usage;
 
 type ActivityTx = UnboundedSender<(String, DateTime<Utc>)>;
 
@@ -296,6 +297,7 @@ fn arm_retry(engine: &Arc<Engine>, row: i64, failures: u32) {
                 let missing = matches!(&loaded,Ok(None));
                 let r = match loaded {
                     Ok(Some(dog)) if dog.kind == "event" => events::run(&engine, dog, &event_sub, event_rx, &token).await,
+                    Ok(Some(dog)) if dog.kind == "usage" => usage::run(&engine, dog, &event_sub, event_rx, &token).await,
                     Ok(Some(dog)) => { events::unsubscribe(&engine, id, &event_sub); run(&engine, dog, &token,failures>0).await },
                     Ok(None) => Ok(()),
                     Err(e) => Err(e),
@@ -1664,10 +1666,10 @@ async fn slot_claim_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::p
 #[logged]
 pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value) -> Result<Value> {
     let kind = args["kind"].as_str().unwrap_or("").to_string();
-    if !["file", "command", "process", "stream", "activity", "event", "fair_queue", "slot"].contains(&kind.as_str()) {
-        refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event, fair_queue, slot");
+    if !["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot"].contains(&kind.as_str()) {
+        refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event, usage, fair_queue, slot");
     }
-    let target = args["target"].as_str().map(str::trim).unwrap_or("").to_string();
+    let target = args["target"].as_str().map(str::trim).unwrap_or(if kind=="usage"{"usage"}else{""}).to_string();
     if target.is_empty() {
         refuse!(BadRequest, "target is required — the path, command, agent, or pid:N / port:N to watch");
     }
@@ -1704,6 +1706,19 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         }
     }
     let mut memo = json!({ "run": {} });
+    if kind=="usage" {
+        memo["usage"]=usage::validate(args)?;
+        if target!="usage" {refuse!(BadRequest,"usage target is usage; select accounts/windows/events using their filters");}
+        let org=engine.orgs.by_id(org_id).map(|o|o.slug.clone()).unwrap_or_default();
+        let rows=crate::tools::usage::watchdog_rows(engine,&org);
+        if memo["usage"]["accounts"].as_array().is_some_and(|ids|ids.iter().any(|id|!rows.iter().any(|r|r["account"]==*id))) {
+            refuse!(Forbidden,"requested usage account is unavailable to this organization");
+        }
+        let mut baseline=json!({});usage_eval::evaluate(&mut baseline,&rows,&memo["usage"],Utc::now());
+        memo["run"]["usage"]=baseline;
+    } else if ["accounts","windows","usage_events","threshold_percent"].iter().any(|k|args.get(k).is_some()) {
+        refuse!(BadRequest,"accounts/windows/usage_events/threshold_percent require kind usage");
+    }
     if kind == "event" {
         events::validate(&target,args)?;
         memo["threshold"]=args["threshold"].clone();
@@ -1828,7 +1843,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     if kind == "command" && pattern.is_none() {
         refuse!(BadRequest, "a command watchdog needs a pattern — 'ran and printed something' is not an event");
     }
-    let floor = if kind == "stream" || kind == "activity" || kind == "event" || kind == "fair_queue" || kind == "slot" { STREAM_FLOOR_S } else { FLOOR_S };
+    let floor = if kind == "stream" || kind == "activity" || kind == "event" || kind == "usage" || kind == "fair_queue" || kind == "slot" { STREAM_FLOOR_S } else { FLOOR_S };
     let interval = args["interval_s"].as_i64().unwrap_or(60).max(floor).min(i32::MAX as i64) as i32;
     // a slot claim is one-shot: it fires once, with the grant
     let once = kind == "slot" || args["once"].as_bool().unwrap_or(false);
@@ -1859,7 +1874,8 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         _ => {}
     }
     let cwd = scratch.is_dir().then_some(scratch);
-    let smoked = if kind=="event" { events::smoke(engine,owner,&target,args).await? }
+    let smoked = if kind=="usage" {json!({"push":true,"note":"Current cache seeded without firing. Usage edges only; no provider requests. Clock checks detect stale/reset transitions within 15 seconds."})}
+        else if kind=="event" { events::smoke(engine,owner,&target,args).await? }
         else if let Some(p) = &queue_project { queue_smoke(engine, org_id, p).await? }
         else if slot_project.is_some() { json!({ "ran": "a concurrency slot claim has nothing to run" }) }
         else { smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await };
@@ -1909,7 +1925,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Events]);
     let cadence = match kind.as_str() {
         "stream" => " (realtime stream)".to_string(),
-        "activity" | "event" => " (pushed events)".to_string(),
+        "activity" | "event" | "usage" => " (pushed events)".to_string(),
         "fair_queue" | "slot" => format!(" on project {target}"),
         _ => format!(" every {interval}s"),
     };
@@ -2036,6 +2052,7 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
                             next_silence_at = CASE WHEN fire_mode='silence' THEN now()+greatest(coalesce(quiet_period_s,600),1)*interval '1 second' END,
                             memo = ((memo - 'paused_why' - 'paused_by') #- '{run,alerted}' #- '{run,broken}')
                                    -- a slot claim rejoins the line at the back
+                                   || CASE WHEN kind = 'usage' THEN jsonb_build_object('run', '{}'::jsonb) ELSE '{}'::jsonb END
                                    || CASE WHEN kind = 'slot' THEN jsonb_build_object('queued_at', (extract(epoch FROM clock_timestamp()) * 1000)::bigint)
                                            ELSE '{}'::jsonb END
                       WHERE id = $1",
@@ -2128,6 +2145,7 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
             put("pattern", json!(d.pattern));
             put("threshold",d.memo["threshold"].clone());
             put("event_scope",d.memo["event_scope"].clone());
+            if let Some(config)=d.memo["usage"].as_object(){for (key,value) in config {put(key,value.clone());}}
             put("last_fired", json!(d.last_fired.map(iso)));
             put("last_check", json!(last_check.map(iso)));
             put("next_check_at",json!(d.next_check_at.map(iso)));
@@ -2181,7 +2199,7 @@ fn health(d: &Dog) -> Option<String> {
                 hours(age)
             )
         }),
-        "activity" | "event" | "fair_queue" | "slot" => None,
+        "activity" | "event" | "usage" | "fair_queue" | "slot" => None,
         _ if runs == 0 => (age >= NEVER_RAN_AGE_S)
             .then(|| format!("⚠ armed {} ago but has NEVER RUN A CHECK — the engine has not picked it up; report this.", hours(age))),
         _ => (d.fired == 0 && runs >= QUIET_CHECKS && age >= QUIET_AGE_S).then(|| {

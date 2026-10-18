@@ -12,6 +12,19 @@ async function panel(patch: Partial<Watchdog> & { notice?: boolean } = {}) {
   return mountView(<WatchdogPanel slug="synthetic" dog={{ ...base, ...patch }} toast={noop} close={noop} />, host => host)
 }
 
+test('usage watchdog displays exact filters, edge semantics and existing controls', async t => {
+  const view = await panel({ kind: 'usage', target: 'usage', accounts: ['claude-5'], windows: ['weekly'], usage_events: ['above', 'stale'], threshold_percent: 98, notice: true })
+  t.after(() => view.unmount())
+  assert.equal(view.el.querySelector('.wd-type')?.textContent, 'Usage event listener')
+  assert.match(view.el.textContent ?? '', /claude-5.*weekly/s)
+  assert.match(view.el.textContent ?? '', /98%/)
+  assert.match(view.el.textContent ?? '', /unknown readings never count as zero/)
+  assert.match(view.el.textContent ?? '', /No provider requests/)
+  assert.match(view.el.textContent ?? '', /Pause/)
+  assert.match(view.el.textContent ?? '', /Remove/)
+  assert.doesNotMatch(view.el.textContent ?? '', /checked every|next check/i)
+})
+
 test('slot claim tracks its place from the current line and names its spent grant', async t => {
   const first: Watchdog = { ...base, id: 'first/slot', kind: 'slot', target: 'builds', once: true, queued_at: '2026-10-18T07:00:00Z' }
   const second: Watchdog = { ...first, id: 'worker/slot', queued_at: '2026-10-18T07:01:00Z' }

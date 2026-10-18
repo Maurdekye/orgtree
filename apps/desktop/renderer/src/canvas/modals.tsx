@@ -217,6 +217,12 @@ export function WatchdogPanel({ slug, dog, dogs, toast, close }: {
         <div className="field-label">owner</div>
         <div className="chip mono">{dog.owner}</div>
         <div className="field-label">{description.targetLabel}</div>
+        {dog.kind === 'usage' && <div className="wd-usage-filters">
+          <div>Accounts: {dog.accounts?.join(', ') || 'any visible account'}</div>
+          <div>Windows: {dog.windows?.join(', ') || 'any window'}</div>
+          <div>Events: {dog.usage_events?.join(', ') || 'all detectable usage edges'}</div>
+          {dog.threshold_percent != null && <div>Threshold: {dog.threshold_percent}%</div>}
+        </div>}
         <div className={'chip mono grow wd-cmd' + (expTarget ? ' wd-expand' : '')}
           title={expTarget ? 'click to collapse' : 'click to see the full text'}
           onClick={() => setExpTarget((v) => !v)}>{dog.target}</div>
