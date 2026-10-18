@@ -1546,7 +1546,14 @@ mod builder_stack_tests {
             ("orgtree_message",vec!["reply_to","replies"])] {
             let want=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
             let got=actual.iter().find(|c|c["name"]==name).unwrap();
-            for key in keys {want["inputSchema"]["properties"][key]=got["inputSchema"]["properties"][key].clone();}
+            let nested=want["inputSchema"]["properties"]["metadata"].is_object();
+            for key in keys {
+                if nested {
+                    want["inputSchema"]["properties"]["metadata"]["properties"][key]=got["inputSchema"]["properties"]["metadata"]["properties"][key].clone();
+                } else {
+                    want["inputSchema"]["properties"][key]=got["inputSchema"]["properties"][key].clone();
+                }
+            }
         }
         // Approved description-only trim; compare schemas and order unchanged.
         for (name, description) in [
