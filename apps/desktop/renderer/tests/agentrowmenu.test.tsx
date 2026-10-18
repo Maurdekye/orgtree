@@ -603,6 +603,12 @@ uiTest('§7 "Open desk in a new window" pops the agent\'s desk out, and the entr
     await pick('Show desk window')
     assert.ok(pop.count.focuses >= 1, 'it raises the window that is already open')
     assert.equal(pop.count.opens, 1, 'and does not open a second one')
+
+    const beforeRowFocus = pop.count.focuses
+    await inAct(() => { rowFor(c.el, 'other')!.querySelector<HTMLButtonElement>('.tray-main')!.click() })
+    assert.ok(pop.count.focuses > beforeRowFocus,
+      'clicking the Agents List row raises the existing desk window')
+    assert.equal(pop.count.opens, 1, 'row navigation does not create a duplicate desk window')
   })
 
 uiTest('§7b the row has no per-agent pin or popout buttons any more — both live in its menu',
