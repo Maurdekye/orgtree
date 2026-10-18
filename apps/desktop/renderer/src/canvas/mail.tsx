@@ -534,6 +534,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // own outcome below (found, still asking, or absent) even with nothing in
   // the window; with no jump, this is the whole of what there is to say.
   if (!all.length && !jumpTo && !tagFilter) return <div className="dim pad">no mail yet</div>
+  // the text filter: inside the tag field when this list has one, else the field
+  const filterBox = <input className="mail-filter" placeholder="filter…" value={q}
+    onChange={(e) => setQ(e.target.value)} />
   return (
     <CollapsibleMailer collapsible={collapsible} listLabel="message list"
       tabIndex={-1} onKeyDown={onKey} rootRef={rootRef}
@@ -557,11 +560,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
         }}>
         {(tagFilter || all.length > 4 || q) && (
           <div className="mail-list-controls">
-            {tagFilter && <MailTagPicker {...tagFilter}/>}
-            {(all.length > 4 || q || tagFilter) && (
-              <input className="mail-filter" placeholder="filter…" value={q}
-                onChange={(e) => setQ(e.target.value)} />
-            )}
+            {tagFilter ? <MailTagPicker {...tagFilter}>{filterBox}</MailTagPicker> : filterBox}
           </div>
         )}
         {shown.length === 0 && <div className="dim pad">no matches</div>}

@@ -8993,40 +8993,116 @@ option.harness-absent, option.harness-sep { color: var(--dim); }
 .helper-transcript-heading { font-weight: 600; margin-bottom: 8px; }
 .helper-transcript-message + .helper-transcript-message { margin-top: 12px; }
 
-/* Fixed lightness/chroma with a stable, name-derived OKLCH hue gives every
-   mail tag the same soft pastel treatment in lists, messages and the picker. */
-.mail-tag,button.mail-tag,.settings button.mail-tag {
-  display:inline-block; vertical-align:middle; padding:0 4px; border-radius:4px;
-  font-size:10px; line-height:1.4; min-height:0; max-width:160px; flex:0 1 auto;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; overflow-wrap:normal;
-  color:oklch(0.25 0.025 var(--mail-tag-hue,210));
-  background:oklch(0.88 0.12 var(--mail-tag-hue,210));
-  border:1px solid oklch(0.68 0.11 var(--mail-tag-hue,210));
+/* MAIL TAGS AND THE INBOX FILTER BAR (user 2026-10-18 11:32Z: "it does not
+   look good"). A chip keeps its name-derived OKLCH hue (canvas/mailtags.ts)
+   and takes lightness, chroma and alpha from ONE palette per contrast family:
+   a tint of whatever surface it sits on, with the hue carried by its text, so
+   tags read as quiet labels beside the sender and preview, not as blocks. The
+   old opaque L .88 C .12 fill lay outside sRGB for most hues and was clipped
+   to neon. Every value below stays inside sRGB for all 360 hues and keeps AA
+   (4.5:1) text on every theme surface, at rest and pressed;
+   tests/mail-filter-bar.test.tsx recomputes both from this file. */
+:root {
+  --mail-tag-ink: 0.86 0.066;   /* text: OKLCH lightness and chroma */
+  --mail-tag-tint: 0.70 0.10;   /* fill and edge */
+  --mail-tag-fill: 0.16;        /* fill alpha at rest */
+  --mail-tag-fill-on: 0.25;     /* hovered chips and pressed choices */
+  --mail-tag-edge: 0.38;
+  --mail-tag-edge-on: 0.7;
 }
-.mailrow .l2 {display:flex;align-items:center;gap:4px;min-width:0;}
-.mailrow .l2 .mail-tag {flex-shrink:0;max-width:110px;}
-.mail-preview-text {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.mail-tag-picker {position:relative;display:flex;align-items:center;gap:4px;min-width:0;}
-.mail-tag-popover.settings {position:fixed;height:auto;box-sizing:border-box;margin:0;min-width:0;min-height:0;max-height:310px;overflow:auto;max-width:calc(100vw - 48px);z-index:60;
-  transform:none;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 5px 16px #0005;}
-.mail-tag-popover input {width:100%;box-sizing:border-box;}
-.mail-tag-options {display:flex;flex-wrap:wrap;align-content:flex-start;align-items:center;gap:6px;max-height:220px;overflow:auto;padding:8px 0;}
-button.mail-tag-choice[aria-pressed="true"] {box-shadow:0 0 0 1px currentColor inset;outline:1px solid currentColor;outline-offset:1px;}
-button.mail-tag-choice[aria-pressed="false"] {opacity:.75;}
-
+:root:is(.contrast-light, .contrast-solarized-light) {
+  --mail-tag-ink: 0.43 0.07;
+  --mail-tag-tint: 0.62 0.10;
+  --mail-tag-fill: 0.13;
+  --mail-tag-fill-on: 0.24;
+  --mail-tag-edge: 0.42;
+  --mail-tag-edge-on: 0.7;
+}
+/* One 10px pill on every surface: rows, the reading pane (whose header is
+   mono), the filter field and the popover. */
+.mail-tag,button.mail-tag,.settings button.mail-tag {
+  display:inline-block; vertical-align:baseline; box-sizing:border-box; margin:0; padding:0 6px;
+  border-radius:999px; font-family:var(--sans); font-size:10px; font-weight:400; line-height:13px;
+  min-height:0; max-width:160px; flex:0 1 auto;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; overflow-wrap:normal;
+  color:oklch(var(--mail-tag-ink) var(--mail-tag-hue, 210));
+  background:oklch(var(--mail-tag-tint) var(--mail-tag-hue, 210) / var(--mail-tag-fill));
+  border:1px solid oklch(var(--mail-tag-tint) var(--mail-tag-hue, 210) / var(--mail-tag-edge));
+  /* the app-wide button hover edge and focus ring read this: the tag hue */
+  --button-accent:oklch(var(--mail-tag-tint) var(--mail-tag-hue, 210) / var(--mail-tag-edge-on));
+}
 button.mail-tag { cursor:pointer; }
-button.mail-tag:hover { filter:brightness(1.12); }
-.mail-tag-picker { display:flex; align-items:center; gap:4px; padding:0; }
-.mail-tag-control { display:flex; align-items:center; gap:4px; box-sizing:border-box; height:24px; min-width:0; max-width:100%; padding:2px 4px; border:1px solid var(--line); border-radius:4px; background:var(--input); font-size:11px; }
-.mail-tag-selected { display:flex; align-items:center; gap:4px; min-width:0; overflow-x:auto; scrollbar-width:none; }
+button.mail-tag:hover, .settings button.mail-tag:hover,
+button.mail-tag-choice[aria-pressed="true"], .settings button.mail-tag-choice[aria-pressed="true"] {
+  background:oklch(var(--mail-tag-tint) var(--mail-tag-hue, 210) / var(--mail-tag-fill-on));
+  border-color:oklch(var(--mail-tag-tint) var(--mail-tag-hue, 210) / var(--mail-tag-edge-on));
+}
+/* the +N count is not a tag, so it wears no tag hue */
+.mail-tag.mail-tag-more { color:var(--dim); background:transparent; border-color:var(--line); }
+.mail-tag .mail-tag-check { font-size:11px; margin:0 2px 0 -2px; vertical-align:-2px; }
+/* rows: chips sit on the preview line's baseline without growing it */
+.mailrow .l2 { display:flex; align-items:baseline; gap:4px; min-width:0; }
+.mailrow .l2 .mail-tag { flex-shrink:0; max-width:110px; }
+.mailrow .l2 .mail-tag + .mail-preview-text { margin-left:2px; }
+.mail-preview-text { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* THE FILTER BAR IS ONE FIELD: the tag trigger, the selected chips, the text
+   filter and the clear button sit inside a single 24px border-box control
+   (the 24px height ruling holds inside .settings too). Only the field draws
+   a frame: a quiet fill at rest, the input fill and accent edge while you
+   type. A mailbox without tags shows the same field holding only the text.
+   The bar's 10px inset lines the field up with the rows' text. */
+.mail-list-controls { display:flex; align-items:center; gap:6px; min-width:0; padding:6px 10px; border-bottom:1px solid var(--line-soft); }
+.mail-tag-picker { position:relative; display:flex; align-items:center; min-width:0; padding:0; }
+.mail-list-controls .mail-tag-picker, .mail-list-controls .mail-tag-control { flex:1 1 auto; }
+.mail-tag-control, .mail-list-controls > input.mail-filter {
+  box-sizing:border-box; height:24px; min-width:0; max-width:100%; min-height:0; margin:0;
+  border:1px solid var(--line); border-radius:4px; background:color-mix(in srgb, var(--input) 55%, transparent);
+  font-size:12px; transition:border-color .12s, background-color .12s;
+}
+.mail-tag-control { display:flex; align-items:center; gap:4px; padding:0 3px; }
+.mail-list-controls > input.mail-filter { flex:1 1 auto; width:auto; padding:0 8px; color:var(--ink-strong); }
+.mail-tag-control:hover, .mail-list-controls > input.mail-filter:hover { border-color:var(--line-hover); }
+.mail-tag-control:has(> input.mail-filter:focus), .mail-list-controls > input.mail-filter:focus {
+  border-color:var(--accent); background:var(--input); outline:none;
+}
+/* the text filter inside the field: frameless, behind a short hairline */
+.mail-tag-control > input.mail-filter {
+  flex:1 1 64px; width:auto; min-width:48px; height:100%; min-height:0; margin:0; padding:0 6px 0 9px;
+  border:0; border-radius:0; outline:none; box-shadow:none; color:var(--ink-strong); font-size:12px;
+  background:linear-gradient(var(--line), var(--line)) 0 50% / 1px 12px no-repeat;
+}
+.mail-tag-selected { display:flex; align-items:center; gap:4px; flex:0 1 auto; min-width:0; overflow-x:auto; scrollbar-width:none; }
 .mail-tag-selected::-webkit-scrollbar { display:none; }
 .mail-tag-selected .mail-tag-active { flex:0 0 auto; }
-/* Beat modal-wide button defaults without inflating shared OKLCH tag pills. */
-button.mail-tag-trigger, .settings button.mail-tag-trigger { display:flex; align-items:center; justify-content:center; flex:0 0 auto; min-width:14px; height:100%; min-height:0; margin:0; padding:0; border:0; border-radius:0; background:transparent; font:inherit; line-height:1; white-space:nowrap; }
-button.mail-tag-clear, .settings button.mail-tag-clear { display:grid; place-items:center; box-sizing:border-box; width:24px; min-width:24px; height:24px; min-height:0; padding:0; font-size:11px; line-height:1; color:var(--dim); }
-.mail-list-controls { display:flex; align-items:center; gap:4px; min-width:0; padding:2px 4px; }
-.mail-list-controls .mail-tag-picker { flex:0 1 auto; max-width:68%; }
-.mail-list-controls .mail-filter { box-sizing:border-box; flex:1 1 48px; min-width:32px; width:auto; height:24px; min-height:0; margin:0; padding:2px 6px; font-size:11px; }
+/* frameless 18px buttons inside the field; these beat .settings button */
+button.mail-tag-trigger, .settings button.mail-tag-trigger,
+button.mail-tag-clear, .settings button.mail-tag-clear {
+  display:inline-flex; align-items:center; justify-content:center; gap:4px; flex:0 0 auto; box-sizing:border-box;
+  height:18px; min-width:18px; min-height:0; margin:0; padding:0 2px; border:0; border-radius:3px;
+  background:transparent; color:var(--dim); font:inherit; font-size:12px; line-height:1; white-space:nowrap;
+}
+button.mail-tag-trigger:has(.mail-tag-trigger-text), .settings button.mail-tag-trigger:has(.mail-tag-trigger-text) { padding:0 6px 0 3px; }
+.mail-tag-trigger svg { font-size:14px; flex:none; }
+button.mail-tag-clear, .settings button.mail-tag-clear { width:18px; padding:0; font-size:15px; }
+button.mail-tag-trigger:hover, .settings button.mail-tag-trigger:hover,
+button.mail-tag-trigger[aria-expanded="true"], .settings button.mail-tag-trigger[aria-expanded="true"],
+button.mail-tag-clear:hover, .settings button.mail-tag-clear:hover { background:var(--panel-2); color:var(--ink-strong); }
+
+/* the tag popover: a compact search over the same pills */
+.mail-tag-popover.settings { position:fixed; height:auto; box-sizing:border-box; margin:0; min-width:0; min-height:0; max-height:310px; overflow:auto; max-width:calc(100vw - 48px); z-index:60;
+  transform:none; display:flex; flex-direction:column; gap:6px; padding:6px; background:var(--panel); border:1px solid var(--line); border-radius:6px;
+  box-shadow:0 6px 20px rgba(0, 0, 0, .32); font-size:12px; line-height:1.4; }
+:root:is(.contrast-light, .contrast-solarized-light) .mail-tag-popover.settings { box-shadow:0 6px 20px rgba(0, 0, 0, .12); }
+.mail-tag-popover.settings input { width:100%; box-sizing:border-box; height:24px; min-height:0; margin:0; padding:0 8px;
+  border:1px solid var(--line); border-radius:4px; background:var(--input); color:var(--ink-strong); font-size:12px; }
+.mail-tag-popover.settings input:focus { outline:none; border-color:var(--accent); }
+.mail-tag-options { display:flex; flex-wrap:wrap; align-content:flex-start; align-items:center; gap:5px; max-height:220px; overflow:auto; padding:2px 0; }
+.mail-tag-options .mail-tag, .settings .mail-tag-options button.mail-tag { padding:1px 8px; max-width:100%; }
+.mail-tag-note { font-size:11px; }
+button.mail-tag-link, .settings button.mail-tag-link { align-self:flex-start; min-height:0; margin:0; padding:0; border:0; border-radius:0;
+  background:none; color:var(--accent); font-size:11px; line-height:1.4; text-decoration:underline; text-underline-offset:2px; }
+button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:none; color:var(--accent-hover); }
 
 /* Agent and project @-mention completion popover + Hub contact link chips */
 .agent-mentions {
