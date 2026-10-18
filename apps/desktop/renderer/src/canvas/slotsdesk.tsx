@@ -8,7 +8,7 @@
 // the buttons are the user's (the desktop's viewer), as the project's
 // superior's through the tool.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn } from '../types'
 import { ago } from './shared'
@@ -16,6 +16,7 @@ import type { CanvasNode, OpFn } from './shared'
 import { ConfirmModal } from './modals'
 import { ordinal } from './slots'
 import { AgentLink, nodeTierOf } from './identity'
+import { ageClockNow, subscribeAgeClock } from './desk'
 import type { ProjectSlotState } from './slots'
 
 interface Holder { lease: string; agent: string; slot: number; reason?: string | null; since: string; reminders?: number }
@@ -35,6 +36,7 @@ export function span(from: string, to?: string | null): string {
 export function SlotsView({ node, state, map, onJump, op, toast }: {
   node: CanvasNode; state: ProjectSlotState; map: Map<string, CanvasNode>; onJump?: (id: string) => void; op: OpFn; toast: ToastFn
 }) {
+  useSyncExternalStore(subscribeAgeClock, ageClockNow, ageClockNow)
   const [status, setStatus] = useState<SlotStatus | null>(null)
   const [asking, setAsking] = useState<Holder | null>(null)
   const [bump, setBump] = useState(0)
