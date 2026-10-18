@@ -9,6 +9,12 @@
   [decided: user 2026-10-18 13:44–13:49Z; verified: `domain/{dnd,mail}.rs`,
   `runtime/actor.rs`, migration 0033, `canvas/dnd.tsx`]
 
+- Team panels reuse the canvas Agents `tray-panel` frame and direct `AgentTray`,
+  with Active in `PinFrame.headerActions`; no settings wrapper or bottom Close.
+  The inline desk Team tab keeps its filter-row Active. See
+  [Team panel chrome](docs/rust-engine/team-panel-chrome.md).
+  [decided: user 2026-10-18 14:22Z; verified: `canvas/team.tsx`, `styles.css`]
+
 - Org outbox reading headers group the sender's shared `AgentLink` (badge
   inside), `as @org`, hub recipient and delivery glyph as one wrapping
   attribution. Reply/time form a trailing, baseline-aligned group. The same

@@ -10,6 +10,12 @@ live agents; reverse access needs a separate reverse grant. Nested members never
 relay inherited access. See [project audiences](project-audiences.md) and the
 project/project-management glossary pages.
 
+**Team panel parity, user 2026-10-18 14:22Z (4.4.0):** pinned Team uses the
+same frame, filter, header Active control, rows and scrolling as pinned Agents;
+only heading/content differ. Centered Team also loses its bottom Close button
+and inner list border/padding. Existing closing and window controls remain.
+See [Team panel chrome](team-panel-chrome.md).
+
 **Manual return to transcript follow, user 2026-10-18 13:36Z:** scrolling
 down to within 8px of the transcript tail hides the jump-to-bottom card and
 reattaches live follow, including momentum arriving after the recent-input
