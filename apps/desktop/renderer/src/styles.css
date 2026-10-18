@@ -2921,8 +2921,8 @@ textarea.ask-free-response-input { resize: vertical; }
 /* …and the gallery button beside it carries its count the same way (user
    request 2026-09-03: "a number in the corner of the button ... similar to
    unread mail"). One rule for both, so the pair cannot drift apart. */
-.ask-bell, .doc-bell, .docket-bell { position: relative; }
-.ask-bell .eye-count, .doc-bell .eye-count, .docket-bell .eye-count {
+.ask-bell, .doc-bell, .docket-bell, .mention-bell { position: relative; }
+.ask-bell .eye-count, .doc-bell .eye-count, .docket-bell .eye-count, .mention-bell .eye-count {
   position: absolute; top: -4px; right: -6px;
 }
 /* THE STANDING DOT (user ruling 2026-09-12) — a small bright mark saying
@@ -2941,7 +2941,7 @@ textarea.ask-free-response-input { resize: vertical; }
   background: var(--accent);
   box-shadow: 0 0 0 2px var(--panel-2), 0 0 6px color-mix(in srgb, var(--accent) 70%, transparent);
 }
-.ask-bell.glow, .docket-bell.glow {
+.ask-bell.glow, .docket-bell.glow, .mention-bell.glow {
   color: var(--agent-accent-text, var(--accent));
   border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
   animation: askbell 2s ease-in-out infinite;

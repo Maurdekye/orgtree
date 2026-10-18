@@ -51,6 +51,7 @@ import { AdvancedOrgModal } from './shell/advancedorg'
 import { OrgRows } from './shell/orgrows'
 export { AdvancedOrgModal, OrgRows }
 import { ShellAction, ShellHeader } from './shell/header'
+import { TranscriptMentionButton } from './shell/mentionbutton'
 import { OrgtreeMenu } from './shell/menu'
 import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
@@ -1617,8 +1618,9 @@ export default function App() {
                   </>}
                   /* LEFT of the action row (user 2026-09-29): arming STOP ALL
                      grows into the gap and never moves the buttons above */
-                  guard={<KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
-                    latched={!!tree.killswitch} shortcutRef={mainKillswitch} />} />
+                  guard={<><TranscriptMentionButton tree={tree} onFocusAgent={setFocusAgent} />
+                    <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
+                    latched={!!tree.killswitch} shortcutRef={mainKillswitch} /></>} />
               ) : (
               <header className={'orgbar' + (desktop() ? ' native-header' : '')}>
                 <div className="native-header-main">
@@ -1751,6 +1753,7 @@ export default function App() {
                     persistent org-level halt (user redesign 2026-09-13):
                     every agent stops and STAYS stopped until the explicit
                     release this same control offers while latched */}
+                <TranscriptMentionButton tree={tree} onFocusAgent={setFocusAgent} />
                 <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
                   latched={!!tree.killswitch} shortcutRef={mainKillswitch} />
                 {/* the SECOND inbox icon (user ruling 2026-08-04): it glows

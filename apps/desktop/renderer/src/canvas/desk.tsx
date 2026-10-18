@@ -2352,6 +2352,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const orgView = useOrgView(slug)
   useSeenMentions()
   const mentionHighlight = useMentionHighlight(slug, node.id)
+  // A mention jump targets transcript text even if this desk was on another tab.
+  useEffect(() => {
+    if (mentionHighlight) setView('chat')
+  }, [mentionHighlight?.mentionId])
   const scrolledMentionRef = useRef<string | null>(null)
   useEffect(() => {
     if (!historyVisible || view !== 'chat') return
