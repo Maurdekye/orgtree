@@ -130,7 +130,8 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
         let pos: Option<i64> = client
             .query_one(
                 "SELECT (SELECT count(*) FROM ot.documents d2 WHERE d2.org_id = $1 AND d2.id > d.id
-                          AND CASE WHEN $4::bigint[] IS NULL THEN ($3 = '' OR d2.node_name = $3) ELSE d2.agent_id = ANY($4) END)
+                          AND CASE WHEN $4::bigint[] IS NULL THEN ($3 = '' OR d2.node_name = $3)
+                                   ELSE (d2.agent_id = ANY($4) OR (d2.agent_id IS NULL AND d2.node_name = $3)) END)
                    FROM ot.documents d WHERE d.org_id = $1 AND d.uid = $2",
                 &[&o.id, &q.locate, &node, &members],
             )
@@ -155,27 +156,27 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
 /// a project's too, is its own: a project's presentations are the documents
 /// attributed to it, and the subtree's are its team presentations (point 27,
 /// user 2026-10-17 23:28Z, replacing point 8's subtree-wide project gallery).
-/// A project's own list is read by its id, not its name: a document keeps the
-/// `node_name` it was presented under, and a renamed project must keep its
-/// presentations (rig: website renamed to site).
+/// A node's own list is read by its id, not its name: a document keeps the
+/// `node_name` it was presented under, and a renamed agent or project must keep
+/// its presentations (rig: website renamed to site, dev5 to dev5-renamed). A
+/// document with no `agent_id` (an import) is still matched by that name.
 /// One recursive read per request; the page query itself stays bounded by LIMIT.
 #[logged]
 async fn subtree_members(client: &tokio_postgres::Client, o: &crate::orgs::OrgHandle, node: &str, team: bool) -> ApiResult<Option<Vec<i64>>> {
     if node.is_empty() {
         return Ok(None);
     }
-    let root: Option<(i64, bool)> = client
+    let root: Option<i64> = client
         .query_opt(
-            "SELECT id, kind = 'project' FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'
+            "SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'
               ORDER BY (state = 'live') DESC, id DESC LIMIT 1",
             &[&o.id, &node],
         )
         .await?
-        .map(|r| (r.get(0), r.get(1)));
-    let Some((root, project)) = root else { return Ok(None) };
+        .map(|r| r.get(0));
+    let Some(root) = root else { return Ok(None) };
     if !team {
-        // an agent's own list stays the `node_name` filter it always was
-        return Ok(project.then(|| vec![root]));
+        return Ok(Some(vec![root]));
     }
     let rows = client
         .query(
@@ -208,7 +209,8 @@ async fn list_page(
                       AND p.state <> 'deleted' ORDER BY (p.state = 'live') DESC, p.id DESC LIMIT 1)
                FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
               WHERE d.org_id = $1
-                AND CASE WHEN $5::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2) ELSE d.agent_id = ANY($5) END
+                AND CASE WHEN $5::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
+                         ELSE (d.agent_id = ANY($5) OR (d.agent_id IS NULL AND d.node_name = $2)) END
               ORDER BY d.id DESC OFFSET $3 LIMIT $4",
             &[&o.id, &node, &offset, &limit, &members],
         )
@@ -216,7 +218,8 @@ async fn list_page(
     let total: i64 = client
         .query_one(
             "SELECT count(*) FROM ot.documents
-              WHERE org_id = $1 AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR node_name = $2) ELSE agent_id = ANY($3) END",
+              WHERE org_id = $1 AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR node_name = $2)
+                                         ELSE (agent_id = ANY($3) OR (agent_id IS NULL AND node_name = $2)) END",
             &[&o.id, &node, &members],
         )
         .await?
