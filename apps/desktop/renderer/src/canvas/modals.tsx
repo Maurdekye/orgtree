@@ -1025,8 +1025,13 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   const [edit,setEdit] = useState<boolean | undefined>()
   const [busy,setBusy] = useState(false)
   const [tab,setTab] = useState<'project' | 'history'>('project')
-  const [name,setName] = useState(node.id)
-  const [description,setDescription] = useState(node.charter ?? '')
+  // edit buffers, like `edit` above: only what the user typed is held, so an
+  // untouched field follows the project (a rename elsewhere, an agent's
+  // describe) and save never sends a stale copy back
+  const [nameEdit,setName] = useState<string | undefined>()
+  const [descriptionEdit,setDescription] = useState<string | undefined>()
+  const name = nameEdit ?? node.id
+  const description = descriptionEdit ?? node.charter ?? ''
   const [asking,setAsking] = useState<'retire' | 'dissolve' | 'delete' | null>(null)
   const history = useRecordHistory(slug, node.id)
   const hasHistory = (history.value?.length ?? 0) > 0
@@ -1038,7 +1043,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   const save = async () => {
     setBusy(true)
     try {
-      if (description.trim() !== (node.charter ?? '').trim())
+      if (descriptionEdit !== undefined && description.trim() !== (node.charter ?? '').trim())
         await op({ op: 'set_description', node: node.id, description })
       if (on !== savedPeer)
         await userGesture(slug,[{op:'scope',node:node.id,peer_mail:on}],`Settings: ${node.id}`)
