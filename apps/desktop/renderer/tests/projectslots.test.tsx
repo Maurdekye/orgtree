@@ -241,14 +241,37 @@ const status = {
 async function desk(t: TestContext, nd: CanvasNode, answer: unknown, empty = false) {
   serve(t)
   const ops: OpRequest[] = []
+  const jumps: string[] = []
   const tree = { slug: 'org', roots: [], watchdogs: empty ? [] : dogs, slot_leases: empty ? [] : leases } as unknown as TreePayload
-  const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd]])}
+  const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree}
+    map={new Map([[nd.id, nd], ...['sa', 'sb', 'sc'].map(id => [id, agentNode(id)] as [string, CanvasNode])])}
+    onJump={id => jumps.push(id)}
     op={(b) => { ops.push(b); return Promise.resolve((b.op === 'slot_status' ? answer : { released: true }) as unknown as OpResult) }}
     toast={noop} refs={refs} />, (el) => el)
   t.after(() => view.unmount())
   await flush(2)
-  return { view, ops }
+  return { view, ops, jumps }
 }
+
+test('slot header facts use a second header row and shared model-icon agent links navigate from every list', async t => {
+  const { view, jumps } = await desk(t, project({ slots_capacity: 1 }), status)
+  const header = view.el.querySelector('.cc-head-meta.project-slots-meta')
+  assert.ok(header, 'held facts belong in the shared second header row')
+  assert.match(header?.textContent ?? '', /1 of 1 concurrency slot held/)
+  const headHolder = header!.querySelector<HTMLButtonElement>('.ref-agent[data-copy-agent-name="sa"]')
+  assert.ok(headHolder?.querySelector('.tier'), 'shared holder link includes its model icon')
+  await inAct(() => headHolder!.click())
+  assert.deepEqual(jumps, ['sa'])
+  await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.project-slots-card')!.click(); await flush(3) })
+  assert.equal(view.el.querySelector('.project-slots .slots-lead') === null, true, 'facts moved into header')
+  for (const [section, expected] of [['holding', ['sa']], ['line', ['sc', 'sb']], ['history', ['sb', 'sc']]] as const) {
+    const links = [...view.el.querySelectorAll<HTMLButtonElement>(`.slots-${section} .ref-agent`)]
+    assert.deepEqual(links.map(link => link.getAttribute('data-copy-agent-name')), expected)
+    assert.equal(links.every(link => !!link.querySelector('.tier')), true, `${section} model icons`)
+    for (const link of links) await inAct(() => link.click())
+  }
+  assert.deepEqual(jumps, ['sa', 'sa', 'sc', 'sb', 'sb', 'sc'])
+})
 
 test('§5 no Slots tab and no header card without a count', async (t) => {
   const { view } = await desk(t, project(), status)
@@ -266,7 +289,7 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   const panel = view.el.querySelector<HTMLElement>('.project-slots')!
   assert.ok(panel, 'the slots panel')
   assert.deepEqual(ops.filter((o) => o.op === 'slot_status'), [{ op: 'slot_status', node: 'build' }])
-  assert.equal(panel.querySelector('.slots-lead')?.textContent?.startsWith('1 of 1 concurrency slot held'), true)
+  assert.match(view.el.querySelector('.project-slots-meta')?.textContent ?? '', /^1 of 1 concurrency slot held/)
   assert.match(view.el.querySelector('.cc-tabs button[data-tab="slots"]')?.textContent ?? '', /^slots$/, 'the tab omits redundant held/total counts')
   const sections = [...panel.querySelectorAll('h4')].map((h) => h.textContent)
   assert.deepEqual(sections, ['Holding', 'Line', 'Recent holds'])
