@@ -69,6 +69,18 @@ function Presenter({ r, onFocus }: { r: DocRow; onFocus?: (id: string) => void }
     onFocus={onFocus && id ? (who) => onFocus(who) : undefined} />
 }
 
+/** List identities are text: a press anywhere selects the document. Keep the
+ * shared navigable identities in the details pane and the context menu. */
+function RowIdentity({ r }: { r: DocRow }) {
+  const owner = presenterOf(r) || '?'
+  return <>
+    <TierChip tier={viaProject(r) || !r.presented_by ? r.tier : r.presenter_tier ?? r.tier} />
+    <span className="doc-row-owner" data-copy-agent-name={owner} title={owner}>{owner}</span>
+    {viaProject(r) && <span className="doc-row-attribution dim"
+      title={`Presented by ${r.presented_by}`}>by {r.presented_by}</span>}
+  </>
+}
+
 /** "presented by <agent>" under a project's card; nothing for an agent's own */
 function PresentedBy({ r, onFocus, sentence = false }: {
   r: DocRow; onFocus?: (id: string) => void; sentence?: boolean
@@ -540,9 +552,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                           <span className="mtime">{ago(r.at)}</span>
                         </div>
                         <div className="l2" data-copy-agent-name={presenterOf(r) || undefined}>
-                          {/* the presenter is a link to its agent (review of a590555) */}
-                          <Presenter r={r} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />
-                          <PresentedBy r={r} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />
+                          <RowIdentity r={r} />
                           {r.format === 'html' && <MockupBadge />}
                           {r.evicted && <span className="badge evicted">content evicted</span>}
                         </div>
@@ -862,12 +872,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                   <span className="mtime">{ago(r.at)}</span>
                 </div>
                 <div className="l2" data-copy-agent-name={presenterOf(r) || undefined}>
-                  {/* the presenter (the project, for a card presented under
-                      one, and the agent beneath it: user 2026-10-18 07:30Z),
-                      as links that focus it and leave the row unselected
-                      (review of a590555) */}
-                  <Presenter r={r} onFocus={onFocusAgent} />
-                  <PresentedBy r={r} onFocus={onFocusAgent} />
+                  <RowIdentity r={r} />
                   {r.format === 'html' && <MockupBadge />}
                   {r.evicted && <span className="badge evicted">content evicted</span>}
                 </div>

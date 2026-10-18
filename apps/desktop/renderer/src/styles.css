@@ -4247,7 +4247,6 @@ main.solo { width: 100%; }
 }
 /* who presented a project's card, beneath the project (user 2026-10-18 07:30Z) */
 .doc-presented-by { font-size: .92em; }
-.doc-gallery-row .l2 .doc-presented-by { margin-left: 6px; }
 /* .cc-name is the SWITCHBOARD's button — it carries `padding: 7px 15px`,
    which is right for a standalone control and far too airy inside a one-line
    metadata strip (user, 2026-09-04: "there's too much space between items in
@@ -4297,8 +4296,18 @@ main.solo { width: 100%; }
    and hit area on one complete row, just like the markdown div rows. */
 .doc-gallery-row { display: block; text-decoration: none; }
 .doc-gallery-row .l2 {
-  display: flex; align-items: center; gap: 6px; font-family: var(--mono);
+  display: flex; align-items: center; gap: 6px; font-family: inherit;
+  height: 22px; min-width: 0; flex-wrap: nowrap;
 }
+/* List names never inherit the switchboard's large, wrapping .cc-name.
+   Attribution shares the existing owner line; long names clip with a title. */
+.doc-row-owner, .doc-row-attribution {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-row-owner { font: inherit; }
+.doc-row-attribution { font-size: 10px; }
+.doc-gallery-row .project-mark { flex-shrink: 0; }
 .badge.evicted { color: var(--dim); }
 /* THE END OF A CONTINUOUS LIST (canvas/gallery.tsx): the "Newer"/"Older"
    buttons are gone and the list loads as it is scrolled, so the only thing
