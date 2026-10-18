@@ -18,13 +18,16 @@ app.whenReady().then(async()=>{
       return {controls:[...controls.querySelectorAll('.mail-tag-control,.mail-tag-clear,.mail-filter')].map(box),
         selected:[...controls.querySelectorAll('.mail-tag-active')].map(box),
         choices:[...document.querySelectorAll('.mail-tag-choice')].map(el=>({...box(el),font:getComputedStyle(el).fontSize})),
-        popover:box(document.querySelector('.mail-tag-popover')),background:getComputedStyle(document.body).backgroundColor};
+        popover:box(document.querySelector('.mail-tag-popover')),anchor:box(document.querySelector('#browse-sample .mail-tag-control')),
+        background:getComputedStyle(document.body).backgroundColor};
     })()`)
     assert.equal(metrics.controls.length,3)
     for(const control of metrics.controls){assert.ok(Math.abs(control.height-24)<.1,JSON.stringify(metrics));assert.ok(Math.abs(control.center-metrics.controls[0].center)<.1,JSON.stringify(metrics))}
     assert.equal(metrics.selected.length,2)
     for(const chip of metrics.selected)assert.ok(Math.abs(chip.center-metrics.controls[0].center)<.1,JSON.stringify(metrics))
     assert.equal(metrics.choices.length,5)
+    assert.ok(Math.abs(metrics.popover.x-metrics.anchor.x)<.1,JSON.stringify(metrics))
+    assert.ok(Math.abs(metrics.popover.y-(metrics.anchor.y+metrics.anchor.height+4))<.1,JSON.stringify(metrics))
     for(const chip of metrics.choices){assert.equal(chip.font,'10px');assert.ok(chip.height<=18);assert.ok(chip.x>=metrics.popover.x&&chip.x+chip.width<=metrics.popover.x+metrics.popover.width)}
     await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,120))))')
     const image=await win.webContents.capturePage();assert.equal(image.isEmpty(),false)
