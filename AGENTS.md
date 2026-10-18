@@ -73,6 +73,12 @@
   verified: `canvas/{projectdesk,slotsdesk,slotchips}.tsx`,
   `domain/{slots,watchdogs}.rs`, `runtime/{watchdogs,reminders}.rs`]
 
+- Push-driven slot, fair-queue and event dogs do not report missing polling
+  checks. Watchdog list resolves each slot project's canonical live line once
+  and reports its claim position; real runner/storage health remains visible.
+  [decided: coordinator 2026-10-18 17:29Z;
+  verified: `runtime/watchdogs.rs`]
+
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the
   existing urgent-mail badge appearance, newest-first focus, highlight and

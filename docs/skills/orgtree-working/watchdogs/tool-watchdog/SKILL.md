@@ -163,6 +163,8 @@ An armed result can still contain `smoke.broken: true`; arming is not proof of a
 
 ## Management, recovery and health
 
+Slot, fair-queue and event listeners are push-driven: zero polling checks does not trigger a "never run a check" warning. Queued slot claims show `line_position` and a readable `line` such as `in line: 2nd`, resolved from the project's current first-come queue. A granted claim identifies its lease. Real runner and storage errors still appear in health diagnostics.
+
 `list` returns your kept dogs and your descendants' dogs. Owner-local IDs can collide; use `owner/id` for a team member's dog. Owners and their superiors can pause/resume/remove; a peer cannot manage a dog merely because the peer is visible. Ambiguous bare IDs are refused with the qualified choices.
 
 Pause stops its runner. Resume requires a live owner, clears its exit record, resets a silence clock and rearms the runner. Remove stops it and releases its kept slot/ID. There is no resuming a spent one-shot: create a new one. An archive pauses owned armed dogs; rehire rearms those paused specifically by that archive, not manually paused ones. Armed dogs with live owners recover at engine startup. Lost file/shell/activity authority can pause a runner.
