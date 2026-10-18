@@ -159,6 +159,22 @@ module.exports = async (page) => {
     screenshots.push(await page.screenshot(`${prefix}-cardfix-1000x700`))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=attn: a project selected in the Attention desk
+  // panel draws the project desk, never the agent desk (user 2026-10-18 14:36Z)
+  if (only === 'attn') {
+    await page.goto('/?scene=attn')
+    await page.waitFor('.attn-desk', { timeout: 15000 })
+    await page.eval(async () => { await new Promise((r) => setTimeout(r, 600)) })
+    await settle()
+    details.attn = await page.eval(() => ({
+      projectDesk: !!document.querySelector('.attn-desk .project-desk'),
+      agentDeskSlot: !!document.querySelector('.attn-desk [data-desk-slot]'),
+      tabs: [...document.querySelectorAll('.attn-desk .cc-tabs button')].map((b) => b.textContent.trim()),
+      header: document.querySelector('.attn-desk .cc-head')?.textContent ?? null,
+    }))
+    screenshots.push(await page.screenshot(`${prefix}-attn-1000x700`))
+    return { details, screenshots }
+  }
   if (only === 'slots') {
     await page.goto('/?scene=slotlines')
     await page.waitFor('.sq.project', { timeout: 15000 })

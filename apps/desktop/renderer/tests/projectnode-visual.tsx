@@ -51,6 +51,8 @@ import { CurrentOrg } from '../src/popout'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
 import { NodeConfig } from '../src/canvas/modals'
+import { AgentDeskPanel } from '../src/attention/AgentDeskPanel'
+import { setAttentionLayout } from '../src/attention/mode'
 import { InboxView } from '../src/canvas/mail'
 import { AgentSurfaceRoutesProvider, PanelCorner } from '../src/canvas/panelcorner'
 import type { CanvasNode, OpResult } from '../src/canvas/shared'
@@ -170,6 +172,20 @@ function Activity() {
 }
 
 const scene = new URLSearchParams(location.search).get('scene') || 'cards'
+
+/** attn — the Attention desk panel with project website selected: the project
+ *  desk, not the agent desk (user 2026-10-18 14:36Z) */
+function Attn() {
+  const boss = agent('boss', '', { parent: null, tier: 'opus', model_id: 'opus', seat: 5, grant: 20 }) as unknown as CanvasNode
+  const kids = ((card as unknown as { children: CanvasNode[] }).children)
+  const map = new Map<string, CanvasNode>([[boss.id, boss], [card.id, card], ...kids.map(k => [k.id, k] as [string, CanvasNode])])
+  setAttentionLayout('org', { agent: 'website' })
+  return (
+    <main className="attn-panel attn-panel-desk" style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      <AgentDeskPanel slug="org" tree={tree([card])} op={() => Promise.resolve({} as OpResult)} toast={noop} map={map} />
+    </main>
+  )
+}
 
 function Desc() {
   const nd = { ...card, charter: '# The website\n\nDeploy from **main** only, after the [release checklist](https://example.invalid/checklist) passes.\n\n- keep the build green\n- review every change' } as CanvasNode
@@ -312,7 +328,8 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
     </main>)
   : scene === 'activity' ? <Activity />
   : scene === 'slots' ? <Slots />
-  : scene === 'cardfix' ? <CardFix /> : (
+  : scene === 'cardfix' ? <CardFix />
+  : scene === 'attn' ? <Attn /> : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
     {/* inside the org, as the app is: only an org's surfaces pin and pop out */}
