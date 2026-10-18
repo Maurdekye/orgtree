@@ -24,10 +24,13 @@ app.whenReady().then(async () => {
             activeInHeader:!!p.querySelector('.modalpin-actions [aria-label="Only active agents"]'),
             bottomClose:[...p.querySelectorAll('button')].some(b=>b.textContent==='Close'),
             names:[...p.querySelectorAll('.tray-row')].map(e=>e.dataset.copyAgentName)}};
-        resolve({agents:measure('.tray-panel:not(.team-panel)'),team:measure('.team-panel'),background:getComputedStyle(document.body).backgroundColor})},250))))`)
+        const agents=measure('.tray-panel:not(.team-panel)');
+        resolve({agents,team:measure('.team-panel'),sample:{x:agents.rect.x+20,y:agents.rect.y+agents.rect.h-20},
+          background:getComputedStyle(document.querySelector('.tray-panel:not(.team-panel)')).backgroundColor})},250))))`)
       image = await win.webContents.capturePage()
       if (image.isEmpty()) throw Error('Empty capture')
-      const p = image.toBitmap(); actual = `rgb(${p[2]}, ${p[1]}, ${p[0]})`
+      const p = image.toBitmap(), size=image.getSize(), offset=(Math.floor(state.sample.y)*size.width+Math.floor(state.sample.x))*4
+      actual = `rgb(${p[offset+2]}, ${p[offset+1]}, ${p[offset]})`
       if (actual === state.background) break
     }
     fs.writeFileSync(path.join(root, 'capture.json'), JSON.stringify({ ...state, actual }, null, 2))
