@@ -37,6 +37,8 @@ These control tools built into the harness, such as Claude Code or Codex. Helper
 
 Disabled groups remove their tool definitions and corresponding engine-owned instructions. Status reporting remains available even with every group off. Staffing a work item needs both Docket work and Team management. A fresh usage refresh additionally needs Runtime and accounts; the saved read belongs to Organization reading. These are capability gates alongside the tools' normal target/audience/ownership checks, not permission to contact the user or modify any agent.
 
+`orgtree_project` slot release and status need **either team or watchdogs**. With watchdogs on and team off, its card exposes only `action=release_slot` (your own lease, optional note) and `action=slots` (your own holds, line entries and history, marked `own_only`; `held` counts your holds). Project reach and lease ownership still apply. All other project actions, full slot status and force release require team. With both groups off, the project tool is absent and calls are refused. Missing switches still default on; inherited denials still apply.
+
 Each group is disabled in the UI when the superior has denied it. Missing group flags preserve on for compatibility; unknown group names or nonboolean values are refused by the engine. See `orgtree-scope-and-permissions` (orgtree-working › team) for effective ceilings and `orgtree-tool-request-scope` (orgtree-working › user) for asking for missing capability.
 
 Organization Logo is **on by default**, including existing agents. It inherits

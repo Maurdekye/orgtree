@@ -21,6 +21,10 @@ available. All other tools require these groups:
 | `user` | ask, withdraw_ask, present, send_file, request_credits, request_scope |
 | `logo` | org_logo (set/remove this org's Logo; immediate, logged, undoable) |
 
+`orgtree_project` slot release and status need **either team or watchdogs**. With watchdogs on and team off, its card exposes only `action=release_slot` (your own lease, optional note) and `action=slots` (your own holds, line entries and history, marked `own_only`; `held` counts your holds). Project reach and lease ownership still apply. All other project actions, full slot status and force release require team. With both groups off, the project tool is absent and calls are refused. Missing switches still default on; inherited denials still apply.
+
+The shared `tool_groups::allows_call` rechecks actions at dispatch, including calls retained from an older/full card. `defs::scoped` narrows the watchdog-only card; this does not grant project administration through tool discovery.
+
 User 2026-10-15 22:10Z explicitly made `logo` on by default, including older
 scopes with no key. It is independent of `team`, `user` and org-inbox audiences.
 The shared Tools controls and org hire defaults expose **Organization Logo**.

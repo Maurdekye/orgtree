@@ -7,6 +7,13 @@
   the message's sent-at; absent claim time says so. Other queue-state labels
   retain their meaning. [decided: user/coordinator 2026-10-18 12:46–12:49Z;
   verified: `canvas/mail.tsx`, `styles.css`, `feed/compute.rs`]
+- Project `release_slot` and own `slots` status are available with either team
+  or watchdogs. Watchdog-only cards expose just those actions; dispatch refuses
+  other project actions and force release, and status filters other agents. Full
+  project control still needs team. Scope denial is checked on each call.
+  [decided: user 2026-10-18 12:55Z; verified: `domain/tool_groups.rs`,
+  `tools/{defs,mod,treetools}.rs`]
+
 - User mail to projects shares the agent `context.deep_reach` ancestor-notice
   transaction. User fan-out shares `ForwardedUserNotices` for one logical send:
   each live real-agent ancestor receives one passive notice, and only a committed

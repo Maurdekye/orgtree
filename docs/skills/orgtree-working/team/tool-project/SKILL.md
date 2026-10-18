@@ -6,7 +6,9 @@ Up: [orgtree-team](../SKILL.md)
 
 # orgtree_project
 
-Requires `team`. `action=describe` with `name` and `description` replaces a project's description (you must be above or below the project; its agents carry the new text from their next start). `action=create` makes a **project node** (what one is and who reaches it: [orgtree-projects](../projects/SKILL.md)).
+`orgtree_project` slot release and status need **either team or watchdogs**. With watchdogs on and team off, its card exposes only `action=release_slot` (your own lease, optional note) and `action=slots` (your own holds, line entries and history, marked `own_only`; `held` counts your holds). Project reach and lease ownership still apply. All other project actions, full slot status and force release require team. With both groups off, the project tool is absent and calls are refused. Missing switches still default on; inherited denials still apply.
+
+Project administration requires `team`. `action=describe` with `name` and `description` replaces a project's description (you must be above or below the project; its agents carry the new text from their next start). `action=create` makes a **project node** (what one is and who reaches it: [orgtree-projects](../projects/SKILL.md)).
 
 - `name` (required): a new name in the organization, 1–64 letters, digits, `-`, `_` or `.`, unique among agents and projects.
 - `index` (required): the zero-based final position among the live siblings under the parent, as for [orgtree-tool-hire](../tool-hire/SKILL.md).

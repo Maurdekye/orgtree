@@ -742,7 +742,8 @@
     "read-only vs writable folders",
     "the sensitive-path gate",
     "caps inherited from the superior",
-    "request_scope"
+    "request_scope",
+    "release_slot and own slots status with team OR watchdogs; other project actions and force release need team"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/domain/tool_groups.rs",
@@ -813,6 +814,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "label": "Concurrency slots"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Ack reminders"
     }
    ]
   },
@@ -831,7 +836,8 @@
     "every parameter/action with defaults and limits from the definition",
     "refusals and error texts agents hit",
     "top-level vs. non-top-level differences",
-    "a minimal correct example call"
+    "a minimal correct example call",
+    "release_slot and own slots status with team OR watchdogs; other project actions and force release need team"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/tools/defs.rs orgtree_project",
@@ -3371,9 +3377,9 @@
    "purpose": "Shared agent/project context menus: Open starts with Desk, Desk as a pinned window, Desk in a separate window.",
    "must_cover": [
     "every agent-menu item",
-     "agents and projects: Desk, Desk as a pinned window, Desk in a separate window in that order; keep existing actions",
-     "own-led numeric-id team scratch next to personal scratch",
-     "plain bulk Compact entries open Cheap-default/Normal picker with per-target preview, confirmation and cancellation"
+    "agents and projects: Desk, Desk as a pinned window, Desk in a separate window in that order; keep existing actions",
+    "own-led numeric-id team scratch next to personal scratch",
+    "plain bulk Compact entries open Cheap-default/Normal picker with per-target preview, confirmation and cancellation"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/contextmenu.tsx:461",
@@ -5877,7 +5883,8 @@
    ],
    "purpose": "Tools tab: native tools, Orgtree tool groups, MCP servers.",
    "must_cover": [
-    "capped by superior"
+    "capped by superior",
+    "release_slot and own slots status with team OR watchdogs; other project actions and force release need team"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/modals.tsx:1508-1524",
@@ -7241,7 +7248,8 @@
     "release right after the phase",
     "reclaim on halt, retire or idle",
     "the Concurrency slots tab and action=slots",
-    "force-release and remove from line"
+    "force-release and remove from line",
+    "release_slot and own slots status with team OR watchdogs; other project actions and force release need team"
    ],
    "sources": [
     "User slot rulings 2026-10-18 08:37Z-08:51Z (docket project-slots-first-come-permits-claimed-through)",

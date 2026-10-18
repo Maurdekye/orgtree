@@ -19,6 +19,8 @@ When several agents build on one machine, only one heavy build, test or packagin
 
 An agent above the project can set its count without the desktop: `orgtree_project action=configure name=build-machine settings={"slots":1}`. Read it with action=settings. Any ancestor (not only the direct superior) can force-release a stuck lease with `action=release_slot lease=L force=true`, or remove a waiting claim with `action=unqueue_slot name=build-machine agent=A`. Ordinary members can release only their own lease.
 
+`orgtree_project` slot release and status need **either team or watchdogs**. With watchdogs on and team off, its card exposes only `action=release_slot` (your own lease, optional note) and `action=slots` (your own holds, line entries and history, marked `own_only`; `held` counts your holds). Project reach and lease ownership still apply. All other project actions, full slot status and force release require team. With both groups off, the project tool is absent and calls are refused. Missing switches still default on; inherited denials still apply.
+
 Before claiming, confirm your current CLI exposes both the slot watchdog kind and orgtree_project release_slot. A running CLI retains its startup tools across app updates. If either is missing, start a fresh CLI or use the coordinator-authorized fallback lock protocol; do not claim a lease you cannot release. If already stranded, ask an ancestor to force-release it.
 
 ## Each heavy phase
