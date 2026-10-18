@@ -21,7 +21,7 @@ module.exports=async(page,{out})=>{
     const rows=[...document.querySelectorAll('.mailrow')].map(r=>({text:r.querySelector('.mfrom')?.textContent,l1:rect(r.querySelector('.l1'))?.h,
       l2:rect(r.querySelector('.l2'))?.h,chips:r.querySelectorAll('.l2 .mail-tag').length,h:rect(r)?.h}))
     const popover=document.querySelector('.mail-tag-popover')
-    return {bar:rect(bar),boxes,fills,field:rect(document.querySelector('.mail-list-controls .mail-tag-control')),
+    return {bar:rect(bar),list:rect(document.querySelector('.mailer-list')),boxes,fills,field:rect(document.querySelector('.mail-list-controls .mail-tag-control')),
       trigger:rect(document.querySelector('.mail-list-controls button[aria-label="Filter mail by tags"]')),
       triggerText:document.querySelector('.mail-list-controls button[aria-label="Filter mail by tags"]')?.textContent?.trim()??null,
       chips:[...document.querySelectorAll('.mail-list-controls .mail-tag')].map(style),

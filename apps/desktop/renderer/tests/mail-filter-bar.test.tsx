@@ -108,6 +108,32 @@ test('pressed tag choices carry a check mark, not only a colour change',async()=
   }finally{await v.unmount()}
 })
 
+// The popover takes its field's width, from 240px up to 320px, so it opens
+// inside the list column instead of running past a narrower field
+// (coordinator-opus 2026-10-18 12:09Z). The viewport cap still wins.
+async function popoverFor(fieldWidth:number,innerWidth?:number){
+  const v=await mountView(<Inbox initial={['Progress']}/>,el=>el)
+  const win=v.el.ownerDocument.defaultView!,real=Object.getOwnPropertyDescriptor(win,'innerWidth')
+  if(innerWidth!==undefined)Object.defineProperty(win,'innerWidth',{value:innerWidth,configurable:true})
+  try{
+    const box=field(v.el);assert.ok(box,'positive control: the field renders')
+    const rect={left:40,top:70,right:40+fieldWidth,bottom:94,width:fieldWidth,height:24,x:40,y:70}
+    Object.defineProperty(box,'getBoundingClientRect',{value:()=>({...rect,toJSON:()=>rect}),configurable:true})
+    await inAct(()=>trigger(v.el)!.click())
+    const pop=v.el.ownerDocument.querySelector<HTMLElement>('.mail-tag-popover');assert.ok(pop,'positive control: the popover opens')
+    return {width:pop.style.width,left:pop.style.left,top:pop.style.top}
+  }finally{
+    if(innerWidth!==undefined){if(real)Object.defineProperty(win,'innerWidth',real);else delete (win as {innerWidth?:number}).innerWidth}
+    await v.unmount()
+  }
+}
+test('the tag popover takes its field width between 240 and 320 pixels',async()=>{
+  assert.deepEqual(await popoverFor(300),{width:'300px',left:'40px',top:'98px'},'a 300px field gets a 300px popover under it')
+  assert.equal((await popoverFor(180)).width,'240px','a narrow field keeps a usable 240px popover')
+  assert.equal((await popoverFor(420)).width,'320px','a wide field caps the popover at 320px')
+  assert.equal((await popoverFor(300,260)).width,'236px','the viewport cap still wins')
+})
+
 // ---------------------------------------------------------------- palette
 // Chips keep the shared name-derived OKLCH hue (canvas/mailtags.ts) and take
 // lightness/chroma/alpha from one palette per contrast family. The old opaque

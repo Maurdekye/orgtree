@@ -70,6 +70,10 @@ if (flag === '--expect') {
     const p = states.popover.popover
     assert.ok(p, `${theme}: popover`); near(p.box.x, states.popover.field.x, 0.5, `${theme}: popover left edge`)
     near(p.box.y, states.popover.field.y + states.popover.field.h + 4, 0.5, `${theme}: popover below the field`)
+    // sized to its field (240-320px), so it opens inside the list column
+    near(p.box.w, Math.min(320, Math.max(240, states.popover.field.w)), 0.5, `${theme}: popover takes the field width`)
+    const list = states.popover.list
+    assert.ok(p.box.x >= list.x && p.box.x + p.box.w <= list.x + list.w + 0.5, `${theme}: popover inside the list column ${JSON.stringify({ popover: p.box, list })}`)
     near(p.search.h, 24, 0.5, `${theme}: compact tag search`)
     assert.equal(p.choices.length, 7); assert.deepEqual(p.choices.filter(c => c.pressed === 'true').map(c => c.text), ['alpha'])
     for (const c of p.choices) { assert.equal(c.font, '10px'); assert.ok(c.h <= 18, `${theme}: choice ${c.h}px`); assert.equal(c.check, c.pressed === 'true') }
