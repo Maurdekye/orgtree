@@ -162,7 +162,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         let sender = match &out.from { From::Agent { id,generation,.. } => Some((*id,*generation)), _ => None };
         let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref(), &out.replies).await?;
         changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
-        return Ok(Sent {
+        return Ok(Sent { dnd_held: false,
             transfer_ids,
             uid,
             to,
@@ -229,7 +229,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     } else {
         format!("Delivered to {}'s org inbox and to {}.", dst.slug, holders.join(", "))
     };
-    Ok(Sent { transfer_ids: Vec::new(), uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: holders.is_empty() || route.waiting })
+    Ok(Sent { dnd_held: false, transfer_ids: Vec::new(), uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: holders.is_empty() || route.waiting })
 }
 
 /// Effective live audience holders; newest grant wins in single-holder mode.

@@ -17,6 +17,21 @@ use crate::util::{gist, uid};
 /// Human inbox read state is deliberately separate.
 pub const UNREAD_STATES: &str = "('pending','delivering')";
 
+/// Explicit content reads during DND consume only the caller's held rows.
+/// Previews never call this. Positive read receipts use the ordinary custody path.
+#[logged]
+pub async fn read_held(engine: &Engine, client: &tokio_postgres::Client, agent: i64, uids: &[String]) -> Result<Vec<String>> {
+    let rows=client.query("UPDATE ot.mail SET state='read',read_at=now(),delivered_at=coalesce(delivered_at,now()),extra=extra || '{\"dnd_read\":true}'::jsonb WHERE recipient_agent_id=$1 AND uid=ANY($2) AND state='pending' AND NOT urgent AND ot.agent_dnd($1) RETURNING uid,kind,org_id,net_id,net_hub,sender_agent_id",&[&agent,&uids]).await?;
+    let consumed=consumed(engine,&rows);
+    if let Some(row)=rows.first() {
+        let mut ch=vec![Change::Mailbox(agent),Change::UserMail];
+        for r in &rows {if let Some(id)=r.get::<_,Option<i64>>(5) {ch.push(Change::Mailbox(id));}}
+        changes::notify_id(engine,row.get(2),ch);
+        crate::runtime::watchdogs::events::mail_delivered(engine,row.get(2),agent,consumed);
+    }
+    Ok(rows.iter().map(|r|r.get(0)).collect())
+}
+
 /// A positive provider/hook acknowledgement settles only this exact delivery.
 #[logged]
 pub async fn acknowledge(engine: &Engine, client: &tokio_postgres::Client, agent: i64, turn: i64, ids: &[i64]) -> Result<Vec<(String,String)>> {
@@ -199,6 +214,7 @@ pub fn shown_kind(kind: &str) -> &str {
 
 #[derive(Debug, serde::Serialize)]
 pub struct Sent {
+    pub dnd_held: bool,
     pub transfer_ids: Vec<String>,
     pub uid: String,
     pub to: String,
@@ -239,10 +255,12 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         out.ev = Some(crate::events::ordinary(&out.from.name(), &out.kind, out.notice, &out.body));
     }
     let to = out.to.trim().trim_start_matches('@').to_string();
+    super::dnd::validate_urgent(out.urgent,out.urgent_reason.as_deref(),true,false)?;
     if out.body.trim().is_empty() && out.attachments.is_empty() {
         refuse!(BadRequest, "a message needs a body");
     }
     if to.starts_with("org:") || to.starts_with("net:") || out.to.starts_with("@org:") || out.to.starts_with("@net:") {
+        if out.urgent {refuse!(BadRequest,"urgent is only for the user or an agent currently in Do Not Disturb");}
         return Box::pin(crate::domain::orginbox::send_extern(engine, org_id, &out)).await;
     }
     let mut client = engine.db.get().await?;
@@ -301,7 +319,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
             ch.push(Change::Mailbox(a));
         }
         changes::notify(engine, &org, ch);
-        return Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to: "user".into(), recipient_state: "live".into(), delivery: "delivered to your inbox".into(), deferred: false });
+        return Ok(Sent { dnd_held: false, transfer_ids: Vec::new(), uid: mail_uid, to: "user".into(), recipient_state: "live".into(), delivery: "delivered to your inbox".into(), deferred: false });
     }
     // an agent
     let target = client
@@ -313,6 +331,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         .await?;
     let Some(target) = target else {
         if let Some(address) = bare_external(engine, out.to.trim())? {
+            if out.urgent {refuse!(BadRequest,"urgent is only for the user or an agent currently in Do Not Disturb");}
             drop(client);
             out.to = address;
             return Box::pin(crate::domain::orginbox::send_extern(engine, org_id, &out)).await;
@@ -323,6 +342,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
     let state: String = target.get(1);
     let halted: bool = target.get(3);
     if target.get::<_, String>(4) == crate::domain::projects::KIND {
+        if out.urgent {refuse!(BadRequest,"projects cannot be in Do Not Disturb; urgent needs an agent recipient");}
         let project = crate::domain::projects::Project { id: target_id, name: to.clone(), state };
         // heap-owned, as send_extern: every caller of `send` keeps its future small
         return Box::pin(send_project(engine, &org, client, out, project, mail_uid, notices)).await;
@@ -334,6 +354,9 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         authorize(&**client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await?;
     }
     let tx = client.transaction().await?;
+    let dnd_active:bool=tx.query_one("SELECT ot.agent_dnd($1)",&[&target_id]).await?.get(0);
+    super::dnd::validate_urgent(out.urgent,out.urgent_reason.as_deref(),false,dnd_active)?;
+    let dnd_held=dnd_active && !out.urgent;
     let (contact_changes,forwarded) = if direct_user_contact(&out.from, out.ev.as_ref()) {
         super::runtime_notices::deep_reach_batch_tx(&*tx,org_id,target_id,&out.body,false,out.grant_reply_audience,notices).await?
     } else { (Vec::new(),Vec::new()) };
@@ -370,6 +393,8 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         )
     } else if halted {
         (format!("{to} is halted: the message is queued and nothing will read it until {to} is unhalted."), true)
+    } else if dnd_held {
+        ("Held (do not disturb): queued durably until the running turn ends.".into(),false)
     } else if out.notice {
         (format!("Stored as a notice: {to} reads it at its next turn, which this notice does not start."), false)
     } else {
@@ -378,13 +403,13 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         }
         (format!("Delivered to {to}'s mailbox; it starts or joins {to}'s turn."), false)
     };
-    if out.wake && (!out.notice || state == "live") {
+    if out.wake && !dnd_held && (!out.notice || state == "live") {
         // a running agent also receives notices at its next tool boundary
         if let Some(h) = engine.agents.get(target_id) {
             h.send(crate::runtime::AgentMsg::Wake);
         }
     }
-    Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to, recipient_state: state, delivery, deferred })
+    Ok(Sent { dnd_held, transfer_ids: Vec::new(), uid: mail_uid, to, recipient_state: state, delivery, deferred })
 }
 
 /// Mail to a project node (docs/rust-engine/PROJECT-NODES.md): it waits in
@@ -449,7 +474,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
             Some(c) => format!("Ack recorded for {} in project {}'s mailbox; it handed you the next mail, {c}.", replied.unwrap_or_default(), project.name),
             None => format!("Ack recorded for {} in project {}'s mailbox; no mail is waiting for you now.", replied.unwrap_or_default(), project.name),
         };
-        return Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false });
+        return Ok(Sent { dnd_held: false, transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false });
     }
     let (contact_changes,forwarded) = if direct_user_contact(&out.from, out.ev.as_ref()) {
         super::runtime_notices::deep_reach_batch_tx(&*tx,org.id,project.id,&out.body,false,out.grant_reply_audience,notices).await?
@@ -492,7 +517,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
             "Queued in project {}'s mailbox. No agent watches the project with a fair_queue watchdog right now, so it waits there until one does; agents above or below the project can see it with orgtree_inbox project={}.",
             project.name, project.name),
     };
-    Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false })
+    Ok(Sent { dnd_held: false, transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false })
 }
 
 /// The user wrote to a project and no watcher took it (user 2026-10-18

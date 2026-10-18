@@ -184,6 +184,10 @@ pub struct MessageBody {
     client_op: Option<String>,
     #[serde(default)]
     notice: bool,
+    #[serde(default)]
+    urgent: bool,
+    #[serde(default)]
+    urgent_reason: Option<String>,
 }
 
 #[logged]
@@ -206,6 +210,8 @@ pub async fn message(
     }
     let mut out = Outgoing::new(From::User, &a.name, &text);
     out.notice = b.notice;
+    out.urgent = b.urgent;
+    out.urgent_reason = b.urgent_reason;
     out.client_op = b.client_op.filter(|s| !s.is_empty() && s.len() <= 200);
     out.attachments = user_attachments(&b.attachments)?;
     out.reply_to = match (&b.target, &b.reply_to) {
@@ -240,8 +246,8 @@ pub async fn message(
     Ok(Json(json!({
         "accepted": true, "id": sent.uid, "ref": format!("@mail:{}", sent.uid),
         "deferred": sent.deferred, "delivery": sent.delivery, "recipient_state": sent.recipient_state,
-        "halted": halted, "notice": b.notice, "audience_grant": audience,
-        "steering": e.agents.get(a.id).map(|h| h.view.load().get("busy").and_then(Value::as_bool).unwrap_or(false)).unwrap_or(false),
+        "halted": halted, "notice": b.notice, "dnd_held": sent.dnd_held, "audience_grant": audience,
+        "steering": !sent.dnd_held && e.agents.get(a.id).map(|h| h.view.load().get("busy").and_then(Value::as_bool).unwrap_or(false)).unwrap_or(false),
     })))
 }
 

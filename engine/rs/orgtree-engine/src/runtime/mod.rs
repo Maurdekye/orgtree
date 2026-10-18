@@ -467,7 +467,7 @@ pub async fn recover(engine: &Arc<Engine>) {
     let waiting = client
         .query(
             "SELECT DISTINCT m.recipient_agent_id, a.org_id, a.name FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
-              WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.state = 'pending' AND NOT m.notice AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL",
+              WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.state = 'pending' AND (NOT m.notice OR m.extra->>'dnd_released'='true') AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL",
             &[],
         )
         .await

@@ -205,8 +205,8 @@ fn message_meta() -> Value {
         "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
         "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
                          "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user` and `@net:` receive uploaded copies, and `@org:` attachments are unsupported" },
-        "urgent": { "type": "boolean", "description": "RARELY; mail to the user only: their inbox pulses until read. Requires urgent_reason." },
-        "urgent_reason": { "type": "string", "description": "one line for the user: why this interrupts them now" },
+        "urgent": { "type": "boolean", "description": "Requires urgent_reason. User mail keeps its urgent inbox pulse. Agent mail: only while the recipient is currently in DND; bypasses DND, with normal notice/wake rules. Plural sends report refusals per recipient." },
+        "urgent_reason": { "type": "string", "description": "one line explaining why this must interrupt now" },
         "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it. With several recipients, each gets the quote only if it belongs to that conversation." },
         "replies": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50, "description": "optional: all message ids this one answers, in order; reply_to, if also supplied, must match the first. Every id must be mail you received or sent. With several recipients, each gets only references belonging to its conversation." },
         "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
@@ -402,10 +402,11 @@ fn build_tool_org_logo() -> Value {
 fn build_tool_status() -> Value {
     tool(
         "orgtree_status",
-        "Report working/done/blocked/idle with a short summary. Required on finishing or blocking; done/blocked sends your superior a passive notice. done leaves you idle. To wake someone, send mail.",
+        "Report working/done/blocked/idle. Optional dnd=true holds non-urgent mail for this turn on every harness, including Antigravity, avoiding mid-turn interrupt/cache loss. Only urgent mail bypasses it. DND clears when the turn actually ends; unread mail arrives as one ordered batch within the prompt size budget. dnd=false releases early. Explicit inbox fetch/chunk reads held mail without replay; previews do not. done is a report, not a turn end.",
         json!({
             "status": { "type": "string", "enum": ["working", "done", "blocked", "idle"] },
             "summary": { "type": "string", "description": "one or two sentences" },
+            "dnd": {"type":"boolean","description":"Self only, this running turn: hold non-urgent mail until turn end; false releases early"},
         }),
         &["status", "summary"],
     )
@@ -452,7 +453,7 @@ fn build_tool_transfers() -> Value {
 fn build_tool_inbox() -> Value {
     tool(
         "orgtree_inbox",
-        "Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. Reads do not change automatic delivery. project list/fetch reads reachable project mail without claiming it.",
+        "Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. During DND, explicit fetch/chunk of held mail marks it read and removes it from the final batch; list/conversation previews remain held. Otherwise reads do not change automatic delivery. project list/fetch never claims mail.",
         json!({
             "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation"] },
             "project": { "type": "string", "description": "list/fetch: a project's name: its waiting (unread) mail, read-only" },
@@ -1204,8 +1205,8 @@ mod mail_shape_tests {
                 "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
                 "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
                                  "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user` and `@net:` receive uploaded copies, and `@org:` attachments are unsupported" },
-                "urgent": { "type": "boolean", "description": "RARELY; mail to the user only: their inbox pulses until read. Requires urgent_reason." },
-                "urgent_reason": { "type": "string", "description": "one line for the user: why this interrupts them now" },
+                "urgent": { "type": "boolean", "description": "Requires urgent_reason. User mail keeps its urgent inbox pulse. Agent mail: only while the recipient is currently in DND; bypasses DND, with normal notice/wake rules. Plural sends report refusals per recipient." },
+                "urgent_reason": { "type": "string", "description": "one line explaining why this must interrupt now" },
                 "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it. With several recipients, each gets the quote only if it belongs to that conversation." },
                 "replies": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50, "description": "optional: all message ids this one answers, in order; reply_to, if also supplied, must match the first. Every id must be mail you received or sent. With several recipients, each gets only references belonging to its conversation." },
                 "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
@@ -1335,6 +1336,25 @@ mod builder_stack_tests {
         card["inputSchema"]["properties"]["target"]["description"] = serde_json::json!("request: agent/project/user/extern sought; grant/revoke: agent/project grantor when not you");
         card["inputSchema"]["properties"]["from"]["description"] = serde_json::json!("grant: agent/project receiving it; request: project you manage; deny: the requester");
         card["inputSchema"]["properties"]["grantee"]["description"] = serde_json::json!("revoke: agent/project holding it");
+        // Approved DND contract changes: the status control and manual-read
+        // exception, plus the existing urgent pair extended to DND agents.
+        for name in ["orgtree_status","orgtree_inbox"] {
+            let want=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
+            let got=actual.iter().find(|c|c["name"]==name).unwrap();
+            want["description"]=got["description"].clone();
+            if name=="orgtree_status" {
+                want["inputSchema"]["properties"]["dnd"]=serde_json::json!({"type":"boolean","description":"Self only, this running turn: hold non-urgent mail until turn end; false releases early"});
+            }
+        }
+        for name in ["orgtree_message","orgtree_send_notice"] {
+            let want=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
+            let props=&mut want["inputSchema"]["properties"];
+            let props=if props["metadata"].is_object() { &mut props["metadata"]["properties"] } else { props };
+            if props.get("urgent").is_some() {
+                props["urgent"]["description"]=serde_json::json!("Requires urgent_reason. User mail keeps its urgent inbox pulse. Agent mail: only while the recipient is currently in DND; bypasses DND, with normal notice/wake rules. Plural sends report refusals per recipient.");
+                props["urgent_reason"]["description"]=serde_json::json!("one line explaining why this must interrupt now");
+            }
+        }
         // the edited cards must match in content (keys in any order); their
         // key order is the builder's
         for name in ["orgtree_project", "orgtree_watchdog", "orgtree_audience"] {

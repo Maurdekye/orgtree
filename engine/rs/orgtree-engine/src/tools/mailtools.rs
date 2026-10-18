@@ -114,12 +114,13 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
     };
     let mut urgent_reason = None;
     if args["urgent"].as_bool().unwrap_or(false) {
-        if single && !is_user(&to) {
-            crate::refuse!(BadRequest, "urgent is only for mail to the user");
+        if single && ["org:","net:"].iter().any(|p|to.trim_start_matches('@').starts_with(p)) {
+            crate::refuse!(BadRequest,"urgent is only for the user or an agent currently in Do Not Disturb");
         }
         let Some(reason) = arg_str(args, "urgent_reason") else {
-            crate::refuse!(BadRequest, "urgent needs urgent_reason: one line telling the user why this interrupts them now");
+            crate::refuse!(BadRequest, "urgent needs urgent_reason: one line explaining why this must interrupt now");
         };
+        if reason.trim().is_empty() { crate::refuse!(BadRequest,"urgent_reason cannot be empty"); }
         urgent_reason = Some(gist(reason, 300));
     }
     let attachments = args["attachments"].as_array().cloned().unwrap_or_default();
@@ -174,10 +175,6 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
 #[logged]
 fn list_notes(letter: &Letter, list: &[String]) -> Vec<String> {
     let mut notes = Vec::new();
-    let others: Vec<&str> = list.iter().filter(|t| !is_user(t)).map(String::as_str).collect();
-    if letter.urgent_reason.is_some() && !others.is_empty() {
-        notes.push(format!("urgent applies only to the user; ignored for {}.", others.join(", ")));
-    }
     if let Some(q) = &letter.reply {
         let without: Vec<&str> = list.iter().filter(|t| !plural_quote_belongs(q, t)).map(String::as_str).collect();
         if !without.is_empty() {
@@ -369,7 +366,7 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
     out.kind = letter.kind.clone();
     out.notice = letter.notice;
     let to_user = is_user(to);
-    if to_user {
+    if !["org:","net:"].iter().any(|p|to.trim_start_matches('@').starts_with(p)) {
         if let Some(reason) = &letter.urgent_reason {
             out.urgent = true;
             out.urgent_reason = Some(reason.clone());
@@ -437,11 +434,13 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
     if !["working", "done", "blocked", "idle"].contains(&status) {
         crate::refuse!(BadRequest, "status must be working, done, blocked or idle");
     }
+    let dnd=args.get("dnd").map(|v| v.as_bool().ok_or_else(|| anyhow::anyhow!("dnd must be true or false"))).transpose()?;
     let summary = gist(arg_str(args, "summary").unwrap_or(""), 600);
     // "done" is a report, not a state: the agent is idle afterwards
     let state = if status == "done" { "idle" } else { status };
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
+    if let Some(on)=dnd { crate::domain::dnd::set(engine,&client,me.org_id,me.id,on).await?; }
     let rec = json!({ "status": state, "summary": summary, "at": iso(chrono::Utc::now()) });
     client
         .execute(
@@ -485,7 +484,8 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
         }
     }
     let shown = if status == "done" { "done (you are idle now)" } else { status };
-    Done::text(format!("Status recorded: {shown}.{told}"))
+    let mode=dnd.map(|on| if on {" Do Not Disturb ON for this turn; only urgent mail bypasses it."}else{" Do Not Disturb OFF."}).unwrap_or("");
+    Done::text(format!("Status recorded: {shown}.{told}{mode}"))
 }
 
 
@@ -602,6 +602,14 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
             item["will_redeliver"] = json!(false);
         }
         items.push(item);
+    }
+    let shown_ids:Vec<String>=items.iter().filter_map(|m|m["id"].as_str().map(str::to_string)).collect();
+    let read=mail::read_held(engine,&client,me.id,&shown_ids).await?;
+    for item in &mut items {
+        if item["id"].as_str().is_some_and(|id|read.iter().any(|r|r==id)) {
+            item["state"]=json!("read"); item["will_redeliver"]=json!(false);
+            item["will_redeliver_reason"]=json!("Explicit DND inbox read: removed from the end-of-turn batch.");
+        }
     }
     if action == "chunk" {
         if items.is_empty() { crate::refuse!(NotFound,"message not found in your mailbox"); }
