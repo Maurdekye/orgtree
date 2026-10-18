@@ -45,14 +45,14 @@ test('Halt keeps ellipsis only for an actual team submenu',()=>{
   assert.equal(withoutAsk.children,undefined)
   assert.equal(withoutAsk.label,'Halt')
 })
-test('Compact menu opens the choice modal and bulk actions stay explicitly cheap',()=>{
+test('Compact menu opens the choice modal and bulk actions choose their type',()=>{
   const asked:string[]=[]
   const branch=entries(agent({children:[agent({id:'kid'})]}),handlers({onRetireAsk:k=>asked.push(k)}))
     .find(e=>e.label==='Compact\u2026')
   assert.ok(branch,'Compact choice must be offered')
   branch.onSelect()
   assert.deepEqual(asked,['cheap-compact'])
-  assert.deepEqual(branch.children?.map(e=>e.label),['Cheap compact subtree\u2026','Cheap compact all subordinates\u2026'])
+  assert.deepEqual(branch.children?.map(e=>e.label),['Compact subtree\u2026','Compact all subordinates\u2026'])
 })
 test('retired, busy and empty single-agent compaction gates remain intact',()=>{
   for(const extra of [{state:'archived'},{busy:true},{session_id:null}]){

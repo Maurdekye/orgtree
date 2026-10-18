@@ -320,9 +320,9 @@ test('§3a2 the agent and switchboard entries a project can take: focus, pin in 
   })
   const entries = projectMenuEntries(nd, h, { claudeHire: offer })
   assert.deepEqual(labels(entries), ['Focus', 'Open', 'Hire under this project', 'New project…', 'Settings', 'sep',
-    'Cheap-compact all agents under it…', 'Halt all agents under it…', 'Retire project…'])
+    'Compact all agents under it…', 'Halt all agents under it…', 'Retire project…'])
   entryNamed(entries, 'Focus').onSelect()
-  entryNamed(entries, 'Cheap-compact all agents under it…').onSelect()
+  entryNamed(entries, 'Compact all agents under it…').onSelect()
   entryNamed(entries, 'Halt all agents under it…').onSelect()
   const openKids = entryNamed(entries, 'Open').children!
   assert.deepEqual(openKids.map((c) => c === 'sep' ? 'sep' : c.label),
@@ -357,7 +357,7 @@ test('§3d Desk, Pop out, Presentations with Team presentations submenu, and no 
   })
   const entries = projectMenuEntries(nd, h, { claudeHire: offer })
   assert.deepEqual(labels(entries), ['Focus', 'Open', 'Hire under this project',
-    'New project…', 'Settings', 'sep', 'Cheap-compact all agents under it…',
+    'New project…', 'Settings', 'sep', 'Compact all agents under it…',
     'Halt all agents under it…', 'Retire project…'],
     'Hire beside and Hire above are not in the project context menu (only via hire tokens)')
   const open = entryNamed(entries, 'Open').children!

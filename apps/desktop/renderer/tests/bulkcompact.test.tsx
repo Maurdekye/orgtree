@@ -1,7 +1,7 @@
 // bulkcompact.test.tsx — BULK CHEAP COMPACTION FROM THE CONTEXT MENUS (docket
 // `add-bulk-cheap-compact-context-menu-actions`, user request 2026-09-23).
 //
-// Two doors: "Cheap-compact all agents…" on the eye card and "Cheap-compact
+// Two doors: "Compact all agents…" on the eye card and "Cheap-compact
 // subtree…" in every agent's menu. Both go through canvas/bulkcompact.tsx.
 //
 // WHAT THIS FILE HOLDS THE CODE TO:
@@ -55,10 +55,10 @@ const handlers = (extra: Partial<AgentMenuHandlers> = {}): AgentMenuHandlers => 
   onInbox: noop, onSettings: noop, onRetireAsk: noop, ...extra,
 })
 type Item = Exclude<ReturnType<typeof agentMenuEntries>[number], 'sep'>
-/** 4.2: the subtree compaction is the "Cheap compact subtree…" entry under the "Compact…" branch */
+/** 4.2: the subtree compaction is the "Compact subtree…" entry under the "Compact…" branch */
 const subtreeEntry = (node: CanvasNode, h: AgentMenuHandlers): Item | undefined => {
   const branch = agentMenuEntries(node, h).find((e): e is Item => e !== 'sep' && e.label === 'Compact…')
-  return branch?.children?.find((c) => c.label === 'Cheap compact subtree…')
+  return branch?.children?.find((c) => c.label === 'Compact subtree…')
 }
 const labelsOf = (node: CanvasNode, h: AgentMenuHandlers) =>
   agentMenuEntries(node, h).map((e) => (e === 'sep' ? 'sep' : e.label))
@@ -324,10 +324,10 @@ test('§4a the Agents List row: confirm names the branch and its skips, sends '
     r.querySelector('.tray-name')?.textContent === 'boss') as HTMLElement
   assert.ok(row, 'the boss row rendered')
   await rightClick(row)
-  await pick('Cheap-compact subtree…')
+  await pick('Compact subtree…')
   const box = confirmBox()
   assert.ok(box, 'no confirmation appeared')
-  assert.match(box!.querySelector('h3')?.textContent ?? '', /cheap-compact subtree of boss\?/)
+  assert.match(box!.querySelector('h3')?.textContent ?? '', /Compact subtree of boss\?/)
   const text = box!.textContent ?? ''
   assert.match(text, /4 agents will be cheap-compacted, one at a time: boss, kid-a, kid-b, grandkid/)
   assert.match(text, /Skipped \(1\): kid-busy \(mid-turn/)
@@ -350,7 +350,7 @@ const eye = (map: Map<string, CanvasNode>, op: (b: OpRequest) => Promise<OpResul
     onInbox={noop} onGear={noop} />
 )
 
-test('§4b the eye card: "Cheap-compact all agents…" confirms, then compacts '
+test('§4b the eye card: "Compact all agents…" confirms, then compacts '
   + 'every eligible live agent, skipping the rest', async (t: TestContext) => {
   setAgentShortcutsOn(false)
   const ops: OpRequest[] = []
@@ -364,10 +364,10 @@ test('§4b the eye card: "Cheap-compact all agents…" confirms, then compacts '
     (el) => el)
   t.after(async () => { await view.unmount() })
   await rightClick(view.el.querySelector('.sq.user')!)
-  await pick('Cheap-compact all agents…')
+  await pick('Compact all agents…')
   const box = confirmBox()
   assert.ok(box, 'no confirmation appeared before compacting every agent')
-  assert.match(box!.querySelector('h3')?.textContent ?? '', /cheap-compact all agents\?/)
+  assert.match(box!.querySelector('h3')?.textContent ?? '', /Compact all agents\?/)
   assert.match(box!.textContent ?? '', /2 agents will be cheap-compacted/)
   assert.match(box!.textContent ?? '', /idle-empty \(no measured context/)
   assert.equal(ops.length, 0, 'nothing may be sent before the confirm')
