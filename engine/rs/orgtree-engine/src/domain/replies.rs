@@ -30,6 +30,61 @@ pub fn ids(first: Option<&str>, list: Option<&Value>) -> Result<Vec<String>> {
     Ok(out)
 }
 
+/// Reply targets accepted by the agent message tools. Strings retain the
+/// legacy mail-id form; objects carry identity only and are resolved against
+/// the current organization before any delivery is admitted.
+#[nolog]
+pub fn targets(first: Option<&Value>, list: Option<&Value>) -> Result<Vec<Value>> {
+    let parse = |v: &Value| -> Result<Value> {
+        match v {
+            Value::String(id) if valid_id(id) => Ok(v.clone()),
+            Value::Object(_) if valid_target(v) => Ok(v.clone()),
+            _ => crate::refuse!(BadRequest, "reply targets must be bounded mail IDs or qualified document, docket or transcript identities"),
+        }
+    };
+    let Some(list) = list.filter(|v| !v.is_null()) else {
+        return match first.filter(|v| !v.is_null()) {
+            Some(v) => Ok(vec![parse(v)?]),
+            None => Ok(Vec::new()),
+        };
+    };
+    let Some(items) = list.as_array().filter(|items| !items.is_empty() && items.len() <= MAX_REPLIES) else {
+        crate::refuse!(BadRequest, "replies needs 1 to 50 qualified targets");
+    };
+    let mut out = Vec::new();
+    for item in items {
+        let target = parse(item)?;
+        if !out.contains(&target) { out.push(target); }
+    }
+    if first.filter(|v| !v.is_null()).is_some_and(|v| out.first() != Some(v)) {
+        crate::refuse!(BadRequest, "reply_to must match the first replies target");
+    }
+    Ok(out)
+}
+
+#[nolog]
+fn valid_target(target: &Value) -> bool {
+    let Some(object) = target.as_object() else { return false };
+    if let Some(source) = object.get("source_event_ref") {
+        let Some(source) = source.as_object() else { return false };
+        return object.keys().all(|k| ["source_event_ref", "mail_id"].contains(&k.as_str()))
+            && source.keys().all(|k| ["org", "agent", "generation", "eventId"].contains(&k.as_str()))
+            && ["org", "agent", "eventId"].iter().all(|k| source.get(*k).and_then(Value::as_str).is_some_and(valid_id))
+            && source.get("generation").and_then(Value::as_i64).is_some_and(|n| n > 0)
+            && object.get("mail_id").is_none_or(|v| v.as_str().is_some_and(valid_id));
+    }
+    let kind = object.get("kind").and_then(Value::as_str);
+    match kind {
+        Some("document" | "presentation") => object.keys().all(|k| ["kind", "org", "id"].contains(&k.as_str()))
+            && object.get("org").and_then(Value::as_str).is_some_and(valid_id)
+            && object.get("id").and_then(Value::as_str).is_some_and(valid_id),
+        Some("work_item") => object.keys().all(|k| ["kind", "org", "slug"].contains(&k.as_str()))
+            && object.get("org").and_then(Value::as_str).is_some_and(valid_id)
+            && object.get("slug").and_then(Value::as_str).is_some_and(valid_id),
+        _ => false,
+    }
+}
+
 /// Incoming metadata is untrusted. Invalid extra references fall back to the
 /// legacy first reference; never recover references from arbitrary quote lines.
 #[nolog]
@@ -129,6 +184,19 @@ mod tests {
         for list in [json!([]),json!(["b","a"]),json!(["a",3]),json!(["a","bad\n"]),json!(vec!["a";51])] { assert!(ids(Some("a"),Some(&list)).is_err()); }
         assert_eq!(incoming(Some("a"),Some(&json!({"replies":["b","a"]}))),vec!["a"]);
         assert_eq!(snapshots(Some(&json!({"id":"old"})),Some(&json!([]))),vec![json!({"id":"old"})]);
+    }
+    #[test]
+    fn typed_targets_are_identity_only_and_preserve_legacy_ids() {
+        let document=json!({"kind":"document","org":"demo","id":"d1"});
+        let docket=json!({"kind":"work_item","org":"demo","slug":"release"});
+        let transcript=json!({"source_event_ref":{"org":"demo","agent":"writer","generation":2,"eventId":"e42"}});
+        assert_eq!(targets(Some(&document),None).unwrap(),vec![document.clone()]);
+        assert_eq!(targets(Some(&json!("mail-1")),Some(&json!(["mail-1",document.clone(),docket,transcript]))).unwrap(),
+            vec![json!("mail-1"),document,json!({"kind":"work_item","org":"demo","slug":"release"}),json!({"source_event_ref":{"org":"demo","agent":"writer","generation":2,"eventId":"e42"}})]);
+        for bad in [json!({"kind":"document","org":"demo","id":"d1","gist":"untrusted"}), json!({"source_event_ref":{"org":"demo","agent":"writer","generation":0,"eventId":"e42"}}), json!({"kind":"work_item","org":"demo","slug":""}), json!({"kind":"mail","org":"demo","id":"mail-1"})] {
+            assert!(targets(Some(&bad),None).is_err(),"{bad}");
+        }
+        assert!(targets(Some(&json!("a")),Some(&json!(["b"]))).is_err());
     }
     #[test]
     fn fallback_keeps_all_context_and_first_link() {

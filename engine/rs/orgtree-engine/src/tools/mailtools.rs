@@ -142,11 +142,15 @@ async fn message_impl(engine:&Arc<Engine>,caller:&Caller,args:&Value,force_notic
         tags, me, body, kind: kind.to_string(), urgent_reason, attachments, reply: None, replies: Vec::new(),
         notice: force_notice || args["notice"].as_bool().unwrap_or(false),
     };
-    if args.get("replies").is_some_and(|v| !v.is_null()) {
-        let ids = crate::domain::replies::ids(arg_str(args,"reply_to"),args.get("replies"))?;
-        // Resolve every source before admitting any recipient's delivery.
-        for id in ids {
-            letter.replies.push(mail::agent_reply_quote(engine,letter.me.org_id,letter.me.id,&letter.me.name,&id).await?);
+    let reply_to = args.get("reply_to").filter(|v| !v.is_null());
+    let replies = args.get("replies").filter(|v| !v.is_null());
+    if replies.is_some() || reply_to.is_some_and(Value::is_object) {
+        let targets = crate::domain::replies::targets(reply_to, replies)?;
+        let org = engine.orgs.by_id(letter.me.org_id).ok_or_else(|| anyhow::anyhow!("organization not open"))?;
+        // Resolve every source before admitting any recipient's delivery. Only
+        // identity fields are accepted; quote prose always comes from storage.
+        for target in targets {
+            letter.replies.push(resolve_tool_reply_target(engine, &org, &letter.me, &target).await?);
         }
         letter.reply = letter.replies.first().cloned();
     }
@@ -325,6 +329,10 @@ fn is_user(to: &str) -> bool {
 #[logged]
 fn quote_belongs(q: &Value, to: &str) -> bool {
     let to = to.trim();
+    if matches!(q["kind"].as_str(), Some("document" | "work_item")) { return true; }
+    if q.get("source_event_ref").is_some() {
+        return q["source_event_ref"]["agent"].as_str() == Some(to);
+    }
     if is_user(to) {
         return q["box"] == "user" || q["from"].as_str().is_some_and(is_user);
     }
@@ -337,7 +345,30 @@ fn quote_belongs(q: &Value, to: &str) -> bool {
 #[nolog]
 fn plural_quote_belongs(q:&Value,to:&str)->bool {
     if q["box"]=="org" { return q["peer"].as_str()==Some(to.trim()); }
+    if q.get("source_event_ref").is_some() {
+        return q["source_event_ref"]["agent"].as_str() == Some(to.trim());
+    }
     quote_belongs(q,to)
+}
+
+#[logged]
+async fn resolve_tool_reply_target(
+    engine: &Engine,
+    org: &crate::orgs::OrgHandle,
+    me: &super::Me,
+    target: &Value,
+) -> Result<Value> {
+    if let Some(id) = target.as_str() {
+        return Ok(mail::agent_reply_quote(engine, me.org_id, me.id, &me.name, id).await?);
+    }
+    if let Some(source) = target.get("source_event_ref") {
+        let agent = source["agent"].as_str().ok_or_else(|| anyhow::anyhow!("transcript target needs its agent"))?;
+        return Ok(crate::http::nodes::resolve_event_reply(engine, org, agent, target).await?);
+    }
+    let mut normalized = target.clone();
+    if normalized["kind"] == "presentation" { normalized["kind"] = json!("document"); }
+    crate::http::nodes::resolve_target(engine, org, &normalized, Some(me.id)).await?
+        .ok_or_else(|| anyhow::anyhow!("reply target did not resolve"))
 }
 
 /// Markdown image targets in `body` that are relative paths: they resolve
@@ -742,6 +773,17 @@ mod tests {
         let remote = json!({"kind":"mail","box":"org","peer":"@net:peer.example"});
         assert!(plural_quote_belongs(&remote, "@net:peer.example"));
         assert!(!plural_quote_belongs(&remote, "@net:other.example"));
+    }
+
+    #[test]
+    fn typed_document_and_docket_context_is_shared_but_transcript_context_is_scoped() {
+        let document = json!({"kind":"document","id":"doc-1","gist":"Proposal"});
+        let docket = json!({"kind":"work_item","id":"work-1","gist":"Fix"});
+        let transcript = json!({"source_event_ref":{"agent":"writer"},"quoted_context":"Prior answer"});
+        assert!(plural_quote_belongs(&document, "alice"));
+        assert!(plural_quote_belongs(&docket, "bob"));
+        assert!(plural_quote_belongs(&transcript, "writer"));
+        assert!(!plural_quote_belongs(&transcript, "alice"));
     }
 
     #[test]

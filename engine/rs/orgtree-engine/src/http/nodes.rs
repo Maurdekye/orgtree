@@ -419,7 +419,7 @@ async fn project_audience(e: &Arc<Engine>, org_id: i64, project: i64) -> Value {
 /// Plural event targets carry identity keys; the quoted bytes and sender are
 /// derived from the durable event, not trusted from operator input.
 #[logged]
-async fn resolve_event_reply(e:&Engine,org:&OrgHandle,recipient:&str,q:&Value) -> ApiResult<Value> {
+pub(crate) async fn resolve_event_reply(e:&Engine,org:&OrgHandle,recipient:&str,q:&Value) -> ApiResult<Value> {
     let source=&q["source_event_ref"];
     if source["org"].as_str()!=Some(org.slug.as_str()) { return Err(ApiError::bad_request("reply source belongs to another organization")); }
     let name=source["agent"].as_str().ok_or_else(|| ApiError::bad_request("reply source needs its agent"))?;
@@ -444,7 +444,7 @@ async fn resolve_event_reply(e:&Engine,org:&OrgHandle,recipient:&str,q:&Value) -
 
 /// `{kind, org, box, node?, id}` (object identity only) → the reply snapshot.
 #[logged]
-async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value, transcript_agent: Option<i64>) -> ApiResult<Option<Value>> {
+pub(crate) async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value, transcript_agent: Option<i64>) -> ApiResult<Option<Value>> {
     if t["org"].as_str().is_some_and(|s| s!=org.slug) { return Err(ApiError::bad_request("reply target belongs to another organization")); }
     let kind = t["kind"].as_str().unwrap_or("");
     let id = t["id"].as_str().unwrap_or("");

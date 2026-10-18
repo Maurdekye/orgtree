@@ -222,6 +222,27 @@ const MESSAGE_ORDER: &str = "Always write metadata (`to` and the other fields sa
 const NOTICE_DESC: &str = "Store passive mail for the recipient's next turn; wakes nobody. Only routing and body are accepted; use orgtree_message with notice=true for attachments, kind or reply references.";
 const NOTICE_ORDER: &str = "Always write metadata (`to`) before body: metadata first, body last.";
 
+#[nolog]
+fn reply_target_schema() -> Value {
+    let identity = |kind: &str, field: &str| {
+        let mut properties = serde_json::Map::new();
+        properties.insert("kind".into(), json!({"type":"string","enum":[kind]}));
+        properties.insert("org".into(), json!({"type":"string","minLength":1,"maxLength":200}));
+        properties.insert(field.into(), json!({"type":"string","minLength":1,"maxLength":200}));
+        json!({"type":"object","additionalProperties":false,"required":["kind","org",field],"properties":properties})
+    };
+    json!({
+        "anyOf":[
+            {"type":"string","minLength":1,"maxLength":200,"description":"legacy mail message ID"},
+            {"type":"object","oneOf":[
+                {"type":"object","additionalProperties":false,"required":["kind","org","id"],"properties":{"kind":{"type":"string","enum":["document","presentation"]},"org":{"type":"string","minLength":1,"maxLength":200},"id":{"type":"string","minLength":1,"maxLength":200}}},
+                identity("work_item","slug"),
+                {"type":"object","additionalProperties":false,"required":["source_event_ref"],"properties":{"source_event_ref":{"type":"object","additionalProperties":false,"required":["org","agent","generation","eventId"],"properties":{"org":{"type":"string","minLength":1,"maxLength":200},"agent":{"type":"string","minLength":1,"maxLength":200},"generation":{"type":"integer","minimum":1},"eventId":{"type":"string","minLength":1,"maxLength":200}}},"mail_id":{"type":"string","minLength":1,"maxLength":200}}}
+            ],"description":"Identity only. Supported forms: {kind: document|presentation, org, id}; {kind: work_item, org, slug}; or {source_event_ref: {org, agent, generation, eventId}, mail_id?}. Mail replies continue to use legacy message IDs. Do not supply quote text; the engine loads it from the authorized source."}
+        ]
+    })
+}
+
 /// How a harness is given the two mail tools (coordinator 2026-10-13 21:36Z):
 /// split, `{metadata, body}`, wherever a no-spend check showed the CLI
 /// passes it through (Claude Code, Codex, Muse); flat, the shape from before
@@ -238,7 +259,7 @@ pub enum MailShape {
 /// `metadata`, the flat cards' top level.
 #[logged]
 fn message_meta() -> Value {
-    json!({
+    let mut props = json!({
         "to": TO.clone(),
         "kind": { "type": "string", "enum": ["message", "question", "request"], "description": "request is displayed as a request and otherwise treated as a message" },
         "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
@@ -246,13 +267,22 @@ fn message_meta() -> Value {
                          "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user` and `@net:` receive uploaded copies, and `@org:` attachments are unsupported" },
         "urgent": { "type": "boolean", "description": "Requires urgent_reason. User mail keeps its urgent inbox pulse. Agent mail: only while the recipient is currently in DND; bypasses DND, with normal notice/wake rules. Plural sends report refusals per recipient." },
         "urgent_reason": { "type": "string", "description": "one line explaining why this must interrupt now" },
-        "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it. With several recipients, each gets the quote only if it belongs to that conversation." },
-        "replies": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50, "description": "optional: all message ids this one answers, in order; reply_to, if also supplied, must match the first. Every id must be mail you received or sent. With several recipients, each gets only references belonging to its conversation." },
+        "reply_to": null,
+        "replies": null,
         "options": { "type": "array", "minItems": 2, "maxItems": 10, "items": { "type": "string" },
                      "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
         "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
         "tags": { "type":"array", "maxItems":8, "items":{"type":"string","minLength":1,"maxLength":32}, "description":"Optional custom tags, only on mail to the user; up to 8, case-insensitive. Example: alpha build." },
-    })
+    });
+    props["reply_to"] = json!({
+        "anyOf": reply_target_schema()["anyOf"].clone(),
+        "description": "optional: the single identity this answers; if replies is also supplied, it must equal its first target"
+    });
+    props["replies"] = json!({
+        "type":"array", "items":reply_target_schema(), "minItems":1, "maxItems":50,
+        "description":"optional: identities this answers, in order; reply_to, if also supplied, must equal the first. String IDs must be mail you received or sent. Object targets are identity-only; the engine authorizes and resolves them. Multi-recipient sends include only targets belonging to each recipient's conversation."
+    });
+    props
 }
 
 /// orgtree_message and orgtree_send_notice in `shape`.
@@ -754,7 +784,7 @@ fn build_tool_hire() -> Value {
 #[inline(never)]
 #[nolog]
 fn build_tool_project() -> Value {
-    tool(
+    let mut project = tool(
         "orgtree_project",
         "Control projects above/below you; no turns/credits. create needs name/index (parent defaults you); above wraps a node atomically instead. settings/configure read/patch atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunked reads. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Ancestors may force/unqueue. Dead-letter list/read/retry/drop; project.dead_letter alerts. See guide for action fields.",
         json!({
@@ -786,7 +816,10 @@ fn build_tool_project() -> Value {
             "description": { "type": "string", "description": "what the project is: shown on its card and to its agents" },
         }),
         &["action"],
-    )
+    );
+    project["inputSchema"]["properties"]["reply_to"] = json!({"anyOf":reply_target_schema()["anyOf"].clone(),"description":"broadcast: first reply target"});
+    project["inputSchema"]["properties"]["replies"] = json!({"type":"array","items":reply_target_schema(),"minItems":1,"maxItems":50,"description":"broadcast: ordered reply targets"});
+    project
 }
 
 #[inline(never)]
@@ -1268,7 +1301,11 @@ mod typed_reply_target_contract_tests {
         let Some(object) = targets.as_array().and_then(|a| a.iter().find(|v| v["type"] == "object")) else {
             panic!("{owner}.reply_to lacks an object target schema");
         };
-        assert!(object["oneOf"].as_array().is_some_and(|variants| variants.len() >= 3), "{owner} must document document, docket and transcript target forms");
+        let variants = object["oneOf"].as_array().expect("typed target variants");
+        assert!(variants.iter().any(|v| v["properties"]["kind"]["enum"].as_array().is_some_and(|k| k.contains(&json!("document")) && k.contains(&json!("presentation")))), "{owner} must document document and presentation targets");
+        assert!(variants.iter().any(|v| v["properties"]["kind"]["enum"] == json!(["work_item"])), "{owner} must document docket-item targets");
+        assert!(variants.iter().any(|v| v["properties"]["source_event_ref"].is_object()), "{owner} must document transcript-event targets");
+        assert!(variants.iter().all(|v| v["additionalProperties"] == false), "{owner} typed targets must be identity-only objects");
     }
 
     #[test]
@@ -1303,7 +1340,7 @@ mod mail_shape_tests {
             { "type": "string" },
             { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 10 },
         ], "description": "agent name, 'user', '@org:<slug>' or '@net:<slug>'; or a list of up to 10 of them" });
-        let message = json!({
+        let mut message = json!({
             "name": "orgtree_message",
             "description": format!("{MESSAGE_DESC}\nGuide: orgtree-tool-message."),
             "inputSchema": { "type": "object", "properties": {
@@ -1324,6 +1361,9 @@ mod mail_shape_tests {
             }, "required": ["to", "body"] },
             "_meta": { "anthropic/alwaysLoad": true },
         });
+        let meta = message_meta();
+        message["inputSchema"]["properties"]["reply_to"] = meta["reply_to"].clone();
+        message["inputSchema"]["properties"]["replies"] = meta["replies"].clone();
         let notice = json!({
             "name": "orgtree_send_notice",
             "description": format!("{NOTICE_DESC}\nGuide: orgtree-tool-send-notice."),
@@ -1358,7 +1398,7 @@ mod mail_shape_tests {
         }
         assert_eq!(fm["inputSchema"]["properties"]["kind"]["enum"], json!(["message", "question", "request"]));
         assert!(fm["description"].as_str().unwrap().contains("Attachments to local agents are shared as authorized path references"));
-        assert!(fm["inputSchema"]["properties"]["replies"]["description"].as_str().unwrap().contains("each gets only references belonging to its conversation"));
+        assert!(fm["inputSchema"]["properties"]["replies"]["description"].as_str().unwrap().contains("filters each recipient's context to their conversation"));
     }
 
     /// Only the two mail cards change with the shape; every agent but an

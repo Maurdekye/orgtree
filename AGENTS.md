@@ -2754,6 +2754,13 @@ details and Python references: `docs/rust-engine/docket-parity-batch5.md`]
 `kind: request` as a separately displayed request; local-agent attachments are
 validated and shared as absolute paths; multi-recipient replies are filtered
 per recipient conversation. `user` and `@net:` attachment uploads are unchanged.
+In 4.4.0, message and project-broadcast replies also accept identity-only
+document/presentation, docket-item and transcript-event targets; the engine
+resolves quote snapshots and filters transcript context to the matching
+recipient. Callers do not supply quoted prose. [verified: `domain/replies.rs`,
+`tools/mailtools.rs`, `tools/defs.rs`, `http/nodes.rs`; see
+[orgtree_message](docs/skills/orgtree-working/mail/tool-message/SKILL.md) and
+[orgtree_project](docs/skills/orgtree-working/team/tool-project/SKILL.md)]
 See [DECISIONS.md](docs/rust-engine/DECISIONS.md).
 
 **Inbox mail styling (2026-10-07).** Rust mail carries passive delivery as
