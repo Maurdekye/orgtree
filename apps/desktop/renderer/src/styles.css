@@ -9180,10 +9180,11 @@ span.ref-chip.ref-agent,
   vertical-align: baseline;
   font-family: var(--mono);
 }
-button.ref-chip.ref-chip {
-  color: var(--mention-accent, var(--org-agent-text, var(--org-accent, var(--accent))));
-}
-button.ref-chip.ref-chip:hover { color: var(--ink-strong); }
+/* no colour here: `button.ref-chip.ref-chip` above already takes
+   --agent-accent-text over the scope's --accent, so a link inside a desk keeps
+   that desk's provider colour, and organization agent colours still apply. An
+   --org-accent here painted every desk's links in the org theme (alpha.8,
+   user 2026-10-18 13:51Z). */
 .ref-chip .tier, .ref-chip .project-mark,
 .node-link .tier, .node-link .project-mark,
 .sender .tier, .sender .project-mark,
