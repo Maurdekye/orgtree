@@ -17,6 +17,7 @@ pub mod runtime_notices;
 pub mod ops;
 pub mod orginbox;
 pub mod projects;
+pub mod slots;
 pub mod peer_mail;
 pub mod scope;
 pub mod tool_groups;

@@ -380,6 +380,7 @@ async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken,retrying
         "stream" => run_stream(engine, dog, cancel).await,
         "activity" => run_activity(engine, dog, cancel).await,
         "fair_queue" => run_fair_queue(engine, dog, cancel).await,
+        "slot" => run_slot(engine, dog, cancel).await,
         _ => run_poll(engine, dog.row, cancel,retrying).await,
     }
 }
@@ -396,6 +397,33 @@ async fn run_fair_queue(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationTok
     };
     crate::domain::projects::dispatch(engine, dog.org_id, project).await?;
     cancel.cancelled().await;
+    Ok(())
+}
+
+/// A slot claim (domain/slots.rs) has no loop either: arming it (create,
+/// resume, engine start) runs its project's grant, which fires it when it is
+/// granted a slot; until then it holds its place in the line.
+#[logged]
+async fn run_slot(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) -> Result<()> {
+    let Some(project) = dog.memo["target_id"].as_i64() else {
+        pause(engine, &dog, "its project is unknown").await?;
+        return Ok(());
+    };
+    crate::domain::slots::grant(engine, dog.org_id, project).await?;
+    cancel.cancelled().await;
+    Ok(())
+}
+
+/// Fire a slot claim with its grant (domain/slots.rs `grant`): the dog is
+/// one-shot, so this spends it and wakes its owner. A dog already spent or
+/// gone is left alone (the grant fired it before).
+#[logged]
+pub(crate) async fn fire_slot(engine: &Arc<Engine>, row: i64, line: String) -> Result<()> {
+    if let Some(mut dog) = load(engine, row).await? {
+        if dog.state == "armed" {
+            fire(engine, &mut dog, &[line], " SLOT GRANTED —").await?;
+        }
+    }
     Ok(())
 }
 
@@ -1606,12 +1634,38 @@ fn free_id(base: &str, taken: &HashSet<String>) -> String {
     format!("{base}-{n}")
 }
 
+/// What a new slot claim's create result says: the slot it was granted at
+/// once, or its place in the line and who is ahead.
+#[logged]
+async fn slot_claim_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::projects::Project, row: i64) -> Result<String> {
+    crate::domain::slots::grant(engine, org_id, p.id).await?;
+    let client = engine.db.get().await?;
+    if let Some(r) = client
+        .query_opt("SELECT uid, slot_no FROM ot.slot_leases WHERE dog_id = $1 AND ended_at IS NULL", &[&row])
+        .await?
+    {
+        let (lease, slot): (String, i32) = (r.get(0), r.get(1));
+        return Ok(format!(
+            "SLOT CLAIM: claimed slot {slot} of project {} (lease {lease}). It fired at once with the grant; release the slot when \
+             the work ends: orgtree_project action=release_slot lease={lease}", p.name));
+    }
+    let line = crate::domain::slots::line(&**client, p.id).await?;
+    let me = client.query_one("SELECT uid FROM ot.watchdogs WHERE id = $1", &[&row]).await?.get::<_, String>(0);
+    let at = line.iter().position(|(dog, _, _)| *dog == me).map(|i| i + 1).unwrap_or(line.len());
+    let ahead: Vec<String> = line.iter().take(at.saturating_sub(1)).map(|(_, a, _)| a.clone()).collect();
+    let ord = match at % 100 { 11..=13 => "th", _ => match at % 10 { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" } };
+    Ok(format!(
+        "SLOT CLAIM: every slot of project {} is held, so this dog is your place in line: {at}{ord} in line{}. It fires and wakes \
+         you when you are granted a slot; removing or pausing it leaves the line (resuming rejoins at the back)",
+        p.name, if ahead.is_empty() { String::new() } else { format!(" behind {}", ahead.join(", ")) }))
+}
+
 /// `orgtree_watchdog create`: a dog for `owner` (the caller), smoke-run once.
 #[logged]
 pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value) -> Result<Value> {
     let kind = args["kind"].as_str().unwrap_or("").to_string();
-    if !["file", "command", "process", "stream", "activity", "event", "fair_queue"].contains(&kind.as_str()) {
-        refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event, fair_queue");
+    if !["file", "command", "process", "stream", "activity", "event", "fair_queue", "slot"].contains(&kind.as_str()) {
+        refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event, fair_queue, slot");
     }
     let target = args["target"].as_str().map(str::trim).unwrap_or("").to_string();
     if target.is_empty() {
@@ -1675,6 +1729,46 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         target = p.name.clone();
         queue_project = Some(p);
     }
+    let mut slot_project: Option<crate::domain::projects::Project> = None;
+    if kind == "slot" {
+        // a claim on one of the project's slots (domain/slots.rs): only the
+        // agents above or below it, one claim each, and only while it has slots
+        let Some(p) = crate::domain::projects::by_name(&**client, org_id, &target).await? else {
+            refuse!(NotFound, "no project named {} to claim a slot of; a slot watchdog takes a project's name as target", target.trim_start_matches('@'));
+        };
+        if p.state != "live" {
+            refuse!(Conflict, "project {} is retired", p.name);
+        }
+        crate::domain::projects::require_reach(&**client, owner, &p, "claim its slots").await?;
+        let scope: Value = client.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&p.id]).await?.get(0);
+        if crate::domain::slots::capacity(&scope) == 0 {
+            refuse!(Conflict, "project {} has no slots (its slot count in Project settings is 0)", p.name);
+        }
+        let mine = client
+            .query_one(
+                "SELECT EXISTS (SELECT 1 FROM ot.slot_leases WHERE project_id = $1 AND holder_agent_id = $2 AND ended_at IS NULL),
+                        EXISTS (SELECT 1 FROM ot.watchdogs WHERE kind = 'slot' AND owner_agent_id = $2 AND state IN ('armed', 'paused')
+                                  AND (memo->>'target_id')::bigint = $1)",
+                &[&p.id, &owner],
+            )
+            .await?;
+        if mine.get::<_, bool>(0) {
+            refuse!(Conflict, "you already hold a slot of project {}; release it first (orgtree_project action=slots name={} lists your lease)", p.name, p.name);
+        }
+        if mine.get::<_, bool>(1) {
+            refuse!(Conflict, "you already have a slot claim on project {} (one per agent); remove it to leave the line", p.name);
+        }
+        if args["fire_mode"].as_str().is_some_and(|m| !m.is_empty() && m != "event") || args.get("quiet_period_s").is_some_and(|q| !q.is_null()) {
+            refuse!(BadRequest, "a slot watchdog fires once, when you are granted the slot; it has no silence mode");
+        }
+        if args["pattern"].as_str().is_some_and(|p| !p.trim().is_empty()) {
+            refuse!(BadRequest, "a slot watchdog fires when you are granted the slot; it has no pattern");
+        }
+        memo["target_id"] = json!(p.id);
+        memo["queued_at"] = json!(Utc::now().timestamp_millis());
+        target = p.name.clone();
+        slot_project = Some(p);
+    }
     if kind == "activity" {
         let t = target.trim_start_matches('@').to_string();
         let row = client
@@ -1720,9 +1814,10 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     if kind == "command" && pattern.is_none() {
         refuse!(BadRequest, "a command watchdog needs a pattern — 'ran and printed something' is not an event");
     }
-    let floor = if kind == "stream" || kind == "activity" || kind == "event" || kind == "fair_queue" { STREAM_FLOOR_S } else { FLOOR_S };
+    let floor = if kind == "stream" || kind == "activity" || kind == "event" || kind == "fair_queue" || kind == "slot" { STREAM_FLOOR_S } else { FLOOR_S };
     let interval = args["interval_s"].as_i64().unwrap_or(60).max(floor).min(i32::MAX as i64) as i32;
-    let once = args["once"].as_bool().unwrap_or(false);
+    // a slot claim is one-shot: it fires once, with the grant
+    let once = kind == "slot" || args["once"].as_bool().unwrap_or(false);
     let notice = args["notice"].as_bool().unwrap_or(false);
     memo["notice"] = json!(notice);
     let counts = client
@@ -1752,6 +1847,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     let cwd = scratch.is_dir().then_some(scratch);
     let smoked = if kind=="event" { events::smoke(engine,owner,&target,args).await? }
         else if let Some(p) = &queue_project { queue_smoke(engine, org_id, p).await? }
+        else if slot_project.is_some() { json!({ "ran": "a slot claim has nothing to run" }) }
         else { smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await };
     if let Some(n)=smoked["current"]["count"].as_i64(){memo["run"]["count"]=json!(n);}
     if smoked["current"]["credits"].is_object(){memo["run"]["credits"]=smoked["current"]["credits"].clone();}
@@ -1790,16 +1886,23 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         )
         .await?;
     drop(client);
+    // a slot claim is granted now if a slot is free, so the result can say so
+    let slot_said = match &slot_project {
+        Some(p) => Some(slot_claim_said(engine, org_id, p, row).await?),
+        None => None,
+    };
     arm(engine, row);
     changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Events]);
     let cadence = match kind.as_str() {
         "stream" => " (realtime stream)".to_string(),
         "activity" | "event" => " (pushed events)".to_string(),
-        "fair_queue" => format!(" on project {target}"),
+        "fair_queue" | "slot" => format!(" on project {target}"),
         _ => format!(" every {interval}s"),
     };
     let mut status = format!("{}{kind} watchdog{cadence}", if once { "armed — ONE-SHOT " } else { "armed — " });
-    status.push_str(&if kind == "fair_queue" {
+    status.push_str(&if let Some(s) = &slot_said {
+        format!(". {s}")
+    } else if kind == "fair_queue" {
         ". Each mail entering the project's mailbox goes to exactly ONE of its fair_queue watchers, the least recently woken \
          (busy, halted or frozen watchers stay in turn). The mail you are handed arrives as ordinary mail from its sender, \
          marked as coming via the project; reply to the sender, not the project".to_string()
@@ -1902,6 +2005,9 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
             "paused"
         }
         "resume" => {
+            if dog.kind == "slot" && dog.state == "spent" {
+                refuse!(Conflict, "this slot claim was granted and is spent; create a new one to claim again");
+            }
             if dog.state == "spent" {
                 refuse!(Conflict, "a spent one-shot watchdog cannot be resumed; create a new one");
             }
@@ -1914,7 +2020,10 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
                             silence_since = CASE WHEN fire_mode = 'silence' THEN now() ELSE silence_since END,
                             next_check_at = CASE WHEN kind IN ('file','command','process') THEN now() END,
                             next_silence_at = CASE WHEN fire_mode='silence' THEN now()+greatest(coalesce(quiet_period_s,600),1)*interval '1 second' END,
-                            memo = (memo - 'paused_why' - 'paused_by') #- '{run,alerted}' #- '{run,broken}'
+                            memo = ((memo - 'paused_why' - 'paused_by') #- '{run,alerted}' #- '{run,broken}')
+                                   -- a slot claim rejoins the line at the back
+                                   || CASE WHEN kind = 'slot' THEN jsonb_build_object('queued_at', (extract(epoch FROM clock_timestamp()) * 1000)::bigint)
+                                           ELSE '{}'::jsonb END
                       WHERE id = $1",
                     &[&dog.row],
                 )

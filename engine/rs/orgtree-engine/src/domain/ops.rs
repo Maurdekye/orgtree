@@ -66,6 +66,8 @@ pub(crate) struct Effects {
     /// projects whose mail queue mode changed: (id, name, ack mode), whose
     /// watchers are told after commit (`projects::mode_changed`)
     queue_modes: Vec<(i64, String, bool)>,
+    /// projects whose free slots go to their line after commit (`slots::grant`)
+    slot_grants: Vec<i64>,
 }
 
 /// A locked agent row.
@@ -707,6 +709,10 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         "set_description" => set_description(org, &tx, actor, req, fx).await?,
         "set_mail_queue" => set_mail_queue(org, &tx, actor, req, fx).await?,
         "purge_mail_queue" => purge_mail_queue(org, &tx, actor, req, fx).await?,
+        "set_slots" => set_slots(org, &tx, actor, req, fx).await?,
+        "slot_release" => slot_release(org, &tx, actor, req, fx).await?,
+        "slot_status" => slot_status(org, &tx, actor, req).await?,
+        "slot_unqueue" => slot_unqueue(org, &tx, actor, req, fx).await?,
         "reallocate" => reallocate(engine, org, &tx, actor, req, fx).await?,
         "switch_model" => switch_model(engine, org, &tx, actor, req, fx).await?,
         "reorder" => reorder(org, &tx, actor, req, fx).await?,
@@ -873,6 +879,11 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     // a retired or stopped holder's un-acked project mail goes back to its queue
     for id in &fx.stop {
         crate::domain::projects::recheck_holder(engine, org.id, *id).await;
+    }
+    for p in &fx.slot_grants {
+        if let Err(e) = crate::domain::slots::grant(engine, org.id, *p).await {
+            tracing::warn!(project = p, error = %format!("{e:#}"), "granting a project's free slots failed");
+        }
     }
 }
 
@@ -2036,6 +2047,120 @@ async fn set_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Acto
                "exclude_sender": crate::domain::projects::exclude_sender(&next),
                "ack_timeout": crate::domain::projects::ack_timeout(&next),
                "max_attempts": crate::domain::projects::max_attempts(&next), "mode_changed": mode_changed }))
+}
+
+/// Set a project's slot count (domain/slots.rs; user 2026-10-18 08:42Z: a
+/// count, 0 is none). Whoever controls the project may. Lowering it takes no
+/// slot from a holder; the new count applies as slots free up. Free slots
+/// go to the line after commit.
+#[logged]
+async fn set_slots(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project has slots", n.name);
+    }
+    authorize(tx, actor, &n, "set its slots").await?;
+    let Some(count) = req.get("capacity").and_then(Value::as_i64).filter(|c| (0..=crate::domain::slots::MAX_CAPACITY).contains(c)) else {
+        refuse!(BadRequest, "capacity is the number of slots, 0 (none) to {}", crate::domain::slots::MAX_CAPACITY);
+    };
+    tx.execute("UPDATE ot.agents SET scope = jsonb_set(coalesce(scope, '{}'::jsonb), '{slots_capacity}', to_jsonb($2::bigint)),
+                       row_version = row_version + 1 WHERE id = $1", &[&n.id, &count]).await?;
+    event(tx, org.id, "set_slots", actor, Some(n.id), json!({ "node": n.name, "capacity": count }), fx).await?;
+    fx.agents.insert(n.id);
+    fx.slot_grants.push(n.id);
+    Ok(json!({ "node": n.name, "slots": count }))
+}
+
+/// Release a held slot (`orgtree_project action=release_slot`). Its holder
+/// releases; the project's superior (an agent above it) or the user may
+/// force-release any. The next in line is granted after commit.
+#[logged]
+async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let lease = str_arg(req, "lease").unwrap_or("").trim().trim_start_matches('#').to_string();
+    let Some(l) = tx
+        .query_opt(
+            "SELECT l.id, l.project_id, l.holder_agent_id, l.slot_no, l.ended_at IS NOT NULL, coalesce(l.end_reason, ''), a.name, p.name
+               FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id JOIN ot.agents p ON p.id = l.project_id
+              WHERE l.org_id = $1 AND l.uid = $2",
+            &[&org.id, &lease],
+        )
+        .await?
+    else {
+        refuse!(NotFound, "no slot lease {lease}; orgtree_project action=slots name=<project> lists the leases");
+    };
+    let (id, project, holder, slot, ended, how, holder_name, pname): (i64, i64, i64, i32, bool, String, String, String) =
+        (l.get(0), l.get(1), l.get(2), l.get(3), l.get(4), l.get(5), l.get(6), l.get(7));
+    if ended {
+        refuse!(Conflict, "lease {lease} has already ended ({how})");
+    }
+    let force = req.get("force").and_then(Value::as_bool).unwrap_or(false);
+    let how = match actor {
+        Actor::Agent { id: me, .. } if *me == holder => "released".to_string(),
+        Actor::Agent { id: me, .. } if force && within(tx, *me, project).await? => format!("released (forced by {})", actor.label()),
+        Actor::Agent { .. } => refuse!(Forbidden, "lease {lease} is {holder_name}'s; only its holder releases it (or the project's superior, forcing it)"),
+        _ => format!("released (forced by {})", actor.label()),
+    };
+    // the project's row first, as the grant takes it
+    tx.query_one("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&project]).await?;
+    crate::domain::slots::end(tx, id, &how, &actor.label()).await?;
+    event(tx, org.id, "slot_release", actor, Some(holder),
+        json!({ "project": pname, "lease": lease, "slot": slot, "how": how, "note": str_arg(req, "note") }), fx).await?;
+    fx.agents.insert(holder);
+    fx.agents.insert(project);
+    fx.slot_grants.push(project);
+    Ok(json!({ "project": pname, "lease": lease, "slot": slot, "released": true, "how": how,
+               "next": "the slot goes to the next in line, if any" }))
+}
+
+/// A project's slots: holders, the line, recent history (`orgtree_project
+/// action=slots`). Agents above or below the project may look.
+#[logged]
+async fn slot_status(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project has slots", n.name);
+    }
+    if let Actor::Agent { id, .. } = actor {
+        if !crate::domain::projects::reaches(tx, *id, n.id).await? {
+            refuse!(Forbidden, "only the agents above or below project {} see its slots", n.name);
+        }
+    }
+    let scope: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
+    crate::domain::slots::status(tx, n.id, &n.name, &scope).await
+}
+
+/// Remove an agent from a project's slot line (the project's superior or the
+/// user): its claim is removed, so it is not granted.
+#[logged]
+async fn slot_unqueue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project has slots", n.name);
+    }
+    if let Actor::Agent { id, .. } = actor {
+        if !within(tx, *id, n.id).await? {
+            refuse!(Forbidden, "only the project's superior or the user removes an agent from its slot line");
+        }
+    }
+    let who = str_arg(req, "agent").unwrap_or("");
+    let rows = tx
+        .query(
+            "UPDATE ot.watchdogs w SET state = 'removed', memo = memo || jsonb_build_object('reason', $3::text)
+               FROM ot.agents a WHERE a.id = w.owner_agent_id AND a.name = $2 AND w.org_id = $4 AND w.kind = 'slot'
+                AND w.state IN ('armed', 'paused') AND (w.memo->>'target_id')::bigint = $1 AND NOT w.memo ? 'lease'
+             RETURNING w.id, a.id",
+            &[&n.id, &who, &format!("removed from the line by {}", actor.label()), &org.id],
+        )
+        .await?;
+    if rows.is_empty() {
+        refuse!(NotFound, "{who} is not in project {}'s slot line", n.name);
+    }
+    for r in &rows {
+        fx.dogs_off.push(r.get(0));
+        fx.agents.insert(r.get(1));
+    }
+    event(tx, org.id, "slot_unqueue", actor, Some(n.id), json!({ "node": n.name, "agent": who }), fx).await?;
+    Ok(json!({ "node": n.name, "removed": who }))
 }
 
 /// Purge a project's waiting mail (user 2026-10-18 08:11Z): every mail no

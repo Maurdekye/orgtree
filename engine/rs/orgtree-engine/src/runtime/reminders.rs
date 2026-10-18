@@ -123,6 +123,9 @@ struct Agent {
     /// un-acked mail it holds from projects in ack mode, as (mail id,
     /// project): it counts as working for the checkup (user 2026-10-18 08:04Z)
     held: Vec<(String, String)>,
+    /// project slots it holds, as (slot, project, lease): they count as
+    /// working too (user 2026-10-18 08:40Z, the slots' idle reclaim)
+    slots: Vec<(i32, String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -179,6 +182,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
             activity,
             reminded: stamp(&extra, "docket_reminder_at"),
             held: Vec::new(),
+            slots: Vec::new(),
         });
     }
     if agents.is_empty() {
@@ -186,6 +190,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
     }
     for a in &mut agents {
         a.held = crate::domain::projects::held_by(&**client, a.id).await?;
+        a.slots = crate::domain::slots::held_by(&**client, a.id).await?;
     }
     // every agent but the deleted, for the reviewer's liveness and the owner's superior chain
     let everyone: Agents = client
@@ -238,7 +243,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
         } else {
             work.iter().filter(|w| w.to.as_deref() == Some(a.name.as_str()) && w.status == "blocked").collect()
         };
-        let (remind, check) = wakes(sw, early, a.working || !a.held.is_empty(), !items.is_empty());
+        let (remind, check) = wakes(sw, early, a.working || !a.held.is_empty() || !a.slots.is_empty(), !items.is_empty());
         let wake = async {
             if remind && idle_reminder(engine, org, a, &items, now).await? {
                 return Ok(());
@@ -338,11 +343,27 @@ async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime
     // the ack timeout counts this wake against each held mail, or reclaims
     // one that already had its reminders (user 2026-10-18 08:11Z)
     let held = if a.held.is_empty() { Vec::new() } else { crate::domain::projects::ack_timeouts(engine, org.id, a.id, &a.name).await? };
-    if !a.working && held.is_empty() {
+    // a held slot's idle reclaim (domain/slots.rs), counted the same way
+    let slots = if a.slots.is_empty() { Vec::new() } else { crate::domain::slots::idle_timeouts(engine, org.id, a.id, &a.name).await? };
+    if !a.working && held.is_empty() && slots.is_empty() {
         return Ok(());
     }
     let ev = crate::events::reminder_working_checkup(&org.slug, &a.name, a.generation as i64);
-    send(engine, org.id, a, ev, held_note(&held)).await
+    let note = [held_note(&held), slot_note(&slots)].into_iter().flatten().collect::<Vec<_>>().join("\n\n");
+    send(engine, org.id, a, ev, (!note.is_empty()).then_some(note)).await
+}
+
+/// What a checkup adds for an agent holding project slots: each slot and
+/// how to release it.
+#[nolog]
+fn slot_note(slots: &[(i32, String, String)]) -> Option<String> {
+    if slots.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = slots.iter()
+        .map(|(n, p, l)| format!("- slot {n} of project {p} (lease {l}): release it if you are done with orgtree_project action=release_slot lease={l}"))
+        .collect();
+    Some(format!("You still hold a project slot that others may be waiting for:\n{}", lines.join("\n")))
 }
 
 /// What a checkup adds for an agent holding un-acked project mail: each
@@ -420,6 +441,16 @@ async fn send(engine: &Arc<Engine>, org_id: i64, a: &Agent, ev: Value, extra: Op
 #[cfg(test)]
 mod checkup_tests {
     use super::*;
+
+    /// The user, 2026-10-18 08:40Z: a checkup for a slot holder names the
+    /// slot and how to release it.
+    #[test]
+    fn a_slot_checkup_names_the_slot_and_the_release() {
+        assert_eq!(slot_note(&[]), None);
+        let note = slot_note(&[(1, "build".into(), "s1".into())]).unwrap();
+        assert!(note.contains("slot 1 of project build (lease s1)"), "{note}");
+        assert!(note.contains("release_slot lease=s1"), "{note}");
+    }
 
     /// The user, 2026-10-18 08:04Z: a checkup for an agent holding un-acked
     /// project mail names each mail and how to ack it; none without.

@@ -757,6 +757,17 @@ pub async fn recheck_holder(engine: &Arc<Engine>, org_id: i64, agent: i64) {
             tracing::warn!(project = p, error = %format!("{e:#}"), "project queue recheck failed");
         }
     }
+    // its slots too (domain/slots.rs): a halted or retired holder loses its
+    // slot, and an unhalted claimant may be granted one
+    let slot_projects = match engine.db.get().await {
+        Ok(c) => crate::domain::slots::projects_of(&**c, agent).await.unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    for p in slot_projects {
+        if let Err(e) = Box::pin(crate::domain::slots::check(engine, org_id, p)).await {
+            tracing::warn!(project = p, error = %format!("{e:#}"), "project slots recheck failed");
+        }
+    }
 }
 
 /// The un-acked mail an agent holds, as (handed copy's id, project name),

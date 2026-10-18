@@ -318,6 +318,9 @@ async fn run_with_cluster(
     });
     runtime::warm_all(&engine);
     runtime::watchdogs::start(&engine).await;
+    // project slots: a holder that went away while the engine was down loses
+    // its slot, and free slots go to the line (domain/slots.rs)
+    domain::slots::startup(&engine).await;
     // a safe start holds the automatic wakes back unless a rig run asked for them
     if std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() != Ok("1") || rig::reminder_sweep_s().is_some() {
         runtime::reminders::start(&engine);

@@ -703,14 +703,16 @@ fn build_tool_hire() -> Value {
 fn build_tool_project() -> Value {
     tool(
         "orgtree_project",
-        "Create a project node, or edit its description: no turns/credits; its agents report to and are paid by the nearest agent above. Has folder, mailbox and presentations; fair_queue delivers each mail to one watcher. Reach/control is limited to agents above/below it. create requires name/index; parent defaults you. The description is the standing charter of every agent under it; describe (name, description) replaces it.",
+        "Create a project node, or edit its description: no turns/credits; its agents report to and are paid by the nearest agent above. Has folder, mailbox and presentations; fair_queue delivers each mail to one watcher. Reach/control is limited to agents above/below it. create requires name/index; parent defaults you. The description is the standing charter of every agent under it; describe (name, description) replaces it. Slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours.",
         json!({
-            "action": { "type": "string", "enum": ["create", "describe"] },
+            "action": { "type": "string", "enum": ["create", "describe", "slots", "release_slot"] },
+            "lease": { "type": "string", "description": "release_slot: the lease your slot grant named" },
+            "note": { "type": "string", "description": "release_slot: optional, e.g. build ok 265s" },
             "name": { "type": "string" }, "parent": { "type": "string" },
             "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
             "description": { "type": "string", "description": "what the project is: shown on its card and to its agents" },
         }),
-        &["action", "name"],
+        &["action"],
     )
 }
 
@@ -863,16 +865,16 @@ fn build_tool_audience() -> Value {
 fn build_tool_watchdog() -> Value {
     tool(
         "orgtree_watchdog",
-        "Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target; command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher. Event/count/silence semantics and catalog are in the guide. No added authority.",
+        "Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target; command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project slot, firing when granted. Event/count/silence semantics and catalog are in the guide. No added authority.",
         json!({
             "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
-            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "fair_queue"] },
+            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "fair_queue", "slot"] },
             "fire_mode": { "type": "string", "enum": ["event", "silence"], "description": "create: on event (default), or after silence" },
             "threshold": {"type":"string","description":"event counts only: below N or at least N; fires only on false-to-true crossing, never repeatedly while satisfied"},
             "event_scope": {"type":"string","enum":["subtree","org"],"description":"count targets only: visible descendants (default), or org (requires full visibility); excludes the watcher"},
             "quiet_period_s": { "type": "integer", "minimum": 1, "description": "create, silence only: seconds without a matching event" },
-            "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, (fair_queue) project name, or (event) dotted event name/prefix ending in .*" },
+            "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, (fair_queue, slot) project name, or (event) dotted event name/prefix ending in .*" },
             "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line)" },
             "interval_s": { "type": "integer", "minimum": 5, "description": "poll cadence (floor 15s); stream/activity: the minimum gap between fires (floor 5s)" },
             "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },

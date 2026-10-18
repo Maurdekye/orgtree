@@ -54,7 +54,15 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
                 req["op"] = json!("set_description");
                 req["node"] = args.get("name").cloned().unwrap_or(Value::Null);
             }
-            _ => crate::refuse!(BadRequest, "orgtree_project takes action=create or action=describe"),
+            // project slots (domain/slots.rs): release yours, or see them
+            Some("release_slot") => {
+                req["op"] = json!("slot_release");
+            }
+            Some("slots") => {
+                req["op"] = json!("slot_status");
+                req["node"] = args.get("name").cloned().unwrap_or(Value::Null);
+            }
+            _ => crate::refuse!(BadRequest, "orgtree_project takes action=create, describe, slots or release_slot"),
         },
         _ => {}
     }
