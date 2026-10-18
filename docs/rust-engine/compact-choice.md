@@ -51,6 +51,11 @@ is refused, a transport error is failed, and started:true is reported as started
 never completed. The summary names every outcome; one refusal does not abort the
 rest. No backend authority or harness support is widened.
 
+The bulk-only confirmation is capped at min(620px, viewport minus 40px).
+Its preview body scrolls independently and its footer stays visible, with
+wrapping buttons on narrow screens. Single-agent layout is unchanged.
+[Coordinator approved 2026-10-18 14:36Z m839abac337e2.]
+
 ## Focused evidence
 
 Engine red at 5894d94: four cases, two intended failures (OpenCode/unknown

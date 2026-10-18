@@ -5142,6 +5142,18 @@ span.ref-chip.ref-chip {
 
 /* in-page confirmation (never a native OS dialog — user ruling) */
 .confirm-box { width: 430px; gap: 12px; }
+/* Bulk previews share the single-agent buttons, but need room for both plans.
+   Keep their footer visible; only the preview body scrolls on short screens. */
+.settings.content-height.confirm-box:has([data-compact-preview]) {
+  width: min(620px, calc(100vw - 40px)); max-width: calc(100vw - 40px);
+  overflow: hidden;
+}
+.settings.content-height.confirm-box:has([data-compact-preview]) > .confirm-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+}
+.settings.content-height.confirm-box:has([data-compact-preview]) > .row {
+  flex: none; flex-wrap: wrap;
+}
 .confirm-body { font-size: 13.5px; line-height: 1.55; color: var(--ink); }
 button.danger.solid {
   background: rgba(241, 76, 76, .14); border-color: var(--bad); font-weight: 600;
