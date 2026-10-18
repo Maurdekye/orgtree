@@ -409,6 +409,9 @@ mod tests {
             assert_eq!(p.observe(true,at+Duration::from_secs(2)),None);
         }).join().unwrap();
         tracing::dispatcher::with_default(&dispatch,||{
+            // Installing an existing dispatch does not invalidate Interest::never
+            // cached by the no-subscriber thread. Rebuild with this collector active.
+            tracing::callsite::rebuild_interest_cache();
             let at=std::time::Instant::now();let mut p=Placement::new(true);
             for (sec,good) in [(0,false),(2,true),(4,true),(6,false),(8,false),(10,true),(12,true)] {
                 assert_eq!(p.observe(good,at+Duration::from_secs(sec)),None);

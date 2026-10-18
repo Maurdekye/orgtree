@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Exact tracing-event-count tests must isolate process-global callsite caches
+  from parallel tests. The session-blip regression runs its assertion in one
+  exact child test, primes the no-subscriber-first case, then rebuilds interest
+  after installing the collector; thread-local subscribers alone do not isolate
+  cached interest. Production placement/logging code is unchanged.
+  [verified: `runtime/session_watch.rs` tests, tracing-core 0.1.36; 2026-10-18]
+
 - Tool-card JSON literals stay in separate `#[inline(never)]` pure builders:
   a monolithic debug `defs::all()` frame overflows during default-stack actor
   admission. Keep the outer logging boundary and serialized tool order/contracts;
