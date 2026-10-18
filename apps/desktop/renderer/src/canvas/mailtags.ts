@@ -1,5 +1,10 @@
 /** Hue depends on the same normalized key used by the engine dictionary. */
 export const mailTagKey = (tag:string):string => tag.trim().toLowerCase()
+/** The picker, filter chips and mail chips all toggle the same normalized key. */
+export function toggleMailTag(selected:readonly string[],tag:string):string[] {
+  const key=mailTagKey(tag)
+  return selected.some(t=>mailTagKey(t)===key)?selected.filter(t=>mailTagKey(t)!==key):[...selected,tag]
+}
 export function mailTagHue(tag:string):string {
   let hash=2166136261
   for(const ch of mailTagKey(tag)) {

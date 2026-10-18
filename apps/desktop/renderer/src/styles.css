@@ -8963,24 +8963,25 @@ option.harness-absent, option.harness-sep { color: var(--dim); }
 .mailrow .l2 .mail-tag {flex-shrink:0;max-width:110px;}
 .mail-preview-text {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .mail-tag-picker {position:relative;display:flex;align-items:center;gap:4px;min-width:0;}
-.mail-tag-trigger {display:flex;gap:4px;flex-wrap:wrap;align-items:center;min-width:0;}
 .mail-tag-popover.settings {position:fixed;height:auto;box-sizing:border-box;margin:0;min-width:0;min-height:0;max-height:310px;overflow:auto;max-width:calc(100vw - 48px);z-index:60;
-  padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 5px 16px #0005;}
+  transform:none;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 5px 16px #0005;}
 .mail-tag-popover input {width:100%;box-sizing:border-box;}
-.mail-tag-options {display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px;max-height:220px;overflow:auto;padding:8px 0;}
+.mail-tag-options {display:flex;flex-wrap:wrap;align-content:flex-start;align-items:center;gap:6px;max-height:220px;overflow:auto;padding:8px 0;}
 button.mail-tag-choice[aria-pressed="true"] {box-shadow:0 0 0 1px currentColor inset;outline:1px solid currentColor;outline-offset:1px;}
 button.mail-tag-choice[aria-pressed="false"] {opacity:.75;}
 
 button.mail-tag { cursor:pointer; }
 button.mail-tag:hover { filter:brightness(1.12); }
 .mail-tag-picker { display:flex; align-items:center; gap:4px; padding:0; }
-.mail-tag-trigger { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; white-space:nowrap; max-width:100%; min-height:0; height:24px; padding:2px 4px; }
-.mail-tag-trigger::-webkit-scrollbar { display:none; }
-.mail-tag-clear { width:24px; min-width:24px; height:24px; min-height:0; padding:2px 5px; line-height:1; color:var(--dim); }
+.mail-tag-control { display:flex; align-items:center; gap:4px; box-sizing:border-box; height:24px; min-width:0; max-width:100%; padding:2px 4px; border:1px solid var(--line); border-radius:4px; background:var(--input); font-size:11px; }
+.mail-tag-selected { display:flex; align-items:center; gap:4px; min-width:0; overflow-x:auto; scrollbar-width:none; }
+.mail-tag-selected::-webkit-scrollbar { display:none; }
+.mail-tag-selected .mail-tag-active { flex:0 0 auto; }
+/* Beat modal-wide button defaults without inflating shared OKLCH tag pills. */
+button.mail-tag-trigger, .settings button.mail-tag-trigger { display:flex; align-items:center; justify-content:center; flex:0 0 auto; min-width:14px; height:100%; min-height:0; margin:0; padding:0; border:0; border-radius:0; background:transparent; font:inherit; line-height:1; white-space:nowrap; }
+button.mail-tag-clear, .settings button.mail-tag-clear { display:grid; place-items:center; box-sizing:border-box; width:24px; min-width:24px; height:24px; min-height:0; padding:0; font-size:11px; line-height:1; color:var(--dim); }
 .mail-list-controls { display:flex; align-items:center; gap:4px; min-width:0; padding:2px 4px; }
 .mail-list-controls .mail-tag-picker { flex:0 1 auto; max-width:68%; }
-.mail-list-controls .mail-tag-trigger { overflow:hidden; }
-.mail-list-controls .mail-tag-trigger { overflow-x:auto; }
 .mail-list-controls .mail-filter { box-sizing:border-box; flex:1 1 48px; min-width:32px; width:auto; height:24px; min-height:0; margin:0; padding:2px 6px; font-size:11px; }
 
 /* Agent and project @-mention completion popover + Hub contact link chips */

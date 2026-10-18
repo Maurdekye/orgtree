@@ -10,7 +10,7 @@ import { useStaging, StagingRows } from './staging'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
-import { mailTagKey, mailTagHue, mailMatchesTags } from './mailtags'
+import { mailTagKey, mailTagHue, mailMatchesTags, toggleMailTag } from './mailtags'
 import { MailTagPicker } from './mailtagpicker'
 import type { MailTagPickerProps } from './mailtagpicker'
 import type { InboxPayload, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
@@ -577,7 +577,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view} hideMailReplyKind={hideMailReplyKind}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
-            party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>{if(!tagFilter.selected.some(t=>mailTagKey(t)===mailTagKey(tag)))tagFilter.onChange([...tagFilter.selected,tag])}:undefined}
+            party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>tagFilter.onChange(toggleMailTag(tagFilter.selected,tag)):undefined}
             rowRef={(el) => {
               // a jump aimed at a folded member lands on the row that now
               // carries it, not on nothing
@@ -631,7 +631,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
                 setReplyTargets(current => current.filter(m => !targets.some(t => t.id === m.id)))
               }
               : undefined}
-            toast={toast} onTag={tagFilter ? tag=>{if(!tagFilter.selected.some(t=>mailTagKey(t)===mailTagKey(tag)))tagFilter.onChange([...tagFilter.selected,tag])}:undefined} />
+            toast={toast} onTag={tagFilter ? tag=>tagFilter.onChange(toggleMailTag(tagFilter.selected,tag)):undefined} />
         )}
         {!cur && (
           <div className="dim pad mailer-none">
