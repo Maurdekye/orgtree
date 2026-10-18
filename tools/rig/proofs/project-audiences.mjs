@@ -65,6 +65,7 @@ export default async function(rig){
   const forbiddenRequest=await tool('member','request',{from:'alpha',target:'user'})
   p.check('direct member cannot manage project grant decisions',!forbidden.ok,forbidden)
   p.check('direct member cannot request on behalf of project',!forbiddenRequest.ok,forbiddenRequest)
+  await api('revoke','alpha','beta')
   const requested=await tool('manager','request',{from:'alpha',target:'beta'})
   const req=rig.one("SELECT holder FROM ot.audience_requests WHERE requester='alpha' AND target='beta' AND status='pending' ORDER BY id DESC LIMIT 1")
   p.check('project request routes to target nearest real-agent superior',requested.ok&&req?.holder==='peer-manager',{requested,req})
