@@ -82,11 +82,21 @@ token or an OS error string. The retry warning records its fixed 500 ms delay.
 `agy-auth-wake` uses a disposable fake fixture whose first check hangs and
 whose next check succeeds. Red `6a2175f` against pre-fix engine `6f98248` had
 three expected recovery failures and four passing timeout/signed-out controls.
-Focused units cover both transient classes, success, hard refusals and the
-two-attempt ceiling. Exact green results are recorded in the docket. These
-author runs disclose `RUST_MIN_STACK=16777216` for the separately tracked debug
-tool-catalog overflow; production stack settings are unchanged, and the
-combined hardening round owns default-stack debug/release checks.
+Focused AGY units at `a3f723f` passed 40/40, including both transient classes,
+success, hard refusals and the two-attempt ceiling. Those units and the original
+red used `RUST_MIN_STACK=16777216` while a separate tool-catalog stack fix was
+pending. After that fix landed, the debug engine at `910e200` passed
+`agy-auth-wake` 10/10, `agy-auth` 38/38 and `agy-profile-accounts` 16/16 with
+`RUST_MIN_STACK` absent. Production stack settings are unchanged.
+
+The wider `agy-lane` proof initially passed 25/27 on both the retry candidate
+and the unmodified integration baseline `b2b4fbd`. Its two old countdown
+expectations contradicted the current fresh-reset rule. The separate test-only
+correction `8500a4f` passed 27/27 against that same baseline engine with the
+default stack. This is baseline attribution, not an additional run of the
+corrected lane against the retry candidate. All runs used synthetic data and
+fake CLIs; they do not establish real-provider behavior. Exact receipts are in
+the docket; the combined hardening round owns release-profile checks.
 
 ## Version query (the one unchecked launch)
 
