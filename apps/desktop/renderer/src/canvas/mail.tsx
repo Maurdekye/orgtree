@@ -553,10 +553,14 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             onLoadMore?.()
           }
         }}>
-        {tagFilter && <MailTagPicker {...tagFilter}/>}
-        {(all.length > 4 || q || tagFilter) && (
-          <input className="mail-filter" placeholder="filter…" value={q}
-            onChange={(e) => setQ(e.target.value)} />
+        {(tagFilter || all.length > 4 || q) && (
+          <div className="mail-list-controls">
+            {tagFilter && <MailTagPicker {...tagFilter}/>}
+            {(all.length > 4 || q || tagFilter) && (
+              <input className="mail-filter" placeholder="filter…" value={q}
+                onChange={(e) => setQ(e.target.value)} />
+            )}
+          </div>
         )}
         {shown.length === 0 && <div className="dim pad">no matches</div>}
         {/* windowed like the transcript: a long-lived org's folders grow
@@ -668,13 +672,14 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
 }
 
 function TagChips({tags,onTag,preview=false}:{tags?:string[];onTag?:(tag:string)=>void;preview?:boolean}) {
-  const shown=preview?tags?.slice(0,1):tags
+  const collapsed=preview&&(tags?.length??0)>=3
+  const shown=collapsed?tags?.slice(0,1):tags
   return <>{shown?.map(tag=>{
     const key=mailTagKey(tag),style={'--mail-tag-hue':mailTagHue(key)} as CSSProperties
     return onTag ? <button type="button" className="mail-tag" data-tag-key={key} style={style} key={key}
       title={`Filter by ${tag}`} onClick={e=>{e.stopPropagation();onTag(tag)}}>{tag}</button>
       : <span className="mail-tag" data-tag-key={key} style={style} key={key} title={tag}>{tag}</span>
-  })}{preview&&tags&&tags.length>1&&<span className="mail-tag mail-tag-more" title={tags.slice(1).join(', ')}>+{tags.length-1}</span>}</>
+  })}{collapsed&&tags&&<span className="mail-tag mail-tag-more" title={tags.slice(1).join(', ')}>+{tags.length-1}</span>}</>
 }
 
 const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s+/g, ' ').slice(0, 90)

@@ -8892,16 +8892,15 @@ option.harness-absent, option.harness-sep { color: var(--dim); }
 .helper-transcript-heading { font-weight: 600; margin-bottom: 8px; }
 .helper-transcript-message + .helper-transcript-message { margin-top: 12px; }
 
-/* User-mail tag hue is immutable by name; contrast changes only fixed S/L. */
-:root { --mail-tag-bg-l:18%; --mail-tag-ink-l:80%; --mail-tag-border-l:38%; }
-:root:is(.contrast-light,.contrast-solarized-light) { --mail-tag-bg-l:94%; --mail-tag-ink-l:24%; --mail-tag-border-l:70%; }
+/* Fixed lightness/chroma with a stable, name-derived OKLCH hue gives every
+   mail tag the same soft pastel treatment in lists, messages and the picker. */
 .mail-tag,button.mail-tag,.settings button.mail-tag {
   display:inline-block; vertical-align:middle; padding:0 4px; border-radius:4px;
   font-size:10px; line-height:1.4; min-height:0; max-width:160px; flex:0 1 auto;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; overflow-wrap:normal;
-  color:hsl(var(--mail-tag-hue,210) 55% var(--mail-tag-ink-l));
-  background:hsl(var(--mail-tag-hue,210) 50% var(--mail-tag-bg-l));
-  border:1px solid hsl(var(--mail-tag-hue,210) 45% var(--mail-tag-border-l));
+  color:oklch(0.25 0.025 var(--mail-tag-hue,210));
+  background:oklch(0.88 0.12 var(--mail-tag-hue,210));
+  border:1px solid oklch(0.68 0.11 var(--mail-tag-hue,210));
 }
 .mailrow .l2 {display:flex;align-items:center;gap:4px;min-width:0;}
 .mailrow .l2 .mail-tag {flex-shrink:0;max-width:110px;}
@@ -8917,8 +8916,15 @@ button.mail-tag-choice[aria-pressed="false"] {opacity:.75;}
 
 button.mail-tag { cursor:pointer; }
 button.mail-tag:hover { filter:brightness(1.12); }
-.mail-tag-picker { display:flex; align-items:center; gap:4px; padding:4px; }
-.mail-tag-filter { min-width:0; flex:1; width:100%; }
+.mail-tag-picker { display:flex; align-items:center; gap:4px; padding:0; }
+.mail-tag-trigger { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; white-space:nowrap; max-width:100%; min-height:0; height:24px; padding:2px 4px; }
+.mail-tag-trigger::-webkit-scrollbar { display:none; }
+.mail-tag-clear { width:24px; min-width:24px; height:24px; min-height:0; padding:2px 5px; line-height:1; color:var(--dim); }
+.mail-list-controls { display:flex; align-items:center; gap:4px; min-width:0; padding:2px 4px; }
+.mail-list-controls .mail-tag-picker { flex:0 1 auto; max-width:68%; }
+.mail-list-controls .mail-tag-trigger { overflow:hidden; }
+.mail-list-controls .mail-tag-trigger { overflow-x:auto; }
+.mail-list-controls .mail-filter { box-sizing:border-box; flex:1 1 48px; min-width:32px; width:auto; height:24px; min-height:0; margin:0; padding:2px 6px; font-size:11px; }
 
 /* Agent and project @-mention completion popover + Hub contact link chips */
 .agent-mentions {

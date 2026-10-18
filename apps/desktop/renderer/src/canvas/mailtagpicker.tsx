@@ -49,7 +49,7 @@ export function MailTagPicker({selected,choices,onChange,onSearch,onLoadMore,has
       aria-expanded={open} aria-controls={id} onClick={()=>setOpen(v=>!v)}>
       {selected.length?selected.map(tag=><span className="mail-tag" style={pill(tag)} key={mailTagKey(tag)} title={tag}>{tag}</span>):'all tags'}
     </button>
-    {selected.length>0&&<button type="button" aria-label="Clear tag filter" onClick={()=>onChange([])}>clear</button>}
+    {selected.length>0&&<button type="button" className="mail-tag-clear" aria-label="Clear tag filter" onClick={()=>onChange([])}>×</button>}
     {open&&createPortal(<div className="mail-tag-popover settings" id={id} ref={popover} style={position}>
       <input ref={search} aria-label="Search tags" placeholder="Search tags" value={query}
         onChange={e=>{setQuery(e.target.value);onSearch?.(e.target.value)}}/>

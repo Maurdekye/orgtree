@@ -2701,7 +2701,13 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   onOpenMail?: (ref: TypedRef) => void
 }) {
   const [folder, setFolder] = useState('inbox')
-  const [mailTag,setMailTag]=useState<string[]>([])
+  const [mailTagState,setMailTagState]=useState<{slug:string;tags:string[]}>(()=>({slug,tags:readInboxMailTags(slug)}))
+  let mailTag=mailTagState.tags
+  if(mailTagState.slug!==slug){mailTag=readInboxMailTags(slug);setMailTagState({slug,tags:mailTag})}
+  const setMailTag=useCallback((tags:string[])=>{
+    setMailTagState({slug,tags})
+    try{window.localStorage.setItem(`orgtree-user-mail-tags:${slug}`,JSON.stringify(tags))}catch{/* inbox filtering still works when storage is unavailable */}
+  },[slug])
   const [tagQuery,setTagQuery]=useState('')
   useEffect(()=>{if(jumpTo)setMailTag([])},[jumpTo,jumpSeq])
   // ⚠ A REFERENCE MUST OPEN THE FOLDER THE MESSAGE IS IN. The user's own sends
@@ -3044,6 +3050,13 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
         </div>}
     </PinFrame>
   )
+}
+
+function readInboxMailTags(slug:string):string[]{
+  try{
+    const value=JSON.parse(window.localStorage.getItem(`orgtree-user-mail-tags:${slug}`)??'null')
+    return Array.isArray(value)?value.filter((tag):tag is string=>typeof tag==='string'):[]
+  }catch{return []}
 }
 
 // Global DEFAULT org settings (user spec, root page): every newly created
