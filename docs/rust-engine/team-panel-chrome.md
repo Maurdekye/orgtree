@@ -10,6 +10,16 @@ The inline Team toolbar groups Active with the pin/pop-out/modal controls on
 the right. Pinned and detached Team retain Active in the shared right-hand
 header actions. This does not change membership, row order or navigation.
 
+## Team tab availability and count (2026-10-18 17:08Z)
+
+Agent and project desks show Team only with at least one live direct child.
+Its ordinary tab-count badge shows that direct-child count, including live
+child projects, rather than the size of the full Team subtree. Both facts
+come from the current feed map with no extra fetch. An empty Team selection
+falls back immediately to Chat for an agent or Desk for a project and clears
+the selection, so a later hire does not reopen the abandoned tab. The separate
+Team panel and its full-subtree list retain their existing scope.
+
 User ruling, 2026-10-18 14:22Z, Orgtree 4.4.0: pinned Team and Agents
 panels share the same frame, filter, Active control placement, rows and scrollbar.
 Only their heading and scoped content differ. The centered Team panel also loses

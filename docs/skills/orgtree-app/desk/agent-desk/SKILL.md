@@ -6,6 +6,12 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Agent desk
 
+The Team tab appears only while the agent/project has live direct subordinates.
+Its badge counts those direct subordinates, including projects; the Team list
+itself includes all descendants. Hiring or retiring updates the tab live. If
+the last direct subordinate leaves while Team is open, an agent desk returns
+to Chat and a project desk returns to Desk. A later hire does not reopen Team.
+
 Open an agent's desk from its name/card or desk navigation. A focused desk, a pinned canvas window and a detached window show the same agent identity and work tabs. Pinning fixes it in screen space; pop-out opens its window surface. These view choices are not agent lifecycle changes.
 
 ## Header controls

@@ -85,6 +85,11 @@
   pin/pop-out/modal controls; pinned/detached Team uses header actions. See
   [Team chrome](docs/rust-engine/team-panel-chrome.md).
   [decided: user 2026-10-18 16:44–16:45Z; verified: `canvas/agenttray.tsx`, `styles.css`]
+- Desk Team tabs show/count live direct children from the current map, including
+  child projects, with the shared tab-count badge. Zero children hides Team and
+  clears its selection to agent Chat/project Desk; a later hire does not reopen
+  it. The Team panel still lists the full subtree. [decided: user 2026-10-18
+  17:08Z; verified: `canvas/{team,desk,projectdesk}.tsx`]
 
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the

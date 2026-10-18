@@ -18,6 +18,12 @@ lines must not leave a gap before members; real summaries and ordinary agent
 placeholders remain. Inline Active belongs with the right-hand view controls;
 pinned/detached Active remains in header actions. See [Team chrome](team-panel-chrome.md).
 
+**Team tab, user 2026-10-18 17:08Z:** agent/project desks hide Team with zero
+live direct children and show their direct-child count in the ordinary badge
+otherwise. Counts update from the feed, include child projects and exclude
+retired children/deeper descendants. Losing the last child clears Team to the
+desk's default (Chat/Desk); future hires do not restore the old selection.
+
 **Project desk jump-card collapse, user 2026-10-18 14:45Z:** project desks
 use the agent desk's same collapse preference, threshold (more than 16),
 counted button and expand/collapse behavior everywhere they appear, via shared
