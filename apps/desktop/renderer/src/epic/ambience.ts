@@ -3,7 +3,6 @@ import { ACTIVITY_LAYERS, activityScale, type ActivityCounts, type ActivityLayer
 export const ACTIVITY_FADE_MS = 300
 // Peak amplitude of each shared layer, below the discrete event recipes.
 const TIMBRES: Record<ActivityLayer, { type: OscillatorType; hz: number; filter: number; pulse: number; peak: number; grit: number }> = {
-  hum: { type: 'triangle', hz: 48, filter: 160, pulse: 0.8, peak: 0.035, grit: 0.22 }, // motor/transformer
   thinking: { type: 'sawtooth', hz: 83, filter: 480, pulse: 19, peak: 0.020, grit: 0.45 }, // geared whirr
   writing: { type: 'triangle', hz: 63, filter: 1100, pulse: 8, peak: 0.018, grit: 0.8 }, // conveyor rollers
   toolWriting: { type: 'square', hz: 97, filter: 1600, pulse: 13, peak: 0.022, grit: 1.1 }, // ratchet
@@ -19,7 +18,7 @@ interface Layer {
   timer?: ReturnType<typeof setTimeout>
 }
 
-/** Seven shared voices at most. Native oscillators loop without JS ticks. */
+/** Six shared voices at most. Native oscillators loop without JS ticks. */
 export class ActivityAudio {
   private layers = new Map<ActivityLayer, Layer>()
   private ended = false
@@ -72,7 +71,7 @@ export class ActivityAudio {
     carrier.type = spec.type
     carrier.frequency.value = spec.hz
     filter.type = 'lowpass'; filter.frequency.value = spec.filter; filter.Q.value = 0.5
-    lfo.type = name === 'hum' || name === 'waiting' ? 'sine' : 'square'
+    lfo.type = name === 'waiting' ? 'sine' : 'square'
     lfo.frequency.value = spec.pulse
     tremolo.gain.value = 0.55; depth.gain.value = 0.40
     gain.gain.setValueAtTime(0, at)

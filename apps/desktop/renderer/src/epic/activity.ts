@@ -1,11 +1,11 @@
 import type { TreeNode, TreePayload } from '../types'
 
-export const ACTIVITY_LAYERS = ['hum', 'thinking', 'writing', 'toolWriting', 'tool', 'waiting', 'compacting'] as const
+export const ACTIVITY_LAYERS = ['thinking', 'writing', 'toolWriting', 'tool', 'waiting', 'compacting'] as const
 export type ActivityLayer = typeof ACTIVITY_LAYERS[number]
 export type ActivityCounts = Record<ActivityLayer, number>
-export interface ActivitySource { id: string; layer: Exclude<ActivityLayer, 'hum'> | null }
+export interface ActivitySource { id: string; layer: ActivityLayer | null }
 export const emptyActivity = (): ActivityCounts =>
-  ({ hum: 0, thinking: 0, writing: 0, toolWriting: 0, tool: 0, waiting: 0, compacting: 0 })
+  ({ thinking: 0, writing: 0, toolWriting: 0, tool: 0, waiting: 0, compacting: 0 })
 
 /** Same live state as the desks. A status of "working" alone is not a turn. */
 export function activitySources(tree: TreePayload | null): ActivitySource[] {
@@ -29,7 +29,7 @@ export function activitySources(tree: TreePayload | null): ActivitySource[] {
 
 export function countActivity(sources: readonly ActivitySource[]): ActivityCounts {
   const counts = emptyActivity()
-  for (const source of sources) { counts.hum++; if (source.layer) counts[source.layer]++ }
+  for (const source of sources) if (source.layer) counts[source.layer]++
   return counts
 }
 

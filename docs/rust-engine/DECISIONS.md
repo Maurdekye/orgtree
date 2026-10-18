@@ -156,7 +156,7 @@ restarts and apply it to all windows/pop-outs, with no other audio control.
 4.4.0 only. See [EPIC tray mute](epic-activity-sound.md#tray-mute).
 
 **EPIC continuous sound and physical heat, user 2026-10-17 09:18–09:25Z:**
-live mid-turn agents hum; their activity adds distinct continuous layers whose
+live mid-turn agents' activity adds six distinct continuous layers whose
 volume grows with count, capped. The sounds drive a world-space heat-diffusion
 simulation with fixed flux and delta impulses, solved by Jacobi iteration with
 cooling. This replaces the initial radial-glow proposal; reduced motion shows
@@ -165,6 +165,8 @@ a static field. Every tool signature hashes its normalised name to select
   The 09:41Z factory directive uses machinery and mechanical impacts. User
   feedback at 21:25Z retains five original 4.3.2 event phrases alongside that
   palette: hire and victory fanfares, turnEnd bells, answer harp and coins.
+  User feedback at 13:24Z on 2026-10-18 removes the baseline agent drone;
+  activity layers, event sounds and heat retain their existing behavior.
   Their existing event routing, gain and pitch remain. Real-link tool/message transport pulses remain,
   disabled under reduced motion. User feedback at 19:33Z removes the working-card
   piston bump as distracting, replacing the coordinator's 09:42Z approval:

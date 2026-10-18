@@ -109,7 +109,7 @@ test('working cards stay still while heat and wire pulses follow activity', () =
     assert.equal(card.style.translate, '')
     for (const layer of ['thinking', 'writing', 'toolWriting', 'tool', 'waiting', 'compacting', null] as const) {
       heat.update([{ id: 'a', layer }]); clock.run(100)
-      assert.equal(starts, 0, `${layer ?? 'hum'} leaves the card still`)
+      assert.equal(starts, 0, `${layer ?? 'unclassified work'} leaves the card still`)
     }
     const state = heat as unknown as { positions: Map<string, unknown>; pulses: unknown[] }
     assert.equal(state.positions.has('offscreen'), true, 'virtualization does not remove physical heat sources')

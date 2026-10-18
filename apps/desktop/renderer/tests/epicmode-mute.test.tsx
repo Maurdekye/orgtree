@@ -35,7 +35,7 @@ test('mute fades the final output, including active layers and event/reverb rout
   const synth = new EpicSynth(Audio, { muted: true })
   try {
     assert.equal(gains[0]!.gain.value, 0, 'a persisted mute is silent before any first greeting or layer')
-    synth.activity({ ...emptyActivity(), hum: 4, tool: 2 })
+    synth.activity({ ...emptyActivity(), tool: 2 })
     assert.equal(synth.play('tool', { tool: 'read_file' }), true, 'muted action sounds still drive their visual heat impulses')
     assert.equal(base.log.closed, 0)
     assert.equal(typeof (synth as any).setMuted, 'function')

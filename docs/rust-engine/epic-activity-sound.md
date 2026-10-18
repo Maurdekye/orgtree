@@ -5,18 +5,20 @@ counts, a physical heat field, deterministic tool-name signatures, and a
 working-factory direction: machinery, moving parts and material impacts.
 
 `activity.ts` reads the existing live tree's `busy`, `activity.phase`,
-`mcp_readiness_waiting`, and `phase`. Mid-turn live agents feed one shared hum;
-thinking, response writing, tool argument writing, tool execution, waiting,
-and compaction each have a distinct shared machinery layer. A transformer/motor
-bed underlies geared whirring, conveyor chatter, ratchets, piston strokes,
+`mcp_readiness_waiting`, and `phase`. Thinking, response writing, tool argument
+writing, tool execution, waiting, and compaction each have a distinct shared
+machinery layer: geared whirring, conveyor chatter, ratchets, piston strokes,
 idling flywheels and grinding. Filtered friction noise and amplitude-modulated
 carriers provide mechanical texture. Project nodes,
 idle status reports, archived, frozen and halted agents contribute none.
-The seven layer gains rise fourfold from one to fifteen agents, then cap.
+The six layer gains rise fourfold from one to fifteen agents, then cap.
 Oscillators are shared rather than allocated per agent. Transitions and final
 context shutdown use 300 ms gain ramps. The layers enter the existing dry
 bus, limiter and master volume, below discrete event sounds. No new audio
 provider read, engine field, frame loop or asset is needed for sound.
+
+User feedback at 13:24Z on 2026-10-18 removes the baseline agent drone entirely.
+An unclassified mid-turn phase contributes heat but starts no audio layer.
 
 ## Tray mute
 
@@ -46,7 +48,7 @@ Org removal and socket loss silence the layers; stop closes them after fading.
 `dT/dt = D * laplacian(T) - loss*T + Q`, using Jacobi ping-pong iteration,
 no-flux boundaries, `D = 1800 world-px²/s`, and ambient loss `0.35/s`.
 Continuous sources inject a fixed `0.30 temperature/s` per active agent with
-an activity layer (`0.18/s` for the hum alone). Each accepted action sound at
+an activity layer (`0.18/s` for an unclassified mid-turn phase). Each accepted action sound at
 an agent injects an instantaneous `0.18` delta. Nearby heat adds through the
 diffusion equation; temperatures cap at 1. More work and more actions therefore
 build heat, which spreads and cools after sources stop.

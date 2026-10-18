@@ -17,6 +17,12 @@ Agents explain and suggest these controls; the user operates them. They are diag
 
 The quiet space below the last row rewards a hover; click there to enable EPIC Mode, and untick it to make it disappear again.
 
+EPIC activity audio has six shared machinery layers: thinking, response writing,
+tool argument writing, tool execution, waiting and compaction. Unclassified work
+adds heat without a background audio layer. Discrete event sounds remain, and
+the tray's **Mute EPIC sounds** fades all EPIC audio while heat and motion continue.
+See [EPIC activity sound](../../../../rust-engine/epic-activity-sound.md).
+
 ## See also
 
 - [orgtree-crash-and-restart](../../app-shell/crash-and-restart/SKILL.md).
