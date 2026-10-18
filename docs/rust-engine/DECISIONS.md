@@ -7,6 +7,13 @@ control is hovered. This also protects links, fields and the org inbox in each
 document/pop-out, including a control hovered before EPIC starts. Other effects
 remain. See [pointer stability](epic-mode-final.md#pointer-stability-2026-10-18).
 
+**Watchdog detail types, user 2026-10-18 07:54–07:55Z:** show a plain type and
+an explanation of what each watchdog does. Name periodic command, file, process,
+stream, activity, Orgtree event (including its event name) and mail queue
+listeners. Show silence separately from type. Labels and cadence must match the
+kind; a project-mail listener has no command or polling interval. See
+[watchdog detail card](watchdog-detail-card.md).
+
 **Helper transcript formatting, user 2026-10-17 19:32Z:** the expanded helper
 view uses the same normal transcript components for Markdown prose, supplied
 thinking and expandable tool calls. Keep it visibly nested, bounded and one

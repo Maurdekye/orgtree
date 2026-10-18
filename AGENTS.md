@@ -31,6 +31,14 @@
   [pointer stability](docs/rust-engine/epic-mode-final.md#pointer-stability-2026-10-18).
   [decided: user 2026-10-18 07:49Z; verified: `epic/stage.ts`]
 
+- Watchdog detail cards name every listener type and explain its actual trigger.
+  Silence is separate; only file/command/process use polling cadences, while
+  project mail is pushed and event-mode stream/activity/event use minimum gaps.
+  Keep desktop `notice` projection from `memo.notice` so passive alerts are not
+  described as wakes. See [watchdog card](docs/rust-engine/watchdog-detail-card.md).
+  [decided: user 2026-10-18; verified: `canvas/watchdogdescription.ts`,
+  `canvas/modals.tsx`, `domain/watchdogs.rs`]
+
 - Exact tracing-event-count tests must isolate process-global callsite caches
   from parallel tests. The session-blip regression runs its assertion in one
   exact child test, primes the no-subscriber-first case, then rebuilds interest
