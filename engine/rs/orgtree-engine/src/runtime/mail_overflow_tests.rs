@@ -12,7 +12,10 @@ fn message(i: usize, bytes: usize) -> Mail {
 /// Exercise the actor's actual claiming SQL, not a second row-cap model.
 #[nolog]
 fn actor_sql(needle: &str) -> String {
-    let source=include_str!("actor.rs");
+    source_sql(include_str!("actor.rs"),needle)
+}
+#[nolog]
+fn source_sql(source:&str,needle: &str) -> String {
     let start=source.find(&format!("\"{needle}")).expect("production query located");
     let mut escaped=false;
     let mut end=start+1;
@@ -46,7 +49,7 @@ async fn waking_notice_backlog_reaches_input_without_inbox_reads() {
     assert_eq!(cfg.get_user(),Some("mail_overflow_fixture"));
     let (client,connection)=cfg.connect(tokio_postgres::NoTls).await.unwrap();
     let connection=tokio::spawn(async move{connection.await.unwrap();});
-    client.batch_execute("CREATE SCHEMA ot; CREATE TABLE ot.orgs(id bigint PRIMARY KEY,settings jsonb); INSERT INTO ot.orgs VALUES(1,'{}');
+    client.batch_execute("DROP SCHEMA IF EXISTS ot CASCADE; CREATE SCHEMA ot; CREATE TABLE ot.orgs(id bigint PRIMARY KEY,settings jsonb); INSERT INTO ot.orgs VALUES(1,'{}');
         CREATE TABLE ot.mail(id bigint PRIMARY KEY,uid text,sender text,recipient_agent_id bigint,state text,turn_id bigint,org_id bigint,notice boolean,urgent boolean,body text,created_at timestamptz,ev jsonb,extra jsonb);
         CREATE FUNCTION ot.agent_dnd(bigint) RETURNS boolean LANGUAGE sql AS 'SELECT false';").await.unwrap();
     let claim=actor_sql("WITH oldest AS");
@@ -74,5 +77,26 @@ async fn waking_notice_backlog_reaches_input_without_inbox_reads() {
         }
         assert_eq!(seen,input.iter().map(|m|m.uid.clone()).collect::<Vec<_>>(),"all101 in original order, no inbox read");
     }
+    drop(client);connection.await.unwrap();
+}
+
+#[tokio::test]
+#[ignore="requires isolated mail_overflow_fixture cluster; never an ambient DB"]
+async fn explicit_fetch_consumes_received_pending_mail_outside_dnd() {
+    let url=std::env::var("ORGTREE_MAIL_OVERFLOW_TEST_URL").expect("explicit synthetic fixture URL");
+    let cfg:tokio_postgres::Config=url.parse().unwrap();
+    assert_eq!(cfg.get_dbname(),Some("mail_overflow_fixture"));assert_eq!(cfg.get_user(),Some("mail_overflow_fixture"));
+    let (client,connection)=cfg.connect(tokio_postgres::NoTls).await.unwrap();
+    let connection=tokio::spawn(async move{connection.await.unwrap();});
+    client.batch_execute("DROP SCHEMA IF EXISTS ot CASCADE; CREATE SCHEMA ot;
+        CREATE TABLE ot.mail(uid text,kind text DEFAULT 'message',org_id bigint DEFAULT 1,net_id text,net_hub text,sender_agent_id bigint,recipient_agent_id bigint,state text,urgent boolean DEFAULT false,extra jsonb DEFAULT '{}',read_at timestamptz,delivered_at timestamptz);
+        CREATE FUNCTION ot.agent_dnd(bigint) RETURNS boolean LANGUAGE sql AS 'SELECT false';
+        INSERT INTO ot.mail(uid,recipient_agent_id,state) VALUES('opened',1,'pending'),('preview',1,'pending'),('already-delivered',1,'delivered'),('someone-else',2,'pending');").await.unwrap();
+    let sql=source_sql(include_str!("../domain/mail.rs"),"UPDATE ot.mail SET state='read'");
+    let ids=vec!["opened".to_string(),"already-delivered".to_string(),"someone-else".to_string()];
+    let read=client.query(&sql,&[&1i64,&ids]).await.unwrap();
+    assert_eq!(read.iter().map(|r|r.get::<_,String>(0)).collect::<Vec<_>>(),vec!["opened"],"successful content fetch must consume own pending mail even outside DND");
+    assert!(client.query(&sql,&[&1i64,&ids]).await.unwrap().is_empty(),"repeat chunk cannot consume twice");
+    let preview:String=client.query_one("SELECT state FROM ot.mail WHERE uid='preview'",&[]).await.unwrap().get(0);assert_eq!(preview,"pending");
     drop(client);connection.await.unwrap();
 }
