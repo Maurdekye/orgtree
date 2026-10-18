@@ -627,7 +627,7 @@ export function deriveAgentVisualState(node: {
 /** Unified workstate presentation for NodeSquare. Subscribes to ageClockSecond
  * so active turn elapsed time and idle time tick every second without props/SSE updates. */
 export function AgentWorkstate(props: Parameters<typeof AgentWorkstateBody>[0]) {
-  return <><DndBadge active={props.node.dnd} /><AgentWorkstateBody {...props} /></>
+  return <AgentWorkstateBody {...props} />
 }
 function AgentWorkstateBody({ node, turn, live = true }: {
   node: CanvasNode; turn?: TurnStat | null; live?: boolean
@@ -3710,6 +3710,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null,
               node.pending_account?.account ?? node.account ?? null)
             : tierEffortLevels(slug, node.tier)} />}
+        <DndBadge active={node.dnd} />
         </div>
       </div>
       {/* F-01: superior chip at the TOP. For a top-level agent the superior is
@@ -4385,9 +4386,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             if (enterKey.sends(e)) { e.preventDefault(); send() }
           }} />
         {mentions.menu}
-        <UrgentAgentOptions active={node.dnd} value={urgentMail} onChange={setUrgentMail} />
         <div className="cc-controls">
-        <div className="cc-fast-row"><FastModeButton node={node} slug={slug} toast={toast} /></div>
+        <div className="cc-fast-row"><FastModeButton node={node} slug={slug} toast={toast} />
+          <UrgentAgentOptions active={node.dnd} value={urgentMail} onChange={setUrgentMail} /></div>
         <div className="cc-primary-row">
         <EffortButton value={node.scope?.effort ?? ''}
           effective={node.effort_effective ?? ''}

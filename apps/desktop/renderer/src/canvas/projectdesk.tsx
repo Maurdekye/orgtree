@@ -354,7 +354,6 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, on
           onClick={() => setAttached((x) => x.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
       </span>)}
     </div>}
-    <UrgentAgentOptions active={megaphone && dndRecipients.length>0} value={urgentMail} onChange={setUrgentMail} />
     <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')
       + (megaphone ? ' broadcast-armed' : '')}>
       {mentions.menu}
@@ -405,6 +404,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, on
           if (enterKey.sends(e)) { e.preventDefault(); send() }
         }} />
       <div className="cc-btnstack">
+        <UrgentAgentOptions active={megaphone && dndRecipients.length>0} value={urgentMail} onChange={setUrgentMail} />
         <button className={'cc-broadcast-toggle' + (megaphone ? ' armed' : '')} type="button"
           disabled={node.state !== 'live' || members === 0} aria-pressed={megaphone}
           aria-label={megaphone ? `Megaphone on: messages go to all ${members} agents under ${node.id}`

@@ -9373,7 +9373,8 @@ button.node-link.node-link:focus-visible {
 
 
 /* Turn-local DND stays a small inline state on cards, desks and mail. */
-.dnd-badge { font-size: 9px; line-height: 1.2; padding: 1px 3px; border: 1px dashed currentColor; border-radius: 3px; opacity: .75; white-space: nowrap; }
+.badge.dnd-badge { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); white-space: nowrap; }
+.cc-notice-toggle.cc-urgent-toggle.armed { color: #ff9500; border-color: #ff9500; background: color-mix(in srgb, #ff9500 10%, transparent); }
 .dnd-mail-state { font-size: 10px; opacity: .7; white-space: nowrap; }
 .dnd-urgent-options { display: flex; align-items: center; gap: 6px; font-size: 11px; }
 .dnd-urgent-options label { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }

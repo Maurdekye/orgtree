@@ -1,4 +1,5 @@
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge } from './nextturn'
+import { DndBadge } from './dnd'
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
 import { toggleAgentHalt } from './haltcontrol'
 // canvas/cards.tsx — the canvas's card components: the overseer eye
@@ -2090,6 +2091,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <EffortLevelBadge node={node} effortLevels={MUSE_TIERS.includes(node.tier ?? '')
             ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null, node.account ?? null)
             : tierEffortLevels(slug, node.tier)} />
+          <DndBadge active={node.dnd} />
         </div>
       )}
       {deskOpen && (
