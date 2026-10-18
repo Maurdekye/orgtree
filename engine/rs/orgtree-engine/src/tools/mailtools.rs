@@ -175,6 +175,7 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
 #[logged]
 fn list_notes(letter: &Letter, list: &[String]) -> Vec<String> {
     let mut notes = Vec::new();
+    let others: Vec<&str> = list.iter().filter(|t| !is_user(t)).map(String::as_str).collect();
     if let Some(q) = &letter.reply {
         let without: Vec<&str> = list.iter().filter(|t| !plural_quote_belongs(q, t)).map(String::as_str).collect();
         if !without.is_empty() {

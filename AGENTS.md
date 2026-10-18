@@ -1,5 +1,14 @@
 # AGENTS.md — working on Orgtree
 
+- Do Not Disturb is a durable per-turn flag controlled by self status.dnd.
+  Every harness gates ordinary mail before steering or interrupt; only urgent
+  bypasses, and agent urgency requires current DND plus a reason. Turn end and
+  recovery release unread mail in order within the prompt byte budget. Inbox
+  previews do not consume; explicit fetch/chunk reads held mail once. See
+  [DND](docs/skills/orgtree-working/runtime/do-not-disturb/SKILL.md).
+  [decided: user 2026-10-18 13:44–13:49Z; verified: `domain/{dnd,mail}.rs`,
+  `runtime/actor.rs`, migration 0033, `canvas/dnd.tsx`]
+
 - Org outbox reading headers group the sender's shared `AgentLink` (badge
   inside), `as @org`, hub recipient and delivery glyph as one wrapping
   attribution. Reply/time form a trailing, baseline-aligned group. The same
