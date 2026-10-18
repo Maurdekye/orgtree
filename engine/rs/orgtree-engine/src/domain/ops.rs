@@ -881,7 +881,7 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
         crate::domain::projects::recheck_holder(engine, org.id, *id).await;
     }
     for p in &fx.slot_grants {
-        if let Err(e) = crate::domain::slots::grant(engine, org.id, *p).await {
+        if let Err(e) = Box::pin(crate::domain::slots::grant(engine, org.id, *p)).await {
             tracing::warn!(project = p, error = %format!("{e:#}"), "granting a project's free slots failed");
         }
     }

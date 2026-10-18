@@ -409,7 +409,7 @@ async fn run_slot(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) ->
         pause(engine, &dog, "its project is unknown").await?;
         return Ok(());
     };
-    crate::domain::slots::grant(engine, dog.org_id, project).await?;
+    Box::pin(crate::domain::slots::grant(engine, dog.org_id, project)).await?;
     cancel.cancelled().await;
     Ok(())
 }
@@ -1638,7 +1638,7 @@ fn free_id(base: &str, taken: &HashSet<String>) -> String {
 /// once, or its place in the line and who is ahead.
 #[logged]
 async fn slot_claim_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::projects::Project, row: i64) -> Result<String> {
-    crate::domain::slots::grant(engine, org_id, p.id).await?;
+    Box::pin(crate::domain::slots::grant(engine, org_id, p.id)).await?;
     let client = engine.db.get().await?;
     if let Some(r) = client
         .query_opt("SELECT uid, slot_no FROM ot.slot_leases WHERE dog_id = $1 AND ended_at IS NULL", &[&row])
@@ -1650,9 +1650,8 @@ async fn slot_claim_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::p
              the work ends: orgtree_project action=release_slot lease={lease}", p.name));
     }
     let line = crate::domain::slots::line(&**client, p.id).await?;
-    let me = client.query_one("SELECT uid FROM ot.watchdogs WHERE id = $1", &[&row]).await?.get::<_, String>(0);
-    let at = line.iter().position(|(dog, _, _)| *dog == me).map(|i| i + 1).unwrap_or(line.len());
-    let ahead: Vec<String> = line.iter().take(at.saturating_sub(1)).map(|(_, a, _)| a.clone()).collect();
+    let at = line.iter().position(|(dog, _, _, _)| *dog == row).map(|i| i + 1).unwrap_or(line.len());
+    let ahead: Vec<String> = line.iter().take(at.saturating_sub(1)).map(|(_, _, a, _)| a.clone()).collect();
     let ord = match at % 100 { 11..=13 => "th", _ => match at % 10 { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" } };
     Ok(format!(
         "SLOT CLAIM: every slot of project {} is held, so this dog is your place in line: {at}{ord} in line{}. It fires and wakes \

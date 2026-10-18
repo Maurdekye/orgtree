@@ -138,25 +138,26 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
     drop(client);
     for g in &granted {
         tracing::info!(project = %g.project, slot = g.slot, lease = %g.lease, "a project slot was granted");
-        crate::runtime::watchdogs::fire_slot(engine, g.dog, grant_line(&g.project, g.slot, &g.lease)).await?;
+        Box::pin(crate::runtime::watchdogs::fire_slot(engine, g.dog, grant_line(&g.project, g.slot, &g.lease))).await?;
         changes::notify_id(engine, org_id, vec![Change::Agent(g.owner), Change::Agent(project), Change::Watchdogs]);
     }
     Ok(fresh)
 }
 
-/// The line on a project, first first: (dog id, owner name, queued at).
+/// The line on a project, first first: (dog row, dog id, owner name, queued
+/// at). A dog's id is unique per owner only, so places are found by row.
 #[logged]
-pub async fn line(client: &impl GenericClient, project: i64) -> Result<Vec<(String, String, Option<DateTime<Utc>>)>> {
+pub async fn line(client: &impl GenericClient, project: i64) -> Result<Vec<(i64, String, String, Option<DateTime<Utc>>)>> {
     Ok(client
         .query(
-            "SELECT w.uid, a.name, to_timestamp((w.memo->>'queued_at')::bigint / 1000.0) FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+            "SELECT w.id, w.uid, a.name, to_timestamp((w.memo->>'queued_at')::bigint / 1000.0) FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.kind = 'slot' AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $1 AND NOT w.memo ? 'lease'
               ORDER BY (w.memo->>'queued_at')::bigint, w.id LIMIT 200",
             &[&project],
         )
         .await?
         .iter()
-        .map(|r| (r.get(0), r.get(1), r.get(2)))
+        .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3)))
         .collect())
 }
 
@@ -177,7 +178,7 @@ pub async fn status(client: &impl GenericClient, project: i64, name: &str, scope
                          "reminders": r.get::<_, i32>(5) }))
         .collect();
     let waiting: Vec<Value> = line(client, project).await?.into_iter().enumerate()
-        .map(|(i, (dog, agent, at))| json!({ "position": i + 1, "agent": agent, "dog": dog, "since": at.map(iso) }))
+        .map(|(i, (_, dog, agent, at))| json!({ "position": i + 1, "agent": agent, "dog": dog, "since": at.map(iso) }))
         .collect();
     let history: Vec<Value> = client
         .query(
@@ -244,7 +245,7 @@ pub async fn check(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()
             "Your slot {slot} of project {pname} (lease {lease}) was taken back because you were halted; the next in line has it now. \
              Claim again with a slot watchdog when you are unhalted.")).await;
     }
-    grant(engine, org_id, project).await?;
+    Box::pin(grant(engine, org_id, project)).await?;
     Ok(())
 }
 
@@ -308,7 +309,7 @@ pub async fn idle_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: 
                 notify(engine, org_id, name, &format!(
                     "Your slot {slot} of project {pname} (lease {lease}) was taken back: you did not release it after {IDLE_WAKES} \
                      reminders. The next in line has it now; claim again with a slot watchdog if you still need it.")).await;
-                grant(engine, org_id, project).await?;
+                Box::pin(grant(engine, org_id, project)).await?;
             }
             continue;
         }

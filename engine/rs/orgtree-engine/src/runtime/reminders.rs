@@ -344,7 +344,7 @@ async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime
     // one that already had its reminders (user 2026-10-18 08:11Z)
     let held = if a.held.is_empty() { Vec::new() } else { crate::domain::projects::ack_timeouts(engine, org.id, a.id, &a.name).await? };
     // a held slot's idle reclaim (domain/slots.rs), counted the same way
-    let slots = if a.slots.is_empty() { Vec::new() } else { crate::domain::slots::idle_timeouts(engine, org.id, a.id, &a.name).await? };
+    let slots = if a.slots.is_empty() { Vec::new() } else { Box::pin(crate::domain::slots::idle_timeouts(engine, org.id, a.id, &a.name)).await? };
     if !a.working && held.is_empty() && slots.is_empty() {
         return Ok(());
     }
