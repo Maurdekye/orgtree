@@ -721,10 +721,11 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
   collapsible, team }: AgentGalleryViewProps) {
   const w = useDocWindow(slug, nid, '', 0, team)
-  // a team list holds other nodes' cards: the engine scoped it, so the rows
-  // are not narrowed to `nid` here. A project's own list is its own cards
-  // (point 27, user 2026-10-17 23:28Z); its subtree's are its team list.
-  const wide = !!team
+  // a team list holds other nodes' cards, and a project's own list may hold
+  // cards presented under its old name (the engine reads a project by id,
+  // point 27): the engine scoped both, so their rows are not narrowed to `nid`
+  // here (review of f50fc1e)
+  const wide = !!team || (node as { kind?: string } | undefined)?.kind === 'project'
   const [dismissed, setDismissed] = useState<string[]>([])
   const fallbackRows: DocRow[] = useMemo(() => {
     return (node?.documents ?? []).map((d) => ({
