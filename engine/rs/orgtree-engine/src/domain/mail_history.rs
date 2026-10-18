@@ -66,7 +66,12 @@ fn project(rows: Vec<tokio_postgres::Row>, sent: bool, limit: usize) -> Value {
         let raw: Value = row.get(1);
         let mut entry = crate::feed::compute::mail_entry(&raw);
         if sent { entry["to"] = raw["recipient_name"].clone(); outgoing.push(entry); }
-        else if matches!(raw["state"].as_str(), Some("pending" | "delivering")) { pending.push(entry); }
+        else if matches!(raw["state"].as_str(), Some("pending" | "delivering")) {
+            if raw["recipient_kind"] == "agent" {
+                entry["stage"] = json!(if raw["state"] == "delivering" { "turn" } else { "queued" });
+            }
+            pending.push(entry);
+        }
         else { delivered.push(entry); }
     }
     json!({"pending":pending,"delivered":delivered,"sent":outgoing,"next_cursor":if more {cursor} else {None}})
