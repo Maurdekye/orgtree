@@ -62,15 +62,17 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
                 req["op"] = json!("slot_status");
                 req["node"] = args.get("name").cloned().unwrap_or(Value::Null);
             }
-            Some("settings" | "configure" | "unqueue_slot" | "purge_waiting" | "presentations" | "read_presentation") => {
+            Some("settings" | "configure" | "unqueue_slot" | "purge_waiting" | "presentations" | "read_presentation"
+                 | "dead_letters" | "retry_dead_letter" | "drop_dead_letter") => {
                 req["op"] = json!(match arg_str(args,"action").unwrap() {
                     "settings" => "project_settings", "configure" => "configure_project", "unqueue_slot" => "slot_unqueue",
-                    "purge_waiting" => "purge_mail_queue", _ => "project_presentations",
+                    "purge_waiting" => "purge_mail_queue", "dead_letters" => "dead_letters",
+                    "retry_dead_letter" => "dead_letter_retry", "drop_dead_letter" => "dead_letter_drop", _ => "project_presentations",
                 });
                 req["node"] = args.get("name").cloned().unwrap_or(Value::Null);
             }
             Some("broadcast") => return project_broadcast(engine, caller, args).await,
-            _ => crate::refuse!(BadRequest, "orgtree_project takes create, describe, settings, configure, slots, release_slot, unqueue_slot, purge_waiting, broadcast, presentations or read_presentation. If these actions/tools are missing in your CLI, start a fresh CLI; running clients retain their startup tool schemas."),
+            _ => crate::refuse!(BadRequest, "orgtree_project takes create, describe, settings, configure, slots, release_slot, unqueue_slot, purge_waiting, dead_letters, retry_dead_letter, drop_dead_letter, broadcast, presentations or read_presentation. If these actions/tools are missing in your CLI, start a fresh CLI; running clients retain their startup tool schemas."),
         },
         _ => {}
     }

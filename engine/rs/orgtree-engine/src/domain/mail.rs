@@ -458,8 +458,9 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         )
         .await?;
         tx.execute(
-            "UPDATE ot.mail SET extra = jsonb_set(jsonb_set(extra, '{claimed,acked_at}', to_jsonb(now())), '{claimed,ack_mail}', to_jsonb($2::text))
-              WHERE id = $1",
+            &format!("UPDATE ot.mail SET extra = {}
+              WHERE id = $1", crate::domain::projects::closed_attempt(
+                "jsonb_set(jsonb_set(extra, '{claimed,acked_at}', to_jsonb(now())), '{claimed,ack_mail}', to_jsonb($2::text))", "'acked'", "'acked'")),
             &[orig_row, &mail_uid],
         )
         .await?;

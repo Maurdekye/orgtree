@@ -106,9 +106,9 @@ pub fn scoped(tools: &Value) -> Vec<Value> {
     }).map(|mut card| {
         if card["name"] == "orgtree_project" && !crate::domain::tool_groups::enabled(tools,"team") {
             card["inputSchema"]["properties"].as_object_mut().unwrap()
-                .retain(|key,_| ["action","name","lease","note"].contains(&key.as_str()));
-            card["inputSchema"]["properties"]["action"]["enum"] = json!(["slots","release_slot"]);
-            card["description"] = json!("Release your own concurrency slot: release_slot with lease and optional note. slots with project name shows holders, reasons, ages and the whole line; other agents' lease IDs are hidden. Available with watchdogs or team; other project actions and force release require team. Normal project reach and lease ownership checks apply. Guide: orgtree-tool-project.");
+                .retain(|key,_| ["action","name","lease","note","id","reason","include_dropped","limit","offset"].contains(&key.as_str()));
+            card["inputSchema"]["properties"]["action"]["enum"] = json!(["slots","release_slot","dead_letters","retry_dead_letter","drop_dead_letter"]);
+            card["description"] = json!("Release your own concurrency slot: release_slot with lease and optional note. slots with project name shows holders, reasons, ages and the whole line; other agents' lease IDs are hidden. dead_letters (name; id reads one) lists a project's failed ack-queue jobs; retry_dead_letter (name, id) requeues one, drop_dead_letter (name, id, reason) closes it. Available with watchdogs or team; other project actions and force release require team. Normal project reach and lease ownership checks apply. Guide: orgtree-tool-project.");
         }
         card
     }).collect()
@@ -756,9 +756,12 @@ fn build_tool_hire() -> Value {
 fn build_tool_project() -> Value {
     tool(
         "orgtree_project",
-        "Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. above wraps a node atomically in its existing position instead of index/parent, under canonical insertion authority. settings reads all values; configure (name, settings) patches name/description, peer mail, queue/ack policy and concurrency slots atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment/DND/reply authority and reports each outcome. presentations lists project/team cards; read_presentation reads a bounded body chunk with next_chunk_index continuation. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent).",
+        "Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. above wraps a node atomically in its existing position instead of index/parent, under canonical insertion authority. settings reads all values; configure (name, settings) patches name/description, peer mail, queue/ack policy and concurrency slots atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment/DND/reply authority and reports each outcome. presentations lists project/team cards; read_presentation reads a bounded body chunk with next_chunk_index continuation. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent). Dead letters: dead_letters (name; id reads one); retry_dead_letter, drop_dead_letter (name, id[, reason]); event project.dead_letter alerts.",
         json!({
-            "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","broadcast","presentations","read_presentation"] },
+            "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","presentations","read_presentation"] },
+            "id": {"type":"string","description":"dead_letters: read this dead letter in full; retry_dead_letter/drop_dead_letter: its mail id"},
+            "reason": {"type":"string","description":"drop_dead_letter: why the job is dropped"},
+            "include_dropped": {"type":"boolean","description":"dead_letters: list dropped letters too"},
             "lease": { "type": "string", "description": "release_slot: the lease your concurrency slot grant named" },
             "note": { "type": "string", "description": "release_slot: optional, e.g. build ok 265s" },
             "settings": {"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"turn_end_reminder":{"type":"boolean"},"slots":{"type":"integer","minimum":0,"maximum":64}}},
@@ -1157,7 +1160,7 @@ mod slot_release_scope_tests {
     fn check(team: bool, watchdogs: bool) {
         let scope=json!({"orgtree":{"team":team,"watchdogs":watchdogs}});
         let card=scoped(&scope).into_iter().find(|c| c["name"]=="orgtree_project");
-        for action in ["release_slot","slots"] {
+        for action in ["release_slot","slots","dead_letters","retry_dead_letter","drop_dead_letter"] {
             assert_eq!(crate::domain::tool_groups::allows_call(&scope,"orgtree_project",&json!({"action":action})),
                 team||watchdogs,"{action} needs either team or watchdogs");
         }
@@ -1171,9 +1174,9 @@ mod slot_release_scope_tests {
             assert!(actions.contains(&json!("release_slot")) && actions.contains(&json!("slots")));
             if team { assert!(actions.contains(&json!("configure"))); }
             else {
-                assert_eq!(actions,&vec![json!("slots"),json!("release_slot")]);
+                assert_eq!(actions,&vec![json!("slots"),json!("release_slot"),json!("dead_letters"),json!("retry_dead_letter"),json!("drop_dead_letter")]);
                 let keys=card["inputSchema"]["properties"].as_object().unwrap();
-                assert!(keys.keys().all(|k| ["action","name","lease","note"].contains(&k.as_str())));
+                assert!(keys.keys().all(|k| ["action","name","lease","note","id","reason","include_dropped","limit","offset"].contains(&k.as_str())));
                 assert!(card["description"].as_str().unwrap().contains("orgtree-tool-project"));
             }
         }
@@ -1395,7 +1398,10 @@ mod builder_stack_tests {
         assert!(actual_project["description"].as_str().unwrap().contains("Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours."));
         project["description"] = actual_project["description"].clone();
         let schema = &mut project["inputSchema"];
-        schema["properties"]["action"]["enum"] = serde_json::json!(["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","broadcast","presentations","read_presentation"]);
+        schema["properties"]["action"]["enum"] = serde_json::json!(["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","presentations","read_presentation"]);
+        schema["properties"]["id"] = serde_json::json!({"type":"string","description":"dead_letters: read this dead letter in full; retry_dead_letter/drop_dead_letter: its mail id"});
+        schema["properties"]["reason"] = serde_json::json!({"type":"string","description":"drop_dead_letter: why the job is dropped"});
+        schema["properties"]["include_dropped"] = serde_json::json!({"type":"boolean","description":"dead_letters: list dropped letters too"});
         schema["properties"]["settings"] = serde_json::json!({"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"turn_end_reminder":{"type":"boolean"},"slots":{"type":"integer","minimum":0,"maximum":64}}});
         schema["properties"]["force"] = serde_json::json!({"type":"boolean","description":"release_slot: any project ancestor may force release"});
         schema["properties"]["agent"] = serde_json::json!({"type":"string","description":"unqueue_slot: agent to remove from line"});

@@ -20,6 +20,7 @@ pub mod notices;
 pub mod runtime_notices;
 pub mod ops;
 pub mod orginbox;
+pub mod dead_letters;
 pub mod projects;
 pub mod presentation_chunks;
 pub mod slots;

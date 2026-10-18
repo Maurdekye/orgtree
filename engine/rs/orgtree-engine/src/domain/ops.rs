@@ -69,6 +69,8 @@ pub(crate) struct Effects {
     queue_modes: Vec<(i64, String, bool)>,
     /// projects whose free slots go to their line after commit (`slots::grant`)
     slot_grants: Vec<i64>,
+    /// projects whose mail queue runs after commit (a retried dead letter is waiting again)
+    queue_runs: Vec<i64>,
 }
 
 /// A locked agent row.
@@ -742,6 +744,9 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         "set_description" => set_description(org, &tx, actor, req, fx).await?,
         "set_mail_queue" => set_mail_queue(org, &tx, actor, req, fx).await?,
         "purge_mail_queue" => purge_mail_queue(org, &tx, actor, req, fx).await?,
+        "dead_letters" => dead_letters(org, &tx, actor, req).await?,
+        "dead_letter_retry" => dead_letter_retry(org, &tx, actor, req, fx).await?,
+        "dead_letter_drop" => dead_letter_drop(org, &tx, actor, req, fx).await?,
         "set_slots" => set_slots(org, &tx, actor, req, fx).await?,
         "project_settings" => project_settings(org, &tx, actor, req).await?,
         "configure_project" => configure_project(org, &tx, actor, req, fx).await?,
@@ -916,6 +921,11 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     // a retired or stopped holder's un-acked project mail goes back to its queue
     for id in &fx.stop {
         crate::domain::projects::recheck_holder(engine, org.id, *id).await;
+    }
+    for p in &fx.queue_runs {
+        if let Err(e) = Box::pin(crate::domain::projects::dispatch(engine, org.id, *p)).await {
+            tracing::warn!(project = p, error = %format!("{e:#}"), "running a project's queue after a dead-letter retry failed");
+        }
     }
     for p in &fx.slot_grants {
         if let Err(e) = Box::pin(crate::domain::slots::grant(engine, org.id, *p)).await {
@@ -2340,6 +2350,65 @@ async fn purge_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Ac
     event(tx, org.id, "purge_mail_queue", actor, Some(n.id), json!({ "node": n.name, "purged": purged }), fx).await?;
     fx.mailboxes.push(n.id);
     Ok(json!({ "node": n.name, "purged": purged }))
+}
+
+/// The project a dead-letter op addresses, for an actor with its reach: the
+/// user, or an agent above or below it (the mail queue's reach rule).
+#[logged]
+async fn dead_letter_project(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, verb: &str) -> Result<Node> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project has dead letters", n.name);
+    }
+    if let Actor::Agent { id, .. } = actor {
+        if !crate::domain::projects::reaches(tx, *id, n.id).await? {
+            refuse!(Forbidden, "only the agents above or below project {} {verb} its dead letters", n.name);
+        }
+    }
+    Ok(n)
+}
+
+/// List a project's dead letters, or (with `id`) read one in full (docket
+/// project-dead-letter-queue-failed-ack-queue-jobs-a; user 2026-10-18 19:38Z).
+#[logged]
+async fn dead_letters(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value) -> Result<Value> {
+    let n = dead_letter_project(org, tx, actor, req, "see").await?;
+    if let Some(id) = str_arg(req, "id") {
+        return crate::domain::dead_letters::read(tx, n.id, &n.name, id).await;
+    }
+    let limit = req.get("limit").and_then(Value::as_i64).unwrap_or(50).clamp(1, 100);
+    let offset = req.get("offset").and_then(Value::as_i64).unwrap_or(0).max(0);
+    let dropped = req.get("include_dropped").and_then(Value::as_bool).unwrap_or(false);
+    crate::domain::dead_letters::list(tx, n.id, &n.name, limit, offset, dropped).await
+}
+
+/// Retry a dead letter: back in the queue with its attempts reset, handed out
+/// after commit.
+#[logged]
+async fn dead_letter_retry(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = dead_letter_project(org, tx, actor, req, "retry").await?;
+    let Some(id) = str_arg(req, "id") else { refuse!(BadRequest, "retry_dead_letter needs id: the dead letter's mail id (dead_letters lists them)") };
+    tx.query_one("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&n.id]).await?;
+    crate::domain::dead_letters::retry(tx, n.id, &n.name, id, &actor.label()).await?;
+    event(tx, org.id, "dead_letter_retry", actor, Some(n.id), json!({ "node": n.name, "mail": id }), fx).await?;
+    fx.mailboxes.push(n.id);
+    fx.agents.insert(n.id);
+    fx.queue_runs.push(n.id);
+    Ok(json!({ "node": n.name, "retried": id, "note": "back in the queue with its attempts reset; it is handed out as soon as a listener can take it" }))
+}
+
+/// Drop a dead letter with a reason: out of the open list and count, still readable.
+#[logged]
+async fn dead_letter_drop(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = dead_letter_project(org, tx, actor, req, "drop").await?;
+    let Some(id) = str_arg(req, "id") else { refuse!(BadRequest, "drop_dead_letter needs id: the dead letter's mail id (dead_letters lists them)") };
+    let Some(reason) = str_arg(req, "reason") else { refuse!(BadRequest, "drop_dead_letter needs a reason: why is this job being dropped?") };
+    tx.query_one("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&n.id]).await?;
+    crate::domain::dead_letters::drop_letter(tx, n.id, &n.name, id, &actor.label(), reason).await?;
+    event(tx, org.id, "dead_letter_drop", actor, Some(n.id), json!({ "node": n.name, "mail": id, "reason": reason }), fx).await?;
+    fx.mailboxes.push(n.id);
+    fx.agents.insert(n.id);
+    Ok(json!({ "node": n.name, "dropped": id, "reason": reason }))
 }
 
 #[logged]

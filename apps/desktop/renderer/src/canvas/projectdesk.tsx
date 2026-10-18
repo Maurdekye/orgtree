@@ -48,11 +48,12 @@ import type { PinRect } from './pins'
 import { ConfirmModal } from './modals'
 import { projectSlotState, slotCount, slotHeaderText, slotLeadText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
+import { DeadLettersView } from './deaddesk'
 import { DeskJumpCards } from './deskjumpcards'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
 /** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
-type Tab = typeof PROJECT_DESK_TABS[number] | 'slots'
+type Tab = typeof PROJECT_DESK_TABS[number] | 'slots' | 'dead'
 
 export interface ProjectDeskProps {
   node: CanvasNode
@@ -474,13 +475,16 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const parent = node.parent && map.has(node.parent) && !(bare && node.parent === USER) ? map.get(node.parent)! : null
   const members = node.children.filter((c) => c.state === 'live')
   const slots = projectSlotState(node.id, slotCount(node), tree.slot_leases ?? [], tree.watchdogs ?? [])
-  const tabs: Tab[] = (slots.total > 0 ? [...PROJECT_DESK_TABS, 'slots' as const] : [...PROJECT_DESK_TABS])
+  // the Dead letters tab joins them while the project holds open dead letters
+  const deadLetters = node.dead_letters ?? 0
+  const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : [])]
     .filter(v => v !== 'team' || teamCount > 0)
   const shown: Tab = tabs.includes(view) ? view : 'desk'
   const count = (tab: Tab) => tab === 'team' ? teamCount : tab === 'inbox' ? node.mail_pending ?? 0
     : tab === 'docket' ? mine?.length ?? 0
       // its own presentations (point 27, user 2026-10-17 23:28Z)
-      : tab === 'presented' ? (node.documents_count ?? node.documents?.length ?? 0) : 0
+      : tab === 'presented' ? (node.documents_count ?? node.documents?.length ?? 0)
+        : tab === 'dead' ? deadLetters : 0
   const replyToDoc = (doc: { id: string; title: string }) => {
     setReplyTarget({ target: { kind: 'document', org: slug, id: doc.id }, title: doc.title || '(untitled)' })
     setReplyFocus((v) => v + 1)
@@ -518,7 +522,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
                 <button key={v} data-tab={v} className={shown === v ? 'on' : ''}
                   onClick={() => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v) }}>
                   {/* Presentation labels only: existing tab routes stay stable. */}
-                  {v === 'desk' ? 'summary' : v}{v !== 'slots' && count(v) > 0
+                  {v === 'desk' ? 'summary' : v === 'dead' ? 'dead letters' : v}{v !== 'slots' && count(v) > 0
                     ? <>{' '}<span className="tab-count">{count(v)}</span></> : ''}
                 </button>
               ))}
@@ -620,6 +624,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       </div>}
       {shown === 'slots' && <SlotsView node={node} state={slots} map={map} onJump={onJump} op={op} toast={toast}
         actions={<PanelCorner kind="project-slots" slug={slug} nid={node.id} />} />}
+      {shown === 'dead' && <DeadLettersView node={node} map={map} onJump={onJump} op={op} toast={toast} />}
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
         members={agents.length} recipients={agents} replyTarget={replyTarget} focusRequest={replyFocus}

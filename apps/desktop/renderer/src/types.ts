@@ -2391,6 +2391,10 @@ export interface OpRequest {
   description?: string | null
   /** set_slots — a project's slot count, 0 (none) to 64 */
   capacity?: number
+  /** dead_letters (id reads one; include_dropped), dead_letter_retry/_drop (id; drop needs reason) */
+  id?: string
+  reason?: string
+  include_dropped?: boolean
   /** slot_release — the lease; `force` for the user's force release */
   lease?: string
   force?: boolean

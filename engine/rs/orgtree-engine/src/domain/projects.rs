@@ -92,6 +92,17 @@ pub fn turn_end_reminder(scope: &Value) -> bool {
     scope.get("mail_queue_turn_end_reminder").and_then(Value::as_bool) != Some(false)
 }
 
+/// SQL: `extra` with the newest `attempt_log` entry ended (`how`: acked,
+/// released or timed_out; `why`: a SQL text expression); `extra` unchanged
+/// when the mail has no attempt log (mail handed out before it existed).
+#[nolog]
+pub fn closed_attempt(extra: &str, how: &str, why: &str) -> String {
+    format!("CASE WHEN jsonb_array_length(coalesce({extra}->'attempt_log', '[]'::jsonb)) > 0 THEN
+                 jsonb_set({extra}, ARRAY['attempt_log', (jsonb_array_length({extra}->'attempt_log') - 1)::text, 'ended'],
+                           jsonb_build_object('how', {how}, 'why', {why}, 'at', now()))
+             ELSE {extra} END")
+}
+
 /// SQL: a project mail (alias `m`) handed in ack mode and not acked yet.
 const OUTSTANDING: &str = "m.state = 'read' AND coalesce((m.extra->'claimed'->>'ack')::boolean, false)
     AND m.extra->'claimed'->>'acked_at' IS NULL";
@@ -341,7 +352,10 @@ async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Opt
         "UPDATE ot.mail SET state = 'read', read_at = now(), delivered_at = coalesce(delivered_at, now()),
                 extra = extra || jsonb_build_object('claimed', jsonb_build_object('by', $2::text, 'by_id', $3::bigint,
                         'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean, 'wakes', 0),
-                        'attempts', coalesce((extra->>'attempts')::int, 0) + 1)
+                        'attempts', coalesce((extra->>'attempts')::int, 0) + 1,
+                        'attempt_log', coalesce(extra->'attempt_log', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+                            'n', coalesce((extra->>'attempts')::int, 0) + 1, 'by', $2::text, 'by_id', $3::bigint,
+                            'copy', $5::text, 'at', now())))
           WHERE id = $1",
         &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack],
     )
@@ -511,7 +525,7 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
     drop(client);
     let mut released = Vec::new();
     for (row, holder, by, copy, why) in gone {
-        if reclaim(engine, org_id, project, row, holder, &by, copy.as_deref(), why).await?.is_some() {
+        if reclaim(engine, org_id, project, row, holder, &by, copy.as_deref(), why, "released").await?.is_some() {
             released.push(by);
         }
     }
@@ -525,7 +539,7 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
 #[logged]
 #[allow(clippy::too_many_arguments)]
 async fn reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, row: i64, holder: i64, by: &str, copy: Option<&str>,
-                 why: &str) -> Result<Option<bool>> {
+                 why: &str, how: &str) -> Result<Option<bool>> {
     let counted = crate::runtime::reminders::switches(engine).checkups;
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
@@ -534,29 +548,30 @@ async fn reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, row: i64, hold
     };
     let (pname, scope): (String, Value) = (p.get(0), p.get(1));
     let Some(m) = tx
-        .query_opt(&format!("SELECT m.uid, coalesce((m.extra->>'attempts')::bigint, 0) FROM ot.mail m WHERE m.id = $1 AND {OUTSTANDING} FOR UPDATE"),
+        .query_opt(&format!("SELECT m.uid, coalesce((m.extra->>'attempts')::bigint, 0), m.sender FROM ot.mail m WHERE m.id = $1 AND {OUTSTANDING} FOR UPDATE"),
             &[&row])
         .await?
     else {
         return Ok(None);
     };
-    let (uid, attempts): (String, i64) = (m.get(0), m.get(1));
+    let (uid, attempts, sender): (String, i64, String) = (m.get(0), m.get(1), m.get(2));
     let dead = counted && attempts >= max_attempts(&scope);
+    let ended = closed_attempt("m.extra", "$6::text", "$4::text");
     if dead {
         tx.execute(
-            "UPDATE ot.mail m SET extra = (m.extra - 'claimed') || jsonb_build_object('dead_letter', jsonb_build_object(
-                    'by', $2::text, 'by_id', $3::bigint, 'why', $4::text, 'attempts', $5::bigint, 'at', now()))
-              WHERE m.id = $1",
-            &[&row, &by, &holder, &why, &attempts],
+            &format!("UPDATE ot.mail m SET extra = (({ended}) - 'claimed') || jsonb_build_object('dead_letter', jsonb_build_object(
+                    'by', $2::text, 'by_id', $3::bigint, 'why', $4::text, 'how', $6::text, 'attempts', $5::bigint, 'at', now()))
+              WHERE m.id = $1"),
+            &[&row, &by, &holder, &why, &attempts, &how],
         )
         .await?;
     } else {
         tx.execute(
-            "UPDATE ot.mail m SET state = 'pending', read_at = NULL,
-                    extra = (m.extra - 'claimed') || jsonb_build_object('released', jsonb_build_object(
+            &format!("UPDATE ot.mail m SET state = 'pending', read_at = NULL,
+                    extra = (({ended}) - 'claimed') || jsonb_build_object('released', jsonb_build_object(
                         'by', $2::text, 'by_id', $3::bigint, 'why', $4::text, 'copy', $5::text, 'at', now()))
-              WHERE m.id = $1",
-            &[&row, &by, &holder, &why, &copy],
+              WHERE m.id = $1"),
+            &[&row, &by, &holder, &why, &copy, &how],
         )
         .await?;
     }
@@ -573,9 +588,12 @@ async fn reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, row: i64, hold
     changes::notify_id(engine, org_id, vec![Change::Mailbox(project), Change::Mailbox(holder)]);
     if dead {
         tracing::warn!(project = %pname, mail = %uid, attempts, "a project mail ran out of attempts and was dead-lettered");
+        crate::runtime::watchdogs::events::emit(engine, crate::runtime::watchdogs::events::event(
+            "project.dead_letter", crate::runtime::watchdogs::events::Scope::Agent(org_id, project),
+            json!({ "project": pname, "mail": uid, "from": sender, "attempts": attempts, "by": by, "why": why })));
         let body = format!(
             "Project {pname} gave up on mail {uid}: it was handed out {attempts} times without an ack (the last holder, {by}, {why}). \
-             It is in the project's dead-letter list and will not be handed out again.");
+             It is in the project's dead letters (orgtree_project action=dead_letters name={pname}) and will not be handed out again              unless someone retries it.");
         // to the project's superior, the nearest live agent above it; the user
         // for a top-level project (user 2026-10-18 08:13Z)
         let to = superior(engine, project).await.unwrap_or_else(|| "user".into());
@@ -636,7 +654,7 @@ pub async fn ack_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &
         if ack_reminders_exhausted(&scope, wakes) {
             let reminders = ack_reminders(&scope);
             let why = format!("did not ack it after {reminders} reminders");
-            reclaim(engine, org_id, project, row, agent, name, copy.as_deref(), &why).await?;
+            reclaim(engine, org_id, project, row, agent, name, copy.as_deref(), &why, "timed_out").await?;
             Box::pin(dispatch(engine, org_id, project)).await?;
             continue;
         }

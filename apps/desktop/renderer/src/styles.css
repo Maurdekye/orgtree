@@ -3175,6 +3175,22 @@ textarea.ask-free-response-input { resize: vertical; }
 .project-slots .slot-agent { font-weight: 600; }
 .project-slots code { font-size: 11px; }
 .project-queue-tools button { font-size: 11px; padding: 2px 8px; }
+/* the desk's Dead letters tab */
+.project-dead-letters { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
+.project-dead-letters h4 { margin: 8px 0 2px; font-size: 12px; color: var(--dim); }
+.project-dead-letters code { font-size: 11px; }
+.project-dead-letters .dead-lead { font-size: 11px; }
+.project-dead-letters .dead-row { padding: 4px 0; border-bottom: 1px solid var(--line); }
+.project-dead-letters .dead-row.dropped { opacity: 0.6; }
+.project-dead-letters .dead-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.project-dead-letters .dead-summary .spacer { flex: 1; }
+.project-dead-letters .dead-summary button, .project-dead-letters .dead-drop button { font-size: 11px; padding: 2px 8px; }
+.project-dead-letters .dead-preview { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.project-dead-letters .dead-why { margin-left: 2px; }
+.project-dead-letters .dead-drop { display: flex; gap: 6px; margin: 4px 0; }
+.project-dead-letters .dead-drop input { flex: 1; }
+.project-dead-letters .dead-body { margin: 4px 0; white-space: pre-wrap; max-height: 160px; overflow: auto; }
+.project-dead-letters .dead-attempt { display: flex; gap: 8px; padding: 1px 0; }
 .queuekind.dead { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); }
 /* passive notices (orgtree_send_notice) — visibly a different animal from
    mail that expects action, but deliberately QUIET where asks are loud:

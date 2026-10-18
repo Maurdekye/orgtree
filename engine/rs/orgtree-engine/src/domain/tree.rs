@@ -214,6 +214,8 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     o.insert("team_charter".into(), raw.get("team_charter").cloned().unwrap_or(Value::Null));
     let mail_pending = raw["x_mail_pending"].as_i64().unwrap_or(0);
     o.insert("mail_pending".into(), json!(mail_pending));
+    // a project's open dead letters (domain/dead_letters.rs); 0 for an agent
+    o.insert("dead_letters".into(), json!(raw["x_dead_letters"].as_i64().unwrap_or(0)));
     o.insert("limit_locked".into(), json!(raw["limit_locked"].as_bool().unwrap_or(false)));
     let resumable = state == "live" && !frozen.is_null() && !halted;
     o.insert("resumable".into(), json!(resumable));

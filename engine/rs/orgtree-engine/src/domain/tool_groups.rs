@@ -82,7 +82,7 @@ pub fn allows(tools: &Value, name: &str) -> bool {
 pub fn allows_call(tools: &Value, name: &str, args: &Value) -> bool {
     if name == "orgtree_project" && !enabled(tools,"team") {
         return enabled(tools,"watchdogs")
-            && matches!(args["action"].as_str(),Some("slots"|"release_slot"))
+            && matches!(args["action"].as_str(),Some("slots"|"release_slot"|"dead_letters"|"retry_dead_letter"|"drop_dead_letter"))
             && !args["force"].as_bool().unwrap_or(false);
     }
     allows(tools, name)
