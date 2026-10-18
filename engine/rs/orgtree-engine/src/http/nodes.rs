@@ -231,11 +231,11 @@ pub async fn message(
         }
         if b.reply_to.as_ref().is_some_and(|q| replies.first().is_none_or(|first| q != first)) { return Err(ApiError::bad_request("reply_to must match the first replies target")); }
     }
+    let to_project = crate::domain::projects::is_project(&**e.db.get().await?, a.id).await?;
     let sent = mail::send(&e, org.id, out).await?;
     let halted = sent.delivery.contains("is halted");
     // the user writing to a project grants it an audience to the user, after
     // the delivery committed; a failed grant leaves the mail delivered
-    let to_project = crate::domain::projects::is_project(&**e.db.get().await?, a.id).await?;
     let audience = if to_project { Some(project_audience(&e, org.id, a.id).await) } else { None };
     Ok(Json(json!({
         "accepted": true, "id": sent.uid, "ref": format!("@mail:{}", sent.uid),
