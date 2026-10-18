@@ -1,0 +1,9 @@
+.org-header-logo {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  object-fit: cover;
+  border-radius: 3px;
+  vertical-align: -.125em;
+  margin-inline-end: .4em;
+}

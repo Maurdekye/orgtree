@@ -8,6 +8,12 @@
   Release immediately after the batch. See [build permits](docs/skills/orgtree-working/workspace/builds-under-the-lock/SKILL.md).
   [decided: user/coordinator 2026-10-18 16:52Z/17:47Z]
 
+- Org window headers show the canonical cropped org logo immediately before
+  the name, at text height. Pushed `picture_revision` changes refresh it; a
+  missing/removed/failed logo leaves no image or reserved space. The shared
+  component also covers legacy and separate Organization settings headers.
+  [decided: user 2026-10-18 15:54Z; verified: `shell/{header,orgheaderlogo}.tsx`, `App.tsx`]
+
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the
   existing urgent-mail badge appearance, newest-first focus, highlight and

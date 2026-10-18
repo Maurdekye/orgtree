@@ -51,6 +51,7 @@ import { AdvancedOrgModal } from './shell/advancedorg'
 import { OrgRows } from './shell/orgrows'
 export { AdvancedOrgModal, OrgRows }
 import { ShellAction, ShellHeader } from './shell/header'
+import { OrgHeaderLogo } from './shell/orgheaderlogo'
 import { TranscriptMentionButton } from './shell/mentionbutton'
 import { OrgtreeMenu } from './shell/menu'
 import type { OrgtreeMenuActions } from './shell/menu'
@@ -1591,7 +1592,7 @@ export default function App() {
           {tree ? (
             <>
               {v3 ? (
-                <ShellHeader menu={shellMenu} title={tree.name}
+                <ShellHeader menu={shellMenu} title={tree.name} orgSlug={tree.slug} logoRevision={tree.net?.picture_revision}
                   modes={<OrgViewToggle mode={viewMode} setMode={setViewMode} />}
                   quick={quickAt === 'top' ? quickChat : undefined}
                   actions={<>
@@ -1626,7 +1627,7 @@ export default function App() {
                 <div className="native-header-main">
                 <button className="iconbtn" onClick={() => setDrawer(true)}><MenuIcon fontSize="inherit" /></button>
                 <span className="orgname-wrap">
-                  <h2>{tree.name}</h2>
+                  <h2><OrgHeaderLogo slug={tree.slug} revision={tree.net?.picture_revision} />{tree.name}</h2>
                   {/* connectivity/save-error banner, relocated into the header
                       (user report 2026-09-03): it used to be a block above the
                       header and pushed the whole canvas down whenever it
@@ -3244,10 +3245,11 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
     })
     return () => { current = false }
   }, [tree.slug, orgMdRetry])
+  const orgTitle = <><OrgHeaderLogo slug={tree.slug} revision={tree.net?.picture_revision} />{tree.name} - Org settings</>
   return (
     <PinFrame kind="org-settings" title={`${tree.name} - Org settings`}
-      panel="settings" close={close}>
-        <h3><SettingsIcon fontSize="inherit" /> {tree.name} - Org settings</h3>
+      titleBar={orgTitle} panel="settings" close={close}>
+        <h3><SettingsIcon fontSize="inherit" /> {orgTitle}</h3>
         <SettingsTabs tabs={orgTabs} tab={tab} setTab={setTab}
           idBase="org-settings" label="Organization settings sections" />
 

@@ -29,6 +29,7 @@ import { UpdateNotice } from '../update-notice'
 import { WindowControls } from '../window-controls'
 import { desktop } from '../desktop'
 import { useEqualSides } from './equalsides'
+import { OrgHeaderLogo } from './orgheaderlogo'
 
 export interface ShellHeaderProps {
   /** the compact app menu — present in every view */
@@ -37,6 +38,9 @@ export interface ShellHeaderProps {
    *  organization. A TITLE, not a picker: choosing an organization happens in
    *  the menu, and a bound window never changes the one it shows. */
   title: string
+  /** Current org logo identity; absent on Home/New organization. */
+  orgSlug?: string
+  logoRevision?: string | null
   /** the prominent Canvas/Attention toggle. Organization windows only. */
   modes?: ReactNode
   /** Quick chat: one text box that hires, kicks off and focuses a new agent.
@@ -55,7 +59,7 @@ export interface ShellHeaderProps {
   version?: string | null
 }
 
-export function ShellHeader({ menu, title, modes, quick, actions, guard, version }: ShellHeaderProps) {
+export function ShellHeader({ menu, title, orgSlug, logoRevision, modes, quick, actions, guard, version }: ShellHeaderProps) {
   const refresh = !desktop() && (
     <button type="button" className="iconbtn" title="refresh app view"
       aria-label="refresh app view" onClick={() => window.location.reload()}>
@@ -75,7 +79,7 @@ export function ShellHeader({ menu, title, modes, quick, actions, guard, version
       className={'shell-header shell-header-centred' + (desktop() ? ' native-header' : '')}>
       <div className="shell-header-start" ref={centred.start}>
         {menu}
-        <h2 className="shell-header-title" title={title}>{title}</h2>
+        <h2 className="shell-header-title" title={title}><OrgHeaderLogo slug={orgSlug} revision={logoRevision} />{title}</h2>
         {version && <span className="shell-version dim"
           title={`running Orgtree ${version}`}>Orgtree {version}</span>}
         {modes && <div className="shell-header-modes">{modes}</div>}
@@ -94,7 +98,7 @@ export function ShellHeader({ menu, title, modes, quick, actions, guard, version
     <header className={'shell-header' + (desktop() ? ' native-header' : '')}>
       <div className="shell-header-main">
         {menu}
-        <h2 className="shell-header-title" title={title}>{title}</h2>
+        <h2 className="shell-header-title" title={title}><OrgHeaderLogo slug={orgSlug} revision={logoRevision} />{title}</h2>
         {version && <span className="shell-version dim"
           title={`running Orgtree ${version}`}>Orgtree {version}</span>}
         {modes && <div className="shell-header-modes">{modes}</div>}

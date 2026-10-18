@@ -9,6 +9,11 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 The header identifies the organization and switches between Canvas and [Attention](../attention-view/SKILL.md). Quick chat can occupy its center. The [kill switch](../kill-switch/SKILL.md) sits beside the organization actions.
 
+If the organization has a logo set in Organization settings, a small square
+version appears immediately left of its name, at the height of the header
+text. It updates when the logo changes; no logo leaves no icon or reserved
+space. Organization settings shows the same logo when opened separately.
+
 | Control | Destination |
 |---|---|
 | Inbox bell | Questions and urgent mail in the organization's inbox |
