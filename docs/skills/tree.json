@@ -1242,16 +1242,17 @@
    "kind": "concept",
    "registered": false,
    "covers": [],
-   "purpose": "How mail works: messages vs notices, kinds, wakes, replies, mid-task delivery and the authentic-channel marker.",
+   "purpose": "How mail works: messages vs notices, kinds, wakes, replies, mentions, mid-task delivery and the authentic-channel marker.",
    "must_cover": [
     "message wakes, notice does not",
     "question kind and options",
     "reply_to/replies threading",
     "mail delivered mid-task and its marker",
-    "never wait for replies inside a turn"
+    "never wait for replies inside a turn",
+    "MENTIONS: agent, project and docket item mentions in all reader-facing text; no code spans; @user attention-only"
    ],
    "sources": [
-    "engine/rs/orgtree-engine/src/runtime/identity.rs TOOLS_SENTENCE, AUTHENTIC_CHANNEL",
+    "engine/rs/orgtree-engine/src/runtime/identity.rs MENTIONS, TOOLS_SENTENCE, AUTHENTIC_CHANNEL",
     "engine/rs/orgtree-engine/src/domain/mail.rs",
     "engine/rs/orgtree-engine/src/domain/notices.rs",
     "engine/rs/orgtree-engine/src/domain/replies.rs",

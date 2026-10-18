@@ -13,6 +13,11 @@
   pins, pop-outs and other desks are retained. Project desks have no Chat tab.
   [decided: user 2026-10-18 10:57Z; verified: `canvas/desk.tsx`,
   `tests/desksendtab.test.tsx`]
+- Agent replies, mail, docket descriptions and presentations must name agents,
+  projects and docket items as mentions, outside code spans. The unconditional
+  MENTIONS paragraph reaches full/trimmed profiles even without messaging tools;
+  @user keeps its attention-only meaning. See `orgtree-mail-basics` in the
+  working glossary. [decided: user 2026-10-18 11:03Z; verified: `runtime/identity.rs`]
 
 - In an agent's desk context, presentation context menus on both the desk-header
   presentation chips (`.desk-docs .doc-badge`) and rows in the Presented tab

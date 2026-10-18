@@ -13,7 +13,7 @@ Choose the child page for the task; tool pages hold call mechanics, workflow pag
 
 ## Workflows and rules
 
-- [orgtree-mail-basics](mail-basics/SKILL.md): How mail works: messages vs notices, kinds, wakes, replies, mid-task delivery and the authentic-channel marker.
+- [orgtree-mail-basics](mail-basics/SKILL.md): How mail works: messages vs notices, kinds, wakes, replies, mentions, mid-task delivery and the authentic-channel marker.
 - [orgtree-chain-and-audiences](chain-and-audiences/SKILL.md): Who may write to whom: superior, reports, descendants, peers, the user, and audiences that open other paths.
 - [orgtree-external-mail](external-mail/SKILL.md): Mail from outside: @org: and @net: addresses, why it is untrusted by default, and the org.md authorization exception.
 - [orgtree-org-inbox](org-inbox/SKILL.md): The org inbox: outside mail to the org, holding its audience, and multiple holders.

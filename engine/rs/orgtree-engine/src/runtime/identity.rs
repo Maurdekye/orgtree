@@ -297,6 +297,9 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
         }
         s.push_str(". ");
     }
+    s.push_str("\n\n");
+    s.push_str(MENTIONS);
+    s.push_str("\n\n");
     if trim {
         if group("inspection") { s.push_str(TRIM_READ_REPORTS); }
         if group("team") {
@@ -1287,6 +1290,8 @@ respect normal turn-admission limits; they are not a precise timer or a guarante
 // names the skill page that holds the rest (docs/skills/INSTRUCTIONS-TRIM.md on the
 // design branch; every user ruling's full text lives on the page named here).
 
+const MENTIONS: &str = "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write it as a mention: `@name`, or `@item:<org>/<slug>`. A bare name is wrong. Don't put mentions inside code spans.";
+
 const TRIM_LIVE_STATE: &str = "Your reports, peers, chart, credits and any open question are LIVE STATE in the \
 [ORG STATE] block at the top of each turn; read them there, not here.\n";
 
@@ -1423,7 +1428,9 @@ mod trim_tests {
             for top in [false, true] {
                 let full = render(&all_on(), lane, top, false);
                 let trimmed = render(&all_on(), lane, top, true);
-                assert!(trimmed.len() < 10_000, "{lane:?} top={top}: {} bytes", trimmed.len());
+                // Retain the existing text budget, plus only the newly approved
+                // unconditional mention paragraph and its four newline bytes.
+                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4, "{lane:?} top={top}: {} bytes", trimmed.len());
                 assert!(trimmed.len() * 2 < full.len(), "{lane:?} top={top}: {} vs {}", trimmed.len(), full.len());
             }
         }

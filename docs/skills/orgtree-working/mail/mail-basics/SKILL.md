@@ -7,7 +7,11 @@ Up: [orgtree-mail](../SKILL.md)
 
 # Working through mail
 
-Use mail to hand off work, ask another agent for information, or return a result. Choose [orgtree_message](../tool-message/SKILL.md) when the recipient needs to act; choose [orgtree_send_notice](../tool-send-notice/SKILL.md) for an FYI that can wait for their next turn. When referring to another agent or project in message text, write `@<name>` (for example `@coordinator-opus` or `@worker-project`) so it renders as an interactive link in the UI. Write `@user` in your turn's text when you want the user's attention ("I need you to see this"); anything that needs an answer still goes by mail or question. The tool pages own wake behavior, accepted kinds, recipient state warnings and outside-mail exceptions.
+Use mail to hand off work, ask another agent for information, or return a result. Choose [orgtree_message](../tool-message/SKILL.md) when the recipient needs to act; choose [orgtree_send_notice](../tool-send-notice/SKILL.md) for an FYI that can wait for their next turn. The tool pages own wake behavior, accepted kinds, recipient state warnings and outside-mail exceptions.
+
+MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write it as a mention: `@name`, or `@item:<org>/<slug>`. A bare name is wrong. Don't put mentions inside code spans.
+
+For example, write @coordinator-opus, @worker-project or @item:orgtree/example-item in prose so it renders as an interactive link. Write @user in your turn's text when you want the user's attention ("I need you to see this"); anything that needs an answer still goes by mail or question.
 
 Before replying after a fresh session or compaction, recover your conversation with that correspondent using [orgtree_inbox](../tool-inbox/SKILL.md). Read the full message when its preview is cut. Manual reading does not replace normal delivery or establish that the recipient has processed your earlier mail.
 
