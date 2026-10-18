@@ -8,6 +8,9 @@ use serde_json::{json, Value};
 pub fn opened(items: &[Value], recipient: i64, project: bool) -> Vec<Value> {
     let mut out=Vec::new();
     for item in items {
+        // Project inbox results now also expose Sent history. Keep explicit
+        // sent rows out of both ToolCard and AGY fallback transcript receipts.
+        if item["direction"]=="sent" { continue; }
         if !project && item["direction"]!="received" { continue; }
         if let Some(uid)=item["id"].as_str() {
             let entry=json!({"uid":uid,"recipient":recipient});
@@ -59,7 +62,8 @@ mod tests {
     fn explicit_mail_receipts_exclude_sent_and_previews() {
         let items=vec![json!({"id":"received","direction":"received"}),json!({"id":"sent","direction":"sent"}),json!({"id":"received","direction":"received"})];
         assert_eq!(opened(&items,7,false),vec![json!({"uid":"received","recipient":7})]);
-        assert_eq!(opened(&items[..2],9,true).len(),2);
+        assert_eq!(opened(&items[..2],9,true).len(),1);
+        assert_eq!(opened(&[json!({"id":"legacy-project"})],9,true).len(),1);
         for action in ["list","conversation"] {assert!(output("orgtree_inbox",&json!({"action":action}),"{}").is_none());}
         assert!(output("shell",&json!({"action":"fetch"}),"{}").is_none());
         assert_eq!(output("mcp__orgtree__orgtree_inbox",&json!({"action":"chunk"}),"{\"id\":\"received\",\"direction\":\"received\"}\nexecution time: 1ms").unwrap()["id"],"received");

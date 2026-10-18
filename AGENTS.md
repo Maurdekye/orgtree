@@ -31,6 +31,11 @@
   [project](docs/skills/orgtree-working/team/tool-project/SKILL.md).
   [decided: user/coordinator 2026-10-18; verified: `tools/{project_inbox,treetools,defs}.rs`, `domain/{ops,presentation_chunks}.rs`]
 
+- Project history keeps ACK queue-state notes and explicit-open transcript
+  receipts without claiming mail. Sent history never creates received-mail
+  receipts, including the AGY fallback; legacy project rows remain compatible.
+  [verified: `tools/project_inbox.rs`, `runtime/manual_mail.rs`; 2026-10-18]
+
 - Tree tools heap-pin the canonical operation future before awaiting it. The
   nested tool path overflowed the default Windows debug engine stack during
   project creation; preserve normal stack limits and verify real rig calls.

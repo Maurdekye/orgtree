@@ -157,9 +157,12 @@ pub(super) async fn read(
         };
         let waiting:i64=client.query_one(&format!("SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id=$1 AND m.state='pending' AND {VISIBLE_SQL}"),&[&p.id]).await?.get(0);
         let watchers:i64=client.query_one("SELECT count(*) FROM ot.watchdogs WHERE kind='fair_queue' AND state='armed' AND memo->>'target_id'=$1",&[&p.id.to_string()]).await?.get(0);
+        let state=projects::queue_state(client,me.org_id,p.id,None).await?;
         return Done::json(
             &json!({"project":p.name,"folder":filter.folder,"status":if filter.status.is_empty(){None}else{Some(&filter.status)},
-            "waiting":waiting,"fair_queue_watchers":watchers,"messages":messages,"has_more":more,"next_cursor":next,"note":NOTE}),
+            "waiting":waiting,"fair_queue_watchers":watchers,
+            "queue":projects::wait_note(&p.name,&projects::QueueState {position:(waiting>0).then_some(1),..state}),
+            "messages":messages,"has_more":more,"next_cursor":next,"note":NOTE}),
         );
     }
     let ids = if action == "chunk" {
@@ -241,14 +244,15 @@ pub(super) async fn read(
     }
     if action == "chunk" {
         return match items.first() {
-            Some(v) => Done::json(v),
+            Some(v) => super::mailtools::inbox_read_done(v,&items,p.id,true),
             None => {
                 crate::refuse!(NotFound, "message not found in this project folder")
             }
         };
     }
-    Done::json(
+    super::mailtools::inbox_read_done(
         &json!({"project":p.name,"folder":filter.folder,"messages":items,"not_found":missing,"not_waiting":missing,"deferred_ids":deferred,"note":NOTE}),
+        &items,p.id,true,
     )
 }
 
@@ -292,5 +296,10 @@ mod project_agent_tool_tests {
         assert_eq!(out["queue"]["held_by"], "a");
         assert_eq!(out["queue"]["acked_at"], "later");
         assert_eq!(out["kind"], "request");
+        let opened=super::super::mailtools::inbox_read_done(&json!({"messages":[out.clone()]}),&[out],9,true).unwrap();
+        assert_eq!(opened.card.unwrap()["_manual_mail_reads"],json!([{"uid":"m1","recipient":9}]));
+        let sent=shown(&raw,"sent");
+        let sent_done=super::super::mailtools::inbox_read_done(&json!({"messages":[sent.clone()]}),&[sent],9,true).unwrap();
+        assert!(sent_done.card.is_none(),"project Sent must not append received-mail transcript entries");
     }
 }

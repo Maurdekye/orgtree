@@ -642,7 +642,7 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
 }
 
 #[nolog]
-fn inbox_read_done(body:&Value,items:&[Value],recipient:i64,project:bool) -> Result<Done> {
+pub(super) fn inbox_read_done(body:&Value,items:&[Value],recipient:i64,project:bool) -> Result<Done> {
     let mut done=Done::json(body)?;
     let reads=crate::runtime::manual_mail::opened(items,recipient,project);
     if !reads.is_empty() {done.card=Some(json!({"_manual_mail_reads":reads}));}
