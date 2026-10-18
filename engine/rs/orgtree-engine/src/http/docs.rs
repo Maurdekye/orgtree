@@ -203,7 +203,7 @@ async fn list_page(
     let members: Option<Vec<i64>> = members.map(<[i64]>::to_vec);
     let rows = client
         .query(
-            -- `node` is the node's CURRENT name: a document keeps the name it was
+            // `node` is the node's CURRENT name: a document keeps the name it was
             // presented under, and a renamed node's rows must still match its
             // gallery and focus it (docket org/rename item)
             "SELECT d.uid, coalesce(a.name, d.node_name), d.title, d.at, d.format, d.bytes, coalesce(a.state, 'deleted'), a.tier, d.viewed_at,
