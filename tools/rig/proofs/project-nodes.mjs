@@ -333,6 +333,21 @@ export default async function (rig) {
        === JSON.stringify([before0029.title, before0029.owner, before0029.objective, before0029.done_so_far]),
     { before: before0029, after: after0029 })
 
+  // ------------------------------------------------------------ a renamed agent keeps its presentations
+  // docket docket-a-selected-archive-item-and-its-draft-sur: a document keeps
+  // the node_name it was presented under, so an agent's own gallery reads by id
+  const before = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=dev5&limit=50`)
+  const renamedAgent = await opTry({ op: 'rename', node: 'dev5', name: 'dev5-renamed' })
+  const after = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=dev5-renamed&limit=50`)
+  const keptTitles = (after.documents ?? []).map(d => d.title)
+  p.check('a renamed agent keeps its earlier presentations in its own gallery', renamedAgent.ok
+    && (before.documents ?? []).length > 0 && keptTitles.includes('UI sketch') && after.total === (before.documents ?? []).length,
+    { before: (before.documents ?? []).map(d => d.title), after: keptTitles, total: after.total, rename: renamedAgent.ok || renamedAgent.error })
+  const sketchId = (after.documents ?? []).find(d => d.title === 'UI sketch')?.id
+  const locatedRenamed = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=dev5-renamed&limit=1&locate=${sketchId}`)
+  p.check('locate finds it in the renamed agent\'s gallery', !!sketchId && locatedRenamed.located === sketchId
+    && (locatedRenamed.documents ?? []).some(d => d.id === sketchId), { located: locatedRenamed.located })
+
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, extra FROM ot.mail ORDER BY id`))
   p.file('tree.json', rig.sql(`SELECT id, name, kind, parent_id, state, seat, grant_credits FROM ot.agents ORDER BY id`))
   p.keep(rig, { agents: ['dev1', 'dev2', 'boss'], grep: /project|fair_queue|dispatch/i })
