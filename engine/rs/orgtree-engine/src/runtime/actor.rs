@@ -4666,7 +4666,7 @@ impl Actor {
                     let cached = u.get("cacheReadTokens").and_then(Value::as_i64).unwrap_or_else(|| n(u, "cachedTokens")).min(prompt);
                     let acc = &mut t.usage;
                     if !acc.is_object() {
-                        *acc = json!({ "input": 0, "cache_read": 0, "cache_write": 0, "output": 0, "last_prompt": 0, "requests": 0 });
+                        *acc = json!({ "input": 0, "cache_read": 0, "cache_write": 0, "output": 0, "requests": 0 });
                     }
                     acc["input"] = json!(n(acc, "input") + (prompt - cached).max(0));
                     acc["cache_read"] = json!(n(acc, "cache_read") + cached);
@@ -5584,7 +5584,7 @@ impl Actor {
                     let Some(t) = self.turn.as_mut() else { return Ok(()) };
                     let acc = &mut t.usage;
                     if !acc.is_object() {
-                        *acc = json!({ "input": 0, "cached": 0, "output": 0, "cost": 0.0, "last_prompt": 0 });
+                        *acc = json!({ "input": 0, "cached": 0, "output": 0, "cost": 0.0 });
                     }
                     if u.is_object() {
                         acc["input"] = json!(acc["input"].as_i64().unwrap_or(0) + inp);
@@ -6456,8 +6456,14 @@ impl Actor {
         for b in v.pointer("/message/content").and_then(Value::as_array).into_iter().flatten().filter(|b|b["type"]=="tool_result") {
             let Some(id)=b["tool_use_id"].as_str() else {continue};
             if !self.turn.as_ref().is_some_and(|t|t.tools.contains_key(id)) {continue;}
-            let (text,images)=convo::tool_result_text(&b["content"]);
-            if text.is_empty() && images>0 {continue;}
+            let content=&b["content"];
+            // Only an observed string/text block (including an empty one)
+            // supports a text estimate. Preview normalization also turns
+            // missing, malformed and non-text-only content into "".
+            let observed_text=content.is_string() || content.as_array().is_some_and(|blocks|
+                blocks.iter().any(|b|b["type"]=="text" && b["text"].is_string()));
+            if !observed_text {continue;}
+            let (text,_)=convo::tool_result_text(content);
             if let Some(count)=self.output_estimate(id,Some(&text)).await {output_counts.insert(id.to_string(),count);}
         }
         let mut images: Vec<(String, Vec<(String, Vec<u8>)>)> = Vec::new();
