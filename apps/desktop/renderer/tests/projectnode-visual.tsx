@@ -20,7 +20,12 @@
 //   desc    — a bare project desk: the description at rest (no border or
 //             background) and the header's pop-out button; the capture
 //             script clicks into the Markdown to open the editor (user
-//             2026-10-18 07:14Z-07:15Z).
+//             2026-10-18 07:14Z-07:15Z); beside it a pinned project window's
+//             frame and an agent's, under a custom org theme (07:24Z);
+//   settings — project settings: the frame's pop-out and pin against the
+//             header's Open project folder (07:24Z);
+//   corner  — an inbox tab with the Transfers box under the tab's
+//             pin/pop-out/mail corner (07:27Z).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
@@ -28,6 +33,9 @@ import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { DeskChat } from '../src/canvas/desk'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectDesk } from '../src/canvas/projectdesk'
+import { NodeConfig } from '../src/canvas/modals'
+import { InboxView } from '../src/canvas/mail'
+import { AgentSurfaceRoutesProvider, PanelCorner } from '../src/canvas/panelcorner'
 import type { CanvasNode, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -37,6 +45,8 @@ const answer = (body: unknown, status = 200) =>
 window.fetch = ((input: RequestInfo | URL) => {
   const p = new URL(String(input), location.href).pathname
   if (p.endsWith('/api/providers')) return answer({ providers: [] })
+  if (p.endsWith('/transfers')) return answer({ next_cursor: null, transfers: [
+    { id: 't1', direction: 'upload', message_id: 'm1', peer: '@net:phone', state: 'done', attempt: 1 }] })
   if (p.endsWith('/api/accounts')) return answer({ version: 2, primary: null, keys: [], assignments: {}, accounts: [] })
   if (p.endsWith('/documents')) {
     const at = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
@@ -158,6 +168,9 @@ Deploy from **main** only, after the [release checklist](https://example.invalid
           toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} onConfig={noop}
           onPin={noop} onPopout={noop} />
       </div>
+      {/* the pinned window's frame only: its accent class decides the border */}
+      <div className="pinwin pin-project" id="pin-project" style={{ position: 'absolute', left: 660, top: 40, width: 300, height: 200 }} />
+      <div className="pinwin prov-claude" id="pin-agent" style={{ position: 'absolute', left: 660, top: 280, width: 300, height: 200 }} />
     </main>
   )
 }
@@ -199,6 +212,18 @@ const rows: Record<string, unknown[]> = {
 createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps />
   : scene === 'presented' ? <Presented />
   : scene === 'desc' ? <Desc />
+  : scene === 'settings' ? <NodeConfig node={card} map={new Map([[card.id, card]])} tree={tree([])} slug="org"
+    op={() => Promise.resolve({} as OpResult)} toast={noop} close={noop} onScratchFolder={noop} />
+  : scene === 'corner' ? (
+    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)', padding: 20 }}>
+      <AgentSurfaceRoutesProvider value={{ open: noop, show: noop }}>
+        <div className="desk-tabpanel" style={{ position: 'relative', width: 900, height: 600 }}>
+          <PanelCorner kind="node-inbox" slug="org" nid="boss" />
+          <InboxView slug="org" nid="boss" toast={noop} tierOf={() => 'opus'} hasAgent={() => true}
+            refs={{ world: { org: 'org' }, onOpen: noop } as never} />
+        </div>
+      </AgentSurfaceRoutesProvider>
+    </main>)
   : scene === 'activity' ? <Activity /> : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>

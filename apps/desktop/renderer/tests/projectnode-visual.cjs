@@ -118,5 +118,35 @@ module.exports = async (page) => {
   })
   details.desc = { rest, edit }
   screenshots.push(await page.screenshot(`${prefix}-desc-editing-1000x700`))
+  // a custom org theme (blue): the project window should follow it, the
+  // Claude agent's keep its provider orange
+  await page.goto('/?scene=desc')
+  await page.waitFor('#pin-project', { timeout: 15000 })
+  await page.eval(() => { document.documentElement.style.setProperty('--accent', '#3a8dde') })
+  await settle()
+  details.pinAccent = await page.eval(() => Object.fromEntries(['pin-project', 'pin-agent'].map((id) => {
+    const el = document.getElementById(id)
+    return [id, { accent: getComputedStyle(el).getPropertyValue('--accent').trim(), border: getComputedStyle(el).borderTopColor }]
+  })))
+  screenshots.push(await page.screenshot(`${prefix}-pinaccent-1000x700`))
+  // boxes that must not overlap: [a, b] rects and their intersection area
+  const overlap = (pairs) => page.eval((pairs) => pairs.map(([a, b]) => {
+    const ra = document.querySelector(a)?.getBoundingClientRect(), rb = document.querySelector(b)?.getBoundingClientRect()
+    if (!ra || !rb) return { a, b, missing: !ra ? a : b }
+    const w = Math.max(0, Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left))
+    const h = Math.max(0, Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top))
+    const box = (r) => [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]
+    return { a, b, ra: box(ra), rb: box(rb), area: Math.round(w * h) }
+  }), pairs)
+  await page.goto('/?scene=settings')
+  await page.waitFor('.agent-settings-header-actions button', { timeout: 15000 })
+  await settle()
+  details.settings = await overlap([['.modalpin-bar', '.agent-settings-header-actions button']])
+  screenshots.push(await page.screenshot(`${prefix}-settings-1000x700`))
+  await page.goto('/?scene=corner')
+  await page.waitFor('.mail-transfers', { timeout: 15000 })
+  await settle()
+  details.corner = await overlap([['.panel-corner', '.mail-transfers']])
+  screenshots.push(await page.screenshot(`${prefix}-corner-1000x700`))
   return { details, screenshots }
 }
