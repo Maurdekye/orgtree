@@ -213,6 +213,10 @@
   gap: 6px;
   padding: 0 3px 0 0;
 }
+.attn-agents-bar-bottom {
+  /* Keep the list toggle beside the desk composer, at the bottom of its rail. */
+  justify-content: flex-end;
+}
 .attn-agents-toggle { pointer-events: auto; }
 .attn-agents-rail-label {
   writing-mode: vertical-rl;

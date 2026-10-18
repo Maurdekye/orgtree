@@ -267,7 +267,7 @@ export function AgentDeskPanel({
   return (
     <div className={'attn-agents-wrap' + (open ? ' list-open' : '')
       + (selected?.tier ? ' prov-' + providerOf(selected.tier) : '')}>
-      <div className="attn-agents-bar" ref={barRef}>
+      <div className="attn-agents-bar attn-agents-bar-bottom" ref={barRef}>
         <button type="button" className="iconbtn attn-agents-toggle" ref={toggleRef}
           aria-expanded={open} aria-controls={`attn-agents-${slug}`}
           title={open ? 'close the agents list' : 'open the agents list'}
