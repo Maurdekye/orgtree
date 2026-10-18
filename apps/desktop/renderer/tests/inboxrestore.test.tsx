@@ -23,11 +23,14 @@ const mail = (id: string, at: string) => ({
   id, from: 'agent-one', to: '@user', at, kind: 'message', body: `body-${id}`,
 })
 
-async function mountInbox(t: TestContext, inbox: Inbox, slug = 'restore-test', tagChoices: string[] = []) {
+async function mountInbox(t: TestContext, inbox: Inbox, slug = 'restore-test', tagChoices: string[] = [],
+  filterResponse: (tags: string[]) => Promise<Inbox> = async () => inbox) {
   const oldFetch = globalThis.fetch
-  globalThis.fetch = withoutMailTransfers((async (url: string) => {
+  globalThis.fetch = withoutMailTransfers((async (url: string, init?: RequestInit) => {
     const path = String(url)
-    const body = path.includes('/inbox') && path.includes('tags_only=true')
+    const body = path.includes('/inbox/filter')
+      ? await filterResponse(JSON.parse(String(init?.body ?? '{}')).tags ?? [])
+      : path.includes('/inbox') && path.includes('tags_only=true')
       ? { tag_choices: tagChoices }
       : path.includes('/inbox') ? inbox
         : path.includes('/audiences') ? { audiences: [], requests: [] }
@@ -186,4 +189,75 @@ test('a remembered mail excluded by the active tag filter is not restored', asyn
   assert.equal(view.el.querySelectorAll('.mailrow.on').length, 0,
     'restoration must respect the active filter even when the message is retained')
   assert.doesNotMatch(pane(view), /body-filtered/)
+})
+
+test('changing selected tags keeps the current list and unread control while results load', async (t) => {
+  const slug = 'tag-filter-keeps-rendered-mail'
+  const storageKey = `orgtree-user-mail-tags:${slug}`
+  W.localStorage.setItem(storageKey, JSON.stringify(['Alpha', 'Review']))
+  t.after(() => W.localStorage.removeItem(storageKey))
+  const inbox = { pending: [], delivered: [{ ...mail('m1', '2026-10-17T10:00:00Z'), tags: ['Alpha', 'Review'] }], sent: [] }
+  const filtered = { ...inbox, hidden_unread: 1, oldest_unread_id: 'hidden' }
+  const nextFiltered = { ...inbox, hidden_unread: 0, oldest_unread_id: null }
+  let resolveNext!: (value: Inbox) => void
+  const mounted = await mountInbox(t, inbox, slug, ['Alpha', 'Review'], tags =>
+    tags.length === 1 ? new Promise<Inbox>(resolve => { resolveNext = resolve }) : Promise.resolve(filtered as Inbox))
+  const row = mounted.view.el.querySelector<HTMLElement>('.mailrow')
+  const controls = mounted.view.el.querySelector<HTMLElement>('.mail-list-controls')
+  const hiddenUnread = mounted.view.el.querySelector<HTMLElement>('.mail-hidden-unread')
+  assert.ok(row && controls && hiddenUnread, 'positive control: filtered mail and unread control are rendered')
+  await openRow(mounted.view, 0)
+  assert.match(pane(mounted.view), /body-m1/)
+
+  const removeReview = mounted.view.el.querySelector<HTMLButtonElement>('button[aria-label="Remove Review filter"]')
+  assert.ok(removeReview, 'positive control: selected tag has a remove control')
+  await inAct(async () => { removeReview.click(); await flush(5) })
+  assert.equal(mounted.view.el.querySelector('.mail-list-controls'), controls,
+    'changing a filter must keep the filter bar mounted')
+  assert.equal(mounted.view.el.querySelector('.mailrow'), row,
+    'the previous result stays visible until the new filtered result is ready')
+  assert.equal(mounted.view.el.querySelector('.mail-hidden-unread'), hiddenUnread,
+    'the unread control does not flash out while the request is pending')
+  assert.match(pane(mounted.view), /body-m1/, 'a still-matching open mail remains open')
+
+  await inAct(async () => { resolveNext(nextFiltered as Inbox); await flush(10) })
+  assert.equal(mounted.view.el.querySelector('.mail-hidden-unread') === null, true,
+    'the unread control updates when the new filtered result arrives')
+})
+
+test('tag and text filters close a detail pane when they hide its mail', async (t) => {
+  const inbox = { pending: [], delivered: [{ ...mail('m1', '2026-10-17T10:00:00Z'), tags: ['Review'] }], sent: [] }
+  const mounted = await mountInbox(t, inbox, 'filter-closes-open-mail', ['Alpha'])
+  await openRow(mounted.view, 0)
+  assert.match(pane(mounted.view), /body-m1/)
+
+  const trigger = mounted.view.el.querySelector<HTMLButtonElement>('button[aria-label="Filter mail by tags"]')
+  assert.ok(trigger)
+  await inAct(() => trigger.click())
+  const alpha = [...mounted.view.el.ownerDocument.querySelectorAll<HTMLButtonElement>('button.mail-tag-choice')]
+    .find(button => button.textContent?.trim() === 'Alpha')
+  assert.ok(alpha, 'positive control: tag option is rendered')
+  await inAct(async () => { alpha.click(); await flush(10) })
+  assert.doesNotMatch(pane(mounted.view), /body-m1/, 'a tag filter closes a detail pane for an excluded mail')
+
+  const clearTags = mounted.view.el.querySelector<HTMLButtonElement>('button[aria-label="Clear tag filter"]')
+  assert.ok(clearTags)
+  await inAct(async () => { clearTags.click(); await flush(8) })
+  assert.doesNotMatch(pane(mounted.view), /body-m1/, 'clearing tags does not reopen the closed detail pane')
+
+  await openRow(mounted.view, 0)
+  const search = mounted.view.el.querySelector<HTMLInputElement>('input.mail-filter')
+  assert.ok(search)
+  await inAct(async () => {
+    search.value = 'no matching body'
+    search.dispatchEvent(new W.Event('input', { bubbles: true }))
+    await flush(3)
+  })
+  assert.doesNotMatch(pane(mounted.view), /body-m1/, 'a text filter closes a detail pane for an excluded mail')
+  await inAct(async () => {
+    search.value = ''
+    search.dispatchEvent(new W.Event('input', { bubbles: true }))
+    await flush(3)
+  })
+  assert.doesNotMatch(pane(mounted.view), /body-m1/, 'clearing text does not reopen the closed detail pane')
 })
