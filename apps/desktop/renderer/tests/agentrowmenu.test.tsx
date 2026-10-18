@@ -227,8 +227,8 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
       // USER 2026-10-17 21:18Z: "New project…" directly under "Hire a subordinate"
       // USER 2026-10-18 07:19Z–07:28Z: "Copy mention", no "Open" inside Open, Presentations always offered
       'Copy mention', 'Focus', 'Hire a subordinate ▸', 'New project…',
-      'Open ▸', '· Desk', '· Desk in a new window', '· Pin desk as a window',
-      '· Inbox', '· Docket', '· Team docket', '· Presentations', '· Team presentations',
+      'Open ▸', '· Desk', '· Desk as a pinned window', '· Desk in a separate window',
+      '· Inbox', '· Team', '· Docket', '· Team docket', '· Presentations', '· Team presentations',
       'Settings', 'Acquire audience', 'Compact…', 'Halt', 'Retire…',
     ], 'the agent menu, in order')
   })
@@ -328,14 +328,13 @@ uiTest('§2c documents and lineage add their entries to the row exactly as they 
       'USER 2026-10-18 07:19Z: Presentations and Team presentations are offered on every agent')
   })
 
-uiTest('§2d a PINNED desk swaps the pin entry for "Show pinned window" on both surfaces',
+uiTest('§2d a PINNED desk retains the pinned-window label on both surfaces',
   async (t) => {
     addPin('mine', 'worker', { x: 10, y: 10, w: 300, h: 200 })
     const c = await mountCanvas(t, [mkNode('worker')])
     await openTray(c.el)
     const have = await assertParity(c, 'worker', 'a pinned desk')
-    assert.ok(have.includes('· Show pinned window'), JSON.stringify(have))
-    assert.ok(!have.includes('· Pin desk as a window'), 'it is already pinned')
+    assert.equal(have.filter(label => label === '· Desk as a pinned window').length, 1, JSON.stringify(have))
   })
 
 uiTest('§2e a CROWD-piled agent offers no hire on either surface, and a piled-away row still has its menu',
@@ -581,7 +580,7 @@ function stubPopoutWindow(t: TestContext) {
   return { child, count }
 }
 
-uiTest('§7 "Desk in a new window" pops the agent\'s desk out, and the entry then says so',
+uiTest('§7 "Desk in a separate window" pops out or raises the agent\'s desk',
   async (t) => {
     // the action the row's ↗ button used to run, now the menu's (user ruling
     // 2026-09-12). A desk that is not mounted yet cannot pop out on the spot:
@@ -590,18 +589,16 @@ uiTest('§7 "Desk in a new window" pops the agent\'s desk out, and the entry the
     const c = await mountCanvas(t, [mkNode('worker'), mkNode('other')])
     await openTray(c.el)
     await rightClick(rowFor(c.el, 'other')!)
-    await pick('Desk in a new window')
+    await pick('Desk in a separate window')
     await advance(600, 30); await flush(8)
     assert.equal(pop.count.opens, 1, 'the entry reached MovableSurface.open')
     assert.ok(pop.child.window.document.querySelector('.popout-mount'),
       'the native surface adopted the desk into the opened window')
-    // the menu now offers the other half of the pair
+    // The label stays fixed; the callback now raises the existing window.
     await rightClick(rowFor(c.el, 'other')!)
     const have = labels()
-    assert.ok(have.includes('· Show desk window'), JSON.stringify(have))
-    assert.ok(!have.includes('· Desk in a new window'),
-      'a desk that is already out is not popped out again')
-    await pick('Show desk window')
+    assert.equal(have.filter(label => label === '· Desk in a separate window').length, 1, JSON.stringify(have))
+    await pick('Desk in a separate window')
     assert.ok(pop.count.focuses >= 1, 'it raises the window that is already open')
     assert.equal(pop.count.opens, 1, 'and does not open a second one')
 
@@ -624,10 +621,10 @@ uiTest('§7b the row has no per-agent pin or popout buttons any more — both li
       'the row is one object again: its main line is the only control in it')
     // …and nothing was lost: both actions are in the menu the row now carries
     const have = await menuOf(row, 'the row')
-    assert.ok(have.includes('· Pin desk as a window'), JSON.stringify(have))
-    assert.ok(have.includes('· Desk in a new window'), JSON.stringify(have))
+    assert.ok(have.includes('· Desk as a pinned window'), JSON.stringify(have))
+    assert.ok(have.includes('· Desk in a separate window'), JSON.stringify(have))
     const pinned = await menuOf(rowFor(c.el, 'pinned-one')!, 'the pinned row')
-    assert.ok(pinned.includes('· Show pinned window'), JSON.stringify(pinned))
+    assert.ok(pinned.includes('· Desk as a pinned window'), JSON.stringify(pinned))
   })
 
 uiTest('§6 Hire a subordinate ▸ <model> from a row walks to the agent and opens a hire draft under it',

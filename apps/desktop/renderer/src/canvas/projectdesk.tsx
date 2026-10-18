@@ -514,7 +514,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
 
 /** The project desk as a MODAL (user 2026-10-17 23:28Z, 23:29:47Z): the menu's
  *  "Open desk" glances at it without moving the camera, as the agent menu's
- *  temporary desk does, and "Pop out to new window" asks this same surface to
+ *  temporary desk does, and "Desk in a separate window" asks this same surface to
  *  pop itself out (`requestSurfaceAction('project-desk', …, 'popout')`). One
  *  surface per org: a second project's desk replaces the first. */
 export function ProjectDeskModal({ close, ...props }: ProjectDeskProps & { close: () => void }) {

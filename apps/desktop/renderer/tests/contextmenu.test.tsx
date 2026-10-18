@@ -393,7 +393,7 @@ uiTest('§B1 agent card: right-click opens the card menu and does NOT move the c
   assert.equal(camera(v.el), before, 'a right-click is not a click: the camera did not move')
   const have = labels()
   for (const l of ['Focus', '· Inbox', '· Docket', '· Presentations',
-    'Settings', '· Pin desk as a window', 'Hire a subordinate ▸', 'Retire…']) {
+    'Settings', '· Desk as a pinned window', 'Hire a subordinate ▸', 'Retire…']) {
     assert.ok(have.includes(l), `entry "${l}" — have ${JSON.stringify(have)}`)
   }
   assert.ok(!have.includes('Dissolve… ▸'), 'no live reports: retire, not dissolve')

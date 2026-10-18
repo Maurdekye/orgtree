@@ -229,19 +229,17 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     }
   }
   const pin = h.onPin, showPin = h.onShowPin
-  // …and the OS window beside the in-app one. "Desk in a new window" and
-  // not the bare "in new window" every pinnable panel uses (modalpin.tsx,
-  // popout.tsx): there the object IS the surface, here the object is an agent
-  // and what pops out is its desk.
+  // USER 2026-10-18 11:16Z: the same three desk entries, in this order, for
+  // agents and projects. Placement changes the callback, never these labels.
+  if (pin && !s.pinned) deskEntries.push({ label: 'Desk as a pinned window', onSelect: () => pin() })
+  if (s.pinned && showPin) deskEntries.push({ label: 'Desk as a pinned window', title: 'show the pinned desk window', onSelect: () => showPin() })
   const popout = h.onPopout, showWindow = h.onShowWindow
   if (popout && !s.detached) {
-    deskEntries.push({ label: 'Desk in a new window', onSelect: () => popout() })
+    deskEntries.push({ label: 'Desk in a separate window', onSelect: () => popout() })
   }
   if (s.detached && showWindow) {
-    deskEntries.push({ label: 'Show desk window', onSelect: () => showWindow() })
+    deskEntries.push({ label: 'Desk in a separate window', title: 'show the separate desk window', onSelect: () => showWindow() })
   }
-  if (pin && !s.pinned) deskEntries.push({ label: 'Pin desk as a window', onSelect: () => pin() })
-  if (s.pinned && showPin) deskEntries.push({ label: 'Show pinned window', onSelect: () => showPin() })
   entries.splice(1, 0, {
     label: 'Open', submenuOnly: true, onSelect: () => {},
     children: [...deskEntries, ...(deskEntries.length ? ['sep' as const] : []), ...openEntries],
@@ -370,14 +368,13 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const live = node.state === 'live'
   const agents = subtreeAgents(node).filter((a) => a.id !== node.id)
   const entries: MenuEntry[] = [{ label: 'Focus', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk }]
-  // its desk as a temporary modal, popped out, or pinned as a window, in the
-  // top section of Open just like the agent menu (user 2026-10-18 07:18Z)
+  // Same names and order as the agent's Open menu (user 2026-10-18 11:16Z).
   const desk: MenuEntry[] = []
   const temp = h.onOpenTemporary, popout = h.onPopout, pin = h.onPin, showPin = h.onShowPin
   if (temp) desk.push({ label: 'Desk', title: `glance at ${node.id}'s desk without moving the camera`, onSelect: () => temp() })
-  if (popout) desk.push({ label: 'Pop out to new window', title: `${node.id}'s desk in a window of its own`, onSelect: () => popout() })
-  if (pin && !s.pinned) desk.push({ label: 'Pin desk as a window', onSelect: () => pin() })
-  if (s.pinned && showPin) desk.push({ label: 'Show pinned window', onSelect: () => showPin() })
+  if (pin && !s.pinned) desk.push({ label: 'Desk as a pinned window', onSelect: () => pin() })
+  if (s.pinned && showPin) desk.push({ label: 'Desk as a pinned window', title: 'show the pinned desk window', onSelect: () => showPin() })
+  if (popout) desk.push({ label: 'Desk in a separate window', title: `${node.id}'s desk in a window of its own`, onSelect: () => popout() })
   const open: MenuEntry[] = [...desk, ...(desk.length ? ['sep' as const] : []),
     { label: 'Project mailbox', onSelect: () => h.onInbox() }]
   if (h.onTeam) open.push({ label: 'Team', onSelect: h.onTeam })

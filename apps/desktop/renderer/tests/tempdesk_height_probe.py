@@ -80,7 +80,7 @@ try:
         result['cases']['canvas-closed'] = page.locator('.tempdesk-panel').count() == 0
         # ---- a pinned desk, for the styling comparison
         card.click(button='right')
-        page.locator('[role="menuitem"]', has_text='Pin desk as a window').first.click()
+        page.locator('[role="menuitem"]', has_text='Desk as a pinned window').first.click()
         page.wait_for_timeout(800)
         page.screenshot(path=str(OUT / 'pinned-desk.png'))
         # ---- Attention: the switch, then the agents list's menu

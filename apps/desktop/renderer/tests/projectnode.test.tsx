@@ -326,16 +326,16 @@ test('§3a2 the agent and switchboard entries a project can take: focus, pin in 
   entryNamed(entries, 'Halt all agents under it…').onSelect()
   const openKids = entryNamed(entries, 'Open').children!
   assert.deepEqual(openKids.map((c) => c === 'sep' ? 'sep' : c.label),
-    ['Desk', 'Pop out to new window', 'Pin desk as a window', 'sep', 'Project mailbox', 'Project folder'],
-    'Pin desk as a window sits in the top desk section of Open, before the separator, matching agents')
-  const pin = openKids.find((c) => c !== 'sep' && c.label === 'Pin desk as a window')
+    ['Desk', 'Desk as a pinned window', 'Desk in a separate window', 'sep', 'Project mailbox', 'Project folder'],
+    'Desk as a pinned window sits in the top desk section of Open, before the separator, matching agents')
+  const pin = openKids.find((c) => c !== 'sep' && c.label === 'Desk as a pinned window')
   assert.ok(pin && pin !== 'sep', 'pin the project desk as a window')
   pin.onSelect()
   const pinnedEntries = projectMenuEntries(nd, h, { claudeHire: offer, pinned: true })
   const pinnedOpenKids = entryNamed(pinnedEntries, 'Open').children!
   assert.deepEqual(pinnedOpenKids.map((c) => c === 'sep' ? 'sep' : c.label),
-    ['Desk', 'Pop out to new window', 'Show pinned window', 'sep', 'Project mailbox', 'Project folder'])
-  const showPin = pinnedOpenKids.find((c) => c !== 'sep' && c.label === 'Show pinned window')
+    ['Desk', 'Desk as a pinned window', 'Desk in a separate window', 'sep', 'Project mailbox', 'Project folder'])
+  const showPin = pinnedOpenKids.find((c) => c !== 'sep' && c.label === 'Desk as a pinned window')
   assert.ok(showPin && showPin !== 'sep')
   showPin.onSelect()
   assert.deepEqual([focused, pinned, shownPin, asked], [1, 1, 1, ['cheap-compact-subtree', 'halt-subtree']])
@@ -361,7 +361,7 @@ test('§3d Desk, Pop out, Presentations with Team presentations submenu, and no 
     'Halt all agents under it…', 'Retire project…'],
     'Hire beside and Hire above are not in the project context menu (only via hire tokens)')
   const open = entryNamed(entries, 'Open').children!
-  assert.deepEqual(open.map((c) => c === 'sep' ? 'sep' : c.label), ['Desk', 'Pop out to new window', 'sep',
+  assert.deepEqual(open.map((c) => c === 'sep' ? 'sep' : c.label), ['Desk', 'Desk in a separate window', 'sep',
     'Project mailbox', 'Project folder', 'Presentations', 'Project docket'])
   for (const c of open) {
     if (c === 'sep') continue
@@ -371,7 +371,7 @@ test('§3d Desk, Pop out, Presentations with Team presentations submenu, and no 
   assert.ok(pres && pres !== 'sep')
   assert.deepEqual(pres.children?.map((c) => c === 'sep' ? 'sep' : c.label), ['Team presentations'],
     'Team presentations lives in a submenu under Presentations when both actions exist')
-  for (const l of ['Desk', 'Pop out to new window', 'Presentations']) {
+  for (const l of ['Desk', 'Desk in a separate window', 'Presentations']) {
     const e = open.find((c) => c !== 'sep' && c.label === l)
     assert.ok(e && e !== 'sep'); e.onSelect()
   }

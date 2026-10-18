@@ -43,7 +43,7 @@ interface ProjectSquareProps {
   focused?: boolean
   /** its desk is a pinned window: the card holds the placeholder */
   pinnedFocus?: boolean
-  /** its desk is pinned (the menu then offers Show pinned window) */
+  /** its desk is pinned (the menu then offers Desk as a pinned window) */
   pinned?: boolean
   /** the menu's Focus: walk the camera to its desk */
   onFocus?: () => void
