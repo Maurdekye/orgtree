@@ -177,10 +177,10 @@ const status = {
     ended: '2026-10-18T08:04:00.000Z', how: 'idle: not released after 3 reminders', by: 'orgtree' }],
 }
 
-async function desk(t: TestContext, nd: CanvasNode, answer: unknown) {
+async function desk(t: TestContext, nd: CanvasNode, answer: unknown, empty = false) {
   serve(t)
   const ops: OpRequest[] = []
-  const tree = { slug: 'org', roots: [], watchdogs: dogs, slot_leases: leases } as unknown as TreePayload
+  const tree = { slug: 'org', roots: [], watchdogs: empty ? [] : dogs, slot_leases: empty ? [] : leases } as unknown as TreePayload
   const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd]])}
     op={(b) => { ops.push(b); return Promise.resolve((b.op === 'slot_status' ? answer : { released: true }) as unknown as OpResult) }}
     toast={noop} refs={refs} />, (el) => el)
@@ -232,7 +232,7 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
 
 test('§5 the empty state says how to claim and that nobody waits', async (t) => {
   const empty = { project: 'build', slots: 2, held: 0, holders: [], line: [], history: [] }
-  const { view } = await desk(t, project({ slots_capacity: 2 }), empty)
+  const { view } = await desk(t, project({ slots_capacity: 2 }), empty, true)
   await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="slots"]')!.click(); await flush(3) })
   const card = view.el.querySelector('.project-slots-card')
   assert.equal(card?.textContent, 'slots 0/2')
