@@ -47,6 +47,7 @@ import { eventSummary, projectEvent } from '../events/project'
 import type { EventView } from '../events/project'
 import { EventCard, eventSurface } from '../events/card'
 import { MailReplyPreview, recordedMailReply } from './mailreply'
+import { centerTranscriptTarget } from './deskscroll'
 
 // One mail interface, everywhere (user ruling: the user's and the agents'
 // inboxes function identically), laid out like a webmail client: the list on
@@ -588,7 +589,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
               if (el && target && g.some((x) => keyOf(x) === target)
                 && scrolledRef.current !== request) {
                 scrolledRef.current = request
-                el.scrollIntoView({ block: 'center' })
+                centerTranscriptTarget(el.closest<HTMLElement>('.mailer-list'),el)
               }
             }}
             onClick={() => {

@@ -2240,13 +2240,17 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     return out
   }, [chat?.messages, chat?.transient, chat?.pending_mail, live_feed,
     convo.draft, convo.draftEventId, convo.thinking, convo.thinkingEventId])
-  const replyAvailable = (r: ReplyContext) => sameReplyIdentity(r) &&
+  const [pendingReplyJump,setPendingReplyJump]=useState<ReplyContext|null>(null)
+  const replyLoaded = (r: ReplyContext) => sameReplyIdentity(r) &&
     ((r.docId && (Boolean(onOpenDoc) || (node.documents ?? []).some(d => d.id === r.docId)
       || Boolean(surfaceDocument.querySelector(`[data-doc-id="${r.docId}"]`))))
       || (r.mailId && (chat?.pending_mail?.some(m => m.id === r.mailId) || chat?.messages?.some(m =>
         isSegments(m.segments, 'operator') && m.segments.some(s => s.kind === 'mail' && s.rows.some(row => row.id === r.mailId)))))
       || sourceIds.has(r.eventId) || transient.some(row => row.event_id === r.eventId)
       || r.eventId === convo.draftEventId || r.eventId === convo.thinkingEventId)
+  const canPageReply=(r:ReplyContext)=>sameReplyIdentity(r)&&!r.docId
+    &&(chat?.has_older??((chat?.messages[0]?.seq??0)>0))
+  const replyAvailable=(r:ReplyContext)=>replyLoaded(r)||canPageReply(r)
   const replySources = useMemo(() => indexReplySources({
     messages: chat?.messages, pending: chat?.pending_mail, live: live_feed, transient: chat?.transient,
     draft: convo.draft, draftId: convo.draftEventId, thinking: convo.thinking, thinkingId: convo.thinkingEventId,
@@ -2287,11 +2291,18 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     centerTranscriptTarget(list, element ?? null)
   }
   const locateReplyHandler = useRef(locateReplyNow)
-  locateReplyHandler.current = locateReplyNow
+  locateReplyHandler.current = r=>{
+    if(replyLoaded(r)){
+      growAnchor.current=null;stopSettle();setPendingReplyJump(null);locateReplyNow(r)
+    }else if(canPageReply(r)){
+      leaveBottom();setPendingReplyJump(r)
+    }
+  }
   const locateReply = useCallback((r: ReplyContext) => locateReplyHandler.current(r), [])
   const renderReply = (wire: unknown) => {
     const context = replyContext(wire)
-    return context && <ReplyPreview reply={context} available={replyAvailable(context)} onLocate={() => locateReply(context)} />
+    return context && <ReplyPreview reply={context} available={replyAvailable(context)} onLocate={() => locateReply(context)}
+      presentationTitle={context.docId?(node.documents??[]).find(d=>d.id===context.docId)?.title:undefined}/>
   }
   // №11: which door the last send went through. It is a RECEIPT, not a state —
   // it answers "where did that message just go", and that answer goes stale the
@@ -2856,6 +2867,19 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       stopSettle()
     }
   }
+
+  // A deliberate reply jump may page beyond the current window. Advance only
+  // after each existing store page settles; identity, exhaustion and failures
+  // end the request. The desk frame never participates in the final scroll.
+  useLayoutEffect(()=>{
+    if(!pendingReplyJump)return
+    if(!sameReplyIdentity(pendingReplyJump)){setPendingReplyJump(null);return}
+    if(replyLoaded(pendingReplyJump)){
+      growAnchor.current=null;stopSettle();locateReplyNow(pendingReplyJump);setPendingReplyJump(null)
+    }else if(convo.olderError||!hasOlder){
+      setPendingReplyJump(null);toast([convo.olderError?'Could not load the original message':'Original message is no longer available'])
+    }else if(!loadingOlder)loadOlder()
+  },[pendingReplyJump,chat?.messages,chat?.pending_mail,chat?.before,chat?.has_older,loadingOlder,convo.olderError,slug,node.id,node.generation])
 
   const fillViewportRef = useRef<() => void>(() => {})
   fillViewportRef.current = () => {
@@ -4201,7 +4225,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           on the inbox or docket tab shouldn't cost your place to say so */}
       {replyMenu.node}
       {replyTargets.map(r => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}/${r.docId ?? ''}`} reply={r} available={replyAvailable(r)}
-        onLocate={() => locateReply(r)} onRemove={() => setReplyTargets(replyTargets.filter(x => x !== r))} />)}
+        onLocate={() => locateReply(r)} onRemove={() => setReplyTargets(replyTargets.filter(x => x !== r))}
+        presentationTitle={r.docId?(node.documents??[]).find(d=>d.id===r.docId)?.title:undefined}/>) }
       {replyTargets.length > 1 && <button className="link" onClick={() => setReply(null)}>Cancel all replies</button>}
       {sendMode && <div className="sendmode dim">{sendMode}</div>}
       {histUndelivered && <div className="dim composer-history-note" role="status">

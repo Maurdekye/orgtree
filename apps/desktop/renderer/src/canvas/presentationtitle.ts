@@ -18,7 +18,7 @@ function readTitle(org:string,id:string,key:string):Promise<string|null>{
 /** A reply names an exact document; its quote text is never its title. */
 export function usePresentationTitle(org:string,id?:string,world?:RefWorld|null,recordedTitle=''){
   const key=JSON.stringify([org,id]),foreign=!!world&&world.org!==org
-  const removed=!!id&&world?.docs instanceof Map&&!world.docs.has(id)
+  const removed=!!id&&!!world?.docs&&world.docs!=='loading'&&!world.docs.has(id)
   const indexed=!foreign&&id&&world?.docs&&world.docs!=='loading'?world.docs.get(id):undefined
   const pending=world?.docs==='loading'
   const [answer,setAnswer]=useState<{key:string;title:string|null}|null>(null)
@@ -30,6 +30,7 @@ export function usePresentationTitle(org:string,id?:string,world?:RefWorld|null,
   },[org,id,key,foreign,removed,pending,indexed])
   if(!id||foreign)return {label:'presentation unavailable',ready:false,why:'Presentation unavailable here; quoted context is retained.'}
   if(removed)return {label:'presentation removed',ready:false,why:'Presentation removed; quoted context is retained.'}
+  if(pending)return {label:recordedTitle||'loading presentation…',ready:false,why:'Loading presentation title'}
   const title=indexed?.trim()?indexed:answer?.key===key?answer.title:undefined
   if(title)return {label:title,ready:true,why:`Open presentation: ${title}`}
   if(title===null)return {label:'presentation unavailable',ready:false,why:'Presentation unavailable; quoted context is retained.'}
