@@ -26,6 +26,14 @@ export function useInboxTagSelection(slug:string,base:InboxPayload|null|undefine
     if(start.current.id!==id){start.current.id=id;++generation.current}
     try{window.sessionStorage.setItem(openedKey(slug),id)}catch{/* storage is optional */}
   },[slug])
+  const forget=useCallback((id:string)=>{
+    if(start.current.id===id){
+      start.current.id=null;++generation.current
+      try{window.sessionStorage.removeItem(openedKey(slug))}catch{/* storage is optional */}
+    }
+    setState(old=>old?.extra?.id===id||old?.request.id===id
+      ?{identity,request:{key:`${identity}:${++sequence.current}`,id:null},extra:null}:old)
+  },[slug,identity])
   useEffect(()=>{
     if(!visible||!base)return
     const previous=start.current,rows=[...base.pending.map(m=>({...m,unread:true})),...base.delivered.map(m=>({...m,unread:false}))]
@@ -54,8 +62,8 @@ export function useInboxTagSelection(slug:string,base:InboxPayload|null|undefine
     // not by a harmless record refresh while the exact lookup is in flight.
   },[slug,tagKey,visible,revision,lookup])
   useEffect(()=>()=>{++generation.current},[slug,tagKey,visible])
-  if(state?.identity===identity)return {...state,remember}
-  return {identity,request:tags.length?{key:`pending:${identity}`,id:null}:undefined,extra:null,remember}
+  if(state?.identity===identity)return {...state,remember,forget}
+  return {identity,request:tags.length?{key:`pending:${identity}`,id:null}:undefined,extra:null,remember,forget}
 }
 
 /** Admit one exact lookup without throwing away retained history or guessing

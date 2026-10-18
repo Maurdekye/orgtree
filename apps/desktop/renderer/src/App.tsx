@@ -2797,7 +2797,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   const deleteMail = (m: MailEntry) => {
     if (!m.id || !window.confirm('Delete this message from your inbox? This permanently removes your copy.')) return
     return deleteUserMail(slug, m.id)
-      .then(() => { history.remove(m.id); setReadBump((n) => n + 1); refresh?.() })
+      .then(() => { history.remove(m.id);tagSelection.forget(m.id);setLookedUpMail(old=>old?.mail.id===m.id?null:old);setReadBump((n) => n + 1); refresh?.() })
       .catch((e: Error) => toast([`could not delete mail: ${e.message}`]))
   }
   const unreadMail = (box?.pending ?? []).filter((m) => !readLocally(slug, m.id))
