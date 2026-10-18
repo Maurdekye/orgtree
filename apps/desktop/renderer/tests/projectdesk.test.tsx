@@ -98,8 +98,10 @@ function serve(t: TestContext) {
 
 async function desk(t: TestContext, h: { jump?: (id: string) => void; config?: () => void;
   pin?: () => void; popout?: () => void; bare?: boolean; node?: CanvasNode; ops?: OpRequest[]
-  toast?: (lines: string[]) => void; openDoc?: (id: string) => void } = {}) {
+  toast?: (lines: string[]) => void; openDoc?: (id: string) => void;
+  fetch?: (inner: typeof fetch) => typeof fetch } = {}) {
   serve(t)
+  if (h.fetch) globalThis.fetch = h.fetch(globalThis.fetch!)
   const nd = h.node ?? project()
   const ops = h.ops ?? []
   const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd], ['boss', boss]])}
@@ -163,16 +165,15 @@ test('project presentation Reply context action stages the document target and f
 })
 
 test('project presentation reader can broadcast a reply while preserving its document target', async (t) => {
-  serve(t)
   const row = { id: 'p1', node: 'website', title: 'Release plan', at: new Date().toISOString(),
     evicted: false, node_state: 'live', tier: 'project', format: 'markdown' }
   const calls: { path: string; body?: unknown }[] = []
-  const inner = globalThis.fetch
-  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
-    const path = new URL(String(url), 'http://fixture.invalid').pathname
+  const fixture = (inner: typeof fetch) => ((url: RequestInfo | URL, init?: RequestInit) => {
+    const u = new URL(String(url), 'http://fixture.invalid')
+    const path = u.pathname
     // Keep the list request pending so this test exercises the desk's normal
     // node-payload bootstrap rows, just as the project opens before its poll.
-    if (path === '/api/orgs/org/documents' && !init?.method) return new Promise<Response>(() => {})
+    if (path === '/api/orgs/org/documents' && u.search && !init?.method) return new Promise<Response>(() => {})
     if (path === '/api/orgs/org/documents/p1' && !init?.method)
       return Promise.resolve(new Response(JSON.stringify({ ...row, body: 'Plan body' }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }))
@@ -183,8 +184,7 @@ test('project presentation reader can broadcast a reply while preserving its doc
     }
     return inner(url, init)
   }) as typeof fetch
-  t.after(() => { globalThis.fetch = inner })
-  const el = await desk(t, { node: project({ documents: [row] } as never) })
+  const el = await desk(t, { node: project({ documents: [row] } as never), fetch: fixture })
   await inAct(() => { el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="presented"]')!.click() })
   await inAct(async () => { await flush(5) })
   const gallery = el.querySelector('.desk-presented')!
