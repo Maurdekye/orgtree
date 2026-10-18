@@ -1042,11 +1042,13 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   // the project's mail queue (user 2026-10-18 08:01Z-08:08Z): round-robin by
   // default or ack mode, and whether a sender may be handed its own mail
   const queueScope = (node.configured_scope ?? {}) as unknown as { mail_queue?: string; mail_queue_exclude_sender?: boolean
-    mail_queue_ack_timeout?: boolean; mail_queue_max_attempts?: number; mail_queue_ack_reminders?: number }
+    mail_queue_ack_timeout?: boolean; mail_queue_max_attempts?: number; mail_queue_ack_reminders?: number
+    mail_queue_turn_end_reminder?: boolean }
   const savedMode = queueScope.mail_queue === 'ack' ? 'ack' : 'round_robin'
   const savedExclude = queueScope.mail_queue_exclude_sender === true
   const savedTimeout = queueScope.mail_queue_ack_timeout !== false
   const savedAttempts = queueScope.mail_queue_max_attempts ?? 3
+  const savedTurnEnd = queueScope.mail_queue_turn_end_reminder !== false
   const savedReminders = Number.isInteger(queueScope.mail_queue_ack_reminders)
     && queueScope.mail_queue_ack_reminders! >= 1 && queueScope.mail_queue_ack_reminders! <= 10
     ? queueScope.mail_queue_ack_reminders! : 3
@@ -1055,6 +1057,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   const [timeoutEdit, setTimeoutEdit] = useState<boolean | undefined>()
   const [attemptsEdit, setAttemptsEdit] = useState<number | undefined>()
   const [remindersEdit, setRemindersEdit] = useState<number | undefined>()
+  const [turnEndEdit, setTurnEndEdit] = useState<boolean | undefined>()
   // the project's slot count (user 2026-10-18 08:42Z: a count, 0 = none, no switch)
   const savedSlots = slotCount(node)
   const [slotsEdit, setSlotsEdit] = useState<number | undefined>()
@@ -1064,6 +1067,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   const timeout = timeoutEdit ?? savedTimeout
   const attempts = attemptsEdit ?? savedAttempts
   const reminders = remindersEdit ?? savedReminders
+  const turnEnd = turnEndEdit ?? savedTurnEnd
   // the ack timeout and max attempts ride the 20-minute checkup (user 08:11Z)
   const [checkups, setCheckups] = useState<boolean | null>(null)
   useEffect(() => {
@@ -1080,12 +1084,13 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
         await op({ op: 'set_description', node: node.id, description })
       if (on !== savedPeer)
         await userGesture(slug,[{op:'scope',node:node.id,peer_mail:on}],`Settings: ${node.id}`)
-      if (mode !== savedMode || exclude !== savedExclude || timeout !== savedTimeout || attempts !== savedAttempts || reminders !== savedReminders)
+      if (mode !== savedMode || exclude !== savedExclude || timeout !== savedTimeout || attempts !== savedAttempts || reminders !== savedReminders || turnEnd !== savedTurnEnd)
         await op({ op: 'set_mail_queue', node: node.id,
           ...(mode !== savedMode ? { mode } : {}), ...(exclude !== savedExclude ? { exclude_sender: exclude } : {}),
           ...(timeout !== savedTimeout ? { ack_timeout: timeout } : {}),
           ...(attempts !== savedAttempts ? { max_attempts: attempts } : {}),
-          ...(reminders !== savedReminders ? { ack_reminders: reminders } : {}) })
+          ...(reminders !== savedReminders ? { ack_reminders: reminders } : {}),
+          ...(turnEnd !== savedTurnEnd ? { turn_end_reminder: turnEnd } : {}) })
       if (slots !== savedSlots) await op({ op: 'set_slots', node: node.id, capacity: slots })
       close()
     } catch (e) { toast([`error: ${(e as Error).message}`]) } finally { setBusy(false) }
@@ -1141,6 +1146,9 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
       </SetRow>
       {(mode === 'ack' || slots >= 1) && <section className="project-ack-settings" aria-label="Acknowledgement">
         <h4>Acknowledgement</h4>
+        {mode === 'ack' && <SetToggle label="Remind an agent that ends its turn with an un-acked job" checked={turnEnd} disabled={busy}
+          onChange={setTurnEndEdit}
+          hint="On: when a listener's turn ends while it still holds an un-acked job, it gets ONE reminder turn right away naming the job: finish it and ack, or set status blocked with a reason. After that the 20-minute ack timeout applies. Not sent if it ended its turn blocked with a reason, or it is halted, frozen or out of usage." />}
         <SetToggle label="Ack timeout" checked={timeout} disabled={busy || checkups === false} onChange={setTimeoutEdit}
           hint={checkups === false
             ? 'Inactive: it rides the 20-minute checkup ("check on working agents after 20 minutes" in Runtime settings), which is off.'

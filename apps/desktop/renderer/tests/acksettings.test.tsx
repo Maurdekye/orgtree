@@ -41,3 +41,17 @@ test('slot-only acknowledgement controls are inactive when runtime checkups are 
   assert.equal(count!.disabled,true)
   assert.equal(el.querySelector<HTMLInputElement>('input[aria-label="Max attempts"]')!.disabled,true)
 })
+test('ack mode offers the turn-end reminder, on by default, and saves only a change',async t=>{
+  const {el,ops}=await settings(t,{mail_queue:'ack'})
+  const box=[...el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+    .find(i=>/Remind an agent that ends its turn/.test(i.closest('label,.set-row,.settings-toggle')?.textContent??i.getAttribute('aria-label')??''))
+  assert.equal(!!box,true,'the reminder toggle is in the Acknowledgement section')
+  assert.equal(box!.checked,true,'on by default')
+  await inAct(()=>{box!.click()})
+  await inAct(async()=>{[...el.querySelectorAll('button')].find(b=>b.textContent==='save')!.click();await flush(4)})
+  assert.deepEqual(ops,[{op:'set_mail_queue',node:'build-project',turn_end_reminder:false}])
+})
+test('round-robin with only a slot has no turn-end reminder toggle',async t=>{
+  const {el}=await settings(t,{slots_capacity:1})
+  assert.equal(/Remind an agent that ends its turn/.test(el.textContent??''),false)
+})
