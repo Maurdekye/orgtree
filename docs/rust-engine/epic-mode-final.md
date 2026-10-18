@@ -1141,17 +1141,18 @@ Pointer exit or window blur clears stale state; input blur does not clear it.
 
 The guard uses passive capture listeners on each stage's own window, including
 pop-outs and controls that stop propagation, with duck-typed adopted elements.
-Destroy removes those listeners. It adds no frame loop, polling or per-control
+Turning EPIC off removes those listeners before the farewell finishes;
+destroy also removes them. It adds no frame loop, polling or per-control
 layout scan, and changes no camera or card transforms. Normal shakes resume
 away from pointer interaction; particles, sound, heat, wire pulses, blur and
 other effects retain their existing behavior. EPIC off retains its original
 no-listener contract.
 
 `epicmode-pointer` covers approach, hovered watchdog descendants and other
-controls, held presses, window exit and second-document cleanup. The isolated
-Electron proof checks real root Web Animations, fixed screen rectangles under
-pan/zoom and mouse-event hit testing for watchdog, link and org-inbox controls.
-It uses synthetic fixture data and a private browser profile.
+controls, held presses, window exit and second-document cleanup; `epicmode-off`
+covers immediate release when the mode is turned off. Per the user's 09:25Z
+spec-mode ruling, native Electron real-mouse proof and wider sweeps are deferred
+until hardening. No native geometry or hit-testing verdict is claimed.
 
 ## Limits
 
