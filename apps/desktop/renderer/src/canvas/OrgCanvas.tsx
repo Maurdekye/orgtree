@@ -52,7 +52,7 @@ import type {
 } from './shared'
 import { DeskChat, DestinationBusy, OrgKillswitchContext, TrayStatus } from './desk'
 import type { DeskChatProps } from './desk'
-import { rememberHire } from '../quickchat'
+import { readQuickChat, rememberHire } from '../quickchat'
 import { OrgDefaultEffort, resolveOrgDefault } from './effort'
 import { EFFORT_LEVELS } from './effortlevels'
 import { TempDeskModal } from './tempdesk'
@@ -3265,6 +3265,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onContinueOn: (account) => void continueFrozenOnAccount(slug, n.id, account, toast),
     }, {
       claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire,
+      quickChatTier: readQuickChat(slug, tree.quick_chat).tier,
       pinned: pinnedIds.has(n.id),
       detached: desk.detached,
       // a piled agent's card is (or becomes, once the row brings it to the
@@ -4148,6 +4149,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           const pileHere = pileByFront.get(n.id)
           const square = (
             <NodeSquare key={n.id} node={n} pos={p} lod={lod} focused={n.id === focusId}
+              quickChatDefaults={tree.quick_chat}
               deskEligible={!worldHidden}
               /* FR-3: the camera is on this card but its desk is a pinned
                  window — placeholder instead of a (second) desk */

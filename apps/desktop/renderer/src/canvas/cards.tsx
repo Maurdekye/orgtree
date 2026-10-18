@@ -13,6 +13,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
+import { readQuickChat } from '../quickchat'
 import { audienceAction, dissolveAll, getCharters, refreshAgyModels, unstickNode } from '../api'
 // §4.8 — a card is drawn straight from its tree entry and cannot await a
 // fetch, so anything it decides about an ARCHIVED seat reads the summary
@@ -1334,6 +1335,8 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   )
 }
 interface NodeSquareProps {
+  /** Org template defaults; manual Quick chat picks are read at menu-open time. */
+  quickChatDefaults?: TreePayload['quick_chat']
   node: CanvasNode
   pos: Pt
   lod: 'mini' | 'norm'
@@ -1546,7 +1549,7 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
   </>
 }
 
-export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, map, op, slug,
+export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, map, op, slug, quickChatDefaults,
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onTeam, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, onNewProject, onNewProjectAt, cascadeAlloc, maxTop, pile, compactAt,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
@@ -1634,6 +1637,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onDismiss,
       onContinueOn: (account) => void continueFrozenOnAccount(slug, node.id, account, toast),
     }, { pinned, piled: !!pile, detached: desk.detached,
+      quickChatTier: readQuickChat(slug, quickChatDefaults).tier,
       claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire })
   }
   const trackEdge = (e: React.PointerEvent<HTMLDivElement>) => {

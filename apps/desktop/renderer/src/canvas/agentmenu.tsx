@@ -119,6 +119,8 @@ export interface AgentMenuHandlers {
 }
 
 export interface AgentMenuState extends HireProviders {
+  /** Current org's remembered/template Quick chat tier, read when the menu opens. */
+  quickChatTier?: string
   /** this agent's desk is already open as a pinned window */
   pinned?: boolean
   /** …or already popped out into a native window of its own. The two are
@@ -241,7 +243,8 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     deskEntries.push({ label: 'Desk in a separate window', title: 'show the separate desk window', onSelect: () => showWindow() })
   }
   entries.splice(1, 0, {
-    label: 'Open', submenuOnly: true, onSelect: () => {},
+    label: 'Open', submenuOnly: !temporary, onSelect: () => temporary?.(),
+    title: temporary ? 'Click to open the temporary desk; hover or press Right to choose what to open' : undefined,
     children: [...deskEntries, ...(deskEntries.length ? ['sep' as const] : []), ...openEntries],
   })
   const hire = h.onHire
@@ -249,13 +252,15 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     // the menu just opened on a model choice: re-read agy's model list
     refreshAgyModels()
     const choices = hireTierChoices(s)
+    const quickTier = choices.find(c => c.tier === s.quickChatTier && c.offer === 'offer')?.tier
     // Copy mention is prepended by useContextMenu: Focus, then Hire.
     entries.splice(1, 0, {
       label: 'Hire a subordinate',
-      title: 'Choose a tier to open its hire form',
-      submenuOnly: true,
+      title: 'Click to open the hire form for the current Quick chat model; hover or press Right to choose a tier. '
+        + 'If no Quick chat model is set or it is unavailable here, click opens the tier submenu.',
+      submenuOnly: !quickTier,
       disabled: choices.length === 0,
-      onSelect: () => {},
+      onSelect: () => { if (quickTier) hire(quickTier) },
       children: choices.map(({ tier, offer, reason }) => ({
         label: tierLabel(tier),
         disabled: offer !== 'offer',
@@ -401,7 +406,8 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   // the project's docket: the items owned by the agents under it
   const docket = h.onDocket
   if (docket) open.push({ label: 'Project docket', onSelect: () => docket() })
-  entries.push({ label: 'Open', submenuOnly: true, onSelect: () => {}, children: open })
+  entries.push({ label: 'Open', submenuOnly: !temp, onSelect: () => temp?.(), children: open,
+    title: temp ? 'Click to open the temporary desk; hover or press Right to choose what to open' : undefined })
   const hire = h.onHire
   if (live && hire && !s.piled) {
     refreshAgyModels()
