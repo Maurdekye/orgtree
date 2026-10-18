@@ -27,7 +27,7 @@ test('busy fast-on turn keeps its bolt when fast-off is queued; current speed wi
   const view = await mountView(<NearCard node={agent(false, { busy: true, fast_mode_current: true })} />, el => el)
   try {
     assert.equal(!!badge(view.el), true)
-    assert.equal(view.el.querySelector('[data-next-turn="fast"]') === null, true, 'queued indicator stays on the desk')
+    assert.equal(view.el.querySelector('[data-next-turn="fast"]') !== null, true, 'queued off is distinct from the active bolt')
   } finally { await view.unmount() }
 })
 

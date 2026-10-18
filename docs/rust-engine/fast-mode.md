@@ -1,6 +1,6 @@
 # Per-agent fast mode (4.4.0)
 
-User 2026-10-17 17:49Z requests a lightning toggle above Send, a Model-tab
+User 2026-10-17 17:49Z requests a lightning toggle beside Send, a Model-tab
 checkbox and a hover label for providers that offer faster inference at higher
 usage. Unsupported controls are hidden, replacing the original disabled-control
 proposal. Coordinator approved the researched design at 17:52:48Z.
@@ -57,8 +57,8 @@ succeed. Command/compaction turns and unknown routes leave it null. Idle actor
 snapshots and the no-actor defaults clear it; the runtime overlay preserves the
 field with its usual epoch/sequence ordering.
 
-Beside the lightning button, the shared next-turn badge says `next turn ? fast
-on` or `next turn ? fast off` only when this serving evidence differs from the
+Beside the lightning button, the shared next-turn badge says `next turn → fast
+on` or `next turn → fast off` only when this serving evidence differs from the
 saved choice during a running turn. Matching, absent/unknown, idle or unsupported
 states show no pending badge. The tooltip names the agent and current/next
 values. A successful save alone never supplies serving evidence. New admission,
@@ -79,3 +79,19 @@ the saved setting. The existing far/map locator and open-desk exclusions remain.
 The rich agent model hover's final segment reads "fast" instead of "fast mode";
 its existing support and saved-preference gating remains. The desk speed
 button's help/accessible name and the Model-tab setting retain their wording.
+
+## Aligned composer and near queued card (2026-10-18)
+
+The agent composer places the queued badge, lightning toggle, effort pill and
+Send/Stop in one horizontal wrapping group. All are 30px tall; wrapping moves
+whole controls. The attachment/notice column retains its existing layout.
+
+Near-zoom cards reuse QueuedFastBadge and its exact NextTurnBadge text and
+explanatory tooltip. They require a supported live agent, busy=true and a known
+boolean serving value opposite the saved preference. Idle, unknown, matching,
+unsupported and archived states hide it. Reversion, next admission, completion
+or loss of support clears it. Far/map views omit near badges. The active-speed
+bolt is independent: queued-on/current-off shows just the queued card;
+queued-off/current-on shows the active bolt plus the queued-off card.
+
+Confirmed layout: user 14:51Z and coordinator 14:52Z m60c9799b5dfe.

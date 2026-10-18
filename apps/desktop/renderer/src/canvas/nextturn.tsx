@@ -1,5 +1,6 @@
 import type { CanvasNode } from './shared'
 import { tierLabel } from './shared'
+import { useFastMode } from './fastmode'
 
 /** The requested target is separate from the value serving this turn. */
 export function NextTurnBadge({ agent, kind, current, next }: {
@@ -28,4 +29,15 @@ export function QueuedModelBadge({ node }: {
   if (!node.pending_switch) return null
   return <NextTurnBadge agent={node.id} kind="model" current={tierLabel(node.tier ?? '?')}
     next={tierLabel(node.pending_switch.tier)} />
+}
+
+/** Saved intent only becomes queued when a known running request differs. */
+export function QueuedFastBadge({ node }: { node: CanvasNode }) {
+  const supported = useFastMode(node.tier, node.scope?.model_version)
+  const current = node.fast_mode_current
+  const next = node.scope?.fast_mode === true
+  if (!supported || node.state !== 'live' || node.busy !== true
+    || typeof current !== 'boolean' || current === next) return null
+  return <NextTurnBadge agent={node.id} kind="fast" current={`fast ${current ? 'on' : 'off'}`}
+    next={`fast ${next ? 'on' : 'off'}`} />
 }

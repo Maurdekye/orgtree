@@ -10,7 +10,7 @@ Up: [orgtree-agent-settings](../SKILL.md)
 Fast mode asks a supported provider for faster inference at higher usage. It is
 separate from thinking effort. Agents explain the setting; the user changes it.
 
-- The lightning button above Send changes this agent's saved setting immediately.
+- The lightning button beside Send changes this agent's saved setting immediately.
   Its pressed state shows the saved choice. Agent settings > Model has the same
   **Fast mode** checkbox, applied with Save.
 - Both controls are hidden when the current harness and model lack support.
@@ -26,6 +26,9 @@ separate from thinking effort. Agents explain the setting; the user changes it.
   speed request sent to that turn. Its tooltip gives both values. It clears on
   next admission, turn completion or reverting the choice. Unknown serving state
   shows no badge; saving alone does not prove a change is pending.
+  The same queued-state card and tooltip appear at near canvas zoom beside the
+  independent active-fast bolt. The composer badge, bolt, effort pill and Send/Stop
+  share a row of 30px controls, wrapping whole controls on narrow desks.
 - The agent hover tooltip includes **fast** when saved on for a supported model.
   Changing to an unsupported model ignores the stored choice and hides the controls.
   Switching back restores the saved preference.

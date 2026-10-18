@@ -1,4 +1,4 @@
-import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
+import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge } from './nextturn'
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
 import { toggleAgentHalt } from './haltcontrol'
 // canvas/cards.tsx — the canvas's card components: the overseer eye
@@ -2047,6 +2047,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {activeFast && <span className="badge fast-mode" title="fast" aria-label="fast">
             <BoltIcon fontSize="inherit" />
           </span>}
+          <QueuedFastBadge node={node} />
           {node.remote_controlled &&
             <span className="badge frozen"
               title="the user is driving this session from another device — mail queues until release (gear panel)">

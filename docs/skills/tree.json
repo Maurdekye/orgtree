@@ -3217,7 +3217,7 @@
    "must_cover": [
     "every badge and chip and what it means",
     "idle completion age and active admission clock references",
-    "near active-fast bolt, exact fast tooltip, serving-versus-queued semantics and zoom exclusions"
+    "near active-fast bolt plus independent queued fast on/off card and tooltip, serving-versus-queued semantics and zoom exclusions"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/cards.tsx:1413",
@@ -5627,7 +5627,7 @@
     "hidden unsupported controls",
     "next-turn same-session application",
     "next-turn fast on/off badge from running-turn serving evidence, clearing and unknown states",
-    "near-zoom active fast bolt and rich agent hover segment fast",
+    "near-zoom active fast bolt, queued fast on/off card, aligned wrapping 30px composer controls and rich agent hover segment fast",
     "provider refusals and reported usage"
    ],
    "sources": [

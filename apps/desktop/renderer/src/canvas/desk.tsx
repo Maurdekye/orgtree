@@ -4370,6 +4370,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           }} />
         {mentions.menu}
         <UrgentAgentOptions active={node.dnd} value={urgentMail} onChange={setUrgentMail} />
+        <div className="cc-controls">
+        <FastModeButton node={node} slug={slug} toast={toast} />
         <EffortButton value={node.scope?.effort ?? ''}
           effective={node.effort_effective ?? ''}
           // a Muse seat's levels are its model's row on the login it runs on
@@ -4386,8 +4388,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             payload's responding (refreshed every pulse + 5 s poll): the tree
             copy goes stale during a turn and the STOP never appeared while a
             long command ran (user bug 2026-07-31). Enter still queues. */}
-        <div className="cc-btnstack">
-        <FastModeButton node={node} slug={slug} toast={toast} />
         {(chat?.responding ?? node.responding)
           ? <button className="cc-send stop" title="interrupt the current response — Enter still queues your message"
               onClick={() => interruptNode(slug, node.id)

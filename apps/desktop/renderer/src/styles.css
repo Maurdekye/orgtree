@@ -5941,8 +5941,17 @@ svg.MuiSvgIcon-root {
   display: flex; flex-direction: column; align-items: center;
   gap: 4px; flex: none;
 }
-.cc-fast-row { display: flex; align-items: center; gap: 4px; }
-.cc-btnstack:has(.cc-fast-row) { align-items: flex-end; }
+/* Agent composer controls wrap as whole items with a shared 30px baseline. */
+.cc-controls {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+  gap: 6px; flex: 0 1 auto; min-width: 0; max-width: calc(100% - 64px);
+}
+.cc-controls > .next-turn, .cc-controls .cc-fast,
+.cc-controls .cc-eff, .cc-controls .cc-send {
+  height: 30px; box-sizing: border-box; flex: none;
+}
+.cc-controls > .next-turn { display: inline-flex; align-items: center; }
+.cc-controls .cc-fast, .cc-controls .cc-send { width: 30px; }
 .cc-fast {
   width: 24px; height: 24px; padding: 0; flex: none; border-radius: 50%;
   background: none; border: 1px solid var(--line); color: var(--dim);
