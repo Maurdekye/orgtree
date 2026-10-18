@@ -18,6 +18,12 @@ Rows include tier, pending-model badge, context wheel, live/queued/halted/frozen
 
 Use the list to locate evidence or the correct identity before advising a lifecycle action. Displaying a row does not itself resume a turn or grant a peer management rights; the agent-side read boundary is described by `orgtree-visibility` (orgtree-working › inspection).
 
+## Team lists
+
+The Team tab on an agent or project desk uses these same rows, hierarchy, ordering, navigation and shared context menus, limited to that node and all its descendants. Its Filter, Active and Show archived controls apply within that subtree. Team filter choices belong to that view; they do not change the global Agents list's saved Active preference. Membership updates from the current organization feed, so opening Team does not fetch a separate list for each node.
+
+Choose **Open → Team** in an agent or project context menu to open its Team panel. The switchboard's **Agents list** menu entry opens the global list instead. Team's pin and pop-out controls are described in [agent desk](../../desk/agent-desk/SKILL.md).
+
 ## See also
 
 - [orgtree-org-canvas](../org-canvas/SKILL.md)

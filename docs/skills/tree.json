@@ -3337,18 +3337,23 @@
    ],
    "purpose": "The agents list: hierarchy, search, active checkbox in the title bar beside pin/pop-out, and archived filter.",
    "must_cover": [
-    "search, active-only meaning and persistence, and archived"
+    "search, active-only meaning and persistence, and archived",
+    "Team lists scope the same rows to self and descendants, with local filters and live feed updates"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/OrgCanvas.tsx:4147",
     "apps/desktop/renderer/src/canvas/agenttray.tsx:102",
-    "apps/desktop/renderer/src/canvas/modalpin.tsx:522"
+    "apps/desktop/renderer/src/canvas/modalpin.tsx:522",
+    "apps/desktop/renderer/src/canvas/team.tsx:36"
    ],
    "see_also": [
     "org-canvas"
    ],
    "writer": "org-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/team.tsx#AgentTeamView"
+   ]
   },
   {
    "path": "orgtree-app/canvas/context-menus",
@@ -3440,18 +3445,23 @@
    "must_cover": [
     "each banner",
     "each header action",
-    "idle completion age, legacy fallback and Antigravity mid-turn active clock"
+    "idle completion age, legacy fallback and Antigravity mid-turn active clock",
+    "agent and project Team tabs, shared Open menu entry, pin and pop-out restoration"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/desk.tsx:1907",
-    "apps/desktop/renderer/src/canvas/haltcontrol.tsx:13"
+    "apps/desktop/renderer/src/canvas/haltcontrol.tsx:13",
+    "apps/desktop/renderer/src/canvas/team.tsx:64"
    ],
    "see_also": [
     "desk-chat",
     "agent-config"
    ],
    "writer": "providers-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/team.tsx#TeamModal"
+   ]
   },
   {
    "path": "orgtree-app/desk/desk-chat",

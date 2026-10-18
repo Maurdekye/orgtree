@@ -30,6 +30,9 @@
   navigation and canonical menus shared. `agent-team` uses PanelCorner/PinFrame
   and generation-checked window restoration. The switchboard menu opens the
   global Agents list. See [Team tab](docs/rust-engine/team-tab.md).
+  The skills tree assigns `AgentTeamView` to `canvas/agents-list` and `TeamModal`
+  to `desk/agent-desk`; keep both homes with exported Team screens.
+  [verified: `docs/skills/tree.json`, `canvas/team.tsx`; 2026-10-18]
   [decided: user 2026-10-18 10:53–10:56Z; verified: `canvas/{team,desk,projectdesk,OrgCanvas,agentmenu,cards}.tsx`]
 - Transcript `@user` highlights come from each assistant message's own text,
   never the dismissible attention/jump selection. Shared Msg and genuine live

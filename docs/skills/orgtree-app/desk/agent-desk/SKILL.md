@@ -44,6 +44,9 @@ The separate Halt and Stop controls are consequential: Stop interrupts a respons
 - [Inbox](../inbox-screens/SKILL.md): the agent's mailbox.
 - [Docket](../docket-screens/SKILL.md): its work items.
 - [Presented](../presentations/SKILL.md): document collection.
+- [Team](../../canvas/agents-list/SKILL.md): the same Agents List restricted to this node and all descendants, including its Filter, Active and archived controls. Project desks offer Team as well.
+
+The shared agent/project context menu's **Open → Team** entry opens that node's Team panel. Team supports pinning and popping out through the existing window controls. Its saved window placement is tied to the organization, node and node generation, so a replacement identity does not inherit the old panel. Rows and membership follow the current feed; opening Team does not start another agent or turn.
 
 Agent event history is available in the agent settings panel when the agent has retained records. Scratch folders open in the OS file explorer through **Open → Scratch folder** in the agent menu or **Open scratch folder** in the settings header.
 
