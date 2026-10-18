@@ -203,9 +203,12 @@ async fn list_page(
     let members: Option<Vec<i64>> = members.map(<[i64]>::to_vec);
     let rows = client
         .query(
-            "SELECT d.uid, d.node_name, d.title, d.at, d.format, d.bytes, coalesce(a.state, 'deleted'), a.tier, d.viewed_at,
-                    coalesce(d.presented_by, d.node_name),
-                    (SELECT p.tier FROM ot.agents p WHERE p.org_id = d.org_id AND p.name = coalesce(d.presented_by, d.node_name)
+            -- `node` is the node's CURRENT name: a document keeps the name it was
+            // presented under, and a renamed node's rows must still match its
+            // gallery and focus it (docket org/rename item)
+            "SELECT d.uid, coalesce(a.name, d.node_name), d.title, d.at, d.format, d.bytes, coalesce(a.state, 'deleted'), a.tier, d.viewed_at,
+                    coalesce(d.presented_by, a.name, d.node_name),
+                    (SELECT p.tier FROM ot.agents p WHERE p.org_id = d.org_id AND p.name = coalesce(d.presented_by, a.name, d.node_name)
                       AND p.state <> 'deleted' ORDER BY (p.state = 'live') DESC, p.id DESC LIMIT 1)
                FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
               WHERE d.org_id = $1
