@@ -1063,6 +1063,29 @@ mod hire_contract_tests {
 }
 
 #[cfg(test)]
+mod dnd_tests {
+    use super::*;
+    #[test]
+    fn status_exposes_turn_local_do_not_disturb() {
+        let card=list().into_iter().find(|c| c["name"]=="orgtree_status").unwrap();
+        assert_eq!(card["inputSchema"]["properties"]["dnd"]["type"],"boolean","status needs DND control");
+    }
+    #[test]
+    fn every_midturn_delivery_checks_dnd_before_harness_work() {
+        let source=include_str!("../runtime/actor.rs");
+        for name in ["steer_codex","steer_agy","on_hook"] {
+            let body=source.split(&format!("async fn {name}(")).nth(1).unwrap().split("RETURNING id, to_jsonb(ot.mail.*)").next().unwrap();
+            assert!(body.contains("ot.agent_dnd"),"{name} must hold ordinary mail before steering or interrupt");
+        }
+    }
+    #[test]
+    fn status_still_available_with_all_groups_off() {
+        let off=json!({"orgtree":crate::domain::tool_groups::GROUPS.iter().map(|g|((*g).to_string(),json!(false))).collect::<serde_json::Map<_,_>>()});
+        assert!(crate::domain::tool_groups::allows(&off,"orgtree_status"));
+    }
+}
+
+#[cfg(test)]
 mod slot_release_scope_tests {
     use super::*;
 
