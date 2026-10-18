@@ -7,6 +7,7 @@ import {
   AgentNavProvider, agentNavProps, useProvideAgentNav,
 } from '../src/canvas/agentnav'
 import { NodeSquare } from '../src/canvas/cards'
+import { AgentLink, ProjectLink } from '../src/canvas/identity'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 import type { AgentTooltipInfo } from '../src/canvas/agentnav'
@@ -93,6 +94,86 @@ test('model badge inherits the agent link identity tooltip instead of its tier l
   const card = v.el.querySelector<HTMLElement>('.sq')!
   const badge = card.querySelector<HTMLElement>('.sq-title .tier')!
   await inAct(() => badge.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
-  assert.equal(badge.title, 'Claude Opus 5.5 · max',
-    'the badge itself resolves the full identity tooltip instead of keeping its tier id')
+  assert.equal(badge.title, 'worker\nClaude Opus 5.5 · max',
+    'a model badge starts its identity tooltip with the agent name')
+})
+
+test('the near-zoom agent name uses the rich tooltip without a plain title', async t => {
+  const nd = {
+    id: 'worker', state: 'live', tier: 'opus', model_id: 'claude-opus-5-5',
+    children: [], seat: 1, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] },
+  } as unknown as CanvasNode
+  function RegisteredCard() {
+    useProvideAgentNav(() => [], id => id === 'worker'
+      ? { title: 'Claude Opus 5.5 · max' } : null)
+    return <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
+      dragging={false} isDrop={false} seats={{ opus: 4 }} map={new Map([[nd.id, nd]])}
+      op={() => Promise.resolve({} as OpResult)} slug="org" toast={() => {}}
+      pxc={1} zoom={1} compactAt={0.8} maxTop={0} cascadeAlloc
+      onSpawn={() => {}} onConfig={() => {}} onInbox={() => {}} onLineage={() => {}}
+      onRecenter={() => {}} onJump={() => {}} onMailLink={() => {}} onWorkLink={() => {}}
+      onDragStart={() => {}} onDragMove={() => {}} onDragEnd={() => {}} onDragCancel={() => {}} />
+  }
+  const v = await mountView(<AgentNavProvider><RegisteredCard /></AgentNavProvider>, host => host)
+  t.after(() => v.unmount())
+  await flush()
+  const name = v.el.querySelector<HTMLElement>('.sq-title .name')!
+  assert.equal(name.hasAttribute('title'), false, 'the name has no competing native name-only tooltip')
+  await inAct(() => name.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(name.title, 'Claude Opus 5.5 · max', 'hover resolves the rich agent tooltip on the name itself')
+})
+
+test('compact-map agent name uses the rich tooltip; far-zoom icon starts with its name', async t => {
+  const nd = {
+    id: 'worker', state: 'live', tier: 'opus', model_id: 'claude-opus-5-5',
+    children: [], seat: 1, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] },
+  } as unknown as CanvasNode
+  function RegisteredCard({ lod, mapMode }: { lod: 'norm' | 'mini'; mapMode?: boolean }) {
+    useProvideAgentNav(() => [], id => id === 'worker'
+      ? { title: 'Claude Opus 5.5 · max' } : null)
+    return <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod={lod} mapMode={mapMode} focused={false}
+      dragging={false} isDrop={false} seats={{ opus: 4 }} map={new Map([[nd.id, nd]])}
+      op={() => Promise.resolve({} as OpResult)} slug="org" toast={() => {}}
+      pxc={1} zoom={1} compactAt={0.8} maxTop={0} cascadeAlloc
+      onSpawn={() => {}} onConfig={() => {}} onInbox={() => {}} onLineage={() => {}}
+      onRecenter={() => {}} onJump={() => {}} onMailLink={() => {}} onWorkLink={() => {}}
+      onDragStart={() => {}} onDragMove={() => {}} onDragEnd={() => {}} onDragCancel={() => {}} />
+  }
+  const map = await mountView(<AgentNavProvider><RegisteredCard lod="norm" mapMode /></AgentNavProvider>, host => host)
+  t.after(() => map.unmount())
+  await flush()
+  const mapName = map.el.querySelector<HTMLElement>('.map-name')!
+  await inAct(() => mapName.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(mapName.title, 'Claude Opus 5.5 · max', 'the name remains identified at compact-map zoom')
+
+  const far = await mountView(<AgentNavProvider><RegisteredCard lod="mini" /></AgentNavProvider>, host => host)
+  t.after(() => far.unmount())
+  await flush()
+  const card = far.el.querySelector<HTMLElement>('.sq')!
+  await inAct(() => card.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(card.title, 'worker\nClaude Opus 5.5 · max', 'the name-less far-zoom locator identifies its agent')
+})
+
+test('name-less shared agent and project links put the identity first', async t => {
+  function Registry() {
+    useProvideAgentNav(() => [], id => id === 'worker'
+      ? { title: 'Claude Opus 5.5 · max' }
+      : id === 'website' ? { title: 'Project · Summary: the company site' } : null)
+    return null
+  }
+  const v = await mountView(<AgentNavProvider><Registry />
+    <AgentLink id="worker" label="Owner…" />
+    <AgentLink id="worker" label="worker" />
+    <ProjectLink id="website" label="Project…" />
+  </AgentNavProvider>, host => host)
+  t.after(() => v.unmount())
+  await flush()
+  const links = [...v.el.querySelectorAll<HTMLElement>('[data-agent-tooltip]')]
+  assert.equal(links.length, 3)
+  await inAct(() => links[0]!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(links[0]!.title, 'worker\nClaude Opus 5.5 · max')
+  await inAct(() => links[1]!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(links[1]!.title, 'Claude Opus 5.5 · max', 'visible agent names are not duplicated')
+  await inAct(() => links[2]!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(links[2]!.title, 'website\nProject · Summary: the company site')
 })

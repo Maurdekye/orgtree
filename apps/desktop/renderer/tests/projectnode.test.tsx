@@ -29,6 +29,7 @@ import * as newproject from '../src/canvas/newproject'
 import { ProjectDraftNode, projectDraftSteps } from '../src/canvas/newproject'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeSquare } from '../src/canvas/cards'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import { agentMenuEntries, projectMenuEntries } from '../src/canvas/agentmenu'
 import type { AgentMenuHandlers } from '../src/canvas/agentmenu'
 import { agentItems, teamItems } from '../src/canvas/docket'
@@ -194,6 +195,32 @@ test('§2a a project draws as a project card: no model, credit bar, desk or turn
     assert.ok(agent.el.querySelector(sel), `control: an agent card draws ${sel}`)
     assert.equal(sq.querySelector(sel) === null, true, `no ${sel} on a project`)
   }
+})
+
+test('§2a1 project card name uses its rich tooltip; the far-zoom folder starts with the project name', async (t) => {
+  const rich = 'Project · Summary: the company website'
+  function Registry() {
+    useProvideAgentNav(() => [], id => id === 'website' ? { title: rich } : null)
+    return null
+  }
+  const render = (lod: 'norm' | 'mini') => mountView(
+    <AgentNavProvider><Registry /><ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod={lod}
+      dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={2}
+      hire={{ claudeHire: offer }} seats={seats} onHire={noop} onInbox={noop} onNewProject={noop}
+      onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} /></AgentNavProvider>, el => el)
+
+  const near = await render('norm')
+  t.after(() => near.unmount())
+  const name = near.el.querySelector<HTMLElement>('.sq.project .name')!
+  assert.equal(name.hasAttribute('title'), false, 'project name has no plain browser title')
+  await inAct(() => name.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(name.title, rich, 'near-zoom project name resolves its rich project tooltip')
+
+  const far = await render('mini')
+  t.after(() => far.unmount())
+  const folder = far.el.querySelector<HTMLElement>('.project-mini')!
+  await inAct(() => folder.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(folder.title, `website\n${rich}`, 'the icon-only far-zoom project card names its project first')
 })
 
 test('§2b0 the mailbox hover button follows "Show agent card shortcuts" (off by default)', async (t) => {
