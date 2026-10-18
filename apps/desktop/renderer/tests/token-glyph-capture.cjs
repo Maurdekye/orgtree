@@ -32,10 +32,18 @@ app.whenReady().then(async () => {
         if (mode === 'before') assert.equal(count.svg, 1)
         else { assert.equal(count.svg, 0); assert.equal(count.glyph, 'T'); assert.equal(count.hidden, 'true'); assert.match(count.font, /Georgia.*serif/) }
       }
-      const image = await win.webContents.capturePage()
+      let image, actualBackground
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,100))))')
+        image = await win.webContents.capturePage()
+        const bitmap = image.toBitmap()
+        actualBackground = `rgb(${bitmap[2]}, ${bitmap[1]}, ${bitmap[0]})`
+        if (actualBackground === state.background) break
+      }
+      assert.equal(actualBackground, state.background, 'capture pixels must match the current theme')
       assert.equal(image.isEmpty(), false)
       fs.writeFileSync(path.join(root, theme + '.png'), image.toPNG())
-      receipts.push({ theme, ...state })
+      receipts.push({ theme, actualBackground, ...state })
     }
     fs.writeFileSync(path.join(root, 'capture.json'), JSON.stringify({ mode, receipts }, null, 2))
     console.log(JSON.stringify({ mode, themes: receipts.length, countsPerTheme: 4 }))
