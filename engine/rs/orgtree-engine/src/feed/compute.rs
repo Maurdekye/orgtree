@@ -162,6 +162,38 @@ pub fn mail_entry(m: &Value) -> Value {
     if state == "delivering" {
         o.insert("delivering".into(), json!(true));
     }
+    // a project mail's place in its queue (user 2026-10-18 08:01Z): who was
+    // handed it and whether it is acked, released back to the queue, or an
+    // ack record closing another mail
+    let x = &m["extra"];
+    let mut q = serde_json::Map::new();
+    if let Some(c) = x.get("claimed").filter(|v| v.is_object()) {
+        q.insert("held_by".into(), c["by"].clone());
+        q.insert("ack".into(), json!(c["ack"].as_bool() == Some(true)));
+        for k in ["acked_at", "ack_mail", "ack_waived_at"] {
+            if let Some(v) = c.get(k).filter(|v| !v.is_null()) {
+                q.insert(k.into(), v.clone());
+            }
+        }
+    }
+    if let Some(r) = x.get("released").filter(|v| v.is_object()) {
+        q.insert("released".into(), json!({ "by": r["by"], "why": r["why"] }));
+    }
+    if let Some(a) = x.get("ack_of").filter(|v| v.is_string()) {
+        q.insert("ack_of".into(), a.clone());
+    }
+    if let Some(d) = x.get("dead_letter").filter(|v| v.is_object()) {
+        q.insert("dead_letter".into(), json!({ "by": d["by"], "why": d["why"], "attempts": d["attempts"] }));
+    }
+    if let Some(p) = x.get("purged").filter(|v| v.is_object()) {
+        q.insert("purged".into(), json!({ "by": p["by"] }));
+    }
+    if let Some(n) = x.get("attempts").filter(|v| v.is_number()) {
+        q.insert("attempts".into(), n.clone());
+    }
+    if !q.is_empty() {
+        o.insert("queue".into(), Value::Object(q));
+    }
     Value::Object(o)
 }
 

@@ -207,7 +207,23 @@ export interface MailEntry {
    *  here that could silently drop them. */
   urgent?: boolean
   urgent_reason?: string
+  /** a project mail's place in its queue (user 2026-10-18 08:01Z): who was
+   *  handed it and whether it is acked, released, or an ack record */
+  queue?: MailQueueState
   [k: string]: unknown
+}
+
+export interface MailQueueState {
+  held_by?: string
+  ack?: boolean
+  acked_at?: string
+  ack_mail?: string
+  ack_waived_at?: string
+  released?: { by?: string; why?: string }
+  ack_of?: string
+  dead_letter?: { by?: string; why?: string; attempts?: number }
+  purged?: { by?: string }
+  attempts?: number
 }
 
 // schema.py OrgInboxEntry — the inter-org bridge log

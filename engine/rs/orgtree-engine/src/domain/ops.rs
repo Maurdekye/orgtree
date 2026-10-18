@@ -706,6 +706,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         "rename" => rename(org, &tx, actor, req, fx, false).await?,
         "set_description" => set_description(org, &tx, actor, req, fx).await?,
         "set_mail_queue" => set_mail_queue(org, &tx, actor, req, fx).await?,
+        "purge_mail_queue" => purge_mail_queue(org, &tx, actor, req, fx).await?,
         "reallocate" => reallocate(engine, org, &tx, actor, req, fx).await?,
         "switch_model" => switch_model(engine, org, &tx, actor, req, fx).await?,
         "reorder" => reorder(org, &tx, actor, req, fx).await?,
@@ -1990,12 +1991,24 @@ async fn set_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Acto
         Some(m) if m == crate::domain::projects::MODE_ROUND_ROBIN => Some(false),
         Some(_) => refuse!(BadRequest, "mode is round_robin or ack"),
     };
-    let exclude = match req.get("exclude_sender") {
-        None | Some(Value::Null) => None,
-        Some(v) => Some(v.as_bool().ok_or_else(|| anyhow::Error::new(crate::domain::UserError::BadRequest("exclude_sender is true or false".into())))?),
+    let flag = |k: &str| -> Result<Option<bool>> {
+        match req.get(k) {
+            None | Some(Value::Null) => Ok(None),
+            Some(v) => Ok(Some(v.as_bool().ok_or_else(|| anyhow::Error::new(
+                crate::domain::UserError::BadRequest(format!("{k} is true or false"))))?)),
+        }
     };
-    if ack.is_none() && exclude.is_none() {
-        refuse!(BadRequest, "set_mail_queue needs mode (round_robin or ack) or exclude_sender");
+    let exclude = flag("exclude_sender")?;
+    let timeout = flag("ack_timeout")?;
+    let attempts = match req.get("max_attempts") {
+        None | Some(Value::Null) => None,
+        Some(v) => match v.as_i64().filter(|n| (1..=100).contains(n)) {
+            Some(n) => Some(n),
+            None => refuse!(BadRequest, "max_attempts is a number from 1 to 100"),
+        },
+    };
+    if ack.is_none() && exclude.is_none() && timeout.is_none() && attempts.is_none() {
+        refuse!(BadRequest, "set_mail_queue needs mode (round_robin or ack), exclude_sender, ack_timeout or max_attempts");
     }
     let before: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1 FOR UPDATE", &[&n.id]).await?.get(0);
     let mut next = if before.is_object() { before.clone() } else { json!({}) };
@@ -2004,6 +2017,12 @@ async fn set_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Acto
     }
     if let Some(x) = exclude {
         next["mail_queue_exclude_sender"] = json!(x);
+    }
+    if let Some(x) = timeout {
+        next["mail_queue_ack_timeout"] = json!(x);
+    }
+    if let Some(n) = attempts {
+        next["mail_queue_max_attempts"] = json!(n);
     }
     let mode_changed = ack.is_some_and(|a| crate::domain::projects::ack_mode(&before) != a);
     tx.execute("UPDATE ot.agents SET scope = $2, row_version = row_version + 1 WHERE id = $1", &[&n.id, &next]).await?;
@@ -2014,7 +2033,25 @@ async fn set_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Acto
         fx.queue_modes.push((n.id, n.name.clone(), ack == Some(true)));
     }
     Ok(json!({ "node": n.name, "mode": next["mail_queue"].as_str().unwrap_or(crate::domain::projects::MODE_ROUND_ROBIN),
-               "exclude_sender": crate::domain::projects::exclude_sender(&next), "mode_changed": mode_changed }))
+               "exclude_sender": crate::domain::projects::exclude_sender(&next),
+               "ack_timeout": crate::domain::projects::ack_timeout(&next),
+               "max_attempts": crate::domain::projects::max_attempts(&next), "mode_changed": mode_changed }))
+}
+
+/// Purge a project's waiting mail (user 2026-10-18 08:11Z): every mail no
+/// watcher holds yet is retracted; handed, acked and dead-letter mail stay.
+#[logged]
+async fn purge_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project's mail queue can be purged", n.name);
+    }
+    authorize(tx, actor, &n, "purge its mail queue").await?;
+    tx.query_one("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&n.id]).await?;
+    let purged = crate::domain::projects::purge_waiting(tx, n.id, &actor.label()).await?;
+    event(tx, org.id, "purge_mail_queue", actor, Some(n.id), json!({ "node": n.name, "purged": purged }), fx).await?;
+    fx.mailboxes.push(n.id);
+    Ok(json!({ "node": n.name, "purged": purged }))
 }
 
 #[logged]

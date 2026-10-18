@@ -53,6 +53,23 @@ pub fn exclude_sender(scope: &Value) -> bool {
     scope.get("mail_queue_exclude_sender").and_then(Value::as_bool) == Some(true)
 }
 
+/// Checkup wakes a held, un-acked mail gets before the ack timeout reclaims
+/// it (user 2026-10-18 08:11Z).
+pub const ACK_WAKES: i64 = 3;
+
+/// Is the project's ack timeout on (`scope.mail_queue_ack_timeout`, default on)?
+#[nolog]
+pub fn ack_timeout(scope: &Value) -> bool {
+    scope.get("mail_queue_ack_timeout").and_then(Value::as_bool) != Some(false)
+}
+
+/// How many times a mail is handed out before a reclaim dead-letters it
+/// (`scope.mail_queue_max_attempts`, default 3, 1 to 100).
+#[nolog]
+pub fn max_attempts(scope: &Value) -> i64 {
+    scope.get("mail_queue_max_attempts").and_then(Value::as_i64).filter(|n| (1..=100).contains(n)).unwrap_or(3)
+}
+
 /// SQL: a project mail (alias `m`) handed in ack mode and not acked yet.
 const OUTSTANDING: &str = "m.state = 'read' AND coalesce((m.extra->'claimed'->>'ack')::boolean, false)
     AND m.extra->'claimed'->>'acked_at' IS NULL";
@@ -301,7 +318,8 @@ async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Opt
     tx.execute(
         "UPDATE ot.mail SET state = 'read', read_at = now(), delivered_at = coalesce(delivered_at, now()),
                 extra = extra || jsonb_build_object('claimed', jsonb_build_object('by', $2::text, 'by_id', $3::bigint,
-                        'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean))
+                        'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean, 'wakes', 0),
+                        'attempts', coalesce((extra->>'attempts')::int, 0) + 1)
           WHERE id = $1",
         &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack],
     )
@@ -471,34 +489,159 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
     drop(client);
     let mut released = Vec::new();
     for (row, holder, by, copy, why) in gone {
-        let mut client = engine.db.get().await?;
-        let tx = client.transaction().await?;
-        tx.query_opt("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&project]).await?;
-        let n = tx
-            .execute(
-                &format!("UPDATE ot.mail m SET state = 'pending', read_at = NULL,
-                            extra = (m.extra - 'claimed') || jsonb_build_object('released', jsonb_build_object(
-                                'by', $2::text, 'by_id', $3::bigint, 'why', $4::text, 'copy', $5::text, 'at', now()))
-                          WHERE m.id = $1 AND {OUTSTANDING}"),
-                &[&row, &by, &holder, &why, &copy],
-            )
-            .await?;
-        if let Some(c) = &copy {
-            tx.execute(
-                "UPDATE ot.mail SET extra = extra || jsonb_build_object('released', jsonb_build_object('why', $2::text, 'at', now()))
-                  WHERE uid = $1",
-                &[c, &why],
-            )
-            .await?;
-        }
-        tx.commit().await?;
-        if n == 1 {
-            tracing::info!(project, holder = %by, why, "an un-acked project mail went back to the front of the queue");
-            changes::notify_id(engine, org_id, vec![Change::Mailbox(project), Change::Mailbox(holder)]);
+        if reclaim(engine, org_id, project, row, holder, &by, copy.as_deref(), why).await?.is_some() {
             released.push(by);
         }
     }
     Ok(released)
+}
+
+/// Take an un-acked mail back from its holder: to the front of the queue,
+/// or, when it has used up the project's max attempts and the 20-minute
+/// checkup is on (user 2026-10-18 08:11Z), to the dead-letter list, which
+/// tells the user. One short transaction. `Some(dead)` when it was taken.
+#[logged]
+#[allow(clippy::too_many_arguments)]
+async fn reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, row: i64, holder: i64, by: &str, copy: Option<&str>,
+                 why: &str) -> Result<Option<bool>> {
+    let counted = crate::runtime::reminders::switches(engine).checkups;
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let Some(p) = tx.query_opt("SELECT name, scope FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&project]).await? else {
+        return Ok(None);
+    };
+    let (pname, scope): (String, Value) = (p.get(0), p.get(1));
+    let Some(m) = tx
+        .query_opt(&format!("SELECT m.uid, coalesce((m.extra->>'attempts')::bigint, 0) FROM ot.mail m WHERE m.id = $1 AND {OUTSTANDING} FOR UPDATE"),
+            &[&row])
+        .await?
+    else {
+        return Ok(None);
+    };
+    let (uid, attempts): (String, i64) = (m.get(0), m.get(1));
+    let dead = counted && attempts >= max_attempts(&scope);
+    if dead {
+        tx.execute(
+            "UPDATE ot.mail m SET extra = (m.extra - 'claimed') || jsonb_build_object('dead_letter', jsonb_build_object(
+                    'by', $2::text, 'by_id', $3::bigint, 'why', $4::text, 'attempts', $5::bigint, 'at', now()))
+              WHERE m.id = $1",
+            &[&row, &by, &holder, &why, &attempts],
+        )
+        .await?;
+    } else {
+        tx.execute(
+            "UPDATE ot.mail m SET state = 'pending', read_at = NULL,
+                    extra = (m.extra - 'claimed') || jsonb_build_object('released', jsonb_build_object(
+                        'by', $2::text, 'by_id', $3::bigint, 'why', $4::text, 'copy', $5::text, 'at', now()))
+              WHERE m.id = $1",
+            &[&row, &by, &holder, &why, &copy],
+        )
+        .await?;
+    }
+    if let Some(c) = copy {
+        tx.execute(
+            "UPDATE ot.mail SET extra = extra || jsonb_build_object('released', jsonb_build_object('why', $2::text, 'at', now()))
+              WHERE uid = $1",
+            &[&c, &why],
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    drop(client);
+    changes::notify_id(engine, org_id, vec![Change::Mailbox(project), Change::Mailbox(holder)]);
+    if dead {
+        tracing::warn!(project = %pname, mail = %uid, attempts, "a project mail ran out of attempts and was dead-lettered");
+        let body = format!(
+            "Project {pname} gave up on mail {uid}: it was handed out {attempts} times without an ack (the last holder, {by}, {why}). \
+             It is in the project's dead-letter list and will not be handed out again.");
+        // to the project's superior, the nearest live agent above it; the user
+        // for a top-level project (user 2026-10-18 08:13Z)
+        let to = superior(engine, project).await.unwrap_or_else(|| "user".into());
+        let out = crate::domain::mail::Outgoing::new(crate::domain::mail::From::System, &to, &body);
+        if let Err(e) = Box::pin(crate::domain::mail::send(engine, org_id, out)).await {
+            tracing::warn!(error = %format!("{e:#}"), "telling the user of a dead letter failed");
+        }
+    } else {
+        tracing::info!(project = %pname, holder = %by, why, "an un-acked project mail went back to the front of the queue");
+    }
+    Ok(Some(dead))
+}
+
+/// The nearest live agent above a project (projects are crossed), or None
+/// when only projects stand above it.
+#[logged]
+async fn superior(engine: &Arc<Engine>, project: i64) -> Option<String> {
+    let client = engine.db.get().await.ok()?;
+    client
+        .query_opt(
+            "WITH RECURSIVE up(id, depth) AS (
+               SELECT parent_id, 1 FROM ot.agents WHERE id = $1 AND parent_id IS NOT NULL
+               UNION ALL SELECT a.parent_id, u.depth + 1 FROM ot.agents a JOIN up u ON a.id = u.id
+                WHERE a.kind = 'project' AND a.parent_id IS NOT NULL AND u.depth < 1024)
+             SELECT a.name FROM up u JOIN ot.agents a ON a.id = u.id
+              WHERE a.kind = 'agent' AND a.state = 'live' ORDER BY u.depth LIMIT 1",
+            &[&project],
+        )
+        .await
+        .ok()
+        .flatten()
+        .map(|r| r.get(0))
+}
+
+/// The ack timeout (user 2026-10-18 08:11Z), run by the working checkup an
+/// agent holding un-acked mail is due for: each held mail with the timeout
+/// on counts the wake; one that already had `ACK_WAKES` is reclaimed instead
+/// and its project's queue runs. Returns what the agent still holds, for the
+/// checkup's note.
+#[logged]
+pub async fn ack_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &str) -> Result<Vec<(String, String)>> {
+    let client = engine.db.get().await?;
+    let rows = client
+        .query(
+            &format!("SELECT m.id, m.recipient_agent_id, p.name, p.scope, m.extra->'claimed'->>'copy',
+                             coalesce((m.extra->'claimed'->>'wakes')::bigint, 0)
+                        FROM ot.mail m JOIN ot.agents p ON p.id = m.recipient_agent_id
+                       WHERE (m.extra->'claimed'->>'by_id')::bigint = $1 AND {OUTSTANDING} AND p.kind = 'project'
+                       ORDER BY m.id LIMIT 20"),
+            &[&agent],
+        )
+        .await?;
+    drop(client);
+    let mut kept = Vec::new();
+    for r in &rows {
+        let (row, project, pname, scope, copy, wakes): (i64, i64, String, Value, Option<String>, i64) =
+            (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
+        if ack_timeout(&scope) && wakes >= ACK_WAKES {
+            let why = format!("did not ack it after {ACK_WAKES} reminders");
+            reclaim(engine, org_id, project, row, agent, name, copy.as_deref(), &why).await?;
+            Box::pin(dispatch(engine, org_id, project)).await?;
+            continue;
+        }
+        if ack_timeout(&scope) {
+            engine.db.get().await?
+                .execute("UPDATE ot.mail SET extra = jsonb_set(extra, '{claimed,wakes}', to_jsonb($2::bigint)) WHERE id = $1",
+                    &[&row, &(wakes + 1)])
+                .await?;
+        }
+        if let Some(c) = copy {
+            kept.push((c, pname));
+        }
+    }
+    Ok(kept)
+}
+
+/// Purge a project's waiting (unassigned) mail (user 2026-10-18 08:11Z):
+/// marked retracted, with who purged it; handed, acked and dead-letter mail
+/// is untouched. Runs in the op's transaction; returns how many.
+#[logged]
+pub async fn purge_waiting(tx: &impl GenericClient, project: i64, by: &str) -> Result<u64> {
+    Ok(tx
+        .execute(
+            "UPDATE ot.mail SET state = 'retracted', extra = extra || jsonb_build_object('purged', jsonb_build_object('by', $2::text, 'at', now()))
+              WHERE recipient_agent_id = $1 AND state = 'pending'",
+            &[&project, &by],
+        )
+        .await?)
 }
 
 /// What an agent's mail to a project is when it answers mail the project

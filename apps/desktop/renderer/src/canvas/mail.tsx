@@ -780,6 +780,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           && <span className="urgentkind" title={m.urgent_reason
             ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
         {mark}
+        {!m._ask && m.queue && <QueueChip q={m.queue} />}
         <span className="mtime">{fmtShort(m.at)}</span>
         {m._wait && m.id && onRetract && (
           <button className="chip-x" title="retract (undelivered)"
@@ -1228,6 +1229,24 @@ interface InboxViewProps {
    *  surface around it is narrow. The MODAL form sets it; the same view on the
    *  agent desk does not (see MailListProps.collapsible). */
   collapsible?: boolean
+}
+
+/** A project mail's queue state, beside its time (user 2026-10-18 08:01Z):
+ *  handed to an agent, waiting for its ack, acked, released back to the
+ *  queue, or an ack record. */
+export function QueueChip({ q }: { q: import('../types').MailQueueState }) {
+  const [text, title] = q.ack_of ? [`ack of ${q.ack_of}`, `the completion record that acks mail ${q.ack_of}`]
+    : q.dead_letter ? ['dead letter', `handed out ${q.dead_letter.attempts ?? '?'} times without an ack; the last holder, `
+      + `${q.dead_letter.by ?? '?'}, ${q.dead_letter.why ?? 'let it go'}. It will not be handed out again.`]
+    : q.purged ? ['purged', `purged from the queue by ${q.purged.by ?? '?'} before anyone took it`]
+    : q.released ? [`released (${q.released.by ?? '?'})`, `back in the queue: ${q.released.by ?? 'its holder'} ${q.released.why ?? 'let it go'}`]
+      : q.acked_at ? [`acked by ${q.held_by}`, `${q.held_by} acked it${q.ack_mail ? ` with ${q.ack_mail}` : ''}`]
+        : q.ack ? [`${q.held_by} · awaiting ack`, `handed to ${q.held_by}, who gets no more project mail until it acks this one`]
+          : q.held_by ? [`to ${q.held_by}`, `the project's queue handed it to ${q.held_by}`
+            + (q.ack_waived_at ? ' (its ack was waived when the queue left ack mode)' : '')] : ['', '']
+  if (!text) return null
+  return <span className={'queuekind' + (q.ack && !q.acked_at && !q.released ? ' awaiting' : '') + (q.dead_letter ? ' dead' : '')}
+    title={title}>{text}</span>
 }
 
 export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, tier, onFocusAgent, toast,

@@ -335,8 +335,14 @@ async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime
     if !claim(engine, a.id, "working_activity_at", now).await? || !send_now {
         return Ok(());
     }
+    // the ack timeout counts this wake against each held mail, or reclaims
+    // one that already had its reminders (user 2026-10-18 08:11Z)
+    let held = if a.held.is_empty() { Vec::new() } else { crate::domain::projects::ack_timeouts(engine, org.id, a.id, &a.name).await? };
+    if !a.working && held.is_empty() {
+        return Ok(());
+    }
     let ev = crate::events::reminder_working_checkup(&org.slug, &a.name, a.generation as i64);
-    send(engine, org.id, a, ev, held_note(&a.held)).await
+    send(engine, org.id, a, ev, held_note(&held)).await
 }
 
 /// What a checkup adds for an agent holding un-acked project mail: each

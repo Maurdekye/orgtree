@@ -24,8 +24,7 @@ import type {
 } from '../types'
 import {
   assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers, refreshMcpServers, refreshSkills, refreshGlobalInstructions, getOrgAccounts,
-  req, saveScope, watchdogAction,
-} from '../api'
+  req, saveScope, watchdogAction, getRuntimeSettings } from '../api'
 import { pickFolder } from '../picker'
 import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
@@ -1038,6 +1037,29 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   const tabId = useId()
   const savedPeer = node.peer_mail ?? node.configured_scope?.peer_mail ?? true
   const on = edit ?? savedPeer
+  // the project's mail queue (user 2026-10-18 08:01Z-08:08Z): round-robin by
+  // default or ack mode, and whether a sender may be handed its own mail
+  const queueScope = (node.configured_scope ?? {}) as unknown as { mail_queue?: string; mail_queue_exclude_sender?: boolean
+    mail_queue_ack_timeout?: boolean; mail_queue_max_attempts?: number }
+  const savedMode = queueScope.mail_queue === 'ack' ? 'ack' : 'round_robin'
+  const savedExclude = queueScope.mail_queue_exclude_sender === true
+  const savedTimeout = queueScope.mail_queue_ack_timeout !== false
+  const savedAttempts = queueScope.mail_queue_max_attempts ?? 3
+  const [modeEdit, setModeEdit] = useState<'ack' | 'round_robin' | undefined>()
+  const [excludeEdit, setExcludeEdit] = useState<boolean | undefined>()
+  const [timeoutEdit, setTimeoutEdit] = useState<boolean | undefined>()
+  const [attemptsEdit, setAttemptsEdit] = useState<number | undefined>()
+  const mode = modeEdit ?? savedMode
+  const exclude = excludeEdit ?? savedExclude
+  const timeout = timeoutEdit ?? savedTimeout
+  const attempts = attemptsEdit ?? savedAttempts
+  // the ack timeout and max attempts ride the 20-minute checkup (user 08:11Z)
+  const [checkups, setCheckups] = useState<boolean | null>(null)
+  useEffect(() => {
+    let live = true
+    getRuntimeSettings().then((r) => { if (live) setCheckups(r.working_checkups_enabled !== false) }).catch(() => {})
+    return () => { live = false }
+  }, [])
   const live = node.state === 'live'
   const members = node.children.some((c) => c.state !== 'archived')
   const save = async () => {
@@ -1047,6 +1069,11 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
         await op({ op: 'set_description', node: node.id, description })
       if (on !== savedPeer)
         await userGesture(slug,[{op:'scope',node:node.id,peer_mail:on}],`Settings: ${node.id}`)
+      if (mode !== savedMode || exclude !== savedExclude || timeout !== savedTimeout || attempts !== savedAttempts)
+        await op({ op: 'set_mail_queue', node: node.id,
+          ...(mode !== savedMode ? { mode } : {}), ...(exclude !== savedExclude ? { exclude_sender: exclude } : {}),
+          ...(timeout !== savedTimeout ? { ack_timeout: timeout } : {}),
+          ...(attempts !== savedAttempts ? { max_attempts: attempts } : {}) })
       close()
     } catch (e) { toast([`error: ${(e as Error).message}`]) } finally { setBusy(false) }
   }
@@ -1084,6 +1111,29 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
           onChange={(e) => setDescription(e.target.value)} /></SetBlock>
       <SetToggle label="Subordinates may message each other" checked={on} disabled={busy} onChange={setEdit}
         hint="Off requires an audience between this project's direct agents and hides their peer connector lines. Changes apply immediately." />
+      <SetRow label="Mail queue" hint={mode === 'ack'
+        ? 'Ack mode: each agent watching the project is handed one mail at a time, and no more until it acks it with a reply to the project. Watchers are told when this changes.'
+        : 'Round-robin: each mail to the project goes at once to the next agent watching it with a fair_queue watchdog. Watchers are told when this changes.'}>
+        <select aria-label="Mail queue" value={mode} disabled={busy}
+          onChange={(e) => setModeEdit(e.target.value as 'ack' | 'round_robin')}>
+          <option value="round_robin">Round-robin</option>
+          <option value="ack">Ack mode</option>
+        </select>
+      </SetRow>
+      <SetToggle label="Never hand an agent its own mail" checked={exclude} disabled={busy} onChange={setExcludeEdit}
+        hint="On: mail an agent sends to the project goes to another watcher, and waits if the sender is the only one." />
+      {mode === 'ack' && <>
+        <SetToggle label="Ack timeout" checked={timeout} disabled={busy || checkups === false} onChange={setTimeoutEdit}
+          hint={checkups === false
+            ? 'Inactive: it rides the 20-minute checkup ("check on working agents after 20 minutes" in Runtime settings), which is off.'
+            : 'An agent sitting on an un-acked mail gets the 20-minute checkup up to 3 times; after that the mail is taken back and handed to someone else.'} />
+        <SetRow label="Max attempts" hint={checkups === false
+          ? 'Inactive while the 20-minute checkup is off.'
+          : 'A mail handed out this many times without an ack goes to the dead-letter list and you are told.'}>
+          <input type="number" aria-label="Max attempts" min={1} max={100} value={attempts} disabled={busy || checkups === false}
+            onChange={(e) => setAttemptsEdit(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
+        </SetRow>
+      </>}
     </SettingsTabPanel>
     {hasHistory && <SettingsTabPanel id="history" idBase={tabId} active={tab === 'history'}
       className="app-settings-panel agent-history-tab">
