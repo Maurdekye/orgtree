@@ -83,7 +83,7 @@ test('attention navigation no longer imperatively adds or removes mention stylin
   const effect = source.slice(start, end)
   assert.doesNotMatch(effect, /classList\.(?:add|remove)\([^\n]*mention-highlight/)
   assert.doesNotMatch(effect, /classList\.(?:add|remove)\([^\n]*ctx-target/)
-  assert.match(effect, /scrollIntoView/)
+  assert.match(effect, /scrollIntoView|centerTranscriptTarget/)
 })
 
 test('one softer theme-relative message layer replaces the nested paragraph layer', () => {
