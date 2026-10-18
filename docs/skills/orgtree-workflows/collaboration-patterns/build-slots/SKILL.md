@@ -7,7 +7,7 @@ Up: [orgtree-collaboration-patterns](../SKILL.md)
 
 # A build machine as a project concurrency slot
 
-When several agents build on one machine, only one heavy build, test or packaging phase should run at a time. A project's **concurrency slots** give out that permit without lock files, queue files or handover messages: Orgtree keeps the line, wakes the next builder and takes the concurrency slot back from a holder that went away.
+When several agents build on one machine, only one heavy build, test or packaging phase should run at a time. A project's **concurrency slots** give out that permit without lock files, queue files or handover messages. The slot is a semaphore the builders agree to honour: Orgtree does not stop a build that runs without one, so the recipe works only if every builder claims before each heavy phase and releases right after: Orgtree keeps the line, wakes the next builder and takes the concurrency slot back from a holder that went away.
 
 ## Set it up once
 

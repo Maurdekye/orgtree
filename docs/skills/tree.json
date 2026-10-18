@@ -774,7 +774,8 @@
     "the project folder and its AGENTS.md",
     "the mailbox, the fair_queue watchdog and inspection without claiming",
     "presentations under a project",
-    "direct-child peer-mail setting and directional audience exception"
+    "direct-child peer-mail setting and directional audience exception",
+    "concurrency slots as a collaboration semaphore that enforces nothing on its own, with examples and good practice"
    ],
    "sources": [
     "docs/rust-engine/PROJECT-NODES.md",
