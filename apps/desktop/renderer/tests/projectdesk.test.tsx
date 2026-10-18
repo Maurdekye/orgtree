@@ -673,8 +673,10 @@ test("§11a the temporary project desk has the agent desk's ONE title bar: folde
   serve(t)
   let closed = 0
   const nd = project()
-  const view = await mountView(<ProjectDeskModal node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd], ['boss', boss]])}
-    op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs} close={() => { closed++ }} />, (el) => el)
+  // inside an org, as on the canvas: only an org's surfaces pin and pop out
+  const view = await mountView(<CurrentOrg.Provider value="org"><ProjectDeskModal node={nd} slug="org" tree={tree}
+    map={new Map([[nd.id, nd], ['boss', boss]])} op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs}
+    close={() => { closed++ }} /></CurrentOrg.Provider>, (el) => el)
   t.after(() => view.unmount())
   await flush(2)
   const bar = document.querySelector('.project-desk-modal > .modalpin-bar')!
@@ -706,6 +708,7 @@ test("§11c the editable description shows it is clickable: the theme's hover ba
     assert.equal(cssLast('background', md + state), 'var(--panel-2)', state)
 })
 
+import { CurrentOrg } from '../src/popout'
 declare const __SRC_DIR__: string
 test("§8g the activity line stays inside the card: the meta row wraps, and the word truncates before the clock (user 2026-10-18 10:51Z)", () => {
   assert.equal(cssLast('flex-wrap', '.sq.project .project-meta'), 'wrap', "'Active 80s' drops under the chip instead of running off the card")
