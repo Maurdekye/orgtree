@@ -100,16 +100,16 @@ pub async fn org_row(client: &Client, org_id: i64) -> Result<Value> {
 
 /// Grantee name → grantor names (active audiences).
 #[logged]
-pub async fn audiences_held(client: &Client, org_id: i64) -> Result<HashMap<String, Vec<String>>> {
+pub async fn audiences_held(client: &impl tokio_postgres::GenericClient, org_id: i64) -> Result<crate::domain::audiences::EffectiveAudiences> {
     let rows = client
         .query(
-            "SELECT grantee, grantor FROM ot.audiences WHERE org_id = $1 AND revoked_at IS NULL AND NOT paused",
+            "SELECT DISTINCT grantee, grantor, source_project FROM ot.effective_audiences WHERE org_id = $1 ORDER BY grantee, grantor, source_project NULLS FIRST",
             &[&org_id],
         )
         .await?;
-    let mut out: HashMap<String, Vec<String>> = HashMap::new();
+    let mut out = crate::domain::audiences::EffectiveAudiences::new();
     for r in rows {
-        out.entry(r.get(0)).or_default().push(r.get(1));
+        out.entry(r.get(0)).or_default().push(crate::domain::audiences::EffectiveGrant { grantor: r.get(1), source_project: r.get(2) });
     }
     Ok(out)
 }

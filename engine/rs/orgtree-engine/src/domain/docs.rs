@@ -43,7 +43,7 @@ pub(crate) async fn presenter_in<C: tokio_postgres::GenericClient + Sync>(engine
     let r = client
         .query_one(
             "SELECT a.name, a.scratch_dir, a.scope, o.settings,
-                    ot.superior_of(a.id) IS NULL OR EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
+                    ot.superior_of(a.id) IS NULL OR EXISTS (SELECT 1 FROM ot.effective_audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
                          AND au.grantor = '@user' AND au.revoked_at IS NULL AND NOT au.paused)
                FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1 AND a.org_id = $2",
             &[&agent_id, &org.id],

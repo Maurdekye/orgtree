@@ -119,7 +119,7 @@ impl OrgFeed {
 #[derive(Default)]
 struct Computed {
     org_row: Option<Value>,
-    audiences: Option<HashMap<String, Vec<String>>>,
+    audiences: Option<crate::domain::audiences::EffectiveAudiences>,
     agents: HashMap<i64, Option<Value>>,
     groups: HashMap<String, Value>,
     user_mail: Option<(Vec<(i64, Value)>, Vec<(i64, Value)>, Vec<(i64, Value)>)>,
@@ -209,7 +209,7 @@ struct Actor {
     incarnation: String,
     rev: u64,
     org_row: Value,
-    audiences_held: HashMap<String, Vec<String>>,
+    audiences_held: crate::domain::audiences::EffectiveAudiences,
     live_raw: HashMap<i64, Value>,
     live_body: HashMap<i64, Arc<Value>>,
     eff_scope: HashMap<i64, Value>,
@@ -1022,11 +1022,16 @@ async fn read(engine: &Engine, org_id: i64, keys: Vec<Key>, live_ids: Vec<i64>, 
                 c.histories.insert(*a, compute::agent_history(&client, *a).await?);
             }
             Key::Audiences => {
-                c.audiences = Some(compute::audiences_held(&client, org_id).await?);
+                c.audiences = Some(compute::audiences_held(&**client, org_id).await?);
                 group_names.insert("audiences");
                 group_names.insert("org_inbox");
             }
         }
+    }
+    // Tree changes can change effective grants without audience writes.
+    if c.audiences.is_none() && (c.org_row.is_some() || !agent_ids.is_empty()) {
+        c.audiences = Some(compute::audiences_held(&**client, org_id).await?);
+        group_names.insert("audiences");
     }
     if c.org_row.is_some() {
         // the first load (and settings changes) read every live agent
@@ -1061,7 +1066,7 @@ async fn read_sub(
     engine: &Engine,
     org_id: i64,
     org_row: &Value,
-    audiences: &HashMap<String, Vec<String>>,
+    audiences: &crate::domain::audiences::EffectiveAudiences,
     agents: HashSet<i64>,
     windows: Vec<Window>,
     live: HashMap<i64, Value>,

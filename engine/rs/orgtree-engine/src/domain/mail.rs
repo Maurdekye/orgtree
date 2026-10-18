@@ -259,7 +259,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
             if !top {
                 let aud = client
                     .query_opt(
-                        "SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = '@user'
+                        "SELECT 1 FROM ot.effective_audiences WHERE org_id = $1 AND grantee = $2 AND grantor = '@user'
                            AND revoked_at IS NULL AND NOT paused",
                         &[&org_id, name],
                     )
@@ -385,8 +385,11 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
 async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut client: deadpool_postgres::Object,
                       out: Outgoing, project: crate::domain::projects::Project, mail_uid: String) -> Result<Sent> {
     let (sender_agent, sender_gen) = match &out.from {
-        From::Agent { id, generation, .. } => {
-            crate::domain::projects::require_reach(&**client, *id, &project, "write to its mailbox").await?;
+        From::Agent { id, generation, name } => {
+            if !crate::domain::projects::reaches(&**client, *id, project.id).await?
+                && !super::audiences::effective_holds(&**client, org.id, name, &project.name).await? {
+                refuse!(Forbidden, "you need project reach or an audience with {} to write to its mailbox", project.name);
+            }
             (Some(*id), Some(*generation))
         }
         From::User => (None, None),
@@ -635,7 +638,7 @@ pub(crate) async fn authorize(
     let parent_name = parent_name.as_deref().unwrap_or("your parent");
     if super::peer_mail::check(relation,false,parent_name).is_ok() { return Ok(()); }
     let audience = client.query_opt(
-        "SELECT 1 FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor=$3 AND revoked_at IS NULL AND NOT paused",
+        "SELECT 1 FROM ot.effective_audiences WHERE org_id=$1 AND grantee=$2 AND grantor=$3 AND revoked_at IS NULL AND NOT paused",
         &[&org_id,&from_name,&to_name]).await?.is_some();
     super::peer_mail::check(relation,audience,parent_name)
 }

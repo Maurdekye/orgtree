@@ -209,7 +209,8 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                     &[&org_id],
                 )
                 .await?;
-            let reqs = client
+            let effective = crate::feed::compute::audiences_held(client, org_id).await?;
+    let reqs = client
                 .query(
                     "SELECT requester, target, reason, at, holder FROM ot.audience_requests
                       WHERE org_id = $1 AND status = 'pending' ORDER BY id",
@@ -217,7 +218,8 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 )
                 .await?;
             json!({
-                "audiences": grants.iter().map(|r| json!({
+                "effective_audiences": effective,
+        "audiences": grants.iter().map(|r| json!({
                     "grantee": r.get::<_, String>(0), "grantor": r.get::<_, String>(1),
                     "granted_at": iso_opt(r.get(2)), "reason": r.get::<_, String>(3),
                 })).collect::<Vec<_>>(),

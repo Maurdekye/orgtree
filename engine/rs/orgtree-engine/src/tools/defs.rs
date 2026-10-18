@@ -465,7 +465,7 @@ fn build_tool_inbox() -> Value {
 fn build_tool_chart() -> Value {
     tool(
         "orgtree_chart",
-        "Read the org within your visibility: tiers, credits, status and age. include_archived reveals retired agents; check them before hiring because rehire restores context. Team charters default on.",
+        "Read the org within your visibility: tiers, credits, status, age and effective audiences with project sources. include_archived reveals retired agents; check them before hiring because rehire restores context. Team charters default on.",
         json!({
             "include_archived": { "type": "boolean" },
             "include_standing_charter": { "type": "boolean", "description": "include team charters (default true)" },
@@ -479,7 +479,7 @@ fn build_tool_chart() -> Value {
 fn build_tool_state_inspect() -> Value {
     tool(
         "orgtree_state_inspect",
-        "Inspect visible agents' structured folders, tools and permission mode, optionally archived. Excludes prompts, transcripts and mail.",
+        "Inspect visible agents' structured folders, tools, permission mode and effective/explicit/inherited audiences with project sources, optionally archived. Excludes prompts, transcripts and mail.",
         json!({
             "node": { "type": "string" },
             "nodes": { "type": "array", "items": { "type": "string" } },
@@ -850,11 +850,11 @@ fn build_tool_request_scope() -> Value {
 fn build_tool_audience() -> Value {
     tool(
         "orgtree_audience",
-        "Manage permission to write outside your chain: request target, grant from, deny requester, revoke grantee. Grants/revokes are limited by your authority; target can name another permitted grantor. Answers arrive as mail; requests do not grant access. External mail reaches org-inbox holders only.",
+        "Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to direct members only; nested projects do not relay them. Project decisions belong to their nearest agent superior (user if none). User project messages grant the project user access. External/org-inbox access remains agent-only. Requests do not grant access.",
         json!({ "action": { "type": "string", "enum": ["request", "grant", "deny", "revoke"] },
-                "target": { "type": "string", "description": "request: whom you seek; grant/revoke: the grantor when not you" },
-                "from": { "type": "string", "description": "grant: who receives it; deny: the requester" },
-                "grantee": { "type": "string", "description": "revoke: who holds it" },
+                "target": { "type": "string", "description": "request: agent/project/user/extern sought; grant/revoke: agent/project grantor when not you" },
+                "from": { "type": "string", "description": "grant: agent/project receiving it; request: project you manage; deny: the requester" },
+                "grantee": { "type": "string", "description": "revoke: agent/project holding it" },
                 "reason": { "type": "string" } }),
         &["action"],
     )
@@ -1193,9 +1193,19 @@ mod builder_stack_tests {
         dschema["properties"]["kind"]["enum"] = serde_json::json!(["file", "command", "process", "stream", "activity", "event", "fair_queue", "slot"]);
         dschema["properties"]["target"]["description"] = serde_json::json!(dschema["properties"]["target"]["description"].as_str().unwrap()
             .replace("(fair_queue) project name", "(fair_queue, slot) project name"));
-        // the two edited cards must match in content (keys in any order); their
+        let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();
+        card["description"] = serde_json::json!("Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to direct members only; nested projects do not relay them. Project decisions belong to their nearest agent superior (user if none). User project messages grant the project user access. External/org-inbox access remains agent-only. Requests do not grant access.\nGuide: orgtree-tool-audience.");
+        let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_chart").unwrap();
+        card["description"] = serde_json::json!("Read the org within your visibility: tiers, credits, status, age and effective audiences with project sources. include_archived reveals retired agents; check them before hiring because rehire restores context. Team charters default on.\nGuide: orgtree-tool-chart.");
+        let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_state_inspect").unwrap();
+        card["description"] = serde_json::json!("Inspect visible agents' structured folders, tools, permission mode and effective/explicit/inherited audiences with project sources, optionally archived. Excludes prompts, transcripts and mail.\nGuide: orgtree-tool-state-inspect.");
+        let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();
+        card["inputSchema"]["properties"]["target"]["description"] = serde_json::json!("request: agent/project/user/extern sought; grant/revoke: agent/project grantor when not you");
+        card["inputSchema"]["properties"]["from"]["description"] = serde_json::json!("grant: agent/project receiving it; request: project you manage; deny: the requester");
+        card["inputSchema"]["properties"]["grantee"]["description"] = serde_json::json!("revoke: agent/project holding it");
+        // the edited cards must match in content (keys in any order); their
         // key order is the builder's
-        for name in ["orgtree_project", "orgtree_watchdog"] {
+        for name in ["orgtree_project", "orgtree_watchdog", "orgtree_audience"] {
             let want = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == name).unwrap();
             let got = actual.iter().find(|card| card["name"] == name).unwrap();
             assert_eq!(*want, *got, "{name}: differs beyond the approved slot changes");

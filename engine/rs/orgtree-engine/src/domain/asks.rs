@@ -220,7 +220,7 @@ pub async fn asker(engine: &Engine, org_id: i64, agent_id: i64) -> Result<Asker>
     let r = client
         .query_one(
             "SELECT a.name, a.generation, p.name,
-                    a.parent_id IS NULL OR EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = $1 AND au.grantee = a.name
+                    a.parent_id IS NULL OR EXISTS (SELECT 1 FROM ot.effective_audiences au WHERE au.org_id = $1 AND au.grantee = a.name
                          AND au.grantor = '@user' AND au.revoked_at IS NULL AND NOT au.paused)
                FROM ot.agents a LEFT JOIN ot.agents p ON p.id = a.parent_id WHERE a.id = $2",
             &[&org_id, &agent_id],

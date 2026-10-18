@@ -520,7 +520,7 @@ async fn audience_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
             let Some(t) = s("target") else {
                 crate::refuse!(BadRequest, "request needs a target: an agent, user, or extern");
             };
-            audiences::request(engine, &org, (caller.agent_id, caller.name.as_str()), t, reason).await?
+            audiences::request(engine, &org, (caller.agent_id, caller.name.as_str()), s("from"), t, reason).await?
         }
         "grant" => {
             let target = s("target");

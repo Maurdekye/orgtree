@@ -259,7 +259,7 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
                     (SELECT coalesce(sum(c.seat + c.grant_credits), 0)::float8 FROM ot.agents c WHERE c.parent_id = a.id AND c.state = 'live'),
                     a.session_id, coalesce(a.occupancy, 0), a.extra->'envelope'->'org_state',
                     (SELECT p.name FROM ot.agents p WHERE p.id = a.parent_id),
-                    EXISTS (SELECT 1 FROM ot.audiences u WHERE u.org_id = a.org_id AND u.grantee = a.name AND u.grantor = '@user'
+                    EXISTS (SELECT 1 FROM ot.effective_audiences u WHERE u.org_id = a.org_id AND u.grantee = a.name AND u.grantor = '@user'
                              AND u.revoked_at IS NULL AND NOT u.paused),
                     (SELECT p.scope FROM ot.agents p WHERE p.id=a.parent_id), a.extra->'envelope'->'usage'
                FROM ot.agents a WHERE a.id = $1",

@@ -20,6 +20,31 @@ use crate::util::iso_opt;
 pub const USER: &str = "@user";
 pub const EXTERN: &str = "@extern";
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct EffectiveGrant {
+    pub grantor: String,
+    pub source_project: Option<String>,
+}
+pub type EffectiveAudiences = std::collections::HashMap<String, Vec<EffectiveGrant>>;
+
+/// Same projection for the tree and agent state inspection.
+#[nolog]
+pub fn project_fields(o: &mut serde_json::Map<String, Value>, held: &[EffectiveGrant]) {
+    let effective: std::collections::BTreeSet<_> = held.iter().map(|g| &g.grantor).collect();
+    let explicit: std::collections::BTreeSet<_> = held.iter().filter(|g| g.source_project.is_none()).map(|g| &g.grantor).collect();
+    let inherited: Vec<_> = held.iter().filter_map(|g| g.source_project.as_ref().map(|p| json!({"grantor":g.grantor,"project":p}))).collect();
+    o.insert("audiences_held".into(), json!(effective));
+    o.insert("audiences_explicit".into(), json!(explicit));
+    o.insert("audiences_inherited".into(), json!(inherited));
+}
+
+/// Active explicit or direct-project-parent authority; never recursive.
+#[logged]
+pub(crate) async fn effective_holds(client: &impl tokio_postgres::GenericClient, org_id: i64, grantee: &str, grantor: &str) -> Result<bool> {
+    Ok(client.query_opt("SELECT 1 FROM ot.effective_audiences WHERE org_id=$1 AND grantee=$2 AND grantor=$3 LIMIT 1",
+        &[&org_id, &grantee, &grantor]).await?.is_some())
+}
+
 /// `user`, `extern`, an agent name — as the grantor column spells it.
 #[logged]
 pub fn party(raw: Option<&str>) -> String {
@@ -38,15 +63,15 @@ fn spoken(p: &str) -> String {
     }
 }
 
-/// A live agent of this org: (id, parent, name).
+/// A live agent or project of this org.
 #[logged]
 async fn live(client: &impl tokio_postgres::GenericClient, org_id: i64, name: &str) -> Result<(i64, Option<i64>)> {
     let r = client
-        .query_opt("SELECT id, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live' AND kind = 'agent'", &[&org_id, &name])
+        .query_opt("SELECT id, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org_id, &name])
         .await?;
     match r {
         Some(r) => Ok((r.get(0), r.get(1))),
-        None => refuse!(NotFound, "no live agent named {name} (a project node holds no audiences; write to it if you reach it)"),
+        None => refuse!(NotFound, "no live agent or project named {name}"),
     }
 }
 
@@ -82,19 +107,42 @@ async fn top_of(client: &impl tokio_postgres::GenericClient, node: i64) -> Resul
 
 #[logged]
 async fn holds(client: &impl tokio_postgres::GenericClient, org_id: i64, grantee: &str, grantor: &str) -> Result<bool> {
-    Ok(client
-        .query_opt(
-            "SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL",
-            &[&org_id, &grantee, &grantor],
-        )
-        .await?
-        .is_some())
+    effective_holds(client, org_id, grantee, grantor).await
+}
+
+/// A project is managed by its nearest real-agent superior, never its members.
+#[logged]
+async fn project_manager(client: &impl tokio_postgres::GenericClient, org_id: i64, name: &str) -> Result<Option<String>> {
+    Ok(client.query_opt("SELECT coalesce(s.name, '@user') FROM ot.agents p LEFT JOIN ot.agents s ON s.id=ot.superior_of(p.id) WHERE p.org_id=$1 AND p.name=$2 AND p.kind='project' AND p.state='live'", &[&org_id, &name]).await?.map(|r| r.get(0)))
+}
+
+#[logged]
+async fn notice_recipient(client: &impl tokio_postgres::GenericClient, org_id: i64, name: &str) -> Result<String> {
+    Ok(project_manager(client, org_id, name).await?.unwrap_or_else(|| name.to_string()))
+}
+
+/// Both user project-send endpoints call this after a committed delivery.
+#[logged]
+pub async fn grant_user_audience_to_project(engine: &Arc<Engine>, org_id: i64, project_id: i64) -> Result<()> {
+    let org = engine.orgs.by_id(org_id).ok_or_else(|| anyhow::anyhow!("organization not loaded"))?;
+    let client = engine.db.get().await?;
+    let row = client.query_opt("SELECT name FROM ot.agents WHERE org_id=$1 AND id=$2 AND kind='project' AND state='live'", &[&org_id, &project_id]).await?;
+    let Some(row) = row else { refuse!(NotFound, "no live project in this organization"); };
+    let name: String = row.get(0);
+    drop(client);
+    grant(engine, &org, &Actor::User, &name, Some(USER), "user messaged the project").await?;
+    Ok(())
 }
 
 /// A note from the system to an agent (a notice unless it should act on it), with its card.
 #[logged]
 async fn tell(engine: &Arc<Engine>, org_id: i64, to: &str, body: String, wake: bool, ev: Option<Value>) {
-    let mut out = Outgoing::new(From::System, to, &body);
+    let recipient = match engine.db.get().await {
+        Ok(client) => notice_recipient(&**client, org_id, to).await,
+        Err(e) => Err(e.into()),
+    };
+    let recipient = match recipient { Ok(to) => to, Err(e) => { tracing::warn!(error=%e,"audience notice routing failed"); return; } };
+    let mut out = Outgoing::new(From::System, &recipient, &body);
     out.kind = "system".into();
     out.notice = !wake;
     out.ev = ev;
@@ -105,11 +153,20 @@ async fn tell(engine: &Arc<Engine>, org_id: i64, to: &str, body: String, wake: b
 
 /// `orgtree_audience request`: ask `target` (an agent, `user`, or `extern`) for an audience.
 #[logged]
-pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str), target: &str, reason: &str) -> Result<Value> {
-    let (my_id, my_name) = me;
+pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str), requester: Option<&str>, target: &str, reason: &str) -> Result<Value> {
+    let (actor_id, actor_name) = me;
     let target = party(Some(target));
     if target == EXTERN { super::orginbox::require_enabled(engine, org.id).await?; }
     let client = engine.db.get().await?;
+    let requester = requester.map(|s| s.trim().trim_start_matches('@')).filter(|s| !s.is_empty()).unwrap_or(actor_name);
+    if requester != actor_name && project_manager(&**client, org.id, requester).await?.as_deref() != Some(actor_name) {
+        refuse!(Forbidden, "only a project's nearest agent superior can request audiences for it");
+    }
+    let (my_id, _) = live(&**client, org.id, requester).await?;
+    let my_name = requester;
+    if target == EXTERN && project_manager(&**client, org.id, my_name).await?.is_some() {
+        refuse!(Forbidden, "org-inbox audiences remain on real agents, not projects");
+    }
     let (_, my_parent) = live(&**client, org.id, my_name).await?;
     if target == my_name {
         refuse!(BadRequest, "you cannot ask yourself for an audience");
@@ -119,7 +176,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
     }
     let holder = match target.as_str() {
         USER => {
-            if my_parent.is_none() {
+            if my_parent.is_none() && project_manager(&**client, org.id, my_name).await?.is_none() {
                 refuse!(Conflict, "you are a top-level agent: you can already write to the user");
             }
             USER.to_string()
@@ -132,7 +189,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
         }
         name => {
             live(&**client, org.id, name).await?;
-            name.to_string()
+            notice_recipient(&**client, org.id, name).await?
         }
     };
     let reason = reason.trim();
@@ -154,7 +211,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
     client
         .execute(
             "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'audience_request', $2, $3, $4)",
-            &[&org.id, &my_name, &my_id, &json!({ "target": target, "holder": holder, "reason": reason })],
+            &[&org.id, &actor_name, &actor_id, &json!({ "requester": my_name, "target": target, "holder": holder, "reason": reason })],
         )
         .await?;
     drop(client);
@@ -170,7 +227,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
             &holder,
             format!(
                 "{my_name} asks for an audience with {what}{why}\nAnswer with orgtree_audience: action=grant from={my_name}{} — or action=deny from={my_name}.",
-                if target == EXTERN { " target=extern" } else { "" }
+                if target == EXTERN { " target=extern".to_string() } else if target != holder { format!(" target={target}") } else { String::new() }
             ),
             true,
             Some(crate::events::audience_requested(&org.slug, my_name, &target, reason)),
@@ -193,7 +250,13 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
     drop(client);
     changes::notify(engine, org, vec![Change::Audiences, Change::OrgInbox, Change::Events, Change::Agent(gid), Change::Mailbox(gid), Change::UserMail]);
     crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("audience.granted",crate::runtime::watchdogs::events::Scope::Agent(org.id,gid),json!({"agent_id":gid})));
-    if out["answered"] == true { crate::runtime::wake(engine, org.id, gid); }
+    if out["answered"] == true {
+        let client = engine.db.get().await?;
+        let recipient = notice_recipient(&**client, org.id, grantee).await?;
+        if let Some(r) = client.query_opt("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND kind='agent' AND state='live'", &[&org.id, &recipient]).await? {
+            crate::runtime::wake(engine, org.id, r.get(0));
+        }
+    }
     Ok(out)
 }
 
@@ -208,6 +271,9 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
     let grantor = match actor {
         Actor::User => party(target),
         Actor::Agent { id, name } => {
+            if project_manager(client, org.id, &grantee).await?.is_some() && descends(client, gid, *id).await? {
+                refuse!(Forbidden, "project members do not manage the project's grants");
+            }
             let (_, my_parent) = live(client, org.id, name).await?;
             let grantor = match target.map(str::trim).filter(|t| !t.is_empty()) {
                 None => name.clone(),
@@ -215,8 +281,8 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
             };
             let asked_me = client
                 .query_opt(
-                    "SELECT 1 FROM ot.audience_requests WHERE org_id = $1 AND requester = $2 AND status = 'pending' AND holder = $3",
-                    &[&org.id, &grantee, &name],
+                    "SELECT 1 FROM ot.audience_requests WHERE org_id = $1 AND requester = $2 AND status = 'pending' AND holder = $3 AND target=$4",
+                    &[&org.id, &grantee, &name, &grantor],
                 )
                 .await?
                 .is_some();
@@ -244,6 +310,12 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
                     }
                 }
                 other => {
+                    if let Some(manager) = project_manager(client, org.id, other).await? {
+                        if manager != *name || !(below || asked_me) {
+                            refuse!(Forbidden, "only the project's nearest agent superior grants its audiences to reports or requesters");
+                        }
+                        // The actual caller remains the audited actor; no project impersonation.
+                    } else {
                     // with a live peer or my own superior, for my report
                     let (oid, oparent) = live(client, org.id, other).await?;
                     let peer = oparent == my_parent && oid != *id;
@@ -258,6 +330,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
                     if !below {
                         refuse!(Forbidden, "{grantee} is not in your subtree");
                     }
+                    }
                 }
             }
             grantor
@@ -265,6 +338,9 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
     };
     if grantor == grantee {
         refuse!(BadRequest, "an agent needs no audience with itself");
+    }
+    if grantor == EXTERN && project_manager(client, org.id, &grantee).await?.is_some() {
+        refuse!(Forbidden, "org-inbox audiences remain on real agents, not projects");
     }
     if grantor != USER && grantor != EXTERN {
         live(client, org.id, &grantor).await?;
@@ -296,6 +372,9 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
             &[&org.id, &grantee, &grantor],
         )
         .await?;
+    if !fresh && answered == 0 {
+        return Ok((json!({"ok":true,"grantee":grantee,"grantor":grantor,"granted":false,"answered":false}),gid));
+    }
     client
         .execute(
             "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'audience_grant', $2, $3, $4)",
@@ -305,9 +384,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
     if answered > 0 {
         let body = format!("{} granted your requested audience with {}.", spoken(&by), spoken(&grantor));
         let ev = crate::events::audience_decided(&org.slug, &grantee, &grantor, true, &by);
-        client.execute("INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, ev, state)
-            VALUES ($1, $2, '@system', 'agent', $3, $4, 'system', false, $5, $6, 'pending')",
-            &[&crate::util::uid("m"), &org.id, &gid, &grantee, &crate::util::pg_text(&body).as_ref(), &crate::util::pg_json(&ev).as_ref()]).await?;
+        decision_notice_tx(client, org.id, &grantee, &body, false, Some(ev)).await?;
     }
     if fresh {
         let generation = client.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[&gid]).await?.get::<_, i32>(0) as i64;
@@ -316,6 +393,18 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
     Ok((json!({ "ok": true, "grantee": grantee, "grantor": grantor, "granted": fresh, "answered": answered > 0 }), gid))
 }
 
+#[logged]
+async fn decision_notice_tx(client: &impl tokio_postgres::GenericClient, org_id: i64, grantee: &str, body: &str, notice: bool, ev: Option<Value>) -> Result<()> {
+    let to = notice_recipient(client, org_id, grantee).await?;
+    let id: Option<i64> = if to == USER { None } else {
+        Some(client.query_one("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND state='live'", &[&org_id, &to]).await?.get(0))
+    };
+    let kind = if id.is_some() { "agent" } else { "user" };
+    client.execute("INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, ev, state)
+        VALUES ($1,$2,'@system',$3,$4,$5,'system',$6,$7,$8,'pending')",
+        &[&crate::util::uid("m"), &org_id, &kind, &id, &to, &notice, &crate::util::pg_text(body).as_ref(), &crate::util::pg_json_option(&ev).as_ref()]).await?;
+    Ok(())
+}
 
 /// The canonical access notice, shared by explicit grants and user direct contact.
 #[logged]
@@ -334,9 +423,11 @@ pub(super) async fn grant_notice_tx(
         EXTERN => "You now hold the org inbox: mail from outside the organization (@org:/@net:) reaches you, and you may write outside.".to_string(),
         g => format!("{g} granted you an audience: you may now write to {g} directly."),
     };
-    client.execute("INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, ev, state)
-        VALUES ($1, $2, '@system', 'agent', $3, $4, 'system', true, $5, $6, 'pending')",
-        &[&crate::util::uid("m"), &org_id, &gid, &grantee, &crate::util::pg_text(&body).as_ref(), &crate::util::pg_json_option(&ev).as_ref()]).await?;
+    let body = if project_manager(client, org_id, grantee).await?.is_some() {
+        format!("Project {grantee}: {body} Its direct members inherit this audience; nested projects do not relay it.")
+    } else { body };
+    let _ = gid;
+    decision_notice_tx(client, org_id, grantee, &body, true, ev).await?;
     Ok(())
 }
 
@@ -351,8 +442,12 @@ pub async fn deny(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, req
     let client = engine.db.get().await?;
     let rows = client
         .query(
-            "UPDATE ot.audience_requests SET status = 'denied', resolved_at = now()
-              WHERE org_id = $1 AND requester = $2 AND holder = $3 AND status = 'pending'
+            "UPDATE ot.audience_requests q SET status = 'denied', resolved_at = now()
+              WHERE org_id = $1 AND requester = $2 AND status = 'pending'
+                AND CASE WHEN EXISTS (SELECT 1 FROM ot.agents p WHERE p.org_id=q.org_id AND p.name=q.target AND p.kind='project')
+                  THEN EXISTS (SELECT 1 FROM ot.agents p LEFT JOIN ot.agents s ON s.id=ot.superior_of(p.id)
+                    WHERE p.org_id=q.org_id AND p.name=q.target AND p.state='live' AND coalesce(s.name,'@user')=$3)
+                  ELSE holder=$3 END
                 AND ($4::text IS NULL OR target = $4)
               RETURNING target",
             &[&org.id, &requester, &holder, &target.map(|t| party(Some(t)))],
@@ -394,6 +489,10 @@ pub async fn revoke(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, g
         (_, g) => party(g),
     };
     if let Actor::Agent { id, name } = actor {
+        if project_manager(&**client, org.id, &grantee).await?.is_some() {
+            let (gid, _) = live(&**client, org.id, &grantee).await?;
+            if descends(&**client, gid, *id).await? { refuse!(Forbidden, "project members do not manage the project's grants"); }
+        }
         let allowed = if grantor == *name {
             true
         } else if grantor == EXTERN && grantee == *name {
@@ -409,7 +508,7 @@ pub async fn revoke(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, g
                 None => false,
             }
         } else {
-            false
+            project_manager(&**client, org.id, &grantor).await?.as_deref() == Some(name.as_str())
         };
         if !allowed {
             refuse!(Forbidden, "you can rescind only audiences you granted (and, top-level, user and org-inbox grants in your subtree)");
@@ -470,6 +569,7 @@ pub async fn snapshot(engine: &Engine, org_id: i64) -> Result<Value> {
             &[&org_id],
         )
         .await?;
+    let effective = crate::feed::compute::audiences_held(&**client, org_id).await?;
     let reqs = client
         .query(
             "SELECT requester, target, reason, at, holder FROM ot.audience_requests WHERE org_id = $1 AND status = 'pending' ORDER BY id",
@@ -477,6 +577,7 @@ pub async fn snapshot(engine: &Engine, org_id: i64) -> Result<Value> {
         )
         .await?;
     Ok(json!({
+        "effective_audiences": effective,
         "audiences": grants.iter().map(|r| json!({
             "grantee": r.get::<_, String>(0), "grantor": r.get::<_, String>(1), "granted_at": iso_opt(r.get(2)),
             "reason": r.get::<_, String>(3), "paused": r.get::<_, bool>(4),
@@ -487,4 +588,30 @@ pub async fn snapshot(engine: &Engine, org_id: i64) -> Result<Value> {
             "currently_at": r.get::<_, Option<String>>(4).unwrap_or_else(|| r.get::<_, String>(1)),
         })).collect::<Vec<_>>(),
     }))
+}
+
+#[cfg(test)]
+mod project_audiences_tests {
+    use super::*;
+
+    #[test]
+    fn inherited_user_access_is_effective_but_not_an_explicit_revocation_target() {
+        let mut o = serde_json::Map::new();
+        project_fields(&mut o, &[EffectiveGrant {grantor:USER.into(), source_project:Some("alpha".into())}]);
+        assert_eq!(o["audiences_held"], json!([USER]));
+        assert_eq!(o["audiences_explicit"], json!([]));
+        assert_eq!(o["audiences_inherited"], json!([{"grantor":USER,"project":"alpha"}]));
+    }
+
+    #[test]
+    fn overlapping_explicit_and_inherited_routes_keep_both_provenances() {
+        let mut o = serde_json::Map::new();
+        project_fields(&mut o, &[
+            EffectiveGrant {grantor:USER.into(), source_project:None},
+            EffectiveGrant {grantor:USER.into(), source_project:Some("alpha".into())},
+        ]);
+        assert_eq!(o["audiences_held"], json!([USER]));
+        assert_eq!(o["audiences_explicit"], json!([USER]));
+        assert_eq!(o["audiences_inherited"].as_array().unwrap().len(), 1);
+    }
 }

@@ -33,6 +33,7 @@ struct Row {
     project: bool,
     waiting: i64,
     peer_mail: bool,
+    audiences: Vec<crate::domain::audiences::EffectiveGrant>,
 }
 
 fn age(at: Option<DateTime<Utc>>) -> String {
@@ -65,9 +66,11 @@ async fn rows(engine: &Engine, org_id: i64, archived: bool) -> Result<Vec<Row>> 
             &[&org_id, &archived],
         )
         .await?;
+    let audiences = crate::feed::compute::audiences_held(&**client, org_id).await?;
     Ok(rs
         .iter()
         .map(|r| Row {
+            audiences: audiences.get(&r.get::<_, String>(1)).cloned().unwrap_or_default(),
             id: r.get(0),
             name: r.get(1),
             parent: r.get(2),
@@ -91,6 +94,12 @@ async fn rows(engine: &Engine, org_id: i64, archived: bool) -> Result<Vec<Row>> 
 
 fn line(r: &Row, busy: bool) -> String {
     let mut s = r.name.clone();
+    if !r.audiences.is_empty() {
+        s.push_str(&format!("; audiences: {}", r.audiences.iter().map(|g| match &g.source_project {
+            Some(p) => format!("{} (inherited from project {p})",g.grantor),
+            None => g.grantor.clone(),
+        }).collect::<Vec<_>>().join(", ")));
+    }
     s.push_str(if r.peer_mail { "; subordinate peer mail ON" } else { "; subordinate peer mail OFF (audiences required)" });
     if !r.title.is_empty() {
         s.push_str(&format!(" — {}", r.title));
@@ -360,6 +369,11 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
             records.push((id, r.get::<_, Value>(3)));
             after = id;
         }
+    }
+    let audiences = crate::feed::compute::audiences_held(&*tx, caller.org_id).await?;
+    for (_, row) in &mut records {
+        let held = audiences.get(row["name"].as_str().unwrap_or("")).cloned().unwrap_or_default();
+        if let Some(o) = row.as_object_mut() { crate::domain::audiences::project_fields(o, &held); }
     }
     tx.commit().await?;
     drop(client);

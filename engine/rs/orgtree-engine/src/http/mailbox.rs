@@ -202,7 +202,7 @@ pub async fn detail(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Strin
     let raws = compute::agents(&client, o.id, &[a.id]).await?;
     let Some(raw) = raws.get(&a.id) else { return Err(ApiError::not_found("that agent is gone")) };
     let org_row = compute::org_row(&client, o.id).await?;
-    let held = compute::audiences_held(&client, o.id).await?;
+    let held = compute::audiences_held(&**client, o.id).await?;
     let chain: Vec<Value> = client
         .query(
             "WITH RECURSIVE chain(id, parent_id, scope, depth) AS (

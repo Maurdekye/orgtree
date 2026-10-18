@@ -20,7 +20,7 @@ pub struct TreeCtx<'a> {
     pub continue_primaries: &'a std::collections::HashSet<String>,
     /// every Muse login's catalog as last read: a frozen Muse seat's choices
     pub muse: &'a crate::providers::MuseCatalogs,
-    pub audiences_held: &'a HashMap<String, Vec<String>>,
+    pub audiences_held: &'a crate::domain::audiences::EffectiveAudiences,
     /// the org these bodies are for: legacy org keys stay inside their org
     pub org_slug: &'a str,
 }
@@ -258,7 +258,7 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
         o.insert("halt_queued".into(), json!(mail_pending));
     }
     let held = ctx.audiences_held.get(name).cloned().unwrap_or_default();
-    o.insert("audiences_held".into(), json!(held));
+    super::audiences::project_fields(&mut o, &held);
     o.insert("bearer_state".into(), Value::Null);
     o.insert("generation".into(), raw["generation"].clone());
     o.insert("lineage".into(), json!([]));
