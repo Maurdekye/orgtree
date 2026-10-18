@@ -40,7 +40,7 @@ test('project Summary editor keeps set_description wire operation',async t=>{
   await inAct(()=>editor.click())
   const box=v.el.querySelector<HTMLTextAreaElement>('textarea[aria-label="Summary of project website"]')!
   await inAct(()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(box,'Updated summary');box.dispatchEvent(new Event('input',{bubbles:true}))})
-  await inAct(async()=>{box.blur();box.dispatchEvent(new window.FocusEvent('focusout',{bubbles:true}));await flush(2)})
+  await inAct(async()=>{box.blur();await flush(2)})
   assert.deepEqual(ops,[{op:'set_description',node:'website',description:'Updated summary'}])
   assert.match(notices.flat().join(' '),/Summary of website saved/)
 })
