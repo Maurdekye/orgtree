@@ -1668,11 +1668,17 @@ export function agentItems(data: {
  *  ⚠ READ FRESH, NEVER CACHED. Membership is recomputed from whatever tree the
  *  caller is holding, so a reparent or a hire shows up on the next refresh
  *  without anyone invalidating anything. */
-export function teamNodeIds(roots: readonly (TreeNode & { parent?: string })[] | undefined,
+export interface TeamTreeNode {
+  id: string
+  parent?: string | null
+  children?: readonly TeamTreeNode[]
+}
+
+export function teamNodeIds(roots: readonly TeamTreeNode[] | undefined,
                             rootId: string): Set<string> {
   const ids = new Set<string>([rootId])
-  const byParent = new Map<string, (TreeNode & { parent?: string })[]>()
-  const index = (nodes?: readonly (TreeNode & { parent?: string })[]) => {
+  const byParent = new Map<string, TeamTreeNode[]>()
+  const index = (nodes?: readonly TeamTreeNode[]) => {
     for (const n of nodes ?? []) {
       if (n.parent) {
         const list = byParent.get(n.parent) ?? []
@@ -1683,12 +1689,12 @@ export function teamNodeIds(roots: readonly (TreeNode & { parent?: string })[] |
     }
   }
   index(roots)
-  const collect = (n: TreeNode & { parent?: string }) => {
+  const collect = (n: TeamTreeNode) => {
     if (n.id) ids.add(n.id)
     for (const c of n.children ?? []) if (!ids.has(c.id)) collect(c)
     for (const c of byParent.get(n.id) ?? []) if (!ids.has(c.id)) collect(c)
   }
-  const find = (nodes?: readonly (TreeNode & { parent?: string })[]): boolean => {
+  const find = (nodes?: readonly TeamTreeNode[]): boolean => {
     for (const n of nodes ?? []) {
       if (n.id === rootId) { collect(n); return true }
       if (find(n.children)) return true
@@ -1717,7 +1723,7 @@ export function teamNodeIds(roots: readonly (TreeNode & { parent?: string })[] |
  *  Pure, so the membership rule can be tested without mounting anything. */
 export function teamItems(data: {
   items?: WorkItem[]; archived?: WorkItem[]; backlogged?: WorkItem[]
-} | null | undefined, rootId: string, roots?: TreeNode[],
+} | null | undefined, rootId: string, roots?: readonly TeamTreeNode[],
   includeArchived = false): WorkItem[] | null {
   if (!data) return null
   const team = teamNodeIds(roots, rootId)

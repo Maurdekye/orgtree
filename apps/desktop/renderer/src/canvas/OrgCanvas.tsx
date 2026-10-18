@@ -1167,7 +1167,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     setLineageId((v) => v === from ? to : v)
     setInboxId((v) => v === from ? to : v)
     setAgentDocketId((v) => v === from ? to : v)
-    setTeamDocketId((v) => v === from ? to : v)
     setSheetId((v) => v === from ? to : v)
   }, [slug])
   const nodeDrag = useRef<{
