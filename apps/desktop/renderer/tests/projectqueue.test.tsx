@@ -65,7 +65,7 @@ const choose = (sel: HTMLSelectElement, value: string) => {
 
 test('§1 a project mail says where it is in the queue', async (t) => {
   const cases: [Parameters<typeof QueueChip>[0]['q'], string][] = [
-    [{ held_by: 'dev1', ack: false }, 'to dev1'],
+    [{ held_by: 'dev1', ack: false }, 'delivered to dev1'],   // user 08:31:49Z
     [{ held_by: 'dev1', ack: true }, 'dev1 · awaiting ack'],
     [{ held_by: 'dev1', ack: true, acked_at: '2026-10-18T08:20:00Z', ack_mail: 'm9' }, 'acked by dev1'],
     [{ released: { by: 'dev1', why: 'was halted' } }, 'released (dev1)'],
