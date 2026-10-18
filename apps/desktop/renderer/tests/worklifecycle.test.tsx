@@ -145,11 +145,20 @@ test('main docket keeps selected archive detail and draft mounted after close wi
   await inAct(() => old.click())
   const textarea = await draft(view.el)
   await inAct(() => archiveBox(view.el).click())
-  assert.equal(view.el.querySelector('.mailer-read textarea'), textarea, 'same mounted composer')
+  // boolean element checks: a failing `assert.equal(<element>, …)` makes the
+  // reporter inspect a live React element and run out of memory (team notes)
+  assert.equal(view.el.querySelector('.mailer-read textarea') === textarea, true, 'same mounted composer')
   assert.equal(textarea.value, 'keep this draft')
   assert.equal(view.el.querySelectorAll('.docket-row').length, 1)
   await view.render(modal('other'))
-  assert.equal(view.el.querySelector('.mailer-read textarea'), null, 'selection cannot cross orgs')
+  // the other org opens on its OWN default selection (its first active item,
+  // "one default selection after its first load"); nothing of the first org's
+  // selection or draft comes with it
+  const read = view.el.querySelector('.mailer-read')
+  assert.equal((read?.textContent ?? '').includes('old-ticket'), false, 'selection cannot cross orgs')
+  const other = view.el.querySelector('.mailer-read textarea') as HTMLTextAreaElement | null
+  assert.equal(other === textarea, false, 'not the first org\'s composer')
+  assert.equal(other?.value ?? '', '', 'the draft cannot cross orgs')
 })
 
 test('agent docket keeps selected archive draft when its filtered rows become empty', async t => {
