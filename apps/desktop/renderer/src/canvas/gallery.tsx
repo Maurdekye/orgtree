@@ -805,7 +805,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
       onClick={openLightboxIfEligibleImage}>
       <div className="gallery-head desk-presented-head">
         <b>Presented</b>
-        <span className="dim" data-copy-agent-name={nid}>documents and HTML previews from {nid}</span>
+        <span className="dim" data-copy-agent-name={nid}>documents and HTML previews from {nid}{team ? ' and the agents under it' : ''}</span>
       </div>
       {rows.length === 0 ? (
         <DocListEmpty w={w} className="desk-presented-empty">
