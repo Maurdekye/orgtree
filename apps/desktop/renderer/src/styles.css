@@ -3307,6 +3307,18 @@ textarea.ask-free-response-input { resize: vertical; }
   padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line-soft);
 }
 .mailer-head .wait { color: var(--agent-accent-text, var(--accent)); font-weight: 700; }
+/* Keep an org outbox's badge inside its shared link, its attribution on the
+   left, and reply/time together on the right. Whole groups wrap when narrow. */
+.mailer-head.compound-header { align-items: baseline; }
+.org-mail-attribution {
+  display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px;
+  min-width: 0; max-width: 100%; flex: 1 1 auto;
+}
+.org-mail-attribution > .ref-agent { flex: none; max-width: 100%; }
+.org-mail-via { white-space: nowrap; }
+.org-mail-recipient { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; max-width: 100%; }
+.org-mail-recipient .ref-hub { min-width: 0; overflow-wrap: anywhere; }
+.mail-head-meta { display: inline-flex; align-items: baseline; gap: 8px; margin-left: auto; flex: none; white-space: nowrap; }
 .mailer-body { font-size: 12.5px; line-height: 1.55; }
 /* ...and compact inside the desk (virtual-scaled) so more fits on screen */
 .desk-body .mailrow .l1, .desk-body .mailrow .l2, .desk-body .mailer-head { font-size: 12px; }

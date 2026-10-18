@@ -30,7 +30,7 @@ import {
   useHideRetired,
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
-import { AgentName } from './identity'
+import { AgentLink, AgentName } from './identity'
 import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
 import { RefMdBody } from './refmd'
 import { refToken } from './reflinks'
@@ -56,6 +56,8 @@ import type { InboxSelectionRequest } from '../inboxselection'
 // selected message opened in the reading pane on the right. Unread mail is
 // HIGHLIGHTED but never moved.
 export interface MailListProps {
+  /** Org outbox attribution owns the header's left side; metadata trails it. */
+  compoundHeader?: boolean
   selectionRequest?: InboxSelectionRequest
   hiddenUnread?: {count:number;onOpen:()=>void}
   hideMailReplyKind?: boolean
@@ -177,6 +179,7 @@ export interface MailListProps {
 const MAIL_WINDOW = 40
 
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
+  compoundHeader,
   outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind,selectionRequest,hiddenUnread }: MailListProps) {
@@ -638,6 +641,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
         {replyTargets.length > 0 && <button className="link" onClick={() => setReplyTargets([])}>Cancel all replies</button>}
         {cur && (
           <MailReadPane cur={cur} members={curPile} org={org} refs={refs} hideMailReplyKind={hideMailReplyKind}
+            compoundHeader={compoundHeader}
             onFocusAgent={onFocusAgent} hasAgent={hasAgent}
             mdBase={mdBase} fileHref={fileHref} sender={S} outgoing={outgoing}
             customSender={customS} waitLabel={waitLabel} custom={custom}
@@ -832,7 +836,8 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
  *  `.mailer-read`; `MailList` itself draws its pane through it. `onReply` is
  *  passed only when this message may be replied to from here. */
 export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender, party,
-  outgoing, customSender, waitLabel, custom, onReply, toast, onTag, hideMailReplyKind, onFocusAgent, hasAgent }: {
+  outgoing, customSender, waitLabel, custom, onReply, toast, onTag, hideMailReplyKind, onFocusAgent, hasAgent, compoundHeader }: {
+  compoundHeader?: boolean
   onFocusAgent?: (id: string) => void
   hasAgent?: (id: string) => boolean
   hideMailReplyKind?: boolean
@@ -876,22 +881,24 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
     </>
   }
   const run = members && members.length > 1 ? members : null
+  const metadata = <>
+    <span className="dim">{run ? `${run.length} notices` : typed(cur) ? null : cur.kind}</span>
+    {cur.urgent && <span className="urgentkind">urgent</span>}
+    <TagChips tags={cur.tags} onTag={onTag}/>
+    {cur.relationship && <span className="dim">{cur.relationship}</span>}
+    {!cur._ask && cur.queue && <QueueChip q={cur.queue} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />}
+    <span className="dim">{fmtFull(cur.at)}</span>
+    {cur._wait && <span className="wait">{waitLabel}</span>}
+  </>
   return (
     <>
-      <div className="mailer-head event-head">
+      <div className={'mailer-head event-head' + (compoundHeader ? ' compound-header' : '')}>
         {!run && <EventCard part="header" row={cur} profile={profile}
           hideKind={hideMailReplyKind && typed(cur)?.event.variant === 'reply.mail'}
           org={org ?? refs?.world.org ?? ""} world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, cur)} />}
         {outgoing && !customSender && <span className="dim">to</span>}
         {(outgoing || !typed(cur)) && S(party, cur)}
-        <span className="dim">
-          {run ? `${run.length} notices` : typed(cur) ? null : cur.kind}</span>
-        {cur.urgent && <span className="urgentkind">urgent</span>}
-        <TagChips tags={cur.tags} onTag={onTag}/>
-        {cur.relationship && <span className="dim">{cur.relationship}</span>}
-        {!cur._ask && cur.queue && <QueueChip q={cur.queue} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />}
-        <span className="dim">{fmtFull(cur.at)}</span>
-        {cur._wait && <span className="wait">{waitLabel}</span>}
+        {compoundHeader ? <span className="mail-head-meta">{metadata}</span> : metadata}
       </div>
       {/* D-169: WHY you are being interrupted, in the sender's own
           words, on its own line above the mail. The reason exists to be
@@ -1780,7 +1787,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                        `_by` is recorded locally as the agent that sent, so it
                        stays eligible.) */
                     sender={(id) => (id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>} />
-                : <MailList org={slug} delivered={out} outgoing jumpTo={jumpTo}
+                : <MailList org={slug} delivered={out} outgoing compoundHeader jumpTo={jumpTo}
                     collapsible
                     jumpSeq={jumpSeq} refs={refs} lookup={orgLookup}
                     rowMark={glyph}
@@ -1792,10 +1799,9 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                       const byIsLocalAgent = Boolean(m?._by && map.has(m._by))
                       return (
                         /* outbound attribution (user spec): @agent as @org → @recipient */
-                        <span>
-                          <b>
+                        <span className="org-mail-attribution">
                             {byIsLocalAgent ? (
-                              <AgentName id={m!._by!} prefix="@"
+                              <AgentLink id={m!._by!} label={'@' + m!._by!}
                                 tier={map.get(m!._by!)?.tier}
                                 onFocus={onFocusAgent
                                   ? (id) => { closeIfCentred('org-inbox', close, slug); onFocusAgent(id) }
@@ -1803,13 +1809,13 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                             ) : (
                               // not an agent of this org — the sigil and the
                               // recorded text, with nothing inferred
-                              m?._by ? `@${m._by}` : '@?'
+                              <span>{m?._by ? `@${m._by}` : '@?'}</span>
                             )}
-                          </b>
-                          <span className="dim"> as </span><b>@{slug}</b>
-                          <span className="dim"> → </span>
-                          {(id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>}
-                          {m && glyph(m)}
+                          <span className="org-mail-via"><span className="dim">as </span><b>@{slug}</b></span>
+                          <span className="org-mail-recipient"><span className="dim">→ </span>
+                            {(id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>}
+                            {m && glyph(m)}
+                          </span>
                         </span>
                       )
                     }} />}
