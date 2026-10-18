@@ -2,12 +2,15 @@
 // Attention list, with every row kind that draws in the theme accent (unread
 // senders, question and request pills, the urgent pill, mail and transcript
 // @user mentions, a selected row, links in the reading pane), plus the accent
-// fills (a primary button, count badges). window.__gallery switches the view,
-// the contrast family and the visual theme. Fixture data only; window.fetch
+// fills (a primary button, count badges) and three effort bars (the app
+// accent's, an inherited level's, and one inside a Claude desk body, which
+// draws in the provider colour). window.__gallery switches the view, the
+// contrast family and the visual theme. Fixture data only; window.fetch
 // answers as the legacy engine does in tests.
 import { createRoot } from 'react-dom/client'
 import { useEffect, useState } from 'react'
 import { MailList } from '../src/canvas/mail'
+import { EffortBar } from '../src/canvas/effortbar'
 import { AttentionQueue } from '../src/attention/AttentionQueue'
 import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import { applyTheme } from '../src/themes'
@@ -74,7 +77,15 @@ function Fixture() {
             <span className="org-attn-badge">2</span>
             <span className="quickchat-count">5</span>
           </div>
-          <div className="mailpane" style={{ height: 470 }}>
+          <div className="gallery-effort" style={{ display: 'flex', alignItems: 'flex-end', gap: 18, margin: '0 0 8px' }}>
+            <EffortBar value="high" level="high" label="Effort (high)" onSet={() => {}} />
+            <EffortBar value="" level="medium" inheritLabel="inherit" onSet={() => {}} />
+            <div className="desk-body prov-claude" style={{ display: 'block', flex: 'none', width: 'auto', height: 'auto', minHeight: 0,
+              padding: 0, margin: 0, border: 'none', background: 'none', boxShadow: 'none', overflow: 'visible' }}>
+              <EffortBar value="xhigh" level="xhigh" label="Effort (xhigh, a Claude desk)" onSet={() => {}} />
+            </div>
+          </div>
+          <div className="mailpane" style={{ height: 420 }}>
             <MailList pending={pending} delivered={delivered} waitLabel="unread" selectOldestUnread hideMailReplyKind />
           </div>
         </main>

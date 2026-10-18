@@ -1,11 +1,13 @@
 // Captures the light-mode gallery (lightaccent-visual.tsx: the user's inbox and
-// the Attention list) in offscreen Electron, in the light, solarized-light and
-// charcoal contrast families with the Orgtree Grey theme. With --expect it
-// checks the Orgtree Grey accent on the light surfaces (user 2026-10-18
-// 15:34Z): every text drawn in the accent or its hover reads at 4.5:1 or more
-// on the background it really sits on, at rest and on a hovered urgent and
-// unread row, and every accent fill's own text does too; dark surfaces and
-// the other themes keep their accents.
+// the Attention list) in offscreen Electron, in the light and solarized-light
+// contrast families with every preset theme, and in charcoal with Orgtree
+// Grey. With --expect it checks every preset's accent on the light surfaces
+// (user 2026-10-18 15:34Z and 15:35Z): every text drawn in the accent or its
+// hover reads at 4.5:1 or more on the background it really sits on, at rest
+// and on a hovered urgent and unread row, every accent fill's own text does
+// too, and each effort bar is a light control whose fill stands 3:1 apart from
+// its rail; the dark surfaces keep every preset's own accent and the dark
+// effort rail.
 //   node lightaccent-visual.mjs <build-output> <evidence> <node_modules> [--expect]
 // Run the whole command, bundling included, under tests/joblimit.ps1 and the
 // build slot. Without --expect it only records (a base for before/after).
@@ -52,16 +54,20 @@ writeFileSync(path.join(evidence, 'result.json'), JSON.stringify(result, null, 2
 if (!result.ok) { console.log(JSON.stringify({ ok: false, error: result.error, out: evidence })); process.exit(1) }
 
 const checked = []
+// the presets' own accents, which the dark surfaces keep (themes.tsx THEMES)
+const DARK_ACCENTS = { orgtree: '#b6bdc8', claude: '#d97757', codex: '#22c4bd', antigravity: '#75a5ff',
+  openrouter: '#b69afa', langserver: '#cda206', muse: '#afe5ff' }
 if (flag === '--expect') {
   const { frames, tokens } = result.value
   const reads = (what, list, min) => {
     for (const t of list) assert.ok(t.ratio >= min, `${what}: "${t.text}" (${t.el}) ${t.color ?? t.ink} on ${t.on} is ${t.ratio}:1`)
   }
-  for (const contrast of ['light', 'solarized-light']) {
+  for (const contrast of ['light', 'solarized-light']) for (const theme of Object.keys(DARK_ACCENTS)) {
     for (const view of ['inbox', 'attention']) {
-      const name = `${contrast}-orgtree-${view}`, f = frames[name]
+      const name = `${contrast}-${theme}-${view}`, f = frames[name]
       assert.ok(f, `${name} was captured`)
-      assert.equal(f.root.theme, 'orgtree', `${name}: the gallery runs the Orgtree Grey theme`)
+      assert.equal(f.root.theme, theme, `${name}: the gallery runs the ${theme} theme`)
+      assert.notEqual(f.root.accent, DARK_ACCENTS[theme], `${name}: the light surfaces give ${theme} its deep partner`)
       assert.ok(f.root.cls.split(' ').includes(`contrast-${contrast}`), `${name}: on the ${contrast} surfaces (${f.root.cls})`)
       // positive controls: the audit found the accent's text and fills
       assert.ok(f.texts.length >= 3, `${name}: found ${f.texts.length} texts in the accent: ${JSON.stringify(f.texts)}`)
@@ -72,21 +78,29 @@ if (flag === '--expect') {
         assert.ok(h && h.texts.length >= 1, `${name}: the hovered ${state} row has text in the accent`)
         reads(`${name} hovered ${state} row`, h.texts, 4.5)
       }
+      if (view === 'inbox') {
+        // the app accent's bar, an inherited level's and a Claude desk's (its provider colour)
+        assert.ok(f.effort.length >= 3 && f.effort.some((e) => e.desk), `${name}: found the effort bars: ${JSON.stringify(f.effort)}`)
+        for (const e of f.effort) {
+          assert.ok(e.railOnPanel < 1.5, `${name}: the effort rail ${e.rail} is light on ${e.panel} (${e.railOnPanel}:1)`)
+          assert.ok(e.fillOnRail >= 3, `${name}: the effort fill ${e.fill} on the rail ${e.rail} is ${e.fillOnRail}:1${e.desk ? ' (desk)' : ''}`)
+        }
+      }
       checked.push(name)
     }
   }
-  // the dark surfaces keep the theme's own accent
+  // the dark surfaces keep the theme's own accent, and the effort bar its dark rail
   for (const view of ['inbox', 'attention']) {
     const f = frames[`charcoal-orgtree-${view}`]
     assert.equal(f.root.accent, '#b6bdc8', `charcoal ${view}: Orgtree Grey keeps #b6bdc8`)
     assert.equal(f.root.ink, '#17191d', `charcoal ${view}: and its dark ink`)
+    if (view === 'inbox') for (const e of f.effort) assert.equal(e.rail, '#3f3f46', `charcoal: the effort rail stays #3f3f46 (${e.rail})`)
     checked.push(`charcoal-orgtree-${view}`)
   }
   assert.equal(tokens['obsidian-black-orgtree'].accent, '#b6bdc8', 'obsidian black keeps the Orgtree Grey accent')
-  // other themes are not this slice's: Claude keeps its accent, Muse its own light partner
-  assert.equal(tokens['light-claude'].accent, '#d97757', 'Claude Terracotta on light is unchanged')
-  assert.equal(tokens['solarized-light-claude'].accent, '#d97757', 'Claude Terracotta on solarized light is unchanged')
-  assert.equal(tokens['light-muse'].accent, '#0077b0', "Muse Eggshell keeps its light partner")
+  for (const [theme, accent] of Object.entries(DARK_ACCENTS)) {
+    assert.equal(tokens[`charcoal-${theme}`].accent, accent, `charcoal keeps ${theme}'s own accent ${accent}`)
+  }
   checked.push('tokens')
 }
 console.log(JSON.stringify({ ok: true, expect: flag === '--expect', checked, shots: result.shots?.length, out: evidence }))

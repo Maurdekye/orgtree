@@ -1,16 +1,18 @@
 // Page script for lightaccent-visual.mjs (tools/rig/desktop driver): the
-// light-mode gallery (lightaccent-visual.tsx) in the light, solarized-light and
-// charcoal contrast families with the Orgtree Grey theme, plus the root tokens
-// of a few other theme and contrast pairs. For each frame it audits every
-// element whose text is drawn in the theme accent (or its hover) against the
-// background it really sits on, and every accent fill against its own text,
-// at rest and with the pointer on an urgent and an unread row. Full frames at
-// 1x plus 2x close-ups of the list; no assertions here, so the same script
-// records a base.
+// light-mode gallery (lightaccent-visual.tsx) in the light and solarized-light
+// contrast families with every preset theme, and in charcoal with Orgtree
+// Grey, plus the root tokens of every preset on charcoal and of Orgtree Grey on
+// obsidian. For each frame it audits every element whose text is drawn in the
+// theme accent (or its hover) against the background it really sits on, every
+// accent fill against its own text, at rest and with the pointer on an urgent
+// and an unread row, and each effort bar's fill against its rail and its rail
+// against the panel. Full frames at 1x plus 2x close-ups of the list; no
+// assertions here, so the same script records a base.
 const fs = require('node:fs'), path = require('node:path')
 const W = 980, H = 620
-const FRAMES = [['light', 'orgtree'], ['solarized-light', 'orgtree'], ['charcoal', 'orgtree']]
-const TOKENS_ONLY = [['obsidian-black', 'orgtree'], ['light', 'claude'], ['solarized-light', 'claude'], ['light', 'muse']]
+const PRESETS = ['orgtree', 'claude', 'codex', 'antigravity', 'openrouter', 'langserver', 'muse']
+const FRAMES = [...PRESETS.flatMap((t) => [['light', t], ['solarized-light', t]]), ['charcoal', 'orgtree']]
+const TOKENS_ONLY = [['obsidian-black', 'orgtree'], ...PRESETS.map((t) => ['charcoal', t])]
 module.exports = async (page, { out }) => {
   const paint = () => page.eval(async () => { await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame); await new Promise(r => setTimeout(r, 120)) })
   const park = async () => { await page.mouse('mouseMoved', W - 4, H - 4); await paint() }
@@ -60,9 +62,17 @@ module.exports = async (page, { out }) => {
         fills.push({ el: label(e), text: e.textContent.trim().slice(0, 20), ink: hex(ink), on: hex(bg), ratio: +ratio(over(ink, bg), bg).toFixed(2) })
       }
     }
+    // each effort bar: the rail over what it sits on, the fill over the rail
+    const effort = [...document.querySelectorAll(scope + ' .effort-bar')].filter(shown).map((bar) => {
+      const rail = bar.querySelector('.effort-bar-rail'), fill = bar.querySelector('.effort-bar-fill')
+      const under = backdrop(bar), railBg = over(parse(getComputedStyle(rail).backgroundColor), under)
+      const fillBg = fill ? over(parse(getComputedStyle(fill).backgroundColor), railBg) : null
+      return { el: label(bar), desk: !!bar.closest('.desk-body'), rail: hex(railBg), panel: hex(under), fill: fillBg && hex(fillBg),
+        railOnPanel: +ratio(railBg, under).toFixed(2), fillOnRail: fillBg ? +ratio(fillBg, railBg).toFixed(2) : null }
+    })
     const html = document.documentElement
     return { root: { accent: token('--accent'), hover: token('--accent-hover'), soft: token('--accent-soft'), ink: token('--accent-ink'),
-      org: token('--org-accent'), theme: html.dataset.visualTheme ?? null, cls: html.className }, texts, fills }
+      org: token('--org-accent'), theme: html.dataset.visualTheme ?? null, cls: html.className }, texts, fills, effort }
   }, scope)
   const hoverAudit = async (sel) => {
     const box = await page.eval(sel => { const e = document.querySelector(sel); if (!e) return null; e.setAttribute('data-gallery-hover', ''); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } }, sel)
