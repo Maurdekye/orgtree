@@ -30,9 +30,9 @@
 //    state, the checklist only when there are items, the "previous list"
 //    marker whenever what is shown is not current, and a Codex section's own
 //    header names Codex on screen.
-// §4 mounts the real DeskChat against the fake server. ⚠ THE FIFTH TAB IS NO
-//    LONGER THIS PANEL: the user ruled on 2026-09-05 21:07 that its contents
-//    are replaced entirely by the docket items the agent is answerable for,
+// §4 mounts the real DeskChat against the fake server. ⚠ THE FORMER PROGRESS
+//    PANEL IS NO LONGER THIS PANEL: the user ruled on 2026-09-05 21:07 that its
+//    contents are replaced entirely by the docket items the agent is answerable for,
 //    so §4 pins THAT wiring — the tab is `docket`, the chip counts the rows
 //    the tab lists (and another agent's item is in the fixture so "lists my
 //    items" cannot pass on a tab listing everything), and selecting a row
@@ -541,7 +541,7 @@ const workRow = (over: Record<string, unknown>) => ({
   superseded_by: null, history: [], ...over,
 })
 
-test('§4 DeskChat: the fifth tab is the agent\'s OWN DOCKET, and the chip counts actionable ownership', async (t) => {
+test('§4 DeskChat: the docket tab is the agent\'s OWN DOCKET, and the chip counts actionable ownership', async (t) => {
   resetConvos()
   useFakeClock()
   const server = new FakeServer()
@@ -565,7 +565,7 @@ test('§4 DeskChat: the fifth tab is the agent\'s OWN DOCKET, and the chip count
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
   const tabs = [...view.el.querySelectorAll('.cc-tabs button')].map((b) => b.getAttribute('data-tab'))
-  assert.deepEqual(tabs, ['chat', 'inbox', 'docket', 'presented', 'history', 'files'])
+  assert.deepEqual(tabs, ['chat', 'inbox', 'docket', 'presented'])
   assert.equal(Boolean(view.el.querySelector('.docket-agent')), false,
     'the panel must not be open on the chat tab')
   // the header chip: it counts the assignment, and it is a way in
@@ -791,7 +791,7 @@ async () => {
 test('§5c the REAL desk hands its docket card a reference world', async (t) => {
   // ⚠ THIS CHECK CHANGED SURFACE, and the reason is worth reading. It used to
   // open the desk's PROGRESS panel and prove the desk handed that card its
-  // references. The user replaced the fifth tab's contents with the agent's
+  // references. The user replaced the former Progress panel with the agent's
   // own docket (2026-09-05 21:07), so the panel it opened is no longer on the
   // desk at all — and a check whose subject is gone must move to the surface
   // that took its place, not be deleted and not be left red. The claim is the

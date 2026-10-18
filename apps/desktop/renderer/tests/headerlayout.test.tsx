@@ -85,8 +85,8 @@ test('desk header has bounded controls and a separate wrapping metadata row', as
   ], 'right action group changed order')
   assert.deepEqual([...right.querySelectorAll('.cc-actions button')].map(el => el.textContent),
     ['Halt', 'retire · 5'])
-  // chat · history · files · inbox · progress (FR-2, 2026-09-04)
-  assert.equal(top.querySelectorAll('.cc-tabs button').length, 6)
+  // Chat, Inbox, Docket and Presented remain bounded in the desk header.
+  assert.equal(top.querySelectorAll('.cc-tabs button').length, 4)
   for (const sel of [
     '.mcp-tool-count', '.cache-forecast', '.badge',
   ]) assert.ok(meta.querySelector(sel), `metadata row omitted ${sel}`)
