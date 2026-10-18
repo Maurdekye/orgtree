@@ -42,7 +42,7 @@ A project's docket lists every item owned by an agent under the project, nested 
 
 On the canvas, each agent with a fair_queue watchdog on a project has a rose line to that project; a paused watchdog's line is dashed and dimmer.
 
-`orgtree_present project=<name>` puts a document under the project instead of beside your seat (the same user-audience rule applies). The project's card and the presentations gallery show it under the project. The project's own gallery (its desk's presented tab) lists the documents attributed to the project. Its team presentations add every document presented by the agents below it, nested projects included, and so do the presentation chips on its card and desk header. Each row names the agent that presented it. An agent's "Open team presentations" covers its whole team the same way, through projects.
+`orgtree_present project=<name>` puts a document under the project instead of beside your seat (the same user-audience rule applies). The project's card and the presentations gallery show it under the project. The project's own gallery (its desk's presented tab) lists the documents attributed to the project. Its team presentations add every document presented by the agents below it, nested projects included, and so do the presentation chips on its card and desk header. A document presented under the project names the project as its presenter, with a "presented by <agent>" line for the agent that presented it. An agent's "Open team presentations" covers its whole team the same way, through projects.
 
 ## See also
 
