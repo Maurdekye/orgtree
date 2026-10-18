@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { ToolTimes } from '../src/canvas/toolclock'
 import { Msg } from '../src/canvas/desk'
 import type { ChatMessage, ToolChip } from '../src/types'
-import { LiveTokenContext } from '../src/canvas/tokencount'
+import { LiveTokenContext, TokenCount } from '../src/canvas/tokencount'
 import { contextReading } from '../src/tokenmetrics'
 import { ingestStream, resetConvos, useConvo } from '../src/convo'
 import type { Convo } from '../src/convo'
@@ -13,6 +13,27 @@ import { RecordOverlay } from '../src/recordoverlay'
 const text = (el: Element) => el.textContent?.replace(/\s+/g, ' ').trim() ?? ''
 const tool: ToolChip = { id: 'call', name: 'Bash', result: 'complete output',
   started_at: '2026-10-17T13:00:00Z', ended_at: '2026-10-17T13:00:01Z' }
+
+test('compact token previews append t and kt with existing k rounding', async t => {
+  const counts = [0, 41, 999, 1000, 1234, 41000, 999999, 1000000]
+  const view = await mountView(<>{counts.map(n => <TokenCount key={n} count={n} estimated={n === 41 || n === 1234 || n === 41000} />)}</>, text)
+  t.after(() => view.unmount())
+  assert.deepEqual([...view.el.querySelectorAll('.token-count')].map(el => text(el).replace(/^· T /, '')),
+    ['0t', '~41t', '999t', '1kt', '~1.2kt', '~41kt', '1000kt', '1000kt'])
+})
+
+test('hover shows the full token figure and preserves estimate qualification', async t => {
+  const view = await mountView(<TokenCount count={4321} />, text)
+  t.after(() => view.unmount())
+  assert.equal(view.el.querySelector('.token-count')?.getAttribute('title')?.split('\n')[0], '4,321t')
+  await view.render(<TokenCount count={4321} estimated sampled />)
+  const title = view.el.querySelector('.token-count')?.getAttribute('title') ?? ''
+  assert.equal(title.split('\n')[0], '~4,321t')
+  assert.match(title, /estimated.*sampled/is)
+  assert.equal(view.el.querySelector('.token-count')?.getAttribute('aria-label'), 'approximately 4,321 output tokens')
+  await view.render(<TokenCount count={4321} thinking />)
+  assert.equal(view.el.querySelector('.token-count')?.getAttribute('title')?.split('\n')[0], '4,321t')
+})
 
 test('tool output tokens retain the tilde while running and after completion', async t => {
   const view = await mountView(<ToolTimes tool={{ name: 'Bash', output_tokens: 1234, output_tokens_estimated: true }} />, text)

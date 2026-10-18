@@ -22,12 +22,16 @@ app.whenReady().then(async () => {
         document.documentElement.classList.toggle('contrast-light',${theme === 'light'});
         await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,250))));
         return {background:getComputedStyle(document.body).backgroundColor,
-          counts:[...document.querySelectorAll('.token-count')].map(el=>({text:el.textContent,label:el.getAttribute('aria-label'),
+          counts:[...document.querySelectorAll('.token-count')].map(el=>({text:el.textContent,label:el.getAttribute('aria-label'),title:el.getAttribute('title'),
             svg:el.querySelectorAll('svg').length,glyph:el.querySelector('.token-glyph')?.textContent,
             font:el.querySelector('.token-glyph')&&getComputedStyle(el.querySelector('.token-glyph')).fontFamily,
             hidden:el.querySelector('.token-glyph')?.getAttribute('aria-hidden')}))}
       })()`)
       assert.deepEqual(state.counts.map(c => c.label), ['approximately 1,234 output tokens', 'approximately 42 output tokens', '321 thinking tokens', '0 output tokens'])
+      if (mode === 'after') {
+        for (const [i, suffix] of ['~1.2kt', '~42t', '321t', '0t'].entries()) assert.equal(state.counts[i].text.endsWith(suffix), true)
+        assert.deepEqual(state.counts.map(c => c.title.split('\n')[0]), ['~1,234t', '~42t', '321t', '0t'])
+      }
       for (const count of state.counts) {
         if (mode === 'before') assert.equal(count.svg, 1)
         else { assert.equal(count.svg, 0); assert.equal(count.glyph, 'T'); assert.equal(count.hidden, 'true'); assert.match(count.font, /Georgia.*serif/) }
