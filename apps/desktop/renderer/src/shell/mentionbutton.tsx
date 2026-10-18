@@ -21,7 +21,7 @@ export function TranscriptMentionButton({ tree, onFocusAgent }: {
   const mentions = unobservedTranscriptMentions(tree)
   const newest = mentions[0]
   if (!newest) return null
-  return <ShellAction className="mention-bell" glow label="Unobserved transcript mentions"
+  return <ShellAction className="iconbtn mention-bell" glow label="Unobserved transcript mentions"
     title={`${mentions.length} unobserved transcript mention${mentions.length === 1 ? '' : 's'} — open newest`}
     icon={<span aria-hidden="true">@</span>} badge={<b className="eye-count asks">{mentions.length}</b>}
     onClick={() => {

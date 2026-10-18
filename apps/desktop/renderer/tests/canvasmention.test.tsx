@@ -4,6 +4,9 @@ import assert from 'node:assert/strict'
 import App from '../src/App'
 import {installMentionFixture} from './canvasmention-fixture'
 import {useMentionHighlight} from '../src/canvas/agentmentions'
+import {dismissUserMention,resetSeenMentions} from '../src/canvas/agentmentions'
+import {unobservedTranscriptMentions} from '../src/shell/mentionbutton'
+import type {TreePayload} from '../src/types'
 function HighlightProbe(){const h=useMentionHighlight('transcript-jump','newest');return <output data-highlight={h?.mentionId??''}/>}
 
 for(const mode of ['canvas','attention'] as const)test(`${mode}: newest transcript jump shares header guard, observes once and walks to the next`,async()=>{
@@ -30,4 +33,14 @@ test('mail-only mentions keep inbox attention without exposing the transcript bu
   const rig=installMentionFixture('canvas',false),view=await mountView(<App/>,el=>el)
   try{await inAct(()=>flush(65));assert.equal(view.el.querySelector('.mention-bell')===null,true);assert.equal(view.el.querySelector('.ask-bell')?.classList.contains('glow'),true)}
   finally{await view.unmount();rig.restore()}
+})
+test('transcript targets use deterministic newest order and exclude observed, retired and project markers',async()=>{
+  const rig=installMentionFixture('canvas')
+  try{
+    const n=(id:string,state='live',kind='agent')=>({id,state,kind,children:[],user_mention:{id:'m-'+id,at:'2026-10-18T15:30:00Z',blurb:'Review @user'}})
+    const tree={slug:rig.slug,roots:[n('b'),n('a'),n('retired','archived'),n('project','live','project')]} as unknown as TreePayload
+    assert.deepEqual(unobservedTranscriptMentions(tree).map(n=>n.id),['a','b'])
+    await dismissUserMention(rig.slug,'a','m-a',undefined,{highlight:false})
+    assert.deepEqual(unobservedTranscriptMentions(tree).map(n=>n.id),['b'])
+  }finally{rig.restore();resetSeenMentions()}
 })
