@@ -215,6 +215,8 @@ export interface MailEntry {
 
 export interface MailQueueState {
   held_by?: string
+  /** Recorded project claim time, not the message's sent-at. */
+  held_at?: string
   ack?: boolean
   acked_at?: string
   ack_mail?: string

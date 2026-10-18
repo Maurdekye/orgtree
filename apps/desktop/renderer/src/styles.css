@@ -3070,6 +3070,19 @@ textarea.ask-free-response-input { resize: vertical; }
 .queuekind { font-size: 10px; padding: 0 5px; border: 1px solid var(--line); border-radius: 8px; color: var(--dim);
   white-space: nowrap; flex: none; }
 .queuekind.awaiting { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+/* Delivery yields its recipient width before the sender's identity. Shared
+   AgentName keeps navigation/menu/tooltip behavior in every mail host. */
+.queuekind.queue-delivery {
+  display: inline-flex; align-items: baseline; gap: 3px; min-width: 0;
+  max-width: 13ch; flex: 0 1 13ch; padding: 0; border: none;
+}
+.queue-delivery > span:first-child { flex: none; }
+.queue-delivery .cc-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: inherit; color: inherit; padding: 0; border: none; border-radius: 0; background: none;
+}
+.mailrow .l1:has(.queue-delivery) .mfrom { flex: 1 0 auto; max-width: 55%; }
+.queue-delivery button.cc-name:hover { color: var(--agent-accent-text, var(--accent)); text-decoration: underline; }
 .project-queue-tools { display: flex; justify-content: flex-start; margin: 0 0 4px; }
 /* project slots: the card badge, the desk header card, a holder's chip, a claim's satellite */
 .project-slots-badge, .project-slots-card { display: inline-flex; align-items: center; align-self: flex-start;

@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { MailList, QueueChip } from '../src/canvas/mail'
 import type { MailRow } from '../src/canvas/shared'
+import { fmtFull } from '../src/timefmt'
 
 const mail: MailRow = { id: '1', from: 'hubchat-jumplist-sol', kind: 'question',
   body: 'Please check this project item.', at: '2026-10-18T12:00:00Z',
@@ -48,4 +49,12 @@ test('project queue non-delivery states keep their distinct meaning', async t =>
     assert.equal(v.el.querySelector('.queuekind')?.textContent, text)
     assert.equal(v.el.querySelector('.queue-delivery') === null, true)
   }
+})
+
+test('project delivery tooltip uses the claim time when recorded', async t => {
+  const at = '2026-10-18T12:03:00Z'
+  const v = await mountView(<QueueChip q={{held_by:'dev1',held_at:at,ack:false}} />, el => el)
+  t.after(() => v.unmount())
+  assert.equal(v.el.querySelector('.queue-delivery')?.getAttribute('title'), `delivered to dev1 at ${fmtFull(at)}`)
+  assert.equal(v.el.querySelector('button') === null, true, 'unknown or unavailable identities stay honest plain text')
 })

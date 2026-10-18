@@ -592,6 +592,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           const view = typedView(m)
           return (
           <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view} hideMailReplyKind={hideMailReplyKind}
+            onFocusAgent={onFocusAgent} hasAgent={hasAgent}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
             party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>tagFilter.onChange(toggleMailTag(tagFilter.selected,tag)):undefined}
@@ -637,6 +638,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
         {replyTargets.length > 0 && <button className="link" onClick={() => setReplyTargets([])}>Cancel all replies</button>}
         {cur && (
           <MailReadPane cur={cur} members={curPile} org={org} refs={refs} hideMailReplyKind={hideMailReplyKind}
+            onFocusAgent={onFocusAgent} hasAgent={hasAgent}
             mdBase={mdBase} fileHref={fileHref} sender={S} outgoing={outgoing}
             customSender={customS} waitLabel={waitLabel} custom={custom}
             party={displayParty(cur)!}
@@ -708,7 +710,9 @@ const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s
  *  `MailList` renders its rows through it; `pile` is the size of a folded run
  *  of system notices (1 = a single message). */
 export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, party, mark,
-  onRetract, onClick, onContextMenu, rowRef, onTag, hideMailReplyKind }: {
+  onRetract, onClick, onContextMenu, rowRef, onTag, hideMailReplyKind, onFocusAgent, hasAgent }: {
+  onFocusAgent?: (id: string) => void
+  hasAgent?: (id: string) => boolean
   hideMailReplyKind?: boolean
   m: MailRow
   onTag?: (tag:string)=>void
@@ -797,7 +801,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           && <span className="urgentkind" title={m.urgent_reason
             ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
         {mark}
-        {!m._ask && m.queue && <QueueChip q={m.queue} />}
+        {!m._ask && m.queue && <QueueChip q={m.queue} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />}
         <span className="mtime">{fmtShort(m.at)}</span>
         {m._wait && m.id && onRetract && (
           <button className="chip-x" title="retract (undelivered)"
@@ -828,7 +832,9 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
  *  `.mailer-read`; `MailList` itself draws its pane through it. `onReply` is
  *  passed only when this message may be replied to from here. */
 export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender, party,
-  outgoing, customSender, waitLabel, custom, onReply, toast, onTag, hideMailReplyKind }: {
+  outgoing, customSender, waitLabel, custom, onReply, toast, onTag, hideMailReplyKind, onFocusAgent, hasAgent }: {
+  onFocusAgent?: (id: string) => void
+  hasAgent?: (id: string) => boolean
   hideMailReplyKind?: boolean
   cur: MailRow
   onTag?: (tag:string)=>void
@@ -883,6 +889,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
         {cur.urgent && <span className="urgentkind">urgent</span>}
         <TagChips tags={cur.tags} onTag={onTag}/>
         {cur.relationship && <span className="dim">{cur.relationship}</span>}
+        {!cur._ask && cur.queue && <QueueChip q={cur.queue} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />}
         <span className="dim">{fmtFull(cur.at)}</span>
         {cur._wait && <span className="wait">{waitLabel}</span>}
       </div>
@@ -1251,7 +1258,24 @@ interface InboxViewProps {
 /** A project mail's queue state, beside its time (user 2026-10-18 08:01Z):
  *  handed to an agent, waiting for its ack, acked, released back to the
  *  queue, or an ack record. */
-export function QueueChip({ q }: { q: import('../types').MailQueueState }) {
+export function QueueChip({ q, onFocusAgent, hasAgent }: {
+  q: import('../types').MailQueueState
+  onFocusAgent?: (id: string) => void
+  hasAgent?: (id: string) => boolean
+}) {
+  // Only a plain delivery uses the compact marker. Ack/release/dead-letter
+  // states retain their distinct labels; the recorded claim time is not sent-at.
+  if (q.held_by && !q.ack && !q.acked_at && !q.ack_of && !q.dead_letter && !q.purged && !q.released) {
+    const title = `delivered to ${q.held_by}`
+      + (q.held_at ? ` at ${fmtFull(q.held_at)}` : ' — delivery time not recorded')
+      + (q.ack_waived_at ? ' (its ack was waived when the queue left ack mode)' : '')
+    const focus = onFocusAgent
+    return <span className="queuekind queue-delivery" title={title}>
+      <span aria-hidden="true">→</span>
+      <AgentName id={q.held_by} prefix="@" why={title}
+        onFocus={focus && hasAgent?.(q.held_by) ? id => focus(id) : undefined} />
+    </span>
+  }
   const [text, title] = q.ack_of ? [`ack of ${q.ack_of}`, `the completion record that acks mail ${q.ack_of}`]
     : q.dead_letter ? ['dead letter', `handed out ${q.dead_letter.attempts ?? '?'} times without an ack; the last holder, `
       + `${q.dead_letter.by ?? '?'}, ${q.dead_letter.why ?? 'let it go'}. It will not be handed out again.`]
