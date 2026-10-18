@@ -2,6 +2,12 @@ module.exports = async page => {
   await page.resize('1000x700'); await page.goto('/')
   await page.waitFor('[data-fixture="idle-on"] .sq')
   await page.eval(async () => { await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame); await new Promise(r => setTimeout(r,80)) })
+  const geometry=await page.eval(() => {
+    const description=document.querySelector('main > p').getBoundingClientRect()
+    const first=document.querySelector('[data-fixture] h3').getBoundingClientRect()
+    return { separated:first.top>=description.bottom+12 }
+  })
+  if(!geometry.separated)throw new Error('Fixture heading overlaps card label')
   const value=await page.eval(() => [...document.querySelectorAll('[data-fixture]')].map(section => {
     const badge=section.querySelector('.badge.fast-mode'), r=badge?.getBoundingClientRect()
     return { id:section.dataset.fixture, count:section.querySelectorAll('.badge.fast-mode').length,
