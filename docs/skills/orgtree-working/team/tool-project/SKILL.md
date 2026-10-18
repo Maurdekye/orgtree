@@ -68,9 +68,9 @@ More actions:
 - `release_slot lease=L force=true`: **any ancestor agent** of the project may release another holder's concurrency slot; a holder releases its own without force. Members/peers cannot force another holder.
 - `unqueue_slot name=P agent=A`: any project ancestor (or the user) removes A's waiting claim. It does not release a held lease.
 - `purge_waiting name=P`: retract only mail nobody has claimed; delivered/acked/dead-letter records stay. Normal project-control reach applies.
-- `broadcast name=P body=...`, optional attachments (up to 10) and notice: sends to every live agent under the project, nested projects included. It also requires the messaging tool group. Each recipient goes through ordinary mail reach, peer-mail and attachment checks. The result reports sent/refused/failed outcomes per recipient; no peer-mail bypass and no inherited authority to act for the user.
+- `broadcast name=P body=...`, optional attachments (up to 10), notice, urgent/urgent_reason and reply_to/replies (mail IDs): sends to every live agent under the project, nested projects included. It also requires the messaging tool group. Each recipient goes through ordinary mail reach, peer-mail, attachment, DND and reply checks. Urgent requires a reason and a recipient currently in DND; the result can mix sends and refusals. Reply IDs must be mail you sent or received, `reply_to` must match the first of `replies` when both are supplied, and each recipient gets only its own authorized conversation context. The result reports sent/refused/failed outcomes per recipient; no peer-mail bypass and no inherited authority to act for the user.
 - `presentations name=P`, optional team (false), limit (1–100, default 50), offset (0): list project gallery metadata; team includes descendants.
-- `read_presentation name=P document=ID`, optional team: read a card in that gallery. Body is clipped at 60,000 units and marked truncated. Both gallery actions require project reach, not a user audience.
+- `read_presentation name=P document=ID`, optional team: read a card in that gallery. Body is read in Unicode-aligned windows of at most 16,384 characters (64 KiB UTF-8). Start at `chunk_index=0` (default), then repeat the same name/document/team with `documents[].next_chunk_index` and the returned `body_revision` until the next index is null. Concatenate each body in index order; `chunk_total`, `complete` and `truncated` describe the bounded window. Invalid indices refuse. A changed/replaced body or missing revision on continuation refuses: restart at index0 rather than mixing edits. Reading does not mark the user’s document viewed or dismissed. Both gallery actions require project reach, not a user audience.
 
 Rename/move/reorder/retire/dissolve/restore remain on their existing tree tools. Permanent deletion remains user-only. Acquire/drop project audiences uses orgtree_audience. Fair-queue watch and slot claim/pause/resume/remove use orgtree_watchdog; ack is a reply to the project. Project-folder inspection accepts project reach via orgtree_read_scratch. Desktop navigation (focus, pin/popout, viewport) is not a state tool.
 
@@ -95,3 +95,7 @@ A CLI keeps the tool definitions it loaded at startup. New orgtree_project actio
 - [orgtree-projects](../projects/SKILL.md)
 - [orgtree-hiring](../hiring/SKILL.md)
 - [orgtree-credits](../credits/SKILL.md)
+
+## Atomic create above
+
+`action=create name=P above=A` inserts P at A’s existing position and moves A under P in one canonical operation. Index is unnecessary with above; parent/index cannot override the anchor placement. The same insertion authority, retained subtree, credits and top-level restrictions as the UI apply. Ordinary create without above still requires index and defaults parent to the caller. This adds no authority to create unrelated or ordinary root projects.

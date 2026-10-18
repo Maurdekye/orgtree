@@ -1,5 +1,15 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Project agent-tool parity, user/coordinator 2026-10-18 (4.4.0):** expose
+project Inbox/Sent history, queue-state filters, cursor pagination and full
+historical body reads without claiming or acknowledging. Full presentation
+bodies use bounded Unicode windows with revision-bound continuation so a
+replacement cannot silently mix versions. Project create above delegates to
+canonical atomic insertion authority. Broadcast supports DND urgency and mail
+reply IDs with ordinary per-recipient authority and quote filtering. These
+reads do not consume the user's document viewed/dismissed state. See the
+inbox/project tool glossary pages and `tools/rig/proofs/project-agent-tools.mjs`.
+
 **Audience source visibility, user 2026-10-18 16:53Z (4.4.0):** revoking a
 personal audience removes only its explicit grant. Notices must name any
 remaining project source; members hear once when inherited access starts or

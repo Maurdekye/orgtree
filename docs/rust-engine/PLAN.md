@@ -282,6 +282,13 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Project agent-tool parity (user/coordinator 2026-10-18): explicit project mail
+history folders, queue-stage filters and cursor pages; historical mail body
+chunks; revision-bound presentation body continuation; atomic project creation
+above a node; broadcast urgency and mail reply IDs. Existing project reach,
+insertion authority and per-recipient mail rules still apply. Reading never
+claims or acknowledges project mail or consumes the user's document state.
+
 Project terminology (user/coordinator 2026-10-18): the project charter is **Summary**,
 with the project desk tab lowercase `summary`; agent desks keep `desk`. The compatible tool/API
 setting stays `description`. The project header says `dissolve`, and its `slots`

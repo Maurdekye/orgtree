@@ -22,6 +22,14 @@
   seed without firing, reset clocks carry unknown new values. Tool creation only;
   desktop list/detail retains normal management. See [usage watchdogs](docs/rust-engine/usage-watchdogs.md).
   [decided: user/coordinator 2026-10-18 19:44Z/19:49Z; verified: `runtime/watchdogs/{usage,usage_eval}.rs`]
+- Project tools expose read-only Inbox/Sent history with filter-bound cursor pages
+  and historical fetch/chunk; presentation bodies have bounded Unicode chunk
+  continuation. Project create above uses canonical atomic insertion authority;
+  broadcast forwards urgent/reason and mail reply IDs through ordinary per-recipient
+  checks. Reads never claim/ack project mail or consume user document state. See
+  [inbox](docs/skills/orgtree-working/mail/tool-inbox/SKILL.md) and
+  [project](docs/skills/orgtree-working/team/tool-project/SKILL.md).
+  [decided: user/coordinator 2026-10-18; verified: `tools/{project_inbox,treetools,defs}.rs`, `domain/{ops,presentation_chunks}.rs`]
 
 - Project settings explain round-robin as a load balancer, ACK as a FIFO work
   queue, one slot as a shared lock (mutex), and multiple slots as a counting
