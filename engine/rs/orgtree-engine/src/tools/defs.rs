@@ -3,6 +3,43 @@
 
 use serde_json::{json, Value};
 
+#[cfg(test)]
+mod project_agent_tool_tests {
+    use super::*;
+
+    #[test]
+    fn project_tools_existing_actions_control() {
+        assert!(build_tool_project()["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap().contains(&json!("settings")));
+        assert!(build_tool_inbox()["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap().contains(&json!("chunk")));
+    }
+
+    #[test]
+    fn project_tools_mail_history_folders_and_status_are_advertised() {
+        let card=build_tool_inbox(); let p=&card["inputSchema"]["properties"];
+        assert_eq!(p["folder"]["enum"],json!(["inbox","sent"]));
+        assert_eq!(p["status"]["enum"],json!(["waiting","delivered","claimed","acked","dead-letter"]));
+        assert!(p["project"]["description"].as_str().unwrap().contains("chunk"));
+    }
+
+    #[test]
+    fn project_tools_presentation_body_continuation_is_advertised() {
+        assert_eq!(build_tool_project()["inputSchema"]["properties"]["chunk_index"]["minimum"],0);
+    }
+
+    #[test]
+    fn project_tools_atomic_create_above_is_advertised() {
+        assert_eq!(build_tool_project()["inputSchema"]["properties"]["above"]["type"],"string");
+    }
+
+    #[test]
+    fn project_tools_broadcast_mail_metadata_is_advertised() {
+        let card=build_tool_project(); let p=&card["inputSchema"]["properties"];
+        for field in ["urgent","urgent_reason","reply_to","replies"] {
+            assert!(p.get(field).is_some(),"missing broadcast {field}");
+        }
+    }
+}
+
 /// Tools this build serves (the rest are listed once they land).
 #[logged]
 pub fn implemented() -> &'static [&'static str] {
