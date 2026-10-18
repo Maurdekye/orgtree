@@ -74,14 +74,14 @@ interface ProjectSquareProps {
   onSpawnTop?: (tier: string) => void
   /** the side and top strips' project tokens */
   onNewProjectAt?: (edge: 'l' | 'r' | 't') => void
-  onInbox: () => void
-  onTeam?: () => void
-  onSettings?: () => void
+  onInbox: (keepOpen?: boolean) => void
+  onTeam?: (keepOpen?: boolean) => void
+  onSettings?: (keepOpen?: boolean) => void
   /** the project's docket: its attached items */
-  onDocket?: () => void
+  onDocket?: (keepOpen?: boolean) => void
   onOpenDoc?: (id: string) => void
   /** the project's presentations; `team` its team presentations (point 27) */
-  onOpenGallery?: (id: string, opts?: { team?: boolean }) => void
+  onOpenGallery?: (id: string, opts?: { team?: boolean; keepOpen?: boolean }) => void
   /** its desk as a temporary modal, or popped out to a window (point 27) */
   onOpenTemporary?: () => void
   onPopout?: () => void
@@ -130,15 +130,15 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   }
   if (zoom > 0) Object.assign(style, { '--invzf': Math.max(1 / Z_MAX, 1 / zoom).toFixed(3) })
   const menuEntries = () => projectMenuEntries(node, {
-    onInbox,
-    onTeam,
-    onDocket,
+    onInbox: () => onInbox(true),
+    onTeam: onTeam ? () => onTeam(true) : undefined,
+    onDocket: onDocket ? () => onDocket(true) : undefined,
     onScratchFolder: scratchFolderAction(slug, node.id, toast),
-    onPresentations: onOpenGallery ? () => onOpenGallery(node.id) : undefined,
-    onTeamPresentations: onOpenGallery ? () => onOpenGallery(node.id, { team: true }) : undefined,
+    onPresentations: onOpenGallery ? () => onOpenGallery(node.id, { keepOpen: true }) : undefined,
+    onTeamPresentations: onOpenGallery ? () => onOpenGallery(node.id, { team: true, keepOpen: true }) : undefined,
     onOpenTemporary,
     onPopout,
-    onSettings: () => onSettings?.(),
+    onSettings: () => onSettings?.(true),
     onToggleUserAudience: () => audienceAction(slug,
       (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ? 'revoke' : 'grant', node.id, USER)
       .catch((e: Error) => toast(['error: ' + e.message])),

@@ -373,10 +373,10 @@ export const modalToggleAction = (kind: string, open: boolean,
 /** Button toggles close local pins; detached windows keep their activation
  * path. Explicit tab/ensure-open routes use revealOpenPanel separately. */
 export const toggleOrRaiseModal = (kind: string, open: boolean,
-  set: (v: boolean) => void, org: string | null = null): void => {
+  set: (v: boolean) => void, org: string | null = null, ensureOpen = false): void => {
   if (revealDetachedPanel(kind, org)) return
   const action = modalToggleAction(kind, open, org)
-  if (action === 'close') { forgetModalOpen(kind, org); set(false); return }
+  if (!ensureOpen && action === 'close') { forgetModalOpen(kind, org); set(false); return }
   if (revealOpenPanel(kind, org)) return
   if (kind === 'docket' || kind === 'inbox')
     beginOpen(kind === 'inbox' ? 'mail' : 'docket',org ?? '')

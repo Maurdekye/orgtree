@@ -227,7 +227,7 @@
   and reopen it at its saved placement on the next click. This replaces the
   12:09Z always-raise rule for buttons (user 2026-10-18 16:42Z). Detached windows
   still activate through the live registry (native restore/show/focus); explicit
-  pin/pop-out ensure-open routes keep their target open. Agent and
+  menu and pin/pop-out ensure-open routes keep their target open. Agent and
   project desk tabs activate only matching node/generation panels; closed or
   unrelated windows leave normal inline tab selection intact. See
   [panel activation](docs/rust-engine/panel-activation.md).

@@ -82,7 +82,7 @@ the existing detached panel and restore it if minimized, without opening a
 duplicate. The 16:42Z ruling replaces always-raise for panel buttons: clicking
 the same button hides its already open local pin, even behind another panel;
 clicking again reopens at its saved placement. Retargeting a node panel and
-explicit pin/pop-out ensure-open actions still reveal it. Desk tabs match organization, node and
+menus and explicit pin/pop-out ensure-open actions still reveal it. Desk tabs match organization, node and
 generation before activating a separate panel, otherwise they select inline.
 See [panel activation](panel-activation.md).
 

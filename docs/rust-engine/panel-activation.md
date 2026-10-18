@@ -13,7 +13,7 @@ with the original surface. Closed registrations do not absorb an open action.
 `revealOpenPanel` also handles mounted pins, using the existing modal store and
 shared pin layer. A saved rectangle alone is not an open panel. Desk tabs leave
 another node's pin alone and select their normal inline view when no matching
-panel is available. Explicit tab activation and pin/pop-out ensure-open requests
+panel is available. Menus, explicit tab activation and pin/pop-out ensure-open requests
 keep pins open. Their own close and unpin controls retain their meanings.
 
 The 16:42Z ruling supersedes always-raise for panel buttons: the same button
@@ -27,8 +27,9 @@ scope retargets the existing panel; an ensure-open request never toggles it off.
 Detached windows retain their existing restore/show/focus activation path.
 
 Shared node menus may retarget their single panel of a kind and reveal its same
-window; tabs do not retarget unrelated panels. Global header/switchboard opens,
-node menu opens and panel-corner routes all reuse these activation paths.
+window; tabs do not retarget unrelated panels. Shell and node menus and
+panel-corner routes pass ensure-open explicitly; header and card shortcut
+buttons retain the toggle rule.
 
 Focused renderer evidence uses synthetic windows and real desk/menu/movable
 surface components. It verifies registry routing, exact native focus command,

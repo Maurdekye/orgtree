@@ -66,7 +66,7 @@ import { AgentSlotChips } from './slotchips'
 
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
-  onAgents?: () => void
+  onAgents?: (keepOpen?: boolean) => void
   /** Org template defaults; manual Quick chat picks are read at menu-open time. */
   quickChatDefaults?: TreePayload['quick_chat']
   pos: Pt
@@ -90,14 +90,14 @@ interface UserNodeProps {
   /** open the user's inbox. Reachable two ways (user 2026-09-11): the ✉ on
    *  the card, which appears only with agent-card shortcuts turned on, and
    *  the card's context menu, which does not depend on that setting. */
-  onInbox?: () => void
+  onInbox?: (keepOpen?: boolean) => void
   /** Org-wide surfaces owned by the shell, not an arbitrary agent's views. */
-  onDocket?: () => void
-  onPresentations?: () => void
+  onDocket?: (keepOpen?: boolean) => void
+  onPresentations?: (keepOpen?: boolean) => void
   /** open GENERAL org settings — the whole modal, not one of its tabs (user
    *  ruling 2026-09-11). When absent, the ⚙ and the menu entry both
    *  disappear rather than becoming dead controls. */
-  onGear?: () => void
+  onGear?: (keepOpen?: boolean) => void
   onSpawn: (tier: string) => void
   onMailLink: MailLinkFn
   onWorkLink: WorkLinkFn
@@ -183,16 +183,16 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
       entries.push({ label: 'New project…', title: 'a project node at the top level: its agents work on it',
         onSelect: () => onNewProject() })
     }
-    if (onInbox) entries.push({ label: 'Open inbox', onSelect: () => onInbox() })
-    if (onDocket) entries.push({ label: 'Open global docket', onSelect: () => onDocket() })
-    if (onAgents) entries.push({ label: 'Agents list', onSelect: onAgents })
-    if (onPresentations) entries.push({ label: 'Open presentations', onSelect: () => onPresentations() })
+    if (onInbox) entries.push({ label: 'Open inbox', onSelect: () => onInbox(true) })
+    if (onDocket) entries.push({ label: 'Open global docket', onSelect: () => onDocket(true) })
+    if (onAgents) entries.push({ label: 'Agents list', onSelect: () => onAgents(true) })
+    if (onPresentations) entries.push({ label: 'Open presentations', onSelect: () => onPresentations(true) })
     const sharedScratch = scratchFolderAction(slug, '', toast, 'shared')
     if (sharedScratch) entries.push({ label: 'Open shared scratch folder', onSelect: sharedScratch })
     if (onGear) {
       entries.push({ label: 'Org settings',
         title: 'the whole settings modal — hire defaults are a tab of it',
-        onSelect: () => onGear() })
+        onSelect: () => onGear(true) })
     }
     // bulk cheap compaction of every live agent (canvas/bulkcompact.tsx).
     // Each target still runs the normal op and its checks.
@@ -1379,19 +1379,19 @@ interface NodeSquareProps {
   onSpawnSide?: (tier: string, side: 'left' | 'right') => void
   /** FR-25: the top-edge chips — hire a new SUPERIOR spliced above this node */
   onSpawnTop?: (tier: string) => void
-  onConfig: () => void
-  onInbox: () => void
-  onTeam?: () => void
-  onDocket?: () => void
+  onConfig: (keepOpen?: boolean) => void
+  onInbox: (keepOpen?: boolean) => void
+  onTeam?: (keepOpen?: boolean) => void
+  onDocket?: (keepOpen?: boolean) => void
   /** the context menu's "Open team docket" — this agent's docket widened to
    *  its whole subtree. There is no button for it on the card: the ticket's
    *  RC1 ruling puts the view behind the context menu and nowhere else. */
-  onTeamDocket?: () => void
-  onLineage: () => void
+  onTeamDocket?: (keepOpen?: boolean) => void
+  onLineage: (keepOpen?: boolean) => void
   /** FR-03: open a presented document in the in-page reader */
   onOpenDoc?: (id: string) => void
   /** open this agent's presentations in the shell's scoped modal */
-  onOpenAgentGallery?: (agentId: string, opts?: { team?: boolean }) => void
+  onOpenAgentGallery?: (agentId: string, opts?: { team?: boolean; keepOpen?: boolean }) => void
   onRecenter?: () => void
   onJump?: (id: string) => void
   /** create a project node under this agent (docs/rust-engine/PROJECT-NODES.md) */
@@ -1620,19 +1620,19 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     const desk = deskNow(node)
     return agentMenuEntries(node, {
       onOpenDesk: onRecenter,
-      onInbox,
-      onTeam,
+      onInbox: () => onInbox(true),
+      onTeam: onTeam ? () => onTeam(true) : undefined,
       onScratchFolder: scratchFolderAction(slug, node.id, toast),
       onTeamScratchFolder: scratchFolderAction(slug, node.id, toast, 'team'),
-      onDocket,
-      onTeamDocket,
+      onDocket: onDocket ? () => onDocket(true) : undefined,
+      onTeamDocket: onTeamDocket ? () => onTeamDocket(true) : undefined,
       onPresentations: onOpenAgentGallery
-        ? () => onOpenAgentGallery(node.id) : undefined,
+        ? () => onOpenAgentGallery(node.id, { keepOpen: true }) : undefined,
       // the team's presentations, as on the Agents List row (user 2026-10-17 22:47Z)
       onTeamPresentations: onOpenAgentGallery
-        ? () => onOpenAgentGallery(node.id, { team: true }) : undefined,
-      onLineage,
-      onSettings: onConfig,
+        ? () => onOpenAgentGallery(node.id, { team: true, keepOpen: true }) : undefined,
+      onLineage: () => onLineage(true),
+      onSettings: () => onConfig(true),
       onToggleUserAudience: () => audienceAction(slug,
         (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ? 'revoke' : 'grant', node.id, USER)
         .catch((e: Error) => toast([`error: ${e.message}`])),

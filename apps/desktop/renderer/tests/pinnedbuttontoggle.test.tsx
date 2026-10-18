@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { CurrentOrg } from '../src/popout'
 import { forgetModalOpenCache, forgetModalPins, isModalPinned, pinModal, PinFrame, readModalOpen,
-  toggleOrRaiseModal, usePersistedModalOpen } from '../src/canvas/modalpin'
+  toggleOrRaiseModal, usePersistedModalOpen, pinnedModalBehind } from '../src/canvas/modalpin'
 import { registerWindow } from '../src/windowlife'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { AgentNavProvider, useAgentNavRegistry } from '../src/canvas/agentnav'
@@ -22,6 +22,7 @@ function ButtonPanel({ kind }: { kind: string }) {
   const [open, setOpen] = useState(false)
   usePersistedModalOpen(kind, org, open)
   return <><button data-opener={kind} onClick={() => toggleOrRaiseModal(kind, open, setOpen, org)}>toggle {kind}</button>
+    <button data-menu={kind} onClick={() => toggleOrRaiseModal(kind, open, setOpen, org, true)}>open {kind}</button>
     {open && <PinFrame kind={kind} title={kind} panel="settings" close={() => setOpen(false)}>
       <div data-body={kind}>{kind}</div>
     </PinFrame>}</>
@@ -41,6 +42,8 @@ for (const kind of ['docket', 'usage', 'usage-history', 'inbox', 'gallery', 'org
     assert.equal(isModalPinned(kind, org), true, 'saved placement survives hiding')
     await press(kind)
     assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'next click reopens')
+    await inAct(() => view.el.querySelector<HTMLButtonElement>(`[data-menu="${kind}"]`)!.click())
+    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'menu activation keeps it open')
   })
 }
 
@@ -60,8 +63,9 @@ test('an unpinned panel still opens, and a detached panel still receives focus',
 
 const flatten = (entries: MenuEntry[]): MenuItem[] => entries.flatMap(e => e === 'sep' ? [] : [e, ...flatten(e.children ?? [])])
 for (const [label, kind] of [['Inbox', 'node-inbox'], ['Team', 'agent-team'], ['Docket', 'agent-docket']] as const) {
-  test(`the real node ${label} opener hides its own pin even behind another panel`, async t => {
+  test(`the real node ${label} menu raises its own pin and keeps it open`, async t => {
     setup(t)
+    localStorage.setItem('orgtree-agent-shortcuts', '1')
     const oldFetch = globalThis.fetch, inner = globalThis.fetch
     globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => /\/inbox$/.test(new URL(String(input), 'http://localhost').pathname)
       ? Promise.resolve(new Response(JSON.stringify({ pending: [], delivered: [], sent: [], next_cursor: null }), { status: 200 }))
@@ -84,9 +88,20 @@ for (const [label, kind] of [['Inbox', 'node-inbox'], ['Team', 'agent-team'], ['
     const cover = pinSurfaceKey(org, 'covering-panel')
     await inAct(() => { updatePinSurface(cover, org, rect, false) })
     t.after(() => removePinSurface(cover))
+    assert.equal(pinnedModalBehind(kind, org), true, 'control starts behind another panel')
     await select()
-    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), false, 'same node button closes its pinned panel')
+    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'menu keeps its panel mounted')
+    assert.equal(pinnedModalBehind(kind, org), false, 'menu raises the existing pin')
     await select()
-    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'same opener reopens')
+    assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'repeated menu activation keeps it open')
+    if (label !== 'Team') {
+      const selector = label === 'Docket' ? '[aria-label="Docket for worker"]' : '.sq-actions .mailbtn:not(.docketbtn)'
+      const button = view.el.querySelector<HTMLButtonElement>(selector)
+      assert.equal(button !== null, true, 'the actual node shortcut button exists')
+      await inAct(() => button!.click())
+      assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), false, 'the node button hides its pin')
+      await inAct(() => button!.click())
+      assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'the node button reopens it')
+    }
   })
 }

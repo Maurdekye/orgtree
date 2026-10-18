@@ -176,10 +176,10 @@ export interface OrgCanvasProps {
   /** Main-window function-key routes to this canvas's existing camera actions. */
   canvasShortcuts?: CanvasShortcutRef
   /** open the user's inbox, optionally jumped to a specific mail id */
-  onInbox?: (jump?: string) => void
+  onInbox?: (jump?: string, keepOpen?: boolean) => void
   /** Open the current org's global docket and full presentations gallery. */
-  onDocket?: () => void
-  onPresentations?: () => void
+  onDocket?: (keepOpen?: boolean) => void
+  onPresentations?: (keepOpen?: boolean) => void
   /** open the work docket at ONE item — a tool chip's docket link */
   onWorkItem?: (slug: string) => void
   /** D-199: open the accounts panel — the route out of the no-harness state,
@@ -189,7 +189,7 @@ export interface OrgCanvasProps {
    *  context menu both go here. Same shape as `onAccounts` and for the same
    *  reason — SettingsPanel lives in App, not on the canvas. When absent, the
    *  controls disappear rather than becoming dead. */
-  onOrgSettings?: () => void
+  onOrgSettings?: (keepOpen?: boolean) => void
   /** focus an agent's desk on the canvas (camera centerOn / mobile sheet) */
   focusAgent?: string | null
   onFocusAgentHandled?: () => void
@@ -516,8 +516,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const [configId, setConfigId] = useState<string | null>(null)
   // Same-panel buttons hide pins, including behind another panel (user
   // 2026-10-18 16:42Z); a different node keeps retargeting the same window.
-  const toggleConfig = useCallback((id: string) => {
-    toggleNodePanel('node-config', configId, id, setConfigId, slug)
+  const toggleConfig = useCallback((id: string, keepOpen = false) => {
+    toggleNodePanel('node-config', configId, id, setConfigId, slug, keepOpen)
   }, [configId, slug])
   const [lineageId, setLineageId] = useState<string | null>(null)
   const [restoreDesks, setRestoreDesks] = useState(() => savedDeskIdentities(slug))
@@ -577,13 +577,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const [oiJump, setOiJump] = useState<{ id: string; seq: number } | null>(null)
   const [dogView, setDogView] = useState<string | null>(null)  // FR-18 panel
 
-  const toggleDog = useCallback((id: string) => {
-    toggleNodePanel('watchdog', dogView, id, setDogView, slug)
+  const toggleDog = useCallback((id: string, keepOpen = false) => {
+    toggleNodePanel('watchdog', dogView, id, setDogView, slug, keepOpen)
   }, [dogView, slug])
   const toggleNodeSurface = useCallback((kind: string, id: string,
-    set: (v: string | null) => void) => {
+    set: (v: string | null) => void, keepOpen = false) => {
     const current = kind === 'node-inbox' ? inboxId : kind === 'agent-team' ? teamId : lineageId
-    toggleNodePanel(kind, current, id, set, slug)
+    toggleNodePanel(kind, current, id, set, slug, keepOpen)
   }, [inboxId, teamId, lineageId, slug])
   const showNodeSurface = useCallback((kind: string, id: string,
     set: (v: string | null) => void) => {
@@ -3204,18 +3204,18 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const desk = deskNow(n)
     return agentMenuEntries(n, {
       onOpenDesk: go,
-      onInbox: () => toggleNodeSurface('node-inbox', n.id, setInboxId),
-      onTeam: () => toggleNodeSurface('agent-team', n.id, setTeamId),
+      onInbox: () => showNodeSurface('node-inbox', n.id, setInboxId),
+      onTeam: () => showNodeSurface('agent-team', n.id, setTeamId),
       onScratchFolder: scratchFolderAction(slug, n.id, toast),
       onTeamScratchFolder: scratchFolderAction(slug, n.id, toast, 'team'),
-      onDocket: () => openAgentDocket(n.id),
-      onTeamDocket: () => openAgentDocket(n.id, { team: true }),
+      onDocket: () => openAgentDocket(n.id, { keepOpen: true }),
+      onTeamDocket: () => openAgentDocket(n.id, { team: true, keepOpen: true }),
       onPresentations: onOpenAgentGallery
-        ? () => onOpenAgentGallery(n.id) : undefined,
+        ? () => onOpenAgentGallery(n.id, { keepOpen: true }) : undefined,
       onTeamPresentations: onOpenAgentGallery
-        ? () => onOpenAgentGallery(n.id, { team: true }) : undefined,
-      onLineage: () => toggleNodeSurface('lineage', n.id, setLineageId),
-      onSettings: () => toggleConfig(n.id),
+        ? () => onOpenAgentGallery(n.id, { team: true, keepOpen: true }) : undefined,
+      onLineage: () => showNodeSurface('lineage', n.id, setLineageId),
+      onSettings: () => toggleConfig(n.id, true),
       onToggleUserAudience: () => audienceAction(slug,
         (n.audiences_explicit ?? n.audiences_held)?.includes(USER) ? 'revoke' : 'grant', n.id, USER)
         .catch((e: Error) => toast([`error: ${e.message}`])),
@@ -3666,9 +3666,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // pop-out use its ensure-open form — see canvas/panelcorner.tsx.
   const agentSurfaceRoutes = useMemo((): AgentSurfaceRoutes => ({
     open: (kind, id) => {
-      if (kind === 'agent-gallery') onOpenAgentGallery?.(id)
-      else if (kind === 'agent-docket') openAgentDocket(id)
-      else toggleNodeSurface(kind, id,
+      if (kind === 'agent-gallery') onOpenAgentGallery?.(id, { keepOpen: true })
+      else if (kind === 'agent-docket') openAgentDocket(id, { keepOpen: true })
+      else showNodeSurface(kind, id,
         kind === 'agent-team' ? setTeamId : setInboxId)
     },
     show: (kind, id) => {
@@ -3886,7 +3886,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     <TeamListOrder.Provider value={canvasTrayCompare()}>
     <TeamListNavigation.Provider value={goToAgent}>
     <DeskDogsProvider value={deskDogs}>
-    <ObjectNavHost org={slug} dogs={tree.watchdogs ?? []} openDog={toggleDog}
+    <ObjectNavHost org={slug} dogs={tree.watchdogs ?? []} openDog={(id) => toggleDog(id, true)}
       openTicket={onWorkItem} focusAgent={goToAgent} toast={toast} />
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug} popoutDesk={node => ({
       node, map, op, slug, toast, compactAt: tree.compact_at,
@@ -4068,14 +4068,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                  this side stays "here is how to open those things" and does
                  not also have to know when they are on screen. */
               pip={attentionPip(tree)}
-              onInbox={() => {
+              onInbox={(keepOpen) => {
                 const nw = tree.user_inbox_newest ?? new Date().toISOString()
                 localStorage.setItem('orgtree-inbox-seen-' + slug, nw)
                 setInboxSeen(nw)
-                onInbox?.()
+                onInbox?.(undefined, keepOpen)
               }}
               onGear={onOrgSettings}
-              onAgents={() => toggleOrRaiseModal('agent-list', trayOpen, setTrayOpen, slug)}
+              onAgents={(keepOpen) => toggleOrRaiseModal('agent-list', trayOpen, setTrayOpen, slug, keepOpen)}
               onDocket={onDocket} onPresentations={onPresentations}
               onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
               /* switchboard panel headers mirror the desk header identically
@@ -4122,10 +4122,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onSpawnSide={(t, side) => spawnBeside(n, t, side)}
               onSpawnTop={(t) => spawnAbove(n, t)}
               onNewProjectAt={(edge) => spawnProjectAt(n, edge)}
-              onSettings={() => toggleConfig(n.id)}
-              onInbox={() => toggleNodeSurface('node-inbox', n.id, setInboxId)}
-              onTeam={() => toggleNodeSurface('agent-team', n.id, setTeamId)}
-              onDocket={() => openAgentDocket(n.id)}
+              onSettings={(keepOpen) => toggleConfig(n.id, keepOpen)}
+              onInbox={(keepOpen) => toggleNodeSurface('node-inbox', n.id, setInboxId, keepOpen)}
+              onTeam={(keepOpen) => toggleNodeSurface('agent-team', n.id, setTeamId, keepOpen)}
+              onDocket={(keepOpen) => openAgentDocket(n.id, { keepOpen })}
               onOpenDoc={openDocView}
               onOpenGallery={onOpenAgentGallery}
               onOpenTemporary={!isMobile ? () => openProjectDesk(n.id) : undefined}
@@ -4155,11 +4155,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onSpawn={(t) => spawn(n.id, t)}
               onSpawnSide={(t, side) => spawnBeside(n, t, side)}
               onSpawnTop={(t) => spawnAbove(n, t)}
-              onConfig={() => toggleConfig(n.id)}
-              onInbox={() => toggleNodeSurface('node-inbox', n.id, setInboxId)} onLineage={() => toggleNodeSurface('lineage', n.id, setLineageId)}
-              onTeam={() => toggleNodeSurface('agent-team', n.id, setTeamId)}
-              onDocket={() => openAgentDocket(n.id)}
-              onTeamDocket={() => openAgentDocket(n.id, { team: true })}
+              onConfig={(keepOpen) => toggleConfig(n.id, keepOpen)}
+              onInbox={(keepOpen) => toggleNodeSurface('node-inbox', n.id, setInboxId, keepOpen)} onLineage={(keepOpen) => toggleNodeSurface('lineage', n.id, setLineageId, keepOpen)}
+              onTeam={(keepOpen) => toggleNodeSurface('agent-team', n.id, setTeamId, keepOpen)}
+              onDocket={(keepOpen) => openAgentDocket(n.id, { keepOpen })}
+              onTeamDocket={(keepOpen) => openAgentDocket(n.id, { team: true, keepOpen })}
               onOpenDoc={openDocView}
               onOpenAgentGallery={onOpenAgentGallery}
               onMailLink={openMail} onWorkLink={openWork}

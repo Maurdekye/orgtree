@@ -520,8 +520,8 @@ export default function App() {
   // Every panel button shares the open/close rule for local pins (user
   // 2026-10-18 16:42Z); detached panels retain their focus path.
   const toggleSurface = useCallback((kind: string, open: boolean,
-    set: (v: boolean) => void) =>
-    toggleOrRaiseModal(kind, open, set, slug), [slug])
+    set: (v: boolean) => void, keepOpen = false) =>
+    toggleOrRaiseModal(kind, open, set, slug, keepOpen), [slug])
   const toggleUsage = useCallback(() =>
     toggleSurface('usage', showUsage, setShowUsage), [toggleSurface, showUsage])
   const toggleUsageHistory = useCallback(() =>
@@ -1429,11 +1429,11 @@ export default function App() {
     <OrgtreeMenu orgs={orgs} freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
       error={orgStatus.error} currentOrg={slug}
       onOpenOrg={openOrgFromShell} onNewWindow={newWindow} onCreateOrg={createWindow}
-      onUsage={toggleUsage}
-      onUsageHistory={toggleUsageHistory}
+      onUsage={() => toggleSurface('usage', showUsage, setShowUsage, true)}
+      onUsageHistory={() => toggleSurface('usage-history', showUsageHistory, setShowUsageHistory, true)}
       isOpenElsewhere={openElsewhere}
       onOrgListOpen={setMenuOrgsOpen}
-      onAppSettings={openAccounts} shortcutRef={mainMenu} />
+      onAppSettings={() => toggleOrRaiseModal('app-settings', showAccounts, setShowAccounts, null, true)} shortcutRef={mainMenu} />
   )
 
   const pick = (s: string) => { setSlug(s); setDrawer(false) }
@@ -1882,11 +1882,11 @@ export default function App() {
                    modal (user ruling 2026-09-11), not the Hire defaults tab
                    directly — so it is the same call the chrome's gear makes,
                    and lands on whichever tab was last open. */
-                onOrgSettings={() => toggleSurface('org-settings', showSettings, setShowSettings)}
-                onDocket={() => toggleSurface('docket', showDocket, setShowDocket)}
-                onPresentations={() => toggleSurface('gallery', showGallery, setShowGallery)}
-                onInbox={(jump: unknown) => {
-                  if (jump === '@user') {
+                onOrgSettings={(keepOpen) => toggleSurface('org-settings', showSettings, setShowSettings, keepOpen)}
+                onDocket={(keepOpen) => toggleSurface('docket', showDocket, setShowDocket, keepOpen)}
+                onPresentations={(keepOpen) => toggleSurface('gallery', showGallery, setShowGallery, keepOpen)}
+                onInbox={(jump: unknown, keepOpen) => {
+                  if (jump === '@user' || keepOpen) {
                     setInboxJump(null)
                     setShowInbox(true)
                     raisePinnedModal('inbox', slug)
