@@ -8,6 +8,7 @@ const short = (text: string) => text.length > 160 ? text.slice(0, 159) + '…' :
 export function watchdogDescription(dog: Watchdog) {
   const target = short(dog.target)
   const pattern = dog.pattern ? `matching /${short(dog.pattern)}/` : 'matching'
+  const lineMatch = dog.pattern ? `matches /${short(dog.pattern)}/` : 'is nonempty'
   const alert = dog.notice ? `sends passive mail to ${dog.owner}` : `wakes ${dog.owner}`
   const silence = dog.fire_mode === 'silence'
   const quiet = dog.quiet_period_s == null ? 'the configured quiet period (duration unavailable)' : `${dog.quiet_period_s}s`
@@ -25,10 +26,10 @@ export function watchdogDescription(dog: Watchdog) {
   const counted = dog.target === 'agents.active' ? 'agents in turns' : 'live agents'
   let summary: string
   switch (dog.kind) {
-    case 'file': summary = `Watches new ${pattern} lines appended to ${target} and ${alert}.`; break
-    case 'command': summary = `Runs “${target}” every ${dog.interval_s}s and ${alert} when an output line is ${pattern}.`; break
+    case 'file': summary = `Watches new ${dog.pattern ? `lines ${pattern}` : 'nonempty lines'} appended to ${target} and ${alert}.`; break
+    case 'command': summary = `Runs “${target}” every ${dog.interval_s}s and ${alert} when an output line ${lineMatch}.`; break
     case 'process': summary = `Watches ${target} and ${alert} on an observed transition from up to down. A target already down must first be seen up.`; break
-    case 'stream': summary = `Runs one long-lived command, “${target}”, and ${alert} when an output line is ${pattern}.`; break
+    case 'stream': summary = `Runs one long-lived command, “${target}”, and ${alert} when an output line ${lineMatch}.`; break
     case 'activity': summary = `Watches ${target}’s turns and tool calls and ${alert} on ${pattern} activity events.`; break
     case 'event': summary = count && dog.threshold
       ? `Watches ${target} and ${alert} when the count of ${counted} crosses ${dog.threshold} in the ${scope}, excluding ${dog.owner}${dog.pattern ? `, with an event payload ${pattern}` : ''}. Staying across the threshold does not fire again.`

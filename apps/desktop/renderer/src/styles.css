@@ -6397,6 +6397,7 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
   max-height: 220px; overflow-y: auto; border: 1px solid var(--line);
   border-radius: 6px; padding: 6px 8px; font-size: 12px;
 }
+.settings.watchdog-detail { gap: 8px; }
 .watchdog-detail .wd-overview {
   border: 1px solid var(--line); border-radius: 8px;
   padding: 12px 14px; background: color-mix(in srgb, var(--accent) 4%, var(--panel));

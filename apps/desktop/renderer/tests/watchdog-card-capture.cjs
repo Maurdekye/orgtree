@@ -29,6 +29,9 @@ app.whenReady().then(async () => {
             text:document.body.innerText,type:document.querySelector('.wd-type')?.textContent,
             description:document.querySelector('.wd-description')?.textContent,
             panels:document.querySelectorAll('.wd-cmd').length,
+            controls:Array.from(document.querySelectorAll('.settings button')).filter(b=>/^(pause|remove|close)$/i.test(b.textContent.trim())).map(b=>({label:b.textContent.trim(),top:b.getBoundingClientRect().top,bottom:b.getBoundingClientRect().bottom})),
+            panelTop:document.querySelector('.settings').getBoundingClientRect().top,
+            panelBottom:document.querySelector('.settings').getBoundingClientRect().bottom,
             background:getComputedStyle(document.body).backgroundColor,
             expectedBackground:'rgb('+pixel[0]+', '+pixel[1]+', '+pixel[2]+')'})},250)))})`)
         image = await win.webContents.capturePage()
@@ -43,6 +46,8 @@ app.whenReady().then(async () => {
       }
       if (state.panels < 1 || !state.text.includes('test-proj-worker-b')) throw Error('Panel not rendered')
       if (process.env.WATCHDOG_CAPTURE_RICH === 'true' && (!state.type || !state.description)) throw Error('Missing explanation')
+      if (process.env.WATCHDOG_CAPTURE_RICH === 'true' && name === 'queue' && (state.controls.length < 3 || state.controls.some(b=>b.top<Math.max(0,state.panelTop)||b.bottom>Math.min(700,state.panelBottom-2))))
+        throw Error('Queue controls need scrolling in the default fixture: '+JSON.stringify(state.controls))
       fs.writeFileSync(path.join(root, name+'-'+theme+'.png'), image.toPNG())
       receipts.push({ name, theme, ...state, actualBackground })
     }
