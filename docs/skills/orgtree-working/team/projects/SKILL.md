@@ -57,6 +57,10 @@ The project desk's message box sends the user's mail to the project's own mailbo
 
 `orgtree_present project=<name>` puts a document under the project instead of beside your seat (the same user-audience rule applies). The project's card and the presentations gallery show it under the project. The project's own gallery (its desk's presented tab and "Open → Presentations" in its menu) lists the documents attributed to the project. Its team presentations ("Open → Presentations → Team presentations") add every document presented by the agents below it, nested projects included, and so do the presentation chips on its card and desk header. A document presented under the project names the project as its presenter, with a "presented by <agent>" line for the agent that presented it. An agent's "Open → Presentations → Team presentations" covers its whole team the same way, through projects.
 
+## Complete project tool control
+
+orgtree_project settings/configure reads and patches every Project settings field (name, description, peer_mail, mail_queue, exclude_sender, ack_timeout, max_attempts and slots). Changes are atomic and omitted fields retain their current values. Any ancestor agent has full slot administration: settings count, force release and removal from the line; below-project members may claim/release their own lease and read state. See orgtree-tool-project for fields, purge_waiting, one-call broadcast with per-recipient normal authority, bounded presentation list/read, and the existing lifecycle/audience/mail tools. Permanent deletion remains user-only; desktop navigation is outside agent state tools. New actions/kinds require a fresh CLI after an update, since running clients retain startup schemas.
+
 ## See also
 
 - [orgtree-tool-project](../tool-project/SKILL.md)

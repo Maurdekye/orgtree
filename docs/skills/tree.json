@@ -766,7 +766,7 @@
    "kind": "concept",
    "registered": false,
    "covers": [],
-   "purpose": "Project nodes: free tree nodes that run no turns, with a folder, a mailbox shared through the fair queue, and presentations.",
+   "purpose": "Project nodes, reach and complete settings/tool control, direct audiences, fair mail queue, presentations and ancestor slot administration.",
    "must_cover": [
     "who reaches a project (above and below only)",
     "reporting and transparent credits through a project",
@@ -825,7 +825,7 @@
     "orgtree_project"
    ],
    "tool_group": "team",
-   "purpose": "Create a project node: a free, turn-less node with its own folder, mailbox and presentations.",
+   "purpose": "Complete project control: typed settings read/atomic configure, slot status/release/ancestor force/unqueue, waiting-mail purge, permission-checked broadcast and bounded presentation list/read; stale CLI tool availability.",
    "must_cover": [
     "when to use it and when not",
     "every parameter/action with defaults and limits from the definition",
@@ -7211,7 +7211,7 @@
    "covers": [
     "workflow:build-slots"
    ],
-   "purpose": "A build machine shared through a project's slots: one slot, claim with a slot watchdog before a heavy phase, your own memory watchdog, release right after.",
+   "purpose": "Build-machine slot workflow: configure one slot by tool, verify fresh CLI claim/release tools, claim, memory gate, foreground phase, release; ancestor force/unqueue and approved legacy fallback.",
    "must_cover": [
     "a build-machine project builders reach",
     "slot count 1",

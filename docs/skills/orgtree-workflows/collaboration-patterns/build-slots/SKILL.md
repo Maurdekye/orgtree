@@ -15,6 +15,12 @@ When several agents build on one machine, only one heavy build, test or packagin
 2. In its Project settings set **Slots** to `1` (0 means no slots). Raise it only if the machine can really run that many heavy phases at once.
 3. Keep the 20-minute checkup ("check on working agents after 20 minutes", Runtime settings) and the project's **Ack timeout** on: they are what takes a slot back from a builder that went idle without releasing it.
 
+## Tool setup and stale clients
+
+An agent above the project can set its count without the desktop: `orgtree_project action=configure name=build-machine settings={"slots":1}`. Read it with action=settings. Any ancestor (not only the direct superior) can force-release a stuck lease with `action=release_slot lease=L force=true`, or remove a waiting claim with `action=unqueue_slot name=build-machine agent=A`. Ordinary members can release only their own lease.
+
+Before claiming, confirm your current CLI exposes both the slot watchdog kind and orgtree_project release_slot. A running CLI retains its startup tools across app updates. If either is missing, start a fresh CLI or use the coordinator-authorized fallback lock protocol; do not claim a lease you cannot release. If already stranded, ask an ancestor to force-release it.
+
 ## Each heavy phase
 
 1. **Claim** before the phase starts: `orgtree_watchdog action=create kind=slot target=build-machine name=<what you build>`. The name is shown to everyone as the reason.

@@ -1,5 +1,14 @@
 # AGENTS.md — working on Orgtree
 
+- orgtree_project settings/configure exposes all eight Project settings as an
+  atomic explicit patch. It reuses canonical ops/reach, preserves false/zero/
+  empty values and renames last. Ancestor agents can force-release/unqueue slots;
+  broadcast retains per-recipient messaging/attachment authority. Gallery list/read
+  and project scratch reads use project reach. Permanent deletion stays user-only.
+  Running CLIs retain startup tool schemas: verify claim AND release before taking
+  a slot. [decided: user/coordinator 2026-10-18 10:51Z–10:57Z; verified:
+  `domain/ops.rs`, `tools/{treetools,orgview,defs}.rs`]
+
 - In an agent's desk context, presentation context menus on both the desk-header
   presentation chips (`.desk-docs .doc-badge`) and rows in the Presented tab
   (`AgentGalleryView`) offer `Reply to` when the desk accepts mail (`canMail` and

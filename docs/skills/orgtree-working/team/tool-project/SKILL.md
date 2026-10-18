@@ -26,11 +26,43 @@ Everything else uses the usual tools with the project's name: [orgtree-tool-move
 **Slots.** A project with a slot count (Project settings, 0 by default) gives out that many slots, first come first served; claim one with an [orgtree-tool-watchdog](../../watchdogs/tool-watchdog/SKILL.md) of kind `slot`. Two actions go with them:
 
 - `action=slots` with `name`: the project's slot count, its holders (agent, slot, lease, since, reminders), the line in order (place, agent, since) and its last 20 holds with how each ended. Agents above or below the project may look.
-- `action=release_slot` with `lease` (and an optional `note`, e.g. `build ok 265s`): releases the slot you hold; the next in line is granted it at once. Only the holder releases its own lease; another agent is refused (`lease … is …'s; only its holder releases it`). A released or reclaimed lease is refused (`lease … has already ended (…)`).
+- `action=release_slot` with `lease` (and an optional `note`, e.g. `build ok 265s`): releases the slot you hold; the next in line is granted it at once. The holder releases its own lease; any project ancestor may use force=true; another member or unrelated agent is refused (`lease … is …'s; only its holder releases it`). A released or reclaimed lease is refused (`lease … has already ended (…)`).
 
 ```json
 {"action":"release_slot","lease":"s3f1c2a9b0d4e","note":"build ok"}
 ```
+
+## Settings and desktop parity
+
+`action=settings name=P` reads all Project settings. `action=configure name=P settings={...}` changes only the supplied fields, atomically, with the same project reach, value validation and post-commit queue/slot notifications as the desktop. Omitted fields stay unchanged; explicit false, zero and an empty description are retained. Unknown fields, nulls and invalid types/ranges are refused before any write. Rename is applied last; the result uses the new name. Agents above or below the project may configure it.
+
+| Field in settings | Type/default |
+| --- | --- |
+| name | Valid project name; rename keeps the project identity |
+| description | String; empty clears it |
+| peer_mail | Boolean, true |
+| mail_queue | round_robin (default) or ack |
+| exclude_sender | Boolean, false |
+| ack_timeout | Boolean, true; effective timeout needs Runtime working checkups |
+| max_attempts | Integer 1–100, default 3 |
+| slots | Integer 0–64, default 0 (no slots) |
+
+Example: `{"action":"configure","name":"build-slot","settings":{"slots":1,"ack_timeout":true}}`. Existing create and describe calls remain valid.
+
+More actions:
+
+- `release_slot lease=L force=true`: **any ancestor agent** of the project may release another holder's slot; a holder releases its own without force. Members/peers cannot force another holder.
+- `unqueue_slot name=P agent=A`: any project ancestor (or the user) removes A's waiting claim. It does not release a held lease.
+- `purge_waiting name=P`: retract only mail nobody has claimed; delivered/acked/dead-letter records stay. Normal project-control reach applies.
+- `broadcast name=P body=...`, optional attachments (up to 10) and notice: sends to every live agent under the project, nested projects included. It also requires the messaging tool group. Each recipient goes through ordinary mail reach, peer-mail and attachment checks. The result reports sent/refused/failed outcomes per recipient; no peer-mail bypass and no inherited authority to act for the user.
+- `presentations name=P`, optional team (false), limit (1–100, default 50), offset (0): list project gallery metadata; team includes descendants.
+- `read_presentation name=P document=ID`, optional team: read a card in that gallery. Body is clipped at 60,000 units and marked truncated. Both gallery actions require project reach, not a user audience.
+
+Rename/move/reorder/retire/dissolve/restore remain on their existing tree tools. Permanent deletion remains user-only. Acquire/drop project audiences uses orgtree_audience. Fair-queue watch and slot claim/pause/resume/remove use orgtree_watchdog; ack is a reply to the project. Project-folder inspection accepts project reach via orgtree_read_scratch. Desktop navigation (focus, pin/popout, viewport) is not a state tool.
+
+## Running clients with stale tools
+
+A CLI keeps the tool definitions it loaded at startup. New orgtree_project actions or watchdog kinds do not appear in an already-running CLI after an app update. If a tool/action/kind is missing, start a fresh CLI. Before claiming a slot, verify you have BOTH orgtree_watchdog kind=slot AND orgtree_project release_slot; otherwise you cannot release it. A project ancestor may force-release a lease already stranded this way. Follow the coordinator's fallback machine-lock protocol when directed; do not invent a live-API workaround.
 
 ## See also
 
