@@ -1,5 +1,14 @@
 # AGENTS.md — working on Orgtree
 
+- Project acknowledgement timeout uses `scope.mail_queue_ack_reminders` (1–10,
+  default 3) for BOTH held mail and idle concurrency slots. It sends that many
+  20-minute reminders, then reclaims at the next checkup; timeout/checkup gates
+  and default timing stay unchanged. Tool `settings.ack_reminders` shares the
+  canonical queue op. Project settings puts timeout, max attempts and reminders
+  in a bottom Acknowledgement section shown only for ack mode or slots >=1.
+  [decided: user 2026-10-18 12:21Z; verified: `domain/{projects,slots,ops}.rs`,
+  `tools/defs.rs`, `canvas/modals.tsx`]
+
 - Panel open buttons/menus activate existing detached windows through the live
   window registry (native restore/show/focus) and raise existing pins, including
   an already top pin. This replaces the old top-pin toggle-off rule. Agent and
@@ -52,7 +61,7 @@
   verified: `canvas/{gallery,docs}.tsx`, `canvas/objectactions.ts`,
   `feed/compute.rs`, `http/docs.rs`]
 
-- orgtree_project settings/configure exposes all eight Project settings as an
+- orgtree_project settings/configure exposes all Project settings as an
   atomic explicit patch. It reuses canonical ops/reach, preserves false/zero/
   empty values and renames last. Ancestor agents can force-release/unqueue slots;
   broadcast retains per-recipient messaging/attachment authority. Gallery list/read

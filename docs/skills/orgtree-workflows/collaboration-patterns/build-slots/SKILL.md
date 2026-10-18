@@ -30,7 +30,7 @@ Before claiming, confirm your current CLI exposes both the slot watchdog kind an
 3. **Run the phase** in the foreground.
 4. **Release right after the phase**, before writing reports or mail: `orgtree_project action=release_slot lease=L note="cargo build ok 82s"`. The next builder in line is granted the concurrency slot at once.
 
-If you are halted or retired while holding the concurrency slot it is taken back at once; if you sit idle, the 20-minute checkup reminds you up to 3 times and then takes it back. Either way you are told why, and you claim again when you need it.
+If you are halted or retired while holding the concurrency slot it is taken back at once; if you sit idle, the 20-minute checkup reminds you up to the configured Ack reminders count (1–10, default 3) and takes it back at the next checkup. Either way you are told why, and you claim again when you need it.
 
 ## Watching the machine
 

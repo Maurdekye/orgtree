@@ -45,9 +45,12 @@ Everything else uses the usual tools with the project's name: [orgtree-tool-move
 | exclude_sender | Boolean, false |
 | ack_timeout | Boolean, true; effective timeout needs Runtime working checkups |
 | max_attempts | Integer 1–100, default 3 |
+| ack_reminders | Integer 1–10, default 3; reminders before reclaiming held un-acked mail or an idle concurrency slot |
 | slots | Integer 0–64, default 0 (no concurrency slots) |
 
 Example: `{"action":"configure","name":"build-slot","settings":{"slots":1,"ack_timeout":true}}`. Existing create and describe calls remain valid.
+
+For example, `settings={"ack_reminders":5}` allows five 20-minute checkup reminders before reclaim at the next checkup, for both held mail and idle concurrency slots. Ack timeout and Runtime working checkups must be on. The desktop groups Ack timeout, Max attempts and Ack reminders in **Acknowledgement** at the bottom of Project settings, visible only in ack mode or with at least one concurrency slot. Hidden controls retain their saved values; tools can read/configure them regardless of whether the section is shown.
 
 More actions:
 
