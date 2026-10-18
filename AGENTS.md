@@ -67,7 +67,9 @@
 - Concurrency slots are unnumbered in presentation: counts and queue ordinals
   remain, leases identify holds. Project header row two contains the yellow
   count card, held facts and shared model-icon agent links; Holding, Line and
-  Recent holds use those links too. [decided: user 2026-10-18 17:02–17:07Z;
+  Recent holds use those links too. Visible slot ages subscribe to the shared
+  one-second age clock without status refetches. [decided: user
+  2026-10-18 17:02–17:21Z;
   verified: `canvas/{projectdesk,slotsdesk,slotchips}.tsx`,
   `domain/{slots,watchdogs}.rs`, `runtime/{watchdogs,reminders}.rs`]
 

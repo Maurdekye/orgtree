@@ -88,3 +88,4 @@ orgtree_project settings/configure reads and patches every Project settings fiel
 - [orgtree-tool-project](../tool-project/SKILL.md)
 - [orgtree-team-shape](../team-shape/SKILL.md)
 - [orgtree-credits](../credits/SKILL.md)
+While the slot view is visible, held durations, waiting durations and ended ages update every second using the shared age clock. These display ticks do not fetch slot status again.
