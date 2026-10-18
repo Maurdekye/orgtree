@@ -140,7 +140,7 @@ test('a remembered mail excluded by the active tag filter is not restored', asyn
   const view = await mountView(
     <MailList delivered={[{ ...mail('filtered', '2026-10-17T10:00:00Z'), tags: ['other'] }]}
       selectOldestUnread restoreSelectionId="filtered"
-      tagFilter={{ value: 'keep', choices: ['keep'], onChange: () => {} }} />,
+      tagFilter={{ selected: ['keep'], choices: ['keep'], onChange: () => {}, onSearch: () => {} }} />,
     el => el)
   t.after(async () => { await view.unmount() })
   await inAct(async () => { await flush(5) })
