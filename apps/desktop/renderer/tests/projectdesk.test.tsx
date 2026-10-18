@@ -119,29 +119,33 @@ test('§1c the presented tab counts the project\'s OWN documents (point 27, repl
   assert.equal(el.querySelector('.cc-tabs button[data-tab="presented"] .tab-count')?.textContent, '1')
 })
 
-test('§1d point 27: the project\'s own gallery lists its own cards; its TEAM gallery the subtree\'s too', async (t) => {
+test('§1d point 27: the project\'s own gallery is the cards the engine attributes to it, a renamed project\'s too; its TEAM gallery the subtree\'s as well', async (t) => {
   const had = globalThis.fetch
   const at = new Date().toISOString()
-  const docs = [
-    { id: 'p1', node: 'website', title: 'Website plan', at, evicted: false, node_state: 'live', tier: 'project' },
+  // presented under the project while it was still called website; the
+  // project has since been renamed to site (the engine reads it by id)
+  const own = [{ id: 'p1', node: 'website', title: 'Website plan', at, evicted: false, node_state: 'live', tier: 'project' }]
+  const team = [...own,
     { id: 'a1', node: 'dev1', title: 'Dev notes', at, evicted: false, node_state: 'live', tier: 'haiku' },
     { id: 'a2', node: 'dev2', title: 'UI sketch', at, evicted: false, node_state: 'live', tier: 'sonnet' },
   ]
   globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const body = String(input).includes('/documents?')
-      ? { documents: docs, total: docs.length, next_offset: null, offset: 0 } : {}
+    const u = String(input)
+    const docs = u.includes('team=1') ? team : own
+    const body = u.includes('/documents?') ? { documents: docs, total: docs.length, next_offset: null, offset: 0 } : {}
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }) as typeof fetch
   t.after(() => { globalThis.fetch = had })
-  const names = (el: Element) => [...el.querySelectorAll('.doc-gallery-row .l2')].map((r) => r.getAttribute('data-copy-agent-name'))
-  const own = await mountView(<AgentGalleryView slug="org" nid="website" node={project()} toast={noop} />, (el) => el)
-  t.after(() => own.unmount())
+  const titles = (el: Element) => [...el.querySelectorAll('.doc-gallery-row .mfrom')].map((r) => r.textContent)
+  const site = project({ id: 'site', title: 'site' } as never)
+  const ownView = await mountView(<AgentGalleryView slug="org" nid="site" node={site} toast={noop} />, (el) => el)
+  t.after(() => ownView.unmount())
   await inAct(async () => { await flush(6) })
-  assert.deepEqual(names(own.el), ['website'], 'only the project\'s own card')
-  const team = await mountView(<AgentGalleryView slug="org" nid="website" node={project()} toast={noop} team />, (el) => el)
-  t.after(() => team.unmount())
+  assert.deepEqual(titles(ownView.el), ['Website plan'], 'the card presented under its old name stays')
+  const teamView = await mountView(<AgentGalleryView slug="org" nid="site" node={site} toast={noop} team />, (el) => el)
+  t.after(() => teamView.unmount())
   await inAct(async () => { await flush(6) })
-  assert.deepEqual(names(team.el).sort(), ['dev1', 'dev2', 'website'], 'the project\'s card and both members\' cards')
+  assert.deepEqual(titles(teamView.el).sort(), ['Dev notes', 'UI sketch', 'Website plan'], 'and the members\' cards')
 })
 
 const square = (focused: boolean) => mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
