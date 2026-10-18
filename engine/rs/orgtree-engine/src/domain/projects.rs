@@ -476,7 +476,7 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
             )
             .await?
             .is_some()
-            && reaches(&*client, holder, project).await?;
+            && reaches(&**client, holder, project).await?;
         let why = match a {
             None => "is gone",
             Some(r) if r.get::<_, String>(0) != "live" => "was retired",

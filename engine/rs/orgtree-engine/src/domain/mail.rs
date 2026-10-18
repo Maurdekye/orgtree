@@ -401,7 +401,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
     let replied = out.reply_to.as_ref().and_then(|q| q["id"].as_str())
         .or_else(|| out.replies.first().and_then(|q| q["id"].as_str())).map(str::to_string);
     let acked = match (sender_agent, &replied) {
-        (Some(a), Some(r)) => crate::domain::projects::ack_of(&tx, project.id, a, r).await?,
+        (Some(a), Some(r)) => crate::domain::projects::ack_of(&*tx, project.id, a, r).await?,
         _ => None,
     };
     if let Some((orig_row, orig_uid)) = &acked {
