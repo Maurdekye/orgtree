@@ -32,6 +32,17 @@ export interface TrayRow {
   ghost?: boolean
 }
 
+/** The switchboard identity used by the top-level superior row and its selected value. */
+export function SwitchboardMark() {
+  return <span className="tier quickchat-user-mark" aria-hidden="true">
+    <svg className="eye" viewBox="0 0 48 26">
+      <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
+      <circle className="iris" cx="24" cy="13" r="6.5" />
+      <circle className="pupil" cx="24" cy="13" r="2.6" />
+    </svg>
+  </span>
+}
+
 /** THE LIST'S ROWS, by hierarchy (FR-16): every superior immediately
  *  followed by its subtree, indented per depth, siblings ordered by the HOST's
  *  `compare` (null = the tree's own order). A filtered-out ancestor of a match

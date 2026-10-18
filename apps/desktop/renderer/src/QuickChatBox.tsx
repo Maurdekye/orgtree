@@ -20,7 +20,7 @@ import { PickerPopover as Pop } from './canvas/pickerpopover'
 import { useAgentMentions, useOrgMentionCandidates } from './canvas/agentmentions'
 import { useAppRead } from './appfeed'
 import { getProviders, sendMessage, uploadFile } from './api'
-import { ActiveAgentsFilter, AgentTray, trayRows, type TrayRow } from './canvas/agenttray'
+import { ActiveAgentsFilter, AgentTray, SwitchboardMark, trayRows, type TrayRow } from './canvas/agenttray'
 import { SpawnChips } from './canvas/cards'
 import { TierChip, nodeTierOf } from './canvas/identity'
 import { resolveOrgDefault } from './canvas/effort'
@@ -227,11 +227,11 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         {tier ? <TierChip tier={tier} /> : <span className="quickchat-label">no model</span>}
         {preview && <span className="quickchat-label quickchat-name">{preview}</span>}
       </button>
-      <button type="button" className="quickchat-btn quickchat-superior"
+      <button type="button" className={'quickchat-btn quickchat-superior' + (superior === null ? ' quickchat-top-superior' : '')}
         title={`superior of the new agent: ${superior ?? 'none (a top-level agent)'}`}
         aria-expanded={pop?.kind === 'superior'} onClick={open('superior')}>
         {/* the shared chip: a project wears its folder mark, not its sentinel tier */}
-        <TierChip tier={nodeTierOf(supNode)} />
+        {superior === null ? <SwitchboardMark /> : <TierChip tier={nodeTierOf(supNode)} />}
         <span className="quickchat-label">{superior ?? TOP_LEVEL_LABEL}</span>
       </button>
       <EffortBar compact value={effort} level={effort || orgDefault} levels={levelsFor(tier)}
@@ -375,13 +375,7 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick, activeO
             aria-current={superior === null || undefined} onClick={() => onPick(null)}>
             <div className="tray-primary">
               <button type="button" className="tray-main" title="no superior: a top-level agent">
-                <span className="tier quickchat-user-mark" aria-hidden="true">
-                  <svg className="eye" viewBox="0 0 48 26">
-                    <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
-                    <circle className="iris" cx="24" cy="13" r="6.5" />
-                    <circle className="pupil" cx="24" cy="13" r="2.6" />
-                  </svg>
-                </span>
+                <SwitchboardMark />
                 <span className="tray-name">{TOP_LEVEL_LABEL}</span>
               </button>
             </div>
