@@ -19,10 +19,11 @@
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs projectslots
 
-import test from 'node:test'
+import test, { mock } from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
+import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
+import { SlotsView } from '../src/canvas/slotsdesk'
 import { NodeSquare } from '../src/canvas/cards'
 import { DeskChat } from '../src/canvas/desk'
 import { DeskDogsProvider } from '../src/canvas/deskdogs'
@@ -252,6 +253,35 @@ async function desk(t: TestContext, nd: CanvasNode, answer: unknown, empty = fal
   await flush(2)
   return { view, ops, jumps }
 }
+
+test('visible slot views share one second clock for held, waiting and ended ages without fetching again', async t => {
+  useFakeClock()
+  const timer = mock.method(globalThis, 'setInterval')
+  const at = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
+  const answer = { ...status, holders: [{ ...status.holders[0], since: at(32) }],
+    line: [{ ...status.line[0], since: at(41) }],
+    history: [{ ...status.history[0], since: at(80), ended: at(12) }] }
+  const state = projectSlotState('build', 1, leases, dogs)
+  const nd = project({ slots_capacity: 1 }), map = new Map([nd, ...['sa', 'sb', 'sc'].map(id => agentNode(id))].map(n => [n.id, n]))
+  let reads = 0
+  const op = async () => { reads++; return answer as unknown as OpResult }
+  const view = await mountView(<><SlotsView node={nd} state={state} map={map} op={op} toast={noop} />
+    <SlotsView node={nd} state={state} map={map} op={op} toast={noop} /></>, el => el)
+  t.after(async () => { await view.unmount(); timer.mock.restore(); realClock() })
+  await inAct(async () => { await flush(3) })
+  const ages = (held: number, waiting: number, ended: number) => {
+    for (const panel of view.el.querySelectorAll('.project-slots')) {
+      assert.match(panel.querySelector('.slots-holding')?.textContent ?? '', new RegExp(`held ${held}s`))
+      assert.match(panel.querySelector('.slots-line')?.textContent ?? '', new RegExp(`waiting ${waiting}s`))
+      assert.match(panel.querySelector('.slots-history')?.textContent ?? '', new RegExp(`ended ${ended}s ago`))
+    }
+  }
+  ages(32, 41, 12)
+  await advance(1000); ages(33, 42, 13)
+  await advance(1000); ages(34, 43, 14)
+  assert.equal(reads, 2, 'one initial status read per mounted view, no refresh on ticks')
+  assert.equal(timer.mock.calls.filter(call => call.arguments[1] === 1000).length, 1, 'one clock for both views')
+})
 
 test('slot header facts use a second header row and shared model-icon agent links navigate from every list', async t => {
   const { view, jumps } = await desk(t, project({ slots_capacity: 1 }), status)
