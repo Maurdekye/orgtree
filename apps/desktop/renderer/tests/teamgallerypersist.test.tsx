@@ -12,6 +12,7 @@
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs teamgallerypersist
 
+import './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { forgetModalOpenCache, readModalOpen, rememberModalOpen } from '../src/canvas/modalpin'

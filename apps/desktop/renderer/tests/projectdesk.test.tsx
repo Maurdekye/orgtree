@@ -376,7 +376,7 @@ test('§8d a project whose agents never ran a turn shows no activity card', asyn
 test('§8e an idle chip keeps no empty spinner slot; an active one has its spinner', async (t) => {
   const idle = await desk(t, { node: quiet(300) })
   assert.equal(idle.querySelector('.cc-head .project-activity .org-activity') === null, true, 'no gap where the spinner sits')
-  assert.equal(idle.querySelector('.cc-head .project-activity')?.textContent, '0/1')
+  assert.equal(idle.querySelector('.cc-head .project-activity')?.textContent, '0/2', 'dev1 and the nested dev2, no slot before them')
   const busy = await desk(t)
   assert.ok(busy.querySelector('.cc-head .project-activity .org-activity .cc-spin'), 'the spinner while active')
 })
