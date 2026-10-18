@@ -182,8 +182,8 @@ pub(crate) struct ForwardedUserNotices(std::collections::HashSet<i64>);
 impl ForwardedUserNotices {
     #[nolog]
     fn pending(&self, ancestors: impl IntoIterator<Item=i64>) -> Vec<i64> {
-        let mut seen = self.0.clone();
-        ancestors.into_iter().filter(|id| seen.insert(*id)).collect()
+        let mut seen = std::collections::HashSet::new();
+        ancestors.into_iter().filter(|id| !self.0.contains(id) && seen.insert(*id)).collect()
     }
 
     /// Call immediately after admission commits, before any fallible dispatch.
