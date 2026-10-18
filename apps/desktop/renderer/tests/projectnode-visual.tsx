@@ -47,6 +47,7 @@ import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { DeskChat } from '../src/canvas/desk'
 import { DeskDogsProvider } from '../src/canvas/deskdogs'
 import { addPin } from '../src/canvas/pins'
+import { CurrentOrg } from '../src/popout'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
 import { NodeConfig } from '../src/canvas/modals'
@@ -314,7 +315,10 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
   : scene === 'cardfix' ? <CardFix /> : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
-    <OrgCanvas tree={tree(rows[scene]!, dogs[scene], extras[scene])} slug="org" op={() => Promise.resolve({} as OpResult)}
-      toast={noop} mailEvt={null} onOpenAgentGallery={noop} />
+    {/* inside the org, as the app is: only an org's surfaces pin and pop out */}
+    <CurrentOrg.Provider value="org">
+      <OrgCanvas tree={tree(rows[scene]!, dogs[scene], extras[scene])} slug="org" op={() => Promise.resolve({} as OpResult)}
+        toast={noop} mailEvt={null} onOpenAgentGallery={noop} />
+    </CurrentOrg.Provider>
   </div>
 ))
