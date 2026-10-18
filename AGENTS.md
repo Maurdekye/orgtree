@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Project mail's plain delivery marker uses `→ @recipient` through shared
+  `AgentName`, in list rows and reading panes (including pop-outs). Recipient
+  width yields before the sender; kind chips remain. Full delivery details live
+  in the tooltip, using `queue.held_at` projected from `extra.claimed.at`, never
+  the message's sent-at; absent claim time says so. Other queue-state labels
+  retain their meaning. [decided: user/coordinator 2026-10-18 12:46–12:49Z;
+  verified: `canvas/mail.tsx`, `styles.css`, `feed/compute.rs`]
+
 - Project acknowledgement timeout uses `scope.mail_queue_ack_reminders` (1–10,
   default 3) for BOTH held mail and idle concurrency slots. It sends that many
   20-minute reminders, then reclaims at the next checkup; timeout/checkup gates
