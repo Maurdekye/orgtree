@@ -119,6 +119,36 @@ test('mail rows keep a compact tag preview and collapse additional tags into +N'
   }finally{await v.unmount()}
 })
 
+test('mail rows show both tags before collapsing at three',async()=>{
+  const row={id:'two-tags',from:'coordinator',kind:'message',at:'2026-10-17T19:50:00Z',body:'A tagged mail',tags:['build','alpha']}
+  const v=await mountView(<MailList delivered={[row]}/>,el=>el)
+  try{
+    const rendered=v.el.querySelector<HTMLElement>('.mailrow');assert.ok(rendered)
+    assert.equal(rendered.querySelectorAll('.mail-tag[data-tag-key]').length,2)
+    assert.equal(rendered.querySelector('.mail-tag-more'),null)
+  }finally{await v.unmount()}
+})
+
+test('inbox tag filter and message filter render in one compact controls row',async()=>{
+  const v=await mountView(<MailList delivered={[]} tagFilter={{selected:['Alpha Build','Progress'],choices,onChange:()=>{}}}/>,el=>el)
+  try{
+    const controls=v.el.querySelector<HTMLElement>('.mail-list-controls');assert.ok(controls,'the tag picker and text filter share one wrapper')
+    assert.ok(controls.querySelector('.mail-tag-picker'))
+    assert.ok(controls.querySelector('input.mail-filter'))
+    assert.equal(controls.querySelector('button[aria-label="Clear tag filter"]')?.textContent?.trim(),'×')
+  }finally{await v.unmount()}
+})
+
+test('tag hue is stable by normalized name and chips use a pastel OKLCH palette',()=>{
+  assert.equal(mailTagHue('Alpha Build'),mailTagHue(' alpha BUILD '))
+  const hues=['Alpha Build','Progress','Review','engine','release'].map(mailTagHue)
+  assert.ok(hues.every(h=>Number(h)>=0&&Number(h)<360))
+  assert.ok(new Set(hues).size>=4,'different names should spread across the hue circle')
+  const css=readFileSync(path.join(__SRC_DIR__,'styles.css'),'utf8')
+  assert.match(css,/background:\s*oklch\(/)
+  assert.match(css,/color:\s*oklch\(/)
+})
+
 declare const __SRC_DIR__:string
 function replyRow(variant:string){
   const fixture=JSON.parse(readFileSync(path.join(__SRC_DIR__,'../tests/fixtures/events',variant+'.json'),'utf8'))

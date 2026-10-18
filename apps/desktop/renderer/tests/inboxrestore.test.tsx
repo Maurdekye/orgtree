@@ -23,12 +23,12 @@ const mail = (id: string, at: string) => ({
   id, from: 'agent-one', to: '@user', at, kind: 'message', body: `body-${id}`,
 })
 
-async function mountInbox(t: TestContext, inbox: Inbox, slug = 'restore-test') {
+async function mountInbox(t: TestContext, inbox: Inbox, slug = 'restore-test', tagChoices: string[] = []) {
   const oldFetch = globalThis.fetch
   globalThis.fetch = withoutMailTransfers((async (url: string) => {
     const path = String(url)
     const body = path.includes('/inbox') && path.includes('tags_only=true')
-      ? { tag_choices: [] }
+      ? { tag_choices: tagChoices }
       : path.includes('/inbox') ? inbox
         : path.includes('/audiences') ? { audiences: [], requests: [] }
           : path.includes('/events') ? { events: [] } : {}
@@ -83,6 +83,38 @@ test('your inbox reopens the last mail when no new inbox mail arrived', async (t
     'reopening the inbox with the same arrival set should restore the last opened mail')
   assert.ok(scrolled.some(row => row.classList.contains('mailrow')),
     'restoring a mail also scrolls its row into view')
+})
+
+test('selected inbox tags survive reopening and stay scoped to their inbox', async (t) => {
+  const slug = 'tag-selection-persist'
+  const otherSlug = 'tag-selection-other'
+  const key = `orgtree-user-mail-tags:${slug}`
+  const otherKey = `orgtree-user-mail-tags:${otherSlug}`
+  W.localStorage.removeItem(key)
+  W.localStorage.removeItem(otherKey)
+  t.after(() => { W.localStorage.removeItem(key); W.localStorage.removeItem(otherKey) })
+  const inbox = { pending: [], delivered: [mail('tagged-mail', '2026-10-17T10:00:00Z')], sent: [] }
+
+  const first = await mountInbox(t, inbox, slug, ['Alpha', 'Review'])
+  const trigger = first.view.el.querySelector<HTMLButtonElement>('button[aria-label="Filter mail by tags"]')
+  assert.ok(trigger, 'positive control: inbox tag filter is mounted')
+  await inAct(() => trigger.click())
+  const option = (name: string) => [...first.view.el.ownerDocument.querySelectorAll<HTMLButtonElement>('button.mail-tag-choice')]
+    .find(button => button.textContent?.trim() === name)
+  await inAct(() => option('Alpha')!.click())
+  await inAct(() => option('Review')!.click())
+  assert.deepEqual(JSON.parse(W.localStorage.getItem(key) ?? 'null'), ['Alpha', 'Review'],
+    'selection is persisted as soon as it changes')
+  await first.dispose()
+
+  const reopened = await mountInbox(t, inbox, slug, ['Alpha', 'Review'])
+  const restored = reopened.view.el.querySelector<HTMLButtonElement>('button[aria-label="Filter mail by tags"]')
+  assert.match(restored?.textContent ?? '', /Alpha/)
+  assert.match(restored?.textContent ?? '', /Review/)
+
+  const other = await mountInbox(t, inbox, otherSlug, ['Alpha', 'Review'])
+  const independent = other.view.el.querySelector<HTMLButtonElement>('button[aria-label="Filter mail by tags"]')
+  assert.equal(independent?.textContent?.trim(), 'all tags', 'a different inbox starts with its own selection')
 })
 
 test('restoring the last opened mail wins over automatic unread selection', async (t) => {
