@@ -517,7 +517,7 @@ test('superior root is the first list row under the filter; all agent depths shi
     assert.ok(filter.nextElementSibling === root, 'filter is above the root row')
     assert.ok(root.querySelector('.eye'), 'root keeps the eye icon')
     assert.equal(root.style.paddingLeft, '8px')
-    assert.deepEqual([...list.querySelectorAll<HTMLElement>('[data-copy-agent-name]')]
+    assert.deepEqual([...list.querySelectorAll<HTMLElement>('.tray-row[data-copy-agent-name]')]
       .map(r => [r.dataset.copyAgentName, r.style.paddingLeft]),
       [['zed', '22px'], ['amy', '36px'], ['boss', '22px']])
     assert.ok(list.querySelector('[data-copy-agent-name="zed"].sel'), 'current agent stays highlighted')
