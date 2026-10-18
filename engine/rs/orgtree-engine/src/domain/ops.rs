@@ -2632,6 +2632,20 @@ async fn cheap_compact(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transact
 mod project_settings_tests {
     use super::*;
     #[test]
+    fn ack_reminder_default_control() {
+        assert_eq!(super::super::projects::ACK_WAKES, 3);
+    }
+    #[test]
+    fn ack_reminder_patch_accepts_counts_and_rejects_invalid_values() {
+        for n in [1,3,10] {
+            assert_eq!(project_setting_ops("alpha",&json!({"ack_reminders":n})).unwrap(),
+                vec![json!({"op":"set_mail_queue","node":"alpha","ack_reminders":n})]);
+        }
+        for n in [json!(0),json!(11),json!(1.5),json!("3"),json!(null)] {
+            assert!(project_setting_ops("alpha",&json!({"ack_reminders":n})).is_err());
+        }
+    }
+    #[test]
     fn full_patch_preserves_false_zero_and_renames_last() {
         let ops=project_setting_ops("alpha",&json!({"name":"beta","description":"","peer_mail":false,
             "mail_queue":"ack","exclude_sender":false,"ack_timeout":false,"max_attempts":100,"slots":0})).unwrap();

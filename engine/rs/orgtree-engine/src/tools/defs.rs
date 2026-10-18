@@ -1002,6 +1002,13 @@ mod project_settings_contract_tests {
     fn card() -> Value { list().into_iter().find(|c| c["name"] == "orgtree_project").unwrap() }
 
     #[test]
+    fn ack_reminder_count_contract() {
+        let c=card();let p=&c["inputSchema"]["properties"]["settings"]["properties"]["ack_reminders"];
+        assert_eq!(p["type"],json!("integer"),"ack reminders tool field missing");
+        assert_eq!(p["minimum"],json!(1));assert_eq!(p["maximum"],json!(10));
+    }
+
+    #[test]
     fn project_can_read_and_configure_settings() {
         let c=card();
         let actions=c["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap();
