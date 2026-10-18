@@ -36,8 +36,10 @@ test('project slots tab uses the shared pin pop-out and modal routes',async t=>{
   t.after(()=>v.unmount());await inAct(async()=>{await flush(4);v.el.querySelector<HTMLButtonElement>('[data-tab="slots"]')!.click();await flush(3)})
   const buttons=[...v.el.querySelectorAll<HTMLButtonElement>('.project-slots .panel-corner button')]
   assert.equal(buttons.length,3,'three standard shortcuts in the slots tab')
-  await inAct(()=>buttons[0].click());assert.deepEqual(claimSurfaceRequests('project-slots','slot-panel'),['pin'])
-  await inAct(()=>buttons[1].click());assert.deepEqual(claimSurfaceRequests('project-slots','slot-panel'),['popout'])
+  const requests:string[]=[]
+  const release=claimSurfaceRequests('project-slots','slot-panel',request=>requests.push(request));t.after(release)
+  await inAct(()=>buttons[0].click());assert.deepEqual(requests,['pin'])
+  await inAct(()=>buttons[1].click());assert.deepEqual(requests,['pin','popout'])
   await inAct(()=>buttons[2].click())
   assert.deepEqual(calls,['show:project-slots:build','show:project-slots:build','open:project-slots:build'])
 })
