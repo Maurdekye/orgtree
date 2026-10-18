@@ -20,7 +20,8 @@ import { transcriptViewport } from '../transcriptViewport'
 import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { objectNavProps } from './objectnav'
-import { useAgentMentions, useOrgMentionCandidates } from './agentmentions'
+import { dismissUserMention, hasUnseenUserMention, useAgentMentions, useMentionHighlight, useOrgMentionCandidates, useSeenMentions } from './agentmentions'
+import { useOrgView } from '../attention/mode'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
 import { appendReplyTarget, readReplies, replyContext, replyFromRow, replyWire, storeReplies } from '../eventReply'
@@ -2312,6 +2313,17 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   useEffect(() => {
     if (openPresentedRequest !== undefined) setView('presented')
   }, [openPresentedRequest])
+  const orgView = useOrgView(slug)
+  useSeenMentions()
+  const mentionHighlight = useMentionHighlight(slug, node.id)
+  const scrolledMentionRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!historyVisible || view !== 'chat') return
+    if (orgView === 'attention') return
+    if (node.user_mention && hasUnseenUserMention(node, slug)) {
+      void dismissUserMention(slug, node.id, node.user_mention.id, node.user_mention.event_id, { highlight: true })
+    }
+  }, [historyVisible, view, orgView, slug, node.id, node.user_mention?.id, node.user_mention?.event_id])
   // THE AGENT'S OWN DOCKET (user ruling 2026-09-05 21:07). It replaced the
   // derived task-progress model that used to live in this tab — the user
   // called that content irrelevant, and what an agent is answerable for is
@@ -2632,6 +2644,57 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   })
   // seq is the PRE-slice ordinal, so a non-zero first seq means older rows exist
   const hasOlder = chat?.has_older ?? ((chat?.messages[0]?.seq ?? 0) > 0)
+  useLayoutEffect(() => {
+    const host = scroller.current
+    if (!host || !mentionHighlight || view !== 'chat') return
+    const evId = mentionHighlight.eventId
+    let target: HTMLElement | null = null
+    if (evId) {
+      const byReply = [...host.querySelectorAll<HTMLElement>('[data-reply-event]')]
+        .find(el => el.dataset.replyEvent === evId)
+      const durable = durableOf.get(evId)
+      const byNative = !byReply && durable
+        ? [...host.querySelectorAll<HTMLElement>('[data-native-event]')]
+            .find(el => el.dataset.nativeEvent === durable)
+        : undefined
+      target = byReply ?? byNative ?? null
+    }
+    if (!target) {
+      const candidates = [...host.querySelectorAll<HTMLElement>('[data-transcript-row], .reply-event, .msg.assistant')]
+      for (let i = candidates.length - 1; i >= 0; i--) {
+        const c = candidates[i]!
+        if (/(^|[^0-9A-Za-z._%+-])@user(?![0-9A-Za-z_@/-]|\.[0-9A-Za-z])/i.test(c.textContent ?? '')) {
+          target = c
+          break
+        }
+      }
+    }
+    if (!target) return
+    const rowEl = target.closest<HTMLElement>('[data-transcript-row], .reply-event, .msg') ?? target
+    const msgEl = rowEl.querySelector<HTMLElement>('.msg.assistant, .msg') ?? rowEl
+    const blocks = [...rowEl.querySelectorAll<HTMLElement>('p, li, blockquote, pre')]
+      .filter(el => /(^|[^0-9A-Za-z._%+-])@user(?![0-9A-Za-z_@/-]|\.[0-9A-Za-z])/i.test(el.textContent ?? ''))
+    const lineEl = blocks[0] ?? rowEl.querySelector<HTMLElement>('.md') ?? msgEl
+    rowEl.classList.add('mention-highlight', 'ctx-target')
+    rowEl.setAttribute('data-mention-highlighted', 'true')
+    msgEl.classList.add('mention-highlight')
+    lineEl.classList.add('mention-highlight-line')
+    lineEl.setAttribute('data-mention-line', 'true')
+    if (scrolledMentionRef.current !== mentionHighlight.mentionId) {
+      scrolledMentionRef.current = mentionHighlight.mentionId
+      revealPendingRun(rowEl)
+      revealSystemRuns(rowEl)
+      leaveBottom()
+      lineEl.scrollIntoView?.({ block: 'center' })
+    }
+    return () => {
+      rowEl.classList.remove('mention-highlight', 'ctx-target')
+      rowEl.removeAttribute('data-mention-highlighted')
+      msgEl.classList.remove('mention-highlight')
+      lineEl.classList.remove('mention-highlight-line')
+      lineEl.removeAttribute('data-mention-line')
+    }
+  }, [mentionHighlight, view, chat?.messages, live_feed])
   /** the rows this desk needs to fill itself — the floor a window collapse
    *  must never cut below, or it takes away what is on screen. A tall pinned
    *  desk needs many more than CHAT_WINDOW, which is the whole reason the

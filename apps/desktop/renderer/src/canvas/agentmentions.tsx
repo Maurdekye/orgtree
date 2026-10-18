@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactNode, RefObject } from 'react'
-import type { TreeNode, TreePayload } from '../types'
+import type { TreeNode, TreePayload, UserMentionInfo } from '../types'
+import { markMentionSeen } from '../api'
 import { TierChip } from './identity'
 import { requestOpenOrg } from '../shell/openorg'
 
@@ -389,3 +390,92 @@ export function HubContactChip({ address, className }: { address: string; classN
     </button>
   )
 }
+
+const mentionSeenLocally = new Map<string, Set<string>>()
+const mentionHighlights = new Map<string, { mentionId: string; eventId?: string }>()
+const seenListeners = new Set<() => void>()
+
+function notifySeen() {
+  for (const fn of seenListeners) fn()
+}
+
+export function useSeenMentions(): number {
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const fn = () => setTick(n => n + 1)
+    seenListeners.add(fn)
+    return () => { seenListeners.delete(fn) }
+  }, [])
+  return tick
+}
+
+export function hasUnseenUserMention(
+  node?: { id: string; user_mention?: UserMentionInfo | null } | null,
+  slug?: string,
+): boolean {
+  const m = node?.user_mention
+  if (!node?.id || !m?.id) return false
+  const org = slug || lastActiveOrg
+  const key = `${node.id}:${m.id}`
+  if (org && mentionSeenLocally.get(org)?.has(key)) return false
+  for (const set of mentionSeenLocally.values()) {
+    if (set.has(key)) return false
+  }
+  return true
+}
+
+export function dismissUserMention(
+  slug: string,
+  nodeId: string,
+  mentionId: string,
+  eventId?: string,
+  opts?: { highlight?: boolean },
+): Promise<{ ok: boolean }> {
+  const org = slug || lastActiveOrg
+  let set = mentionSeenLocally.get(org)
+  if (!set) {
+    set = new Set()
+    mentionSeenLocally.set(org, set)
+  }
+  set.add(`${nodeId}:${mentionId}`)
+  if (opts?.highlight !== false) {
+    mentionHighlights.set(`${org}:${nodeId}`, { mentionId, eventId })
+  }
+  notifySeen()
+  if (!org) return Promise.resolve({ ok: true })
+  return markMentionSeen(org, nodeId, mentionId).catch(() => ({ ok: false }))
+}
+
+export function requestMentionHighlight(
+  slug: string,
+  nodeId: string,
+  mentionId: string,
+  eventId?: string,
+): void {
+  const org = slug || lastActiveOrg
+  mentionHighlights.set(`${org}:${nodeId}`, { mentionId, eventId })
+  notifySeen()
+}
+
+export function useMentionHighlight(
+  slug: string,
+  nodeId: string,
+): { mentionId: string; eventId?: string } | null {
+  useSeenMentions()
+  const org = slug || lastActiveOrg
+  return mentionHighlights.get(`${org}:${nodeId}`) ?? null
+}
+
+export function clearMentionHighlight(slug: string, nodeId: string): void {
+  const org = slug || lastActiveOrg
+  if (mentionHighlights.delete(`${org}:${nodeId}`)) {
+    notifySeen()
+  }
+}
+
+export function resetSeenMentions(): void {
+  mentionSeenLocally.clear()
+  mentionHighlights.clear()
+  notifySeen()
+}
+

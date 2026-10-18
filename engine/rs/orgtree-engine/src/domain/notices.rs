@@ -109,8 +109,8 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
 }
 
 /// How many things in this org need the user: open question cards on live
-/// agents, unread urgent mail to the user, and docket items with the attention
-/// flag up (the Attention view's three flavours). Three bounded counts.
+/// agents, unread urgent mail to the user, docket items with the attention
+/// flag up, and unseen `@user` mentions on live agents.
 #[logged]
 pub async fn attention_count(client: &Client, org_id: i64) -> Result<i64> {
     let r = client
@@ -119,7 +119,9 @@ pub async fn attention_count(client: &Client, org_id: i64) -> Result<i64> {
                       WHERE k.org_id = $1 AND k.status = 'open' AND a.state = 'live')
                   + (SELECT count(*) FROM ot.mail WHERE org_id = $1 AND recipient_kind = 'user'
                       AND state = 'pending' AND urgent)
-                  + (SELECT count(*) FROM ot.work_items WHERE org_id = $1 AND manual_attention IS NOT NULL)",
+                  + (SELECT count(*) FROM ot.work_items WHERE org_id = $1 AND manual_attention IS NOT NULL)
+                  + (SELECT count(*) FROM ot.agents WHERE org_id = $1 AND state = 'live'
+                      AND extra->'user_mention' IS NOT NULL AND extra->>'user_mention' <> 'null')",
             &[&org_id],
         )
         .await?;

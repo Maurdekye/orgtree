@@ -222,6 +222,29 @@ impl ConvoWriter {
         std::mem::take(&mut self.pending).into_values().collect()
     }
 
+    /// Detect the first `@user` mention in pending assistant rows for this turn,
+    /// or a refined blurb for the same `seq` row as streaming text arrives.
+    #[nolog]
+    pub fn pending_user_mention(&self, already: Option<&(i64, String)>) -> Option<(i64, String)> {
+        if let Some((seq, prev_blurb)) = already {
+            let body = self.pending.get(seq)?;
+            if body["role"].as_str() != Some("assistant") {
+                return None;
+            }
+            let blurb = user_mention_blurb(body["text"].as_str().unwrap_or(""))?;
+            return (blurb != *prev_blurb).then_some((*seq, blurb));
+        }
+        for (seq, body) in &self.pending {
+            if body["role"].as_str() != Some("assistant") {
+                continue;
+            }
+            if let Some(blurb) = user_mention_blurb(body["text"].as_str().unwrap_or("")) {
+                return Some((*seq, blurb));
+            }
+        }
+        None
+    }
+
     /// Each live amendment commits independently; a bad row cannot drop later results.
     #[nolog]
     pub async fn update_batch(&mut self, client: &Client, updates: Vec<(i64, Value)>) -> usize {
@@ -235,6 +258,103 @@ impl ConvoWriter {
             }
         }
         failed
+    }
+}
+
+/// Extract a centered cut-out blurb around the first standalone `@user` token.
+#[nolog]
+pub fn user_mention_blurb(text: &str) -> Option<String> {
+    let clean: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if clean.is_empty() {
+        return None;
+    }
+    let token = "@user";
+    let mut search_from = 0;
+    let mut found_idx = None;
+    while let Some(rel) = clean[search_from..].find(token) {
+        let idx = search_from + rel;
+        let prev_ok = if idx == 0 {
+            true
+        } else {
+            let prev = clean[..idx].chars().next_back().unwrap_or(' ');
+            !prev.is_ascii_alphanumeric() && !matches!(prev, '_' | '@' | '.' | '/' | ':' | '-')
+        };
+        let after_idx = idx + token.len();
+        let next_ok = if after_idx >= clean.len() {
+            true
+        } else {
+            let next = clean[after_idx..].chars().next().unwrap_or(' ');
+            !next.is_ascii_alphanumeric() && !matches!(next, '_' | '-')
+        };
+        if prev_ok && next_ok {
+            found_idx = Some(idx);
+            break;
+        }
+        search_from = idx + 1;
+    }
+    let idx = found_idx?;
+    const SIDE_CHARS: usize = 48;
+    let before_chars: Vec<char> = clean[..idx].chars().collect();
+    let after_chars: Vec<char> = clean[idx + token.len()..].chars().collect();
+    let before_start = before_chars.len().saturating_sub(SIDE_CHARS);
+    let after_end = after_chars.len().min(SIDE_CHARS);
+    let mut out = String::new();
+    if before_start > 0 {
+        out.push('…');
+    }
+    out.extend(&before_chars[before_start..]);
+    out.push_str(token);
+    out.extend(&after_chars[..after_end]);
+    if after_end < after_chars.len() {
+        out.push('…');
+    }
+    Some(out)
+}
+
+#[cfg(test)]
+mod user_mention_tests {
+    use super::*;
+
+    #[test]
+    fn extracts_first_standalone_user_mention_blurb() {
+        assert_eq!(user_mention_blurb("no mention here"), None);
+        assert_eq!(user_mention_blurb("email@user.com and @username"), None);
+        assert_eq!(
+            user_mention_blurb("Heads up @user: the migration finished cleanly."),
+            Some("Heads up @user: the migration finished cleanly.".to_string())
+        );
+        let long_before = "a".repeat(60);
+        let long_after = "b".repeat(60);
+        let blurb = user_mention_blurb(&format!("{long_before} @user {long_after}")).unwrap();
+        assert!(blurb.starts_with('…'));
+        assert!(blurb.ends_with('…'));
+        assert!(blurb.contains(" @user "));
+    }
+
+    #[test]
+    fn pending_user_mention_fires_once_per_turn_and_updates_same_seq() {
+        let mut w = ConvoWriter {
+            agent_id: 1,
+            seq: 0,
+            ver: 0,
+            pending: Default::default(),
+        };
+        w.remember(1, json!({"role": "user", "text": "ping @user"}));
+        assert_eq!(w.pending_user_mention(None), None);
+
+        w.remember(2, json!({"role": "assistant", "text": "Hello @user"}));
+        w.remember(3, json!({"role": "assistant", "text": "Second @user in turn"}));
+        let first = w.pending_user_mention(None).unwrap();
+        assert_eq!(first.0, 2);
+        assert_eq!(first.1, "Hello @user");
+
+        // Same seq without change returns None; later seq 3 is ignored.
+        assert_eq!(w.pending_user_mention(Some(&first)), None);
+
+        // Streaming update to seq 2 refines the blurb.
+        w.remember(2, json!({"role": "assistant", "text": "Hello @user, build is green."}));
+        let updated = w.pending_user_mention(Some(&first)).unwrap();
+        assert_eq!(updated, (2, "Hello @user, build is green.".to_string()));
     }
 }
 

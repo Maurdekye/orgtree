@@ -494,6 +494,48 @@ pub async fn remote_control(Path((_slug, _nid)): Path<(String, String)>) -> ApiR
     Err(ApiError::unprocessable("remote control is not part of Orgtree 4"))
 }
 
+#[logged]
+pub async fn mention_seen(
+    State(e): State<Arc<Engine>>,
+    Path((slug, nid)): Path<(String, String)>,
+    body: Option<Json<Value>>,
+) -> ApiResult<Json<Value>> {
+    let org = org(&e, &slug)?;
+    let a = agent(&e, &org, &nid).await?;
+    let want_id = body
+        .as_ref()
+        .and_then(|Json(v)| v.get("id"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let client = e.db.get().await?;
+    let changed = if let Some(mid) = want_id {
+        client
+            .execute(
+                "UPDATE ot.agents
+                    SET extra = coalesce(extra, '{}'::jsonb) - 'user_mention',
+                        row_version = row_version + 1
+                  WHERE id = $1 AND extra->'user_mention'->>'id' = $2",
+                &[&a.id, &mid],
+            )
+            .await?
+    } else {
+        client
+            .execute(
+                "UPDATE ot.agents
+                    SET extra = coalesce(extra, '{}'::jsonb) - 'user_mention',
+                        row_version = row_version + 1
+                  WHERE id = $1 AND extra ? 'user_mention'",
+                &[&a.id],
+            )
+            .await?
+    };
+    drop(client);
+    if changed > 0 {
+        changes::notify(&e, &org, vec![Change::Agent(a.id)]);
+    }
+    Ok(Json(json!({ "seen": changed > 0 })))
+}
+
 // ------------------------------------------------------------ scope
 
 #[logged]

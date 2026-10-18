@@ -409,9 +409,21 @@ export function scanInlineMentions(
     if (!isLeftMentionBoundary(chunk, idx) || !isRightMentionBoundary(chunk, end)) continue
     if (m[1]) {
       hits.push({ index: idx, token: tok, hub: tok.toLowerCase() })
-    } else if (m[2] && agents) {
+    } else if (m[2]) {
       const id = m[2].toLowerCase()
-      if (agents.has(id)) {
+      if (id === 'user') {
+        const resolved = resolveRef({ kind: 'mail', org: world.org, box: 'user', id: '@user' }, world)
+        hits.push({
+          index: idx,
+          token: tok,
+          ref: {
+            ...resolved,
+            token: tok,
+            label: '@user',
+            why: resolved.outcome === 'ready' ? "open the user's inbox" : resolved.why,
+          },
+        })
+      } else if (agents && agents.has(id)) {
         const resolved = resolveRef({ kind: 'agent', org: world.org, id }, world)
         hits.push({ index: idx, token: tok, ref: { ...resolved, token: tok } })
       }

@@ -383,7 +383,7 @@ fn trimmed_tool_instructions(tools: &Value, top: bool) -> String {
          its skill page (orgtree-tool-<name without orgtree_, dashes for underscores>) has the procedure. ",
     );
     if group("messaging") {
-        text.push_str("orgtree_message wakes its recipient; orgtree_send_notice wakes nobody. Write `@<name>` to link an agent or project in prose. ");
+        text.push_str("orgtree_message wakes its recipient; orgtree_send_notice wakes nobody. Write `@<name>` to link an agent or project; `@user` in your reply is for 'I need you to see this' (anything needing an answer goes by mail or question). ");
     }
     if group("team") {
         text.push_str(
@@ -1130,7 +1130,7 @@ answers or dismisses it, you pose a new request, or you withdraw it with orgtree
 its usual trigger is NEW INFORMATION: whenever a turn brings you something — the user says something that settles it, a \
 peer or your superior supplies the fact you were missing, the premise dies, you work it out yourself — re-read your open \
 question and take it back if it stopped mattering. A question left standing after it is moot is a chore on the user's screen \
-with your name on it. Never attempt AskUserQuestion (it is blocked). To ask another AGENT, send orgtree_message \
+with your name on it. Never attempt AskUserQuestion (it is blocked). Write `@user` in your reply for 'I need you to see this'; anything needing an answer still goes by mail or question. To ask another AGENT, send orgtree_message \
 kind=question and end your turn; their reply arrives as a future turn. ⚠ DOCUMENTS ARE PRESENTED, FILES ARE SENT (user \
 rule 2026-10-09). Anything the user is meant to READ themselves — a report, plan, proposal, write-up, summary, any .md — \
 goes through orgtree_present, ALWAYS, never as a download card, even when they ask you to 'send' it: it renders as an \
@@ -1451,6 +1451,7 @@ mod trim_tests {
         assert!(s.contains("Mentioning an agent in the objective or mail grants no docket access"));
         assert!(s.contains("BREADCRUMBS (user ruling 2026-08-12)") && s.contains("orgtree_watchdog"));
         assert!(s.contains("[ORGTREE MAIL — delivered mid-task]") && s.contains("REQUIRED: call orgtree_status"));
+        assert!(s.contains("`@user` in your reply is for 'I need you to see this'"));
         assert!(s.contains("it does NOT message the user"));
         assert!(s.contains("orgtree_next_turn") && s.contains("orgtree_session") && s.contains("Session 0"));
         assert!(s.contains("orgtree-session-0-ui-testing"));

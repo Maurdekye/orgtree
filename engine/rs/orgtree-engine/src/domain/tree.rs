@@ -309,6 +309,9 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     if let Some(imp) = extra.get("imported_from") {
         o.insert("imported_from".into(), imp.clone());
     }
+    if let Some(um) = extra.get("user_mention").filter(|v| !v.is_null()) {
+        o.insert("user_mention".into(), um.clone());
+    }
     if raw["kind"].as_str() == Some(crate::domain::projects::KIND) {
         project_fields(&mut o);
     }

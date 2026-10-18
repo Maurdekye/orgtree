@@ -57,8 +57,10 @@ import type { TypedRef } from '../canvas/workrefs'
 import { decodeEventRow } from '../events/decode'
 import { projectEvent } from '../events/project'
 import { eventSurface } from '../events/card'
+import { dismissUserMention, useSeenMentions } from '../canvas/agentmentions'
+import { setAttentionLayout } from './mode'
 import {
-  attentionNodes, buildAttentionRows, isRetained, retainSelected,
+  attentionNodes, buildAttentionRows, isRetained, retainSelected, splitMentionBlurb,
 } from './feed'
 import type { AttentionRow } from './feed'
 
@@ -165,10 +167,11 @@ export function AttentionQueue({
   // a mail read here (or in the inbox) is read on the click: an unselected
   // urgent row leaves at once, not after the save and the next inbox read
   const locallyRead = useLocalReads()
+  const seenMentions = useSeenMentions()
   const allLive = useMemo(() => buildAttentionRows({
     items: work?.attention ?? work?.items, archived: work?.archived, backlogged: work?.backlogged,
-    pending: box?.pending?.filter((m) => !readLocally(slug, m.id)), nodes, asks: tree.asks,
-  }), [work, box, nodes, tree.asks, submitted, locallyRead, slug])
+    pending: box?.pending?.filter((m) => !readLocally(slug, m.id)), nodes, asks: tree.asks, slug,
+  }), [work, box, nodes, tree.asks, submitted, locallyRead, seenMentions, slug])
   const live = useMemo(() => dismissing.size
     ? allLive.filter((r) => !(r.kind === 'ticket' && r.item && dismissing.has(r.item.slug)))
     : allLive, [allLive, dismissing])
@@ -431,6 +434,31 @@ export function AttentionQueue({
                 </div>
               )
             }
+            if (row.kind === 'mention' && row.mention && row.agent) {
+              const cut = splitMentionBlurb(row.mention.blurb)
+              const activate = () => {
+                void dismissUserMention(slug, row.agent!, row.mention!.id, row.mention!.event_id, { highlight: true })
+                setAttentionLayout(slug, { agent: row.agent! })
+                onFocusAgent?.(row.agent!)
+              }
+              return (
+                <div key={row.key} className="attn-cell" data-attn-row={row.key}
+                  data-attn-kind="mention" role="option" aria-selected={sel}>
+                  <div className={'mailer-row attn-mention-row wait' + (sel ? ' on' : '')}
+                    onClick={activate}>
+                    <div className="mr-top">
+                      <span className="mr-party">{rowParty(row.agent)}</span>
+                      <span className="badge kind-mention">mention</span>
+                    </div>
+                    <div className="attn-mention-blurb" data-mention-blurb={row.mention.blurb}>
+                      <span className="attn-mention-before">{cut.before}</span>
+                      <span className="attn-mention-token">{cut.token}</span>
+                      <span className="attn-mention-after">{cut.after}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
             const m = asMail(row)
             return (
               <div key={row.key} className="attn-cell" data-attn-row={row.key}
@@ -465,6 +493,11 @@ export function AttentionQueue({
                     }}
                     refWorld={refs.world} onOpenRef={refs.onOpen} refresh={refetch} />
                 </div>
+              : current.kind === 'mention' && current.mention && current.agent
+                ? <div className="pad attn-mention-detail">
+                    <div className="row">{paneSender(current.agent)} <span className="dim">mentioned @user</span></div>
+                    <p className="attn-mention-detail-body">{current.mention.blurb}</p>
+                  </div>
               : current.mailRow
                 ? <MailReadPane cur={asMail(current)} refs={refs}
                       mdBase={(m) => fileBase(slug, m.from)}

@@ -582,11 +582,22 @@ export interface TreeNode {
   /** F-04/F-05: the ask card this node's desk shows — open, or freshly
    *  nulled (ledger.node_ask; null once the linger window passes) */
   ask?: AskInfo | null
+  /** Unseen @user mention from this agent's transcript (at most one per turn). */
+  user_mention?: UserMentionInfo | null
   /** FR-03: presented documents (metadata; body via getDocument) */
   documents_count?: number
   documents?: { id: string; title: string; at: string; format?: 'markdown' | 'html'; bytes?: number }[] | null
   /** FR-01: parked while the user drives this session from another device */
   remote_controlled?: { at?: string } | null
+}
+
+export interface UserMentionInfo {
+  id: string
+  turn_id?: number
+  seq?: number
+  event_id?: string
+  blurb: string
+  at: string
 }
 
 /** 'thinking' | 'writing' | 'tool' — a string rather than a union for the same

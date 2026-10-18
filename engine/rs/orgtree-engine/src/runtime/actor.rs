@@ -452,6 +452,8 @@ struct Turn {
     /// Codex/Antigravity: the mail this turn was given, without the envelope;
     /// a usage-limit freeze keeps it for the wake (3.x `resume_texts`)
     replay: String,
+    /// First `@user` mention emitted in this turn: `(convo_seq, blurb)`.
+    user_mention: Option<(i64, String)>,
 }
 
 #[logged]
@@ -507,6 +509,7 @@ impl Turn {
             session_ended: false,
             restart: false,
             replay: String::new(),
+            user_mention: None,
         }
     }
 }
@@ -3368,7 +3371,7 @@ impl Actor {
                     else {self.convo.append(&client,row.clone()).await?};
                 drop(client);
                 if let Some(turn)=self.turn.as_mut() {turn.rows.insert(id.clone(),(seq,row));turn.codex_row=Some(id);}
-                self.text_landed();
+                self.text_landed().await;
                 self.set_activity(if thinking {"thinking"} else {"writing"},None);
                 self.stream(if thinking {"thinking"} else {"delta"},json!({"text":text}));
             },
@@ -4368,9 +4371,55 @@ impl Actor {
         self.org.emit_agent(self.id, frame);
     }
 
-    /// A durable row with text landed: tell watching desks, move the epoch.
+    /// A durable row with text landed: tell watching desks, move the epoch,
+    /// and record at most one `@user` attention mention per turn.
     #[nolog]
-    fn text_landed(&mut self) {
+    async fn text_landed(&mut self) {
+        let already = self.turn.as_ref().and_then(|t| t.user_mention.clone());
+        if let (Some((seq, blurb)), Some(turn_id)) = (
+            self.convo.pending_user_mention(already.as_ref()),
+            self.turn.as_ref().map(|t| t.id),
+        ) {
+            let mention_id = format!("um-{turn_id}-{seq}");
+            let um = json!({
+                "id": mention_id,
+                "turn_id": turn_id,
+                "seq": seq,
+                "event_id": format!("e{seq}"),
+                "blurb": blurb,
+                "at": now_iso(),
+            });
+            if let Some(t) = self.turn.as_mut() {
+                t.user_mention = Some((seq, blurb));
+            }
+            if let Ok(client) = self.engine.db.get().await {
+                let res = if already.is_some() {
+                    client
+                        .execute(
+                            "UPDATE ot.agents
+                                SET extra = jsonb_set(coalesce(extra, '{}'::jsonb), '{user_mention}', $2::jsonb, true),
+                                    row_version = row_version + 1
+                              WHERE id = $1 AND extra->'user_mention'->>'id' = $3",
+                            &[&self.id, &um, &mention_id],
+                        )
+                        .await
+                } else {
+                    client
+                        .execute(
+                            "UPDATE ot.agents
+                                SET extra = jsonb_set(coalesce(extra, '{}'::jsonb), '{user_mention}', $2::jsonb, true),
+                                    row_version = row_version + 1
+                              WHERE id = $1",
+                            &[&self.id, &um],
+                        )
+                        .await
+                };
+                drop(client);
+                if res.is_ok_and(|n| n > 0) {
+                    self.changed(vec![Change::Agent(self.id)]);
+                }
+            }
+        }
         self.text_frames += 1;
         self.stream("text", json!({}));
     }
@@ -4837,7 +4886,7 @@ impl Actor {
                     t.draft.clear();
                     t.draft_order = None;
                 }
-                self.text_landed();
+                self.text_landed().await;
             }
             "reasoning" => {
                 if !done {
@@ -5000,7 +5049,7 @@ impl Actor {
         drop(client);
         row["seq"] = json!(seq);
         self.compact_open = Some((seq, row));
-        self.text_landed();
+        self.text_landed().await;
         Ok(())
     }
 
@@ -5024,7 +5073,7 @@ impl Actor {
             let client = self.engine.db.get().await?;
             self.convo.append(&client, row).await?;
             drop(client);
-            self.text_landed();
+            self.text_landed().await;
             return Ok(());
         };
         row["text"] = json!(text);
@@ -5039,7 +5088,7 @@ impl Actor {
         let client = self.engine.db.get().await?;
         self.convo.update(&client, seq, row).await?;
         drop(client);
-        self.text_landed();
+        self.text_landed().await;
         Ok(())
     }
 
@@ -5487,7 +5536,7 @@ impl Actor {
                     let client = self.engine.db.get().await?;
                     self.convo.append(&client, row).await?;
                     drop(client);
-                    self.text_landed();
+                    self.text_landed().await;
                 }
                 self.end_turn(error, json!({ "agy": true })).await?;
             }
@@ -5606,7 +5655,7 @@ impl Actor {
                     if let Some(output)=u["output_tokens"].as_u64() {token_counts::calibrate(Harness::Agy,text.clone(),output).await;}
                 }
                 if completed.is_some() {
-                    if !text.trim().is_empty() { self.text_landed(); }
+                    if !text.trim().is_empty() { self.text_landed().await; }
                     return Ok(());
                 }
                 if text.trim().is_empty() {
@@ -5621,7 +5670,7 @@ impl Actor {
                     t.rows.insert(key.clone(), (seq, row));
                     t.codex_row = Some(key);
                 }
-                self.text_landed();
+                self.text_landed().await;
             }
             "tool" => {
                 let id = format!("agy-step-{idx}");
@@ -5792,7 +5841,7 @@ impl Actor {
                     t.draft.clear();
                     t.draft_order = None;
                 }
-                self.text_landed();
+                self.text_landed().await;
             }
             "reasoning" => {
                 if !completed {
@@ -6438,7 +6487,7 @@ impl Actor {
             turn.rows.insert(mid, (seq, row));
         }
         if wrote_text {
-            self.text_landed();
+            self.text_landed().await;
         }
         if let Some(id) = wrote_tool {
             self.stream("tool", json!({ "id": id }));

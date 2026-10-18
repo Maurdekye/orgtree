@@ -1895,7 +1895,11 @@ export default function App() {
                 onDocket={() => toggleSurface('docket', showDocket, setShowDocket)}
                 onPresentations={() => toggleSurface('gallery', showGallery, setShowGallery)}
                 onInbox={(jump: unknown) => {
-                  if (typeof jump === 'string') {
+                  if (jump === '@user') {
+                    setInboxJump(null)
+                    setShowInbox(true)
+                    raisePinnedModal('inbox', slug)
+                  } else if (typeof jump === 'string') {
                     // a targeted jump opens AND surfaces a pinned window —
                     // landing behind another surface reads as a dead click
                     setInboxJump(jumpTo(jump)); setShowInbox(true)
@@ -1959,6 +1963,7 @@ export default function App() {
                     setDocJump(id)
                   }}
                   onOpenMail={(r) => {
+                    if (r.box === 'user' && r.id === '@user') return
                     closeIfCentred('inbox', () => {
                       setShowInbox(false); setInboxJump(null)
                     }, slug)

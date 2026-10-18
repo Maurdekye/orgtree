@@ -43,11 +43,12 @@
 // one exception and nothing wider: it can only keep a row the caller was
 // already showing, only while that row is the selected one, and only for mail.
 
-import type { AskInfo, MailEntry, TreeNode, TreePayload, WorkItem } from '../types'
+import type { AskInfo, MailEntry, TreeNode, TreePayload, UserMentionInfo, WorkItem } from '../types'
 import type { MailRow } from '../canvas/shared'
 import { askMailRow, openAsks } from '../canvas/openasks'
+import { hasUnseenUserMention } from '../canvas/agentmentions'
 
-export type AttentionRowKind = 'ticket' | 'mail' | 'question'
+export type AttentionRowKind = 'ticket' | 'mail' | 'question' | 'mention'
 
 export interface AttentionRow {
   /** stable across polls and unique across flavours — the list's React key,
@@ -67,6 +68,7 @@ export interface AttentionRow {
   item?: WorkItem
   mail?: MailEntry
   ask?: AskInfo
+  mention?: UserMentionInfo
   /** for `mail` and `question`: the row EXACTLY as the user's inbox builds
    *  it (unread, and for a question `askMailRow`), so the Attention view can
    *  draw it with the inbox's own row and reading pane */
@@ -88,6 +90,7 @@ export interface AttentionSources {
   /** the tree header's `asks` — every open request, including those of agents
    *  the (selected) tree does not hold */
   asks?: readonly AskInfo[] | null
+  slug?: string
 }
 
 /** Every node of the tree, flattened. Mirrors App.tsx's own `flatNodes`; kept
@@ -103,6 +106,20 @@ export function attentionNodes(tree: TreePayload | null | undefined): TreeNode[]
 export const ticketRowKey = (item: WorkItem) => 'ticket:' + item.slug
 export const mailRowKey = (id: string) => 'mail:' + id
 export const askRowKey = (ask: AskInfo) => 'question:' + ask.id
+export const mentionRowKey = (nodeId: string, mentionId: string) => 'mention:' + nodeId + ':' + mentionId
+
+export function splitMentionBlurb(blurb: string | undefined | null): { before: string; token: string; after: string } {
+  const flat = (blurb ?? '').replace(/\s+/g, ' ').trim()
+  const m = /(^|[^0-9A-Za-z._%+-])(@user)(?![0-9A-Za-z_@/-]|\.[0-9A-Za-z])/i.exec(flat)
+  if (!m) return { before: '', token: '@user', after: flat }
+  const atIdx = m.index + m[1]!.length
+  const tok = m[2]!
+  return {
+    before: flat.slice(0, atIdx),
+    token: tok,
+    after: flat.slice(atIdx + tok.length),
+  }
+}
 
 /** the first line of a body, trimmed to something a row can hold without the
  *  list turning into a wall of prose. The full text is in the detail pane. */
@@ -163,6 +180,18 @@ function askRow(a: AskInfo): AttentionRow {
   }
 }
 
+function mentionRow(node: TreeNode, m: UserMentionInfo): AttentionRow {
+  return {
+    key: mentionRowKey(node.id, m.id),
+    kind: 'mention',
+    at: m.at,
+    agent: node.id,
+    title: oneLine(m.blurb) || '@user',
+    subtitle: '@user mention',
+    mention: m,
+  }
+}
+
 /** NEWEST FIRST, with a total order.
  *
  *  The ticket does not specify an order, so this is a chosen default and is
@@ -192,6 +221,11 @@ export function buildAttentionRows(src: AttentionSources): AttentionRow[] {
   }
   for (const m of src.pending ?? []) if (m.urgent && m.id) push(mailRow(m))
   for (const a of openAsks({ asks: src.asks ? [...src.asks] : undefined }, src.nodes ?? [])) push(askRow(a))
+  for (const n of src.nodes ?? []) {
+    if (n.state === 'live' && n.user_mention && hasUnseenUserMention(n, src.slug)) {
+      push(mentionRow(n, n.user_mention))
+    }
+  }
   return rows.sort(compareRows)
 }
 
@@ -238,10 +272,17 @@ export function nextSelection(
   return shown[i + 1]?.key ?? shown[i - 1]?.key ?? null
 }
 
-export interface AttentionCounts { ticket: number; mail: number; question: number; total: number }
+export interface AttentionCounts { ticket: number; mail: number; question: number; mention?: number; total: number }
 
 export function countRows(rows: readonly AttentionRow[]): AttentionCounts {
-  const counts: AttentionCounts = { ticket: 0, mail: 0, question: 0, total: rows.length }
-  for (const r of rows) counts[r.kind]++
-  return counts
+  let ticket = 0, mail = 0, question = 0, mention = 0
+  for (const r of rows) {
+    if (r.kind === 'ticket') ticket++
+    else if (r.kind === 'mail') mail++
+    else if (r.kind === 'question') question++
+    else if (r.kind === 'mention') mention++
+  }
+  return mention > 0
+    ? { ticket, mail, question, mention, total: rows.length }
+    : { ticket, mail, question, total: rows.length }
 }

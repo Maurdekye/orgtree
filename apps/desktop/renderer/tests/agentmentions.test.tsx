@@ -4,14 +4,20 @@ import assert from 'node:assert/strict'
 import { QuickChat } from '../src/QuickChatBox'
 import { legacyAppBackend } from './appfeed-fixture'
 import { linkifyRefs, refClickHandler, unlinkifyRefs } from '../src/canvas/refmd'
-import { splitTypedRefs } from '../src/canvas/reflinks'
+import { mailRefTarget, splitTypedRefs } from '../src/canvas/reflinks'
 import { agentCopyEntry, ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import { AgentName } from '../src/canvas/identity'
-import { HubContactChip, setHubchatInstalled, setKnownOrgs } from '../src/canvas/agentmentions'
+import {
+  clearMentionHighlight, dismissUserMention, hasUnseenUserMention, HubContactChip,
+  resetSeenMentions, setHubchatInstalled, setKnownOrgs, useMentionHighlight,
+} from '../src/canvas/agentmentions'
+import { AttentionQueue } from '../src/attention/AttentionQueue'
+import { buildAttentionRows, countRows, splitMentionBlurb } from '../src/attention/feed'
+import { attentionLayout, forgetAttentionMode } from '../src/attention/mode'
 import { ToolRefs } from '../src/canvas/toolrefs'
 import { md } from '../src/canvas/shared'
 import type { RefWorld } from '../src/canvas/reflinks'
-import type { TreePayload } from '../src/types'
+import type { TreeNode, TreePayload } from '../src/types'
 
 const world: RefWorld = {
   org:'org',
@@ -148,5 +154,109 @@ test('@net: and @org: hub contacts render as links in Markdown, plain text, and 
   assert.ok(toolChip,'ToolRefs renders hub contact chip')
   await inAct(async()=>{toolChip.click();await flush(2)})
   assert.deepEqual(openedUrls,['hubchat://chat?to=%40net%3Aalice.77ded7','hubchat://chat?to=%40org%3Aremote-org'])
+})
+
+test('@user renders as a link that opens the user Inbox and preserves @user text on copy',()=>{
+  const host=document.createElement('div')
+  host.innerHTML=md('Heads up @user — build finished, see `@user` in code.').__html
+  linkifyRefs(host,world)
+  const userChip=host.querySelector<HTMLButtonElement>('button.ref-chip.ref-mail[data-ref-token="@user"]')!
+  assert.ok(userChip,'@user must render as an active mail ref chip')
+  assert.equal(userChip.textContent,'@user')
+  assert.equal(userChip.title,"open the user's inbox")
+  const opened:Array<{id:string;to:string}>=[]
+  host.addEventListener('click',refClickHandler(()=>world,r=>{opened.push(mailRefTarget(r.ref))}))
+  userChip.click()
+  assert.deepEqual(opened,[{id:'@user',to:'user_inbox'}])
+  unlinkifyRefs(host)
+  assert.ok(host.textContent?.includes('Heads up @user — build finished'))
+})
+
+test('@user attention row shows centered cut-out blurb and clicking it removes it, switches the attention desk, and highlights the mention',async t=>{
+  resetSeenMentions()
+  forgetAttentionMode()
+  const seenPosts:Array<{url:string;body:string}>=[]
+  const oldFetch=globalThis.fetch
+  globalThis.fetch=legacyAppBackend((async(input:RequestInfo|URL,init?:RequestInit)=>{
+    const url=String(input)
+    if(url.endsWith('/mention-seen')){
+      seenPosts.push({url,body:String(init?.body??'')})
+      return {ok:true,status:200,headers:new Headers(),json:async()=>({ok:true})}
+    }
+    if(url.includes('/work-items')){
+      return {ok:true,status:200,headers:new Headers(),json:async()=>({items:[],archived:[],backlogged:[]})}
+    }
+    if(url.includes('/inbox')){
+      return {ok:true,status:200,headers:new Headers(),json:async()=>({pending:[],archive:[]})}
+    }
+    return {ok:true,status:200,headers:new Headers(),json:async()=>({})}
+  }) as typeof fetch)
+  t.after(()=>{
+    globalThis.fetch=oldFetch
+    resetSeenMentions()
+    forgetAttentionMode()
+  })
+
+  const cut=splitMentionBlurb('…finished the verification pass; @user please check the summary card…')
+  assert.equal(cut.before,'…finished the verification pass; ')
+  assert.equal(cut.token,'@user')
+  assert.equal(cut.after,' please check the summary card…')
+
+  const mentionNode={
+    id:'worker-alpha',
+    state:'live',
+    tier:'haiku',
+    children:[],
+    user_mention:{
+      id:'1:0',
+      turn_id:1,
+      seq:0,
+      event_id:'ev-mention-1',
+      blurb:'All checks passed — @user ready for your inspection.',
+      at:'2026-10-18T01:00:00Z',
+    },
+  } as unknown as TreeNode
+  assert.equal(hasUnseenUserMention(mentionNode,'org'),true,'node has unseen @user mention before dismissal')
+
+  const built=buildAttentionRows({nodes:[mentionNode],slug:'org'})
+  assert.equal(built.length,1)
+  assert.equal(built[0]!.kind,'mention')
+  assert.equal(countRows(built).mention,1)
+
+  const tree={slug:'org',roots:[mentionNode],asks:[]} as unknown as TreePayload
+  const focusedAgents:string[]=[]
+  function Probe(){
+    const hl=useMentionHighlight('org','worker-alpha')
+    return (
+      <div>
+        <AttentionQueue slug="org" tree={tree} toast={()=>{}}
+          onFocusAgent={id=>focusedAgents.push(id)}
+          treeStatus={{loading:false,stale:false,unavailable:false}} />
+        <div data-probe-highlight={hl?`${hl.mentionId}:${hl.eventId??''}`:''} />
+      </div>
+    )
+  }
+  const view=await mountView(<Probe />,h=>h)
+  t.after(()=>view.unmount())
+  await flush(6)
+
+  const rowEl=view.el.querySelector<HTMLElement>('[data-attn-kind="mention"] .attn-mention-row')
+  assert.ok(rowEl,'mention row renders in AttentionQueue')
+  assert.equal(rowEl.querySelector('.attn-mention-before')?.textContent,'All checks passed — ')
+  assert.equal(rowEl.querySelector('.attn-mention-token')?.textContent,'@user')
+  assert.equal(rowEl.querySelector('.attn-mention-after')?.textContent,' ready for your inspection.')
+
+  await inAct(async()=>{
+    rowEl.click()
+    await flush(5)
+  })
+  assert.equal(view.el.querySelector('[data-attn-kind="mention"]')===null,true,'clicking mention row removes it immediately')
+  assert.equal(hasUnseenUserMention(mentionNode,'org'),false,'glow state clears immediately when mention is seen')
+  assert.deepEqual(focusedAgents,['worker-alpha'],'clicking mention row focuses the mentioning agent')
+  assert.equal(attentionLayout('org').agent,'worker-alpha','clicking mention row switches the attention desk to that agent')
+  assert.equal(view.el.querySelector('[data-probe-highlight]')?.getAttribute('data-probe-highlight'),'1:0:ev-mention-1')
+  assert.equal(seenPosts.length,1)
+  assert.ok(seenPosts[0]!.url.endsWith('/api/orgs/org/nodes/worker-alpha/mention-seen'))
+  clearMentionHighlight('org','worker-alpha')
 })
 

@@ -361,7 +361,15 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
         r = resolveRef(parsed, world)
       } else if (tok.startsWith('@') && !tok.includes(':')) {
         const id = tok.slice(1).toLowerCase()
-        if (world.agents instanceof Map && world.agents.has(id)) {
+        if (id === 'user') {
+          const resolved = resolveRef({ kind: 'mail', org: world.org, box: 'user', id: '@user' }, world)
+          r = {
+            ...resolved,
+            token: tok,
+            label: '@user',
+            why: resolved.outcome === 'ready' ? "open the user's inbox" : resolved.why,
+          }
+        } else if (world.agents instanceof Map && world.agents.has(id)) {
           r = { ...resolveRef({ kind: 'agent', org: world.org, id }, world), token: tok }
         }
       }
@@ -494,7 +502,15 @@ export function refClickHandler(worldOf: () => RefWorld | null | undefined,
       r = resolveRef(parsed, world)
     } else if (tok.startsWith('@') && !tok.includes(':')) {
       const id = tok.slice(1).toLowerCase()
-      if (world.agents instanceof Map && world.agents.has(id)) {
+      if (id === 'user') {
+        const resolved = resolveRef({ kind: 'mail', org: world.org, box: 'user', id: '@user' }, world)
+        r = {
+          ...resolved,
+          token: tok,
+          label: '@user',
+          why: resolved.outcome === 'ready' ? "open the user's inbox" : resolved.why,
+        }
+      } else if (world.agents instanceof Map && world.agents.has(id)) {
         r = { ...resolveRef({ kind: 'agent', org: world.org, id }, world), token: tok }
       }
     }

@@ -8,6 +8,7 @@ import { toggleAgentHalt } from './haltcontrol'
 // phase-3 split.
 
 import { askHidden, useSubmittedAsks } from '../asksubmitted'
+import { hasUnseenUserMention, useSeenMentions } from './agentmentions'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -1514,6 +1515,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // same retire/dissolve split as the desk's cc-actions
   // re-render when an ask is submitted, so the `asking` glow drops at once
   useSubmittedAsks()
+  useSeenMentions()
   const [asking, setAsking] = useState<RetireKind | null>(null)
   const liveKids = node.children.some((c) => c.state === 'live')
   // NEAREST-EDGE chip gating (user ruling 2026-08-04): only the set at the
@@ -1623,8 +1625,9 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // paced tree read after the save, so the glow outlived the card by seconds.
   // The card leaves on the submit (asksubmitted.ts, point 31); so does this.
   // A NEW ask (another id) glows as usual, and a refused submit brings it back.
-  if (node.ask && (node.ask.status === 'open' || node.ask.status === 'pending')
-      && !askHidden(slug, node.ask.id)) {
+  if ((node.ask && (node.ask.status === 'open' || node.ask.status === 'pending')
+      && !askHidden(slug, node.ask.id))
+      || (live && hasUnseenUserMention(node, slug))) {
     cls.push('asking')
   }
   if (node.audiences_held?.length) cls.push('aud')

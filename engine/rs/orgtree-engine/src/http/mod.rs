@@ -225,6 +225,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/nodes/{nid}/unstick", post(nodes::unstick))
         .route("/api/orgs/{slug}/nodes/{nid}/continue-on", post(nodes::continue_on))
         .route("/api/orgs/{slug}/nodes/{nid}/remote-control", post(nodes::remote_control))
+        .route("/api/orgs/{slug}/nodes/{nid}/mention-seen", post(nodes::mention_seen))
         .route("/api/orgs/{slug}/nodes/{nid}/scope", post(nodes::set_scope))
         .route("/api/orgs/{slug}/nodes/{nid}/reorder", post(orgops::reorder))
         .route("/api/orgs/{slug}/nodes/{nid}/account", post(orgops::account))

@@ -8927,4 +8927,11 @@ button.mail-tag:hover { filter:brightness(1.12); }
   display: inline-flex; align-items: center; justify-content: center;
   margin-right: 3px; color: var(--tier-project, var(--accent));
 }
+.mention-highlight-line {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-left: 2px solid var(--accent);
+  padding-left: 6px;
+  border-radius: 3px;
+}
+
 

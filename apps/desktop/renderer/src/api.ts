@@ -709,6 +709,13 @@ export const remoteControl = (slug: string, nid: string,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action }),
   })
+export const markMentionSeen = (slug: string, nid: string, mentionId?: string):
+  Promise<{ ok: boolean }> =>
+  req(`/api/orgs/${encodeURIComponent(slug)}/nodes/${encodeURIComponent(nid)}/mention-seen`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(mentionId ? { id: mentionId } : {}),
+  })
 // FR-03: presented documents — the reader fetches the body on open
 export const getDocument = (slug: string, did: string):
   Promise<{ id: string; node: string; title: string; body: string; at: string; format?: 'markdown' | 'html'; bytes?: number }> =>
