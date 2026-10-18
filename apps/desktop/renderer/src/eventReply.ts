@@ -1,7 +1,7 @@
 /** Server-issued identity. Display positions and rendered text never identify a source. */
 export interface EventSourceRef { org: string; agent: string; generation: number; eventId: string }
 export interface ReplyContext extends EventSourceRef { quote: string; sender?: string; mailId?: string; docId?: string }
-export interface EventReplyWire { source_event_ref: EventSourceRef; quoted_context: string; mail_id?: string }
+export interface EventReplyWire { source_event_ref: EventSourceRef; quoted_context: string; mail_id?: string; sender?: string }
 /** Mailbox/object replies retain a small source snapshot independently of delivery. */
 export interface MailReplySnapshot {
   id: string; kind: 'mail' | 'document' | 'work_item'; from: string; at: string; gist: string
@@ -34,13 +34,17 @@ export function replyWire(r: ReplyContext): MailReplyWire {
     }
   }
   return { source_event_ref: { org: r.org, agent: r.agent, generation: r.generation, eventId: r.eventId },
-    quoted_context: r.quote.slice(0, MAX_REPLY_QUOTE), ...(r.mailId ? { mail_id: r.mailId } : {}) }
+    quoted_context: r.quote.slice(0, MAX_REPLY_QUOTE), ...(r.mailId ? { mail_id: r.mailId } : {}),
+    ...(r.sender ? { sender: r.sender } : {}) }
 }
 
 export function replyContext(value: unknown): ReplyContext | null {
   if (!value || typeof value !== 'object') return null
-  const wire = value as Partial<EventReplyWire>
-  const context = { ...wire.source_event_ref, quote: wire.quoted_context, mailId: wire.mail_id }
+  const wire = value as Partial<EventReplyWire> & { from?: string }
+  const sender = typeof wire.sender === 'string' && wire.sender ? wire.sender
+    : typeof wire.from === 'string' && wire.from ? wire.from : undefined
+  const context = { ...wire.source_event_ref, quote: wire.quoted_context, mailId: wire.mail_id,
+    ...(sender ? { sender } : {}) }
   return validReply(context) ? context : null
 }
 

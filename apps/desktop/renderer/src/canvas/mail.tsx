@@ -40,8 +40,10 @@ import { useComposerEnter } from '../enterkey'
 import { isMobile } from '../mobile'
 import { closeIfCentred, PinFrame } from './modalpin'
 import { CollapsibleMailer } from './narrowlist'
-import { copyToClipboard, useContextMenu } from './contextmenu'
+import { CopyFeedback, copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
+import { fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
+import type { CopyableMailRow } from './copytext'
 import { fmtFull, fmtShort } from '../timefmt'
 import { decodeEventRow } from '../events/decode'
 import { eventSummary, projectEvent } from '../events/project'
@@ -515,10 +517,43 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     entries.push('sep')
     const el = rootRef.current
     const copied = (what: string) => (ok: boolean) => toast?.([ok ? `copied ${what}` : `could not copy ${what} — clipboard unavailable`])
+    const copyRow = m as CopyableMailRow
+    const immediateBody = mailRowCopyText(copyRow, profile)
+    const needsFetch = mailRowNeedsFullFetch(copyRow)
+    const canCopy = Boolean(immediateBody.trim() !== '' || needsFetch)
     entries.push({
       label: 'Copy message text',
-      disabled: !(m.body ?? '').length,
-      onSelect: () => { void copyToClipboard(el, m.body ?? '').then(copied('the message text')) },
+      disabled: !canCopy,
+      onSelect: () => {
+        const done = (fullText: string) => {
+          if (!fullText.trim()) {
+            toast?.(['could not copy — message is empty'])
+            return
+          }
+          void copyToClipboard(el, fullText).then(copied('the message text'))
+        }
+        if (needsFetch) {
+          const slug = org ?? refs?.world.org ?? ''
+          const nodeHint = typeof m.to === 'string' && !m.to.startsWith('@') ? m.to
+            : typeof m.from === 'string' && !m.from.startsWith('@') ? m.from : undefined
+          void resolveFullMailCopyText(
+            copyRow,
+            async (id, chunk) => {
+              if (chunk === undefined && lookup) {
+                try {
+                  const looked = await lookup(id)
+                  if (looked) return looked as CopyableMailRow
+                } catch { /* fall through to fetchMailRowForCopy */ }
+              }
+              if (!slug) return null
+              return fetchMailRowForCopy(slug, id, { node: nodeHint, chunk })
+            },
+            profile,
+          ).then(full => done(full || immediateBody)).catch(() => done(immediateBody))
+          return
+        }
+        done(immediateBody)
+      },
     })
     const ref = refOf?.(m) ?? null
     if (ref) {
@@ -568,6 +603,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   const filterBox = <input className="mail-filter" placeholder="filter…" value={q}
     onChange={(e) => setQ(e.target.value)} />
   return (
+    <CopyFeedback.Provider value={toast}>
     <CollapsibleMailer collapsible={collapsible} listLabel="message list"
       tabIndex={-1} onKeyDown={onKey} rootRef={rootRef}
       list={
@@ -704,6 +740,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
         )}
       </div>
     </CollapsibleMailer>
+    </CopyFeedback.Provider>
   )
 }
 
@@ -1526,7 +1563,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
             : <MailList org={slug} delivered={box.sent ?? []} outgoing jumpTo={jumpTo}
                 hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
                 collapsible={collapsible} projectMail={projectMail}
-                jumpSeq={jumpSeq} tierOf={tierOf} hasAgent={hasAgent} refs={refs}
+                jumpSeq={jumpSeq} tierOf={tierOf} hasAgent={hasAgent} refs={refs} toast={toast}
                 askState={jumpAsk}
                 onAskRetry={() => setAskAgain((n) => n + 1)}
                 onFocusAgent={onFocusAgent}
@@ -1885,7 +1922,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     sender={(id) => (id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>} />
                 : <MailList org={slug} delivered={out} outgoing compoundHeader jumpTo={jumpTo}
                     collapsible
-                    jumpSeq={jumpSeq} refs={refs} lookup={orgLookup}
+                    jumpSeq={jumpSeq} refs={refs} lookup={orgLookup} toast={toast}
                     rowMark={glyph}
                     /* the list row names the RECIPIENT only — the pane's
                        "@agent as @org → @recipient" line is three identities

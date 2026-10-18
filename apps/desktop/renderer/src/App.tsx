@@ -3028,7 +3028,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                  folder — the panel above asks and opens the one that does. It
                  hands down the OUTCOME of that question (`askState`) so this
                  list does not read an unfinished or failed one as an absence. */
-              : <MailList delivered={box.sent ?? []} outgoing refs={mailRefs}
+              : <MailList org={slug} delivered={box.sent ?? []} outgoing refs={mailRefs} toast={toast}
                   hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
                   collapsible
                   jumpTo={jumpTo} jumpSeq={jumpSeq}

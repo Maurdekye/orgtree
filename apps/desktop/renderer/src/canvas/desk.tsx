@@ -30,7 +30,7 @@ import { appendReplyTarget, readReplies, replyContext, replyFromRow, replyWire, 
 import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
-import { copyToClipboard, openFallbackObjectMenu, useContextMenu } from './contextmenu'
+import { CopyFeedback, copyToClipboard, openFallbackObjectMenu, useContextMenu } from './contextmenu'
 import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge } from './effort'
 import { EffortBar } from './effortbar'
 import { tierEffortLevels } from './staffingoptions'
@@ -39,7 +39,8 @@ import { useAgyModelsRefresh } from './shared'
 import { downJumpTargets, upJumpTargets } from './shared'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
-import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
+import { fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, messageCopyText, resolveFullMailCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
+import type { CopyableMailRow } from './copytext'
 import { firstUseSent } from './firstuse'
 import { FastModeButton } from './fastmodebutton'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
@@ -2149,8 +2150,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // shows only part. Falling back to it would put on the clipboard the very
     // machine context the transcript hides. A row we cannot name honestly
     // offers a disabled item instead.
-    const copy = (exact === e.currentTarget ? local : undefined)
-      ?? (event_id ? copyTextOf.get(event_id) : undefined) ?? ''
+    const copy = (exact === e.currentTarget || (local !== undefined && Boolean(mailId)) ? local : undefined)
+      ?? (event_id ? copyTextOf.get(event_id) : undefined)
+      ?? (mailId ? copyTextOf.get('mail:' + mailId) : undefined) ?? ''
+    const mailRow = (event_id ? mailRowsByEvent.get(event_id) : undefined)
+      ?? (mailId ? mailRowsByEvent.get('mail:' + mailId) : undefined)
+      ?? (row && 'body' in row ? (row as CopyableMailRow) : undefined)
+    const needsFullMail = Boolean(mailRow && mailRowNeedsFullFetch(mailRow))
+    const canCopy = Boolean(copy.trim() !== '' || needsFullMail)
     // the highlight target, recorded before the menu opens — `open` may still
     // decline (an editable field, a live selection, a row with no entries),
     // and the effect below only marks anything while the menu is actually up.
@@ -2185,18 +2192,38 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         // click — never during the render that defines it.
         requestAnimationFrame(() => taRef.current?.focus({ preventScroll: true }))
       } } },
-    { label: 'Copy contents', disabled: !copy,
-      title: copy ? 'Copy the full text of this message, including anything folded'
+    { label: 'Copy contents', disabled: !canCopy,
+      title: canCopy ? 'Copy the full text of this message, including anything folded'
         : 'This row has no message text to copy',
-      onSelect: () => { void copyToClipboard(exact, copy).then(ok =>
-        toast([ok ? 'copied the message' : 'could not copy — clipboard unavailable'])) } }])
+      onSelect: () => {
+        const finish = (fullText: string) => {
+          if (!fullText.trim()) {
+            toast(['could not copy — message is empty'])
+            return
+          }
+          void copyToClipboard(exact, fullText).then(ok =>
+            toast([ok ? 'copied the message' : 'could not copy — clipboard unavailable']))
+        }
+        if (needsFullMail && mailRow) {
+          void resolveFullMailCopyText(
+            mailRow,
+            (id, chunk) => fetchMailRowForCopy(slug, id, { box: 'node', node: node.id, chunk }),
+            'operator',
+          ).then(full => finish(full || copy)).catch(() => finish(copy))
+          return
+        }
+        finish(copy)
+      } }])
   }
   const sameReplyIdentity = useCallback((r: ReplyContext) => r.org === slug && r.agent === node.id
     && r.generation === (node.generation ?? 0), [slug, node.id, node.generation])
   const sourceIds = new Set([
     ...(chat?.messages ?? []).flatMap(m => [m.event_id, m.thinking_event_id,
-      ...(m.tools ?? []).flatMap(t => [t.event_id, t.result_event_id])]),
-    ...live_feed.map(r => r.event_id), ...(chat?.pending_mail ?? []).map(r => r.event_id),
+      ...(m.tools ?? []).flatMap(t => [t.event_id, t.result_event_id]),
+      ...(isSegments(m.segments, 'operator') ? m.segments.flatMap(s => s.kind === 'mail' ? s.rows.map(r => r.id ? 'mail:' + r.id : undefined) : []) : [])]),
+    ...live_feed.flatMap(r => [r.event_id,
+      ...(r.kind === 'steered' && isSegments(r.segments, 'operator') ? r.segments.flatMap(s => s.kind === 'mail' ? s.rows.map(m => m.id ? 'mail:' + m.id : undefined) : []) : [])]),
+    ...(chat?.pending_mail ?? []).flatMap(r => [r.event_id, r.id ? 'mail:' + r.id : undefined]),
   ].filter(Boolean))
   const transient = (chat?.transient ?? []).filter(r => {
     if (!r.event_id || sourceIds.has(r.event_id)) return false
@@ -2219,14 +2246,26 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // their own entries, never folded into their message's: they are separate
   // right-click targets, and a Copy on the message that swept up a 4000-char
   // tool result would be a surprise, not a convenience.
-  const copyTextOf = useMemo(() => {
+  const { copyTextOf, mailRowsByEvent } = useMemo(() => {
     const profile = 'operator'
     const out = new Map<string, string>()
+    const mailRows = new Map<string, CopyableMailRow>()
     // the same emptiness rule `copytext`'s join uses, and the same refusal to
     // alter what survives it: a row with nothing but whitespace in it has
     // nothing to copy, and one with real text is stored byte for byte
     const put = (id: string | undefined | null, text: string) => {
       if (id && text.trim() !== '') out.set(id, text)
+    }
+    const putMail = (row: CopyableMailRow & { event_id?: string | null }) => {
+      const bodyText = mailRowCopyText(row, profile)
+      if (row.event_id) {
+        put(row.event_id, bodyText)
+        mailRows.set(row.event_id, row)
+      }
+      if (row.id) {
+        put('mail:' + row.id, bodyText)
+        mailRows.set('mail:' + row.id, row)
+      }
     }
     for (const m of chat?.messages ?? []) {
       put(m.event_id, messageCopyText(m, profile))
@@ -2236,17 +2275,35 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         put(t.event_id, toolCallCopyText(t))
         put(t.result_event_id, toolResultCopyText(t))
       }
+      if (isSegments(m.segments, profile)) {
+        for (const seg of m.segments) {
+          if (seg.kind === 'mail') {
+            for (const row of seg.rows) putMail(row as CopyableMailRow)
+          }
+        }
+      }
     }
     // the live tail and the poll's transient rows: what the desk is streaming
     // right now is as copyable as what has settled
-    for (const r of live_feed) put(r.event_id, String(r.text ?? ''))
+    for (const r of live_feed) {
+      put(r.event_id, r.kind === 'steered' && isSegments(r.segments, profile)
+        ? messageCopyText({ role: 'user', text: r.text ?? '', segments: r.segments }, profile)
+        : String(r.text ?? ''))
+      if (r.kind === 'steered' && isSegments(r.segments, profile)) {
+        for (const seg of r.segments) {
+          if (seg.kind === 'mail') {
+            for (const row of seg.rows) putMail(row as CopyableMailRow)
+          }
+        }
+      }
+    }
     for (const r of chat?.transient ?? []) put(r.event_id, String(r.text ?? ''))
-    for (const r of chat?.pending_mail ?? []) put(r.event_id, String(r.body ?? ''))
+    for (const r of chat?.pending_mail ?? []) putMail(r as CopyableMailRow & { event_id?: string | null })
     // the streaming reply and thought the convo store holds directly — they
     // render from `convo`, not from either list above
     put(convo.draftEventId, String(convo.draft ?? ''))
     put(convo.thinkingEventId, String(convo.thinking ?? ''))
-    return out
+    return { copyTextOf: out, mailRowsByEvent: mailRows }
   }, [chat?.messages, chat?.transient, chat?.pending_mail, live_feed,
     convo.draft, convo.draftEventId, convo.thinking, convo.thinkingEventId])
   const [pendingReplyJump,setPendingReplyJump]=useState<ReplyContext|null>(null)
@@ -3013,7 +3070,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     <PendingMailRow key={m.id ?? m.at} m={m} slug={slug} nid={node.id}
       world={deskRefs.world} onOpen={deskRefs.onOpen}
       replyAvailable={replyAvailable} onLocateReply={locateReply}
-      onContext={e => openReply(e, m)}
+      onContext={e => openReply(e, m, mailRowCopyText(m, 'operator'))}
       onRetract={() => retractMail(slug, node.id, m.id!)
         .then(() => refresh(true))
         .catch((e: Error) => toast([`error: ${e.message}`]))} />
@@ -3491,13 +3548,16 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }), [routeSig, destination])
   const deskRefs = useRefRoutes(slug, agentIndex, deskRoutes)
   const resolveReplySource = useCallback((r: ReplyContext) => {
-    const source = sameReplyIdentity(r) ? replySources.get(r.eventId) : undefined
+    const source = sameReplyIdentity(r)
+      ? (replySources.get(r.eventId) ?? (r.mailId ? replySources.get('mail:' + r.mailId) : undefined))
+      : undefined
     return source ? <ReplySourceContent key={r.eventId} source={source} slug={slug} nid={node.id}
       profile={'operator'} refs={deskRefs} actor={id => <MailFrom from={id} />} /> : null
   }, [sameReplyIdentity, replySources, slug, node.id, deskRefs])
   const showTurnStarting = !transient.some(r => r.kind === 'starting') && !!chat?.busy
     && !chat.turn_activity && !live_feed.length && thinkSecs === null && !draft && !pending.length
   const content = (
+    <CopyFeedback.Provider value={toast}>
     <AgentDirectoryProvider value={agentDir}>
     <FoldProvider value={folds.store}>
     <ReplySourceProvider value={resolveReplySource}>
@@ -4424,6 +4484,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     </ReplySourceProvider>
     </FoldProvider>
     </AgentDirectoryProvider>
+    </CopyFeedback.Provider>
   )
   // bare: the switchboard hosts many chats inside ONE counter-scaled surface —
   // no overlay wrapper, no second scale (that would double-scale), no

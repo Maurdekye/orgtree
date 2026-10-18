@@ -569,10 +569,14 @@ export const getNodeInbox = (slug: string, nid: string): Promise<InboxPayload> =
  * as "not there" — and the reading pane used to state the second when it
  * only knew the first. This is the exact question; it is not a bigger poll. */
 export const getMailById = (slug: string, box: 'user' | 'org' | 'node',
-                            id: string, node?: string):
-  Promise<{ found: boolean; mail: MailEntry | null }> =>
-  req(`/api/orgs/${slug}/mail/${box}/${encodeURIComponent(id)}`
-    + (node ? `?node=${encodeURIComponent(node)}` : ''))
+                            id: string, node?: string, chunk?: number):
+  Promise<{ found: boolean; mail: MailEntry | null }> => {
+  const params = new URLSearchParams()
+  if (node) params.set('node', node)
+  if (chunk !== undefined) params.set('chunk', String(chunk))
+  const qs = params.toString()
+  return req(`/api/orgs/${slug}/mail/${box}/${encodeURIComponent(id)}` + (qs ? `?${qs}` : ''))
+}
 export const resumeFrozen = (slug: string): Promise<{ resumed: string[] }> =>
   req(`/api/orgs/${slug}/resume`, { method: 'POST' })
 export const killAll = (slug: string): Promise<{

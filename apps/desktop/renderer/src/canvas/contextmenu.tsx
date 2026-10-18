@@ -153,7 +153,10 @@ async function resolveFolderAgentsEntries(entries: MenuEntry[]): Promise<MenuEnt
 // Explicit object identities, never inferred from textContent: a card also
 // contains status/model text, and a ticket row displays its slug, not title.
 const COPY_OBJECT = '[data-copy-agent-name], [data-copy-ticket-title]'
-const CopyFeedback = createContext<ToastFn | undefined>(undefined)
+export const CopyFeedback = createContext<ToastFn | undefined>(undefined)
+export function useCopyFeedback(): ToastFn | undefined {
+  return useContext(CopyFeedback)
+}
 // the anchor is stored as the LIVE REF, not the element that was current when
 // the menu opened: a host whose object is re-rendered under the menu re-anchors
 // it (see `reanchor`), and a stale entry here would answer for the wrong node

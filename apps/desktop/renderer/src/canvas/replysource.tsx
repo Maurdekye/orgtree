@@ -1,16 +1,19 @@
 import type { ReactNode } from 'react'
+import type { ReplyContext } from '../eventReply'
 import type { ChatMessage, ChatTransient, PendingMail, ToolChip } from '../types'
 import type { LiveRow } from './shared'
 import type { EventProfile } from '../events/decode'
 import type { RefRoutes } from './reflinks'
 import { isSegments, MailMessage, SegmentAttachments, SegmentList } from '../events/segments'
+import { mailRowCopyText, messageCopyText, segmentsCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
+import type { CopyableMailRow } from './copytext'
 import { fileBase } from '../api'
 import { DotIcon, MailIcon, PsychologyIcon, SparkIcon } from '../icons'
 import { fmtFull } from '../timefmt'
 import { md } from './shared'
 import { RefMdBody } from './refmd'
 
-type ReplySource =
+export type ReplySource =
   | { kind: 'message'; message: ChatMessage }
   | { kind: 'mail'; mail: PendingMail }
   | { kind: 'tool-call' | 'tool-result'; tool: ToolChip; at?: string | null }
@@ -38,15 +41,120 @@ export function indexReplySources({ messages = [], pending = [], live = [], tran
       put(tool.event_id, { kind: 'tool-call', tool, at: message.ts })
       put(tool.result_event_id, { kind: 'tool-result', tool, at: message.ts })
     }
+    if (isSegments(message.segments, 'operator')) {
+      for (const seg of message.segments) {
+        if (seg.kind !== 'mail') continue
+        for (const row of seg.rows) {
+          if (!row.id) continue
+          const asMail: PendingMail = {
+            ...(row as unknown as PendingMail),
+            id: row.id,
+            from: row.from,
+            kind: row.kind,
+            body: row.body,
+            at: row.at ?? message.ts ?? '',
+          }
+          put('mail:' + row.id, { kind: 'mail', mail: asMail })
+        }
+      }
+    }
   }
-  for (const mail of pending) put(mail.event_id, { kind: 'mail', mail })
-  for (const row of live) put(row.event_id, { kind: 'live', row })
+  for (const mail of pending) {
+    put(mail.event_id, { kind: 'mail', mail })
+    if (mail.id) put('mail:' + mail.id, { kind: 'mail', mail })
+  }
+  for (const row of live) {
+    put(row.event_id, { kind: 'live', row })
+    if (row.kind === 'steered' && isSegments(row.segments, 'operator')) {
+      for (const seg of row.segments) {
+        if (seg.kind !== 'mail') continue
+        for (const m of seg.rows) {
+          if (!m.id) continue
+          const asMail: PendingMail = {
+            ...(m as unknown as PendingMail),
+            id: m.id,
+            from: m.from,
+            kind: m.kind,
+            body: m.body,
+            at: m.at ?? row.at ?? '',
+          }
+          put('mail:' + m.id, { kind: 'mail', mail: asMail })
+        }
+      }
+    }
+  }
   // Direct stream state is more recent than a poll with that same snapshot.
   if (draftId) put(draftId, { kind: 'transient', row: {
     event_id: draftId, role: 'assistant', kind: 'draft', text: draft ?? '' } })
   if (thinkingId) put(thinkingId, { kind: 'thought', text: thinking ?? '', sealed: !thinking })
   for (const row of transient) put(row.event_id, { kind: 'transient', row })
   return sources
+}
+
+/** Extract the full copyable body of a resolved reply source. */
+export function replySourceCopyText(source: ReplySource | undefined, profile: EventProfile = 'operator'): string {
+  if (!source) return ''
+  switch (source.kind) {
+    case 'message': return messageCopyText(source.message, profile)
+    case 'mail': return mailRowCopyText(source.mail as CopyableMailRow, profile)
+    case 'thought': return source.sealed ? '' : (source.text ?? '')
+    case 'tool-call': return toolCallCopyText(source.tool)
+    case 'tool-result': return toolResultCopyText(source.tool)
+    case 'live': {
+      const r = source.row
+      if (r.kind === 'steered' && isSegments(r.segments, profile)) {
+        return segmentsCopyText(r.segments, profile)
+      }
+      if (r.plan) {
+        const steps = r.plan.map(s => `${s.status.replaceAll('_', ' ')}: ${s.step}`).join('\n')
+        return r.explanation ? `${r.explanation}\n\n${steps}` : steps
+      }
+      if (r.todos) {
+        return r.todos.map(t => `${t.status.replaceAll('_', ' ')}: ${t.content}`).join('\n')
+      }
+      return r.text ?? ''
+    }
+    case 'transient': return source.row.text ?? ''
+  }
+}
+
+/** Extract the underlying mail row when a reply source represents mail. */
+export function replySourceMailRow(source: ReplySource | undefined, mailId?: string): CopyableMailRow | null {
+  if (!source) return null
+  if (source.kind === 'mail') return source.mail as CopyableMailRow
+  const matchFromSegments = (segments: unknown): CopyableMailRow | null => {
+    if (!isSegments(segments, 'operator')) return null
+    const rows = segments.flatMap(s => s.kind === 'mail' ? s.rows : [])
+    if (!rows.length) return null
+    if (mailId) {
+      const found = rows.find(r => r.id === mailId)
+      if (found) return found as CopyableMailRow
+    }
+    return rows.length === 1 ? (rows[0] as CopyableMailRow) : null
+  }
+  if (source.kind === 'message') return matchFromSegments(source.message.segments)
+  if (source.kind === 'live' && source.row.kind === 'steered') return matchFromSegments(source.row.segments)
+  return null
+}
+
+/** Resolve the sender of the referenced message or mail for the "Sender…" submenu. */
+export function replySourceSender(source: ReplySource | undefined, reply: ReplyContext): string | undefined {
+  if (reply.sender && reply.sender !== 'system' && reply.sender !== 'SYSTEM' && reply.sender !== '@system') {
+    return reply.sender
+  }
+  const mailId = reply.mailId || (reply.eventId.startsWith('mail:') ? reply.eventId.slice(5) : undefined)
+  const mailRow = replySourceMailRow(source, mailId)
+  if (mailRow?.from && mailRow.from !== 'system' && mailRow.from !== 'SYSTEM' && mailRow.from !== '@system') {
+    return mailRow.from
+  }
+  if (source?.kind === 'message') {
+    if (source.message.role === 'assistant') return reply.agent || undefined
+    if (source.message.role === 'user') return '@user'
+  }
+  if (source?.kind === 'live' && source.row.kind === 'text' && !source.row.cmd_output) {
+    return reply.agent || undefined
+  }
+  return undefined
 }
 
 /** Shares the transcript's validated event rendering and human-context filter.

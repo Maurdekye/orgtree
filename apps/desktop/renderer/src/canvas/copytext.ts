@@ -30,10 +30,143 @@
 //
 // Row METADATA — ids, timestamps, sender chips, delivery badges — is never
 // copied. It is chrome around the message, not the message.
+import { getMailById } from '../api'
 import { decodeEventRow } from '../events/decode'
 import type { EventProfile } from '../events/decode'
 import { humanSegmentEvent, isSegments } from '../events/segments'
 import type { ChatMessage, ToolChip } from '../types'
+
+export interface CopyableMailRow {
+  id?: string | null
+  from?: string | null
+  to?: string | null
+  body?: string | null
+  content?: string | null
+  preview?: string | null
+  truncated?: boolean
+  body_bytes?: number
+  chunk_index?: number
+  chunk_total?: number
+  complete?: boolean
+  ev?: unknown
+}
+
+const MAIL_BY_REF_RE = /^\[MAIL BY REFERENCE\b[^\]]*\]/
+
+export function isMailByReferencePreview(text: string | null | undefined): boolean {
+  return typeof text === 'string' && MAIL_BY_REF_RE.test(text.trimStart())
+}
+
+/** Immediate copyable body text of a mail row (incoming agent, @user, external
+ *  @net:/@org:, or outgoing). Preserves leading indentation and trailing newlines
+ *  byte-for-byte when non-empty. */
+export function mailRowCopyText(row: CopyableMailRow | null | undefined, profile: EventProfile = 'operator'): string {
+  if (!row) return ''
+  if (typeof row.body === 'string' && row.body.trim() !== '') return row.body
+  if (typeof row.content === 'string' && row.content.trim() !== '') return row.content
+  if (row.ev !== undefined) {
+    const decoded = decodeEventRow({ ev: row.ev, text: '' }, profile)
+    if (decoded.kind === 'known' && 'body' in decoded.event && typeof decoded.event.body === 'string' && decoded.event.body.trim() !== '') {
+      return decoded.event.body
+    }
+  }
+  return ''
+}
+
+function utf8Bytes(s: string): number {
+  return new TextEncoder().encode(s).length
+}
+
+/** True when a mail row holds only a preview, is truncated, or is chunked and
+ *  can be fetched in full by id. */
+export function mailRowNeedsFullFetch(row: CopyableMailRow | null | undefined): boolean {
+  if (!row || typeof row.id !== 'string' || !row.id.trim()) return false
+  const body = typeof row.body === 'string' ? row.body : typeof row.content === 'string' ? row.content : ''
+  if (isMailByReferencePreview(body)) return true
+  if (row.truncated === true) return true
+  if (typeof row.chunk_total === 'number' && row.chunk_total > 1) return true
+  if (row.complete === false) return true
+  if (typeof row.body_bytes === 'number' && row.body_bytes > utf8Bytes(body)) return true
+  if (body.trim() === '' && typeof row.preview === 'string' && row.preview.trim() !== '') return true
+  return false
+}
+
+/** Resolve the full untruncated body of a mail row, fetching all chunks in
+ *  order when chunked or preview-only. Falls back to the row's local text if
+ *  the lookup is unavailable. */
+export async function resolveFullMailCopyText(
+  row: CopyableMailRow,
+  fetchChunk: (id: string, chunk?: number) => Promise<CopyableMailRow | null | undefined>,
+  profile: EventProfile = 'operator',
+): Promise<string> {
+  const fallback = () => {
+    const direct = mailRowCopyText(row, profile)
+    if (direct !== '') return direct
+    return typeof row.preview === 'string' && row.preview.trim() !== '' ? row.preview : ''
+  }
+  const id = typeof row.id === 'string' ? row.id.trim() : ''
+  if (!id || !mailRowNeedsFullFetch(row)) return fallback()
+  const isChunkedHint = (typeof row.chunk_total === 'number' && row.chunk_total > 1) || row.complete === false
+  try {
+    const first = await fetchChunk(id, isChunkedHint ? 0 : undefined)
+    if (!first) return fallback()
+    const total = typeof first.chunk_total === 'number' && first.chunk_total > 1
+      ? first.chunk_total
+      : (typeof row.chunk_total === 'number' && row.chunk_total > 1 ? row.chunk_total : 1)
+    if (total > 1) {
+      const parts: string[] = [typeof first.body === 'string' && first.body !== '' ? first.body : String(first.content ?? '')]
+      for (let idx = 1; idx < total; idx++) {
+        const part = await fetchChunk(id, idx)
+        if (part) {
+          parts.push(typeof part.body === 'string' && part.body !== '' ? part.body : String(part.content ?? ''))
+        }
+      }
+      const joined = parts.join('')
+      return joined.trim() !== '' ? joined : fallback()
+    }
+    if (first.complete === false) {
+      const parts: string[] = [typeof first.body === 'string' && first.body !== '' ? first.body : String(first.content ?? '')]
+      for (let idx = (first.chunk_index ?? 0) + 1; idx < 128; idx++) {
+        const part = await fetchChunk(id, idx)
+        if (!part) break
+        parts.push(typeof part.body === 'string' && part.body !== '' ? part.body : String(part.content ?? ''))
+        if (part.complete !== false) break
+      }
+      const joined = parts.join('')
+      return joined.trim() !== '' ? joined : fallback()
+    }
+    const resolved = mailRowCopyText(first, profile)
+    return resolved !== '' ? resolved : fallback()
+  } catch {
+    return fallback()
+  }
+}
+
+/** Fetch one mail row (or chunk) by id across its known or candidate boxes. */
+export async function fetchMailRowForCopy(
+  slug: string,
+  id: string,
+  opts?: { box?: 'user' | 'org' | 'node'; node?: string; chunk?: number },
+): Promise<CopyableMailRow | null> {
+  const candidates: Array<{ box: 'user' | 'org' | 'node'; node?: string }> = []
+  if (opts?.box) {
+    candidates.push({ box: opts.box, node: opts.box === 'node' ? opts.node : undefined })
+  }
+  if (opts?.node && opts?.box !== 'node') {
+    candidates.push({ box: 'node', node: opts.node })
+  }
+  if (opts?.box !== 'user') candidates.push({ box: 'user' })
+  if (opts?.box !== 'org') candidates.push({ box: 'org' })
+  for (const c of candidates) {
+    try {
+      const res = await getMailById(slug, c.box, id, c.node, opts?.chunk)
+      if (res?.found && res.mail) return res.mail as CopyableMailRow
+    } catch {
+      // try next candidate box
+    }
+  }
+  return null
+}
 
 /** Join the parts of a row with a blank line, dropping the ones that have no
  *  text at all. A row made only of empty parts copies as '' — the caller
@@ -75,7 +208,7 @@ export function segmentsCopyText(segments: unknown, profile: EventProfile): stri
         break
       }
       case 'notices': for (const row of segment.rows) parts.push(row.text); break
-      case 'mail': for (const row of segment.rows) parts.push(row.body); break
+      case 'mail': for (const row of segment.rows) parts.push(mailRowCopyText(row, profile)); break
     }
   }
   return join(parts)
