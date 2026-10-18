@@ -6,6 +6,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { ReactElement } from 'react'
 import { CacheForecastMark, CacheForecastWarning } from '../src/canvas/desk'
+import { AgentCompactConfirm } from '../src/canvas/agentcompact'
+import type { CanvasNode } from '../src/canvas/shared'
 import type { CacheForecast, CacheForecastState } from '../src/types'
 
 declare const __SRC_DIR__: string
@@ -571,11 +573,9 @@ test('the mid-turn warning is gated on measured context by the compactor policy'
 })
 
 test('manual compaction warning uses forecast evidence, never generic idle age', () => {
-  const source = readFileSync(path.join(__SRC_DIR__, 'canvas', 'desk.tsx'), 'utf8')
-  const start = source.indexOf('{askCompact && (() => {')
-  const end = source.indexOf('{/* last_error moved', start)
-  assert.ok(start >= 0 && end > start, 'manual compact modal source seam moved')
-  const modal = source.slice(start, end)
+  const modal = readFileSync(path.join(__SRC_DIR__, 'canvas', 'agentcompact.tsx'), 'utf8')
+  const desk = readFileSync(path.join(__SRC_DIR__, 'canvas', 'desk.tsx'), 'utf8')
+  assert.match(desk, /askCompact && <AgentCompactConfirm/, 'the desk uses the shared choice modal')
   assert.match(modal, /node\.cache_forecast/)
   assert.match(modal, /expired_known_entry/)
   assert.match(modal, /known_incompatible/)
@@ -822,3 +822,33 @@ test('INV-002 · the turn ending leaves no stale yellow behind', async () => {
     assert.equal(mark.textContent?.trim(), 'cache ×')
   } finally { await view.unmount() }
 })
+
+// The modal is shared by the context menu and desk: keep backend evidence
+// visible without reviving obsolete fork/pricing claims or inventing idle TTLs.
+for (const [label, state, shown] of [
+  ['changed prefix', 'known_incompatible', true],
+  ['expired receipt', 'expired_known_entry', true],
+  ['ready despite old turn', 'compatible_observed', false],
+  ['uncertain despite old turn', 'uncertain', false],
+  ['no forecast despite old turn', null, false],
+] as const) {
+  test(`manual compact modal forecast: ${label}`, async () => {
+    const node = { id: 'worker', state: 'live', session_id: 'session', busy: false,
+      cache_forecast: state ? forecast(state, 'not_applicable', { reason: 'backend evidence control' }) : null,
+      turns: [{ at: '2000-01-01T00:00:00Z' }],
+    } as unknown as CanvasNode
+    const view = await mountView(<AgentCompactConfirm node={node}
+      op={async () => ({} as never)} toast={() => {}} close={() => {}}/>, el => el)
+    try {
+      const dialog = view.el.ownerDocument.querySelector('[role="dialog"]')
+      assert.ok(dialog, 'positive control: the compact choice modal is open')
+      const warning = dialog.querySelector('.compact-cache-warning')
+      assert.equal(!!warning, shown)
+      if (shown) {
+        assert.match(warning?.textContent ?? '', /next-turn cache forecast/i)
+        assert.match(warning?.textContent ?? '', /backend evidence control/)
+        assert.doesNotMatch(warning?.textContent ?? '', /whole transcript|near-full price|knowledge bearer|fork/i)
+      }
+    } finally { await view.unmount() }
+  })
+}
