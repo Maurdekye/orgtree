@@ -100,3 +100,43 @@ async fn explicit_fetch_consumes_received_pending_mail_outside_dnd() {
     let preview:String=client.query_one("SELECT state FROM ot.mail WHERE uid='preview'",&[]).await.unwrap().get(0);assert_eq!(preview,"pending");
     drop(client);connection.await.unwrap();
 }
+
+#[tokio::test]
+#[ignore="requires isolated mail_overflow_fixture cluster; never an ambient DB"]
+async fn explicit_mail_transcript_receipts_follow_tools_and_survive_reload() {
+    let url=std::env::var("ORGTREE_MAIL_OVERFLOW_TEST_URL").expect("explicit synthetic fixture URL");
+    let cfg:tokio_postgres::Config=url.parse().unwrap();
+    assert_eq!(cfg.get_dbname(),Some("mail_overflow_fixture"));assert_eq!(cfg.get_user(),Some("mail_overflow_fixture"));
+    let (client,connection)=cfg.connect(tokio_postgres::NoTls).await.unwrap();
+    let connection=tokio::spawn(async move{connection.await.unwrap();});
+    client.batch_execute("DROP SCHEMA IF EXISTS ot CASCADE; CREATE SCHEMA ot;
+        CREATE TABLE ot.convo(agent_id bigint,seq bigint,ver bigint,body jsonb,tool_inputs jsonb,PRIMARY KEY(agent_id,seq));
+        CREATE INDEX mail_receipts ON ot.convo USING gin ((body->'mail_ids')) WHERE body->>'role'='user';
+        CREATE TABLE ot.mail(id bigint,uid text,org_id bigint,recipient_agent_id bigint,sender text,recipient_name text,kind text,body text,created_at timestamptz,state text,notice boolean,urgent boolean,attachments jsonb,extra jsonb);
+        INSERT INTO ot.mail VALUES
+        (1,'opening',1,1,'sender','reader','message','opening',now(),'delivered',false,false,'[]','{}'),
+        (2,'manual',1,1,'sender','reader','message','manual',now(),'read',false,false,'[]','{}'),
+        (3,'project',1,9,'sender','work','message','project',now(),'pending',true,false,'[]','{}'),
+        (4,'sent',1,2,'reader','other','message','sent',now(),'pending',false,false,'[]','{}');").await.unwrap();
+    let mut writer=super::convo::ConvoWriter::load(&client,1).await.unwrap();
+    let opening=vec![json!({"uid":"opening","recipient":1})];
+    let raw=super::manual_mail::unseen(&client,1,1,&opening).await.unwrap();
+    writer.append(&client,super::actor::mail_row(&raw,None)).await.unwrap();
+    let tool=writer.append(&client,json!({"role":"assistant","text":"","tools":[{"id":"fetch","name":"orgtree_inbox","ended_at":"now"}]})).await.unwrap();
+    let ids=vec![json!({"uid":"opening","recipient":1}),json!({"uid":"manual","recipient":1}),json!({"uid":"project","recipient":9})];
+    let raw=super::manual_mail::unseen(&client,1,1,&ids).await.unwrap();
+    assert_eq!(raw.iter().map(|v|v["uid"].as_str().unwrap()).collect::<Vec<_>>(),vec!["manual","project"]);
+    let shown=writer.append(&client,super::actor::mail_row(&raw,None)).await.unwrap();
+    assert_eq!(shown,tool+1,"opened mail is immediately after the completed tool");
+    let body:Value=client.query_one("SELECT body FROM ot.convo WHERE agent_id=1 AND seq=$1",&[&shown]).await.unwrap().get(0);
+    assert_eq!(body["role"],"user");assert_eq!(body["segments"][0]["kind"],"mail");
+    assert_eq!(body["mail_ids"],json!(["manual","project"]));
+    let mut writer=super::convo::ConvoWriter::load(&client,1).await.unwrap();
+    writer.append(&client,json!({"role":"assistant","tools":[{"id":"chunk"}]})).await.unwrap();
+    assert!(super::manual_mail::unseen(&client,1,1,&ids).await.unwrap().is_empty(),"chunk/reload cannot duplicate received or project mail");
+    let state:String=client.query_one("SELECT state FROM ot.mail WHERE uid='project'",&[]).await.unwrap().get(0);assert_eq!(state,"pending","transcript receipt must not claim project queue mail");
+    assert!(super::manual_mail::unseen(&client,1,2,&ids).await.unwrap().is_empty(),"no cross-org receipt");
+    let sent=super::manual_mail::opened(&[json!({"id":"sent","direction":"sent"})],1,false);
+    assert!(sent.is_empty());
+    drop(client);connection.await.unwrap();
+}

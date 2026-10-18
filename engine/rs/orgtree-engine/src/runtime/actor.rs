@@ -410,6 +410,8 @@ struct Turn {
     span: tracing::Span,
     /// cards `orgtree_*` tools attached to their chips, by tool_use_id
     cards: HashMap<String, Value>,
+    /// Trusted inbox content reads, separate from the public tool chip fields.
+    manual_reads: HashMap<String, Vec<Value>>,
     /// Codex/Muse: this turn's id on the thread (session)
     codex_turn: Option<String>,
     /// Codex: the thread's token total before this turn
@@ -491,6 +493,7 @@ impl Turn {
             tool_writing: super::toolwriting::ToolWriting::default(),
             compact,
             cards: HashMap::new(),
+            manual_reads: HashMap::new(),
             span: tracing::Span::none(),
             codex_turn: None,
             usage_base: None,
@@ -1454,9 +1457,12 @@ impl Actor {
                 self.publish_idle();
                 let _ = reply.send(());
             }
-            AgentMsg::ToolCard(tool_use_id, card) => {
+            AgentMsg::ToolCard(tool_use_id, mut card) => {
                 if let Some(t) = self.turn.as_mut() {
-                    t.cards.insert(tool_use_id, card);
+                    if let Some(reads)=card.as_object_mut().and_then(|c|c.remove("_manual_mail_reads")).and_then(|v|v.as_array().cloned()) {
+                        t.manual_reads.entry(tool_use_id.clone()).or_default().extend(reads);
+                    }
+                    if card.as_object().is_some_and(|c|!c.is_empty()) {t.cards.insert(tool_use_id, card);}
                 }
             }
             AgentMsg::Warm(reply) => {
@@ -3608,6 +3614,40 @@ impl Actor {
         Ok(())
     }
 
+    /// Called only after the containing tool row has been persisted.
+    #[nolog]
+    async fn settle_manual_mail(&mut self, calls:&[&str], fallback:Option<(&str,&Value,&str)>) -> Result<()> {
+        let mut opened:Vec<Value>=self.turn.as_ref().map(|t|calls.iter()
+            .flat_map(|id|t.manual_reads.get(*id).into_iter().flatten().cloned()).collect()).unwrap_or_default();
+        let parsed=fallback.and_then(|(name,args,text)|super::manual_mail::output(name,args,text));
+        if opened.is_empty()&&parsed.is_none() {return Ok(());}
+        let client=self.engine.db.get().await?;
+        if let Some((_,args,_))=fallback {
+            if let Some(body)=parsed {
+                let project=args["project"].as_str().filter(|s|!s.trim().is_empty());
+                let recipient=if let Some(name)=project {
+                    crate::domain::projects::by_name(&client,self.org_id,name).await?.map(|p|p.id)
+                } else {Some(self.id)};
+                if let Some(recipient)=recipient {
+                    let items=body["messages"].as_array().cloned().unwrap_or_else(||vec![body.clone()]);
+                    opened.extend(super::manual_mail::opened(&items,recipient,project.is_some()));
+                }
+            }
+        }
+        let raw=super::manual_mail::unseen(&client,self.id,self.org_id,&opened).await?;
+        if !raw.is_empty() {
+            let mut row=mail_row(&raw,None);
+            row["manual_read"]=json!(true);
+            let seq=self.convo.append(&client,row.clone()).await?;
+            row["seq"]=json!(seq);row["row_id"]=json!(format!("r{seq}"));row["event_id"]=json!(format!("e{seq}"));
+            if let Some(t)=self.turn.as_mut(){t.codex_row=None;}
+            self.changed(vec![Change::Mailbox(self.id)]);
+            self.stream("steered",json!({"committed_row":row}));
+        }
+        if let Some(t)=self.turn.as_mut(){for id in calls {t.manual_reads.remove(*id);}}
+        Ok(())
+    }
+
     #[nolog] // pure per-delivery helper
     fn mail_input_budget(&self) -> usize {
         match self.proc.as_ref() {
@@ -5049,6 +5089,7 @@ impl Actor {
                 };
                 self.convo.update(&client, update.0, update.1).await?;
                 drop(client);
+                self.settle_manual_mail(&[&id,item["callId"].as_str().unwrap_or(&id)],None).await?;
                 self.set_activity("thinking", None);
                 self.stream("tool", json!({}));
             }
@@ -5773,6 +5814,7 @@ impl Actor {
                         (*seq, row.clone())
                     };
                     self.convo.update(&client, update.0, update.1).await?;
+                    self.settle_manual_mail(&[&id],(state=="DONE").then_some((name.as_str(),&info["parameters"],result.as_str()))).await?;
                     self.set_activity("thinking", None);
                     self.stream("tool", json!({}));
                 }
@@ -5982,6 +6024,7 @@ impl Actor {
                 };
                 self.convo.update(&client, update.0, update.1).await?;
                 drop(client);
+                self.settle_manual_mail(&[&id],(!failed).then_some((name.as_str(),&input,text.as_str()))).await?;
                 self.set_activity("thinking", None);
                 self.stream("tool", json!({}));
             }
@@ -6613,6 +6656,9 @@ impl Actor {
             }
         }
         drop(client);
+        let calls:Vec<&str>=v.pointer("/message/content").and_then(Value::as_array).into_iter().flatten()
+            .filter(|b|b["type"]=="tool_result").filter_map(|b|b["tool_use_id"].as_str()).collect();
+        self.settle_manual_mail(&calls,None).await?;
         self.set_activity("thinking", None);
         self.stream("tool", json!({}));
         Ok(())
@@ -8101,7 +8147,7 @@ fn mail_of(m: &Value) -> Mail {
 
 /// The desk row for mail an agent was given: one mail segment.
 #[nolog]
-fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
+pub(super) fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
     let rows: Vec<Value> = raw
         .iter()
         .map(|m| {

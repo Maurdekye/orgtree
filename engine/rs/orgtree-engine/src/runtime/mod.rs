@@ -21,6 +21,7 @@ pub mod helper_transcript;
 pub mod identity;
 pub mod keepalive;
 pub mod live_usage;
+pub mod manual_mail;
 pub mod muse;
 pub mod next_turn;
 pub mod opencode;

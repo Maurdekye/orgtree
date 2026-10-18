@@ -614,9 +614,17 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     }
     if action == "chunk" {
         if items.is_empty() { crate::refuse!(NotFound,"message not found in your mailbox"); }
-        return Done::json(&items[0]);
+        return inbox_read_done(&items[0], &items, me.id, false);
     }
-    Done::json(&json!({"messages":items, "not_found":missing, "deferred_ids":deferred}))
+    inbox_read_done(&json!({"messages":items, "not_found":missing, "deferred_ids":deferred}), &items, me.id, false)
+}
+
+#[nolog]
+fn inbox_read_done(body:&Value,items:&[Value],recipient:i64,project:bool) -> Result<Done> {
+    let mut done=Done::json(body)?;
+    let reads=crate::runtime::manual_mail::opened(items,recipient,project);
+    if !reads.is_empty() {done.card=Some(json!({"_manual_mail_reads":reads}));}
+    Ok(done)
 }
 
 /// A project's waiting (unread) mail, read by an agent above or below the
@@ -667,7 +675,7 @@ async fn project_inbox(client: &tokio_postgres::Client, me: &super::Me, name: &s
         if r.get::<_, bool>(6) { item["notice"] = json!(true); }
         items.push(item);
     }
-    Done::json(&json!({ "project": p.name, "messages": items, "not_waiting": missing, "note": note }))
+    inbox_read_done(&json!({ "project": p.name, "messages": items, "not_waiting": missing, "note": note }), &items, p.id, true)
 }
 
 /// The mail the caller and one correspondent exchanged, both directions:
