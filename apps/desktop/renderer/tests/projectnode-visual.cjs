@@ -42,6 +42,9 @@ module.exports = async (page) => {
       }
       await click('.pinwin.prov-claude .cc-head-right .popout-button')
       await click('.pinwin.pin-project .cc-head-right .popout-button')
+      // that opens the project desk and asks it to pop out; if it is still
+      // centred here, its own pop-out button beside the tabs does the rest
+      if (frames.length < 2) await click('.project-desk-modal .cc-head-right .popout-button')
       return out
     })
     await settle()
