@@ -10,6 +10,7 @@ pub mod docs;
 pub mod html_bundle;
 pub mod hire_requirements;
 pub mod mail;
+pub mod mail_history;
 pub mod replies;
 pub mod lifecycle;
 pub mod notices;

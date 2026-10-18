@@ -17,10 +17,14 @@ use crate::http::error::{ApiError, ApiResult};
 use crate::http::nodes::agent;
 use crate::http::orgs::org;
 
-#[logged]
+// Returns private mail bodies, including historical pages.
+#[nolog]
 pub async fn inbox(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q):Query<InboxQuery>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
+    if let Some(folder) = q.folder.as_deref() {
+        return Ok(Json(crate::domain::mail_history::user_page(&client,o.id,folder,q.before).await?));
+    }
     if q.tags_only.unwrap_or(false) {
         return Ok(Json(crate::domain::mail_tags::choices_page(&client,o.id,q.prefix.as_deref().unwrap_or(""),q.after.as_deref()).await?));
     }
@@ -34,6 +38,7 @@ pub async fn inbox(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query
 
 #[derive(Deserialize, Debug)]
 pub struct InboxQuery {
+    folder:Option<String>,
     tag:Option<String>, before:Option<i64>, tags_only:Option<bool>, prefix:Option<String>, after:Option<String>,
 }
 

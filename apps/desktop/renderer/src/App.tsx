@@ -1,4 +1,5 @@
 import { useTaggedUserMail,useMailTagChoices } from './usemailtags'
+import { useMailboxHistory } from './usemailhistory'
 import { useOpenCommit } from './opentiming'
 import { publishAgentPanelEvent } from './recordevents'
 import { useRecordInbox, useRecordEvents } from './recordpanelhooks'
@@ -2748,9 +2749,10 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // null (identity changed — §6.10), and blanking the inbox on every
   // mark-read would regress the instant-ack this bump exists to provide
   const rawBox = useRecordInbox(slug, readBump).value
+  const history = useMailboxHistory(slug, rawBox, folder, !mailTag.length || folder === 'sent', readBump)
   const taggedMail=useTaggedUserMail(slug,rawBox,mailTag,folder==='inbox',readBump)
   const tagChoices=useMailTagChoices(slug,rawBox,tagQuery,folder==='inbox',readBump)
-  const box=mailTag.length&&folder==='inbox'?taggedMail.box:rawBox
+  const box=mailTag.length&&folder==='inbox'?taggedMail.box:history.box
   const restoreChecked = useRef<string | null>(null)
   const [restoreMail, setRestoreMail] = useState<{ slug: string; id: string | null } | null>(null)
   useEffect(() => {
@@ -2782,11 +2784,11 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
     if (rawBox) settleReadsFromBox(slug, rawBox.pending.map((m) => m.id))
   }, [rawBox, slug])
   const readNow = (m: MailEntry) => markReadNow(slug, m, () => markRead(slug, [m.id]))
-    .then(() => { setReadBump((n) => n + 1); refresh?.() })
+    .then(() => { history.acknowledge(m.id); setReadBump((n) => n + 1); refresh?.() })
   const deleteMail = (m: MailEntry) => {
     if (!m.id || !window.confirm('Delete this message from your inbox? This permanently removes your copy.')) return
     return deleteUserMail(slug, m.id)
-      .then(() => { setReadBump((n) => n + 1); refresh?.() })
+      .then(() => { history.remove(m.id); setReadBump((n) => n + 1); refresh?.() })
       .catch((e: Error) => toast([`could not delete mail: ${e.message}`]))
   }
   const unreadMail = (box?.pending ?? []).filter((m) => !readLocally(slug, m.id))
@@ -2953,6 +2955,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
         {folder==='inbox'&&mailTag.length>0&&taggedMail.loading&&<div role="status" className="dim">loading matching mail...</div>}
         {folder==='inbox'&&mailTag.length>0&&taggedMail.error&&<div role="alert">Could not load matching mail. <button onClick={taggedMail.retry}>Retry</button></div>}
         <div className="mailpane">
+          {(folder==='sent'||(folder==='inbox'&&!mailTag.length))&&history.error&&<div role="alert">Could not load older mail. <button onClick={history.retry}>Retry</button></div>}
           {folder === 'record'
             ? <OrgRecord events={events} query={recordQuery}
                 onQuery={setRecordQuery} />
@@ -2962,8 +2965,8 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
               ? <MailList hideMailReplyKind pending={[...unreadMail, ...askPending]}
                   tagFilter={{selected:mailTag,choices:tagChoices.labels,onChange:setMailTag,onSearch:setTagQuery,
                     onLoadMore:tagChoices.loadMore,hasMore:!!tagChoices.cursor,loading:tagChoices.loading,error:tagChoices.error,onRetry:tagChoices.retry}}
-                  hasMore={!!mailTag.length&&!!taggedMail.box.next_cursor} loadingMore={taggedMail.loading}
-                  onLoadMore={taggedMail.loadMore}
+                  hasMore={mailTag.length?!!taggedMail.box.next_cursor:history.hasMore} loadingMore={mailTag.length?taggedMail.loading:history.loading}
+                  onLoadMore={mailTag.length?taggedMail.loadMore:history.loadMore}
                   collapsible
                   delivered={[...box.delivered, ...readHere, ...askDone, ...askAnswered]}
                   renderBody={renderAskBody}
@@ -3022,6 +3025,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                  hands down the OUTCOME of that question (`askState`) so this
                  list does not read an unfinished or failed one as an absence. */
               : <MailList delivered={box.sent ?? []} outgoing refs={mailRefs}
+                  hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
                   collapsible
                   jumpTo={jumpTo} jumpSeq={jumpSeq}
                   askState={jumpAsk}

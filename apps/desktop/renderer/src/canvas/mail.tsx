@@ -549,7 +549,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             && vis < piles.length && !paging.current) {
             paging.current = true
             setVis((v) => v + MAIL_WINDOW)
-          } else if (el.scrollHeight - el.scrollTop - el.clientHeight < 240 && hasMore && !loadingMore) {
+          } else if (el.scrollHeight - el.scrollTop - el.clientHeight < 240 && vis >= piles.length && hasMore && !loadingMore) {
             onLoadMore?.()
           }
         }}>
