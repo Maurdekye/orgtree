@@ -1132,6 +1132,8 @@ export interface CanvasNode {
   /** the session holds only its own summary until the next turn — no compact
    *  button, because the endpoint refuses it */
   compacted_unrun?: boolean
+  /** Unseen @user mention projected for desk-level notification handling. */
+  user_mention?: TreeNode['user_mention']
   context_window?: number | null
   charter?: string | null
   team_charter?: string | null

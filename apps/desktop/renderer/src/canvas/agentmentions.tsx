@@ -39,7 +39,7 @@ export function liveMentionCandidatesFromTree(tree?: TreePayload | null): Mentio
 }
 
 export function liveMentionCandidatesFromMap(
-  map?: ReadonlyMap<string, { id: string; state?: string; tier?: string; kind?: string }> | null,
+  map?: ReadonlyMap<string, { id: string; state?: string; tier?: string | null; kind?: string }> | null,
 ): MentionCandidate[] {
   if (!map) return []
   const out: MentionCandidate[] = []
@@ -64,7 +64,7 @@ export function setOrgMentionCandidates(org: string, candidates: MentionCandidat
 export function useOrgMentionCandidates(
   org?: string | null,
   tree?: TreePayload | null,
-  map?: ReadonlyMap<string, { id: string; state?: string; tier?: string; kind?: string }> | null,
+  map?: ReadonlyMap<string, { id: string; state?: string; tier?: string | null; kind?: string }> | null,
 ): MentionCandidate[] {
   const [, bump] = useState(0)
   useEffect(() => {
@@ -82,7 +82,7 @@ export function useOrgMentionCandidates(
   if (treeCandidates) return treeCandidates
   if (mapCandidates) return mapCandidates
   const key = org || lastActiveOrg
-  return (key && orgCandidates.get(key)) ?? []
+  return key ? orgCandidates.get(key) ?? [] : []
 }
 
 export interface MentionQueryMatch {

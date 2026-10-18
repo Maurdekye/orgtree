@@ -34,7 +34,7 @@ import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import type { AccountRegistryPayload, AudienceGrant, OpResult, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
 import { audienceAction, getAccountRegistry, getProviders, orgInboxRead, reorderNode } from '../api'
-import { useAgyModelsRefresh, MUSE_TIERS, museEffortLevels } from './shared'
+import { useAgyModelsRefresh, museEffortLevels } from './shared'
 import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
 import { ReorderMarker, rowReorderSlot } from './reorderpreview'
 import {
