@@ -12,6 +12,43 @@ module.exports = async (page) => {
   const details = {}
   // PROJECTNODE_VISUAL_ONLY=slots: only the project-slots scenes (one quick capture)
   const only = process.env.PROJECTNODE_VISUAL_ONLY
+  // PROJECTNODE_VISUAL_ONLY=cardfix: sa's slot chip in its card's chip row on
+  // the real canvas, then the overflowing project cards and the desk headers
+  if (only === 'cardfix') {
+    await page.goto('/?scene=slotlines')
+    await page.waitFor('.sq.project', { timeout: 15000 })
+    await page.eval(async () => {
+      await new Promise((r) => setTimeout(r, 800))
+      const fit = document.querySelector('.zoomhud button[title="Fit the whole org"]')
+      if (fit) fit.click()
+      await new Promise((r) => setTimeout(r, 1500))
+    })
+    await settle()
+    details.card = await page.eval(() => ({
+      inBadges: [...document.querySelectorAll('.sq-badges .chip.slot-hold')].map((c) => c.textContent),
+      onStatusRow: [...document.querySelectorAll('.sq-meta .chip.slot-hold')].map((c) => c.textContent),
+    }))
+    screenshots.push(await page.screenshot(`${prefix}-slotlines-1000x700`))
+    await page.goto('/?scene=cardfix')
+    await page.waitFor('.sq.project', { timeout: 15000 })
+    await page.eval(async () => { await new Promise((r) => setTimeout(r, 600)) })
+    await settle()
+    details.cardfix = await page.eval(() => ({
+      projects: [...document.querySelectorAll('.sq.project')].map((sq) => {
+        const box = sq.getBoundingClientRect()
+        const line = sq.querySelector('.project-last-activity')
+        const r = line ? line.getBoundingClientRect() : null
+        const kids = line ? [...line.children].map((c) => c.getBoundingClientRect().right) : []
+        return { text: sq.querySelector('.project-meta')?.textContent, cardRight: box.right,
+          lineRight: r && r.right, childrenRight: kids, inside: !!r && Math.max(r.right, ...kids) <= box.right - 1 }
+      }),
+      desks: [...document.querySelectorAll('.cc-head')].map((h) => ({
+        chips: [...h.querySelectorAll('.chip.slot-hold, .chip.slot-wait')].map((c) => [c.textContent, c.previousElementSibling?.textContent]),
+      })),
+    }))
+    screenshots.push(await page.screenshot(`${prefix}-cardfix-1000x700`))
+    return { details, screenshots }
+  }
   if (only === 'slots') {
     await page.goto('/?scene=slotlines')
     await page.waitFor('.sq.project', { timeout: 15000 })

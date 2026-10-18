@@ -32,12 +32,16 @@
 //             card badge, sa's holder chip and the waiters' chips (user
 //             2026-10-18, the approved slots mockup);
 //   slots   — a bare project desk with its Slots tab (full), beside an empty
-//             one (0 of 2).
+//             one (0 of 2);
+//   cardfix — project cards whose "2/19 Active 80s" and "12/140 Active 1h 5m"
+//             ran off the card (user 2026-10-18 10:51Z), beside the desk
+//             headers of slot holder sa and waiting sb (10:52:50Z).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { DeskChat } from '../src/canvas/desk'
+import { DeskDogsProvider } from '../src/canvas/deskdogs'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
 import { NodeConfig } from '../src/canvas/modals'
@@ -229,6 +233,32 @@ function Slots() {
     </main>
   )
 }
+function CardFix() {
+  const crowd = (n: number, busy: number, since: number) => projectNode('build', 'boss', Array.from({ length: n }, (_, i) =>
+    agent('a' + i, 'build', i < busy ? { busy: true, inflight_at: new Date(Date.now() - since * 1000).toISOString() } : {}))) as unknown as CanvasNode
+  const sq = (nd: CanvasNode, x: number) => <ProjectSquare node={nd} pos={{ x, y: 0 }} lod="norm"
+    dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop}
+    zoom={1.2} hire={{}} seats={{}} onHire={noop} onNewProject={noop} onInbox={noop}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+  const sa = agent('sa', 'boss', { cost_usd: 4.56 }) as unknown as CanvasNode
+  const sb = agent('sb', 'boss') as unknown as CanvasNode
+  const route = { org: 'org', dogs: [slotDog('sc', 'tests-ui', 4), slotDog('sb', 'cargo-test', 1)], slotLeases: [slotLease], open: noop } as never
+  const box = (nd: CanvasNode) => (
+    <div style={{ width: 470, height: 150, border: '1px solid var(--line)', position: 'relative', overflow: 'hidden' }}>
+      <DeskChat node={nd} map={new Map([[nd.id, nd]])} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} bare />
+    </div>)
+  return (
+    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      <div style={{ position: 'absolute', left: 30, top: 30, transform: 'scale(2)', transformOrigin: '0 0' }}>
+        {sq(crowd(19, 2, 80), 0)}
+        {sq(crowd(140, 12, 3900), 170)}
+      </div>
+      <DeskDogsProvider value={route}>
+        <div style={{ position: 'absolute', left: 20, top: 380, display: 'flex', gap: 16 }}>{box(sa)}{box(sb)}</div>
+      </DeskDogsProvider>
+    </main>
+  )
+}
 if (new URLSearchParams(location.search).get('theme') === 'light') document.documentElement.classList.add('contrast-light')
 const fqDog = (id: string, owner: string, state: string) => ({ id, owner, name: id, kind: 'fair_queue', target: 'site',
   interval_s: 5, state, at: new Date().toISOString(), fired: 0, once: false })
@@ -268,7 +298,8 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
       </AgentSurfaceRoutesProvider>
     </main>)
   : scene === 'activity' ? <Activity />
-  : scene === 'slots' ? <Slots /> : (
+  : scene === 'slots' ? <Slots />
+  : scene === 'cardfix' ? <CardFix /> : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
     <OrgCanvas tree={tree(rows[scene]!, dogs[scene], extras[scene])} slug="org" op={() => Promise.resolve({} as OpResult)}
