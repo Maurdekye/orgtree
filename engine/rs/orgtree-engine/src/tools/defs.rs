@@ -1173,6 +1173,34 @@ mod builder_stack_tests {
             "Present documents the user should READ (reports, plans, Markdown). project places it under a reachable project; members (nested included) need no user audience for their own project. Otherwise requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. Otherwise send to your superior.",
             "\nGuide: orgtree-tool-present."
         ));
+        // project slots (user 2026-10-18 08:37Z-08:42Z, docket
+        // project-slots-first-come-permits-claimed-through): orgtree_project
+        // lists and releases slots, and orgtree_watchdog has the slot kind
+        let project = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_project").unwrap();
+        let actual: Vec<serde_json::Value> = serde_json::from_slice(&serde_json::to_vec(&super::all()).unwrap()).unwrap();
+        let actual_project = actual.iter().find(|card| card["name"] == "orgtree_project").unwrap().clone();
+        assert!(actual_project["description"].as_str().unwrap().contains("Slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours."));
+        project["description"] = actual_project["description"].clone();
+        let schema = &mut project["inputSchema"];
+        schema["properties"]["action"]["enum"] = serde_json::json!(["create", "describe", "slots", "release_slot"]);
+        schema["properties"]["lease"] = serde_json::json!({ "type": "string", "description": "release_slot: the lease your slot grant named" });
+        schema["properties"]["note"] = serde_json::json!({ "type": "string", "description": "release_slot: optional, e.g. build ok 265s" });
+        schema["required"] = serde_json::json!(["action"]);
+        let dog = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_watchdog").unwrap();
+        dog["description"] = serde_json::json!(dog["description"].as_str().unwrap().replace(
+            "fair_queue delivers project mail to one watcher.", "fair_queue delivers project mail to one watcher; slot (one-shot) claims a project slot, firing when granted."));
+        let dschema = &mut dog["inputSchema"];
+        dschema["properties"]["kind"]["enum"] = serde_json::json!(["file", "command", "process", "stream", "activity", "event", "fair_queue", "slot"]);
+        dschema["properties"]["target"]["description"] = serde_json::json!(dschema["properties"]["target"]["description"].as_str().unwrap()
+            .replace("(fair_queue) project name", "(fair_queue, slot) project name"));
+        // the two edited cards must match in content (keys in any order); their
+        // key order is the builder's
+        for name in ["orgtree_project", "orgtree_watchdog"] {
+            let want = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == name).unwrap();
+            let got = actual.iter().find(|card| card["name"] == name).unwrap();
+            assert_eq!(*want, *got, "{name}: differs beyond the approved slot changes");
+            *want = got.clone();
+        }
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }
