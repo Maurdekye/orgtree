@@ -35,7 +35,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0027_watchdog_schedule", include_str!("../migrations/0027_watchdog_schedule.sql")),
     ("0028_agy_thinking", include_str!("../migrations/0028_agy_thinking.sql")),
     ("0029_project_items_detach", include_str!("../migrations/0029_project_items_detach.sql")),
-    ("0030_slot_leases", include_str!("../migrations/0030_slot_leases.sql")),
+    ("0031_slot_leases", include_str!("../migrations/0031_slot_leases.sql")),
 ];
 
 #[logged]
