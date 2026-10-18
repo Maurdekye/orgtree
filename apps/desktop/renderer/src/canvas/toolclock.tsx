@@ -85,7 +85,7 @@ function recordedTimeTitle(label: string, start: unknown, end: unknown): string 
 /** Sample the hover itself without increasing the visible clock's cadence. */
 function useLiveTimeTitle(label: string, startedAt: string | undefined, active: boolean) {
   const [hover, setHover] = useState<{ start: string | undefined; at: number } | null>(null)
-  const at = hover?.start === startedAt ? hover!.at : Date.now()
+  const at = hover && hover.start === startedAt ? hover.at : Date.now()
   const sample = () => setHover({ start: startedAt, at: Date.now() })
   return { title: active ? recordedTimeTitle(label, startedAt, new Date(at).toISOString()) : `${label}: not running for this turn`,
     onMouseEnter: sample, onFocus: sample }

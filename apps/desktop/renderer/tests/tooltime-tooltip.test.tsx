@@ -25,6 +25,8 @@ test('coarse or missing timestamps never invent millisecond precision', async t 
     started_at: '2026-10-18T08:00:00.000Z', ended_at: '2026-10-18T08:00:00.000Z', result: 'done' }} />)
   assert.equal(view.el.querySelector('.tool-writing-time')?.getAttribute('title'), 'writing time: 0.000ms')
   assert.equal(view.el.querySelector('.tool-exec-time')?.getAttribute('title'), 'execution time: 0.000ms')
+  await view.render(<ToolWritingLine name="Bash" />)
+  assert.match(view.el.querySelector('.tool-writing')?.getAttribute('title') ?? '', /not observed/i)
 })
 
 test('live time hover samples current elapsed milliseconds without changing the second clock', async t => {
