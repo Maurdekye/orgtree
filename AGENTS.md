@@ -1081,19 +1081,24 @@
   are unchanged. [decided: user 2026-10-14 23:01–23:02UTC; verified:
   `themes.tsx`, `canvas/accounts.tsx`, `packages/contracts/visual-theme.ts`]
 
-- On the light surfaces (`contrast-light`, `contrast-solarized-light`) a pale
-  preset accent gets a darker same-hue partner in a
+- On the light surfaces (`contrast-light`, `contrast-solarized-light`) every
+  preset accent gets a deep same-family partner in a
   `:root[data-visual-theme="<preset>"]` rule whose declarations are all
-  `!important`, because `applyTheme` sets the accent inline: Muse Eggshell
-  #0077b0, Orgtree Grey #4c5565 (4.6:1 or more on every light surface and row
-  wash; its hover goes darker, #39404c). Accent text, fills (white ink) and
-  borders follow; charcoal and obsidian keep the preset's own accent. Pop-outs
-  mirror `data-visual-theme` with the root classes and style, or those rules
-  miss them. Widgets that stay dark on the light surfaces (the agents chips'
-  #313131 backing, the effort bar's rail) scope the preset's PALE accent back
-  in, and the chip its charcoal `--dim`, or a dark partner vanishes inside
-  them (the spinner drew 1.7:1). [decided: user 2026-10-18 15:34Z; verified:
-  `styles.css`, `popout.tsx`, `tests/lightaccent.test.tsx`, 2026-10-18]
+  `!important`, because `applyTheme` sets the accent inline. The rule: the
+  preset's hue and saturation, darkened until every light surface, the hover
+  grey and the selected/urgent row washes read 4.6:1 or more; hover at three
+  quarters of that lightness; white ink. Orgtree Grey #4c5565, Claude #89391f,
+  Codex #035b46 (turned towards green to clear `--backlog`), Antigravity
+  #0045c7, OpenRouter #5f0bdf, LS Gold #4d3a02, Muse #005680. The provider
+  colours (`--prov-*`) take the same partners there, so desks match the app,
+  and stay 31+ apart (CIE76). Charcoal and obsidian keep every original.
+  Pop-outs mirror `data-visual-theme` with the root classes and style, or
+  those rules miss them. The agents chips keep their ruled dark #313131
+  backing, so inside them each preset scopes its PALE accent back in, and the
+  chip its charcoal `--dim`, or a deep partner vanishes there (the spinner
+  drew 1.7:1); the effort bar is a light control on the light surfaces.
+  [decided: user 2026-10-18 15:34Z, 15:35Z; verified: `styles.css`,
+  `popout.tsx`, `tests/lightaccent.test.tsx`, 2026-10-18]
 
 - Antigravity committed mid-turn mail clears only the next-tool row pointer
   (`Turn.codex_row`); keep existing tool-to-row mappings so in-flight results

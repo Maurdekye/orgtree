@@ -509,9 +509,10 @@ model. Unknown stays unknown: a login whose catalog is not known is offered as
 before and the engine decides at the door (independent review R2, 2026-10-13).
 Colours:
 `--prov-muse` `#afe5ff` (11.28:1 on `--panel`), rebound on the light surfaces
-to the same hue at 34.6 % lightness, `#0077b0` (4.56:1 or more on every light
-and solarized panel and background), with `--prov-muse-ink` for text on accent
-fills. Tier colours: Wonder `#97edd0`, Wonder Full `#80b8ff`, Spark `#ffff7a`
+to the same hue at 25 % lightness, `#005680` (4.8:1 or more on every light and
+solarized surface, grey and selected or urgent row wash; light slice 2,
+2026-10-18, replacing `#0077b0` at 34.6 %, which read 3.1-4.3:1 on the greys
+and washes), with `--prov-muse-ink` for text on accent fills. Tier colours: Wonder `#97edd0`, Wonder Full `#80b8ff`, Spark `#ffff7a`
 (measured; see the stylesheet). Wonder Full uses a deeper blue per the user's
 2026-10-13 request, replacing dusty rose `#da8181`; its shared F icon and hire
 button retain blue text on a dark backing on light/solarized surfaces. The
@@ -526,8 +527,8 @@ no console errors. Desk-card top borders followed the same blue token.
 This is a narrow icon/cascade proof, not assembled-app, native DPI or installed
 acceptance; miniature-card propagation is source-checked, not separately rendered.
 Kept collisions, by decision: `#afe5ff` is
-CIE76 1.9 from `--tier-flash` and 6.5 from the frozen `--ice`; `#0077b0` is
-7.8 from the light `--work`. Each state also has its own rail, letter, icon
+CIE76 1.9 from `--tier-flash` and 6.5 from the frozen `--ice`; `#005680` is
+10.6 from the light `--work` (`#0077b0` was 7.8). Each state also has its own rail, letter, icon
 or label (rendered proof below).
 
 **App theme.** Settings › Display offers **Muse Eggshell**, the provider cyan, as
@@ -541,8 +542,9 @@ preset (the precedent's floor is 18). Initial detection, which uses installed
 CLIs only, puts Muse after Claude, Codex and Antigravity, so it never changes
 the starting theme of a machine that has any of those. On the light surfaces
 the pale cyan would paint text at 1.36:1, so this theme's accent becomes the
-provider's light partner `#0077b0` with white ink there (the other presets
-have no such rule; their accents are darker).
+provider's light partner `#005680` with white ink there. Every other preset
+has such a rule too since light slice 2 (2026-10-18), each sharing its
+provider's partner; see the repository AGENTS.md.
 
 ## Verification
 
@@ -716,7 +718,7 @@ be paid).
 | Credentials in the engine log | no raw MSP request or answer; safe method lines | not audited here | not audited here | measured (sentinels, verbose and quiet, with red control) |
 | Continue on another login, `muse/primary` | only onto a login whose own catalog offers the seat's exact model (unknown refused, nothing changed); host restarts in that login's roots; session resumed if that login has it, else a new one with a handoff note; the choices list only such logins | same | same (new conversation) | measured (fake, with red controls); the real session store per login inferred |
 | UI parity (hire, settings, Providers, Usage, colours) | yes | same | same | measured (rendered) |
-| App theme preset | Muse Eggshell; `#0077b0` accent on light surfaces | Claude Terracotta | Codex Teal | measured (rendered in four contrast themes; unit tests) |
+| App theme preset | Muse Eggshell; `#005680` accent on light surfaces (was `#0077b0`) | Claude Terracotta | Codex Teal | measured (rendered in four contrast themes; unit tests) |
 | Granted folders' instructions (AGENTS.md, CLAUDE.md) | own folder's rules loaded by Muse; every granted folder's in the identity | same identity injection | same identity injection | measured (unit test) |
 | Shell in Windows Session 0 | write seats without Muse's sandbox: any command, and file tools writing outside the folders, Orgtree not asked | Bash pre-allowed (`--allowedTools`), no OS sandbox, on every session | `danger-full-access` unless the sign-in helper hosts it | Muse measured (real 1.4.6); others source |
 | Network for shell commands | Muse's own default (`proxy-only`); Orgtree sets no mode | Claude Code's own default | Codex's own default for the seat's sandbox | source: no lane gets a network mode; Muse's modes undocumented, untested |
