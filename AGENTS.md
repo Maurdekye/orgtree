@@ -55,6 +55,13 @@
   [decided: user 2026-10-18 17:13–17:15Z; verified:
   `QuickChatBox.tsx`, `quickchat-availability.ts`, `domain/staffing.rs`]
 
+- Shared Markdown renders offline LaTeX (`$...$`, `\(...\)`, `$$...$$`,
+  `\[...\]`) through isolated Marked math tokens and pinned KaTeX. Preserve
+  code/currency/shell text, source fallback, trust:false and request-local
+  macros; reference decoration skips math subtrees. CSS/fonts bundle locally.
+  See [math](docs/rust-engine/markdown-math.md). [decided: user 2026-10-18
+  15:59Z; verified: `canvas/{shared,markdownmath,refmd}.ts*`, `styles.css`]
+
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the
   existing urgent-mail badge appearance, newest-first focus, highlight and

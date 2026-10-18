@@ -7,6 +7,11 @@ ends. Every agent can see its own effective audiences and sources without
 inspection rights. This changes presentation only, preserving the project
 audience rulings below. See [project audiences](project-audiences.md).
 
+**Offline Markdown math, user 2026-10-18 15:59Z:** all shared Markdown
+surfaces support inline and display LaTeX. Bundle KaTeX CSS/fonts locally;
+preserve code, currency, shell text and invalid source. Keep math untrusted
+and macro definitions formula-local. See [Markdown math](markdown-math.md).
+
 **Project desk jump-card collapse, user 2026-10-18 14:45Z:** project desks
 use the agent desk's same collapse preference, threshold (more than 16),
 counted button and expand/collapse behavior everywhere they appear, via shared

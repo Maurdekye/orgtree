@@ -12,6 +12,21 @@ Chat is the conversation surface. It includes messages, thoughts when supplied, 
 
 Chat Markdown can display inline images. Relative image paths resolve within the author's files; absolute Windows paths and HTTP(S) URLs use the checked image endpoint. PNG, JPEG, GIF and WebP are supported there; an image that cannot be loaded falls back to a link (local files can be revealed in their folder).
 
+## Markdown math formatting
+
+Every Markdown reading surface supports offline LaTeX mathematics: `$x^2$` or
+`\(x^2\)` inline, `$$x^2$$` or `\[x^2\]` as a display. Displays may contain
+multiline alignment. The same formatting works in transcripts, thoughts,
+helper responses, mail, docket descriptions, quick chat and presentations,
+including their detached windows. The fonts ship with the app.
+
+Currency such as `$5 and $10`, shell variables, escaped dollars (`\$`),
+backtick code and fenced code stay literal. Dollar math needs no spaces at its
+inner edges; plain amounts and bare uppercase identifiers stay literal. Use
+`\(...\)` for ambiguous numeric or uppercase formulas. Invalid LaTeX stays
+visible as its delimited source. Math commands cannot fetch images or create
+trusted HTML links, and a formula's macro definitions do not affect later math.
+
 ## Read activity accurately
 
 A tool chip distinguishes call-writing from execution and can expand to show arguments/result. Completed tool behavior is not inferred from the spinner alone. Successful docket status-change chips can show captured old → new states; failure/no-op or missing historical before-state does not invent one. Thoughts can expose supplied reasoning or only elapsed duration; absence of text is not evidence the model did not think.
