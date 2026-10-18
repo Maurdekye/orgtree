@@ -610,7 +610,7 @@ function GalleryEntry({ slug, row, children, ...props }: {
  *  A reply box below the body allows messaging the owning agent directly
  *  (only if not retired). */
 function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
-  refs, preloaded }: {
+  onBroadcast, projectBroadcast, refs, preloaded }: {
   preloaded?: LoadedDoc
   slug: string
   row: DocRow
@@ -619,6 +619,8 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
   close: () => void
   onFocusAgent?: (agentId: string) => void
   onReply?: (node: string, text: string, target: ReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  onBroadcast?: (node: string, text: string, target: ReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  projectBroadcast?: { project: string; members: number }
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
 }) {
   // an evicted row has no body to fetch — say so instead of spending a
@@ -673,9 +675,10 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
               world={refs?.world} onOpen={refs?.onOpen} />}
             {!doc && !err && <div className="dim pad">loading…</div>}
             {replyable && (
-              <MailReplyBox target={row.node} slug={slug} toast={toast}
-                onSend={(text, attachments, notice) => {
+              <MailReplyBox target={row.node} slug={slug} toast={toast} broadcast={projectBroadcast}
+                onSend={(text, attachments, notice, broadcast) => {
                   const target: ReplyTarget = { kind: 'document', org: slug, id: row.id }
+                  if (broadcast && onBroadcast) return onBroadcast(row.node, text, target, attachments, notice)
                   if (onReply) return onReply(row.node, text, target, attachments, notice)
                   return sendLinkedReply(slug, row.node, text, target, attachments, notice)
                     .then((r) => { if (r.warnings?.length) toast(r.warnings) })
@@ -698,6 +701,8 @@ export interface AgentGalleryViewProps {
   toast: ToastFn
   onFocusAgent?: (agentId: string) => void
   onReply?: (node: string, text: string, target: ReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  onBroadcast?: (node: string, text: string, target: ReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  projectBroadcastMembers?: number
   /** Desk context-menu action: stages a reply to this presentation in the
    *  desk composer (using the same reply-target chip as replying to mail). */
   onReplyToDoc?: (doc: DocRow) => void
@@ -770,8 +775,8 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  mockup new-tab link, viewer dismiss, reply box, selection by ID),
  *  limited strictly to presentations made by the selected agent (or its
  *  subtree when the "Team" checkbox is checked). */
-export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply,
-  onReplyToDoc, refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
+export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply, onBroadcast,
+  onReplyToDoc, projectBroadcastMembers, refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
   collapsible, team, onTeam }: AgentGalleryViewProps) {
   const [localTeam, setLocalTeam] = useState(!!team)
   useEffect(() => { setLocalTeam(!!team) }, [team])
@@ -919,7 +924,8 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
           }>
           <div className="mailer-read">
             {cur ? (
-              <DocPane key={cur.id} slug={slug} row={cur} toast={toast}
+              <DocPane key={cur.id} slug={slug} row={cur} toast={toast} onBroadcast={onBroadcast}
+                projectBroadcast={isProject ? { project: nid, members: projectBroadcastMembers ?? 0 } : undefined}
                 preloaded={cur.id === initialDocument && cur.at === initialLoaded?.at ? initialLoaded : undefined}
                 onDismissed={() => {
                   setDismissed((d) => [...d, cur.id])

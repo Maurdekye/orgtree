@@ -17,6 +17,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload, TurnStat } from '../types'
+import type { ReplyTarget } from '../generated/events'
 import { ArrowUpIcon, AttachIcon, AutorenewIcon, CampaignIcon, CloseIcon, FileIcon, FolderIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
 import { broadcastMessage, sendMessage, uploadFile } from '../api'
 import { useComposerEnter } from '../enterkey'
@@ -251,8 +252,11 @@ function DescriptionEditor({ node, op, toast, editable }: {
  *  (`broadcastMessage`). Attachments upload into the project's own uploads
  *  folder and ride either kind of send. No slash commands: a project has no
  *  CLI. */
-function ProjectComposer({ node, slug, tree, map, toast, members, recipients, onRegisterMention }: {
+function ProjectComposer({ node, slug, tree, map, toast, members, recipients, replyTarget, focusRequest, onClearReply, onRegisterMention }: {
   node: CanvasNode; slug: string; tree: TreePayload; map: Map<string, CanvasNode>; toast: ToastFn; members: number; recipients: CanvasNode[]
+  replyTarget?: { target: ReplyTarget; title: string }
+  focusRequest: number
+  onClearReply: () => void
   onRegisterMention?: (capture: ((agentId: string) => (() => void) | null) | null, noteRightDown: () => void) => void
 }) {
   const messageDraftKey = draftKey(slug, `project:${node.id}`, 0)
@@ -267,6 +271,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, on
     } catch { /* best-effort browser persistence, like the agent composer */ }
   }
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => { if (focusRequest) textareaRef.current?.focus({ preventScroll: true }) }, [focusRequest])
   const [sentHistory, setSentHistory] = useState<HistoryEntry[]>(() => readHistory(slug, node.id))
   const [histAt, setHistAt] = useState<number | null>(null)
   const histStash = useRef('')
@@ -306,15 +311,18 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, on
     const done = (lines: string[]) => {
       if (recordSent(slug, node.id, text)) setSentHistory(readHistory(slug, node.id))
       setText(''); setAttached([]); setNotice(false)
+      if (replyTarget) onClearReply()
       if (megaphone) setMegaphone(false)
       setHistAt(null); histStash.current = ''
       toast(lines)
     }
     ;(megaphone
-      ? broadcastMessage(slug, node.id, text, files, asNotice, dndRecipients.length ? urgentMail : undefined).then((r) => done([
+      ? broadcastMessage(slug, node.id, text, files, asNotice, dndRecipients.length ? urgentMail : undefined,
+        replyTarget ? [replyTarget.target] : undefined).then((r) => done([
         `sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${node.id}`
           + (asNotice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`), ...grant(r.audience_grant)]))
-      : sendMessage(slug, node.id, text, files, undefined, undefined, asNotice).then((r) => done([
+      : sendMessage(slug, node.id, text, files, undefined, undefined, asNotice, undefined,
+        replyTarget ? [replyTarget.target] : undefined).then((r) => done([
         `to project ${node.id}${asNotice ? ' as a notice' : ''}: ${r.delivery ?? 'sent'}`, ...grant(r.audience_grant)])))
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setBusy(false))
@@ -347,6 +355,11 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, on
     if (el) el.selectionStart = el.selectionEnd = el.value.length
   }, [text])
   return <>
+    {replyTarget && <div className="project-reply-target">
+      <span>Reply to {replyTarget.title}</span>
+      <button className="chip-x" type="button" aria-label="Remove reply target" title="remove reply target"
+        onClick={onClearReply}><CloseIcon fontSize="inherit" /></button>
+    </div>}
     {attached.length > 0 && <div className="attach-row">
       {attached.map((a, i) => <span key={a.path + i} className="attach-chip">
         <FileIcon fontSize="inherit" /> {a.name}
@@ -429,6 +442,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   useEffect(() => {
     if (view === 'team' && teamCount === 0) setView('desk')
   }, [view, teamCount])
+  const [replyTarget, setReplyTarget] = useState<{ target: ReplyTarget; title: string }>()
+  const [replyFocus, setReplyFocus] = useState(0)
   const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | 'purge' | null>(null)
   const fallbackMenu = useContextMenu(toast)
   const mentionRef = useRef<{
@@ -466,6 +481,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
     : tab === 'docket' ? mine?.length ?? 0
       // its own presentations (point 27, user 2026-10-17 23:28Z)
       : tab === 'presented' ? (node.documents_count ?? node.documents?.length ?? 0) : 0
+  const replyToDoc = (doc: { id: string; title: string }) => {
+    setReplyTarget({ target: { kind: 'document', org: slug, id: doc.id }, title: doc.title || '(untitled)' })
+    setReplyFocus((v) => v + 1)
+  }
   const content = (
     <>
       <div className="cc-head">
@@ -541,7 +560,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         <div className="desk-docs">
           {recentDocumentChips(subtreeDocs(node)).map((d) => (
             <PresentationCard key={d.id} slug={slug} doc={d} toast={toast}
-              className="doc-badge" direct onOpen={onOpenDoc}>
+              className="doc-badge" direct onOpen={onOpenDoc} onReply={() => replyToDoc(d)} replyLabel="Reply">
               <DocIcon fontSize="inherit" /><span>{d.title}</span>
             </PresentationCard>
           ))}
@@ -584,7 +603,16 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {shown === 'presented' && <div className="desk-tabpanel">
         <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
         {/* nid = the project: the engine widens a project's gallery to its subtree */}
-        <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs} />
+        <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs}
+          projectBroadcastMembers={agents.length}
+          onReplyToDoc={(doc) => replyToDoc(doc)}
+          onBroadcast={(_presenter, text, target, attachments, notice) =>
+            broadcastMessage(slug, node.id, text, attachments, notice, undefined, [target]).then((r) => {
+              toast([`sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${node.id}`
+                + (notice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`)])
+              if (!r.sent.length) throw new Error(r.refused.map((f) => f.why).join('; ') || 'broadcast was not accepted')
+              return r
+            })} />
       </div>}
       {shown === 'team' && <div className="desk-tabpanel team-tabpanel">
         <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={refs} compactAt={tree.compact_at}
@@ -593,7 +621,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {shown === 'slots' && <SlotsView node={node} state={slots} map={map} onJump={onJump} op={op} toast={toast} />}
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
-        members={agents.length} recipients={agents}
+        members={agents.length} recipients={agents} replyTarget={replyTarget} focusRequest={replyFocus}
+        onClearReply={() => setReplyTarget(undefined)}
         onRegisterMention={(capture, noteRightDown) => { mentionRef.current = { capture, noteRightDown } }} />
     </>
   )

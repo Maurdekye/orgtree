@@ -128,6 +128,12 @@ the project don't get it. Like a team charter, it reaches a running CLI at its n
 on the document). The project's card shows its documents; the org gallery lists them under the
 project's name.
 
+On a project desk, a presentation card's context menu can stage a typed document reply in the
+project composer. A normal project message or broadcast then carries that document target; a
+presentation reader also offers the project broadcast toggle and Alt+B shortcut. Broadcast
+target references are resolved for each recipient before fan-out, preserving recipient-scoped
+mail and transcript access checks.
+
 ## Docket
 
 User 2026-10-17 22:21Z, superseding the 2026-10-16 20:23Z ruling that items may attach to a

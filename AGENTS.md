@@ -296,6 +296,12 @@
   broadcast alongside Alt+N for notice; a successful broadcast disarms, while
   a failed request leaves it armed. [decided: user 2026-10-18 13:56–13:59Z;
   verified: `canvas/projectdesk.tsx`, `tests/projectdesk.test.tsx`]
+- On a project desk, presentation-card Reply stages a typed document target in
+  the project composer; its reader can broadcast the reply with Alt+B. The
+  broadcast endpoint resolves targets separately for each recipient before
+  sending, so recipient-scoped mail/transcript access stays enforced.
+  [decided: user 2026-10-18 17:09Z; verified: `http/nodes.rs`,
+  `canvas/{docs,gallery,mail,projectdesk}.tsx`]
 - Agent replies, mail, docket descriptions and presentations must name agents,
   projects and docket items as mentions, outside code spans. The unconditional
   MENTIONS paragraph reaches full/trimmed profiles even without messaging tools;

@@ -74,6 +74,7 @@ export function presentationMenu(el: Element | null, slug: string,
     open?: () => void
     openLabel?: string
     reply?: () => void
+    replyLabel?: string
     toast?: ToastFn
     dismiss?: () => void
     nodeMenu?: AgentNavMenu
@@ -91,7 +92,7 @@ export function presentationMenu(el: Element | null, slug: string,
       },
     })
   }
-  if (acts.reply && !gone) entries.push({ label: 'Reply to', onSelect: acts.reply })
+  if (acts.reply && !gone) entries.push({ label: acts.replyLabel ?? 'Reply to', onSelect: acts.reply })
   entries.push(...presentationIdentityActions(el, doc, acts.nodeMenu, acts.toast))
   const copied = (what: string) => (ok: boolean) =>
     acts.toast?.([ok ? `copied ${what}` : `could not copy ${what} — clipboard unavailable`])
@@ -115,9 +116,10 @@ export function presentationMenu(el: Element | null, slug: string,
 
 /** The same activation in the canvas chips and titled desk cards. Markdown
  *  and HTML both open the owning agent collection; the preview is inside it. */
-export function PresentationCard({ slug, doc, onOpen, onReply, className, children, compact = false, toast, inert = false, direct = false }: {
+export function PresentationCard({ slug, doc, onOpen, onReply, replyLabel, className, children, compact = false, toast, inert = false, direct = false }: {
     slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format' | 'node' | 'presented_by'> & { at?: string; viewed_at?: string | null }; onOpen: (id: string) => void
   onReply?: () => void
+  replyLabel?: string
   className: string; children: ReactNode; compact?: boolean
   /** for the context menu's copy/download confirmations; optional because
    *  the canvas chips have no toast to hand */
@@ -155,7 +157,7 @@ export function PresentationCard({ slug, doc, onOpen, onReply, className, childr
     const anchor = e.currentTarget
     const nodeMenu: AgentNavMenu = (id, el) => nodeNav?.current?.(id, el) ?? []
     const opening = menu.open(e, () => presentationMenu(anchor, slug, doc, {
-      open: () => onOpen(doc.id), reply: onReply, toast, nodeMenu,
+      open: () => onOpen(doc.id), reply: onReply, replyLabel, toast, nodeMenu,
     }))
     // Old tree payloads and transcript cards carry only a document id. Resolve
     // their recorded attribution on demand; append is guarded by this opening.

@@ -1,6 +1,7 @@
 //! One agent's desk: its conversation, mail from the user, turn controls,
 //! files, and its scope.
 
+use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 
@@ -280,6 +281,8 @@ pub struct BroadcastBody {
     urgent: bool,
     #[serde(default)]
     urgent_reason: Option<String>,
+    #[serde(default)]
+    targets: Option<Vec<Value>>,
 }
 
 /// The project desk's message box (user 2026-10-18 07:33Z): one send from
@@ -303,6 +306,27 @@ pub async fn broadcast(
     }
     let members = crate::domain::projects::members(&**client, a.id).await?;
     drop(client);
+    let mut replies_by_recipient = HashMap::new();
+    if let Some(targets) = &b.targets {
+        if targets.is_empty() || targets.len() > crate::domain::replies::MAX_REPLIES {
+            return Err(ApiError::bad_request("targets needs 1 to 50 qualified messages"));
+        }
+        // Resolve every recipient's reply context before the first delivery.
+        // Mail and transcript references are recipient-scoped; the durable
+        // target helpers perform the same authorization as /message.
+        for to in &members {
+            let recipient = agent(&e, &org, to).await?;
+            let mut replies = Vec::with_capacity(targets.len());
+            for target in targets {
+                if target.get("source_event_ref").is_some() {
+                    replies.push(resolve_event_reply(&e, &org, &recipient.name, target).await?);
+                } else if let Some(reply) = resolve_target(&e, &org, target, Some(recipient.id)).await? {
+                    replies.push(reply);
+                }
+            }
+            replies_by_recipient.insert(to.clone(), replies);
+        }
+    }
     let text = b.text.trim_end().to_string();
     let attachments = user_attachments(&b.attachments)?;
     if text.trim().is_empty() && attachments.is_empty() {
@@ -317,6 +341,7 @@ pub async fn broadcast(
     crate::domain::dnd::validate_urgent(b.urgent,b.urgent_reason.as_deref(),true,false)?;
     for to in &members {
         let mut out = project_broadcast_message(to, &text, b.notice, &attachments);
+        out.replies = replies_by_recipient.remove(to).unwrap_or_default();
         if b.urgent {
             let c=e.db.get().await?;
             let on:bool=c.query_one("SELECT coalesce((SELECT ot.agent_dnd(id) FROM ot.agents WHERE org_id=$1 AND name=$2),false)",&[&org.id,to]).await?.get(0);

@@ -23,7 +23,7 @@ import {
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { TransferPanel } from './transfers'
 import {
-  AttachIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
+  AttachIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon,
 } from '../icons'
 import {
@@ -1026,7 +1026,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
  *  prop is needed beyond `slug`, which callers did not previously have to
  *  pass because nothing here touched the API layer directly. */
 export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false,
-  toast }: {
+  toast, broadcast }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
    *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
@@ -1034,11 +1034,13 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   /** `notice` is true only for a send the user ARMED as a passive notice; the
    *  host decides what that means on its own wire and the server decides
    *  whether it is possible at all (see the toggle's comment below). */
-  onSend: (text: string, attachments?: string[], notice?: boolean) => void | Promise<unknown>
+  onSend: (text: string, attachments?: string[], notice?: boolean, broadcast?: boolean) => void | Promise<unknown>
   placeholder?: string
   /** Keep the draft editable while its selected recipient is unavailable. */
   sendDisabled?: boolean
   toast?: ToastFn
+  /** Present only for a project presentation reader. */
+  broadcast?: { project: string; members: number }
 }) {
   const [draft, setDraft] = useState('')
   const taRef = useRef<HTMLTextAreaElement | null>(null)
@@ -1063,6 +1065,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   // to. Deliberately local state rather than the desk's `noticestore`
   // singleton, which is global by design because the desk has one composer.
   const [noticeArmed, setNoticeArmed] = useState(false)
+  const [broadcastArmed, setBroadcastArmed] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const attachable = Boolean(slug && target) && !sendDisabled
   const staging = useStaging((file, options) => slug && target ? uploadFile(slug, target, file, options.signal) : Promise.reject(Error('Choose a recipient first')),
@@ -1088,12 +1091,18 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     const sentDraft = draft
     const sentAttached = attached
     setDraft(''); setAttached([]); staging.newDraft()
-    const res = onSend(t || '(file attached)', paths.length ? paths : undefined, armed)
+    const sendingBroadcast = broadcastArmed
+    const res = onSend(t || '(file attached)', paths.length ? paths : undefined, armed, sendingBroadcast)
     if (res && typeof (res as Promise<unknown>).then === 'function') {
       const mine = ++sendSeq.current
       setSendState({ state: 'sending' })
       Promise.resolve(res)
-        .then(() => { if (sendSeq.current === mine) setSendState({ state: 'sent' }) })
+        .then(() => {
+          if (sendSeq.current === mine) {
+            setSendState({ state: 'sent' })
+            if (sendingBroadcast) setBroadcastArmed(false)
+          }
+        })
         .catch((e: unknown) => {
           setDraft((cur) => (cur.trim() ? sentDraft + '\n\n' + cur : sentDraft))
           setAttached((cur) => [...sentAttached, ...cur])
@@ -1122,7 +1131,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
         </div>
       )}
       <StagingRows staging={staging} />
-      <div className={'mail-reply' + (noticeArmed ? ' notice-armed' : '')}
+      <div className={'mail-reply' + (noticeArmed ? ' notice-armed' : '') + (broadcastArmed ? ' broadcast-armed' : '')}
         data-panel-draft={draft.length > 0 || attached.length > 0 || staging.rows.length > 0
           || sendState?.state === 'sending' || undefined}>
         {/* the composer's left column, exactly as the desk composer builds it
@@ -1145,7 +1154,17 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
               title={noticeArmed ? 'Notice-send armed: this reply will arrive as a passive notice without waking the recipient (Alt+N)' : 'Send this reply as a passive notice without waking the recipient (Alt+N)'}
               onClick={() => setNoticeArmed((v) => !v)}>
               {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
-            </button>
+          </button>
+          {broadcast && <button className={'cc-broadcast-toggle' + (broadcastArmed ? ' armed' : '')}
+              type="button" disabled={sendDisabled || broadcast.members === 0} aria-pressed={broadcastArmed}
+              aria-label={broadcastArmed ? `Megaphone on: reply goes to all ${broadcast.members} agents under ${broadcast.project}`
+                : `Megaphone: send this reply to all ${broadcast.members} agents under ${broadcast.project}`}
+              title={broadcast.members === 0 ? `no agent works under ${broadcast.project} yet`
+                : broadcastArmed ? `on: this reply goes to all ${broadcast.members} agents under ${broadcast.project}; click or press Alt+B to turn it off`
+                  : `send this reply to all ${broadcast.members} agents under ${broadcast.project} (Alt+B)`}
+              onClick={() => setBroadcastArmed((v) => !v)}>
+              <CampaignIcon fontSize="inherit" />
+          </button>}
           <button type="button" className="cc-attach" disabled={!attachable}
             title={slug && target ? 'attach a file' : 'attachments need a recipient first'}
             onClick={() => fileRef.current?.click()}>
@@ -1177,6 +1196,12 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             if (e.altKey && (e.key === 'n' || e.key === 'N')) {
               e.preventDefault()
               if (!sendDisabled) setNoticeArmed((v) => !v)
+              return
+            }
+            if (broadcast && e.altKey && (e.key === 'b' || e.key === 'B')) {
+              e.preventDefault()
+              e.stopPropagation()
+              if (!sendDisabled && broadcast.members > 0) setBroadcastArmed((v) => !v)
               return
             }
             if (enterKey.sends(e) && (draft.trim() || attached.length) && !sendDisabled) {

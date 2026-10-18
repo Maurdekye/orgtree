@@ -6000,6 +6000,10 @@ svg.MuiSvgIcon-root {
   border-color: var(--accent);
 }
 .mail-reply.notice-armed:focus-within { border-color: var(--accent); }
+.mail-reply.broadcast-armed {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);
+}
 /* TOP-ALIGNED for the same measured reason as `.cc-composer textarea`: the
    left column is now a 52px stack (24 + 4 + 24) and an ungrown `rows={2}`
    textarea is shorter than that, so the container's `align-items: flex-end`
@@ -6104,6 +6108,13 @@ svg.MuiSvgIcon-root {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);
 }
+.project-reply-target {
+  display: flex; align-items: center; gap: 6px; align-self: flex-start;
+  max-width: 100%; margin: 4px 0; padding: 3px 7px;
+  border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  color: var(--dim); font-size: 11px; overflow-wrap: anywhere;
+}
+.project-reply-target .chip-x { margin-left: auto; flex: none; }
 
 /* ------------------------------------------------- desk parity (2026-07-31)
    №1/№9/№10: tool chips carry their argument; results and diffs expand in

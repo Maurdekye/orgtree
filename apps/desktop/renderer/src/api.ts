@@ -1455,10 +1455,11 @@ export interface BroadcastResult {
  *  failed grant leaves the mail delivered. */
 export interface AudienceGrantResult { granted: boolean; error?: string }
 export const broadcastMessage = (slug: string, project: string, text: string, attachments?: string[],
-  notice?: boolean, urgency?: {urgent:true;urgent_reason:string}): Promise<BroadcastResult> =>
+  notice?: boolean, urgency?: {urgent:true;urgent_reason:string}, targets?: ReplyTarget[]): Promise<BroadcastResult> =>
   req(`/api/orgs/${slug}/nodes/${project}/broadcast`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, ...(urgency ?? {}), ...(attachments?.length ? { attachments } : {}), ...(notice ? { notice: true } : {}) }),
+    body: JSON.stringify({ text, ...(urgency ?? {}), ...(attachments?.length ? { attachments } : {}),
+      ...(notice ? { notice: true } : {}), ...(targets?.length ? { targets } : {}) }),
   })
 /** Object identity only; the server resolves authoritative reply context. */
 export const replyMessage = (slug: string, nid: string, text: string, target: ReplyTarget | ReplyTarget[],
