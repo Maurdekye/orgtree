@@ -113,6 +113,35 @@ possible names can have distinct colours.
 
 ## Verification
 
+### Selection and hidden unread mail (2026-10-18)
+
+Under a tag filter, the last selected matching message survives reopen and
+filter changes. A new mail replaces it only if it carries every selected tag;
+unrelated or partially matching arrivals do not move the selection. A deliberate
+exact-id read restores an older remembered row without scanning retained history
+or assuming a missing client page means deletion. Superseded identity requests
+and explicit selections invalidate late lookup answers.
+
+The filtered response includes `hidden_unread`, counted over the server's current
+unread set before paging, plus `oldest_unread_id`, the global oldest unread mail
+by send time and numeric id. Both apply the same external-inbox visibility policy
+as ordinary user mail. More than eight selected tags match no mail but still
+return the unread summary. The compact `(x unread)` button is a sibling below
+the filter bar, before mail rows. It appears only with active tags and a positive
+hidden count. Clicking clears the tags and opens that oldest target through the
+existing exact-id route, admitting the returned row to the list with its server
+read state. It does not estimate the count from a 200/500-row window.
+
+The pointer-away rule covers the trigger and portal popup in their owning
+document, each expanded by 100px. Moving beyond both starts a 250ms grace period;
+returning cancels it. Nonempty search text or a held key cancels pointer closing.
+Pointer movement from touch is ignored. Closing, unmounting and surface changes
+remove listeners and timers; pick, Escape and outside-click behavior is retained.
+
+Focused renderer cases live in `inbox-tag-behavior.test.tsx`; the single compact
+row capture is `inbox-behavior-layout.tsx`. Phase-1 validation does not claim a
+database/rig proof of the aggregate SQL.
+
 Red checkpoint 9f38a5d executed six engine cases and four mounted UI cases,
 all failing at the intended missing behavior. The first UI case reached its
 six-mail positive control. Green validation covers normalization, limits,

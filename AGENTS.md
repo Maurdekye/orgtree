@@ -1,5 +1,14 @@
 # AGENTS.md — working on Orgtree
 
+- Inbox tag popovers close 250ms after the pointer leaves a 100px margin around
+  trigger and popup; reentry, typed search and held keys protect the picker.
+  Filtered mail remembers its selected matching row; only a NEW mail carrying
+  ALL selected tags may replace it. The compact hidden-unread entry uses a
+  server aggregate, clears tags and opens the global oldest unread message by
+  exact id, even beyond loaded pages. See [mail tags](docs/rust-engine/mail-tags.md).
+  [decided: user 2026-10-18 11:30–11:31Z; verified: `inboxselection.ts`,
+  `canvas/{mailtagpicker,tagpointerdismiss,mail}.ts*`, `domain/mail_tags.rs`]
+
 - Shared reply quotes activate their original target from the whole block or
   Enter/Space, preserving nested links and text selection. Presentation labels
   use current titles or an exact org/id read, never raw ids; missing targets keep
