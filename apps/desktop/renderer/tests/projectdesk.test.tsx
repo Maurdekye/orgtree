@@ -608,6 +608,11 @@ test('§9 Open desk: the project desk as a temporary modal that pins and pops ou
   await flush(2)
   const panel = document.querySelector('.project-desk-modal')
   assert.ok(panel, 'a modal panel')
+  // the canvas desk's look, as an agent's temporary desk has (user 2026-10-18
+  // 08:25Z): its frame, not a settings panel's larger type and buttons
+  assert.equal(panel!.classList.contains('settings'), false, 'not a settings panel')
+  assert.ok(panel!.classList.contains('tempdesk-panel'), 'the temporary desk frame')
+  assert.ok(panel!.classList.contains('pin-project'), 'in the org theme, as a pinned project window')
   assert.equal(panel!.querySelector('.cc-head-left .name')?.textContent, 'website', 'holding the project desk')
   assert.deepEqual([...panel!.querySelectorAll('.cc-tabs button')].map((b) => b.getAttribute('data-tab')),
     ['desk', 'inbox', 'docket', 'presented'])
