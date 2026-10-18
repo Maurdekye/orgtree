@@ -75,6 +75,17 @@ function project(extra: Partial<CanvasNode> = {}): CanvasNode {
 }
 const boss = { id: 'boss', title: 'boss', tier: 'opus', state: 'live', children: [] } as unknown as CanvasNode
 
+function projectMap(node: CanvasNode): Map<string, CanvasNode> {
+  const entries: [string, CanvasNode][] = [[node.id, node], [boss.id, boss]]
+  const add = (child: CanvasNode, parent: string) => {
+    const current = { ...child, parent } as CanvasNode
+    entries.push([current.id, current])
+    for (const nested of current.children ?? []) add(nested, current.id)
+  }
+  for (const child of node.children ?? []) add(child, node.id)
+  return new Map(entries)
+}
+
 const tree = {
   slug: 'org', roots: [],
 } as unknown as TreePayload
@@ -104,7 +115,7 @@ async function desk(t: TestContext, h: { jump?: (id: string) => void; config?: (
   if (h.fetch) globalThis.fetch = h.fetch(globalThis.fetch!)
   const nd = h.node ?? project()
   const ops = h.ops ?? []
-  const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd], ['boss', boss]])}
+  const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={projectMap(nd)}
     op={(b) => { ops.push(b); return Promise.resolve({} as OpResult) }}
     toast={h.toast ?? noop} refs={refs} bare={h.bare} onJump={h.jump} onConfig={h.config} onPin={h.pin} onPopout={h.popout}
     onOpenDoc={h.openDoc} />, (el) => el)
@@ -854,7 +865,7 @@ test('§9 Open desk: the project desk as a temporary modal that pins and pops ou
   serve(t)
   let closed = 0
   const nd = project()
-  const view = await mountView(<ProjectDeskModal node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd], ['boss', boss]])}
+  const view = await mountView(<ProjectDeskModal node={nd} slug="org" tree={tree} map={projectMap(nd)}
     op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs} close={() => { closed++ }} />, (el) => el)
   t.after(() => view.unmount())
   await flush(2)
@@ -879,7 +890,7 @@ test("§11a the temporary project desk has the agent desk's ONE title bar: folde
   const nd = project()
   // inside an org, as on the canvas: only an org's surfaces pin and pop out
   const view = await mountView(<CurrentOrg.Provider value="org"><ProjectDeskModal node={nd} slug="org" tree={tree}
-    map={new Map([[nd.id, nd], ['boss', boss]])} op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs}
+    map={projectMap(nd)} op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs}
     close={() => { closed++ }} /></CurrentOrg.Provider>, (el) => el)
   t.after(() => view.unmount())
   await flush(2)
@@ -902,7 +913,7 @@ test("§11d the temporary project desk's pin makes the same pinned window an age
   const pinned: unknown[] = []
   const nd = project()
   const view = await mountView(<CurrentOrg.Provider value="org"><ProjectDeskModal node={nd} slug="org" tree={tree}
-    map={new Map([[nd.id, nd], ['boss', boss]])} op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs}
+    map={projectMap(nd)} op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs}
     close={noop} pinAsWindow={(rect) => { pinned.push(rect) }} /></CurrentOrg.Provider>, (el) => el)
   t.after(() => view.unmount())
   await flush(2)
