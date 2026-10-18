@@ -38,6 +38,12 @@
   margin. [decided: user/coordinator 2026-10-18 17:05–17:24Z;
   verified: `canvas/{projectdesk,modals,newproject}.tsx`, `shortcuts.ts`, `styles.css`]
 
+- DND is a header token beside effort on agent cards/desks, outside status.
+  Urgent agent mail uses the notice-shaped round `!`, orange when armed;
+  it sits beside composer Fast and is offered for project broadcast only with
+  a current DND recipient. [decided: user 2026-10-18 17:42–17:43Z;
+  verified: `canvas/{cards,desk,dnd,projectdesk}.tsx`, `styles.css`]
+
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the
   existing urgent-mail badge appearance, newest-first focus, highlight and

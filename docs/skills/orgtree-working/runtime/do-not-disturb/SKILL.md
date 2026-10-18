@@ -7,6 +7,8 @@ Up: [orgtree-runtime](../SKILL.md)
 
 # Do Not Disturb
 
+Cards and agent desks show DND in their header token row, beside effort rather than status. The composer's round `!` urgency button sits beside Fast and turns bright orange when armed. It appears only for a current DND recipient. A project composer offers the same button while broadcast is on and at least one live recipient is in DND; only those recipients receive urgent mail, while other recipients receive ordinary mail. A reason remains required.
+
 Call `orgtree_status status=working summary="Focused work" dnd=true` during your own running turn. DND is available with status reporting, even with every tool group off. The card and desk show a small DND badge. It protects every harness, including Antigravity and other harnesses whose mid-turn mail handoff can interrupt work and lose prompt-cache reuse.
 
 Non-urgent mail stays durably unread in your mailbox. It does not steer, hand off to, or interrupt the running turn. Sender identity makes no exception: user mail and superior mail wait too. Senders see **held (do not disturb)**. Existing checkups and reminder scheduling continue; their non-urgent mail is held by the same rule.
