@@ -30,6 +30,7 @@ import { scratchFolderAction } from '../scratch-folder'
 import { AgentRetireConfirm, projectMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
 import { projectSlotState, slotBadgeText, slotCount, slotsFull } from './slots'
+import { readQuickChat } from '../quickchat'
 
 export function isProject(node: Pick<CanvasNode, 'kind'> | null | undefined): boolean {
   return node?.kind === 'project'
@@ -149,7 +150,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     onOpenDesk: onFocus,
     onPin,
     onShowPin,
-  }, { ...hire, pinned })
+  }, { ...hire, pinned, quickChatTier: readQuickChat(slug, tree?.quick_chat).tier })
   return (
     <div data-copy-agent-name={node.id} className={cls.join(' ')} style={style}
       aria-label={`project ${node.id}`}
