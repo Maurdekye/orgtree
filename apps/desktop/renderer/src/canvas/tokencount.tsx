@@ -1,4 +1,5 @@
 import { createContext } from 'react'
+import SvgIcon from '@mui/material/SvgIcon'
 import type { ToolTokenCount } from '../types'
 
 export const LiveTokenContext = createContext<Record<string, ToolTokenCount>>({})
@@ -18,6 +19,9 @@ export function TokenCount({ count, estimated = false, thinking = false, sampled
   const title = `${thinking ? 'thinking' : 'tool output'}: ${estimated ? '~' : ''}${n.toLocaleString('en-US')}t\n${detail}`
   return <span className={`dim token-count ${thinking ? 'thinking-tokens' : 'tool-output-tokens'}`}
     title={title} aria-label={label}>
-    {' · '}<span className="token-glyph" aria-hidden="true">T</span> {estimated ? '~' : ''}{compact}
+    {' · '}<SvgIcon className="token-glyph" fontSize="inherit" aria-hidden="true" data-testid="TextCursorIcon">
+      <path d="M8 4h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8m8-16h-2a2 2 0 0 0-2 2m4 14h-2a2 2 0 0 1-2-2"
+        fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </SvgIcon> {estimated ? '~' : ''}{compact}
   </span>
 }
