@@ -53,9 +53,23 @@ pub fn exclude_sender(scope: &Value) -> bool {
     scope.get("mail_queue_exclude_sender").and_then(Value::as_bool) == Some(true)
 }
 
-/// Checkup wakes a held, un-acked mail gets before the ack timeout reclaims
-/// it (user 2026-10-18 08:11Z).
+/// Default checkup reminders before reclaiming held mail or an idle slot.
 pub const ACK_WAKES: i64 = 3;
+pub const MAX_ACK_REMINDERS: i64 = 10;
+
+/// The project's reminder budget for both acknowledgement timeout paths.
+#[nolog]
+pub fn ack_reminders(scope: &Value) -> i64 {
+    scope.get("mail_queue_ack_reminders").and_then(Value::as_i64)
+        .filter(|n| (1..=MAX_ACK_REMINDERS).contains(n)).unwrap_or(ACK_WAKES)
+}
+
+/// A reminder is sent at each count below the budget; reclaim on the next
+/// checkup after the configured reminders, preserving the default's timing.
+#[nolog]
+pub fn ack_reminders_exhausted(scope: &Value, wakes: i64) -> bool {
+    ack_timeout(scope) && wakes >= ack_reminders(scope)
+}
 
 /// Is the project's ack timeout on (`scope.mail_queue_ack_timeout`, default on)?
 #[nolog]
@@ -590,7 +604,7 @@ async fn superior(engine: &Arc<Engine>, project: i64) -> Option<String> {
 
 /// The ack timeout (user 2026-10-18 08:11Z), run by the working checkup an
 /// agent holding un-acked mail is due for: each held mail with the timeout
-/// on counts the wake; one that already had `ACK_WAKES` is reclaimed instead
+/// on counts the wake; one that used its project's reminder budget is reclaimed
 /// and its project's queue runs. Returns what the agent still holds, for the
 /// checkup's note.
 #[logged]
@@ -611,8 +625,9 @@ pub async fn ack_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &
     for r in &rows {
         let (row, project, pname, scope, copy, wakes): (i64, i64, String, Value, Option<String>, i64) =
             (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
-        if ack_timeout(&scope) && wakes >= ACK_WAKES {
-            let why = format!("did not ack it after {ACK_WAKES} reminders");
+        if ack_reminders_exhausted(&scope, wakes) {
+            let reminders = ack_reminders(&scope);
+            let why = format!("did not ack it after {reminders} reminders");
             reclaim(engine, org_id, project, row, agent, name, copy.as_deref(), &why).await?;
             Box::pin(dispatch(engine, org_id, project)).await?;
             continue;

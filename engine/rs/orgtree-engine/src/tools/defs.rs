@@ -708,7 +708,7 @@ fn build_tool_project() -> Value {
             "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","broadcast","presentations","read_presentation"] },
             "lease": { "type": "string", "description": "release_slot: the lease your concurrency slot grant named" },
             "note": { "type": "string", "description": "release_slot: optional, e.g. build ok 265s" },
-            "settings": {"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"slots":{"type":"integer","minimum":0,"maximum":64}}},
+            "settings": {"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"slots":{"type":"integer","minimum":0,"maximum":64}}},
             "force": {"type":"boolean","description":"release_slot: any project ancestor may force release"},
             "agent": {"type":"string","description":"unqueue_slot: agent to remove from line"},
             "team": {"type":"boolean","description":"presentations/read_presentation: include the project subtree"},
@@ -1021,7 +1021,7 @@ mod project_settings_contract_tests {
         assert_eq!(settings["type"],json!("object"),"settings patch must be an object");
         for (name,kind) in [("name","string"),("description","string"),("peer_mail","boolean"),
             ("mail_queue","string"),("exclude_sender","boolean"),("ack_timeout","boolean"),
-            ("max_attempts","integer"),("slots","integer")] {
+            ("max_attempts","integer"),("ack_reminders","integer"),("slots","integer")] {
             assert_eq!(settings["properties"][name]["type"],json!(kind),"setting {name}");
         }
         assert_eq!(settings["additionalProperties"],json!(false));
@@ -1239,7 +1239,7 @@ mod builder_stack_tests {
         project["description"] = actual_project["description"].clone();
         let schema = &mut project["inputSchema"];
         schema["properties"]["action"]["enum"] = serde_json::json!(["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","broadcast","presentations","read_presentation"]);
-        schema["properties"]["settings"] = serde_json::json!({"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"slots":{"type":"integer","minimum":0,"maximum":64}}});
+        schema["properties"]["settings"] = serde_json::json!({"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"slots":{"type":"integer","minimum":0,"maximum":64}}});
         schema["properties"]["force"] = serde_json::json!({"type":"boolean","description":"release_slot: any project ancestor may force release"});
         schema["properties"]["agent"] = serde_json::json!({"type":"string","description":"unqueue_slot: agent to remove from line"});
         schema["properties"]["team"] = serde_json::json!({"type":"boolean","description":"presentations/read_presentation: include the project subtree"});

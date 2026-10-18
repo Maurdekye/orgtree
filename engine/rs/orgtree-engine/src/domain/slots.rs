@@ -8,7 +8,7 @@
 //! history. Release is explicit (`orgtree_project action=release_slot`).
 //! Reclaim reuses the mail queue's ack-mode machinery: a retired or halted
 //! holder loses its slot at once, and an idle holder gets the 20-minute
-//! checkup up to 3 times, then the slot is taken back (only while that
+//! checkup up to the project's reminder count (default 3), then the slot is taken back (only while that
 //! checkup and the project's ack-timeout setting are on).
 //!
 //! Only agents above or below the project may claim (the mail queue's reach
@@ -28,9 +28,6 @@ use crate::util::{iso, uid};
 
 /// The watchdog kind that claims a slot.
 pub const KIND: &str = "slot";
-/// Checkup wakes an idle holder gets before its slot is taken back (as an
-/// un-acked mail's, `projects::ACK_WAKES`).
-pub const IDLE_WAKES: i32 = 3;
 /// The largest slot count a project may have.
 pub const MAX_CAPACITY: i64 = 64;
 
@@ -300,8 +297,8 @@ pub async fn held_by(client: &impl GenericClient, agent: i64) -> Result<Vec<(i32
 
 /// The idle reclaim, run by the working checkup a holder is due for (user
 /// 2026-10-18 08:40Z, ack mode's machinery): with the project's ack timeout
-/// on, the wake counts against each held slot, and one that already had
-/// `IDLE_WAKES` is taken back, its holder told, and the next in line granted.
+/// on, the wake counts against each held slot. After the project's reminder
+/// budget it is taken back, its holder told, and the next in line granted.
 /// Returns what the agent still holds, for the checkup's note.
 #[logged]
 pub async fn idle_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &str) -> Result<Vec<(i32, String, String)>> {
@@ -319,17 +316,18 @@ pub async fn idle_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: 
         let (id, lease, slot, wakes, project, pname, scope): (i64, String, i32, i32, i64, String, Value) =
             (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6));
         let timeout = crate::domain::projects::ack_timeout(&scope);
-        if timeout && wakes >= IDLE_WAKES {
+        if crate::domain::projects::ack_reminders_exhausted(&scope, i64::from(wakes)) {
+            let reminders = crate::domain::projects::ack_reminders(&scope);
             let mut c = engine.db.get().await?;
             let tx = c.transaction().await?;
             tx.query_opt("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&project]).await?;
-            let how = format!("idle: not released after {IDLE_WAKES} reminders");
+            let how = format!("idle: not released after {reminders} reminders");
             let ended = end(&*tx, id, &how, "orgtree").await?;
             tx.commit().await?;
             drop(c);
             if ended {
                 notify(engine, org_id, name, &format!(
-                    "Your concurrency slot {slot} of project {pname} (lease {lease}) was taken back: you did not release it after {IDLE_WAKES} \
+                    "Your concurrency slot {slot} of project {pname} (lease {lease}) was taken back: you did not release it after {reminders} \
                      reminders. The next in line has it now; claim again with a slot watchdog if you still need it.")).await;
                 Box::pin(grant(engine, org_id, project)).await?;
             }

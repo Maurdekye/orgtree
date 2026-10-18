@@ -2021,8 +2021,15 @@ async fn set_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Acto
             None => refuse!(BadRequest, "max_attempts is a number from 1 to 100"),
         },
     };
-    if ack.is_none() && exclude.is_none() && timeout.is_none() && attempts.is_none() {
-        refuse!(BadRequest, "set_mail_queue needs mode (round_robin or ack), exclude_sender, ack_timeout or max_attempts");
+    let reminders = match req.get("ack_reminders") {
+        None | Some(Value::Null) => None,
+        Some(v) => match v.as_i64().filter(|n| (1..=super::projects::MAX_ACK_REMINDERS).contains(n)) {
+            Some(n) => Some(n),
+            None => refuse!(BadRequest, "ack_reminders is an integer from 1 to 10"),
+        },
+    };
+    if ack.is_none() && exclude.is_none() && timeout.is_none() && attempts.is_none() && reminders.is_none() {
+        refuse!(BadRequest, "set_mail_queue needs mode (round_robin or ack), exclude_sender, ack_timeout, max_attempts or ack_reminders");
     }
     let before: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1 FOR UPDATE", &[&n.id]).await?.get(0);
     let mut next = if before.is_object() { before.clone() } else { json!({}) };
@@ -2038,6 +2045,9 @@ async fn set_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Acto
     if let Some(n) = attempts {
         next["mail_queue_max_attempts"] = json!(n);
     }
+    if let Some(n) = reminders {
+        next["mail_queue_ack_reminders"] = json!(n);
+    }
     let mode_changed = ack.is_some_and(|a| crate::domain::projects::ack_mode(&before) != a);
     tx.execute("UPDATE ot.agents SET scope = $2, row_version = row_version + 1 WHERE id = $1", &[&n.id, &next]).await?;
     event(tx, org.id, "set_mail_queue", actor, Some(n.id),
@@ -2049,7 +2059,8 @@ async fn set_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Acto
     Ok(json!({ "node": n.name, "mode": next["mail_queue"].as_str().unwrap_or(crate::domain::projects::MODE_ROUND_ROBIN),
                "exclude_sender": crate::domain::projects::exclude_sender(&next),
                "ack_timeout": crate::domain::projects::ack_timeout(&next),
-               "max_attempts": crate::domain::projects::max_attempts(&next), "mode_changed": mode_changed }))
+               "max_attempts": crate::domain::projects::max_attempts(&next),
+               "ack_reminders": crate::domain::projects::ack_reminders(&next), "mode_changed": mode_changed }))
 }
 
 /// Read the complete Project settings values with the desktop's project reach.
@@ -2063,7 +2074,7 @@ async fn project_settings(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Ac
         "name":n.name,"description":description.unwrap_or_default(),"peer_mail":super::peer_mail::enabled(&n.scope),
         "mail_queue":if super::projects::ack_mode(&n.scope) {super::projects::MODE_ACK} else {super::projects::MODE_ROUND_ROBIN},
         "exclude_sender":super::projects::exclude_sender(&n.scope),"ack_timeout":super::projects::ack_timeout(&n.scope),
-        "max_attempts":super::projects::max_attempts(&n.scope),"slots":super::slots::capacity(&n.scope)
+        "max_attempts":super::projects::max_attempts(&n.scope),"ack_reminders":super::projects::ack_reminders(&n.scope),"slots":super::slots::capacity(&n.scope)
     }}))
 }
 
@@ -2079,6 +2090,7 @@ fn project_setting_ops(node:&str, settings:&Value) -> Result<Vec<Value>> {
             "mail_queue"=>matches!(v.as_str(),Some("ack"|"round_robin")),
             "slots"=>v.as_i64().is_some_and(|n|(0..=super::slots::MAX_CAPACITY).contains(&n)),
             "max_attempts"=>v.as_i64().is_some_and(|n|(1..=100).contains(&n)),
+            "ack_reminders"=>v.as_i64().is_some_and(|n|(1..=super::projects::MAX_ACK_REMINDERS).contains(&n)),
             _=>refuse!(BadRequest,"unknown project setting {k}"),
         };
         if !valid { refuse!(BadRequest,"invalid project setting {k}"); }
@@ -2086,7 +2098,7 @@ fn project_setting_ops(node:&str, settings:&Value) -> Result<Vec<Value>> {
     let mut out=Vec::new();
     if let Some(v)=settings.get("description") { out.push(json!({"op":"set_description","node":node,"description":v})); }
     let mut queue=json!({"op":"set_mail_queue","node":node});
-    for (from,to) in [("mail_queue","mode"),("exclude_sender","exclude_sender"),("ack_timeout","ack_timeout"),("max_attempts","max_attempts")] {
+    for (from,to) in [("mail_queue","mode"),("exclude_sender","exclude_sender"),("ack_timeout","ack_timeout"),("max_attempts","max_attempts"),("ack_reminders","ack_reminders")] {
         if let Some(v)=settings.get(from) { queue[to]=v.clone(); }
     }
     if queue.as_object().unwrap().len()>2 { out.push(queue); }
@@ -2634,6 +2646,21 @@ mod project_settings_tests {
     #[test]
     fn ack_reminder_default_control() {
         assert_eq!(super::super::projects::ACK_WAKES, 3);
+    }
+    #[test]
+    fn ack_reminder_count_controls_mail_and_slot_thresholds() {
+        use super::super::projects::{ack_reminders, ack_reminders_exhausted};
+        let default=json!({});assert_eq!(ack_reminders(&default),3);
+        assert!(!ack_reminders_exhausted(&default,2));assert!(ack_reminders_exhausted(&default,3));
+        for n in [1,5,10] {
+            let scope=json!({"mail_queue_ack_reminders":n});
+            assert_eq!(ack_reminders(&scope),n);
+            assert!(!ack_reminders_exhausted(&scope,n-1));assert!(ack_reminders_exhausted(&scope,n));
+        }
+        assert!(!ack_reminders_exhausted(&json!({"mail_queue_ack_timeout":false,"mail_queue_ack_reminders":1}),10));
+        for invalid in [json!(0),json!(11),json!(1.5),json!("3"),json!(null)] {
+            assert_eq!(ack_reminders(&json!({"mail_queue_ack_reminders":invalid})),3);
+        }
     }
     #[test]
     fn ack_reminder_patch_accepts_counts_and_rejects_invalid_values() {
