@@ -57,6 +57,8 @@ async function withApp(run: (el: HTMLElement, editor: HTMLTextAreaElement, reads
     if (path === '/api/accounts') return json({ accounts: [] })
     if (path.endsWith('/inbox')) return json({ pending: [], delivered: [], sent: [] })
     if (path.endsWith('/documents')) return json({ documents: [], total: 0 })
+    if (path.endsWith('/staffing-options')) return json({ tiers: [], at: Date.now(), stale: false,
+      errors: [], loading: false, generation: 0 })
     if (/\/work-items(?:-view)?$/.test(path)) return json({ items: [], archived: [], backlogged: [],
       counts: { attention: 0, active: 0, archived: 0, backlogged: 0 } })
     if (path.endsWith('/usage/history')) return json({ series: [] })
