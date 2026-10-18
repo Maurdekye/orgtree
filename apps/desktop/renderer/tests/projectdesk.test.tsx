@@ -40,6 +40,7 @@ import path from 'node:path'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk, ProjectDeskModal, sourceOffset } from '../src/canvas/projectdesk'
 import { AgentGalleryView } from '../src/canvas/gallery'
+import { pinAccentClass } from '../src/canvas/pins'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeConfig } from '../src/canvas/modals'
 import { ActiveAgentSummary } from '../src/shell/treeinfo'
@@ -265,11 +266,16 @@ See [the docs](https://x.y/z) and **bo')
 See', 'a rendered-only character is skipped')
 })
 
+/** styles.css as rules, comments dropped; `cssLast` is the last value a rule
+ *  naming exactly `sel` gives `prop` */
+const cssRules = () => [...readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  .matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({ sel: m[1]!.trim(), body: m[2]! }))
+const cssLast = (prop: string, sel: string) => cssRules().filter((r) => r.sel.split(',').some((s) => s.trim() === sel))
+  .map((r) => new RegExp(`(?:^|;)\s*${prop.replace(/[-]/g, '\-')}\s*:\s*([^;]+)`).exec(r.body)?.[1]?.trim()).filter(Boolean).pop()
+
 test('§2f the description has no border or background while not edited; the editor keeps its look (user 07:14Z)', () => {
-  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({ sel: m[1]!.trim(), body: m[2]! }))
-  const last = (prop: string, sel: string) => rules.filter((r) => r.sel.split(',').some((s) => s.trim() === sel))
-    .map((r) => new RegExp(`(?:^|;)\s*${prop}\s*:\s*([^;]+)`).exec(r.body)?.[1]?.trim()).filter(Boolean).pop()
+  const rules = cssRules()
+  const last = cssLast
   const md = '.project-desk .project-description-md'
   assert.equal(last('background', md), 'transparent', 'no background at rest')
   assert.equal(last('border-color', md), 'transparent', 'no border at rest')
@@ -355,6 +361,31 @@ test("§5c the focused project card's desk carries the card's pop-out", async (t
   assert.ok(btn, 'the desk shows it')
   await inAct(() => { btn!.click() })
   assert.equal(popped, 1)
+})
+
+test('§5d an empty project docket says it lists the tickets of the agents under the project (user 2026-10-18 07:26Z)', async (t) => {
+  const el = await desk(t)
+  await inAct(() => { el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="docket"]')!.click() })
+  await flush(6)
+  const empty = el.querySelector('.desk-tabpanel .dim.pad')?.textContent ?? ''
+  assert.match(empty, /agents under website/, 'names whose tickets these are')
+  assert.equal(/assignment is ownership/.test(empty), false, 'not the agent wording')
+})
+
+test('§5e a pinned project window takes the org theme, not a provider colour (user 2026-10-18 07:24Z)', () => {
+  assert.equal(pinAccentClass(project()), 'pin-project')
+  assert.equal(pinAccentClass(boss), 'prov-claude', 'an agent keeps its provider')
+  for (const sel of ['.pinwin.pin-project', '.pin-snap-preview.pin-project'])
+    assert.equal(cssLast('--accent', sel), 'var(--org-accent)', sel)
+})
+
+test("§5f a desk tab's first row clears the tab's pin/pop-out/mail corner, the inbox's Transfers box too (user 2026-10-18 07:27Z)", () => {
+  assert.ok(cssLast('margin-right', '.desk-tabpanel > .mailwrap > .mail-transfers'), 'the Transfers box stops short of the corner')
+})
+
+test("§6c settings leave the frame's pop-out and pin room beside the header buttons (user 2026-10-18 07:24Z)", () => {
+  const sel = '.settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .agent-settings-header'
+  assert.ok(cssLast('padding-right', sel), "the header reserves the bar's width")
 })
 
 /* ─── §6 project settings ───────────────────────────────────────────────── */
