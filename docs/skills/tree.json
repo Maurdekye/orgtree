@@ -2699,18 +2699,26 @@
    "kind": "concept",
    "registered": false,
    "covers": [],
-   "purpose": "Heavy builds and tests under the machine lock and build queue, with memory limits and watchdog waits.",
+   "purpose": "Heavy builds and tests through two concurrency-slot grants, with RAM floors, durable waits and immediate release; filesystem locks retired.",
    "must_cover": [
-    "one heavy phase machine-wide",
-    "lock and queue files, handover",
-    "memory floor",
-    "wait with a watchdog"
+    "slot watchdog claim and release_slot immediately after assigned batch",
+    "two slots per USER 2026-10-18 17:47Z; slot 2 grant valid",
+    "retired build.lock/build.queue protocol; missing tools require coordinator help",
+    "6 GB free RAM engine phases; 3 GB otherwise; check before each phase",
+    "keep grant through low RAM with one once RAM watchdog",
+    "batch red, green and capture into one grant",
+    "declared priority build overrides",
+    "Cargo -j2, assigned Job limits, C: artifact scope and 100 GB allowance",
+    "synthetic rig isolation and foreground work; no polling"
    ],
    "sources": [
-    "docs/rust-engine/test-rig.md",
-    "AGENTS.md (machine lock sections)"
+    "User/coordinator build-permit rulings 2026-10-18 16:52Z and USER 17:47Z m4fe8bc86eda3",
+    "engine/rs/orgtree-engine/src/tools/defs.rs (slot watchdog and project release_slot)",
+    "docs/rust-engine/test-rig.md"
    ],
    "see_also": [
+    "tool-watchdog",
+    "tool-project",
     "waiting-for-events",
     "worktrees-and-git",
     "machine-traps"
@@ -7259,21 +7267,25 @@
    "covers": [
     "workflow:build-slots"
    ],
-   "purpose": "Build-machine concurrency slot workflow: configure one concurrency slot by tool, verify fresh CLI claim/release tools, claim, memory gate, foreground phase, release; configurable acknowledgement reminder budget; ancestor force/unqueue and approved legacy fallback.",
+   "purpose": "Build-machine concurrency-slot workflow: authorized count (currently two), tool availability, batch claim, keep grant through low RAM with a once watchdog, foreground work and immediate release; priority override, configurable reminders and ancestor recovery.",
    "must_cover": [
     "a build-machine project builders reach",
-    "slot count 1",
+    "authorized slot count; two in this organization per USER 2026-10-18 17:47Z",
     "keep the checkup and ack timeout on",
     "claim with a slot watchdog before the phase",
     "no polling while in line",
-    "own memory watchdog, no resource gate",
+    "6 GB engine / 3 GB otherwise; keep grant through low RAM with one once watchdog",
     "release right after the phase",
     "reclaim on halt, retire or idle",
     "the Concurrency slots tab and action=slots",
     "force-release and remove from line",
-    "release_slot and own slots status with team OR watchdogs; other project actions and force release need team"
+    "release_slot and own slots status with team OR watchdogs; other project actions and force release need team",
+    "batch red, green and capture into one grant; declared priority overrides",
+    "retired filesystem fallback; coordinator enables or refreshes missing tools",
+    "watchdog-only status is own_only and held=0 is not global availability"
    ],
    "sources": [
+    "User/coordinator build-permit rulings 2026-10-18 16:52Z and USER 17:47Z m4fe8bc86eda3",
     "User slot rulings 2026-10-18 08:37Z-08:51Z (docket project-slots-first-come-permits-claimed-through)",
     "engine/rs/orgtree-engine/src/domain/slots.rs",
     "engine/rs/orgtree-engine/src/runtime/watchdogs.rs"

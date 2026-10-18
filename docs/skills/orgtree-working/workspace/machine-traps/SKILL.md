@@ -126,7 +126,7 @@ expected output. An armed watcher alone proves neither.
 
 For watcher parameters and smoke diagnostics, see
 [orgtree-tool-watchdog](../../watchdogs/tool-watchdog/SKILL.md). For the build slot
-and owner-file handover, see [builds under the lock](../builds-under-the-lock/SKILL.md).
+and permit lifecycle, see [builds under the lock](../builds-under-the-lock/SKILL.md).
 
 ## Git resolutions and trustworthy command results
 
@@ -138,7 +138,7 @@ Commit first, as described in [worktrees and git](../worktrees-and-git/SKILL.md)
 
 | Result trap | Safe way |
 | --- | --- |
-| PowerShell 5.1 can turn native stderr into an error under `ErrorActionPreference=Stop`. | Preserve both streams and the child's actual exit code; stderr alone is not failure. The legacy P03 argument-list launcher inherited streams directly, but is not the current Rust build lock. |
+| PowerShell 5.1 can turn native stderr into an error under `ErrorActionPreference=Stop`. | Preserve both streams and the child's actual exit code; stderr alone is not failure. The legacy P03 argument-list launcher inherited streams directly, but is not the current Rust build permit. |
 | PowerShell `-match` ignores case; `@(...) + $null` adds an empty argument. | Use `-cmatch` for case-sensitive conditions, structured JSON for status, and construct argument arrays without null entries. |
 | `DateTime.Parse('...Z')` converts to local time; this machine uses UTC+3 while org timestamps are UTC. | Use `DateTimeOffset` and explicit UTC when comparing deadlines. |
 | `exec_command` returned a `session_id`. | The command is still running. Drain it with `write_stdin` and record its final exit before claiming completion. Keep long work in the foreground and finish owned children before ending the turn. |
@@ -148,7 +148,7 @@ Commit first, as described in [worktrees and git](../worktrees-and-git/SKILL.md)
 
 The historical P03 slot queue, `artifacts/machine-test-run`, its `-Small` two-slot
 mode, TTL/`-Dequeue` behavior and 15/10 GB commit-memory floors describe 3.x tooling.
-They do not replace the current Rust machine lock, memory limits or output rules;
+They do not replace the current Rust concurrency-slot permit, RAM floors or output rules;
 those have one home in [builds under the lock](../builds-under-the-lock/SKILL.md).
 Disposable PostgreSQL clusters must run unelevated; a skipped or empty test run
 is not a pass. Keep raw exit status, signal and spawn errors in the evidence.

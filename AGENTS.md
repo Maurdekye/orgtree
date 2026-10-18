@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- Heavy development work uses only @build-slot concurrency grants: two slots
+  (user 2026-10-18 17:47Z), replacing the filesystem build.lock/queue protocol
+  and one-heavy-phase rule. Batch assigned red/green/capture; check free RAM
+  before each phase (6 GB engine, 3 GB otherwise); keep a grant through low RAM
+  with one once RAM watchdog, unless a declared priority build requires release.
+  Release immediately after the batch. See [build permits](docs/skills/orgtree-working/workspace/builds-under-the-lock/SKILL.md).
+  [decided: user/coordinator 2026-10-18 16:52Z/17:47Z]
+
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the
   existing urgent-mail badge appearance, newest-first focus, highlight and

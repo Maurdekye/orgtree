@@ -26,7 +26,7 @@ A vague signal makes a vague wake. Prefer a unique completion marker or a defini
 
 Keep your own long-running task in the foreground until it reaches a safe milestone. Do not start a turn-bound background job, add a watcher and assume that permits ending the turn; the [turn-lifetime rule](../../runtime/turns-and-wakes/SKILL.md) still applies. A watcher is appropriate for an independently owned process, another agent's job, a durable service or another external event that can continue without your current turn.
 
-For build/test work, first follow [the build lock practice](../../workspace/builds-under-the-lock/SKILL.md). A watchdog grants no build authorization or queue priority. Do independent work while waiting when available; do not hold a sleeping model turn open or create a loop that repeatedly asks whether the event happened.
+For build/test work, first follow [the concurrency-slot permit practice](../../workspace/builds-under-the-lock/SKILL.md). A watchdog grants no build authorization or queue priority. Do independent work while waiting when available; do not hold a sleeping model turn open or create a loop that repeatedly asks whether the event happened.
 
 Read create-time smoke and confirm that the target is runnable and its output matches the intended signal. A successfully armed but broken watcher is not a plan for resumption. If watcher tools or required scope are unavailable, ask the responsible superior for a concrete completion message rather than silently falling back to an endless poll.
 
