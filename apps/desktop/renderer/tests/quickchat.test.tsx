@@ -35,7 +35,7 @@ function providers(enabled: string[], choices?: StaffingTier[]) {
     ...(enabled.includes('openai') ? ['astra', 'sol', 'luna'] : []),
     ...(enabled.includes('google') ? ['flash', 'argon'] : []),
     ...(enabled.includes('muse') ? ['wonder'] : []),
-  ].map(tier => ({ tier, seat: tier === 'opus' ? 4 : 2, efforts: [], accounts: [], default_ok: true }))
+  ].map(tier => ({ tier, seat: tier === 'opus' ? 4 : 2, efforts: ['low', 'medium', 'high', 'xhigh', 'max'], accounts: [], default_ok: true }))
   globalThis.fetch = legacyAppBackend((async (url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const payload = path === '/api/providers'
@@ -124,7 +124,7 @@ test('the model with no history prefers Opus, then Sol, then Argon, then Wonder,
   assert.equal(quickChatTier(undefined, ['flash', 'wonder', 'argon', 'sol']), 'sol')
   assert.equal(quickChatTier(undefined, ['flash', 'wonder', 'argon']), 'argon')
   assert.equal(quickChatTier(undefined, ['flash', 'wonder']), 'wonder')
-  assert.equal(quickChatTier(undefined, ['pro', 'flash']), 'flash')
+  assert.equal(quickChatTier(undefined, ['terra', 'flash']), 'terra', 'first available when no preferred tier can be hired')
   assert.equal(quickChatTier(undefined, ['terra']), 'terra')
   assert.equal(quickChatTier(undefined, []), '')
   assert.equal(quickChatTier('sonnet', ['sonnet', 'opus']), 'sonnet')
@@ -181,7 +181,7 @@ test('availability excludes exhausted defaults and keeps a compatible alternativ
   localStorage.clear()
   const row = (tier: string, extra = {}): StaffingTier => ({ tier, seat: 2,
     efforts: ['low', 'high'], accounts: [], default_ok: false, ...extra })
-  providers(['claude', 'openai'], [row('opus'), row('sol', { accounts: [
+  providers(['claude', 'openai'], [row('opus', { default_ok: true, native_ok: false }), row('sol', { accounts: [
     { value: 'openai-other', id: 'openai-other', provider: 'openai', ambient: false, kind: 'subscription' },
   ] })])
   const ops: OpRequest[] = []

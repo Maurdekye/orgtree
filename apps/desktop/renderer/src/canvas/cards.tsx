@@ -655,6 +655,8 @@ interface SpawnChipsProps {
   onToggleExpanded?: () => void
   /** the tier already chosen, drawn as selected (Quick chat's model picker) */
   selected?: string
+  /** Quick chat can narrow the model menu to its current account/credit eligibility. */
+  allowedTiers?: string[]
   /** the PROJECT token (user 2026-10-16 21:02Z): a light grey square with a
    *  folder in place of a tier letter, outermost on its strip, free. It opens
    *  the new-project form for this edge (docs/rust-engine/PROJECT-NODES.md). */
@@ -671,7 +673,7 @@ const costBadge = (seat: number): string => {
 
 export function SpawnChips({ onSpawn, seats, side, soleHire,
   codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, zoom,
-  expanded = false, onToggleExpanded, selected, onProject }: SpawnChipsProps) {
+  expanded = false, onToggleExpanded, selected, allowedTiers, onProject }: SpawnChipsProps) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
   // the Muse family's state, adopted from the canvas's providers poll
@@ -778,7 +780,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     // Sort the filtered copy by the same seat lookup used by these tokens;
     // stable ties retain the incoming catalog order, including OR/LS rows.
     // Provider grouping/count order and dearest-first selectors are separate.
-    const offered = tiers.filter((t) => offerOf(t) !== 'hide')
+    const offered = tiers.filter((t) => offerOf(t) !== 'hide' && (!allowedTiers || allowedTiers.includes(t)))
     const vis = key === 'antigravity'
       ? orderAntigravityTiers(offered, seatOf, 'asc')
       : offered.sort((a, b) => seatOf(a) - seatOf(b))

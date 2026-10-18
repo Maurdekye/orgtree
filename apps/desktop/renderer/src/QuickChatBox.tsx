@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PickerPopover as Pop } from './canvas/pickerpopover'
 import { useAgentMentions, useOrgMentionCandidates } from './canvas/agentmentions'
-import { useAppRead } from './appfeed'
+import { useAppFeed, useAppRead } from './appfeed'
 import { getProviders, sendMessage, uploadFile } from './api'
 import { ActiveAgentsFilter, AgentTray, SwitchboardMark, trayRows, type TrayRow } from './canvas/agenttray'
 import { SpawnChips } from './canvas/cards'
@@ -77,6 +77,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const memo = useMemo(() => readQuickChat(slug, JSON.parse(defaultsKey)), [slug, defaultsKey, tick])
   const providers = useAppRead('providers', getProviders)
+  const { version: feedVersion } = useAppFeed()
   const hires = useMemo(() => {
     const of = (id: string) => hireOf(providers?.providers.find(p => p.id === id))
     return { claudeHire: of('claude'), codexHire: of('openai'), antigravityHire: of('google'),
@@ -92,7 +93,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     // Shared single-flight read: the same warm answer used by the hire picker, never provider presence alone.
     void staffingOptions(slug).then(value => { if (current) setAvailability({ slug, value }) }).catch(() => {})
     return () => { current = false }
-  }, [slug, providers, tree])
+  }, [slug, providers, tree, feedVersion])
   const choices = useMemo(() => quickChatChoices(availability?.slug === slug ? availability.value : null,
     tree, nodes, superior), [availability, slug, tree, nodes, superior])
   const offered = choices.map(choice => choice.row.tier)
@@ -274,12 +275,12 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       {pop?.kind === 'model' && (
         <Pop anchor={pop.anchor} onClose={close} kind="model">
           <SpawnChips onSpawn={(t) => { rememberTier(slug, t); close() }} seats={seats}
-            soleHire selected={tier} {...hires} />
+            soleHire selected={tier} allowedTiers={offered} {...hires} />
         </Pop>
       )}
       {ghost && pop?.kind !== 'model' && (
         <Pop anchor={ghost} onClose={() => {}} kind="model" leaving>
-          <SpawnChips onSpawn={() => {}} seats={seats} soleHire selected={tier} {...hires} />
+          <SpawnChips onSpawn={() => {}} seats={seats} soleHire selected={tier} allowedTiers={offered} {...hires} />
         </Pop>
       )}
       {pop?.kind === 'files' && (
