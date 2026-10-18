@@ -2242,6 +2242,30 @@ pub fn import_memo(w: &Value, ids: &std::collections::HashMap<String, i64>) -> V
 mod tests {
     use super::*;
 
+    #[nolog]
+    fn quiet_dog(kind: &str) -> Dog {
+        Dog { row: 1, uid: "quiet".into(), org_id: 1, owner: 1, owner_name: "worker".into(),
+            owner_live: true, workdir: None, name: "quiet".into(), kind: kind.into(), target: "build".into(),
+            pattern: None, shell: None, interval_s: 60, fire_mode: "event".into(), quiet_s: None,
+            once: true, state: "armed".into(), fired: 0, created_at: Utc::now() - chrono::Duration::hours(2),
+            last_fired: None, last_check: None, next_check_at: None, next_silence_at: None,
+            silence_since: None, exit: None, memo: json!({}), run: json!({}) }
+    }
+
+    #[test]
+    fn push_driven_dogs_do_not_report_missing_polls() {
+        for kind in ["slot", "fair_queue", "event"] {
+            assert_eq!(health(&quiet_dog(kind)), None, "{kind} waits for pushes, not polling checks");
+        }
+    }
+
+    #[test]
+    fn polling_dogs_still_warn_when_checks_never_started() {
+        for kind in ["file", "command", "process"] {
+            assert!(health(&quiet_dog(kind)).unwrap().contains("NEVER RUN A CHECK"), "{kind}");
+        }
+    }
+
     fn set(ids: &[&str]) -> HashSet<String> {
         ids.iter().map(|s| s.to_string()).collect()
     }
