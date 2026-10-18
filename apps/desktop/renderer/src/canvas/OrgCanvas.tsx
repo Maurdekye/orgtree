@@ -4708,6 +4708,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     {projectDeskId && map.get(projectDeskId)?.kind === 'project' && (
       <ProjectDeskModal node={map.get(projectDeskId)!} slug={slug} tree={tree} map={map} op={op} toast={toast}
         refs={canvasRefs} close={() => setProjectDeskId(null)}
+        // its pin makes the agent pin layer's window, as TempDeskModal's below
+        pinAsWindow={!isMobile && !pinnedIds.has(projectDeskId)
+          ? (client) => {
+            const box = canvasBox(viewportRef.current?.ownerDocument ?? document, slug)
+            const rect = { ...client, x: client.x - (box?.x ?? 0), y: client.y - (box?.y ?? 0) }
+            const result = addPin(slug, projectDeskId, rect, { client, viewport: box ? {w: box.w, h: box.h} : null })
+            if (result.ok) setProjectDeskId(null)
+            else toast([result.reason])
+          } : undefined}
         onJump={(id) => { setProjectDeskId(null); centerOn(id) }}
         onConfig={() => toggleConfig(projectDeskId)} onOpenDoc={openDocView} />
     )}

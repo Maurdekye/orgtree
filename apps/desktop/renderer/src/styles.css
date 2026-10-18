@@ -1400,7 +1400,9 @@ button.badge.audience-fold.alert {
 .project-desk-modal > .modalpin-bar.desk-title {
   margin: 0; padding: 0 4px 0 8px; height: 28px; flex: none; font-size: 13px;
   background: var(--panel-2, var(--panel)); border-bottom: 1px solid var(--line); cursor: default; }
-.modalpin-name .project-mark { color: var(--accent); display: inline-flex; margin-right: 5px; vertical-align: -2px; }
+/* its title is the agent temporary desk's: AgentName's mark and bold name */
+.project-desk-modal > .modalpin-bar.desk-title .modalpin-name { display: inline-flex; align-items: center; gap: 6px; font-size: inherit; }
+.project-desk-modal > .modalpin-bar .modalpin-name .project-mark { color: var(--accent); display: inline-flex; }
 .chip.agents.project-activity { padding: 0 5px; }
 /* "Active 5m" / "Idle 5m": an agent card's state word and clock (.sq-idle,
    .sq-idle-time) with their own spacing and colours (user 2026-10-18 07:42Z) */

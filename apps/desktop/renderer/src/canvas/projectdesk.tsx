@@ -36,6 +36,8 @@ import { subtreeAgents } from './bulkcompact'
 import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 import { agentNavProps } from './agentnav'
 import { PinFrame } from './modalpin'
+import { AgentName } from './identity'
+import type { PinRect } from './pins'
 import { ConfirmModal } from './modals'
 import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
@@ -520,7 +522,12 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
  *  temporary desk does, and "Desk in a separate window" asks this same surface to
  *  pop itself out (`requestSurfaceAction('project-desk', …, 'popout')`). One
  *  surface per org: a second project's desk replaces the first. */
-export function ProjectDeskModal({ close, ...props }: ProjectDeskProps & { close: () => void }) {
+export function ProjectDeskModal({ close, pinAsWindow, ...props }: ProjectDeskProps & {
+  close: () => void
+  /** pin it as the agent pin layer's window (window px), as an agent's
+   *  temporary desk pins (user 2026-10-18 11:47Z); absent: the modal pin */
+  pinAsWindow?: (rect: PinRect) => void
+}) {
   return (
     <PinFrame kind="project-desk" title={`Project ${props.node.id}`}
       restore={{ agent: props.node.id }}
@@ -530,7 +537,8 @@ export function ProjectDeskModal({ close, ...props }: ProjectDeskProps & { close
       panel="tempdesk-panel pin-project project-desk-modal" close={close}
       // one title bar, as the agent desk's: folder and name, pin and close;
       // the desk below does not repeat the name (styles.css, user 11:14Z)
-      deskTitle titleBar={<><span className="project-mark"><FolderIcon fontSize="inherit" /></span>{props.node.id}</>}>
+      deskTitle titleBar={<AgentName id={props.node.id} tier="project" nameClass="pinwin-name" />}
+      pinElsewhere={pinAsWindow}>
       <ProjectDesk {...props} bare />
     </PinFrame>
   )

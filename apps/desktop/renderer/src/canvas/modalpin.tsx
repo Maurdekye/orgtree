@@ -536,6 +536,10 @@ export interface PinFrameProps {
   /** what the bar shows as the title, where it differs from `title` (which
    *  also names the window to the window layout) */
   titleBar?: ReactNode
+  /** pin it as a window ELSEWHERE (window px of the panel), in place of the
+   *  modal pin: the project desk becomes the agent pin layer's window, as the
+   *  agent temporary desk's pin does (tempdesk.tsx, user 2026-10-18 11:47Z) */
+  pinElsewhere?: (rect: PinRect) => void
   /** what Escape does while the surface is CENTRED; defaults to `close`.
    *  A PINNED window ignores Escape, like an agent window: it is not a modal
    *  interruption any more, and Escape there cancels a drag instead. */
@@ -574,7 +578,7 @@ export function PinFrame(props: PinFrameProps) {
     <PinFrameInner {...props} orgScope={scope} panelRef={panelRef} /></MovableSurface>
 }
 
-function PinFrameInner({ kind, title, titleBar, deskTitle = false, panel, close, children, headerActions,
+function PinFrameInner({ kind, title, titleBar, deskTitle = false, pinElsewhere, panel, close, children, headerActions,
   onEsc, backdropClose = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope, panelRef }: PinFrameProps & { orgScope: string | null; panelRef: RefObject<HTMLDivElement | null> }) {
   const pin = useModalPin(kind, orgScope)
   const surface = useSurface()
@@ -726,6 +730,7 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, panel, close,
   }
 
   const toggle = () => {
+    if (!pinned && pinElsewhere) { pinElsewhere(measureRect(panelRef.current)); return }
     if (pinned) {
       unpinModal(kind, orgScope)
       forgetModalOpen(kind, orgScope)
