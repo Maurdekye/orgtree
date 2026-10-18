@@ -26,14 +26,17 @@ pub(super) fn evaluate(state: &mut Value, rows: &[Value], config: &Value, now: D
         let windows=row["windows"].as_array().cloned().unwrap_or_default();
         let status_changed=old.is_object() && old["status"]!=status;
         let status_event=if status=="ok" {"recovered"}else{status};
-        if status_changed && next["windows"].as_object().is_none_or(|w|w.is_empty()) && config.get("windows").is_none() {
+        if status_changed && next["windows"].as_object().is_none_or(|w|w.is_empty()) && config.get("windows").is_none()
+            && (status!="ok" || !windows.iter().any(|w|window_selected(config,w) && w["used_percent"].as_f64().is_some())) {
             out.push(event(status_event,row,&Value::Null,None,None,threshold));
         }
         // Retain last known numbers through unavailable/stale/missing windows.
         // The reset clock is informational; it never creates a zero reading.
         if let Some(saved)=next["windows"].as_object_mut() {for (_,w) in saved {
-            if status_changed {out.push(event(status_event,row,w,w["used_percent"].as_f64(),None,threshold));}
-            if status=="ok" && !windows.iter().any(|v|["kind","group","model"].iter().all(|k|v[*k]==w[*k])) && w["unknown"]!=true {
+            let matching=windows.iter().find(|v|["kind","group","model"].iter().all(|k|v[*k]==w[*k]));
+            let new_percent=matching.and_then(|w|w["used_percent"].as_f64());
+            if status_changed && (status!="ok" || new_percent.is_some()) {out.push(event(status_event,row,matching.unwrap_or(w),w["used_percent"].as_f64(),if status=="ok"{new_percent}else{None},threshold));}
+            if status=="ok" && matching.is_none() && w["unknown"]!=true {
                 out.push(event("unreadable",row,w,w["baseline"].as_f64(),None,threshold));w["unknown"]=json!(true);
             }
             if w["expired"]!=true && w["resets_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t|t<=now) {
@@ -53,7 +56,7 @@ pub(super) fn evaluate(state: &mut Value, rows: &[Value], config: &Value, now: D
                 let mut saved=if previous.is_object(){previous.clone()}else{window.clone()};saved["unknown"]=json!(true);
                 next["windows"][&key]=saved;continue;
             }
-            if previous["unknown"]==true {out.push(event("recovered",row,&window,old_pct,current,threshold));}
+            if previous["unknown"]==true && !status_changed {out.push(event("recovered",row,&window,old_pct,current,threshold));}
             let new_reset=window["resets_at"].as_str().and_then(crate::util::parse_ts);
             let old_reset=previous["resets_at"].as_str().and_then(crate::util::parse_ts);
             let expired=new_reset.is_some_and(|t|t<=now);
