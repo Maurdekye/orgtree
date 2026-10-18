@@ -208,7 +208,15 @@ pub struct Sent {
 
 /// Store one message and wake its recipient.
 #[logged]
-pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Result<Sent> {
+pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Sent> {
+    send_with_notices(engine,org_id,out,&mut super::runtime_notices::ForwardedUserNotices::default()).await
+}
+
+/// Fan-out callers share one request-local batch. Recipient authority and
+/// delivery transactions remain independent; no global or historical dedup.
+#[logged]
+pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing,
+    notices: &mut super::runtime_notices::ForwardedUserNotices) -> Result<Sent> {
     out.tags=super::mail_tags::normalize(Some(&json!(out.tags)))?;
     super::mail_tags::recipient(&out.to,&out.tags)?;
     if matches!(out.from, From::Extern(_)) {
@@ -316,7 +324,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     if target.get::<_, String>(4) == crate::domain::projects::KIND {
         let project = crate::domain::projects::Project { id: target_id, name: to.clone(), state };
         // heap-owned, as send_extern: every caller of `send` keeps its future small
-        return Box::pin(send_project(engine, &org, client, out, project, mail_uid)).await;
+        return Box::pin(send_project(engine, &org, client, out, project, mail_uid, notices)).await;
     }
     if state == "unrecoverable" {
         refuse!(Conflict, "{to} cannot be reached (its session is lost); nothing was sent");
@@ -325,9 +333,9 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
         authorize(&**client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await?;
     }
     let tx = client.transaction().await?;
-    let contact_changes = if direct_user_contact(&out.from, out.ev.as_ref()) {
-        super::runtime_notices::deep_reach_tx(&*tx,org_id,target_id,&out.body,false).await?
-    } else { Vec::new() };
+    let (contact_changes,forwarded) = if direct_user_contact(&out.from, out.ev.as_ref()) {
+        super::runtime_notices::deep_reach_batch_tx(&*tx,org_id,target_id,&out.body,false,notices).await?
+    } else { (Vec::new(),Vec::new()) };
     tx
         .execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
@@ -341,6 +349,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
         )
         .await?;
     tx.commit().await?;
+    notices.committed(forwarded);
     drop(client);
     let mut ch = vec![Change::Mailbox(target_id), Change::Spark { from: out.from.spark(), to: to.clone() }];
     if !matches!(out.from,From::Watchdog{..}) {ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event("mail.waiting",crate::runtime::watchdogs::events::Scope::Agent(org_id,target_id),json!({"agent_id":target_id,"mail_id":mail_uid}))));}
@@ -383,7 +392,8 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
 /// reach it (above or below it, user 2026-10-16 16:11Z); the user always.
 #[logged]
 async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut client: deadpool_postgres::Object,
-                      out: Outgoing, project: crate::domain::projects::Project, mail_uid: String) -> Result<Sent> {
+                      out: Outgoing, project: crate::domain::projects::Project, mail_uid: String,
+                      notices: &mut super::runtime_notices::ForwardedUserNotices) -> Result<Sent> {
     let (sender_agent, sender_gen) = match &out.from {
         From::Agent { id, generation, name } => {
             if !crate::domain::projects::reaches(&**client, *id, project.id).await?
@@ -440,6 +450,9 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         };
         return Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false });
     }
+    let (contact_changes,forwarded) = if direct_user_contact(&out.from, out.ev.as_ref()) {
+        super::runtime_notices::deep_reach_batch_tx(&*tx,org.id,project.id,&out.body,false,notices).await?
+    } else { (Vec::new(),Vec::new()) };
     tx.execute(
         "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
                               recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies)
@@ -452,6 +465,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
     )
     .await?;
     tx.commit().await?;
+    notices.committed(forwarded);
     drop(client);
     let mut ch = vec![
         Change::Mailbox(project.id),
@@ -465,6 +479,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
     if matches!(out.from, From::User) {
         ch.push(Change::UserMail);
     }
+    ch.extend(contact_changes);
     changes::notify(engine, org, ch);
     let handed = crate::domain::projects::dispatch(engine, org.id, project.id).await?;
     let delivery = match handed.iter().find(|h| h.mail == mail_uid) {

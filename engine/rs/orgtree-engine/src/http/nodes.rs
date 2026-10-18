@@ -276,8 +276,9 @@ pub struct BroadcastBody {
 /// the user to every live agent under the project, nested projects included,
 /// with the same attachments and notice flag. As an agent's list send does
 /// (tools/mailtools.rs), it is one delivery per recipient through the
-/// ordinary `mail::send`, and each recipient's outcome is reported; no
-/// transaction spans the deliveries.
+/// ordinary mail admission, and each recipient's outcome is reported; no
+/// transaction spans the deliveries. Shared ancestors get one passive forwarded
+/// user notice for this logical send, regardless of its recipient count.
 #[logged]
 pub async fn broadcast(
     State(e): State<Arc<Engine>>,
@@ -302,11 +303,12 @@ pub async fn broadcast(
     }
     let mut sent = Vec::new();
     let mut refused = Vec::new();
+    let mut notices = crate::domain::runtime_notices::ForwardedUserNotices::default();
     for to in &members {
         let mut out = Outgoing::new(From::User, to, &text);
         out.notice = b.notice;
         out.attachments = attachments.clone();
-        match mail::send(&e, org.id, out).await {
+        match mail::send_with_notices(&e, org.id, out, &mut notices).await {
             Ok(s) => sent.push(json!({ "to": to, "id": s.uid, "delivery": s.delivery, "deferred": s.deferred })),
             Err(err) => refused.push(json!({ "to": to, "why": err.to_string() })),
         }

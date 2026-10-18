@@ -174,6 +174,25 @@ pub async fn compacted(engine:&Arc<Engine>,org_id:i64,agent_id:i64,automatic:boo
     Ok(())
 }
 
+/// One logical user send. Only committed deliveries consume an ancestor notice;
+/// a new send starts fresh even when its body and recipients are identical.
+#[derive(Default, Debug)]
+pub(crate) struct ForwardedUserNotices(std::collections::HashSet<i64>);
+
+impl ForwardedUserNotices {
+    #[nolog]
+    fn pending(&self, ancestors: impl IntoIterator<Item=i64>) -> Vec<i64> {
+        let mut seen = self.0.clone();
+        ancestors.into_iter().filter(|id| seen.insert(*id)).collect()
+    }
+
+    /// Call immediately after admission commits, before any fallible dispatch.
+    #[nolog]
+    pub(crate) fn committed(&mut self, ancestors: Vec<i64>) {
+        self.0.extend(ancestors);
+    }
+}
+
 /// Direct contact grants reply access and informs the superior chain atomically.
 #[logged]
 pub async fn deep_reach(engine:&Arc<Engine>,org_id:i64,agent_id:i64,text:&str,command:bool)->Result<()> {
@@ -191,15 +210,25 @@ pub async fn deep_reach(engine:&Arc<Engine>,org_id:i64,agent_id:i64,text:&str,co
 pub(super) async fn deep_reach_tx(
     c:&impl tokio_postgres::GenericClient,org_id:i64,agent_id:i64,text:&str,command:bool,
 )->Result<Vec<crate::changes::Change>> {
+    Ok(deep_reach_batch_tx(c,org_id,agent_id,text,command,&ForwardedUserNotices::default()).await?.0)
+}
+
+/// Projects share agent forwarding, but retain their separate post-delivery
+/// project audience grant. The caller records returned ancestors only on commit.
+#[logged]
+pub(super) async fn deep_reach_batch_tx(
+    c:&impl tokio_postgres::GenericClient,org_id:i64,agent_id:i64,text:&str,command:bool,
+    notices:&ForwardedUserNotices,
+)->Result<(Vec<crate::changes::Change>,Vec<i64>)> {
     use crate::changes::Change;
     // Same per-org serialization as explicit grants, compatible with FK key-share reads.
     c.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org_id]).await?;
-    let r=c.query_one("SELECT a.name,a.generation,o.slug,a.parent_id FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
-    if r.get::<_,Option<i64>>(3).is_none() { return Ok(Vec::new()); }
+    let r=c.query_one("SELECT a.name,a.generation,o.slug,a.parent_id,a.kind FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
+    if r.get::<_,Option<i64>>(3).is_none() { return Ok((Vec::new(),Vec::new())); }
     let name:String=r.get(0);
     let org:String=r.get(2);
     let mut changed=Vec::new();
-    let fresh=c.query_opt("SELECT 1 FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor='@user' AND revoked_at IS NULL AND NOT paused LIMIT 1", &[&org_id,&name]).await?.is_none();
+    let fresh=r.get::<_,String>(4)=="agent" && c.query_opt("SELECT 1 FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor='@user' AND revoked_at IS NULL AND NOT paused LIMIT 1", &[&org_id,&name]).await?.is_none();
     if fresh {
         let reason=if command {"user ran a command directly"} else {"user messaged directly"};
         c.execute("INSERT INTO ot.audiences(org_id,grantee,grantor,reason) VALUES($1,$2,'@user',$3)", &[&org_id,&name,&reason]).await?;
@@ -208,14 +237,68 @@ pub(super) async fn deep_reach_tx(
         changed.extend([Change::Audiences,Change::Events,Change::Agent(agent_id),Change::Mailbox(agent_id)]);
         changed.push(Change::EngineEvent(crate::runtime::watchdogs::events::event("audience.granted",crate::runtime::watchdogs::events::Scope::NamedAgent(org_id,name.clone()),json!({"agent":name,"grantor":"@user"}))));
     }
-    let rows=c.query("WITH RECURSIVE up(id,parent_id,depth) AS (SELECT id,parent_id,0 FROM ot.agents WHERE id=$1 AND org_id=$2 UNION ALL SELECT a.id,a.parent_id,u.depth+1 FROM ot.agents a JOIN up u ON a.id=u.parent_id WHERE u.depth<1024 AND a.org_id=$2) SELECT a.id,a.name FROM up JOIN ot.agents a ON a.id=up.id WHERE depth>0 AND a.state='live' AND a.kind='agent'", &[&agent_id,&org_id]).await?;
+    let rows=c.query("WITH RECURSIVE up(id,parent_id,depth) AS (SELECT id,parent_id,0 FROM ot.agents WHERE id=$1 AND org_id=$2 UNION ALL SELECT a.id,a.parent_id,u.depth+1 FROM ot.agents a JOIN up u ON a.id=u.parent_id WHERE u.depth<1024 AND a.org_id=$2) SELECT DISTINCT a.id,a.name FROM up JOIN ot.agents a ON a.id=up.id WHERE depth>0 AND a.state='live' AND a.kind='agent'", &[&agent_id,&org_id]).await?;
+    let forwarded=notices.pending(rows.iter().map(|r| r.get::<_,i64>(0)));
     for row in rows {
         let id:i64=row.get(0);
+        if !forwarded.contains(&id) { continue; }
         let target:String=row.get(1);
         let ev=crate::events::typed("context.deep_reach","@user",crate::events::node_ref(&org,&name,r.get::<_,i32>(1) as i64),
             json!({"node":name,"gist":crate::util::gist(text,300),"kind":if command{"command"}else{"message"}}));
         c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,notice,body,ev,state) VALUES($1,$2,'@system','agent',$3,$4,'notice',true,$5,$6,'pending')", &[&crate::util::uid("m"),&org_id,&id,&target,&format!("The user contacted {name} directly."),&crate::util::pg_json(&ev).as_ref()]).await?;
         changed.push(Change::Mailbox(id));
     }
-    Ok(changed)
+    Ok((changed,forwarded))
+}
+
+#[cfg(test)]
+mod forwarding_tests {
+    use super::*;
+
+    #[test]
+    fn three_recipients_share_one_notice_per_ancestor() {
+        let mut notices=ForwardedUserNotices::default();
+        let mut emitted=Vec::<i64>::new();
+        for chain in [[10,1],[11,1],[12,1]] {
+            let pending=notices.pending(chain);
+            emitted.extend(pending.iter().copied());
+            notices.committed(pending);
+        }
+        assert_eq!(emitted,vec![10,1,11,12]);
+    }
+
+    #[test]
+    fn project_and_member_copies_share_ancestor_notices() {
+        let mut notices=ForwardedUserNotices::default();
+        notices.committed(notices.pending([7,1]));
+        assert_eq!(notices.pending([7,1]),Vec::<i64>::new());
+        assert_eq!(notices.pending([8,7,1]),vec![8]);
+    }
+
+    #[test]
+    fn failed_admission_does_not_consume_a_notice() {
+        let mut notices=ForwardedUserNotices::default();
+        let rolled_back=notices.pending([7,1]);
+        assert_eq!(notices.pending([7,1]),rolled_back);
+        let successful=notices.pending([8,1]);
+        notices.committed(successful);
+        assert_eq!(notices.pending([7,1]),vec![7]);
+    }
+
+    #[test]
+    fn each_independent_send_starts_fresh() {
+        let mut first=ForwardedUserNotices::default();
+        first.committed(first.pending([7,1]));
+        assert_eq!(ForwardedUserNotices::default().pending([7,1]),vec![7,1]);
+    }
+
+    #[test]
+    fn duplicate_ancestry_within_one_admission_is_collapsed() {
+        assert_eq!(ForwardedUserNotices::default().pending([1,7,1,7]),vec![1,7]);
+    }
+
+    #[test]
+    fn top_level_has_no_ancestor_notice() {
+        assert!(ForwardedUserNotices::default().pending([]).is_empty());
+    }
 }
