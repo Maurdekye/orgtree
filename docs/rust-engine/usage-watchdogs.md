@@ -59,5 +59,19 @@ threshold/reset/freshness/lifecycle edges. No global threshold events are
 published, because each dog chooses its own threshold. Observation publication
 runs beside usage-history storage; no provider I/O or long transaction is added.
 
-Focused author evidence will be recorded after the red/green batch. No live
-account, usage or hierarchy mutation is part of verification.
+Author evidence (2026-10-18, partial): watchdog desktop suite 14/14 passed,
+zero skips/cancellations, and a synthetic 1000x700 capture passed and was
+personally inspected. Five changed renderer files have no strict TypeScript
+diagnostics; the raw compiler still exits 1 with 27 lines of transitive
+diagnostics, so this is not a full renderer typecheck pass. Initial new test
+expected uppercase controls; the actual lowercase controls are now asserted.
+One existing unchecked string index in the modified description helper was
+made safe for strict indexed-access checks.
+
+Engine semantic red/green, tool-schema regression and cargo check remain
+unexecuted: grant-time RAM was 4,447,888 KiB, below the 5 GiB cargo floor.
+The renderer used a 3072MB kernel Job; its slot was released before waiting
+on the RAM watchdog. Evidence: the author's assigned build scope contains
+`usage-renderer-green`, `usage-visual` and `tmp/usage-typecheck.json`, plus
+the raw transitive diagnostic log. No live account, usage or hierarchy
+mutation is part of verification.
