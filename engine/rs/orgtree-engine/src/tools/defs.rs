@@ -987,6 +987,37 @@ fn build_tool_self_subjugate() -> Value {
 }
 
 #[cfg(test)]
+mod project_settings_contract_tests {
+    use super::*;
+    fn card() -> Value { list().into_iter().find(|c| c["name"] == "orgtree_project").unwrap() }
+
+    #[test]
+    fn project_can_read_and_configure_settings() {
+        let c=card();
+        let actions=c["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap();
+        for action in ["settings","configure"] { assert!(actions.contains(&json!(action)),"missing project action {action}"); }
+    }
+    #[test]
+    fn project_exposes_every_desktop_setting_with_typed_patch_fields() {
+        let c=card();
+        let settings=&c["inputSchema"]["properties"]["settings"];
+        assert_eq!(settings["type"],json!("object"),"settings patch must be an object");
+        for (name,kind) in [("name","string"),("description","string"),("peer_mail","boolean"),
+            ("mail_queue","string"),("exclude_sender","boolean"),("ack_timeout","boolean"),
+            ("max_attempts","integer"),("slots","integer")] {
+            assert_eq!(settings["properties"][name]["type"],json!(kind),"setting {name}");
+        }
+        assert_eq!(settings["additionalProperties"],json!(false));
+    }
+    #[test]
+    fn existing_slot_release_stays_available() {
+        let c=card();
+        assert!(c["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap().contains(&json!("release_slot")));
+        assert_eq!(c["inputSchema"]["properties"]["lease"]["type"],json!("string"));
+    }
+}
+
+#[cfg(test)]
 mod hire_contract_tests {
     use super::*;
 
