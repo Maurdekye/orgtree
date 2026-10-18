@@ -21,6 +21,16 @@
   unrelated mentions and transcript highlights remain. [decided: user
   2026-10-18 14:38–14:41Z; verified: `domain/mail_attention.rs`,
   `http/mailbox.rs`, `mailattention.ts`, `attention/feed.ts`]
+- The Attention list's transcript @user mention row (`MentionRowView`) is the
+  inbox's unread `.mailrow` with the attention cue mention mail wears: agent, a
+  `.mentionkind` pill (the `.askkind` look), time, then ONE excerpt from
+  `mentionExcerpt`. It drops the engine blurb's partial words and keeps a short
+  lead-in whole, else starts at the @user sentence, else '…' + the nearest
+  words within 24 characters; @user is marked inline without padding and
+  ellipses sit only at the ends. The detail pane shows the same text whole.
+  Replaced the centred two-box cut-out (c984db0). [decided: user 2026-10-18
+  14:39Z; verified: `attention/{mentionrow.tsx,feed.ts,attention.css}`,
+  `tests/attnmentionrow.test.tsx`]
 
 - Do Not Disturb is a durable per-turn flag controlled by self status.dnd.
   Every harness gates ordinary mail before steering or interrupt; only urgent
