@@ -25,7 +25,7 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(root, 'capture.json'), JSON.stringify(state, null, 2))
     if (!state.selected || !state.option || !state.agentModel || state.agentEye || state.selectedLabel !== 'top level' || state.optionLabel !== 'top level') throw Error('Wrong Quick chat identity state')
     for (const key of ['w', 'h', 'gap', 'color', 'html']) if (state.selected[key] !== state.option[key]) throw Error('Mismatched shared eye: ' + key)
-    if (state.selected.w !== 18 || state.selected.h !== 18 || state.selected.gap !== 8) throw Error('Wrong icon size/spacing')
+    if (state.selected.w !== 16 || state.selected.h !== 16 || state.selected.gap !== 8) throw Error('Wrong icon size/spacing')
     const image = await win.webContents.capturePage()
     if (image.isEmpty()) throw Error('Empty capture')
     fs.writeFileSync(path.join(root, 'quickchat-eye.png'), image.toPNG())

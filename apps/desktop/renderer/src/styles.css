@@ -8744,6 +8744,7 @@ main:has(> .orgbar.native-header) > .error {
    canvas eye that stands for the user */
 .quickchat-user-mark { padding: 0 2px; }
 .quickchat-top-superior { gap: 8px; }
+.quickchat-top-superior .quickchat-user-mark { width: 16px; height: 16px; }
 .quickchat-user-mark .eye { width: 100%; height: auto; }
 /* the canvas eye's strokes are drawn for 62px; at chip size they need weight */
 .quickchat-user-mark .eye path { stroke-width: 4; }
