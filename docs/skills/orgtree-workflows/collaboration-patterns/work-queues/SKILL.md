@@ -32,4 +32,4 @@ Depending on how it is set up, a project can run as an autonomous work queue. Ma
 4. Post jobs to the project, one mail per job (`orgtree_message to=<project>`, or the project desk's message box with the megaphone off).
 5. Watch the project desk's inbox: each mail shows who holds it, whether it is awaiting an ack, acked, released or dead-lettered. Purge what should no longer run.
 
-For what a project is, see `orgtree-projects` (orgtree-working › team); for the fair_queue watchdog, `orgtree-tool-watchdog` (orgtree-working › watchdogs).
+For what a project is, see `orgtree-projects` (orgtree-working › team); for the fair_queue watchdog, `orgtree-tool-watchdog` (orgtree-working › watchdogs); for posting jobs and acks, `orgtree-tool-message` (orgtree-working › mail).

@@ -791,6 +791,24 @@
    "status": "fixed",
    "components": [
     "apps/desktop/renderer/src/canvas/projectdesk.tsx#ProjectDeskModal"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Mail queue"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Never hand an agent its own mail"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Ack timeout"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Max attempts"
+    }
    ]
   },
   {
@@ -4029,6 +4047,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "also remind about blocked items when every ticket is blocked"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "wake an agent to listen for project mail"
     }
    ],
    "key_sources": [
