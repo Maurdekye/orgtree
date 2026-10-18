@@ -15,6 +15,8 @@ fs.mkdirSync(output, { recursive: true })
 const visual = mode?.startsWith('visual')
 const entry = path.join(repo, 'apps/desktop/renderer/tests', visual ? 'watchdog-card-visual.tsx' : 'watchdog-description.test.tsx')
 const controls = mode === 'test-controls'
+const before = mode === 'visual-red'
+const baseline = '3255bf9c87b2084d7abac0932500c0bea601ea2d'
 const controlEntries = ['watchdog-description', 'watchdog-silence', 'watchdog-schedule']
 try {
   await esbuild.build({ entryPoints: controls ? controlEntries.map(name => path.join(repo, 'apps/desktop/renderer/tests', name + '.test.tsx')) : [entry],
@@ -22,9 +24,9 @@ try {
     format: 'esm', platform: visual ? 'browser' : 'node', target: 'node22', jsx: 'automatic',
     nodePaths: [path.join(path.resolve(deps), 'node_modules')], external: ['node:*'],
     plugins: [{ name: 'external-jsdom', setup(build) { build.onResolve({ filter: /^jsdom$/ }, () => ({ path: pathToFileURL(require.resolve('jsdom')).href, external: true })) } },
-      ...(visual && mode === 'visual-before' ? [{ name: 'before-helper-ui', setup(build) {
-        build.onLoad({ filter: /[\\/]canvas[\\/]desk\.tsx$/ }, () => {
-          const old = spawnSync('git', ['show', '0498bbc:apps/desktop/renderer/src/canvas/desk.tsx'], { cwd: repo, encoding: 'utf8', windowsHide: true })
+      ...(before ? [{ name: 'before-watchdog-ui', setup(build) {
+        build.onLoad({ filter: /[\\/]canvas[\\/]modals\.tsx$/ }, () => {
+          const old = spawnSync('git', ['show', baseline+':apps/desktop/renderer/src/canvas/modals.tsx'], { cwd: repo, encoding: 'utf8', windowsHide: true })
           if (old.status !== 0) throw new Error(old.stderr || 'Cannot read before-UI source')
           return { contents: old.stdout, loader: 'tsx', resolveDir: path.join(repo, 'apps/desktop/renderer/src/canvas') }
         })
@@ -33,7 +35,13 @@ try {
 } finally { esbuild.stop() }
 let command, args, env = { ...process.env }
 if (visual) {
-  const css = pathToFileURL(path.join(repo, 'apps/desktop/renderer/src/styles.css')).href
+  if (before) {
+    const old = spawnSync('git', ['show', baseline+':apps/desktop/renderer/src/styles.css'], { cwd: repo, encoding: 'utf8', windowsHide: true })
+    if (old.status !== 0) throw Error('Cannot read baseline CSS')
+    fs.writeFileSync(path.join(output,'baseline.css'),old.stdout)
+  }
+  const css = pathToFileURL(before ? path.join(output,'baseline.css') : path.join(repo, 'apps/desktop/renderer/src/styles.css')).href
+  fs.writeFileSync(path.join(output,'source.json'),JSON.stringify({baseline:before ? baseline : null,mode},null,2))
   fs.writeFileSync(path.join(output, 'fixture.html'), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${css}"><style>body{background:var(--bg);color:var(--text);font:14px system-ui}</style></head><body><div id="root"></div><script type="module" src="fixture.js"></script></body></html>`)
   command = require('electron'); args = [path.join(repo, 'apps/desktop/renderer/tests/watchdog-card-capture.cjs')]
   delete env.ELECTRON_RUN_AS_NODE

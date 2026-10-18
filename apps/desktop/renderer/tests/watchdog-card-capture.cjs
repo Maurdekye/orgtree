@@ -18,18 +18,29 @@ app.whenReady().then(async () => {
         win.webContents.invalidate()
         state = await win.webContents.executeJavaScript(`new Promise(resolve=>{
           document.documentElement.classList.toggle('contrast-light',${theme === 'light'});
-          requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>resolve({
+          requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>{
+            const canvas=document.createElement('canvas');canvas.width=canvas.height=1;
+            const ctx=canvas.getContext('2d');
+            ctx.fillStyle=getComputedStyle(document.body).backgroundColor;ctx.fillRect(0,0,1,1);
+            const overlay=document.querySelector('.overlay');
+            if(overlay){ctx.fillStyle=getComputedStyle(overlay).backgroundColor;ctx.fillRect(0,0,1,1)}
+            const pixel=ctx.getImageData(0,0,1,1).data;
+            resolve({
             text:document.body.innerText,type:document.querySelector('.wd-type')?.textContent,
             description:document.querySelector('.wd-description')?.textContent,
             panels:document.querySelectorAll('.wd-cmd').length,
-            background:getComputedStyle(document.body).backgroundColor}),250)))})`)
+            background:getComputedStyle(document.body).backgroundColor,
+            expectedBackground:'rgb('+pixel[0]+', '+pixel[1]+', '+pixel[2]+')'})},250)))})`)
         image = await win.webContents.capturePage()
         if (image.isEmpty()) throw Error('Empty screenshot')
         const bitmap = image.toBitmap()
         actualBackground = `rgb(${bitmap[2]}, ${bitmap[1]}, ${bitmap[0]})`
-        if (actualBackground === state.background) break
+        if (actualBackground === state.expectedBackground) break
       }
-      if (actualBackground !== state.background) throw Error('Stale capture '+name+'/'+theme)
+      if (actualBackground !== state.expectedBackground) {
+        fs.writeFileSync(path.join(root,'capture-failure.json'),JSON.stringify({name,theme,state,actualBackground},null,2))
+        throw Error('Stale capture '+name+'/'+theme)
+      }
       if (state.panels < 1 || !state.text.includes('test-proj-worker-b')) throw Error('Panel not rendered')
       if (process.env.WATCHDOG_CAPTURE_RICH === 'true' && (!state.type || !state.description)) throw Error('Missing explanation')
       fs.writeFileSync(path.join(root, name+'-'+theme+'.png'), image.toPNG())
