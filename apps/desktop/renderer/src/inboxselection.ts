@@ -38,7 +38,7 @@ export function useInboxTagSelection(slug:string,base:InboxPayload|null|undefine
     if(!tags.length&&!wasFiltered)return
     try{window.sessionStorage.setItem(arrivalsKey(slug),JSON.stringify([...previous.ids]))}catch{/* storage is optional */}
     if(!changed&&(!tags.length||!incoming.length))return
-    const candidate=tags.length&&incoming.length?incoming[0].id:previous.id
+    const candidate=tags.length&&incoming.length?incoming[0]!.id:previous.id
     const request=++generation.current
     if(candidate)previous.id=candidate
     const publish=(row:MailEntry|null)=>{
