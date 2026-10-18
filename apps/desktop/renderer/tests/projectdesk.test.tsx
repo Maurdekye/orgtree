@@ -147,8 +147,20 @@ test('§1c the presented tab counts the project\'s OWN documents (point 27, repl
 })
 
 test('project presentation Reply context action stages the document target and focuses the project composer', async (t) => {
-  const doc = { id: 'p1', title: 'Release plan', at: new Date().toISOString(), node: 'website' }
-  const el = await desk(t, { node: project({ documents: [doc] } as never), openDoc: noop })
+    const doc = { id: 'p1', title: 'Release plan', at: new Date().toISOString(), node: 'website' }
+    const el = await desk(t, { node: project({ documents: [doc] } as never), openDoc: noop })
+    const calls: { body?: unknown }[] = []
+    const inner = globalThis.fetch
+    globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(url), 'http://fixture.invalid').pathname
+      if (init?.method === 'POST' && path === '/api/orgs/org/nodes/website/message') {
+        calls.push({ body: JSON.parse(String(init.body)) })
+        return Promise.resolve(new Response(JSON.stringify({ accepted: true, id: 'm1', delivery: 'queued' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      return inner(url, init)
+    }) as typeof fetch
+    t.after(() => { globalThis.fetch = inner })
   const card = el.querySelector<HTMLElement>('.desk-docs [data-doc-id="p1"]')!
   assert.ok(card, 'the project header presentation card')
   await inAct(() => {
@@ -159,15 +171,21 @@ test('project presentation Reply context action stages the document target and f
   assert.ok(reply, 'project presentation cards offer a Reply action')
   await inAct(() => { reply!.click() })
   const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
-  assert.equal(document.activeElement, box, 'choosing Reply focuses the project composer')
-  assert.equal(el.querySelector('.project-reply-target')?.textContent?.includes('Release plan'), true,
-    'the project composer shows the staged presentation target')
-})
+    assert.equal(document.activeElement, box, 'choosing Reply focuses the project composer')
+    assert.equal(el.querySelector('.project-reply-target')?.textContent?.includes('Release plan'), true,
+      'the project composer shows the staged presentation target')
+    await inAct(() => { setText(box, 'Following up on the plan') })
+    await inAct(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await flush(4)
+    assert.deepEqual(calls, [{ body: { text: 'Following up on the plan', targets: [{ kind: 'document', org: 'org', id: 'p1' }] } }],
+      'a normal project send carries the staged typed document target')
+  })
 
 test('project presentation reader can broadcast a reply while preserving its document target', async (t) => {
-  const row = { id: 'p1', node: 'website', title: 'Release plan', at: new Date().toISOString(),
-    evicted: false, node_state: 'live', tier: 'project', format: 'markdown' }
-  const calls: { path: string; body?: unknown }[] = []
+    const row = { id: 'p1', node: 'website', title: 'Release plan', at: new Date().toISOString(),
+      evicted: false, node_state: 'live', tier: 'project', format: 'markdown' }
+    const calls: { path: string; body?: unknown }[] = []
+    let rejectBroadcast = false
   const fixture = (inner: typeof fetch) => ((url: RequestInfo | URL, init?: RequestInit) => {
     const u = new URL(String(url), 'http://fixture.invalid')
     const path = u.pathname
@@ -177,9 +195,10 @@ test('project presentation reader can broadcast a reply while preserving its doc
     if (path === '/api/orgs/org/documents/p1' && !init?.method)
       return Promise.resolve(new Response(JSON.stringify({ ...row, body: 'Plan body' }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    if (init?.method === 'POST' && path === '/api/orgs/org/nodes/website/broadcast') {
-      calls.push({ path, body: JSON.parse(String(init.body)) })
-      return Promise.resolve(new Response(JSON.stringify({ accepted: true, project: 'website', notice: false,
+      if (init?.method === 'POST' && path === '/api/orgs/org/nodes/website/broadcast') {
+        calls.push({ path, body: JSON.parse(String(init.body)) })
+        if (rejectBroadcast) return Promise.resolve(new Response(JSON.stringify({ error: 'rejected' }), { status: 500 }))
+        return Promise.resolve(new Response(JSON.stringify({ accepted: true, project: 'website', notice: false,
         sent: [{ to: 'dev1' }], refused: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     }
     return inner(url, init)
@@ -202,11 +221,18 @@ test('project presentation reader can broadcast a reply while preserving its doc
   await inAct(() => { setText(reply!, 'Replying to the plan') })
   await inAct(() => { reply!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
   await flush(5)
-  assert.deepEqual(calls, [{ path: '/api/orgs/org/nodes/website/broadcast', body: {
-    text: 'Replying to the plan', targets: [{ kind: 'document', org: 'org', id: 'p1' }],
-  } }], 'broadcast replies retain the document target for recipients')
-  assert.equal(broadcast.getAttribute('aria-pressed'), 'false', 'successful broadcast disarms the option')
-})
+    assert.deepEqual(calls, [{ path: '/api/orgs/org/nodes/website/broadcast', body: {
+      text: 'Replying to the plan', targets: [{ kind: 'document', org: 'org', id: 'p1' }],
+    } }], 'broadcast replies retain the document target for recipients')
+    assert.equal(broadcast.getAttribute('aria-pressed'), 'false', 'successful broadcast disarms the option')
+    rejectBroadcast = true
+    await inAct(() => { broadcast!.click() })
+    await inAct(() => { setText(reply!, 'Retry the plan reply') })
+    await inAct(() => { reply!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await flush(5)
+    assert.equal(broadcast.getAttribute('aria-pressed'), 'true', 'a failed broadcast leaves the option armed')
+    assert.equal(reply!.value, 'Retry the plan reply', 'a failed broadcast restores the reply draft')
+  })
 
 test('§1d point 27: the project\'s own gallery is the cards the engine attributes to it, a renamed project\'s too; its TEAM gallery the subtree\'s as well', async (t) => {
   const had = globalThis.fetch
