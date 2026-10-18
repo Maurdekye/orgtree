@@ -1,4 +1,4 @@
-import { inAct, mountView, flush } from './harness'
+import { inAct, mountView, flush, fakeClock, realClock, advance } from './harness'
 import { withoutMailTransfers } from './mailtransfers.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -18,30 +18,32 @@ function geometry(el:HTMLElement){
   popover.getBoundingClientRect=()=>({left:100,right:420,top:128,bottom:300,width:320,height:172,x:100,y:128,toJSON(){}})
 }
 test('pointer far outside trigger and popup closes after a grace delay',async()=>{
+  fakeClock()
   const v=await mountView(<MailTagPicker selected={[]} choices={['alpha']} onChange={()=>{}}/>,el=>el)
   try{
     await inAct(()=>trigger(v.el).click());geometry(v.el)
     await inAct(()=>{move(600,450)})
     assert.equal(trigger(v.el).getAttribute('aria-expanded'),'true','grace does not close immediately')
-    await inAct(async()=>{await flush(290)})
+    await advance(290)
     assert.equal(trigger(v.el).getAttribute('aria-expanded'),'false')
-  }finally{await v.unmount()}
+  }finally{await v.unmount();realClock()}
 })
 test('returning within the margin cancels closing and typed search keeps its popup',async()=>{
+  fakeClock()
   const v=await mountView(<MailTagPicker selected={[]} choices={['alpha']} onChange={()=>{}}/>,el=>el)
   try{
     await inAct(()=>trigger(v.el).click());geometry(v.el)
     await inAct(()=>{move(600,450);move(450,200)})
-    await inAct(async()=>{await flush(290)})
+    await advance(290)
     assert.equal(trigger(v.el).getAttribute('aria-expanded'),'true')
     const input=document.querySelector<HTMLInputElement>('input[aria-label="Search tags"]')!
     await inAct(()=>{
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(input,'alpha')
       input.dispatchEvent(new Event('input',{bubbles:true}));move(900,600)
     })
-    await inAct(async()=>{await flush(290)})
+    await advance(290)
     assert.equal(trigger(v.el).getAttribute('aria-expanded'),'true')
-  }finally{await v.unmount()}
+  }finally{await v.unmount();realClock()}
 })
 async function inbox(slug:string,base:InboxPayload,filtered:InboxPayload,lookup?:MailEntry){
   const previous=globalThis.fetch,calls:string[]=[]
@@ -80,7 +82,7 @@ test('a remembered matching mail outside the bounded page is fetched and restore
 })
 test('server hidden-unread count clears tags and selects the global oldest unread',async()=>{
   const old=mail('old'),oldest=mail('ancient',['other'])
-  const filtered={...box([old]),hidden_unread:802,oldest_unread:oldest}
+  const filtered={...box([old]),hidden_unread:802,oldest_unread_id:oldest.id}
   const v=await inbox('filter-unread',box([old]),filtered,oldest)
   try{
     const row=v.el.querySelector<HTMLButtonElement>('.mail-hidden-unread');assert.ok(row)
