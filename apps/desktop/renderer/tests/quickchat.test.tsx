@@ -125,7 +125,8 @@ test('with no history: Opus, the org default effort, top level; Enter hires, kic
   const view = await mount(ops, hired)
   try {
     assert.deepEqual(shown(view.el), { superior: 'top level', model: 'opus', effort: '' })
-    assert.equal(view.el.querySelector('.quickchat-superior .tier'), null, 'top level has no id icon')
+    assert.ok(view.el.querySelector('.quickchat-superior .quickchat-user-mark .eye'),
+      'top level shows the switchboard eye beside its label')
     const send = view.el.querySelector<HTMLButtonElement>('.quickchat-send')!
     assert.ok(send.disabled, 'send is disabled while the box is empty')
     const box = view.el.querySelector<HTMLInputElement>('.quickchat-input')!
@@ -138,6 +139,29 @@ test('with no history: Opus, the org default effort, top level; Enter hires, kic
     assert.ok(!('audiences' in ops[0]!), 'a top-level agent already writes to the user')
     assert.deepEqual(hired, ['write-release-notes'])
     assert.equal(box.value, '', 'the box clears after a hire')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('the top-level superior shares the option-list eye and agent selections retain their model card', async () => {
+  localStorage.clear(); providers(['claude'])
+  const view = await mount([], [])
+  try {
+    const selected = () => view.el.querySelector('.quickchat-superior')!
+    await click(selected())
+    const option = document.querySelector('.quickchat-top .tray-main')!
+    const optionMark = option.querySelector('.quickchat-user-mark')!
+    assert.ok(optionMark.querySelector('.eye'), 'the top-level option keeps its switchboard eye')
+    assert.equal(option.firstElementChild === optionMark, true, 'option eye is left of the label')
+    assert.equal(selected().firstElementChild?.outerHTML, optionMark.outerHTML,
+      'the selected top level uses the same icon markup as its Agents-list option')
+    await click(document.querySelector('.quickchat-sup [data-copy-agent-name="boss"] .tray-main'))
+    assert.equal(shown(view.el).superior, 'boss')
+    assert.ok(selected().querySelector('.tier.t-sonnet'), 'an agent superior retains its model card')
+    assert.equal(selected().querySelector('.eye') === null, true, 'agent superior has no switchboard eye')
+    await click(selected())
+    await click(document.querySelector('.quickchat-top .tray-main'))
+    assert.equal(shown(view.el).superior, 'top level')
+    assert.ok(selected().querySelector('.quickchat-user-mark .eye'), 'choosing top level restores its eye')
   } finally { await view.unmount(); localStorage.clear() }
 })
 
