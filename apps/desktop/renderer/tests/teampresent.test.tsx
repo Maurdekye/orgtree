@@ -7,8 +7,11 @@
 //      "Open team docket", and it opens the gallery in team scope;
 //   §2 the gallery in team scope asks the engine for team=1 (the agent and
 //      everyone under it, passing through projects);
-//   §3 every row names the agent that PRESENTED it — for a document presented
-//      under a project that is the agent, not the project;
+//   §3 a row names its presenter: for a document presented under a project
+//      that is the PROJECT (folder mark and name), with a "presented by
+//      <agent>" line naming the agent (user 2026-10-18 07:30Z, replacing the
+//      22:47:51Z rule that named the agent alone); the viewer's header says
+//      the same (§3d);
 //   §4 a project's card and its desk header carry presentation chips for the
 //      project's own documents and its subtree's.
 //
@@ -76,14 +79,36 @@ test('§2 the team gallery asks for team=1', async (t) => {
   assert.ok(urls.some((u) => u.includes('/documents?') && u.includes('node=boss') && u.includes('team=1')), JSON.stringify(urls))
 })
 
-test('§3 every row names the agent that presented it, also under a project', async (t) => {
+test('§3 a project’s row names the project, with the agent that presented it beneath (user 2026-10-18 07:30Z)', async (t) => {
   stubDocuments(t, [doc('d1', 'website', 'boss', 'Website plan'), doc('d2', 'dev5', 'dev5', 'UI sketch')])
   const view = await mountView(<AgentGalleryView slug="org" nid="boss" toast={noop} team />, (el) => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(6) })
   const rows = [...view.el.querySelectorAll('.doc-gallery-row .l2')]
-  assert.deepEqual(rows.map((r) => r.getAttribute('data-copy-agent-name')), ['boss', 'dev5'],
-    'the presenting agents, not the project')
+  assert.deepEqual(rows.map((r) => r.getAttribute('data-copy-agent-name')), ['website', 'dev5'],
+    'the project, and an agent’s own card under the agent')
+  assert.ok(rows[0]!.querySelector('.project-mark'), 'the project’s folder mark')
+  assert.equal(rows[0]!.querySelector('.doc-presented-by')?.textContent, 'presented by boss')
+  assert.equal(rows[1]!.querySelector('.doc-presented-by') === null, true, 'no extra line for an agent’s own card')
+})
+
+test('§3d the viewer’s header names the project and says who presented it (user 2026-10-18 07:30Z)', async (t) => {
+  stubDocuments(t, [doc('d1', 'website', 'boss', 'Website plan'), doc('d2', 'dev5', 'dev5', 'UI sketch')])
+  const focused: string[] = []
+  const view = await mountView(<AgentGalleryView slug="org" nid="boss" toast={noop} team
+    onFocusAgent={(id) => { focused.push(id) }} />, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(6) })
+  await inAct(() => { view.el.querySelector<HTMLElement>('.doc-gallery-row')!.click() })
+  await inAct(async () => { await flush(6) })
+  const meta = view.el.querySelector('.doc-pane-meta-row')
+  assert.ok(meta, 'the viewer opened')
+  assert.ok(meta!.querySelector('.project-mark'), 'the project’s folder mark')
+  assert.match(meta!.textContent ?? '', /^website/, 'the project first')
+  const by = view.el.querySelector('.doc-pane-head .doc-presented-by')
+  assert.equal(by?.textContent, 'this presentation was presented by boss')
+  await inAct(() => { by!.querySelector<HTMLButtonElement>('button.cc-name-jump')!.click() })
+  assert.deepEqual(focused, ['boss'], 'the agent’s name is a link')
 })
 
 test('§3b the presenter is a LINK: a click focuses that agent and does not select the row (review of a590555)', async (t) => {
@@ -95,7 +120,7 @@ test('§3b the presenter is a LINK: a click focuses that agent and does not sele
   await inAct(async () => { await flush(6) })
   const selected = () => [...view.el.querySelectorAll('.doc-gallery-row.on')].length
   const before = selected()
-  const link = view.el.querySelectorAll<HTMLButtonElement>('.doc-gallery-row .l2 button.cc-name-jump')[1]
+  const link = view.el.querySelectorAll('.doc-gallery-row .l2')[1]?.querySelector<HTMLButtonElement>('button.cc-name-jump')
   assert.ok(link, 'the second row\'s presenter is a button')
   assert.equal(link.textContent, 'dev5')
   await inAct(() => { link.click() })
