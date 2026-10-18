@@ -46,7 +46,7 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
         "move" if args.get("moves").map(|m| m.is_array()).unwrap_or(false) => req["op"] = json!("moves"),
         "create_project" => match arg_str(args, "action") {
             Some("create") => {
-                if arg_str(args, "parent").is_none() {
+                if arg_str(args, "parent").is_none() && arg_str(args,"above").is_none() {
                     req["parent"] = json!(me.name);
                 }
             }
@@ -150,12 +150,37 @@ async fn project_broadcast(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
         if rows.is_empty() { break; }
         for r in rows {
             after=r.get(0); let to:String=r.get(1);
-            let letter=json!({"metadata":{"to":to,"notice":args["notice"],"attachments":args["attachments"]},"body":args["body"]});
-            match super::mailtools::message(engine,caller,&letter,false).await {
+            let letter=project_broadcast_letter(args,&to);
+            match super::mailtools::project_broadcast_to(engine,caller,&letter).await {
                 Ok(d)=>outcomes.push(json!({"to":to,"sent":true,"detail":d.text,"mail":d.card})),
                 Err(e)=>outcomes.push(json!({"to":to,"sent":false,"error":e.to_string()})),
             }
         }
     }
     Done::json(&json!({"project":project.name,"outcomes":outcomes}))
+}
+
+/// Delegate all validation and per-recipient DND/reply/attachment authority to
+/// the ordinary message handler. Missing fields stay absent, not null.
+#[nolog]
+fn project_broadcast_letter(args:&Value,to:&str)->Value {
+    let mut metadata=json!({"to":to});
+    for key in ["notice","attachments","urgent","urgent_reason","reply_to","replies"] {
+        if let Some(value)=args.get(key) {metadata[key]=value.clone()}
+    }
+    json!({"metadata":metadata,"body":args["body"]})
+}
+
+#[cfg(test)]
+mod project_agent_tool_tests {
+    use super::*;
+    #[test]
+    fn project_tools_broadcast_forwards_metadata_without_impersonation() {
+        let args=json!({"name":"build","body":"result","notice":true,"attachments":["proof.txt"],
+            "urgent":true,"urgent_reason":"deadline","reply_to":"m1","replies":["m1","m2"],"from":"user"});
+        let letter=project_broadcast_letter(&args,"worker");
+        assert_eq!(letter,json!({"metadata":{"to":"worker","notice":true,"attachments":["proof.txt"],"urgent":true,
+            "urgent_reason":"deadline","reply_to":"m1","replies":["m1","m2"]},"body":"result"}));
+        assert_eq!(project_broadcast_letter(&json!({"body":"x"}),"a"),json!({"metadata":{"to":"a"},"body":"x"}));
+    }
 }

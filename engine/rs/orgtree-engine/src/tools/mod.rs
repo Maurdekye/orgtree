@@ -7,6 +7,7 @@ pub(crate) mod compaction;
 pub mod defs;
 pub mod usermcp;
 mod mailtools;
+mod project_inbox;
 pub(crate) use mailtools::typing_peers;
 mod orgview;
 mod session;

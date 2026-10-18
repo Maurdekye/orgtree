@@ -70,6 +70,19 @@ struct Delivered {
 /// one delivery per recipient, every reach rule checked per recipient.
 #[logged]
 pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_notice: bool) -> Result<Done> {
+    message_impl(engine,caller,args,force_notice,false).await
+}
+
+/// A project fan-out retains plural conversation filtering, while returning
+/// each individual delivery/refusal to its caller. Not an input flag: callers
+/// cannot opt ordinary single-recipient messages into broadcast semantics.
+#[logged]
+pub(super) async fn project_broadcast_to(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Done> {
+    message_impl(engine,caller,args,false,true).await
+}
+
+#[logged]
+async fn message_impl(engine:&Arc<Engine>,caller:&Caller,args:&Value,force_notice:bool,broadcast:bool)->Result<Done> {
     // the split shape {metadata, body} reads as the flat one from here on
     let args = &flat_args(args)?;
     let tags=crate::domain::mail_tags::normalize(args.get("tags"))?;
@@ -138,7 +151,13 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
         letter.reply = letter.replies.first().cloned();
     }
     if single {
-        let d = send_one(engine, &letter, &to, true, if letter.replies.is_empty() { arg_str(args,"reply_to") } else { None }).await?;
+        if broadcast && letter.replies.is_empty() {
+            if let Some(r)=arg_str(args,"reply_to") {
+                letter.reply=Some(mail::agent_reply_quote(engine,letter.me.org_id,letter.me.id,&letter.me.name,r).await?);
+            }
+        }
+        let direct_reply=if !broadcast && letter.replies.is_empty() {arg_str(args,"reply_to")}else{None};
+        let d = send_one(engine, &letter, &to, !broadcast, direct_reply).await?;
         return Ok(Done { text: d.text, card: Some(json!({ "mail": { "id": d.uid, "to": d.box_name, "transfer_ids": d.transfer_ids } })) });
     }
     if let Some(r) = arg_str(args, "reply_to").filter(|_| letter.replies.is_empty()) {
@@ -492,7 +511,7 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
 
 /// UTF-8 chunks concatenate exactly; the handle binds reads to an immutable body digest.
 #[logged]
-fn mail_chunk(body: &str, index: usize) -> Result<Value> {
+pub(super) fn mail_chunk(body: &str, index: usize) -> Result<Value> {
     use sha2::{Digest, Sha256};
     let mut spans = Vec::new();
     let mut start = 0;
@@ -514,8 +533,8 @@ fn mail_chunk(body: &str, index: usize) -> Result<Value> {
 pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let action = need_str(args, "action")?;
     let allowed = match action {
-        "list" => vec!["action", "cursor", "limit", "project"], "fetch" => vec!["action", "message_ids", "project"],
-        "chunk" => vec!["action", "delivery_id", "message_id", "chunk_index"],
+        "list" => vec!["action", "cursor", "limit", "project", "folder", "status"], "fetch" => vec!["action", "message_ids", "project", "folder", "status"],
+        "chunk" => vec!["action", "delivery_id", "message_id", "chunk_index", "project", "folder", "status"],
         "conversation" => vec!["action", "peer", "cursor", "limit"],
         _ => crate::refuse!(BadRequest, "action must be list, fetch, chunk or conversation"),
     };
@@ -523,12 +542,15 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         if action == "conversation" {
             crate::refuse!(BadRequest, "conversation reads your own mail with one correspondent; it takes peer, cursor and limit only");
         }
-        crate::refuse!(BadRequest, "the manual inbox reads your own mailbox, or a project's waiting mail with project=<name>; it takes no agent, node, org or mailbox argument");
+        crate::refuse!(BadRequest, "the manual inbox reads your own mailbox, or a project's mail with project=<name>; it takes no agent, node, org or mailbox argument");
     }
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
     if let Some(name) = args.get("project").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
-        return project_inbox(&client, &me, name, action, args).await;
+        return super::project_inbox::read(&client, &me, name, action, args).await;
+    }
+    if args.get("folder").is_some() || args.get("status").is_some() {
+        crate::refuse!(BadRequest,"folder and status require project=<name>");
     }
     if action == "conversation" {
         return conversation(engine, &client, &me, args).await;
@@ -625,57 +647,6 @@ fn inbox_read_done(body:&Value,items:&[Value],recipient:i64,project:bool) -> Res
     let reads=crate::runtime::manual_mail::opened(items,recipient,project);
     if !reads.is_empty() {done.card=Some(json!({"_manual_mail_reads":reads}));}
     Ok(done)
-}
-
-/// A project's waiting (unread) mail, read by an agent above or below the
-/// project without claiming it (user 2026-10-16 16:14Z): `list` previews it,
-/// `fetch` reads whole messages. Only fair-queue delivery claims mail.
-#[logged]
-async fn project_inbox(client: &tokio_postgres::Client, me: &super::Me, name: &str, action: &str, args: &Value) -> Result<Done> {
-    use crate::domain::projects;
-    let Some(p) = projects::by_name(client, me.org_id, name).await? else {
-        crate::refuse!(NotFound, "no project named {name} in this organization");
-    };
-    projects::require_reach(client, me.id, &p, "inspect its mailbox").await?;
-    let note = "Read-only: nothing here is claimed or marked read. Each waiting mail goes to exactly one agent watching the project with a fair_queue watchdog (the least recently woken), and leaves this list then.";
-    if action == "list" {
-        let limit = args["limit"].as_i64().unwrap_or(50).clamp(1, 200);
-        let (total, messages) = projects::waiting(client, p.id, limit).await?;
-        let watchers: i64 = client
-            .query_one("SELECT count(*) FROM ot.watchdogs WHERE kind = 'fair_queue' AND state = 'armed' AND (memo->>'target_id')::bigint = $1", &[&p.id])
-            .await?
-            .get(0);
-        let st = projects::queue_state(client, me.org_id, p.id, None).await?;
-        return Done::json(&json!({ "project": p.name, "waiting": total, "fair_queue_watchers": watchers,
-            "queue": projects::wait_note(&p.name, &projects::QueueState { position: (total > 0).then_some(1), ..st }),
-            "messages": messages, "note": note }));
-    }
-    let a = args["message_ids"].as_array().ok_or_else(|| anyhow::anyhow!("fetch needs message_ids"))?;
-    if a.is_empty() || a.len() > 20 || a.iter().any(|v| !v.is_string()) {
-        crate::refuse!(BadRequest, "fetch needs 1 to 20 message IDs");
-    }
-    let ids: Vec<String> = a.iter().filter_map(Value::as_str).map(str::to_string).collect();
-    let rows = client
-        .query(
-            "SELECT uid, sender, kind, created_at, body, attachments, notice FROM ot.mail
-              WHERE recipient_agent_id = $1 AND state = 'pending' AND uid = ANY($2) LIMIT 20",
-            &[&p.id, &ids],
-        )
-        .await?;
-    let mut items = Vec::new();
-    let mut missing = Vec::new();
-    for id in &ids {
-        let Some(r) = rows.iter().find(|r| r.get::<_, String>(0) == *id) else { missing.push(id.clone()); continue };
-        let mut item = mail_chunk(&r.get::<_, String>(4), 0)?;
-        item["id"] = json!(id);
-        item["from"] = json!(r.get::<_, String>(1));
-        item["kind"] = json!(crate::domain::mail::shown_kind(&r.get::<_, String>(2)));
-        item["at"] = json!(iso(r.get(3)));
-        item["attachments"] = r.get::<_, Value>(5);
-        if r.get::<_, bool>(6) { item["notice"] = json!(true); }
-        items.push(item);
-    }
-    inbox_read_done(&json!({ "project": p.name, "messages": items, "not_waiting": missing, "note": note }), &items, p.id, true)
 }
 
 /// The mail the caller and one correspondent exchanged, both directions:

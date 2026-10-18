@@ -2188,15 +2188,27 @@ async fn project_presentations(org:&Arc<OrgHandle>,tx:&Transaction<'_>,actor:&Ac
     members.push(n.id);
     let document=str_arg(req,"document");
     if req["action"]=="read_presentation" && document.is_none() {refuse!(BadRequest,"read_presentation needs document id");}
+    let (chunk_index,chunk_start)=super::presentation_chunks::index(req)?;
     let limit=req["limit"].as_i64().unwrap_or(50).clamp(1,100);
     let offset=req["offset"].as_i64().unwrap_or(0).max(0);
-    let rows=tx.query("SELECT d.uid,d.node_name,d.title,d.at,d.format,d.bytes,CASE WHEN $4::text IS NULL THEN NULL ELSE substring(coalesce(d.body,''),1,60001) END FROM ot.documents d WHERE d.org_id=$1 AND (d.agent_id=ANY($2) OR (d.agent_id IS NULL AND d.node_name=$3)) AND ($4::text IS NULL OR d.uid=$4) ORDER BY d.id DESC OFFSET $5 LIMIT $6", &[&org.id,&members,&n.name,&document,&offset,&limit]).await?;
+    let rows=tx.query("SELECT d.uid,d.node_name,d.title,d.at,d.format,d.bytes,
+        CASE WHEN $4::text IS NULL THEN NULL ELSE substring(coalesce(d.body,''),$7::integer,$8::integer) END,
+        CASE WHEN $4::text IS NULL THEN NULL ELSE char_length(coalesce(d.body,'')) END,d.xmin::text
+        FROM ot.documents d WHERE d.org_id=$1 AND (d.agent_id=ANY($2) OR (d.agent_id IS NULL AND d.node_name=$3))
+        AND ($4::text IS NULL OR d.uid=$4) ORDER BY d.id DESC OFFSET $5 LIMIT $6",
+        &[&org.id,&members,&n.name,&document,&offset,&limit,&chunk_start,&super::presentation_chunks::CHARS]).await?;
     if document.is_some() && rows.is_empty() {refuse!(NotFound,"presentation is not in the requested project gallery");}
-    let docs:Vec<Value>=rows.iter().map(|r|{
+    let docs:Vec<Value>=rows.iter().map(|r|->Result<Value>{
         let mut d=json!({"id":r.get::<_,String>(0),"node":r.get::<_,String>(1),"title":r.get::<_,String>(2),"at":crate::util::iso(r.get(3)),"format":r.get::<_,String>(4),"bytes":r.get::<_,i32>(5)});
-        if let Some(body)=r.get::<_,Option<String>>(6) {let (body,cut)=crate::runtime::convo::clip(&body,60000);d["body"]=json!(body);d["truncated"]=json!(cut);}
-        d
-    }).collect();
+        if let Some(body)=r.get::<_,Option<String>>(6) {
+            let revision:String=r.get(8);
+            super::presentation_chunks::revision(req,chunk_index,&revision)?;
+            d["body_revision"]=json!(revision);
+            let mut part=super::presentation_chunks::body(body,r.get::<_,Option<i32>>(7).unwrap_or(0),chunk_index)?;
+            d.as_object_mut().unwrap().append(part.as_object_mut().unwrap());
+        }
+        Ok(d)
+    }).collect::<Result<_>>()?;
     Ok(json!({"project":n.name,"documents":docs,"offset":offset,"next_offset":if rows.len()==limit as usize {Some(offset+limit)} else {None}}))
 }
 

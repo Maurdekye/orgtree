@@ -495,10 +495,12 @@ fn build_tool_transfers() -> Value {
 fn build_tool_inbox() -> Value {
     tool(
         "orgtree_inbox",
-        "Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. Successful fetch/chunk consumes returned pending received mail even outside DND; it will not enter automatic input again. Opened received/project mail appears after the tool in your transcript, once; sent history and previews add nothing. Project fetch never claims its queue.",
+        "Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. Successful fetch/chunk consumes returned pending received mail even outside DND; it will not enter automatic input again. Opened received/project mail appears after the tool in your transcript, once; sent history and previews add nothing. Project list/fetch/chunk reads authorized project history, never claims or acknowledges. Choose folder=inbox|sent for full history; omitted folder preserves waiting-only list. status filters queue stages, cursor continues the same caller/project/folder/status page.",
         json!({
             "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation"] },
-            "project": { "type": "string", "description": "list/fetch: a project's name: its waiting (unread) mail, read-only" },
+            "project": { "type": "string", "description": "list/fetch/chunk: project name; current project reach required on every read" },
+            "folder": {"type":"string","enum":["inbox","sent"],"description":"project reads: explicit folder selects full history; omitted list defaults waiting inbox"},
+            "status": {"type":"string","enum":["waiting","delivered","claimed","acked","dead-letter"],"description":"project reads: optional queue stage filter; keep folder/status unchanged across cursor pages"},
             "peer": { "type": "string", "description": "conversation: an agent's name, 'user', '@org:<slug>' or '@net:<address>'" },
             "limit": { "type": "integer", "description": "list: how many (default 50, max 200); conversation: default 20, max 100" },
             "message_ids": { "type": "array", "items": { "type": "string" }, "description": "fetch: 1 to 20 IDs from list or conversation" },
@@ -754,7 +756,7 @@ fn build_tool_hire() -> Value {
 fn build_tool_project() -> Value {
     tool(
         "orgtree_project",
-        "Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. settings reads all values; configure (name, settings) patches name/description, peer mail, queue/ack policy and concurrency slots atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment authority. presentations lists project/team cards; read_presentation reads document. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent).",
+        "Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. above wraps a node atomically in its existing position instead of index/parent, under canonical insertion authority. settings reads all values; configure (name, settings) patches name/description, peer mail, queue/ack policy and concurrency slots atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment/DND/reply authority and reports each outcome. presentations lists project/team cards; read_presentation reads a bounded body chunk with next_chunk_index continuation. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent).",
         json!({
             "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","broadcast","presentations","read_presentation"] },
             "lease": { "type": "string", "description": "release_slot: the lease your concurrency slot grant named" },
@@ -764,13 +766,20 @@ fn build_tool_project() -> Value {
             "agent": {"type":"string","description":"unqueue_slot: agent to remove from line"},
             "team": {"type":"boolean","description":"presentations/read_presentation: include the project subtree"},
             "document": {"type":"string","description":"read_presentation: document id"},
+            "chunk_index": {"type":"integer","minimum":0,"description":"read_presentation: body chunk (default0); follow documents[].next_chunk_index with the same name/document/team"},
+            "body_revision": {"type":"string","description":"read_presentation: required after chunk0; return its body_revision unchanged, restart at0 if replaced"},
             "limit": {"type":"integer","minimum":1,"maximum":100},
             "offset": {"type":"integer","minimum":0},
             "body": {"type":"string","description":"broadcast: message to every live agent under the project"},
             "attachments": {"type":"array","items":{"type":"string"},"maxItems":10},
             "notice": {"type":"boolean"},
+            "urgent": {"type":"boolean","description":"broadcast: requires urgent_reason; each agent recipient must currently be in DND"},
+            "urgent_reason": {"type":"string","description":"broadcast: one line explaining why this must interrupt now"},
+            "reply_to": {"type":"string","description":"broadcast: mail id you received or sent; filtered to its authorized conversation"},
+            "replies": {"type":"array","items":{"type":"string"},"maxItems":50,"description":"broadcast: mail ids you received or sent; reply_to if supplied must match the first; each recipient gets only references from its conversation"},
             "name": { "type": "string" }, "parent": { "type": "string" },
-            "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
+            "above": {"type":"string","description":"create: atomically wrap this node, inheriting its position; canonical insertion authority and top-level restrictions apply"},
+            "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position unless above is supplied" },
             "description": { "type": "string", "description": "what the project is: shown on its card and to its agents" },
         }),
         &["action"],
@@ -1443,9 +1452,17 @@ mod builder_stack_tests {
                 props["urgent_reason"]["description"]=serde_json::json!("one line explaining why this must interrupt now");
             }
         }
+        // Approved project tool parity: only these added/changed schema keys
+        // differ from the earlier captured tool contract.
+        for (name,keys) in [("orgtree_inbox",vec!["project","folder","status"]),
+            ("orgtree_project",vec!["index","above","chunk_index","body_revision","urgent","urgent_reason","reply_to","replies"])] {
+            let want=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
+            let got=actual.iter().find(|c|c["name"]==name).unwrap();
+            for key in keys {want["inputSchema"]["properties"][key]=got["inputSchema"]["properties"][key].clone();}
+        }
         // the edited cards must match in content (keys in any order); their
         // key order is the builder's
-        for name in ["orgtree_project", "orgtree_watchdog", "orgtree_audience"] {
+        for name in ["orgtree_project", "orgtree_watchdog", "orgtree_audience", "orgtree_inbox"] {
             let want = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == name).unwrap();
             let got = actual.iter().find(|card| card["name"] == name).unwrap();
             assert_eq!(*want, *got, "{name}: differs beyond the approved slot changes");
