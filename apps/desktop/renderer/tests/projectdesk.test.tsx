@@ -25,7 +25,9 @@
 //      likewise, also on the focused card's desk (user 2026-10-18 07:15Z).
 //   §6 project settings carry the agent settings' items that apply (name,
 //      description, peer mail, actions) and none of the turn-only ones.
-//   §8 last activity: active now, or quiet for the newest turn's age under
+//   §8 last activity, in the agent card's words and style (user 2026-10-18
+//      07:42Z-07:43Z): "Active <age>" from when the project became active,
+//      or "Idle <age>" from the newest turn's end under
 //      the project, on the desk header and the middle-zoom card;
 //   §7 the middle-zoom card shows the header chip (spinner, active/hired);
 //      the app header counts agents, not project nodes; zoomed out the card
@@ -286,9 +288,9 @@ test('§2f the description has no border or background while not edited; the edi
   assert.match(last('border', ed) ?? '', /1px solid/, 'and its border')
 })
 
-/* ─── §9 the message box ──────────────────────────────────────────────────── */
+/* ─── §10 the message box ─────────────────────────────────────────────────── */
 
-test("§9 the desk's message box sends ONE broadcast to every agent under the project, with the notice toggle (user 2026-10-18 07:33Z)", async (t) => {
+test("§10 the desk's message box sends ONE broadcast to every agent under the project, with the notice toggle (user 2026-10-18 07:33Z)", async (t) => {
   const el = await desk(t)
   const sent: { path: string; body: unknown }[] = []
   const inner = globalThis.fetch
@@ -519,15 +521,34 @@ const quiet = (secondsAgo: number) => project({ children: [
   ] },
 ] } as never)
 
-test('§8a the desk header says active now while any agent under the project works', async (t) => {
-  const el = await desk(t)
-  assert.equal(el.querySelector('.cc-head .project-last-activity')?.textContent, 'active now')
+/** dev1 has been in a turn for 2m; dev2 (nested) ran a turn that ended 1m ago
+ *  after 5m, so the project has been active without a gap for 6m. With
+ *  `gap`, dev2's turn ended 3m ago instead: the project was idle between, and
+ *  its active run is dev1's 2m. */
+const active = (gap = false) => project({ children: [
+  { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', busy: true,
+    inflight_at: new Date(Date.now() - 120_000).toISOString(), turns: [], children: [] },
+  { id: 'ui', title: 'ui', tier: 'project', kind: 'project', state: 'live', children: [
+    { id: 'dev2', title: 'dev2', tier: 'sonnet', state: 'live', busy: false,
+      turns: [{ at: new Date(Date.now() - (gap ? 180_000 : 60_000)).toISOString(), ms: 300_000, cost: 0, denials: 0 }], children: [] },
+  ] },
+] } as never)
+const said = (el: Element | null | undefined) => el && [el.querySelector('.sq-idle')?.className,
+  el.querySelector('.sq-idle')?.textContent, el.querySelector('.sq-idle-time')?.textContent]
+
+test("§8a while any agent under it works: 'Active <age>' in the agent card's active style, from when the project became active", async (t) => {
+  const el = await desk(t, { node: active() })
+  assert.deepEqual(said(el.querySelector('.cc-head .project-last-activity')), ['sq-idle working active', 'Active', '6m'],
+    "dev2's turn overlapped dev1's, so the run began 6m ago")
+  const gapped = await desk(t, { node: active(true) })
+  assert.deepEqual(said(gapped.querySelector('.cc-head .project-last-activity')), ['sq-idle working active', 'Active', '2m'],
+    'a turn that ended before the run began does not extend it')
 })
 
-test('§8b otherwise quiet for the age of the newest turn under it, nested included', async (t) => {
+test("§8b otherwise 'Idle <age>' in the agent card's idle style, from the newest turn under it, nested included", async (t) => {
   const el = await desk(t, { node: quiet(300) })
-  assert.equal(el.querySelector('.cc-head .project-last-activity')?.textContent, 'quiet for 5m',
-    'dev2 (in nested ui) ended 5m ago, newer than dev1\'s hour')
+  assert.deepEqual(said(el.querySelector('.cc-head .project-last-activity')), ['sq-idle idle', 'Idle', '5m'],
+    "dev2 (in nested ui) ended 5m ago, newer than dev1's hour")
 })
 
 test('§8c the middle-zoom card carries it beside the active/hired chip', async (t) => {
@@ -540,7 +561,7 @@ test('§8c the middle-zoom card carries it beside the active/hired chip', async 
   t.after(() => view.unmount())
   const meta = view.el.querySelector('.sq.project .project-meta')!
   assert.ok(meta.querySelector('.project-activity'), 'the chip')
-  assert.equal(meta.querySelector('.project-last-activity')?.textContent, 'quiet for 5m')
+  assert.deepEqual(said(meta.querySelector('.project-last-activity')), ['sq-idle idle', 'Idle', '5m'])
 })
 
 test('§8d a project whose agents never ran a turn shows no activity card', async (t) => {
@@ -577,9 +598,7 @@ test('§9 Open desk: the project desk as a temporary modal that pins and pops ou
 })
 
 declare const __SRC_DIR__: string
-test('§8f "quiet for 7m" is one font: the label wears the age\'s font, as an agent card\'s state word does', () => {
-  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  const rule = /\n\.project-last-activity \{([^}]*)\}/.exec(css)
-  assert.ok(rule, 'the .project-last-activity rule')
-  assert.match(rule[1]!, /font:\s*600 10px\/1 var\(--mono\)/, 'the .sq-idle / .sq-idle-time font')
+test("§8f the word and its age keep the agent card's own spacing and colours (user 2026-10-18 07:42Z: 'in the same style')", () => {
+  assert.equal(cssRules().some((r) => r.sel.split(',').some((s) => s.trim().startsWith('.project-last-activity .sq-idle'))), false,
+    'no project override of .sq-idle or .sq-idle-time')
 })
