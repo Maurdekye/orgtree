@@ -41,8 +41,8 @@ pub struct Event { pub name: String, pub scope: Scope, pub payload: Value, membe
 #[derive(Clone)]
 pub(super) struct Subscription {
     tx: Sender<Event>,
-    target: Arc<arc_swap::ArcSwapOption<String>>,
-    overflow: Arc<arc_swap::ArcSwapOption<Event>>,
+    pub(super) target: Arc<arc_swap::ArcSwapOption<String>>,
+    pub(super) overflow: Arc<arc_swap::ArcSwapOption<Event>>,
 }
 
 #[logged]

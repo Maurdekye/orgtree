@@ -33,6 +33,9 @@ pub(super) fn evaluate(state: &mut Value, rows: &[Value], config: &Value, now: D
         // The reset clock is informational; it never creates a zero reading.
         if let Some(saved)=next["windows"].as_object_mut() {for (_,w) in saved {
             if status_changed {out.push(event(status_event,row,w,w["used_percent"].as_f64(),None,threshold));}
+            if status=="ok" && !windows.iter().any(|v|["kind","group","model"].iter().all(|k|v[*k]==w[*k])) && w["unknown"]!=true {
+                out.push(event("unreadable",row,w,w["baseline"].as_f64(),None,threshold));w["unknown"]=json!(true);
+            }
             if w["expired"]!=true && w["resets_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t|t<=now) {
                 out.push(event("reset",row,w,w["used_percent"].as_f64(),None,threshold));w["expired"]=json!(true);
                 w["baseline"]=Value::Null;
@@ -44,6 +47,7 @@ pub(super) fn evaluate(state: &mut Value, rows: &[Value], config: &Value, now: D
             let previous=&next["windows"][&key];
             let current=window["used_percent"].as_f64().filter(|p|p.is_finite() && *p>=0.);
             let old_pct=previous["baseline"].as_f64();
+            if status_changed && !previous.is_object() && current.is_some() {out.push(event("recovered",row,&window,None,current,threshold));}
             if current.is_none() {
                 if previous.is_object() && previous["unknown"]!=true {out.push(event("unreadable",row,&window,old_pct,None,threshold));}
                 let mut saved=if previous.is_object(){previous.clone()}else{window.clone()};saved["unknown"]=json!(true);
@@ -189,5 +193,20 @@ mod tests {
         let spend=|p|{let mut r=row(p);r["account"]=json!("openrouter-2");r["provider"]=json!("openrouter");r["windows"][0]["kind"]=json!("spend");r};
         evaluate(&mut s,&[spend(97.)],&c,now());
         assert_eq!(names(&evaluate(&mut s,&[spend(100.)],&c,now())),vec!["above","limit"]);
+    }
+    #[test]
+    fn usage_recovery_after_no_cache_respects_a_window_filter() {
+        let mut s=json!({});let c=json!({"windows":["weekly"],"usage_events":["recovered"]});
+        let mut no=row(0.);no["available"]=json!(false);no["windows"]=json!([]);
+        evaluate(&mut s,&[no],&c,now());
+        let out=evaluate(&mut s,&[row(97.)],&c,now());assert_eq!(names(&out),vec!["recovered"]);assert_eq!(out[0]["window"],"weekly");
+    }
+    #[test]
+    fn usage_missing_window_is_unreadable_once_then_recovers() {
+        let mut s=json!({});let c=cfg();evaluate(&mut s,&[row(97.)],&c,now());
+        let mut no=row(0.);no["windows"]=json!([]);
+        assert_eq!(names(&evaluate(&mut s,&[no.clone()],&c,now())),vec!["unreadable"]);
+        assert!(evaluate(&mut s,&[no],&c,now()).is_empty());
+        assert_eq!(names(&evaluate(&mut s,&[row(99.)],&c,now())),vec!["recovered","above"]);
     }
 }
