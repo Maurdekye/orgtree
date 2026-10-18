@@ -170,9 +170,9 @@ test('project presentation reader can broadcast a reply while preserving its doc
   const inner = globalThis.fetch
   globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(url), 'http://fixture.invalid').pathname
-    if (path === '/api/orgs/org/documents' && !init?.method)
-      return Promise.resolve(new Response(JSON.stringify({ documents: [row], total: 1, next_offset: null, offset: 0 }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    // Keep the list request pending so this test exercises the desk's normal
+    // node-payload bootstrap rows, just as the project opens before its poll.
+    if (path === '/api/orgs/org/documents' && !init?.method) return new Promise<Response>(() => {})
     if (path === '/api/orgs/org/documents/p1' && !init?.method)
       return Promise.resolve(new Response(JSON.stringify({ ...row, body: 'Plan body' }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }))
