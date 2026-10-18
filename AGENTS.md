@@ -22,6 +22,13 @@
   See [mail history paging](docs/rust-engine/mail-history-paging.md).
   [decided: user/coordinator 2026-10-18; verified: `domain/mail_history.rs`,
   `http/{mailbox,nodes}.rs`, `usemailhistory.ts`, `App.tsx`, `canvas/mail.tsx`]
+- Presentation list rows use plain, single-line owner text and a muted inline
+  `by` attribution, clipped with a title; clicking the name selects the document.
+  Keep navigable identities in the details pane and the shared `Presenter…` /
+  `Project…` menus, which reuse `nodeMenuAction` like ticket `Owner…`. Feed/body
+  reads carry recorded attribution; legacy chips resolve it at menu open with
+  the context-menu opening guard. [decided: user 2026-10-18 11:25–11:27Z;
+  verified: `canvas/{gallery,docs,objectactions}.tsx`, `feed/compute.rs`, `http/docs.rs`]
 
 - orgtree_project settings/configure exposes all eight Project settings as an
   atomic explicit patch. It reuses canonical ops/reach, preserves false/zero/

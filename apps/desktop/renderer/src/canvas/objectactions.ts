@@ -2,16 +2,25 @@ import type { MenuEntry } from './contextmenu'
 import { agentCopyEntry } from './contextmenu'
 import type { ToastFn, Watchdog } from '../types'
 
-/** Identical owner submenu and Focus gate for ticket rows and transcript cards. */
-export function ticketOwnerAction(anchor: Element, name: string | undefined,
+/** Canonical node-link submenu, primary Focus action and tooltip, shared by
+ * tickets, presentations and generic agent/project links. */
+export function nodeMenuAction(label: string, anchor: Element | null, name: string | undefined,
   entries: MenuEntry[], toast?: ToastFn): Exclude<MenuEntry, 'sep'> | undefined {
   if (!name) return undefined
   const focus = entries.find(entry => entry !== 'sep' && entry.label === 'Focus')
-  return { label: 'Owner…', agentTooltipId: name,
-    children: [agentCopyEntry(anchor, name, toast), ...(entries.length ? ['sep' as const, ...entries] : [])],
+  return { label, agentTooltipId: name,
+    children: [agentCopyEntry(anchor ?? document.body, name, toast), ...(entries.length ? ['sep' as const, ...entries] : [])],
     actionDisabled: !focus || focus === 'sep' || focus.disabled || focus.actionDisabled,
     onSelect: () => { if (focus && focus !== 'sep' && !focus.disabled && !focus.actionDisabled) focus.onSelect() },
   }
+}
+
+export const nodeMenuEntry = nodeMenuAction
+
+/** Identical owner submenu and Focus gate for ticket rows and transcript cards. */
+export function ticketOwnerAction(anchor: Element, name: string | undefined,
+  entries: MenuEntry[], toast?: ToastFn): Exclude<MenuEntry, 'sep'> | undefined {
+  return nodeMenuAction('Owner…', anchor, name, entries, toast)
 }
 
 /** Transcript order is canonical; docket-only extras follow its own separator. */

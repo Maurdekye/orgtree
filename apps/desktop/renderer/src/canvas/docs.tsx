@@ -22,7 +22,7 @@ import { fmtFull } from '../timefmt'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { refToken } from './reflinks'
-import { ticketOwnerAction } from './objectactions'
+import { nodeMenuAction } from './objectactions'
 import { useAgentNavRegistry } from './agentnav'
 import type { AgentNavMenu } from './agentnav'
 
@@ -45,8 +45,8 @@ export function presentationIdentityActions(el: Element | null,
   const identities = [['Presenter…', presenter],
     ...(doc.node && presenter && doc.node !== presenter ? [['Project…', doc.node]] : [])]
   return identities.flatMap(([label, name]) => {
-    const action = ticketOwnerAction(el, name, name ? nodeMenu?.(name, el) ?? [] : [], toast)
-    return action ? [{...action, label: label!}] : []
+    const action = nodeMenuAction(label!, el, name, name ? nodeMenu?.(name, el) ?? [] : [], toast)
+    return action ? [action] : []
   })
 }
 
