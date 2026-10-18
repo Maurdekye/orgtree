@@ -221,6 +221,23 @@ struct OrgCaps {
     settings: Value,
 }
 
+#[cfg(test)]
+mod fast_tools_tests {
+    use super::*;
+
+    #[test]
+    fn fast_tools_hire_explicit_false_overrides_tier_default() {
+        let caps = OrgCaps { max_top: 100., cascade_hire: true, cascade_alloc: true,
+            settings: json!({"default_fast_mode":{"sol":true,"luna":false}}) };
+        for (req, want) in [(json!({"tier":"sol"}),true),
+            (json!({"tier":"sol","fast_mode":false}),false),
+            (json!({"tier":"luna","fast_mode":true}),true),
+            (json!({"tier":"luna"}),false), (json!({"tier":"haiku"}),false)] {
+            assert_eq!(hire_scope(&caps,&req)["fast_mode"],json!(want),"{req}");
+        }
+    }
+}
+
 #[logged]
 async fn caps(engine: &Engine, tx: &Transaction<'_>, org_id: i64) -> Result<OrgCaps> {
     let s: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);

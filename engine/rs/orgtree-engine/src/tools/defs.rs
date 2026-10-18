@@ -1289,6 +1289,18 @@ mod effort_enum_tests {
 }
 
 #[cfg(test)]
+mod fast_tools_tests {
+    #[test]
+    fn fast_tools_four_seat_cards_expose_boolean() {
+        let cards=super::all();
+        for name in ["orgtree_hire","orgtree_rehire","orgtree_staff","orgtree_retool"] {
+            let card=cards.iter().find(|c|c["name"]==name).unwrap();
+            assert_eq!(card["inputSchema"]["properties"]["fast_mode"]["type"],"boolean","{name}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod builder_stack_tests {
     /// Keep the pre-split card bytes/order, except the explicitly approved
     /// own-project presentation permission description (user 2026-10-18).
