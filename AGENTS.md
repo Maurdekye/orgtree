@@ -1112,6 +1112,14 @@
   always-true filter excluded nothing. See [lane checks](docs/rust-engine/stream-order.md#lane-proof-row-selection).
   [verified: `runtime/actor.rs`, `feed/mod.rs`, `tools/rig/proofs/{agy,codex}-lane.mjs`, 2026-10-14]
 
+- Codex `thread/resume` IGNORES `dynamicTools` (codex-cli 0.160.0): a resumed
+  thread keeps the cards it STARTED with, restored from its rollout's first line
+  (`session_meta.payload.dynamic_tools`). Before every resume the actor writes
+  the current cards there (`codex::sync_rollout_tools`); without it Codex agents
+  never see new tools, kinds or scope changes. A probe that resumes with the
+  SAME tools proves nothing. [verified: `runtime/{codex,actor}.rs`, real Codex +
+  fakellm probe, 2026-10-18]
+
 - A shell command Muse moves to the background (after ~10 s) can finish after
   its turn. Muse hands its result to the session itself, once, and starts
   turns of its own to deliver it; Orgtree still cancels those (admission) and
