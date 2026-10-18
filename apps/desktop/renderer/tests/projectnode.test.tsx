@@ -179,8 +179,8 @@ test('§2a a project draws as a project card: no model, credit bar, desk or turn
   // USER 2026-10-17 19:37Z: no PROJECT word on the card; the folder mark says it
   assert.equal(sq.querySelector('.project-kind') === null, true, 'no "project" label on the card')
   assert.equal(/project/i.test(sq.querySelector('.sq-head')?.textContent ?? ''), false, 'nor anywhere in its head')
-  assert.equal(sq.querySelector('.project-desc')?.textContent, 'The company website.',
-    'the first line of its description')
+  // USER 2026-10-18 08:50Z: no description preview on the card; it is on the desk
+  assert.equal(sq.querySelector('.project-desc') === null, true, 'no description preview')
   // the control: an agent card from the same fixture style does draw them
   const agent = await mountView(<NodeSquare node={agentNode} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
     dragging={false} isDrop={false} seats={seats} claudeHire={offer}
