@@ -99,8 +99,8 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   const offered = choices.map(choice => choice.row.tier)
   const tier = quickChatTier(memo.tier, offered)
   const chosen = choices.find(choice => choice.row.tier === tier)
-  // A fallback model follows its default; a compatible remembered/manual effort stays intact.
-  const effort = quickChatEffort(memo.tier && memo.tier !== tier ? undefined : memo.effort)
+  // Model fallback never erases a separate manual effort choice. Unsupported levels inherit at hire.
+  const effort = quickChatEffort(memo.effort)
   const orgDefault = resolveOrgDefault(tree.default_effort, tree.effort_default)
   // a Muse hire's levels are its model's row on the login it lands on
   // (`museHireAccount` names one when the default login cannot run it)

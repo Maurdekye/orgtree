@@ -25,8 +25,9 @@ Saved-choice precedence remains per-org manual choice, template defaults,
 then the last manual model/effort elsewhere. Eligibility is applied afterward.
 An unavailable remembered model remains stored and returns when usable again;
 a fallback is not written merely by rendering it. An actual successful hire
-still remembers the model hired. Automatic model fallbacks inherit the default
-effort, while a supported remembered/manual model retains its effort choice.
+still remembers the model hired. Without an explicit effort choice, models
+inherit default effort. Effort memory remains independent of model fallback;
+a supported manual effort still wins and unsupported levels inherit at hire.
 
 ## Focused evidence
 
