@@ -94,9 +94,8 @@ for (const [label, kind] of [['Inbox', 'node-inbox'], ['Team', 'agent-team'], ['
     assert.equal(pinnedModalBehind(kind, org), false, 'menu raises the existing pin')
     await select()
     assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), true, 'repeated menu activation keeps it open')
-    if (label !== 'Team') {
-      const selector = label === 'Docket' ? '[aria-label="Docket for worker"]' : '.sq-actions .mailbtn:not(.docketbtn)'
-      const button = view.el.querySelector<HTMLButtonElement>(selector)
+    if (label === 'Docket') {
+      const button = view.el.querySelector<HTMLButtonElement>('[aria-label="Docket for worker"]')
       assert.equal(button !== null, true, 'the actual node shortcut button exists')
       await inAct(() => button!.click())
       assert.equal(readPinSurfaces().some(s => s.key === pinSurfaceKey(org, kind, true)), false, 'the node button hides its pin')

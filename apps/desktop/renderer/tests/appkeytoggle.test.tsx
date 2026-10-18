@@ -121,11 +121,12 @@ test('different panel shortcuts stack as before and close only the associated ta
   })
 })
 
-test('mouse and keyboard both close their pinned target behind a sibling', async () => {
+test('menus raise pins while header buttons and shortcuts close them behind a sibling', async () => {
   await withApp(async (el, editor) => {
     await inAct(() => {
       pinModal('usage', { x: 10, y: 10, w: 700, h: 600 }, 'toggle-org')
       pinModal('usage-history', { x: 30, y: 30, w: 700, h: 600 }, 'toggle-org')
+      pinModal('docket', { x: 50, y: 50, w: 700, h: 600 }, 'toggle-org')
     })
     await inAct(async () => { press('F2', editor); await flush(20) })
     await inAct(async () => { press('F3', editor); await flush(20) })
@@ -137,9 +138,12 @@ test('mouse and keyboard both close their pinned target behind a sibling', async
     const item = [...el.querySelectorAll<HTMLButtonElement>('.shell-menu-item')]
       .find(button => button.querySelector('.shell-menu-label')?.textContent === 'Usage…')!
     await inAct(async () => { item.click(); await flush(6) })
-    assert.equal(el.querySelector('.usage-modal') === null, true, 'mouse closes its pinned target')
+    assert.equal(el.querySelector('.usage-modal'), usage, 'menu preserves the open pin')
     assert.ok(el.querySelector('.usage-history-modal'), 'the sibling stays open')
-    await inAct(async () => { press('F2', editor); await flush(20) })
+    await inAct(async () => { press('F7', editor); await flush(20) })
+    await inAct(() => raisePinnedModal('usage-history', 'toggle-org'))
+    await inAct(async () => { el.querySelector<HTMLButtonElement>('.shell-header-actions [aria-label="Work"]')!.click(); await flush(6) })
+    assert.equal(el.querySelector('.docket-modal') === null, true, 'the header button hides its pin')
     await inAct(() => raisePinnedModal('usage-history', 'toggle-org'))
     await inAct(async () => { press('F2', editor); await flush(20) })
     assert.equal(el.querySelector('.usage-modal') === null, true, 'keyboard closes even when behind')
