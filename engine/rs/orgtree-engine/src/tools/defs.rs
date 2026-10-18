@@ -1542,7 +1542,8 @@ mod builder_stack_tests {
         // Approved project tool parity: only these added/changed schema keys
         // differ from the earlier captured tool contract.
         for (name,keys) in [("orgtree_inbox",vec!["project","folder","status"]),
-            ("orgtree_project",vec!["index","above","chunk_index","body_revision","urgent","urgent_reason","reply_to","replies"])] {
+            ("orgtree_project",vec!["index","above","chunk_index","body_revision","urgent","urgent_reason","reply_to","replies"]),
+            ("orgtree_message",vec!["reply_to","replies"])] {
             let want=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
             let got=actual.iter().find(|c|c["name"]==name).unwrap();
             for key in keys {want["inputSchema"]["properties"][key]=got["inputSchema"]["properties"][key].clone();}
@@ -1560,7 +1561,7 @@ mod builder_stack_tests {
         }
         // the edited cards must match in content (keys in any order); their
         // key order is the builder's
-        for name in ["orgtree_project", "orgtree_watchdog", "orgtree_audience", "orgtree_inbox"] {
+        for name in ["orgtree_project", "orgtree_watchdog", "orgtree_audience", "orgtree_inbox", "orgtree_message"] {
             let want = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == name).unwrap();
             let got = actual.iter().find(|card| card["name"] == name).unwrap();
             assert_eq!(*want, *got, "{name}: differs beyond the approved slot changes");
