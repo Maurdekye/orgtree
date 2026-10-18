@@ -74,5 +74,16 @@ module.exports = async (page) => {
     hover: [...sq.querySelectorAll('.sq-actions button')].map((b) => b.className),
   })))
   screenshots.push(await page.screenshot(`${prefix}-activity-1000x700`))
+  await page.goto('/?scene=presented')
+  await page.waitFor('.sq.project.norm', { timeout: 15000 })
+  await page.eval(async () => { await new Promise((r) => setTimeout(r, 1200)) })
+  await settle()
+  details.presented = await page.eval(() => ({
+    chips: [...document.querySelectorAll('.sq.project .doc-chips .doc-chip')].map((c) => c.textContent.trim()),
+    rows: [...document.querySelectorAll('.doc-gallery-row .l2')].map((r) => ({
+      presenter: r.getAttribute('data-copy-agent-name'),
+      link: !!r.querySelector('button.cc-name-jump') })),
+  }))
+  screenshots.push(await page.screenshot(`${prefix}-presented-1000x700`))
   return { details, screenshots }
 }

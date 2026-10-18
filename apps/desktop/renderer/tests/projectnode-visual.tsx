@@ -11,6 +11,9 @@
 //   jumps   — two real desks: dev2 (in project ui, in project site, under
 //             boss) and boss, showing the up and down jump card rows
 //             passing through projects (user 2026-10-17 22:13Z).
+//   presented — point 25/27: a project card's presentation chips (its own and
+//             its subtree's) beside the TEAM presentations gallery for boss,
+//             whose rows name, as links, the agent that presented each card;
 //   fairqueue — the REAL canvas: dev1 holds an armed fair_queue dog on project
 //             site, boss a paused one; &theme=light draws the light theme
 //             (point 26, user 2026-10-17 22:48Z).
@@ -19,6 +22,7 @@ import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { DeskChat } from '../src/canvas/desk'
+import { AgentGalleryView } from '../src/canvas/gallery'
 import type { CanvasNode, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -29,6 +33,15 @@ window.fetch = ((input: RequestInfo | URL) => {
   const p = new URL(String(input), location.href).pathname
   if (p.endsWith('/api/providers')) return answer({ providers: [] })
   if (p.endsWith('/api/accounts')) return answer({ version: 2, primary: null, keys: [], assignments: {}, accounts: [] })
+  if (p.endsWith('/documents')) {
+    const at = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+    const row = (id: string, node: string, by: string, tier: string, title: string, m: number) =>
+      ({ id, node, presented_by: by, presenter_tier: tier, title, at: at(m), format: 'md', bytes: 100,
+        evicted: false, node_state: 'live', tier: node === 'website' ? 'project' : tier })
+    const documents = [row('d1', 'website', 'boss', 'opus', 'Website plan', 3), row('d2', 'dev1', 'dev1', 'haiku', 'Dev notes', 9),
+      row('d3', 'boss', 'boss', 'opus', 'Boss notes', 20)]
+    return answer({ documents, total: documents.length, next_offset: null, offset: 0 })
+  }
   return answer({ detail: 'not in the fixture' }, 404)
 }) as typeof fetch
 
@@ -124,6 +137,25 @@ function Activity() {
 }
 
 const scene = new URLSearchParams(location.search).get('scene') || 'cards'
+
+function Presented() {
+  const nd = { ...card, documents: [{ id: 'd1', title: 'Website plan', at: new Date(Date.now() - 180_000).toISOString() }],
+    documents_count: 1, children: [{ ...(card.children ?? [])[0]!, documents: [{ id: 'd2', title: 'Dev notes',
+      at: new Date(Date.now() - 540_000).toISOString() }], documents_count: 1 }, ...(card.children ?? []).slice(1)] } as CanvasNode
+  return (
+    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      <div style={{ position: 'absolute', left: 20, top: 120, transform: 'scale(2)', transformOrigin: '0 0' }}>
+        <ProjectSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" dragging={false} isDrop={false}
+          op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={1.2} hire={{}} seats={{}}
+          onHire={noop} onNewProject={noop} onInbox={noop} onOpenDoc={noop}
+          onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+      </div>
+      <div style={{ position: 'absolute', left: 400, top: 20, width: 580, height: 660, border: '1px solid var(--line)' }}>
+        <AgentGalleryView slug="org" nid="boss" toast={noop} team onFocusAgent={noop} />
+      </div>
+    </main>
+  )
+}
 if (new URLSearchParams(location.search).get('theme') === 'light') document.documentElement.classList.add('contrast-light')
 const fqDog = (id: string, owner: string, state: string) => ({ id, owner, name: id, kind: 'fair_queue', target: 'site',
   interval_s: 5, state, at: new Date().toISOString(), fired: 0, once: false })
@@ -141,6 +173,7 @@ const rows: Record<string, unknown[]> = {
   fairqueue: [agent('lead', 'boss'), projectNode('site', 'boss', [agent('dev1', 'site'), agent('dev2', 'site')])],
 }
 createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps />
+  : scene === 'presented' ? <Presented />
   : scene === 'activity' ? <Activity /> : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
