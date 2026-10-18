@@ -5,15 +5,15 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 175,
+  "leaves": 176,
   "tools": 45,
-  "concepts": 52,
-  "total": 197
+  "concepts": 53,
+  "total": 198
  },
  "leaves_per_writer": {
   "org-sol": 33,
   "hubchat-dm-sol": 1,
-  "project-nodes-opus": 3,
+  "project-nodes-opus": 4,
   "comms-sol": 28,
   "runtime-sol": 33,
   "usage-query-sol": 1,
@@ -6973,7 +6973,8 @@
     "committee-mode",
     "dev-team",
     "iterative-development",
-    "work-queues"
+    "work-queues",
+    "build-slots"
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
@@ -7192,6 +7193,41 @@
     "projects",
     "tool-watchdog",
     "tool-message"
+   ],
+   "writer": "project-nodes-opus",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-workflows/collaboration-patterns/build-slots",
+   "name": "orgtree-build-slots",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "workflow:build-slots"
+   ],
+   "purpose": "A build machine shared through a project's slots: one slot, claim with a slot watchdog before a heavy phase, your own memory watchdog, release right after.",
+   "must_cover": [
+    "a build-machine project builders reach",
+    "slot count 1",
+    "keep the checkup and ack timeout on",
+    "claim with a slot watchdog before the phase",
+    "no polling while in line",
+    "own memory watchdog, no resource gate",
+    "release right after the phase",
+    "reclaim on halt, retire or idle",
+    "the Slots tab and action=slots",
+    "force-release and remove from line"
+   ],
+   "sources": [
+    "User slot rulings 2026-10-18 08:37Z-08:51Z (docket project-slots-first-come-permits-claimed-through)",
+    "engine/rs/orgtree-engine/src/domain/slots.rs",
+    "engine/rs/orgtree-engine/src/runtime/watchdogs.rs"
+   ],
+   "see_also": [
+    "projects",
+    "tool-watchdog",
+    "tool-project"
    ],
    "writer": "project-nodes-opus",
    "status": "fixed"

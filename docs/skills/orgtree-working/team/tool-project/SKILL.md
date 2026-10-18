@@ -1,6 +1,6 @@
 ---
 name: orgtree-tool-project
-description: Create a project node (a free, turn-less node with its own folder, mailbox and presentations), or edit its description.
+description: Create a project node (a free, turn-less node with its own folder, mailbox and presentations), edit its description, or see and release its slots.
 ---
 Up: [orgtree-team](../SKILL.md)
 
@@ -22,6 +22,15 @@ A project costs nothing: it has no seat and never holds credits of its own. The 
 The result names the project, its parent, its final `index`, `live_sibling_count` and its `folder` (`<data>\scratch\<org>\_teams\<id>`). Write the project's `AGENTS.md` there: every agent under the project gets it at session start.
 
 Everything else uses the usual tools with the project's name: [orgtree-tool-move](../tool-move/SKILL.md) agents into it, [orgtree-tool-rename](../tool-rename/SKILL.md), [orgtree-tool-reorder](../tool-reorder/SKILL.md), [orgtree-tool-retire](../tool-retire/SKILL.md) (its agents retire with it) and [orgtree-tool-rehire](../tool-rehire/SKILL.md) (restores the project, free). Model, account, scope, credit and compaction tools refuse a project (`… is a project, not an agent`).
+
+**Slots.** A project with a slot count (Project settings, 0 by default) gives out that many slots, first come first served; claim one with an [orgtree-tool-watchdog](../../watchdogs/tool-watchdog/SKILL.md) of kind `slot`. Two actions go with them:
+
+- `action=slots` with `name`: the project's slot count, its holders (agent, slot, lease, since, reminders), the line in order (place, agent, since) and its last 20 holds with how each ended. Agents above or below the project may look.
+- `action=release_slot` with `lease` (and an optional `note`, e.g. `build ok 265s`): releases the slot you hold; the next in line is granted it at once. Only the holder releases its own lease; another agent is refused (`lease … is …'s; only its holder releases it`). A released or reclaimed lease is refused (`lease … has already ended (…)`).
+
+```json
+{"action":"release_slot","lease":"s3f1c2a9b0d4e","note":"build ok"}
+```
 
 ## See also
 
