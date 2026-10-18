@@ -295,6 +295,12 @@ export class Stage {
   /** the canvas's backing size in device pixels, for the budget's test */
   get pixels(): number { return this.canvas.width * this.canvas.height }
 
+  /** Let input go as soon as EPIC turns off, before its farewell finishes. */
+  detachPointer(): void {
+    this.releasePointer?.()
+    this.releasePointer = null
+  }
+
   destroy(): void {
     if (this.dead) return
     this.dead = true
@@ -304,8 +310,7 @@ export class Stage {
     this.slowTimer = 0
     this.resizeObserver?.()
     this.resizeObserver = null
-    this.releasePointer?.()
-    this.releasePointer = null
+    this.detachPointer()
     try { this.shakeAnim?.cancel() } catch { /* gone */ }
     this.shakeAnim = null
     this.unclip?.()

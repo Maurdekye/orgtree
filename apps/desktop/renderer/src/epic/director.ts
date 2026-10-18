@@ -700,7 +700,7 @@ class Show implements EpicShow {
     this.alarm?.end()
     if (opts.quiet) { this.synth?.close(); this.synth = null }
     for (const fn of this.cleanups.splice(0)) { try { fn() } catch { /* already gone */ } }
-    for (const t of this.theaters()) t.detach()
+    for (const t of this.theaters()) { t.detach(); t.stage.detachPointer() }
     const teardown = () => {
       for (const t of this.theaters()) t.stage.destroy()
       this.extra.clear()

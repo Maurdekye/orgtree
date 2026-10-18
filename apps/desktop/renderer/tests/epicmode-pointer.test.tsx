@@ -109,12 +109,15 @@ test('a second document protects its controls using its own pointer events and r
     removed.push([type, fn]); remove(type, fn, opts)
   })
   const other = new Stage(dom.window.document, () => f.root)
+  // Later selector calls may lazily register jsdom's own load listener.
+  // Capture the stage's registrations before exercising those selectors.
+  const owned = registered.slice()
   try {
     f.move(f.root.querySelector('span')!)
     f.clock(1000)
     other.shake(20, 900)
     assert.equal(f.played.length, 0, 'the second realm uses duck-typed control targets')
   } finally { other.destroy() }
-  assert.equal(registered.some(([type]) => type === 'pointermove'), true)
-  assert.equal(registered.every(([type, fn]) => removed.some(([a, b]) => a === type && b === fn)), true)
+  assert.equal(owned.some(([type]) => type === 'pointermove'), true)
+  assert.equal(owned.every(([type, fn]) => removed.some(([a, b]) => a === type && b === fn)), true)
 })
