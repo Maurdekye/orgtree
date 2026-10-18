@@ -1242,7 +1242,7 @@ export function QueueChip({ q }: { q: import('../types').MailQueueState }) {
     : q.released ? [`released (${q.released.by ?? '?'})`, `back in the queue: ${q.released.by ?? 'its holder'} ${q.released.why ?? 'let it go'}`]
       : q.acked_at ? [`acked by ${q.held_by}`, `${q.held_by} acked it${q.ack_mail ? ` with ${q.ack_mail}` : ''}`]
         : q.ack ? [`${q.held_by} · awaiting ack`, `handed to ${q.held_by}, who gets no more project mail until it acks this one`]
-          : q.held_by ? [`to ${q.held_by}`, `the project's queue handed it to ${q.held_by}`
+          : q.held_by ? [`delivered to ${q.held_by}`, `the project's queue delivered it to ${q.held_by}`
             + (q.ack_waived_at ? ' (its ack was waived when the queue left ack mode)' : '')] : ['', '']
   if (!text) return null
   return <span className={'queuekind' + (q.ack && !q.acked_at && !q.released ? ' awaiting' : '') + (q.dead_letter ? ' dead' : '')}
