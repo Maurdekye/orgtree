@@ -1,4 +1,4 @@
-import { inAct, mountView, flush, fakeClock, realClock, advance } from './harness'
+import { inAct, mountView, flush, useFakeClock, realClock, advance } from './harness'
 import { withoutMailTransfers } from './mailtransfers.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -18,7 +18,7 @@ function geometry(el:HTMLElement){
   popover.getBoundingClientRect=()=>({left:100,right:420,top:128,bottom:300,width:320,height:172,x:100,y:128,toJSON(){}})
 }
 test('pointer far outside trigger and popup closes after a grace delay',async()=>{
-  fakeClock()
+  useFakeClock()
   const v=await mountView(<MailTagPicker selected={[]} choices={['alpha']} onChange={()=>{}}/>,el=>el)
   try{
     await inAct(()=>trigger(v.el).click());geometry(v.el)
@@ -29,7 +29,7 @@ test('pointer far outside trigger and popup closes after a grace delay',async()=
   }finally{await v.unmount();realClock()}
 })
 test('returning within the margin cancels closing and typed search keeps its popup',async()=>{
-  fakeClock()
+  useFakeClock()
   const v=await mountView(<MailTagPicker selected={[]} choices={['alpha']} onChange={()=>{}}/>,el=>el)
   try{
     await inAct(()=>trigger(v.el).click());geometry(v.el)
