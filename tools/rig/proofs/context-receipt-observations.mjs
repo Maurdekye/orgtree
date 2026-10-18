@@ -73,6 +73,8 @@ export default async function (rig) {
   for (const lane of ['muse', 'agy']) for (const c of cases) {
     const name = lane + c.id
     await rig.op({ op: 'hire', name, tier: lane === 'muse' ? 'wonder' : 'flash', title: 'Synthetic receipt control' })
+    // A user-created hire waits for its first message before admission.
+    await rig.userMail(name, 'FIRST-RECEIPT')
     await inspect(lane, c, name, typeof c.input === 'number' ? c.input : null)
   }
   for (const lane of ['muse', 'agy']) {
