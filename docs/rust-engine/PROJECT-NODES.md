@@ -230,6 +230,11 @@ agents under the project".
     owned by agents under it) and **presented** (documents presented under it with `orgtree_present
     project=`; the subtree's are its team presentations, point 27).
     An agent's own gallery is unchanged.
+  - A project mail's list row (in its inbox, and in the Sent folder of whoever mailed the
+    project) takes three lines: sender and time; its kind chip and queue state (`→ @recipient`,
+    awaiting ack, acked, released, ack of, dead letter, purged); the preview. In the project's
+    own mailbox a mail nobody holds yet puts its kind chip on that middle line too. Nothing in
+    it wraps: the recipient yields with an ellipsis [user 2026-10-18 14:24Z].
   - The desk tab holds the chat desk's jump cards (up to the parent, down to its live members)
     and the description editor: Markdown (`md`) while unfocused, a monospace text box while
     focused. Leaving the box saves a change with `set_description`; Escape drops it.

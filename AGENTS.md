@@ -47,11 +47,19 @@
   verified: `canvas/mail.tsx`, `styles.css`, `tests/outboxheader*`]
 
 - Project mail's plain delivery marker uses `→ @recipient` through shared
-  `AgentName`, in list rows and reading panes (including pop-outs). Recipient
-  width yields before the sender; kind chips remain. Full delivery details live
-  in the tooltip, using `queue.held_at` projected from `extra.claimed.at`, never
-  the message's sent-at; absent claim time says so. Other queue-state labels
-  retain their meaning. [decided: user/coordinator 2026-10-18 12:46–12:49Z;
+  `AgentName`, in list rows and reading panes (including pop-outs). A list row
+  that shows a queue state (`showsQueueState`) takes three lines: sender and
+  time; its kind/urgent chips and the queue state (`.lmeta`, line 1's face and
+  `1lh` height); the preview. In a project's own mailbox (`projectMail`, both
+  folders) every row with chips does too. The recipient yields with an
+  ellipsis and never wraps; other rows keep two lines (replaced "recipient
+  width yields before the sender" on line 1, user 2026-10-18 14:24Z). Gotcha: in a
+  bare desk (`desk-body eye-chat`: desk modals, pinned and popped desks)
+  `.eye-chat .cc-name` wraps any `.cc-name` styled by two classes, so the
+  delivery name's rule has three. Full delivery details live in the tooltip,
+  using `queue.held_at` projected from `extra.claimed.at`, never the message's
+  sent-at; absent claim time says so. Other queue-state labels retain their
+  meaning. [decided: user/coordinator 2026-10-18 12:46–12:49Z, user 14:24Z;
   verified: `canvas/mail.tsx`, `styles.css`, `feed/compute.rs`]
 - Project `release_slot` and own `slots` status are available with either team
   or watchdogs. Watchdog-only cards expose just those actions; dispatch refuses
