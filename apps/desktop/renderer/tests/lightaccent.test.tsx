@@ -13,6 +13,12 @@
 //   §2 a popped-out window carries the root's data-visual-theme, the attribute
 //      the light rules key on (this one and Muse Eggshell's), and follows a
 //      change to it.
+//   §3 the agents chips and the effort bar stay dark on the light surfaces
+//      (tier icons keep a dark backing there, user 2026-10-13), so a deep
+//      light-surface partner would vanish inside them: the working spinner
+//      drew #4c5565 on #313131 at 1.7:1. Inside them every theme's accent
+//      reads at 3:1 or more (a graphic, WCAG 1.4.11), and the chip's count
+//      reads as text.
 //
 // The values are properties, not pins: any accent that reads this well
 // passes. lightaccent-visual.mjs measures the same thing in Electron, on the
@@ -160,5 +166,49 @@ test('§2 a popped-out window carries the root\'s data-visual-theme and follows 
     await v.unmount(); window.open = originalOpen; g.MutationObserver = originalObserver
     removeBridge(); child.window.close(); localStorage.clear()
     delete root.dataset.visualTheme; root.classList.remove('contrast-light')
+  }
+})
+
+/* ─── §3 the dark-backed widgets ─────────────────────────────────────────── */
+
+const LIGHT = ':is(.contrast-light, .contrast-solarized-light)'
+/** the rules keyed on one theme on the light surfaces: `{ scope, t }`, scope '' for the root rule */
+function themeRules(id: string) {
+  const head = `:root[data-visual-theme="${id}"]${LIGHT}`
+  return [...css.matchAll(/\n([^{}\n]+?)\s*\{([^}]*)\}/g)]
+    .filter((m) => m[1]!.startsWith(head))
+    .map((m) => ({ scope: m[1]!.slice(head.length).trim(), t: tokens(m[2]!) }))
+}
+/** the accent a widget draws with: its own scoped rule, else the root rule, else the theme's own */
+function accentInside(id: keyof typeof THEMES, widget: string) {
+  const rules = themeRules(id)
+  return rules.find((r) => r.scope.includes(widget) && r.t.accent)?.t.accent!.value
+    ?? rules.find((r) => r.scope === '')?.t.accent?.value
+    ?? THEMES[id].accent.toLowerCase()
+}
+const fill = (selector: string) => {
+  const m = new RegExp(`\\n${selector.replace(/[.()]/g, '\\$&')} \\{([^}]*)\\}`).exec(css)
+  return /background:\s*(#[0-9a-f]{6})/i.exec(m?.[1] ?? '')?.[1]?.toLowerCase()
+}
+
+test('§3 inside the agents chips and the effort bar every theme\'s accent reads on their dark backing', () => {
+  const chip = fill(`:root${LIGHT} :is(.tier, .chip.agents)`), rail = fill('.effort-bar-rail')
+  assert.match(chip ?? '', /^#[0-9a-f]{6}$/, 'the light surfaces give the agents chips a dark backing')
+  assert.match(rail ?? '', /^#[0-9a-f]{6}$/, 'the effort bar has a dark rail')
+  for (const bg of [chip!, rail!]) for (const family of Object.values(families)) {
+    assert.ok(contrast(bg, family.panel!.value) > 7, `positive control: ${bg} is dark on the light panel ${family.panel!.value}`)
+  }
+  for (const id of Object.keys(THEMES) as Array<keyof typeof THEMES>) {
+    const spin = accentInside(id, '.chip.agents'), bar = accentInside(id, '.effort-bar')
+    assert.ok(contrast(spin, chip!) >= 3, `${id}: the working spinner ${spin} on the chip ${chip}: ${contrast(spin, chip!).toFixed(2)}:1`)
+    assert.ok(contrast(bar, rail!) >= 3, `${id}: the effort accent ${bar} on the rail ${rail}: ${contrast(bar, rail!).toFixed(2)}:1`)
+  }
+  // the active/hired count is text in --dim
+  const scoped = [...css.matchAll(/\n([^{}\n]+?)\s*\{([^}]*)\}/g)]
+    .filter((m) => m[1]!.startsWith(`:root${LIGHT} `) && m[1]!.includes('.chip.agents'))
+    .map((m) => tokens(m[2]!).dim?.value).find(Boolean)
+  for (const [fname, family] of Object.entries(families)) {
+    const dim = scoped ?? family.dim!.value
+    assert.ok(contrast(dim, chip!) >= 4.5, `${fname}: the count ${dim} on the chip ${chip}: ${contrast(dim, chip!).toFixed(2)}:1`)
   }
 })
