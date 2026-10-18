@@ -5710,6 +5710,7 @@
    "sources": [
     "apps/desktop/renderer/src/canvas/fastmodebutton.tsx",
     "apps/desktop/renderer/src/canvas/fastmode.ts",
+    "apps/desktop/renderer/src/canvas/fastdefaults.tsx",
     "engine/rs/orgtree-engine/src/providers/fast_mode.rs",
     "engine/rs/orgtree-engine/src/runtime/codex.rs",
     "engine/rs/orgtree-engine/src/runtime/claude.rs"
@@ -5724,6 +5725,17 @@
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "label": "Fast mode"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/fastdefaults.tsx",
+     "label": "Fast mode"
+    }
+   ],
+   "ui_dynamic_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/fastdefaults.tsx",
+     "component": "TierDefault",
+     "label": "`New ${name} hires start in fast mode`"
     }
    ],
    "key_sources": [
