@@ -821,6 +821,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "label": "Ack reminders"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Remind an agent that ends its turn with an un-acked job"
     }
    ]
   },
@@ -7244,6 +7248,8 @@
     "max attempts default 3, dead letter told to the superior",
     "both need the 20-minute checkup",
     "release on retire, halt or stopped watching",
+    "honest queued-reply wording (all listeners busy with position, halted, paused, nobody) and one fair_queue dog per agent per project",
+    "turn-end reminder setting: once per held job, on by default, not when blocked/halted/frozen/out of usage",
     "exclude-sender off by default",
     "purge waiting mail only",
     "listener wake and megaphone",

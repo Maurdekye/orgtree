@@ -223,6 +223,20 @@
   [decided: user 2026-10-18 12:21Z; verified: `domain/{projects,slots,ops}.rs`,
   `tools/defs.rs`, `canvas/modals.tsx`]
 
+- ACK work queue (user 2026-10-18 18:00Z-18:09Z): a post that waits says why
+  (`projects::wait_note`/`queue_state`: no listener / all N listeners holding an
+  un-acked job with its position / halted / paused; same text in the user's send
+  reply and `orgtree_inbox project`); one fair_queue dog per agent per project
+  (create refused, naming the existing one; ack hand-out is already per agent);
+  `scope.mail_queue_turn_end_reminder` (default on, tool `settings.turn_end_reminder`,
+  UI "Remind an agent that ends its turn with an un-acked job") makes
+  `projects::remind_unfinished` start ONE reminder turn when a listener's turn
+  ends holding an un-acked job (once per job, `claimed.reminded_at`; not when
+  blocked with a reason, halted, interrupted, failed, limited or frozen).
+  [decided: user 2026-10-18 18:05Z-18:06Z; verified: `domain/{projects,mail,ops}.rs`,
+  `runtime/{actor,watchdogs}.rs`, `tools/defs.rs`, `canvas/modals.tsx`,
+  `tools/rig/proofs/project-queue-busy.mjs`]
+
 - Panel buttons hide an already open local pin, even behind another panel,
   and reopen it at its saved placement on the next click. This replaces the
   12:09Z always-raise rule for buttons (user 2026-10-18 16:42Z). Detached windows
