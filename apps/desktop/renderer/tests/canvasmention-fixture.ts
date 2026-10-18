@@ -20,7 +20,8 @@ export function installMentionFixture(mode: 'canvas'|'attention', withMentions=t
     work_items_summary:{attention:0,active:0},audit:{live_nodes:3,top_level_holds:0,no_overdraft:true,problems:[]},user_inbox_count:1,urgent_unread:1,org_inbox:null,net:null} as unknown as TreePayload
   const json=(data:unknown,status=200)=>Promise.resolve(new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}}))
   class Socket {readyState=1;send(){}close(){this.readyState=3}addEventListener(){}removeEventListener(){}}
-  Object.assign(globals,{WebSocket:Socket,history:window.history,CustomEvent:window.CustomEvent,DocumentFragment:window.DocumentFragment})
+  globals.WebSocket=Socket
+  if(globalThis!==window)Object.assign(globals,{history:window.history,CustomEvent:window.CustomEvent,DocumentFragment:window.DocumentFragment})
   globals.fetch=async(input:RequestInfo|URL,init?:RequestInit)=>{
     const path=new URL(String(input),window.location.origin).pathname
     if(path==='/api/app/records')return json({detail:'synthetic legacy fixture'},501)
