@@ -558,6 +558,7 @@ async fn runtime_payload(engine: &Engine) -> Value {
         "antigravity_claude_enabled": engine.settings.antigravity_claude_enabled(),
         "working_checkups_enabled": sw.checkups,
         "wait_for_mcp_tools_enabled": engine.settings.wait_for_mcp_tools(),
+        "project_listener_wake_enabled": engine.settings.project_listener_wake(),
         "idle_docket_reminders_enabled": sw.idle,
         "blocked_docket_reminders_enabled": sw.blocked,
         "max_concurrent_turns": engine.settings.max_concurrent_turns(),
@@ -602,6 +603,10 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
             }
             "wait_for_mcp_tools_enabled" => {
                 rt.insert(k.clone(), json!(v.as_bool().unwrap_or(false)));
+            }
+            "project_listener_wake_enabled" => {
+                let on = v.as_bool().ok_or_else(|| ApiError::bad_request(format!("{k} is true or false")))?;
+                rt.insert(k.clone(), json!(on));
             }
             "max_concurrent_turns" => {
                 let n = v.as_u64().filter(|n| (1..=1024).contains(n)).ok_or_else(|| {

@@ -1934,6 +1934,10 @@ export interface RuntimeSettingsPayload {
   working_checkups_enabled: boolean
   /** Default off: preserve no-wait startup until the operator opts in. */
   wait_for_mcp_tools_enabled: boolean
+  /** Default on: when the user's mail to a project has no fair_queue
+   *  listener, wake one agent under it to arm one. Absent from an older
+   *  engine, which reads as on. */
+  project_listener_wake_enabled?: boolean
   /** Default off: nudge an idle agent about the unfinished items it owns. */
   idle_docket_reminders_enabled: boolean
   /** Default off: additionally remind agents about their own BLOCKED items,

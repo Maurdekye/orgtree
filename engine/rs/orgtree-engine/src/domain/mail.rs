@@ -437,7 +437,8 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
 
 /// The user wrote to a project and no watcher took it (user 2026-10-18
 /// 07:46Z): when nobody watches the project at all, wake one agent directly
-/// under it (`projects::nudge_target`) and ask it to arm a fair_queue dog;
+/// under it (`projects::nudge_target`) and ask it to arm a fair_queue dog,
+/// unless Runtime settings turn that off (07:47Z);
 /// with nobody to ask, say that nobody can pick the mail up. Returns the
 /// send's delivery note.
 #[logged]
@@ -446,6 +447,11 @@ async fn nudge_project(engine: &Arc<Engine>, org_id: i64, project: &crate::domai
     if crate::domain::projects::watched(&**client, org_id, project.id).await? {
         return Ok(format!(
             "Queued in project {}'s mailbox; it goes to the next of its fair_queue watchers to become eligible.", project.name));
+    }
+    if !engine.settings.project_listener_wake() {
+        return Ok(format!(
+            "Queued in project {p}'s mailbox. No agent watches project {p} with a fair_queue watchdog, so it waits there until one does (waking an agent to arm one is off in Runtime settings).",
+            p = project.name));
     }
     let Some((_, name)) = crate::domain::projects::nudge_target(engine, &**client, project.id).await? else {
         return Ok(format!(

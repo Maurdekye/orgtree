@@ -23,7 +23,7 @@ import {
   setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
   setMaxConcurrentTurns,
   setProviderEnabled,
-  setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
+  setProjectListenerWake, setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
 } from '../api'
 import { desktop } from '../desktop'
@@ -892,6 +892,13 @@ export function AccountsPanel({ toast, close, initialTab }: {
           disabled={!runtime || busy} onChange={v => changeRuntime(setIdleDocketRemindersEnabled, v)} />
         <SetToggle label="also remind about blocked items when every ticket is blocked" checked={runtime?.blocked_docket_reminders_enabled === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setBlockedDocketRemindersEnabled, v)} />
+      </SetGroup>
+      <SetGroup title="Projects">
+        <SetToggle label="wake an agent to listen for project mail" checked={runtime?.project_listener_wake_enabled !== false}
+          disabled={!runtime || busy} onChange={v => changeRuntime(setProjectListenerWake, v)}
+          hint={'When you write to a project and no agent watches it with a fair_queue watchdog, one agent '
+            + 'directly under it (an idle one first) is woken and asked to arm one. Off: the mail waits in '
+            + 'the project’s mailbox until someone arms one.'} />
       </SetGroup>
       <ShowLegacyModelsToggle />
     </SettingsTabPanel>

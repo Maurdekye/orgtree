@@ -103,6 +103,13 @@ impl AppSettings {
     pub fn keep_warm(&self) -> bool {
         self.runtime().get("warming_enabled").and_then(Value::as_bool).unwrap_or(true)
     }
+    /// Wake an agent under a project to arm a fair_queue dog when the user's
+    /// mail to the project has nobody to take it (user 2026-10-18 07:47Z;
+    /// default on).
+    #[nolog]
+    pub fn project_listener_wake(&self) -> bool {
+        self.runtime().get("project_listener_wake_enabled").and_then(Value::as_bool).unwrap_or(true)
+    }
     #[nolog]
     pub fn wait_for_mcp_tools(&self) -> bool {
         self.runtime().get("wait_for_mcp_tools_enabled").and_then(Value::as_bool).unwrap_or(false)
