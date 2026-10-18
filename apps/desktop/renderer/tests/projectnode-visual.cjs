@@ -12,6 +12,55 @@ module.exports = async (page) => {
   const details = {}
   // PROJECTNODE_VISUAL_ONLY=slots: only the project-slots scenes (one quick capture)
   const only = process.env.PROJECTNODE_VISUAL_ONLY
+  // PROJECTNODE_VISUAL_ONLY=popouts: the pinned agent sb's and project build's
+  // desks popped out side by side (user 2026-10-18 11:47Z). A real pop-out is
+  // its own OS window, which no screenshot of this one shows, so window.open
+  // hands back two same-origin iframes laid side by side instead; the stubbed
+  // native bridge lets the window controls render as in the app.
+  if (only === 'popouts') {
+    await page.goto('/?scene=hosts')
+    await page.waitFor('.pinwin', { timeout: 15000 })
+    await page.eval(async () => { await new Promise((r) => setTimeout(r, 1500)) })
+    details.opened = await page.eval(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+      window.orgtreeDesktop = { minimizePopout: async () => {}, toggleMaximizePopout: async () => {}, closePopout: async () => {},
+        getPopoutState: async () => null, onEvent: () => () => {} }
+      const frames = []
+      window.open = () => {
+        const f = document.createElement('iframe')
+        f.style.cssText = `position:fixed;top:10px;left:${10 + frames.length * 495}px;width:485px;height:400px;border:1px solid #555;z-index:99999;background:#1e1e1e`
+        document.body.appendChild(f)
+        frames.push(f)
+        return f.contentWindow
+      }
+      const out = []
+      const click = async (sel) => {
+        const b = document.querySelector(sel)
+        out.push(sel + ': ' + (b ? 'clicked' : 'missing'))
+        if (b) b.click()
+        await wait(1500)
+      }
+      await click('.pinwin.prov-claude .cc-head-right .popout-button')
+      await click('.pinwin.pin-project .cc-head-right .popout-button')
+      return out
+    })
+    await settle()
+    details.popouts = await page.eval(() => [...document.querySelectorAll('iframe')].map((f) => {
+      const d = f.contentDocument
+      const top = d && d.querySelector('.cc-head-top')
+      return {
+        mounted: !!(d && d.querySelector('.popout-mount')),
+        titleStrip: !!(d && d.querySelector('.modalpin-bar')),
+        rows: top ? 1 : 0,
+        name: top && [...top.querySelectorAll('.cc-head-left > .name, .cc-head-left > .cc-name')].map((n) => [n.textContent, getComputedStyle(n).display]),
+        lastChild: top && top.lastElementChild && top.lastElementChild.className,
+        controls: top && !!top.querySelector('.popout-window-controls'),
+        headTop: top && Math.round(top.getBoundingClientRect().top),
+      }
+    }))
+    screenshots.push(await page.screenshot(`${prefix}-popouts-1000x700`))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=hosts: the four desk hosts (user 2026-10-18
   // 11:14Z) — pinned agent and project, temporary agent and project — then
   // one page setting the shots side by side
