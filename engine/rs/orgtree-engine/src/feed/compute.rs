@@ -15,6 +15,40 @@ pub const EVENTS_WINDOW: i64 = 300;
 pub const USER_LOG_WINDOW: i64 = 200;
 pub const USER_SENT_WINDOW: i64 = 200;
 pub const USER_PENDING_WINDOW: i64 = 500;
+
+#[cfg(test)]
+mod mention_attention_tests {
+    use super::*;
+    #[test]
+    fn user_mentions_get_mailbox_attention_without_forging_urgency() {
+        for sender in ["agent", "project", "@org:outside"] {
+            let m=mail_entry(&json!({"uid":"m1","sender":sender,"body":"Ready @user.","recipient_kind":"user","urgent":false}));
+            assert_eq!(m["mailbox_attention"],true,"mention should enter urgent attention path");
+            assert_ne!(m["urgent"],true);
+            assert!(m.get("urgent_reason").is_none());
+        }
+    }
+    #[test]
+    fn visible_subject_and_reply_snapshots_qualify() {
+        for extra in [json!({"ev":{"subject":"Review @user"}}),json!({"reply_to":{"gist":"Quoted @user"}}),json!({"replies":[{"quoted_context":"For @user"}]}),json!({"ev":{"quote":{"gist":"See @user"}}})] {
+            let mut raw=json!({"body":"ordinary","urgent":false});
+            raw.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            assert_eq!(mail_entry(&raw)["mailbox_attention"],true,"visible quoted mention qualifies");
+        }
+    }
+    #[test]
+    fn ordinary_and_non_tokens_remain_ordinary() {
+        for body in ["plain", "email@user.com", "@username", "/@user/path", "@user-name"] {
+            assert_ne!(mail_entry(&json!({"body":body}))["mailbox_attention"],true);
+        }
+    }
+    #[test]
+    fn summaries_and_native_attention_share_the_mail_predicate() {
+        for source in [include_str!("groups.rs"),include_str!("../domain/notices.rs")] {
+            assert!(source.contains("mail_attention::SQL"),"summary and native notice must use same eligibility");
+        }
+    }
+}
 pub const MAILBOX_WINDOW: i64 = 150;
 pub const HISTORY_WINDOW: i64 = 200;
 pub const ASK_HISTORY_KEEP: i64 = 12;
