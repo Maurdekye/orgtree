@@ -29,7 +29,7 @@ function Fixture(){
  return <CurrentOrg.Provider value="slots-panel-fixture"><AgentSurfaceRoutesProvider value={{open:show,show}}>
   <div style={{padding:14}}><button id="menu-slots" onClick={()=>{if(slots&&slots!=='sep')slots.onSelect?.()}}>Project menu: Slots</button>
     <button id="disable-slots" onClick={()=>setCount(0)}>Disable slots</button>
-    <ProjectDesk node={node} slug="slots-panel-fixture" tree={tree} map={map} op={op} toast={noop}
+    <ProjectDesk bare node={node} slug="slots-panel-fixture" tree={tree} map={map} op={op} toast={noop}
       refs={{world:{org:'slots-panel-fixture'},onOpen:noop} as never}/></div>
   {open&&<ProjectSlotsModal slug="slots-panel-fixture" nid={node.id} tree={tree} map={map} op={op} toast={noop} close={()=>setOpen(false)}/>} 
  </AgentSurfaceRoutesProvider></CurrentOrg.Provider>
