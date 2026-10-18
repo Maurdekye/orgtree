@@ -39,6 +39,7 @@ pub fn view(w: &Value, owner: &str) -> Value {
     o.insert("at".into(), ts(&w["created_at"]));
     o.insert("fired".into(), w["fired"].clone());
     o.insert("once".into(), json!(w["once"].as_bool().unwrap_or(false)));
+    o.insert("notice".into(), json!(w["memo"]["notice"].as_bool().unwrap_or(false)));
     o.insert("spent".into(), json!(spent));
     if let Some(v) = w.get("last_check").filter(|v| !v.is_null()) {
         o.insert("last_check".into(), ts(v));
