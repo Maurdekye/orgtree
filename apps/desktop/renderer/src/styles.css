@@ -4045,6 +4045,9 @@ main.solo { width: 100%; }
 .settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .modalpin-bar {
   position: absolute; top: var(--panel-pad-y); right: var(--panel-pad-x); margin: 0;
 }
+/* ...over the header row, which ends in its folder buttons: keep them clear of
+   the bar's pop-out and pin (user 2026-10-18 07:24Z) */
+.settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .agent-settings-header { padding-right: 64px; }
 .settings .charterbox { min-height: 220px; resize: vertical; }
 .settings .chip.grow {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
@@ -4989,6 +4992,9 @@ span.ref-chip.ref-chip {
 .desk-tabpanel > .gallery-agent .desk-presented-head,
 .desk-tabpanel > .docket-agent > .docket-head,
 .desk-tabpanel > .mailwrap > .mail-folders { padding-right: 72px; }
+/* the inbox's Transfers box, when it shows, is the tab's top row instead and
+   has a border of its own, so it stops short of the corner (user 2026-10-18 07:27Z) */
+.desk-tabpanel > .mailwrap > .mail-transfers { margin-right: 72px; }
 
 /* vibrant orange badge WITHOUT the mail bell's pulse animation — the
    2026-08-04 ruling keeps the glow/pulse to that one bell alone */
@@ -7352,6 +7358,8 @@ label.set-row { cursor: pointer; }
 .pinwin.prov-openai, .pin-snap-preview.prov-openai { --accent: var(--prov-openai); --accent-soft: color-mix(in srgb, var(--prov-openai) 16%, transparent); }
 .pinwin.prov-google, .pin-snap-preview.prov-google { --accent: var(--prov-google); --accent-soft: color-mix(in srgb, var(--prov-google) 16%, transparent); }
 .pinwin.prov-openrouter, .pin-snap-preview.prov-openrouter { --accent: var(--prov-openrouter); --accent-soft: color-mix(in srgb, var(--prov-openrouter) 16%, transparent); }
+/* a project has no provider: its window takes the org theme (user 2026-10-18 07:24Z) */
+.pinwin.pin-project, .pin-snap-preview.pin-project { --accent: var(--org-accent); --accent-soft: var(--org-accent-soft); --accent-hover: var(--org-accent-hover); }
 .pinwin.moving { will-change: left, top, width, height; }
 .pin-snap-preview {
   position: absolute; box-sizing: border-box; pointer-events: none;

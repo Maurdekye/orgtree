@@ -373,6 +373,12 @@ const vpSize = (ref: RefObject<HTMLDivElement | null>): { w: number; h: number }
 
 interface Ghost { key: number; id: string; from: PinRect; to: PinRect | null }
 
+/** a pinned window's accent: an agent's provider, or for a project (which has
+ *  no provider) the org theme (user 2026-10-18 07:24Z: "pinned project has an
+ *  orange theme, should be org theme") */
+export const pinAccentClass = (node: Pick<CanvasNode, 'kind' | 'tier'>): string =>
+  node.kind === 'project' ? 'pin-project' : 'prov-' + providerOf(node.tier ?? '')
+
 /** every pinned window, rendered as screen-space siblings of `.space`. The
  *  only thing OrgCanvas mounts from this file. */
 export function PinLayer(props: PinLayerProps) {
@@ -611,11 +617,11 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
          scope — without its own prov-* class it would draw in the root accent
          (Claude orange) while dragging a teal Codex window. Pin chrome takes
          the provider's colour; so does its shadow. */
-      className={'pin-snap-preview prov-' + providerOf(node.tier ?? '')}
+      className={'pin-snap-preview ' + pinAccentClass(node)}
       style={{ left: preview.rect.x, top: preview.rect.y, width: preview.rect.w, height: preview.rect.h, zIndex: layout.peers.length + 1 }}>
       <span>{preview.label} · Shift for free placement</span>
     </div>}
-    <div className={'pinwin prov-' + providerOf(node.tier ?? '')
+    <div className={'pinwin ' + pinAccentClass(node)
         + (state ? ' pin-' + state : '') + (flash ? ' flash' : '') + (live ? ' moving' : '')}
       ref={panelRef} style={{...style, opacity:overlapSetting.enabled && overlapsDesk ? overlapSetting.opacity : undefined}} data-id={pin.id} data-z={pin.z}
       /* ⚠ CAPTURE, and it is load-bearing: the desk body stops this

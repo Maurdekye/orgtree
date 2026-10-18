@@ -310,7 +310,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           showArchived={showArchived} onShowArchived={setShowArchived} onShowBacklog={setShowBacklog}
           references={work?.references} boundedReferences workRevision={work?.revision}
           paging={{ ...workFeed.paging, setFilter: setPageFilter }}
-          onChanged={() => setBump((n) => n + 1)} refs={refs} onFocusAgent={onJump} />
+          onChanged={() => setBump((n) => n + 1)} refs={refs} onFocusAgent={onJump}
+          /* a project owns no tickets itself (user 2026-10-18 07:26Z) */
+          emptyText={<>no docket items are owned by the agents under {node.id}. A project owns no
+            tickets itself; this tab lists every item owned by an agent under it, nested projects included</>} />
       </div>}
       {view === 'presented' && <div className="desk-tabpanel">
         <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
