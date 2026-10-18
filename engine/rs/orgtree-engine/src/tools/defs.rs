@@ -1055,6 +1055,41 @@ mod hire_contract_tests {
 }
 
 #[cfg(test)]
+mod slot_release_scope_tests {
+    use super::*;
+
+    fn check(team: bool, watchdogs: bool) {
+        let scope=json!({"orgtree":{"team":team,"watchdogs":watchdogs}});
+        let card=scoped(&scope).into_iter().find(|c| c["name"]=="orgtree_project");
+        for action in ["release_slot","slots"] {
+            assert_eq!(crate::domain::tool_groups::allows_call(&scope,"orgtree_project",&json!({"action":action})),
+                team||watchdogs,"{action} needs either team or watchdogs");
+        }
+        for action in ["create","describe","settings","configure","unqueue_slot","purge_waiting","broadcast","presentations","read_presentation",""] {
+            assert_eq!(crate::domain::tool_groups::allows_call(&scope,"orgtree_project",&json!({"action":action})),team,"admin action {action}");
+        }
+        assert_eq!(crate::domain::tool_groups::allows_call(&scope,"orgtree_project",&json!({"action":"release_slot","force":true})),team,"force needs team");
+        assert_eq!(card.is_some(),team||watchdogs,"project card needs either group");
+        if let Some(card)=card {
+            let actions=card["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap();
+            assert!(actions.contains(&json!("release_slot")) && actions.contains(&json!("slots")));
+            if team { assert!(actions.contains(&json!("configure"))); }
+            else {
+                assert_eq!(actions,&vec![json!("slots"),json!("release_slot")]);
+                let keys=card["inputSchema"]["properties"].as_object().unwrap();
+                assert!(keys.keys().all(|k| ["action","name","lease","note"].contains(&k.as_str())));
+                assert!(card["description"].as_str().unwrap().contains("orgtree-tool-project"));
+            }
+        }
+    }
+
+    #[test] fn both_on() { check(true,true); }
+    #[test] fn team_only() { check(true,false); }
+    #[test] fn watchdogs_only() { check(false,true); }
+    #[test] fn both_off() { check(false,false); }
+}
+
+#[cfg(test)]
 mod startup_card_tests {
     use super::*;
 

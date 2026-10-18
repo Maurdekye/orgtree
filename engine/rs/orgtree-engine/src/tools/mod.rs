@@ -192,7 +192,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
     // status and session need no group: every agent has them
     if crate::domain::tool_groups::required(name).is_some_and(|groups| !groups.is_empty()) {
         let tools = caller_tools(engine, caller).await?;
-        if !crate::domain::tool_groups::allows(&tools, name) {
+        if !crate::domain::tool_groups::allows_call(&tools, name, args) {
             crate::refuse!(Forbidden, "{name} is disabled by your Orgtree tool group scope");
         }
     }

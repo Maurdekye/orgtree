@@ -72,6 +72,12 @@ pub fn allows(tools: &Value, name: &str) -> bool {
     required(name).is_some_and(|groups| groups.iter().all(|g| enabled(tools, g)))
 }
 
+/// Shared dispatch boundary for action-bearing tools.
+#[nolog]
+pub fn allows_call(tools: &Value, name: &str, _args: &Value) -> bool {
+    allows(tools, name)
+}
+
 /// Group requests reuse scope cards' existing `kind: tool` identity.
 #[nolog]
 pub fn request_group(name: &str) -> Option<&str> {
