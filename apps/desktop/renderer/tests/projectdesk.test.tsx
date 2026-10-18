@@ -191,7 +191,7 @@ test('project presentation reader can broadcast a reply while preserving its doc
   const card = gallery.querySelector<HTMLElement>('.doc-gallery-row')
   assert.equal(card?.querySelector('.mfrom')?.textContent, 'Release plan', 'the presented tab has the document card')
   assert.ok(card)
-  await inAct(() => { card!.click() })
+  if (!card.classList.contains('on')) await inAct(() => { card.click() })
   await inAct(async () => { await flush(4) })
   const reply = gallery.querySelector<HTMLTextAreaElement>('.mailer-read textarea')
   assert.ok(reply, 'the selected presentation has a reply box')
