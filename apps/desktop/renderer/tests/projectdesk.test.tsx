@@ -12,7 +12,9 @@
 //   §2 the main tab: jump cards up to the parent and down to the members
 //      (the chat desk's NavChip), and the description editor: Markdown while
 //      not focused, monospace text while focused, saved by set_description on
-//      leaving it, dropped by Escape (user 20:06Z);
+//      leaving it, dropped by Escape (user 20:06Z); a click puts the caret at about
+//      the clicked spot, and at rest it has no border or background (user
+//      2026-10-18 07:14Z);
 //   §3 the header: active/hired agents under it, nested projects crossed but
 //      not counted, and the spinner while any is active (20:08Z);
 //   §4 halt all and dissolve project (20:09Z) open the agent paths' own
@@ -35,7 +37,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
-import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
+import { ProjectDesk, ProjectDeskModal, sourceOffset } from '../src/canvas/projectdesk'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeConfig } from '../src/canvas/modals'
@@ -216,6 +218,64 @@ test('§2c Escape drops an edit; an unchanged one saves nothing', async (t) => {
   await inAct(() => { again.blur() })
   await flush(2)
   assert.deepEqual(ops, [], 'nothing saved')
+})
+
+test('§2d a click opens the editor with the caret at about the clicked spot (user 2026-10-18 07:14Z)', async (t) => {
+  const el = await desk(t)
+  const shown = el.querySelector<HTMLElement>('.project-description-md')!
+  // jsdom has no layout: the browser's caret lookup answers "after 'ma' in **main**"
+  const strong = shown.querySelector('strong')!.firstChild!
+  const doc = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+  const had = doc.caretRangeFromPoint
+  doc.caretRangeFromPoint = () => { const r = document.createRange(); r.setStart(strong, 2); r.collapse(true); return r }
+  t.after(() => { doc.caretRangeFromPoint = had })
+  await inAct(() => {
+    shown.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 40, clientY: 60 }))
+    shown.focus()
+    shown.click()
+  })
+  await flush(2)
+  const box = el.querySelector<HTMLTextAreaElement>('textarea.project-description-edit')!
+  assert.ok(box, 'the editor opened')
+  // '# The site
+
+Deploy from **ma|in** only.'
+  assert.equal(box.value.slice(0, box.selectionStart), '# The site
+
+Deploy from **ma', 'the caret sits where the click was')
+  assert.equal(box.selectionEnd, box.selectionStart, 'a caret, not a selection')
+})
+
+test('§2e the source offset steps over markup and skips what the source lacks', () => {
+  const src = '# Title
+
+See [the docs](https://x.y/z) and **bold** text.'
+  assert.equal(sourceOffset(src, ''), 0)
+  assert.equal(src.slice(0, sourceOffset(src, 'Title
+See the d')), '# Title
+
+See [the d')
+  assert.equal(src.slice(0, sourceOffset(src, 'Title
+See the docs and bo')), '# Title
+
+See [the docs](https://x.y/z) and **bo')
+  assert.equal(src.slice(0, sourceOffset(src, 'Title… See')), '# Title
+
+See', 'a rendered-only character is skipped')
+})
+
+test('§2f the description has no border or background while not edited; the editor keeps its look (user 07:14Z)', () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({ sel: m[1]!.trim(), body: m[2]! }))
+  const last = (prop: string, sel: string) => rules.filter((r) => r.sel.split(',').some((s) => s.trim().replace(/^\/\*[\s\S]*\*\/\s*/, '') === sel))
+    .map((r) => new RegExp(`(?:^|;)\s*${prop}\s*:\s*([^;]+)`).exec(r.body)?.[1]?.trim()).filter(Boolean).pop()
+  const md = '.project-desk .project-description-md'
+  assert.equal(last('background', md), 'transparent', 'no background at rest')
+  assert.equal(last('border-color', md), 'transparent', 'no border at rest')
+  assert.equal(rules.some((r) => r.sel.includes('.project-description-md:hover') && /border/.test(r.body)), false, 'no hover border either')
+  const ed = '.project-desk .project-description-edit'
+  assert.equal(last('background', ed), 'var(--input)', 'the editor keeps its background')
+  assert.match(last('border', ed) ?? '', /1px solid/, 'and its border')
 })
 
 /* ─── §3 the header count ───────────────────────────────────────────────── */
