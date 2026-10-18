@@ -103,7 +103,7 @@ test('§3b the presenter is a LINK: a click focuses that agent and does not sele
   assert.equal(selected(), before, 'the row selection did not change')
 })
 
-test('§3c the team gallery's header says whose documents it holds', async (t) => {
+test('§3c the team gallery header says whose documents it holds', async (t) => {
   stubDocuments(t, [])
   const team = await mountView(<AgentGalleryView slug="org" nid="boss" toast={noop} team />, (el) => el)
   t.after(() => team.unmount())
