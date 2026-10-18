@@ -30,6 +30,14 @@
   [decided: user 2026-10-18 16:53Z; verified: `domain/{audiences,audience_notices,ops}.rs`,
   `runtime/{envelope,event_text}.rs`]
 
+- Projects call their standing charter **Summary** in desks, settings, drafts
+  and help. The project desk's internal `desk` tab displays Summary; agent desk
+  labels stay desk. `description` / `set_description` wire fields stay compatible.
+  Project actions read `dissolve`; the project `slots` tab omits redundant counts.
+  Summary read/edit padding matches on top and left, with no first-block top
+  margin. [decided: user/coordinator 2026-10-18 17:05–17:24Z;
+  verified: `canvas/{projectdesk,modals,newproject}.tsx`, `shortcuts.ts`, `styles.css`]
+
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the
   existing urgent-mail badge appearance, newest-first focus, highlight and

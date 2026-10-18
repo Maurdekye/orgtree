@@ -282,6 +282,12 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Project terminology (user/coordinator 2026-10-18): the project charter is **Summary**,
+including the project desk tab; agent desks keep `desk`. The compatible tool/API
+setting stays `description`. The project header says `dissolve`, and its `slots`
+tab has no held/total count. Summary top and left padding match, without an extra
+first-block Markdown margin.
+
 Everything not listed here is meant to behave as it does today. "Inert" means the setting has no
 effect; per the user (2026-10-06) such controls are removed from the settings menus rather than
 left in place (UI clean-up is allowed outside the canvas). "Refused" means using it shows an error
