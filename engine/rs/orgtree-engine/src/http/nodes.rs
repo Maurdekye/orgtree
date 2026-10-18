@@ -305,9 +305,7 @@ pub async fn broadcast(
     let mut refused = Vec::new();
     let mut notices = crate::domain::runtime_notices::ForwardedUserNotices::default();
     for to in &members {
-        let mut out = Outgoing::new(From::User, to, &text);
-        out.notice = b.notice;
-        out.attachments = attachments.clone();
+        let out = project_broadcast_message(to, &text, b.notice, &attachments);
         match mail::send_with_notices(&e, org.id, out, &mut notices).await {
             Ok(s) => sent.push(json!({ "to": to, "id": s.uid, "delivery": s.delivery, "deferred": s.deferred })),
             Err(err) => refused.push(json!({ "to": to, "why": err.to_string() })),
@@ -317,6 +315,38 @@ pub async fn broadcast(
     let audience = if sent.is_empty() { None } else { Some(project_audience(&e, org.id, a.id).await) };
     Ok(Json(json!({ "accepted": !sent.is_empty(), "project": a.name, "sent": sent, "refused": refused, "notice": b.notice,
                     "audience_grant": audience })))
+}
+
+#[nolog]
+fn project_broadcast_message(to: &str, text: &str, notice: bool, attachments: &[Value]) -> Outgoing {
+    let mut out = Outgoing::new(From::User, to, text);
+    out.notice = notice;
+    out.attachments = attachments.to_vec();
+    out
+}
+
+#[cfg(test)]
+mod project_user_contact_tests {
+    use super::*;
+
+    #[test]
+    fn broadcast_is_user_mail_without_a_personal_grant() {
+        let out = project_broadcast_message("member", "hello", false, &[]);
+        assert!(matches!(out.from, From::User));
+        assert!(!out.grant_reply_audience, "project fan-out must not grant members personal user access");
+    }
+
+    #[test]
+    fn broadcast_keeps_delivery_metadata_and_direct_mail_keeps_granting() {
+        let attachments = [json!({"name":"synthetic.txt"})];
+        let out = project_broadcast_message("member", "hello", true, &attachments);
+        assert_eq!(out.to,"member");
+        assert_eq!(out.body,"hello");
+        assert!(out.notice);
+        assert_eq!(out.attachments,attachments);
+        assert!(out.wake);
+        assert!(Outgoing::new(From::User,"member","direct").grant_reply_audience);
+    }
 }
 
 /// Grant a project the user's audience after the user's mail to it was

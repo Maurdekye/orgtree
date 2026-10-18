@@ -228,7 +228,7 @@ pub(super) async fn deep_reach_batch_tx(
     let name:String=r.get(0);
     let org:String=r.get(2);
     let mut changed=Vec::new();
-    let fresh=r.get::<_,String>(4)=="agent" && c.query_opt("SELECT 1 FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor='@user' AND revoked_at IS NULL AND NOT paused LIMIT 1", &[&org_id,&name]).await?.is_none();
+    let fresh=r.get::<_,String>(4)=="agent" && c.query_opt(USER_CONTACT_AUDIENCE_SQL, &[&org_id,&name]).await?.is_none();
     if fresh {
         let reason=if command {"user ran a command directly"} else {"user messaged directly"};
         c.execute("INSERT INTO ot.audiences(org_id,grantee,grantor,reason) VALUES($1,$2,'@user',$3)", &[&org_id,&name,&reason]).await?;
@@ -249,6 +249,71 @@ pub(super) async fn deep_reach_batch_tx(
         changed.push(Change::Mailbox(id));
     }
     Ok((changed,forwarded))
+}
+
+const USER_CONTACT_AUDIENCE_SQL: &str = "SELECT 1 FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor='@user' AND revoked_at IS NULL AND NOT paused LIMIT 1";
+
+#[cfg(test)]
+mod project_user_contact_tests {
+    use super::*;
+    use rusqlite::{Connection, OptionalExtension};
+
+    fn fixture() -> Connection {
+        let db=Connection::open_in_memory().unwrap();
+        db.execute_batch("ATTACH DATABASE ':memory:' AS ot;
+            CREATE TABLE ot.agents(id INTEGER PRIMARY KEY,org_id INTEGER,name TEXT,parent_id INTEGER,kind TEXT,state TEXT);
+            CREATE TABLE ot.audiences(id INTEGER PRIMARY KEY,org_id INTEGER,grantee TEXT,grantor TEXT,granted_at TEXT,reason TEXT,revoked_at TEXT,paused BOOLEAN DEFAULT false);
+            INSERT INTO ot.agents VALUES(1,1,'project',NULL,'project','live'),(2,1,'member',1,'agent','live'),
+                (3,1,'nested',1,'project','live'),(4,1,'nested-member',3,'agent','live');
+            INSERT INTO ot.audiences(id,org_id,grantee,grantor) VALUES(1,1,'project','@user');").unwrap();
+        db.execute_batch(&include_str!("../../migrations/0030_project_audiences.sql").replace("::text", "")).unwrap();
+        db
+    }
+
+    fn has_contact_access(db:&Connection, who:&str) -> bool {
+        db.query_row(USER_CONTACT_AUDIENCE_SQL,(1,who),|r|r.get::<_,i32>(0)).optional().unwrap().is_some()
+    }
+
+    #[test]
+    fn direct_mail_sees_inherited_user_access() {
+        let db=fixture();
+        assert!(has_contact_access(&db,"member"),"inherited access must suppress a new explicit contact grant");
+        assert_eq!(db.query_row("SELECT count(*) FROM ot.audiences WHERE grantee='member'",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
+
+    #[test]
+    fn direct_mail_can_grant_after_project_access_is_removed() {
+        let db=fixture();
+        db.execute("UPDATE ot.audiences SET revoked_at='now' WHERE grantee='project'",[]).unwrap();
+        assert!(!has_contact_access(&db,"member"));
+        db.execute("INSERT INTO ot.audiences(id,org_id,grantee,grantor) VALUES(2,1,'member','@user')",[]).unwrap();
+        assert!(has_contact_access(&db,"member"));
+    }
+
+    #[test]
+    fn manual_explicit_grant_remains_independent_of_project_access() {
+        let db=fixture();
+        db.execute("INSERT INTO ot.audiences(id,org_id,grantee,grantor) VALUES(2,1,'member','@user')",[]).unwrap();
+        db.execute("UPDATE ot.audiences SET paused=true WHERE grantee='project'",[]).unwrap();
+        assert!(has_contact_access(&db,"member"));
+        assert!(!has_contact_access(&db,"nested-member"));
+    }
+
+    #[test]
+    fn contact_gate_is_shared_by_agent_and_project_admission() {
+        let source=include_str!("mail.rs");
+        assert_eq!(source.matches("out.grant_reply_audience,notices").count(),2,
+            "broadcast copies must retain ancestor notices while disabling only the grant");
+    }
+
+    #[test]
+    fn user_tools_and_runtime_guidance_use_effective_audience() {
+        for (name,source) in [
+            ("mail",include_str!("mail.rs")),("ask",include_str!("asks.rs")),
+            ("present",include_str!("docs.rs")),("envelope",include_str!("../runtime/envelope.rs"))] {
+            assert!(source.contains("ot.effective_audiences"),"{name} must accept inherited access");
+        }
+    }
 }
 
 #[cfg(test)]
