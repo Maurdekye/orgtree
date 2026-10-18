@@ -21,6 +21,7 @@ app.whenReady().then(async()=>{
     assert.equal(metrics.heads.length,4)
     for(const index of [0,1,3]){const row=metrics.heads[index];assert.ok(row.logo.first);assert.ok(Math.abs(row.logo.width-row.font)<.5);assert.ok(Math.abs(row.logo.height-row.font)<.5)}
     assert.equal(metrics.heads[2].logo,null);assert.equal(metrics.heads[0].height,metrics.heads[2].height)
+    assert.equal(metrics.heads[1].width,metrics.heads[1].scrollWidth,'wide centered header must reserve room for its asynchronously loaded logo')
     assert.ok(metrics.heads[3].scrollWidth>metrics.heads[3].width)
     assert.ok(Math.abs(metrics.separate.logoWidth-metrics.separate.font)<.5)
     await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,120))))')
