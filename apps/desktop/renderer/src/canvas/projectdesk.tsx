@@ -376,11 +376,10 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, on
         placeholder={node.state !== 'live' ? `project ${node.id} is ${node.state}`
           : !megaphone ? `message project ${node.id}: one agent under it takes it…`
             : `message all ${members} agent${members === 1 ? '' : 's'} under ${node.id}…`}
-        onChange={(e) => { setText(e.target.value); mentions.syncCaret(e.currentTarget) }}
-        onSelect={(e) => mentions.syncCaret(e.currentTarget)}
-        onClick={(e) => mentions.syncCaret(e.currentTarget)}
-        onKeyUp={(e) => mentions.syncCaret(e.currentTarget)}
-        onBlur={mentions.onBlur}
+        onChange={(e) => { setText(e.target.value); mentions.syncCaret() }}
+        onSelect={mentions.syncCaret}
+        onClick={mentions.syncCaret}
+        onKeyUp={mentions.syncCaret}
         onPaste={(e) => {
           if (e.clipboardData?.files?.length) { e.preventDefault(); [...e.clipboardData.files].forEach(attach) }
         }}
