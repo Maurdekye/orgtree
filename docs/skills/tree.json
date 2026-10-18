@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 176,
-  "tools": 45,
+  "leaves": 177,
+  "tools": 46,
   "concepts": 53,
-  "total": 198
+  "total": 199
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -88,6 +88,7 @@
    "purpose": "Building and shaping your team: hiring, tiers, credits, charters, scope, and every team tool.",
    "children": [
     "tool-hire",
+    "tool-fast-defaults",
     "tool-rehire",
     "tool-retire",
     "tool-dissolve",
@@ -112,6 +113,28 @@
     "peer-mail"
    ],
    "writer": "org-sol",
+   "status": "fixed"
+  },
+{
+   "path": "orgtree-working/team/tool-fast-defaults",
+   "name": "orgtree-tool-fast-defaults",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_fast_defaults"
+   ],
+   "tool_group": "team",
+   "purpose": "Read per-tier hiring-speed defaults; top-level agents patch them.",
+   "must_cover": [
+    "read/set, limits and booleans",
+    "top-level authority, projects transparent",
+    "future hires only, explicit override"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs",
+    "engine/rs/orgtree-engine/src/domain/ops/fast_defaults.rs"
+   ],
+   "writer": "epic-combo-sol",
    "status": "fixed"
   },
   {

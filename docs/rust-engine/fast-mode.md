@@ -98,3 +98,22 @@ bolt is independent: queued-on/current-off shows just the queued card;
 queued-off/current-on shows the active bolt plus the queued-off card.
 
 Confirmed layout: user 14:51Z and coordinator 14:52Z m60c9799b5dfe.
+
+## Tool and hiring policy (user/coordinator 2026-10-18)
+
+Hire/rehire/staff/retool accept boolean fast_mode with the same exact-model
+validation as the UI. Hire uses default_fast_mode[tier] only when omitted;
+explicit false wins. Stale unsupported defaults fall back to false. Rehire
+retains saved speed. Retool's speed-only path is node-local and does not walk
+or reconfigure descendants. History records hire speed and retool changes;
+state inspection includes scope.fast_mode as a saved boolean.
+
+Org Hire defaults buffers separate supported-tier switches with normal Save;
+OFF by default. Quick chat already uses canonical hire and receives the same
+policy. orgtree_fast_defaults read/set (team) exposes the policy to agents.
+Set is an atomic per-tier patch, validates every entry and locks org then the
+caller's ancestor chain; only a live top-level agent (projects transparent)
+may write. Ordinary managers may read and override their own new hires.
+Existing seats are unchanged. No org-wide permission or generic settings tool
+is added. Author checks and capture are recorded on the docket, not inferred
+from compilation.

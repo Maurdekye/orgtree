@@ -8,7 +8,7 @@ Up: [orgtree-agent-settings](../SKILL.md)
 # Fast mode
 
 Fast mode asks a supported provider for faster inference at higher usage. It is
-separate from thinking effort. Agents explain the setting; the user changes it.
+separate from thinking effort. The user or an authorized superior can change it.
 
 - The lightning button above Send changes this agent's saved setting immediately.
   Its pressed state shows the saved choice. Agent settings > Model has the same
@@ -49,3 +49,14 @@ separate from thinking effort. Agents explain the setting; the user changes it.
 
 - [orgtree-agent-model-tab](../agent-model-tab/SKILL.md).
 - [orgtree-agent-account-tab](../agent-account-tab/SKILL.md).
+
+## Hiring defaults and agent tools
+
+Org settings > Hire defaults > Fast mode offers a separate toggle for each
+supported tier. All start OFF. They affect new hires and Quick chat, not existing
+agents or rehires. Explicit `fast_mode` on hire overrides the default, including
+false. Managers can set `fast_mode` on hire, rehire, staff and retool for agents
+in their ordinary scope; state_inspect shows the saved boolean.
+`orgtree_fast_defaults` reads defaults and lets only top-level agents whose
+superior is the user patch them. Speed-only changes apply next turn without
+changing model/account/session or restarting the warm CLI.

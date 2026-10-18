@@ -1,3 +1,12 @@
+- Fast-mode hire/rehire/staff/retool fields share exact-model validation;
+  speed-only retool keeps the CLI and descendants untouched. New hires and
+  Quick chat use per-tier org `default_fast_mode` (OFF, explicit false wins);
+  rehire keeps saved speed. `orgtree_fast_defaults` reads/patches defaults;
+  writes require a top-level live agent, with projects transparent. Scope
+  inspection reports saved speed. See [fast mode](docs/rust-engine/fast-mode.md).
+  [decided: user/coordinator 2026-10-18; verified: `providers/fast_mode.rs`,
+  `domain/ops/fast_defaults.rs`, `tools/{defs,orgview}.rs`, `App.tsx`]
+
 # AGENTS.md — working on Orgtree
 
 - Project Open → Slots is one modal entry, offered only with positive slot

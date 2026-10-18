@@ -75,3 +75,12 @@ The result gives node, item slug and the nested hire result plus a committed-tog
 - [orgtree-docket-items](../docket-items/SKILL.md)
 - [orgtree-docket-statuses](../docket-statuses/SKILL.md)
 - [orgtree-docket-review-and-attention](../docket-review-and-attention/SKILL.md)
+
+## Fast mode
+
+Staff accepts optional boolean `fast_mode` for its hire/rehire. New hires use the
+org's per-tier default when omitted (OFF by default); rehires keep saved speed.
+Explicit false overrides the default, unsupported true and non-booleans refuse.
+The choice is node-local and recorded with the hire/retool history.
+See [fast defaults](../../team/tool-fast-defaults/SKILL.md) for reading defaults
+and the top-level-only authority to change them.

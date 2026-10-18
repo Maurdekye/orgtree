@@ -55,3 +55,19 @@ This assumes draft-checker is an archived descendant with an admissible stored c
 - [orgtree-credits](../credits/SKILL.md)
 - [orgtree-charters](../charters/SKILL.md)
 - [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)
+
+## Fast mode
+
+`fast_mode` is an optional boolean for the seat being hired, restored or retooled.
+An explicit `true` needs the exact model's advertised speed support; unsupported
+models and non-booleans are refused. Explicit `false` overrides a hiring default.
+New hires (including staff's hire form and Quick chat) use the org's per-tier
+`default_fast_mode` when omitted, OFF by default. Rehire and retool retain the
+seat's saved speed when omitted. This is node-local, never inherited from a parent.
+A speed-only retool applies next turn in the same conversation without restarting
+the CLI or changing model/account/session. A running turn keeps its speed.
+`orgtree_state_inspect` shows the saved boolean under `scope.fast_mode`.
+
+Read defaults with [orgtree_fast_defaults](../tool-fast-defaults/SKILL.md).
+Only top-level agents whose superior is the user can write org defaults; other
+managers pass explicit `fast_mode` on individual scoped hires/retools.

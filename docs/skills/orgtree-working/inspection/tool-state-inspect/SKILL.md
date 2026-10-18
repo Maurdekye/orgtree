@@ -51,3 +51,10 @@ For conversations use [read transcript](../tool-read-transcript/SKILL.md); for a
 
 - [orgtree-visibility](../visibility/SKILL.md)
 - [orgtree-reading-reports](../reading-reports/SKILL.md)
+
+## Saved speed
+
+`scope.fast_mode` is the node-local saved boolean (absent storage reads false),
+not a claim about a running turn's serving speed or model eligibility. It is
+never inherited. Managers change it with hire/rehire/staff/retool `fast_mode`;
+[fast defaults](../../team/tool-fast-defaults/SKILL.md) affect future hires.

@@ -42,3 +42,5 @@ Choose the page that answers the current question; detailed behavior and example
 - [orgtree-tool-project](tool-project/SKILL.md): Create a project node under you, one of your reports, or a project you are inside.
 
 Tool calls and operating rules are in orgtree-working; screens and settings are in orgtree-app; suggested team workflows are in orgtree-workflows. Cross-category references name the page and breadcrumb instead of linking outside the bundle.
+
+- [orgtree-tool-fast-defaults](tool-fast-defaults/SKILL.md): Read hiring-speed defaults; top-level agents can patch them.
