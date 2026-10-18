@@ -22,13 +22,14 @@ import { useAppRead } from './appfeed'
 import { getProviders, sendMessage, uploadFile } from './api'
 import { ActiveAgentsFilter, AgentTray, trayRows, type TrayRow } from './canvas/agenttray'
 import { SpawnChips } from './canvas/cards'
+import { TierChip, nodeTierOf } from './canvas/identity'
 import { resolveOrgDefault } from './canvas/effort'
 import { EffortBar } from './canvas/effortbar'
 import { tierEffortLevels } from './canvas/staffingoptions'
 import { museHireAccount, museLandingAccount } from './canvas/musehire'
 import { MUSE_TIERS, museEffortLevels, useAgyModelsRefresh } from './canvas/shared'
 import {
-  ALL_TIER_SEAT, hireOf, hireTierChoices, TIER_LETTER, tierLabel, type CanvasNode,
+  ALL_TIER_SEAT, hireOf, hireTierChoices, tierLabel, type CanvasNode,
 } from './canvas/shared'
 import { AttachIcon, SendIcon } from './icons'
 import {
@@ -223,13 +224,14 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         title={tier ? `model for the new agent: ${tierLabel(tier)}`
           + (preview ? ` — it will be named ${preview}` : '') : 'no model is available to hire'}
         aria-expanded={pop?.kind === 'model'} onClick={open('model')}>
-        {tier ? <TierIcon tier={tier} /> : <span className="quickchat-label">no model</span>}
+        {tier ? <TierChip tier={tier} /> : <span className="quickchat-label">no model</span>}
         {preview && <span className="quickchat-label quickchat-name">{preview}</span>}
       </button>
       <button type="button" className="quickchat-btn quickchat-superior"
         title={`superior of the new agent: ${superior ?? 'none (a top-level agent)'}`}
         aria-expanded={pop?.kind === 'superior'} onClick={open('superior')}>
-        {supNode?.tier && <TierIcon tier={supNode.tier} />}
+        {/* the shared chip: a project wears its folder mark, not its sentinel tier */}
+        <TierChip tier={nodeTierOf(supNode)} />
         <span className="quickchat-label">{superior ?? TOP_LEVEL_LABEL}</span>
       </button>
       <EffortBar compact value={effort} level={effort || orgDefault} levels={levelsFor(tier)}
@@ -289,11 +291,6 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       )}
     </div>
   )
-}
-
-/** a model's id icon: the tier badge cards and Agents List rows wear */
-function TierIcon({ tier }: { tier: string }) {
-  return <span className={'tier t-' + tier} title={tierLabel(tier)}>{TIER_LETTER[tier] ?? '?'}</span>
 }
 
 /** the tree's agents with their parents, for when no Agents List is mounted */
