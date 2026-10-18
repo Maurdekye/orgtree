@@ -1,4 +1,3 @@
-import { DataUsageIcon } from '../icons'
 import { createContext } from 'react'
 import type { ToolTokenCount } from '../types'
 
@@ -19,6 +18,6 @@ export function TokenCount({ count, estimated = false, thinking = false, sampled
     : `${n.toLocaleString('en-US')} output tokens reported for this result`
   return <span className={`dim token-count ${thinking ? 'thinking-tokens' : 'tool-output-tokens'}`}
     title={title} aria-label={label}>
-    {' · '}<DataUsageIcon fontSize="inherit" /> {estimated ? '~' : ''}{compact}
+    {' · '}<span className="token-glyph" aria-hidden="true">T</span> {estimated ? '~' : ''}{compact}
   </span>
 }
