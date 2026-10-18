@@ -1024,8 +1024,11 @@
   wash; its hover goes darker, #39404c). Accent text, fills (white ink) and
   borders follow; charcoal and obsidian keep the preset's own accent. Pop-outs
   mirror `data-visual-theme` with the root classes and style, or those rules
-  miss them. [decided: user 2026-10-18 15:34Z; verified: `styles.css`,
-  `popout.tsx`, `tests/lightaccent.test.tsx`]
+  miss them. Widgets that stay dark on the light surfaces (the agents chips'
+  #313131 backing, the effort bar's rail) scope the preset's PALE accent back
+  in, and the chip its charcoal `--dim`, or a dark partner vanishes inside
+  them (the spinner drew 1.7:1). [decided: user 2026-10-18 15:34Z; verified:
+  `styles.css`, `popout.tsx`, `tests/lightaccent.test.tsx`, 2026-10-18]
 
 - Antigravity committed mid-turn mail clears only the next-tool row pointer
   (`Turn.codex_row`); keep existing tool-to-row mappings so in-flight results
