@@ -39,6 +39,8 @@ import { DocIcon } from '../icons'
 import { subtreeAgents } from './bulkcompact'
 import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 import { agentNavProps } from './agentnav'
+import { useAgentMentions, useDeskMentionScope, useOrgMentionCandidates } from './agentmentions'
+import { openFallbackObjectMenu, useContextMenu } from './contextmenu'
 import { PinFrame } from './modalpin'
 import { AgentName } from './identity'
 import type { PinRect } from './pins'
@@ -249,8 +251,9 @@ function DescriptionEditor({ node, op, toast, editable }: {
  *  (`broadcastMessage`). Attachments upload into the project's own uploads
  *  folder and ride either kind of send. No slash commands: a project has no
  *  CLI. */
-function ProjectComposer({ node, slug, toast, members, recipients }: {
-  node: CanvasNode; slug: string; toast: ToastFn; members: number; recipients: CanvasNode[]
+function ProjectComposer({ node, slug, tree, map, toast, members, recipients, onRegisterMention }: {
+  node: CanvasNode; slug: string; tree: TreePayload; map: Map<string, CanvasNode>; toast: ToastFn; members: number; recipients: CanvasNode[]
+  onRegisterMention?: (capture: ((agentId: string) => (() => void) | null) | null, noteRightDown: () => void) => void
 }) {
   const messageDraftKey = draftKey(slug, `project:${node.id}`, 0)
   const [text, setTextState] = useState(() => {
@@ -277,6 +280,15 @@ function ProjectComposer({ node, slug, toast, members, recipients }: {
   const fileRef = useRef<HTMLInputElement | null>(null)
   const enterKey = useComposerEnter()
   const can = node.state === 'live' && (!megaphone || members > 0)
+  const mentionCandidates = useOrgMentionCandidates(slug, tree, map)
+  const mentions = useAgentMentions({
+    value: text,
+    onChange: setText,
+    inputRef: textareaRef,
+    candidates: mentionCandidates,
+    disabled: !can,
+  })
+  onRegisterMention?.(can ? mentions.captureMention : null, mentions.noteRightClickDown)
   const attach = (file: File) => {
     uploadFile(slug, node.id, file)
       .then((r) => setAttached((a) => [...a, { name: file.name, path: r.path, bytes: r.bytes }]))
@@ -345,6 +357,7 @@ function ProjectComposer({ node, slug, toast, members, recipients }: {
     <UrgentAgentOptions active={megaphone && dndRecipients.length>0} value={urgentMail} onChange={setUrgentMail} />
     <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')
       + (megaphone ? ' broadcast-armed' : '')}>
+      {mentions.menu}
       <div className="cc-btnstack">
         <button className={'cc-notice-toggle' + (notice ? ' armed' : '')} type="button" disabled={!can}
           aria-label={notice ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
@@ -364,11 +377,16 @@ function ProjectComposer({ node, slug, toast, members, recipients }: {
         placeholder={node.state !== 'live' ? `project ${node.id} is ${node.state}`
           : !megaphone ? `message project ${node.id}: one agent under it takes it…`
             : `message all ${members} agent${members === 1 ? '' : 's'} under ${node.id}…`}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => { setText(e.target.value); mentions.syncCaret(e.currentTarget) }}
+        onSelect={(e) => mentions.syncCaret(e.currentTarget)}
+        onClick={(e) => mentions.syncCaret(e.currentTarget)}
+        onKeyUp={(e) => mentions.syncCaret(e.currentTarget)}
+        onBlur={mentions.onBlur}
         onPaste={(e) => {
           if (e.clipboardData?.files?.length) { e.preventDefault(); [...e.clipboardData.files].forEach(attach) }
         }}
         onKeyDown={(e) => {
+          if (mentions.onKeyDown(e)) return
           if (e.altKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); e.stopPropagation(); setNotice((v) => !v); return }
           if (e.altKey && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); e.stopPropagation(); setMegaphone((v) => !v); return }
           if ((e.key === 'ArrowUp' || e.key === 'ArrowDown')
@@ -409,6 +427,15 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const surface = useSurface()
   const [view, setView] = useState<Tab>('desk')
   const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | 'purge' | null>(null)
+  const fallbackMenu = useContextMenu(toast)
+  const mentionRef = useRef<{
+    capture: ((agentId: string) => (() => void) | null) | null
+    noteRightDown: (() => void) | null
+  }>({ capture: null, noteRightDown: null })
+  const mentionScope = useDeskMentionScope(
+    (agentId: string) => mentionRef.current.capture?.(agentId) ?? null,
+    () => mentionRef.current.noteRightDown?.(),
+  )
   // the docket tab: the items attached to this project (slice 2), one poll,
   // as the agent docket modal does
   const [showArchived, setShowArchived] = useState(false)
@@ -560,7 +587,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       </div>}
       {shown === 'slots' && <SlotsView node={node} state={slots} op={op} toast={toast} />}
       {/* under every tab, as the agent desk's composer is */}
-      <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} toast={toast} members={agents.length} recipients={agents} />
+      <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
+        members={agents.length} recipients={agents}
+        onRegisterMention={(capture, noteRightDown) => { mentionRef.current = { capture, noteRightDown } }} />
     </>
   )
   return (
@@ -572,7 +601,13 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           e.stopPropagation()
         }
       }}>
-      <div className={bare ? 'desk-body eye-chat' : 'desk-inner desk-body'}>{content}</div>
+      <div {...mentionScope} className={bare ? 'desk-body eye-chat' : 'desk-inner desk-body'}
+        onContextMenu={(e) => {
+          if (!e.defaultPrevented && !e.currentTarget.closest('.object-menu-boundary')) {
+            openFallbackObjectMenu(e, fallbackMenu)
+          }
+        }}>{content}</div>
+      {fallbackMenu.node}
       {(asking === 'halt' || asking === 'unhalt') && createPortal(
         <AgentBatchHaltConfirm targets={agents} unhalt={asking === 'unhalt'}
           scope={`all agents under project ${node.id}`} op={op} toast={toast}

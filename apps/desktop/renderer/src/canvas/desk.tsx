@@ -22,7 +22,7 @@ import { centerTranscriptTarget } from './deskscroll'
 import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { objectNavProps } from './objectnav'
-import { dismissUserMention, hasUnseenUserMention, useAgentMentions, useMentionHighlight, useOrgMentionCandidates, useSeenMentions } from './agentmentions'
+import { dismissUserMention, hasUnseenUserMention, useAgentMentions, useDeskMentionScope, useMentionHighlight, useOrgMentionCandidates, useSeenMentions } from './agentmentions'
 import { useOrgView } from '../attention/mode'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
@@ -30,7 +30,7 @@ import { appendReplyTarget, readReplies, replyContext, replyFromRow, replyWire, 
 import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
-import { copyToClipboard, useContextMenu } from './contextmenu'
+import { copyToClipboard, openFallbackObjectMenu, useContextMenu } from './contextmenu'
 import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge } from './effort'
 import { EffortBar } from './effortbar'
 import { tierEffortLevels } from './staffingoptions'
@@ -3327,6 +3327,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     candidates: mentionCandidates,
     disabled: !canMail,
   })
+  const mentionScope = useDeskMentionScope(canMail ? mentions.captureMention : null, mentions.noteRightClickDown)
   // №6: dropping a file anywhere on the desk uploads it (and prevents the
   // browser's default navigate-away, which would also eat the draft)
   const dropProps = {
@@ -4465,7 +4466,13 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         if (bare || surface?.detached || surfaceDocument.defaultView?.getSelection()?.toString()) return
         onRecenter?.()
       }}>
-      <div className={(bare || surface?.detached ? 'desk-body eye-chat' : 'desk-inner desk-body') + providerClass + processClass}>{content}</div>
+      <div {...mentionScope}
+        className={(bare || surface?.detached ? 'desk-body eye-chat' : 'desk-inner desk-body') + providerClass + processClass}
+        onContextMenu={(e) => {
+          if (!e.defaultPrevented && !e.currentTarget.closest('.object-menu-boundary')) {
+            openFallbackObjectMenu(e, replyMenu)
+          }
+        }}>{content}</div>
     </div></fieldset>
     </LiveTokenContext.Provider>
     </RunningTurnContext.Provider>

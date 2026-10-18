@@ -600,4 +600,228 @@ test('right-clicking an agent mention inside a transcript message or transcript 
   assert.equal(mailCard.classList.contains('ctx-target'),false,'containing transcript mail card is not highlighted with .ctx-target when sender mention is right-clicked')
 })
 
+test('right-clicking an agent or project link inside an agent or project desk puts Mention first and inserts @name at caret or appended with focus and without sending',async t=>{
+  localStorage.clear(); resetConvos()
+  const mkCNode=(id:string,tier='sol',kind?:string,children:CanvasNode[]=[]):CanvasNode=>({
+    id,title:id,generation:1,state:'live',tier,kind,children,seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]},
+  } as unknown as CanvasNode)
+  const betaNode=mkCNode('worker-beta','haiku')
+  const projChild=mkCNode('worker-project','project','project',[betaNode])
+  const alphaNode=mkCNode('worker-alpha','sol',undefined,[projChild])
+  betaNode.parent='worker-project'
+  projChild.parent='worker-alpha'
+  const leadNode=mkCNode('lead','opus')
+
+  const sentCalls:unknown[]=[]
+  const server=new FakeServer()
+  server.messages=[
+    {role:'assistant',text:'Ask @worker-beta and @worker-project about this.',seq:0,event_id:'reply-1'},
+  ]
+  server.pending_mail=[
+    {id:'m1',event_id:'mail-1',from:'lead',body:'Mail from lead to @worker-beta',at:'2026-10-18T14:00:00Z'},
+  ]
+  server.workItems=[
+    {
+      slug:'item-1',title:'Ticket 1',rev:1,kind:'code',objective:'See @worker-beta',
+      status:'in_progress',archived:false,owner:{node:'worker-alpha',generation:1},
+      owner_current:true,owner_state:'live',reviewer:null,participants:[{node:'worker-beta',generation:1}],
+      at:'2026-10-18T14:00:00Z',updated_at:'2026-10-18T14:01:00Z',docket_at:'2026-10-18T14:01:00Z',
+      done_so_far:[],working_on_next:[],effective_attention:false,attention_sources:[],
+      acceptance:[],dismissals:[],questions:[],dependencies:[],evidence:[],delivery:null,history:[],
+    } as never,
+  ]
+  server.documents=[
+    {id:'doc-1',node:'worker-alpha',node_state:'live',tier:'sol',title:'Spec doc',at:'2026-10-18T14:02:00Z',format:'markdown',evicted:false,body:'Doc body'},
+  ]
+  const prevFetch=globalThis.fetch
+  installFetch(server)
+  const oldFetch=globalThis.fetch
+  globalThis.fetch=(async(input:RequestInfo|URL,init?:RequestInit)=>{
+    const url=String(input)
+    if(url.endsWith('/message')||url.endsWith('/broadcast')){
+      sentCalls.push({url,body:init?.body})
+      return new Response(JSON.stringify({ok:true,delivery:'sent',sent:[],refused:[]}),{status:200,headers:{'Content-Type':'application/json'}})
+    }
+    if(url.includes('/inbox')){
+      return new Response(JSON.stringify({
+        pending:[],
+        delivered:[{id:'d1',from:'lead',to:'worker-alpha',body:'Inbox body mentioning @worker-beta',at:'2026-10-18T14:01:00Z',kind:'message'}],
+        sent:[],
+      }),{status:200,headers:{'Content-Type':'application/json'}})
+    }
+    return oldFetch(input,init)
+  }) as typeof fetch
+  t.after(()=>{globalThis.fetch=prevFetch;resetConvos()})
+
+  const nodeMap=new Map<string,CanvasNode>([
+    [alphaNode.id,alphaNode],
+    [betaNode.id,betaNode],
+    [projChild.id,projChild],
+    [leadNode.id,leadNode],
+  ])
+  const treePayload={slug:'org',roots:[alphaNode,leadNode],slot_leases:[],watchdogs:[]} as unknown as TreePayload
+
+  const v=await mountView(
+    <AgentNavProvider>
+      <ObjectMenuBoundary>
+        <ProvideNav>
+          <div className="outside-surface">
+            <AgentName id="worker-beta" tier="haiku" onFocus={()=>{}} />
+          </div>
+          <DeskChat node={alphaNode} map={nodeMap} slug="org" op={async()=>({})} toast={()=>{}} bare
+            onJump={()=>{}} onWorkLink={()=>{}} onOpenDoc={()=>{}} onMailLink={()=>{}} />
+          <ProjectDesk node={projChild} slug="org" tree={treePayload} map={nodeMap}
+            op={async()=>({} as OpResult)} toast={()=>{}}
+            refs={{world,onOpen:()=>{}}} onJump={()=>{}} />
+        </ProvideNav>
+      </ObjectMenuBoundary>
+    </AgentNavProvider>,
+    h=>h,
+  )
+  t.after(async()=>{await v.unmount()})
+  await inAct(async()=>{await refreshConvo('org','worker-alpha');await flush(6)})
+
+  const menuLabels=()=>[...document.querySelectorAll<HTMLElement>('.ctxmenu [role="menuitem"]')].map(b=>b.textContent)
+  const openMenuOn=async(el:Element)=>{
+    await inAct(async()=>{
+      el.dispatchEvent(new window.MouseEvent('pointerdown',{bubbles:true,cancelable:true,button:2}))
+      el.dispatchEvent(new window.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:2}))
+      el.dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:60,clientY:60}))
+      await flush(3)
+    })
+  }
+  const clickMention=async()=>{
+    const btn=[...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')].find(b=>b.textContent==='Mention')
+    assert.ok(btn,`expected "Mention" in menu ${JSON.stringify(menuLabels())}`)
+    await inAct(async()=>{
+      btn.dispatchEvent(new window.MouseEvent('pointerdown',{bubbles:true,cancelable:true,button:0}))
+      btn.click()
+      await flush(3)
+    })
+  }
+
+  // 0. Control: outside a desk, an agent link still starts with Copy mention (no Mention item)
+  const outsideLink=v.el.querySelector<HTMLElement>('.outside-surface [data-agent-nav="worker-beta"]')!
+  await openMenuOn(outsideLink)
+  assert.deepEqual(menuLabels(),['Copy mention','View Agent','Copy "worker-beta"'],
+    'outside a desk, context menu does not include Mention')
+  await inAct(async()=>{document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));await flush(2)})
+
+  const deskEl=v.el.querySelector<HTMLElement>('fieldset.desk-control-scope')!
+  const deskTa=deskEl.querySelector<HTMLTextAreaElement>('textarea')!
+  assert.ok(deskEl&&deskTa,'agent desk and its composer textarea rendered')
+
+  // 1. Transcript agent link when composer is unfocused & empty -> Mention is first, Copy mention second, rest preserved
+  deskTa.blur()
+  assert.notEqual(document.activeElement,deskTa,'precondition: composer starts unfocused')
+  const chatBeta=deskEl.querySelector<HTMLElement>('[data-transcript-row] [data-agent-nav="worker-beta"]')!
+  const chatProj=deskEl.querySelector<HTMLElement>('[data-transcript-row] [data-agent-nav="worker-project"]')!
+  assert.ok(chatBeta&&chatProj,'transcript rendered agent and project links')
+
+  await openMenuOn(chatBeta)
+  assert.deepEqual(menuLabels(),['Mention','Copy mention','View Agent','Copy "worker-beta"'],
+    'agent link inside desk has Mention first, Copy mention second, and keeps existing order below')
+  await clickMention()
+  assert.equal(deskTa.value,'@worker-beta ','choosing Mention on empty unfocused box inserts "@worker-beta "')
+  assert.equal(document.activeElement,deskTa,'choosing Mention focuses the desk message box')
+  assert.equal(deskTa.selectionStart,'@worker-beta '.length,'caret is placed after the inserted mention')
+  assert.equal(deskTa.selectionEnd,'@worker-beta '.length)
+  assert.equal(sentCalls.length,0,'choosing Mention does not send')
+
+  // 2. Unfocused non-empty box without trailing space -> appends with separating space
+  await inAct(async()=>{
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(deskTa,'Please sync with')
+    deskTa.dispatchEvent(new window.Event('input',{bubbles:true}))
+    deskTa.blur()
+    await flush(3)
+  })
+  assert.notEqual(document.activeElement,deskTa,'precondition: composer is unfocused before second Mention')
+  await openMenuOn(chatProj)
+  assert.equal(menuLabels()[0],'Mention','project link inside desk has Mention first')
+  assert.equal(menuLabels()[1],'Copy mention','project link inside desk has Copy mention second')
+  await clickMention()
+  assert.equal(deskTa.value,'Please sync with @worker-project ',
+    'unfocused non-empty composer appends mention after a separating space')
+  assert.equal(document.activeElement,deskTa,'composer is focused after Mention')
+  assert.equal(deskTa.selectionStart,'Please sync with @worker-project '.length)
+  assert.equal(deskTa.selectionEnd,'Please sync with @worker-project '.length)
+
+  // 3. Focused composer with caret in the middle -> inserts at caret and leaves caret right after the mention
+  await inAct(async()=>{
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(deskTa,'Hello world')
+    deskTa.dispatchEvent(new window.Event('input',{bubbles:true}))
+    deskTa.focus()
+    deskTa.setSelectionRange(6,6)
+    deskTa.dispatchEvent(new window.Event('select',{bubbles:true}))
+    await flush(3)
+  })
+  assert.equal(document.activeElement,deskTa,'precondition: composer is focused before right-click')
+  await openMenuOn(chatBeta)
+  await clickMention()
+  assert.equal(deskTa.value,'Hello @worker-beta world',
+    'focused composer inserts "@worker-beta " at the caret position')
+  assert.equal(document.activeElement,deskTa,'composer stays focused after Mention')
+  assert.equal(deskTa.selectionStart,'Hello @worker-beta '.length,
+    'caret sits immediately after the inserted mention token')
+  assert.equal(deskTa.selectionEnd,'Hello @worker-beta '.length)
+  assert.equal(sentCalls.length,0,'still nothing sent')
+
+  // 4. Other agent desk tabs (inbox, docket, presented, team) also offer Mention first and insert into the desk composer
+  for(const tab of ['inbox','docket','presented','team'] as const){
+    const tabBtn=deskEl.querySelector<HTMLButtonElement>(`.cc-tabs button[data-tab="${tab}"]`)!
+    await inAct(async()=>{tabBtn.click();await flush(6)})
+    const panelLink=deskEl.querySelector<HTMLElement>('.desk-tabpanel [data-copy-agent-name], .desk-tabpanel [data-agent-nav]')!
+    assert.ok(panelLink,`tab "${tab}" rendered an agent or project link`)
+    const expectedId=panelLink.getAttribute('data-copy-agent-name')||panelLink.getAttribute('data-agent-nav')!
+    await inAct(async()=>{
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(deskTa,'')
+      deskTa.dispatchEvent(new window.Event('input',{bubbles:true}))
+      deskTa.blur()
+      await flush(2)
+    })
+    await openMenuOn(panelLink)
+    const items=menuLabels()
+    assert.equal(items[0],'Mention',`tab "${tab}" link menu starts with Mention`)
+    assert.equal(items[1],'Copy mention',`tab "${tab}" link menu keeps Copy mention second`)
+    await clickMention()
+    assert.equal(deskTa.value,`@${expectedId} `,`tab "${tab}" Mention inserts @${expectedId} into the desk composer`)
+    assert.equal(document.activeElement,deskTa,`tab "${tab}" Mention focuses the desk composer`)
+  }
+
+  // 5. Project desk composer: right-clicking a link inside ProjectDesk shows Mention first and inserts into ProjectComposer
+  const projDeskEl=v.el.querySelector<HTMLElement>('.project-desk')!
+  const projTa=projDeskEl.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
+  assert.ok(projDeskEl&&projTa,'project desk and its composer textarea rendered')
+  projTa.blur()
+  const projLink=projDeskEl.querySelector<HTMLElement>('.desk-nav-chip[data-copy-agent-name="worker-beta"]')!
+  assert.ok(projLink,'project desk rendered member jump card link')
+
+  await openMenuOn(projLink)
+  assert.deepEqual(menuLabels().slice(0,2),['Mention','Copy mention'],
+    'project desk link menu starts with Mention then Copy mention')
+  await clickMention()
+  assert.equal(projTa.value,'@worker-beta ','project desk Mention inserts "@worker-beta " into project composer')
+  assert.equal(document.activeElement,projTa,'project desk Mention focuses project composer')
+  assert.equal(projTa.selectionStart,'@worker-beta '.length)
+
+  // Project composer focused at caret
+  await inAct(async()=>{
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(projTa,'Team: now')
+    projTa.dispatchEvent(new window.Event('input',{bubbles:true}))
+    projTa.focus()
+    projTa.setSelectionRange(6,6)
+    projTa.dispatchEvent(new window.Event('select',{bubbles:true}))
+    await flush(3)
+  })
+  const projUpLink=projDeskEl.querySelector<HTMLElement>('.desk-nav-chip[data-copy-agent-name="worker-alpha"]')!
+  await openMenuOn(projUpLink)
+  await clickMention()
+  assert.equal(projTa.value,'Team: @worker-alpha now',
+    'focused project composer inserts "@worker-alpha " at the caret')
+  assert.equal(document.activeElement,projTa)
+  assert.equal(projTa.selectionStart,'Team: @worker-alpha '.length)
+  assert.equal(sentCalls.length,0,'project composer Mention does not send')
+})
+
+
 

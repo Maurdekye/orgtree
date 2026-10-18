@@ -56,6 +56,17 @@
   [Team panel chrome](docs/rust-engine/team-panel-chrome.md).
   [decided: user 2026-10-18 14:22Z/14:44Z; verified: `canvas/{team,desk,projectdesk}.tsx`, `styles.css`]
 
+- Right-clicking an agent or project link inside an agent or project desk
+  (`data-desk-mention-scope` on `.desk-body` in `DeskChat` and `ProjectDesk`)
+  prepends **Mention** above **Copy mention** and the rest of the shared context
+  menu. Choosing **Mention** inserts `@<name> ` at the desk composer's caret (or
+  appends it with a separating space when the composer was not focused),
+  focuses the composer, and leaves the caret after the trailing space without
+  sending. Portaled modals rendered from a desk sit outside `.desk-body` and do
+  not inherit **Mention**. [decided: user 2026-10-18 15:39Z; verified:
+  `canvas/{agentmentions,contextmenu,desk,projectdesk}.tsx`,
+  `tests/agentmentions.test.tsx`]
+
 - Org outbox reading headers group the sender's shared `AgentLink` (badge
   inside), `as @org`, hub recipient and delivery glyph as one wrapping
   attribution. Reply/time form a trailing, baseline-aligned group. The same

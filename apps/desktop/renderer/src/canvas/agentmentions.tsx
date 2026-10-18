@@ -133,8 +133,17 @@ export function useAgentMentions({
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => boolean
   syncCaret: () => void
   menu: ReactNode
+  captureMention: (agentId: string) => (() => void) | null
+  noteRightClickDown: () => void
 } {
   const emit = onChange ?? setValue
+  const valueRef = useRef(value)
+  valueRef.current = value
+  const emitRef = useRef(emit)
+  emitRef.current = emit
+  const disabledRef = useRef(disabled)
+  disabledRef.current = disabled
+  const preRightClickSnapRef = useRef<{ focused: boolean; start: number; end: number; ts: number } | null>(null)
   const [caret, setCaret] = useState(value.length)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
@@ -145,6 +154,74 @@ export function useAgentMentions({
     if (!el) return
     const next = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length
     setCaret(next)
+  }, [inputRef])
+
+  const noteRightClickDown = useCallback(() => {
+    const el = inputRef.current
+    if (!el) return
+    const doc = el.ownerDocument ?? document
+    const focused = doc.activeElement === el
+    const len = el.value.length
+    const start = focused && typeof el.selectionStart === 'number' ? el.selectionStart : len
+    const end = focused && typeof el.selectionEnd === 'number' ? el.selectionEnd : start
+    preRightClickSnapRef.current = { focused, start, end, ts: Date.now() }
+  }, [inputRef])
+
+  const captureMention = useCallback((agentId: string): (() => void) | null => {
+    const id = agentId.trim().replace(/^@+/, '')
+    if (!id || disabledRef.current) return null
+    const el = inputRef.current
+    if (!el || el.disabled) return null
+    const doc = el.ownerDocument ?? document
+    const pre = preRightClickSnapRef.current
+    preRightClickSnapRef.current = null
+    const usePre = Boolean(pre && Date.now() - pre.ts < 1000 && pre.focused)
+    const focusedNow = doc.activeElement === el
+    const wasFocused = focusedNow || usePre
+    const curVal = el.value ?? valueRef.current
+    const rawStart = focusedNow
+      ? (typeof el.selectionStart === 'number' ? el.selectionStart : curVal.length)
+      : usePre ? pre!.start : curVal.length
+    const rawEnd = focusedNow
+      ? (typeof el.selectionEnd === 'number' ? el.selectionEnd : rawStart)
+      : usePre ? pre!.end : rawStart
+    return () => {
+      const target = inputRef.current
+      if (!target || target.disabled || disabledRef.current) return
+      const current = target.value ?? valueRef.current
+      const token = `@${id} `
+      let nextValue: string
+      let nextCaret: number
+      if (wasFocused) {
+        const start = Math.max(0, Math.min(rawStart, current.length))
+        const end = Math.max(start, Math.min(rawEnd, current.length))
+        const before = current.slice(0, start)
+        const after = current.slice(end)
+        nextValue = before + token + after
+        nextCaret = before.length + token.length
+      } else {
+        const sep = current.length > 0 && !/\s$/.test(current) ? ' ' : ''
+        nextValue = current + sep + token
+        nextCaret = nextValue.length
+      }
+      try {
+        target.value = nextValue
+      } catch { /* ignore */ }
+      emitRef.current?.(nextValue)
+      setCaret(nextCaret)
+      try {
+        target.focus({ preventScroll: true })
+        target.setSelectionRange(nextCaret, nextCaret)
+      } catch { /* ignore */ }
+      queueMicrotask(() => {
+        const latest = inputRef.current
+        if (!latest) return
+        try {
+          latest.focus({ preventScroll: true })
+          latest.setSelectionRange(nextCaret, nextCaret)
+        } catch { /* ignore */ }
+      })
+    }
   }, [inputRef])
 
   useEffect(() => {
@@ -285,7 +362,44 @@ export function useAgentMentions({
       )
     : null
 
-  return { onKeyDown, syncCaret, menu }
+  return { onKeyDown, syncCaret, menu, captureMention, noteRightClickDown }
+}
+
+export const DESK_MENTION_ATTR = 'data-desk-mention-scope'
+const deskMentionScopes = new WeakMap<Element, (agentId: string) => (() => void) | null>()
+
+export function useDeskMentionScope(
+  captureMention: ((agentId: string) => (() => void) | null) | null,
+  noteRightClickDown?: () => void,
+) {
+  const fnRef = useRef(captureMention)
+  fnRef.current = captureMention
+  const downRef = useRef(noteRightClickDown)
+  downRef.current = noteRightClickDown
+  const ref = useCallback((el: HTMLElement | null) => {
+    if (!el) return
+    deskMentionScopes.set(el, (agentId: string) => (fnRef.current ? fnRef.current(agentId) : null))
+  }, [])
+  const onRightDown = useCallback((e: React.MouseEvent<HTMLElement> | React.PointerEvent<HTMLElement>) => {
+    if (e.button === 2) downRef.current?.()
+  }, [])
+  return {
+    ref,
+    [DESK_MENTION_ATTR]: captureMention ? '' : undefined,
+    onPointerDownCapture: onRightDown,
+    onMouseDownCapture: onRightDown,
+  }
+}
+
+export function captureDeskMentionAt(
+  target: EventTarget | null,
+  agentId: string | null | undefined,
+): (() => void) | null {
+  if (!agentId || !target || typeof (target as Element).closest !== 'function') return null
+  const scope = (target as Element).closest(`[${DESK_MENTION_ATTR}]`)
+  if (!scope) return null
+  const handler = deskMentionScopes.get(scope)
+  return handler ? handler(agentId) : null
 }
 
 // ------------------------------------------------------------ @net: / @org: Hub contact links

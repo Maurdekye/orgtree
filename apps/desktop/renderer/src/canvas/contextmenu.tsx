@@ -98,6 +98,7 @@ import type { CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent
 import { createPortal } from 'react-dom'
 import { useSurfaceDocument } from '../popout'
 import { AGENT_NAV_ATTR, agentNavElementAt, agentTooltipProps, useAgentNavRegistry } from './agentnav'
+import { captureDeskMentionAt } from './agentmentions'
 import { OBJECT_NAV_ATTR, OBJECT_ID_ATTR, OBJECT_ORG_ATTR, objectNavElementAt, useObjectNavRegistry } from './objectnav'
 import { useEsc } from './shared'
 import type { ToastFn } from '../types'
@@ -169,6 +170,13 @@ function objectCopyEntry(object: Element, toast?: ToastFn): MenuItem {
   } }
 }
 
+export function openFallbackObjectMenu(e: ReactMouseEvent, menu: ContextMenuHandle): void {
+  const object = copyObjectAt(e.target)
+  const nav = objectNavElementAt(e.target) ?? agentNavElementAt(e.target)
+  const anchor = nav && (!object || nav.contains(object)) ? nav : object
+  if (anchor) menu.open(e, [], anchor)
+}
+
 /** One fallback per surface for object names without another menu. Existing
  * menus take the event first and receive the same copy entry in `open`.
  * Replaces the surface's div, preserving its layout and event boundaries. */
@@ -187,10 +195,7 @@ export function ObjectMenuBoundary({ children, toast, onContextMenu, ...props }:
       // inert and offered copy-only, and a marker with NO copy object above it
       // at all (the docket question head) opened no menu whatsoever. Both
       // found by measurement in review, textmenu 2026-09-19.
-      const object = copyObjectAt(e.target)
-      const nav = objectNavElementAt(e.target) ?? agentNavElementAt(e.target)
-      const anchor = nav && (!object || nav.contains(object)) ? nav : object
-      if (anchor) menu.open(e, [], anchor)
+      openFallbackObjectMenu(e, menu)
       onContextMenu?.(e)
     }}>{children}</div>
     {menu.node}
@@ -385,17 +390,22 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     // Agent copy flows straight into its actions. Other object menus keep
     // their existing copy/action separator.
     const agentCopy = object?.hasAttribute('data-copy-agent-name') || (!object && navEl && navId)
+    const agentId = object?.getAttribute('data-copy-agent-name') || (!object && navEl ? navId : null)
+    const mentionAction = captureDeskMentionAt(object ?? navEl, agentId)
+    const mentionPrefix: MenuEntry[] = mentionAction ? [{ label: 'Mention', onSelect: mentionAction }] : []
     const copyGap: MenuEntry[] = agentCopy ? [] : ['sep']
     // An explicit ticket menu owns its copy-title position, just as an async
     // resolved object menu does below. Keep other objects' automatic prefix.
     const suppliedTicketCopy = object?.hasAttribute('data-copy-ticket-title')
       && surfaceEntries.some(entry => entry !== 'sep' && entry.label === 'Copy ticket title')
     const list: MenuEntry[] = object
-      ? [...(suppliedTicketCopy ? [] : [objectCopyEntry(object, feedback)]),
+      ? [...mentionPrefix,
+         ...(suppliedTicketCopy ? [] : [objectCopyEntry(object, feedback)]),
          ...(navEntries.length ? [...copyGap, ...navEntries] : []),
          ...(surfaceEntries.length ? [...(suppliedTicketCopy ? [] : copyGap), ...surfaceEntries] : [])]
       : (navEl && navId
-          ? [agentCopyEntry(navEl, navId, feedback),
+          ? [...mentionPrefix,
+             agentCopyEntry(navEl, navId, feedback),
              ...navEntries, ...surfaceEntries]
           : objectList.length ? objectList : entriesList)
     // nothing to offer is not a menu: the browser's own stands

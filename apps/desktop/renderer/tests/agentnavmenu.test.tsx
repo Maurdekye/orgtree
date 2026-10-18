@@ -229,10 +229,12 @@ uiTest('§2 the desk header name offers the agent whole menu, not just Copy ment
     const head = c.el.querySelector('.cc-head-left') as HTMLElement | null
     assert.ok(head, 'a desk opened and drew its header name')
     const have = await menuOf(head!, 'the desk header name')
-    assert.equal(have[0], 'Copy mention',
-      `the copy entry is still first — have ${JSON.stringify(have)}`)
-    assert.ok(have.length > 1,
-      `and it is no longer the only one — have ${JSON.stringify(have)}`)
+    assert.equal(have[0], 'Mention',
+      `inside an open desk, Mention is first — have ${JSON.stringify(have)}`)
+    assert.equal(have[1], 'Copy mention',
+      `Copy mention stays right below Mention — have ${JSON.stringify(have)}`)
+    assert.ok(have.length > 2,
+      `and the agent menu entries follow — have ${JSON.stringify(have)}`)
     for (const entry of ['· Desk', '· Inbox', '· Docket', 'Settings', 'Acquire audience']) {
       assert.ok(have.includes(entry),
         `the desk name offers "${entry}" — have ${JSON.stringify(have)}`)
@@ -294,7 +296,8 @@ uiTest('§3 every navigation target on screen offers the SAME menu as that agent
       const want = reference.get(target.id)
       if (!want) continue            // a target for an agent with no row here
       const have = await menuOf(target.el, `${target.where} -> ${target.id}`)
-      assert.deepEqual(have, want,
+      const expected = target.el.closest('[data-desk-mention-scope]') ? ['Mention', ...want] : want
+      assert.deepEqual(have, expected,
         `${target.where} -> ${target.id} must offer the agent canonical menu, `
         + 'not a surface-specific subset')
       seen.push(target.where)
