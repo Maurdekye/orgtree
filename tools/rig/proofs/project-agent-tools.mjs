@@ -33,7 +33,7 @@ export default async function (rig) {
       ('purged',${p.org_id},'@user','agent',${p.id},'queue','purged',true,'retracted','{"purged":{"by":"boss"}}');
       INSERT INTO ot.mail(uid,org_id,sender,sender_agent_id,recipient_kind,recipient_agent_id,recipient_name,body,notice,state)
       VALUES ('sent-project',${p.org_id},'queue',${p.id},'agent',${a.id},'worker-a','sent fixture',true,'read');
-      UPDATE ot.mail SET body=repeat('🦀é',40000) WHERE uid='history-205';`)
+      UPDATE ot.mail SET body=repeat(chr(129408)||chr(233),40000) WHERE uid='history-205';`)
     const stamp=()=>rig.one(`SELECT md5(string_agg(uid||state||extra::text||coalesce(read_at::text,''),',' ORDER BY id)) AS hash FROM ot.mail WHERE recipient_agent_id=${p.id}`).hash
     const before=stamp()
     let cursor;const ids=[];let pages=0
@@ -75,7 +75,7 @@ export default async function (rig) {
     check('ordinary root project creation remains refused',!root&&!row('forbidden-root'))
 
     rig.exec(`INSERT INTO ot.documents(uid,org_id,agent_id,node_name,title,body,bytes,format)
-      VALUES ('long-presentation',${p.org_id},${p.id},'queue','Unicode body',repeat('🦀é',40000),240000,'markdown'),
+      VALUES ('long-presentation',${p.org_id},${p.id},'queue','Unicode body',repeat(chr(129408)||chr(233),40000),240000,'markdown'),
       ('member-presentation',${p.org_id},${a.id},'worker-a','Member body','member',6,'markdown');`)
     let body='',index=0,count=0,revision
     do {const v=await project('worker-a',{action:'read_presentation',document:'long-presentation',chunk_index:index,...(revision?{body_revision:revision}:{})});const d=v.documents[0];
