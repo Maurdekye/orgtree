@@ -8174,7 +8174,7 @@ html.mobile .popout-button { display: none; }
 .reply-preview[role="link"] { cursor:pointer; }
 .reply-preview[role="link"]:hover { background:color-mix(in srgb,var(--accent) 7%,var(--panel)); }
 .reply-preview[role="link"]:focus-visible { outline:2px solid var(--button-accent); outline-offset:2px; }
-.reply-preview-head > .reply-presentation-link { display:inline-flex; min-width:0; max-width:55%; flex:0 1 auto; margin-left:auto; }
+.reply-preview-head > .reply-presentation-link { display:inline-flex; min-width:0; max-width:55%; flex:0 1 auto; margin-left:auto; font-size:11px; line-height:1.3; padding:2px 4px; min-height:0; border:0; background:transparent; box-sizing:border-box; }
 .reply-presentation-link > span { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .reply-preview-content { max-height: 10rem; overflow: auto; overflow-wrap: anywhere; margin-top: 5px; overscroll-behavior: contain; }
 .reply-preview-content:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }

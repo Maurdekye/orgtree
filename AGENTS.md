@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Shared reply quotes activate their original target from the whole block or
+  Enter/Space, preserving nested links and text selection. Presentation labels
+  use current titles or an exact org/id read, never raw ids; missing targets keep
+  a clear fallback. Older message jumps page on demand and center only their
+  owning list. See [reply quote navigation](docs/rust-engine/reply-quote-navigation.md).
+  [decided: user 2026-10-18 11:21–11:22Z; verified: `canvas/{replypreview,mailreply,presentationtitle,desk,mail}.ts*`]
+
 - Desk mention/reply jumps use `centerTranscriptTarget` on the owning transcript
   only; never call all-ancestor `scrollIntoView` on its rows or header chips.
   Composer focus uses `preventScroll`. Hidden-overflow desk frames can otherwise
