@@ -1,0 +1,111 @@
+// projectmailrows.test.tsx — a project mail's LIST ROW (user 2026-10-18
+// 14:24Z, docket project-inbox-list-rows-kind-tags-and-delivered-t: "mail
+// tags are heavily compressed and wrapped here ... maybe a third row of
+// content per mail item in the list for project mail is necessary?").
+//
+// WHAT THIS FILE HOLDS THE CODE TO:
+//   §1 a row with a project queue state takes three lines: sender and time,
+//      then its kind chip and queue state, then the preview;
+//   §2 every queue state uses that line, and an urgent chip moves with the kind;
+//   §3 the Sent folder's row for mail to a project is the same row;
+//   §4 rows without a queue state (every other mailbox) keep their two lines.
+// The geometry (no wrapped name, no stretched chip) is checked in real
+// Chromium by projectdelivery-visual.mjs.
+//
+// Run:  cd apps/desktop/renderer && node tests/run.mjs projectmailrows
+
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { mountView } from './harness'
+import { MailList } from '../src/canvas/mail'
+import type { MailRow } from '../src/canvas/shared'
+
+const ev = (variant: string, from: string, body: string) =>
+  ({ v: 1, variant, actor: { kind: 'agent', id: from }, object: null, engine_authored: false, body })
+const question: MailRow = {
+  id: 'q1', from: 'hubchat-jumplist-sol', kind: 'question', at: '2026-10-18T12:00:00Z',
+  ev: ev('ordinary.question', 'hubchat-jumplist-sol', 'Please check the project item.'),
+  body: 'Please check the project item.', queue: { held_by: 'coordinator-opus', ack: false },
+}
+const classes = (el: Element | null) => [...(el?.children ?? [])].map((c) => c.className)
+const only = async (rows: MailRow[], extra: Partial<Parameters<typeof MailList>[0]> = {}) => {
+  const v = await mountView(<MailList delivered={rows} hasAgent={() => true} onFocusAgent={() => {}}
+    tierOf={() => 'sol'} {...extra} />, (el) => el)
+  return { v, rows: [...v.el.querySelectorAll<HTMLElement>('.mailrow')] }
+}
+
+/* ─── §1 three lines ─────────────────────────────────────────────────────── */
+
+test('§1 a project mail row gives its kind and queue state a line of their own', async (t) => {
+  const { v, rows: [row] } = await only([question])
+  t.after(() => v.unmount())
+  assert.ok(row, 'positive control: the row renders')
+  assert.deepEqual(classes(row!), ['l1', 'lmeta', 'l2'], 'who and when, then kind and queue, then the preview')
+  assert.ok(row!.classList.contains('project-mail'), 'the row says it carries a queue state')
+  assert.deepEqual(classes(row!.querySelector(':scope > .l1')), ['mfrom', 'mtime'], 'line 1 holds only the sender and the time')
+  const meta = row!.querySelector(':scope > .lmeta')
+  assert.deepEqual(classes(meta), ['event-row-kind', 'queuekind queue-delivery'], 'kind chip, then the delivery marker')
+  assert.equal(meta?.textContent, 'Question→@coordinator-opus')
+  assert.ok(meta?.querySelector('button[data-agent-nav="coordinator-opus"]'), 'the recipient keeps the shared agent link')
+  assert.equal(row!.querySelector(':scope > .l2')?.textContent, 'Please check the project item.')
+})
+
+/* ─── §2 every queue state ───────────────────────────────────────────────── */
+
+test('§2 every queue state sits on the meta line, never beside the sender', async (t) => {
+  const cases: [MailRow['queue'], string][] = [
+    [{ held_by: 'coordinator-opus', ack: true }, 'coordinator-opus · awaiting ack'],
+    [{ held_by: 'coordinator-opus', ack: true, acked_at: '2026-10-18T12:20:00Z' }, 'acked by coordinator-opus'],
+    [{ released: { by: 'dev1', why: 'was halted' } }, 'released (dev1)'],
+    [{ ack_of: 'm1' }, 'ack of m1'],
+    [{ dead_letter: { by: 'dev1', attempts: 3 } }, 'dead letter'],
+    [{ purged: { by: '@user' } }, 'purged'],
+  ]
+  for (const [queue, label] of cases) {
+    const { v, rows: [row] } = await only([{ ...question, queue }])
+    t.after(() => v.unmount())
+    assert.deepEqual(classes(row!), ['l1', 'lmeta', 'l2'], label)
+    assert.equal(row!.querySelector(':scope > .l1 .queuekind') === null, true, `${label}: not on line 1`)
+    assert.equal(row!.querySelector(':scope > .lmeta > .queuekind')?.textContent, label)
+  }
+})
+
+test('§2 an urgent project mail keeps its urgent chip beside its kind', async (t) => {
+  const { v, rows: [row] } = await only([{ ...question, urgent: true, urgent_reason: 'blocks the alpha' }])
+  t.after(() => v.unmount())
+  assert.deepEqual(classes(row!.querySelector(':scope > .lmeta')), ['event-row-kind', 'urgentkind', 'queuekind queue-delivery'])
+  assert.deepEqual(classes(row!.querySelector(':scope > .l1')), ['mfrom', 'mtime'])
+})
+
+/* ─── §3 the Sent folder ─────────────────────────────────────────────────── */
+
+test('§3 a Sent row for mail to a project is the same three-line row', async (t) => {
+  // the user's Sent folder names the recipient as plain text (App.tsx)
+  const { v, rows: [row] } = await only([{ ...question, from: '@user', to: 'build-slot' }],
+    { outgoing: true, rowSender: (id: string) => <span>{id}</span> })
+  t.after(() => v.unmount())
+  assert.deepEqual(classes(row!), ['l1', 'lmeta', 'l2'])
+  assert.equal(row!.querySelector(':scope > .l1 > .mfrom')?.textContent, '→ build-slot')
+  assert.equal(row!.querySelector(':scope > .lmeta')?.textContent, 'Question→@coordinator-opus')
+})
+
+/* ─── §4 every other mailbox ─────────────────────────────────────────────── */
+
+test('§4 rows without a queue state keep two lines with their chips beside the sender', async (t) => {
+  const plain: MailRow[] = [
+    { ...question, id: 'a', queue: undefined },
+    { ...question, id: 'b', queue: undefined, urgent: true, urgent_reason: 'now' },
+    // a queue record with nothing to show draws no chip, so it takes no line
+    { ...question, id: 'c', queue: { attempts: 2 } },
+  ]
+  const { v, rows } = await only(plain)
+  t.after(() => v.unmount())
+  assert.equal(rows.length, 3, 'positive control: three rows')
+  for (const row of rows) {
+    assert.deepEqual(classes(row), ['l1', 'l2'], row.textContent ?? '')
+    assert.equal(row.classList.contains('project-mail'), false)
+    assert.equal(row.querySelector(':scope > .l1 > .event-row-kind')?.textContent, 'Question', 'the kind chip stays on line 1')
+  }
+  assert.deepEqual(classes(rows.find((r) => r.querySelector('.urgentkind'))!.querySelector(':scope > .l1')),
+    ['mfrom', 'event-row-kind', 'urgentkind', 'mtime'], 'line 1 order is unchanged')
+})
