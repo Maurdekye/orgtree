@@ -13,6 +13,9 @@ stream, activity, Orgtree event (including its event name) and mail queue
 listeners. Show silence separately from type. Labels and cadence must match the
 kind; a project-mail listener has no command or polling interval. See
 [watchdog detail card](watchdog-detail-card.md).
+Coordinator 2026-10-18 09:26Z adds the eighth type, Slot claim: current ordinal
+while waiting, granted slot/lease with spent state after firing; queue/lease
+projection stays owned by the slots desktop author.
 
 **Helper transcript formatting, user 2026-10-17 19:32Z:** the expanded helper
 view uses the same normal transcript components for Markdown prose, supplied

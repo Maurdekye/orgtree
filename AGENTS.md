@@ -32,6 +32,8 @@
   [decided: user 2026-10-18 07:49Z; verified: `epic/stage.ts`]
 
 - Watchdog detail cards name every listener type and explain its actual trigger.
+  Slot claims show their current queue ordinal or their granted slot/lease and
+  spent state, using the slots projection and shared current watchdog snapshot.
   Silence is separate; only file/command/process use polling cadences, while
   project mail is pushed and event-mode stream/activity/event use minimum gaps.
   Keep desktop `notice` projection from `memo.notice` so passive alerts are not

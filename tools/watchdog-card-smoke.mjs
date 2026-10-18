@@ -46,7 +46,8 @@ if (visual) {
   command = require('electron'); args = [path.join(repo, 'apps/desktop/renderer/tests/watchdog-card-capture.cjs')]
   delete env.ELECTRON_RUN_AS_NODE
   env.WATCHDOG_CAPTURE_ROOT = path.resolve(output)
-  env.WATCHDOG_CAPTURE_RICH = String(mode === 'visual')
+  env.WATCHDOG_CAPTURE_RICH = String(mode !== 'visual-red')
+  env.WATCHDOG_CAPTURE_SINGLE = String(mode === 'visual-quick')
 } else { command = process.execPath; args = ['--max-old-space-size=1024', '--test', '--test-reporter=tap', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000',
   ...(controls ? controlEntries.map(name => path.join(output, name + '.test.mjs')) : [path.join(output, 'test.mjs')])] }
 const result = spawnSync(command, args, { cwd: repo, env, encoding: 'utf8', windowsHide: true })

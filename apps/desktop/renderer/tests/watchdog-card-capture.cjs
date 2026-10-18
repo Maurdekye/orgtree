@@ -11,7 +11,8 @@ app.whenReady().then(async () => {
   try {
     await win.loadFile(path.join(root, 'fixture.html'))
     const receipts = []
-    for (const name of ['queue', 'command', 'silence', 'event']) for (const theme of ['dark', 'light']) {
+    const cases = process.env.WATCHDOG_CAPTURE_SINGLE === 'true' ? [['queue', 'dark']] : ['queue', 'command', 'silence', 'event'].flatMap(name => ['dark', 'light'].map(theme => [name, theme]))
+    for (const [name, theme] of cases) {
       let state, image, actualBackground
       await win.webContents.executeJavaScript(`window.setWatchdogCase(${JSON.stringify(name)})`)
       for (let attempt = 0; attempt < 5; attempt++) {

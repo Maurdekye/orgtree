@@ -14,6 +14,13 @@ and management controls remain available.
 | `activity` | Activity listener | An agent's pushed turn/tool-call activity |
 | `event` | Orgtree event listener, with event name/prefix | Pushed filtered engine events; count thresholds fire on crossings |
 | `fair_queue` | Mail queue listener | Waiting project mail assigned to one eligible listener, least recently served first |
+| `slot` | Slot claim | Joins the project's line; fires once when granted a slot |
+
+Slot claims show their ordinal place from the current shared watchdog snapshot,
+using the slots desktop's queue ordering. A grant shows its slot number and lease
+from the engine projection, with `spent` after firing. Paused claims say they are
+out of the line and resume at the back; absent fields are never invented. The
+card does not fetch a separate queue or change slot admission.
 
 Event-mode stream/activity/event intervals are minimum alert gaps, not polling
 cadences. Project mail dispatch has no polling cadence. Listener counts are not
@@ -48,3 +55,7 @@ the overlay shade over the body color before comparing the actual screenshot.
 The first red capture's body-only guard failed; that failed receipt is retained.
 Prepared fixtures and syntax checks alone do not establish runtime passes; see
 the docket's raw measured receipts for the current verdicts.
+
+During phase 1 (user 2026-10-18 09:25Z), run only the focused description file
+and one representative capture (`visual-quick`), rather than the old multi-suite
+and before/after theme matrix. Wider checks wait for hardening.
