@@ -271,6 +271,7 @@ export function AgentDeskPanel({
     <div className={'attn-agents-wrap' + (open ? ' list-open' : '')
       + (selected?.tier ? ' prov-' + providerOf(selected.tier) : '')}>
       <div className="attn-agents-bar attn-agents-bar-bottom" ref={barRef}>
+        {!open && <span className="dim attn-agents-rail-label" aria-hidden="true">agents</span>}
         <button type="button" className="iconbtn attn-agents-toggle" ref={toggleRef}
           aria-expanded={open} aria-controls={`attn-agents-${slug}`}
           title={open ? 'close the agents list' : 'open the agents list'}
@@ -282,7 +283,6 @@ export function AgentDeskPanel({
           }}>
           {open ? <ChevronLeftIcon fontSize="inherit" /> : <ViewListIcon fontSize="inherit" />}
         </button>
-        {!open && <span className="dim attn-agents-rail-label" aria-hidden="true">agents</span>}
       </div>
       {/* the scrim: darkens the desk while the drawer is out, and a click on it
           closes the drawer. Always rendered so the dimming can fade. */}

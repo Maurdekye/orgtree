@@ -220,6 +220,7 @@
 .attn-agents-toggle { pointer-events: auto; }
 .attn-agents-rail-label {
   writing-mode: vertical-rl;
+  transform: rotate(180deg);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;

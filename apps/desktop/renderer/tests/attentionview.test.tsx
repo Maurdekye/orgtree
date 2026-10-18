@@ -193,6 +193,23 @@ test('the Agent desk agents-list toggle is in the bottom rail beside the compose
     'opening the list still reveals the existing drawer')
 })
 
+test('the collapsed agents rail puts its spine label above the toggle', async t => {
+  reset()
+  setOrgView(SLUG, 'attention')
+  const v = await mountView(view(), () => shape())
+  t.after(() => v.unmount())
+  await inAct(() => flush())
+
+  const rail = document.querySelector('.attn-panel-desk .attn-agents-bar-bottom')
+  assert.ok(rail, 'the bottom rail is present')
+  const label = rail!.querySelector('.attn-agents-rail-label')
+  const toggle = rail!.querySelector('.attn-agents-toggle')
+  assert.ok(label, 'the collapsed rail keeps its AGENTS label')
+  assert.ok(toggle, 'the collapsed rail keeps its toggle')
+  assert.ok(label!.compareDocumentPosition(toggle!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    'AGENTS precedes the button in the rail')
+})
+
 test('§2 on the canvas, neither panel is on screen and the stage is hidden', async () => {
   reset()
   const v = await mountView(view(), () => shape())
