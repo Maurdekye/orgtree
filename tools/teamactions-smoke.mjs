@@ -11,9 +11,12 @@ const require = createRequire(path.join(path.resolve(deps), 'package.json'))
 const esbuild = require('esbuild')
 fs.mkdirSync(output, { recursive: true })
 const visual = mode?.startsWith('visual')
+const suites = ['teamactions', 'teamtab']
 try {
-  await esbuild.build({ entryPoints: [path.join(repo, 'apps/desktop/renderer/tests', visual ? 'teamactions-visual.tsx' : 'teamactions.test.tsx')],
-    outfile: path.join(output, visual ? 'fixture.js' : 'test.mjs'), bundle: true, format: 'esm', platform: visual ? 'browser' : 'node',
+  await esbuild.build({ entryPoints: visual ? [path.join(repo, 'apps/desktop/renderer/tests/teamactions-visual.tsx')]
+      : suites.map(s => path.join(repo, `apps/desktop/renderer/tests/${s}.test.tsx`)),
+    ...(visual ? { outfile: path.join(output, 'fixture.js') } : { outdir: output, outExtension: { '.js': '.mjs' } }),
+    bundle: true, format: 'esm', platform: visual ? 'browser' : 'node',
     target: 'node22', jsx: 'automatic', nodePaths: [path.join(path.resolve(deps), 'node_modules')], external: ['node:*'],
     plugins: [{ name: 'external-jsdom', setup(build) { build.onResolve({ filter: /^jsdom$/ }, () => ({ path: pathToFileURL(require.resolve('jsdom')).href, external: true })) } }],
     define: { 'process.env.NODE_ENV': '"development"', __SRC_DIR__: JSON.stringify(path.join(repo, 'apps/desktop/renderer/src')) } })
@@ -26,7 +29,7 @@ if (visual) {
   delete env.ELECTRON_RUN_AS_NODE
   env.TEAM_CAPTURE_ROOT = path.resolve(output)
 } else {
-  command = process.execPath; args = ['--max-old-space-size=1024', '--test', '--test-reporter=tap', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000', path.join(output, 'test.mjs')]
+  command = process.execPath; args = ['--max-old-space-size=1024', '--test', '--test-reporter=tap', '--test-force-exit', '--test-concurrency=1', '--test-timeout=10000', ...suites.map(s => path.join(output, s+'.test.mjs'))]
 }
 const result = spawnSync(command, args, { cwd: repo, env, encoding: 'utf8', windowsHide: true })
 fs.writeFileSync(path.join(output, 'result.log'), `${result.stdout || ''}${result.stderr || ''}`)
