@@ -61,6 +61,36 @@ export function executionTime(startedAt?: unknown, endedAt?: unknown): string {
   return Number.isNaN(a) || Number.isNaN(b) ? '' : formatDuration(b - a)
 }
 
+function exactTimeTitle(label: string, ms: number): string {
+  return Number.isFinite(ms) && ms >= 0 ? `${label}: ${ms.toFixed(3)}ms` : `${label}: not observed for this call`
+}
+
+/** Keep the sub-ms part separate: adding it to a large epoch loses digits.
+ * A stamp without millisecond precision cannot provide a precise duration. */
+function stampParts(value: unknown) {
+  if (typeof value !== 'string') return undefined
+  const whole = Date.parse(value)
+  if (!Number.isFinite(whole)) return undefined
+  const fraction = value.match(/\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/)?.[1]
+  return { whole, part: Number(`0.${fraction?.slice(3) || '0'}`), precise: !!fraction && fraction.length >= 3 }
+}
+
+function recordedTimeTitle(label: string, start: unknown, end: unknown): string {
+  const a = stampParts(start), b = stampParts(end)
+  if (!a || !b) return `${label}: not observed for this call`
+  if (!a.precise || !b.precise) return `${label}: millisecond precision unavailable`
+  return exactTimeTitle(label, b.whole - a.whole + b.part - a.part)
+}
+
+/** Sample the hover itself without increasing the visible clock's cadence. */
+function useLiveTimeTitle(label: string, startedAt: string | undefined, active: boolean) {
+  const [hover, setHover] = useState<{ start: string | undefined; at: number } | null>(null)
+  const at = hover?.start === startedAt ? hover!.at : Date.now()
+  const sample = () => setHover({ start: startedAt, at: Date.now() })
+  return { title: active ? recordedTimeTitle(label, startedAt, new Date(at).toISOString()) : `${label}: not running for this turn`,
+    onMouseEnter: sample, onFocus: sample }
+}
+
 /** Live clocks floor actual elapsed time and schedule at its next second,
  *  rather than preserving the arbitrary phase when this component mounted.
  *  Delayed callbacks recompute from the timestamp; completed clocks keep
@@ -89,9 +119,10 @@ export function ToolWritingLine({ name, startedAt }: { name: string; startedAt?:
   const turnStart = useContext(RunningTurnContext)
   const earlier = turnStart !== null && !ofRunningTurn(startedAt, turnStart)
   const elapsed = useLiveDuration(startedAt, !earlier)
-  return <span className="tool-writing" aria-label={`Writing ${name || 'tool call'}`}>
+  const tooltip = useLiveTimeTitle('writing time', startedAt, !earlier)
+  return <span className="tool-writing" {...tooltip} aria-label={`Writing ${name || 'tool call'}`}>
     <EditIcon fontSize="inherit" />
-    {elapsed && <span title={'Writing ' + (name || 'tool call') + ': writing time so far'}> {elapsed}</span>}
+    {elapsed && <span> {elapsed}</span>}
   </span>
 }
 
@@ -104,9 +135,9 @@ export function ToolTimes({ tool }: { tool: ToolChip }) {
   const finished = tool.result !== undefined || !!tool.error || !!tool.ended_at
   return <>
     {tool.writing_started_at ? <span className="dim tool-writing-time">{' · '}<ToolWritingLine name={tool.name} startedAt={tool.writing_started_at} /></span>
-      : writing && <span className="dim tool-writing-time" title="writing time" aria-label={`written in ${writing}`}>
+      : writing && <span className="dim tool-writing-time" title={exactTimeTitle('writing time', tool.writing_secs! * 1000)} aria-label={`written in ${writing}`}>
         {' · '}<EditIcon fontSize="inherit" /> {writing}</span>}
-    {ran ? <span className="dim tool-exec-time" title="execution time" aria-label={`ran for ${ran}`}>
+    {ran ? <span className="dim tool-exec-time" title={recordedTimeTitle('execution time', tool.started_at, tool.ended_at)} aria-label={`ran for ${ran}`}>
       {' · '}<ArrowRightIcon fontSize="inherit" /> {ran}</span>
       : !tool.writing_started_at && live && typeof tool.started_at === 'string' && tool.result === undefined && !tool.error
         ? <RunningTimer startedAt={tool.started_at} />
@@ -121,8 +152,9 @@ export function ToolTimes({ tool }: { tool: ToolChip }) {
 export function RunningTimer({ startedAt }: { startedAt: string }) {
   const live = useLiveCall(startedAt)
   const elapsed = useLiveDuration(startedAt, live)
+  const tooltip = useLiveTimeTitle('execution time', startedAt, live)
   if (!elapsed) return null
-  return <span className="dim tool-running" title="execution time so far" aria-label={'running for ' + elapsed}> · <ArrowRightIcon fontSize="inherit" /> {elapsed}</span>
+  return <span className="dim tool-running" {...tooltip} aria-label={'running for ' + elapsed}> · <ArrowRightIcon fontSize="inherit" /> {elapsed}</span>
 }
 
 /** A provider compaction's row text. Running: "Compacting context · compacting
