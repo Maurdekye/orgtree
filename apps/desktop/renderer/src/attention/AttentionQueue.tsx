@@ -170,7 +170,7 @@ export function AttentionQueue({
   const seenMentions = useSeenMentions()
   const allLive = useMemo(() => buildAttentionRows({
     items: work?.attention ?? work?.items, archived: work?.archived, backlogged: work?.backlogged,
-    pending: box?.pending?.filter((m) => !readLocally(slug, m.id)), nodes, asks: tree.asks, slug,
+    pending: box?.pending?.filter((m) => !readLocally(slug, m.id)), representedMail: [...(box?.pending??[]),...(box?.delivered??[])], nodes, asks: tree.asks, slug,
   }), [work, box, nodes, tree.asks, submitted, locallyRead, seenMentions, slug])
   const live = useMemo(() => dismissing.size
     ? allLive.filter((r) => !(r.kind === 'ticket' && r.item && dismissing.has(r.item.slug)))

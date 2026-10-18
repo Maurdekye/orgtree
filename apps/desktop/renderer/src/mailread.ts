@@ -1,3 +1,4 @@
+import { hasMailAttention } from './mailattention'
 // Mail the user has just read, shown read AT ONCE (docket
 // v3-marking-a-mail-as-read-takes-about-half-a-sec, user 2026-09-30: "it
 // takes about half a second before the mail shows as read").
@@ -48,11 +49,11 @@ export function useLocalReads(): number {
 
 /** Show `mail` read now and save it with `save`. Resolves when the save is
  *  accepted; rejects (after putting the mail back to unread) when refused. */
-export function markReadNow(slug: string, mail: { id: string; urgent?: boolean },
+export function markReadNow(slug: string, mail: { id: string; urgent?: boolean; mailbox_attention?: boolean },
   save: () => Promise<unknown>): Promise<void> {
   const k = key(slug, mail.id)
   if (entries.has(k)) return Promise.resolve()      // already read here
-  const mine: LocalRead = { slug, id: mail.id, urgent: !!mail.urgent, state: 'saving' }
+  const mine: LocalRead = { slug, id: mail.id, urgent: hasMailAttention(mail), state: 'saving' }
   entries.set(k, mine)
   emit()
   return save().then(() => {

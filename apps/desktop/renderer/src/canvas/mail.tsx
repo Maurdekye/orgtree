@@ -1,3 +1,4 @@
+import { hasMailAttention } from '../mailattention'
 import { beginOpen, useOpenCommit } from '../opentiming'
 import { useRecordMailbox } from '../recordpanelhooks'
 import { useMailboxHistory } from '../usemailhistory'
@@ -776,7 +777,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
            pulse: the user asked the INBOX to pulse and the ROW to be
            pronounced, and two pulsing rows would read as an alarm
            where two strong rows still read as a list. */
-        + (!m._ask && m.urgent ? ' urgent' : '')
+        + (!m._ask && hasMailAttention(m) ? ' urgent' : '')
         /* …and it FLASHES on the same test it scrolls on: a jump at a
            folded member must not scroll to a row that then sits there
            unmarked */

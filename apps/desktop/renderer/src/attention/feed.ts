@@ -1,3 +1,4 @@
+import { hasMailAttention, mailRepresentsMention } from '../mailattention'
 // attention/feed.ts — THE MIXED "NEEDS ATTENTION" FEED, AS A PURE MODEL.
 //
 // The Attention view's left panel is ONE list holding three different kinds of
@@ -85,6 +86,8 @@ export interface AttentionSources {
   backlogged?: readonly WorkItem[] | null
   /** GET /inbox `pending` — the unread group of the USER's mailbox */
   pending?: readonly MailEntry[] | null
+  /** Includes read/local-read mail so its duplicate blurb cannot reappear. */
+  representedMail?: readonly MailEntry[] | null
   /** every node in the open organization, for its batched ask card */
   nodes?: readonly TreeNode[] | null
   /** the tree header's `asks` — every open request, including those of agents
@@ -152,7 +155,7 @@ function mailRow(m: MailEntry): AttentionRow {
     agent: m.from,
     // the sender had to give a reason to mark it urgent, and that reason is
     // written FOR the user — it is the headline, with the body beneath it
-    title: oneLine(m.urgent_reason) || 'urgent message',
+    title: oneLine(m.urgent_reason) || (m.urgent ? 'urgent message' : '@user mention'),
     subtitle: oneLine(m.body),
     mail: m,
     // pending IS the unread group — the inbox marks these rows the same way
@@ -219,10 +222,11 @@ export function buildAttentionRows(src: AttentionSources): AttentionRow[] {
   for (const group of [src.items, src.archived, src.backlogged]) {
     for (const item of group ?? []) if (item.manual_attention) push(ticketRow(item))
   }
-  for (const m of src.pending ?? []) if (m.urgent && m.id) push(mailRow(m))
+  for (const m of src.pending ?? []) if (hasMailAttention(m) && m.id) push(mailRow(m))
   for (const a of openAsks({ asks: src.asks ? [...src.asks] : undefined }, src.nodes ?? [])) push(askRow(a))
   for (const n of src.nodes ?? []) {
-    if (n.state === 'live' && n.user_mention && hasUnseenUserMention(n, src.slug)) {
+    if (n.state === 'live' && n.user_mention && hasUnseenUserMention(n, src.slug)
+      && !(src.representedMail ?? src.pending ?? []).some(m=>mailRepresentsMention(m,n))) {
       push(mentionRow(n, n.user_mention))
     }
   }

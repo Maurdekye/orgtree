@@ -180,6 +180,8 @@ export interface MailAttachment {
 
 // schema.py MailEntry (№11/№17)
 export interface MailEntry {
+  /** Same mailbox attention as urgent; does not change the urgent marking. */
+  mailbox_attention?: boolean
   dnd_held?: boolean
   dnd_read?: boolean
   tags?: string[]
