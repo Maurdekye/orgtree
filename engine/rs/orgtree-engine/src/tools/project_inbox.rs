@@ -14,7 +14,8 @@ const STATUS_SQL: &str = "CASE
  WHEN m.extra->'claimed'->>'acked_at' IS NOT NULL OR m.extra->'claimed'->>'ack_waived_at' IS NOT NULL THEN 'acked'
  WHEN m.state IN ('pending','delivering') THEN 'waiting'
  WHEN (m.extra->'claimed'->>'ack')='true' THEN 'claimed'
- ELSE 'delivered' END";
+ WHEN m.state IN ('read','delivered') THEN 'delivered'
+ ELSE m.state END";
 
 #[derive(Debug)]
 struct Filter {

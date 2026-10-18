@@ -29,7 +29,8 @@ export default async function (rig) {
       ('delivered',${p.org_id},'@user','agent',${p.id},'queue','delivered',true,'read','{"claimed":{"by":"worker-a","ack":false}}'),
       ('claimed',${p.org_id},'@user','agent',${p.id},'queue','claimed',true,'read','{"claimed":{"by":"worker-a","ack":true}}'),
       ('acked',${p.org_id},'@user','agent',${p.id},'queue','acked',true,'read','{"claimed":{"by":"worker-a","ack":true,"acked_at":"2026-10-18T00:00:00Z"}}'),
-      ('dead',${p.org_id},'@user','agent',${p.id},'queue','dead',true,'retracted','{"dead_letter":{"why":"fixture","attempts":3}}');
+      ('dead',${p.org_id},'@user','agent',${p.id},'queue','dead',true,'retracted','{"dead_letter":{"why":"fixture","attempts":3}}'),
+      ('purged',${p.org_id},'@user','agent',${p.id},'queue','purged',true,'retracted','{"purged":{"by":"boss"}}');
       INSERT INTO ot.mail(uid,org_id,sender,sender_agent_id,recipient_kind,recipient_agent_id,recipient_name,body,notice,state)
       VALUES ('sent-project',${p.org_id},'queue',${p.id},'agent',${a.id},'worker-a','sent fixture',true,'read');
       UPDATE ot.mail SET body=repeat('🦀é',40000) WHERE uid='history-205';`)
@@ -45,6 +46,7 @@ export default async function (rig) {
     for(const status of ['waiting','delivered','claimed','acked','dead-letter']) {
       const v=await inbox('boss',{action:'list',folder:'inbox',status,limit:200})
       check(`queue status ${status} selects the correct stage`,v.messages.length>0&&v.messages.every(m=>m.status===status))
+      if(status==='delivered')check('purged mail is not reported as delivered',v.messages.length===1&&v.messages[0].id==='delivered')
     }
     const sent=await inbox('boss',{action:'list',folder:'sent'})
     check('Sent reads project outgoing records separately',sent.messages.length===1&&sent.messages[0].id==='sent-project'&&sent.messages[0].to==='worker-a')
