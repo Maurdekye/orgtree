@@ -4243,7 +4243,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onConfig={toggleConfig} onJump={centerOn}
           onShowOnCanvas={showOnCanvas}
           projectDesk={(n) => <ProjectDesk bare node={n} slug={slug} tree={tree} map={map} op={op} toast={toast}
-            refs={canvasRefs} onJump={centerOn} onConfig={() => toggleConfig(n.id)} onOpenDoc={openDocView} />}
+            refs={canvasRefs} onJump={centerOn} onConfig={() => toggleConfig(n.id)} onOpenDoc={openDocView}
+            onPopout={() => openProjectDesk(n.id, true)} />}
           onDismiss={(id) => hideRetired && mapRef.current.get(id)?.state === 'archived'
             && shownRetired.has(id) ? dismissRetiredAgent(id) : undefined} />
       )}

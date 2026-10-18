@@ -24,6 +24,7 @@ import { useWorkItems } from './useworkitems'
 import { AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
+import { useSurface } from '../popout'
 import type { RefRoutes } from './reflinks'
 import { LastTurnAge, NavChip } from './desk'
 import { PresentationCard, recentDocumentChips } from './docs'
@@ -50,6 +51,10 @@ export interface ProjectDeskProps {
   onConfig?: () => void
   /** pin this desk as a window (absent: no pin button) */
   onPin?: () => void
+  /** open this desk in a window of its own: the agent desk's pop-out button
+   *  (user 2026-10-18 07:15Z). Inside a movable surface (the modal, or the
+   *  window itself) the frame's title bar carries it instead. */
+  onPopout?: () => void
   /** open a presented document (the header's presentation strip) */
   onOpenDoc?: (id: string) => void
 }
@@ -193,7 +198,8 @@ function DescriptionEditor({ node, op, toast, editable }: {
       : { dangerouslySetInnerHTML: md(saved) })} />
 }
 
-export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig, onPin, onOpenDoc }: ProjectDeskProps) {
+export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig, onPin, onPopout, onOpenDoc }: ProjectDeskProps) {
+  const surface = useSurface()
   const [view, setView] = useState<Tab>('desk')
   const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | null>(null)
   // the docket tab: the items attached to this project (slice 2), one poll,
@@ -254,6 +260,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
                 </button>
               ))}
             </span>
+            {onPopout && !surface && (
+              <button type="button" className="popout-button" title="Open in new window" aria-label="Open in new window"
+                onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPopout() }}>↗</button>
+            )}
             {onPin && (
               <button className="cc-icon cc-pin" aria-label={`pin project ${node.id}'s desk as a window`}
                 title="pin as a window — it stays put while the canvas moves" onClick={onPin}>
