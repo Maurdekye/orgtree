@@ -212,11 +212,11 @@ test('changing selected tags keeps the current list and unread control while res
   const removeReview = mounted.view.el.querySelector<HTMLButtonElement>('button[aria-label="Remove Review filter"]')
   assert.ok(removeReview, 'positive control: selected tag has a remove control')
   await inAct(async () => { removeReview.click(); await flush(5) })
-  assert.equal(mounted.view.el.querySelector('.mail-list-controls'), controls,
+  assert.equal(mounted.view.el.querySelector('.mail-list-controls') === controls, true,
     'changing a filter must keep the filter bar mounted')
-  assert.equal(mounted.view.el.querySelector('.mailrow'), row,
+  assert.equal(mounted.view.el.querySelector('.mailrow') === row, true,
     'the previous result stays visible until the new filtered result is ready')
-  assert.equal(mounted.view.el.querySelector('.mail-hidden-unread'), hiddenUnread,
+  assert.equal(mounted.view.el.querySelector('.mail-hidden-unread') === hiddenUnread, true,
     'the unread control does not flash out while the request is pending')
   assert.match(pane(mounted.view), /body-m1/, 'a still-matching open mail remains open')
 
