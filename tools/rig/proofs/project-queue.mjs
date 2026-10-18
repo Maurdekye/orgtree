@@ -12,6 +12,7 @@
 //   an un-acked mail goes back to the FRONT of the queue when its holder is
 //   halted or removes its listener
 //   switching back to round-robin tells the listeners no ack is needed
+//   with exclude-sender on (off by default) a sender is never handed its own mail
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-queue.mjs
 
 import { Proof } from '../proof.mjs'
@@ -101,6 +102,19 @@ export default async function (rig) {
   const bogus = await rig.tool('boss', 'orgtree_message', { metadata: { to: 'q' }, body: 'Ordinary project mail.' })
   p.check('ordinary mail to the project is not an ack', bogus.ok && !/Ack recorded/.test(bogus.text), said(bogus))
   await opTry({ op: 'unhalt', nodes: ['qb'] })
+  await settle('qb unhalted')
+
+  // ------------------------------------------------------------ exclude-sender (user 08:07Z-08:08Z, off by default)
+  const reArm = await rig.tool('qa', 'orgtree_watchdog', { action: 'create', name: 'q-queue2', kind: 'fair_queue', target: 'q' })
+  await settle('qa re-armed')
+  const ex = await opTry({ op: 'set_mail_queue', node: 'q', exclude_sender: true })
+  const qaBefore = copies('qa').length, qbBefore = copies('qb').length
+  const fromQa = await rig.tool('qa', 'orgtree_message', { metadata: { to: 'q', notice: true }, body: 'From qa to the queue.' })
+  await settle('the handed mail')
+  const gotQa = copies('qa').slice(qaBefore).some(m => m.body === 'From qa to the queue.')
+  const gotQb = copies('qb').slice(qbBefore).some(m => m.body === 'From qa to the queue.')
+  p.check('with exclude-sender on, a sender is never handed its own mail', reArm.ok && ex.ok && ex.v?.exclude_sender === true
+    && fromQa.ok && !gotQa && gotQb, { ex: ex.ok ? ex.v : ex.error, said: said(fromQa), gotQa, gotQb })
   await settle('the last turns')
 
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, body, extra FROM ot.mail ORDER BY id`))

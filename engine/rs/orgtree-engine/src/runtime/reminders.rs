@@ -415,6 +415,16 @@ async fn send(engine: &Arc<Engine>, org_id: i64, a: &Agent, ev: Value, extra: Op
 mod checkup_tests {
     use super::*;
 
+    /// The user, 2026-10-18 08:04Z: a checkup for an agent holding un-acked
+    /// project mail names each mail and how to ack it; none without.
+    #[test]
+    fn a_held_mail_checkup_names_the_mail_and_the_ack() {
+        assert_eq!(held_note(&[]), None);
+        let note = held_note(&[("m1".into(), "q".into())]).unwrap();
+        assert!(note.contains("mail m1 from project q"), "{note}");
+        assert!(note.contains("orgtree_message to=q reply_to=m1"), "{note}");
+    }
+
     /// The user, 2026-10-16 12:12Z (2c): at sign-in a working agent idle in
     /// Session 0 gets its checkup at once instead of up to 20 minutes later;
     /// otherwise 3.x's rule holds.
