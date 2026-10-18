@@ -70,6 +70,14 @@ pub fn view(w: &Value, owner: &str) -> Value {
 mod tests {
     use super::*;
     #[test]
+    fn watchdog_card_projection_preserves_passive_delivery_and_legacy_default() {
+        for notice in [false, true] {
+            let raw = json!({"uid":"mail", "memo":{"notice":notice}});
+            assert_eq!(view(&raw,"worker")["notice"],json!(notice));
+        }
+        assert_eq!(view(&json!({"uid":"legacy"}),"worker")["notice"],json!(false));
+    }
+    #[test]
     fn watchdog_view_keeps_durable_deadlines_separate_from_actual_progress() {
         let raw=json!({"uid":"clock","kind":"command","state":"armed","created_at":"2026-01-01T00:00:00Z",
             "last_check":"2026-01-01T07:00:00Z","next_check_at":"2026-01-01T12:00:00Z",
