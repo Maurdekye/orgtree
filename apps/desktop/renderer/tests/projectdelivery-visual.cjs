@@ -30,7 +30,29 @@ module.exports = async (page, { out }) => {
       return tops.reduce((n, t, i) => n + (i === 0 || t - tops[i - 1] > 3 ? 1 : 0), 0)
     }
     // where an element's text sits: chips and the marker share one text line
-    const textTop = e => { const range = document.createRange(); range.selectNodeContents(e); const r = [...range.getClientRects()].find(r => r.width > 0.5); return r ? +r.top.toFixed(2) : null }
+    // TEXT boxes only: a range over an element that holds elements (a chip
+    // with its agent's card and name) also returns those elements' boxes, and
+    // a card's box, or its letter, is not the chip's text line
+    const textTop = e => {
+      const walk = document.createTreeWalker(e, NodeFilter.SHOW_TEXT)
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        if (!n.textContent.trim() || n.parentElement?.closest('.tier')) continue
+        const range = document.createRange(); range.selectNodeContents(n)
+        const r = [...range.getClientRects()].find(r => r.width > 0.5)
+        if (r) return +r.top.toFixed(2)
+      }
+      return null
+    }
+    // the agent a queue state names: its name, its model card, and where each
+    // stands (user 2026-10-18 17:01Z: the recipient wears the sender's card)
+    const mid = e => { const r = e.getBoundingClientRect(); return +(r.y + r.height / 2).toFixed(2) }
+    const textMid = e => { const range = document.createRange(); range.selectNodeContents(e); const r = [...range.getClientRects()].find(r => r.width > 0.5); return r ? +(r.top + r.height / 2).toFixed(2) : null }
+    const card = e => e && { ...rect(e), cls: e.className, mid: mid(e) }
+    const named = q => {
+      const name = q.querySelector('.cc-name')
+      return { cls: q.className, ...rect(q), id: name?.getAttribute('data-copy-agent-name') ?? null,
+        name: name && { ...rect(name), textMid: textMid(name), textLines: textLines(name) }, card: card(q.querySelector('.tier')) }
+    }
     const part = (row, sel) => {
       const e = row.querySelector(sel); if (!e) return null
       const s = getComputedStyle(e)
@@ -47,12 +69,14 @@ module.exports = async (page, { out }) => {
         from: part(row, '.mfrom'), sender: part(row, '.mfrom .cc-name') ?? part(row, '.mfrom > span'),
         time: part(row, '.mtime'), kind: part(row, '.event-row-kind'), urgent: part(row, '.urgentkind'),
         queue: part(row, '.queuekind'), recipient: part(row, '.queue-delivery .cc-name'), preview: part(row, '.l2'), chips,
+        named: [...row.querySelectorAll('.queuekind')].map(named), senderCard: card(row.querySelector('.mfrom .tier')),
       }
     })
     const head = document.querySelector('.mailer-head')
     return {
-      list: rect(document.querySelector('.mailer-list')), rows,
-      head: head ? { ...rect(head), recipient: (() => { const e = head.querySelector('.queue-delivery .cc-name'); return e ? { ...rect(e), textLines: textLines(e), text: e.textContent } : null })() } : null,
+      list: rect(document.querySelector('.mailer-list')), rows, tiers: window.__rows?.tiers ?? null,
+      head: head ? { ...rect(head), recipient: (() => { const e = head.querySelector('.queue-delivery .cc-name'); return e ? { ...rect(e), textLines: textLines(e), text: e.textContent } : null })(),
+        queue: (q => q && named(q))(head.querySelector('.queuekind')), senderCard: card(head.querySelector('.event-actor .tier')) } : null,
     }
   })
   const closeup = async (name) => {

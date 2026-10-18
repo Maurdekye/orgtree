@@ -3,7 +3,8 @@
 // user's Sent folders and an ordinary inbox, at 220px and 340px list columns,
 // dark and light. With --expect it checks the three-line project row (user
 // 2026-10-18 14:24Z): nothing wraps or is stretched, the queue state has its
-// own line, and a name is cut only with an ellipsis.
+// own line, and a name is cut only with an ellipsis; and (user 2026-10-18
+// 17:01Z) that every agent a queue state names wears its model card.
 //   node projectdelivery-visual.mjs <build-output> <evidence> <node_modules> [--expect]
 // Run the whole command, bundling included, under tests/joblimit.ps1 and the
 // build slot. Without --expect it only records (a base for before/after).
@@ -93,9 +94,41 @@ if (flag === '--expect') {
       const hs = m.rows.filter(r => r.lines.map(l => l.cls).join() === shape.join()).map(r => r.box.h)
       for (const h of hs) near(h, hs[0], 0.5, `${name}: ${shape.join('+')} rows share one height`)
     }
+    // THE RECIPIENT'S MODEL CARD (user 2026-10-18 17:01Z: "recipients are still
+    // missing model icon cards in project mailboxes"): every agent a queue state
+    // names wears its own card, the sender's 14px card on the marker and one
+    // that fits an outline chip's line, centred on the name and inside the meta
+    // line. The user's Sent folder passes no resolver, so it invents none.
+    const CARD = { row: 14, pill: 12, head: 16 }
+    let carded = 0
+    for (const row of m.rows) for (const q of row.named) {
+      const what = `${name} ${row.from?.text} [${q.cls}]`
+      if (!q.id) continue
+      const tier = surface === 'user-sent' ? null : m.tiers[q.id]
+      if (!tier) { assert.equal(q.card, null, `${what}: no resolver, no card`); continue }
+      assert.ok(q.card, `${what}: ${q.id} wears its model card`)
+      assert.ok(q.card.cls.split(' ').includes('t-' + tier), `${what}: the card is ${q.id}'s own model (${q.card.cls})`)
+      const size = q.cls.split(' ').includes('queue-delivery') ? CARD.row : CARD.pill
+      near(q.card.w, size, 0.5, `${what}: card width`); near(q.card.h, size, 0.5, `${what}: card height`)
+      if (size === CARD.row && row.senderCard) near(q.card.h, row.senderCard.h, 0.5, `${what}: the sender's card size`)
+      near(q.card.mid, q.name.textMid, 1, `${what}: the card stands centred on the name`)
+      assert.ok(q.card.x + q.card.w <= q.name.x + 0.5, `${what}: the card leads the name without overlapping it`)
+      const meta = row.lines[1]
+      assert.ok(q.card.y >= meta.y - 0.5 && q.card.y + q.card.h <= meta.y + meta.h + 0.5, `${what}: the card stays inside the meta line`)
+      carded++
+    }
+    const want = { project: 8, 'agent-sent': 2 }[surface] ?? 0
+    assert.equal(carded, want, `${name}: positive control, ${want} queue states name an agent with a card`)
     if (name.endsWith('-selected')) {
       assert.ok(m.head?.recipient, `${name}: the reading pane names the recipient`)
       assert.equal(m.head.recipient.textLines, 1, `${name}: the pane keeps the recipient on one line`)
+      const q = m.head.queue
+      assert.ok(q?.card, `${name}: the reading pane's marker wears the recipient's card`)
+      assert.ok(q.card.cls.split(' ').includes('t-' + m.tiers[q.id]), `${name}: the pane's card is ${q.id}'s own model`)
+      near(q.card.w, CARD.head, 0.5, `${name}: the pane's card width`)
+      near(q.card.h, m.head.senderCard.h, 0.5, `${name}: the sender's card size in the pane`)
+      near(q.card.mid, m.head.senderCard.mid, 1, `${name}: the two cards stand on one line`)
+      near(q.card.mid, q.name.textMid, 1, `${name}: the pane's card stands centred on the name`)
     }
     checked.push(name)
   }

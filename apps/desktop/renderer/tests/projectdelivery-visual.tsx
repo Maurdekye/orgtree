@@ -70,7 +70,7 @@ const agentInbox = [
 
 export type Surface = 'project' | 'agent-sent' | 'user-sent' | 'inbox'
 interface Mode { surface: Surface }
-declare global { interface Window { __rows?: { set: (m: Partial<Mode>) => void } } }
+declare global { interface Window { __rows?: { set: (m: Partial<Mode>) => void; tiers: Record<string, string> } } }
 
 const nav = { hasAgent: (id: string) => id in tiers, tierOf: (id: string) => tiers[id] ?? null }
 function Desk({ folder, children, project }: { folder: string; children: ReactNode; project?: boolean }) {
@@ -93,7 +93,7 @@ function Desk({ folder, children, project }: { folder: string; children: ReactNo
 function Fixture() {
   useProvideAgentNav((id) => [{ label: `Desk of ${id}`, action: () => {} }], (id) => ({ title: `Agent ${id}` }))
   const [mode, setMode] = useState<Mode>({ surface: 'project' })
-  useEffect(() => { window.__rows = { set: (m) => setMode((old) => ({ ...old, ...m })) } }, [])
+  useEffect(() => { window.__rows = { set: (m) => setMode((old) => ({ ...old, ...m })), tiers } }, [])
   const key = mode.surface
   const focus = (id: string) => { document.body.dataset.focusedAgent = id }
   return <div data-surface={mode.surface}>
