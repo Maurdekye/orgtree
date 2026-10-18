@@ -246,7 +246,10 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 let mut v=crate::domain::watchdogs::view(&w, &r.get::<_, String>(1));
                 if let Some(h)=w["id"].as_i64().and_then(|row|crate::runtime::watchdogs::events::health(engine,row)){v["health"]=json!(h);}
                 v
-            }).collect::<Vec<_>>() })
+            }).collect::<Vec<_>>(),
+            // the held project slots (domain/slots.rs): a granted claim is
+            // spent, so its holder is known only from the lease
+            "slot_leases": crate::domain::slots::held_in_org(client, org_id).await? })
         }
         "inbox_summary" => {
             let r = client

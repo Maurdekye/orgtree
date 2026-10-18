@@ -101,7 +101,7 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
         if !free.is_empty() {
             let waiting = tx
                 .query(
-                    "SELECT w.id, w.owner_agent_id, coalesce(w.memo->>'reason', '') FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+                    "SELECT w.id, w.owner_agent_id, coalesce(w.memo->>'reason', w.name, '') FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
                       WHERE w.kind = 'slot' AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $1 AND NOT w.memo ? 'lease'
                         AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL
                       ORDER BY (w.memo->>'queued_at')::bigint, w.id LIMIT 200",
@@ -139,8 +139,11 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
     for g in &granted {
         tracing::info!(project = %g.project, slot = g.slot, lease = %g.lease, "a project slot was granted");
         Box::pin(crate::runtime::watchdogs::fire_slot(engine, g.dog, grant_line(&g.project, g.slot, &g.lease))).await?;
-        changes::notify_id(engine, org_id, vec![Change::Agent(g.owner), Change::Agent(project), Change::Watchdogs]);
+        changes::notify_id(engine, org_id, vec![Change::Agent(g.owner)]);
     }
+    // every lease change (a grant, or the release or reclaim that ran this
+    // grant) and every claim joining the line reaches the desk and canvas
+    changes::notify_id(engine, org_id, vec![Change::Agent(project), Change::Watchdogs]);
     Ok(fresh)
 }
 
@@ -196,6 +199,25 @@ pub async fn status(client: &impl GenericClient, project: i64, name: &str, scope
         .collect();
     Ok(json!({ "project": name, "slots": capacity(scope), "held": holders.len(), "holders": holders,
                "line": waiting, "history": history }))
+}
+
+/// The org's held slots for the tree feed's watchdogs group: what the
+/// canvas draws holder lines, badges and chips from.
+#[logged]
+pub async fn held_in_org(client: &impl GenericClient, org_id: i64) -> Result<Vec<Value>> {
+    Ok(client
+        .query(
+            "SELECT p.name, a.name, l.slot_no, l.uid, l.reason, l.granted_at, l.wakes FROM ot.slot_leases l
+               JOIN ot.agents a ON a.id = l.holder_agent_id JOIN ot.agents p ON p.id = l.project_id
+              WHERE l.org_id = $1 AND l.ended_at IS NULL ORDER BY l.project_id, l.slot_no LIMIT 500",
+            &[&org_id],
+        )
+        .await?
+        .iter()
+        .map(|r| json!({ "project": r.get::<_, String>(0), "agent": r.get::<_, String>(1), "slot": r.get::<_, i32>(2),
+                         "lease": r.get::<_, String>(3), "reason": r.get::<_, Option<String>>(4),
+                         "since": iso(r.get::<_, DateTime<Utc>>(5)), "reminders": r.get::<_, i32>(6) }))
+        .collect())
 }
 
 /// End a lease: `how` is recorded (released, released (forced by …),

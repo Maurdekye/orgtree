@@ -56,6 +56,13 @@ pub fn view(w: &Value, owner: &str) -> Value {
     if let Some(e) = w.get("exit").filter(|v| !v.is_null()) {
         o.insert("exit".into(), e.clone());
     }
+    // a slot claim: when it joined the line (its order), and its lease once granted
+    if w["kind"] == "slot" {
+        if let Some(q) = w["memo"]["queued_at"].as_i64().and_then(chrono::DateTime::from_timestamp_millis) {
+            o.insert("queued_at".into(), json!(crate::util::iso(q)));
+        }
+        for key in ["lease", "slot"] { if let Some(v)=w["memo"].get(key).filter(|v|!v.is_null()){o.insert(key.into(),v.clone());} }
+    }
     Value::Object(o)
 }
 
@@ -73,5 +80,18 @@ mod tests {
         assert_eq!(projected["last_check"],ts(&raw["last_check"]));
         assert_ne!(projected["next_check_at"],projected["last_check"]);
         assert!(view(&json!({"uid":"legacy"}),"boss").get("next_check_at").is_none());
+    }
+    /// A slot claim shows when it joined the line, and its lease once granted.
+    #[test]
+    fn a_slot_claim_view_carries_its_place_and_lease() {
+        let raw=json!({"uid":"w1","kind":"slot","state":"armed","created_at":"2026-01-01T00:00:00Z",
+            "memo":{"target_id":7,"queued_at":1767225600000_i64}});
+        let v=view(&raw,"builder");
+        assert_eq!(v["queued_at"],json!("2026-01-01T00:00:00.000Z"));
+        assert!(v.get("lease").is_none());
+        let granted=json!({"uid":"w1","kind":"slot","memo":{"queued_at":1767225600000_i64,"lease":"sab","slot":1}});
+        let g=view(&granted,"builder");
+        assert_eq!((g["lease"].clone(),g["slot"].clone()),(json!("sab"),json!(1)));
+        assert!(view(&json!({"uid":"x","kind":"command","memo":{"queued_at":1}}),"b").get("queued_at").is_none());
     }
 }
