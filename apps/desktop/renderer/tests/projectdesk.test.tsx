@@ -20,7 +20,8 @@
 //   §4 halt all and dissolve project (20:09Z) open the agent paths' own
 //      confirmations; the gear opens settings (20:09:45Z);
 //   §5 bare (a pinned window) draws the same desk unscaled, and pin is offered
-//      only where a pin handler is given.
+//      only where a pin handler is given; the agent desk's pop-out button
+//      likewise, also on the focused card's desk (user 2026-10-18 07:15Z).
 //   §6 project settings carry the agent settings' items that apply (name,
 //      description, peer mail, actions) and none of the turn-only ones.
 //   §8 last activity: active now, or quiet for the newest turn's age under
@@ -78,13 +79,13 @@ function serve(t: TestContext) {
 }
 
 async function desk(t: TestContext, h: { jump?: (id: string) => void; config?: () => void;
-  pin?: () => void; bare?: boolean; node?: CanvasNode; ops?: OpRequest[] } = {}) {
+  pin?: () => void; popout?: () => void; bare?: boolean; node?: CanvasNode; ops?: OpRequest[] } = {}) {
   serve(t)
   const nd = h.node ?? project()
   const ops = h.ops ?? []
   const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd], ['boss', boss]])}
     op={(b) => { ops.push(b); return Promise.resolve({} as OpResult) }}
-    toast={noop} refs={refs} bare={h.bare} onJump={h.jump} onConfig={h.config} onPin={h.pin} />, (el) => el)
+    toast={noop} refs={refs} bare={h.bare} onJump={h.jump} onConfig={h.config} onPin={h.pin} onPopout={h.popout} />, (el) => el)
   t.after(() => view.unmount())
   await flush(2)
   return view.el
@@ -326,6 +327,34 @@ test('§5 bare draws it unscaled; pin only where a pin handler is given', async 
   assert.ok(bare.querySelector('.desk-bare .desk-body .cc-tabs'), 'the bare frame')
   assert.equal(bare.querySelector('.desk-over') === null, true)
   assert.equal(bare.querySelector('button.cc-pin') === null, true, 'no pin without a handler')
+})
+
+test("§5b the agent desk's pop-out button, where a pop-out handler is given (user 2026-10-18 07:15Z)", async (t) => {
+  let popped = 0
+  const el = await desk(t, { popout: () => { popped++ } })
+  const btn = el.querySelector<HTMLButtonElement>('.cc-head button.popout-button')
+  assert.ok(btn, 'a pop-out button in the header')
+  assert.equal(btn!.getAttribute('aria-label'), 'Open in new window', "labelled as the agent desk's")
+  assert.equal(btn!.textContent, '↗')
+  await inAct(() => { btn!.click() })
+  assert.equal(popped, 1, 'it pops the desk out')
+  const none = await desk(t)
+  assert.equal(none.querySelector('button.popout-button') === null, true, 'none without a handler')
+})
+
+test("§5c the focused project card's desk carries the card's pop-out", async (t) => {
+  serve(t)
+  let popped = 0
+  const view = await mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
+    focused dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org"
+    toast={noop} zoom={8} hire={{}} seats={{}} tree={tree} map={new Map()} refs={refs}
+    onHire={noop} onNewProject={noop} onInbox={noop} onPopout={() => { popped++ }}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  const btn = view.el.querySelector<HTMLButtonElement>('.desk-over .cc-head button.popout-button')
+  assert.ok(btn, 'the desk shows it')
+  await inAct(() => { btn!.click() })
+  assert.equal(popped, 1)
 })
 
 /* ─── §6 project settings ───────────────────────────────────────────────── */
