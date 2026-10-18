@@ -1392,6 +1392,22 @@ mod trim_tests {
     }
 
     #[test]
+    fn mentions_rule_is_exact_and_unconditional_on_every_profile() {
+        let expected = "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write it as a mention: `@name`, or `@item:<org>/<slug>`. A bare name is wrong. Don't put mentions inside code spans.";
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            for top in [false, true] {
+                for trim in [false, true] {
+                    for scope in [all_on(), json!({"tools":{"orgtree":{"messaging":false,"docket":false,"user":false}}})] {
+                        let text = render(&scope, lane, top, trim);
+                        assert_eq!(text.matches(expected).count(), 1, "{lane:?} top={top} trim={trim}");
+                        assert!(text.contains(&format!("\n\n{expected}\n\n")), "the rule must be its own paragraph");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn shared_notes_bootstrap_trim_rules_explain_missing_file_creation() {
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
             assert!(render(&all_on(), lane, false, true).contains("if the file does not exist yet, create it"), "{lane:?}");
