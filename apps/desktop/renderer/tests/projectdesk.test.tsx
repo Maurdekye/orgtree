@@ -585,6 +585,19 @@ test('§8c the middle-zoom card carries it beside the active/hired chip', async 
   assert.deepEqual(said(meta.querySelector('.project-last-activity')), ['sq-idle idle', 'Idle', '5m'])
 })
 
+test("§7d the zoom card shows no preview of the project's description (user 2026-10-18 08:50Z)", async (t) => {
+  serve(t)
+  const view = await mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
+    dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org"
+    toast={noop} zoom={1.2} hire={{}} seats={{}}
+    onHire={noop} onNewProject={noop} onInbox={noop}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  const sq = view.el.querySelector('.sq.project')!
+  assert.equal(sq.querySelector('.project-desc') === null, true, 'no description line')
+  assert.equal((sq.textContent ?? '').includes('The site'), false, 'the description is on the desk only')
+})
+
 test('§8d a project whose agents never ran a turn shows no activity card', async (t) => {
   const el = await desk(t, { node: project({ children: [] }) })
   assert.equal(el.querySelector('.project-last-activity') === null, true)
