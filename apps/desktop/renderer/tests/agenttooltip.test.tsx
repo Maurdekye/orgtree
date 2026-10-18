@@ -169,11 +169,13 @@ test('name-less shared agent and project links put the identity first', async t 
   t.after(() => v.unmount())
   await flush()
   const links = [...v.el.querySelectorAll<HTMLElement>('[data-agent-tooltip]')]
-  assert.equal(links.length, 3)
-  await inAct(() => links[0]!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
-  assert.equal(links[0]!.title, 'worker\nClaude Opus 5.5 · max')
-  await inAct(() => links[1]!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
-  assert.equal(links[1]!.title, 'Claude Opus 5.5 · max', 'visible agent names are not duplicated')
-  await inAct(() => links[2]!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
-  assert.equal(links[2]!.title, 'website\nProject · Summary: the company site')
+  const owner = links.find(link => link.textContent === 'Owner…')!
+  const named = links.find(link => link.textContent === 'worker')!
+  const project = links.find(link => link.textContent === 'Project…')!
+  await inAct(() => owner.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(owner.title, 'worker\nClaude Opus 5.5 · max')
+  await inAct(() => named.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(named.title, 'Claude Opus 5.5 · max', 'visible agent names are not duplicated')
+  await inAct(() => project.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(project.title, 'website\nProject · Summary: the company site')
 })
