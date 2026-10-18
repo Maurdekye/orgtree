@@ -1,5 +1,6 @@
 import { watchdogActions } from './objectactions'
 import { WatchdogCountdown } from './watchdogcountdown'
+import { watchdogDescription } from './watchdogdescription'
 import { objectNavProps } from './objectnav'
 import { useSurfaceDocument } from '../popout'
 import { userGesture } from '../historyapi'
@@ -181,13 +182,14 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
   // in view; the click survives as a collapse for a screen-filling one.
   const [expTarget, setExpTarget] = useState(true)
   const [expPattern, setExpPattern] = useState(true)
+  const description = watchdogDescription(dog)
   const act = (a: 'pause' | 'resume' | 'remove') =>
     watchdogAction(slug, dog.id, a)
       .then((r) => { toast([`${dog.name}: ${r.state}`]); if (a === 'remove') close() })
       .catch((e: Error) => toast([`error: ${e.message}`]))
   const actions = watchdogActions(dog, act).filter((entry): entry is import('./contextmenu').MenuItem => entry !== 'sep')
   return (
-    <PinFrame kind="watchdog" restore={{ watchdog: dog.id }} title={`${dog.name} · watchdog`} panel="settings content-height"
+    <PinFrame kind="watchdog" restore={{ watchdog: dog.id }} title={`${dog.name} · watchdog`} panel="settings content-height watchdog-detail"
       close={close}>
         <h3 {...objectNavProps('watchdog', dog.id, slug)}>{dog.kind === 'event' ? '⚡' : '🐕'} {dog.name}</h3>
         {/* THE DOG'S LIVE STATE IS NOT ITS NAME. It used to sit inside the h3,
@@ -198,46 +200,44 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
         <div className="dim modalpin-subtitle">
           watchdog · {dog.spent ? 'departing' : dog.state}
           {dog.once && <span className="wd-once-label">one-shot dog</span>}</div>
+        <div className="wd-overview">
+          <div className="wd-type">{description.type}</div>
+          <p className="wd-description">{description.summary}</p>
+          <div className="dim wd-delivery">{description.delivery}</div>
+        </div>
         {dog.once && <div className="wd-once-note">
           {dog.spent
             ? 'This one-shot dog has fired. Its spark is travelling to its owner; it will disappear shortly.'
-            : 'One-shot dog — it will fire once and then disappear.'}
+            : dog.kind === 'fair_queue' ? 'One-shot dog — takes one project message, then disappears.'
+            : dog.kind === 'stream' && dog.fire_mode !== 'silence'
+              ? 'One-shot dog — the first matching output alert fires once, then it disappears. A stream exit diagnostic does not spend the one-shot.'
+              : 'One-shot dog — it will fire once and then disappear.'}
         </div>}
         <div className="field-label">owner</div>
         <div className="chip mono">{dog.owner}</div>
-        <div className="field-label">{dog.kind === 'file' ? 'watched file'
-          : dog.kind === 'process' ? 'watched process'
-          : dog.kind === 'stream' ? 'listening command (realtime)'
-          : dog.kind === 'event' ? 'engine event'
-          : dog.kind === 'activity' ? 'watched agent'
-          : 'command (each interval)'}</div>
+        <div className="field-label">{description.targetLabel}</div>
         <div className={'chip mono grow wd-cmd' + (expTarget ? ' wd-expand' : '')}
           title={expTarget ? 'click to collapse' : 'click to see the full text'}
           onClick={() => setExpTarget((v) => !v)}>{dog.target}</div>
-        {dog.pattern && <>
-          <div className="field-label">{dog.fire_mode === 'silence'
-            ? 'events that reset the silence timer' : 'fires on lines matching'}</div>
+        {dog.pattern && dog.kind !== 'process' && dog.kind !== 'fair_queue' && <>
+          <div className="field-label">{description.patternLabel}</div>
           <div className={'chip mono grow wd-cmd' + (expPattern ? ' wd-expand' : '')}
             title={expPattern ? 'click to collapse' : 'click to see the full text'}
             onClick={() => setExpPattern((v) => !v)}>{dog.pattern}</div>
         </>}
-        {dog.threshold && <div className="dim">Count crosses {dog.threshold} · {dog.event_scope === 'org' ? 'organization' : 'visible subtree'}</div>}
         {dog.health && <div className="ask-warn">{dog.health}</div>}
         {dog.kind === 'event' && dog.last_output && <><div className="field-label">last event</div><div className="chip mono grow wd-cmd">{dog.last_output}</div></>}
         <div className="field-label">fire mode</div>
-        <div className="dim">{dog.fire_mode === 'silence'
-          ? `on silence — ${dog.quiet_period_s}s without a matching event; resets after each match and fire`
-          : 'on a matching event'}</div>
+        <div className="dim">{description.fireMode}</div>
+        {dog.kind === 'command' && <div className="dim">A command is stopped after 60s; that timeout also counts as a matching event. A nonzero exit alone does not.</div>}
+        {dog.kind === 'stream' && dog.fire_mode === 'silence' && <div className="dim">If the stream exits, its silence timer continues; Resume restarts the command.</div>}
+        {dog.kind === 'stream' && dog.fire_mode !== 'silence' && <div className="dim">If the command exits, it sends an exit diagnostic and stops listening. Resume restarts the command.</div>}
+        <div className="dim wd-cadence">
+          {description.cadence}
+          {description.polling ? <> · <WatchdogCountdown dog={dog} /></> : null}
+        </div>
         <div className="dim">
-          {dog.kind === 'event' ? `pushed by the engine · at most every ${dog.interval_s}s`
-            : dog.kind === 'activity' ? 'turns and tool calls'
-            : dog.kind === 'stream'
-              ? dog.fire_mode === 'silence' ? 'realtime — silence checked every 5s'
-                : `realtime — fires at most every ${dog.interval_s}s (coalesced)`
-              : `checked every ${dog.interval_s}s`}
-          {dog.kind === 'file' || dog.kind === 'command' || dog.kind === 'process'
-            ? <> · <WatchdogCountdown dog={dog} /></> : null}
-          {' · '}{dog.fired} event{dog.fired === 1 ? '' : 's'} sent
+          {dog.fired} {dog.kind === 'fair_queue' ? 'message' : 'event'}{dog.fired === 1 ? '' : 's'} {dog.kind === 'fair_queue' ? 'delivered' : 'sent'}
           {dog.last_fired ? ` · last ${ago(dog.last_fired)} ago` : ''}
           {' · free (a pet, not a seat)'}
         </div>

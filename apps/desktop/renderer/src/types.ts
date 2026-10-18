@@ -754,6 +754,8 @@ export interface Watchdog {
    * infer one-shot-ness from anything else.
    */
   once: boolean
+  /** Passive alert delivery; absent on old snapshots means the default wake. */
+  notice?: boolean
   /**
    * D-200: a TOMBSTONE — this one-shot dog has already fired and is gone from
    * the org's arming state. It appears in `tree().watchdogs` for ~15s after

@@ -6397,6 +6397,13 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
   max-height: 220px; overflow-y: auto; border: 1px solid var(--line);
   border-radius: 6px; padding: 6px 8px; font-size: 12px;
 }
+.watchdog-detail .wd-overview {
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px; background: color-mix(in srgb, var(--accent) 4%, var(--panel));
+}
+.wd-type { color: var(--accent); font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+.wd-description { margin: 6px 0; line-height: 1.5; overflow-wrap: anywhere; }
+.wd-delivery { font-size: 12px; }
 .wd-event { padding: 2px 0; border-bottom: 1px dotted var(--line); }
 .wd-event:last-child { border-bottom: none; }
 /* user bug 2026-08-12: the target/pattern chips truncate long commands with
