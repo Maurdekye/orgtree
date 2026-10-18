@@ -65,31 +65,44 @@ pub struct Ids {
 #[logged]
 pub async fn mark_read(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b): Json<Ids>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
-    let client = e.db.get().await?;
-    let n = client
-        .execute(
+    let mut client = e.db.get().await?;
+    let tx=client.transaction().await?;
+    let rows = tx
+        .query(
             "UPDATE ot.mail SET state = 'read', read_at = now()
-              WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND uid = ANY($2) AND state = 'pending'",
+              WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND uid = ANY($2) AND state = 'pending' RETURNING to_jsonb(ot.mail.*)",
             &[&o.id, &b.ids],
         )
         .await?;
+    let read_mail:Vec<Value>=rows.iter().map(|r|r.get(0)).collect();
+    let affected=crate::domain::mail_attention::clear_read_mentions(&tx,o.id,&read_mail).await?;
+    tx.commit().await?;
+    let n=rows.len();
     drop(client);
-    changes::notify(&e, &o, vec![Change::UserMail]);
+    let mut changed=vec![Change::UserMail];
+    changed.extend(affected.into_iter().map(Change::Agent));
+    changes::notify(&e, &o, changed);
     Ok(Json(json!({ "read": n })))
 }
 
 #[logged]
 pub async fn clear(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
-    let client = e.db.get().await?;
-    client
-        .execute(
-            "UPDATE ot.mail SET state = 'read', read_at = now() WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'pending'",
+    let mut client = e.db.get().await?;
+    let tx=client.transaction().await?;
+    let rows=tx
+        .query(
+            "UPDATE ot.mail SET state = 'read', read_at = now() WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'pending' RETURNING to_jsonb(ot.mail.*)",
             &[&o.id],
         )
         .await?;
+    let read_mail:Vec<Value>=rows.iter().map(|r|r.get(0)).collect();
+    let affected=crate::domain::mail_attention::clear_read_mentions(&tx,o.id,&read_mail).await?;
+    tx.commit().await?;
     drop(client);
-    changes::notify(&e, &o, vec![Change::UserMail]);
+    let mut changed=vec![Change::UserMail];
+    changed.extend(affected.into_iter().map(Change::Agent));
+    changes::notify(&e, &o, changed);
     Ok(Json(json!({ "ok": true })))
 }
 

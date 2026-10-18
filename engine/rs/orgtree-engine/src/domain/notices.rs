@@ -36,8 +36,8 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
         }));
     }
     let mail = all_rows(client,
-            "SELECT uid, sender, body, urgent, urgent_reason, ev, id FROM ot.mail
-              WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'pending' AND id < $2 ORDER BY id DESC LIMIT 200",
+            &format!("SELECT uid, sender, body, urgent, urgent_reason, ev, {} AS mailbox_attention, id FROM ot.mail
+              WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'pending' AND id < $2 ORDER BY id DESC LIMIT 200",super::mail_attention::SQL),
             org_id, i64::MAX,
         )
         .await?;
@@ -45,12 +45,13 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
         let uid: String = r.get(0);
         let sender: String = r.get(1);
         let urgent: bool = r.get(3);
+        let attention: bool = r.get(6);
         let reason: Option<String> = r.get(4);
         let body: String = r.get(2);
         out.push(json!({
             "id": format!("mail:{uid}"), "source_id": uid,
-            "kind": mail_kind(urgent, &r.get::<_, Option<Value>>(5)), "org": slug, "agent": sender,
-            "title": if urgent { format!("Urgent from {sender}") } else { format!("Mail from {sender}") },
+            "kind": mail_kind(attention, &r.get::<_, Option<Value>>(5)), "org": slug, "agent": sender,
+            "title": if urgent { format!("Urgent from {sender}") } else if attention {format!("Mention from {sender}")} else { format!("Mail from {sender}") },
             "body": gist(&reason.unwrap_or(body), 300),
         }));
     }
@@ -115,13 +116,14 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
 pub async fn attention_count(client: &Client, org_id: i64) -> Result<i64> {
     let r = client
         .query_one(
-            "SELECT (SELECT count(*) FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
+            &format!("SELECT (SELECT count(*) FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
                       WHERE k.org_id = $1 AND k.status = 'open' AND a.state = 'live')
                   + (SELECT count(*) FROM ot.mail WHERE org_id = $1 AND recipient_kind = 'user'
-                      AND state = 'pending' AND urgent)
+                      AND state = 'pending' AND {})
                   + (SELECT count(*) FROM ot.work_items WHERE org_id = $1 AND manual_attention IS NOT NULL)
-                  + (SELECT count(*) FROM ot.agents WHERE org_id = $1 AND state = 'live'
-                      AND extra->'user_mention' IS NOT NULL AND extra->>'user_mention' <> 'null')",
+                  + (SELECT count(*) FROM ot.agents a WHERE a.org_id = $1 AND a.state = 'live'
+                      AND a.extra->'user_mention' IS NOT NULL AND a.extra->>'user_mention' <> 'null'
+                      AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE m.org_id=$1 AND m.recipient_kind='user' AND m.state='pending' AND {}))",super::mail_attention::SQL,super::mail_attention::DUPLICATE_MENTION_SQL),
             &[&org_id],
         )
         .await?;

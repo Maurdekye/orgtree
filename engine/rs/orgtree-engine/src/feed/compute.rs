@@ -31,7 +31,7 @@ mod mention_attention_tests {
     #[test]
     fn visible_subject_and_reply_snapshots_qualify() {
         for extra in [json!({"ev":{"subject":"Review @user"}}),json!({"reply_to":{"gist":"Quoted @user"}}),json!({"replies":[{"quoted_context":"For @user"}]}),json!({"ev":{"quote":{"gist":"See @user"}}})] {
-            let mut raw=json!({"body":"ordinary","urgent":false});
+            let mut raw=json!({"body":"ordinary","urgent":false,"recipient_kind":"user"});
             raw.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
             assert_eq!(mail_entry(&raw)["mailbox_attention"],true,"visible quoted mention qualifies");
         }
@@ -152,6 +152,7 @@ pub async fn audiences_held(client: &impl tokio_postgres::GenericClient, org_id:
 
 pub fn mail_entry(m: &Value) -> Value {
     let mut o = serde_json::Map::new();
+    if m["recipient_kind"]=="user" && crate::domain::mail_attention::qualifies(m) {o.insert("mailbox_attention".into(),json!(true));}
     if let Some(tags)=m.get("tags").filter(|t|t.as_array().is_some_and(|a|!a.is_empty())) { o.insert("tags".into(),tags.clone()); }
     o.insert("id".into(), m["uid"].clone());
     o.insert("from".into(), m["sender"].clone());
