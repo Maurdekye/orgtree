@@ -45,6 +45,7 @@ import type { PinRect } from './pins'
 import { ConfirmModal } from './modals'
 import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
+import { DeskJumpCards } from './deskjumpcards'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
 /** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
@@ -518,7 +519,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         {onJump && parent && <div className="desk-nav"><NavChip n={parent} dir="up" onJump={onJump} /></div>}
         <DescriptionEditor node={node} op={op} toast={toast} editable={live} />
         {onJump && members.length > 0 && <div className="desk-nav">
-          {members.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
+          <DeskJumpCards ids={members.map(c => c.id)} render={id =>
+            <NavChip key={id} n={members.find(c => c.id === id)!} dir="down" onJump={onJump} />} />
         </div>}
       </>}
       {shown === 'inbox' && <div className="desk-tabpanel">

@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Project and agent desk member/report rows share `DeskJumpCards`: more than
+  16 cards collapse behind the same counted disclosure, using the existing
+  Display preference. Project canvas, pin, pop-out and Attention hosts all
+  render `ProjectDesk`; parent navigation stays separate. Agent retired
+  controls and watchdog ordering are retained. [decided: user 2026-10-18 14:45Z;
+  verified: `canvas/{deskjumpcards,desk,projectdesk}.tsx`]
+
 - Agent/project Open menu parents click/Enter the existing temporary-desk
   action; hover/Right still expand. Hire a subordinate uses the org's current
   remembered/template Quick chat tier only if that exact tier is offered,

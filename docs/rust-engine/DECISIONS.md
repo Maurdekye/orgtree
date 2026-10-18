@@ -1,5 +1,11 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Project desk jump-card collapse, user 2026-10-18 14:45Z:** project desks
+use the agent desk's same collapse preference, threshold (more than 16),
+counted button and expand/collapse behavior everywhere they appear, via shared
+`DeskJumpCards`. Parent navigation remains outside the member row; agent
+retired controls and watchdog ordering stay unchanged. See [project nodes](PROJECT-NODES.md).
+
 **Context menu parent actions, user 2026-10-18 14:25Z and 14:34Z (4.4.0):**
 click/Enter on an agent's or project's Open parent opens its temporary desk
 and closes the menu. Hire a subordinate opens the draft with the Quick chat

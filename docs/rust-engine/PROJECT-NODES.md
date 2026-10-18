@@ -210,7 +210,12 @@ agents under the project".
 - **Desk jump cards pass through projects** [user 2026-10-17 22:13Z]: an agent desk's up row has its
   nearest agent superior and every project between them (superior first, then outermost to
   innermost; `upJumpTargets`); its down row lists each report and, for a project, its live members,
-  recursing through nested projects (`downJumpTargets`). Folding of long rows still applies.
+    recursing through nested projects (`downJumpTargets`). Folding of long rows still applies.
+  - **Project desk collapse parity** [user 2026-10-18 14:45Z]: project member rows
+    use the same `DeskJumpCards` as agent report/watchdog rows: more than 16 cards
+    start collapsed behind the counted button, with the shared Display preference
+    and expand/collapse controls. Canvas, pinned, popped-out and Attention project
+    desks all use `ProjectDesk`; their parent jump remains separate.
 - **Hires around a project** [user 2026-10-17 21:24:34Z]: a project card has an agent card's four
   strips: under it, a coworker to either side (a sibling, then the side hire's reorder) and a parent
   above it (a superior spliced in with `above`, holding the project). The token tooltips say
