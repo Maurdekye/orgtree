@@ -766,7 +766,7 @@
    "kind": "concept",
    "registered": false,
    "covers": [],
-   "purpose": "Project nodes, reach and complete settings/tool control, direct audiences, fair mail queue, presentations and ancestor slot administration.",
+   "purpose": "Project nodes, reach and complete settings/tool control, direct audiences, fair mail queue, presentations and ancestor concurrency slot administration.",
    "must_cover": [
     "who reaches a project (above and below only)",
     "reporting and transparent credits through a project",
@@ -812,7 +812,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "label": "Slots"
+     "label": "Concurrency slots"
     }
    ]
   },
@@ -825,7 +825,7 @@
     "orgtree_project"
    ],
    "tool_group": "team",
-   "purpose": "Complete project control: typed settings read/atomic configure, slot status/release/ancestor force/unqueue, waiting-mail purge, permission-checked broadcast and bounded presentation list/read; stale CLI tool availability.",
+   "purpose": "Complete project control: typed settings read/atomic configure, concurrency slot status/release/ancestor force/unqueue, waiting-mail purge, permission-checked broadcast and bounded presentation list/read; stale CLI tool availability.",
    "must_cover": [
     "when to use it and when not",
     "every parameter/action with defaults and limits from the definition",
@@ -7229,7 +7229,7 @@
    "covers": [
     "workflow:build-slots"
    ],
-   "purpose": "Build-machine slot workflow: configure one slot by tool, verify fresh CLI claim/release tools, claim, memory gate, foreground phase, release; ancestor force/unqueue and approved legacy fallback.",
+   "purpose": "Build-machine concurrency slot workflow: configure one concurrency slot by tool, verify fresh CLI claim/release tools, claim, memory gate, foreground phase, release; ancestor force/unqueue and approved legacy fallback.",
    "must_cover": [
     "a build-machine project builders reach",
     "slot count 1",
@@ -7239,7 +7239,7 @@
     "own memory watchdog, no resource gate",
     "release right after the phase",
     "reclaim on halt, retire or idle",
-    "the Slots tab and action=slots",
+    "the Concurrency slots tab and action=slots",
     "force-release and remove from line"
    ],
    "sources": [
