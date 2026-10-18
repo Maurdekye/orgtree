@@ -82,7 +82,7 @@ export function slotLeadText(s: ProjectSlotState): string {
 /** Every slot is held: the badge and card are filled, otherwise outlined. */
 export const slotsFull = (s: ProjectSlotState) => s.total > 0 && s.held.length >= s.total
 
-/** The slots `agent` holds: its card's "⬢ build #1" chips. */
+/** The slots `agent` holds: its card's "⬢ build" chips. */
 export function slotHoldsOf(agent: string, leases: SlotLease[]): SlotLease[] {
   return leases.filter((l) => l.agent === agent)
 }
@@ -97,7 +97,7 @@ export function slotPlace(dog: Watchdog, dogs: Watchdog[]): number | null {
 /** A slot claim's card text: its place and who holds, or its grant. */
 export function slotClaimText(dog: Watchdog, dogs: Watchdog[], leases: SlotLease[], total: number): string {
   const project = target(dog)
-  if (dog.lease) return `Granted concurrency slot ${dog.slot ?? '?'} of ${project} (lease ${dog.lease}).`
+  if (dog.lease) return `Granted a concurrency slot of ${project} (lease ${dog.lease}).`
   if (dog.state === 'paused') return `Concurrency slot claim on project ${project}, paused: out of the line; resuming rejoins at the back.`
   const line = lineOf(project, dogs)
   const at = line.findIndex((w) => w.id === dog.id)

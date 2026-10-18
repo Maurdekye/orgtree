@@ -40,7 +40,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
         : `Listens for ${target} and ${alert} when ${pattern} engine events arrive.`; break
     case 'fair_queue': summary = `Delivers mail waiting in project ${target} to ${dog.owner}, one message at a time, shared fairly with other armed listeners. Each message goes to one listener, the least recently served first.`; break
     case 'slot': summary = dog.slot != null && dog.lease
-      ? `Granted concurrency slot ${dog.slot} of ${target} (lease ${dog.lease})${dog.spent ? ', spent' : '; grant notification pending'}.`
+      ? `Granted a concurrency slot of ${target} (lease ${dog.lease})${dog.spent ? ', spent' : '; grant notification pending'}.`
       : dog.state === 'paused' ? `Concurrency slot claim for ${target} is paused; resuming rejoins at the back of the line.`
       : place != null
         ? `Concurrency slot claim: ${ordinal(place)} in line for ${target}.`

@@ -42,10 +42,10 @@ import { agentNavProps } from './agentnav'
 import { useAgentMentions, useDeskMentionScope, useOrgMentionCandidates } from './agentmentions'
 import { openFallbackObjectMenu, useContextMenu } from './contextmenu'
 import { PinFrame } from './modalpin'
-import { AgentName } from './identity'
+import { AgentLink, AgentName, nodeTierOf } from './identity'
 import type { PinRect } from './pins'
 import { ConfirmModal } from './modals'
-import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
+import { projectSlotState, slotCount, slotHeaderText, slotLeadText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
 import { DeskJumpCards } from './deskjumpcards'
 
@@ -472,11 +472,6 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             <span className="name" title={`project ${node.id}`}>{node.id}</span>
             <ProjectActivity node={node} />
             <ProjectLastActivity node={node} />
-            {/* slots held/total while slots are enabled; it opens the Slots tab (user 08:46Z) */}
-            {slots.total > 0 && <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
-              title={`${slots.held.length} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
-                + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '') + ': open the slots tab'}
-              onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>}
             {!live && <span className="badge dim">{node.state}</span>}
           </span>
           <span className="spacer" aria-hidden="true" />
@@ -528,6 +523,12 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               agent desk (user 2026-10-18 11:47Z); rendered only popped out */}
           <PopoutWindowControls />
         </div>
+        {slots.total > 0 && <div className="cc-head-meta project-slots-meta">
+          <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
+            title="open the Concurrency slots tab" onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>
+          <span>{slotLeadText(slots)}</span>
+          {slots.held.map(h => <AgentLink key={h.lease} id={h.agent} tier={nodeTierOf(map.get(h.agent))} onFocus={onJump} />)}
+        </div>}
       </div>
       {/* its presentations and its subtree's, on their own strip under the
           header as on an agent desk (user 2026-10-17 22:47:29Z) */}
@@ -584,7 +585,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={refs} compactAt={tree.compact_at}
           actions={<PanelCorner kind="agent-team" slug={slug} nid={node.id} />} />
       </div>}
-      {shown === 'slots' && <SlotsView node={node} state={slots} op={op} toast={toast} />}
+      {shown === 'slots' && <SlotsView node={node} state={slots} map={map} onJump={onJump} op={op} toast={toast} />}
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
         members={agents.length} recipients={agents}
