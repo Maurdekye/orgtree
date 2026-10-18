@@ -375,6 +375,28 @@ pub async fn below(client: &impl GenericClient, agent: i64) -> Result<Vec<(i64, 
         .collect())
 }
 
+/// The live agents under `project`, through live nested projects (the
+/// projects themselves left out), nearest first: who a message from the
+/// project desk reaches (user 2026-10-18 07:33Z, "broadcasts the message to
+/// all project participants at once").
+#[logged]
+pub async fn members(client: &impl GenericClient, project: i64) -> Result<Vec<String>> {
+    Ok(client
+        .query(
+            "WITH RECURSIVE down(id, depth) AS (
+               SELECT id, 1 FROM ot.agents WHERE parent_id = $1 AND state = 'live'
+               UNION ALL SELECT a.id, d.depth + 1 FROM ot.agents a JOIN down d ON a.parent_id = d.id
+                WHERE d.depth < 1024 AND a.state = 'live')
+             SELECT a.name FROM down d JOIN ot.agents a ON a.id = d.id
+              WHERE a.kind IS DISTINCT FROM 'project' ORDER BY d.depth, a.sibling_order, a.id LIMIT 1000",
+            &[&project],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

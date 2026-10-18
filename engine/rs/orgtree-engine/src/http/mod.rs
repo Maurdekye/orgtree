@@ -215,6 +215,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         // one agent's desk
         .route("/api/orgs/{slug}/nodes/{nid}/chat", get(nodes::chat))
         .route("/api/orgs/{slug}/nodes/{nid}/message", post(nodes::message))
+        .route("/api/orgs/{slug}/nodes/{nid}/broadcast", post(nodes::broadcast))
         .route("/api/orgs/{slug}/nodes/{nid}/mail/{mid}", delete(nodes::retract))
         .route("/api/orgs/{slug}/nodes/{nid}/inbox", get(nodes::inbox))
         .route("/api/orgs/{slug}/nodes/{nid}/interrupt", post(nodes::interrupt))

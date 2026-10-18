@@ -207,15 +207,7 @@ pub async fn message(
     let mut out = Outgoing::new(From::User, &a.name, &text);
     out.notice = b.notice;
     out.client_op = b.client_op.filter(|s| !s.is_empty() && s.len() <= 200);
-    for p in b.attachments.iter().take(20) {
-        let path = PathBuf::from(p);
-        let Ok(meta) = std::fs::metadata(&path) else {
-            return Err(ApiError::bad_request(format!("attachment {p} no longer exists; upload it again")));
-        };
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p.clone());
-        let name = name.split_once('-').filter(|(pre, _)| pre.starts_with('u') && pre.len() == 13).map(|(_, n)| n.to_string()).unwrap_or(name);
-        out.attachments.push(json!({ "name": name, "path": p, "bytes": meta.len() }));
-    }
+    out.attachments = user_attachments(&b.attachments)?;
     out.reply_to = match (&b.target, &b.reply_to) {
         (Some(t), _) => resolve_target(&e, &org, t, None).await?,
         (None, Some(r)) if r.is_object() => Some(r.clone()),
@@ -247,6 +239,75 @@ pub async fn message(
         "halted": halted, "notice": b.notice,
         "steering": e.agents.get(a.id).map(|h| h.view.load().get("busy").and_then(Value::as_bool).unwrap_or(false)).unwrap_or(false),
     })))
+}
+
+/// The staged uploads a user's message carries, as mail attachments (at most
+/// 20; the upload's `u…-` prefix is dropped from the shown name).
+#[logged]
+fn user_attachments(paths: &[String]) -> ApiResult<Vec<Value>> {
+    let mut out = Vec::new();
+    for p in paths.iter().take(20) {
+        let path = PathBuf::from(p);
+        let Ok(meta) = std::fs::metadata(&path) else {
+            return Err(ApiError::bad_request(format!("attachment {p} no longer exists; upload it again")));
+        };
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p.clone());
+        let name = name.split_once('-').filter(|(pre, _)| pre.starts_with('u') && pre.len() == 13).map(|(_, n)| n.to_string()).unwrap_or(name);
+        out.push(json!({ "name": name, "path": p, "bytes": meta.len() }));
+    }
+    Ok(out)
+}
+
+#[derive(Deserialize, Default, Debug)]
+pub struct BroadcastBody {
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    attachments: Vec<String>,
+    #[serde(default)]
+    notice: bool,
+}
+
+/// The project desk's message box (user 2026-10-18 07:33Z): one send from
+/// the user to every live agent under the project, nested projects included,
+/// with the same attachments and notice flag. As an agent's list send does
+/// (tools/mailtools.rs), it is one delivery per recipient through the
+/// ordinary `mail::send`, and each recipient's outcome is reported; no
+/// transaction spans the deliveries.
+#[logged]
+pub async fn broadcast(
+    State(e): State<Arc<Engine>>,
+    Path((slug, nid)): Path<(String, String)>,
+    Json(b): Json<BroadcastBody>,
+) -> ApiResult<Json<Value>> {
+    let org = org(&e, &slug)?;
+    let a = agent(&e, &org, &nid).await?;
+    let client = e.db.get().await?;
+    if !crate::domain::projects::is_project(&client, a.id).await? {
+        return Err(ApiError::bad_request(format!("{nid} is not a project: write to an agent from its own desk")));
+    }
+    let members = crate::domain::projects::members(&client, a.id).await?;
+    drop(client);
+    let text = b.text.trim_end().to_string();
+    let attachments = user_attachments(&b.attachments)?;
+    if text.trim().is_empty() && attachments.is_empty() {
+        return Err(ApiError::bad_request("the message is empty"));
+    }
+    if members.is_empty() {
+        return Err(ApiError::conflict(format!("no live agent works under project {}", a.name)));
+    }
+    let mut sent = Vec::new();
+    let mut refused = Vec::new();
+    for to in &members {
+        let mut out = Outgoing::new(From::User, to, &text);
+        out.notice = b.notice;
+        out.attachments = attachments.clone();
+        match mail::send(&e, org.id, out).await {
+            Ok(s) => sent.push(json!({ "to": to, "id": s.uid, "delivery": s.delivery, "deferred": s.deferred })),
+            Err(err) => refused.push(json!({ "to": to, "why": err.to_string() })),
+        }
+    }
+    Ok(Json(json!({ "accepted": !sent.is_empty(), "project": a.name, "sent": sent, "refused": refused, "notice": b.notice })))
 }
 
 /// Plural event targets carry identity keys; the quoted bytes and sender are
