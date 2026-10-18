@@ -42,15 +42,68 @@ test('multiple cards stay selected and appear on the closed control',async()=>{
     const button=trigger(v.el);assert.ok(button)
     await inAct(()=>button.click())
     await inAct(()=>card(v.el,'Alpha Build')!.click())
+    assert.equal(button.getAttribute('aria-expanded'),'false','selecting a tag dismisses its picker')
+    assert.equal(document.activeElement===button,true,'focus returns to the picker trigger')
+    await inAct(()=>button.click())
     await inAct(()=>card(v.el,'Progress')!.click())
+    assert.equal(button.getAttribute('aria-expanded'),'false')
+    assert.match(v.el.querySelector('.mail-tag-control')?.textContent??'',/Alpha Build/)
+    assert.match(v.el.querySelector('.mail-tag-control')?.textContent??'',/Progress/)
+    await inAct(()=>button.click())
     assert.equal(card(v.el,'Alpha Build')!.getAttribute('aria-pressed'),'true')
     assert.equal(card(v.el,'Progress')!.getAttribute('aria-pressed'),'true')
     await inAct(()=>button.click())
     assert.equal(button.getAttribute('aria-expanded'),'false')
-    assert.match(button.textContent??'',/Alpha Build/)
-    assert.match(button.textContent??'',/Progress/)
     await inAct(()=>button.click())
     assert.equal(card(v.el,'Alpha Build')!.getAttribute('aria-pressed'),'true')
+  }finally{await v.unmount()}
+})
+
+test('active filter chips remove themselves without opening the picker',async()=>{
+  const v=await mountView(<Picker initial={['Alpha Build','Progress']}/>,el=>el)
+  try{
+    const button=trigger(v.el);assert.ok(button)
+    const selected=v.el.querySelector<HTMLButtonElement>('button.mail-tag-active');assert.ok(selected)
+    assert.equal(selected.textContent,'Alpha Build')
+    await inAct(()=>selected.click())
+    assert.equal(v.el.querySelectorAll('button.mail-tag-active').length,1)
+    assert.equal(v.el.querySelector('button.mail-tag-active')?.textContent,'Progress')
+    assert.equal(button.getAttribute('aria-expanded'),'false')
+  }finally{await v.unmount()}
+})
+
+test('outside pointer dismisses the picker without changing its selected tags',async()=>{
+  const v=await mountView(<Picker initial={['Alpha Build']}/>,el=>el)
+  try{
+    const button=trigger(v.el);assert.ok(button)
+    await inAct(()=>button.click())
+    await inAct(()=>document.body.dispatchEvent(new Event('pointerdown',{bubbles:true})))
+    assert.equal(button.getAttribute('aria-expanded'),'false')
+    await inAct(()=>button.click())
+    assert.equal(card(v.el,'Alpha Build')?.getAttribute('aria-pressed'),'true')
+  }finally{await v.unmount()}
+})
+
+test('message row and read-pane tag chips toggle the active filter by normalized name',async()=>{
+  const rows=[{id:'both',from:'lead',kind:'message',at:'2026-10-18T10:00:00Z',body:'Both tags',tags:['Alpha Build','Progress']},
+    {id:'other',from:'lead',kind:'message',at:'2026-10-18T10:00:01Z',body:'Other tag',tags:['Progress']}]
+  function Inbox(){
+    const [selected,setSelected]=useState(['alpha build'])
+    return <MailList delivered={rows} tagFilter={{selected,choices,onChange:setSelected}}/>
+  }
+  const v=await mountView(<Inbox/>,el=>el)
+  try{
+    assert.equal(v.el.querySelectorAll('.mailrow').length,1)
+    await inAct(()=>v.el.querySelector<HTMLButtonElement>('.mailrow button[data-tag-key="alpha build"]')!.click())
+    assert.equal(v.el.querySelectorAll('.mailrow').length,2,'a selected row tag removes its filter')
+    // Select the tagged message by its text instead of depending on row order.
+    await inAct(()=>[...v.el.querySelectorAll<HTMLElement>('.mailrow')].find(el=>el.textContent?.includes('Both tags'))!.click())
+    const pane=()=>v.el.querySelector<HTMLButtonElement>('.mailer-head button[data-tag-key="alpha build"]')
+    assert.ok(pane(),'the selected mail exposes the same tag in its read pane')
+    await inAct(()=>pane()!.click())
+    assert.equal(v.el.querySelectorAll('.mailrow').length,1,'the read-pane tag adds its filter')
+    await inAct(()=>pane()!.click())
+    assert.equal(v.el.querySelectorAll('.mailrow').length,2,'the read-pane tag removes its filter')
   }finally{await v.unmount()}
 })
 test('typing narrows tag choices without changing selected tags',async()=>{
