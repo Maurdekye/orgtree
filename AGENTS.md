@@ -6,6 +6,15 @@
   scroll, losing their header and leaving a band below the composer.
   [decided: user 2026-10-18 11:19Z; verified: `canvas/{desk,deskscroll}.ts*`,
   `tests/deskframe.test.tsx`]
+- User, agent and project Inbox/Sent history pages seek strictly before a
+  numeric mail id (200 user rows, 150 node rows plus one lookahead), separately
+  from the unchanged bounded live-feed windows. Keep admitted org/node scope,
+  external-inbox visibility, read/delivery states and project queue metadata.
+  Loaded older rows merge with the live head without rewinding the cursor or
+  changing selection; replies, reads and deletion keep their original routes.
+  See [mail history paging](docs/rust-engine/mail-history-paging.md).
+  [decided: user/coordinator 2026-10-18; verified: `domain/mail_history.rs`,
+  `http/{mailbox,nodes}.rs`, `usemailhistory.ts`, `App.tsx`, `canvas/mail.tsx`]
 
 - orgtree_project settings/configure exposes all eight Project settings as an
   atomic explicit patch. It reuses canonical ops/reach, preserves false/zero/
