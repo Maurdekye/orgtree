@@ -2,10 +2,12 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { NodeSquare, UserNode } from '../src/canvas/cards'
+import { UserNode } from '../src/canvas/cards'
+import { ProjectSquare } from '../src/canvas/projectcard'
 import { agentMenuEntries } from '../src/canvas/agentmenu'
 import { useContextMenu, type MenuEntry } from '../src/canvas/contextmenu'
 import type { CanvasNode } from '../src/canvas/shared'
+import type { TreePayload } from '../src/types'
 import { rememberTier } from '../src/quickchat'
 
 const noop = () => {}
@@ -38,8 +40,10 @@ async function setup(t: TestContext, kind: keyof typeof labels, template = false
     ...(template ? { quickChatDefaults: { tier: 'sol' } } : {}) }
   const view = await mountView(kind === 'switchboard'
     ? <UserNode {...props} stats={{ circ: 0, seats: 0, free: 0 }} pip={null} eyeW={600} posX={() => 0} />
-    : <NodeSquare {...props} node={project} lod="mini" dragging={false} maxTop={0} cascadeAlloc compactAt={0.8}
-        onConfig={noop} onInbox={noop} onLineage={noop} onRecenter={noop} onJump={noop}
+    : <ProjectSquare {...props} node={project} lod="mini" dragging={false}
+        tree={{ quick_chat: props.quickChatDefaults } as TreePayload}
+        hire={{ codexHire: props.codexHire, claudeHire: props.claudeHire }}
+        onHire={props.onSpawn} onNewProject={noop} onInbox={noop}
         onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, el => el)
   t.after(async () => { await view.unmount(); globalThis.fetch = before; localStorage.clear() })
   const open = async () => {
