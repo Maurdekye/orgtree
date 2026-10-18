@@ -5,8 +5,8 @@
 //
 // WHAT THIS FILE HOLDS THE CODE TO:
 //   §1 a focused project card opens a desk in the agent desk's frame: the
-//      header names the project, the tabs are desk, inbox, docket and
-//      presented (the agent desk's three, user 20:07Z) and there is no chat
+//      header names the project, the tabs are desk, inbox, docket,
+//      presented and Team (user 2026-10-18 10:53Z), and there is no chat
 //      tab (its message box broadcasts: §9); an unfocused card has none; the
 //      presented tab counts AND
 //      shows the subtree's documents (review P2);
@@ -113,7 +113,7 @@ test('§1a the project desk: the agent desk frame, the project\'s name, the agen
   assert.ok(el.querySelector('.cc-head-left .project-mark svg'), 'the folder mark')
   assert.equal(el.querySelector('.cc-head-left .name')?.getAttribute('title'), 'project website',
     'the project desk name carries the same identity hover as its project card')
-  assert.deepEqual(tabs(el), ['desk', 'inbox', 'docket', 'presented'])
+  assert.deepEqual(tabs(el), ['desk', 'inbox', 'docket', 'presented', 'team'])
   assert.equal(el.querySelector('.cc-tabs button[data-tab="desk"]')?.classList.contains('on'), true, 'it opens on its main tab')
   assert.equal(el.querySelector('.cc-tabs button[data-tab="inbox"] .tab-count')?.textContent, '2')
   assert.equal(el.querySelector('.cc-tabs button[data-tab="chat"]') === null, true, 'no chat tab')
@@ -664,7 +664,7 @@ test('§9 Open desk: the project desk as a temporary modal that pins and pops ou
   assert.ok(panel!.classList.contains('pin-project'), 'in the org theme, as a pinned project window')
   assert.equal(panel!.querySelector('.cc-head-left .name')?.textContent, 'website', 'holding the project desk')
   assert.deepEqual([...panel!.querySelectorAll('.cc-tabs button')].map((b) => b.getAttribute('data-tab')),
-    ['desk', 'inbox', 'docket', 'presented'])
+    ['desk', 'inbox', 'docket', 'presented', 'team'])
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   await flush(1)
   assert.equal(closed, 1, 'Escape closes a centred modal')
