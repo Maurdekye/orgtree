@@ -1,11 +1,15 @@
 # Transcript tokens and live context occupancy (4.4.0)
 
 Tool rows show text-output token estimates beside their writing and execution
-times. Token counts use a capital serif **T**, including live estimates and
-finished-thought counts (user 2026-10-18). The glyph is decorative; full token
+times. Token counts use an **I-beam text cursor**, including live estimates and
+finished-thought counts (user 2026-10-18 09:10Z, replacing the earlier serif T).
+The glyph is decorative; full token
 labels remain available to assistive technology. Finished thoughts show a provider count
 only where one completed thought unambiguously owns that response's receipt.
 Historical rows without observations acquire no invented count.
+
+The writing pencil, execution arrow and token cursor use the same MUI icon
+box and inline separator/icon/number spacing. The token slot adds no flex gap.
 
 Compact counts use `t` below 1,000 and `kt` at or above it, with the existing
 one-decimal k rounding. Hover shows the complete figure with a label and comma
