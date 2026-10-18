@@ -283,10 +283,10 @@ pub async fn broadcast(
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
     let client = e.db.get().await?;
-    if !crate::domain::projects::is_project(&client, a.id).await? {
+    if !crate::domain::projects::is_project(&**client, a.id).await? {
         return Err(ApiError::bad_request(format!("{nid} is not a project: write to an agent from its own desk")));
     }
-    let members = crate::domain::projects::members(&client, a.id).await?;
+    let members = crate::domain::projects::members(&**client, a.id).await?;
     drop(client);
     let text = b.text.trim_end().to_string();
     let attachments = user_attachments(&b.attachments)?;
