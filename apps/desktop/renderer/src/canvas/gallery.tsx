@@ -49,6 +49,7 @@ import { ago, md, TIER_LETTER, tierLabel } from './shared'
  *  every existing importer keeps working and no call site had to change to
  *  make the move. */
 import { AgentName, TierChip } from './identity'
+import { useAgentNavRegistry } from './agentnav'
 export { TierChip }
 
 /** why a row is secondary, for the tooltip. NOT a badge any more (user,
@@ -440,8 +441,10 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   // row's own select; dismiss is the pane's dismiss (same `dismissDoc`, same
   // toast, same deselect); copy/download come from the shared builder
   const menu = useContextMenu()
+  const nodeNav = useAgentNavRegistry()
   const rowMenu = (e: ReactMouseEvent<HTMLElement>, r: DocRow) =>
     presentationMenu(e.currentTarget, slug, r, {
+      nodeMenu: (id, el) => nodeNav?.current?.(id, el) ?? [],
       // ⚠ ONE ENTRY, TWO EFFECTS — so it TOGGLES. The label below already said
       // Close on the open row while the action was a plain `openDocument`,
       // which re-selected the row it was already on: no state change, so the
@@ -811,8 +814,10 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   // the row's context menu — the same entries as the org gallery's rows, with
   // this view's own dismiss bookkeeping (the optimistic `dismissed` list)
   const menu = useContextMenu()
+  const nodeNav = useAgentNavRegistry()
   const rowMenu = (e: ReactMouseEvent<HTMLElement>, r: DocRow) =>
     presentationMenu(e.currentTarget, slug, r, {
+      nodeMenu: (id, el) => nodeNav?.current?.(id, el) ?? [],
       open: () => setSelId(r.id === selId ? null : r.id),
       openLabel: r.id === selId ? 'Close' : 'Open',
       reply: onReplyToDoc && !r.evicted ? () => onReplyToDoc(r) : undefined,

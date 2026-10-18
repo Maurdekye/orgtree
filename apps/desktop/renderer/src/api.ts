@@ -721,7 +721,7 @@ export const markMentionSeen = (slug: string, nid: string, mentionId?: string):
   })
 // FR-03: presented documents — the reader fetches the body on open
 export const getDocument = (slug: string, did: string):
-  Promise<{ id: string; node: string; title: string; body: string; at: string; format?: 'markdown' | 'html'; bytes?: number }> =>
+  Promise<{ id: string; node: string; presented_by?: string; title: string; body: string; at: string; format?: 'markdown' | 'html'; bytes?: number }> =>
   req(`/api/orgs/${slug}/documents/${did}`)
 /** A stable operator-only HTML preview; content isolation is server-enforced. */
 export const mockupUrl = (slug: string, did: string): string =>

@@ -22,8 +22,11 @@ import { fmtFull } from '../timefmt'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { refToken } from './reflinks'
+import { ticketOwnerAction } from './objectactions'
+import { useAgentNavRegistry } from './agentnav'
+import type { AgentNavMenu } from './agentnav'
 
-export interface DocMeta { id: string; title: string; at: string; viewed_at?: string | null; format?: 'markdown' | 'html'; bytes?: number }
+export interface DocMeta { id: string; title: string; at: string; viewed_at?: string | null; format?: 'markdown' | 'html'; bytes?: number; node?: string; presented_by?: string }
 
 /** The tree feed is newest first. Both compact surfaces show its first four
  *  presented documents; sent files belong to the separate deliveries feed. */
@@ -32,6 +35,20 @@ export function recentDocumentChips(docs: readonly DocMeta[]): DocMeta[] {
 }
 
 export interface LoadedDoc { node_state?: 'live' | 'archived' | 'unrecoverable' | 'deleted'; tier?: string | null; title: string; node: string; at: string; body: string; format?: 'markdown' | 'html'; bytes?: number }
+
+/** Reuse the ticket Owner action's canonical node menu, focus gate and tooltip.
+ * The owning surface reads the shared window registry at menu-open time. */
+export function presentationIdentityActions(el: Element | null,
+  doc: {node?: string; presented_by?: string}, nodeMenu?: AgentNavMenu, toast?: ToastFn): MenuEntry[] {
+  if (!el) return []
+  const presenter = doc.presented_by || doc.node
+  const identities = [['Presenter…', presenter],
+    ...(doc.node && presenter && doc.node !== presenter ? [['Project…', doc.node]] : [])]
+  return identities.flatMap(([label, name]) => {
+    const action = ticketOwnerAction(el, name, name ? nodeMenu?.(name, el) ?? [] : [], toast)
+    return action ? [{...action, label: label!}] : []
+  })
+}
 
 /** Stored HTML format has the same compact identity on every presentation surface. */
 export function MockupBadge({ compact = false }: { compact?: boolean }) {
@@ -52,13 +69,14 @@ export function downloadDocMarkdown(el: Element | null, slug: string, docId: str
  *  entry is an action that surface already has; a surface without one (no
  *  reader, no dismiss) passes nothing for it and the entry is absent. */
 export function presentationMenu(el: Element | null, slug: string,
-  doc: { id: string; title: string; format?: 'markdown' | 'html'; evicted?: boolean },
+  doc: { id: string; title: string; format?: 'markdown' | 'html'; evicted?: boolean; node?: string; presented_by?: string },
   acts: {
     open?: () => void
     openLabel?: string
     reply?: () => void
     toast?: ToastFn
     dismiss?: () => void
+    nodeMenu?: AgentNavMenu
   }): MenuEntry[] {
   const html = doc.format === 'html'
   const gone = Boolean(doc.evicted)
@@ -74,6 +92,7 @@ export function presentationMenu(el: Element | null, slug: string,
     })
   }
   if (acts.reply && !gone) entries.push({ label: 'Reply to', onSelect: acts.reply })
+  entries.push(...presentationIdentityActions(el, doc, acts.nodeMenu, acts.toast))
   const copied = (what: string) => (ok: boolean) =>
     acts.toast?.([ok ? `copied ${what}` : `could not copy ${what} — clipboard unavailable`])
   const ref = refToken({ kind: 'doc', org: slug, id: doc.id })
@@ -97,7 +116,7 @@ export function presentationMenu(el: Element | null, slug: string,
 /** The same activation in the canvas chips and titled desk cards. Markdown
  *  and HTML both open the owning agent collection; the preview is inside it. */
 export function PresentationCard({ slug, doc, onOpen, onReply, className, children, compact = false, toast, inert = false, direct = false }: {
-  slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format'> & { at?: string; viewed_at?: string | null }; onOpen: (id: string) => void
+    slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format' | 'node' | 'presented_by'> & { at?: string; viewed_at?: string | null }; onOpen: (id: string) => void
   onReply?: () => void
   className: string; children: ReactNode; compact?: boolean
   /** for the context menu's copy/download confirmations; optional because
@@ -122,6 +141,7 @@ export function PresentationCard({ slug, doc, onOpen, onReply, className, childr
   // plus copy/download. No dismiss here — that control lives in the reader
   // and the gallery pane, and this chip has neither's confirmation context.
   const menu = useContextMenu()
+  const nodeNav = useAgentNavRegistry()
   useDocViewedVersion()
   const unread = docUnread(slug, doc.id, doc.at, doc.viewed_at)
   const open = (e?: ReactMouseEvent<HTMLElement>) => {
@@ -131,10 +151,20 @@ export function PresentationCard({ slug, doc, onOpen, onReply, className, childr
       win.open(mockupUrl(slug, doc.id), '_blank', 'noopener,noreferrer')
     } else onOpen(doc.id)
   }
-  const onContextMenu = (e: ReactMouseEvent<HTMLElement>) => menu.open(e, () =>
-    presentationMenu(e.currentTarget, slug, doc, {
-      open: () => onOpen(doc.id), reply: onReply, toast,
+  const onContextMenu = (e: ReactMouseEvent<HTMLElement>) => {
+    const anchor = e.currentTarget
+    const nodeMenu: AgentNavMenu = (id, el) => nodeNav?.current?.(id, el) ?? []
+    const opening = menu.open(e, () => presentationMenu(anchor, slug, doc, {
+      open: () => onOpen(doc.id), reply: onReply, toast, nodeMenu,
     }))
+    // Old tree payloads and transcript cards carry only a document id. Resolve
+    // their recorded attribution on demand; append is guarded by this opening.
+    if (opening !== undefined && (!doc.node || !doc.presented_by)) {
+      void getDocument(slug, doc.id).then(meta => {
+        for (const entry of presentationIdentityActions(anchor, meta, nodeMenu, toast)) menu.append(entry, opening)
+      }).catch(() => {}) // existing reader/copy/download actions remain available
+    }
+  }
   const body = <>{doc.format === 'html' && <MockupBadge compact={compact} />}{children}</>
   const mark = unread ? ' doc-' + unread : ''
   if (inert) return <span className={className + ' inert' + mark} data-doc-id={doc.id} data-doc-unread={unread ?? undefined} aria-hidden="true">{body}</span>
