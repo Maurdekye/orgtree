@@ -9,7 +9,7 @@ module.exports=async page=>{
       summary:document.querySelector('[data-tab="desk"]').textContent,slots:document.querySelector('[data-tab="slots"]').textContent,
       slotsCount:!!document.querySelector('[data-tab="slots"] .tab-count'),dissolve:document.querySelector('[data-action="dissolve"]').textContent}
   })
-  if(Math.abs(value.top-value.left)>0.5||value.summary!=='Summary'||value.slots!=='slots'||value.slotsCount||value.dissolve!=='dissolve')
+  if(Math.abs(value.top-value.left)>0.5||value.summary!=='summary'||value.slots!=='slots'||value.slotsCount||value.dissolve!=='dissolve')
     throw Error('Summary layout '+JSON.stringify(value))
   await page.screenshot('project-summary-header')
   return value

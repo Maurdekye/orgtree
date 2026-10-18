@@ -31,7 +31,8 @@
   `runtime/{envelope,event_text}.rs`]
 
 - Projects call their standing charter **Summary** in desks, settings, drafts
-  and help. The project desk's internal `desk` tab displays Summary; agent desk
+  and help. The project desk's internal `desk` tab displays lowercase `summary`
+  (user 2026-10-18 18:11Z); headings/settings retain Summary. Agent desk
   labels stay desk. `description` / `set_description` wire fields stay compatible.
   Project actions read `dissolve`; the project `slots` tab omits redundant counts.
   Summary read/edit padding matches on top and left, with no first-block top

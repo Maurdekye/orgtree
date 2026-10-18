@@ -24,7 +24,7 @@ test('project Summary tab and plain slots label preserve their internal routes',
   const v=await mountView(<ProjectDesk node={node} tree={tree} map={new Map([[node.id,node]])} slug="org"
     refs={{world:{org:'org'},onOpen:noop} as never} op={async()=>({})} toast={noop}/>,el=>el)
   t.after(()=>v.unmount())
-  assert.equal(v.el.querySelector('[data-tab="desk"]')?.textContent,'Summary')
+  assert.equal(v.el.querySelector('[data-tab="desk"]')?.textContent,'summary')
   assert.equal(v.el.querySelector('[data-tab="slots"]')?.textContent,'slots')
   assert.equal(v.el.querySelector('[data-tab="slots"] .tab-count')===null,true)
   assert.equal(v.el.querySelector('[data-action="dissolve"]')?.textContent,'dissolve')

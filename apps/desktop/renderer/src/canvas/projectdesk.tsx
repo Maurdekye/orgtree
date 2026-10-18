@@ -499,7 +499,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
                 <button key={v} data-tab={v} className={shown === v ? 'on' : ''}
                   onClick={() => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v) }}>
                   {/* Presentation labels only: existing tab routes stay stable. */}
-                  {v === 'desk' ? 'Summary' : v}{v !== 'slots' && count(v) > 0
+                  {v === 'desk' ? 'summary' : v}{v !== 'slots' && count(v) > 0
                     ? <>{' '}<span className="tab-count">{count(v)}</span></> : ''}
                 </button>
               ))}

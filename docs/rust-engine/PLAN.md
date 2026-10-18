@@ -283,7 +283,7 @@ still resume, so the agents themselves remember).
 ## 10. User-facing differences — complete ledger
 
 Project terminology (user/coordinator 2026-10-18): the project charter is **Summary**,
-including the project desk tab; agent desks keep `desk`. The compatible tool/API
+with the project desk tab lowercase `summary`; agent desks keep `desk`. The compatible tool/API
 setting stays `description`. The project header says `dissolve`, and its `slots`
 tab has no held/total count. Summary top and left padding match, without an extra
 first-block Markdown margin.
