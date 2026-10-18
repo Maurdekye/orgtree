@@ -19,6 +19,8 @@
 //!   {"fail": {"kind": "authRequired", "message": "...", "retryable": false}}
 //!   {"usage": {"input": 1200, "cached": 900, "output": 80}}   one model request's tokens
 //!   {"usage_changed": {"window": 40, "weekly": 12}}   a usage/changed notification
+//!   {"msp_usage": {...}} exact session/tokenUsage params (IDs attached); suppresses
+//!       the stand-in's inferred final receipt for missing/invalid adapter proofs.
 //!   {"subagent": {"role": "...", "objective": "...", "run_ms": 3000}}   a child run
 //!   {"reminder": true}   a reminder child (Orgtree switches them off; the proof
 //!       checks the engine records one that appears anyway)
@@ -1153,6 +1155,11 @@ fn run_turn(srv: &Arc<Srv>, job: &Job, mcp: &mut Option<Mcp>, totals: &mut Token
             used.input = u["input"].as_i64().unwrap_or(used.input);
             used.cached = u["cached"].as_i64().unwrap_or(used.cached);
             used.output = u["output"].as_i64().unwrap_or(used.output);
+        } else if let Some(params) = step.get("msp_usage").and_then(Value::as_object) {
+            let mut params = params.clone();
+            params.insert("sessionId".into(), json!(srv.sid()));
+            params.insert("turnId".into(), json!(turn));
+            srv.notify("session/tokenUsage", Value::Object(params));
         } else if let Some(u) = step.get("usage_changed") {
             srv.notify("usage/changed", usage_doc(u["window"].as_f64().unwrap_or(0.0), u["weekly"].as_f64().unwrap_or(0.0)));
         } else if let Some(q) = step.get("quota") {
@@ -1233,7 +1240,7 @@ fn run_turn(srv: &Arc<Srv>, job: &Job, mcp: &mut Option<Mcp>, totals: &mut Token
             srv.log("steer_read", json!({ "texts": steered }));
         }
     }
-    if error.is_null() {
+    if error.is_null() && !job.steps.iter().any(|step| step["msp_usage"].is_object()) {
         request_usage(srv, turn, &used, totals);
     }
     let terminal = if srv.interrupted.load(Ordering::SeqCst) { "cancelled" } else if error.is_null() { "completed" } else { "failed" };
