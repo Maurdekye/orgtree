@@ -143,6 +143,69 @@ test('§1c the presented tab counts the project\'s OWN documents (point 27, repl
   assert.equal(el.querySelector('.cc-tabs button[data-tab="presented"] .tab-count')?.textContent, '1')
 })
 
+test('project presentation Reply context action stages the document target and focuses the project composer', async (t) => {
+  const doc = { id: 'p1', title: 'Release plan', at: new Date().toISOString(), node: 'website' }
+  const el = await desk(t, { node: project({ documents: [doc] } as never) })
+  const card = el.querySelector<HTMLElement>('.desk-docs [data-doc-id="p1"]')!
+  assert.ok(card, 'the project header presentation card')
+  await inAct(() => {
+    card.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }))
+  })
+  const reply = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')]
+    .find((item) => item.textContent?.trim() === 'Reply')
+  assert.ok(reply, 'project presentation cards offer a Reply action')
+  await inAct(() => { reply!.click() })
+  const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
+  assert.equal(document.activeElement, box, 'choosing Reply focuses the project composer')
+  assert.equal(el.querySelector('.project-reply-target')?.textContent?.includes('Release plan'), true,
+    'the project composer shows the staged presentation target')
+})
+
+test('project presentation reader can broadcast a reply while preserving its document target', async (t) => {
+  serve(t)
+  const row = { id: 'p1', node: 'website', title: 'Release plan', at: new Date().toISOString(),
+    evicted: false, node_state: 'live', tier: 'project', format: 'markdown' }
+  const calls: { path: string; body?: unknown }[] = []
+  const inner = globalThis.fetch
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(url), 'http://fixture.invalid').pathname
+    if (path === '/api/orgs/org/documents' && !init?.method)
+      return Promise.resolve(new Response(JSON.stringify({ documents: [row], total: 1, next_offset: null, offset: 0 }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    if (path === '/api/orgs/org/documents/p1' && !init?.method)
+      return Promise.resolve(new Response(JSON.stringify({ ...row, body: 'Plan body' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    if (init?.method === 'POST' && path === '/api/orgs/org/nodes/website/broadcast') {
+      calls.push({ path, body: JSON.parse(String(init.body)) })
+      return Promise.resolve(new Response(JSON.stringify({ accepted: true, project: 'website', notice: false,
+        sent: [{ to: 'dev1' }], refused: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    }
+    return inner(url, init)
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = inner })
+  const el = await desk(t, { node: project({ documents: [row] } as never) })
+  await inAct(() => { el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="presented"]')!.click() })
+  await inAct(async () => { await flush(5) })
+  const gallery = el.querySelector('.desk-presented')!
+  const card = gallery.querySelector<HTMLElement>('.doc-gallery-row[data-doc-id="p1"]')!
+  assert.ok(card, 'the presented tab has the document card')
+  await inAct(() => { card.click() })
+  await inAct(async () => { await flush(4) })
+  const reply = gallery.querySelector<HTMLTextAreaElement>('.mailer-read textarea')
+  assert.ok(reply, 'the selected presentation has a reply box')
+  const broadcast = gallery.querySelector<HTMLButtonElement>('.mailer-read .cc-broadcast-toggle')
+  assert.ok(broadcast, 'project presentation replies offer the broadcast option')
+  await inAct(() => { reply!.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', altKey: true, bubbles: true, cancelable: true })) })
+  assert.equal(broadcast.getAttribute('aria-pressed'), 'true', 'Alt+B arms broadcast on the presentation reply')
+  await inAct(() => { setText(reply!, 'Replying to the plan') })
+  await inAct(() => { reply!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+  await flush(5)
+  assert.deepEqual(calls, [{ path: '/api/orgs/org/nodes/website/broadcast', body: {
+    text: 'Replying to the plan', targets: [{ kind: 'document', org: 'org', id: 'p1' }],
+  } }], 'broadcast replies retain the document target for recipients')
+  assert.equal(broadcast.getAttribute('aria-pressed'), 'false', 'successful broadcast disarms the option')
+})
+
 test('§1d point 27: the project\'s own gallery is the cards the engine attributes to it, a renamed project\'s too; its TEAM gallery the subtree\'s as well', async (t) => {
   const had = globalThis.fetch
   const at = new Date().toISOString()
