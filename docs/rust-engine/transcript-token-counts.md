@@ -1,7 +1,9 @@
 # Transcript tokens and live context occupancy (4.4.0)
 
 Tool rows show text-output token estimates beside their writing and execution
-times, using the same small-icon style. Finished thoughts show a provider count
+times. Token counts use a capital serif **T**, including live estimates and
+finished-thought counts (user 2026-10-18). The glyph is decorative; full token
+labels remain available to assistive technology. Finished thoughts show a provider count
 only where one completed thought unambiguously owns that response's receipt.
 Historical rows without observations acquire no invented count.
 

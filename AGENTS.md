@@ -241,7 +241,9 @@
   [decided: user 2026-10-17; verified: `App.tsx`, `canvas/mail.tsx`]
 
 - Transcript tool counts (4.4.0) are always `~` estimates from one lazy
-  gzip o200k_base plus one process-local correction per harness. Count observed
+  gzip o200k_base plus one process-local correction per harness. Token slots
+  use the shared decorative serif capital `T` marker
+  (user 2026-10-18), preserving full accessible count labels. Count observed
   output before display clipping; do not tokenize in React or use status/input
   summaries as output. Calibrate only complete attributed text receipts; child
   totals and prompt deltas are not result receipts. Provider thinking totals
