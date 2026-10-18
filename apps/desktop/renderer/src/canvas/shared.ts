@@ -1086,6 +1086,7 @@ export function availableAutopsyModels(
 // One structural type covers every card; fields absent on some card kinds
 // are optional and consumers guard (or assert) exactly where the JS did.
 export interface CanvasNode {
+  dnd?: boolean
   peer_mail?: boolean
   /** 'project' for a project node (TreeNode's) */
   kind?: 'project'

@@ -180,6 +180,8 @@ export interface MailAttachment {
 
 // schema.py MailEntry (№11/№17)
 export interface MailEntry {
+  dnd_held?: boolean
+  dnd_read?: boolean
   tags?: string[]
   reply_to?: MailReplyWire
   replies?: MailReplyWire[]
@@ -376,6 +378,7 @@ export interface PendingAccount {
 }
 
 export interface TreeNode {
+  dnd?: boolean
   peer_mail?: boolean
   /** Foreground projection omits the lineage axis even for live agents. */
   lineage_loaded?: boolean
@@ -2498,6 +2501,7 @@ export interface SettingsResult {
 // POST .../nodes/{nid}/message — several branches (api.py node_message):
 // mail accept, /compact start, immediate command, or send_message's result
 export interface SendMessageResult extends Partial<TypedReplyReceipt> {
+  dnd_held?: boolean
   accepted?: boolean
   /** a mail to a project: the project's audience to the user, granted after
    *  delivery (api.ts AudienceGrantResult; null when none applied) */

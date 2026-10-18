@@ -1897,7 +1897,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <ContextWheel occ={node.occupancy} cw={node.context_window}
             est={node.occupancy_est} compactAt={compactAt} />
           <div className="sq-workstate">
-            {node.halt || isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
+            {node.dnd || node.halt || isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
               <AgentWorkstate node={node} turn={lastTurn} live={live} />
             ) : (
               <>

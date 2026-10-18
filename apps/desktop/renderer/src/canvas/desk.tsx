@@ -1,3 +1,4 @@
+import { DndBadge, UrgentAgentOptions, type UrgentAgentMail } from './dnd'
 import { AgentCompactConfirm } from './agentcompact'
 import { historyEnabled, historyUndo } from '../historyregistry'
 import { SystemRuns, transcriptEntries, revealSystemRuns } from '../events/systemruns'
@@ -624,7 +625,10 @@ export function deriveAgentVisualState(node: {
 
 /** Unified workstate presentation for NodeSquare. Subscribes to ageClockSecond
  * so active turn elapsed time and idle time tick every second without props/SSE updates. */
-export function AgentWorkstate({ node, turn, live = true }: {
+export function AgentWorkstate(props: Parameters<typeof AgentWorkstateBody>[0]) {
+  return <><DndBadge active={props.node.dnd} /><AgentWorkstateBody {...props} /></>
+}
+function AgentWorkstateBody({ node, turn, live = true }: {
   node: CanvasNode; turn?: TurnStat | null; live?: boolean
 }) {
   useSyncExternalStore(subscribeAgeClock, () => ageClockSecond,
@@ -1944,6 +1948,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   staleIdentity = false, onDismiss, hidePopout = false, eligible = true }: DeskChatProps) {
   const node = useNodeMetadata(slug, baseNode)
   const enterKey = useComposerEnter()
+  const [urgentMail,setUrgentMail]=useState<UrgentAgentMail | undefined>()
   // A host that passes no settings/lineage handler (the Attention view's desk,
   // a restored desk) gets the shell's own openers, so the gear and the
   // `gen N` badge are never dead buttons. See AgentSurfaceRoutes.
@@ -3140,6 +3145,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const send = () => {
     let t = text.trim()
     if ((!t && !attached.length) || !canMail) return
+    if (node.dnd && urgentMail && !urgentMail.urgent_reason.trim()) { toast(["Urgent mail needs a reason."]); return }
     if (!t) t = '(file attached)'
     const paths = attached.map((a) => a.path)
     const sentReply = reply
@@ -3168,7 +3174,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     toBottom()
     const pluralWire = sentReplies.length > 1 || sentReplies.some(r => !!r.mailId || !!r.docId)
     sendMessage(slug, node.id, t, paths, pluralWire ? undefined : sentReply ? replyWire(sentReply) : undefined, op, armedNotice,
-      pluralWire ? sentReplies.map(replyWire) : undefined)
+      pluralWire ? sentReplies.map(replyWire) : undefined, undefined, node.dnd ? urgentMail : undefined)
       .then((r) => {
         // User 2026-10-18: reveal this desk's conversation after a successful
         // send. Pending/refused sends retain the tab the reader selected.
@@ -3179,6 +3185,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         // lied for frozen nodes (mail waits durably; nothing delivers now)
         flashMode(r.compacting ? 'compacting — the org way (§8)'
           : r.deferred === 'halted' ? 'halted — mail stays unread until unhalt'
+          : r.dnd_held ? 'held (do not disturb)'
           : r.command ? 'command sent'
             : r.steering ? 'steering in mid-task'
               : r.frozen ? 'frozen — mail waits for ▶ resume'
@@ -4362,6 +4369,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             if (enterKey.sends(e)) { e.preventDefault(); send() }
           }} />
         {mentions.menu}
+        <UrgentAgentOptions active={node.dnd} value={urgentMail} onChange={setUrgentMail} />
         <EffortButton value={node.scope?.effort ?? ''}
           effective={node.effort_effective ?? ''}
           // a Muse seat's levels are its model's row on the login it runs on

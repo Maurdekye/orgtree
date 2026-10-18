@@ -15,7 +15,7 @@ export type NodeStreamFrame = {
   waiting?: boolean; state?: string | null; forecast?: CacheForecast | null;
 }
 
-const fields = ['mcp_tool_count', 'last_turn_mcp_tool_count', 'mcp_tool_count_provider',
+const fields = ['dnd', 'mcp_tool_count', 'last_turn_mcp_tool_count', 'mcp_tool_count_provider',
   'mcp_tool_count_source', 'mcp_tool_count_reason', 'mcp_readiness_waiting',
   'mcp_readiness_state', 'mcp_readiness_reason', 'cache_forecast'] as const
 export type NodeMetadata = Pick<TreeNode, typeof fields[number]>

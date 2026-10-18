@@ -1423,11 +1423,13 @@ export const sendMessage = (
   notice?: boolean,
   replies?: MailReplyWire[],
   targets?: ReplyTarget[],
+  urgency?: { urgent: true; urgent_reason: string },
 ): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text,
+      ...(urgency ?? {}),
       ...(attachments?.length ? { attachments } : {}),
       // FR-05: an inline mailbox reply carries a snapshot of what it answers
       ...(replyTo ? { reply_to: replyTo } : {}),

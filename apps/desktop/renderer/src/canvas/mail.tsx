@@ -812,6 +812,8 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           && <span className="urgentkind" title={m.urgent_reason
             ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
         {mark}
+        {!m._ask && m.dnd_held && <span className="dnd-mail-state">held (do not disturb)</span>}
+        {!m._ask && m.dnd_read && <span className="dnd-mail-state">read</span>}
         {!m._ask && m.queue && <QueueChip q={m.queue} onFocusAgent={onFocusAgent} hasAgent={hasAgent} />}
         <span className="mtime">{fmtShort(m.at)}</span>
         {m._wait && m.id && onRetract && (
