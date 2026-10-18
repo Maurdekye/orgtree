@@ -1015,6 +1015,14 @@ mod project_settings_contract_tests {
         assert!(c["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap().contains(&json!("release_slot")));
         assert_eq!(c["inputSchema"]["properties"]["lease"]["type"],json!("string"));
     }
+    #[test]
+    fn project_ancestors_can_request_force_release_and_remove_from_line() {
+        let c=card();
+        let p=&c["inputSchema"]["properties"];
+        assert_eq!(p["force"]["type"],json!("boolean"));
+        assert_eq!(p["agent"]["type"],json!("string"));
+        assert!(p["action"]["enum"].as_array().unwrap().contains(&json!("unqueue_slot")));
+    }
 }
 
 #[cfg(test)]
