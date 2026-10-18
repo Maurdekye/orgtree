@@ -394,6 +394,11 @@ test('§6 a popped-out project desk has the popped-out agent desk\'s one header 
   assert.ok(controls, 'the window controls in the desk header row')
   assert.equal(top.lastElementChild, controls, 'last, at its right')
   assert.ok(top.querySelector('.cc-head-right button.popout-button[aria-label="Return to main window"]'), 'pop-in beside the tabs')
+  // no modal frame inside the window: the desk sits on the window's glass with
+  // the same 8px an agent desk has (.popout-mount:has(.cc-head))
+  assert.ok(STYLES.includes('.popout-mount .project-desk-modal.modalpin-detached { border: none; box-shadow: none; border-radius: 0; background: none; }'),
+    'the popped-out project desk drops the modal frame')
+  assert.ok(STYLES.includes('.popout-mount .project-desk-modal.modalpin-detached .desk-body { padding: 0; }'), 'and its extra inset')
   // the duplicate-name rule is for a desk UNDER a title bar, never a popped-out one
   for (const part of ['.project-mark', '.name'])
     assert.ok(STYLES.includes(`.project-desk-modal:not(.modalpin-detached) .project-desk .cc-head-left > ${part}`), part)

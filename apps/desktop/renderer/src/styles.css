@@ -8059,6 +8059,11 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
    room keeps it off the glass. Desks only - a popped-out modal already has its
    panel's own padding - and only when popped out. */
 .popout-mount:has(.cc-head) { padding: 8px; }
+/* a popped-out project desk is a desk too, not a framed modal: no border, ring
+   or inset of its own, so it sits where a popped-out agent desk does (user
+   2026-10-18 11:47Z) */
+.popout-mount .project-desk-modal.modalpin-detached { border: none; box-shadow: none; border-radius: 0; background: none; }
+.popout-mount .project-desk-modal.modalpin-detached .desk-body { padding: 0; }
 .popout-recovery { position: fixed; inset: 40px; z-index: 31; overflow: auto;
   display: flex; background: var(--bg, #171717); }
 html.mobile .popout-button { display: none; }
