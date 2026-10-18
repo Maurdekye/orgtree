@@ -22,7 +22,9 @@ pub async fn get(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(String, 
     let client = e.db.get().await?;
     let r = client
         .query_opt(
-            "SELECT uid, node_name, title, coalesce(body, ''), at, format, bytes, viewed_at FROM ot.documents WHERE org_id = $1 AND uid = $2",
+            "SELECT d.uid, coalesce(a.name, d.node_name), d.title, coalesce(d.body, ''), d.at, d.format, d.bytes, d.viewed_at,
+                    coalesce(d.presented_by, a.name, d.node_name)
+               FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id WHERE d.org_id = $1 AND d.uid = $2",
             &[&o.id, &did],
         )
         .await?
@@ -30,7 +32,7 @@ pub async fn get(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(String, 
     Ok(Json(json!({
         "id": r.get::<_, String>(0), "node": r.get::<_, String>(1), "title": r.get::<_, String>(2),
         "body": r.get::<_, String>(3), "at": iso(r.get(4)), "format": r.get::<_, String>(5), "bytes": r.get::<_, i32>(6),
-        "viewed_at": iso_opt(r.get(7)),
+        "viewed_at": iso_opt(r.get(7)), "presented_by": r.get::<_, String>(8),
     })))
 }
 
