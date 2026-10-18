@@ -48,6 +48,7 @@ import { CurrentOrg } from '../src/popout'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { NodeConfig } from '../src/canvas/modals'
 import { ActiveAgentSummary } from '../src/shell/treeinfo'
+import { readHistory } from '../src/composerhistory'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -343,10 +344,95 @@ test("§10 the desk's message box: by default one mail to the project's own inbo
   await enter()
   await flush(4)
   assert.deepEqual(sent.slice(1), [{ path: '/api/orgs/org/nodes/website/broadcast', body: { text: 'Status, everyone?' } }], 'one broadcast')
+  assert.equal(mega.getAttribute('aria-pressed'), 'false', 'a successful broadcast disarms the megaphone')
   await inAct(() => { el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="inbox"]')!.click() })
   await flush(2)
   assert.ok(el.querySelector('.project-composer textarea'), 'under every tab, as on an agent desk')
   assert.equal(el.textContent!.includes('Could not load older mail'), false, 'the inbox fixture implements live and history response shapes')
+})
+
+test('§10d project message history recalls sent messages with Up/Down and restores the unsent draft after leaving the desk', async (t) => {
+  localStorage.clear()
+  serve(t)
+  const node = project()
+  const mount = () => mountView(<ProjectDesk node={node} slug="org" tree={tree}
+    map={new Map([[node.id, node], ['boss', boss]])} op={async () => ({} as OpResult)} toast={noop}
+    refs={refs} bare />, el => el)
+  const inner = globalThis.fetch
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(url), 'http://fixture.invalid').pathname
+    if (init?.method === 'POST' && path === '/api/orgs/org/nodes/website/message')
+      return Promise.resolve(new Response(JSON.stringify({ accepted: true, id: 'm1', delivery: 'queued' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    return inner(url, init)
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = inner })
+
+  const first = await mount()
+  const box = () => first.el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
+  try {
+    assert.ok(box())
+    setText(box(), 'sent from project')
+    await inAct(() => { box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await flush(4)
+    assert.deepEqual(readHistory('org', 'website'), [{ text: 'sent from project', delivered: true }],
+      'project sends use the shared bounded composer history keyed by project identity')
+    setText(box(), 'unfinished project draft')
+    await flush(2)
+  } finally { await first.unmount() }
+
+  const second = await mount()
+  try {
+    const restored = second.el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
+    assert.equal(restored.value, 'unfinished project draft', 'the per-project draft survives the composer unmount')
+    restored.selectionStart = restored.selectionEnd = 0
+    const up = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })
+    await inAct(() => { restored.dispatchEvent(up) })
+    await flush(2)
+    assert.equal(up.defaultPrevented, true, 'Up at the first line recalls history')
+    assert.equal(restored.value, 'sent from project')
+    const down = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })
+    restored.selectionStart = restored.selectionEnd = restored.value.length
+    await inAct(() => { restored.dispatchEvent(down) })
+    await flush(2)
+    assert.equal(restored.value, 'unfinished project draft', 'Down past newest restores the draft that was present before recall')
+  } finally { await second.unmount() }
+})
+
+test('§10e Alt+B toggles project broadcast mode and is shown in its tooltip without disturbing Alt+N', async (t) => {
+  const el = await desk(t)
+  const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
+  const mega = el.querySelector<HTMLButtonElement>('button.cc-broadcast-toggle')!
+  const notice = el.querySelector<HTMLButtonElement>('button.cc-notice-toggle')!
+  const press = (key: string) => inAct(() => {
+    box.dispatchEvent(new KeyboardEvent('keydown', { key, altKey: true, bubbles: true, cancelable: true }))
+  })
+  await press('b')
+  assert.equal(mega.getAttribute('aria-pressed'), 'true', 'Alt+B arms broadcast')
+  assert.match(mega.title, /Alt\+B/, 'the broadcast tooltip documents its shortcut')
+  await press('n')
+  assert.equal(notice.classList.contains('armed'), true, 'Alt+N retains the notice toggle')
+  await press('B')
+  assert.equal(mega.getAttribute('aria-pressed'), 'false', 'Alt+B disarms broadcast')
+})
+
+test('§10f a rejected project broadcast keeps broadcast mode armed', async (t) => {
+  const el = await desk(t)
+  const inner = globalThis.fetch
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(url), 'http://fixture.invalid').pathname
+    if (init?.method === 'POST' && path === '/api/orgs/org/nodes/website/broadcast')
+      return Promise.resolve(new Response(JSON.stringify({ error: 'rejected' }), { status: 500 }))
+    return inner(url, init)
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = inner })
+  const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
+  const mega = el.querySelector<HTMLButtonElement>('button.cc-broadcast-toggle')!
+  await inAct(() => { mega.click() })
+  setText(box, 'try broadcast')
+  await inAct(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+  await flush(4)
+  assert.equal(mega.getAttribute('aria-pressed'), 'true', 'a failed send does not disarm broadcast')
 })
 
 test("§10c a failed audience grant after delivery says so in the toast (coordinator 2026-10-18 09:43Z)", async (t) => {
