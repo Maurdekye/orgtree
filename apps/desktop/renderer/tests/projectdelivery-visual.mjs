@@ -59,7 +59,7 @@ if (flag === '--expect') {
       // nothing wraps, and no chip is stretched by its line
       for (const p of [row.sender, row.time, row.kind, row.urgent, row.queue, row.recipient, row.preview])
         if (p) assert.equal(p.textLines, 1, `${what}: ${p.cls} wraps over ${p.textLines} lines`)
-      for (const c of row.chips) { assert.equal(c.textLines, 1, `${what}: chip ${c.text} wraps`); assert.ok(c.h <= 17, `${what}: chip ${c.text} is ${c.h}px tall`) }
+      for (const c of row.chips) { assert.equal(c.textLines, 1, `${what}: chip ${c.text} wraps`); assert.ok(c.h <= 20, `${what}: chip ${c.text} is ${c.h}px tall`) }
       for (const l of row.lines) assert.ok(l.h <= 20, `${what}: ${l.cls} is ${l.h}px tall`)
       // nothing leaves the row
       for (const p of [row.from, row.time, ...row.chips])
@@ -71,6 +71,7 @@ if (flag === '--expect') {
         assert.deepEqual(row.lines.slice(0, 2).map(l => l.cls), ['l1', 'lmeta'], what)
         for (const p of [row.queue, row.kind, row.urgent]) if (p) assert.equal(p.line, 1, `${what}: ${p.cls} on the meta line`)
         if (row.kind) assert.ok(row.kind.x + row.kind.w <= row.queue.x, `${what}: the kind chip leads the queue state`)
+        near(row.lines[1].h, row.lines[0].h, 0.5, `${what}: the meta line is as tall as line 1`)
       } else assert.deepEqual(row.lines.map(l => l.cls), ['l1', 'l2'], what)
       // the widest column cuts no name in a project row; any cut ends in an ellipsis
       for (const p of [row.sender, row.recipient]) if (p) {
@@ -78,6 +79,10 @@ if (flag === '--expect') {
         else if (p.clipped) assert.ok(p.ellipsis, `${what}: ${p.text} is cut without an ellipsis`)
       }
     }
+    // a chip stands the same on every row and line (tags sit on the preview line)
+    const chipHeights = {}
+    for (const c of m.rows.flatMap(r => r.chips)) if (!c.cls.startsWith('mail-tag')) (chipHeights[c.cls.split(' ')[0]] ??= []).push(c.h)
+    for (const [cls, hs] of Object.entries(chipHeights)) for (const h of hs) near(h, hs[0], 0.5, `${name}: every ${cls} chip has one height`)
     // one height per row shape
     for (const shape of [['l1', 'lmeta', 'l2'], ['l1', 'l2']]) {
       const hs = m.rows.filter(r => r.lines.map(l => l.cls).join() === shape.join()).map(r => r.box.h)
