@@ -3,7 +3,8 @@
 // for one project and is not an agent. It runs no turns and holds no
 // credits, so it has no model, credit bar or turn state. Zoomed out it is a
 // large folder; at middle zoom it shows its name, the activity chip (active /
-// hired agents under it), its description and its documents, with the mailbox
+// hired agents under it) and its documents (not its description: user
+// 2026-10-18 08:50Z), with the mailbox
 // button only under "Show agent card shortcuts". A click or zooming in walks
 // to its PROJECT DESK (projectdesk.tsx; user 2026-10-17 19:38Z, 20:04Z), never
 // a modal. It has an agent card's four hire strips, and its menu
@@ -109,7 +110,6 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const waiting = node.mail_pending ?? 0
   // its OWN presentations (point 27): the subtree's are its team presentations
   const docs = node.documents_count ?? node.documents?.length ?? 0
-  const description = (node.charter ?? '').trim().split('\n')[0] ?? ''
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
   const cls = ['sq', 'project', node.state, deskOpen ? 'desk' : lod, 'edge-' + edge]
@@ -171,7 +171,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               {node.state !== 'live' && <span className="badge dim">{node.state}</span>}
             </div>
           </div>
-          {description && <div className="project-desc" title={node.charter ?? undefined}>{description}</div>}
+          {/* no description preview here: it lives on the project desk (user 2026-10-18 08:50Z) */}
           {showShortcuts && <div className="sq-actions project-actions">
             {/* the agent card's hover row, for what a project holds (user
                 2026-10-17 22:21Z): its docket, its mailbox with the waiting
