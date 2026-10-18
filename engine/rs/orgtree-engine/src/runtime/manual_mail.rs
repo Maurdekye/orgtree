@@ -63,5 +63,9 @@ mod tests {
         for action in ["list","conversation"] {assert!(output("orgtree_inbox",&json!({"action":action}),"{}").is_none());}
         assert!(output("shell",&json!({"action":"fetch"}),"{}").is_none());
         assert_eq!(output("mcp__orgtree__orgtree_inbox",&json!({"action":"chunk"}),"{\"id\":\"received\",\"direction\":\"received\"}\nexecution time: 1ms").unwrap()["id"],"received");
+        let envelope=json!({"content":[{"type":"text","text":"{\"id\":\"received\",\"direction\":\"received\"}"},{"type":"text","text":"execution time: 1ms"}]});
+        assert_eq!(output("orgtree_inbox",&json!({"action":"fetch"}),&envelope.to_string()).unwrap()["id"],"received");
+        assert!(output("orgtree_inbox",&json!({"action":"fetch"}),"{\"isError\":true,\"content\":[]}").is_none());
+        assert_eq!(crate::feed::compute::mail_entry(&json!({"state":"read","extra":{"manual_read":true}}))["dnd_read"],true);
     }
 }

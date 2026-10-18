@@ -196,7 +196,8 @@ pub fn mail_entry(m: &Value) -> Value {
         o.insert("retracted".into(), json!(true));
     }
     if m["dnd_held"] == true { o.insert("dnd_held".into(),json!(true)); }
-    if m["extra"]["dnd_read"] == true { o.insert("dnd_read".into(),json!(true)); }
+    // Legacy UI field means an explicit content read, including outside DND.
+    if m["extra"]["dnd_read"] == true || m["extra"]["manual_read"] == true { o.insert("dnd_read".into(),json!(true)); }
     let state = m["state"].as_str().unwrap_or("");
     if state == "delivering" {
         o.insert("delivering".into(), json!(true));
