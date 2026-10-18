@@ -45,6 +45,7 @@ test('an approaching pointer stops a running shake before it reaches a watchdog 
 test('a stationary pointer on a watchdog descendant keeps new shakes from moving its click target', t => {
   const f = fixture(t)
   f.root.innerHTML = '<button class="wd-chip"><span class="wd-name">watchdog</span></button>'
+  f.root.firstElementChild!.addEventListener('pointermove', e => e.stopPropagation())
   f.move(f.root.querySelector('span')!)
   f.clock(1000)
   f.stage.shake(20, 900)
@@ -63,6 +64,10 @@ test('links, inputs and the clickable org inbox receive the same hover protectio
     assert.equal(f.played.length, 0, `stable ${target.tagName} control`)
     f.clock(0)
   }
+  f.clock(1000)
+  f.root.querySelector('input')!.dispatchEvent(new window.Event('blur'))
+  f.stage.shake(20, 900)
+  assert.equal(f.played.length, 0, 'input blur does not clear control hover like window blur')
 })
 
 test('a pointer held down stays protected until release, even on a non-control drag surface', t => {

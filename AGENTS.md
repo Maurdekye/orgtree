@@ -15,6 +15,13 @@
   requirement. This recursive presentation exception is separate from direct-only
   project audience inheritance. [decided: user 2026-10-18 07:38Z; verified:
   `domain/docs.rs`, `tools/rig/proofs/project-present.mjs`]
+- EPIC whole-window shakes stop during pointer movement or a held press,
+  settle for 250ms, and stay off while hovering clickable controls (including
+  watchdog chips, links, fields and the org inbox). Each stage owns and removes
+  its document's capture listeners; adopted pop-out targets are duck-typed.
+  Camera transforms and other EPIC effects are untouched. See
+  [pointer stability](docs/rust-engine/epic-mode-final.md#pointer-stability-2026-10-18).
+  [decided: user 2026-10-18 07:49Z; verified: `epic/stage.ts`]
 
 - Exact tracing-event-count tests must isolate process-global callsite caches
   from parallel tests. The session-blip regression runs its assertion in one

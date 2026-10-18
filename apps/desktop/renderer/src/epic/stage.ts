@@ -56,6 +56,15 @@ export const BLUR_MAX_MS = 700
 export const BLUR_EVERY_MS = 600
 export const FLASH_GAP_MS = 340
 
+// User 2026-10-18: a watchdog must not dodge a click. Steady the shared
+// window transform while aiming/pressing, then keep hovered controls still.
+const POINTER_SETTLE_MS = 250
+const CLICKABLE = 'button, a[href], input, textarea, select, summary, label, '
+  + '[role="button"], [role="tab"], [role="menuitem"], [role="option"], '
+  + '[role="switch"], [role="checkbox"], [role="radio"], '
+  + '[tabindex]:not([tabindex="-1"]), [contenteditable]:not([contenteditable="false"]), '
+  + '.sq.orginbox, [data-first-use-agent]'
+
 /* Lingering effects (docket epic-mode-next-round-more-shake-and-blur-a-small,
    part 4: "more lingering effects that remain on screen for longer"; plan
    approved 2026-10-15). What a strike leaves behind fades slowly where it
@@ -182,6 +191,11 @@ export class Stage {
   private resizeObserver: (() => void) | null = null
   private dead = false
   private shakeAnim: Animation | null = null
+  private pointerTarget: Element | null = null
+  private pointerUntil = -Infinity
+  private pointerHeld = false
+  private pointerOutside = false
+  private releasePointer: (() => void) | null = null
   /** the shake running: when it started, how far and for how long */
   private shaking: { from: number; amp: number; ms: number } | null = null
   /** the shakes of the last SHAKE_SPAN_MS, [start, end] in ms, for the budget */
@@ -225,6 +239,44 @@ export class Stage {
     this.view.addEventListener('resize', onResize)
     this.resizeObserver = () => this.view.removeEventListener('resize', onResize)
     this.resize()
+    // Capture also sees controls that stop propagation (watchdog satellites).
+    // No layout scan, frame loop or polling: only pointer events and shake starts.
+    const target = (value: EventTarget | null): Element | null =>
+      value && typeof (value as Element).closest === 'function' ? value as Element : null
+    const aim = (e: Event) => {
+      this.pointerOutside = false
+      this.pointerTarget = target(e.target)
+      this.pointerUntil = performance.now() + POINTER_SETTLE_MS
+      this.steadyShake()
+    }
+    const down = (e: Event) => { this.pointerHeld = true; aim(e) }
+    const up = (e: Event) => { this.pointerHeld = false; aim(e) }
+    const leave = () => {
+      this.pointerTarget = null
+      this.pointerUntil = -Infinity
+      this.pointerHeld = false
+      this.pointerOutside = true
+    }
+    const over = (e: Event) => {
+      this.pointerOutside = false
+      this.pointerTarget = target(e.target)
+      if (this.steadyPointer()) this.steadyShake()
+    }
+    const out = (e: Event) => {
+      const next = target((e as PointerEvent).relatedTarget)
+      if (!next) leave()
+      else this.pointerTarget = next
+    }
+    const blur = (e: Event) => { if (e.target === this.view) leave() }
+    const events: [string, EventListener][] = [
+      ['pointermove', aim], ['pointerdown', down], ['pointerup', up],
+      ['pointercancel', leave], ['pointerover', over], ['pointerout', out], ['blur', blur],
+    ]
+    for (const [kind, listener] of events) this.view.addEventListener(kind, listener, { capture: true, passive: true })
+    this.releasePointer = () => {
+      for (const [kind, listener] of events) this.view.removeEventListener(kind, listener, true)
+      leave()
+    }
   }
 
   get particleCount(): number { return this.parts.length }
@@ -252,6 +304,8 @@ export class Stage {
     this.slowTimer = 0
     this.resizeObserver?.()
     this.resizeObserver = null
+    this.releasePointer?.()
+    this.releasePointer = null
     try { this.shakeAnim?.cancel() } catch { /* gone */ }
     this.shakeAnim = null
     this.unclip?.()
@@ -1640,7 +1694,7 @@ export class Stage {
    *  SHAKE_SPAN_MS, so a shake the budget cannot afford is cut short, or not
    *  played at all. Never under reduced motion. */
   shake(intensity = 8, ms = 380): void {
-    if (this.idle || this.calm) return
+    if (this.idle || this.calm || this.steadyPointer()) return
     const el = this.shakeTarget()
     if (!el || typeof el.animate !== 'function') return
     const now = performance.now()
@@ -1688,6 +1742,26 @@ export class Stage {
   }
   /** puts the shaken element's own overflow back */
   private unclip: (() => void) | null = null
+
+  private steadyPointer(): boolean {
+    if (this.pointerHeld || performance.now() < this.pointerUntil) return true
+    if (this.pointerOutside) return false
+    if (this.pointerTarget?.isConnected && this.pointerTarget.closest(CLICKABLE)) return true
+    // EPIC can start while the mouse is already stationary over a control.
+    return !!this.canvas.ownerDocument.querySelector(`:is(${CLICKABLE}):hover`)
+  }
+
+  private steadyShake(): void {
+    const anim = this.shakeAnim
+    if (!anim) return
+    const last = this.shaken[this.shaken.length - 1]
+    if (last) last[1] = Math.min(last[1], performance.now())
+    this.shakeAnim = null
+    this.shaking = null
+    try { anim.cancel() } catch { /* already gone */ }
+    this.unclip?.()
+    this.unclip = null
+  }
 
   /** A soft blur of the app behind the stage that rises and falls once:
    *  over the whole window, or only towards its edges (`edges`, the middle

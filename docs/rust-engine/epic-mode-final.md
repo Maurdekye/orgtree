@@ -1128,6 +1128,31 @@ the first rows stand for the tip.
 | Typing capture (tip `3d75b1a`) | Passed, 79 PNGs. All six wrap receipts are `atCaret`, each 14 of 14 effects, every spark drawn at its spot, the stage the window's: alice zoomed out (scale 0.5) maxDx 0, maxDy 0.13; bob (0.75) 0, 0.19; carol pinned (1) 0, 0.25; alice zoomed in (1.5) 0, 0.38; carol pinned in Light 0, 0.25; dave in the popped-out window (1) 0, 0.25; tolerance 1.5. The two popped-out PNGs and the marked frames were looked at: ring and dot coincide on the second line at the typed "t" |
 | Typing capture (`5efd8ae`) | Fails in the typing section, as it must: all six wrap receipts are off the caret, by 62, 95, 128, 194, 128 and 128 (popped out) px across and 9.78, 14.67, 19.55, 29.33, 19.55 and 19.55 (popped out) px down (one text line at each desk's scale), with the value, line count, wrap and scroll all true. The same numbers as the first wrap run, so the pauses and the clamp did not hide the old bug. In the popped-out PNG the ring sits at the end of the first line, away from the dot on the second |
 
+## Pointer stability (2026-10-18)
+
+User feedback at 07:49Z: watchdog chips jumped too far from the cursor to click.
+The shared app-root shake can displace every control by 20 screen pixels, so
+`Stage` stops a running shake on pointer movement or a held press and restores
+the root's temporary overflow clipping. New shakes wait for a 250ms settling
+interval and remain suppressed while a clickable control is hovered. Buttons,
+links, inputs, the org inbox and agent cards share the same protection. A native
+hover query also protects a control already under the mouse when EPIC starts.
+Pointer exit or window blur clears stale state; input blur does not clear it.
+
+The guard uses passive capture listeners on each stage's own window, including
+pop-outs and controls that stop propagation, with duck-typed adopted elements.
+Destroy removes those listeners. It adds no frame loop, polling or per-control
+layout scan, and changes no camera or card transforms. Normal shakes resume
+away from pointer interaction; particles, sound, heat, wire pulses, blur and
+other effects retain their existing behavior. EPIC off retains its original
+no-listener contract.
+
+`epicmode-pointer` covers approach, hovered watchdog descendants and other
+controls, held presses, window exit and second-document cleanup. The isolated
+Electron proof checks real root Web Animations, fixed screen rectangles under
+pan/zoom and mouse-event hit testing for watchdog, link and org-inbox controls.
+It uses synthetic fixture data and a private browser profile.
+
 ## Limits
 
 - Synthetic state and transports only: no live organization, provider

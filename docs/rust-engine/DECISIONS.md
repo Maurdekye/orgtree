@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**EPIC pointer stability, user 2026-10-18 07:49Z:** watchdog chips must remain
+clickable while EPIC is on. The shared window shake stops during pointer
+movement or a held press, settles for 250ms, and stays off while a clickable
+control is hovered. This also protects links, fields and the org inbox in each
+document/pop-out, including a control hovered before EPIC starts. Other effects
+remain. See [pointer stability](epic-mode-final.md#pointer-stability-2026-10-18).
+
 **Helper transcript formatting, user 2026-10-17 19:32Z:** the expanded helper
 view uses the same normal transcript components for Markdown prose, supplied
 thinking and expandable tool calls. Keep it visibly nested, bounded and one
