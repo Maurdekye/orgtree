@@ -30,13 +30,14 @@
 // back on screen, so the desk is never found darkened by a drawer nobody opened.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { ChevronLeftIcon, ViewListIcon } from '../icons'
 import type { ToastFn, TreePayload } from '../types'
 import { DRAFT, providerOf, USER, useEsc } from '../canvas/shared'
 import { setButtonAgent } from '../buttoncolours'
 import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
 import { DeskSlot } from '../canvas/deskhosts'
+import { ProjectDesk } from '../canvas/projectdesk'
 import { DraftNode } from '../canvas/cards'
 import type { DraftNodeProps } from '../canvas/cards'
 import type { DeskChatProps } from '../canvas/desk'
@@ -92,6 +93,12 @@ export interface AgentDeskPanelProps {
    *  human request as a Canvas pin is, and they must not defer to anything.
    *  The view decides this for the same reason it decides `eligible`. */
   claim?: 'automatic'
+  /** A PROJECT'S DESK, drawn by the host: the same ProjectDesk its canvas
+   *  modal and pinned windows draw, with the host's gear and pop-out routes
+   *  (user 2026-10-18 14:36Z: "projects should show the project desk"). A
+   *  project never reaches `DeskSlot`, which is the AGENT desk; without this
+   *  the panel draws ProjectDesk itself with the routes it has. */
+  projectDesk?: (node: CanvasNode) => ReactNode
 }
 
 type ListRow = TrayRow
@@ -144,7 +151,7 @@ export function inCloseZone(
 
 export function AgentDeskPanel({
   slug, tree, op, toast, map, posOf, deskExtras, eligible = true, claim,
-  activeAgentsOnly = false, onActiveAgentsOnly, attentionDraft,
+  activeAgentsOnly = false, onActiveAgentsOnly, attentionDraft, projectDesk,
 }: AgentDeskPanelProps) {
   const layout = useAttentionLayout(slug)
   const [query, setQuery] = useState('')
@@ -326,6 +333,10 @@ export function AgentDeskPanel({
           ? <div className="attn-draft-stage" data-attn-draft="yes">
               <div className="attn-draft-scale"><DraftNode {...attentionDraft} /></div>
             </div>
+          : selected?.kind === 'project'
+          ? (projectDesk ? projectDesk(selected)
+            : <ProjectDesk bare node={selected} slug={slug} tree={tree} map={map} op={op} toast={toast}
+                refs={refs} onJump={deskExtras?.onJump} onOpenDoc={deskExtras?.onOpenDoc} />)
           : selected
           ? <DeskSlot bare node={selected} map={map} op={op} slug={slug} toast={toast}
               maxTop={tree.max_top_grant ?? 1000}

@@ -1857,7 +1857,7 @@ export default function App() {
                     onOpenItem={ctx.onOpenItem} onFocusAgent={ctx.onFocusAgent}
                     onOpenDoc={ctx.onOpenDoc} onOpenMail={ctx.onOpenMail}
                     onNotificationFocus={registerAttentionNotification}
-                    deskExtras={ctx.deskExtras}
+                    deskExtras={ctx.deskExtras} projectDesk={ctx.projectDesk}
                     /* the freshness of the ONE tree read this component
                        already makes — not a second poller and not a copy of
                        the tree, which is the whole reason it can be believed */

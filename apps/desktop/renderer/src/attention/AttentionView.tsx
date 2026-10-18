@@ -336,6 +336,8 @@ export interface AttentionViewProps {
   onNotificationFocus?: AttentionQueueProps['onNotificationFocus']
   /** the Desk's own host routes, passed through untouched */
   deskExtras?: Partial<DeskChatProps>
+  /** the host's project desk, for a project chosen in the desk panel */
+  projectDesk?: (node: CanvasNode) => ReactNode
   /**
    * THE FRESHNESS OF `tree`, forwarded to the queue — question rows are read
    * out of the tree, which this view does not fetch, so the host that DOES
@@ -565,7 +567,7 @@ export function AttentionView(props: AttentionViewProps) {
               onActiveAgentsOnly={props.onAttentionDeskActiveAgentsOnly}
               attentionDraft={props.attentionDraft}
               eligible={deskEligible} claim={deskClaim}
-              deskExtras={props.deskExtras} />
+              deskExtras={props.deskExtras} projectDesk={props.projectDesk} />
           </PinFrame>
         </div>
       )}

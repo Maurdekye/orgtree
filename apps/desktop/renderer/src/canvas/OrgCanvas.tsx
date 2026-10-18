@@ -136,6 +136,8 @@ export interface OrgSlotContext {
   /** the canonical desk's own host routes, to pass straight through to a
    *  `DeskSlot`. The view supplies no stubs and invents no handler. */
   deskExtras: Partial<DeskChatProps>
+  /** a project's desk, the one its pinned window draws (Attention desk panel) */
+  projectDesk: (node: CanvasNode) => ReactNode
 }
 
 export interface OrgCanvasProps {
@@ -2157,6 +2159,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     },
     view: tree.foreground,
   })
+  // A PROJECT'S DESK wherever a desk surface shows a project: a pinned window
+  // and the Attention desk panel draw this one, with the canvas's own gear,
+  // pop-out and routes (user 2026-10-18 14:36Z: "projects should show the
+  // project desk"), never the agent desk.
+  const projectDeskOf = (n: CanvasNode) => <ProjectDesk bare node={n} slug={slug} tree={tree} map={map} op={op} toast={toast}
+    refs={canvasRefs} onJump={centerOn} onConfig={() => toggleConfig(n.id)} onOpenDoc={openDocView}
+    onPopout={() => openProjectDesk(n.id, true)} />
   // the DOCUMENT READER's own copy: same world, same routes, plus the one
   // thing that belongs to the reader rather than to the canvas — a document
   // opening another document SWAPS the reader, while everything else lives
@@ -4331,9 +4340,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           pxc={pxPerCredit} onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
           onLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onConfig={toggleConfig} onJump={centerOn}
           onShowOnCanvas={showOnCanvas}
-          projectDesk={(n) => <ProjectDesk bare node={n} slug={slug} tree={tree} map={map} op={op} toast={toast}
-            refs={canvasRefs} onJump={centerOn} onConfig={() => toggleConfig(n.id)} onOpenDoc={openDocView}
-            onPopout={() => openProjectDesk(n.id, true)} />}
+          projectDesk={projectDeskOf}
           onDismiss={(id) => hideRetired && mapRef.current.get(id)?.state === 'archived'
             && shownRetired.has(id) ? dismissRetiredAgent(id) : undefined} />
       )}
@@ -4789,6 +4796,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onOpenDoc: openDocView,
           onJump: centerOn,
         },
+        projectDesk: projectDeskOf,
       })}
     </div>}
     </DeskHosts>
