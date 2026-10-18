@@ -618,7 +618,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={refs} compactAt={tree.compact_at}
           actions={<PanelCorner kind="agent-team" slug={slug} nid={node.id} />} />
       </div>}
-      {shown === 'slots' && <SlotsView node={node} state={slots} map={map} onJump={onJump} op={op} toast={toast} />}
+      {shown === 'slots' && <SlotsView node={node} state={slots} map={map} onJump={onJump} op={op} toast={toast}
+        actions={<PanelCorner kind="project-slots" slug={slug} nid={node.id} />} />}
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
         members={agents.length} recipients={agents} replyTarget={replyTarget} focusRequest={replyFocus}

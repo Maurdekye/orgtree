@@ -41,6 +41,7 @@ import type { MenuEntry } from './contextmenu'
 import { ConfirmModal } from './modals'
 import { AgentCompactConfirm } from './agentcompact'
 import { fmtCredits, hireTierChoices, tierLabel, USER } from './shared'
+import { slotCount } from './slots'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
 
 /** Which lifecycle confirm the menu decided on. The choice is the BUILDER's
@@ -63,6 +64,7 @@ export interface AgentMenuHandlers {
   onScratchFolder?: () => void
   onTeamScratchFolder?: () => void
   onDocket?: () => void
+  onSlots?: () => void
   /** the reduced docket for this agent's WHOLE TEAM — it and everyone below
    *  it. For 2.1.5-RC1 this menu entry is the only door to that view, so the
    *  gate is the handler: a surface that cannot open the panel (or a viewer
@@ -406,6 +408,7 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   // the project's docket: the items owned by the agents under it
   const docket = h.onDocket
   if (docket) open.push({ label: 'Project docket', onSelect: () => docket() })
+  if (slotCount(node) > 0 && h.onSlots) open.push({ label: 'Slots', onSelect: h.onSlots })
   entries.push({ label: 'Open', submenuOnly: !temp, onSelect: () => temp?.(), children: open,
     title: temp ? 'Click to open the temporary desk; hover or press Right to choose what to open' : undefined })
   const hire = h.onHire

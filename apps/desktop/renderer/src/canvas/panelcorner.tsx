@@ -36,7 +36,7 @@ import {
  *  own. The string is the modal's PinFrame `kind` — the same identity its pin
  *  geometry, its open marker and its saved window are all stored under, so
  *  there is no second name for a surface anywhere in this file. */
-export type AgentPanelKind = 'agent-gallery' | 'agent-docket' | 'node-inbox' | 'agent-team'
+export type AgentPanelKind = 'agent-gallery' | 'agent-docket' | 'node-inbox' | 'agent-team' | 'project-slots'
 
 /** How the shell opens each of these surfaces. The desk cannot open any of them
  *  itself — the modals are owned by App/OrgCanvas — and it must not invent a
@@ -72,6 +72,7 @@ export const useAgentSurfaceRoutes = (): AgentSurfaceRoutes | null => useContext
  *  reader the thing it is about to open. Pin and pop out, being the same action
  *  on every surface, keep the one glyph each already has elsewhere. */
 const PANELS: Record<AgentPanelKind, { noun: string; icon: ReactNode }> = {
+  'project-slots': { noun: 'slots', icon: <ViewListIcon fontSize="inherit" /> },
   'agent-team': { noun: 'team', icon: <ViewListIcon fontSize="inherit" /> },
   'agent-gallery': { noun: 'presented documents', icon: <DocIcon fontSize="inherit" /> },
   'agent-docket': { noun: 'docket', icon: <DocketIcon fontSize="inherit" /> },
@@ -83,7 +84,7 @@ const windowFor = (kind: AgentPanelKind, org: string | null, nid: string) =>
   detachedPanel(kind, org, { agent: nid })
 
 const PANEL_TABS: Readonly<Record<string, AgentPanelKind | undefined>> = {
-  inbox: 'node-inbox', docket: 'agent-docket', presented: 'agent-gallery', team: 'agent-team',
+  inbox: 'node-inbox', docket: 'agent-docket', presented: 'agent-gallery', team: 'agent-team', slots: 'project-slots',
 }
 /** Both kinds of desk use the same mapping and activation rule. A missing
  * panel leaves normal inline tab selection intact. */

@@ -32,6 +32,7 @@ import type { RetireKind } from './agentmenu'
 import { projectSlotState, slotBadgeText, slotCount, slotsFull } from './slots'
 import { readQuickChat } from '../quickchat'
 import { agentTooltipProps } from './agentnav'
+import { useAgentSurfaceRoutes } from './panelcorner'
 
 export function isProject(node: Pick<CanvasNode, 'kind'> | null | undefined): boolean {
   return node?.kind === 'project'
@@ -96,6 +97,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onTeam, onSettings, onDocket, onOpenDoc, onOpenGallery,
   onOpenTemporary, onPopout, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
+  const surfaceRoutes = useAgentSurfaceRoutes()
   // the mailbox hover button obeys "Show agent card shortcuts", like an
   // agent card's hover row (user 2026-10-17 19:37Z)
   const showShortcuts = useAgentShortcuts()
@@ -134,6 +136,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     onInbox: () => onInbox(true),
     onTeam: onTeam ? () => onTeam(true) : undefined,
     onDocket: onDocket ? () => onDocket(true) : undefined,
+    onSlots: surfaceRoutes ? () => surfaceRoutes.open('project-slots', node.id) : undefined,
     onScratchFolder: scratchFolderAction(slug, node.id, toast),
     onPresentations: onOpenGallery ? () => onOpenGallery(node.id, { keepOpen: true }) : undefined,
     onTeamPresentations: onOpenGallery ? () => onOpenGallery(node.id, { team: true, keepOpen: true }) : undefined,

@@ -9,6 +9,7 @@
 // superior's through the tool.
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn } from '../types'
 import { ago } from './shared'
@@ -33,8 +34,9 @@ export function span(from: string, to?: string | null): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-export function SlotsView({ node, state, map, onJump, op, toast }: {
+export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
   node: CanvasNode; state: ProjectSlotState; map: Map<string, CanvasNode>; onJump?: (id: string) => void; op: OpFn; toast: ToastFn
+  actions?: ReactNode
 }) {
   useSyncExternalStore(subscribeAgeClock, ageClockNow, ageClockNow)
   const [status, setStatus] = useState<SlotStatus | null>(null)
@@ -58,6 +60,7 @@ export function SlotsView({ node, state, map, onJump, op, toast }: {
   const agentLink = (id: string) => <AgentLink id={id} tier={nodeTierOf(map.get(id))} onFocus={onJump} />
   return (
     <div className="desk-tabpanel project-slots">
+      {actions && <div className="team-tab-toolbar" role="toolbar" aria-label="Slots view controls">{actions}</div>}
       <h4>Holding</h4>
       <div className="slots-holding">
         {holders.length === 0 && <div className="dim">Nobody holds a concurrency slot. An agent above or below the project claims one
