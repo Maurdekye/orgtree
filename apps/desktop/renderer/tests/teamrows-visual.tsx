@@ -10,6 +10,8 @@ localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
 pinModal('agent-list', { x: 25, y: 50, w: 450, h: 420 }, CHROME_ORG)
 pinModal('agent-team', { x: 525, y: 50, w: 450, h: 420 }, CHROME_ORG)
 createRoot(document.getElementById('root')!).render(<>
+  {/* A flat palette pixel avoids sampling the canvas border or its dot grid. */}
+  <div aria-hidden style={{ position: 'fixed', left: 0, top: 0, width: 2, height: 2, zIndex: 2147483647, background: 'var(--bg)', pointerEvents: 'none' }} />
   <TeamChromeFixture />
   <AgentSurfaceRoutesProvider value={{ open() {}, show() {} }}>
   <section data-inline-team style={{ position: 'fixed', left: 25, top: 510, width: 950, height: 160, display: 'flex' }}>
