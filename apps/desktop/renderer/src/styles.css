@@ -3031,6 +3031,8 @@ textarea.ask-free-response-input { resize: vertical; }
 .queuekind { font-size: 10px; padding: 0 5px; border: 1px solid var(--line); border-radius: 8px; color: var(--dim);
   white-space: nowrap; flex: none; }
 .queuekind.awaiting { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.project-queue-tools { display: flex; justify-content: flex-start; margin: 0 0 4px; }
+.project-queue-tools button { font-size: 11px; padding: 2px 8px; }
 .queuekind.dead { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); }
 /* passive notices (orgtree_send_notice) — visibly a different animal from
    mail that expects action, but deliberately QUIET where asks are loud:

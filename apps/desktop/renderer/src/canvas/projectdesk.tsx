@@ -34,6 +34,7 @@ import { DocIcon } from '../icons'
 import { subtreeAgents } from './bulkcompact'
 import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 import { PinFrame } from './modalpin'
+import { ConfirmModal } from './modals'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented'] as const
 type Tab = typeof PROJECT_DESK_TABS[number]
@@ -326,7 +327,7 @@ function ProjectComposer({ node, slug, toast, members }: {
 export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig, onPin, onPopout, onOpenDoc }: ProjectDeskProps) {
   const surface = useSurface()
   const [view, setView] = useState<Tab>('desk')
-  const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | null>(null)
+  const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | 'purge' | null>(null)
   // the docket tab: the items attached to this project (slice 2), one poll,
   // as the agent docket modal does
   const [showArchived, setShowArchived] = useState(false)
@@ -425,6 +426,12 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       </>}
       {view === 'inbox' && <div className="desk-tabpanel">
         <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
+        {/* waiting mail nobody holds yet can be purged (user 2026-10-18 08:11Z) */}
+        {live && (node.mail_pending ?? 0) > 0 && <div className="project-queue-tools">
+          <button type="button" className="danger" data-action="purge-queue" onClick={() => setAsking('purge')}
+            title="retract every mail waiting in this project's queue; mail already handed to an agent stays">
+            Purge waiting mail</button>
+        </div>}
         <InboxView slug={slug} nid={node.id} tier={node.tier} unreadCount={node.mail_pending} toast={toast}
           tierOf={(id) => map.get(id)?.tier} hasAgent={(id) => map.has(id)}
           refs={refs} onFocusAgent={onJump} />
@@ -466,6 +473,16 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {asking === 'dissolve' && createPortal(
         <AgentRetireConfirm kind={members.length > 0 ? 'dissolve' : 'retire'} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
+      {asking === 'purge' && createPortal(
+        <ConfirmModal title={`purge project ${node.id}'s waiting mail?`}
+          body={`${node.mail_pending ?? 0} waiting mail${(node.mail_pending ?? 0) === 1 ? '' : 's'} will be retracted. `
+            + 'Mail already handed to an agent, acked or dead-lettered stays.'}
+          confirmLabel="purge" close={() => setAsking(null)}
+          onConfirm={() => {
+            op({ op: 'purge_mail_queue', node: node.id })
+              .then((r) => toast([`purged ${String((r as { purged?: number }).purged ?? 0)} waiting mail from project ${node.id}`]))
+              .catch(() => {})
+          }} />, document.body)}
     </div>
   )
 }
