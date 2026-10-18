@@ -122,4 +122,3 @@ For suggested team patterns, see `orgtree-committee-mode` and `orgtree-dev-team`
 ## User mention attention
 
 User-bound mail containing a standalone @user in visible prose or reply context draws the same mailbox attention as urgent mail until read, and appears once in Needs attention. Do not add urgent=true or invent urgent_reason for this: its urgent marking remains unchanged. Normal authority, DND and recipient routing are unchanged.
-

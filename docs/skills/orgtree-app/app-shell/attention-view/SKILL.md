@@ -23,4 +23,3 @@ The desk panel's agent drawer offers search and archive inclusion. Choose an age
 ## User-mention mail
 
 Unread mail mentioning @user in visible content uses the same mail entry and read/selection retention as urgent mail, without an urgent tag or fabricated reason. Its matching sender/prose mention blurb is suppressed while that mail represents it; reading clears that matching marker, and unrelated mention rows remain.
-
