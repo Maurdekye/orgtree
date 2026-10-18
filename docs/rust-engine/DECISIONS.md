@@ -76,12 +76,13 @@ fact. Installed contacts keep the existing Hubchat conversation deep link;
 local organizations keep their local opener and missing installs stay inert.
 See `canvas/agentmentions.tsx` and `tests/hubavailability.test.tsx`.
 
-**Panel open actions activate existing windows, user 2026-10-18 12:09Z:**
+**Panel activation and button toggles, user 2026-10-18 12:09Z/16:42Z:**
 global inbox/docket/presentations openers, node Open menus and desk tabs raise
 the existing detached panel and restore it if minimized, without opening a
-duplicate. Existing pins come to the top of their shared layer. Opening an
-already top pin keeps it open, replacing the former toggle-off rule; close and
-unpin remain explicit panel controls. Desk tabs match organization, node and
+duplicate. The 16:42Z ruling replaces always-raise for panel buttons: clicking
+the same button hides its already open local pin, even behind another panel;
+clicking again reopens at its saved placement. Retargeting a node panel and
+explicit pin/pop-out ensure-open actions still reveal it. Desk tabs match organization, node and
 generation before activating a separate panel, otherwise they select inline.
 See [panel activation](panel-activation.md).
 

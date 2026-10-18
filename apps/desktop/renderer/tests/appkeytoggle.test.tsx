@@ -121,7 +121,7 @@ test('different panel shortcuts stack as before and close only the associated ta
   })
 })
 
-test('keyboard closes a pinned target behind a sibling while mouse still raises it', async () => {
+test('mouse and keyboard both close their pinned target behind a sibling', async () => {
   await withApp(async (el, editor) => {
     await inAct(() => {
       pinModal('usage', { x: 10, y: 10, w: 700, h: 600 }, 'toggle-org')
@@ -137,7 +137,9 @@ test('keyboard closes a pinned target behind a sibling while mouse still raises 
     const item = [...el.querySelectorAll<HTMLButtonElement>('.shell-menu-item')]
       .find(button => button.querySelector('.shell-menu-label')?.textContent === 'Usage…')!
     await inAct(async () => { item.click(); await flush(6) })
-    assert.equal(el.querySelector('.usage-modal'), usage, 'mouse raises rather than dismissing a hidden pin')
+    assert.equal(el.querySelector('.usage-modal') === null, true, 'mouse closes its pinned target')
+    assert.ok(el.querySelector('.usage-history-modal'), 'the sibling stays open')
+    await inAct(async () => { press('F2', editor); await flush(20) })
     await inAct(() => raisePinnedModal('usage-history', 'toggle-org'))
     await inAct(async () => { press('F2', editor); await flush(20) })
     assert.equal(el.querySelector('.usage-modal') === null, true, 'keyboard closes even when behind')

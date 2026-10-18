@@ -60,11 +60,11 @@ for (const kind of ['inbox', 'docket', 'gallery']) {
     assert.equal(raised(), 1, 'native owning window was revealed')
     assert.deepEqual(state, [], 'no close/reopen or second panel')
   })
-  test(`global ${kind} opener keeps an already top pinned window open`, t => {
+  test(`global ${kind} button closes an already top pinned window`, t => {
     setup(t); pinModal(kind, rect, org); updatePinSurface(pinSurfaceKey(org, kind, true), org, rect, true)
     const state: boolean[] = []
     toggleOrRaiseModal(kind, true, v => state.push(v), org)
-    assert.deepEqual(state, [], 'an open action never closes the pinned panel')
+    assert.deepEqual(state, [false], 'the same button hides its pinned panel')
   })
 }
 

@@ -1,12 +1,6 @@
-// usageactivate.test.tsx — a header button that toggles a PINNED modal must
-// bring it to the FRONT (user ruling 2026-09-10 16:36). The trap is the
-// already-open-behind sequence: the pinned window sits behind another pinned
-// surface, the user clicks the button to bring it up, and a plain toggle
-// CLOSES the hidden window — the click looks like it did nothing, and a
-// second click is needed before the window appears. modalToggleAction owns
-// the three-way rule (open / raise / close) and raisePinnedModal performs
-// the raise in both stacking stores; App.tsx's usage buttons route through
-// them.
+// usageactivate.test.tsx — panel buttons hide their open pins, including
+// behind another panel (user 2026-10-18 16:42Z). Explicit pointer activation
+// and reopening still raise the same shared pin layer.
 //
 // Run:  cd frontend && node tests/run.mjs usageactivate
 
@@ -55,7 +49,7 @@ async function mountFrame(kind: string) {
   return { q, z, unmount }
 }
 
-test('open-behind activation raises the pinned window instead of closing it', async () => {
+test('button decisions close an open pin while explicit activation still raises it', async () => {
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
   const usage = await mountFrame('usage')
   const docket = await mountFrame('docket')
@@ -74,8 +68,7 @@ test('open-behind activation raises the pinned window instead of closing it', as
   assert.ok(usage.z() < docket.z(),
     `usage (${usage.z()}) starts behind docket (${docket.z()})`)
 
-  // the decision: open-and-behind is an activation, never a close
-  assert.equal(modalToggleAction('usage', true, ORG), 'raise')
+  assert.equal(modalToggleAction('usage', true, ORG), 'close')
   await inAct(async () => { raisePinnedModal('usage', ORG); await flush() })
   assert.ok(usage.z() > docket.z(),
     `after activation usage (${usage.z()}) is above docket (${docket.z()})`)
@@ -83,8 +76,7 @@ test('open-behind activation raises the pinned window instead of closing it', as
   assert.ok(usage.z() <= MODAL_Z_TOP && docket.z() <= MODAL_Z_TOP,
     'both windows stay inside the pinned band, below canvas HUD')
 
-  // USER 2026-10-18 12:09Z: an open action still activates the top pin.
-  assert.equal(modalToggleAction('usage', true, ORG), 'raise')
+  assert.equal(modalToggleAction('usage', true, ORG), 'close')
   // and closed means open, front by fresh registration
   assert.equal(modalToggleAction('usage', false, ORG), 'open')
   // an unpinned surface keeps the buttons' historical answer
@@ -112,20 +104,20 @@ test('toggleOrRaiseModal is kind-agnostic: every toggle button gets the same rul
   assert.ok(docket.z() < gallery.z(), 'control: docket starts behind gallery')
 
   const sets: boolean[] = []
-  // open-behind: the click raises and NEVER touches the open state
+  // Same-panel buttons close behind another panel and on top alike.
   await inAct(async () => {
     toggleOrRaiseModal('docket', true, (v) => sets.push(v), ORG)
     await flush()
   })
-  assert.deepEqual(sets, [], 'raise leaves the open state untouched')
-  assert.ok(docket.z() > gallery.z(), 'the docket window came to the front')
-  // on top: an open action keeps the window open (user 2026-10-18 12:09Z)
+  assert.deepEqual(sets, [false], 'the button requests closing its own window')
+  assert.ok(docket.z() < gallery.z(), 'closing does not raise a different panel')
+  await inAct(() => raisePinnedModal('docket', ORG))
   toggleOrRaiseModal('docket', true, (v) => sets.push(v), ORG)
-  assert.deepEqual(sets, [], 'on top, opening still only activates')
+  assert.deepEqual(sets, [false, false], 'on top, the button also closes')
   // A closed panel has unmounted its live surface; its saved pin may remain.
   await docket.unmount()
   toggleOrRaiseModal('docket', false, (v) => sets.push(v), ORG)
-  assert.deepEqual(sets, [true], 'closed, the opener mounts it again')
+  assert.deepEqual(sets, [false, false, true], 'closed, the opener mounts it again')
   await gallery.unmount()
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
 })

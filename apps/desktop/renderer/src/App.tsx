@@ -134,7 +134,7 @@ import { usageRefreshDisabledReason } from './usagerefreshpolicy'
 import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
-import { closeIfCentred, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
+import { closeIfCentred, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleNodePanel, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
@@ -517,11 +517,8 @@ export default function App() {
   // marker never writes
   usePersistedModalOpen('usage', slug, showUsage)
   usePersistedModalOpen('usage-history', slug, showUsageHistory)
-  // EVERY pinned surface's toggle button goes through one decision (user
-  // ruling 2026-09-10 16:36, all pinned modals): a click that means "bring
-  // up my window" must never silently close a pinned window that was merely
-  // sitting behind another surface — see modalToggleAction for the
-  // three-way rule (open / raise / close).
+  // Every panel button shares the open/close rule for local pins (user
+  // 2026-10-18 16:42Z); detached panels retain their focus path.
   const toggleSurface = useCallback((kind: string, open: boolean,
     set: (v: boolean) => void) =>
     toggleOrRaiseModal(kind, open, set, slug), [slug])
@@ -1875,11 +1872,10 @@ export default function App() {
                 openDocAt={docJump}
                 onOpenDocHandled={() => setDocJump(null)}
                 onOpenAgentGallery={(id, opts) => {
-                  // Open always activates the one gallery surface, preserving
-                  // its native window and retargeting its content if necessary.
+                  const sameScope = agentGalleryTeam === !!opts?.team
                   setAgentGalleryTeam(!!opts?.team)
-                  setAgentGalleryId(id)
-                  raisePinnedModal('agent-gallery', slug)
+                  toggleNodePanel('agent-gallery', sameScope ? agentGalleryId : null, id,
+                    setAgentGalleryId, slug, opts?.keepOpen)
                 }}
                 onAccounts={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}
                 /* the eye's ⚙ and its context menu open the WHOLE settings

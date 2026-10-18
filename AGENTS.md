@@ -223,13 +223,15 @@
   [decided: user 2026-10-18 12:21Z; verified: `domain/{projects,slots,ops}.rs`,
   `tools/defs.rs`, `canvas/modals.tsx`]
 
-- Panel open buttons/menus activate existing detached windows through the live
-  window registry (native restore/show/focus) and raise existing pins, including
-  an already top pin. This replaces the old top-pin toggle-off rule. Agent and
+- Panel buttons hide an already open local pin, even behind another panel,
+  and reopen it at its saved placement on the next click. This replaces the
+  12:09Z always-raise rule for buttons (user 2026-10-18 16:42Z). Detached windows
+  still activate through the live registry (native restore/show/focus); explicit
+  pin/pop-out ensure-open routes keep their target open. Agent and
   project desk tabs activate only matching node/generation panels; closed or
   unrelated windows leave normal inline tab selection intact. See
   [panel activation](docs/rust-engine/panel-activation.md).
-  [decided: user 2026-10-18 12:09Z; verified: `windowlife.ts`,
+  [decided: user 2026-10-18 12:09Z/16:42Z; verified: `windowlife.ts`,
   `canvas/{modalpin,panelcorner,desk,projectdesk,OrgCanvas}.tsx`, `App.tsx`]
 
 - Inbox tag popovers close 250ms after the pointer leaves a 100px margin around

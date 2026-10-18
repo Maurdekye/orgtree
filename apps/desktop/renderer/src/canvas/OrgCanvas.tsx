@@ -80,7 +80,7 @@ import { clearRegion, fitZoom } from './clearRect'
 import type { Region } from './clearRect'
 import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
-import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
+import { isModalPinned, ModalOverPins, PinFrame, toggleNodePanel, toggleOrRaiseModal, readModalOpen, requestSurfaceAction, usePersistedModalOpen } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
@@ -514,32 +514,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (popout) requestSurfaceAction('project-desk', slug, 'popout')
   }
   const [configId, setConfigId] = useState<string | null>(null)
-  // A pinned node-config remains mounted as a window; clicking its same
-  // opener toggles visibility, while another agent's gear selects that agent.
-  // Every opener is an ACTIVATION first (user ruling 2026-09-10 16:36, all
-  // pinned modals): a pinned window sitting behind another surface is raised
-  // and (re)targeted, never silently closed — the plain toggle applies only
-  // when the window is already on top or not pinned at all.
+  // Same-panel buttons hide pins, including behind another panel (user
+  // 2026-10-18 16:42Z); a different node keeps retargeting the same window.
   const toggleConfig = useCallback((id: string) => {
-    if (pinnedModalBehind('node-config', slug)) {
-      raisePinnedModal('node-config', slug); setConfigId(id); return
-    }
-    setConfigId((v) => isModalPinned('node-config', slug) && v === id ? null : id)
-  }, [])
-  const toggleNodeSurface = useCallback((kind: string, id: string,
-    set: (v: string | null | ((current: string | null) => string | null)) => void) => {
-    set(id)
-    raisePinnedModal(kind, slug)
-  }, [slug])
-  // USER 2026-10-18 12:09Z: an open action activates an existing panel even
-  // when it is already on top. Pin/pop-out and the menu share this same route.
-  const showNodeSurface = toggleNodeSurface
-  const toggleDog = useCallback((id: string) => {
-    if (pinnedModalBehind('watchdog', slug)) {
-      raisePinnedModal('watchdog', slug); setDogView(id); return
-    }
-    setDogView((current) => isModalPinned('watchdog', slug) && current === id ? null : id)
-  }, [])
+    toggleNodePanel('node-config', configId, id, setConfigId, slug)
+  }, [configId, slug])
   const [lineageId, setLineageId] = useState<string | null>(null)
   const [restoreDesks, setRestoreDesks] = useState(() => savedDeskIdentities(slug))
   useEffect(() => { setRestoreDesks(savedDeskIdentities(slug)) }, [slug])
@@ -582,13 +561,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const openAgentDocket = useCallback((id: string, opts?: { team?: boolean; keepOpen?: boolean }) => {
     const sameScope = agentDocketTeam === !!opts?.team
     setAgentDocketTeam(!!opts?.team)
-    if (!opts?.keepOpen && sameScope && agentDocketId === id && isModalPinned('agent-docket', slug)) {
-      if (pinnedModalBehind('agent-docket', slug)) raisePinnedModal('agent-docket', slug)
-      else setAgentDocketId(null)
-      return
-    }
-    if (pinnedModalBehind('agent-docket', slug)) raisePinnedModal('agent-docket', slug)
-    setAgentDocketId(id)
+    toggleNodePanel('agent-docket', sameScope ? agentDocketId : null, id, setAgentDocketId, slug, opts?.keepOpen)
   }, [agentDocketId, agentDocketTeam, slug])
   const [teamId, setTeamId] = useState<string | null>(null)
   const [oiOpen, setOiOpen] = useState(false)       // the ORG-inbox viewer
@@ -603,6 +576,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // click on the same row is a second request (`jumpKey`)
   const [oiJump, setOiJump] = useState<{ id: string; seq: number } | null>(null)
   const [dogView, setDogView] = useState<string | null>(null)  // FR-18 panel
+
+  const toggleDog = useCallback((id: string) => {
+    toggleNodePanel('watchdog', dogView, id, setDogView, slug)
+  }, [dogView, slug])
+  const toggleNodeSurface = useCallback((kind: string, id: string,
+    set: (v: string | null) => void) => {
+    const current = kind === 'node-inbox' ? inboxId : kind === 'agent-team' ? teamId : lineageId
+    toggleNodePanel(kind, current, id, set, slug)
+  }, [inboxId, teamId, lineageId, slug])
+  const showNodeSurface = useCallback((kind: string, id: string,
+    set: (v: string | null) => void) => {
+    toggleNodePanel(kind, null, id, set, slug, true)
+  }, [slug])
 
   // ---- mobile wave (D-123/D-125) ----
   // the desk SHEET: explicit state, mobile-only. This deliberately does NOT
@@ -4089,7 +4075,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                 onInbox?.()
               }}
               onGear={onOrgSettings}
-              onAgents={() => showNodeSurface('agent-list', '', () => setTrayOpen(true))}
+              onAgents={() => toggleOrRaiseModal('agent-list', trayOpen, setTrayOpen, slug)}
               onDocket={onDocket} onPresentations={onPresentations}
               onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
               /* switchboard panel headers mirror the desk header identically
@@ -4285,8 +4271,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             aria-label="org inbox"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
-              if (revealOpenPanel('org-inbox', slug)) return
-              setOiOpen((v) => isModalPinned('org-inbox', slug) ? !v : true)
+              toggleOrRaiseModal('org-inbox', oiOpen, setOiOpen, slug)
             }}>
             {lod === 'mini' ? <PublicIcon className="oi-far-icon" fontSize="inherit" /> : <>
             <div className="oi-head">

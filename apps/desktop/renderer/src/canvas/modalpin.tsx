@@ -365,25 +365,32 @@ export function revealOpenPanel(kind: string, org: string | null, identity?: Win
   raisePinnedModal(kind, org)
   return true
 }
-/** USER 2026-10-18 12:09Z supersedes the old top-pin toggle-off rule:
- * opening a panel activates it even when already on top. Closing stays in
- * the panel's own controls. An unpinned or closed surface opens normally. */
+/** USER 2026-10-18 16:42Z: a panel's own button hides its open pin,
+ * even behind another panel. Saved placement and ordinary open actions stay. */
 export const modalToggleAction = (kind: string, open: boolean,
-  org: string | null = null): 'open' | 'raise' => {
-  if (!isModalPinned(kind, org)) return 'open'
-  if (!open) return 'open'
-  return 'raise'
-}
-/** the one-call form every toggle button uses: applies modalToggleAction to
- *  the button's own open state — raise leaves `open` untouched */
+  org: string | null = null): 'open' | 'close' =>
+  isModalPinned(kind, org) && open ? 'close' : 'open'
+/** Button toggles close local pins; detached windows keep their activation
+ * path. Explicit tab/ensure-open routes use revealOpenPanel separately. */
 export const toggleOrRaiseModal = (kind: string, open: boolean,
   set: (v: boolean) => void, org: string | null = null): void => {
-  if (revealOpenPanel(kind, org)) return
+  if (revealDetachedPanel(kind, org)) return
   const action = modalToggleAction(kind, open, org)
-  if (action === 'open' && (kind === 'docket' || kind === 'inbox'))
+  if (action === 'close') { forgetModalOpen(kind, org); set(false); return }
+  if (revealOpenPanel(kind, org)) return
+  if (kind === 'docket' || kind === 'inbox')
     beginOpen(kind === 'inbox' ? 'mail' : 'docket',org ?? '')
-  if (action === 'raise') raisePinnedModal(kind, org)
-  else set(action === 'open')
+  set(true)
+}
+/** Node buttons share the same close rule, while a different target or an
+ * explicit pin/pop-out request keeps the existing retarget-and-reveal path. */
+export function toggleNodePanel(kind: string, current: string | null, target: string,
+  set: (v: string | null) => void, org: string, ensureOpen = false): void {
+  if (revealDetachedPanel(kind, org)) { set(target); return }
+  if (!ensureOpen && current === target && modalToggleAction(kind, true, org) === 'close') {
+    forgetModalOpen(kind, org); set(null); return
+  }
+  set(target); raisePinnedModal(kind, org)
 }
 // ------------------------------------------- driving a surface from OUTSIDE it
 /**

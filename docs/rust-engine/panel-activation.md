@@ -1,6 +1,6 @@
 # Panel activation
 
-User ruling: 2026-10-18 12:09Z, docket
+User rulings: 2026-10-18 12:09Z and 16:42Z, docket
 `opening-an-already-popped-out-panel-inbox-docket` (4.4.0).
 
 Opening an already detached panel reveals the same window. `windowlife` looks
@@ -13,9 +13,18 @@ with the original surface. Closed registrations do not absorb an open action.
 `revealOpenPanel` also handles mounted pins, using the existing modal store and
 shared pin layer. A saved rectangle alone is not an open panel. Desk tabs leave
 another node's pin alone and select their normal inline view when no matching
-panel is available. Open actions keep an already top pin open; its own close and
-unpin controls retain their explicit meanings. This replaces the earlier rule
-that a second opener click closed a pin once it was on top.
+panel is available. Explicit tab activation and pin/pop-out ensure-open requests
+keep pins open. Their own close and unpin controls retain their meanings.
+
+The 16:42Z ruling supersedes always-raise for panel buttons: the same button
+hides its already open local pin, including a pin behind another panel. The next
+click reopens at the saved rectangle. `toggleOrRaiseModal` applies this to the
+global Inbox, Docket, Presentations, Usage, Usage history and Settings buttons;
+Agents list and the org inbox use it too. App settings and defaults already
+toggle their pins. `toggleNodePanel` shares that decision for node Inbox, Team,
+Docket, Presentations, Settings, lineage and watchdog buttons. Another target or
+scope retargets the existing panel; an ensure-open request never toggles it off.
+Detached windows retain their existing restore/show/focus activation path.
 
 Shared node menus may retarget their single panel of a kind and reveal its same
 window; tabs do not retarget unrelated panels. Global header/switchboard opens,
