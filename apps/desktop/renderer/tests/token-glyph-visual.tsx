@@ -8,7 +8,7 @@ createRoot(document.getElementById('root')!).render(<main style={{ padding: 24, 
   <div className="msgs" style={{ height: 'auto', minHeight: 0, gap: 14 }}>
     <div className="msg assistant"><div className="md">Completed tool output</div>
       <ToolChip slug="synthetic" nid="worker" t={{ id: 'done', name: 'Read', result: 'Synthetic result',
-        started_at: '2026-10-18T07:00:00Z', ended_at: '2026-10-18T07:00:01Z', writing_secs: 0.3,
+        started_at: '2026-10-18T07:00:00.123000Z', ended_at: '2026-10-18T07:00:00.123432Z', writing_secs: 0.00433,
         output_tokens: 1234, output_tokens_estimated: true }} /></div>
     <div className="msg assistant"><div className="md">Live tool output</div>
       <LiveTokenContext.Provider value={{ live: { id: 'live', output_tokens: 42, output_tokens_estimated: true } }}>
