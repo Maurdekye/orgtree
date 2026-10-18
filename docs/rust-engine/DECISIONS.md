@@ -7,6 +7,12 @@ changes; pinned/popped-out hosts and other desks are retained. Project desks
 currently have no Chat tab, so this does not change their send behavior.
 See `canvas/desk.tsx` and `tests/desksendtab.test.tsx`.
 
+**Team tab, user 2026-10-18 10:53–10:56Z (4.4.0):** agents and projects get
+the existing Agents List scoped to self and all descendants, with its filter,
+Active checkbox, row behavior and live feed. It pins and pops out like the other
+desk panels. Shared node Open menus offer Team; the switchboard menu opens the
+global Agents list. See [Team tab](team-tab.md).
+
 **EPIC pointer stability, user 2026-10-18 07:49Z:** watchdog chips must remain
 clickable while EPIC is on. The shared window shake stops during pointer
 movement or a held press, settles for 250ms, and stays off while a clickable

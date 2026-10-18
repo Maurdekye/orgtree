@@ -18,6 +18,12 @@
   MENTIONS paragraph reaches full/trimmed profiles even without messaging tools;
   @user keeps its attention-only meaning. See `orgtree-mail-basics` in the
   working glossary. [decided: user 2026-10-18 11:03Z; verified: `runtime/identity.rs`]
+- Agent/project desks offer Team via the existing Agents List, restricted to
+  self plus descendants from the shared feed map. Keep filter/Active, ordering,
+  navigation and canonical menus shared. `agent-team` uses PanelCorner/PinFrame
+  and generation-checked window restoration. The switchboard menu opens the
+  global Agents list. See [Team tab](docs/rust-engine/team-tab.md).
+  [decided: user 2026-10-18 10:53–10:56Z; verified: `canvas/{team,desk,projectdesk,OrgCanvas,agentmenu,cards}.tsx`]
 
 - In an agent's desk context, presentation context menus on both the desk-header
   presentation chips (`.desk-docs .doc-badge`) and rows in the Presented tab
