@@ -105,6 +105,8 @@ import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 import { setAttentionLayout } from '../attention/mode'
 import type { CanvasShortcutRef } from '../shell/appshortcuts'
+import { ordinal, projectLineLanes, slotLinks, slotPlace } from './slots'
+import type { ProjectLine, SlotLease } from './slots'
 
 /** What the org host hands a view rendered in its slot. Every field is
  *  something this component already holds, which is the point: a sibling view
@@ -3615,6 +3617,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     }
     return out
   }, [tree.watchdogs])
+  // the slots each agent holds: its card's slot chips
+  const slotsByHolder = useMemo(() => {
+    const out: Record<string, SlotLease[]> = {}
+    for (const l of tree.slot_leases ?? []) (out[l.agent] ??= []).push(l)
+    return out
+  }, [tree.slot_leases])
 
   const orgStats = useMemo(() => {
     let free = 0
@@ -3667,6 +3675,22 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // inline, and the WebGL2 layer (canvas/glwires.ts) uploads it. Keys, classes
   // and the audience draw-in/out bookkeeping are unchanged from the inline form.
   const wires: Wire[] = []
+  // an agent's several lines to one project (its audience, its fair-queue
+  // listener, its slot) run side by side, never on one another (user
+  // 2026-10-18, with the slots mockup): one lane offset per line
+  const isProjectId = (p: string) => map.get(p)?.kind === 'project'
+  const fqLinks = fairQueueLinks(tree.watchdogs ?? [], isProjectId)
+  const slLinks = slotLinks(tree.watchdogs ?? [], tree.slot_leases ?? [], isProjectId)
+  const lanes = projectLineLanes([
+    ...audLines.filter((a) => isProjectId(a.grantor) !== isProjectId(a.grantee))
+      .map((a): ProjectLine => ({ key: 'a' + a.grantor + '→' + a.grantee, agent: a.grantor, project: a.grantee })),
+    ...fqLinks.map((l): ProjectLine => ({ key: l.key, agent: l.owner, project: l.project })),
+    ...slLinks.map((l): ProjectLine => ({ key: l.key, agent: l.owner, project: l.project })),
+  ])
+  const shifted = (key: string, s: Seg): Seg => {
+    const dy = lanes.get(key) ?? 0
+    return dy ? { ...s, pts: s.pts.map((p) => ({ x: p.x, y: p.y + dy })) } as Seg : s
+  }
   for (const n of map.values()) {
     if (!n.parent || n.isBearerOf || hidden.has(n.id)) continue
     if (!posOf(n.parent) || !posOf(n.id)) continue
@@ -3699,7 +3723,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         if (t >= 1) anim.delete(k)
         else frac = smooth(Math.max(0, t))   // draw toward the grantee
       }
-      wires.push({ key: 'a' + k, seg: audSeg(a.grantor, a.grantee), frac,
+      wires.push({ key: 'a' + k, seg: shifted('a' + k, audSeg(a.grantor, a.grantee)), frac,
         cls: 'edge aud-line' + (a.grantor === USER ? ' from-user' : '') })
     }
     for (const [k, st] of anim) {
@@ -3720,7 +3744,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         anim.delete(k)
         continue
       }
-      wires.push({ key: 'a' + k, seg: audSeg(st.grantor, st.grantee), frac: 1 - smooth(t),
+      wires.push({ key: 'a' + k, seg: shifted('a' + k, audSeg(st.grantor, st.grantee)), frac: 1 - smooth(t),
         cls: 'edge aud-line' + (st.grantor === USER ? ' from-user' : '') })
     }
   }
@@ -3748,17 +3772,23 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // a fair-queue watcher's line to its project, in its own colour; a paused
   // one dashed and dimmed (user 2026-10-17 22:48Z). It bows out of the owner's
   // right side into the project's, so it never lies on a tree edge.
-  for (const l of fairQueueLinks(tree.watchdogs ?? [], (p) => map.get(p)?.kind === 'project')) {
-    const a = posOf(l.owner), b = posOf(l.project)
-    if (!a || !b || l.owner === l.project) continue
-    const ga = sizeOf(l.owner), gb = sizeOf(l.project)
-    const x1 = a.x + ga.w, y1 = a.y + ga.h / 2
-    const x2 = b.x + gb.w, y2 = b.y + gb.h / 2
-    const bulge = 48 + Math.abs(y2 - y1) * 0.15
+  // A slot's line takes the same path in amber (the approved mockup's option
+  // A): a holder's solid, a waiter's dashed. A lane offset moves a line's ends
+  // apart and its bow out by as much, so side-by-side lines nest.
+  const bowed = (key: string, owner: string, project: string, cls: string) => {
+    const a = posOf(owner), b = posOf(project)
+    if (!a || !b || owner === project) return
+    const ga = sizeOf(owner), gb = sizeOf(project)
+    const off = lanes.get(key) ?? 0
+    const x1 = a.x + ga.w, y1 = a.y + ga.h / 2 + off
+    const x2 = b.x + gb.w, y2 = b.y + gb.h / 2 + off
+    const bulge = 48 + Math.abs(y2 - y1) * 0.15 + off
     const far = Math.max(x1, x2) + bulge
-    wires.push({ key: l.key, cls: 'edge fq-line' + (l.paused ? ' off' : ''), seg: { kind: 'c', pts: [
+    wires.push({ key, cls, seg: { kind: 'c', pts: [
       { x: x1, y: y1 }, { x: far, y: y1 }, { x: far, y: y2 }, { x: x2, y: y2 }] } })
   }
+  for (const l of fqLinks) bowed(l.key, l.owner, l.project, 'edge fq-line' + (l.paused ? ' off' : ''))
+  for (const l of slLinks) bowed(l.key, l.owner, l.project, 'edge slot-line' + (l.holding ? '' : ' wait'))
   if ((tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX)) {
     // no box↔eye tether (user revision) — the panel stands alone; only
     // audience lines to its holders. Those connect FACING sides: an agent
@@ -4119,6 +4149,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onDragEnd={endNodeDrag} onDragCancel={abortNodeDrag}
               mapMode={compact} dogs={dogsByOwner[n.id]?.total ?? 0}
               oneShotDogs={dogsByOwner[n.id]?.oneShot ?? 0}
+              slotHolds={slotsByHolder[n.id]}
               onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(n.id)
                 ? () => dismissRetiredAgent(n.id) : undefined} />
           )
@@ -4184,9 +4215,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           if (!p || hidden.has(w.owner) || !intersectsViewport({ ...p, w: DOG_W, h: DOG_H }, visibleRect)) return null
           const title = `${w.once ? 'one-shot dog' : 'watchdog'} "${w.name}" (${w.kind}) — `
             + `${w.spent ? 'departing after its spark' : w.state}; click for detail`
+          // a slot claim waiting in line: "⏳ build 1st", in the slot style
+          const place = w.kind === 'slot' ? slotPlace(w, tree.watchdogs ?? []) : null
           return (
             <button key={'dog' + w.id} {...(!w.spent ? objectNavProps('watchdog', w.id, slug) : {})}
               className={'wd-chip ' + w.state
+                + (w.kind === 'slot' ? ' slot' : '')
                 + (w.once ? ' oneshot' : '')
                 + (w.spent ? ' spent' : '')}
               style={{ transform: `translate(${p.x}px, ${p.y}px)`,
@@ -4194,10 +4228,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               title={title}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); toggleDog(w.id) }}>
-              <span className="wd-glyph">{w.state === 'armed' ? '◉'
+              <span className="wd-glyph">{place ? '⏳' : w.state === 'armed' ? '◉'
                 : w.state === 'paused' ? '◫' : w.spent ? '↗' : '✕'}</span>
-              {w.once && <span className="wd-once" aria-label="one-shot dog">1×</span>}
-              <span className="wd-name"><WatchdogCountdownTitle dog={w} title={title}>{w.name}</WatchdogCountdownTitle></span>
+              {w.once && !place && <span className="wd-once" aria-label="one-shot dog">1×</span>}
+              <span className="wd-name"><WatchdogCountdownTitle dog={w} title={title}>{place
+                ? `${w.target.replace(/^@/, '')} ${ordinal(place)}` : w.name}</WatchdogCountdownTitle></span>
             </button>
           )
         })}

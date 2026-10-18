@@ -58,6 +58,7 @@ import { firstUseName, useFirstUse } from './firstuse'
 import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
 import { EFFORT_LEVELS } from './effortlevels'
 import { normalizeUserEnteredName } from './nameinput'
+import type { SlotLease } from './slots'
 
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
@@ -1354,6 +1355,9 @@ interface NodeSquareProps {
   /** D-200: compact maps still need to expose that part of the count is a
    * finite one-shot dog, even though the individual satellites are hidden. */
   oneShotDogs?: number
+  /** the project slots it holds: a filled amber "⬢ build #1" chip each
+   *  (the approved slots mockup, user 2026-10-18) */
+  slotHolds?: SlotLease[]
   /** FR-3: this desk is open as a pinned screen-space window (pins.tsx).
    *  The card wears a marker at every zoom. */
   pinned?: boolean
@@ -1499,7 +1503,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, onNewProject, onNewProjectAt, cascadeAlloc, maxTop, pile, compactAt,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
-  mapMode, deskEligible = true, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
+  mapMode, deskEligible = true, dogs, oneShotDogs, slotHolds, pinned, pinnedFocus, onPin, onShowPin,
   onOpenTemporary,
   onDismiss }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
@@ -1840,6 +1844,11 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         <div className="sq-meta">
           <ContextWheel occ={node.occupancy} cw={node.context_window}
             est={node.occupancy_est} compactAt={compactAt} />
+          {slotHolds?.map((l) => (
+            <span key={l.lease} className="chip slot-hold"
+              title={`holds slot ${l.slot} of project ${l.project} since ${l.since} (lease ${l.lease})${l.reason ? ': ' + l.reason : ''}`}>
+              ⬢ {l.project} #{l.slot}</span>
+          ))}
           <div className="sq-workstate">
             {node.halt || isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
               <AgentWorkstate node={node} turn={lastTurn} live={live} />

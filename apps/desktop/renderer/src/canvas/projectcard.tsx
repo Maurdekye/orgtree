@@ -28,6 +28,7 @@ import { useContextMenu } from './contextmenu'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentRetireConfirm, projectMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
+import { projectSlotState, slotBadgeText, slotCount, slotsFull } from './slots'
 
 export function isProject(node: Pick<CanvasNode, 'kind'> | null | undefined): boolean {
   return node?.kind === 'project'
@@ -110,6 +111,10 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const waiting = node.mail_pending ?? 0
   // its OWN presentations (point 27): the subtree's are its team presentations
   const docs = node.documents_count ?? node.documents?.length ?? 0
+  // its slots at a glance, while it has a count: filled when full, outlined
+  // with a slot free (the approved slots mockup, user 2026-10-18)
+  const slots = projectSlotState(node.id, slotCount(node), tree?.slot_leases ?? [], tree?.watchdogs ?? [])
+  const slotBadge = slotBadgeText(slots)
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
   const cls = ['sq', 'project', node.state, deskOpen ? 'desk' : lod, 'edge-' + edge]
@@ -170,6 +175,10 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               <ProjectLastActivity node={node} />
               {node.state !== 'live' && <span className="badge dim">{node.state}</span>}
             </div>
+            {slotBadge && <span className={'project-slots-badge' + (slotsFull(slots) ? ' full' : '')}
+              title={`${slots.held.length} of ${slots.total} slot${slots.total === 1 ? '' : 's'} held`
+                + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '')
+                + (slots.line.length ? `; in line: ${slots.line.map((w) => w.agent).join(', ')}` : '')}>{slotBadge}</span>}
           </div>
           {/* no description preview here: it lives on the project desk (user 2026-10-18 08:50Z) */}
           {showShortcuts && <div className="sq-actions project-actions">

@@ -36,9 +36,12 @@ import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 import { agentNavProps } from './agentnav'
 import { PinFrame } from './modalpin'
 import { ConfirmModal } from './modals'
+import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
+import { SlotsView } from './slotsdesk'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented'] as const
-type Tab = typeof PROJECT_DESK_TABS[number]
+/** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
+type Tab = typeof PROJECT_DESK_TABS[number] | 'slots'
 
 export interface ProjectDeskProps {
   node: CanvasNode
@@ -348,6 +351,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const allHalted = agents.length > 0 && agents.every((a) => a.halt?.phase === 'halted')
   const parent = node.parent && map.has(node.parent) && !(bare && node.parent === USER) ? map.get(node.parent)! : null
   const members = node.children.filter((c) => c.state === 'live')
+  const slots = projectSlotState(node.id, slotCount(node), tree.slot_leases ?? [], tree.watchdogs ?? [])
+  const tabs: Tab[] = slots.total > 0 ? [...PROJECT_DESK_TABS, 'slots'] : [...PROJECT_DESK_TABS]
+  const shown: Tab = tabs.includes(view) ? view : 'desk'
   const count = (tab: Tab) => tab === 'inbox' ? node.mail_pending ?? 0
     : tab === 'docket' ? mine?.length ?? 0
       // its own presentations (point 27, user 2026-10-17 23:28Z)
@@ -363,6 +369,11 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             <span className="name" title={`project ${node.id}`}>{node.id}</span>
             <ProjectActivity node={node} />
             <ProjectLastActivity node={node} />
+            {/* slots held/total while slots are enabled; it opens the Slots tab (user 08:46Z) */}
+            {slots.total > 0 && <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
+              title={`${slots.held.length} of ${slots.total} slot${slots.total === 1 ? '' : 's'} held`
+                + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '') + ': open the Slots tab'}
+              onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>}
             {!live && <span className="badge dim">{node.state}</span>}
           </span>
           <span className="spacer" aria-hidden="true" />
@@ -381,9 +392,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
                 onClick={() => { void op({ op: 'rehire', node: node.id }).catch(() => {}) }}>restore</button>}
             </span>
             <span className="cc-tabs">
-              {PROJECT_DESK_TABS.map((v) => (
-                <button key={v} data-tab={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
-                  {v}{count(v) > 0 ? <>{' '}<span className="tab-count">{count(v)}</span></> : ''}
+              {tabs.map((v) => (
+                <button key={v} data-tab={v} className={shown === v ? 'on' : ''} onClick={() => setView(v)}>
+                  {v}{v === 'slots' ? <>{' '}<span className="tab-count">{slots.held.length}/{slots.total}</span></>
+                    : count(v) > 0 ? <>{' '}<span className="tab-count">{count(v)}</span></> : ''}
                 </button>
               ))}
             </span>
@@ -418,14 +430,14 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           ))}
         </div>
       )}
-      {view === 'desk' && <>
+      {shown === 'desk' && <>
         {onJump && parent && <div className="desk-nav"><NavChip n={parent} dir="up" onJump={onJump} /></div>}
         <DescriptionEditor node={node} op={op} toast={toast} editable={live} />
         {onJump && members.length > 0 && <div className="desk-nav">
           {members.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
         </div>}
       </>}
-      {view === 'inbox' && <div className="desk-tabpanel">
+      {shown === 'inbox' && <div className="desk-tabpanel">
         <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
         {/* waiting mail nobody holds yet can be purged (user 2026-10-18 08:11Z) */}
         {live && (node.mail_pending ?? 0) > 0 && <div className="project-queue-tools">
@@ -437,7 +449,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           tierOf={(id) => map.get(id)?.tier} hasAgent={(id) => map.has(id)}
           refs={refs} onFocusAgent={onJump} />
       </div>}
-      {view === 'docket' && <div className="desk-tabpanel">
+      {shown === 'docket' && <div className="desk-tabpanel">
         <PanelCorner kind="agent-docket" slug={slug} nid={node.id} />
         <AgentDocketView slug={slug} nid={node.id} mine={mine} facts={facts} toast={toast}
           showArchived={showArchived} onShowArchived={setShowArchived} onShowBacklog={setShowBacklog}
@@ -448,11 +460,12 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           emptyText={<>no docket items are owned by the agents under {node.id}. A project owns no
             tickets itself; this tab lists every item owned by an agent under it, nested projects included</>} />
       </div>}
-      {view === 'presented' && <div className="desk-tabpanel">
+      {shown === 'presented' && <div className="desk-tabpanel">
         <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
         {/* nid = the project: the engine widens a project's gallery to its subtree */}
         <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs} />
       </div>}
+      {shown === 'slots' && <SlotsView node={node} state={slots} op={op} toast={toast} />}
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer node={node} slug={slug} toast={toast} members={agents.length} />
     </>

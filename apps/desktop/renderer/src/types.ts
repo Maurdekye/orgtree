@@ -727,7 +727,12 @@ export interface Watchdog {
   id: string
   owner: string
   name: string
-  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'fair_queue'
+  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'fair_queue' | 'slot'
+  /** a `slot` claim (project slots): when it joined the line, its order */
+  queued_at?: string
+  /** a granted `slot` claim: its lease and slot number */
+  lease?: string
+  slot?: number
   threshold?: string
   event_scope?: 'org' | 'subtree'
   last_output?: string
@@ -886,6 +891,8 @@ export interface TreePayload {
   killswitch?: { at: string; by: string } | null
   /** FR-18: the org's watchdogs (canvas satellites + detail panels) */
   watchdogs?: Watchdog[]
+  /** the org's held project slots (canvas/slots.ts) */
+  slot_leases?: import('./canvas/slots').SlotLease[]
   /** cache-protective compaction; provider/auth expiry is derived server-side */
   auto_cheap_compact?: { enabled?: boolean; occ?: number } | null
   account_fallback_default?: boolean

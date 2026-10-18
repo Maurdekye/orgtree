@@ -50,6 +50,7 @@ import { AgentHistoryView } from './historyview'
 import { AgentDirectoryProvider } from './identity'
 import type { RefRoutes } from './reflinks'
 import { useRecordHistory } from '../recordpanelhooks'
+import { MAX_SLOTS, slotCount } from './slots'
 
 export interface ConfirmModalProps {
   title: ReactNode
@@ -1049,6 +1050,10 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   const [excludeEdit, setExcludeEdit] = useState<boolean | undefined>()
   const [timeoutEdit, setTimeoutEdit] = useState<boolean | undefined>()
   const [attemptsEdit, setAttemptsEdit] = useState<number | undefined>()
+  // the project's slot count (user 2026-10-18 08:42Z: a count, 0 = none, no switch)
+  const savedSlots = slotCount(node)
+  const [slotsEdit, setSlotsEdit] = useState<number | undefined>()
+  const slots = slotsEdit ?? savedSlots
   const mode = modeEdit ?? savedMode
   const exclude = excludeEdit ?? savedExclude
   const timeout = timeoutEdit ?? savedTimeout
@@ -1074,6 +1079,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
           ...(mode !== savedMode ? { mode } : {}), ...(exclude !== savedExclude ? { exclude_sender: exclude } : {}),
           ...(timeout !== savedTimeout ? { ack_timeout: timeout } : {}),
           ...(attempts !== savedAttempts ? { max_attempts: attempts } : {}) })
+      if (slots !== savedSlots) await op({ op: 'set_slots', node: node.id, capacity: slots })
       close()
     } catch (e) { toast([`error: ${(e as Error).message}`]) } finally { setBusy(false) }
   }
@@ -1134,6 +1140,12 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
             onChange={(e) => setAttemptsEdit(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
         </SetRow>
       </>}
+      <SetRow label="Slots" hint={"How many agents may hold this project's slot at once (for work only N may do at once, such as a heavy build). "
+        + '0 = no slots. Agents above or below the project claim one with a slot watchdog; the line is first-come. '
+        + 'An idle holder is reminded and then loses the slot when the ack timeout is on. Lowering the count takes no slot from a holder; it applies as slots free up.'}>
+        <input type="number" aria-label="Slots" min={0} max={MAX_SLOTS} value={slots} disabled={busy}
+          onChange={(e) => setSlotsEdit(Math.max(0, Math.min(MAX_SLOTS, Math.floor(Number(e.target.value)) || 0)))} />
+      </SetRow>
     </SettingsTabPanel>
     {hasHistory && <SettingsTabPanel id="history" idBase={tabId} active={tab === 'history'}
       className="app-settings-panel agent-history-tab">
