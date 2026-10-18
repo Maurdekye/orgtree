@@ -128,6 +128,11 @@ pub(crate) async fn halt_targets(engine: &Arc<Engine>, org_id: i64, targets: &[(
         }
     }))
     .await;
+    // a halted holder's un-acked project mail goes back to its queue; an
+    // unhalted watcher may take waiting mail
+    for (id, _) in targets {
+        crate::domain::projects::recheck_holder(engine, org_id, *id).await;
+    }
     if single {
         let (t, mut r) = (&targets[0], results.into_iter().next().unwrap_or(Value::Null));
         if let Some(e) = r.get("error").and_then(Value::as_str) {

@@ -63,6 +63,9 @@ pub(crate) struct Effects {
     /// agents whose switch or account was queued because a turn is on
     /// record: an idle one applies it at once (decision 62)
     queued: Vec<i64>,
+    /// projects whose mail queue mode changed: (id, name, ack mode), whose
+    /// watchers are told after commit (`projects::mode_changed`)
+    queue_modes: Vec<(i64, String, bool)>,
 }
 
 /// A locked agent row.
@@ -702,6 +705,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         "move" => move_node(engine, org, &tx, actor, req, fx).await?,
         "rename" => rename(org, &tx, actor, req, fx, false).await?,
         "set_description" => set_description(org, &tx, actor, req, fx).await?,
+        "set_mail_queue" => set_mail_queue(org, &tx, actor, req, fx).await?,
         "reallocate" => reallocate(engine, org, &tx, actor, req, fx).await?,
         "switch_model" => switch_model(engine, org, &tx, actor, req, fx).await?,
         "reorder" => reorder(org, &tx, actor, req, fx).await?,
@@ -859,6 +863,15 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     }
     for id in &fx.warm {
         crate::runtime::warm(engine, org.id, *id);
+    }
+    for (id, name, ack) in &fx.queue_modes {
+        if let Err(e) = crate::domain::projects::mode_changed(engine, org.id, *id, name, *ack).await {
+            tracing::warn!(project = %name, error = %format!("{e:#}"), "telling a project's watchers of its new queue mode failed");
+        }
+    }
+    // a retired or stopped holder's un-acked project mail goes back to its queue
+    for id in &fx.stop {
+        crate::domain::projects::recheck_holder(engine, org.id, *id).await;
     }
 }
 
@@ -1957,6 +1970,51 @@ async fn set_description(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Act
     // the agents under it carry the description in their instructions
     fx.reconfigure.extend(subtree(tx, n.id).await?);
     Ok(json!({ "node": n.name, "description": text }))
+}
+
+/// Set a project's mail queue (user 2026-10-18 08:01Z-08:08Z): `mode`,
+/// `round_robin` (the default) or `ack`, and/or `exclude_sender`, which keeps
+/// a sender's own mail from being handed back to it (off by default).
+/// Whoever controls the project may. On a mode change its watchers are told
+/// after commit, and the queue runs.
+#[logged]
+async fn set_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project has a mail queue", n.name);
+    }
+    authorize(tx, actor, &n, "set its mail queue").await?;
+    let ack = match str_arg(req, "mode") {
+        None => None,
+        Some(m) if m == crate::domain::projects::MODE_ACK => Some(true),
+        Some(m) if m == crate::domain::projects::MODE_ROUND_ROBIN => Some(false),
+        Some(_) => refuse!(BadRequest, "mode is round_robin or ack"),
+    };
+    let exclude = match req.get("exclude_sender") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(v.as_bool().ok_or_else(|| anyhow::Error::new(crate::domain::UserError::BadRequest("exclude_sender is true or false".into())))?),
+    };
+    if ack.is_none() && exclude.is_none() {
+        refuse!(BadRequest, "set_mail_queue needs mode (round_robin or ack) or exclude_sender");
+    }
+    let before: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1 FOR UPDATE", &[&n.id]).await?.get(0);
+    let mut next = if before.is_object() { before.clone() } else { json!({}) };
+    if let Some(a) = ack {
+        next["mail_queue"] = json!(if a { crate::domain::projects::MODE_ACK } else { crate::domain::projects::MODE_ROUND_ROBIN });
+    }
+    if let Some(x) = exclude {
+        next["mail_queue_exclude_sender"] = json!(x);
+    }
+    let mode_changed = ack.is_some_and(|a| crate::domain::projects::ack_mode(&before) != a);
+    tx.execute("UPDATE ot.agents SET scope = $2, row_version = row_version + 1 WHERE id = $1", &[&n.id, &next]).await?;
+    event(tx, org.id, "set_mail_queue", actor, Some(n.id),
+        json!({ "node": n.name, "mode": next["mail_queue"], "exclude_sender": next["mail_queue_exclude_sender"] }), fx).await?;
+    fx.agents.insert(n.id);
+    if mode_changed {
+        fx.queue_modes.push((n.id, n.name.clone(), ack == Some(true)));
+    }
+    Ok(json!({ "node": n.name, "mode": next["mail_queue"].as_str().unwrap_or(crate::domain::projects::MODE_ROUND_ROBIN),
+               "exclude_sender": crate::domain::projects::exclude_sender(&next), "mode_changed": mode_changed }))
 }
 
 #[logged]

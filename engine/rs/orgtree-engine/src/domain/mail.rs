@@ -396,6 +396,47 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         refuse!(Conflict, "project {} is retired: nothing was sent", project.name);
     }
     let tx = client.transaction().await?;
+    // ack mode: an agent's reply to mail the project handed it is its ack
+    // (user 2026-10-18 08:01Z), kept as a read record and never queued
+    let replied = out.reply_to.as_ref().and_then(|q| q["id"].as_str())
+        .or_else(|| out.replies.first().and_then(|q| q["id"].as_str())).map(str::to_string);
+    let acked = match (sender_agent, &replied) {
+        (Some(a), Some(r)) => crate::domain::projects::ack_of(&tx, project.id, a, r).await?,
+        _ => None,
+    };
+    if let Some((orig_row, orig_uid)) = &acked {
+        tx.execute(
+            "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
+                                  recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op,
+                                  state, read_at, delivered_at, replies, extra)
+             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'read', now(), now(), $17,
+                     jsonb_build_object('ack_of', $18::text))",
+            &[
+                &mail_uid, &org.id, &out.from.name(), &sender_agent, &sender_gen, &project.id, &project.name, &out.kind, &out.notice,
+                &out.body, &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent, &out.urgent_reason,
+                &out.client_op, &Value::Array(out.replies.clone()), orig_uid,
+            ],
+        )
+        .await?;
+        tx.execute(
+            "UPDATE ot.mail SET extra = jsonb_set(jsonb_set(extra, '{claimed,acked_at}', to_jsonb(now())), '{claimed,ack_mail}', to_jsonb($2::text))
+              WHERE id = $1",
+            &[orig_row, &mail_uid],
+        )
+        .await?;
+        tx.commit().await?;
+        drop(client);
+        let me = match &out.from { From::Agent { name, .. } => name.clone(), _ => String::new() };
+        changes::notify(engine, org, vec![Change::Mailbox(project.id), Change::Mailbox(sender_agent.unwrap_or_default()),
+            Change::Spark { from: out.from.spark(), to: project.name.clone() }]);
+        let handed = crate::domain::projects::dispatch(engine, org.id, project.id).await?;
+        let next = handed.iter().find(|h| h.watcher == me).map(|h| h.copy.clone());
+        let delivery = match next {
+            Some(c) => format!("Ack recorded for {} in project {}'s mailbox; it handed you the next mail, {c}.", replied.unwrap_or_default(), project.name),
+            None => format!("Ack recorded for {} in project {}'s mailbox; no mail is waiting for you now.", replied.unwrap_or_default(), project.name),
+        };
+        return Ok(Sent { transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false });
+    }
     tx.execute(
         "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
                               recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies)

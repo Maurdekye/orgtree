@@ -30,6 +30,8 @@ pub struct Mail {
     /// the project whose fair mail queue handed this mail to the agent
     /// (docs/rust-engine/PROJECT-NODES.md)
     pub via_project: Option<String>,
+    /// handed in ack mode: the wrapper says how to ack it (user 2026-10-18 08:02Z)
+    pub via_project_ack: bool,
 }
 
 // Bodies, reply snapshots and attachment paths must never enter tracing args.
@@ -238,7 +240,7 @@ mod mail_size_tests {
     fn mail(body: String) -> Mail {
         Mail { uid: "large-mail".into(), sender: "sender".into(), kind: "message".into(), body,
             at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]),
-            notice: false, urgent: false, reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None }
+            notice: false, urgent: false, reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false }
     }
 
     #[test]
@@ -414,6 +416,7 @@ mod phone_authority_tests {
                 at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]),
                 notice: false, urgent: false, reply_to: json!({"from":"@net:alex.123456","gist":note}), replies: json!([]), ev: json!({}),
                 via_project: None,
+                via_project_ack: false,
             };
             let mail = [m];
             for text in [turn_text(&mail, "", &HashMap::new(), None), replay_text(&mail, &HashMap::new()), steer_text(&mail, &HashMap::new())] {

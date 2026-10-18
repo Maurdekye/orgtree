@@ -9,6 +9,13 @@
 //! mail goes to exactly one of the agents watching the project with a
 //! `fair_queue` watchdog, the least recently woken first, and from then on it
 //! is that agent's mail as if it had been sent straight to it.
+//!
+//! Its queue has a mode (user 2026-10-18 08:01Z), the project's
+//! `scope.mail_queue`: round-robin (the default) hands each mail out as soon
+//! as it arrives; ack mode gives each watcher ONE mail at a time, and no
+//! more until it acks it with a completion record, a reply to that mail sent
+//! to the project's mailbox. An un-acked mail goes back to the front of the
+//! queue when its holder is retired, halted or stops watching.
 
 use std::sync::Arc;
 
@@ -29,6 +36,26 @@ pub const TIER: &str = "project";
 const DISPATCH_BATCH: usize = 200;
 /// Fires a fair-queue dog keeps in its `events` ring (as the other kinds).
 const EVENTS_KEEP: i64 = 50;
+/// `scope.mail_queue` values; absent reads as round-robin.
+pub const MODE_ROUND_ROBIN: &str = "round_robin";
+pub const MODE_ACK: &str = "ack";
+
+/// Is the project's queue in ack mode (its `scope`)?
+#[nolog]
+pub fn ack_mode(scope: &Value) -> bool {
+    scope.get("mail_queue").and_then(Value::as_str) == Some(MODE_ACK)
+}
+
+/// Does the project keep a sender's own mail from being handed back to it
+/// (its `scope.mail_queue_exclude_sender`; off by default, user 08:08Z)?
+#[nolog]
+pub fn exclude_sender(scope: &Value) -> bool {
+    scope.get("mail_queue_exclude_sender").and_then(Value::as_bool) == Some(true)
+}
+
+/// SQL: a project mail (alias `m`) handed in ack mode and not acked yet.
+const OUTSTANDING: &str = "m.state = 'read' AND coalesce((m.extra->'claimed'->>'ack')::boolean, false)
+    AND m.extra->'claimed'->>'acked_at' IS NULL";
 
 /// A project node, as the mail and watchdog paths need it.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -149,6 +176,7 @@ struct Step {
 /// fair-queue dog is armed (create, resume, rehire, engine start).
 #[logged]
 pub async fn dispatch(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Vec<Handed>> {
+    release_stale(engine, org_id, project).await?;
     let mut out = Vec::new();
     for _ in 0..DISPATCH_BATCH {
         let Some(step) = hand_one(engine, org_id, project).await? else { break };
@@ -184,35 +212,31 @@ async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Opt
     // one dispatcher per project at a time: a row lock on this project only
     // (NO KEY, so documents and other rows referencing it are not held up)
     let Some(p) = tx
-        .query_opt("SELECT name, state FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project])
+        .query_opt("SELECT name, state, scope FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project])
         .await?
     else {
         return Ok(None);
     };
     let pname: String = p.get(0);
+    let ack = ack_mode(&p.get::<_, Value>(2));
+    let skip_own = exclude_sender(&p.get::<_, Value>(2));
     if p.get::<_, String>(1) != "live" {
         return Ok(None);
     }
-    let Some(m) = tx
-        .query_opt(
-            "SELECT id, uid, sender, sender_agent_id, sender_generation, kind, notice, body, attachments, reply_to, ev,
-                    urgent, urgent_reason, net_id, net_hub, replies, client_op
-               FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending' ORDER BY id LIMIT 1 FOR UPDATE",
-            &[&project],
-        )
-        .await?
-    else {
-        return Ok(None);
-    };
     let rows = tx
         .query(
-            "SELECT w.id, w.uid, w.owner_agent_id, a.name, w.last_fired, w.created_at, w.once,
+            &format!("SELECT w.id, w.uid, w.owner_agent_id, a.name, w.last_fired, w.created_at, w.once,
                     coalesce((w.memo->>'notice')::boolean, false)
                FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
-              ORDER BY w.id LIMIT 64",
-            &[&org_id, &project],
+                -- ack mode: a halted watcher, or one still holding an un-acked
+                -- mail from this project, is handed nothing
+                AND (NOT $3 OR (a.halt IS NULL AND NOT EXISTS (
+                     SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = $2
+                        AND (m.extra->'claimed'->>'by_id')::bigint = a.id AND {OUTSTANDING})))
+              ORDER BY w.id LIMIT 64"),
+            &[&org_id, &project, &ack],
         )
         .await?;
     let mut eligible = Vec::with_capacity(rows.len());
@@ -232,13 +256,34 @@ async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Opt
             });
         }
     }
-    let Some(w) = pick(&eligible).cloned() else { return Ok(None) };
+    if eligible.is_empty() {
+        return Ok(None);
+    }
+    // the oldest waiting mail a watcher can take. With the project's
+    // exclude-sender setting on (user 2026-10-18 08:07Z-08:08Z; off by
+    // default) nobody is handed their own mail, and a mail only its sender
+    // could take waits without holding up the rest
+    let waiting = tx
+        .query(
+            "SELECT id, uid, sender, sender_agent_id, sender_generation, kind, notice, body, attachments, reply_to, ev,
+                    urgent, urgent_reason, net_id, net_hub, replies, client_op
+               FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending' ORDER BY id LIMIT 64 FOR UPDATE",
+            &[&project],
+        )
+        .await?;
+    let Some((m, w)) = waiting.iter().find_map(|m| {
+        let sender: Option<i64> = m.get(3);
+        let others: Vec<Watcher> = eligible.iter().filter(|w| !skip_own || Some(w.owner) != sender).cloned().collect();
+        pick(&others).cloned().map(|w| (m, w))
+    }) else {
+        return Ok(None);
+    };
     let mail_id: i64 = m.get(0);
     let mail_uid: String = m.get(1);
     let body: String = m.get(7);
     let notice = m.get::<_, bool>(6) || w.notice;
     let copy = uid("m");
-    let via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid } });
+    let via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack } });
     tx.execute(
         "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
                               recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason,
@@ -256,9 +301,9 @@ async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Opt
     tx.execute(
         "UPDATE ot.mail SET state = 'read', read_at = now(), delivered_at = coalesce(delivered_at, now()),
                 extra = extra || jsonb_build_object('claimed', jsonb_build_object('by', $2::text, 'by_id', $3::bigint,
-                        'dog', $4::text, 'copy', $5::text, 'at', now()))
+                        'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean))
           WHERE id = $1",
-        &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy],
+        &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack],
     )
     .await?;
     let sender: String = m.get(2);
@@ -372,6 +417,223 @@ pub async fn below(client: &impl GenericClient, agent: i64) -> Result<Vec<(i64, 
         .await?
         .iter()
         .map(|r| (r.get(0), r.get(1)))
+        .collect())
+}
+
+/// Ack mode: put every un-acked mail whose holder is gone back at the front
+/// of the queue (it keeps its id, and the queue hands out oldest first).
+/// Gone means retired, halted, or without an armed fair_queue dog on the
+/// project it still reaches (coordinator 2026-10-18, open to change). The
+/// project's copy records who held it and why; the holder's copy is marked
+/// released. One short transaction per mail.
+#[logged]
+pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Vec<String>> {
+    let client = engine.db.get().await?;
+    let Some(p) = client.query_opt("SELECT scope FROM ot.agents WHERE id = $1 AND kind = 'project'", &[&project]).await? else {
+        return Ok(Vec::new());
+    };
+    if !ack_mode(&p.get::<_, Value>(0)) {
+        return Ok(Vec::new());
+    }
+    let held = client
+        .query(
+            &format!("SELECT m.id, (m.extra->'claimed'->>'by_id')::bigint, m.extra->'claimed'->>'by', m.extra->'claimed'->>'copy',
+                             coalesce(m.extra->'claimed'->>'dog', '')
+                        FROM ot.mail m WHERE m.recipient_agent_id = $1 AND {OUTSTANDING} ORDER BY m.id LIMIT 200"),
+            &[&project],
+        )
+        .await?;
+    let mut gone = Vec::new();
+    for h in &held {
+        let (row, holder): (i64, Option<i64>) = (h.get(0), h.get(1));
+        let Some(holder) = holder else { continue };
+        let a = client.query_opt("SELECT state, halt IS NOT NULL FROM ot.agents WHERE id = $1", &[&holder]).await?;
+        let listening = client
+            .query_opt(
+                // a one-shot dog that handed this very mail is spent, and still counts
+                "SELECT 1 FROM ot.watchdogs w WHERE w.org_id = $1 AND w.kind = 'fair_queue'
+                   AND (w.state = 'armed' OR (w.state = 'spent' AND w.uid = $4))
+                   AND w.owner_agent_id = $2 AND (w.memo->>'target_id')::bigint = $3 LIMIT 1",
+                &[&org_id, &holder, &project, &h.get::<_, String>(4)],
+            )
+            .await?
+            .is_some()
+            && reaches(&*client, holder, project).await?;
+        let why = match a {
+            None => "is gone",
+            Some(r) if r.get::<_, String>(0) != "live" => "was retired",
+            Some(r) if r.get::<_, bool>(1) => "was halted",
+            _ if !listening => "stopped watching the project",
+            _ => continue,
+        };
+        gone.push((row, holder, h.get::<_, Option<String>>(2).unwrap_or_default(), h.get::<_, Option<String>>(3), why));
+    }
+    drop(client);
+    let mut released = Vec::new();
+    for (row, holder, by, copy, why) in gone {
+        let mut client = engine.db.get().await?;
+        let tx = client.transaction().await?;
+        tx.query_opt("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&project]).await?;
+        let n = tx
+            .execute(
+                &format!("UPDATE ot.mail m SET state = 'pending', read_at = NULL,
+                            extra = (m.extra - 'claimed') || jsonb_build_object('released', jsonb_build_object(
+                                'by', $2::text, 'by_id', $3::bigint, 'why', $4::text, 'copy', $5::text, 'at', now()))
+                          WHERE m.id = $1 AND {OUTSTANDING}"),
+                &[&row, &by, &holder, &why, &copy],
+            )
+            .await?;
+        if let Some(c) = &copy {
+            tx.execute(
+                "UPDATE ot.mail SET extra = extra || jsonb_build_object('released', jsonb_build_object('why', $2::text, 'at', now()))
+                  WHERE uid = $1",
+                &[c, &why],
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        if n == 1 {
+            tracing::info!(project, holder = %by, why, "an un-acked project mail went back to the front of the queue");
+            changes::notify_id(engine, org_id, vec![Change::Mailbox(project), Change::Mailbox(holder)]);
+            released.push(by);
+        }
+    }
+    Ok(released)
+}
+
+/// What an agent's mail to a project is when it answers mail the project
+/// handed it in ack mode: the project mail it acks (id, uid). `None` for any
+/// other mail, which stays ordinary project mail. Refuses an ack of mail
+/// already acked, or released back to the queue. Runs in the sender's
+/// transaction, which then stores the ack as a read record.
+#[logged]
+pub async fn ack_of(tx: &impl GenericClient, project: i64, agent: i64, reply: &str) -> Result<Option<(i64, String)>> {
+    let Some(copy) = tx
+        .query_opt(
+            "SELECT extra->'via_project', extra->'released'->>'why' FROM ot.mail WHERE uid = $1 AND recipient_agent_id = $2",
+            &[&reply, &agent],
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    let via: Option<Value> = copy.get(0);
+    let Some(via) = via.filter(|v| v["id"].as_i64() == Some(project) && v["ack"].as_bool() == Some(true)) else {
+        return Ok(None);
+    };
+    if let Some(why) = copy.get::<_, Option<String>>(1) {
+        crate::refuse!(Conflict, "mail {reply} went back to project {}'s queue (you {why}); it is no longer yours to ack",
+            via["name"].as_str().unwrap_or("?"));
+    }
+    let orig = via["mail"].as_str().unwrap_or("").to_string();
+    let Some(row) = tx
+        .query_opt("SELECT id, extra->'claimed' FROM ot.mail WHERE uid = $1 AND recipient_agent_id = $2 FOR UPDATE", &[&orig, &project])
+        .await?
+    else {
+        return Ok(None);
+    };
+    let claimed: Option<Value> = row.get(1);
+    let claimed = claimed.unwrap_or(Value::Null);
+    if claimed["copy"].as_str() != Some(reply) || claimed["ack"].as_bool() != Some(true) {
+        return Ok(None);
+    }
+    if claimed.get("acked_at").is_some_and(|v| !v.is_null()) {
+        crate::refuse!(Conflict, "mail {reply} is already acked; nothing more to do for it");
+    }
+    Ok(Some((row.get(0), orig)))
+}
+
+/// The user changed a project's queue mode (`set_mail_queue`): leaving ack
+/// mode waives the acks still owed; every watcher (armed or paused) is told
+/// what the mode now requires (user 2026-10-18 08:02Z); then the queue runs.
+#[logged]
+pub async fn mode_changed(engine: &Arc<Engine>, org_id: i64, project: i64, name: &str, ack: bool) -> Result<()> {
+    let client = engine.db.get().await?;
+    if !ack {
+        client
+            .execute(
+                &format!("UPDATE ot.mail m SET extra = jsonb_set(jsonb_set(m.extra, '{{claimed,ack}}', 'false'),
+                                                       '{{claimed,ack_waived_at}}', to_jsonb(now()))
+                          WHERE m.recipient_agent_id = $1 AND {OUTSTANDING}"),
+                &[&project],
+            )
+            .await?;
+    }
+    let owners: Vec<String> = client
+        .query(
+            "SELECT DISTINCT a.name FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+              WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state IN ('armed', 'paused')
+                AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent' ORDER BY 1",
+            &[&org_id, &project],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    drop(client);
+    let body = if ack {
+        format!("Project {name}'s mail queue is now in ACK MODE. Its fair queue hands you ONE mail at a time. When you have \
+                 finished one, ack it: orgtree_message to={name} reply_to=<the id of that mail> with a short completion record. \
+                 Until you do, the project hands you no more mail; the ack hands you the next one at once if any is waiting.")
+    } else {
+        format!("Project {name}'s mail queue is now ROUND-ROBIN: each mail goes out as soon as it arrives, and no ack is \
+                 needed, including for mail you still hold from ack mode.")
+    };
+    for to in owners {
+        let mut out = crate::domain::mail::Outgoing::new(crate::domain::mail::From::System, &to, &body);
+        out.notice = true;
+        out.grant_reply_audience = false;
+        Box::pin(crate::domain::mail::send(engine, org_id, out)).await?;
+    }
+    Box::pin(dispatch(engine, org_id, project)).await?;
+    Ok(())
+}
+
+/// Run the queues an agent's change can move (halt, unhalt, retire, a
+/// fair_queue dog paused or removed): the projects it holds un-acked mail
+/// from, which then release it, and the ones it watches.
+#[logged]
+pub async fn recheck_holder(engine: &Arc<Engine>, org_id: i64, agent: i64) {
+    let projects: Vec<i64> = match engine.db.get().await {
+        Ok(c) => c
+            .query(
+                &format!("SELECT DISTINCT m.recipient_agent_id FROM ot.mail m
+                           WHERE m.org_id = $1 AND (m.extra->'claimed'->>'by_id')::bigint = $2 AND {OUTSTANDING}
+                          UNION SELECT DISTINCT (w.memo->>'target_id')::bigint FROM ot.watchdogs w
+                           WHERE w.org_id = $1 AND w.owner_agent_id = $2 AND w.kind = 'fair_queue'
+                             AND w.memo ? 'target_id' LIMIT 64"),
+                &[&org_id, &agent],
+            )
+            .await
+            .map(|rows| rows.iter().filter_map(|r| r.get::<_, Option<i64>>(0)).collect())
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    for p in projects {
+        if let Err(e) = Box::pin(dispatch(engine, org_id, p)).await {
+            tracing::warn!(project = p, error = %format!("{e:#}"), "project queue recheck failed");
+        }
+    }
+}
+
+/// The un-acked mail an agent holds, as (handed copy's id, project name),
+/// from projects in ack mode that still have a watcher: what its working
+/// checkup reminds it of (user 2026-10-18 08:04Z).
+#[logged]
+pub async fn held_by(client: &impl GenericClient, agent: i64) -> Result<Vec<(String, String)>> {
+    Ok(client
+        .query(
+            &format!("SELECT m.extra->'claimed'->>'copy', p.name FROM ot.mail m JOIN ot.agents p ON p.id = m.recipient_agent_id
+                       WHERE (m.extra->'claimed'->>'by_id')::bigint = $1 AND {OUTSTANDING}
+                         AND p.kind = 'project' AND p.scope->>'mail_queue' = 'ack'
+                         AND EXISTS (SELECT 1 FROM ot.watchdogs w WHERE w.kind = 'fair_queue' AND w.state = 'armed'
+                                       AND (w.memo->>'target_id')::bigint = p.id)
+                       ORDER BY m.id LIMIT 20"),
+            &[&agent],
+        )
+        .await?
+        .iter()
+        .filter_map(|r| Some((r.get::<_, Option<String>>(0)?, r.get(1))))
         .collect())
 }
 

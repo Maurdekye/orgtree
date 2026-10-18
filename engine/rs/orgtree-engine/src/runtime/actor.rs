@@ -8049,6 +8049,7 @@ fn mail_of(m: &Value) -> Mail {
         replies: crate::domain::replies::value(m.get("reply_to"),m.get("replies")),
         ev: m.get("ev").cloned().unwrap_or(Value::Null),
         via_project: m["extra"]["via_project"]["name"].as_str().map(str::to_string),
+        via_project_ack: m["extra"]["via_project"]["ack"].as_bool() == Some(true),
     }
 }
 

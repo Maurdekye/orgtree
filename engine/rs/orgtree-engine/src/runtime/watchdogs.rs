@@ -1948,6 +1948,8 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
         arm(engine, dog.row);
     } else {
         disarm(engine, dog.row);
+        // a project watcher that stops watching gives back its un-acked mail
+        crate::domain::projects::recheck_holder(engine, org_id, dog.owner).await;
     }
     changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Events]);
     let mut out = json!({ "id": dog.uid, "name": dog.name, "state": state });

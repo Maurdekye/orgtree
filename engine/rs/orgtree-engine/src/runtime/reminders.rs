@@ -120,6 +120,9 @@ struct Agent {
     activity: Option<DateTime<Utc>>,
     /// latest idle reminder
     reminded: Option<DateTime<Utc>>,
+    /// un-acked mail it holds from projects in ack mode, as (mail id,
+    /// project): it counts as working for the checkup (user 2026-10-18 08:04Z)
+    held: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -175,10 +178,14 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
             working: status.get("status").and_then(Value::as_str) == Some("working"),
             activity,
             reminded: stamp(&extra, "docket_reminder_at"),
+            held: Vec::new(),
         });
     }
     if agents.is_empty() {
         return Ok(());
+    }
+    for a in &mut agents {
+        a.held = crate::domain::projects::held_by(&**client, a.id).await?;
     }
     // every agent but the deleted, for the reviewer's liveness and the owner's superior chain
     let everyone: Agents = client
@@ -231,7 +238,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
         } else {
             work.iter().filter(|w| w.to.as_deref() == Some(a.name.as_str()) && w.status == "blocked").collect()
         };
-        let (remind, check) = wakes(sw, early, a.working, !items.is_empty());
+        let (remind, check) = wakes(sw, early, a.working || !a.held.is_empty(), !items.is_empty());
         let wake = async {
             if remind && idle_reminder(engine, org, a, &items, now).await? {
                 return Ok(());
@@ -329,7 +336,21 @@ async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime
         return Ok(());
     }
     let ev = crate::events::reminder_working_checkup(&org.slug, &a.name, a.generation as i64);
-    send(engine, org.id, a, ev).await
+    send(engine, org.id, a, ev, held_note(&a.held)).await
+}
+
+/// What a checkup adds for an agent holding un-acked project mail: each
+/// mail and how to ack it (user 2026-10-18 08:04Z).
+#[nolog]
+fn held_note(held: &[(String, String)]) -> Option<String> {
+    if held.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = held.iter()
+        .map(|(id, p)| format!("- mail {id} from project {p}: ack it with orgtree_message to={p} reply_to={id} and a short completion record"))
+        .collect();
+    Some(format!("You hold project mail you have not acked yet, so its project hands you nothing more until you do:\n{}",
+        lines.join("\n")))
 }
 
 /// 3.x `_idle_docket_reminder_decision` + its reservation body. True when
@@ -351,7 +372,7 @@ async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: 
     let rows: Vec<Value> =
         shown.iter().map(|w| json!({ "slug": w.slug, "title": w.title, "status": w.status, "role": w.role })).collect();
     let ev = crate::events::reminder_idle_docket(&org.slug, &a.name, a.generation as i64, rows, (items.len() - shown.len()) as i64);
-    send(engine, org.id, a, ev).await?;
+    send(engine, org.id, a, ev, None).await?;
     Ok(true)
 }
 
@@ -362,11 +383,15 @@ async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: 
 /// mail (3.x `_auto_wake_cancel`); the stamp already written stays as the
 /// cooldown.
 #[logged]
-async fn send(engine: &Arc<Engine>, org_id: i64, a: &Agent, ev: Value) -> Result<()> {
+async fn send(engine: &Arc<Engine>, org_id: i64, a: &Agent, ev: Value, extra: Option<String>) -> Result<()> {
     if let Some(pause) = crate::rig::reminder_pause() {
         tokio::time::sleep(pause).await;
     }
-    let body = crate::runtime::event_text::render_agent(&ev).ok_or_else(|| anyhow::anyhow!("the reminder event has no text"))?;
+    let mut body = crate::runtime::event_text::render_agent(&ev).ok_or_else(|| anyhow::anyhow!("the reminder event has no text"))?;
+    if let Some(x) = extra {
+        body.push_str("\n\n");
+        body.push_str(&x);
+    }
     let mut out = Outgoing::new(From::System, &a.name, &body);
     out.kind = "system".into();
     out.ev = Some(ev);

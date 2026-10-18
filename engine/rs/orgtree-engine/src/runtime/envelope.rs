@@ -666,6 +666,14 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
         if let Some(p) = &m.via_project {
             b.push_str(&format!("\n↳ Via project {p}: its fair mail queue handed this to you as one of its fair_queue watchers; it is \
                                  yours now (the project's copy is marked read). Answer the sender, not the project."));
+            // whether it must be acked, and how (user 2026-10-18 08:02Z)
+            if m.via_project_ack {
+                b.push_str(&format!(" ACK MODE: when you have finished it, ack it with orgtree_message to={p} reply_to={} \
+                                     and a short completion record; project {p} hands you no more mail until you do, and \
+                                     the ack hands you the next one if any is waiting.", m.uid));
+            } else {
+                b.push_str(" No ack is needed.");
+            }
         }
         // someone over the mail hub reads only what is sent to them (user 2026-10-09)
         if !m.notice && m.sender.starts_with("@net:") {
