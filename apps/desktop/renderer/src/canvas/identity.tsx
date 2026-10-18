@@ -78,6 +78,9 @@ export interface AgentNameProps {
   prefix?: string
   /** Extra classes for the name element. */
   nameClass?: string
+  /** Suppress browser titles when an owning surface provides the shared
+   *  identity tooltip for this name. */
+  nativeTitle?: boolean
 }
 
 /**
@@ -88,7 +91,7 @@ export interface AgentNameProps {
  * already produces — so this is a consolidation, not a restyle.
  */
 export function AgentName({
-  id, tier, why, onFocus, atDestination, prefix, nameClass,
+  id, tier, why, onFocus, atDestination, prefix, nameClass, nativeTitle = true,
 }: AgentNameProps): ReactNode {
   const label = (prefix ?? '') + id
   const extra = nameClass ? ' ' + nameClass : ''
@@ -96,7 +99,8 @@ export function AgentName({
     return (
       <>
         <TierChip tier={tier} agentName={id} />
-        <span data-copy-agent-name={id} className={'cc-name' + extra} title={why ?? undefined}>{label}</span>
+        <span data-copy-agent-name={id} className={'cc-name' + extra}
+          title={nativeTitle ? why ?? undefined : undefined}>{label}</span>
       </>
     )
   }
@@ -113,7 +117,7 @@ export function AgentName({
           did not navigate, so the expanded scope does not reach it. */}
       <button type="button" data-copy-agent-name={id} {...agentNavProps(id)}
         className={'cc-name cc-name-jump' + extra}
-        title={why ?? `focus ${id}'s desk`}
+        title={nativeTitle ? why ?? `focus ${id}'s desk` : undefined}
         onClick={(e) => { e.stopPropagation(); onFocus(id, e) }}>
         {label}
       </button>

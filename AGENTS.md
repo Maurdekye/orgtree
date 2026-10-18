@@ -297,6 +297,12 @@
   `canvas/agentnav.tsx`, `canvas/OrgCanvas.tsx`, `canvas/contextmenu.tsx`,
   `canvas/docket.tsx`, `providers/catalog.rs`]
 
+- A known empty effort offer (`Some([])`) means the model accepts no effort
+  setting: hide its effort display/control and send no effort argument. An
+  unknown offer (`None`) remains distinct. The org default is computed as an
+  effective value and is not persisted per agent. [verified: `providers/catalog.rs`,
+  `runtime/actor.rs`, `canvas/OrgCanvas.tsx`, `canvas/desk.tsx`]
+
 - Standalone engine (4.4.0): `orgtree-engine standalone` runs the engine with
   no desktop — mandatory token (`ORGTREE_STANDALONE_TOKEN` or the generated
   `<data>/standalone-token`, also accepted as `Authorization: Bearer`),

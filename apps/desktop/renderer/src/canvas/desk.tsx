@@ -3465,7 +3465,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           <AgentName id={node.id} tier={node.tier} atDestination={!bare}
             why={bare ? undefined
               : (node.charter || '').split('\n')[0] || node.id}
-            onFocus={onJump ? (id: string) => onJump(id) : undefined} />
+            onFocus={onJump ? (id: string) => onJump(id) : undefined}
+            nativeTitle={false} />
           <span className="cc-context-seat">
             <ContextWheel occ={contextOccupancy} cw={contextWindow}
               est={contextEstimated} compactAt={compactAt} persistent
@@ -3639,7 +3640,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <ServingAccountBadge account={node.serving_account} />
         <QueuedAccountBadge node={node} />
         <QueuedModelBadge node={node} />
-        {node.pending_effort && <EffortLevelBadge node={node} />}
+        {node.pending_effort && <EffortLevelBadge node={node}
+          effortLevels={MUSE_TIERS.includes(node.tier ?? '')
+            ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null,
+              node.pending_account?.account ?? node.account ?? null)
+            : tierEffortLevels(slug, node.tier)} />}
         </div>
       </div>
       {/* F-01: superior chip at the TOP. For a top-level agent the superior is
@@ -5108,7 +5113,7 @@ function SysLine({ m }: { m: ChatMessage }) {
 // not for haiku — so it worked on the agent I happened to test and nowhere
 // else. The lesson is in §7 of docs/state-architecture-review.md: read the
 // value that CAUSES the behaviour, not one that correlates with it.)
-function EffortButton({ value, effective, levels, onSet }:
+export function EffortButton({ value, effective, levels, onSet }:
 { value: string; effective?: string; levels?: string[]
   onSet: (lvl: string) => Promise<unknown> | void }) {
   const [open, setOpen] = useState(false)
@@ -5154,12 +5159,13 @@ function EffortButton({ value, effective, levels, onSet }:
     owner.addEventListener('keydown', esc, true)
     return () => { owner.removeEventListener('pointerdown', away, true); owner.removeEventListener('keydown', esc, true) }
   }, [open])
+  if (levels?.length === 0) return null
   return (
     <span className="eff-wrap" ref={wrapRef}>
       <button type="button"
         className={'cc-eff' + ((pending ?? value) ? ' set' : shown ? ' inherited' : '')
           + (pending !== null ? ' saving' : '')}
-        title={`thinking effort — ${shown || 'unset'} (${why}). ${EFFORT_CHANGE_HELP}`}
+        title={`Thinking effort: ${shown || 'unset'}. ${EFFORT_CHANGE_HELP}`}
         onClick={() => setOpen((o) => !o)}>
         {shown || 'effort'}
       </button>
@@ -5193,8 +5199,7 @@ function EffortSwitch({ value, level, why, levels, onSet }:
   return (
     <EffortBar value={value} level={level} levels={levels}
       label={`Effort${level ? ` (${level}${value ? '' : ` — ${why}`})` : ''}`}
-      title={`thinking effort — ${level || 'unset'} (${why})`
-        + `; click or drag along the bar to set, click the active level to clear back to inherit. ${EFFORT_CHANGE_HELP}`}
+      title={`Thinking effort: ${level || 'unset'}. ${EFFORT_CHANGE_HELP}`}
       onSet={onSet} />
   )
 }

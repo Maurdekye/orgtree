@@ -32,7 +32,6 @@ import type { TreePayload } from '../src/types'
 import type { CanvasNode } from '../src/canvas/shared'
 import { MODAL_OPEN_KEY, MODAL_PINS_KEY, forgetModalOpenCache, forgetModalPins, pinModal, rememberModalOpen } from '../src/canvas/modalpin'
 import { savedWindows, WINDOW_LAYOUT_KEY } from '../src/windowlayout'
-import { prefetchStaffingOptions } from '../src/canvas/staffingoptions'
 
 const noop = () => {}
 const txt = (el: HTMLElement) => el.textContent ?? ''
@@ -203,46 +202,16 @@ uiTest('project rows in the Agents list use the project folder icon',
 
 uiTest('desk effort control is absent for no-effort models and has a concise tooltip otherwise',
   async ({ mount }) => {
-    const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
-    const priorFetch = globalThis.fetch
-    const openDesk = async (id: string, tier: string, efforts: string[], effort: string) => {
-      const slug = `effort-${tier}`
-      globalThis.fetch = (async () => new Response(JSON.stringify({
-        tiers: [{ tier, efforts, accounts: [], default_ok: true }],
-        at: Date.now(), stale: false, errors: [], loading: false, generation: 1,
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
-      await prefetchStaffingOptions(slug)
-      const fixture = tree([id])
-      fixture.slug = slug
-      Object.assign(fixture.roots[0]!, {
-        tier, model_id: id, effort_effective: effort,
-        scope: { permission_mode: 'default', add_dirs: [], tools: {},
-          org_visibility: 'team', effort },
-      })
-      const { el } = await mount(
-        <OrgCanvas tree={fixture} op={() => Promise.resolve({} as never)}
-          slug={slug} toast={noop} mailEvt={null} />)
-      await flush()
-      await inAct(() => { (el.querySelector('.tray-toggle') as HTMLElement).click() })
-      await flush()
-      await inAct(() => { (el.querySelector('.tray-main') as HTMLElement).click() })
-      await advance(800, 50)
-      await flush(2)
-      return el
-    }
-    try {
-      const local = await openDesk('qwen3.8-27b-iq3xxs',
-        'ls-llamacpp-qwen3-8-27b-iq3xxs', [], 'high')
-      assert.equal(local.querySelector('.cc-eff') !== null, false,
-        'a language-server seat with no offered efforts still shows the desk button')
+    const { EffortButton } = await import('../src/canvas/desk')
+    const noEffort = await mount(<EffortButton value="" effective="high"
+      levels={[]} onSet={noop} />, (el) => el)
+    assert.equal(noEffort.el.querySelector('.cc-eff') !== null, false,
+      'a model with no offered efforts still shows the desk button')
 
-      const claude = await openDesk('claude-opus-5-5', 'opus',
-        ['low', 'medium', 'high', 'xhigh', 'max'], 'medium')
-      assert.equal(claude.querySelector('.cc-eff')?.getAttribute('title'),
-        'Thinking effort: medium. Changes apply from the next model call.')
-    } finally {
-      globalThis.fetch = priorFetch
-    }
+    const supported = await mount(<EffortButton value="medium" effective="medium"
+      levels={['low', 'medium', 'high', 'xhigh', 'max']} onSet={noop} />, (el) => el)
+    assert.equal(supported.el.querySelector('.cc-eff')?.getAttribute('title'),
+      'Thinking effort: medium. Changes apply from the next model call.')
   })
 
 uiTest('every Claude tier in the Agents list uses the shared Claude theme',

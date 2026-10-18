@@ -22,6 +22,7 @@ import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
 import { DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
 import { normalizeUserEnteredName } from './nameinput'
+import { tierEffortLevels } from './staffingoptions'
 // canvas/OrgCanvas.tsx — the canvas core: the OrgCanvas component itself —
 // camera (pan/zoom/springs/follow), tree layout orchestration, wires and
 // mail sparks, node dragging and re-parenting, the retired/crowd piles, the
@@ -33,7 +34,7 @@ import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import type { AccountRegistryPayload, AudienceGrant, OpResult, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
 import { audienceAction, getAccountRegistry, getProviders, orgInboxRead, reorderNode } from '../api'
-import { useAgyModelsRefresh } from './shared'
+import { useAgyModelsRefresh, MUSE_TIERS, museEffortLevels } from './shared'
 import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
 import { ReorderMarker, rowReorderSlot } from './reorderpreview'
 import {
@@ -376,7 +377,7 @@ function AgentListMenuHost({ render, map, op, slug, toast }: {
  *  agentnavmenu.test.tsx §12/§12.1 hold the two arms to the same answer. */
 export function agentTooltipInfo(n: CanvasNode | undefined,
   providers: ProviderInfo[] = [], accounts?: AccountRegistryPayload | null,
-  defaultEffort?: string): AgentTooltipInfo | null {
+  defaultEffort?: string, effortLevels?: readonly string[]): AgentTooltipInfo | null {
   if (!n || n.state === 'user') return null
   const draftTier = n.state === 'draft' && !!n.tier
   const provider = n.tier ? providerOf(n.tier) : null
@@ -394,7 +395,7 @@ export function agentTooltipInfo(n: CanvasNode | undefined,
         ? catalogTier.name.split(' · ').at(-1) : undefined) || 'llama.cpp'} ${catalogTier?.label || catalogName || ''}`.trim()
       : catalogName && provider === 'google' && /^(claude|gpt)-/.test(n.model_id || '')
         ? `${catalogName} (Antigravity)` : catalogName
-  const effort = draftTier ? '(not started)'
+  const effort = effortLevels?.length === 0 ? undefined : draftTier ? '(not started)'
     : [n.effort_effective, n.scope?.effort, defaultEffort]
       .find(value => typeof value === 'string' && EFFORT_LEVELS.includes(value))
   const accountRows = accounts?.accounts?.filter(row => row.provider === provider) ?? []
@@ -433,7 +434,11 @@ function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts, 
     const n = map.get(id)
     return n ? build(n, () => goTo(id), setAsking, deskNow) : []
   }, (id: string): AgentTooltipInfo | null => agentTooltipInfo(
-    map.get(id), providers, accounts, defaultEffort))
+    map.get(id), providers, accounts, defaultEffort,
+    MUSE_TIERS.includes(map.get(id)?.tier ?? '')
+      ? museEffortLevels(map.get(id)?.tier ?? '', map.get(id)?.scope?.model_version ?? null,
+        map.get(id)?.account ?? null)
+      : tierEffortLevels(slug, map.get(id)?.tier)))
   // the CARD's confirm — same wording, same op, same undo toast — portaled
   // into this document, exactly as the tray's menu host does it
   return node && asking

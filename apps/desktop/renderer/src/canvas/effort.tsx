@@ -170,9 +170,11 @@ export function explicitEffort(
  * effort is set, whatever the org default is, and a live change to the
  * agent's effort re-renders it.
  */
-export function EffortLevelBadge({ node }: {
+export function EffortLevelBadge({ node, effortLevels }: {
   node: Pick<CanvasNode, 'id' | 'scope' | 'effort_effective' | 'effort_current' | 'pending_effort'>
+  effortLevels?: readonly string[]
 }) {
+  if (effortLevels?.length === 0) return null
   const pending = validLevel(node.pending_effort) && validLevel(node.effort_current)
     && node.pending_effort !== node.effort_current ? node.pending_effort : null
   const level = pending ? node.effort_current : explicitEffort(node)
@@ -200,10 +202,7 @@ export function EffortLevelBadge({ node }: {
 
 /** Help for controls that change an individual agent's effort. */
 export const EFFORT_CHANGE_HELP =
-  'Claude Code only (Opus, Sonnet, Fable): an in-flight call finishes at the old level; '
-  + 'the next call in that turn uses the new level. Codex and other harnesses use it next turn. '
-  + 'effort_delivery: sent = delivered, not confirmed applied (if ignored, still applies next turn); '
-  + 'unchanged = same effective level, nothing sent; next_turn = deferred, with a reason.'
+  'Changes apply from the next model call.'
 
 /** What changing an agent's effort did, as the one-line toast the composer's
  *  effort control shows (item support-changing-a-claude-agent-s-effort-level-m).

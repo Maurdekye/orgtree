@@ -16,12 +16,13 @@ import { QueuedModelBadge } from './nextturn'
 import type { HTMLAttributes, MouseEvent as ReactMouseEvent, ReactNode, Ref } from 'react'
 import type { NodeStatus } from '../types'
 import type { CanvasNode } from './shared'
-import { ago, DRAFT, providerOf, TIER_LETTER, tierLabel, USER } from './shared'
+import { ago, DRAFT, providerOf, tierLabel, USER } from './shared'
 import { ContextWheel, TrayStatus } from './desk'
 import type { RefRoutes } from './reflinks'
 import { Written } from './reflinks'
 import { charterLine } from '../archived'
 import { agentTooltipProps } from './agentnav'
+import { TierChip } from './identity'
 
 export interface TrayRow {
   node: CanvasNode
@@ -182,7 +183,7 @@ export function AgentTray({
               <button type="button" className="tray-main" title={`go to ${n.id}`}
                 {...agentTooltipProps(n.id)}
                 {...mainProps?.(n)}>
-                <span className={'tier t-' + n.tier} {...agentTooltipProps(n.id)}>{TIER_LETTER[n.tier!] ?? '?'}</span>
+                <TierChip tier={n.tier} agentName={n.id} />
                 {showQueuedModelBadge && <QueuedModelBadge node={n} />}
                 <span className="tray-name"
                   title={charterLine(n) || n.id}>{n.id}</span>

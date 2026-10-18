@@ -2012,7 +2012,9 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               absent as NOTHING rather than as an empty chip, so the row
               reserves no space for it. Its far-zoom and map exclusions are the
               ones this whole `.sq-badges` block already carries. */}
-          <EffortLevelBadge node={node} />
+          <EffortLevelBadge node={node} effortLevels={MUSE_TIERS.includes(node.tier ?? '')
+            ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null, node.account ?? null)
+            : tierEffortLevels(slug, node.tier)} />
         </div>
       )}
       {deskOpen && (

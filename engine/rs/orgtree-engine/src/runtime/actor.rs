@@ -1541,7 +1541,7 @@ impl Actor {
             let row = self.engine.providers.muse_model(&model);
             let (sent, mapped) = catalog::muse_effort(&level, row.as_ref().map(|r| r.variants.as_slice()), row.as_ref().and_then(|r| r.default_effort.as_deref()));
             if let Some(Proc::Muse(m)) = self.proc.as_mut() {
-                m.effort = Some(sent.clone());
+                m.effort = Some(sent.clone()).filter(|e| !e.is_empty());
             }
             self.proc_effort = Some(level.clone());
             let mut out = json!({ "delivery": "next_turn", "effort": level, "reason": "Muse takes an effort change at its next turn" });
@@ -3096,6 +3096,7 @@ impl Actor {
             } else {
                 ctx.effort.clone()
             }))
+            .filter(|effort| !effort.is_empty())
             .filter(|_| route.map(|r| r.reasoning).unwrap_or(true)),
             sandbox,
             instructions: plan.identity.clone(),
@@ -3465,8 +3466,9 @@ impl Actor {
             }
         };
         let (effort, mapped) = catalog::muse_effort(&ctx.effort, Some(&row.variants), row.default_effort.as_deref());
+        let effort = Some(effort).filter(|e| !e.is_empty());
         if mapped {
-            tracing::info!(agent = %self.name, model = %ctx.model, saved = %ctx.effort, sent = %effort,
+            tracing::info!(agent = %self.name, model = %ctx.model, saved = %ctx.effort, sent = ?effort,
                 "this Muse model does not list the saved effort; the nearest level it lists is sent");
         }
         let plan = self.plan(ctx);
@@ -3477,7 +3479,7 @@ impl Actor {
         };
         if reuse {
             if let Some(Proc::Muse(p)) = self.proc.as_mut() {
-                p.effort = Some(effort);
+                p.effort = effort.clone();
             }
             self.proc_effort = Some(ctx.effort.clone());
             return Ok(());
@@ -3528,7 +3530,7 @@ impl Actor {
             roots,
             read_only,
             model: ctx.model.clone(),
-            effort: Some(effort),
+            effort,
             developer_prompt: plan.identity.clone(),
             seat: musert::seat(may_write, pm),
             may_write,

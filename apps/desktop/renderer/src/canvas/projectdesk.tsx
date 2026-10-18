@@ -360,7 +360,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             <span className="project-mark" title="project node: runs no turns, holds no credits">
               <FolderIcon fontSize="inherit" />
             </span>
-            <span className="name">{node.id}</span>
+            <span className="name" title={`project ${node.id}`}>{node.id}</span>
             <ProjectActivity node={node} />
             <ProjectLastActivity node={node} />
             {!live && <span className="badge dim">{node.state}</span>}

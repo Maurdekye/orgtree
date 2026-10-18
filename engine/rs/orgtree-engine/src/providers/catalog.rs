@@ -146,7 +146,10 @@ pub fn effective_effort(scope: &serde_json::Value, settings: &serde_json::Value)
 /// argument; callers represent an unknown offer as `None` before reaching it.
 #[logged]
 pub fn launch_effort(level: &str, offered: &[String]) -> (String, bool) {
-    if offered.is_empty() || offered.iter().any(|o| o == level) {
+    if offered.is_empty() {
+        return (String::new(), false);
+    }
+    if offered.iter().any(|o| o == level) {
         return (level.to_string(), false);
     }
     let ranked: Vec<(usize, &String)> = offered.iter().filter_map(|o| effort_rank(o).map(|r| (r, o))).collect();
@@ -163,7 +166,8 @@ pub fn launch_effort(level: &str, offered: &[String]) -> (String, bool) {
 /// Muse's own baseline `high`.
 #[logged]
 pub fn muse_effort(level: &str, variants: Option<&[String]>, default: Option<&str>) -> (String, bool) {
-    match variants.filter(|v| !v.is_empty()) {
+    match variants {
+        Some(v) if v.is_empty() => (String::new(), false),
         Some(v) => launch_effort(level, v),
         None if MUSE_EFFORTS.contains(&level) => (level.to_string(), false),
         None => (default.filter(|d| MUSE_EFFORTS.contains(d)).unwrap_or(DEFAULT_EFFORT).to_string(), true),
@@ -395,6 +399,7 @@ mod effort_tests {
         assert_eq!(muse_effort("max", Some(&wonder), Some("high")), ("max".into(), false));
         let full = v(&["minimal", "low", "medium", "high", "xhigh"]);
         assert_eq!(muse_effort("max", Some(&full), Some("high")), ("xhigh".into(), true));
+        assert_eq!(muse_effort("high", Some(&[]), Some("high")), (String::new(), false));
         assert_eq!(muse_effort("minimal", None, None), ("minimal".into(), false));
         assert_eq!(muse_effort("none", None, Some("high")), ("high".into(), true));
     }
