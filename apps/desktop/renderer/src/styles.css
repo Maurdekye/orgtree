@@ -4301,7 +4301,7 @@ main.solo { width: 100%; }
 }
 /* List names never inherit the switchboard's large, wrapping .cc-name.
    Attribution shares the existing owner line; long names clip with a title. */
-.doc-row-owner, .doc-row-attribution {
+.doc-gallery-row .doc-row-owner, .doc-gallery-row .doc-row-attribution {
   flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap;
 }
