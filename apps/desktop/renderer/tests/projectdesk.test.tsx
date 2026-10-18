@@ -669,6 +669,43 @@ test('§9 Open desk: the project desk as a temporary modal that pins and pops ou
   assert.equal(closed, 1, 'Escape closes a centred modal')
 })
 
+test("§11a the temporary project desk has the agent desk's ONE title bar: folder and name, pin and close; the pop-out in the desk's own header (user 2026-10-18 11:14Z)", async (t) => {
+  serve(t)
+  let closed = 0
+  const nd = project()
+  const view = await mountView(<ProjectDeskModal node={nd} slug="org" tree={tree} map={new Map([[nd.id, nd], ['boss', boss]])}
+    op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs} close={() => { closed++ }} />, (el) => el)
+  t.after(() => view.unmount())
+  await flush(2)
+  const bar = document.querySelector('.project-desk-modal > .modalpin-bar')!
+  assert.ok(bar.classList.contains('desk-title'), 'a title bar while centred, not a strip of icons')
+  const name = bar.querySelector('.modalpin-name')
+  assert.ok(name?.querySelector('.project-mark'), 'the folder mark')
+  assert.equal(name?.textContent, 'website', 'the name')
+  assert.ok(bar.querySelector('button.modalpin-btn[aria-label="pin this to the window"]'), 'pin')
+  assert.equal(bar.querySelector('button.popout-button') === null, true, 'no pop-out in the title bar')
+  assert.ok(document.querySelector('.project-desk-modal .cc-head-right button.popout-button'), 'the pop-out beside the tabs, as on the agent desk')
+  const x = bar.querySelector<HTMLButtonElement>('button.modalpin-x')
+  assert.ok(x, 'close')
+  await inAct(() => { x!.click() })
+  assert.equal(closed, 1)
+})
+
+test("§11b no second name in the desk under a title bar: temporary, pinned and popped-out windows; the name never wraps (user 11:14Z)", () => {
+  for (const host of ['.project-desk-modal', '.pinwin-body'])
+    for (const part of ['.project-mark', '.name'])
+      assert.equal(cssLast('display', `${host} .project-desk .cc-head-left > ${part}`), 'none', `${host} ${part}`)
+  assert.equal(cssLast('white-space', '.project-desk .cc-head-left .name'), 'nowrap')
+  assert.equal(cssLast('cursor', '.project-desk-modal > .modalpin-bar.desk-title'), 'default', 'a centred title bar is not a drag handle')
+})
+
+test("§11c the editable description shows it is clickable: the theme's hover background and a pointer, on hover and keyboard focus (user 11:14Z)", () => {
+  const md = '.project-desk .project-description-md[role="textbox"]'
+  assert.equal(cssLast('cursor', md), 'pointer')
+  for (const state of [':hover', ':focus-visible'])
+    assert.equal(cssLast('background', md + state), 'var(--panel-2)', state)
+})
+
 declare const __SRC_DIR__: string
 test("§8g the activity line stays inside the card: the meta row wraps, and the word truncates before the clock (user 2026-10-18 10:51Z)", () => {
   assert.equal(cssLast('flex-wrap', '.sq.project .project-meta'), 'wrap', "'Active 80s' drops under the chip instead of running off the card")
