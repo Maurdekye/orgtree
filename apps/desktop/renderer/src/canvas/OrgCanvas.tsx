@@ -73,7 +73,7 @@ import { TeamListNavigation, TeamListOrder, TeamModal } from './team'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
 import { museHireAccount } from './musehire'
 import { DraftNode, NodeSquare, UserNode } from './cards'
-import type { DraftNodeProps } from './cards'
+import type { DraftForm, DraftNodeProps } from './cards'
 import { addPin, clampRect, PinLayer, prunePins, removePin, renamePin, showPin, usePins } from './pins'
 import type { PinRect } from './pins'
 import { clearRegion, fitZoom } from './clearRect'
@@ -131,7 +131,7 @@ export interface OrgSlotContext {
    *  narrowed copy, so a view cannot open mail by a shape the host does not
    *  actually accept */
   onOpenMail?: MailLinkFn
-  /** Shared canvas hire form when opened from the Attention agent list. */
+  /** The active hire draft, projected into the Attention desk when Canvas is hidden. */
   attentionDraft: DraftNodeProps | null
   /** the canonical desk's own host routes, to pass straight through to a
    *  `DeskSlot`. The view supplies no stubs and invents no handler. */
@@ -487,7 +487,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
   const [draft, setDraft] = useState<DraftState | null>(null)
-  const [draftInAttention, setDraftInAttention] = useState(false)
+  const [draftForm, setDraftForm] = useState<DraftForm | null>(null)
   const draftOrigin = useRef<DraftOrigin | null>(null)
   const draftReturn = useRef<DraftOrigin | null>(null)
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -3205,7 +3205,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
 
   const trayRowMenu = (n: CanvasNode, go: () => void,
     ask: (a: { id: string; kind: RetireKind }) => void,
-    deskNow: ReturnType<typeof useDeskActionsNow>, target?: Element): MenuEntry[] => {
+    deskNow: ReturnType<typeof useDeskActionsNow>): MenuEntry[] => {
     // read at menu-open time, never subscribed to (deskhosts.tsx)
     const desk = deskNow(n)
     return agentMenuEntries(n, {
@@ -3246,8 +3246,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         onHireAbove: (tier: string) => spawnAbove(n, tier),
       } : {}),
       onHalt: () => { void toggleAgentHalt(slug, n.id, n.halt?.phase, toast) },
-      onHire: (tier) => target?.closest('[data-agent-nav-surface="attention-agents"]')
-        ? openAttentionDraft(n.id, tier) : spawn(n.id, tier),
+      onHire: (tier) => spawn(n.id, tier),
       // the card's "New project…" too: the row and the card are one menu
       onNewProject: () => spawnProject(n.id),
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
@@ -3376,6 +3375,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     return [...keep.values()]
   }, [tree.audiences, map, hidden])
 
+  // There is one hire form state. The canvas and Attention desk are alternate
+  // hosts selected by `worldHidden`; the form fields stay here when a host unmounts.
   const openDraft = (next: DraftState) => {
     // Keep the original surface when replacing a draft's tier/placement.
     if (!draft) {
@@ -3389,22 +3390,18 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         target: node ? { id: node.id, generation: node.generation } : null }
     }
     draftReturn.current = null
-    setDraftInAttention(false)
     if (draftTimer.current !== null) clearTimeout(draftTimer.current)
+    if (!draft || !!next.project !== !!draft.project) {
+      setDraftForm(next.project ? null : {
+        name: '', charter: '', scope: null, chosen: [],
+        grant: draftOpeningGrant(next, tree.default_top_grant ?? 50),
+      })
+    }
     setDraft(next)
     draftTimer.current = setTimeout(() => {
       draftTimer.current = null
       centerOn(DRAFT, Math.min(2.05, Math.max(1.7, viewRef.current.z)))
     }, 60)
-  }
-  const openAttentionDraft = (parent: string, tier: string) => {
-    draftReturn.current = null
-    draftOrigin.current = null
-    if (draftTimer.current !== null) clearTimeout(draftTimer.current)
-    draftTimer.current = null
-    setDraftGrant(null)
-    setDraftInAttention(true)
-    setDraft({ parent, tier })
   }
   const cancelDraft = useCallback(() => {
     if (draftTimer.current !== null) clearTimeout(draftTimer.current)
@@ -3412,7 +3409,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     draftReturn.current = draftOrigin.current
     draftOrigin.current = null
     firstUseCancel(slug)
-    setDraftInAttention(false)
+    setDraftForm(null)
     setDraft(null)
   }, [slug])
   // Removing a draft changes layout. Restore the saved command after layout
@@ -3530,6 +3527,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         draftReturn.current = null
         if (draftTimer.current !== null) clearTimeout(draftTimer.current)
         draftTimer.current = null
+        setDraftForm(null)
         setDraft(null)
         toast([`project ${born} created`])
         // a side token's ordering, best-effort like a side hire's
@@ -3619,7 +3617,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         draftReturn.current = null
         if (draftTimer.current !== null) clearTimeout(draftTimer.current)
         draftTimer.current = null
-        setDraftInAttention(false)
+        setDraftForm(null)
         setDraft(null)
         if (typeof born === 'string' && born && r.history_entry) toast([`hired ${born}`], historyUndo(slug, r))
       }).catch((e: Error) => toast([`hire failed: ${e.message}`]))
@@ -4096,7 +4094,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             return <ProjectDraftNode key={DRAFT} pos={p}
               onConfirm={confirmProjectDraft} onCancel={cancelDraft} />
           }
-          if (n.id === DRAFT && draftInAttention) return null
+          if (n.id === DRAFT && worldHidden) return null
           if (n.id === DRAFT) {
             return <DraftNode key={DRAFT} pos={p} draft={draft!} map={map} seats={seats}
               maxTop={tree.max_top_grant ?? 1000}
@@ -4105,7 +4103,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onConfirm={confirmDraft} onCancel={cancelDraft}
               onTierChange={tier => setDraft(current => current ? { ...current, tier } : null)}
               hires={{ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire }}
-              onGrant={setDraftGrant} />
+              onGrant={setDraftGrant} form={draftForm ?? undefined}
+              onFormChange={update => setDraftForm(update)} />
           }
           if (hidden.has(n.id)) return null   // piled-away: no card, no space
           if (isProject(n)) {
@@ -4765,7 +4764,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       style={slotBox ? { left: slotBox.x, top: slotBox.y, width: slotBox.w, height: slotBox.h } : undefined}>
       {renderOrgSlot({
         slug, tree, op, toast, map, posOf,
-        attentionDraft: draftInAttention && draft && !draft.project ? {
+        attentionDraft: worldHidden && draft && !draft.project ? {
           pos: { x: 0, y: 0 }, draft, map, seats,
           maxTop: tree.max_top_grant ?? 1000,
           defaultTop: tree.default_top_grant ?? 50, tree, zoom: 1.8,
@@ -4773,6 +4772,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onTierChange: tier => setDraft(current => current ? { ...current, tier } : null),
           hires: { claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire },
           onGrant: setDraftGrant,
+          form: draftForm ?? undefined,
+          onFormChange: update => setDraftForm(update),
         } : null,
         onOpenItem: onWorkItem,
         onFocusAgent: centerOn,

@@ -2,6 +2,7 @@ import './harness'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { useState } from 'react'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { AttentionView } from '../src/attention/AttentionView'
 import { forgetAttentionMode, setOrgView } from '../src/attention/mode'
@@ -137,13 +138,20 @@ test('Hire from an Attention desk header opens its draft in that desk', async (t
   setOrgView(slug, 'attention')
   const op = () => Promise.resolve({})
   const toast = () => {}
-  const v = await mountView(<CurrentOrg.Provider value={slug}>
-    <OrgCanvas tree={tree} slug={slug} op={op} toast={toast} mailEvt={null}
-      canvasContent="hidden" renderOrgSlot={ctx => <AttentionView
-        slug={slug} tree={tree} op={op} toast={toast} map={ctx.map} posOf={ctx.posOf}
-        attentionDraft={ctx.attentionDraft}
-        onFocusAgent={ctx.onFocusAgent} deskExtras={ctx.deskExtras} />} />
-  </CurrentOrg.Provider>, h => h)
+  function Harness() {
+    const [canvasContent, setCanvasContent] = useState<'hidden' | 'shown'>('hidden')
+    return <CurrentOrg.Provider value={slug}>
+      <button className="toggle-canvas" onClick={() => setCanvasContent(v => v === 'hidden' ? 'shown' : 'hidden')}>
+        switch view
+      </button>
+      <OrgCanvas tree={tree} slug={slug} op={op} toast={toast} mailEvt={null}
+        canvasContent={canvasContent} renderOrgSlot={ctx => <AttentionView
+          slug={slug} tree={tree} op={op} toast={toast} map={ctx.map} posOf={ctx.posOf}
+          attentionDraft={ctx.attentionDraft}
+          onFocusAgent={ctx.onFocusAgent} deskExtras={ctx.deskExtras} />} />
+    </CurrentOrg.Provider>
+  }
+  const v = await mountView(<Harness />, h => h)
   t.after(() => v.unmount())
   await inAct(() => flush(8))
 
@@ -164,4 +172,33 @@ test('Hire from an Attention desk header opens its draft in that desk', async (t
   await inAct(() => flush(8))
   assert.equal(!!v.el.querySelector('.attn-desk .sq.draft'), true,
     'the desk action replaces the Attention agent desk with the uninitialized desk')
+  const name = v.el.querySelector<HTMLInputElement>('.attn-desk .df-name')!
+  await inAct(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(name, 'shared draft name')
+    name.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  await inAct(() => { v.el.querySelector<HTMLButtonElement>('.toggle-canvas')!.click() })
+  await inAct(() => flush(6))
+  const canvasName = v.el.querySelector<HTMLInputElement>('.viewport .sq.draft .df-name')
+  assert.equal(canvasName?.value, 'shared draft name',
+    'switching to Canvas shows the same draft fields')
+  assert.equal(!!v.el.querySelector('.attn-desk .sq.draft'), false,
+    'the draft occupies only the active surface')
+  await inAct(() => { v.el.querySelector<HTMLButtonElement>('.toggle-canvas')!.click() })
+  await inAct(() => flush(6))
+  assert.equal(v.el.querySelector<HTMLInputElement>('.attn-desk .df-name')?.value, 'shared draft name',
+    'switching back retains the typed name')
+  await inAct(() => { v.el.querySelector<HTMLButtonElement>('.toggle-canvas')!.click() })
+  await inAct(() => flush(6))
+  const canvasCancel = [...v.el.querySelectorAll<HTMLButtonElement>('.viewport .sq.draft .df-foot button')]
+    .find(button => button.textContent?.trim().startsWith('cancel'))
+  assert.ok(canvasCancel, 'the Canvas copy exposes the shared cancel action')
+  await inAct(() => { canvasCancel!.click() })
+  await inAct(() => flush(5))
+  assert.equal(!!v.el.querySelector('.viewport .sq.draft'), false,
+    'cancelling from Canvas clears the shared draft')
+  await inAct(() => { v.el.querySelector<HTMLButtonElement>('.toggle-canvas')!.click() })
+  await inAct(() => flush(5))
+  assert.equal(!!v.el.querySelector('.attn-desk .sq.draft'), false,
+    'the cancelled draft is also gone from Attention')
 })

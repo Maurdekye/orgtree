@@ -1038,12 +1038,24 @@ export interface DraftNodeProps {
   /** told the pending grant whenever it changes (and on mount): the canvas
    *  keeps the org inbox clear of this card's credit bar */
   onGrant?: (grant: number) => void
+  /** Optional parent-owned fields let the canvas and Attention desk present
+   *  the same in-progress hire without losing edits when the host changes. */
+  form?: DraftForm
+  onFormChange?: (update: (current: DraftForm) => DraftForm) => void
 }
 
-type CharterPreset = {
+export type CharterPreset = {
   name: string; content: string; path: string
   chars?: number; truncated?: boolean
   source?: 'user' | 'bundled' | 'external'; dir?: string
+}
+
+export interface DraftForm {
+  name: string
+  charter: string
+  scope: DraftScope | null
+  chosen: CharterPreset[]
+  grant: number
 }
 
 /** The label a preset is offered under. External template folders never
@@ -1063,14 +1075,33 @@ export function presetLabels(presets: CharterPreset[]): Map<string, string> {
 }
 
 export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
-  tree, zoom, pxc, onConfirm, onCancel, onGrant, onTierChange, hires = {} }: DraftNodeProps) {
-  const [name, setName] = useState('')
+  tree, zoom, pxc, onConfirm, onCancel, onGrant, onTierChange, hires = {},
+  form, onFormChange }: DraftNodeProps) {
+  const [localName, setLocalName] = useState('')
+  const name = form?.name ?? localName
+  const setName = (next: string | ((current: string) => string)) => {
+    const value = typeof next === 'function' ? next(name) : next
+    if (form) onFormChange?.(current => ({ ...current, name: value }))
+    else setLocalName(value)
+  }
   useEffect(() => { firstUseName(tree.slug, name) }, [tree.slug, name])
-  const [charter, setCharter] = useState('')
+  const [localCharter, setLocalCharter] = useState('')
+  const charter = form?.charter ?? localCharter
+  const setCharter = (next: string | ((current: string) => string)) => {
+    const value = typeof next === 'function' ? next(charter) : next
+    if (form) onFormChange?.(current => ({ ...current, charter: value }))
+    else setLocalCharter(value)
+  }
   // pre-hire permissions (user spec): configure the agent's dirs, tool
   // switches, MCP grants and visibility BEFORE hiring — no post-hire
   // adjustment needed. null = the org/parent defaults, untouched.
-  const [scope, setScope] = useState<DraftScope | null>(null)
+  const [localScope, setLocalScope] = useState<DraftScope | null>(null)
+  const scope = form ? form.scope : localScope
+  const setScope = (next: DraftScope | null | ((current: DraftScope | null) => DraftScope | null)) => {
+    if (form) onFormChange?.(current => ({ ...current,
+      scope: typeof next === 'function' ? next(current.scope) : next }))
+    else setLocalScope(next)
+  }
   const [permsOpen, setPermsOpen] = useState(false)
   const [modelAnchor, setModelAnchor] = useState<HTMLElement | null>(null)
   const modelButton = useRef<HTMLButtonElement | null>(null)
@@ -1108,7 +1139,13 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   // shows the source file's path on disk; only finalizing the hire turns
   // them into actual charter text (prepended to any manual entry).
   const [presets, setPresets] = useState<CharterPreset[]>([])
-  const [chosen, setChosen] = useState<CharterPreset[]>([])
+  const [localChosen, setLocalChosen] = useState<CharterPreset[]>([])
+  const chosen = form?.chosen ?? localChosen
+  const setChosen = (next: CharterPreset[] | ((current: CharterPreset[]) => CharterPreset[])) => {
+    if (form) onFormChange?.(current => ({ ...current,
+      chosen: typeof next === 'function' ? next(current.chosen) : next }))
+    else setLocalChosen(next)
+  }
   const [presetLoad, setPresetLoad] = useState<'pending' | 'error' | 'ready'>('pending')
   const [presetError, setPresetError] = useState<string | null>(null)
   const [presetRetry, setPresetRetry] = useState(0)
@@ -1138,8 +1175,14 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   // the resulting content without changing the hire flow.
   const cut = chosen.filter((c) => c.truncated)
   // top-level drafts pre-fill the org's default grant (50 unless configured)
-  const [grant, setGrant] = useState(() =>
+  const [localGrant, setLocalGrant] = useState(() =>
     draftOpeningGrant(draft, defaultTop))
+  const grant = form?.grant ?? localGrant
+  const setGrant = (next: number | ((current: number) => number)) => {
+    const value = typeof next === 'function' ? next(grant) : next
+    if (form) onFormChange?.(current => ({ ...current, grant: value }))
+    else setLocalGrant(value)
+  }
   const grantCb = useRef(onGrant)
   grantCb.current = onGrant
   useEffect(() => { grantCb.current?.(grant) }, [grant])
