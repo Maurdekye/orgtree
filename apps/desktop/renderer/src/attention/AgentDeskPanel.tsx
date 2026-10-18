@@ -37,6 +37,8 @@ import { DRAFT, providerOf, USER, useEsc } from '../canvas/shared'
 import { setButtonAgent } from '../buttoncolours'
 import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
 import { DeskSlot } from '../canvas/deskhosts'
+import { DraftNode } from '../canvas/cards'
+import type { DraftNodeProps } from '../canvas/cards'
 import type { DeskChatProps } from '../canvas/desk'
 import { agentNavProps } from '../canvas/agentnav'
 import { ActiveAgentsFilter, AgentTray, trayRows } from '../canvas/agenttray'
@@ -60,6 +62,7 @@ export interface AgentDeskPanelProps {
   posOf?: (id: string) => Pt | undefined
   activeAgentsOnly?: boolean
   onActiveAgentsOnly?: (value: boolean) => void
+  attentionDraft?: DraftNodeProps | null
   /** the routes the canonical Desk already takes from its host (jump, mail
    *  links, docket links, documents). Passed through untouched — this panel
    *  invents none of them and supplies no stubs. */
@@ -141,7 +144,7 @@ export function inCloseZone(
 
 export function AgentDeskPanel({
   slug, tree, op, toast, map, posOf, deskExtras, eligible = true, claim,
-  activeAgentsOnly = false, onActiveAgentsOnly,
+  activeAgentsOnly = false, onActiveAgentsOnly, attentionDraft,
 }: AgentDeskPanelProps) {
   const layout = useAttentionLayout(slug)
   const [query, setQuery] = useState('')
@@ -286,6 +289,7 @@ export function AgentDeskPanel({
       <div className="attn-agents-scrim" aria-hidden="true"
         onClick={() => { if (open) close() }} />
       <div className="attn-agents" role="listbox" aria-label="Agents" ref={listRef}
+        data-agent-nav-surface="attention-agents"
         id={`attn-agents-${slug}`}
         onKeyDown={onListKey}>
         {/* THE CANVAS'S OWN AGENTS LIST (user 2026-09-30: "identical to the
@@ -301,7 +305,8 @@ export function AgentDeskPanel({
           compactAt={tree.compact_at} refs={refs} selected={selectedId}
           filterLabel="Filter agents"
           filterActions={onActiveAgentsOnly && <ActiveAgentsFilter checked={activeAgentsOnly} onChange={onActiveAgentsOnly} />}
-          rowProps={(n) => agentNavProps(n.id)}
+          rowProps={(n) => ({ ...agentNavProps(n.id),
+            'data-agent-nav-surface': 'attention-agents' })}
           mainProps={(n) => ({
             'data-attn-agent': n.id, role: 'option',
             'aria-selected': n.id === selectedId,
@@ -314,7 +319,11 @@ export function AgentDeskPanel({
           slot. It is the same value handed to `DeskSlot` below. */}
       <div className="attn-desk" data-attn-desk-eligible={eligible ? 'yes' : 'no'}
         data-attn-desk-claim={claim ?? 'none'}>
-        {selected
+        {attentionDraft
+          ? <div className="attn-draft-stage" data-attn-draft="yes">
+              <div className="attn-draft-scale"><DraftNode {...attentionDraft} /></div>
+            </div>
+          : selected
           ? <DeskSlot bare node={selected} map={map} op={op} slug={slug} toast={toast}
               maxTop={tree.max_top_grant ?? 1000}
               eligible={eligible} claim={claim} hidePopout

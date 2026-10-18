@@ -1016,7 +1016,7 @@ export function CreditBar({ seat = 0, grant, committed, segments = [], draftMode
   )
 }
 
-interface DraftNodeProps {
+export interface DraftNodeProps {
   pos: Pt
   draft: DraftState
   map: Map<string, CanvasNode>

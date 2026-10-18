@@ -44,6 +44,7 @@ import { LanIcon, NotificationsActiveIcon } from '../icons'
 import { AttentionQueue } from './AttentionQueue'
 import type { AttentionQueueProps } from './AttentionQueue'
 import { AgentDeskPanel } from './AgentDeskPanel'
+import type { DraftNodeProps } from '../canvas/cards'
 import {
   clampSplit, setAttentionLayout, setOrgView, SPLIT_MAX, SPLIT_MIN,
   startAttentionModeSync, useAttentionLayout, useOrgView,
@@ -324,6 +325,7 @@ export interface AttentionViewProps {
   posOf?: (id: string) => Pt | undefined
   attentionDeskActiveAgentsOnly?: boolean
   onAttentionDeskActiveAgentsOnly?: (value: boolean) => void
+  attentionDraft?: DraftNodeProps | null
   /** routes out of the simplified workflow; each omitted one draws no control */
   onOpenItem?: (itemSlug: string) => void
   onFocusAgent?: (agentId: string) => void
@@ -561,6 +563,7 @@ export function AttentionView(props: AttentionViewProps) {
               toast={props.toast} map={props.map} posOf={props.posOf}
               activeAgentsOnly={props.attentionDeskActiveAgentsOnly}
               onActiveAgentsOnly={props.onAttentionDeskActiveAgentsOnly}
+              attentionDraft={props.attentionDraft}
               eligible={deskEligible} claim={deskClaim}
               deskExtras={props.deskExtras} />
           </PinFrame>

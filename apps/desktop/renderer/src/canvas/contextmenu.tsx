@@ -362,7 +362,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     // the two are never combined and there is no submenu.
     const navEl = agentNavElementAt(e.target, el)
     const navId = navEl?.getAttribute(AGENT_NAV_ATTR) || null
-    const navEntries = objectList.length ? objectList : navId ? (agentNav?.current?.(navId) ?? []) : []
+    const navEntries = objectList.length ? objectList : navId ? (agentNav?.current?.(navId, navEl ?? undefined) ?? []) : []
     // `agentNavElementAt` is `closest`, so a non-null answer already MEANS
     // "the press started at or inside the marked target" — that is the whole
     // of the more-specific-target test, and no separate containment check is

@@ -53,7 +53,7 @@ export const AGENT_TOOLTIP_ATTR = 'data-agent-tooltip'
 
 /** Build the canonical menu for an arbitrary agent id, or return nothing when
  *  this window cannot (no registration, or no such agent in this tree). */
-export type AgentNavMenu = (id: string) => MenuEntry[]
+export type AgentNavMenu = (id: string, target?: Element) => MenuEntry[]
 
 export interface AgentTooltipInfo {
   title: string

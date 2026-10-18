@@ -94,6 +94,7 @@ test('Attention Hire a subordinate opens the draft in the Agent desk panel', asy
     <OrgCanvas tree={tree} slug={slug} op={op} toast={toast} mailEvt={null}
       canvasContent="hidden" renderOrgSlot={ctx => <AttentionView
         slug={slug} tree={tree} op={op} toast={toast} map={ctx.map} posOf={ctx.posOf}
+        attentionDraft={ctx.attentionDraft}
         onFocusAgent={ctx.onFocusAgent} deskExtras={ctx.deskExtras} />} />
   </CurrentOrg.Provider>, h => h)
   t.after(() => v.unmount())
@@ -119,8 +120,10 @@ test('Attention Hire a subordinate opens the draft in the Agent desk panel', asy
     'the same name field is available in the panel')
   assert.equal(!!document.querySelector('.viewport .sq.draft'), false,
     'Attention hire does not open a hidden canvas draft')
-  await inAct(() => { window.dispatchEvent(new window.KeyboardEvent('keydown',
-    { key: 'Escape', bubbles: true, cancelable: true })) })
+  const cancel = [...v.el.querySelectorAll<HTMLButtonElement>('.attn-desk .df-foot button')]
+    .find(button => button.textContent?.trim().startsWith('cancel'))
+  assert.ok(cancel, 'the shared draft exposes its cancel action')
+  await inAct(() => { cancel!.click() })
   await inAct(() => flush(4))
   assert.equal(!!v.el.querySelector('.attn-desk .sq.draft'), false,
     'cancelling the draft leaves no draft or hire behind')

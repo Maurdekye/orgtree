@@ -1849,6 +1849,7 @@ export default function App() {
                 renderOrgSlot={v3 ? (ctx) => (
                   <AttentionView slug={ctx.slug} tree={ctx.tree} op={ctx.op}
                     toast={ctx.toast} map={ctx.map} posOf={ctx.posOf}
+                    attentionDraft={ctx.attentionDraft}
                     attentionDeskActiveAgentsOnly={attentionDeskActiveAgentsOnly}
                     onAttentionDeskActiveAgentsOnly={setAttentionDeskActiveAgentsOnly}
                     onOpenItem={ctx.onOpenItem} onFocusAgent={ctx.onFocusAgent}
