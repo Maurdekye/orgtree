@@ -27,6 +27,7 @@ for(const mode of ['canvas','attention'] as const)test(`${mode}: newest transcri
     assert.equal(rig.observed.includes('older'),true)
     assert.equal(view.el.querySelector('.mention-bell')===null,true,'hidden after all transcript mentions observed')
     assert.equal(view.el.querySelector('.ask-bell')?.classList.contains('glow'),true,'mail cue stays independent')
+    assert.deepEqual(rig.mailReads,[],'transcript jumps never read mail')
   }finally{await view.unmount();rig.restore()}
 })
 test('mail-only mentions keep inbox attention without exposing the transcript button',async()=>{
