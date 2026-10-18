@@ -310,8 +310,10 @@
   wheel. Normal capability comes from the actual harness route; unsupported or
   unreadable capability disables normal with a reason. A POST started:false is
   a refusal, never a success toast. Direct Halt/Unhalt have no ellipsis; team
-  bulk compaction uses the shared Cheap-default/Normal type picker. Normal
-  previews unsupported/sessionless/unreadable seats as skips and only reports
+  bulk compaction uses two counted confirm buttons (normal/cheap), plus Cancel,
+  with both target/skip previews visible and no radios. Opening only reads Normal
+  support; pending/zero-target Normal is disabled while eligible Cheap remains
+  available. Normal previews unsupported/sessionless/unreadable seats as skips and only reports
   admitted requests as started; there is no fallback to Cheap. The single-agent
   modal retains a cold-cache warning only for backend evidence, never idle age.
   See [compact choice](docs/rust-engine/compact-choice.md).

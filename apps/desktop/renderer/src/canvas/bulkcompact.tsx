@@ -193,7 +193,7 @@ export async function normalCompactAgents(scope: string, plan: BulkCompactPlan,
   return outcome
 }
 
-/** Shared type picker. Preview reads never compact; confirmation snapshots the
+/** Two explicit actions with simultaneous previews. Preview reads never compact; confirmation snapshots the
  *  selected plan, while each backend action retains its existing admission. */
 export function BulkCompactConfirm({ title, scope, targets, op, toast, close, slug: explicitSlug }: {
   title: ReactNode
@@ -206,12 +206,11 @@ export function BulkCompactConfirm({ title, scope, targets, op, toast, close, sl
 }) {
   const currentOrg = useCurrentOrg()
   const slug = explicitSlug ?? currentOrg
-  const [type, setType] = useState<'cheap' | 'normal'>('cheap')
   const base = useMemo(() => planBulkCompact(targets), [targets])
-  const capKey = JSON.stringify([slug, base.eligible.map(n => [n.id, n.session_id, n.tier, n.model_id])])
+  const capKey = JSON.stringify([slug, base.eligible.map(n => [n.id, n.session_id, n.tier, n.model_id, n.scope?.model_version])])
   const [caps, setCaps] = useState<{ key: string; reasons: Record<string, string | null> } | null>(null)
   useEffect(() => {
-    if (type !== 'normal') return
+    setCaps(null)
     let live = true
     const check = async () => {
       const reasons: Record<string, string | null> = Object.create(null)
@@ -234,39 +233,48 @@ export function BulkCompactConfirm({ title, scope, targets, op, toast, close, sl
     return () => { live = false }
     // The key contains every candidate identity/session/route input. A fresh
     // tree object alone must not restart all reads while a preview is loading.
-  }, [type, capKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [capKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const reasons = caps?.key === capKey ? caps.reasons : null
-  const checking = type === 'normal' && !reasons && base.eligible.length > 0
-  const plan: BulkCompactPlan = type === 'cheap' ? base : {
+  const checking = !reasons && base.eligible.length > 0
+  const normal: BulkCompactPlan = {
     eligible: reasons ? base.eligible.filter(n => reasons[n.id] === null) : [],
     skipped: [...base.skipped, ...(reasons ? base.eligible.filter(n => reasons[n.id] !== null)
       .map(n => ({ id: n.id, reason: reasons[n.id] ?? 'Normal capability is unavailable.' })) : [])],
   }
-  const n = plan.eligible.length
+  const cheapCount = base.eligible.length
+  const normalCount = normal.eligible.length
   const body = <>
-    <fieldset className="bulk-compact-types">
-      <legend>Compaction type</legend>
-      <label><input type="radio" name="bulk-compact-type" value="cheap" checked={type === 'cheap'}
-        onChange={() => setType('cheap')} /> Cheap compact</label>
+    <section data-compact-preview="cheap">
+      <h4>Cheap compact</h4>
       <p>Start a fresh session with a summary handoff; keep the agent's settings and team.</p>
-      <label><input type="radio" name="bulk-compact-type" value="normal" checked={type === 'normal'}
-        onChange={() => { setCaps(null); setType('normal') }} /> Normal compact</label>
+      <p>{cheapCount
+        ? `${plural(cheapCount, 'agent')} will be cheap-compacted, one at a time: ${base.eligible.map(t => t.id).join(', ')}.`
+        : 'No agents can be cheap-compacted right now.'}</p>
+      {base.skipped.length > 0 && <p>{`Skipped (${base.skipped.length}): ${listed(base.skipped)}.`}</p>}
+    </section>
+    <section data-compact-preview="normal">
+      <h4>Normal compact</h4>
       <p>The supported harness compacts its existing conversation.</p>
-    </fieldset>
-    {checking ? <p role="status">Checking normal compaction support for {plural(base.eligible.length, 'agent')}: {base.eligible.map(t => t.id).join(', ')}.</p>
-      : <p>{n
-        ? type === 'cheap'
-          ? `${plural(n, 'agent')} will be cheap-compacted, one at a time: ${plan.eligible.map(t => t.id).join(', ')}. Each keeps its seat, name, team, charter and mailbox; the old session remains consultable in its lineage.`
-          : `Normal compaction will be requested for ${plural(n, 'agent')}, one at a time: ${plan.eligible.map(t => t.id).join(', ')}.`
-        : 'No agent in this selection can use this compaction type right now; nothing will change.'}</p>}
-    {plan.skipped.length > 0 && <p>{`Skipped (${plan.skipped.length}): ${listed(plan.skipped)}.`}</p>}
-    {n > 0 && <p>No running turn is interrupted. The backend checks each request again; a refusal for one agent does not stop the others. The final summary names every outcome.</p>}
+      {checking
+        ? <p role="status">Checking normal compaction support for {plural(base.eligible.length, 'agent')}: {base.eligible.map(t => t.id).join(', ')}.</p>
+        : <p>{normalCount
+          ? `Normal compaction will be requested for ${plural(normalCount, 'agent')}, one at a time: ${normal.eligible.map(t => t.id).join(', ')}.`
+          : 'No agents can use normal compaction right now.'}</p>}
+      {normal.skipped.length > 0 && <p>{`Skipped (${normal.skipped.length}): ${listed(normal.skipped)}.`}</p>}
+    </section>
+    <p>No running turn is interrupted. Each request is checked again; one refusal does not stop the others. The final summary names every outcome.</p>
   </>
-  return <ConfirmModal title={title} body={body} confirmDisabled={checking || n === 0}
-    confirmLabel={n ? `${type === 'cheap' ? 'cheap' : 'normal'}-compact ${plural(n, 'agent')}` : 'Compact agents'}
+  return <ConfirmModal title={title} body={body}
+    confirmLabel={`compact ${plural(normalCount, 'agent')}`}
+    confirmDisabled={checking || normalCount === 0}
+    confirmTitle={checking ? 'Checking normal compaction support' : normalCount ? undefined : 'No eligible agents for normal compaction'}
     onConfirm={() => {
-      if (!n || checking) return
-      if (type === 'cheap') void cheapCompactAgents(scope, plan, op, toast)
-      else if (slug) void normalCompactAgents(scope, plan, slug, toast)
+      if (!slug || checking || !normalCount) return
+      void normalCompactAgents(scope, normal, slug, toast)
+    }}
+    altLabel={`cheap-compact ${plural(cheapCount, 'agent')}`} altDisabled={cheapCount === 0}
+    onAlt={() => {
+      if (!cheapCount) return
+      void cheapCompactAgents(scope, base, op, toast)
     }} close={close} />
 }

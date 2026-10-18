@@ -12,18 +12,20 @@ const agent = (id: string, extra: Partial<CanvasNode> = {}): CanvasNode => ({
   occupancy: 40000, context_window: 200000, ...extra,
 } as CanvasNode)
 const response = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } })
+let actionType = 'cheap'
 const oldFetch = globalThis.fetch
-test.beforeEach(() => { globalThis.fetch = (async () => response({ supported: true, reason: null })) as typeof fetch })
+test.beforeEach(() => { actionType = 'cheap'; globalThis.fetch = (async () => response({ supported: true, reason: null })) as typeof fetch })
 test.afterEach(() => { globalThis.fetch = oldFetch })
 const modal = (targets: CanvasNode[], op: OpFn, said: string[][] = [], close = noop) =>
   <CurrentOrg.Provider value="bulk-org"><BulkCompactConfirm title="Compact subtree?" scope="subtree of lead"
     targets={targets} op={op} toast={lines => { if (lines) said.push(lines) }} close={close} /></CurrentOrg.Provider>
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')!
-const go = () => dialog().querySelector<HTMLButtonElement>('button.danger.solid')!
-const choose = async (value: string) => {
-  const radio = dialog().querySelector<HTMLInputElement>(`input[type="radio"][value="${value}"]`)
-  assert.ok(radio, `the ${value} type is offered`)
-  await inAct(async () => { radio.click(); await flush(4) })
+const go = () => [...dialog().querySelectorAll<HTMLButtonElement>('button')]
+  .find(b => b.textContent?.startsWith(actionType === 'cheap' ? 'cheap-compact ' : 'compact '))!
+const ready = async (value: string) => {
+  actionType = value
+  await inAct(async () => { await flush(4) })
+  assert.ok(go(), `the ${value} action is offered`)
 }
 
 test('shared agent and project bulk entries use plain Compact wording', () => {
@@ -37,16 +39,18 @@ test('shared agent and project bulk entries use plain Compact wording', () => {
   assert.equal(project.some(e => e.label === 'Compact all agents under it\u2026'), true)
 })
 
-test('Cheap is the default choice; preview names agents/skips and opening does not execute or fetch Normal support', async () => {
+test('both action previews name agents/skips; opening only reads Normal support and never compacts', async () => {
   const ops: unknown[] = [], gets: string[] = []
   globalThis.fetch = (async url => { gets.push(String(url)); return response({ supported: true }) }) as typeof fetch
   const view = await mountView(modal([agent('one'), agent('busy', { busy: true })], async b => { ops.push(b); return {} as never }), el => el)
   try {
     assert.match(dialog().textContent ?? '', /one/)
     assert.match(dialog().textContent ?? '', /busy.*mid-turn/)
-    assert.equal(dialog().querySelector<HTMLInputElement>('input[value="cheap"]')?.checked, true)
-    assert.equal(dialog().querySelector<HTMLInputElement>('input[value="normal"]')?.checked, false)
-    assert.deepEqual(ops, []); assert.deepEqual(gets, [])
+    await ready('cheap')
+    assert.equal(dialog().querySelector('input[type="radio"]') === null, true)
+    assert.equal(go().disabled, false)
+    assert.equal(dialog().querySelectorAll('[data-compact-preview]').length, 2)
+    assert.deepEqual(ops, []); assert.equal(gets.length, 1)
   } finally { await view.unmount() }
 })
 
@@ -61,7 +65,7 @@ test('Cancel sends no compaction request', async () => {
   } finally { await view.unmount() }
 })
 
-test('confirming default Cheap preserves sequential if_idle operations and busy skips', async () => {
+test('confirming Cheap directly preserves sequential if_idle operations and busy skips', async () => {
   const ops: unknown[] = []
   const view = await mountView(modal([agent('one'), agent('busy', { busy: true }), agent('two')], async b => { ops.push(b); return {} as never }), el => el)
   try {
@@ -82,7 +86,7 @@ test('Normal preview skips unsupported, sessionless, busy and unreadable seats; 
   const targets = [agent('one'), agent('two'), agent('unsupported'), agent('sessionless', { session_id: null }), agent('unreadable'), agent('busy', { busy: true })]
   const view = await mountView(modal(targets, async b => { ops.push(b); return {} as never }, said), el => el)
   try {
-    await choose('normal')
+    await ready('normal')
     const text = dialog().textContent ?? ''
     assert.match(text, /2 agents/)
     for (const word of ['one', 'two', 'unsupported', 'Codex', 'sessionless', 'session', 'unreadable', 'capability read unavailable', 'busy', 'mid-turn']) assert.ok(text.includes(word), word)
@@ -103,22 +107,22 @@ test('Normal cannot confirm while capability is pending; Cheap remains available
   globalThis.fetch = (async (url, init) => { if (init?.method === 'POST') posts.push(String(url)); return gate }) as typeof fetch
   const view = await mountView(modal([agent('one')], async () => ({} as never)), el => el)
   try {
-    await choose('normal')
+    await ready('normal')
     assert.equal(go().disabled, true)
     assert.match(dialog().textContent ?? '', /checking/i)
-    await choose('cheap'); assert.equal(go().disabled, false)
+    await ready('cheap'); assert.equal(go().disabled, false)
     assert.deepEqual(posts, [])
   } finally { release(response({ supported: true })); await inAct(async () => { await flush(2) }); await view.unmount() }
 })
 
-test('all-unsupported Normal selection cannot execute, and choosing Cheap is an explicit user action', async () => {
+test('all-unsupported Normal action cannot execute, and Cheap requires its own button click', async () => {
   let ops = 0
   globalThis.fetch = (async () => response({ supported: false, reason: 'Unsupported harness' })) as typeof fetch
   const view = await mountView(modal([agent('one')], async () => { ops++; return {} as never }), el => el)
   try {
-    await choose('normal'); assert.equal(go().disabled, true)
+    await ready('normal'); assert.equal(go().disabled, true)
     await inAct(() => go().click()); assert.equal(ops, 0)
-    await choose('cheap'); assert.equal(go().disabled, false)
+    await ready('cheap'); assert.equal(go().disabled, false)
     await inAct(async () => { go().click(); await flush(4) }); assert.equal(ops, 1)
   } finally { await view.unmount() }
 })
@@ -132,7 +136,7 @@ test('a running Cheap batch prevents overlapping Normal execution', async () => 
   const said: string[][] = []
   const view = await mountView(modal([agent('one')], async () => ({} as never), said), el => el)
   try {
-    await choose('normal'); await inAct(async () => { go().click(); await flush(3) })
+    await ready('normal'); await inAct(async () => { go().click(); await flush(3) })
     assert.equal(posts, 0); assert.match(said.flat().join(' '), /already running/)
   } finally { release(); await first; await view.unmount() }
 })
@@ -152,7 +156,7 @@ test('Normal waits for each admission and continues after a transport failure', 
   }) as typeof fetch
   const view = await mountView(modal([agent('one'), agent('two'), agent('three')], async () => { throw new Error('Cheap fallback must never run') }, said), el => el)
   try {
-    await choose('normal')
+    await ready('normal')
     await inAct(async () => { go().click(); await flush(2) })
     assert.deepEqual(posts, ['one'], 'next admission waits for the first response')
     await inAct(async () => { release(response({ started: true })); await flush(5) })

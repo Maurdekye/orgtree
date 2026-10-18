@@ -283,7 +283,7 @@ async function pick(label: string) {
 }
 const confirmBox = () => document.querySelector('.confirm-box') as HTMLElement | null
 async function confirm() {
-  const go = confirmBox()!.querySelector('button.danger.solid') as HTMLButtonElement
+  const go = [...confirmBox()!.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.startsWith('cheap-compact '))!
   await inAct(() => { go.click() })
   await flush(6)
 }

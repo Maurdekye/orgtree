@@ -1986,7 +1986,7 @@
     "cheap compact: what the summary carries",
     "auto cheap compact policy",
     "handoff notes and breadcrumbs after compaction",
-    "bulk Cheap-default/Normal choice, actual capability skips, sequential admission and truthful partial outcomes"
+    "two counted bulk actions and simultaneous type previews, actual capability skips, sequential admission and truthful partial outcomes"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/domain/ops.rs:2023",
@@ -3236,7 +3236,7 @@
    "must_cover": [
     "bulk actions",
     "shared scratch folder context entry on overview and focused switchboard",
-    "Compact all agents type picker and eligible/skipped preview"
+    "Compact all agents counted cheap/normal actions and simultaneous eligible/skipped previews"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/cards.tsx:113",
@@ -3386,7 +3386,7 @@
     "every agent-menu item",
     "agents and projects: Desk, Desk as a pinned window, Desk in a separate window in that order; keep existing actions",
     "own-led numeric-id team scratch next to personal scratch",
-    "plain bulk Compact entries open Cheap-default/Normal picker with per-target preview, confirmation and cancellation"
+    "plain bulk Compact entries open two counted confirm buttons with simultaneous per-type previews, disabled zero targets and cancellation"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/contextmenu.tsx:461",

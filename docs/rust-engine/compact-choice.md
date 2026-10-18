@@ -4,7 +4,7 @@ User 2026-10-17 17:15Z requested plain Halt when it acts immediately and a
 Compact… menu entry that opens a normal/cheap choice. Coordinator 17:18Z
 confirmed actual harness capability and truthful refusal messages. User and
 coordinator 2026-10-18 11:18Z/11:20Z replaced cheap-only bulk scopes with the
-shared type picker below; this adds no harness compaction support.
+shared bulk confirmation below; this adds no harness compaction support.
 
 The shared agent menu shows Halt or Unhalt without dots for a direct action.
 When an actual team submenu exists, it keeps the ellipsis. Compact… opens the
@@ -26,19 +26,22 @@ pending capability disables normal only. Live/busy/session/bearer gates remain;
 POST still rechecks admission and its started:false response is a refusal, never
 a started-compaction toast. Cheap uses the existing cheap_compact operation.
 
-## Bulk type choice (2026-10-18)
+## Bulk actions (2026-10-18)
 
 Managers offer Compact subtree and Compact all subordinates (with ellipses),
 projects offer Compact all agents under it, and the org-root eye offers Compact
-all agents. Every door opens BulkCompactConfirm before any action. Cheap is
-selected initially; Normal is the only other type. The single-agent modal is
-unchanged. Cancel performs no compaction.
+all agents. Every door opens BulkCompactConfirm before any action. Cheap
+and Normal each have a counted confirm button, plus Cancel. User 2026-10-18
+14:29-14:30Z replaced the radio choice with these two actions. The single-agent
+modal is unchanged. Cancel performs no compaction.
 
-The preview names eligible and skipped agents, with counts and reasons. Both
+Both per-type previews stay visible together, naming eligible and skipped
+agents with counts and reasons. Buttons read compact N agents and cheap-compact
+N agents; zero-target actions are disabled. Both
 choices retain the existing live-seat, idle, measured-context and already-reset
-bulk plan. Cheap retains cheap_compact with if_idle per target. Selecting Normal
-reads each candidate's actual capability, without starting a process; pending
-reads disable Normal confirmation while Cheap remains available. Unsupported,
+bulk plan. Cheap retains cheap_compact with if_idle per target. Opening the dialog reads
+each candidate's actual Normal capability, without starting a process; pending
+reads disable only Normal confirmation while eligible Cheap remains available. Unsupported,
 no-session and unreadable-capability seats are skipped with reasons. An all-skip
 Normal plan cannot confirm and never falls back to Cheap.
 
