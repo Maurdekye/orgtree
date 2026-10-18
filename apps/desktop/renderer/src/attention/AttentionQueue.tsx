@@ -60,9 +60,10 @@ import { eventSurface } from '../events/card'
 import { dismissUserMention, useSeenMentions } from '../canvas/agentmentions'
 import { setAttentionLayout } from './mode'
 import {
-  attentionNodes, buildAttentionRows, isRetained, retainSelected, splitMentionBlurb,
+  attentionNodes, buildAttentionRows, isRetained, mentionExcerpt, retainSelected,
 } from './feed'
 import type { AttentionRow } from './feed'
+import { MentionRowView } from './mentionrow'
 
 export type AttentionNotificationFocus = (notice: DesktopNotice) => boolean
 
@@ -372,6 +373,7 @@ export function AttentionQueue({
     isRetained(row, live) ? { ...row.mailRow!, _wait: false } : row.mailRow!
 
   const current = rows.find((r) => r.key === selected) ?? null
+  const mentionText = current?.kind === 'mention' && current.mention ? mentionExcerpt(current.mention.blurb, Infinity) : null
   const profile = 'operator'
   const typed = (m: MailRow) => {
     const d = decodeEventRow(m, profile)
@@ -438,7 +440,6 @@ export function AttentionQueue({
               )
             }
             if (row.kind === 'mention' && row.mention && row.agent) {
-              const cut = splitMentionBlurb(row.mention.blurb)
               const activate = () => {
                 void dismissUserMention(slug, row.agent!, row.mention!.id, row.mention!.event_id, { highlight: true })
                 setAttentionLayout(slug, { agent: row.agent! })
@@ -447,18 +448,7 @@ export function AttentionQueue({
               return (
                 <div key={row.key} className="attn-cell" data-attn-row={row.key}
                   data-attn-kind="mention" role="option" aria-selected={sel}>
-                  <div className={'mailer-row attn-mention-row wait' + (sel ? ' on' : '')}
-                    onClick={activate}>
-                    <div className="mr-top">
-                      <span className="mr-party">{rowParty(row.agent)}</span>
-                      <span className="badge kind-mention">mention</span>
-                    </div>
-                    <div className="attn-mention-blurb" data-mention-blurb={row.mention.blurb}>
-                      <span className="attn-mention-before">{cut.before}</span>
-                      <span className="attn-mention-token">{cut.token}</span>
-                      <span className="attn-mention-after">{cut.after}</span>
-                    </div>
-                  </div>
+                  <MentionRowView mention={row.mention} party={rowParty(row.agent)} selected={sel} onClick={activate} />
                 </div>
               )
             }
@@ -499,7 +489,7 @@ export function AttentionQueue({
               : current.kind === 'mention' && current.mention && current.agent
                 ? <div className="pad attn-mention-detail">
                     <div className="row">{paneSender(current.agent)} <span className="dim">mentioned @user</span></div>
-                    <p className="attn-mention-detail-body">{current.mention.blurb}</p>
+                    <p className="attn-mention-detail-body">{mentionText?.lead}<span className="attn-mention-token">{mentionText?.token}</span>{mentionText?.tail}</p>
                   </div>
               : current.mailRow
                 ? <MailReadPane cur={asMail(current)} refs={refs}

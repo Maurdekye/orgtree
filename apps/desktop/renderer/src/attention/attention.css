@@ -162,36 +162,11 @@
 .attn-cell { display: contents; }
 .attn-gaps { font-size: 12px; }
 .attn-empty { padding: 8px 6px; }
-.attn-mention-row { cursor: pointer; }
-.attn-mention-blurb {
-  display: flex;
-  align-items: baseline;
-  width: 100%;
-  font-size: 12px;
-  color: var(--muted, var(--fg));
-  overflow: hidden;
-  white-space: nowrap;
-}
-.attn-mention-before {
-  flex: 1 1 0;
-  min-width: 0;
-  text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.attn-mention-token {
-  flex: 0 0 auto;
-  font-weight: 600;
-  color: var(--accent, var(--fg));
-  padding: 0 3px;
-}
-.attn-mention-after {
-  flex: 1 1 0;
-  min-width: 0;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* A MENTION ROW is the inbox's own row (attention/mentionrow.tsx; user
+ * 2026-10-18 14:39Z), so all it adds is the @user mark inside its one-line
+ * excerpt: a run of text, flush with its punctuation (no padding), the same
+ * accent the transcript's @user highlight uses. */
+.attn-mention-token { font-weight: 600; color: var(--agent-accent-text, var(--accent)); }
 
 /* ------------------------------------------------- the dynamic agent area */
 .attn-agents-wrap {

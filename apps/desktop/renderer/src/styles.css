@@ -3069,7 +3069,9 @@ textarea.ask-free-response-input { resize: vertical; }
   border-left-color: color-mix(in srgb, var(--accent) 40%, var(--line));
 }
 .mailrow.ask.askdone.on { background: color-mix(in srgb, var(--accent) 13%, var(--bg)); }
-.askkind {
+/* …and the Attention list's @user mention row wears the same pill
+   (attention/mentionrow.tsx, user 2026-10-18 14:39Z) */
+.askkind, .mentionkind {
   flex: none; font-size: 9px; line-height: 1.6; color: var(--agent-accent-text, var(--accent));
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   border-radius: 8px; padding: 0 5px;

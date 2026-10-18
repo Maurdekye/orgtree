@@ -201,7 +201,7 @@ test('@user renders as a link that opens the user Inbox and preserves @user text
   assert.ok(host.textContent?.includes('Heads up @user — build finished'))
 })
 
-test('@user attention row shows centered cut-out blurb and clicking it removes it, switches the attention desk, and highlights the mention',async t=>{
+test('@user attention row shows one word-boundary excerpt and clicking it removes it, switches the attention desk, and highlights the mention',async t=>{
   resetSeenMentions()
   forgetAttentionMode()
   const seenPosts:Array<{url:string;body:string}>=[]
@@ -271,9 +271,9 @@ test('@user attention row shows centered cut-out blurb and clicking it removes i
 
   const rowEl=view.el.querySelector<HTMLElement>('[data-attn-kind="mention"] .attn-mention-row')
   assert.ok(rowEl,'mention row renders in AttentionQueue')
-  assert.equal(rowEl.querySelector('.attn-mention-before')?.textContent,'All checks passed — ')
+  // one excerpt, not the two centred cut-out halves it replaced (user 2026-10-18 14:39Z)
+  assert.equal(rowEl.querySelector('.l2 .mail-preview-text')?.textContent,'All checks passed — @user ready for your inspection.')
   assert.equal(rowEl.querySelector('.attn-mention-token')?.textContent,'@user')
-  assert.equal(rowEl.querySelector('.attn-mention-after')?.textContent,' ready for your inspection.')
 
   await inAct(async()=>{
     rowEl.click()

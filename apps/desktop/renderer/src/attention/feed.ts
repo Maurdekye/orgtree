@@ -124,6 +124,51 @@ export function splitMentionBlurb(blurb: string | undefined | null): { before: s
   }
 }
 
+/** A MENTION'S EXCERPT, cut at word boundaries (user 2026-10-18 14:39Z: the
+ *  row showed "two chopped excerpts" with an ellipsis against @user). The
+ *  engine's blurb holds up to 48 characters each side of @user, cut mid-word
+ *  and marked with '…' (runtime/convo.rs `user_mention_blurb`); the partial
+ *  words at those cuts are dropped. The lead-in is shown whole when it is
+ *  short, else from the @user sentence's own start when that fits, else as
+ *  '…' and the nearest whole words within `leadMax` characters. 24 keeps
+ *  @user in view in the narrowest list (a 220px row; 32 pushed it past the
+ *  row's edge). Read as `lead + token + tail`: one run of text, with an
+ *  ellipsis only at either end. */
+export function mentionExcerpt(blurb: string | undefined | null, leadMax = 24): { lead: string; token: string; tail: string } {
+  const { before, token, after } = splitMentionBlurb(blurb)
+  let b = before
+  const cutStart = b.startsWith('…')
+  if (cutStart) {
+    const sp = b.indexOf(' ')
+    b = sp < 0 ? '' : b.slice(sp + 1)
+  }
+  let lead: string
+  if (b.length <= leadMax) {
+    // nothing whole survived the engine's cut: keep the gap before @user
+    lead = cutStart ? (b ? '…' + b : '… ') : b
+  } else {
+    let start = -1
+    for (const m of b.matchAll(/[.!?]["')\]]*\s+/g)) start = (m.index ?? 0) + m[0].length
+    if (start >= 0 && b.length - start <= leadMax) lead = b.slice(start)
+    else {
+      let i = b.length - leadMax
+      if (b[i - 1] !== ' ') { const sp = b.indexOf(' ', i); i = sp < 0 ? b.length : sp + 1 }
+      // always at least the word next to @user
+      const words = b.trimEnd()
+      if (i >= words.length) i = words.lastIndexOf(' ') + 1
+      lead = '…' + b.slice(i)
+    }
+  }
+  let tail = after
+  if (tail.endsWith('…')) {
+    tail = tail.slice(0, -1)
+    const sp = tail.lastIndexOf(' ')
+    if (sp > 0) tail = tail.slice(0, sp)
+    tail += '…'
+  }
+  return { lead, token, tail }
+}
+
 /** the first line of a body, trimmed to something a row can hold without the
  *  list turning into a wall of prose. The full text is in the detail pane. */
 export function oneLine(text: string | undefined | null, max = 140): string {
