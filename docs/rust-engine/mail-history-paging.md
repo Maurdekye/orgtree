@@ -36,10 +36,16 @@ and the agent/project shared InboxView. Each fixture holds 650 incoming and
 exact oldest message, numeric-id request sequence, retained selection, and
 retained scrollTop. The user fixture first failed both oldest-message checks;
 after the user commit it passed both while all four agent/project cases still
-failed the same assertion. Final green and compile results are recorded in
-the docket and author's evidence directory.
+failed the same assertion. Final green: all six cases passed, with no skips
+or cancellations (2.66 seconds). The normal root TypeScript check and engine
+`cargo check --offline -p orgtree-engine --bin orgtree-engine -j 2` passed.
+An exploratory renderer-only configuration with noUncheckedIndexedAccess
+reported diagnostics in untouched files; those results are retained separately.
+The first test launcher retained React's MessageChannel and gave no verdict;
+its logs were also kept. Exact commits and raw receipts are in the docket.
 
 These are synthetic mounted DOM checks with mocked HTTP responses. They do
-not establish native mouse/touch scrolling or PostgreSQL query-plan timing.
+not establish native mouse/touch scrolling or actual PostgreSQL query execution
+and query-plan timing. Backend queries were compiled and source-inspected.
 No live mailbox, device, hub or installed data was used. Phase 1 deliberately
 omits an independent review and broad rig/full-suite runs.
