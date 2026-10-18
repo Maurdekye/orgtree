@@ -695,7 +695,7 @@ test("§11a the temporary project desk has the agent desk's ONE title bar: folde
 })
 
 test("§11b no second name in the desk under a title bar: temporary, pinned and popped-out windows; the name never wraps (user 11:14Z)", () => {
-  for (const host of ['.project-desk-modal', '.pinwin-body'])
+  for (const host of ['.project-desk-modal:not(.modalpin-detached)', '.pinwin-body'])
     for (const part of ['.project-mark', '.name'])
       assert.equal(cssLast('display', `${host} .project-desk .cc-head-left > ${part}`), 'none', `${host} ${part}`)
   assert.equal(cssLast('white-space', '.project-desk .cc-head-left .name'), 'nowrap')

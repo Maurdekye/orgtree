@@ -49,7 +49,7 @@
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs popoutdrag
 
-import { flush, inAct, mountView as rawMountView } from './harness'
+import { FakeServer, flush, inAct, installFetch, mountView as rawMountView } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -58,6 +58,9 @@ import path from 'node:path'
 import type { ReactNode } from 'react'
 import { forgetModalOpenCache, forgetModalPins, pinModal, PinFrame } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
+import { ProjectDeskModal } from '../src/canvas/projectdesk'
+import type { CanvasNode, OpResult } from '../src/canvas/shared'
+import type { TreePayload } from '../src/types'
 
 const noop = () => {}
 const ORG = 'probe'
@@ -355,4 +358,43 @@ test('§5 a dialog in another surface’s window does not wear that window’s t
   assert.ok(!bar.classList.contains('detached'), 'which is not a title bar')
   assert.equal(bar.querySelector('.modalpin-name'), null, 'and carries no window name')
   assert.equal(s.all('.modalpin-name').length, 1, 'one window, one title bar heading')
+})
+
+test('§6 a popped-out project desk has the popped-out agent desk\'s one header row, the window controls inline at its right (user 2026-10-18 11:47Z)', async (t: TestContext) => {
+  withOpener(t)
+  installFetch(new FakeServer())
+  // the native bridge's three window actions, so the controls render as in the app
+  const w = window as unknown as { orgtreeDesktop?: unknown }
+  const had = w.orgtreeDesktop
+  w.orgtreeDesktop = { minimizePopout: async () => {}, toggleMaximizePopout: async () => {}, closePopout: async () => {},
+    getPopoutState: async () => null, onEvent: () => () => {} }
+  t.after(() => { w.orgtreeDesktop = had })
+  const canvas = document.createElement('div')
+  canvas.dataset.pinOrg = ORG
+  document.body.appendChild(canvas)
+  const nd = { id: 'website', title: 'website', kind: 'project', state: 'live', tier: 'project', model_id: '',
+    seat: 0, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] }, parent: 'boss', charter: 'The site.',
+    children: [{ id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', busy: false, children: [] }],
+    lineage: [], turns: [], audiences_held: [], mail_pending: 0, last_status: null } as unknown as CanvasNode
+  const view = await rawMountView(
+    <CurrentOrg.Provider value={ORG}>
+      <ProjectDeskModal node={nd} slug={ORG} tree={{ slug: ORG, roots: [] } as unknown as TreePayload}
+        map={new Map([[nd.id, nd]])} op={() => Promise.resolve({} as OpResult)} toast={noop}
+        refs={{ world: { org: ORG }, onOpen: noop } as never} close={noop} />
+    </CurrentOrg.Provider>, (el) => el)
+  t.after(async () => { await view.unmount(); canvas.remove() })
+  await flush()
+  await popOut()
+  const panel = find('.project-desk-modal')!
+  assert.ok(panel.classList.contains('modalpin-detached'), 'popped out')
+  assert.equal(panel.querySelector('.modalpin-bar'), null, 'no "Project website" title strip above the desk')
+  const top = panel.querySelector('.cc-head-top')!
+  assert.equal(top.querySelector('.cc-head-left > .name')?.textContent, 'website', 'the desk header names the project, as the agent desk does')
+  const controls = top.querySelector(':scope > .popout-window-controls')
+  assert.ok(controls, 'the window controls in the desk header row')
+  assert.equal(top.lastElementChild, controls, 'last, at its right')
+  assert.ok(top.querySelector('.cc-head-right button.popout-button[aria-label="Return to main window"]'), 'pop-in beside the tabs')
+  // the duplicate-name rule is for a desk UNDER a title bar, never a popped-out one
+  for (const part of ['.project-mark', '.name'])
+    assert.ok(STYLES.includes(`.project-desk-modal:not(.modalpin-detached) .project-desk .cc-head-left > ${part}`), part)
 })
