@@ -511,17 +511,21 @@ domTest('§7f a reply naming the snapshot that was deduplicated away still finds
     assert.equal(button.disabled, false,
       'and it is not greyed out just because its exact snapshot was collapsed')
     // clicking it lands on the surviving row rather than nowhere
-    const win = el.ownerDocument.defaultView as unknown as
-      { Element: { prototype: { scrollIntoView?: unknown } } }
-    const original = win.Element.prototype.scrollIntoView
-    win.Element.prototype.scrollIntoView = function (this: Element) {
-      located.push(this.getAttribute('data-native-event')
-        ?? this.getAttribute('data-reply-event') ?? '?')
+    const list = el.querySelector<HTMLElement>('.msgs-wrap .msgs')!
+    Object.defineProperties(list, {
+      clientHeight: { configurable: true, value: 200 },
+      offsetHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 1000 },
+    })
+    list.getBoundingClientRect = () => new window.DOMRect(0, 0, 500, 200)
+    target[0]!.getBoundingClientRect = () => {
+      located.push(target[0]!.getAttribute('data-native-event') ?? '?')
+      return new window.DOMRect(0, 400 - list.scrollTop, 500, 40)
     }
-    try { await inAct(async () => { button.click() }) }
-    finally { win.Element.prototype.scrollIntoView = original }
+    await inAct(async () => { button.click() })
     assert.deepEqual(located, ['uu-target'],
       'the reply resolved through the durable id to the surviving snapshot')
+    assert.equal(list.scrollTop, 320, 'only the transcript scroller moves')
   })
 
 // ============================================== the shared durable identity

@@ -6,6 +6,12 @@ window`, in that order, before Team and other entries. Keep existing temporary,
 pin and pop-out callbacks and availability; placed desks retain their existing
 raise behavior under these same labels. This replaces the differing names and
 order from the earlier 07:18Z–07:22Z menu wording.
+**Desk chrome stays fixed, user 2026-10-18 11:19Z:** reply/mention navigation
+scrolls only the owning transcript list, using scaled geometry rather than
+all-ancestor `scrollIntoView`. Header document chips are not transcript targets;
+the document opener handles them. Composer focus prevents ancestor scrolling.
+Keep header/composer positions in temporary, pinned and popped-out desk hosts.
+See `canvas/deskscroll.ts` and `tests/deskframe.test.tsx`.
 
 **Desk send returns to Chat, user 2026-10-18 10:57Z:** after an agent desk's
 composer send succeeds, select its Chat tab to reveal the conversation.

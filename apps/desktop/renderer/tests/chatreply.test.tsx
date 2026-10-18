@@ -419,11 +419,16 @@ test('…and when the original is still in this loaded conversation, the '
       'the original event IS in this conversation (assistant-1), so the '
       + `locate route must be live, not the "unavailable" fallback: ${button.title}`)
     const target = view.el.querySelector('[data-reply-event="assistant-1"]')!
-    const scrolled: Element[] = []
-    ;(target as unknown as { scrollIntoView: () => void }).scrollIntoView =
-      () => { scrolled.push(target) }
+    const list = view.el.querySelector<HTMLElement>('.msgs-wrap .msgs')!
+    Object.defineProperties(list, {
+      clientHeight: { configurable: true, value: 200 },
+      offsetHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 1000 },
+    })
+    list.getBoundingClientRect = () => new window.DOMRect(0, 0, 500, 200)
+    target.getBoundingClientRect = () => new window.DOMRect(0, 400 - list.scrollTop, 500, 40)
     await inAct(() => { button.click() })
-    assert.deepEqual(scrolled, [target], 'clicking the reference scrolls to the original message')
+    assert.equal(list.scrollTop, 320, 'the reference centers the original in the transcript, not its ancestors')
   } finally { await view.unmount(); resetConvos() }
 })
 

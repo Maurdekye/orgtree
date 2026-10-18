@@ -17,6 +17,7 @@ import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
 import { useRecordsEnabled } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
+import { centerTranscriptTarget } from './deskscroll'
 import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { objectNavProps } from './objectnav'
@@ -2173,7 +2174,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         // component body, but closures resolve free variables at CALL
         // time, not definition time, and this only ever runs from a later
         // click — never during the render that defines it.
-        requestAnimationFrame(() => taRef.current?.focus())
+        requestAnimationFrame(() => taRef.current?.focus({ preventScroll: true }))
       } } },
     { label: 'Copy contents', disabled: !copy,
       title: copy ? 'Copy the full text of this message, including anything folded'
@@ -2262,18 +2263,20 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
   const locateReplyNow = (r: ReplyContext) => {
     if (!sameReplyIdentity(r)) return
+    const list = scroller.current
     if (r.docId) {
       onOpenDoc?.(r.docId)
-      const docEl = [...surfaceDocument.querySelectorAll<HTMLElement>('[data-doc-id]')]
+      const docEl = [...(list?.querySelectorAll<HTMLElement>('[data-doc-id]') ?? [])]
         .find(el => el.dataset.docId === r.docId)
-      docEl?.scrollIntoView?.({ block: 'center' })
+      centerTranscriptTarget(list, docEl ?? null)
       return
     }
-    const rows = [...surfaceDocument.querySelectorAll<HTMLElement>('[data-reply-event]')]
+    if (!list) return
+    const rows = [...list.querySelectorAll<HTMLElement>('[data-reply-event]')]
     const durable = durableOf.get(r.eventId)
     const element = rows.find(el => el.dataset.replyEvent === r.eventId)
       ?? (durable
-        ? [...surfaceDocument.querySelectorAll<HTMLElement>('[data-native-event]')]
+        ? [...list.querySelectorAll<HTMLElement>('[data-native-event]')]
           .find(el => el.dataset.nativeEvent === durable)
         : undefined)
     if (element) {
@@ -2281,7 +2284,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       revealSystemRuns(element)
       leaveBottom()
     }
-    element?.scrollIntoView?.({ block: 'center' })
+    centerTranscriptTarget(list, element ?? null)
   }
   const locateReplyHandler = useRef(locateReplyNow)
   locateReplyHandler.current = locateReplyNow
@@ -2696,7 +2699,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       revealPendingRun(rowEl)
       revealSystemRuns(rowEl)
       leaveBottom()
-      lineEl.scrollIntoView?.({ block: 'center' })
+      centerTranscriptTarget(host, lineEl)
     }
   }, [mentionHighlight, view, chat?.messages, live_feed])
   /** the rows this desk needs to fill itself — the floor a window collapse
@@ -3106,7 +3109,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     if (!source || !canMail) return
     try { setReplyTargets(appendReplyTarget(replyTargets, { ...source, sender: node.id, docId: doc.id })) }
     catch (e) { toast([String((e as Error).message)]); return }
-    requestAnimationFrame(() => taRef.current?.focus())
+    requestAnimationFrame(() => taRef.current?.focus({ preventScroll: true }))
   }
   const send = () => {
     let t = text.trim()

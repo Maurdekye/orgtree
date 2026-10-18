@@ -1,5 +1,12 @@
 # AGENTS.md — working on Orgtree
 
+- Desk mention/reply jumps use `centerTranscriptTarget` on the owning transcript
+  only; never call all-ancestor `scrollIntoView` on its rows or header chips.
+  Composer focus uses `preventScroll`. Hidden-overflow desk frames can otherwise
+  scroll, losing their header and leaving a band below the composer.
+  [decided: user 2026-10-18 11:19Z; verified: `canvas/{desk,deskscroll}.ts*`,
+  `tests/deskframe.test.tsx`]
+
 - orgtree_project settings/configure exposes all eight Project settings as an
   atomic explicit patch. It reuses canonical ops/reach, preserves false/zero/
   empty values and renames last. Ancestor agents can force-release/unqueue slots;
