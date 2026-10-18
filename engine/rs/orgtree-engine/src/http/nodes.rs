@@ -382,6 +382,14 @@ mod project_user_contact_tests {
     }
 
     #[test]
+    fn broadcast_body_accepts_qualified_targets() {
+        let body: BroadcastBody = serde_json::from_value(json!({
+            "text": "about this plan",
+            "targets": [{ "kind": "document", "org": "demo", "id": "plan-1" }]
+        })).unwrap();
+        assert_eq!(body.targets, Some(vec![json!({ "kind": "document", "org": "demo", "id": "plan-1" })]));
+    }
+    #[test]
     fn broadcast_keeps_delivery_metadata_and_direct_mail_keeps_granting() {
         let attachments = [json!({"name":"synthetic.txt"})];
         let out = project_broadcast_message("member", "hello", true, &attachments);
