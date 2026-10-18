@@ -444,7 +444,7 @@ fn build_tool_org_logo() -> Value {
 fn build_tool_status() -> Value {
     tool(
         "orgtree_status",
-        "Report working/done/blocked/idle. Optional dnd=true holds non-urgent mail for this turn on every harness, including Antigravity, avoiding mid-turn interrupt/cache loss. Only urgent mail bypasses it. DND clears when the turn actually ends; unread mail arrives as one ordered batch within the prompt size budget. dnd=false releases early. Explicit inbox fetch/chunk reads held mail without replay; previews do not. done is a report, not a turn end.",
+        "Report working/done/blocked/idle; done does not end the turn. dnd=true holds this turn's non-urgent mail on every harness; only urgent bypasses. Turn end clears DND and delivers an ordered budgeted batch; false releases early. Inbox fetch/chunk consumes returned mail; previews do not.",
         json!({
             "status": { "type": "string", "enum": ["working", "done", "blocked", "idle"] },
             "summary": { "type": "string", "description": "one or two sentences" },
@@ -495,7 +495,7 @@ fn build_tool_transfers() -> Value {
 fn build_tool_inbox() -> Value {
     tool(
         "orgtree_inbox",
-        "Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. Successful fetch/chunk consumes returned pending received mail even outside DND; it will not enter automatic input again. Opened received/project mail appears after the tool in your transcript, once; sent history and previews add nothing. Project list/fetch/chunk reads authorized project history, never claims or acknowledges. Choose folder=inbox|sent for full history; omitted folder preserves waiting-only list. status filters queue stages, cursor continues the same caller/project/folder/status page.",
+        "Read own mail: list previews; fetch<=20 IDs; chunk long bodies. Recall conversation after fresh session/compaction before replying. Returned pending received content is consumed, even outside DND; previews are not. Received/project opens enter transcript once; sent history does not. Project reads never claim/ack. folder selects full history; omitted list waits only. Keep project/folder/status with cursors. See guide for handles and filters.",
         json!({
             "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation"] },
             "project": { "type": "string", "description": "list/fetch/chunk: project name; current project reach required on every read" },
@@ -756,7 +756,7 @@ fn build_tool_hire() -> Value {
 fn build_tool_project() -> Value {
     tool(
         "orgtree_project",
-        "Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. above wraps a node atomically in its existing position instead of index/parent. settings reads all values; configure (name, settings) patches settings atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment/DND/reply authority and reports each outcome. presentations lists project/team cards; read_presentation reads a bounded body chunk with next_chunk_index continuation. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent). Dead letters: dead_letters (name; id reads one); retry_dead_letter, drop_dead_letter (name, id[, reason]); event project.dead_letter alerts.",
+        "Control projects above/below you; no turns/credits. create needs name/index (parent defaults you); above wraps a node atomically instead. settings/configure read/patch atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunked reads. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Ancestors may force/unqueue. Dead-letter list/read/retry/drop; project.dead_letter alerts. See guide for action fields.",
         json!({
             "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","presentations","read_presentation"] },
             "id": {"type":"string","description":"dead_letters: read this dead letter in full; retry_dead_letter/drop_dead_letter: its mail id"},
@@ -932,7 +932,7 @@ fn build_tool_request_scope() -> Value {
 fn build_tool_audience() -> Value {
     tool(
         "orgtree_audience",
-        "Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to live direct members as their own; no nested relay. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail/broadcast grants only the project; members inherit without personal grants. Direct contact adds no user grant while effective access exists; manual Acquire audience can. Project decisions belong to their nearest agent superior (user if none). External/org-inbox access remains agent-only. Requests do not grant access.",
+        "Manage directional audiences; requests grant nothing. request target/from managed project; grant from; deny requester; revoke grantee. Project grants reach direct live members, never nested; reverse needs its own grant. User contact does not add personal access while inherited; manual Acquire can. Project decisions go to nearest agent superior (user if none). External/org-inbox remains agent-only. Read guide for grant authority.",
         json!({ "action": { "type": "string", "enum": ["request", "grant", "deny", "revoke"] },
                 "target": { "type": "string", "description": "request: agent/project/user/extern sought; grant/revoke: agent/project grantor when not you" },
                 "from": { "type": "string", "description": "grant: agent/project receiving it; request: project you manage; deny: the requester" },
@@ -947,7 +947,7 @@ fn build_tool_audience() -> Value {
 fn build_tool_watchdog() -> Value {
     tool(
         "orgtree_watchdog",
-        "Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. Event/count/silence semantics and catalog are in the guide. No added authority.",
+        "Manage persistent watchers; max8/agent. create needs kind/target (usage defaults target=usage); command needs regex. command/stream use your authority and smoke-run; Windows cmd.exe or shell=bash. Read smoke output. Use once for deadlines. fair_queue routes mail; slot claims a concurrency permit. usage watches cached allowance edges, not provider polling. Kind/filter/event/count/silence rules: read guide. No added authority.",
         json!({
             "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
@@ -978,7 +978,7 @@ fn build_tool_watchdog() -> Value {
 fn build_tool_work() -> Value {
     tool(
         "orgtree_work",
-        "Manage durable work by readable slug. create requires objective (problem/solution first, full scope after). update supplies both progress lists or revision-checked keep/append; it CLAIMS ownership unless owner=current holder. blocked/dropped need reasons. Add participants before assignment/review requests. Review is agent review; user questions use ask(work_item), nonquestion attention needs a reason. delete is permanent, limited to user/owner's superior/top-level owner and refused with children/open questions; prefer archive/dropped. Read guide before first docket write.",
+        "Manage docket items by slug; read guide before writing. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply progress lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review is agent review; ask(work_item) for user questions. Delete is permanent and restricted; prefer archive/drop.",
         json!({
             "action": { "type": "string", "enum": ["list", "get", "create", "update", "accept", "assign", "handoff",
                                                   "participants", "evidence", "archive", "supersede", "move", "delete"] },
@@ -1465,6 +1465,17 @@ mod builder_stack_tests {
             let want=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
             let got=actual.iter().find(|c|c["name"]==name).unwrap();
             for key in keys {want["inputSchema"]["properties"][key]=got["inputSchema"]["properties"][key].clone();}
+        }
+        // Approved description-only trim; compare schemas and order unchanged.
+        for (name, description) in [
+            ("orgtree_work", "Manage docket items by slug; read guide before writing. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply progress lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review is agent review; ask(work_item) for user questions. Delete is permanent and restricted; prefer archive/drop.\nGuide: orgtree-tool-work."),
+            ("orgtree_project", "Control projects above/below you; no turns/credits. create needs name/index (parent defaults you); above wraps a node atomically instead. settings/configure read/patch atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunked reads. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Ancestors may force/unqueue. Dead-letter list/read/retry/drop; project.dead_letter alerts. See guide for action fields.\nGuide: orgtree-tool-project."),
+            ("orgtree_watchdog", "Manage persistent watchers; max8/agent. create needs kind/target (usage defaults target=usage); command needs regex. command/stream use your authority and smoke-run; Windows cmd.exe or shell=bash. Read smoke output. Use once for deadlines. fair_queue routes mail; slot claims a concurrency permit. usage watches cached allowance edges, not provider polling. Kind/filter/event/count/silence rules: read guide. No added authority.\nGuide: orgtree-tool-watchdog."),
+            ("orgtree_inbox", "Read own mail: list previews; fetch<=20 IDs; chunk long bodies. Recall conversation after fresh session/compaction before replying. Returned pending received content is consumed, even outside DND; previews are not. Received/project opens enter transcript once; sent history does not. Project reads never claim/ack. folder selects full history; omitted list waits only. Keep project/folder/status with cursors. See guide for handles and filters.\nGuide: orgtree-tool-inbox."),
+            ("orgtree_audience", "Manage directional audiences; requests grant nothing. request target/from managed project; grant from; deny requester; revoke grantee. Project grants reach direct live members, never nested; reverse needs its own grant. User contact does not add personal access while inherited; manual Acquire can. Project decisions go to nearest agent superior (user if none). External/org-inbox remains agent-only. Read guide for grant authority.\nGuide: orgtree-tool-audience."),
+            ("orgtree_status", "Report working/done/blocked/idle; done does not end the turn. dnd=true holds this turn's non-urgent mail on every harness; only urgent bypasses. Turn end clears DND and delivers an ordered budgeted batch; false releases early. Inbox fetch/chunk consumes returned mail; previews do not.\nGuide: orgtree-tool-status."),
+        ] {
+            expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == name).unwrap()["description"] = serde_json::json!(description);
         }
         // the edited cards must match in content (keys in any order); their
         // key order is the builder's

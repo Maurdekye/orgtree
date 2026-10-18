@@ -7,6 +7,10 @@ Up: [orgtree-runtime](../SKILL.md)
 
 # orgtree_status
 
+## Call contract
+
+Report working/done/blocked/idle. Optional dnd=true holds non-urgent mail for this turn on every harness, including Antigravity, avoiding mid-turn interrupt/cache loss. Only urgent mail bypasses it. DND clears when the turn actually ends; unread mail arrives as one ordered batch within the prompt size budget. dnd=false releases early. Explicit inbox fetch/chunk reads held mail without replay; previews do not. done is a report, not a turn end.
+
 Report a meaningful change in your own work. Call it when finished (`done`) or stuck (`blocked`); use `working` when work resumes. It updates your status chip and history. It does not complete a docket item or end the turn that is currently running.
 
 ## Parameters

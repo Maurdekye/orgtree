@@ -6,6 +6,10 @@ Up: [orgtree-team](../SKILL.md)
 
 # orgtree_project
 
+## Call contract
+
+Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. above wraps a node atomically in its existing position instead of index/parent. settings reads all values; configure (name, settings) patches settings atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment/DND/reply authority and reports each outcome. presentations lists project/team cards; read_presentation reads a bounded body chunk with next_chunk_index continuation. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent). Dead letters: dead_letters (name; id reads one); retry_dead_letter, drop_dead_letter (name, id[, reason]); event project.dead_letter alerts.
+
 `orgtree_project` slot release and status need **either team or watchdogs**. With watchdogs on and team off, its card exposes only `action=release_slot` (your own lease, optional note), the dead-letter actions below and `action=slots` (all holders with reasons and ages, the full ordered line and recent holds; other agents' lease IDs are hidden). Project reach and lease ownership still apply. All other project actions and force release require team. Full slot coordination status is available without team, subject to project reach. With both groups off, the project tool is absent and calls are refused. Missing switches still default on; inherited denials still apply.
 
 Project administration requires `team`. `action=describe` with `name` and `description` replaces a project's Summary (you must be above or below the project; its agents carry the new text from their next start). `action=create` makes a **project node** (what one is and who reaches it: [orgtree-projects](../projects/SKILL.md)).

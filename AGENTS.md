@@ -9,6 +9,12 @@
 
 # AGENTS.md — working on Orgtree
 
+- Startup tool descriptions retain the 12,000-byte aggregate and 900-byte/card
+  caps for flat and split mail shapes. Keep concise authority/call cues on cards;
+  move full operational detail into the named tool guides. Description-only
+  trims must preserve schemas, card order and scope rules.
+  [verified: `tools/defs.rs::startup_card_tests`; 2026-10-18]
+
 - Project Open → Slots is one modal entry, offered only with positive slot
   capacity. Its standard `project-slots` PinFrame supports pin, pop-out and
   remembered org/project-generation placement; the slots tab shares the three

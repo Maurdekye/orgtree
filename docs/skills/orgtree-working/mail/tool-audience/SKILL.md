@@ -7,6 +7,10 @@ Up: [orgtree-mail](../SKILL.md)
 
 # orgtree_audience
 
+## Call contract
+
+Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to live direct members as their own; no nested relay. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail/broadcast grants only the project; members inherit without personal grants. Direct contact adds no user grant while effective access exists; manual Acquire audience can. Project decisions belong to their nearest agent superior (user if none). External/org-inbox access remains agent-only. Requests do not grant access.
+
 Use when the missing permission is **who may communicate**, rather than a folder/tool grant. An audience lets the grantee write to the grantor; it is directional and does not change reporting lines, tool groups or file authority. Required tool group: `messaging`, inherited through the ancestor chain.
 
 Ordinary [mail reach](../tool-message/SKILL.md) already includes direct superior, descendants and peers. Do not request an audience you already hold. `user` means direct access to the user; `extern` means the org inbox and outside `@org:`/`@net:` correspondence. These are different grants.

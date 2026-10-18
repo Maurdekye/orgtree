@@ -6,6 +6,10 @@ Up: [orgtree-docket](../SKILL.md)
 
 # orgtree_work
 
+## Call contract
+
+Manage durable work by readable slug. create requires objective (problem/solution first, full scope after). update supplies both progress lists or revision-checked keep/append; it CLAIMS ownership unless owner=current holder. blocked/dropped need reasons. Add participants before assignment/review requests. Review is agent review; user questions use ask(work_item), nonquestion attention needs a reason. delete is permanent, limited to user/owner's superior/top-level owner and refused with children/open questions; prefer archive/dropped. Read guide before first docket write.
+
 Requires `docket`. Use for substantive work whose scope, ownership, progress and evidence must survive a session. Start by listing existing readable items; continue the same item through review, handoff and resumed work. A request to "dock" a feature means create its item, not automatically implement or deploy it.
 
 ## Actions and authority

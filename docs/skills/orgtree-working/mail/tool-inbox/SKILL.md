@@ -7,6 +7,10 @@ Up: [orgtree-mail](../SKILL.md)
 
 # orgtree_inbox
 
+## Call contract
+
+Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. Successful fetch/chunk consumes returned pending received mail even outside DND; it will not enter automatic input again. Opened received/project mail appears after the tool in your transcript, once; sent history and previews add nothing. Project list/fetch/chunk reads authorized project history, never claims or acknowledges. Choose folder=inbox|sent for full history; omitted folder preserves waiting-only list. status filters queue stages, cursor continues the same caller/project/folder/status page.
+
 Use to recover your own mail context, especially after a fresh session or compaction and before replying to a correspondent. This is not another agent's mailbox reader. Required tool group: `messaging`, through the ancestor chain; top-level agents have the same own-mail boundary.
 
 ## Actions and parameters
