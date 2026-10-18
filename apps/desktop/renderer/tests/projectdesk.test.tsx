@@ -7,7 +7,8 @@
 //   §1 a focused project card opens a desk in the agent desk's frame: the
 //      header names the project, the tabs are desk, inbox, docket and
 //      presented (the agent desk's three, user 20:07Z) and there is no chat
-//      or composer; an unfocused card has none; the presented tab counts AND
+//      tab (its message box broadcasts: §9); an unfocused card has none; the
+//      presented tab counts AND
 //      shows the subtree's documents (review P2);
 //   §2 the main tab: jump cards up to the parent and down to the members
 //      (the chat desk's NavChip), and the description editor: Markdown while
@@ -182,7 +183,7 @@ test('§2a jump cards up to the parent and down to its members', async (t) => {
   assert.deepEqual(names(navs[1]!), ['dev1', 'ui'])
   await inAct(() => { navs[1]!.querySelector<HTMLButtonElement>('button.desk-nav-chip')!.click() })
   assert.deepEqual(jumped, ['dev1'])
-  assert.equal(el.querySelector('textarea') === null, true, 'no composer, and the editor is not open yet')
+  assert.equal(el.querySelector('textarea.project-description-edit') === null, true, 'the editor is not open yet')
 })
 
 test('§2b the description: Markdown until focused, monospace while edited, saved on leaving', async (t) => {
@@ -283,6 +284,36 @@ test('§2f the description has no border or background while not edited; the edi
   const ed = '.project-desk .project-description-edit'
   assert.equal(last('background', ed), 'var(--input)', 'the editor keeps its background')
   assert.match(last('border', ed) ?? '', /1px solid/, 'and its border')
+})
+
+/* ─── §9 the message box ──────────────────────────────────────────────────── */
+
+test("§9 the desk's message box sends ONE broadcast to every agent under the project, with the notice toggle (user 2026-10-18 07:33Z)", async (t) => {
+  const el = await desk(t)
+  const sent: { path: string; body: unknown }[] = []
+  const inner = globalThis.fetch
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).includes('/broadcast')) {
+      sent.push({ path: new URL(String(url), 'http://x').pathname, body: JSON.parse(String(init?.body)) })
+      return Promise.resolve(new Response(JSON.stringify({ accepted: true, sent: [{ to: 'dev1' }, { to: 'dev2' }], refused: [] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    }
+    return inner(url, init)
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = inner })
+  const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')
+  assert.ok(box, 'a message box on the desk')
+  assert.equal(box!.placeholder, 'message all 2 agents under website…', 'the live agents under it, nested included')
+  assert.ok(el.querySelector('.project-composer button.cc-attach'), 'an attach button')
+  await inAct(() => { el.querySelector<HTMLButtonElement>('.project-composer button.cc-notice-toggle')!.click() })
+  await inAct(() => { setText(box!, 'Status, everyone?') })
+  await inAct(() => { box!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+  await flush(4)
+  assert.deepEqual(sent, [{ path: '/api/orgs/org/nodes/website/broadcast', body: { text: 'Status, everyone?', notice: true } }], 'one send')
+  assert.equal(box!.value, '', 'the box is cleared')
+  await inAct(() => { el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="inbox"]')!.click() })
+  await flush(2)
+  assert.ok(el.querySelector('.project-composer textarea'), 'under every tab, as on an agent desk')
 })
 
 /* ─── §3 the header count ───────────────────────────────────────────────── */
