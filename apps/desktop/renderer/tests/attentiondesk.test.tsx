@@ -412,3 +412,52 @@ test('§10 the drawer holds the canvas Agents List: same rows, filter and markup
   assert.equal(sel?.getAttribute('data-copy-agent-name'), 'alpha', 'the shown agent is marked')
   await v.unmount()
 })
+
+// docket attention-desk-shows-a-project-as-an-agent-desk-c (user 2026-10-18
+// 14:36Z): a project selected here gets THE project desk (the one the canvas
+// modal and a pinned window draw), never the agent desk with its chat tab,
+// Halt and model pill. The host's own renderer wins, so the gear and pop-out
+// routes are the canvas's; without one the panel still draws ProjectDesk.
+const withProject = () => {
+  const m = map()
+  m.set('site', node('site', USER, { kind: 'project', tier: 'project', seat: 0 } as Partial<CanvasNode>))
+  return m
+}
+const chatTab = (el: HTMLElement) => [...el.querySelectorAll('.attn-desk button')]
+  .some(b => (b.textContent || '').trim() === 'chat')
+
+test('§11 a selected project shows the project desk, never the agent desk', async () => {
+  reset()
+  setAttentionLayout(SLUG, { agent: 'site' })
+  const v = await mountView(<AgentDeskPanel slug={SLUG} tree={tree()} op={op} toast={() => {}}
+    map={withProject()} />, (el) => el)
+  await settle()
+  try {
+    assert.ok(v.el.querySelector('.attn-desk .project-desk'), 'the project desk is drawn')
+    assert.ok(!chatTab(v.el), 'no agent chat tab')
+    assert.ok(!v.el.querySelector('.attn-desk [data-desk-slot]'), 'the agent desk slot is not mounted')
+  } finally { await v.unmount() }
+  // the control: an agent still gets its own desk here
+  setAttentionLayout(SLUG, { agent: 'alpha' })
+  const a = await mountView(<AgentDeskPanel slug={SLUG} tree={tree()} op={op} toast={() => {}}
+    map={withProject()} />, (el) => el)
+  await settle()
+  try {
+    assert.ok(!a.el.querySelector('.attn-desk .project-desk'), 'an agent is not given the project desk')
+  } finally { await a.unmount(); localStorage.clear() }
+})
+
+test("§12 the host's project desk renderer is the one used for a project", async () => {
+  reset()
+  setAttentionLayout(SLUG, { agent: 'site' })
+  const seen: string[] = []
+  const v = await mountView(<AgentDeskPanel slug={SLUG} tree={tree()} op={op} toast={() => {}}
+    map={withProject()} projectDesk={(n) => { seen.push(n.id); return <div data-host-project-desk={n.id} /> }} />,
+  (el) => el)
+  await settle()
+  try {
+    assert.ok(v.el.querySelector('.attn-desk [data-host-project-desk="site"]'), 'the host renders it')
+    assert.ok(seen.includes('site'))
+    assert.ok(!chatTab(v.el), 'no agent chat tab')
+  } finally { await v.unmount(); localStorage.clear() }
+})
