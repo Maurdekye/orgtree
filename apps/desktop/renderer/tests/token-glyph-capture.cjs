@@ -51,8 +51,8 @@ app.whenReady().then(async () => {
       })()`)
       assert.deepEqual(state.counts.map(c => c.label), ['approximately 1,234 output tokens', 'approximately 42 output tokens', '321 thinking tokens', '0 output tokens'])
       if (mode !== 'before') {
-        assert.equal(state.writingTitle, 'writing time: 4.330ms')
-        assert.equal(state.executionTitle, 'execution time: 0.432ms')
+        assert.equal(state.writingTitle, 'writing time: 4.330s')
+        assert.equal(state.executionTitle, 'execution time: 0.432s')
         assert.equal(state.writingIcon, 'EditOutlinedIcon')
         assert.equal(state.executionIcon, 'ArrowForwardIcon')
         for (const [i, suffix] of ['~1.2kt', '~42t', '321t', '0t'].entries()) assert.equal(state.counts[i].text.endsWith(suffix), true)

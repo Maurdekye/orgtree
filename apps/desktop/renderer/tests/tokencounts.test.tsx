@@ -28,8 +28,8 @@ test('hover shows the full token figure and preserves estimate qualification', a
   assert.equal(view.el.querySelector('.token-count')?.getAttribute('title')?.split('\n')[0], 'tool output: 4,321t')
   await view.render(<TokenCount count={4321} estimated sampled />)
   const title = view.el.querySelector('.token-count')?.getAttribute('title') ?? ''
-  assert.equal(title.split('\n')[0], 'tool output: ~4,321t')
-  assert.match(title, /estimated.*sampled/is)
+  assert.equal(title, 'tool output: ~4,321t')
+  assert.doesNotMatch(title, /estimated|calibrated|images are excluded/i)
   assert.equal(view.el.querySelector('.token-count')?.getAttribute('aria-label'), 'approximately 4,321 output tokens')
   await view.render(<TokenCount count={4321} thinking />)
   assert.equal(view.el.querySelector('.token-count')?.getAttribute('title')?.split('\n')[0], 'thinking: 4,321t')
@@ -46,7 +46,7 @@ test('tool output tokens retain the tilde while running and after completion', a
   await view.render(<ToolTimes tool={{ ...tool, output_tokens: 1234, output_tokens_estimated: true }} />)
   assert.match(view.last(), /~1\.2k/)
   assert.match(view.last(), /1\.0s/)
-  assert.match(view.el.querySelector('.tool-output-tokens')?.getAttribute('title') ?? '', /estimat/i)
+  assert.equal(view.el.querySelector('.tool-output-tokens')?.getAttribute('title'), 'tool output: ~1,234t')
 })
 
 test('an attributed receipt replaces an estimate, including a real zero', async t => {

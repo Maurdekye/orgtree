@@ -5,12 +5,12 @@ import { RunningTimer, RunningTurnContext, ToolTimes, ToolWritingLine, TurnActiv
 
 const text = (el: Element) => el.textContent ?? ''
 
-test('completed writing and execution tooltips expose recorded millisecond durations', async t => {
-  const view = await mountView(<ToolTimes tool={{ name: 'Bash', writing_secs: 0.00433,
-    started_at: '2026-10-18T08:00:00.123000Z', ended_at: '2026-10-18T08:00:00.123432Z', result: 'done' }} />, text)
+test('completed writing and execution tooltips expose seconds with fixed precision and grouping', async t => {
+  const view = await mountView(<ToolTimes tool={{ name: 'Bash', writing_secs: 1234.567,
+    started_at: '2026-10-18T08:00:00.123000Z', ended_at: '2026-10-18T08:20:34.690000Z', result: 'done' }} />, text)
   t.after(() => view.unmount())
-  assert.equal(view.el.querySelector('.tool-writing-time')?.getAttribute('title'), 'writing time: 4.330ms')
-  assert.equal(view.el.querySelector('.tool-exec-time')?.getAttribute('title'), 'execution time: 0.432ms')
+  assert.equal(view.el.querySelector('.tool-writing-time')?.getAttribute('title'), 'writing time: 1,234.567s')
+  assert.equal(view.el.querySelector('.tool-exec-time')?.getAttribute('title'), 'execution time: 1,234.567s')
 })
 
 test('coarse or missing timestamps never invent millisecond precision', async t => {
@@ -23,8 +23,8 @@ test('coarse or missing timestamps never invent millisecond precision', async t 
   assert.match(view.el.querySelector('.tool-exec-time')?.getAttribute('title') ?? '', /not observed/i)
   await view.render(<ToolTimes tool={{ name: 'Bash', writing_secs: 0,
     started_at: '2026-10-18T08:00:00.000Z', ended_at: '2026-10-18T08:00:00.000Z', result: 'done' }} />)
-  assert.equal(view.el.querySelector('.tool-writing-time')?.getAttribute('title'), 'writing time: 0.000ms')
-  assert.equal(view.el.querySelector('.tool-exec-time')?.getAttribute('title'), 'execution time: 0.000ms')
+  assert.equal(view.el.querySelector('.tool-writing-time')?.getAttribute('title'), 'writing time: 0.000s')
+  assert.equal(view.el.querySelector('.tool-exec-time')?.getAttribute('title'), 'execution time: 0.000s')
   await view.render(<ToolWritingLine name="Bash" />)
   assert.match(view.el.querySelector('.tool-writing')?.getAttribute('title') ?? '', /not observed/i)
 })
@@ -41,8 +41,8 @@ test('live time hover samples current elapsed milliseconds without changing the 
     view.el.querySelector('.tool-writing')!.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }))
     view.el.querySelector('.tool-running')!.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }))
   })
-  assert.equal(view.el.querySelector('.tool-writing')?.getAttribute('title'), 'writing time: 12470.000ms')
-  assert.equal(view.el.querySelector('.tool-running')?.getAttribute('title'), 'execution time: 12470.000ms')
+  assert.equal(view.el.querySelector('.tool-writing')?.getAttribute('title'), 'writing time: 12.470s')
+  assert.equal(view.el.querySelector('.tool-running')?.getAttribute('title'), 'execution time: 12.470s')
   assert.match(view.last(), /12s/)
   assert.doesNotMatch(view.last(), /12470/)
 })
