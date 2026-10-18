@@ -2848,7 +2848,8 @@
    "sources": [
     "apps/desktop/renderer/src/shell/header.tsx:58",
     "apps/desktop/renderer/src/shell/menu.tsx:84",
-    "apps/desktop/renderer/src/shell/modetoggle.tsx:18"
+    "apps/desktop/renderer/src/shell/modetoggle.tsx:18",
+    "apps/desktop/renderer/src/shell/mentionbutton.tsx"
    ],
    "see_also": [
     "attention-view",

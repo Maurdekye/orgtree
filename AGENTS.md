@@ -1,5 +1,13 @@
 # AGENTS.md — working on Orgtree
 
+- The shared Canvas/Attention header shows a glowing @ button before the
+  killswitch for live agents’ unobserved transcript markers. It uses the
+  existing urgent-mail badge appearance, newest-first focus, highlight and
+  observed clearing; mail attention is excluded. Mention jumps select Chat
+  on an already-open desk. See [header](docs/skills/orgtree-app/app-shell/org-header-and-menu/SKILL.md).
+  [decided: user 2026-10-18 15:33Z/15:33:55Z; verified:
+  `shell/mentionbutton.tsx`, `App.tsx`, `canvas/desk.tsx`]
+
 - Project and agent desk member/report rows share `DeskJumpCards`: more than
   16 cards collapse behind the same counted disclosure, using the existing
   Display preference. Project canvas, pin, pop-out and Attention hosts all

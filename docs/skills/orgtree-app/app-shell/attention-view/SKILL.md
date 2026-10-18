@@ -23,3 +23,7 @@ The desk panel's agent drawer offers search and archive inclusion. Choose an age
 ## User-mention mail
 
 Unread mail mentioning @user in visible content uses the same mail entry and read/selection retention as urgent mail, without an urgent tag or fabricated reason. Its matching sender/prose mention blurb is suppressed while that mail represents it; reading clears that matching marker, and unrelated mention rows remain.
+
+## Jump to a transcript mention
+
+The header’s glowing @ button, just left of STOP ALL, has the same count and behavior as in Canvas. It opens the newest unobserved transcript mention in the Attention desk, switches to Chat when necessary, and uses the existing text highlight and observed clearing. Mail mentions remain on the Inbox attention path.

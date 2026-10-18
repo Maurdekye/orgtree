@@ -28,3 +28,7 @@ App settings affect the application; Organization settings affect the selected o
 - [orgtree-attention-view](../attention-view/SKILL.md)
 - [orgtree-inbox-screens](../../desk/inbox-screens/SKILL.md)
 - [orgtree-docket-screens](../../desk/docket-screens/SKILL.md)
+
+## Transcript mentions
+
+A glowing @ button appears immediately left of the STOP ALL latch in Canvas and Attention while the organization has unobserved transcript mentions. Its corner badge counts current transcript mention markers. Click to open the newest mention in its agent desk and highlight the text; observing it reduces the count, and repeated clicks visit the remaining mentions newest first. The button disappears when none remain. Mail mentions keep the Inbox cue and do not add to this count.
