@@ -3080,7 +3080,14 @@ impl Actor {
             }
             let home = codex_home.clone();
             let tid = tid.clone();
-            let _ = tokio::task::spawn_blocking(move || codexrt::ensure_rollout(&tid, home.as_deref(), &others)).await;
+            // and a resume keeps the tools the thread STARTED with unless its
+            // rollout carries today's (sync_rollout_tools)
+            let cards = codexrt::dynamic_tools(tools);
+            let _ = tokio::task::spawn_blocking(move || {
+                if codexrt::ensure_rollout(&tid, home.as_deref(), &others) {
+                    codexrt::sync_rollout_tools(&tid, home.as_deref(), &cards);
+                }
+            }).await;
         }
         let bridge_env=self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation);
         config.extend(crate::credential_bridge::codex_overrides(&bridge_env));

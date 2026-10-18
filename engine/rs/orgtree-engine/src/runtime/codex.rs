@@ -783,8 +783,49 @@ pub fn ensure_rollout(thread: &str, home: Option<&str>, others: &[std::path::Pat
 /// copied byte for byte. Returns whether the rollout was rewritten.
 #[logged]
 pub fn sync_rollout_tools(thread: &str, home: Option<&str>, cards: &[Value]) -> bool {
-    let _ = (thread, home, cards);
-    false
+    use std::io::{BufRead, Write};
+    let target = home.map(PathBuf::from).unwrap_or_else(default_home);
+    let Some((path, _)) = find_rollout(&target, thread) else { return false };
+    let Ok(file) = std::fs::File::open(&path) else { return false };
+    let mut reader = std::io::BufReader::new(file);
+    let mut first = String::new();
+    if reader.read_line(&mut first).is_err() {
+        return false;
+    }
+    let body = first.trim_end_matches(['\r', '\n']);
+    let ending = &first[body.len()..];
+    let Ok(mut meta) = serde_json::from_str::<Value>(body) else { return false };
+    if meta["type"] != "session_meta" || !meta["payload"].is_object() {
+        return false;
+    }
+    let wanted = Value::Array(cards.to_vec());
+    if meta["payload"]["dynamic_tools"] == wanted {
+        return false;
+    }
+    meta["payload"]["dynamic_tools"] = wanted;
+    // beside the rollout, then renamed over it: a crash leaves the old thread
+    let tmp = path.with_file_name(format!(".{}.orgtree-{}", path.file_name().and_then(|n| n.to_str()).unwrap_or("rollout"),
+        crate::util::random_hex(4)));
+    let written = (|| -> std::io::Result<()> {
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+        out.write_all(meta.to_string().as_bytes())?;
+        out.write_all(ending.as_bytes())?;
+        std::io::copy(&mut reader, &mut out)?;
+        out.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+        drop(reader);
+        std::fs::rename(&tmp, &path)
+    })();
+    match written {
+        Ok(()) => {
+            tracing::info!(thread, cards = cards.len(), "gave a resumed Codex thread the current Orgtree tool cards");
+            true
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            tracing::warn!(thread, error = %e, "could not give a resumed Codex thread the current Orgtree tool cards");
+            false
+        }
+    }
 }
 
 /// `-c` overrides attaching granted MCP servers (quoted TOML names when needed).
