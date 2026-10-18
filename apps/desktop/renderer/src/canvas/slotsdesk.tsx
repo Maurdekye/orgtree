@@ -26,7 +26,7 @@ export interface SlotStatus { project: string; slots: number; held: number; hold
 export function span(from: string, to?: string | null): string {
   const s = Math.max(0, ((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000)
   if (s < 90) return `${Math.round(s)}s`
-  if (s < 5400) return `${Math.round(s / 60)}m`
+  if (s < 3600) return `${Math.round(s / 60)}m`
   const m = Math.round(s / 60)
   return `${Math.floor(m / 60)}h ${m % 60}m`
 }
