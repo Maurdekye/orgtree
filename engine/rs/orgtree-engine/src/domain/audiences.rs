@@ -246,16 +246,16 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let (out, gid) = grant_tx(engine, &*tx, org, actor, grantee, target, reason).await?;
+    let recipient = notice_recipient(&*tx, org.id, out["grantee"].as_str().unwrap_or(grantee)).await?;
+    let notice_id: Option<i64> = tx.query_opt("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND kind='agent' AND state='live'", &[&org.id, &recipient]).await?.map(|r| r.get(0));
     tx.commit().await?;
     drop(client);
-    changes::notify(engine, org, vec![Change::Audiences, Change::OrgInbox, Change::Events, Change::Agent(gid), Change::Mailbox(gid), Change::UserMail]);
+    let mut changes = vec![Change::Audiences, Change::OrgInbox, Change::Events, Change::Agent(gid), Change::Mailbox(gid), Change::UserMail];
+    if let Some(id) = notice_id { if id != gid { changes.push(Change::Mailbox(id)); } }
+    changes::notify(engine, org, changes);
     crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("audience.granted",crate::runtime::watchdogs::events::Scope::Agent(org.id,gid),json!({"agent_id":gid})));
     if out["answered"] == true {
-        let client = engine.db.get().await?;
-        let recipient = notice_recipient(&**client, org.id, grantee).await?;
-        if let Some(r) = client.query_opt("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND kind='agent' AND state='live'", &[&org.id, &recipient]).await? {
-            crate::runtime::wake(engine, org.id, r.get(0));
-        }
+        if let Some(id) = notice_id { crate::runtime::wake(engine, org.id, id); }
     }
     Ok(out)
 }
