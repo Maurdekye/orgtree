@@ -453,7 +453,7 @@ fn build_tool_transfers() -> Value {
 fn build_tool_inbox() -> Value {
     tool(
         "orgtree_inbox",
-        "Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. During DND, explicit fetch/chunk of held mail marks it read and removes it from the final batch; list/conversation previews remain held. Otherwise reads do not change automatic delivery. project list/fetch never claims mail.",
+        "Read own mail: list previews; fetch≤20 ids; chunk larger bodies by delivery_id/message_id/index. conversation pages one correspondent, newest page first. After fresh session/compaction recall that conversation before replying. Successful fetch/chunk consumes returned pending received mail even outside DND; it will not enter automatic input again. Opened received/project mail appears after the tool in your transcript, once; sent history and previews add nothing. Project fetch never claims its queue.",
         json!({
             "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation"] },
             "project": { "type": "string", "description": "list/fetch: a project's name: its waiting (unread) mail, read-only" },

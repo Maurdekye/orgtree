@@ -19,7 +19,7 @@ DND belongs only to the current turn. When that turn actually ends, including an
 
 ## Read selected mail yourself
 
-`orgtree_inbox list` and `conversation` show previews and leave held mail unread. An explicit `fetch` or valid `chunk` of a held message marks only the returned message read; its sender sees **read**, and it is excluded from the end-of-turn batch. Missing IDs and messages deferred by the tool's response budget are not consumed. Outside DND, manual reads retain their usual non-consuming behavior. Reading a project's waiting mailbox never claims its mail.
+`orgtree_inbox list` and `conversation` show previews and leave held mail unread. An explicit `fetch` or valid `chunk` of a pending received message marks only returned content read, during DND or outside it; its sender sees **read**, and it is excluded from automatic input. Missing IDs and output-budget deferred messages are not consumed. Opened received and project mail appears after the tool in the transcript without duplicating mail already displayed. Reading a project's waiting mailbox never claims its mail; sent history and previews add no transcript entries.
 
 ## Urgent bypass
 

@@ -95,6 +95,16 @@
   clears its selection to agent Chat/project Desk; a later hire does not reopen
   it. The Team panel still lists the full subtree. [decided: user 2026-10-18
   17:08Z; verified: `canvas/{team,desk,projectdesk}.tsx`]
+=======
+- Mail admission uses the shared hard byte budget without separate row caps;
+  deferred notices retain ordered follow-up eligibility and the input announces
+  remaining mail. Explicit fetch/chunk consumes returned pending received mail
+  outside DND too. Received/project content reads append ordinary mail after
+  their tool completes, deduplicated against indexed transcript mail receipts;
+  project queues stay unclaimed, sent history and previews add nothing. See
+  [inbox](docs/skills/orgtree-working/mail/tool-inbox/SKILL.md).
+  [decided: user/coordinator 2026-10-18 15:52–16:01Z; verified:
+  `runtime/{actor,manual_mail,prompt}.rs`, `tools/mailtools.rs`]
 
 - The shared Canvas/Attention header shows a glowing @ button before the
   killswitch for live agents’ unobserved transcript markers. It uses the

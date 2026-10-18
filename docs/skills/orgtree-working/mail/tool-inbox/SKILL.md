@@ -44,15 +44,17 @@ The handle binds your agent, message and body digest. It is valid across restart
 
 ## Delivery and outside-mail policy
 
-Manual reads do not change normal automatic delivery. Received pending/delivering mail reports `will_redeliver` and explains that waiting mail still follows the normal envelope. A fetched sent row's state belongs to its recipient, not to you. Fetching it does not send a receipt on their behalf.
+Successful `fetch` and valid `chunk` consume the pending received messages whose content is actually returned, including outside DND. They count as read and delivered and will not enter automatic input again. Missing IDs and output-budget deferred messages are not consumed. A fetched sent row's state belongs to its recipient, not to you; fetching it sends no receipt on their behalf.
+
+Opened received and project mail appears as ordinary mail entries immediately after the containing tool call in your transcript. Existing delivery receipts prevent duplicates, including repeated chunks and already displayed automatic deliveries. Sent history, `list` and `conversation` previews add no transcript entries. Project reads leave the queue unclaimed and unchanged.
 
 Disabling the organization's outside inbox hides its outside history/related copies from these reads; it does not erase them. Re-enabling can restore access. Same-org mail remains separate. Reading an old external body does not reinstate a removed sender-authority note.
 
-Use fetched IDs with [orgtree_message](../tool-message/SKILL.md) for replies. Do not resend a request merely because the inbox read left it pending, and do not claim a manual read proves provider consumption or human acceptance.
+Use fetched IDs with [orgtree_message](../tool-message/SKILL.md) for replies. A manual read records an explicit content read; it does not prove understanding or human acceptance.
 
 ## Explicit reads during Do Not Disturb
 
-During DND, only an explicit fetch or valid chunk of a held message marks it read, excluding it from the end-of-turn batch and changing sender status to read. list/conversation previews stay held and unread. Only messages actually returned within the response budget are consumed; project mailbox inspection remains non-consuming. Outside DND the usual read-only delivery behavior is unchanged. See [orgtree-do-not-disturb](../../runtime/do-not-disturb/SKILL.md).
+During DND, the same explicit content-read rule excludes returned held messages from the end-of-turn batch and changes sender status to read. `list` and `conversation` previews stay held and unread. Project mailbox inspection remains non-consuming. See [orgtree-do-not-disturb](../../runtime/do-not-disturb/SKILL.md).
 
 ## See also
 
