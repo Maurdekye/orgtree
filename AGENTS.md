@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+- Project settings explain round-robin as a load balancer, ACK as a FIFO work
+  queue, one slot as a shared lock (mutex), and multiple slots as a counting
+  semaphore. These are descriptions of existing cooperative behavior; FIFO is
+  handout order, not completion order. See [projects](docs/skills/orgtree-working/team/projects/SKILL.md).
+  [decided: user 2026-10-18 17:59Z; verified: `canvas/modals.tsx`]
+
 - Heavy development work uses only @build-slot concurrency grants: two slots
   (user 2026-10-18 17:47Z), replacing the filesystem build.lock/queue protocol
   and one-heavy-phase rule. Batch assigned red/green/capture; check free RAM

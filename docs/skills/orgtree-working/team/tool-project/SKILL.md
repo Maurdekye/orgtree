@@ -34,6 +34,14 @@ Everything else uses the usual tools with the project's name: [orgtree-tool-move
 {"action":"release_slot","lease":"s3f1c2a9b0d4e","note":"build ok"}
 ```
 
+## Concurrency analogies in Project settings
+
+- Round-robin works like a load balancer: each job goes to the least recently woken listener.
+- ACK works like a FIFO work queue: jobs in order, one per listener until it acks, with retries and dead letters.
+- One slot works like a shared lock (mutex); several slots work like a counting semaphore. 0 = no concurrency slots.
+
+These describe cooperative patterns: slot holders agree to claim and release permits; the engine does not enforce a limit on the work itself. FIFO describes job handout order, not completion order across listeners. Retry/dead-letter behavior follows the acknowledgement settings below.
+
 ## Settings and desktop parity
 
 `action=settings name=P` reads all Project settings. `action=configure name=P settings={...}` changes only the supplied fields, atomically, with the same project reach, value validation and post-commit queue/slot notifications as the desktop. Omitted fields stay unchanged; explicit false, zero and an empty description are retained. Unknown fields, nulls and invalid types/ranges are refused before any write. Rename is applied last; the result uses the new name. Agents above or below the project may configure it.

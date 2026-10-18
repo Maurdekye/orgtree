@@ -1125,8 +1125,8 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
       <SetToggle label="Subordinates may message each other" checked={on} disabled={busy} onChange={setEdit}
         hint="Off requires an audience between this project's direct agents and hides their peer connector lines. Changes apply immediately." />
       <SetRow label="Mail queue" hint={mode === 'ack'
-        ? 'Ack mode: each agent watching the project is handed one mail at a time, and no more until it acks it with a reply to the project. Watchers are told when this changes.'
-        : 'Round-robin: each mail to the project goes at once to the next agent watching it with a fair_queue watchdog. Watchers are told when this changes.'}>
+        ? 'ACK works like a FIFO work queue: jobs in order, one per listener until it acks, with retries and dead letters.'
+        : 'Round-robin works like a load balancer: each job goes to the least recently woken listener.'}>
         <select aria-label="Mail queue" value={mode} disabled={busy}
           onChange={(e) => setModeEdit(e.target.value as 'ack' | 'round_robin')}>
           <option value="round_robin">Round-robin</option>
@@ -1135,9 +1135,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
       </SetRow>
       <SetToggle label="Never hand an agent its own mail" checked={exclude} disabled={busy} onChange={setExcludeEdit}
         hint="On: mail an agent sends to the project goes to another watcher, and waits if the sender is the only one." />
-      <SetRow label="Concurrency slots" hint={"How many agents may hold one of this project's concurrency slots at once (for work only N may do at once, such as a heavy build). "
-        + '0 = no concurrency slots. Agents above or below the project claim one with a slot watchdog; the line is first-come. '
-        + 'An idle holder is reminded and then loses its concurrency slot when the ack timeout is on. Lowering the count takes none from a holder; it applies as concurrency slots free up.'}>
+      <SetRow label="Concurrency slots" hint="One slot works like a shared lock (mutex); several slots work like a counting semaphore. 0 = no concurrency slots.">
         <input type="number" aria-label="Concurrency slots" min={0} max={MAX_SLOTS} value={slots} disabled={busy}
           onChange={(e) => setSlotsEdit(Math.max(0, Math.min(MAX_SLOTS, Math.floor(Number(e.target.value)) || 0)))} />
       </SetRow>

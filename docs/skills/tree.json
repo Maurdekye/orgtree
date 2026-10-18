@@ -775,14 +775,16 @@
     "the mailbox, the fair_queue watchdog and inspection without claiming",
     "presentations under a project",
     "direct-child peer-mail setting and directional audience exception",
-    "concurrency slots as a collaboration semaphore that enforces nothing on its own, with examples and good practice"
+    "concurrency slots as a collaboration semaphore that enforces nothing on its own, with examples and good practice",
+    "settings analogies: round-robin load balancer, ACK FIFO work queue, one-slot mutex, multiple-slot counting semaphore; FIFO handout not completion order"
    ],
    "sources": [
     "docs/rust-engine/PROJECT-NODES.md",
     "engine/rs/orgtree-engine/src/domain/projects.rs",
     "engine/rs/orgtree-engine/src/runtime/watchdogs.rs run_fair_queue",
     "engine/rs/orgtree-engine/migrations/0025_project_nodes.sql",
-    "engine/rs/orgtree-engine/src/domain/peer_mail.rs"
+    "engine/rs/orgtree-engine/src/domain/peer_mail.rs",
+    "User 2026-10-18 17:59Z m82eea7b9d92a (project settings concurrency analogies)"
    ],
    "see_also": [
     "tool-project",
@@ -838,12 +840,14 @@
     "refusals and error texts agents hit",
     "top-level vs. non-top-level differences",
     "a minimal correct example call",
-    "release_slot and own slots status with team OR watchdogs; other project actions and force release need team"
+    "release_slot and own slots status with team OR watchdogs; other project actions and force release need team",
+    "settings analogies: round-robin load balancer, ACK FIFO work queue, one-slot mutex, multiple-slot counting semaphore; FIFO handout not completion order"
    ],
    "sources": [
     "engine/rs/orgtree-engine/src/tools/defs.rs orgtree_project",
     "engine/rs/orgtree-engine/src/tools/treetools.rs run(\"create_project\")",
-    "engine/rs/orgtree-engine/src/domain/ops.rs create_project"
+    "engine/rs/orgtree-engine/src/domain/ops.rs create_project",
+    "User 2026-10-18 17:59Z m82eea7b9d92a (project settings concurrency analogies)"
    ],
    "writer": "project-nodes-opus",
    "status": "fixed",
@@ -7243,12 +7247,14 @@
     "exclude-sender off by default",
     "purge waiting mail only",
     "listener wake and megaphone",
-    "setup recipe"
+    "setup recipe",
+    "settings analogies: round-robin load balancer, ACK FIFO work queue, one-slot mutex, multiple-slot counting semaphore; FIFO handout not completion order"
    ],
    "sources": [
     "User queue rulings 2026-10-18 08:01Z-08:13Z (docket project-mail-queue-settings-round-robin-default-o)",
     "engine/rs/orgtree-engine/src/domain/projects.rs",
-    "engine/rs/orgtree-engine/src/domain/mail.rs"
+    "engine/rs/orgtree-engine/src/domain/mail.rs",
+    "User 2026-10-18 17:59Z m82eea7b9d92a (project settings concurrency analogies)"
    ],
    "see_also": [
     "projects",

@@ -30,6 +30,14 @@ A project's folder is `<data>\scratch\<org>\_teams\<project id>`. Every agent un
 
 A project's description is the standing charter of every agent under it, nested projects included: their instructions carry "Standing charter from project <name>: …" beside their superiors' team charters, outermost first. A CLI that is already running picks it up at its next start.
 
+## Concurrency analogies in Project settings
+
+- Round-robin works like a load balancer: each job goes to the least recently woken listener.
+- ACK works like a FIFO work queue: jobs in order, one per listener until it acks, with retries and dead letters.
+- One slot works like a shared lock (mutex); several slots work like a counting semaphore. 0 = no concurrency slots.
+
+These describe cooperative patterns: slot holders agree to claim and release permits; the engine does not enforce a limit on the work itself. FIFO describes job handout order, not completion order across listeners. Retry/dead-letter behavior follows the acknowledgement settings below.
+
 ## The mailbox and the fair queue
 
 Write to a project with `orgtree_message` to its name. Its mail wakes nobody: it waits in the project's mailbox until an agent that reaches the project watches it with an `orgtree_watchdog` of kind `fair_queue` (target: the project's name). Each waiting mail then goes to **exactly one** watcher, the least recently woken (one never woken first, ties to the oldest watcher), as ordinary mail from its original sender, marked as coming via the project; the project's copy is marked read. Busy, halted and frozen watchers keep their turn; the mail waits in their mailbox. The first watcher to arm gets any backlog. `orgtree_inbox action=list|fetch project=<name>` shows what waits without claiming it.

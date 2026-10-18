@@ -9,6 +9,14 @@ Up: [orgtree-collaboration-patterns](../SKILL.md)
 
 Depending on how it is set up, a project can run as an autonomous work queue. Mail posted to the project's own mailbox is handed out to the agents listening on it, one mail to one agent, without anyone routing it by hand. Use it for a stream of similar jobs (tickets to triage, pages to translate, checks to run) that any of several agents can take.
 
+## Concurrency analogies in Project settings
+
+- Round-robin works like a load balancer: each job goes to the least recently woken listener.
+- ACK works like a FIFO work queue: jobs in order, one per listener until it acks, with retries and dead letters.
+- One slot works like a shared lock (mutex); several slots work like a counting semaphore. 0 = no concurrency slots.
+
+These describe cooperative patterns: slot holders agree to claim and release permits; the engine does not enforce a limit on the work itself. FIFO describes job handout order, not completion order across listeners. Retry/dead-letter behavior follows the acknowledgement settings below.
+
 ## The pieces
 
 - **Listeners.** An agent listens with `orgtree_watchdog action=create kind=fair_queue target=<project>`. Only agents above or below the project can listen. A paused or removed watchdog stops listening.
