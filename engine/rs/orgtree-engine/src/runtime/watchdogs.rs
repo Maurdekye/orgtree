@@ -58,6 +58,7 @@ const SHELL_ERRORS: &[&str] = &[
 
 pub mod events;
 mod schedule;
+mod usage_eval;
 
 type ActivityTx = UnboundedSender<(String, DateTime<Utc>)>;
 
