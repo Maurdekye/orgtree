@@ -97,7 +97,11 @@ export default async function (rig) {
     const stale=await rig.tool('worker-a','orgtree_project',{action:'read_presentation',name:'queue',document:'long-presentation',chunk_index:1,body_revision:revision})
     check('replacement during a body read refuses stale continuation',!stale.ok)
 
-    for(const who of ['worker-a','worker-b']) await tool(who,'orgtree_message',{metadata:{to:'boss',notice:true},body:`reply source ${who}`})
+    for(const who of ['worker-a','worker-b']) {
+      // Message sends deliberately return human-readable receipts, not JSON.
+      const sent=await rig.tool(who,'orgtree_message',{metadata:{to:'boss',notice:true},body:`reply source ${who}`})
+      assert.equal(sent.ok,true,sent.text)
+    }
     const source=who=>rig.one(`SELECT uid FROM ot.mail WHERE sender_agent_id=${row(who).id} AND recipient_agent_id=${row('boss').id} AND body='reply source ${who}'`).uid
     const sources=[source('worker-a'),source('worker-b')]
     const reply=await project('boss',{action:'broadcast',body:'Plural reply proof',notice:true,reply_to:sources[0],replies:sources})
