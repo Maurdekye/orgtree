@@ -112,6 +112,12 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         sources: [R('canvas/cards.tsx')] },
       { keys: ['Enter'], action: 'Hire the drafted agent', note: 'Shift+Enter: new line in the charter',
         sources: [R('canvas/cards.tsx')] },
+      { keys: ['Escape'], action: 'Cancel a new project you are drafting',
+        sources: [R('canvas/newproject.tsx')] },
+      { keys: ['Enter'], action: 'Create the drafted project', note: 'in the name or description; Shift+Enter: new line in the description',
+        sources: [R('canvas/newproject.tsx')] },
+      { keys: ['Escape'], action: 'Discard the project description edit', note: 'while editing the description',
+        sources: [R('canvas/projectdesk.tsx')] },
     ] },
     { title: 'Attention view', items: [
       { keys: ['ArrowLeft', 'ArrowRight'], action: 'Switch between Canvas and Attention',
@@ -126,7 +132,7 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         sources: [R('QuickChatBox.tsx')] },
       { keys: ['ArrowUp', 'ArrowDown', 'Enter'], action: 'Pick the superior', note: 'in the superior list',
         sources: [R('QuickChatBox.tsx')] },
-      { keys: ['Escape'], action: 'Close the open picker', sources: [R('QuickChatBox.tsx')] },
+      { keys: ['Escape'], action: 'Close the open picker', sources: [R('canvas/pickerpopover.tsx')] },
     ] },
     { title: 'Menus', items: [
       { keys: ['ArrowUp', 'ArrowDown', 'Home', 'End'], action: 'Move through the items',
