@@ -333,6 +333,29 @@ export default async function (rig) {
        === JSON.stringify([before0029.title, before0029.owner, before0029.objective, before0029.done_so_far]),
     { before: before0029, after: after0029 })
 
+  // ------------------------------------------------------------ the project desk's message box
+  // docket project-desk-message-box-broadcast-to-all-projec (user 2026-10-18
+  // 07:33Z): one send from the project desk reaches every live agent under the
+  // project, nested projects included, with its attachments and notice flag
+  const attachFile = path.join(rig.dir, 'broadcast-note.txt')
+  fs.writeFileSync(attachFile, 'broadcast attachment
+')
+  const siteId = node('site').id
+  const siteMail0 = mailTo(siteId).length
+  const cast = await rig.api('POST', `/api/orgs/${rig.org}/nodes/site/broadcast`,
+    { text: 'Broadcast to the site team.', attachments: [attachFile], notice: true }).then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
+  const castTo = (cast.v?.sent ?? []).map(s => s.to).sort()
+  p.check('a broadcast from the project desk reaches every live agent under it, nested projects included', cast.ok
+    && JSON.stringify(castTo) === JSON.stringify(['dev1', 'dev2', 'dev5']), cast.ok ? cast.v : cast.error)
+  const castRows = rig.sql(`SELECT recipient_name, sender, notice, body, attachments FROM ot.mail WHERE body = 'Broadcast to the site team.' ORDER BY recipient_name`)
+  p.check('each gets one mail from the user, as a notice, with the attachment', castRows.length === 3
+    && castRows.every(m => m.sender === '@user' && m.notice === true && (m.attachments ?? []).length === 1
+      && path.resolve(m.attachments[0].path) === path.resolve(attachFile)), castRows)
+  p.check('the project itself gets no copy', mailTo(siteId).length === siteMail0, mailTo(siteId).length - siteMail0)
+  const castAgent = await rig.api('POST', `/api/orgs/${rig.org}/nodes/dev1/broadcast`, { text: 'not a project' })
+    .then(v => ({ ok: true, v }), e => ({ ok: false, status: e.status, error: e.message }))
+  p.check('only a project broadcasts', !castAgent.ok && castAgent.status === 400, castAgent)
+
   // ------------------------------------------------------------ a renamed agent keeps its presentations
   // docket docket-a-selected-archive-item-and-its-draft-sur: a document keeps
   // the node_name it was presented under, so an agent's own gallery reads by id
