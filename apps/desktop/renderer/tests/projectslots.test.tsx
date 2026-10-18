@@ -258,6 +258,8 @@ test('slot header facts use a second header row and shared model-icon agent link
   const header = view.el.querySelector('.cc-head-meta.project-slots-meta')
   assert.ok(header, 'held facts belong in the shared second header row')
   assert.match(header?.textContent ?? '', /1 of 1 concurrency slot held/)
+  assert.ok(header?.querySelector('.project-slots-card'), 'yellow count card moves to the second row too')
+  assert.equal(view.el.querySelector('.cc-head-top .project-slots-card') === null, true)
   const headHolder = header!.querySelector<HTMLButtonElement>('.ref-agent[data-copy-agent-name="sa"]')
   assert.ok(headHolder?.querySelector('.tier'), 'shared holder link includes its model icon')
   await inAct(() => headHolder!.click())
@@ -289,7 +291,7 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   const panel = view.el.querySelector<HTMLElement>('.project-slots')!
   assert.ok(panel, 'the slots panel')
   assert.deepEqual(ops.filter((o) => o.op === 'slot_status'), [{ op: 'slot_status', node: 'build' }])
-  assert.match(view.el.querySelector('.project-slots-meta')?.textContent ?? '', /^1 of 1 concurrency slot held/)
+  assert.match(view.el.querySelector('.project-slots-meta')?.textContent ?? '', /1 of 1 concurrency slot held/)
   assert.match(view.el.querySelector('.cc-tabs button[data-tab="slots"]')?.textContent ?? '', /^slots$/, 'the tab omits redundant held/total counts')
   const sections = [...panel.querySelectorAll('h4')].map((h) => h.textContent)
   assert.deepEqual(sections, ['Holding', 'Line', 'Recent holds'])
