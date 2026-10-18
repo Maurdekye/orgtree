@@ -4,7 +4,7 @@ const path = require('node:path')
 const assert = require('node:assert/strict')
 const root = process.env.TOKEN_GLYPH_CAPTURE_ROOT
 const mode = process.env.TOKEN_GLYPH_CAPTURE_MODE
-if (!/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i.test(root || '') || !['before', 'after'].includes(mode))
+if (!/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i.test(root || '') || !['before', 'after', 'spacing-red'].includes(mode))
   throw Error('Expected assigned synthetic capture scope and before/after mode')
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
@@ -21,7 +21,22 @@ app.whenReady().then(async () => {
       const state = await win.webContents.executeJavaScript(`(async()=>{
         document.documentElement.classList.toggle('contrast-light',${theme === 'light'});
         await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,250))));
-        return {background:getComputedStyle(document.body).backgroundColor,
+        const slots=[...document.querySelector('.tline').querySelectorAll('.tool-writing-time,.tool-exec-time,.token-count')];
+        const spacing=slots.map(el=>{
+          const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT),texts=[];
+          for(let node;node=walker.nextNode();) if(!node.parentElement.closest('.token-glyph'))texts.push(node);
+          const separator=texts.find(node=>node.textContent.includes('·'));
+          const dot=document.createRange(),index=separator.textContent.indexOf('·');
+          dot.setStart(separator,index);dot.setEnd(separator,index+1);
+          const value=texts.find(node=>node!==separator&&/\\S/.test(node.textContent));
+          const number=document.createRange(),first=value.textContent.search(/\\S/);
+          number.setStart(value,first);number.setEnd(value,first+1);
+          const icon=el.querySelector('svg,.token-glyph').getBoundingClientRect();
+          return {separatorToIcon:icon.left-dot.getBoundingClientRect().right,
+            iconToNumber:number.getBoundingClientRect().left-icon.right,
+            iconWidth:icon.width,separatorLeft:dot.getBoundingClientRect().left,end:el.getBoundingClientRect().right};
+        });
+        return {background:getComputedStyle(document.body).backgroundColor,spacing,
           writingTitle:document.querySelector('.tool-writing-time')?.getAttribute('title'),
           executionTitle:document.querySelector('.tool-exec-time')?.getAttribute('title'),
           counts:[...document.querySelectorAll('.token-count')].map(el=>({text:el.textContent,label:el.getAttribute('aria-label'),title:el.getAttribute('title'),
@@ -30,7 +45,7 @@ app.whenReady().then(async () => {
             hidden:el.querySelector('.token-glyph')?.getAttribute('aria-hidden')}))}
       })()`)
       assert.deepEqual(state.counts.map(c => c.label), ['approximately 1,234 output tokens', 'approximately 42 output tokens', '321 thinking tokens', '0 output tokens'])
-      if (mode === 'after') {
+      if (mode !== 'before') {
         assert.equal(state.writingTitle, 'writing time: 4.330ms')
         assert.equal(state.executionTitle, 'execution time: 0.432ms')
         for (const [i, suffix] of ['~1.2kt', '~42t', '321t', '0t'].entries()) assert.equal(state.counts[i].text.endsWith(suffix), true)
@@ -54,6 +69,14 @@ app.whenReady().then(async () => {
       receipts.push({ theme, actualBackground, ...state })
     }
     fs.writeFileSync(path.join(root, 'capture.json'), JSON.stringify({ mode, receipts }, null, 2))
+    if (mode !== 'before') for (const { theme, spacing } of receipts) {
+      assert.equal(spacing.length, 3);
+      for (const metric of ['separatorToIcon', 'iconToNumber', 'iconWidth'])
+        for (const slot of spacing.slice(1)) assert.ok(Math.abs(slot[metric]-spacing[0][metric])<0.1,
+          theme+' spacing mismatch: '+metric+' '+JSON.stringify(spacing));
+      assert.ok(Math.abs((spacing[2].separatorLeft-spacing[1].end)-(spacing[1].separatorLeft-spacing[0].end))<0.1,
+        theme+' spacing mismatch: leading separator gap '+JSON.stringify(spacing));
+    }
     console.log(JSON.stringify({ mode, themes: receipts.length, countsPerTheme: 4 }))
   } finally { win.destroy() }
 }).then(() => app.exit(0), error => { console.error(error.stack || error); app.exit(1) })
