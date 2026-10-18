@@ -31,6 +31,11 @@
   [project](docs/skills/orgtree-working/team/tool-project/SKILL.md).
   [decided: user/coordinator 2026-10-18; verified: `tools/{project_inbox,treetools,defs}.rs`, `domain/{ops,presentation_chunks}.rs`]
 
+- Tree tools heap-pin the canonical operation future before awaiting it. The
+  nested tool path overflowed the default Windows debug engine stack during
+  project creation; preserve normal stack limits and verify real rig calls.
+  [verified: `tools/treetools.rs`; 2026-10-18]
+
 - Project settings explain round-robin as a load balancer, ACK as a FIFO work
   queue, one slot as a shared lock (mutex), and multiple slots as a counting
   semaphore. These are descriptions of existing cooperative behavior; FIFO is

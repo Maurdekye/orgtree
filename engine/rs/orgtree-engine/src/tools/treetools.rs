@@ -77,7 +77,9 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
     let own_slots = op == "create_project" && arg_str(args,"action") == Some("slots")
         && !crate::domain::tool_groups::enabled(&super::caller_tools(engine,caller).await?,"team");
     let actor = Actor::Agent { id: me.id, name: me.name.clone() };
-    let out = ops::run(engine, &org, actor, &req).await?;
+    // Keep the large canonical operation future off nested tool-call frames.
+    // Default-stack Windows debug engines otherwise overflow before polling it.
+    let out = Box::pin(ops::run(engine, &org, actor, &req)).await?;
     let out = if own_slots { own_slot_status(out,&me.name) } else { out };
     Ok(Done { text: serde_json::to_string_pretty(&out).unwrap_or_default(), card: None })
 }

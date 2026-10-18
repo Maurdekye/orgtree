@@ -10,6 +10,7 @@ export default async function (rig) {
   assert.ok(out,'PROJECT_TOOLS_EVIDENCE is required')
   fs.mkdirSync(out,{recursive:true})
   const checks=[]
+  let completed=false
   const check=(name,ok)=>{checks.push({name,ok:!!ok});console.log(`${ok?'PASS':'FAIL'} ${name}`);assert.ok(ok,name)}
   const tool=async(who,name,args)=>{const r=await rig.tool(who,name,args);assert.equal(r.ok,true,r.text);return r.json??JSON.parse(r.text)}
   const inbox=(who,args)=>tool(who,'orgtree_inbox',{project:'queue',...args})
@@ -65,9 +66,12 @@ export default async function (rig) {
     check('unrelated agent cannot read project history',!outsider.ok)
     check('all project list/fetch/chunk reads preserve queue state exactly',stamp()===before)
 
-    const wrapped=await project('boss',{action:'create',name:'wrapper',above:'worker-a'})
+    // Use a project anchor so insertion does not remove a later broadcast
+    // recipient or presentation owner from queue's direct membership.
+    await rig.op({op:'create_project',name:'wrap-target',parent:'queue'})
+    const wrapped=await project('boss',{action:'create',name:'wrapper',above:'wrap-target'})
     const w=row('wrapper')
-    check('tool creates above atomically without an index',!!wrapped&&row('worker-a').parent_id===w.id&&w.parent_id===p.id)
+    check('tool creates above atomically without an index',!!wrapped&&row('wrap-target').parent_id===w.id&&w.parent_id===p.id)
     const denied=await rig.tool('outsider','orgtree_project',{action:'create',name:'forbidden-wrapper',above:'worker-b'})
     check('create above retains canonical authority and leaves no partial node',!denied.ok&&!row('forbidden-wrapper'))
     const root=await project('boss',{action:'create',name:'forbidden-root',parent:'user',index:0})
@@ -111,8 +115,9 @@ export default async function (rig) {
     const by=new Map(urgent.outcomes.map(o=>[o.to,o.sent]))
     check('urgent broadcast mixes DND send and nonDND refusal honestly',by.get('worker-a')===true&&by.get('worker-b')===false)
     check('urgent metadata reaches ordinary delivery storage',rig.one("SELECT urgent,urgent_reason FROM ot.mail WHERE body='Mixed urgency proof'")?.urgent===true)
+    completed=true
     return {passed:true,checks:checks.length}
   } finally {
-    fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({checks,passed:checks.length>0&&checks.every(c=>c.ok)},null,2))
+    fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({checks,completed,passed:completed&&checks.length>0&&checks.every(c=>c.ok)},null,2))
   }
 }
