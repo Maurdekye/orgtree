@@ -69,7 +69,7 @@ pub fn scoped(tools: &Value) -> Vec<Value> {
             card["inputSchema"]["properties"].as_object_mut().unwrap()
                 .retain(|key,_| ["action","name","lease","note"].contains(&key.as_str()));
             card["inputSchema"]["properties"]["action"]["enum"] = json!(["slots","release_slot"]);
-            card["description"] = json!("Release your own concurrency slot: release_slot with lease and optional note. slots with project name reads only your holds, line entries and history. Available with watchdogs or team; other project actions and force release require team. Normal project reach and lease ownership checks apply. Guide: orgtree-tool-project.");
+            card["description"] = json!("Release your own concurrency slot: release_slot with lease and optional note. slots with project name shows holders, reasons, ages and the whole line; other agents' lease IDs are hidden. Available with watchdogs or team; other project actions and force release require team. Normal project reach and lease ownership checks apply. Guide: orgtree-tool-project.");
         }
         card
     }).collect()

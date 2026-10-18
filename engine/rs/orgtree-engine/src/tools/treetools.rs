@@ -82,19 +82,23 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
     Ok(Done { text: serde_json::to_string_pretty(&out).unwrap_or_default(), card: None })
 }
 
-/// Watchdog-only exposure is for finding and releasing the caller's own lease.
-/// Canonical slot_status has already checked project reach; team callers keep
-/// its full response. Do not expose other agents' reasons or lease ids here.
+/// Project reach is already checked. Members without team see all holders
+/// and the whole line, but only their own lease IDs (user 2026-10-18 17:46Z).
 #[nolog]
 fn own_slot_status(mut status: Value, agent: &str) -> Value {
     for key in ["holders","line","history"] {
         if let Some(rows) = status[key].as_array_mut() {
-            rows.retain(|row| row["agent"].as_str() == Some(agent));
-            for row in rows { if let Some(row) = row.as_object_mut() { row.remove("slot"); } }
+            for row in rows {
+                let own = row["agent"].as_str() == Some(agent);
+                if let Some(row) = row.as_object_mut() {
+                    row.remove("slot");
+                    if !own { row.remove("lease"); }
+                }
+            }
         }
     }
     status["held"] = json!(status["holders"].as_array().map_or(0,Vec::len));
-    status["own_only"] = json!(true);
+    status["own_only"] = json!(false);
     status
 }
 
