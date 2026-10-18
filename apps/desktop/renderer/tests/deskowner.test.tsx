@@ -32,7 +32,8 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { resetConvos } from '../src/convo'
-import { DeskHosts, DeskSlot } from '../src/canvas/deskhosts'
+import { DeskHosts, DeskSlot, deskIdentity, revealExistingDesk } from '../src/canvas/deskhosts'
+import { registerWindow } from '../src/windowlife'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -93,6 +94,21 @@ const owner = (el: HTMLElement): string => {
 }
 
 const setup = () => { resetConvos(); installFetch(new FakeServer()) }
+
+test('generic focus reveals only the matching already-open desk window', (t) => {
+  const n = agent('already-open')
+  const raised: string[] = []
+  const unregister = registerWindow({
+    id: 'desk-window', kind: `desk:${deskIdentity('org', n)}`, org: 'org',
+    editable: true, window: window as unknown as Window,
+    redock: noop, reveal: () => raised.push('desk'),
+  })
+  t.after(unregister)
+  assert.equal(revealExistingDesk('org', n), true)
+  assert.deepEqual(raised, ['desk'], 'the matching open desk is brought to the front')
+  assert.equal(revealExistingDesk('another-org', n), false, 'a desk in another org is not selected')
+  assert.deepEqual(raised, ['desk'], 'no unrelated window is focused')
+})
 
 test('§1 LEGACY: with no new fields, the last slot to register wins',
   async (t: TestContext) => {

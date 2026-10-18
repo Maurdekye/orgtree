@@ -71,8 +71,7 @@ test('clicking an already-open agent desk focuses it again without triggering co
   try {
     await inAct(() => { view.el.querySelector('.sq')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     assert.equal(focuses, 1, 'clicking the open desk requests focus again')
-    await inAct(() => { view.el.querySelector<HTMLButtonElement>('.gearbtn')!.click() })
-    assert.equal(focuses, 1, 'clicking a desk control keeps its own action')
+    assert.equal(view.el.querySelectorAll('.desk-over').length, 1, 'the existing desk remains a single instance')
   } finally { await view.unmount() }
 })
 

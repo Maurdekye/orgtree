@@ -1791,10 +1791,11 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onClick={(e) => {
         // pile front: center click = zoom onto the focused retiree (user
         // spec); margin clicks (the stack) are handled by the layers behind
-        if (!pile || focused) return
-        if ((e.target as Element).closest('button, input, textarea, select')) return
+        if (!focused && !pile) return
+        if ((e.target as Element).closest('button, input, textarea, select, a, label, [role="button"], [contenteditable="true"]')) return
+        if (window.getSelection()?.toString()) return
         const d = downAt.current
-        if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return
+        if (!focused && d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return
         onRecenter?.()
       }}>
       {live && !node.isBearerOf && lod !== 'mini' && (

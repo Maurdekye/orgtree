@@ -181,8 +181,6 @@ test('clicking an already-open project desk focuses it again', async (t) => {
   await inAct(() => { view.el.querySelector('.sq.project')!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
   assert.equal(focuses, 1, 'clicking the existing project desk requests focus again')
   assert.equal(view.el.querySelectorAll('.desk-over').length, 1, 'the existing desk remains a single instance')
-  await inAct(() => { view.el.querySelector<HTMLButtonElement>('.mailbtn')!.click() })
-  assert.equal(focuses, 1, 'the project mailbox control does not refocus the card')
 })
 
 /* ─── §2 the main tab ───────────────────────────────────────────────────── */

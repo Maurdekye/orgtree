@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { MovableSurface, useSurface } from '../popout'
-import { openSurfaces } from '../windowlife'
+import { openSurfaces, revealSurface } from '../windowlife'
 import type { BorrowedSurface } from '../windowlife'
 import { isMobile } from '../mobile'
 import { OwnedDeskChat } from './desk'
@@ -17,6 +17,16 @@ export function deskGeneration(node: Pick<CanvasNode, 'generation'>): number {
 }
 export const deskIdentity = (slug: string, node: Pick<CanvasNode, 'id' | 'generation'>) =>
   JSON.stringify([slug, node.id, deskGeneration(node)])
+
+/** Raise an already detached desk instead of moving to its canvas placeholder.
+ * Every generic focus route (cards, the Agents list, and links) funnels here. */
+export function revealExistingDesk(slug: string,
+  node: Pick<CanvasNode, 'id' | 'generation'> | undefined): boolean {
+  if (!node || typeof node.generation !== 'number'
+    || !Number.isSafeInteger(node.generation) || node.generation < 0) return false
+  const surface = openSurfaces().find((s) => s.kind === `desk:${deskIdentity(slug, node)}`)
+  return surface ? revealSurface(surface) : false
+}
 interface Slot { id: object; anchor: HTMLElement; props: DeskChatProps }
 interface Entry {
   key: string; invalidated?: boolean; pendingRename?: boolean; slots: Map<object, Slot>; last: Slot; detached: boolean

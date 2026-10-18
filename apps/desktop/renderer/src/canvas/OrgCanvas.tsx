@@ -20,7 +20,7 @@ import { treeSelections } from '../treeselection'
 import { buttonAgentOf, onButtonAgent, setButtonAgent } from '../buttoncolours'
 import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
-import { DeskHosts, useDeskActionsNow } from './deskhosts'
+import { DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
 import { normalizeUserEnteredName } from './nameinput'
 // canvas/OrgCanvas.tsx — the canvas core: the OrgCanvas component itself —
 // camera (pan/zoom/springs/follow), tree layout orchestration, wires and
@@ -1985,6 +1985,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       showPin(slug, id, vpSizeNow())
       return
     }
+    // A detached desk is already the user's destination. Restore and focus
+    // that window instead of moving the canvas to its placeholder or mounting
+    // another copy. `onCanvas` remains the explicit canvas-only route.
+    if (!onCanvas && revealExistingDesk(slug, mapRef.current.get(id))) return
     const view = foregroundRef.current
     if (view && !mapRef.current.has(id) && id !== USER && id !== DRAFT && id !== INBOX
         && id !== EXTERN && !id.startsWith('dog:')) {

@@ -147,6 +147,12 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       onPointerMove={(e) => { trackEdge(e); onDragMove(e, node.id) }}
       onPointerUp={(e) => onDragEnd(e, node.id, node, false)}
       onPointerCancel={(e) => onDragCancel(e, node.id)}
+      onClick={(e) => {
+        if (!deskOpen) return
+        if ((e.target as Element).closest('button, input, textarea, select, a, label, [role="button"], [contenteditable="true"]')) return
+        if (window.getSelection()?.toString()) return
+        onFocus?.()
+      }}
       onContextMenu={(e) => menu.open(e, menuEntries)}>
       {lod === 'mini' ? (
         <span className="project-mini" title={`project ${node.id}`}><FolderIcon fontSize="inherit" /></span>
