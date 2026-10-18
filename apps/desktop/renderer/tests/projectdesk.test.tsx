@@ -694,6 +694,22 @@ test("§11a the temporary project desk has the agent desk's ONE title bar: folde
   assert.equal(closed, 1)
 })
 
+test("§11d the temporary project desk's pin makes the same pinned window an agent's does, and its title is the agent desk's name (user 11:47:14Z: as similar as possible)", async (t) => {
+  serve(t)
+  const pinned: unknown[] = []
+  const nd = project()
+  const view = await mountView(<CurrentOrg.Provider value="org"><ProjectDeskModal node={nd} slug="org" tree={tree}
+    map={new Map([[nd.id, nd], ['boss', boss]])} op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs}
+    close={noop} pinAsWindow={(rect) => { pinned.push(rect) }} /></CurrentOrg.Provider>, (el) => el)
+  t.after(() => view.unmount())
+  await flush(2)
+  const bar = document.querySelector('.project-desk-modal > .modalpin-bar')!
+  assert.ok(bar.querySelector('.modalpin-name .cc-name'), "the agent desk's name component (AgentName), not a copy")
+  await inAct(() => { bar.querySelector<HTMLButtonElement>('button.modalpin-btn[aria-label="pin this to the window"]')!.click() })
+  assert.equal(pinned.length, 1, 'pinned as a window, through the agent pin layer')
+  assert.equal(document.querySelector('.project-desk-modal.modalpin-win') === null, true, 'not a pinned modal of its own')
+})
+
 test("§11b no second name in the desk under a title bar: temporary, pinned and popped-out windows; the name never wraps (user 11:14Z)", () => {
   for (const host of ['.project-desk-modal:not(.modalpin-detached)', '.pinwin-body'])
     for (const part of ['.project-mark', '.name'])
