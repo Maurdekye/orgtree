@@ -24,6 +24,13 @@
   and generation-checked window restoration. The switchboard menu opens the
   global Agents list. See [Team tab](docs/rust-engine/team-tab.md).
   [decided: user 2026-10-18 10:53–10:56Z; verified: `canvas/{team,desk,projectdesk,OrgCanvas,agentmenu,cards}.tsx`]
+- Transcript `@user` highlights come from each assistant message's own text,
+  never the dismissible attention/jump selection. Shared Msg and genuine live
+  assistant prose use one message-level theme-relative layer (10% accent,
+  75% inset edge); do not add a second paragraph tint. Dismissal still clears
+  attention, and its navigation effect only reveals/scrolls to the message.
+  [decided: user/coordinator 2026-10-18 11:04Z/11:07Z; verified:
+  `canvas/desk.tsx`, `styles.css`, `tests/user-mention-highlight.test.tsx`]
 
 - In an agent's desk context, presentation context menus on both the desk-header
   presentation chips (`.desk-docs .doc-badge`) and rows in the Presented tab

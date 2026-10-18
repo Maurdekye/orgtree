@@ -13,6 +13,15 @@ Active checkbox, row behavior and live feed. It pins and pops out like the other
 desk panels. Shared node Open menus offer Team; the switchboard menu opens the
 global Agents list. See [Team tab](team-tab.md).
 
+**Permanent user-mention highlight, user 2026-10-18 11:04Z; coordinator 11:07Z:**
+assistant transcript messages containing a standalone `@user` retain a highlight
+from their own text, including after attention dismissal and transcript reload.
+Dismissal continues to clear badges/counts/attention rows. Shared desk, pop-out,
+pinned and Msg renderers use exactly one whole-message layer, with a 10% accent
+background and 75% accent inset edge in both light and dark themes. No darker
+inner paragraph box. Attention selection retains jump navigation only.
+
+
 **EPIC pointer stability, user 2026-10-18 07:49Z:** watchdog chips must remain
 clickable while EPIC is on. The shared window shake stops during pointer
 movement or a held press, settles for 250ms, and stays off while a clickable

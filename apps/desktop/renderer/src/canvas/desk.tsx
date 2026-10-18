@@ -2689,24 +2689,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     const blocks = [...rowEl.querySelectorAll<HTMLElement>('p, li, blockquote, pre')]
       .filter(el => /(^|[^0-9A-Za-z._%+-])@user(?![0-9A-Za-z_@/-]|\.[0-9A-Za-z])/i.test(el.textContent ?? ''))
     const lineEl = blocks[0] ?? rowEl.querySelector<HTMLElement>('.md') ?? msgEl
-    rowEl.classList.add('mention-highlight', 'ctx-target')
-    rowEl.setAttribute('data-mention-highlighted', 'true')
-    msgEl.classList.add('mention-highlight')
-    lineEl.classList.add('mention-highlight-line')
-    lineEl.setAttribute('data-mention-line', 'true')
+    // Attention selects the scroll destination only. Msg/live content owns
+    // its permanent single-layer styling, independently of dismissal.
     if (scrolledMentionRef.current !== mentionHighlight.mentionId) {
       scrolledMentionRef.current = mentionHighlight.mentionId
       revealPendingRun(rowEl)
       revealSystemRuns(rowEl)
       leaveBottom()
       lineEl.scrollIntoView?.({ block: 'center' })
-    }
-    return () => {
-      rowEl.classList.remove('mention-highlight', 'ctx-target')
-      rowEl.removeAttribute('data-mention-highlighted')
-      msgEl.classList.remove('mention-highlight')
-      lineEl.classList.remove('mention-highlight-line')
-      lineEl.removeAttribute('data-mention-line')
     }
   }, [mentionHighlight, view, chat?.messages, live_feed])
   /** the rows this desk needs to fill itself — the floor a window collapse
@@ -3962,7 +3952,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                   ? <LiveSteerRow segments={f.segments} key={f.n ?? 'f' + i} text={f.text}
                       truncated={f.truncated} slug={slug} nid={node.id}
                       refs={deskRefs} />
-                  : <div key={f.n ?? 'f' + i} className="msg assistant live">
+                  : <div key={f.n ?? 'f' + i} className={'msg assistant live'
+                      + userMentionClass(f.kind === 'text' && !f.cmd_output ? 'assistant' : '', f.text)}>
                       {/* render-inline-html-custom-responses: a POSITIVE
                           allowlist, not "everything not excluded" — this
                           default branch is reached by any `f.kind` the three
@@ -3993,7 +3984,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           ))}
           {viewTransient.map(row => <div key={row.event_id || row.kind} data-reply-event={row.event_id} data-reply-quote={row.reply_quote}
             onContextMenu={e => openReply(e, row)} className={['thinking', 'thinking_start', 'thought'].includes(row.kind)
-              ? 'reply-event' : 'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
+              ? 'reply-event' : 'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')
+                + userMentionClass(['draft', 'delta'].includes(row.kind) ? row.role : '', row.text)}>
             {row.kind === 'tool_writing' ? <ToolChip t={row.tool ?? { id: row.tool_id, name: row.text, writing_started_at: row.started_at }}
               slug={slug} nid={node.id} onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc} /> : ['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? (row.text
@@ -4967,6 +4959,13 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
   )
 }
 
+/** A message's own prose is the durable source of its mention highlight.
+ *  Shared by settled Msg rows and the genuine assistant live/draft lanes. */
+export function userMentionClass(role: string, text?: string): string {
+  return role === 'assistant' && /(^|[^0-9A-Za-z._%+-])@user(?![0-9A-Za-z_@/-]|\.[0-9A-Za-z])/i.test(text ?? '')
+    ? ' mention-highlight' : ''
+}
+
 // №21: memoized — rows are static once fetched; only identity changes matter
 export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, refs,
   replyAvailable, onLocateReply, systemPart = false }: {
@@ -5014,7 +5013,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
       onOpenDoc={refs ? id => refs.onOpen(resolveRef({kind:'doc', org:slug, id}, refs.world)) : undefined} /> : null
   }) : null
   return (
-    <div className={'msg ' + m.role + (m.oracle ? ' oracle' : '')}>
+    <div className={'msg ' + m.role + (m.oracle ? ' oracle' : '') + userMentionClass(m.role, text)}>
       {orderedBlocks ?? <>
       {(m.thinking || m.thinking_sealed) &&
         <div className="reply-event" data-reply-event={m.thinking_event_id ?? ''} data-reply-quote={m.thinking_reply_quote ?? m.thinking ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
