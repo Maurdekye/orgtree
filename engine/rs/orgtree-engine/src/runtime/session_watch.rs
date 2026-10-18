@@ -367,6 +367,22 @@ mod tests {
 
     #[test]
     fn session_blip_logging_is_once_per_recovered_sequence() {
+        // Callsite interest is process-global, even for thread-local subscribers.
+        // Keep unrelated parallel tests from registering or rebuilding these
+        // callsites while this test checks an exact event count.
+        const CHILD: &str = "ORGTREE_SESSION_BLIP_LOG_TEST_CHILD";
+        const TEST: &str = "runtime::session_watch::tests::session_blip_logging_is_once_per_recovered_sequence";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST, "--nocapture", "--test-threads=1"])
+                .env(CHILD, "1")
+                .output().expect("run isolated tracing assertion");
+            assert!(output.status.success(), "isolated tracing assertion failed: {}\n{}\n{}",
+                output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"),
+                "the isolated test must actually execute");
+            return;
+        }
         use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
         use tracing_subscriber::prelude::*;
         struct Blips(Arc<AtomicUsize>);
@@ -383,7 +399,16 @@ mod tests {
             }
         }
         let logs=Arc::new(AtomicUsize::new(0));
-        tracing::subscriber::with_default(tracing_subscriber::registry().with(Blips(logs.clone())),||{
+        let dispatch=tracing::Dispatch::new(tracing_subscriber::registry().with(Blips(logs.clone())));
+        // Reproduce a parallel test's first recovery on a thread with no
+        // subscriber, after the collector exists but before it is installed.
+        // tracing-core's single-dispatcher fast path caches Interest::never.
+        std::thread::spawn(|| {
+            let at=std::time::Instant::now();let mut p=Placement::new(true);
+            assert_eq!(p.observe(false,at),None);
+            assert_eq!(p.observe(true,at+Duration::from_secs(2)),None);
+        }).join().unwrap();
+        tracing::dispatcher::with_default(&dispatch,||{
             let at=std::time::Instant::now();let mut p=Placement::new(true);
             for (sec,good) in [(0,false),(2,true),(4,true),(6,false),(8,false),(10,true),(12,true)] {
                 assert_eq!(p.observe(good,at+Duration::from_secs(sec)),None);
