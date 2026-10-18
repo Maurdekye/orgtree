@@ -22,6 +22,12 @@ settings.
   menu handling.
 - The canonical context menu's `Owner…` entry carries the owner's tooltip id,
   resolved by the same native tooltip host when hovered.
+- When a shared agent/project link's visible label omits its identity (for
+  example a model chip or a shared `Owner...`/`Presenter...`/`Project...` menu
+  entry), the shared tooltip host prefixes the entity name on its first line.
+  Labels that already show the name keep the existing tooltip without a
+  duplicate name. Canvas card names use that same host and have no competing
+  name-only `title`.
 - The docket reply recipient Select keeps its MUI menu inside its
   `ObjectMenuBoundary` (`disablePortal`) so right-clicks reach the delegated
   agent menu. The shared context menu uses z-index 1600, above MUI popovers,

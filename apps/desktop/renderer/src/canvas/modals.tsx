@@ -1514,10 +1514,10 @@ function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
   return (
     // pointerdown must not reach the viewport: its pan pointer-CAPTURE retargets
     // the click, so backdrop-close and every button in here silently broke
-    <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={<span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id)}>{TIER_LETTER[model] ?? '?'}</span>{node.id} · configuration</span>}
+    <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={<span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[model] ?? '?'}</span>{node.id} · configuration</span>}
       panel={'settings cfg prov-' + providerOf(node.tier ?? '')} close={close}>
         <h3 className="agent-settings-header" data-copy-agent-name={node.id}>
-          <span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id)}>{TIER_LETTER[model] ?? '?'}</span>{node.id}</span>
+          <span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[model] ?? '?'}</span>{node.id}</span>
           {(node.state === 'live' || node.state === 'archived') &&
             (onScratchFolder || onTeamScratchFolder) && <span className="agent-settings-header-actions">
               {onScratchFolder && <button type="button" onClick={onScratchFolder}>Open scratch folder</button>}
@@ -2008,7 +2008,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true }
           return (
             <button key={id} data-copy-agent-name={id} {...agentNavProps(id)} className={'pile-row' + (id === pile.front ? ' on' : '')}
               onClick={() => onPick(id)}>
-              <span className={'tier t-' + n.tier} {...agentTooltipProps(n.id)}>{TIER_LETTER[n.tier!] ?? '?'}</span>
+              <span className={'tier t-' + n.tier} {...agentTooltipProps(n.id, true)}>{TIER_LETTER[n.tier!] ?? '?'}</span>
               <span className="pile-name">{id}</span>
               {n.bearer_state && <span className="badge dim">{n.bearer_state}</span>}
               {n.busy && <span className="badge">{stateLabel('active')}</span>}

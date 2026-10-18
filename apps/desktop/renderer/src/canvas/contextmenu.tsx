@@ -669,10 +669,11 @@ function NestedMenuItem({ entry, close, expanded, expand, collapse, within }: {
   return <div className="ctxmenu-branch" onMouseEnter={expand} onMouseLeave={collapse}>
     <button ref={button} type="button" role="menuitem" tabIndex={-1}
       className={'ctxmenu-item' + (entry.danger ? ' danger' : entry.warning ? ' warning' : '')}
-      {...agentTooltipProps(entry.agentTooltipId)}
+      {...agentTooltipProps(entry.agentTooltipId, true)}
       disabled={entry.disabled} aria-disabled={entry.actionDisabled || entry.disabled || undefined}
       aria-haspopup={entry.children ? 'menu' : undefined}
-      aria-expanded={entry.children ? expanded : undefined} title={entry.title}
+      aria-expanded={entry.children ? expanded : undefined}
+      title={entry.agentTooltipId ? undefined : entry.title}
       onFocus={() => { if (!expanded) collapse() }}
       onKeyDown={e => {
         if (e.key === 'Enter' && entry.children && !entry.submenuOnly) {

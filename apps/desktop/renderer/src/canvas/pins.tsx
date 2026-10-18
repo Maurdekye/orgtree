@@ -722,7 +722,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
  *  as "show me this" would throw away a hand-arranged position with no undo. */
 export function PinnedPlaceholder({ id, onShow }: { id: string; onShow: () => void }) {
   return (
-    <div className="pin-placeholder" data-copy-agent-name={id} {...agentNavProps(id)}
+    <div className="pin-placeholder" data-copy-agent-name={id} {...agentNavProps(id, true)}
       role="button" tabIndex={0}
       title={`${id}'s desk is open as a pinned window — click to show it`}
       onPointerDown={(e) => e.stopPropagation()}

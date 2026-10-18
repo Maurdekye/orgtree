@@ -50,6 +50,7 @@ import type { MenuEntry } from './contextmenu'
  *  Its value is the agent id the primary click would navigate to. */
 export const AGENT_NAV_ATTR = 'data-agent-nav'
 export const AGENT_TOOLTIP_ATTR = 'data-agent-tooltip'
+export const AGENT_TOOLTIP_NAME_FIRST_ATTR = 'data-agent-tooltip-name-first'
 
 /** Build the canonical menu for an arbitrary agent id, or return nothing when
  *  this window cannot (no registration, or no such agent in this tree). */
@@ -104,11 +105,16 @@ export function useProvideAgentNav(build: AgentNavMenu | null,
 }
 
 /** Spread onto every agent link, including links whose surface owns its own
- *  context menu. Kept separate from `data-agent-nav`, which means only
- *  "borrow the shared menu". */
-export function agentTooltipProps(id: string | null | undefined):
-  { [AGENT_TOOLTIP_ATTR]?: string } {
-  return id ? { [AGENT_TOOLTIP_ATTR]: id } : {}
+ *  context menu. `nameFirst` is for icon/status labels that omit the identity;
+ *  the shared host prefixes the resolved tooltip without changing visible
+ *  labels. Kept separate from `data-agent-nav`, which means only "borrow the
+ *  shared menu". */
+export function agentTooltipProps(id: string | null | undefined, nameFirst = false):
+  { [AGENT_TOOLTIP_ATTR]?: string; [AGENT_TOOLTIP_NAME_FIRST_ATTR]?: 'true' } {
+  return id ? {
+    [AGENT_TOOLTIP_ATTR]: id,
+    ...(nameFirst ? { [AGENT_TOOLTIP_NAME_FIRST_ATTR]: 'true' as const } : {}),
+  } : {}
 }
 
 /** Bind native tooltip handling to the document that owns its agent links.
@@ -123,7 +129,12 @@ export function registerAgentNativeTooltipDocument(owner: Document,
     const id = anchor?.getAttribute(AGENT_TOOLTIP_ATTR)
     if (!anchor || !id) return
     const title = lookup(id)?.title
-    if (title) anchor.title = title
+    if (title) {
+      const firstLine = title.split('\n', 1)[0]!.trim()
+      const needsName = anchor.hasAttribute(AGENT_TOOLTIP_NAME_FIRST_ATTR)
+        && firstLine !== id && !firstLine.startsWith(id + ' ·')
+      anchor.title = needsName ? `${id}\n${title}` : title
+    }
   }
   const clear = (event: Event) => {
     const anchor = target(event)
@@ -209,7 +220,8 @@ export function agentNavAt(target: EventTarget | null, within?: Element): string
  *  `onContextMenu` here: the menu is raised by `useContextMenu().open`, which
  *  every surface already routes its right clicks through, so a target that is
  *  marked needs no handler of its own and cannot wire one up differently. */
-export function agentNavProps(id: string | null | undefined):
-  { [AGENT_NAV_ATTR]?: string; [AGENT_TOOLTIP_ATTR]?: string } {
-  return id ? { [AGENT_NAV_ATTR]: id, [AGENT_TOOLTIP_ATTR]: id } : {}
+export function agentNavProps(id: string | null | undefined, nameFirst = false):
+  { [AGENT_NAV_ATTR]?: string; [AGENT_TOOLTIP_ATTR]?: string;
+    [AGENT_TOOLTIP_NAME_FIRST_ATTR]?: 'true' } {
+  return id ? { [AGENT_NAV_ATTR]: id, ...agentTooltipProps(id, nameFirst) } : {}
 }

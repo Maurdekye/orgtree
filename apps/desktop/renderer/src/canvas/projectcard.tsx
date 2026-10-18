@@ -31,6 +31,7 @@ import { AgentRetireConfirm, projectMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
 import { projectSlotState, slotBadgeText, slotCount, slotsFull } from './slots'
 import { readQuickChat } from '../quickchat'
+import { agentTooltipProps } from './agentnav'
 
 export function isProject(node: Pick<CanvasNode, 'kind'> | null | undefined): boolean {
   return node?.kind === 'project'
@@ -167,15 +168,15 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       }}
       onContextMenu={(e) => menu.open(e, menuEntries)}>
       {lod === 'mini' ? (
-        <span className="project-mini" title={`project ${node.id}`}><FolderIcon fontSize="inherit" /></span>
+        <span className="project-mini" {...agentTooltipProps(node.id, true)}><FolderIcon fontSize="inherit" /></span>
       ) : (
         <>
           <div className="sq-head project-head">
             <div className="sq-title">
-              <span className="project-mark" title="project node: runs no turns, holds no credits">
+              <span className="project-mark" {...agentTooltipProps(node.id, true)}>
                 <FolderIcon fontSize="inherit" />
               </span>
-              <span className="name" title={`project ${node.id}`}>{node.id}</span>
+              <span className="name" {...agentTooltipProps(node.id)}>{node.id}</span>
             </div>
             <div className="sq-meta project-meta">
               <ProjectActivity node={node} />

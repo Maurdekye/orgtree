@@ -541,7 +541,7 @@ export function EyeDesk({ map, op, slug, toast,
                 {!isPinned(a.id) &&
                   <FullscreenIcon className="eye-tab-panel-glyph" fontSize="inherit" />}
               </button>
-              {onJump && <button className="eye-tab-jump" type="button" {...agentNavProps(a.id)}
+              {onJump && <button className="eye-tab-jump" type="button" {...agentNavProps(a.id, true)}
                 title={`jump to ${a.id}`} aria-label={`jump to ${a.id}`}
                 onClick={() => onJump(a.id)}>
                 <FocusIcon fontSize="inherit" />
@@ -1821,10 +1821,10 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   if (mapMode) {
     const stat = node.last_status
     return (
-      <div data-copy-agent-name={node.id} data-agent-tooltip={node.id}
+      <div data-copy-agent-name={node.id} {...agentTooltipProps(node.id)}
         className={cls.join(' ') + ' maplod'} style={style}>
         <div className="map-top">
-          <span className={'tier t-' + node.tier} {...agentTooltipProps(node.id)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
+          <span className={'tier t-' + node.tier} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
           <MapModeIndicator node={node} />
           {(dogs ?? 0) > 0 && <span className={'map-dogs' + ((oneShotDogs ?? 0) > 0 ? ' oneshot' : '')}
             aria-label={`${dogs} watchdog${dogs === 1 ? '' : 's'}${(oneShotDogs ?? 0) > 0
@@ -1832,7 +1832,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             ◉{dogs}{(oneShotDogs ?? 0) > 0 && <small>1×{oneShotDogs}</small>}
           </span>}
         </div>
-        <span className="map-name">{node.id}</span>
+        <span className="map-name" {...agentTooltipProps(node.id)}>{node.id}</span>
         {node.halt || isUsageFrozen(node) || deriveTurnState(node) !== 'idle' ? (
           <MapTurnAge node={node} turn={lastTurn} />
         ) : (
@@ -1844,7 +1844,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   }
   return (
     <div ref={cardRef} data-first-use-agent={node.id} data-copy-agent-name={focused ? undefined : node.id}
-      data-agent-tooltip={focused ? undefined : node.id}
+      {...agentTooltipProps(focused ? undefined : node.id, lod === 'mini')}
       className={cls.join(' ') + (farGhost ? ' far-ghosted' : '')} style={style}
       onPointerDown={(e) => {
         downAt.current = { x: e.clientX, y: e.clientY }
@@ -1907,8 +1907,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             status groups separate prevents long names and status controls from
             stealing the context wheel's hit area. */}
         <div className="sq-title">
-          <span className={'tier t-' + node.tier} {...agentTooltipProps(node.id)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
-          <span ref={nameRef} className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
+          <span className={'tier t-' + node.tier} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
+          <span ref={nameRef} className="name" {...agentTooltipProps(node.id)}>{node.id}</span>
           {fullNameAt && (
             <span className="name-full" aria-hidden="true"
               style={{ left: fullNameAt.left, top: fullNameAt.top }}>{node.id}</span>

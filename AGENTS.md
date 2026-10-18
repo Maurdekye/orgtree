@@ -739,6 +739,14 @@
   `canvas/agentnav.tsx`, `canvas/OrgCanvas.tsx`, `canvas/contextmenu.tsx`,
   `canvas/docket.tsx`, `providers/catalog.rs`]
 
+- When a shared agent/project link's visible label omits its identity, its
+  native tooltip starts with that name; visible-name labels are not duplicated.
+  Shared context-menu identity entries and icon-only model/project marks opt
+  into the same behavior. Near-zoom agent/project card names use the rich
+  tooltip without a competing plain `title`. [decided: user 2026-10-18 18:16Z;
+  verified: `canvas/agentnav.tsx`, `canvas/identity.tsx`, `canvas/contextmenu.tsx`,
+  `canvas/cards.tsx`, `canvas/projectcard.tsx`]
+
 - A known empty effort offer (`Some([])`) means the model accepts no effort
   setting: hide its effort display/control and send no effort argument. An
   unknown offer (`None`) remains distinct. The org default is computed as an

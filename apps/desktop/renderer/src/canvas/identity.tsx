@@ -19,7 +19,8 @@
 import { createContext, useContext } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { FolderIcon } from '../icons'
-import { AGENT_NAV_ATTR, AGENT_TOOLTIP_ATTR, agentNavProps, agentTooltipProps } from './agentnav'
+import { AGENT_NAV_ATTR, AGENT_TOOLTIP_ATTR, AGENT_TOOLTIP_NAME_FIRST_ATTR,
+  agentNavProps, agentTooltipProps } from './agentnav'
 import { nodeMenuAction, nodeMenuEntry, ticketOwnerAction } from './objectactions'
 import { TIER_LETTER, tierLabel } from './shared'
 
@@ -43,14 +44,14 @@ export function TierChip({ tier, agentName }: { tier?: string | null; agentName?
   if (!tier) return null
   if (tier === 'project') {
     return (
-      <span data-copy-agent-name={agentName} {...agentTooltipProps(agentName)}
+      <span data-copy-agent-name={agentName} {...agentTooltipProps(agentName, true)}
         className="project-mark" title={agentName ? undefined : 'Project'}>
         <FolderIcon fontSize="inherit" fill="currentColor" />
       </span>
     )
   }
   return (
-    <span data-copy-agent-name={agentName} {...agentTooltipProps(agentName)}
+    <span data-copy-agent-name={agentName} {...agentTooltipProps(agentName, true)}
       className={'tier t-' + tier} title={agentName ? undefined : tierLabel(tier)}>
       {TIER_LETTER[tier] ?? tier.slice(0, 1).toUpperCase()}
     </span>
@@ -70,6 +71,7 @@ export function createTierChipEl(
     if (agentName) {
       span.setAttribute('data-copy-agent-name', agentName)
       span.setAttribute(AGENT_TOOLTIP_ATTR, agentName)
+      span.setAttribute(AGENT_TOOLTIP_NAME_FIRST_ATTR, 'true')
     } else {
       span.title = 'Project'
     }
@@ -92,6 +94,7 @@ export function createTierChipEl(
   if (agentName) {
     t.setAttribute('data-copy-agent-name', agentName)
     t.setAttribute(AGENT_TOOLTIP_ATTR, agentName)
+    t.setAttribute(AGENT_TOOLTIP_NAME_FIRST_ATTR, 'true')
   } else {
     t.title = tierLabel(tier)
   }
@@ -198,6 +201,7 @@ export function NodeLink({
   id, tier, label, why, onFocus, atDestination, className, nativeTitle = true,
 }: NodeLinkProps) {
   const text = label ?? id
+  const nameFirst = !text.includes(id)
   const cls = className ?? ('ref-chip ref-agent ref-ready' + (atDestination ? ' ref-here' : ''))
   const defaultTitle = atDestination
     ? `${id} — this is its own desk`
@@ -205,7 +209,7 @@ export function NodeLink({
   const title = nativeTitle ? (why ?? defaultTitle) : undefined
   if (onFocus && !atDestination) {
     return (
-      <button type="button" data-copy-agent-name={id} {...agentNavProps(id)}
+      <button type="button" data-copy-agent-name={id} {...agentNavProps(id, nameFirst)}
         className={cls} title={title}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onFocus(id, e) }}>
@@ -215,7 +219,7 @@ export function NodeLink({
     )
   }
   return (
-    <span data-copy-agent-name={id} {...agentTooltipProps(id)}
+    <span data-copy-agent-name={id} {...agentTooltipProps(id, nameFirst)}
       className={cls} title={title}
       onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}>
       <TierChip tier={tier} agentName={id} />
@@ -255,6 +259,9 @@ export function createNodeLinkEl(
   el.title = opts.why ?? defaultTitle
   el.setAttribute('data-copy-agent-name', opts.id)
   el.setAttribute(AGENT_TOOLTIP_ATTR, opts.id)
+  if (!(opts.label ?? opts.id).includes(opts.id)) {
+    el.setAttribute(AGENT_TOOLTIP_NAME_FIRST_ATTR, 'true')
+  }
   if (live) el.setAttribute(AGENT_NAV_ATTR, opts.id)
   el.addEventListener('mousedown', (e) => { if (e.button !== 0) e.stopPropagation() })
   const chip = createTierChipEl(doc, opts.tier, opts.id)

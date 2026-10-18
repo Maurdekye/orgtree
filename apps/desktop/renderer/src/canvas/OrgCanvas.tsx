@@ -4397,7 +4397,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
              CLICK jumps to, which is what keeps each card bound to its own
              neighbor rather than to the focused desk. */
           data-copy-agent-name={e.n.id}
-          {...agentNavProps(e.n.id)}
+          {...agentNavProps(e.n.id, true)}
           /* the card's whole accent surface — highlight, hover/focus wash,
              the shed-form mail dot and the unread count — wears the JUMP
              TARGET's provider theme, never the focused desk's (user spec
