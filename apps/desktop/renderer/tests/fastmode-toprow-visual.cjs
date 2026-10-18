@@ -12,10 +12,10 @@ module.exports=async page=>{
    return {sel,top:r.top,bottom:r.bottom,left:r.left,right:r.right,height:r.height,
     visible:r.left>=cr.left&&r.right<=cr.right&&r.top>=cr.top&&r.bottom<=cr.bottom&&r.right<=innerWidth&&r.bottom<=innerHeight&&!!hit&&(hit===el||el.contains(hit))}
   })
-  return {composer:cr.toJSON(),controls,wrap:group&&getComputedStyle(group).flexWrap,innerWidth}
+  return {composer:cr.toJSON(),controls,direction:group&&getComputedStyle(group).flexDirection,innerWidth}
  })
  const assertLayout=(value)=>{
-  if(value.wrap!=='wrap'||value.controls.some(c=>c.missing||!c.visible||Math.abs(c.height-30)>0.1))throw new Error('Invalid composer controls '+JSON.stringify(value))
+  if(value.direction!=='column'||value.controls.some(c=>c.missing||!c.visible||Math.abs(c.height-30)>0.1))throw new Error('Invalid composer controls '+JSON.stringify(value))
   const [badge,bolt,effort,send]=value.controls
   if(Math.abs(badge.top-bolt.top)>.1||Math.abs(effort.top-send.top)>.1||bolt.bottom>=send.top||Math.abs(bolt.right-send.right)>.1)
    throw new Error('Fast top row or effort/Send lower alignment changed '+JSON.stringify(value))

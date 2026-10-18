@@ -82,11 +82,12 @@ button's help/accessible name and the Model-tab setting retain their wording.
 
 ## Aligned composer and near queued card (2026-10-18)
 
-The agent composer places the queued badge, lightning toggle, effort pill and
-Send/Stop in one horizontal wrapping group. All are 30px tall; wrapping moves
-whole controls. The text field keeps a 10ch minimum so controls wrap before
-it becomes cramped. The attachment/notice column retains its existing layout.
-The minimum was approved by the coordinator at 15:08Z (m8f7f620d6103).
+The agent composer keeps the lightning toggle on the top row, with the queued
+badge directly to its left. Effort and Send/Stop stay together on the lower row,
+right aligned below the toggle. All four are 30px tall. The text field retains
+its 10ch minimum and the attachment/notice column keeps its existing layout.
+User 16:47Z and coordinator 16:48Z (m1b406c3ef7c8) restore this original vertical
+placement, superseding the earlier single-row layout approved at 14:52Z.
 
 Near-zoom cards reuse QueuedFastBadge and its exact NextTurnBadge text and
 explanatory tooltip. They require a supported live agent, busy=true and a known

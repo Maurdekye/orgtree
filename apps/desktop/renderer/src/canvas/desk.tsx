@@ -4387,7 +4387,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         {mentions.menu}
         <UrgentAgentOptions active={node.dnd} value={urgentMail} onChange={setUrgentMail} />
         <div className="cc-controls">
-        <FastModeButton node={node} slug={slug} toast={toast} />
+        <div className="cc-fast-row"><FastModeButton node={node} slug={slug} toast={toast} /></div>
+        <div className="cc-primary-row">
         <EffortButton value={node.scope?.effort ?? ''}
           effective={node.effort_effective ?? ''}
           // a Muse seat's levels are its model's row on the login it runs on
@@ -4411,6 +4412,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                 .catch((e: Error) => toast([`error: ${e.message}`]))}><StopIcon fontSize="inherit" /></button>
           : <button className="cc-send" title={enterKey.hint} disabled={!canMail || !text.trim()}
               onClick={send}><ArrowUpIcon fontSize="inherit" /></button>}
+        </div>
         </div>
       </div>
     </ReplySourceProvider>

@@ -391,7 +391,8 @@
   the field in the runtime overlay allowlist, never infer it from save success.
   The same queued-fast badge appears beside the active bolt at near zoom; only
   supported live/busy seats with known opposite serving speed show it. Composer
-  badge/bolt/effort/send share a wrapping 30px control row. [decided:
+  badge and bolt share the top 30px row; effort and Send stay in a separate
+  right-aligned lower row (user16:47Z restores the original vertical placement). [decided:
   user/coordinator 2026-10-18 14:51-14:52Z; verified: `canvas/{nextturn,desk,cards}.tsx`, `styles.css`]
   Near-zoom cards show a passive bolt (tooltip "fast") for supported active speed:
   busy reads known fast_mode_current; idle reads saved scope. Unknown busy speed
