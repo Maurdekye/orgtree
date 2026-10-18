@@ -1419,3 +1419,48 @@ mod builder_stack_tests {
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }
 }
+
+
+#[cfg(test)]
+mod normal_compact_tool_contract_tests {
+    use super::*;
+
+    #[test]
+    fn normal_compact_tool_card_is_single_target_and_defaults_to_compact() {
+        let card = list().into_iter().find(|c| c["name"] == "orgtree_compact")
+            .expect("normal compaction must be exposed to agents");
+        let schema = &card["inputSchema"];
+        assert_eq!(schema["required"], json!(["node"]));
+        assert_eq!(schema["properties"]["node"]["type"], "string");
+        assert_eq!(schema["properties"]["action"]["enum"], json!(["capability", "compact"]));
+        assert_eq!(schema["properties"]["action"]["default"], "compact");
+        assert!(schema["properties"].get("nodes").is_none(), "no unapproved bulk form");
+        assert!(card["description"].as_str().unwrap().contains("below"));
+        assert!(card["description"].as_str().unwrap().contains("admitted"));
+    }
+
+    #[test]
+    fn normal_compact_tool_requires_team_even_when_runtime_or_watchdogs_are_enabled() {
+        let group = crate::domain::tool_groups::required("orgtree_compact");
+        assert_eq!(group, Some(&["team"][..]));
+        assert!(crate::domain::tool_groups::allows(&json!({}), "orgtree_compact"));
+        assert!(!crate::domain::tool_groups::allows(
+            &json!({"orgtree":{"team":false,"runtime":true,"watchdogs":true}}),
+            "orgtree_compact"));
+    }
+
+    #[test]
+    fn normal_compact_tool_keeps_existing_native_support_controls() {
+        use crate::domain::compaction::normal_compact_capability as cap;
+        for provider in ["claude", "muse"] {
+            assert_eq!(cap(provider, None)["supported"], true);
+        }
+        for provider in ["openai", "google"] {
+            let value = cap(provider, None);
+            assert_eq!(value["supported"], false);
+            assert!(value["reason"].as_str().is_some());
+        }
+        assert_eq!(cap("openrouter", Some("claude-code"))["supported"], true);
+        assert_eq!(cap("openrouter", Some("opencode"))["supported"], false);
+    }
+}
