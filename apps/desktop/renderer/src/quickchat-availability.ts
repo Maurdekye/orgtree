@@ -35,10 +35,16 @@ export type QuickChatChoice = { row: StaffingTier; account?: string }
 /** Use the hire picker's model/account availability, retaining the account that makes a choice runnable. */
 export function quickChatChoices(availability: StaffingOptions | null, tree: TreePayload,
   nodes: Map<string, CanvasNode>, superior: string | null): QuickChatChoice[] {
-  if (!availability || availability.loading) return []
+  if (!availability || availability.loading || !Array.isArray(availability.tiers)) return []
   return availability.tiers.flatMap(row => {
+    // Startup/error responses and partial rows are not evidence that a model can be hired.
+    if (!row || typeof row.tier !== 'string' || !row.tier || !Number.isFinite(row.seat) || row.seat < 0
+      || !Array.isArray(row.efforts) || !row.efforts.every(effort => typeof effort === 'string')
+      || !Array.isArray(row.accounts) || !row.accounts.every(account => account && typeof account.value === 'string'
+        && account.value.length > 0 && (account.efforts === undefined
+          || (Array.isArray(account.efforts) && account.efforts.every(effort => typeof effort === 'string'))))) return []
     if (!fitsCredits(row.seat, tree, nodes, superior)) return []
-    const native = row.native_ok ?? row.default_ok
+    const native = (row.native_ok ?? row.default_ok) === true
     const configured = row.accounts.find(account => account.value === tree.default_account)
     if (configured) return [{ row, account: configured.value }]
     // With no named default, a runnable native/automatically balanced lane keeps the ordinary hire path.

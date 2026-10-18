@@ -52,3 +52,10 @@ a supported manual effort still wins and unsupported levels inherit at hire.
 
 This is synthetic renderer evidence, not live provider eligibility or native
 mouse-input proof. Phase 1 omits broad suites and simulated-org proofs.
+
+Defensive availability follow-up (2026-10-18): missing or non-array `tiers`
+produce no eligible choices, and malformed rows are ignored. The focused
+control reproduced the original `flatMap` crash (2 pass, 1 fail); the fix passed
+4/4 cases, including mounting Quick chat with `{}` and a 503 response, while
+retaining a valid-availability control. Both runs exited normally with no skips
+or cancellations. No engine or visual code changed in this follow-up.

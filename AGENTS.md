@@ -56,6 +56,11 @@
   [decided: user 2026-10-18 17:13–17:15Z; verified:
   `QuickChatBox.tsx`, `quickchat-availability.ts`, `domain/staffing.rs`]
 
+- Quick chat treats missing/non-array staffing tiers and malformed tier/account
+  rows as unavailable, rather than dereferencing partial startup/error bodies.
+  Only literal true enables a native choice. [verified: `quickchat-availability.ts`,
+  `tests/quickchat-availability.test.tsx`; coordinator follow-up 2026-10-18]
+
 - Shared Markdown renders offline LaTeX (`$...$`, `\(...\)`, `$$...$$`,
   `\[...\]`) through isolated Marked math tokens and pinned KaTeX. Preserve
   code/currency/shell text, source fallback, trust:false and request-local
