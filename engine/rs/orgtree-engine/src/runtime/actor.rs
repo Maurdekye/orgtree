@@ -3626,7 +3626,7 @@ impl Actor {
             if let Some(body)=parsed {
                 let project=args["project"].as_str().filter(|s|!s.trim().is_empty());
                 let recipient=if let Some(name)=project {
-                    crate::domain::projects::by_name(&client,self.org_id,name).await?.map(|p|p.id)
+                    crate::domain::projects::by_name(&**client,self.org_id,name).await?.map(|p|p.id)
                 } else {Some(self.id)};
                 if let Some(recipient)=recipient {
                     let items=body["messages"].as_array().cloned().unwrap_or_else(||vec![body.clone()]);
