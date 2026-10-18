@@ -37,6 +37,10 @@ a supported manual effort still wins and unsupported levels inherit at hire.
 - The focused Quick chat suite passed 28/28, no skips or cancellations, child
   exit 0. An older row-depth assertion counted identity-marked buttons as
   rows; a frozen-source control reproduced that failure before it was narrowed.
+- Final effort-memory control passed two availability cases and failed the one
+  new remembered-effort assertion before the fix. The final focused rerun passed
+  all 28 cases, with no skips or cancellations; changed-file TypeScript
+  diagnostics remained empty after that fix.
 - The synthetic 1000×700 Electron capture reports equal 16×16 marks, 8 px gaps,
   colour and markup; its PNG was inspected. The first capture exposed an
   18-versus-16 size mismatch and is retained as failed evidence.
