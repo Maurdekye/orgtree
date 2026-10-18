@@ -6,6 +6,7 @@ import type { MailRow } from '../src/canvas/shared'
 import { fmtFull } from '../src/timefmt'
 
 const mail: MailRow = { id: '1', from: 'hubchat-jumplist-sol', kind: 'question',
+  ev: {v:1,variant:'ordinary.question',actor:{kind:'agent',id:'hubchat-jumplist-sol'},object:null,engine_authored:false,body:'Please check this project item.'},
   body: 'Please check this project item.', at: '2026-10-18T12:00:00Z',
   queue: { held_by: 'coordinator-opus', ack: false } }
 
