@@ -721,11 +721,10 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
   collapsible, team }: AgentGalleryViewProps) {
   const w = useDocWindow(slug, nid, '', 0, team)
-  // The engine scopes every list it returns: a team list holds other nodes'
-  // cards, and a node's own list may hold cards presented under its old name
-  // (it is read by id: point 27, docket org/rename item). So polled rows are
-  // not narrowed to `nid`; `wide` still governs the one row a surface was
-  // opened to, which does not come from this list.
+  // a team list holds other nodes' cards, and a project's own list may hold
+  // cards presented under its old name (the engine reads a project by id,
+  // point 27): the engine scoped both, so their rows are not narrowed to `nid`
+  // here (review of f50fc1e)
   const wide = !!team || (node as { kind?: string } | undefined)?.kind === 'project'
   const [dismissed, setDismissed] = useState<string[]>([])
   const fallbackRows: DocRow[] = useMemo(() => {
@@ -743,7 +742,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   }, [node, nid])
 
   const rows = useMemo(() => {
-    const polled = w.rows?.filter((r) => !r.evicted)
+    const polled = w.rows?.filter((r) => (wide || r.node === nid) && !r.evicted)
     // A response is authoritative even when its filtered result is empty:
     // falling back then resurrects dismissed, evicted, or stale node rows.
     // Node payloads are only a bootstrap fallback while the list is absent.
