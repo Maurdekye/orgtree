@@ -25,6 +25,8 @@ pub mod muse;
 pub mod next_turn;
 pub mod opencode;
 pub mod prompt;
+#[cfg(test)]
+mod mail_overflow_tests;
 pub mod recovery;
 pub mod reminders;
 pub mod sched;
