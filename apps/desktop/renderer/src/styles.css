@@ -8979,6 +8979,16 @@ main:has(> .orgbar.native-header) > .error {
   --org-accent-hover: #39404c !important;
   --org-accent-soft: rgba(76, 85, 101, .16) !important;
 }
+/* The agents chips keep their dark backing on the light surfaces (the rule
+   near the top of this file) and the effort bar its dark rail, so the deep
+   partners above would vanish inside them: the working spinner drew #4c5565
+   on #313131 at 1.7:1 and the effort fill all but merged with the rail. Inside
+   them these themes keep the pale accent they have on the dark surfaces
+   (6.9:1 and 9.6:1 on the chip), and the chip's active/hired count the
+   charcoal grey (4.8:1; the light grey read 2.0:1 there). lightaccent.test.tsx */
+:root:is(.contrast-light, .contrast-solarized-light) .chip.agents { --dim: #9d9d9d; }
+:root[data-visual-theme="orgtree"]:is(.contrast-light, .contrast-solarized-light) :is(.chip.agents, .effort-bar) { --accent: #b6bdc8; }
+:root[data-visual-theme="muse"]:is(.contrast-light, .contrast-solarized-light) :is(.chip.agents, .effort-bar) { --accent: #afe5ff; }
 /* Muse's tiers: routine colours inside the tier design (lead 2026-10-13),
    MEASURED (tools tier_pick / tier_check): at least 4.5:1 on --panel and on
    the badge fill --input, then as far as the hue allows from every tier,
