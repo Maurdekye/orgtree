@@ -1390,7 +1390,9 @@ button.badge.audience-fold.alert {
   flex: 1; min-height: 240px; overflow: auto; box-sizing: border-box; width: 100%;
   padding: 10px 12px; border-radius: 4px; background: var(--input); border: 1px solid var(--line); }
 .project-desk .project-description-md { cursor: text; }
-.project-desk .project-description-md:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+/* not being edited: no border or background (user 2026-10-18 07:14Z); the
+   transparent border keeps the text where the editor will put it */
+.project-desk .project-description-md { background: transparent; border-color: transparent; }
 .project-desk .project-description-edit { resize: none; font: 13px/1.5 var(--mono); color: var(--ink); }
 .project-desk .project-description-edit:focus { outline: none; border-color: var(--accent); }
 /* the draft project card (newproject.tsx): the folder mark takes the tier token's 20px slot */

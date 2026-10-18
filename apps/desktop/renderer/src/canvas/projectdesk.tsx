@@ -107,8 +107,44 @@ export function ProjectActivity({ node }: { node: CanvasNode }) {
   )
 }
 
+/** Where in `source` the Markdown rendering's text `shown` ends: each visible
+ *  character is matched to its next occurrence in the source, so markup
+ *  (`#`, `**`, link targets) is stepped over. A character the source lacks
+ *  is skipped. Rough by design (user 2026-10-18 07:14Z: "roughly where you
+ *  clicked"). */
+export function sourceOffset(source: string, shown: string): number {
+  let at = 0
+  for (const c of shown) {
+    if (/\s/.test(c)) continue
+    const i = source.indexOf(c, at)
+    if (i >= 0) at = i + 1
+  }
+  return at
+}
+
+/** The rendered text before the point (x, y) inside `root`, or null when the
+ *  point is outside it or the browser cannot say. */
+function shownBefore(root: HTMLElement, x: number, y: number): string | null {
+  const doc = root.ownerDocument as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+  }
+  let node: Node | null = null
+  let offset = 0
+  const pos = doc.caretPositionFromPoint?.(x, y)
+  if (pos) { node = pos.offsetNode; offset = pos.offset } else {
+    const r = doc.caretRangeFromPoint?.(x, y)
+    if (r) { node = r.startContainer; offset = r.startOffset }
+  }
+  if (!node || !root.contains(node)) return null
+  const before = doc.createRange()
+  before.selectNodeContents(root)
+  before.setEnd(node, offset)
+  return before.toString()
+}
+
 /** The description editor (user 2026-10-17 20:06Z): Markdown while it is not
- *  focused, raw monospace text while it is. Leaving the editor saves a change
+ *  focused, raw monospace text while it is. A click opens the editor with the
+ *  caret at about the clicked spot (user 2026-10-18 07:14Z). Leaving the editor saves a change
  *  with `set_description`; Escape drops the edit. */
 function DescriptionEditor({ node, op, toast, editable }: {
   node: CanvasNode; op: OpFn; toast: ToastFn; editable: boolean
@@ -117,8 +153,16 @@ function DescriptionEditor({ node, op, toast, editable }: {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(saved)
   const box = useRef<HTMLTextAreaElement | null>(null)
+  // the caret a click asked for, taken on mousedown, before focus opens the editor
+  const caret = useRef<number | null>(null)
   useEffect(() => { if (!editing) setDraft(saved) }, [saved, editing])
-  useEffect(() => { if (editing) box.current?.focus({ preventScroll: true }) }, [editing])
+  useEffect(() => {
+    if (!editing) return
+    const el = box.current
+    el?.focus({ preventScroll: true })
+    if (el && caret.current !== null) el.setSelectionRange(caret.current, caret.current)
+    caret.current = null
+  }, [editing])
   const commit = () => {
     setEditing(false)
     if (draft.trim() === saved.trim()) return
@@ -138,6 +182,11 @@ function DescriptionEditor({ node, op, toast, editable }: {
   return <div className={'project-description-md' + (empty ? ' dim' : '')} tabIndex={editable ? 0 : -1}
     role={editable ? 'textbox' : undefined} aria-label={`description of project ${node.id}`}
     title={editable ? 'click to edit; it is the standing charter of every agent under this project' : undefined}
+    onMouseDown={(e) => {
+      if (!editable || empty || e.button !== 0) return
+      const shown = shownBefore(e.currentTarget, e.clientX, e.clientY)
+      caret.current = shown === null ? null : sourceOffset(saved, shown)
+    }}
     onFocus={() => { if (editable) setEditing(true) }}
     onClick={() => { if (editable) setEditing(true) }}
     {...(empty ? { children: editable ? 'Describe the project: every agent under it gets this as a standing charter.' : 'No description.' }
