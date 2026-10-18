@@ -55,6 +55,31 @@ export { TierChip }
  *  2026-09-03: "dont put a big 'retired' card in their row; just grey them
  *  out slightly") — the state is carried by the row's own dimming, and the
  *  words stay available on hover for the case where grey is ambiguous. */
+/** a card presented under a project (user 2026-10-18 07:30Z, replacing the
+ *  22:47:51Z rule that named only the agent): the PROJECT is its presenter
+ *  wherever one is named, and the agent that presented it is named beneath
+ *  (`PresentedBy`). An agent's own card names the agent, as before. */
+const viaProject = (r: DocRow): boolean => !!r.presented_by && !!r.node && r.presented_by !== r.node
+const presenterOf = (r: DocRow): string => viaProject(r) ? r.node : r.presented_by || r.node
+
+function Presenter({ r, onFocus }: { r: DocRow; onFocus?: (id: string) => void }) {
+  const id = presenterOf(r)
+  return <AgentName id={id || '?'}
+    tier={viaProject(r) || !r.presented_by ? r.tier : r.presenter_tier ?? r.tier}
+    onFocus={onFocus && id ? (who) => onFocus(who) : undefined} />
+}
+
+/** "presented by <agent>" under a project's card; nothing for an agent's own */
+function PresentedBy({ r, onFocus, sentence = false }: {
+  r: DocRow; onFocus?: (id: string) => void; sentence?: boolean
+}) {
+  if (!viaProject(r)) return null
+  return <span className="doc-presented-by dim">
+    {sentence ? 'this presentation was presented by ' : 'presented by '}
+    <AgentName id={r.presented_by!} onFocus={onFocus ? (who) => onFocus(who) : undefined} />
+  </span>
+}
+
 const STATE_WHY: Record<DocRow['node_state'], string | null> = {
   live: null,
   archived: 'this agent has been retired',
@@ -514,12 +539,10 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                           <span className="mfrom">{r.title || '(untitled)'}</span>
                           <span className="mtime">{ago(r.at)}</span>
                         </div>
-                        <div className="l2" data-copy-agent-name={r.presented_by || r.node || undefined}>
+                        <div className="l2" data-copy-agent-name={presenterOf(r) || undefined}>
                           {/* the presenter is a link to its agent (review of a590555) */}
-                          <AgentName id={r.presented_by || r.node || '?'}
-                            tier={r.presented_by ? r.presenter_tier ?? r.tier : r.tier}
-                            onFocus={onFocusAgent && (r.presented_by || r.node)
-                              ? (id) => { close(); onFocusAgent(id) } : undefined} />
+                          <Presenter r={r} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />
+                          <PresentedBy r={r} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />
                           {r.format === 'html' && <MockupBadge />}
                           {r.evicted && <span className="badge evicted">content evicted</span>}
                         </div>
@@ -587,10 +610,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
             the title row, it should be first, the title second"). */}
         <div className="doc-pane-meta-row">
           {row.node ? (
-            <AgentName id={row.presented_by || row.node} tier={row.presented_by ? row.presenter_tier ?? row.tier : row.tier}
-              onFocus={onFocusAgent
-                ? (id) => { close(); onFocusAgent(id) }
-                : undefined} />
+            <Presenter r={row} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />
           ) : (
             // no node recorded at all: there is no identity to draw, and
             // inventing one is the thing this panel must not do
@@ -600,6 +620,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
             <span className="dim">{PANE_STATE_WHY[row.node_state]}</span>}
           <span className="dim">{fmtFull(row.at)}</span>
         </div>
+        {row.node && <PresentedBy r={row} sentence onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />}
         <div className="doc-pane-title-row">
           <b>{row.title || '(untitled)'}</b>
           {!row.evicted && <DocumentDownload slug={slug} id={row.id} title={row.title} format={row.format} />}
@@ -836,14 +857,13 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                   <span className="mfrom">{r.title || '(untitled)'}</span>
                   <span className="mtime">{ago(r.at)}</span>
                 </div>
-                <div className="l2" data-copy-agent-name={r.presented_by || r.node || undefined}>
-                  {/* the agent that presented it, also for a card presented
-                      under a project (user 2026-10-17 22:47:51Z), as a link
-                      that focuses it and leaves the row unselected (review
-                      of a590555) */}
-                  <AgentName id={r.presented_by || r.node || '?'}
-                    tier={r.presented_by ? r.presenter_tier ?? r.tier : r.tier}
-                    onFocus={onFocusAgent && (r.presented_by || r.node) ? (id) => onFocusAgent(id) : undefined} />
+                <div className="l2" data-copy-agent-name={presenterOf(r) || undefined}>
+                  {/* the presenter (the project, for a card presented under
+                      one, and the agent beneath it: user 2026-10-18 07:30Z),
+                      as links that focus it and leave the row unselected
+                      (review of a590555) */}
+                  <Presenter r={r} onFocus={onFocusAgent} />
+                  <PresentedBy r={r} onFocus={onFocusAgent} />
                   {r.format === 'html' && <MockupBadge />}
                   {r.evicted && <span className="badge evicted">content evicted</span>}
                 </div>

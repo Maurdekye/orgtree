@@ -4185,6 +4185,9 @@ main.solo { width: 100%; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   font-family: var(--mono); font-size: 11px;
 }
+/* who presented a project's card, beneath the project (user 2026-10-18 07:30Z) */
+.doc-presented-by { font-size: .92em; }
+.doc-gallery-row .l2 .doc-presented-by { margin-left: 6px; }
 /* .cc-name is the SWITCHBOARD's button — it carries `padding: 7px 15px`,
    which is right for a standalone control and far too airy inside a one-line
    metadata strip (user, 2026-09-04: "there's too much space between items in
