@@ -3091,7 +3091,8 @@
    "status": "fixed",
    "components": [
     "apps/desktop/renderer/src/attention/AgentDeskPanel.tsx#AgentDeskPanel",
-    "apps/desktop/renderer/src/attention/AttentionView.tsx#AttentionView"
+    "apps/desktop/renderer/src/attention/AttentionView.tsx#AttentionView",
+    "apps/desktop/renderer/src/attention/mentionrow.tsx#MentionRowView"
    ]
   },
   {
