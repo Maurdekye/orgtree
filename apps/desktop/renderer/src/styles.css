@@ -5077,7 +5077,10 @@ span.ref-chip.ref-chip {
 .desk-tabpanel > .mailwrap, .desk-tabpanel > .msgs { flex: 1; min-height: 0; }
 .team-list { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .team-list > .tray { flex: 1; min-height: 0; min-width: 0; max-width: none; }
-.team-tabpanel .tray-filter-row { margin-right: 76px; }
+.team-tab-toolbar {
+  display: flex; align-items: center; gap: 8px; flex: none; padding: 2px 4px;
+}
+.team-tab-toolbar > .panel-corner { position: static; margin-left: auto; }
 .team-empty { padding: 12px 8px; }
 .team-panel > h3 { margin: 0 0 4px; font-size: 13px; }
 /* ABOVE the panel, never in its flow: an extra row would cost the reading pane
@@ -5864,7 +5867,7 @@ svg.MuiSvgIcon-root {
   margin: 2px 4px 6px;
 }
 .tray-filter-row .tray-filter { flex: 1; min-width: 0; width: auto; margin: 0; }
-.tray-filter-row .modalpin-active-filter { font-size: 11px; }
+.tray-filter-row .modalpin-active-filter, .team-tab-toolbar .modalpin-active-filter { font-size: 11px; }
 .tray-arch {
   background: none; border: none; text-align: left; cursor: pointer;
   color: var(--dim); font-size: 11px; padding: 1px 8px 3px;

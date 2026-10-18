@@ -4132,8 +4132,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           onChanged={() => setWorkBump((n) => n + 1)} />
       </div>}
       {view === 'team' && <div className="desk-tabpanel team-tabpanel">
-        <PanelCorner kind="agent-team" slug={slug} nid={node.id} />
-        <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={deskRefs} compactAt={compactAt} />
+        <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={deskRefs} compactAt={compactAt}
+          actions={<PanelCorner kind="agent-team" slug={slug} nid={node.id} />} />
       </div>}
       {view === 'presented' && (
         <div className="desk-tabpanel">

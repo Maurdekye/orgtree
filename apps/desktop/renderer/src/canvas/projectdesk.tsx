@@ -555,8 +555,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs} />
       </div>}
       {shown === 'team' && <div className="desk-tabpanel team-tabpanel">
-        <PanelCorner kind="agent-team" slug={slug} nid={node.id} />
-        <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={refs} compactAt={tree.compact_at} />
+        <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={refs} compactAt={tree.compact_at}
+          actions={<PanelCorner kind="agent-team" slug={slug} nid={node.id} />} />
       </div>}
       {shown === 'slots' && <SlotsView node={node} state={slots} op={op} toast={toast} />}
       {/* under every tab, as the agent desk's composer is */}

@@ -1,6 +1,7 @@
 // The desk's Team list borrows the Agents List rows, filters and canonical menu.
 // Membership comes only from the current feed snapshot; opening a tab fetches nothing.
 import { createContext, useContext, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import type { CanvasNode } from './shared'
 import type { RefRoutes } from './reflinks'
 import { ActiveAgentsFilter, AgentTray, trayRows } from './agenttray'
@@ -35,7 +36,7 @@ type TeamListProps = {
   refs?: RefRoutes; compactAt?: number
 }
 
-function useTeamList({ map, nid, onPick, refs, compactAt }: TeamListProps, framed = false) {
+function useTeamList({ map, nid, onPick, refs, compactAt }: TeamListProps) {
   const [query, setQuery] = useState('')
   const [archived, setArchived] = useState(false)
   const [active, setActive] = useState(false)
@@ -49,7 +50,6 @@ function useTeamList({ map, nid, onPick, refs, compactAt }: TeamListProps, frame
   const list = <>
     <AgentTray map={members} rows={rows} query={query} onQuery={setQuery}
       archived={archived} onArchived={setArchived} onPick={id => navigate?.(id)}
-      filterActions={framed ? undefined : activeControl}
       filterLabel={`filter ${nid}'s team`} refs={refs} compactAt={compactAt}
       showQueuedModelBadge={false}
       onRowMenu={(e, node) => menu.open(e, () => registry?.current?.(node.id, e.currentTarget) ?? [])}
@@ -59,16 +59,21 @@ function useTeamList({ map, nid, onPick, refs, compactAt }: TeamListProps, frame
   return { list, activeControl }
 }
 
-export function AgentTeamView(props: TeamListProps) {
-  const { list } = useTeamList(props)
-  return <div className="team-list">{list}</div>
+export function AgentTeamView({ actions, ...props }: TeamListProps & { actions?: ReactNode }) {
+  const { list, activeControl } = useTeamList(props)
+  return <div className="team-list">
+    <div className="team-tab-toolbar" role="toolbar" aria-label="Team view controls">
+      {activeControl}{actions}
+    </div>
+    {list}
+  </div>
 }
 
 export function TeamModal({ map, nid, onPick, refs, compactAt, close }: {
   map: Map<string, CanvasNode>; nid: string; onPick: (id: string) => void
   refs: RefRoutes; compactAt?: number; close: () => void
 }) {
-  const { list, activeControl } = useTeamList({ map, nid, onPick, refs, compactAt }, true)
+  const { list, activeControl } = useTeamList({ map, nid, onPick, refs, compactAt })
   return <PinFrame kind="agent-team" title={`${nid} · Team`} panel="tray-panel team-panel"
     restore={{ agent: nid, generation: map.get(nid)?.generation }} close={close}
     dialogLabel={`${nid} · Team`} headerActions={activeControl}>
