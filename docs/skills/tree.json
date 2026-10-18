@@ -1597,7 +1597,8 @@
     "turn-envelope",
     "checkups-and-reminders",
     "context-and-compaction",
-    "halts-and-restarts"
+    "halts-and-restarts",
+    "do-not-disturb"
    ],
    "writer": "runtime-sol",
    "status": "fixed"
@@ -7291,7 +7292,8 @@
    "sources": [
     "engine/rs/orgtree-engine/src/domain/dnd.rs",
     "engine/rs/orgtree-engine/migrations/0033_do_not_disturb.sql",
-    "engine/rs/orgtree-engine/src/runtime/actor.rs"
+    "engine/rs/orgtree-engine/src/runtime/actor.rs",
+    "apps/desktop/renderer/src/canvas/dnd.tsx"
    ],
    "see_also": [
     "tool-status",
@@ -7300,11 +7302,7 @@
     "turns-and-wakes"
    ],
    "writer": "uninit-model-sol",
-   "status": "fixed",
-   "components": [
-    "apps/desktop/renderer/src/canvas/dnd.tsx#DndBadge",
-    "apps/desktop/renderer/src/canvas/dnd.tsx#UrgentAgentOptions"
-   ]
+   "status": "fixed"
   }
  ],
  "exempt": {
