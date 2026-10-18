@@ -885,6 +885,27 @@ mod tests {
     }
 
     #[test]
+    fn materialized_skill_path_resolves_only_one_matching_registry_entry() {
+        let first = fixture("unique-skill", "first", "data", "fixture");
+        let registry = merge(vec![first.clone()]);
+        let root = Path::new("C:/data/shared-skills/digest");
+        assert_eq!(
+            registry.materialized_skill_file(root, "unique-skill"),
+            Some(root.join("skills/unique-skill/SKILL.md")),
+        );
+        assert_eq!(registry.materialized_skill_file(root, "missing-skill"), None);
+
+        let mut duplicate = first;
+        duplicate.digest = "different-content".into();
+        duplicate.files = Arc::new(BTreeMap::from([(
+            PathBuf::from("SKILL.md"),
+            b"---\nname: unique-skill\ndescription: second\n---\n".to_vec(),
+        )]));
+        let ambiguous = Registry { initialized: true, bundles: vec![fixture("unique-skill", "first", "data", "fixture"), duplicate], digest: "ambiguous".into() };
+        assert_eq!(ambiguous.materialized_skill_file(root, "unique-skill"), None);
+    }
+
+    #[test]
     fn skills_import_lane_prefers_explicit_variant_and_keeps_unpaired_skills() {
         use crate::runtime::identity::Lane;
         let registry = merge(vec![

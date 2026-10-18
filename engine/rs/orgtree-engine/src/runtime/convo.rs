@@ -515,6 +515,7 @@ mod failed_shell_output_tests {
 #[cfg(test)]
 mod tool_file_path_tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn extracts_explicit_paths_only_from_file_tools_and_uses_event_cwd() {
@@ -538,6 +539,25 @@ mod tool_file_path_tests {
             "a skill directory is not the requested SKILL.md file");
         let explicit = tool_file_paths("Skill", &json!({"skill_path":"C:/shared/orgtree-working/SKILL.md"})).unwrap();
         assert_eq!(explicit[0]["path"], "C:\\shared\\orgtree-working\\SKILL.md");
+    }
+
+    #[test]
+    fn name_only_skill_calls_link_the_unique_materialized_registry_file() {
+        let files = BTreeMap::from([(
+            "orgtree-working".to_string(),
+            std::path::PathBuf::from("C:/data/shared-skills/digest/skills/orgtree-working/SKILL.md"),
+        )]);
+        let mut row = json!({"tools":[{"id":"call","name":"Skill","input":{"skill":"orgtree-working"}}]});
+        take_tool_inputs_with_skill_files(&mut row, 1, &files);
+        assert_eq!(row["tools"][0]["file_paths"][0]["path"], "C:\\data\\shared-skills\\digest\\skills\\orgtree-working\\SKILL.md");
+        assert_eq!(row["tools"][0]["file_paths"][0]["link"], true);
+
+        let mut missing = json!({"tools":[{"id":"call","name":"Skill","input":{"skill":"orgtree-working"}}]});
+        take_tool_inputs_with_skill_files(&mut missing, 1, &BTreeMap::new());
+        assert!(missing["tools"][0].get("file_paths").is_none());
+        let mut other = json!({"tools":[{"id":"call","name":"Skill","input":{"skill":"other"}}]});
+        take_tool_inputs_with_skill_files(&mut other, 1, &files);
+        assert!(other["tools"][0].get("file_paths").is_none());
     }
 }
 
