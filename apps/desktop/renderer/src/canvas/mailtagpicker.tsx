@@ -36,7 +36,8 @@ export function MailTagPicker({selected,choices,onChange,onSearch,onLoadMore,has
   useLayoutEffect(()=>{
     if(!open)return
     const place=()=>{const r=control.current?.getBoundingClientRect(),w=ownerDocument.defaultView;if(!r||!w)return
-      const width=Math.min(320,w.innerWidth-24),maxHeight=Math.min(310,w.innerHeight-16)
+      // the field's own width, 240-320px, so it opens inside the list column
+      const width=Math.min(320,Math.max(240,r.width),w.innerWidth-24),maxHeight=Math.min(310,w.innerHeight-16)
       const height=Math.min(popover.current?.offsetHeight||maxHeight,maxHeight)
       setPosition({left:Math.max(8,Math.min(r.left,w.innerWidth-width-12)),top:r.bottom+height+8>w.innerHeight?Math.max(8,r.top-height-4):r.bottom+4,width,maxHeight})}
     place();ownerDocument.addEventListener('scroll',place,true);ownerDocument.defaultView?.addEventListener('resize',place)

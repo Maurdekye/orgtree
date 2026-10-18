@@ -334,7 +334,7 @@
   border-box field, also inside `.settings`: tag-icon trigger, chips, the text
   filter (MailTagPicker `children`) and clear sit inside it (replaced three
   separate 24px boxes). The fixed tag popover must override the modal's
-  centering transform.
+  centering transform and takes the field's width, 240-320px.
   [decided: user 2026-10-18; verified: `canvas/mail.tsx`, `canvas/mailtagpicker.tsx`, `canvas/mailtags.ts`, `styles.css`]
   See [mail tags](docs/rust-engine/mail-tags.md). [decided: user/coordinator
   2026-10-17; verified: `domain/mail_tags.rs`, `usemailtags.ts`, `canvas/mailtags.ts`]

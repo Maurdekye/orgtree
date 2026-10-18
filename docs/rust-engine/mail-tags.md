@@ -70,7 +70,8 @@ and returns focus to its trigger; reopen it to add or remove another tag. Escape
 and an outside pointer still dismiss it without changing the selection. Filter
 chips are separate buttons beside the browse trigger, without nested buttons.
 A fixed tag popover overrides the modal centering transform to stay anchored to
-its control.
+its control. It takes the field's width between 240 and 320px (within the
+viewport), so it opens inside the list column (coordinator 2026-10-18 12:09Z).
 
 The filter bar is one field (user 2026-10-18 11:32Z: "it does not look good",
 replacing three separate 24px boxes). A single 24px border-box control, also
