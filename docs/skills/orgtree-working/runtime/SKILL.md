@@ -30,3 +30,5 @@ Your turns and sessions: status, wakes, checkups, context, compaction, halts and
 - [orgtree-tool-cheap-compact](tool-cheap-compact/SKILL.md): Restart an agent on a fresh session with a summary; what carries over.
 
 For another topic, return to the category above. References to another category use its skill name and breadcrumb; open that category to locate them.
+
+- [orgtree-do-not-disturb](do-not-disturb/SKILL.md): Hold non-urgent mail for a focused turn on every harness, urgent-only bypass and explicit inbox reads.

@@ -1075,7 +1075,8 @@
     "external-mail",
     "org-inbox",
     "committee-mode",
-    "dev-team"
+    "dev-team",
+    "do-not-disturb"
    ]
   },
   {
@@ -1139,7 +1140,8 @@
     "mail-basics",
     "chain-and-audiences",
     "external-mail",
-    "org-inbox"
+    "org-inbox",
+    "do-not-disturb"
    ]
   },
   {
@@ -1630,7 +1632,8 @@
     "turn-envelope",
     "checkups-and-reminders",
     "context-and-compaction",
-    "halts-and-restarts"
+    "halts-and-restarts",
+    "do-not-disturb"
    ]
   },
   {
@@ -1914,7 +1917,8 @@
     "turn-envelope",
     "checkups-and-reminders",
     "waiting-for-events",
-    "app-turn-limits"
+    "app-turn-limits",
+    "do-not-disturb"
    ],
    "writer": "runtime-sol",
    "status": "fixed"
@@ -7266,6 +7270,41 @@
    ],
    "writer": "project-nodes-opus",
    "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/runtime/do-not-disturb",
+   "name": "orgtree-do-not-disturb",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "concept:do-not-disturb"
+   ],
+   "purpose": "Focused turn mail hold on every harness; urgent-only current-DND bypass, explicit consuming inbox reads and ordered byte-budgeted release.",
+   "must_cover": [
+    "durable per-turn hold without steering or interrupt",
+    "user and superior mail are held too",
+    "urgent only to currently DND agents with reason",
+    "list/conversation previews versus fetch/chunk reads",
+    "automatic turn-end and restart release with prompt byte budget"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/domain/dnd.rs",
+    "engine/rs/orgtree-engine/migrations/0033_do_not_disturb.sql",
+    "engine/rs/orgtree-engine/src/runtime/actor.rs"
+   ],
+   "see_also": [
+    "tool-status",
+    "tool-inbox",
+    "tool-message",
+    "turns-and-wakes"
+   ],
+   "writer": "uninit-model-sol",
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/dnd.tsx#DndBadge",
+    "apps/desktop/renderer/src/canvas/dnd.tsx#UrgentAgentOptions"
+   ]
   }
  ],
  "exempt": {

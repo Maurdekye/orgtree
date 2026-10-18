@@ -27,6 +27,10 @@ The total-turn and silence limits are independent. Silence measures absence of r
 
 Finish at natural milestones so mail that cannot be injected mid-turn gets a delivery boundary. Before stopping, save durable progress and report the appropriate [status](../tool-status/SKILL.md). A final response does not automatically mark a docket item done. If waiting is necessary, arrange a wake and leave the item accurate rather than holding a sleeping model turn open.
 
+## Focused turns
+
+[Do Not Disturb](../do-not-disturb/SKILL.md) holds non-urgent incoming mail durably until turn end without steering or interrupting any harness. Only urgent mail bypasses it; user/superior mail is otherwise held. The unread release is one ordered admission within the hard prompt size budget. Preview reads do not consume held mail; explicit inbox fetch/chunk does.
+
 ## See also
 
 - [orgtree-turn-envelope](../turn-envelope/SKILL.md)

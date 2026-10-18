@@ -34,6 +34,10 @@ An unsupported status is refused with `status must be working, done, blocked or 
 {"status":"done","summary":"The parser fix is committed and its focused checks pass; the review evidence is on the docket."}
 ```
 
+## Do Not Disturb
+
+Optional `dnd=true` holds incoming non-urgent mail for this running turn, on every harness, including Antigravity. `dnd=false` releases early; omission retains the current mode. Only urgent mail bypasses it, regardless of sender. DND clears on actual turn end, then unread mail is admitted in one ordered batch within the hard prompt size budget; overflow remains durable. A `done` status report does not itself end the turn. See [orgtree-do-not-disturb](../do-not-disturb/SKILL.md) for manual fetch/chunk reads and urgent controls.
+
 ## See also
 
 - [orgtree-turns-and-wakes](../turns-and-wakes/SKILL.md)

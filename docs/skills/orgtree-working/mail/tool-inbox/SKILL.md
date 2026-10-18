@@ -50,6 +50,10 @@ Disabling the organization's outside inbox hides its outside history/related cop
 
 Use fetched IDs with [orgtree_message](../tool-message/SKILL.md) for replies. Do not resend a request merely because the inbox read left it pending, and do not claim a manual read proves provider consumption or human acceptance.
 
+## Explicit reads during Do Not Disturb
+
+During DND, only an explicit fetch or valid chunk of a held message marks it read, excluding it from the end-of-turn batch and changing sender status to read. list/conversation previews stay held and unread. Only messages actually returned within the response budget are consumed; project mailbox inspection remains non-consuming. Outside DND the usual read-only delivery behavior is unchanged. See [orgtree-do-not-disturb](../../runtime/do-not-disturb/SKILL.md).
+
 ## See also
 
 - [orgtree-mail-basics](../mail-basics/SKILL.md)
