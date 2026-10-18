@@ -114,7 +114,12 @@
   verified: `canvas/mail.tsx`, `styles.css`, `tests/outboxheader*`]
 
 - Project mail's plain delivery marker uses `→ @recipient` through shared
-  `AgentName`, in list rows and reading panes (including pop-outs). A list row
+  `AgentName`, in list rows and reading panes (including pop-outs). Every agent
+  a queue state names (that marker, `· awaiting ack`, `acked by`, `released`)
+  wears its model card through `tierOf`, as the sender does: line 1's 14px card
+  on the meta line, the sender's 16px card in the reading pane (where the
+  marker takes the header's type), a 12px card inside an outline chip so chip
+  and meta line keep their height; no resolver, no card. A list row
   that shows a queue state (`showsQueueState`) takes three lines: sender and
   time; its kind/urgent chips and the queue state (`.lmeta`, line 1's face and
   `1lh` height); the preview. In a project's own mailbox (`projectMail`, both
@@ -126,8 +131,8 @@
   delivery name's rule has three. Full delivery details live in the tooltip,
   using `queue.held_at` projected from `extra.claimed.at`, never the message's
   sent-at; absent claim time says so. Other queue-state labels retain their
-  meaning. [decided: user/coordinator 2026-10-18 12:46–12:49Z, user 14:24Z;
-  verified: `canvas/mail.tsx`, `styles.css`, `feed/compute.rs`]
+  meaning. [decided: user/coordinator 2026-10-18 12:46–12:49Z, user 14:24Z,
+  user 17:01Z; verified: `canvas/mail.tsx`, `styles.css`, `feed/compute.rs`]
 - Project `release_slot` and own `slots` status are available with either team
   or watchdogs. Watchdog-only cards expose just those actions; dispatch refuses
   other project actions and force release, and status filters other agents. Full
