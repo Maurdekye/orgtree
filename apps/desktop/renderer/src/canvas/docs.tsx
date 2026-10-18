@@ -26,7 +26,7 @@ import { nodeMenuAction } from './identity'
 import { useAgentNavRegistry } from './agentnav'
 import type { AgentNavMenu } from './agentnav'
 
-export interface DocMeta { id: string; title: string; at: string; viewed_at?: string | null; format?: 'markdown' | 'html'; bytes?: number; node?: string; presented_by?: string }
+export interface DocMeta { id: string; title: string; at: string; viewed_at?: string | null; format?: 'markdown' | 'html'; bytes?: number; node?: string; presented_by?: string; presenter_tier?: string | null }
 
 /** The tree feed is newest first. Both compact surfaces show its first four
  *  presented documents; sent files belong to the separate deliveries feed. */
@@ -34,7 +34,7 @@ export function recentDocumentChips(docs: readonly DocMeta[]): DocMeta[] {
   return docs.slice(0, 4)
 }
 
-export interface LoadedDoc { node_state?: 'live' | 'archived' | 'unrecoverable' | 'deleted'; tier?: string | null; title: string; node: string; at: string; body: string; format?: 'markdown' | 'html'; bytes?: number }
+export interface LoadedDoc { node_state?: 'live' | 'archived' | 'unrecoverable' | 'deleted'; tier?: string | null; presented_by?: string; presenter_tier?: string | null; title: string; node: string; at: string; body: string; format?: 'markdown' | 'html'; bytes?: number }
 
 /** Reuse the ticket Owner action's canonical node menu, focus gate and tooltip.
  * The owning surface reads the shared window registry at menu-open time. */

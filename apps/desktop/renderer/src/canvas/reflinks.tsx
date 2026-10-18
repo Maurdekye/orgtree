@@ -582,19 +582,22 @@ export function RefChip({ r, onOpen }: {
       <button type="button" {...copy}
         {...(r.ref.kind === 'item' ? objectNavProps('ticket', r.ref.id, r.ref.org) : {})}
         className={cls} title={r.why}
+        onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onOpen(r) }}>
         {r.label}
       </button>
     )
   }
   if (r.outcome === 'ready') {
-    return <span {...copy} className={cls} title={r.why}>{r.label}</span>
+    return <span {...copy} className={cls} title={r.why}
+      onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}>{r.label}</span>
   }
   // ⚠ THE TOKEN IS SHOWN ON A FAILED REF, not the bare id. Whoever has to fix
   // the reference needs to see what was actually written, and on `foreign`
   // the org segment is the entire explanation.
   return (
-    <span {...copy} className={cls} title={r.why}>
+    <span {...copy} className={cls} title={r.why}
+      onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}>
       {r.token}
       <span className="ref-why">{r.outcome === 'pending' ? '…'
         : r.outcome === 'foreign' ? 'other org'

@@ -934,7 +934,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
           hideKind={hideMailReplyKind && typed(cur)?.event.variant === 'reply.mail'}
           org={org ?? refs?.world.org ?? ""} world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, cur)} />}
         {outgoing && !customSender && <span className="dim">to</span>}
-        {(outgoing || !typed(cur)) && S(party, cur)}
+        {(outgoing || !typed(cur)) && (customSender ? S(party, cur) : <span className="event-actor">{S(party, cur)}</span>)}
         {compoundHeader ? <span className="mail-head-meta">{metadata}</span> : metadata}
       </div>
       {/* D-169: WHY you are being interrupted, in the sender's own

@@ -2153,8 +2153,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       ?? (event_id ? copyTextOf.get(event_id) : undefined) ?? ''
     // the highlight target, recorded before the menu opens — `open` may still
     // decline (an editable field, a live selection, a row with no entries),
-    // and the effect below only marks anything while the menu is actually up
-    ctxTarget.current = { id: event_id, el: exact }
+    // and the effect below only marks anything while the menu is actually up.
+    // Right-clicking an inner mention or object link opens that object's menu,
+    // not the containing message's, so the message itself must not light up.
+    const innerObject = (e.target as Element | null)?.closest?.(
+      '[data-agent-nav], [data-object-nav], [data-copy-agent-name], [data-copy-ticket-title], .ref-chip',
+    )
+    const onInnerObject = Boolean(innerObject && exact.contains(innerObject) && innerObject !== exact)
+    ctxTarget.current = onInnerObject ? null : { id: event_id, el: exact }
     replyMenu.open(e, [{ label: 'Reply', disabled: !source || staleIdentity,
       title: source ? 'Reply to this exact chat event' : 'This event has no durable source reference yet',
       onSelect: () => { if (source) {

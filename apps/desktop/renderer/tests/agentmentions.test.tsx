@@ -429,4 +429,175 @@ test('@ suggestion list supports Up/Down highlight + scrollIntoView, Enter/Tab c
   assert.equal(sent,0,'Enter while suggestion list is open does not submit composer')
 })
 
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { AgentGalleryView } from '../src/canvas/gallery'
+import { DeskChat } from '../src/canvas/desk'
+import type { CanvasNode } from '../src/canvas/shared'
+import { refreshConvo, resetConvos } from '../src/convo'
+import { FakeServer, installFetch } from './harness'
+import { installGalleryFixture } from './galleryrows-fixture'
+
+declare const __SRC_DIR__: string
+
+test('agent and project mentions are white with no underline at rest, underlined in agent accent on hover/focus, inbox headers keep 4px badge-to-name spacing without settings button padding, and project presentations show presenter model badge',async t=>{
+  const css=readFileSync(path.join(__SRC_DIR__,'styles.css'),'utf8')
+  const styleEl=document.createElement('style')
+  styleEl.textContent=css
+  document.head.appendChild(styleEl)
+  t.after(()=>styleEl.remove())
+
+  installGalleryFixture()
+  const v=await mountView(
+    <div className="settings wide">
+      <div className="desk-body prov-claude">
+        <AgentLink id="worker-alpha" tier="sol" label="@worker-alpha" onFocus={()=>{}} />
+        <ProjectLink id="worker-project" label="@worker-project" onFocus={()=>{}} />
+        <AgentLink id="worker-here" tier="haiku" label="@worker-here" atDestination onFocus={()=>{}} />
+      </div>
+      <div className="mailer-head event-head">
+        <span className="event-family">·</span>
+        <strong>Message</strong>
+        <span className="event-actor">
+          <AgentName id="coordinator-opus" tier="opus" onFocus={()=>{}} />
+        </span>
+      </div>
+      <AgentGalleryView slug="synthetic" nid="test-project"
+        node={{id:'test-project',kind:'project'} as never}
+        toast={()=>{}} onFocusAgent={()=>{}} initialDocument="project" />
+    </div>,
+    h=>h,
+  )
+  t.after(()=>v.unmount())
+  await flush(5)
+
+  const agentChip=v.el.querySelector<HTMLButtonElement>('button.ref-chip.ref-agent[data-agent-nav="worker-alpha"]')!
+  const projChip=v.el.querySelector<HTMLButtonElement>('button.ref-chip.ref-agent[data-agent-nav="worker-project"]')!
+  const hereChip=v.el.querySelector<HTMLElement>('span.ref-chip.ref-agent.ref-here')!
+  assert.ok(agentChip&&projChip&&hereChip,'agent, project, and atDestination mention chips render')
+
+  // 1. Resting state: white (--ink-strong), no underline
+  assert.equal(window.getComputedStyle(agentChip).color,'var(--ink-strong)','agent mention is white at rest')
+  assert.equal(window.getComputedStyle(agentChip).textDecoration,'none','agent mention has no underline at rest')
+  assert.equal(window.getComputedStyle(projChip).color,'var(--ink-strong)','project mention text is white at rest')
+  assert.equal(window.getComputedStyle(projChip).textDecoration,'none','project mention has no underline at rest')
+  assert.equal(window.getComputedStyle(hereChip).color,'var(--ink-strong)','atDestination mention is white at rest')
+  assert.equal(window.getComputedStyle(hereChip).textDecoration,'none','atDestination mention has no underline at rest')
+  const projMark=projChip.querySelector<HTMLElement>('.project-mark')!
+  assert.match(window.getComputedStyle(projMark).color,/--org-accent/,'project folder icon keeps org theme colour')
+
+  // 2. Focus/hover state: switches to --agent-accent-text with underline
+  // (mutate a data attribute after focus() so jsdom invalidates document._styleCache)
+  agentChip.focus(); agentChip.setAttribute('data-focused','1')
+  assert.match(window.getComputedStyle(agentChip).color,/--agent-accent-text/,'focused agent mention takes agent accent color')
+  assert.equal(window.getComputedStyle(agentChip).textDecoration,'underline','focused agent mention is underlined')
+  projChip.focus(); projChip.setAttribute('data-focused','1')
+  assert.match(window.getComputedStyle(projChip).color,/--agent-accent-text/,'focused project mention takes agent accent color')
+  assert.equal(window.getComputedStyle(projChip).textDecoration,'underline','focused project mention is underlined')
+  projChip.blur()
+
+  // 3. Agent inbox header inside .settings: no 15px button padding on .cc-name, and 4px badge-to-name gap
+  const headerActor=v.el.querySelector<HTMLElement>('.mailer-head .event-actor')!
+  const headerName=headerActor.querySelector<HTMLButtonElement>('button.cc-name')!
+  assert.equal(window.getComputedStyle(headerActor).gap,'4px','sender header uses 4px badge-to-name gap')
+  assert.equal(window.getComputedStyle(headerName).padding,'0px','sender header button.cc-name resets .settings button padding')
+
+  // 4. Project presentation PresentedBy footer renders model badge beside presenting agent link,
+  // and global Presentations list rows render 16x16 model badges via the shared AgentName/.event-actor component
+  const presentedBy=v.el.querySelector<HTMLElement>('.doc-pane-head .doc-presented-by')!
+  assert.ok(presentedBy,'project presentation renders PresentedBy line')
+  const presenterBadge=presentedBy.querySelector<HTMLElement>('.tier.t-sol')
+  assert.ok(presenterBadge,'PresentedBy renders presenting agent model badge')
+  assert.equal(presenterBadge.textContent,'S')
+  assert.equal(window.getComputedStyle(presenterBadge).width,'16px','PresentedBy model badge is 16px wide')
+  const presenterBtn=presentedBy.querySelector<HTMLButtonElement>('button.cc-name')!
+  assert.equal(presenterBtn.textContent,'test-proj-worker-c')
+  assert.equal(window.getComputedStyle(presenterBtn).padding,'0px','PresentedBy agent link has no extra button padding')
+
+  const rowActor=v.el.querySelector<HTMLElement>('.doc-gallery-row .l2 .event-actor')!
+  const rowBadge=rowActor.querySelector<HTMLElement>('.tier')!
+  const rowOwner=rowActor.querySelector<HTMLElement>('span.cc-name.doc-row-owner')!
+  assert.ok(rowActor&&rowBadge&&rowOwner,'global presentations list row renders shared AgentName inside .event-actor')
+  assert.equal(window.getComputedStyle(rowActor).gap,'4px','global presentations list row uses 4px badge-to-name gap')
+  assert.equal(window.getComputedStyle(rowBadge).width,'16px','global presentations list row model badge is 16px wide')
+  assert.equal(window.getComputedStyle(rowBadge).height,'16px','global presentations list row model badge is 16px tall')
+})
+
+function ProvideNav({children}:{children:import('react').ReactNode}) {
+  useProvideAgentNav(id=>[
+    {label:'View Agent',onSelect:()=>{}},
+    {label:`Copy "${id}"`,onSelect:()=>{}},
+  ])
+  return children
+}
+
+test('right-clicking an agent mention inside a transcript message or transcript mail card opens the agent menu without highlighting the containing message or card',async t=>{
+  localStorage.clear(); resetConvos()
+  const mkCNode=(id:string,tier='sol'):CanvasNode=>({
+    id,generation:1,state:'live',tier,children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]},
+  } as unknown as CanvasNode)
+  const alphaNode=mkCNode('worker-alpha','sol')
+  const betaNode=mkCNode('worker-beta','haiku')
+  const leadNode=mkCNode('lead','opus')
+  const server=new FakeServer()
+  server.messages=[
+    {role:'assistant',text:'Ping @worker-beta for review.',seq:0,event_id:'reply-1'},
+  ]
+  server.pending_mail=[
+    {id:'m1',event_id:'mail-1',from:'lead',body:'Hello @worker-beta',at:'2026-10-18T14:00:00Z'},
+  ]
+  installFetch(server)
+  const nodeMap=new Map<string,CanvasNode>([
+    [alphaNode.id,alphaNode],
+    [betaNode.id,betaNode],
+    [leadNode.id,leadNode],
+  ])
+  const v=await mountView(
+    <AgentNavProvider>
+      <ProvideNav>
+        <DeskChat node={alphaNode} map={nodeMap} slug="org" op={async()=>({})} toast={()=>{}} bare
+          onJump={()=>{}} />
+      </ProvideNav>
+    </AgentNavProvider>,
+    h=>h,
+  )
+  t.after(async()=>{await v.unmount();resetConvos()})
+  await inAct(async()=>{await refreshConvo('org','worker-alpha');await flush(5)})
+
+  // 1. Transcript message body mention right-click & non-primary mousedown
+  const msg=v.el.querySelector<HTMLElement>('[data-transcript-row][data-reply-event="reply-1"]')!
+  const msgMention=msg.querySelector<HTMLElement>('[data-agent-nav="worker-beta"]')!
+  assert.ok(msg&&msgMention,'transcript message and inner @worker-beta mention exist')
+
+  let bubbleDown=false
+  msg.addEventListener('mousedown',()=>{bubbleDown=true},{once:true})
+  await inAct(async()=>{
+    msgMention.dispatchEvent(new window.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:2}))
+    msgMention.dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:80,clientY:80}))
+    await flush(3)
+  })
+  assert.equal(bubbleDown,false,'right-button mousedown on agent mention does not bubble to containing message')
+  assert.equal(msg.classList.contains('ctx-target'),false,'containing transcript message is not highlighted with .ctx-target when inner mention is right-clicked')
+  const menuItems=[...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(n=>n.textContent)
+  assert.ok(menuItems.includes('View Agent'),'agent context menu opened on mention right-click')
+
+  await inAct(async()=>{
+    document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))
+    await flush(2)
+  })
+
+  // 2. Transcript mail card (.turn-mail) header agent link right-click
+  const mailRow=v.el.querySelector<HTMLElement>('[data-reply-event="mail-1"]')!
+  const mailCard=v.el.querySelector<HTMLElement>('.turn-mail')!
+  const mailActor=mailCard.querySelector<HTMLElement>('[data-agent-nav="lead"]')!
+  assert.ok(mailRow&&mailCard&&mailActor,'transcript mail card and sender agent link exist')
+  await inAct(async()=>{
+    mailActor.dispatchEvent(new window.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:2}))
+    mailActor.dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:90,clientY:90}))
+    await flush(3)
+  })
+  assert.equal(mailRow.classList.contains('ctx-target'),false,'containing transcript mail row is not highlighted with .ctx-target when sender mention is right-clicked')
+  assert.equal(mailCard.classList.contains('ctx-target'),false,'containing transcript mail card is not highlighted with .ctx-target when sender mention is right-clicked')
+})
+
 

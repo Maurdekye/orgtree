@@ -171,6 +171,7 @@ export function AgentName({
       <button type="button" data-copy-agent-name={id} {...agentNavProps(id)}
         className={'cc-name cc-name-jump' + extra}
         title={nativeTitle ? why ?? `focus ${id}'s desk` : undefined}
+        onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onFocus(id, e) }}>
         {label}
       </button>
@@ -206,6 +207,7 @@ export function NodeLink({
     return (
       <button type="button" data-copy-agent-name={id} {...agentNavProps(id)}
         className={cls} title={title}
+        onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onFocus(id, e) }}>
         <TierChip tier={tier} agentName={id} />
         {text}
@@ -214,7 +216,8 @@ export function NodeLink({
   }
   return (
     <span data-copy-agent-name={id} {...agentTooltipProps(id)}
-      className={cls} title={title}>
+      className={cls} title={title}
+      onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}>
       <TierChip tier={tier} agentName={id} />
       {text}
     </span>
@@ -243,7 +246,7 @@ export function createNodeLinkEl(
   },
 ): HTMLElement {
   const live = Boolean(opts.live && !opts.atDestination)
-  const el = doc.createElement(live ? 'button' : 'span')
+  const el: HTMLElement = doc.createElement(live ? 'button' : 'span')
   if (live) (el as HTMLButtonElement).type = 'button'
   el.className = opts.className ?? ('ref-chip ref-agent ref-ready' + (opts.atDestination ? ' ref-here' : ''))
   const defaultTitle = opts.atDestination
@@ -253,6 +256,7 @@ export function createNodeLinkEl(
   el.setAttribute('data-copy-agent-name', opts.id)
   el.setAttribute(AGENT_TOOLTIP_ATTR, opts.id)
   if (live) el.setAttribute(AGENT_NAV_ATTR, opts.id)
+  el.addEventListener('mousedown', (e) => { if (e.button !== 0) e.stopPropagation() })
   const chip = createTierChipEl(doc, opts.tier, opts.id)
   if (chip) el.appendChild(chip)
   el.appendChild(doc.createTextNode(opts.label ?? opts.id))

@@ -157,7 +157,8 @@ test('organization mode reaches all provider-scoped agent surfaces, nested desti
 test('an agent link inside a desk takes the desk provider color, not the org theme, unless agent colors follow the organization', () => {
   // alpha.8 regression (user 2026-10-18 13:51Z): a later `button.ref-chip.ref-chip`
   // rule painted every agent link with --org-accent, so the coordinator's desk,
-  // dense with agent links, read as the org theme instead of Claude's
+  // dense with agent links, read as the org theme instead of Claude's.
+  // Agent mentions are white at rest (user 2026-10-18) and switch to --agent-accent-text on hover/focus.
   native(); localStorage.clear(); applyTheme('codex'); applyContrast('charcoal')
   const removeCss = stylesheet(), host = document.createElement('div')
   host.innerHTML = '<div class="desk-body prov-claude"><p><button type="button" class="ref-chip ref-agent ref-ready">sa</button></p></div>'
@@ -165,6 +166,9 @@ test('an agent link inside a desk takes the desk provider color, not the org the
   const chip = host.querySelector('button.ref-chip')!, desk = host.querySelector('.desk-body')!
   try {
     applyAgentColorSource('provider')
+    assert.equal(window.getComputedStyle(chip).color, 'var(--ink-strong)', 'agent mentions are white at rest')
+    assert.equal(window.getComputedStyle(chip).textDecoration, 'none', 'agent mentions have no underline at rest')
+    chip.focus(); chip.setAttribute('data-focused', '1')
     const color = window.getComputedStyle(chip).color
     assert.match(color, /--agent-accent-text/, 'the link follows the agent accent')
     assert.doesNotMatch(color, /--org-accent/, 'the link must not reach for the org theme directly')

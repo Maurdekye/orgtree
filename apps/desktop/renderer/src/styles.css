@@ -1930,11 +1930,14 @@ html.mobile .edge-jump { display: none; }
 }
 /* switchboard panels: the name doubles as jump-to-desk — strip the global
    button chrome so it reads as the same name, hover says "link" */
-button.cc-name {
+button.cc-name,
+button.cc-name.cc-name {
   background: none; border: none; padding: 0; border-radius: 0;
   cursor: pointer; text-align: left;
 }
-button.cc-name:hover {
+button.cc-name:hover,
+button.cc-name:focus,
+button.cc-name:focus-visible {
   background: none; color: var(--agent-accent-text, var(--accent)); text-decoration: underline;
 }
 .spacer { flex: 1; }
@@ -2284,7 +2287,9 @@ button.cc-name:hover {
   color: var(--ink); min-width: 0; flex: none;
   white-space: nowrap; overflow-wrap: normal;
 }
-.turn-mail-head button.cc-name:hover { color: var(--agent-accent-text, var(--accent)); text-decoration: underline; }
+.turn-mail-head button.cc-name:hover,
+.turn-mail-head button.cc-name:focus,
+.turn-mail-head button.cc-name:focus-visible { color: var(--agent-accent-text, var(--accent)); text-decoration: underline; }
 /* …and the chip is smaller than the desk's 16px one: this header is 10.5px,
    and a 16px chip stands a whole line taller than the words beside it.
    (`.desk-body .tier` is (0,2,0); this needs three to win, since a mail card
@@ -2298,7 +2303,7 @@ button.cc-name:hover {
    `.msg.user.live` bubble, because the settled card's dress would claim the
    message had landed in the transcript. Only the sender changes. */
 .live-mail + .live-mail { margin-top: 7px; }
-.live-mail-head { display: flex; align-items: center; gap: 5px; }
+.live-mail-head { display: flex; align-items: center; gap: 4px; }
 /* the switchboard's `.cc-name` is a flexible, wrapping 12.5px column header —
    all three wrong on a one-line attribution.
    ⚠ THE UNRESOLVED `<b>` MUST MATCH IT. Left at the body's 14px sans it made a
@@ -2310,7 +2315,9 @@ button.cc-name:hover {
   color: var(--ink); min-width: 0; flex: none;
   white-space: nowrap; overflow-wrap: normal;
 }
-.live-mail-head button.cc-name:hover { color: var(--agent-accent-text, var(--accent)); text-decoration: underline; }
+.live-mail-head button.cc-name:hover,
+.live-mail-head button.cc-name:focus,
+.live-mail-head button.cc-name:focus-visible { color: var(--agent-accent-text, var(--accent)); text-decoration: underline; }
 /* the row's line box is 14px × 1.45 ≈ 20.3px; the desk's default 16px chip
    fits inside it, but only just, and this line has no metadata to hide a
    grown one behind. 15px keeps a visible gap. (`.desk-body .tier` is (0,2,0),
@@ -3011,7 +3018,7 @@ textarea.ask-free-response-input { resize: vertical; }
    element instead of a text node, so it becomes a flex line — and the ellipsis
    moves with it: `text-overflow` on a flex container never reaches a CHILD's
    text, so each child clips itself and the chip is excused. */
-.mailrow .l1 .mfrom { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.mailrow .l1 .mfrom { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .mailrow .l1 .mfrom > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mailrow .l1 .mfrom .tier, .mailrow .l1 .mfrom .sender .tier {
   /* the row's line is 11px; the 22px default chip (and SenderChip's 16px one)
@@ -3035,7 +3042,9 @@ textarea.ask-free-response-input { resize: vertical; }
      both. (The same trap the `.docket-ref` comment records.) */
   padding: 0; border: none; border-radius: 0; background: none;
 }
-.mailrow .l1 .mfrom button.cc-name:hover { color: var(--agent-accent-text, var(--accent)); text-decoration: underline; }
+.mailrow .l1 .mfrom button.cc-name:hover,
+.mailrow .l1 .mfrom button.cc-name:focus,
+.mailrow .l1 .mfrom button.cc-name:focus-visible { color: var(--agent-accent-text, var(--accent)); text-decoration: underline; }
 /* SenderChip (the user's own inbox) wraps its name in a `<b>`. That was right
    in the reading pane and wrong in a row, where bold is what `unread` means. */
 .mailrow .l1 .mfrom .sender b { font-weight: inherit; }
@@ -3473,7 +3482,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
    projected event rows in the same tab never showed it. The row's own
    flex-wrap still moves the identity whole when the line runs out, so the
    timestamp, kind and detail beside it keep wrapping as before. */
-.hist-actor { display: inline-flex; align-items: center; gap: 5px; flex: none; white-space: nowrap; }
+.hist-actor { display: inline-flex; align-items: center; gap: 4px; flex: none; white-space: nowrap; }
 .hist-actor .cc-name { flex: none; min-width: 0; white-space: nowrap; }
 .settings .hist-row { font-size: 12px; }
 .filepre {
@@ -3486,7 +3495,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
   font-size: inherit; opacity: .7;
 }
 .chip-x:hover { opacity: 1; color: var(--bad); background: none; }
-.sender { display: inline-flex; gap: 5px; align-items: center; }
+.sender { display: inline-flex; gap: 4px; align-items: center; }
 .sender.archived { opacity: .55; }
 .sender .tier {
   width: 16px; height: 16px; display: inline-grid; place-items: center;
@@ -4300,18 +4309,27 @@ main.solo { width: 100%; }
   font-family: var(--mono); font-size: 11px;
 }
 /* who presented a project's card, beneath the project (user 2026-10-18 07:30Z) */
-.doc-presented-by { font-size: .92em; }
+.doc-presented-by {
+  display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  font-size: .92em;
+}
 /* .cc-name is the SWITCHBOARD's button — it carries `padding: 7px 15px`,
    which is right for a standalone control and far too airy inside a one-line
    metadata strip (user, 2026-09-04: "there's too much space between items in
    that row"). The 15px sat on TOP of the row's own gap, so each neighbour
    read ~21px away. Zero the padding and let the flex gap alone do the
    spacing. */
-.gallery-modal .doc-pane-meta-row .cc-name {
-  flex: none; min-width: 0; font-size: 11px; font-weight: normal; color: var(--dim);
-  padding: 0;
+.gallery-modal .doc-pane-meta-row .cc-name,
+.gallery-modal .doc-presented-by .cc-name {
+  flex: none; min-width: 0; font-size: 11px; font-weight: normal; color: var(--ink-strong);
+  padding: 0; border: none; border-radius: 0; background: none;
 }
-.gallery-modal .doc-pane-meta-row button.cc-name:hover {
+.gallery-modal .doc-pane-meta-row button.cc-name:hover,
+.gallery-modal .doc-pane-meta-row button.cc-name:focus,
+.gallery-modal .doc-pane-meta-row button.cc-name:focus-visible,
+.gallery-modal .doc-presented-by button.cc-name:hover,
+.gallery-modal .doc-presented-by button.cc-name:focus,
+.gallery-modal .doc-presented-by button.cc-name:focus-visible {
   color: var(--agent-accent-text, var(--accent)); text-decoration: underline;
 }
 
@@ -4355,11 +4373,17 @@ main.solo { width: 100%; }
 }
 /* List names never inherit the switchboard's large, wrapping .cc-name.
    Attribution shares the existing owner line; long names clip with a title. */
-.doc-gallery-row .doc-row-owner, .doc-gallery-row .doc-row-attribution {
+.doc-gallery-row .event-actor {
+  flex: 0 1 auto; min-width: 0; overflow: hidden;
+}
+.doc-gallery-row .cc-name.doc-row-owner,
+.doc-gallery-row .doc-row-owner,
+.doc-gallery-row .doc-row-attribution {
   flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap;
 }
-.doc-row-owner { font: inherit; }
+.doc-gallery-row .cc-name.doc-row-owner,
+.doc-row-owner { font: inherit; color: inherit; }
 .doc-row-attribution { font-size: 10px; }
 .doc-gallery-row .project-mark { flex-shrink: 0; }
 .badge.evicted { color: var(--dim); }
@@ -4803,11 +4827,15 @@ main.solo { width: 100%; }
    class reset to beat `.docket-modal button.cc-name` (0,2,1) and keep the
    0.92em size the sentence around it was measured against. */
 .docket-modal .cc-name.docket-ref.docket-ref-agent {
-  font-size: 0.92em; font-weight: inherit; color: var(--agent-accent-text, var(--accent));
+  font-size: 0.92em; font-weight: inherit; color: var(--ink-strong);
+  text-decoration: none;
   min-width: 0; flex: none; display: inline;
 }
-.docket-modal .cc-name.docket-ref.docket-ref-agent:hover {
-  color: var(--ink-strong);
+.docket-modal .cc-name.docket-ref.docket-ref-agent:hover,
+.docket-modal .cc-name.docket-ref.docket-ref-agent:focus,
+.docket-modal .cc-name.docket-ref.docket-ref-agent:focus-visible {
+  color: var(--agent-accent-text, var(--accent));
+  text-decoration: underline; text-underline-offset: 2px;
 }
 /* ITS MODEL CHIP, MID-SENTENCE (Astra ruling 2026-09-05: a chip beside every
    agent name; in prose it is the CURRENT model of the desk the name goes to,
@@ -5022,9 +5050,13 @@ span.ref-chip.ref-chip {
 }
 .docket-modal button.cc-name, .mailer-head button.cc-name {
   font-size: inherit; font-family: var(--mono); color: inherit; display: inline;
+  padding: 0; border: none; border-radius: 0; background: none;
 }
-.docket-modal button.cc-name:hover, .mailer-head button.cc-name:hover {
+.docket-modal button.cc-name:hover, .mailer-head button.cc-name:hover,
+.docket-modal button.cc-name:focus, .mailer-head button.cc-name:focus,
+.docket-modal button.cc-name:focus-visible, .mailer-head button.cc-name:focus-visible {
   color: var(--agent-accent-text, var(--accent)); text-decoration: underline;
+  text-underline-offset: 2px;
 }
 /* THE DESK'S OWN DOCKET TAB (user ruling 2026-09-05 21:07). It is the docket's
    rows and pane, so it WEARS .docket-modal and inherits every rule above —
@@ -8016,11 +8048,11 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
   border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; }
 .event-head strong { color: var(--ink-strong); }
 .event-head-field { display: inline-flex; align-items: baseline; gap: 3px; }
-.event-actor { color: var(--ink); display: inline-flex; align-items: center; gap: 5px;
+.event-actor { color: var(--ink); display: inline-flex; align-items: center; gap: 4px;
   flex: none; white-space: nowrap; }
 .event-actor .cc-name { flex: none; min-width: 0; white-space: nowrap; }
 .event-actor .tier { flex: none; }
-.event-head .ref-chip.ref-agent { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.event-head .ref-chip.ref-agent { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .event-head .ref-chip.ref-agent .tier { flex: none; }
 .event-head .event-actor::after { content: none; }
 .typed-input { align-self: stretch; min-width: 0; }
@@ -9227,13 +9259,33 @@ span.ref-chip.ref-agent,
   vertical-align: baseline;
   font-family: var(--mono);
 }
-/* no colour here: `button.ref-chip.ref-chip` above already takes
-   --agent-accent-text over the scope's --accent, so a link inside a desk keeps
-   that desk's provider colour, and organization agent colours still apply. An
-   --org-accent here painted every desk's links in the org theme (alpha.8,
-   user 2026-10-18 13:51Z). */
+/* Agent and project mentions match agent names elsewhere in the app: white
+   with no underline at rest, switching to the underlined link style (--agent-accent-text
+   over the scope's --accent) only while hovered or focused (user 2026-10-18). */
+button.ref-chip.ref-chip.ref-agent,
+span.ref-chip.ref-chip.ref-agent.ref-ready,
+.node-link.node-link {
+  color: var(--ink-strong);
+  text-decoration: none;
+}
+button.ref-chip.ref-chip.ref-agent:hover,
+button.ref-chip.ref-chip.ref-agent:focus,
+button.node-link.node-link:hover,
+button.node-link.node-link:focus {
+  color: var(--agent-accent-text, var(--accent));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button.ref-chip.ref-chip.ref-agent:focus-visible,
+button.node-link.node-link:focus-visible {
+  color: var(--agent-accent-text, var(--accent));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .ref-chip .tier, .ref-chip .project-mark,
 .node-link .tier, .node-link .project-mark,
+.event-actor .tier, .event-actor .project-mark,
+.doc-pane-head .tier, .doc-pane-head .project-mark,
 .sender .tier, .sender .project-mark,
 .docket-actor .tier, .docket-actor .project-mark,
 .docket-group-agent .tier, .docket-group-agent .project-mark,

@@ -63,33 +63,42 @@ export { TierChip }
 const viaProject = (r: DocRow): boolean => !!r.presented_by && !!r.node && r.presented_by !== r.node
 const presenterOf = (r: DocRow): string => viaProject(r) ? r.node : r.presented_by || r.node
 
-function Presenter({ r, onFocus }: { r: DocRow; onFocus?: (id: string) => void }) {
+function Presenter({ r, onFocus, tierOf }: { r: DocRow; onFocus?: (id: string) => void; tierOf?: (id: string) => string | null | undefined }) {
   const id = presenterOf(r)
-  return <AgentName id={id || '?'}
-    tier={viaProject(r) || !r.presented_by ? r.tier : r.presenter_tier ?? r.tier}
-    onFocus={onFocus && id ? (who) => onFocus(who) : undefined} />
+  const tier = viaProject(r) || !r.presented_by ? r.tier : r.presenter_tier ?? r.tier
+  return <span className="event-actor"><AgentName id={id || '?'}
+    tier={tier ?? (id ? tierOf?.(id) : null)}
+    onFocus={onFocus && id ? (who) => onFocus(who) : undefined} /></span>
 }
 
 /** List identities are text: a press anywhere selects the document. Keep the
  * shared navigable identities in the details pane and the context menu. */
-function RowIdentity({ r }: { r: DocRow }) {
+function RowIdentity({ r, tierOf }: { r: DocRow; tierOf?: (id: string) => string | null | undefined }) {
   const owner = presenterOf(r) || '?'
+  const tier = viaProject(r) || !r.presented_by ? r.tier : r.presenter_tier ?? r.tier
   return <>
-    <TierChip tier={viaProject(r) || !r.presented_by ? r.tier : r.presenter_tier ?? r.tier} />
-    <span className="doc-row-owner" data-copy-agent-name={owner} title={owner}>{owner}</span>
+    <span className="event-actor">
+      <AgentName id={owner}
+        tier={tier ?? (owner !== '?' ? tierOf?.(owner) : null)}
+        why={owner}
+        nameClass="doc-row-owner" />
+    </span>
     {viaProject(r) && <span className="doc-row-attribution dim"
       title={`Presented by ${r.presented_by}`}>by {r.presented_by}</span>}
   </>
 }
 
 /** "presented by <agent>" under a project's card; nothing for an agent's own */
-function PresentedBy({ r, onFocus, sentence = false }: {
-  r: DocRow; onFocus?: (id: string) => void; sentence?: boolean
+function PresentedBy({ r, onFocus, sentence = false, tierOf }: {
+  r: DocRow; onFocus?: (id: string) => void; sentence?: boolean; tierOf?: (id: string) => string | null | undefined
 }) {
   if (!viaProject(r)) return null
+  const id = r.presented_by!
   return <span className="doc-presented-by dim">
     {sentence ? 'this presentation was presented by ' : 'presented by '}
-    <AgentName id={r.presented_by!} onFocus={onFocus ? (who) => onFocus(who) : undefined} />
+    <span className="event-actor"><AgentName id={id}
+      tier={r.presenter_tier ?? tierOf?.(id)}
+      onFocus={onFocus ? (who) => onFocus(who) : undefined} /></span>
   </span>
 }
 
@@ -555,7 +564,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                           <span className="mtime">{ago(r.at)}</span>
                         </div>
                         <div className="l2" data-copy-agent-name={presenterOf(r) || undefined}>
-                          <RowIdentity r={r} />
+                          <RowIdentity r={r} tierOf={(id) => refs?.world.tierOf?.(id)} />
                           {r.format === 'html' && <MockupBadge />}
                           {r.evicted && <span className="badge evicted">content evicted</span>}
                         </div>
@@ -616,6 +625,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
   // request to render the 404 the endpoint would answer with
   const { doc, err } = useDoc(slug, row.evicted ? '' : row.id, preloaded)
   const replyable = !row.evicted && isHired(row) && Boolean(row.node && !row.node.startsWith('@'))
+  const tierOf = (id: string) => refs?.world.tierOf?.(id)
   return (
     <>
       <div className="mailer-head doc-pane-head">
@@ -623,7 +633,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
             the title row, it should be first, the title second"). */}
         <div className="doc-pane-meta-row">
           {row.node ? (
-            <Presenter r={row} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />
+            <Presenter r={row} tierOf={tierOf} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />
           ) : (
             // no node recorded at all: there is no identity to draw, and
             // inventing one is the thing this panel must not do
@@ -633,7 +643,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
             <span className="dim">{PANE_STATE_WHY[row.node_state]}</span>}
           <span className="dim">{fmtFull(row.at)}</span>
         </div>
-        {row.node && <PresentedBy r={row} sentence onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />}
+        {row.node && <PresentedBy r={row} sentence tierOf={tierOf} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />}
         <div className="doc-pane-title-row">
           <b>{row.title || '(untitled)'}</b>
           {!row.evicted && <DocumentDownload slug={slug} id={row.id} title={row.title} format={row.format} />}
@@ -786,6 +796,8 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
       evicted: false,
       node_state: (node?.state as DocRow['node_state']) ?? 'live',
       tier: node?.tier ?? null,
+      presented_by: d.presented_by ?? null,
+      presenter_tier: d.presenter_tier ?? null,
     }))
   }, [node, nid])
 
@@ -850,6 +862,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
       refs.onOpen?.(r)
     },
   }) || undefined, [refs, rows])
+  const tierOf = (id: string) => refs?.world.tierOf?.(id)
 
   return (
     <section className="msgs gallery-modal gallery-agent desk-presented"
@@ -896,7 +909,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                   <span className="mtime">{ago(r.at)}</span>
                 </div>
                 <div className="l2" data-copy-agent-name={presenterOf(r) || undefined}>
-                  <RowIdentity r={r} />
+                  <RowIdentity r={r} tierOf={tierOf} />
                   {r.format === 'html' && <MockupBadge />}
                   {r.evicted && <span className="badge evicted">content evicted</span>}
                 </div>
