@@ -16,7 +16,7 @@
 
 import './harness'
 import { flush, inAct, mountView } from './harness'
-import test from 'node:test'
+import test, { beforeEach } from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { AskBell, InboxPanel } from '../src/App'
@@ -28,6 +28,9 @@ import type { TreePayload } from '../src/types'
 
 const W = window as unknown as Window & typeof globalThis
 if (!W.HTMLElement.prototype.scrollIntoView) W.HTMLElement.prototype.scrollIntoView = () => {}
+
+// Inbox restore state belongs to one opening, not to the next test case.
+beforeEach(() => W.sessionStorage.clear())
 
 const TREE = {
   slug: 'mine', name: 'Mine', tiers: { opus: { name: 'Opus' } }, roots: [], nodes: [],

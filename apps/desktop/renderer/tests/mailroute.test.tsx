@@ -18,13 +18,16 @@ import { withoutMailTransfers } from './mailtransfers.fixture'
 // Run:  cd frontend && node tests/run.mjs mailroute
 
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
-import test from 'node:test'
+import test, { beforeEach } from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { mailRefTarget } from '../src/canvas/reflinks'
 import { parseRef } from '../src/canvas/workrefs'
 import type { TypedRef } from '../src/canvas/workrefs'
 import type { TreePayload } from '../src/types'
+
+// Inbox restore state belongs to one opening, not to the next test case.
+beforeEach(() => window.sessionStorage.clear())
 
 // ⚠ jsdom IMPLEMENTS NO LAYOUT, so `Element.scrollIntoView` does not exist and
 // the product's jump handler throws the moment a jump lands on a row that IS
