@@ -689,6 +689,25 @@ fn direct_user_contact(from: &From, event: Option<&Value>) -> bool {
 mod direct_contact_tests {
     use super::*;
 
+    // Admission wiring checks supplement the pure batching-policy tests without a live DB.
+    #[test]
+    fn project_user_mail_uses_the_same_forwarding_transaction() {
+        let source = include_str!("mail.rs");
+        let project = source.split("async fn send_project(").nth(1).unwrap()
+            .split("async fn nudge_project(").next().unwrap();
+        assert!(project.contains("deep_reach_batch_tx"), "project admission must forward the user message atomically");
+        assert!(project.contains("notices.committed"), "project forwarding must record only committed ancestors");
+    }
+
+    #[test]
+    fn user_broadcast_shares_forwarding_state_across_recipients() {
+        let source = include_str!("../http/nodes.rs");
+        let broadcast = source.split("pub async fn broadcast(").nth(1).unwrap()
+            .split("async fn project_audience(").next().unwrap();
+        assert!(broadcast.contains("ForwardedUserNotices::default()"), "broadcast needs one forwarding batch");
+        assert!(broadcast.contains("send_with_notices"), "broadcast recipients must share committed forwarding state");
+    }
+
     #[test]
     fn user_message_and_reply_are_contacts() {
         for variant in ["ordinary.message", "ordinary.notice", "reply.mail", "reply.document"] {
