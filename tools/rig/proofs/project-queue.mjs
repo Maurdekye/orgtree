@@ -13,6 +13,8 @@
 //   halted or removes its listener
 //   switching back to round-robin tells the listeners no ack is needed
 //   with exclude-sender on (off by default) a sender is never handed its own mail
+//   a mail reclaimed after its last attempt is dead-lettered and the project's
+//   superior told; purge retracts waiting mail only
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-queue.mjs
 
 import { Proof } from '../proof.mjs'
@@ -115,6 +117,40 @@ export default async function (rig) {
   const gotQb = copies('qb').slice(qbBefore).some(m => m.body === 'From qa to the queue.')
   p.check('with exclude-sender on, a sender is never handed its own mail', reArm.ok && ex.ok && ex.v?.exclude_sender === true
     && fromQa.ok && !gotQa && gotQb, { ex: ex.ok ? ex.v : ex.error, said: said(fromQa), gotQa, gotQb })
+  // ------------------------------------------------------------ max attempts, dead letters, purge (user 08:11Z-08:13Z)
+  const dl = await opTry({ op: 'create_project', name: 'dl', parent: 'boss', description: 'Dead letters.' })
+  const hz = await opTry({ op: 'hire', name: 'dz', parent: 'dl', tier: 'haiku', grant: 0, title: 'Lone worker' })
+  await settle('dz hired')
+  const dz = await rig.tool('dz', 'orgtree_watchdog', { action: 'create', name: 'dl-queue', kind: 'fair_queue', target: 'dl' })
+  const setDl = await opTry({ op: 'set_mail_queue', node: 'dl', mode: 'ack', max_attempts: 2 })
+  const toDl = text => rig.userMail('dl', text, { notice: true }).then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
+  const dlMail = text => rig.one(`SELECT uid, state, extra FROM ot.mail WHERE recipient_agent_id = ${node('dl').id} AND body = '${text}'`)
+  const haltDz = async on => {
+    await opTry({ op: on ? 'halt' : 'unhalt', nodes: ['dz'] })
+    await rig.waitFor(() => on ? node('dz')?.halt?.phase === 'halted' : !node('dz')?.halt, { what: `dz ${on ? '' : 'un'}halted`, timeout: 20000 }).catch(() => {})
+  }
+  const bossMail0 = mailTo(node('boss').id).length
+  await toDl('Doomed task')
+  const firstHand = dlMail('Doomed task')?.extra?.claimed?.by === 'dz'
+  await haltDz(true)
+  const afterOne = dlMail('Doomed task')
+  await haltDz(false)
+  await rig.waitFor(() => dlMail('Doomed task')?.extra?.claimed?.by === 'dz', { what: 'the second hand-out', timeout: 20000 }).catch(() => {})
+  await haltDz(true)
+  await rig.waitFor(() => !!dlMail('Doomed task')?.extra?.dead_letter, { what: 'the dead letter', timeout: 20000 }).catch(() => {})
+  const dead = dlMail('Doomed task')
+  p.check('a mail reclaimed after its last attempt goes to the dead-letter list, not the queue', dl.ok && hz.ok && dz.ok && setDl.ok
+    && firstHand && afterOne?.state === 'pending' && dead?.state === 'read' && dead?.extra?.dead_letter?.attempts === 2,
+    { setup: [dl.ok || dl.error, hz.ok || hz.error, said(dz), setDl.ok || setDl.error], afterOne, dead })
+  const toldBoss = mailTo(node('boss').id).slice(bossMail0).filter(m => /dead-letter/.test(m.body) && /Doomed|gave up/.test(m.body))
+  p.check('the project\'s superior is told of the dead letter', toldBoss.length === 1, mailTo(node('boss').id).slice(bossMail0).map(m => m.body))
+  await toDl('Waiting A')
+  await toDl('Waiting B')
+  const purge = await opTry({ op: 'purge_mail_queue', node: 'dl' })
+  p.check('purge retracts the waiting mail and leaves the dead letter alone', purge.ok && purge.v?.purged === 2
+    && dlMail('Waiting A')?.state === 'retracted' && !!dlMail('Waiting A')?.extra?.purged
+    && dlMail('Doomed task')?.state === 'read', { purge: purge.ok ? purge.v : purge.error, a: dlMail('Waiting A')?.state })
+  await haltDz(false)
   await settle('the last turns')
 
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, body, extra FROM ot.mail ORDER BY id`))
