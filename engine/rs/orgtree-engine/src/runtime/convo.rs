@@ -13,6 +13,8 @@ pub struct ConvoWriter {
     pub ver: i64,
     /// Sanitized, committed replacements awaiting the actor's next stream frame.
     pending: std::collections::BTreeMap<i64, Value>,
+    /// Materialized registry files for this actor's selected skills.
+    skill_files: std::collections::BTreeMap<String, std::path::PathBuf>,
 }
 
 #[cfg(test)]
@@ -134,7 +136,15 @@ impl ConvoWriter {
                 &[&agent_id],
             )
             .await?;
-        Ok(ConvoWriter { agent_id, seq: r.get(0), ver: r.get(1), pending: Default::default() })
+        Ok(ConvoWriter { agent_id, seq: r.get(0), ver: r.get(1), pending: Default::default(), skill_files: Default::default() })
+    }
+
+    #[nolog]
+    pub fn set_skill_registry(&mut self, registry: &crate::providers::skills::Registry, data_root: &std::path::Path) {
+        let root = registry.snapshot_path(data_root);
+        self.skill_files = registry.names().into_iter().filter_map(|name| {
+            registry.materialized_skill_file(&root, &name).map(|path| (name, path))
+        }).collect();
     }
 
     /// Append a row; returns its seq. `body` gets its identity fields filled.
@@ -145,7 +155,7 @@ impl ConvoWriter {
         let seq = self.seq;
         stamp(&mut body, seq);
         body["convo_revision"] = json!(self.ver);
-        let inputs = take_tool_inputs(&mut body, seq);
+        let inputs = take_tool_inputs_with_skill_files(&mut body, seq, &self.skill_files);
         client
             .execute(
                 "INSERT INTO ot.convo (agent_id, seq, ver, body, tool_inputs) VALUES ($1, $2, $3, $4, $5)",
@@ -180,7 +190,7 @@ impl ConvoWriter {
             seq+=1; ver+=1;
             stamp(&mut body,seq);
             body["convo_revision"]=json!(ver);
-            let inputs=take_tool_inputs(&mut body,seq);
+            let inputs=take_tool_inputs_with_skill_files(&mut body,seq,&self.skill_files);
             tx.execute("INSERT INTO ot.convo (agent_id,seq,ver,body,tool_inputs) VALUES ($1,$2,$3,$4,$5)",
                 &[&self.agent_id,&seq,&ver,&body,&inputs]).await.map_err(redact)?;
             saved.push((seq,body));
@@ -196,7 +206,7 @@ impl ConvoWriter {
         self.ver += 1;
         stamp(&mut body, seq);
         body["convo_revision"] = json!(self.ver);
-        let inputs = take_tool_inputs(&mut body, seq);
+        let inputs = take_tool_inputs_with_skill_files(&mut body, seq, &self.skill_files);
         client
             .execute(
                 "UPDATE ot.convo SET body = $3, ver = $4, tool_inputs = tool_inputs || coalesce((SELECT jsonb_object_agg(k, coalesce(tool_inputs -> k, '{}'::jsonb) || v) FROM jsonb_each($5::jsonb) AS incoming(k, v)), '{}'::jsonb) WHERE agent_id = $1 AND seq = $2",
@@ -338,6 +348,7 @@ mod user_mention_tests {
             seq: 0,
             ver: 0,
             pending: Default::default(),
+            skill_files: Default::default(),
         };
         w.remember(1, json!({"role": "user", "text": "ping @user"}));
         assert_eq!(w.pending_user_mention(None), None);
@@ -361,6 +372,15 @@ mod user_mention_tests {
 /// Atomically retained with the row, but never included in `/chat` or feeds.
 #[nolog]
 pub fn take_tool_inputs(body: &mut Value, seq: i64) -> Value {
+    take_tool_inputs_with_skill_files(body, seq, &std::collections::BTreeMap::new())
+}
+
+#[nolog]
+fn take_tool_inputs_with_skill_files(
+    body: &mut Value,
+    seq: i64,
+    skill_files: &std::collections::BTreeMap<String, std::path::PathBuf>,
+) -> Value {
     crate::util::pg_json_mut(body);
     let mut inputs = serde_json::Map::new();
     if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
@@ -369,7 +389,7 @@ pub fn take_tool_inputs(body: &mut Value, seq: i64) -> Value {
             let Some(chip) = chip.as_object_mut() else { continue };
             let mut kept = serde_json::Map::new();
             let paths = chip.get("input").and_then(|input| {
-                tool_file_paths(chip.get("name").and_then(Value::as_str).unwrap_or(""), input)
+                tool_file_paths_with_skill_files(chip.get("name").and_then(Value::as_str).unwrap_or(""), input, skill_files)
             });
             if let Some(paths) = paths { chip.insert("file_paths".into(), paths); }
             if let Some(input) = chip.remove("input") {
@@ -559,6 +579,22 @@ mod tool_file_path_tests {
         take_tool_inputs_with_skill_files(&mut other, 1, &files);
         assert!(other["tools"][0].get("file_paths").is_none());
     }
+}
+
+#[nolog]
+fn tool_file_paths_with_skill_files(
+    name: &str,
+    input: &Value,
+    skill_files: &std::collections::BTreeMap<String, std::path::PathBuf>,
+) -> Option<Value> {
+    if let Some(paths) = tool_file_paths(name, input) { return Some(paths); }
+    let tool = name.rsplit("__").next().unwrap_or(name).to_ascii_lowercase();
+    if !matches!(tool.as_str(), "skill" | "read_skill") { return None; }
+    let skill_name = ["skill", "skill_name", "skillName", "name"]
+        .iter()
+        .find_map(|key| input.get(*key).and_then(Value::as_str).filter(|value| !value.trim().is_empty()))?;
+    let path = skill_files.get(skill_name)?;
+    tool_file_paths(name, &json!({"skill_path": path.to_string_lossy()}))
 }
 
 /// Consecutive prose blocks keep their existing paragraph/fold grouping;

@@ -2558,9 +2558,11 @@ impl Actor {
     }
 
     #[nolog]
-    async fn skill_use(&self, ctx: &Ctx, plan: &Plan) -> Result<crate::providers::skills::retention::Lease> {
+    async fn skill_use(&mut self, ctx: &Ctx, plan: &Plan) -> Result<crate::providers::skills::retention::Lease> {
+        let snapshot = plan.skills.materialize(&self.engine.cfg.data_root)?;
+        self.convo.set_skill_registry(&plan.skills, &self.engine.cfg.data_root);
         let mut paths = skill_folders(ctx);
-        paths.push(plan.skills.snapshot_path(&self.engine.cfg.data_root));
+        paths.push(snapshot);
         crate::providers::skills::retention::hold(&self.engine, paths, ctx.session_id.clone(), ctx.generation).await
     }
 

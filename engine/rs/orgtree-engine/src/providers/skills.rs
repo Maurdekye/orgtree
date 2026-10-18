@@ -148,6 +148,18 @@ impl Registry {
         self.bundles.iter().map(|b| b.name.clone()).collect()
     }
 
+    /// Resolve a selected skill name to its materialized SKILL.md only when
+    /// the registry contains exactly one file with that name.
+    #[nolog]
+    pub fn materialized_skill_file(&self, root: &Path, name: &str) -> Option<PathBuf> {
+        let mut matching = self.bundles.iter().filter(|bundle| {
+            bundle.name == name && bundle.files.contains_key(Path::new("SKILL.md"))
+        });
+        let bundle = matching.next()?;
+        if matching.next().is_some() { return None; }
+        Some(root.join("skills").join(&bundle.name).join("SKILL.md"))
+    }
+
     /// Muse/AGY load native workspace folders. Names are reserved with orgtree-
     /// prefix; we only replace/remove bundles whose ownership marker matches.
     #[nolog]
