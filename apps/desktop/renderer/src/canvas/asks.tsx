@@ -249,7 +249,6 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
       ...(scope.length ? { scope } : {}),
     }))
       // the card is already gone (submitAsk hid it); a failure brings it back
-      .then(() => toast([`resolved ${ask.node}'s batch`]))
       .catch((e: Error) => { toast([`error: ${e.message}`]); setBusy(false) })
   }
   const opts = (t.options ?? []) as { label: string; description?: string }[]
@@ -587,9 +586,7 @@ function QuestionAsk({ ask, slug, toast }: {
     submitAsk({ slug, nid: ask.node, askId: String(ask.id),
       drafts: { signature: JSON.stringify(qKeys), drafts }, sections: null,
       answer: askAnswer(ask, qs, body) },
-    () => answerAsk(slug, ask.id, body))
-      .then(() => toast([body.dismiss ? `dismissed ${ask.node}'s question`
-        : `answered ${ask.node}`]))
+      () => answerAsk(slug, ask.id, body))
       .catch((e: Error) => { toast([`error: ${e.message}`]); setBusy(false) })
   }
   const submit = () => {
@@ -761,11 +758,6 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
     if (busy) return
     setBusy(true)
     creditDecide(slug, ask.id, action, granted)
-      .then((r) => {
-        const w = (r.warnings ?? []) as string[]
-        toast([action === 'deny' ? `denied ${ask.node}'s request`
-          : `${ask.node}'s grant → ${granted ?? askedG}`, ...w])
-      })
       .catch((e: Error) => { toast([`error: ${e.message}`]); setBusy(false) })
   }
   return (

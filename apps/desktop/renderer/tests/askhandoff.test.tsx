@@ -409,6 +409,12 @@ domTest('successful question, batch and credit resolutions do not toast',
     await click(question.querySelector('.askcard .ask-submit'))
     await flush()
 
+    const dismissed = await mount(<AskCard ask={{ ...openAsk(`${ND}-dismiss`), id: 'ask-dismiss' }}
+      slug={SL} toast={toast} />)
+    await flush()
+    await click(dismissed.querySelector('.askcard .chip-x'))
+    await flush()
+
     const batch = await mount(<AskCard ask={{ ...batchAsk(`${ND}-batch`), id: 'ask-batch' }}
       slug={SL} toast={toast} />)
     await flush()
