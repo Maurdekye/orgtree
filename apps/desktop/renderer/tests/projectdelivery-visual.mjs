@@ -64,13 +64,18 @@ if (flag === '--expect') {
       // nothing leaves the row
       for (const p of [row.from, row.time, ...row.chips])
         if (p) assert.ok(p.x >= row.content.left - 0.5 && p.x + p.w <= row.content.right + 0.5, `${what}: ${p.cls ?? p.text} leaves the row ${JSON.stringify({ p, content: row.content })}`)
-      // who and when on line 1; a queue state and the kind beside it on a line of their own
+      // who and when on line 1; a queue state and the kind beside it on a line of
+      // their own, and in a project's own mailbox the chips of every row
       assert.equal(row.from.line, 0, what); assert.equal(row.time.line, 0, what)
-      if (row.queue) {
+      if (row.queue || (surface === 'project' && (row.kind || row.urgent))) {
         assert.ok(row.cls.split(' ').includes('project-mail'), `${what}: project-mail row`)
         assert.deepEqual(row.lines.slice(0, 2).map(l => l.cls), ['l1', 'lmeta'], what)
         for (const p of [row.queue, row.kind, row.urgent]) if (p) assert.equal(p.line, 1, `${what}: ${p.cls} on the meta line`)
-        if (row.kind) assert.ok(row.kind.x + row.kind.w <= row.queue.x, `${what}: the kind chip leads the queue state`)
+        if (row.kind && row.queue) {
+          assert.ok(row.kind.x + row.kind.w <= row.queue.x, `${what}: the kind chip leads the queue state`)
+          // the marker's name (its arrow glyph has a taller box) or an outline chip's label
+          near((row.recipient ?? row.queue).textTop, row.kind.textTop, 0.5, `${what}: the queue state shares the chips' text line`)
+        }
         near(row.lines[1].h, row.lines[0].h, 0.5, `${what}: the meta line is as tall as line 1`)
       } else assert.deepEqual(row.lines.map(l => l.cls), ['l1', 'l2'], what)
       // the widest column cuts no name in a project row; any cut ends in an ellipsis

@@ -99,7 +99,7 @@ function Fixture() {
   return <div data-surface={mode.surface}>
     {mode.surface === 'project' && <Desk folder="inbox" project>
       <MailList key={key} org="org" pending={projectWaiting} delivered={projectDelivered} waitLabel="awaiting next turn"
-        onFocusAgent={focus} {...nav} /></Desk>}
+        projectMail onFocusAgent={focus} {...nav} /></Desk>}
     {mode.surface === 'agent-sent' && <Desk folder="sent">
       <MailList key={key} org="org" delivered={agentSent} outgoing onFocusAgent={focus} {...nav} /></Desk>}
     {mode.surface === 'inbox' && <Desk folder="inbox">

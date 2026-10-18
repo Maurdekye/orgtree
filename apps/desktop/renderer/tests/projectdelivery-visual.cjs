@@ -29,10 +29,12 @@ module.exports = async (page, { out }) => {
       const tops = [...range.getClientRects()].filter(r => r.width > 0.5).map(r => r.top).sort((a, b) => a - b)
       return tops.reduce((n, t, i) => n + (i === 0 || t - tops[i - 1] > 3 ? 1 : 0), 0)
     }
+    // where an element's text sits: chips and the marker share one text line
+    const textTop = e => { const range = document.createRange(); range.selectNodeContents(e); const r = [...range.getClientRects()].find(r => r.width > 0.5); return r ? +r.top.toFixed(2) : null }
     const part = (row, sel) => {
       const e = row.querySelector(sel); if (!e) return null
       const s = getComputedStyle(e)
-      return { ...rect(e), text: e.textContent, textLines: textLines(e), clipped: e.scrollWidth > e.clientWidth + 0.5,
+      return { ...rect(e), text: e.textContent, textLines: textLines(e), textTop: textTop(e), clipped: e.scrollWidth > e.clientWidth + 0.5,
         ellipsis: s.textOverflow === 'ellipsis', line: [...row.children].findIndex(c => c.contains(e)), cls: e.className }
     }
     const rows = [...document.querySelectorAll('.mailrow')].map(row => {
