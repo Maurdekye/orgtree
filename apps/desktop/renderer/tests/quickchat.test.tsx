@@ -202,6 +202,28 @@ test('a manual hire and a manual effort pick become the defaults; a stale superi
   } finally { await again.unmount(); localStorage.clear() }
 })
 
+// docket quick-chat-a-project-target-shows-the-wrong-icon (user 2026-10-18
+// 14:34Z): a project superior wears the project folder mark every other
+// surface draws (identity.tsx TierChip), never its sentinel tier's letter.
+test('a project superior wears the project folder mark, not a tier letter', async () => {
+  localStorage.clear(); providers(['claude'])
+  const t = { ...tree, roots: [{ ...node('site', 'live', [], 'project'), kind: 'project' }, node('boss')] } as unknown as TreePayload
+  rememberHire('org', { tier: 'opus', superior: 'site' })
+  const view = await mountView(<QuickChat slug="org" tree={t} op={(async () => ({})) as never}
+    toast={noop} onHired={noop} />, el => el)
+  try {
+    await inAct(async () => { await flush(8) })
+    assert.equal(shown(view.el).superior, 'site')
+    const chip = view.el.querySelector('.quickchat-superior')!
+    assert.ok(chip.querySelector('.project-mark svg'), 'the chip shows the project folder icon')
+    assert.ok(!chip.querySelector('.tier'), 'no tier letter badge for a project')
+    await click(chip)
+    const row = [...document.querySelectorAll('.quickchat-pop .tray-row')]
+      .find(r => r.querySelector('.tray-name')?.textContent?.trim() === 'site')
+    assert.ok(row?.querySelector('.project-mark svg'), 'the picker row shows the folder icon too')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
 // option B (user 2026-10-10 19:40Z): an org's template defaults win until
 // the user picks by hand in that org; picks are per org, and app-wide as the
 // fallback for orgs without defaults
