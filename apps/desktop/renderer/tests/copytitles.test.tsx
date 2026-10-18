@@ -118,8 +118,8 @@ for (const variant of ['linked', 'own desk', 'read only', 'prefix', 'archived ge
     const id = variant === 'archived generation' ? 'worker@12' : 'worker'
     const v = await mount(<AgentName id={id} tier="haiku" onFocus={variant === 'read only' ? undefined : BAD}
       prefix={variant === 'prefix' ? '@' : undefined} atDestination={variant === 'own desk'} />)
-    await copy(v.el.querySelector('.cc-name')!, 'Copy agent name')
-    await copy(v.el.querySelector('.tier')!, 'Copy agent name')
+    await copy(v.el.querySelector('.cc-name')!, 'Copy mention')
+    await copy(v.el.querySelector('.tier')!, 'Copy mention')
     assert.deepEqual(writes, ['@' + id, '@' + id])
   })
 }
@@ -137,7 +137,7 @@ for (const variant of ['normal', 'mini', 'map', 'archived', 'unrecoverable', 'be
       onRecenter={BAD} onMailLink={BAD} onWorkLink={BAD} onDragStart={BAD}
       onDragMove={BAD} onDragEnd={BAD} onDragCancel={BAD}
       mapMode={variant === 'map'} />)
-    await copy(v.el.querySelector('.sq')!, 'Copy agent name')
+    await copy(v.el.querySelector('.sq')!, 'Copy mention')
     assert.deepEqual(writes, ['@' + n.id])
   })
 }
@@ -147,12 +147,12 @@ ui('Focused desk, switchboard/pinned/mobile desk headers and jump cards', async 
   for (const bare of [false, true]) {
     const v = await mount(<DeskChat node={n} bare={bare} map={map} op={noOp} slug="mine"
       toast={noop} onJump={BAD} />)
-    await copy(v.el.querySelector('.cc-head-left')!, 'Copy agent name')
+    await copy(v.el.querySelector('.cc-head-left')!, 'Copy mention')
   }
   const nav = await mount(<NavChip n={n} dir="down" onJump={BAD} />)
-  await copy(nav.el.querySelector('.desk-nav-chip')!, 'Copy agent name')
+  await copy(nav.el.querySelector('.desk-nav-chip')!, 'Copy mention')
   const placeholder = await mount(<PinnedPlaceholder id={n.id} onShow={BAD} />)
-  await copy(placeholder.el.querySelector('.pin-placeholder')!, 'Copy agent name')
+  await copy(placeholder.el.querySelector('.pin-placeholder')!, 'Copy mention')
   assert.deepEqual(writes, ['@worker', '@worker', '@worker', '@worker'])
 })
 
@@ -160,14 +160,14 @@ ui('Lineage rows and live/retired pile picker entries', async ({ mount, writes }
   const past = agent('worker@2', { state: 'archived', bearer_state: 'archived', generation: 2 })
   const n = agent('worker', { lineage: [past] }), map = new Map([[n.id, n], [past.id, past]])
   const lineage = await mount(<LineagePanel node={n} op={noOp} slug="mine" map={map} close={BAD} onFocusAgent={BAD} />)
-  await copy(document.querySelector('.lineage-panel .lin-row')!, 'Copy agent name')
+  await copy(document.querySelector('.lineage-panel .lin-row')!, 'Copy mention')
   await lineage.unmount()
   for (const kind of ['a', 'c'] as const) {
     const pile = await mount(<PilePicker pile={{ kind, list: [n.id, past.id], front: n.id } as never}
       map={map} onPick={BAD} close={BAD} />)
     const rows = [...document.querySelectorAll('.pile-row')]
     assert.equal(rows.length, 2)
-    for (const row of rows) await copy(row, 'Copy agent name')
+    for (const row of rows) await copy(row, 'Copy mention')
     await pile.unmount()
   }
   assert.equal(writes.filter(s => s === '@worker@2').length, 3)
@@ -184,7 +184,7 @@ ui('Agents List live and archived rows leave the camera and selection untouched'
   const before = (v.el.querySelector('.space') as HTMLElement).style.transform
   const rows = [...document.querySelectorAll('.tray-row')]
   assert.equal(rows.length, 2)
-  for (const row of rows) await copy(row, 'Copy agent name')
+  for (const row of rows) await copy(row, 'Copy mention')
   await advance(800, 50)
   assert.equal((v.el.querySelector('.space') as HTMLElement).style.transform, before)
   assert.deepEqual(writes.sort(), ['@gone', '@worker'])
@@ -204,9 +204,9 @@ for (const kind of ['node-config', 'lineage', 'node-inbox', 'agent-docket', 'age
               refs={{ world: { org: 'mine' }, onOpen: BAD }} />
             : <AgentGalleryModal {...common} nid={n.id} node={n} />
     await mount(fixture)
-    await copy(document.querySelector('.modalpin-bar')!, 'Copy agent name')
+    await copy(document.querySelector('.modalpin-bar')!, 'Copy mention')
     const heading = document.querySelector('h3[data-copy-agent-name], .gallery-head [data-copy-agent-name]')
-    if (heading) await copy(heading, 'Copy agent name')
+    if (heading) await copy(heading, 'Copy mention')
     assert.ok(writes.every(s => s === '@worker@2'))
     assert.ok(document.querySelector('.settings'), 'surface remains open')
   })
@@ -218,7 +218,7 @@ ui('Switchboard tabs retain their open state while their agent name is copied', 
     eyeW={900} posX={() => 0} onJump={BAD} onMailLink={BAD} onWorkLink={BAD} />)
   const tab = v.el.querySelector('.eye-tab')!
   const before = tab.className
-  await copy(tab, 'Copy agent name')
+  await copy(tab, 'Copy mention')
   assert.equal(tab.className, before)
   assert.deepEqual(writes, ['@worker'])
 })
@@ -228,16 +228,16 @@ ui('Mail list, reading pane, and transcript sender identities preserve the messa
     at: '2026-09-10T00:00:00Z', kind: 'message', body: 'Message body' }]}
     hasAgent={() => true} tierOf={() => 'haiku'} onFocusAgent={BAD} />)
   const row = v.el.querySelector('.mailrow') as HTMLElement
-  await copy(row.querySelector('.cc-name')!, 'Copy agent name')
+  await copy(row.querySelector('.cc-name')!, 'Copy mention')
   assert.equal(row.classList.contains('on'), false)
   await inAct(() => row.click()); await flush(3)
-  await copy(v.el.querySelector('.mailer-read .cc-name')!, 'Copy agent name')
+  await copy(v.el.querySelector('.mailer-read .cc-name')!, 'Copy mention')
   assert.ok(row.classList.contains('on'))
   const transcript = await mount(<AgentDirectoryProvider value={{ resolve: () => ({ tier: 'haiku' }), onFocus: BAD }}>
     <PendingMailRow m={{ id: 'p1', from: 'worker', body: 'Incoming message', at: '2026-09-10T00:00:00Z' }}
       slug="mine" nid="receiver" world={{ org: 'mine' }} />
   </AgentDirectoryProvider>)
-  await copy(transcript.el.querySelector('.cc-name')!, 'Copy agent name')
+  await copy(transcript.el.querySelector('.cc-name')!, 'Copy mention')
   assert.deepEqual(writes, ['@worker', '@worker', '@worker'])
 })
 
@@ -252,11 +252,11 @@ for (const scope of ['agent', 'org']) {
     const selectedOnOpen = row.classList.contains('on')
     assert.equal(selectedOnOpen, true,
       'both galleries open their newest document')
-    await copy(row.querySelector('.l2')!, 'Copy agent name')
+    await copy(row.querySelector('.l2')!, 'Copy mention')
     assert.equal(row.classList.contains('on'), selectedOnOpen,
       'copying the publisher does not change document selection')
     await flush(3)
-    await copy(document.querySelector('.doc-pane-meta-row .cc-name')!, 'Copy agent name')
+    await copy(document.querySelector('.doc-pane-meta-row .cc-name')!, 'Copy mention')
     assert.deepEqual(writes, ['@worker', '@worker'])
     await context(row)
     assert.equal([...document.querySelectorAll('.ctxmenu button')].some(b => b.textContent === 'Copy ticket title'), false)
@@ -267,7 +267,7 @@ for (const status of ['open', 'answered']) {
   ui(`Question card issuer: ${status}`, async ({ mount, writes }) => {
     const v = await mount(<AskCard ask={{ id: 'q1', node: 'worker', kind: 'question', status,
       questions: [{ question: 'Choose?', options: [] }] } as never} slug="mine" toast={noop} />)
-    await copy(v.el.querySelector('[data-copy-agent-name]')!, 'Copy agent name')
+    await copy(v.el.querySelector('[data-copy-agent-name]')!, 'Copy mention')
     assert.deepEqual(writes, ['@worker'])
   })
 }
@@ -282,7 +282,7 @@ ui('Pinned agent title keeps its pin position and does not jump or unpin', async
     onMailLink={BAD} onWorkLink={BAD} onOpenDoc={BAD} onLineage={BAD} onConfig={BAD}
     onJump={BAD} onShowOnCanvas={BAD} /></div>)
   const before = structuredClone(readPins('mine'))
-  await copy(document.querySelector('.pinwin[data-id="worker"] .pinwin-title')!, 'Copy agent name')
+  await copy(document.querySelector('.pinwin[data-id="worker"] .pinwin-title')!, 'Copy mention')
   assert.deepEqual(readPins('mine'), before)
   assert.deepEqual(writes, ['@worker'])
 })
@@ -316,7 +316,7 @@ for (const scope of ['org', 'agent']) {
       assert.equal(writes.at(-1), expected)
       assert.equal(row.classList.contains('on'), selectedOnOpen)
     }
-    await copy(rows[0]!.querySelector('.docket-actor-name')!, 'Copy agent name')
+    await copy(rows[0]!.querySelector('.docket-actor-name')!, 'Copy mention')
     assert.equal(writes.at(-1), '@worker', 'the inner agent has its own copy identity')
     if (!rows[0]!.classList.contains('on')) { await inAct(() => rows[0]!.click()); await flush(4) }
     for (const selector of ['.docket-pane-head', '.docket-slug-text']) {
@@ -338,7 +338,7 @@ ui('React, Markdown and bare references copy authoritative names/titles, never s
       <RefMdBody html={md('@agent:mine/worker@2 and @item:mine/repair-resume')} world={world} onOpen={open} />
       <WorkRefText text="repair-resume" index={buildMentionIndex([ticket()])} onPick={open} />
     </>)
-    for (const el of v.el.querySelectorAll('[data-copy-agent-name]')) await copy(el, 'Copy agent name')
+    for (const el of v.el.querySelectorAll('[data-copy-agent-name]')) await copy(el, 'Copy mention')
     for (const el of v.el.querySelectorAll('[data-copy-ticket-title]')) await copy(el, 'Copy ticket title')
   }
   assert.equal(writes.filter(s => s === '@worker@2').length, 4)
@@ -384,7 +384,7 @@ ui('Native edit/link/selected-text menus and unknown-title references are preser
   window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range)
   assert.equal(await context(v.el.querySelector('.text')!), false)
   window.getSelection()!.removeAllRanges()
-  await copy(v.el.querySelector('.text')!, 'Copy agent name')
+  await copy(v.el.querySelector('.text')!, 'Copy mention')
   assert.deepEqual(writes, ['@worker'])
 })
 
@@ -395,7 +395,7 @@ for (const unavailable of ['absent', 'no writeText', 'denied', 'throws']) {
         writeText: () => { if (unavailable === 'throws') throw Error('unavailable'); return Promise.reject(Error('denied')) },
       } })
     const v = await mount(<AgentName id="worker" onFocus={BAD} />)
-    await copy(v.el.querySelector('.cc-name')!, 'Copy agent name')
+    await copy(v.el.querySelector('.cc-name')!, 'Copy mention')
     assert.deepEqual(feedback, [['could not copy — clipboard unavailable']])
   })
 }
@@ -420,10 +420,10 @@ ui('Detached surface uses the child clipboard, menu, feedback and Escape stack',
     await flush(10)
     const name = win.document.querySelector('.cc-name') as HTMLElement
     name.focus()
-    await copy(name, 'Copy agent name')
+    await copy(name, 'Copy mention')
     assert.equal(win.document.activeElement, name, 'focus returns in the owning window')
     assert.deepEqual(childWrites, ['@worker']); assert.deepEqual(writes, [])
-    assert.deepEqual(feedback, [['copied agent name']])
+    assert.deepEqual(feedback, [['copied mention']])
     await context(win.document.querySelector('.cc-name')!)
     await inAct(() => win.dispatchEvent(new child.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
     assert.equal(win.document.querySelector('.ctxmenu'), null)

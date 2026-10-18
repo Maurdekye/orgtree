@@ -301,38 +301,54 @@ const entryNamed = (entries: ReturnType<typeof projectMenuEntries>, label: strin
   return e
 }
 
-test('§3a a live project\'s menu follows the agent menu\'s order, adapted (user 22:23Z)', () => {
+test('§3a a live project\'s menu follows the agent menu\'s order, adapted (user 22:23Z, 07:21Z)', () => {
   const nd = project()
   assert.deepEqual(labels(projectMenuEntries(nd, handlers(), { claudeHire: offer })),
     ['Focus', 'Open', 'Hire under this project', 'New project…', 'Settings', 'sep', 'Retire project…'])
   assert.deepEqual(entryNamed(projectMenuEntries(nd, handlers(), { claudeHire: offer }), 'Open').children
-    ?.map((c) => c === 'sep' ? 'sep' : c.label), ['Open project mailbox', 'Open project folder'])
+    ?.map((c) => c === 'sep' ? 'sep' : c.label), ['Project mailbox', 'Project folder'])
 })
 
-test('§3a2 the agent and switchboard entries a project can take: focus, pin, subtree compact and halt (user 22:23Z)', () => {
+test('§3a2 the agent and switchboard entries a project can take: focus, pin in top section, subtree compact and halt (user 22:23Z, 07:18Z)', () => {
   const asked: string[] = []
-  let focused = 0, pinned = 0
+  let focused = 0, pinned = 0, shownPin = 0
   const nd = project({ children: [{ id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', children: [] }] as never })
-  const h = handlers({ onRetireAsk: (k) => { asked.push(k) }, onOpenDesk: () => { focused++ }, onPin: () => { pinned++ } })
+  const h = handlers({
+    onRetireAsk: (k) => { asked.push(k) }, onOpenDesk: () => { focused++ },
+    onOpenTemporary: noop, onPopout: noop,
+    onPin: () => { pinned++ }, onShowPin: () => { shownPin++ },
+  })
   const entries = projectMenuEntries(nd, h, { claudeHire: offer })
   assert.deepEqual(labels(entries), ['Focus', 'Open', 'Hire under this project', 'New project…', 'Settings', 'sep',
     'Cheap-compact all agents under it…', 'Halt all agents under it…', 'Retire project…'])
   entryNamed(entries, 'Focus').onSelect()
   entryNamed(entries, 'Cheap-compact all agents under it…').onSelect()
   entryNamed(entries, 'Halt all agents under it…').onSelect()
-  const pin = entryNamed(entries, 'Open').children!.find((c) => c !== 'sep' && c.label === 'Pin desk as a window')
+  const openKids = entryNamed(entries, 'Open').children!
+  assert.deepEqual(openKids.map((c) => c === 'sep' ? 'sep' : c.label),
+    ['Desk', 'Pop out to new window', 'Pin desk as a window', 'sep', 'Project mailbox', 'Project folder'],
+    'Pin desk as a window sits in the top desk section of Open, before the separator, matching agents')
+  const pin = openKids.find((c) => c !== 'sep' && c.label === 'Pin desk as a window')
   assert.ok(pin && pin !== 'sep', 'pin the project desk as a window')
   pin.onSelect()
-  assert.deepEqual([focused, pinned, asked], [1, 1, ['cheap-compact-subtree', 'halt-subtree']])
+  const pinnedEntries = projectMenuEntries(nd, h, { claudeHire: offer, pinned: true })
+  const pinnedOpenKids = entryNamed(pinnedEntries, 'Open').children!
+  assert.deepEqual(pinnedOpenKids.map((c) => c === 'sep' ? 'sep' : c.label),
+    ['Desk', 'Pop out to new window', 'Show pinned window', 'sep', 'Project mailbox', 'Project folder'])
+  const showPin = pinnedOpenKids.find((c) => c !== 'sep' && c.label === 'Show pinned window')
+  assert.ok(showPin && showPin !== 'sep')
+  showPin.onSelect()
+  assert.deepEqual([focused, pinned, shownPin, asked], [1, 1, 1, ['cheap-compact-subtree', 'halt-subtree']])
   const halted = project({ children: [{ id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', children: [],
     halt: { phase: 'halted' } }] as never })
   assert.ok(labels(projectMenuEntries(halted, h, {})).includes('Unhalt all agents under it…'))
 })
 
-test('§3d point 27 + review: Open desk, Pop out, team presentations, and hires beside and above (user 23:28Z, 23:29:47Z)', () => {
+test('§3d Desk, Pop out, Presentations with Team presentations submenu, and no hire beside/above in menu (user 07:17Z, 07:20Z, 07:21Z, 07:22Z)', () => {
   const did: string[] = []
-  const nd = project({ documents_count: 1, children: [
-    { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', documents_count: 2, children: [] }] } as never)
+  // Even with 0 documents on the project and its subtree, both individual and team presentations are offered
+  const nd = project({ documents_count: 0, documents: [], children: [
+    { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', documents_count: 0, documents: [], children: [] }] } as never)
   const h = handlers({
     onOpenTemporary: () => { did.push('temp') }, onPopout: () => { did.push('popout') },
     onPresentations: () => { did.push('own') }, onTeamPresentations: () => { did.push('team') },
@@ -340,27 +356,37 @@ test('§3d point 27 + review: Open desk, Pop out, team presentations, and hires 
     onHireBeside: () => { did.push('beside') }, onHireAbove: () => { did.push('above') },
   })
   const entries = projectMenuEntries(nd, h, { claudeHire: offer })
-  assert.deepEqual(labels(entries), ['Focus', 'Open', 'Hire under this project', 'Hire beside this project',
-    'Hire above this project', 'New project…', 'Settings', 'sep', 'Cheap-compact all agents under it…',
-    'Halt all agents under it…', 'Retire project…'])
+  assert.deepEqual(labels(entries), ['Focus', 'Open', 'Hire under this project',
+    'New project…', 'Settings', 'sep', 'Cheap-compact all agents under it…',
+    'Halt all agents under it…', 'Retire project…'],
+    'Hire beside and Hire above are not in the project context menu (only via hire tokens)')
   const open = entryNamed(entries, 'Open').children!
-  assert.deepEqual(open.map((c) => c === 'sep' ? 'sep' : c.label), ['Open desk', 'Pop out to new window', 'sep',
-    'Open project mailbox', 'Open project folder', 'Open presentations', 'Open team presentations', 'Open project docket'])
-  for (const l of ['Open desk', 'Pop out to new window', 'Open presentations', 'Open team presentations']) {
+  assert.deepEqual(open.map((c) => c === 'sep' ? 'sep' : c.label), ['Desk', 'Pop out to new window', 'sep',
+    'Project mailbox', 'Project folder', 'Presentations', 'Project docket'])
+  for (const c of open) {
+    if (c === 'sep') continue
+    assert.equal(/\bOpen\b/.test(c.label), false, `Open submenu item "${c.label}" must not contain the word Open`)
+  }
+  const pres = open.find((c) => c !== 'sep' && c.label === 'Presentations')
+  assert.ok(pres && pres !== 'sep')
+  assert.deepEqual(pres.children?.map((c) => c === 'sep' ? 'sep' : c.label), ['Team presentations'],
+    'Team presentations lives in a submenu under Presentations when both actions exist')
+  for (const l of ['Desk', 'Pop out to new window', 'Presentations']) {
     const e = open.find((c) => c !== 'sep' && c.label === l)
     assert.ok(e && e !== 'sep'); e.onSelect()
   }
-  for (const l of ['Hire beside this project', 'Hire above this project']) {
-    const tier = entryNamed(entries, l).children!.find((c) => c !== 'sep' && !c.disabled)
-    assert.ok(tier && tier !== 'sep', `${l} offers a tier`); tier.onSelect()
-  }
-  assert.deepEqual(did, ['temp', 'popout', 'own', 'team', 'beside', 'above'])
-  // own presentations only when the project holds some; team when anyone under it does
-  const subtreeOnly = project({ documents_count: 0, children: [
-    { id: 'dev1', title: 'dev1', tier: 'haiku', state: 'live', documents_count: 2, children: [] }] } as never)
-  const got = entryNamed(projectMenuEntries(subtreeOnly, h, {}), 'Open').children!.map((c) => c === 'sep' ? 'sep' : c.label)
-  assert.equal(got.includes('Open presentations'), false, 'no own presentations')
-  assert.ok(got.includes('Open team presentations'))
+  const teamPres = pres.children![0]!
+  assert.ok(teamPres !== 'sep'); teamPres.onSelect()
+  assert.deepEqual(did, ['temp', 'popout', 'own', 'team'])
+  // When only one of own/team presentations is provided, it sits inline without a submenu (user 07:22:36Z)
+  const onlyOwn = entryNamed(projectMenuEntries(nd, handlers({ onPresentations: noop }), {}), 'Open').children!
+    .find((c) => c !== 'sep' && c.label === 'Presentations')
+  assert.ok(onlyOwn && onlyOwn !== 'sep')
+  assert.equal(onlyOwn.children, undefined, 'inline when only individual Presentations exists')
+  const onlyTeam = entryNamed(projectMenuEntries(nd, handlers({ onTeamPresentations: noop }), {}), 'Open').children!
+    .find((c) => c !== 'sep' && c.label === 'Team presentations')
+  assert.ok(onlyTeam && onlyTeam !== 'sep')
+  assert.equal(onlyTeam.children, undefined, 'inline when only Team presentations exists')
 })
 
 test('§3b agentMenuEntries gives a project the project menu, never an agent\'s', () => {
@@ -391,7 +417,7 @@ test('§3c retiring a project with live agents under it asks for the team retire
 test("§4a a project's menu opens its docket when the surface offers one", () => {
   let opened = 0
   const open = entryNamed(projectMenuEntries(project(), handlers({ onDocket: () => { opened++ } }), {}), 'Open')
-  const entry = open.children?.find((c) => c !== 'sep' && c.label === 'Open project docket')
+  const entry = open.children?.find((c) => c !== 'sep' && c.label === 'Project docket')
   assert.ok(entry && entry !== 'sep', 'the Open branch carries the project docket')
   entry.onSelect()
   assert.equal(opened, 1)

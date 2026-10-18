@@ -95,21 +95,50 @@ test('Quick chat offers live agent and project mentions only after @ and Tab com
   assert.equal(sent,0)
 })
 
-test('both Copy agent name menu paths copy a mention while ticket copies stay unchanged',async t=>{
-  const saved=Object.getOwnPropertyDescriptor(navigator,'clipboard'),writes:string[]=[]
+import { ProjectSquare } from '../src/canvas/projectcard'
+import { ProjectDesk } from '../src/canvas/projectdesk'
+import type { CanvasNode, OpResult } from '../src/canvas/shared'
+
+test('Copy mention menu paths copy @mention on agents and projects while ticket copies stay unchanged',async t=>{
+  const saved=Object.getOwnPropertyDescriptor(navigator,'clipboard'),writes:string[]=[],toasts:string[][]=[]
   Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async(s:string)=>{writes.push(s)}}})
   t.after(()=>{if(saved)Object.defineProperty(navigator,'clipboard',saved);else delete(navigator as {clipboard?:unknown}).clipboard})
   const el=document.createElement('button')
-  agentCopyEntry(el,'worker-alpha').onSelect?.()
+  const navCopy=agentCopyEntry(el,'worker-alpha',lines=>toasts.push(lines??[]))
+  assert.equal(navCopy.label,'Copy mention')
+  navCopy.onSelect?.()
   await flush(3)
   assert.deepEqual(writes,['@worker-alpha'],'navigation marker copy produces @name')
-  const view=await mountView(<ObjectMenuBoundary><AgentName id="worker-beta" tier="haiku"/></ObjectMenuBoundary>,h=>h)
+  assert.deepEqual(toasts,[['copied mention']])
+  const projNode={id:'worker-project',title:'worker-project',kind:'project',state:'live',tier:'project',model_id:'',
+    seat:0,grant:0,free:0,scope:{tools:{},add_dirs:[]},charter:'desc',children:[],lineage:[],turns:[],audiences_held:[],mail_pending:0} as unknown as CanvasNode
+  const view=await mountView(
+    <ObjectMenuBoundary toast={lines=>toasts.push(lines??[])}>
+      <AgentName id="worker-beta" tier="haiku"/>
+      <ProjectSquare node={projNode} pos={{x:0,y:0}} lod="norm" dragging={false} isDrop={false}
+        op={()=>Promise.resolve({} as OpResult)} slug="org" toast={lines=>toasts.push(lines??[])} zoom={2}
+        hire={{}} seats={{}} onHire={()=>{}} onInbox={()=>{}} onNewProject={()=>{}}
+        onDragStart={()=>{}} onDragMove={()=>{}} onDragEnd={()=>{}} onDragCancel={()=>{}} />
+      <ProjectDesk node={projNode} slug="org" tree={{slug:'org',roots:[]} as unknown as TreePayload}
+        map={new Map([[projNode.id,projNode]])} op={()=>Promise.resolve({} as OpResult)}
+        toast={lines=>toasts.push(lines??[])} refs={{world,onOpen:()=>{}}} />
+    </ObjectMenuBoundary>,h=>h)
   t.after(()=>view.unmount())
-  await inAct(async()=>{view.el.querySelector('[data-copy-agent-name]')!.dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,cancelable:true}));await flush(4)})
-  const item=[...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-item')].find(x=>x.textContent==='Copy agent name')!
-  assert.ok(item)
-  await inAct(async()=>{item.click();await flush(3)})
-  assert.deepEqual(writes,['@worker-alpha','@worker-beta'])
+  for(const target of [
+    view.el.querySelector('.cc-name[data-copy-agent-name="worker-beta"]')!,
+    view.el.querySelector('.sq.project[data-copy-agent-name="worker-project"]')!,
+    view.el.querySelector('.project-desk .cc-head-left[data-copy-agent-name="worker-project"]')!,
+  ]){
+    await inAct(async()=>{target.dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,cancelable:true}));await flush(4)})
+    const items=[...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-item')].map(x=>x.textContent)
+    assert.equal(items.includes('Copy agent name'),false,'old Copy agent name label is gone')
+    const item=[...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-item')].find(x=>x.textContent==='Copy mention')!
+    assert.ok(item,`expected Copy mention in ${JSON.stringify(items)}`)
+    await inAct(async()=>{item.click();await flush(3)})
+  }
+  assert.equal(view.el.querySelector('.project-desk .cc-head-left')?.getAttribute('data-agent-nav'),'worker-project',
+    'project desk header carries data-agent-nav for canonical menu parity')
+  assert.deepEqual(writes,['@worker-alpha','@worker-beta','@worker-project','@worker-project'])
 })
 
 test('@net: and @org: hub contacts render as links in Markdown, plain text, and tool chips with local org vs Hubchat routing',async t=>{

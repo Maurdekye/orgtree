@@ -25,7 +25,7 @@ test('native action is absent in browsers/old shells, appears for live/archived 
         { onInbox() {}, onSettings() {}, onScratchFolder: action })
       const branch = entries.find(e => typeof e !== 'string' && e.label === 'Open')
       assert.ok(branch && typeof branch !== 'string')
-      const entry = branch.children?.find(e => typeof e !== 'string' && e.label === 'Open scratch folder')
+      const entry = branch.children?.find(e => typeof e !== 'string' && e.label === 'Scratch folder')
       assert.ok(entry && typeof entry !== 'string')
       entry.onSelect()
     }

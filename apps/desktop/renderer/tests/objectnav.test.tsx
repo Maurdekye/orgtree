@@ -88,7 +88,7 @@ test('ticket Owner reuses the canonical agent menu; click and Enter focus while 
   await right(ticket)
   await inAct(() => owner().closest('.ctxmenu-branch')!.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }))); await flush()
   const child = document.querySelector('.ctxmenu-submenu')!
-  assert.deepEqual([...child.querySelectorAll('[role="menuitem"]')].map(b => b.textContent), ['Copy agent name', 'Focus', 'Canonical action'])
+  assert.deepEqual([...child.querySelectorAll('[role="menuitem"]')].map(b => b.textContent), ['Copy mention', 'Focus', 'Canonical action'])
   assert.equal(focused, 1, 'hover opens without focusing the owner')
   await inAct(() => [...child.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(b => b.textContent === 'Canonical action')!.click()); await flush()
   assert.equal(other, 1)
@@ -96,14 +96,14 @@ test('ticket Owner reuses the canonical agent menu; click and Enter focus while 
   await right(ticket)
   await inAct(() => { owner().focus(); owner().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })) }); await flush()
   assert.ok(document.querySelector('.ctxmenu-submenu'))
-  assert.equal(document.activeElement?.textContent, 'Copy agent name')
+  assert.equal(document.activeElement?.textContent, 'Copy mention')
   await inAct(() => document.activeElement!.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))); await flush()
   assert.equal(document.querySelector('.ctxmenu-submenu'), null)
   await inAct(() => owner().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))); await flush()
   assert.equal(focused, 2)
   assert.equal(document.querySelector('[role="menu"]'), null)
   await right(view.el.querySelector('[data-agent-nav]')!)
-  assert.deepEqual(labels(), ['Copy agent name', 'Focus', 'Canonical action'], 'the owner submenu and direct agent target use the same entries')
+  assert.deepEqual(labels(), ['Copy mention', 'Focus', 'Canonical action'], 'the owner submenu and direct agent target use the same entries')
 })
 
 test('inner object wins over row actions; invalid/foreign ids and removed watchdogs gain no actions', async t => {
@@ -188,7 +188,7 @@ test('agent links keep their existing menu and editing, ordinary links and selec
     </ObjectMenuBoundary></ObjectNavProvider></AgentNavProvider>, el => el.textContent)
   t.after(async () => { window.getSelection()?.removeAllRanges(); await view.unmount() })
   await right(view.el.querySelector('[data-agent-nav]')!)
-  assert.deepEqual(labels(), ['Copy agent name', 'Agent action'])
+  assert.deepEqual(labels(), ['Copy mention', 'Agent action'])
   for (const selector of ['input', 'a']) assert.equal(await right(view.el.querySelector(selector)!), false)
   const target = view.el.querySelector('[data-object-nav]')!
   const range = document.createRange(); range.selectNodeContents(target)

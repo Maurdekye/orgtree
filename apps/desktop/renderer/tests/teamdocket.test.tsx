@@ -438,7 +438,7 @@ async function pick(label: string) {
   const moved = MOVED[label]
   if (moved) { await pickIn(moved[0], moved[1]); await flush(2); return }
   await openBranchOf(label)
-  const b = menuItems().find((x) => x.textContent === label)
+  const b = menuItems().find((x) => x.textContent === label || x.textContent?.replace(/\s*▸$/, '') === label)
   assert.ok(b, `menu item "${label}" present — have ${JSON.stringify(labels())}`)
   await inAct(() => {
     b!.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true, button: 0 }))
@@ -498,10 +498,10 @@ canvasTest('§10 the agent\'s context menu offers it, beside the single-agent do
     assert.ok(card, 'the agent has a card')
     assert.equal(await rightClick(card!), true, 'the right-click was taken')
     const fromCard = labels()
-    assert.ok(fromCard.includes('· Open team docket'),
+    assert.ok(fromCard.includes('· Team docket'),
       `the card's menu offers it — have ${JSON.stringify(fromCard)}`)
-    assert.equal(fromCard.indexOf('· Open team docket'), fromCard.indexOf('· Open docket') + 1,
-      'directly after "Open docket": the same question at the wider scope')
+    assert.equal(fromCard.indexOf('· Team docket'), fromCard.indexOf('· Docket') + 1,
+      'directly under "Docket": the same question at the wider scope')
     await esc()
     // and the Agents List row, which shares the one menu definition
     const toggle = v.el.querySelector('.tray-toggle') as HTMLElement
@@ -521,8 +521,8 @@ canvasTest('§10b it is ACCESSIBLE the way every other entry is, and keyboard-re
     const menu = document.querySelector('.ctxmenu') as HTMLElement
     assert.ok(menu, 'a menu opened')
     assert.equal(menu.getAttribute('role'), 'menu')
-    await openBranchOf('Open team docket')
-    const entry = menuItems().find((b) => b.textContent === 'Open team docket')
+    await openBranchOf('Team docket')
+    const entry = menuItems().find((b) => b.textContent === 'Team docket')
     assert.ok(entry, 'the entry is in the menu')
     assert.equal(entry!.getAttribute('role'), 'menuitem',
       'it is a real menuitem, not a decorated div')
@@ -551,7 +551,7 @@ canvasTest('§10c picking it opens the team docket rooted at THAT agent — the 
     assert.doesNotMatch(document.body.textContent ?? '', /team docket/i,
       'no permanent top-level entry surface was added')
     await rightClick(cardFor(v.el, 'lead')!)
-    await pick('Open team docket')
+    await pick('Team docket')
     await flush(6)
     const heads = [...document.querySelectorAll('h3')].map((h) => h.textContent ?? '')
     assert.ok(heads.some((h) => /lead/.test(h) && /Team docket/.test(h)),
@@ -575,7 +575,7 @@ canvasTest('§10d the single-agent docket is still its own entry and still its o
     const roots = [mkNode('lead', { children: [mkNode('mid', { parent: 'lead' })] })]
     const v = await mountCanvas(t, roots, [owned('lead-task', 'lead'), owned('mid-task', 'mid')])
     await rightClick(cardFor(v.el, 'lead')!)
-    await pick('Open docket')
+    await pick('Docket')
     await flush(6)
     const panel = document.querySelector('.docket-agent') as HTMLElement
     assert.ok(panel, 'the agent docket opened')

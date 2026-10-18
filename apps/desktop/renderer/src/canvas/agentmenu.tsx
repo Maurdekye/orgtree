@@ -40,7 +40,7 @@ import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
 import { ConfirmModal } from './modals'
 import { AgentCompactConfirm } from './agentcompact'
-import { fmtCredits, hireTierChoices, subtreeDocCount, tierLabel, USER } from './shared'
+import { fmtCredits, hireTierChoices, tierLabel, USER } from './shared'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
 
 /** Which lifecycle confirm the menu decided on. The choice is the BUILDER's
@@ -66,13 +66,12 @@ export interface AgentMenuHandlers {
    *  it. For 2.1.5-RC1 this menu entry is the only door to that view, so the
    *  gate is the handler: a surface that cannot open the panel (or a viewer
    *  the panel is not available to) simply passes nothing and the entry is
-   *  absent, exactly the way "Open docket" above already behaves. */
+   *  absent, exactly the way "Docket" above already behaves. */
   onTeamDocket?: () => void
-  /** the agent's presented documents — the entry appears only when it has
-   *  some, so the gate is here and the caller passes the opener */
+  /** the agent's or project's presented documents */
   onPresentations?: () => void
   /** TEAM presentations: this agent's and everyone's under it, through
-   *  projects (user 2026-10-17 22:47Z), beside the team docket */
+   *  projects (user 2026-10-17 22:47Z), in the submenu of Presentations */
   onTeamPresentations?: () => void
   onLineage?: () => void
   onSettings: () => void
@@ -112,8 +111,8 @@ export interface AgentMenuHandlers {
   onContinueOn?: (account: string) => void
   /** create a project node under this node (docs/rust-engine/PROJECT-NODES.md) */
   onNewProject?: () => void
-  /** a PROJECT's coworker and parent hires (point 19's strips, offered in its
-   *  menu too: review of a590555, coordinator ruling 2026-10-17 23:29Z) */
+  /** a PROJECT's coworker and parent hires (offered only on the card's hire
+   *  tokens, not in the context menu: user 2026-10-18 07:17Z) */
   onHireBeside?: (tier: string) => void
   onHireAbove?: (tier: string) => void
 }
@@ -149,46 +148,59 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const deskEntries: MenuEntry[] = []
   const openEntries: MenuEntry[] = []
   const temporary = h.onOpenTemporary
+  // User 2026-10-18 07:21Z–07:22:36Z: no item inside an Open submenu repeats
+  // the word "Open", and team opens sit in a submenu of their individual item
+  // whenever both exist (or stay inline when only one form exists).
   if (temporary) deskEntries.push({
-    label: 'Open desk',
+    label: 'Desk',
     title: `read ${node.id}'s desk in a modal without changing the focused `
       + 'agent, pinning it, or opening a window — closing puts everything back',
     onSelect: () => temporary(),
   })
   openEntries.push(
-    { label: 'Open inbox', onSelect: () => h.onInbox() },
+    { label: 'Inbox', onSelect: () => h.onInbox() },
   )
-  if (h.onScratchFolder && (live || node.state === 'archived')) {
-    openEntries.push({ label: 'Open scratch folder', onSelect: h.onScratchFolder })
-  }
-  if (h.onTeamScratchFolder && (live || node.state === 'archived')) {
-    openEntries.push({ label: 'Open team scratch folder', onSelect: h.onTeamScratchFolder })
+  const canScratch = live || node.state === 'archived'
+  const scratch = canScratch ? h.onScratchFolder : undefined
+  const teamScratch = canScratch ? h.onTeamScratchFolder : undefined
+  if (scratch && teamScratch) {
+    openEntries.push({
+      label: 'Scratch folder',
+      onSelect: scratch,
+      children: [{ label: 'Team scratch folder', onSelect: teamScratch }],
+    })
+  } else if (scratch) {
+    openEntries.push({ label: 'Scratch folder', onSelect: scratch })
+  } else if (teamScratch) {
+    openEntries.push({ label: 'Team scratch folder', onSelect: teamScratch })
   }
   const docket = h.onDocket
-  if (docket) openEntries.push({ label: 'Open docket', onSelect: () => docket() })
-  // …and the same docket widened to this agent's REPORTS. It sits next to
-  // "Open docket" because the two answer the same question at two scopes, and
-  // the label says whose team it is rather than "Team docket": the menu is
-  // already raised on the agent, so the scope is the news.
   const teamDocket = h.onTeamDocket
-  if (teamDocket) {
-    openEntries.push({
-      label: 'Open team docket',
-      title: `tickets assigned to ${node.id} or to any agent below it`,
-      onSelect: () => teamDocket(),
-    })
-  }
-  const teamPresentations = h.onTeamPresentations
-  if (teamPresentations) {
-    openEntries.push({
-      label: 'Open team presentations',
-      title: `documents presented by ${node.id} or by any agent below it, through projects`,
-      onSelect: () => teamPresentations(),
-    })
+  const teamDocketEntry: MenuEntry | undefined = teamDocket ? {
+    label: 'Team docket',
+    title: `tickets assigned to ${node.id} or to any agent below it`,
+    onSelect: () => teamDocket(),
+  } : undefined
+  if (docket && teamDocketEntry) {
+    openEntries.push({ label: 'Docket', onSelect: () => docket(), children: [teamDocketEntry] })
+  } else if (docket) {
+    openEntries.push({ label: 'Docket', onSelect: () => docket() })
+  } else if (teamDocketEntry) {
+    openEntries.push(teamDocketEntry)
   }
   const presentations = h.onPresentations
-  if (presentations && (node.documents?.length ?? 0) > 0) {
-    openEntries.push({ label: 'Open presentations', onSelect: () => presentations() })
+  const teamPresentations = h.onTeamPresentations
+  const teamPresEntry: MenuEntry | undefined = teamPresentations ? {
+    label: 'Team presentations',
+    title: `documents presented by ${node.id} or by any agent below it, through projects`,
+    onSelect: () => teamPresentations(),
+  } : undefined
+  if (presentations && teamPresEntry) {
+    openEntries.push({ label: 'Presentations', onSelect: () => presentations(), children: [teamPresEntry] })
+  } else if (presentations) {
+    openEntries.push({ label: 'Presentations', onSelect: () => presentations() })
+  } else if (teamPresEntry) {
+    openEntries.push(teamPresEntry)
   }
   // ⭐ RECOVERY BEFORE CONFIGURATION. A frozen agent that another account
   // could carry is the one thing an operator opened this menu to fix, so the
@@ -215,13 +227,13 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     }
   }
   const pin = h.onPin, showPin = h.onShowPin
-  // …and the OS window beside the in-app one. "Open desk in a new window" and
-  // not the bare "Open in new window" every pinnable panel uses (modalpin.tsx,
+  // …and the OS window beside the in-app one. "Desk in a new window" and
+  // not the bare "in new window" every pinnable panel uses (modalpin.tsx,
   // popout.tsx): there the object IS the surface, here the object is an agent
   // and what pops out is its desk.
   const popout = h.onPopout, showWindow = h.onShowWindow
   if (popout && !s.detached) {
-    deskEntries.push({ label: 'Open desk in a new window', onSelect: () => popout() })
+    deskEntries.push({ label: 'Desk in a new window', onSelect: () => popout() })
   }
   if (s.detached && showWindow) {
     deskEntries.push({ label: 'Show desk window', onSelect: () => showWindow() })
@@ -237,7 +249,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     // the menu just opened on a model choice: re-read agy's model list
     refreshAgyModels()
     const choices = hireTierChoices(s)
-    // Copy agent name is prepended by useContextMenu: Focus, then Hire.
+    // Copy mention is prepended by useContextMenu: Focus, then Hire.
     entries.splice(1, 0, {
       label: 'Hire a subordinate',
       title: 'Choose a tier to open its hire form',
@@ -339,47 +351,55 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
 /**
  * A PROJECT NODE's menu (docs/rust-engine/PROJECT-NODES.md; user 2026-10-16):
  * its mailbox, folder and presentations, hires and nested projects under it,
- * and its retirement. No desk, settings, audience, halt or compaction: a
- * project runs no turns. Shared by the project card and the Agents List row.
+ * and its retirement. No settings, audience, halt or compaction on the project
+ * itself (whole-subtree versions stand in for its agents): a project runs no
+ * turns. Shared by the project card and the Agents List row.
  */
 export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   s: AgentMenuState = {}): MenuEntry[] {
   // The agent and switchboard menus' entries, adapted to a project (user
-  // 2026-10-17 22:23Z): what a project holds opens from Open, whole-subtree
-  // versions stand in for compaction and halting, and model, account,
-  // audience and credit entries are left out (a project takes no turns).
+  // 2026-10-17 22:23Z; 2026-10-18 07:17Z–07:22Z): what a project holds opens
+  // from Open (with Pin desk in the top section like an agent's Open menu, no
+  // "Open" prefix inside Open, and Team presentations nested under
+  // Presentations), whole-subtree versions stand in for compaction and halting,
+  // and only "Hire under this project" appears in the menu (above/beside hiring
+  // is on the card's hire tokens only).
   const live = node.state === 'live'
   const agents = subtreeAgents(node).filter((a) => a.id !== node.id)
   const entries: MenuEntry[] = [{ label: 'Focus', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk }]
-  // its desk as a temporary modal, or in a window of its own (user 2026-10-17
-  // 23:28Z, 23:29:47Z), first as on the agent menu
+  // its desk as a temporary modal, popped out, or pinned as a window, in the
+  // top section of Open just like the agent menu (user 2026-10-18 07:18Z)
   const desk: MenuEntry[] = []
-  const temp = h.onOpenTemporary, popout = h.onPopout
-  if (temp) desk.push({ label: 'Open desk', title: `glance at ${node.id}'s desk without moving the camera`, onSelect: () => temp() })
+  const temp = h.onOpenTemporary, popout = h.onPopout, pin = h.onPin, showPin = h.onShowPin
+  if (temp) desk.push({ label: 'Desk', title: `glance at ${node.id}'s desk without moving the camera`, onSelect: () => temp() })
   if (popout) desk.push({ label: 'Pop out to new window', title: `${node.id}'s desk in a window of its own`, onSelect: () => popout() })
+  if (pin && !s.pinned) desk.push({ label: 'Pin desk as a window', onSelect: () => pin() })
+  if (s.pinned && showPin) desk.push({ label: 'Show pinned window', onSelect: () => showPin() })
   const open: MenuEntry[] = [...desk, ...(desk.length ? ['sep' as const] : []),
-    { label: 'Open project mailbox', onSelect: () => h.onInbox() }]
+    { label: 'Project mailbox', onSelect: () => h.onInbox() }]
   if (h.onScratchFolder && (live || node.state === 'archived')) {
-    open.push({ label: 'Open project folder', onSelect: h.onScratchFolder })
+    open.push({ label: 'Project folder', onSelect: h.onScratchFolder })
   }
-  // point 27: its presentations are the documents attributed to the project;
-  // its team presentations add every one by the agents under it
+  // point 27 + user 2026-10-18 07:20Z–07:22Z: its presentations are the
+  // documents attributed to the project; its team presentations add every one
+  // by the agents under it, in a submenu of Presentations when both exist
   const presentations = h.onPresentations
-  if (presentations && (node.documents_count ?? node.documents?.length ?? 0) > 0) {
-    open.push({ label: 'Open presentations', onSelect: () => presentations() })
-  }
   const teamPresentations = h.onTeamPresentations
-  if (teamPresentations && subtreeDocCount(node) > 0) {
-    open.push({ label: 'Open team presentations',
-      title: `documents attributed to ${node.id} and those presented by the agents under it`,
-      onSelect: () => teamPresentations() })
+  const teamPresEntry: MenuEntry | undefined = teamPresentations ? {
+    label: 'Team presentations',
+    title: `documents attributed to ${node.id} and those presented by the agents under it`,
+    onSelect: () => teamPresentations(),
+  } : undefined
+  if (presentations && teamPresEntry) {
+    open.push({ label: 'Presentations', onSelect: () => presentations(), children: [teamPresEntry] })
+  } else if (presentations) {
+    open.push({ label: 'Presentations', onSelect: () => presentations() })
+  } else if (teamPresEntry) {
+    open.push(teamPresEntry)
   }
   // the project's docket: the items owned by the agents under it
   const docket = h.onDocket
-  if (docket) open.push({ label: 'Open project docket', onSelect: () => docket() })
-  const pin = h.onPin, showPin = h.onShowPin
-  if (pin && !s.pinned) open.push({ label: 'Pin desk as a window', onSelect: () => pin() })
-  if (s.pinned && showPin) open.push({ label: 'Show pinned window', onSelect: () => showPin() })
+  if (docket) open.push({ label: 'Project docket', onSelect: () => docket() })
   entries.push({ label: 'Open', submenuOnly: true, onSelect: () => {}, children: open })
   const hire = h.onHire
   if (live && hire && !s.piled) {
@@ -398,23 +418,6 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
         onSelect: () => hire(tier),
       })),
     })
-    // a coworker beside it and a superior above it, as its side and top hire
-    // strips offer (point 19)
-    for (const [label, act, where] of [
-      ['Hire beside this project', h.onHireBeside, 'beside'],
-      ['Hire above this project', h.onHireAbove, 'above'],
-    ] as const) {
-      if (!act) continue
-      entries.push({
-        label, submenuOnly: true, disabled: choices.length === 0, onSelect: () => {},
-        children: choices.map(({ tier, offer, reason }) => ({
-          label: tierLabel(tier),
-          disabled: offer !== 'offer',
-          title: offer === 'offer' ? `Open a ${tierLabel(tier)} hire ${where} project ${node.id}` : reason,
-          onSelect: () => act(tier),
-        })),
-      })
-    }
   }
   if (live && h.onNewProject) {
     entries.push({ label: 'New project…', title: `a project nested in ${node.id}`, onSelect: h.onNewProject })

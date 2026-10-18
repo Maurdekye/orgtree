@@ -126,7 +126,7 @@ async function rightClick(el: Element, at: { x: number; y: number } = { x: 40, y
 const menuEl = () => document.querySelector('.ctxmenu') as HTMLElement | null
 const labels = () => flatLabels()
 const itemNamed = (label: string) => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
-  .find((b) => b.textContent === label) as HTMLButtonElement | undefined
+  .find((b) => b.textContent === label || b.textContent?.replace(/\s*▸$/, '') === label) as HTMLButtonElement | undefined
 /** choosing an entry, as the browser delivers it: the press lands FIRST (this
  *  is what the Agents List's click-away rule sees), then the click. */
 async function pick(label: string) {
@@ -225,9 +225,10 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
       // User 2026-09-30: only Focus and Open desk swap; all other slots stay.
       // 4.2: the entries group under branches (Open ▸, Hire a subordinate ▸); '· ' marks a branch's entry
       // USER 2026-10-17 21:18Z: "New project…" directly under "Hire a subordinate"
-      'Copy agent name', 'Focus', 'Hire a subordinate ▸', 'New project…',
-      'Open ▸', '· Open desk', '· Open desk in a new window', '· Pin desk as a window',
-      '· Open inbox', '· Open docket', '· Open team docket', '· Open team presentations',
+      // USER 2026-10-18 07:19Z–07:28Z: "Copy mention", no "Open" inside Open, Presentations always offered
+      'Copy mention', 'Focus', 'Hire a subordinate ▸', 'New project…',
+      'Open ▸', '· Desk', '· Desk in a new window', '· Pin desk as a window',
+      '· Inbox', '· Docket', '· Team docket', '· Presentations', '· Team presentations',
       'Settings', 'Acquire audience', 'Compact…', 'Halt', 'Retire…',
     ], 'the agent menu, in order')
   })
@@ -302,7 +303,7 @@ uiTest('§2b an ARCHIVED row keeps the menu and loses exactly what the archived 
     await inAct(() => { arch!.click() })
     await flush(2)
     const have = await assertParity(c, 'gone', 'a retired agent')
-    assert.ok(have.includes('· Open inbox') && have.includes('Settings'),
+    assert.ok(have.includes('· Inbox') && have.includes('Settings'),
       `a retired seat is still readable — have ${JSON.stringify(have)}`)
     for (const gone of ['Retire…', 'Dissolve… ▸', 'Hire a subordinate ▸']) {
       assert.ok(!have.includes(gone), `a retired seat cannot ${gone}`)
@@ -321,10 +322,10 @@ uiTest('§2c documents and lineage add their entries to the row exactly as they 
     await openTray(c.el)
     const rich = await assertParity(c, 'rich', 'an agent with documents and a lineage')
     // (no lineage entry: 4.x has no lineage nodes, PLAN §10)
-    assert.ok(rich.includes('· Open presentations'), JSON.stringify(rich))
+    assert.ok(rich.includes('· Presentations') && rich.includes('· Team presentations'), JSON.stringify(rich))
     const plain = await assertParity(c, 'plain', 'an agent with neither')
-    assert.ok(!plain.includes('· Open presentations'),
-      'the entries are gated on the node, not on the surface')
+    assert.ok(plain.includes('· Presentations') && plain.includes('· Team presentations'),
+      'USER 2026-10-18 07:19Z: Presentations and Team presentations are offered on every agent')
   })
 
 uiTest('§2d a PINNED desk swaps the pin entry for "Show pinned window" on both surfaces',
@@ -401,7 +402,7 @@ uiTest('§3 a right-click on a row does not navigate, and the list survives its 
     // the menu portals to the document body — OUTSIDE the list's click-away
     // boundary. Choosing an entry must not dismiss the list out from under the
     // press, or the entry's own click would never arrive.
-    await pick('Open inbox')
+    await pick('Inbox')
     assert.ok(c.el.querySelector('.tray'),
       'the Agents List closed when its own menu was used')
     assert.ok([...document.querySelectorAll('h3')].some((h) => /· inbox/.test(h.textContent ?? '')),
@@ -452,14 +453,14 @@ uiTest('§4 each entry runs the Agents List\'s own handler — the same surfaces
     assert.ok(document.querySelector('.cfg'), 'Settings opened the node config panel')
     await esc()
 
-    await rightClick(row()); await pick('Open docket')
+    await rightClick(row()); await pick('Docket')
     assert.ok([...document.querySelectorAll('h3')].some((h) => /· Docket/.test(h.textContent ?? '')),
-      'Open docket opened the agent docket')
+      'Docket opened the agent docket')
     await esc()
 
-    await rightClick(row()); await pick('Open presentations')
+    await rightClick(row()); await pick('Presentations')
     assert.deepEqual(c.galleries, ['worker'],
-      'Open presentations asked the shell for THIS agent\'s gallery')
+      'Presentations asked the shell for THIS agent\'s gallery')
   })
 
 uiTest('§4b Focus glides the camera to the agent, exactly as clicking the row does',
@@ -580,7 +581,7 @@ function stubPopoutWindow(t: TestContext) {
   return { child, count }
 }
 
-uiTest('§7 "Open desk in a new window" pops the agent\'s desk out, and the entry then says so',
+uiTest('§7 "Desk in a new window" pops the agent\'s desk out, and the entry then says so',
   async (t) => {
     // the action the row's ↗ button used to run, now the menu's (user ruling
     // 2026-09-12). A desk that is not mounted yet cannot pop out on the spot:
@@ -589,7 +590,7 @@ uiTest('§7 "Open desk in a new window" pops the agent\'s desk out, and the entr
     const c = await mountCanvas(t, [mkNode('worker'), mkNode('other')])
     await openTray(c.el)
     await rightClick(rowFor(c.el, 'other')!)
-    await pick('Open desk in a new window')
+    await pick('Desk in a new window')
     await advance(600, 30); await flush(8)
     assert.equal(pop.count.opens, 1, 'the entry reached MovableSurface.open')
     assert.ok(pop.child.window.document.querySelector('.popout-mount'),
@@ -598,7 +599,7 @@ uiTest('§7 "Open desk in a new window" pops the agent\'s desk out, and the entr
     await rightClick(rowFor(c.el, 'other')!)
     const have = labels()
     assert.ok(have.includes('· Show desk window'), JSON.stringify(have))
-    assert.ok(!have.includes('· Open desk in a new window'),
+    assert.ok(!have.includes('· Desk in a new window'),
       'a desk that is already out is not popped out again')
     await pick('Show desk window')
     assert.ok(pop.count.focuses >= 1, 'it raises the window that is already open')
@@ -624,7 +625,7 @@ uiTest('§7b the row has no per-agent pin or popout buttons any more — both li
     // …and nothing was lost: both actions are in the menu the row now carries
     const have = await menuOf(row, 'the row')
     assert.ok(have.includes('· Pin desk as a window'), JSON.stringify(have))
-    assert.ok(have.includes('· Open desk in a new window'), JSON.stringify(have))
+    assert.ok(have.includes('· Desk in a new window'), JSON.stringify(have))
     const pinned = await menuOf(rowFor(c.el, 'pinned-one')!, 'the pinned row')
     assert.ok(pinned.includes('· Show pinned window'), JSON.stringify(pinned))
   })

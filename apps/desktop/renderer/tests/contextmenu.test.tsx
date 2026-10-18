@@ -389,7 +389,7 @@ uiTest('§B1 agent card: right-click opens the card menu and does NOT move the c
   await advance(400, 50)
   assert.equal(camera(v.el), before, 'a right-click is not a click: the camera did not move')
   const have = labels()
-  for (const l of ['Focus', '· Open inbox', '· Open docket', '· Open presentations',
+  for (const l of ['Focus', '· Inbox', '· Docket', '· Presentations',
     'Settings', '· Pin desk as a window', 'Hire a subordinate ▸', 'Retire…']) {
     assert.ok(have.includes(l), `entry "${l}" — have ${JSON.stringify(have)}`)
   }
@@ -417,7 +417,7 @@ uiTest('§B1b agent card: a card with live reports offers Dissolve; a retired ca
   assert.ok(gone, 'positive control: the archived card rendered')
   await rightClick(gone)
   const have = labels()
-  assert.ok(have.includes('· Open inbox'), 'an archived card still has a menu')
+  assert.ok(have.includes('· Inbox'), 'an archived card still has a menu')
   assert.ok(!have.includes('Retire…') && !have.includes('Dissolve… ▸') && !have.includes('Hire a subordinate ▸'))
 })
 
@@ -750,7 +750,7 @@ uiTest('§B4 ticket row: canonical copies, bottom fold and Owner registry action
   assert.equal(await rightClick(parent), true)
   assert.ok(!parent.classList.contains('on'), 'not selected by the right-click')
   const have = labels()
-  assert.deepEqual(have, ['Open details', 'Owner… ▸', '· Copy agent name', '· Focus', 'Copy ticket title', 'Copy slug', 'Copy reference', 'Hide 1 sub-item'])
+  assert.deepEqual(have, ['Open details', 'Owner… ▸', '· Copy mention', '· Focus', 'Copy ticket title', 'Copy slug', 'Copy reference', 'Hide 1 sub-item'])
   const ownerItem = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-item')]
     .find(button => button.textContent?.trim() === 'Owner… ▸')!
   assert.equal(ownerItem.getAttribute('data-agent-tooltip'), 'agent1',
@@ -900,7 +900,7 @@ uiTest('§B6 agent pin window title: Show on canvas jumps; Unpin removes the pin
   const title = document.querySelector('.pin-layer .pinwin-title') as HTMLElement
   assert.ok(title, 'positive control: the pinned window rendered')
   await rightClick(title)
-  assert.deepEqual(labels(), ['Copy agent name', 'Show on canvas', 'Unpin'])
+  assert.deepEqual(labels(), ['Copy mention', 'Show on canvas', 'Unpin'])
   await pick('Show on canvas')
   // user bug 2026-09-11: this entry takes the CANVAS route, never the generic
   // jump - a generic jump to a pinned agent raises the window the reader is

@@ -195,7 +195,7 @@ async function pick(label: string) {
   if (moved) { await pickIn(moved[0], moved[1]); await flush(2); return }
   await openBranchOf(label)
   const item = [...document.querySelectorAll('.ctxmenu [role="menuitem"]')]
-    .find((b) => b.textContent === label) as HTMLButtonElement | undefined
+    .find((b) => b.textContent?.replace(/ ▸$/, '') === label) as HTMLButtonElement | undefined
   assert.ok(item, `menu item "${label}" present — have ${JSON.stringify(flatLabels())}`)
   await inAct(() => {
     item!.dispatchEvent(new W.PointerEvent('pointerdown', { bubbles: true, button: 0 }))
@@ -299,9 +299,9 @@ uiTest('an agent\'s docket (an ordinary panel): a scroll shows the scroll effect
   const r = await rig(t, ['ceo', 'cto'])
   await openTray(r.el)
   await rightClick(rowFor(r.el, 'cto')!)
-  await pick('Open docket')
+  await pick('Docket')
   const title = [...document.querySelectorAll('h3')].find((h) => /· Docket/.test(h.textContent ?? ''))
-  assert.ok(title, 'Open docket opened cto\'s docket')
+  assert.ok(title, 'Docket opened cto\'s docket')
   const panel = title!.closest('.settings') as HTMLElement | null
   assert.ok(panel && panel.closest('.overlay'), 'the docket is a modal panel (.overlay > .settings, overflow-y: auto)')
   scrollable(panel!, 1500, 600, 0)

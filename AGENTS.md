@@ -17,10 +17,21 @@
   `@org:<slug>` render as `HubContactChip`: an adjacent `@org:<slug>` on this
   install opens in a new window (`requestOpenOrg`), otherwise `hubchat_pc`
   opens `hubchat://chat?to=<address>` (`policy.ts`, `windows.ts`) or shows an
-  inert `"Hubchat isn't installed"` tooltip. `Copy agent name` copies `@<name>`.
-  [decided: user 2026-10-17; verified: `canvas/agentmentions.tsx`,
+  inert `"Hubchat isn't installed"` tooltip. `Copy mention` on every agent and
+  project context menu copies `@<name>`. Agent and project `Open` submenus omit
+  the word `"Open"` (`Desk`, `Desk in a new window`, `Pin desk as a window`,
+  `Inbox`, `Scratch folder`, `Docket`, `Presentations`, `Project mailbox`,
+  `Project folder`, `Project docket`), nest team opens (`Team scratch folder`,
+  `Team docket`, `Team presentations`) in submenus of their individual items
+  when both exist (inline when only one exists), offer both individual and team
+  `Presentations` unconditionally when handlers are supplied, place `Pin desk as
+  a window` / `Show pinned window` in the top `desk` section of the project
+  `Open` menu, and offer only `Hire under this project` and `New project…` in
+  the project context menu (hiring above/beside uses the card's hire tokens).
+  [decided: user 2026-10-17, 2026-10-18 07:10Z–07:28Z; verified: `canvas/agentmentions.tsx`,
+  `canvas/agentmenu.tsx`, `canvas/contextmenu.tsx`, `canvas/projectdesk.tsx`,
   `canvas/reflinks.tsx`, `canvas/refmd.tsx`, `runtime/convo.rs`,
-  `runtime/identity.rs`, `tests/agentmentions.test.tsx`]
+  `runtime/identity.rs`, `tests/agentmentions.test.tsx`, `tests/projectnode.test.tsx`]
 
 - Tool-card JSON literals stay in separate `#[inline(never)]` pure builders:
   a monolithic debug `defs::all()` frame overflows during default-stack actor

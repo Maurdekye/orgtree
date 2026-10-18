@@ -214,7 +214,7 @@ test('nested preview names and titles keep copy menus while text selection and l
   }
   try {
     for (const [selector, label] of [
-      ['[data-copy-agent-name]', 'Copy agent name'], ['[data-copy-ticket-title]', 'Copy ticket title'],
+      ['[data-copy-agent-name]', 'Copy mention'], ['[data-copy-ticket-title]', 'Copy ticket title'],
     ]) {
       const object = view.el.querySelector('.reply-preview-content ' + selector)!
       assert.ok(object)
@@ -226,8 +226,8 @@ test('nested preview names and titles keep copy menus while text selection and l
       await inAct(() => { copy[0]!.click() })
       await flush(2)
     }
-    assert.deepEqual(writes, ['writer', title])
-    assert.deepEqual(feedback, [['copied agent name'], ['copied ticket title']])
+    assert.deepEqual(writes, ['@writer', title])
+    assert.deepEqual(feedback, [['copied mention'], ['copied ticket title']])
     const name = view.el.querySelector('.reply-preview-content [data-copy-agent-name]')!
     const range = document.createRange(); range.selectNodeContents(name)
     window.getSelection()!.removeAllRanges()

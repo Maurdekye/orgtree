@@ -221,7 +221,7 @@ uiTest('§B1 an archived card offers the same actions it did before it was summa
   await rightClick(card!)
   const have = labels()
   // (no "Show lineage" in 4.x: PLAN B1)
-  for (const l of ['· Open presentations']) {
+  for (const l of ['· Presentations']) {
     assert.ok(have.includes(l),
       `"${l}" is gated on a field the summary omits, and the marker that `
       + `replaces it did not reach the card — have ${JSON.stringify(have)}`)

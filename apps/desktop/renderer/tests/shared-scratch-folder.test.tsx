@@ -44,7 +44,7 @@ function installFetch(t: import('node:test').TestContext) {
   t.after(() => { globalThis.fetch = original })
 }
 
-test('agent Open menu places Team scratch next to personal scratch and passes scoped identity for live/archived leaves', async t => {
+test('agent Open menu places Team scratch in a submenu of Scratch folder and passes scoped identity for live/archived leaves', async t => {
   const { calls, toast } = installNative(t)
   for (const state of ['live', 'archived']) {
     const h: AgentMenuHandlers & { onTeamScratchFolder?: () => void } = {
@@ -55,10 +55,11 @@ test('agent Open menu places Team scratch next to personal scratch and passes sc
     const open = entries.find(e => typeof e !== 'string' && e.label === 'Open')
     assert.ok(open && typeof open !== 'string', 'the agent Open branch rendered')
     const children = open.children!.filter(e => typeof e !== 'string')
-    const own = children.findIndex(e => e.label === 'Open scratch folder')
-    assert.ok(own >= 0, 'the existing personal entry stays available')
-    assert.equal(children[own + 1]?.label, 'Open team scratch folder')
-    children[own + 1]!.onSelect()
+    const own = children.find(e => e.label === 'Scratch folder')
+    assert.ok(own, 'the existing personal entry stays available')
+    const team = own.children?.find(e => typeof e !== 'string' && e.label === 'Team scratch folder')
+    assert.ok(team && typeof team !== 'string', 'Team scratch folder sits in a submenu of Scratch folder')
+    team.onSelect()
   }
   await flush()
   assert.deepEqual(calls, [['fixture', 'leaf', 'team'], ['fixture', 'leaf', 'team']])

@@ -165,20 +165,23 @@ agents under the project".
   buttons. Like an agent card's, the buttons show while the card is hovered; a waiting count keeps
   the mailbox showing. The quiet age shares the state word's font; an idle activity chip keeps no
   spinner slot (coordinator visual review 2026-10-17 23:25Z).
-- **Team presentations** [user 2026-10-17 22:47Z]: the agent menu's Open → Open team presentations
-  (after Open team docket) opens the agent gallery in team scope: `GET documents?node=<agent>&team=1`
+- **Team presentations** [user 2026-10-17 22:47Z; 2026-10-18 07:19Z–07:22Z]: the agent menu's
+  `Open → Presentations → Team presentations` (offered unconditionally alongside `Presentations`
+  whenever handlers are supplied; inline as `Team presentations` if `onPresentations` is omitted)
+  opens the agent gallery in team scope: `GET documents?node=<agent>&team=1`
   lists the agent's documents and every descendant's, recursing through projects (`subtree_members`
   in `http/docs.rs`), paged, counted and located like the agent gallery. A team gallery skips the
   client's `node === nid` row filter. Its window keeps the scope when pinned, popped out, restored
   or raised (`WindowRestore.team`, `restoredAgentGallery`); asking for the same agent in the other
   scope switches the window over.
 - **Project presentations vs team presentations** [user 2026-10-17 23:28Z, point 27, replacing
-  point 8's subtree-wide Presented tab]: a project's PRESENTATIONS are the documents attributed to
-  it (`orgtree_present project=` by any agent above or below it): `node=<project>` lists only those,
-  and the desk's presented tab, its count and the hover presented button show them. Its TEAM
-  presentations (`team=1`, menu Open → Open team presentations) add every document by the agents in
-  its subtree. The presentation chips on the card and desk header keep showing own + subtree (the
-  22:47:29Z ruling).
+  point 8's subtree-wide Presented tab; 2026-10-18 07:20Z–07:22Z]: a project's PRESENTATIONS are
+  the documents attributed to it (`orgtree_present project=` by any agent above or below it):
+  `node=<project>` lists only those, and the desk's presented tab, its count, the hover presented
+  button and `Open → Presentations` show them. Its TEAM presentations (`team=1`, menu
+  `Open → Presentations → Team presentations`) add every document by the agents in its subtree;
+  both menu options are offered whenever their handlers are supplied. The presentation chips on
+  the card and desk header keep showing own + subtree (the 22:47:29Z ruling).
 - **Presenter on every row** [user 2026-10-17 22:47:51Z]: list rows carry `presented_by` (the
   agent that presented it, the node for older rows) and `presenter_tier`; the gallery rows and the
   reader show that agent, so a document presented under a project names its author. In the list
@@ -191,16 +194,19 @@ agents under the project".
   matched by the dog's target name, which a rename moves). The line has its own colour token
   `--fq-line` (rose, deepened in the light themes, used by nothing else); a paused dog's line is
   dashed and dimmed. It bows out past both cards' right sides so it never lies on a tree edge.
-- **Menus** [user 2026-10-17 22:23Z, 23:28Z, 23:29:47Z] take every agent/switchboard entry that
-  applies: Focus; Open > Open desk (the project desk as a temporary modal, `ProjectDeskModal`),
-  Pop out to new window (that modal popped out, `requestSurfaceAction('project-desk', …)`),
-  mailbox, folder, presentations, team presentations, project docket, pin / show pinned window;
-  Hire under / beside / above this project (point 19's strips, coordinator ruling 23:29Z); New
-  project…; Settings; Cheap-compact all agents under it…; Halt/Unhalt all agents under it…;
-  Retire project…. Card and Agents List row offer the same menu. Left out: model, account and
-  continue-on entries, audiences, credits, team scratch folder and team docket (the project folder
-  and docket already are the team's), retire-all-subordinates. Rename and move/reorder are not menu
-  entries because the agent menu has none either: rename is in Settings, move and reorder are drags.
+- **Menus** [user 2026-10-17 22:23Z, 23:28Z, 23:29:47Z; 2026-10-18 07:17Z–07:28Z] take every
+  agent/switchboard entry that applies: `Copy mention` (copies `@<project>`); `Focus`;
+  `Open > Desk` (the project desk as a temporary modal, `ProjectDeskModal`), `Pop out to new
+  window` (that modal popped out, `requestSurfaceAction('project-desk', …)`), `Pin desk as a
+  window` / `Show pinned window` (in the top `desk` section before the separator, matching agents),
+  `Project mailbox`, `Project folder`, `Presentations > Team presentations`, `Project docket`;
+  `Hire under this project` and `New project…` (hiring beside or above a project uses the card's
+  hire tokens [user 2026-10-18 07:17Z]); `Settings`; `Cheap-compact all agents under it…`;
+  `Halt/Unhalt all agents under it…`; `Retire project…`. Card and Agents List row offer the same
+  menu. Left out: model, account and continue-on entries, credits, team scratch folder and team
+  docket (the project folder and docket already are the team's), retire-all-subordinates. Rename
+  and move/reorder are not menu entries because the agent menu has none either: rename is in
+  Settings, move and reorder are drags.
 - **Desk jump cards pass through projects** [user 2026-10-17 22:13Z]: an agent desk's up row has its
   nearest agent superior and every project between them (superior first, then outermost to
   innermost; `upJumpTargets`); its down row lists each report and, for a project, its live members,

@@ -145,25 +145,25 @@ function copyObjectAt(target: EventTarget | null, within?: Element): Element | n
   return object && (!within || within.contains(object)) ? object : null
 }
 
-/** `Copy agent name`, built from a navigation marker instead of a copy object,
+/** `Copy mention`, built from a navigation marker instead of a copy object,
  *  for the targets that carry no copy object of their own. Kept beside
  *  `objectCopyEntry` so the two labels and the two toasts cannot drift. */
 export function agentCopyEntry(el: Element, name: string, toast?: ToastFn): MenuItem {
   const mention = name.startsWith('@') ? name : `@${name}`
-  return { label: 'Copy agent name', onSelect: () => {
+  return { label: 'Copy mention', onSelect: () => {
     void copyToClipboard(el, mention).then(ok => toast?.([
-      ok ? 'copied agent name' : 'could not copy — clipboard unavailable',
+      ok ? 'copied mention' : 'could not copy — clipboard unavailable',
     ]))
   } }
 }
 
 function objectCopyEntry(object: Element, toast?: ToastFn): MenuItem {
   const agent = object.getAttribute('data-copy-agent-name')
-  const label = agent !== null ? 'Copy agent name' : 'Copy ticket title'
+  const label = agent !== null ? 'Copy mention' : 'Copy ticket title'
   const text = agent !== null ? (agent.startsWith('@') ? agent : `@${agent}`) : object.getAttribute('data-copy-ticket-title')!
   return { label, onSelect: () => {
     void copyToClipboard(object, text).then(ok => toast?.([
-      ok ? (agent !== null ? 'copied agent name' : 'copied ticket title')
+      ok ? (agent !== null ? 'copied mention' : 'copied ticket title')
         : 'could not copy — clipboard unavailable',
     ]))
   } }

@@ -33,23 +33,53 @@ const noop = () => {}
 
 /* ─── §1 the menu entry ─────────────────────────────────────────────────── */
 
-test('§1 Open team presentations sits beside Open team docket and opens the team gallery', () => {
-  const boss = { id: 'boss', title: 'boss', tier: 'opus', state: 'live', children: [], documents: [] } as unknown as CanvasNode
-  let opened = 0
+test('§1 Agent Open submenu offers Presentations (even with 0 documents) with Team presentations in its submenu, and places single-form entries inline', () => {
+  const boss = { id: 'boss', title: 'boss', tier: 'opus', state: 'live', children: [], documents: [], documents_count: 0 } as unknown as CanvasNode
+  const opened: string[] = []
   const h = {
-    onInbox: noop, onSettings: noop, onRetireAsk: noop, onHire: noop, onTeamDocket: noop,
-    onTeamPresentations: () => { opened++ },
+    onInbox: noop, onSettings: noop, onRetireAsk: noop, onHire: noop,
+    onScratchFolder: () => opened.push('scratch'),
+    onTeamScratchFolder: () => opened.push('team-scratch'),
+    onDocket: () => opened.push('docket'),
+    onTeamDocket: () => opened.push('team-docket'),
+    onPresentations: () => opened.push('presentations'),
+    onTeamPresentations: () => opened.push('team-presentations'),
   } as unknown as AgentMenuHandlers
   const open = agentMenuEntries(boss, h, {}).find((e) => e !== 'sep' && e.label === 'Open')
   assert.ok(open && open !== 'sep')
   const labels = open.children!.map((c) => c === 'sep' ? 'sep' : c.label)
-  const at = labels.indexOf('Open team presentations')
-  assert.ok(at > 0, JSON.stringify(labels))
-  assert.equal(labels[at - 1], 'Open team docket', 'right after the team docket')
-  const entry = open.children![at]
-  assert.ok(entry !== 'sep')
-  entry.onSelect()
-  assert.equal(opened, 1)
+  assert.deepEqual(labels, ['Inbox', 'Scratch folder', 'Docket', 'Presentations'])
+  for (const c of open.children!) {
+    if (c === 'sep') continue
+    assert.equal(/\bOpen\b/.test(c.label), false, `Open submenu entry "${c.label}" must not contain the word Open`)
+  }
+  const scratch = open.children!.find((c) => c !== 'sep' && c.label === 'Scratch folder')
+  const docket = open.children!.find((c) => c !== 'sep' && c.label === 'Docket')
+  const pres = open.children!.find((c) => c !== 'sep' && c.label === 'Presentations')
+  assert.ok(scratch && scratch !== 'sep' && docket && docket !== 'sep' && pres && pres !== 'sep')
+  assert.deepEqual(scratch.children?.map((c) => c === 'sep' ? 'sep' : c.label), ['Team scratch folder'])
+  assert.deepEqual(docket.children?.map((c) => c === 'sep' ? 'sep' : c.label), ['Team docket'])
+  assert.deepEqual(pres.children?.map((c) => c === 'sep' ? 'sep' : c.label), ['Team presentations'])
+  scratch.onSelect()
+  ;(scratch.children![0] as { onSelect: () => void }).onSelect()
+  docket.onSelect()
+  ;(docket.children![0] as { onSelect: () => void }).onSelect()
+  pres.onSelect()
+  ;(pres.children![0] as { onSelect: () => void }).onSelect()
+  assert.deepEqual(opened, ['scratch', 'team-scratch', 'docket', 'team-docket', 'presentations', 'team-presentations'])
+
+  // When only one action of a pair exists, it sits inline with no submenu (user 07:22:36Z)
+  const singleOpen = agentMenuEntries(boss, {
+    onInbox: noop, onSettings: noop,
+    onScratchFolder: noop, onTeamDocket: noop, onPresentations: noop,
+  }, {}).find((e) => e !== 'sep' && e.label === 'Open')
+  assert.ok(singleOpen && singleOpen !== 'sep')
+  assert.deepEqual(singleOpen.children!.map((c) => c === 'sep' ? 'sep' : [c.label, Boolean(c.children)]), [
+    ['Inbox', false],
+    ['Scratch folder', false],
+    ['Team docket', false],
+    ['Presentations', false],
+  ])
 })
 
 /* ─── §2 and §3 the gallery ─────────────────────────────────────────────── */

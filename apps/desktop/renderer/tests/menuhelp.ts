@@ -10,14 +10,34 @@ const top = () => [...document.querySelectorAll('.ctxmenu:not(.ctxmenu-submenu) 
 const text = (b: Element | null) => (b?.querySelector('[role="menuitem"]')?.textContent ?? '')
 const bare = (s: string) => s.replace(/\s*▸$/, '')
 const held = new Map<string, string[]>()
+const pathTo = new Map<string, string[]>()
 
 export async function surveyMenu(): Promise<void> {
   held.clear()
+  pathTo.clear()
   for (const branch of top()) {
     const button = branch.querySelector('[role="menuitem"]')
     if (button?.getAttribute('aria-haspopup') !== 'menu') continue
+    const pName = bare(text(branch))
     await inAct(() => { branch.dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })) })
-    held.set(bare(text(branch)), [...branch.querySelectorAll('.ctxmenu-submenu [role="menuitem"]')].map((b) => b.textContent ?? ''))
+    const kids: string[] = []
+    const subBranches = [...branch.querySelectorAll(':scope > .ctxmenu-submenu > .ctxmenu-branch')] as HTMLElement[]
+    for (const sub of subBranches) {
+      const subBtn = sub.querySelector(':scope > [role="menuitem"]')
+      const subLabel = bare(subBtn?.textContent ?? '')
+      kids.push(subLabel)
+      pathTo.set(subLabel, [pName])
+      if (subBtn?.getAttribute('aria-haspopup') === 'menu') {
+        await inAct(() => { sub.dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })) })
+        for (const grand of sub.querySelectorAll(':scope > .ctxmenu-submenu > .ctxmenu-branch > [role="menuitem"]')) {
+          const gLabel = bare(grand.textContent ?? '')
+          kids.push(gLabel)
+          pathTo.set(gLabel, [pName, subLabel])
+        }
+        await inAct(() => { sub.dispatchEvent(new W.MouseEvent('mouseout', { bubbles: true, relatedTarget: branch })) })
+      }
+    }
+    held.set(pName, kids)
     await inAct(() => { branch.dispatchEvent(new W.MouseEvent('mouseout', { bubbles: true })) })
   }
 }
@@ -39,11 +59,16 @@ export function flatLabels(): string[] {
 
 /** hover the branch holding `label` (a no-op for a top-level entry) */
 export async function openBranchOf(label: string): Promise<void> {
-  for (const [parent, kids] of held) {
-    if (!kids.includes(label)) continue
-    const branch = top().find((b) => bare(text(b)) === parent)
-    if (branch) await inAct(() => { branch.dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })) })
-    return
+  const path = pathTo.get(bare(label))
+  if (!path?.length) return
+  const branch = top().find((b) => bare(text(b)) === path[0])
+  if (!branch) return
+  await inAct(() => { branch.dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })) })
+  if (path.length > 1) {
+    const sub = [...branch.querySelectorAll(':scope > .ctxmenu-submenu > .ctxmenu-branch')].find(
+      (b) => bare(text(b)) === path[1]
+    ) as HTMLElement | undefined
+    if (sub) await inAct(() => { sub.dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true })) })
   }
 }
 

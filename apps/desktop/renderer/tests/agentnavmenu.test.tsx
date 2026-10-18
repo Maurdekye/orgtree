@@ -199,7 +199,7 @@ function uiTest(name: string, body: (t: TestContext) => Promise<void>) {
 // ---------------------------------------------------------- §1 THE CONTROL
 // The bug as reported, and the negative this whole file is measured against.
 
-uiTest('§1 CONTROL: with no registry above it, a navigating name offers ONLY Copy agent name',
+uiTest('§1 CONTROL: with no registry above it, a navigating name offers ONLY Copy mention',
   async (t) => {
     const jumped: string[] = []
     const v = await mountView(
@@ -213,7 +213,7 @@ uiTest('§1 CONTROL: with no registry above it, a navigating name offers ONLY Co
     assert.equal(name.getAttribute(AGENT_NAV_ATTR), 'worker',
       'it is marked as a navigation target even where nothing can serve it')
     const have = await menuOf(name, 'an unserved target')
-    assert.deepEqual(have, ['Copy agent name'],
+    assert.deepEqual(have, ['Copy mention'],
       'no registry = no entries invented; the target keeps the menu it had')
     // and it still navigates: an absent menu never costs the primary click
     await inAct(() => { name.click() })
@@ -222,18 +222,18 @@ uiTest('§1 CONTROL: with no registry above it, a navigating name offers ONLY Co
   })
 
 // ------------------------------------------- §2 THE FIX, ON THE FILED BUG
-uiTest('§2 the desk header name offers the agent whole menu, not just Copy agent name',
+uiTest('§2 the desk header name offers the agent whole menu, not just Copy mention',
   async (t) => {
     const c = await mountCanvas(t, [mkNode('boss', { children: [mkNode('worker', { parent: 'boss' })] })])
     await openDesk(c, 'worker')
     const head = c.el.querySelector('.cc-head-left') as HTMLElement | null
     assert.ok(head, 'a desk opened and drew its header name')
     const have = await menuOf(head!, 'the desk header name')
-    assert.equal(have[0], 'Copy agent name',
+    assert.equal(have[0], 'Copy mention',
       `the copy entry is still first — have ${JSON.stringify(have)}`)
     assert.ok(have.length > 1,
       `and it is no longer the only one — have ${JSON.stringify(have)}`)
-    for (const entry of ['· Open desk', '· Open inbox', '· Open docket', 'Settings', 'Acquire audience']) {
+    for (const entry of ['· Desk', '· Inbox', '· Docket', 'Settings', 'Acquire audience']) {
       assert.ok(have.includes(entry),
         `the desk name offers "${entry}" — have ${JSON.stringify(have)}`)
     }
@@ -459,12 +459,12 @@ uiTest('§7 a marker ABOVE its copy object still offers the whole menu (App.tsx 
 
     // right-click the inner span, which is what a real pointer lands on
     const have = await menuOf(inner!, 'the sender chip')
-    assert.equal(have[0], 'Copy agent name',
+    assert.equal(have[0], 'Copy mention',
       `the copy entry is still first — have ${JSON.stringify(have)}`)
     assert.ok(have.includes('Open desk') && have.includes('Open inbox'),
       `and the agent menu is reachable, not copy-only — have ${JSON.stringify(have)}`)
     // the filed symptom, written down so a regression reads unmistakably
-    assert.notDeepEqual(have, ['Copy agent name'],
+    assert.notDeepEqual(have, ['Copy mention'],
       'THE REPORTED BUG: an inbox sender chip offering copy-only')
 
     await inAct(() => { button!.click() })
@@ -477,7 +477,7 @@ uiTest('§8 a marker with NO copy object above it offers the whole menu (docket 
     // The docket question head's button carries the marker, and the nearest
     // `data-copy-ticket-title` is a SIBLING of the question box rather than an
     // ancestor of the button — so there is no copy object above it at all.
-    // Before the fix this opened NOTHING: not even "Copy agent name".
+    // Before the fix this opened NOTHING: not even "Copy mention".
     const v = await mountView(
       <AgentNavProvider>
         <ObjectMenuBoundary className="app">
@@ -503,7 +503,7 @@ uiTest('§8 a marker with NO copy object above it offers the whole menu (docket 
     const have = await menuOf(button!, 'the docket question head')
     assert.ok(have.includes('Open desk') && have.includes('Open inbox'),
       `the agent menu is offered — have ${JSON.stringify(have)}`)
-    assert.equal(have[0], 'Copy agent name',
+    assert.equal(have[0], 'Copy mention',
       'and it is the CANONICAL menu, copy entry included — a target without a '
       + 'copy object must not receive the menu minus its first entry. '
       + `have ${JSON.stringify(have)}`)
@@ -575,7 +575,7 @@ uiTest('§10 a copy object ABOVE the marker keeps the whole menu, copy entry fir
       'and the copy object is an ANCESTOR of it — the third shape')
 
     const have = await menuOf(button!, 'the eye-tab jump')
-    assert.equal(have[0], 'Copy agent name',
+    assert.equal(have[0], 'Copy mention',
       `the copy entry is first — have ${JSON.stringify(have)}`)
     assert.ok(have.includes('Open desk') && have.includes('Open inbox'),
       `and the agent menu came with it — have ${JSON.stringify(have)}`)
@@ -641,7 +641,7 @@ uiTest('§11.1 f5: the sender chip inside a REAL mail row offers the agent menu,
     // THE RULING. Right-click lands on the inner span a real pointer would hit.
     const inner = chip!.querySelector('[data-copy-agent-name]') ?? chip!
     const have = await menuOf(inner, 'the sender chip inside the row')
-    assert.equal(have[0], 'Copy agent name',
+    assert.equal(have[0], 'Copy mention',
       `the copy entry leads — have ${JSON.stringify(have)}`)
     assert.ok(have.includes('Open desk') && have.includes('Open inbox'),
       `the AGENT menu is what was served — have ${JSON.stringify(have)}`)
@@ -720,7 +720,7 @@ uiTest('§11.3 f5: a registry that cannot answer for the id does NOT swallow the
     assert.ok(have.includes('Open') && have.includes('Copy message text'),
       'the row\'s own menu survives, because the agent menu had nothing to '
       + `offer — have ${JSON.stringify(have)}`)
-    assert.equal(have[0], 'Copy agent name',
+    assert.equal(have[0], 'Copy mention',
       `and the copy entry still leads — have ${JSON.stringify(have)}`)
   })
 
@@ -779,7 +779,7 @@ uiTest('§11.4 f5/f6: an unanswerable registry does not swallow the row menu on 
       + 'press instead, which is why they take the other arm')
 
     const have = await menuOf(chip!, 'the marked chip BUTTON with an unanswerable registry')
-    assert.equal(have[0], 'Copy agent name',
+    assert.equal(have[0], 'Copy mention',
       `the copy entry leads — have ${JSON.stringify(have)}`)
     assert.ok(have.includes('Open') && have.includes('Copy message text'),
       'the ROW\'s own menu survives on this arm too. Dropping `...surfaceEntries` '
@@ -825,7 +825,7 @@ uiTest('§11.5 f5: …and when the registry CAN answer, that same arm drops the 
 // f6 — THE COPY ENTRY IS UNCONDITIONAL FOR A MARKED TARGET, exactly as it is
 // for a copy object. Measured by textmenu on the landed branch: a marked
 // target with NO copy object whose builder returns `[]` offered NOTHING —
-// not even `Copy agent name` — while the same agent on a target that DOES
+// not even `Copy mention` — while the same agent on a target that DOES
 // have a copy object still offered the copy entry. `AgentNavHost`'s docstring
 // in OrgCanvas.tsx says an unknown id leaves the target "the copy-only menu
 // it has today", and that sentence was false for this one shape.
@@ -835,7 +835,7 @@ uiTest('§11.5 f5: …and when the registry CAN answer, that same arm drops the 
 // structurally parallel to the object arm and the docstring becomes true
 // again. This case is what fails if it is ever put back inside the guard.
 uiTest('§12 f6: a marked target whose builder answers nothing still offers '
-  + 'Copy agent name', async (t) => {
+  + 'Copy mention', async (t) => {
     const v = await mountView(
       <AgentNavProvider>
         <ObjectMenuBoundary className="app">
@@ -860,7 +860,7 @@ uiTest('§12 f6: a marked target whose builder answers nothing still offers '
       'precondition: there is genuinely NO copy object above this marker')
 
     const have = await menuOf(button!, 'a marked target the registry cannot answer for')
-    assert.deepEqual(have, ['Copy agent name'],
+    assert.deepEqual(have, ['Copy mention'],
       'the copy-only menu the docstring promises — not an empty one. '
       + `have ${JSON.stringify(have)}`)
   })
@@ -885,7 +885,7 @@ uiTest('§12.1 f6: …and the copy object arm is unchanged, so the two arms agre
     const button = v.el.querySelector('button.eye-tab-jump') as HTMLElement | null
     assert.ok(button, 'the jump button rendered')
     const have = await menuOf(button!, 'a marked target with a copy object above it')
-    assert.deepEqual(have, ['Copy agent name'],
+    assert.deepEqual(have, ['Copy mention'],
       `both arms offer exactly the copy entry — have ${JSON.stringify(have)}`)
   })
 

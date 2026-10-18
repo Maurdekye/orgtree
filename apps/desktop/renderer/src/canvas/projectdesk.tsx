@@ -33,6 +33,7 @@ import { PresentationCard, recentDocumentChips } from './docs'
 import { DocIcon } from '../icons'
 import { subtreeAgents } from './bulkcompact'
 import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
+import { agentNavProps } from './agentnav'
 import { PinFrame } from './modalpin'
 import { ConfirmModal } from './modals'
 
@@ -355,7 +356,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
     <>
       <div className="cc-head">
         <div className="cc-head-top">
-          <span className="cc-head-left" data-copy-agent-name={node.id}>
+          <span className="cc-head-left" data-copy-agent-name={node.id} {...agentNavProps(node.id)}>
             <span className="project-mark" title="project node: runs no turns, holds no credits">
               <FolderIcon fontSize="inherit" />
             </span>
@@ -495,6 +496,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
 export function ProjectDeskModal({ close, ...props }: ProjectDeskProps & { close: () => void }) {
   return (
     <PinFrame kind="project-desk" title={`Project ${props.node.id}`}
+      restore={{ agent: props.node.id }}
       // the agent temporary desk's frame, not a settings panel's type and
       // buttons, so it reads as the canvas desk does (user 2026-10-18 08:25Z);
       // pin-project: the org theme, as a pinned project window
