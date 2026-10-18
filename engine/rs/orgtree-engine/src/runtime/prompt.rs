@@ -97,7 +97,14 @@ pub struct Batch {
 #[nolog]
 pub fn batch(mail: &[Mail], context: &str, rels: &HashMap<String, String>, handoff: Option<&str>,
     budget: usize, steering: bool) -> anyhow::Result<Batch> {
-    let render = |ms: &[Mail]| if steering { steer_text(ms, rels) } else { turn_text(ms, context, rels, handoff) };
+    let render = |ms: &[Mail]| {
+        let mut text = if steering { steer_text(ms, rels) } else { turn_text(ms, context, rels, handoff) };
+        let remaining = mail.len().saturating_sub(ms.len());
+        if remaining > 0 {
+            text.push_str(&format!("\n[ORGTREE MAIL CONTINUES]\n{remaining} more messages follow automatically in order, within the input byte budget. No inbox read is needed to receive them.\n[END MAIL CONTINUES]\n"));
+        }
+        text
+    };
     let normalized = inline_mail(mail, rels);
     let candidate_bytes = render(&normalized).len();
     let mut selected = Vec::new();

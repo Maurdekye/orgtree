@@ -17,11 +17,11 @@ use crate::util::{gist, uid};
 /// Human inbox read state is deliberately separate.
 pub const UNREAD_STATES: &str = "('pending','delivering')";
 
-/// Explicit content reads during DND consume only the caller's held rows.
+/// Explicit content reads consume only the caller's own pending received rows.
 /// Previews never call this. Positive read receipts use the ordinary custody path.
 #[logged]
 pub async fn read_held(engine: &Engine, client: &tokio_postgres::Client, agent: i64, uids: &[String]) -> Result<Vec<String>> {
-    let rows=client.query("UPDATE ot.mail SET state='read',read_at=now(),delivered_at=coalesce(delivered_at,now()),extra=extra || '{\"dnd_read\":true}'::jsonb WHERE recipient_agent_id=$1 AND uid=ANY($2) AND state='pending' AND NOT urgent AND ot.agent_dnd($1) RETURNING uid,kind,org_id,net_id,net_hub,sender_agent_id",&[&agent,&uids]).await?;
+    let rows=client.query("UPDATE ot.mail SET state='read',read_at=now(),delivered_at=coalesce(delivered_at,now()),extra=extra || '{\"manual_read\":true}'::jsonb WHERE recipient_agent_id=$1 AND uid=ANY($2) AND state='pending' RETURNING uid,kind,org_id,net_id,net_hub,sender_agent_id",&[&agent,&uids]).await?;
     let consumed=consumed(engine,&rows);
     if let Some(row)=rows.first() {
         let mut ch=vec![Change::Mailbox(agent),Change::UserMail];

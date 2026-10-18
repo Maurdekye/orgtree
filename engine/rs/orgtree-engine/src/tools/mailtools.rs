@@ -594,8 +594,8 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         item["replies"]=crate::domain::replies::value(first.as_ref(),Some(&r.get::<_,Value>(10)));
         if r.get::<_,bool>(7) {
             item["direction"] = json!("received");
-            item["will_redeliver"] = json!(state == "pending" || state == "delivering");
-            item["will_redeliver_reason"] = json!("Manual reads leave delivery state unchanged; waiting mail still follows normal automatic delivery.");
+            item["will_redeliver"] = json!(false);
+            item["will_redeliver_reason"] = json!("Explicit content reads consume pending received mail; it will not enter automatic input again.");
         } else {
             // its state is the recipient's
             item["direction"] = json!("sent");
@@ -609,7 +609,7 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     for item in &mut items {
         if item["id"].as_str().is_some_and(|id|read.iter().any(|r|r==id)) {
             item["state"]=json!("read"); item["will_redeliver"]=json!(false);
-            item["will_redeliver_reason"]=json!("Explicit DND inbox read: removed from the end-of-turn batch.");
+            item["will_redeliver_reason"]=json!("Explicit content read: removed from automatic delivery, including the end-of-turn DND batch.");
         }
     }
     if action == "chunk" {
