@@ -71,7 +71,7 @@ mod tests {
         assert!(validate_urgent(false,None,false,false).is_ok());
     }
     #[test] fn durable_release_only_marks_unread_mail_and_auto_clears() {
-        let sql=include_str!("../../migrations/0032_do_not_disturb.sql");
+        let sql=include_str!("../../migrations/0033_do_not_disturb.sql");
         assert!(sql.contains("state = 'pending' AND NOT urgent"));
         assert!(sql.contains("NEW.do_not_disturb := false"));
         assert!(sql.contains("NEW.ended_at IS NOT NULL"));
