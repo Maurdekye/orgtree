@@ -1141,10 +1141,10 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
             onChange={(e) => setAttemptsEdit(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
         </SetRow>
       </>}
-      <SetRow label="Slots" hint={"How many agents may hold this project's slot at once (for work only N may do at once, such as a heavy build). "
-        + '0 = no slots. Agents above or below the project claim one with a slot watchdog; the line is first-come. '
-        + 'An idle holder is reminded and then loses the slot when the ack timeout is on. Lowering the count takes no slot from a holder; it applies as slots free up.'}>
-        <input type="number" aria-label="Slots" min={0} max={MAX_SLOTS} value={slots} disabled={busy}
+      <SetRow label="Concurrency slots" hint={"How many agents may hold one of this project's concurrency slots at once (for work only N may do at once, such as a heavy build). "
+        + '0 = no concurrency slots. Agents above or below the project claim one with a slot watchdog; the line is first-come. '
+        + 'An idle holder is reminded and then loses its concurrency slot when the ack timeout is on. Lowering the count takes none from a holder; it applies as concurrency slots free up.'}>
+        <input type="number" aria-label="Concurrency slots" min={0} max={MAX_SLOTS} value={slots} disabled={busy}
           onChange={(e) => setSlotsEdit(Math.max(0, Math.min(MAX_SLOTS, Math.floor(Number(e.target.value)) || 0)))} />
       </SetRow>
     </SettingsTabPanel>

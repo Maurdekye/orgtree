@@ -16,7 +16,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
   const types: Record<Watchdog['kind'], string> = {
     file: 'File listener', command: 'Periodic command listener', process: 'Process listener',
     stream: 'Stream listener', activity: 'Activity listener',
-    event: `Orgtree event listener · ${target}`, fair_queue: 'Mail queue listener', slot: 'Slot claim',
+    event: `Orgtree event listener · ${target}`, fair_queue: 'Mail queue listener', slot: 'Concurrency slot claim',
   }
   const labels: Record<Watchdog['kind'], string> = {
     file: 'watched file', command: 'command (each interval)', process: 'watched process',
@@ -40,11 +40,11 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
         : `Listens for ${target} and ${alert} when ${pattern} engine events arrive.`; break
     case 'fair_queue': summary = `Delivers mail waiting in project ${target} to ${dog.owner}, one message at a time, shared fairly with other armed listeners. Each message goes to one listener, the least recently served first.`; break
     case 'slot': summary = dog.slot != null && dog.lease
-      ? `Granted slot ${dog.slot} of ${target} (lease ${dog.lease})${dog.spent ? ', spent' : '; grant notification pending'}.`
-      : dog.state === 'paused' ? `Slot claim for ${target} is paused; resuming rejoins at the back of the line.`
+      ? `Granted concurrency slot ${dog.slot} of ${target} (lease ${dog.lease})${dog.spent ? ', spent' : '; grant notification pending'}.`
+      : dog.state === 'paused' ? `Concurrency slot claim for ${target} is paused; resuming rejoins at the back of the line.`
       : place != null
-        ? `Slot claim: ${ordinal(place)} in line for ${target}.`
-        : `Slot claim for ${target}; queue position unavailable.`; break
+        ? `Concurrency slot claim: ${ordinal(place)} in line for ${target}.`
+        : `Concurrency slot claim for ${target}; queue position unavailable.`; break
   }
   if (silence && dog.kind !== 'fair_queue') {
     const source = dog.kind === 'file' ? `${pattern} appended lines in ${target}`
@@ -55,7 +55,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
     summary = `${alert[0].toUpperCase() + alert.slice(1)} after ${quiet} without ${source}. Only matching events reset this timer; other activity does not.`
   }
   const polling = ['file', 'command', 'process'].includes(dog.kind)
-  const cadence = dog.kind === 'slot' ? 'Granted when a project slot is free; no polling interval.'
+  const cadence = dog.kind === 'slot' ? 'Granted when a project concurrency slot is free; no polling interval.'
     : dog.kind === 'fair_queue' ? 'Delivered when project mail is waiting; no polling interval.'
     : polling ? `Checked every ${dog.interval_s}s`
     : silence ? 'Listens continuously; alerts follow the silence timer.'

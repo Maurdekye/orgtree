@@ -17,12 +17,12 @@ export function AgentSlotChips({ agent, leases, dogs }: { agent: string; leases:
   return <>
     {holds.map((l) => (
       <span key={l.lease} className="chip slot-hold"
-        title={`holds slot ${l.slot} of project ${l.project} since ${l.since} (lease ${l.lease})${l.reason ? ': ' + l.reason : ''}`}>
+        title={`holds concurrency slot ${l.slot} of project ${l.project} since ${l.since} (lease ${l.lease})${l.reason ? ': ' + l.reason : ''}`}>
         ⬢ {l.project} #{l.slot}</span>
     ))}
     {waits.map(({ w, place }) => (
       <span key={w.id} className="chip slot-wait"
-        title={`slot claim "${w.name}": ${ordinal(place!)} in line for project ${w.target.replace(/^@/, '')}`}>
+        title={`concurrency slot claim "${w.name}": ${ordinal(place!)} in line for project ${w.target.replace(/^@/, '')}`}>
         ⏳ {w.target.replace(/^@/, '')} {ordinal(place!)}</span>
     ))}
   </>

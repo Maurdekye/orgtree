@@ -61,8 +61,8 @@ export function SlotsView({ node, state, op, toast }: {
       </div>
       <h4>Holding</h4>
       <div className="slots-holding">
-        {holders.length === 0 && <div className="dim">Nobody holds a slot. An agent above or below the project claims one
-          with <code>orgtree_watchdog action=create kind=slot target={node.id}</code>; it is granted at once while a slot is free.</div>}
+        {holders.length === 0 && <div className="dim">Nobody holds a concurrency slot. An agent above or below the project claims one
+          with <code>orgtree_watchdog action=create kind=slot target={node.id}</code>; it is granted at once while a concurrency slot is free.</div>}
         {holders.map((h) => (
           <div key={h.lease} className="slot-row">
             <span className="slot-no">#{h.slot}</span>
@@ -73,7 +73,7 @@ export function SlotsView({ node, state, op, toast }: {
             {(h.reminders ?? 0) > 0 && <span className="dim">{h.reminders} reminder{h.reminders === 1 ? '' : 's'}</span>}
             <span className="spacer" />
             <button type="button" className="danger" data-action="force-release"
-              title={`take slot ${h.slot} back from ${h.agent}; the next in line gets it at once`}
+              title={`take concurrency slot ${h.slot} back from ${h.agent}; the next in line gets it at once`}
               onClick={() => setAsking(h)}>force release</button>
           </div>
         ))}
@@ -91,7 +91,7 @@ export function SlotsView({ node, state, op, toast }: {
             <button type="button" data-action="unqueue" title={`remove ${w.agent}'s claim: it leaves the line and is not granted`}
               onClick={() => {
                 op({ op: 'slot_unqueue', node: node.id, agent: w.agent })
-                  .then(() => { toast([`${w.agent} removed from project ${node.id}'s slot line`]); reread() })
+                  .then(() => { toast([`${w.agent} removed from project ${node.id}'s concurrency slot line`]); reread() })
                   .catch(() => {})
               }}>remove from line</button>
           </div>
@@ -99,7 +99,7 @@ export function SlotsView({ node, state, op, toast }: {
       </div>
       <h4>Recent holds</h4>
       <div className="slots-history">
-        {history.length === 0 && <div className="dim">No slot has been held yet.</div>}
+        {history.length === 0 && <div className="dim">No concurrency slot has been held yet.</div>}
         {history.map((h) => (
           <div key={h.lease} className="slot-row">
             <span className="slot-no">#{h.slot}</span>
@@ -111,15 +111,15 @@ export function SlotsView({ node, state, op, toast }: {
         ))}
       </div>
       {asking && createPortal(
-        <ConfirmModal title={`take slot ${asking.slot} of ${node.id} back from ${asking.agent}?`}
+        <ConfirmModal title={`take concurrency slot ${asking.slot} of ${node.id} back from ${asking.agent}?`}
           body={`${asking.agent} has held it for ${span(asking.since)}${asking.reason ? ` (${asking.reason})` : ''}. `
             + `It is recorded as "released (forced by @user)", ${asking.agent} is told, and `
-            + (line[0] ? `the next in line, ${line[0].agent}, gets it at once.` : 'the slot is free again.')}
+            + (line[0] ? `the next in line, ${line[0].agent}, gets it at once.` : 'the concurrency slot is free again.')}
           confirmLabel="force release" close={() => setAsking(null)}
           onConfirm={() => {
             const h = asking
             op({ op: 'slot_release', lease: h.lease, force: true })
-              .then(() => { toast([`slot ${h.slot} of ${node.id} taken back from ${h.agent}`]); reread() })
+              .then(() => { toast([`concurrency slot ${h.slot} of ${node.id} taken back from ${h.agent}`]); reread() })
               .catch(() => {})
           }} />, document.body)}
     </div>

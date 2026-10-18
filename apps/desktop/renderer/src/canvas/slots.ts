@@ -73,9 +73,10 @@ export function slotHeaderText(s: ProjectSlotState): string {
   return `slots ${s.held.length}/${s.total}${waitingNote(s)}`
 }
 
-/** The Slots tab's lead: "1 of 1 slot held", "0 of 2 slots held". */
+/** The Concurrency slots tab's lead: "1 of 1 concurrency slot held", "0 of 2
+ *  concurrency slots held" (spelled out, user 2026-10-18 12:16Z). */
 export function slotLeadText(s: ProjectSlotState): string {
-  return `${s.held.length} of ${s.total} slot${s.total === 1 ? '' : 's'} held`
+  return `${s.held.length} of ${s.total} concurrency slot${s.total === 1 ? '' : 's'} held`
 }
 
 /** Every slot is held: the badge and card are filled, otherwise outlined. */
@@ -96,14 +97,14 @@ export function slotPlace(dog: Watchdog, dogs: Watchdog[]): number | null {
 /** A slot claim's card text: its place and who holds, or its grant. */
 export function slotClaimText(dog: Watchdog, dogs: Watchdog[], leases: SlotLease[], total: number): string {
   const project = target(dog)
-  if (dog.lease) return `Granted slot ${dog.slot ?? '?'} of ${project} (lease ${dog.lease}).`
-  if (dog.state === 'paused') return `Slot claim on project ${project}, paused: out of the line; resuming rejoins at the back.`
+  if (dog.lease) return `Granted concurrency slot ${dog.slot ?? '?'} of ${project} (lease ${dog.lease}).`
+  if (dog.state === 'paused') return `Concurrency slot claim on project ${project}, paused: out of the line; resuming rejoins at the back.`
   const line = lineOf(project, dogs)
   const at = line.findIndex((w) => w.id === dog.id)
-  if (at < 0) return `Slot claim on project ${project}.`
+  if (at < 0) return `Concurrency slot claim on project ${project}.`
   const ahead = line.slice(0, at).map((w) => w.owner)
   const held = leases.filter((l) => l.project === project).map((l) => l.agent)
-  return `Slot claim: ${ordinal(at + 1)} in line for project ${project} (behind ${ahead.length ? ahead.join(', ') : 'nobody'}; `
+  return `Concurrency slot claim: ${ordinal(at + 1)} in line for project ${project} (behind ${ahead.length ? ahead.join(', ') : 'nobody'}; `
     + `${held.length} of ${total} held${held.length ? ' by ' + held.join(', ') : ''}).`
 }
 

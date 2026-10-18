@@ -377,8 +377,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             <ProjectLastActivity node={node} />
             {/* slots held/total while slots are enabled; it opens the Slots tab (user 08:46Z) */}
             {slots.total > 0 && <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
-              title={`${slots.held.length} of ${slots.total} slot${slots.total === 1 ? '' : 's'} held`
-                + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '') + ': open the Slots tab'}
+              title={`${slots.held.length} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
+                + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '') + ': open the Concurrency slots tab'}
               onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>}
             {!live && <span className="badge dim">{node.state}</span>}
           </span>
@@ -401,7 +401,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               {tabs.map((v) => (
                 <button key={v} data-tab={v} className={shown === v ? 'on' : ''}
                   onClick={() => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v) }}>
-                  {v}{v === 'slots' ? <>{' '}<span className="tab-count">{slots.held.length}/{slots.total}</span></>
+                  {/* spelled out (user 2026-10-18 12:16Z); the id stays `slots` */}
+                  {v === 'slots' ? 'concurrency slots' : v}{v === 'slots' ? <>{' '}<span className="tab-count">{slots.held.length}/{slots.total}</span></>
                     : count(v) > 0 ? <>{' '}<span className="tab-count">{count(v)}</span></> : ''}
                 </button>
               ))}
