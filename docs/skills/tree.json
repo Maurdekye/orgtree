@@ -5,15 +5,15 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 174,
+  "leaves": 175,
   "tools": 45,
-  "concepts": 51,
-  "total": 196
+  "concepts": 52,
+  "total": 197
  },
  "leaves_per_writer": {
   "org-sol": 33,
   "hubchat-dm-sol": 1,
-  "project-nodes-opus": 2,
+  "project-nodes-opus": 3,
   "comms-sol": 28,
   "runtime-sol": 33,
   "usage-query-sol": 1,
@@ -6950,7 +6950,8 @@
    "children": [
     "committee-mode",
     "dev-team",
-    "iterative-development"
+    "iterative-development",
+    "work-queues"
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
@@ -7135,6 +7136,42 @@
     "tool-send-file"
    ],
    "writer": "skilltree-opus",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-workflows/collaboration-patterns/work-queues",
+   "name": "orgtree-work-queues",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "workflow:work-queues"
+   ],
+   "purpose": "A project as an autonomous work queue: listeners, round-robin or ack mode, ack timeout, max attempts and dead letters, purge, the listener wake and the megaphone.",
+   "must_cover": [
+    "fair_queue listeners above or below the project",
+    "round-robin default, ack mode one mail at a time",
+    "how to ack: reply_to the handed mail, completion record",
+    "ack timeout after 3 checkup wakes, front of queue",
+    "max attempts default 3, dead letter told to the superior",
+    "both need the 20-minute checkup",
+    "release on retire, halt or stopped watching",
+    "exclude-sender off by default",
+    "purge waiting mail only",
+    "listener wake and megaphone",
+    "setup recipe"
+   ],
+   "sources": [
+    "User queue rulings 2026-10-18 08:01Z-08:13Z (docket project-mail-queue-settings-round-robin-default-o)",
+    "engine/rs/orgtree-engine/src/domain/projects.rs",
+    "engine/rs/orgtree-engine/src/domain/mail.rs"
+   ],
+   "see_also": [
+    "projects",
+    "tool-watchdog",
+    "tool-message"
+   ],
+   "writer": "project-nodes-opus",
    "status": "fixed"
   }
  ],

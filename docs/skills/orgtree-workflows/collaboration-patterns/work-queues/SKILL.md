@@ -1,0 +1,35 @@
+---
+name: orgtree-work-queues
+description: Use a project as an autonomous work queue - listeners, round-robin or ack mode, timeouts, dead letters, the listener wake and the megaphone.
+---
+
+Up: [orgtree-collaboration-patterns](../SKILL.md)
+
+# Projects as work queues
+
+Depending on how it is set up, a project can run as an autonomous work queue. Mail posted to the project's own mailbox is handed out to the agents listening on it, one mail to one agent, without anyone routing it by hand. Use it for a stream of similar jobs (tickets to triage, pages to translate, checks to run) that any of several agents can take.
+
+## The pieces
+
+- **Listeners.** An agent listens with `orgtree_watchdog action=create kind=fair_queue target=<project>`. Only agents above or below the project can listen. A paused or removed watchdog stops listening.
+- **The project's mailbox.** Anyone who reaches the project posts with `orgtree_message to=<project>`; the user posts from the project desk's message box. Mail waits there until a listener can take it.
+- **Queue mode** (project settings, "Mail queue"):
+  - **Round-robin** (the default, for throughput): each mail goes out as soon as it arrives, to the listener woken least recently. No ack is needed.
+  - **Ack mode** (one job at a time, with completion records): each listener holds ONE mail. It gets no more until it acks that one with `orgtree_message to=<project> reply_to=<the mail's id>` and a short completion record. The ack is kept in the project's mailbox as a read record and immediately hands the acker the next waiting mail. Every handed mail's wrapper says whether it needs an ack and how; listeners get a notice whenever the mode changes.
+- **Ack timeout** (ack mode, on by default): a listener sitting on an un-acked mail gets the 20-minute working checkup up to 3 times; after that the mail is taken back and goes to the front of the queue for another listener.
+- **Max attempts** (ack mode, default 3): a mail handed out that many times without an ack goes to the project's dead-letter list instead, and the project's superior (the user, for a top-level project) is told. The ack timeout and max attempts only work while Runtime's "check on working agents after 20 minutes" is on, which it is by default.
+- **Released mail.** An un-acked mail goes back to the front of the queue when its holder is retired or halted, or stops listening.
+- **Never hand an agent its own mail** (off by default): when on, a listener that posts to the project is not handed its own mail; the mail waits for another listener.
+- **Purge.** The project desk's inbox tab can purge the mail still waiting (after a confirmation); handed, acked and dead-letter mail stays.
+- **The listener wake** (Runtime settings, "wake an agent to listen for project mail", on by default): when the user writes to a project nobody listens on, one agent directly under it (an idle one first) is woken and asked to arm a fair_queue watchdog.
+- **The megaphone** on the project desk's message box sends one message to every live agent under the project instead of to the queue: for announcements, not jobs.
+
+## Recipe
+
+1. Create the project and hire the workers under it; put the job's standing instructions in the project's description (it is every worker's standing charter).
+2. Have each worker arm `orgtree_watchdog action=create kind=fair_queue target=<project>`. With the listener wake on, the first user mail to an unwatched project asks one worker to do this.
+3. Choose the mode in project settings: round-robin when jobs are quick and independent; ack mode when each job needs a completion record or must not pile up on one worker. In ack mode, keep the ack timeout on and set max attempts to how often a job may be retried.
+4. Post jobs to the project, one mail per job (`orgtree_message to=<project>`, or the project desk's message box with the megaphone off).
+5. Watch the project desk's inbox: each mail shows who holds it, whether it is awaiting an ack, acked, released or dead-lettered. Purge what should no longer run.
+
+For what a project is, see `orgtree-projects` (orgtree-working › team); for the fair_queue watchdog, `orgtree-tool-watchdog` (orgtree-working › watchdogs).
