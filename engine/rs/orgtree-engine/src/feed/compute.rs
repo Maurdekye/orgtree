@@ -170,6 +170,9 @@ pub fn mail_entry(m: &Value) -> Value {
     let mut q = serde_json::Map::new();
     if let Some(c) = x.get("claimed").filter(|v| v.is_object()) {
         q.insert("held_by".into(), c["by"].clone());
+        if let Some(at) = c.get("at").filter(|v| v.is_string()) {
+            q.insert("held_at".into(), at.clone());
+        }
         q.insert("ack".into(), json!(c["ack"].as_bool() == Some(true)));
         for k in ["acked_at", "ack_mail", "ack_waived_at"] {
             if let Some(v) = c.get(k).filter(|v| !v.is_null()) {
