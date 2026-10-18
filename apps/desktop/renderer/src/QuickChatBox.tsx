@@ -25,11 +25,11 @@ import { SpawnChips } from './canvas/cards'
 import { TierChip, nodeTierOf } from './canvas/identity'
 import { resolveOrgDefault } from './canvas/effort'
 import { EffortBar } from './canvas/effortbar'
-import { tierEffortLevels } from './canvas/staffingoptions'
+import { staffingOptions, tierEffortLevels, type StaffingOptions } from './canvas/staffingoptions'
 import { museHireAccount, museLandingAccount } from './canvas/musehire'
 import { MUSE_TIERS, museEffortLevels, useAgyModelsRefresh } from './canvas/shared'
 import {
-  ALL_TIER_SEAT, hireOf, hireTierChoices, tierLabel, type CanvasNode,
+  ALL_TIER_SEAT, hireOf, tierLabel, type CanvasNode,
 } from './canvas/shared'
 import { AttachIcon, SendIcon } from './icons'
 import {
@@ -38,6 +38,7 @@ import {
   type QuickSuperior,
 } from './quickchat'
 import type { OpRequest, OpResult, ToastFn, TreeNode, TreePayload } from './types'
+import { quickChatChoices } from './quickchat-availability'
 
 // the no-superior choice (user 2026-10-10: "top level", not "switchboard";
 // two words on purpose, so it can never be read as an agent name)
@@ -81,22 +82,33 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     return { claudeHire: of('claude'), codexHire: of('openai'), antigravityHire: of('google'),
       openrouterHire: of('openrouter'), langserverHire: of('langserver'), museHire: of('muse') }
   }, [providers])
-  const offered = useMemo(() => providers
-    // the default order: the fallback model is the first offered one, not the dearest
-    ? hireTierChoices(hires, 'default').filter(c => c.offer === 'offer').map(c => c.tier) : [],
-  [providers, hires])
   const nodes = useMemo(() => treeNodes(tree), [tree])
   const live = useMemo(() => [...nodes.values()]
     .filter(n => n.state === 'live').map(n => n.id), [nodes])
-  const tier = quickChatTier(memo.tier, offered)
-  const effort = quickChatEffort(memo.effort)
   const superior = quickChatSuperior(memo.superior, id => live.includes(id))
+  const [availability, setAvailability] = useState<{ slug: string; value: StaffingOptions } | null>(null)
+  useEffect(() => {
+    let current = true
+    // Shared single-flight read: the same warm answer used by the hire picker, never provider presence alone.
+    void staffingOptions(slug).then(value => { if (current) setAvailability({ slug, value }) }).catch(() => {})
+    return () => { current = false }
+  }, [slug, providers, tree])
+  const choices = useMemo(() => quickChatChoices(availability?.slug === slug ? availability.value : null,
+    tree, nodes, superior), [availability, slug, tree, nodes, superior])
+  const offered = choices.map(choice => choice.row.tier)
+  const tier = quickChatTier(memo.tier, offered)
+  const chosen = choices.find(choice => choice.row.tier === tier)
+  // A fallback model follows its default; a compatible remembered/manual effort stays intact.
+  const effort = quickChatEffort(memo.tier && memo.tier !== tier ? undefined : memo.effort)
   const orgDefault = resolveOrgDefault(tree.default_effort, tree.effort_default)
   // a Muse hire's levels are its model's row on the login it lands on
   // (`museHireAccount` names one when the default login cannot run it)
-  const levelsFor = (t: string | null | undefined) => t && MUSE_TIERS.includes(t)
+  const levelsFor = (t: string | null | undefined) => choices.find(choice => choice.row.tier === t)?.row.accounts
+    .find(account => account.value === chosen?.account)?.efforts
+    ?? choices.find(choice => choice.row.tier === t)?.row.efforts
+    ?? (t && MUSE_TIERS.includes(t)
     ? museEffortLevels(t, null, museHireAccount(slug, t, tree.default_account) ?? museLandingAccount(tree.default_account))
-    : tierEffortLevels(slug, t)
+    : tierEffortLevels(slug, t))
   const seats = tree.tiers ?? ALL_TIER_SEAT
   const [text, setText] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -167,7 +179,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         let born: string
         try {
           const { kickoff, kickoff_kind, ...bare } = quickChatHire({ message, name, tier, effort: (() => { const lv = levelsFor(tier); return lv && !lv.includes(effort) ? '' : effort })(), superior, grant })
-          const account = museHireAccount(slug, tier, tree.default_account)
+          const account = chosen?.account ?? museHireAccount(slug, tier, tree.default_account)
           const r = await op({ ...(carry.length ? bare : { ...bare, kickoff, kickoff_kind }), ...(account ? { account } : {}) }, { quiet: true })
           born = typeof r?.node === 'string' && r.node ? r.node : name
         } catch (e) {

@@ -29,7 +29,7 @@
 //   effort   = the ORG default effort — stored as '' ("no level of its own"),
 //              so the hire sends no effort and the agent follows the org's;
 //   superior = top level, no superior (shown as "top level");
-//   model    = Opus, then Sol, then Flash, else any offered model.
+//   model    = Opus, then Sol, then Argon, then Wonder, else any hireable model.
 // The quick-hired agent's NAME comes from the message's words only (no model
 // in it), and it gets NO charter (both user 2026-10-09 22:34Z). Those two
 // rules live in `quickChatName` and `quickChatHire` so they are one-line
@@ -125,10 +125,10 @@ export function onQuickChatMemory(fn: () => void): () => void {
 }
 
 /** the model preference with no history (user 2026-10-01) */
-export const QUICK_MODEL_PREFERENCE = ['opus', 'sol', 'flash']
+export const QUICK_MODEL_PREFERENCE = ['opus', 'sol', 'argon', 'wonder']
 
 /** the model Quick chat shows: the remembered one while it is still offered,
- *  else Opus → Sol → Flash → the first offered model. '' when nothing is. */
+ *  else Opus → Sol → Argon → Wonder → the first hireable model. '' when nothing is. */
 export function quickChatTier(remembered: string | undefined, offered: string[]): string {
   if (remembered && offered.includes(remembered)) return remembered
   return QUICK_MODEL_PREFERENCE.find(t => offered.includes(t)) ?? offered[0] ?? ''

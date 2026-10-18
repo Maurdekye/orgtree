@@ -59,6 +59,8 @@ export interface StaffingTier {
   /** may the tier be chosen WITHOUT naming an account — that is, can the
    *  account a plain hire would pick by itself actually run it. */
   default_ok: boolean
+  /** Native login's model-spent usage gate, separate from managed eligible accounts. */
+  native_ok?: boolean
 }
 export interface StaffingOptions {
   tiers: StaffingTier[]

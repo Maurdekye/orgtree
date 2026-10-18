@@ -525,7 +525,8 @@ pub fn options(engine: &Engine, org_slug: &str) -> Value {
                 return None;
             }
             Some(json!({ "tier": t.tier, "seat": t.seat, "provider": t.provider, "efforts": t.efforts,
-                         "accounts": accounts, "default_ok": host }))
+                         "accounts": accounts, "default_ok": host,
+                         "native_ok": host && (accountless(t.provider) || crate::usage::at_limit(engine, None, &t.tier).is_none()) }))
         })
         .collect();
     let mut result = availability(engine);
