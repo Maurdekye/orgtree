@@ -16,7 +16,7 @@ import { pinSurfaceKey, readPinSurfaces, removePinSurface, updatePinSurface } fr
 const org = 'pin-toggle', rect = { x: 10, y: 20, w: 600, h: 400 }, noop = () => {}
 function setup(t: TestContext) {
   localStorage.clear(); forgetModalPins(); forgetModalOpenCache(); installFetch(new FakeServer())
-  t.after(() => { localStorage.clear(); forgetModalPins(); forgetModalOpenCache() })
+  t.after(async () => { await inAct(() => { localStorage.clear(); forgetModalPins(); forgetModalOpenCache() }) })
 }
 function ButtonPanel({ kind }: { kind: string }) {
   const [open, setOpen] = useState(false)
