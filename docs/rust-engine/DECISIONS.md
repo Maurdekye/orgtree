@@ -1,5 +1,14 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Panel open actions activate existing windows, user 2026-10-18 12:09Z:**
+global inbox/docket/presentations openers, node Open menus and desk tabs raise
+the existing detached panel and restore it if minimized, without opening a
+duplicate. Existing pins come to the top of their shared layer. Opening an
+already top pin keeps it open, replacing the former toggle-off rule; close and
+unpin remain explicit panel controls. Desk tabs match organization, node and
+generation before activating a separate panel, otherwise they select inline.
+See [panel activation](panel-activation.md).
+
 **Shared Open desk entries, user 2026-10-18 11:16Z (4.4.0):** both agents
 and projects use exactly `Desk`, `Desk as a pinned window`, `Desk in a separate
 window`, in that order, before Team and other entries. Keep existing temporary,

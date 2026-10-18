@@ -1,5 +1,14 @@
 # AGENTS.md — working on Orgtree
 
+- Panel open buttons/menus activate existing detached windows through the live
+  window registry (native restore/show/focus) and raise existing pins, including
+  an already top pin. This replaces the old top-pin toggle-off rule. Agent and
+  project desk tabs activate only matching node/generation panels; closed or
+  unrelated windows leave normal inline tab selection intact. See
+  [panel activation](docs/rust-engine/panel-activation.md).
+  [decided: user 2026-10-18 12:09Z; verified: `windowlife.ts`,
+  `canvas/{modalpin,panelcorner,desk,projectdesk,OrgCanvas}.tsx`, `App.tsx`]
+
 - Inbox tag popovers close 250ms after the pointer leaves a 100px margin around
   trigger and popup; reentry, typed search and held keys protect the picker.
   Filtered mail remembers its selected matching row; only a NEW mail carrying
