@@ -1428,6 +1428,20 @@ export const sendMessage = (
       ...(clientOp ? { client_op: clientOp } : {}),
       ...(notice ? { notice: true } : {}) }),
   })
+/** The project desk's message box (user 2026-10-18 07:33Z): one send to every
+ *  live agent under the project, nested projects included; each recipient's
+ *  outcome comes back. */
+export interface BroadcastResult {
+  accepted: boolean; project: string; notice: boolean
+  sent: { to: string; id: string; delivery: string; deferred: boolean }[]
+  refused: { to: string; why: string }[]
+}
+export const broadcastMessage = (slug: string, project: string, text: string, attachments?: string[],
+  notice?: boolean): Promise<BroadcastResult> =>
+  req(`/api/orgs/${slug}/nodes/${project}/broadcast`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, ...(attachments?.length ? { attachments } : {}), ...(notice ? { notice: true } : {}) }),
+  })
 /** Object identity only; the server resolves authoritative reply context. */
 export const replyMessage = (slug: string, nid: string, text: string, target: ReplyTarget | ReplyTarget[],
   attachments?: string[], clientOp?: string, notice?: boolean): Promise<SendMessageResult> =>

@@ -15,7 +15,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload, TurnStat } from '../types'
-import { AutorenewIcon, FolderIcon, SettingsIcon } from '../icons'
+import { ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, FileIcon, FolderIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
+import { broadcastMessage, uploadFile } from '../api'
+import { useComposerEnter } from '../enterkey'
 import { md, subtreeDocCount, subtreeDocs, USER } from './shared'
 export { subtreeDocCount }
 import type { CanvasNode, OpFn } from './shared'
@@ -198,6 +200,84 @@ function DescriptionEditor({ node, op, toast, editable }: {
       : { dangerouslySetInnerHTML: md(saved) })} />
 }
 
+/** The project desk's message box (user 2026-10-18 07:33Z): the agent
+ *  composer's notice toggle (Alt+N, one message at a time), attach button and
+ *  Enter-key rule, and ONE send that reaches every live agent under the
+ *  project, nested projects included (`broadcastMessage`). Attachments upload
+ *  into the project's own uploads folder; every recipient gets the same files.
+ *  No slash commands: a project has no CLI. */
+function ProjectComposer({ node, slug, toast, members }: {
+  node: CanvasNode; slug: string; toast: ToastFn; members: number
+}) {
+  const [text, setText] = useState('')
+  const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
+  const [notice, setNotice] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef<HTMLInputElement | null>(null)
+  const enterKey = useComposerEnter()
+  const can = node.state === 'live' && members > 0
+  const attach = (file: File) => {
+    uploadFile(slug, node.id, file)
+      .then((r) => setAttached((a) => [...a, { name: file.name, path: r.path, bytes: r.bytes }]))
+      .catch((e: Error) => toast([`upload error: ${e.message}`]))
+  }
+  const send = () => {
+    if (!can || busy || (!text.trim() && attached.length === 0)) return
+    setBusy(true)
+    const asNotice = notice
+    broadcastMessage(slug, node.id, text, attached.map((a) => a.path), asNotice)
+      .then((r) => {
+        setText(''); setAttached([]); setNotice(false)
+        toast([`sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${node.id}`
+          + (asNotice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`)])
+      })
+      .catch((e: Error) => toast([`error: ${e.message}`]))
+      .finally(() => setBusy(false))
+  }
+  return <>
+    {attached.length > 0 && <div className="attach-row">
+      {attached.map((a, i) => <span key={a.path + i} className="attach-chip">
+        <FileIcon fontSize="inherit" /> {a.name}
+        <button className="chip-x" title="remove from this message"
+          onClick={() => setAttached((x) => x.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
+      </span>)}
+    </div>}
+    <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')}>
+      <div className="cc-btnstack">
+        <button className={'cc-notice-toggle' + (notice ? ' armed' : '')} type="button" disabled={!can}
+          aria-label={notice ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
+          title={notice ? 'Notice-send armed: the next message arrives as a passive notice, waking nobody (Alt+N)'
+            : 'Send the next message as a passive notice, waking nobody (Alt+N)'}
+          onClick={() => setNotice((v) => !v)}>
+          {notice ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
+        </button>
+        <button className="cc-attach" type="button" disabled={!can}
+          title="attach a file: every agent under the project gets it" onClick={() => fileRef.current?.click()}>
+          <AttachIcon fontSize="inherit" /></button>
+      </div>
+      <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
+        onChange={(e) => { [...e.target.files!].forEach(attach); e.target.value = '' }} />
+      <textarea rows={2} value={text} disabled={!can} title={enterKey.hint}
+        aria-label={`message every agent under project ${node.id}`}
+        placeholder={can ? `message all ${members} agent${members === 1 ? '' : 's'} under ${node.id}…`
+          : node.state !== 'live' ? `project ${node.id} is ${node.state}` : `no agent works under ${node.id} yet`}
+        onChange={(e) => setText(e.target.value)}
+        onPaste={(e) => {
+          if (e.clipboardData?.files?.length) { e.preventDefault(); [...e.clipboardData.files].forEach(attach) }
+        }}
+        onKeyDown={(e) => {
+          if (e.altKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); e.stopPropagation(); setNotice((v) => !v); return }
+          if (enterKey.sends(e)) { e.preventDefault(); send() }
+        }} />
+      <div className="cc-btnstack">
+        <button className="cc-send" type="button" title={enterKey.hint}
+          disabled={!can || busy || (!text.trim() && attached.length === 0)} onClick={send}>
+          <ArrowUpIcon fontSize="inherit" /></button>
+      </div>
+    </div>
+  </>
+}
+
 export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig, onPin, onPopout, onOpenDoc }: ProjectDeskProps) {
   const surface = useSurface()
   const [view, setView] = useState<Tab>('desk')
@@ -320,6 +400,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         {/* nid = the project: the engine widens a project's gallery to its subtree */}
         <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs} />
       </div>}
+      {/* under every tab, as the agent desk's composer is */}
+      <ProjectComposer node={node} slug={slug} toast={toast} members={agents.length} />
     </>
   )
   return (
