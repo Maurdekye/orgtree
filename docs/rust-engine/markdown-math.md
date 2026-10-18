@@ -12,6 +12,8 @@ Code blocks and inline code retain Markdown's lexer precedence. Invalid LaTeX
 is escaped as its complete delimited source rather than swallowed or emitted as
 an error element. Ordinary Markdown still passes through `escapeAngles` and
 DOMPurify. The reference decorator excludes KaTeX's HTML and MathML subtrees.
+DOMPurify explicitly retains KaTeX's text-only MathML `annotation` source;
+its default tag set otherwise discards that accessibility metadata.
 
 Dollar syntax is deliberately conservative: no whitespace at the inner edges,
 no digit or identifier immediately after the closing dollar, and no plain

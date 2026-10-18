@@ -59,6 +59,7 @@
   `\[...\]`) through isolated Marked math tokens and pinned KaTeX. Preserve
   code/currency/shell text, source fallback, trust:false and request-local
   macros; reference decoration skips math subtrees. CSS/fonts bundle locally.
+  Preserve text-only MathML `annotation` in DOMPurify after raw HTML escaping.
   See [math](docs/rust-engine/markdown-math.md). [decided: user 2026-10-18
   15:59Z; verified: `canvas/{shared,markdownmath,refmd}.ts*`, `styles.css`]
 
