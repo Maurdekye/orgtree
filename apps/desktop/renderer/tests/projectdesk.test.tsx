@@ -260,7 +260,7 @@ test('§2e the source offset steps over markup and skips what the source lacks',
 const cssRules = () => [...readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
   .matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({ sel: m[1]!.trim(), body: m[2]! }))
 const cssLast = (prop: string, sel: string) => cssRules().filter((r) => r.sel.split(',').some((s) => s.trim() === sel))
-  .map((r) => new RegExp(`(?:^|;)\s*${prop.replace(/[-]/g, '\-')}\s*:\s*([^;]+)`).exec(r.body)?.[1]?.trim()).filter(Boolean).pop()
+  .map((r) => new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(r.body)?.[1]?.trim()).filter(Boolean).pop()
 
 test('§2f the description has no border or background while not edited; the editor keeps its look (user 07:14Z)', () => {
   const rules = cssRules()

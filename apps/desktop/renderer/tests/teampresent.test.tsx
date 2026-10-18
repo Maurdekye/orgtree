@@ -99,8 +99,11 @@ test('§3d the viewer’s header names the project and says who presented it (us
     onFocusAgent={(id) => { focused.push(id) }} />, (el) => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(6) })
-  await inAct(() => { view.el.querySelector<HTMLElement>('.doc-gallery-row')!.click() })
-  await inAct(async () => { await flush(6) })
+  // the gallery opens on its newest card; select the project's only if it has not
+  if (!view.el.querySelector('.doc-gallery-row.on')) {
+    await inAct(() => { view.el.querySelector<HTMLElement>('.doc-gallery-row')!.click() })
+    await inAct(async () => { await flush(6) })
+  }
   const meta = view.el.querySelector('.doc-pane-meta-row')
   assert.ok(meta, 'the viewer opened')
   assert.ok(meta!.querySelector('.project-mark'), 'the project’s folder mark')
