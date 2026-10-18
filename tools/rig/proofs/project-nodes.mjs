@@ -338,8 +338,7 @@ export default async function (rig) {
   // 07:33Z): one send from the project desk reaches every live agent under the
   // project, nested projects included, with its attachments and notice flag
   const attachFile = path.join(rig.dir, 'broadcast-note.txt')
-  fs.writeFileSync(attachFile, 'broadcast attachment
-')
+  fs.writeFileSync(attachFile, 'broadcast attachment\n')
   const siteId = node('site').id
   const siteMail0 = mailTo(siteId).length
   const cast = await rig.api('POST', `/api/orgs/${rig.org}/nodes/site/broadcast`,
