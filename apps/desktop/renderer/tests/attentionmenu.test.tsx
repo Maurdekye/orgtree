@@ -81,3 +81,47 @@ test('large Attention drawer switches agent desks and opens both agent menus', a
       'Focus renders the requested desk in Attention')
   }
 })
+
+test('Attention Hire a subordinate opens the draft in the Agent desk panel', async (t) => {
+  localStorage.clear()
+  forgetAttentionMode()
+  resetConvos()
+  installFetch(new FakeServer())
+  setOrgView(slug, 'attention')
+  const op = () => Promise.resolve({})
+  const toast = () => {}
+  const v = await mountView(<CurrentOrg.Provider value={slug}>
+    <OrgCanvas tree={tree} slug={slug} op={op} toast={toast} mailEvt={null}
+      canvasContent="hidden" renderOrgSlot={ctx => <AttentionView
+        slug={slug} tree={tree} op={op} toast={toast} map={ctx.map} posOf={ctx.posOf}
+        onFocusAgent={ctx.onFocusAgent} deskExtras={ctx.deskExtras} />} />
+  </CurrentOrg.Provider>, h => h)
+  t.after(() => v.unmount())
+  await inAct(() => flush(8))
+  await inAct(() => { v.el.querySelector<HTMLButtonElement>('.attn-agents-toggle')!.click() })
+  const agent = v.el.querySelector('[data-attn-agent="alpha"]')!
+  await inAct(() => { agent.dispatchEvent(new window.MouseEvent('contextmenu',
+    { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })) })
+  await inAct(() => flush(3))
+  const hire = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu button')]
+    .find(button => button.textContent?.trim() === 'Hire a subordinate')
+  assert.equal(!!hire, true, 'the canonical Hire submenu is available')
+  await inAct(() => { hire!.click() })
+  await inAct(() => flush(3))
+  const tier = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu button')]
+    .find(button => button.textContent?.trim() === 'Haiku')
+  assert.equal(!!tier, true, 'the offered tier can be selected')
+  await inAct(() => { tier!.click() })
+  await inAct(() => flush(8))
+  assert.equal(!!v.el.querySelector('.attn-desk .sq.draft'), true,
+    'the reusable uninitialized desk is presented inside the Attention agent desk')
+  assert.equal(!!v.el.querySelector('.attn-desk .df-name'), true,
+    'the same name field is available in the panel')
+  assert.equal(!!document.querySelector('.viewport .sq.draft'), false,
+    'Attention hire does not open a hidden canvas draft')
+  await inAct(() => { window.dispatchEvent(new window.KeyboardEvent('keydown',
+    { key: 'Escape', bubbles: true, cancelable: true })) })
+  await inAct(() => flush(4))
+  assert.equal(!!v.el.querySelector('.attn-desk .sq.draft'), false,
+    'cancelling the draft leaves no draft or hire behind')
+})
