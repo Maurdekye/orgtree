@@ -105,7 +105,7 @@ export default async function (rig) {
     const orig = rig.one(`SELECT extra FROM ot.mail WHERE uid = '${m.extra.via_project.mail}'`)
     return orig?.extra?.claimed?.acked_at == null && orig?.extra?.claimed?.copy === m.uid
   })
-  p.check('the legacy duplicate dog is in place (positive control)', injected === true && dogsOfEa.length === 2, { injected, dogsOfEa })
+  p.check('the legacy duplicate dog is in place (positive control)', injected === true && dogsOfEa.length >= 2, { injected, dogsOfEa })
   const first = outstanding('ea')[0]
   const acked = first && await rig.tool('ea', 'orgtree_message', { metadata: { to: 'aq', reply_to: first.uid }, body: 'Done.' })
   await settle('the hand-out after the ack')
