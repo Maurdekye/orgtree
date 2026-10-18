@@ -128,3 +128,40 @@ test('Attention Hire a subordinate opens the draft in the Agent desk panel', asy
   assert.equal(!!v.el.querySelector('.attn-desk .sq.draft'), false,
     'cancelling the draft leaves no draft or hire behind')
 })
+
+test('Hire from an Attention desk header opens its draft in that desk', async (t) => {
+  localStorage.clear()
+  forgetAttentionMode()
+  resetConvos()
+  installFetch(new FakeServer())
+  setOrgView(slug, 'attention')
+  const op = () => Promise.resolve({})
+  const toast = () => {}
+  const v = await mountView(<CurrentOrg.Provider value={slug}>
+    <OrgCanvas tree={tree} slug={slug} op={op} toast={toast} mailEvt={null}
+      canvasContent="hidden" renderOrgSlot={ctx => <AttentionView
+        slug={slug} tree={tree} op={op} toast={toast} map={ctx.map} posOf={ctx.posOf}
+        attentionDraft={ctx.attentionDraft}
+        onFocusAgent={ctx.onFocusAgent} deskExtras={ctx.deskExtras} />} />
+  </CurrentOrg.Provider>, h => h)
+  t.after(() => v.unmount())
+  await inAct(() => flush(8))
+
+  const header = v.el.querySelector('.attn-desk .cc-head-left')
+  assert.ok(header, 'the Attention agent desk header is mounted')
+  await inAct(() => { header!.dispatchEvent(new window.MouseEvent('contextmenu',
+    { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })) })
+  await inAct(() => flush(3))
+  const hire = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu button')]
+    .find(button => button.textContent?.trim().startsWith('Hire a subordinate'))
+  assert.ok(hire, 'the desk header exposes the canonical Hire submenu')
+  await inAct(() => { hire!.click() })
+  await inAct(() => flush(3))
+  const tier = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu-submenu button')]
+    .find(button => !button.disabled)
+  assert.ok(tier, 'at least one eligible hire tier is offered')
+  await inAct(() => { tier!.click() })
+  await inAct(() => flush(8))
+  assert.equal(!!v.el.querySelector('.attn-desk .sq.draft'), true,
+    'the desk action replaces the Attention agent desk with the uninitialized desk')
+})
