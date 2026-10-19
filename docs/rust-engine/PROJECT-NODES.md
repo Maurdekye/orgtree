@@ -190,20 +190,29 @@ project that contains itself (that would archive the caller mid-turn); its super
 
 `orgtree_watchdog create kind=fair_queue target=<project>`: the owner must reach the project;
 `fire_mode` is `event`; no pattern; `once` and `notice` work as for other kinds.
+`batch` is 1–20 (default 1), approved 2026-10-19. It is a maximum, not a
+minimum: a short available batch is delivered immediately. A one-shot takes
+one batch. ACK mode caps outstanding mail at this number and acknowledges
+each separately; one ACK frees one place. Only unacked mail is reclaimed.
 
-Delivery (per project; one mail per short transaction, serialized by a `FOR NO KEY UPDATE` on
-the project row, never a global lock):
+Delivery (per project; at most 64 messages per short assignment transaction,
+serialized by a `FOR NO KEY UPDATE` on the project row, never a global lock):
 
 1. Take the project's oldest waiting mail.
 2. Pick one watcher among the project's **armed** `fair_queue` dogs whose owner is live and
-   still reaches the project: least recently woken first (`last_fired` ascending, never-woken
+   still reaches the project and has batch capacity: least recently served first (`last_fired` ascending, never-served
    first), ties to the oldest watcher (`created_at`, then row id) [coordinator choice, user
-   16:13Z delegated it]. Busy, halted or frozen owners stay eligible: the mail waits in their
-   mailbox until they can run [user 16:13Z].
+   16:13Z delegated it]. Choose again for each message. Busy, halted or frozen
+   owners stay eligible in round-robin; ACK mode excludes halted owners and
+   subtracts outstanding mail from their capacity.
 3. The project's copy is marked read and records who claimed it; the watcher receives the mail
    itself, from its original sender, as ordinary mail (so replies go to the sender), marked
-   "via project <name>". The dog's `fired`/`last_fired` advance (a one-shot dog is spent). The
-   watcher is woken unless its dog is a `notice` dog.
+   "via project <name>". The dog's `fired` remains a message count and
+   `last_fired` advances per assignment. One-shots are spent after their batch.
+4. Commit all copies, then wake each recipient once (unless all its copies
+   are passive). Further rounds drain a large backlog up to the existing
+   200-message dispatch bound. Ordinary runtime delivery can coalesce pending
+   batches; batch is not a turn-wide inbox limit.
 
 Runs when mail lands, when a `fair_queue` dog is armed (create, resume, rehire) and at engine
 start. With no eligible watcher the mail waits in the project mailbox (shown on the card and to

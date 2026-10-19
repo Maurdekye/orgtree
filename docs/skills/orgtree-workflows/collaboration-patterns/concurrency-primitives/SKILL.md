@@ -77,6 +77,13 @@ Assume the supervisor has placed workers below @jobs. For quick independent work
 
 Configure is the supervisor's call; each worker makes its own watchdog call; the authorized producer sends the mail. A project post is handed to exactly one listener, least recently woken/handed work (never fired first, then oldest watcher). Round-robin does not wait for completion and may pile work onto a busy, halted or frozen worker's mailbox. It is a load balancer, not a worker-health scheduler. Mail waits when no eligible listener can take it; reading the project inbox does not claim it.
 
+To receive several jobs together, add `"batch":3` to the listener creation call.
+The range is 1–20, default 1. It takes up to that many waiting mails in one
+assignment batch and wakes once, without waiting for a full batch. The queue
+deals one message to the least recently served listener with capacity, then
+chooses again, so a larger batch cannot skip the other listeners. A one-shot
+takes one available batch. Mail identities and senders remain separate.
+
 For a FIFO work queue with completion records, configure ACK mode **before posting**; workers keep the same persistent listeners:
 
 ```json
@@ -86,7 +93,7 @@ For a FIFO work queue with completion records, configure ACK mode **before posti
 ]
 ```
 
-Only the worker actually handed that mail sends the second call, after doing the work. Use the ID from its handed mail wrapper, not an unrelated project/history ID. Each agent holds at most one unacked job per project; acking admits its next job. FIFO is pending eligible mail's handout order; parallel workers may finish out of order, and retries return to the front. The queue does not validate the result. Halt/retire or stopping the listener releases an unacked job; pausing/removing the dog is not an acknowledgement. Work can execute twice after reclaim or a failed acknowledgement: use a job ID and durable checkpoints, and inspect prior effects before retrying.
+Only the worker actually handed that mail sends the second call, after doing the work. Use the ID from its handed mail wrapper, not an unrelated project/history ID. Each listener holds at most its batch size in unacked jobs (default 1); ack each mail separately. Each ACK frees one place. Abandonment returns only unacked mails, preserving completed ACKs. FIFO is pending eligible mail's handout order; parallel workers may finish out of order, and retries return to the front. The queue does not validate the result. Halt/retire or stopping the listener releases an unacked job; pausing/removing the dog is not an acknowledgement. Work can execute twice after reclaim or a failed acknowledgement: use a job ID and durable checkpoints, and inspect prior effects before retrying.
 
 With working checkups and ack timeout enabled, unacked jobs receive the configured reminder budget, then reclaim; exhausted attempts become dead letters. These are eligibility-based checkups, not a precise wall-clock timeout. A turn-end reminder is a separate nudge, not an ack or a forced successful completion. [work-queues](../work-queues/SKILL.md) owns those settings and delivery details. Diagnose and resolve a failed job separately:
 
