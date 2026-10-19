@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-type PopKind = 'superior' | 'model' | 'files'
+type PopKind = 'superior' | 'model' | 'files' | 'options'
 const LEAVE_PX = 70
 
 /** an overlay beside the bar holding the box — above a footer, below a

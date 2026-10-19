@@ -15,7 +15,7 @@
 // elsewhere: the superior picker is the Agents List (canvas/agenttray.tsx),
 // the model picker is the hire tokens' tier chips (SpawnChips in cards.tsx).
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { PickerPopover as Pop } from './canvas/pickerpopover'
 import { useAgentMentions, useOrgMentionCandidates } from './canvas/agentmentions'
 import { useAppFeed, useAppRead } from './appfeed'
@@ -33,7 +33,7 @@ import { MUSE_TIERS, museEffortLevels, useAgyModelsRefresh } from './canvas/shar
 import {
   ALL_TIER_SEAT, hireOf, tierLabel, type CanvasNode,
 } from './canvas/shared'
-import { AttachIcon, SendIcon } from './icons'
+import { AttachIcon, ExpandMoreIcon, SendIcon } from './icons'
 import {
   onQuickChatMemory, quickChatEffort, quickChatHire, quickChatName, quickChatSuperior,
   quickChatTier, readQuickChat, rememberEffort, rememberSuperior, rememberTier,
@@ -52,7 +52,42 @@ export const TOP_LEVEL_LABEL = 'top level'
  *  the canvas tray's otherwise). */
 export type AgentListSource = (query: string, activeOnly?: boolean) => { map: Map<string, CanvasNode>; rows: TrayRow[] }
 
-type PopKind = 'superior' | 'model' | 'files'
+type PopKind = 'superior' | 'model' | 'files' | 'options'
+
+/** THE NARROW BOX (user 2026-10-19 13:33Z): the hire options (model, superior,
+ *  effort, attachments) are a row while the box has room for them beside a
+ *  usable text field, and ONE dropdown button listing them once it does not.
+ *  The rule is a pure function of the box's width and the row's natural width
+ *  (`rowNeed`, measured from the controls themselves, never from the space they
+ *  were squeezed into, as shell/equalsides.ts does), with hysteresis: it
+ *  collapses below `need + QUICK_INPUT_MIN` and returns only `QUICK_HYSTERESIS`
+ *  px above that, so a width on the boundary cannot flip it back and forth. */
+export const QUICK_INPUT_MIN = 140
+export const QUICK_HYSTERESIS = 24
+export function quickCompact(compact: boolean, width: number, need: number): boolean {
+  // unmeasured (no layout yet, or the row is not on screen to measure): keep the state
+  if (!(width > 0) || !(need > 0)) return compact
+  return width < need + QUICK_INPUT_MIN + (compact ? QUICK_HYSTERESIS : 0)
+}
+const ROW_CONTROLS = '.quickchat-model, .quickchat-superior, .effort-bar, .quickchat-attach, .quickchat-send'
+/** the row's natural width: each control at its own width (a clipped label at
+ *  its full text, up to the button's max-width), plus gaps, border and padding;
+ *  0 while the row is collapsed. */
+export function rowNeed(root: HTMLElement): number {
+  if (!root.querySelector('.quickchat-model')) return 0
+  const controls = [...root.querySelectorAll<HTMLElement>(ROW_CONTROLS)]
+  const cs = getComputedStyle(root)
+  const px = (v: string) => parseFloat(v) || 0
+  let need = px(cs.columnGap) * controls.length  // one more gap, for the text field
+    + px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth)
+  for (const el of controls) {
+    let w = el.getBoundingClientRect().width
+    for (const label of el.querySelectorAll<HTMLElement>('.quickchat-label')) w += Math.max(0, label.scrollWidth - label.clientWidth)
+    const cap = parseFloat(getComputedStyle(el).maxWidth)
+    need += Number.isFinite(cap) ? Math.min(w, cap) : w
+  }
+  return need
+}
 /** the canvas hire strip's fade (`.hsof` opacity transition, styles.css) */
 const FADE_MS = 150
 
@@ -119,6 +154,28 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [pop, setPop] = useState<{ kind: PopKind; anchor: HTMLElement } | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const needRef = useRef(0)
+  const [compact, setCompact] = useState(false)
+  const fit = useCallback(() => {
+    const root = rootRef.current
+    if (!root) return
+    const need = rowNeed(root)
+    if (need > 0) needRef.current = need
+    const width = root.getBoundingClientRect().width
+    setCompact(c => quickCompact(c, width, needRef.current))
+  }, [])
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root || typeof ResizeObserver === 'undefined') return
+    const sizes = new ResizeObserver(fit)
+    sizes.observe(root)
+    return () => sizes.disconnect()
+  }, [fit])
+  // also after every render: the row's own width follows the model, the superior's name and the typed name
+  useLayoutEffect(fit)
+  // a pop-over anchored in the row (or the dropdown) does not outlive the switch
+  useEffect(() => { setPop(null) }, [compact])
   const fileRef = useRef<HTMLInputElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const mentionCandidates = useOrgMentionCandidates(slug, tree)
@@ -132,6 +189,51 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   const open = (kind: PopKind) => (e: { currentTarget: HTMLElement }) => {
     const anchor = e.currentTarget
     setPop(p => p?.kind === kind ? null : { kind, anchor })
+  }
+  // the hire options: in the row, or listed in the dropdown (`at` is its button,
+  // where their pickers open from)
+  const hireOptions = (at: HTMLElement | null) => {
+    const go = (kind: PopKind) => (e: { currentTarget: HTMLElement }) =>
+      at ? setPop(p => p?.kind === kind ? null : { kind, anchor: at }) : open(kind)(e)
+    return {
+      model: (
+        <button key="model" type="button" className="quickchat-btn quickchat-model"
+          title={tier ? `model for the new agent: ${tierLabel(tier)}`
+            + (preview ? ` — it will be named ${preview}` : '') : 'no model is available to hire'}
+          aria-expanded={pop?.kind === 'model'} onClick={go('model')}>
+          {tier ? <TierChip tier={tier} /> : <span className="quickchat-label">no model</span>}
+          {preview && <span className="quickchat-label quickchat-name">{preview}</span>}
+        </button>
+      ),
+      superior: (
+        <button key="superior" type="button" className={'quickchat-btn quickchat-superior' + (superior === null ? ' quickchat-top-superior' : '')}
+          title={`superior of the new agent: ${superior ?? 'none (a top-level agent)'}`}
+          {...agentNavProps(superior)}
+          aria-expanded={pop?.kind === 'superior'} onClick={go('superior')}>
+          {/* the shared chip: a project wears its folder mark, not its sentinel tier */}
+          {superior === null ? <SwitchboardMark /> : <TierChip tier={nodeTierOf(supNode)} />}
+          <span className="quickchat-label">{superior ?? TOP_LEVEL_LABEL}</span>
+        </button>
+      ),
+      effort: (
+        <EffortBar key="effort" compact value={effort} level={effort || orgDefault} levels={levelsFor(tier)}
+          title={`effort for the new agent: ${effort || `org default${orgDefault ? ` (${orgDefault})` : ''}`}`
+            + ' — click the chosen level again for the org default'}
+          onSet={(lvl) => rememberEffort(slug, lvl)} disabled={busy} />
+      ),
+      attach: (
+        <button key="attach" type="button" className="quickchat-btn quickchat-attach"
+          title={files.length ? `${files.length} file${files.length > 1 ? 's' : ''} attached` : 'attach files'}
+          aria-label="attachments" aria-expanded={pop?.kind === 'files'}
+          onClick={(e) => {
+            if (files.length) go('files')(e)
+            else { if (at) close(); fileRef.current?.click() }
+          }}>
+          <AttachIcon fontSize="inherit" />
+          {files.length > 0 && <span className="quickchat-count">{files.length}</span>}
+        </button>
+      ),
+    }
   }
   const close = () => setPop(null)
   // choosing the model: re-read agy's model list
@@ -216,9 +318,10 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   // next default (its effort already is, having been read from the memory)
   const remember = (s: QuickSuperior) => { rememberTier(slug, tier); rememberSuperior(slug, s) }
   const supNode = superior === null ? null : nodes.get(superior)
+  const row = hireOptions(null)
 
   return (
-    <div className={'quickchat' + (busy ? ' busy' : '')} data-testid="quickchat"
+    <div ref={rootRef} className={'quickchat' + (busy ? ' busy' : '')} data-testid="quickchat"
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault() }}
       onDrop={(e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); addFiles(e.dataTransfer.files) } }}>
       <input ref={inputRef} className="quickchat-input" value={text} disabled={busy}
@@ -237,38 +340,34 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
           }
         }} />
       {mentions.menu}
-      <button type="button" className="quickchat-btn quickchat-model"
-        title={tier ? `model for the new agent: ${tierLabel(tier)}`
-          + (preview ? ` — it will be named ${preview}` : '') : 'no model is available to hire'}
-        aria-expanded={pop?.kind === 'model'} onClick={open('model')}>
-        {tier ? <TierChip tier={tier} /> : <span className="quickchat-label">no model</span>}
-        {preview && <span className="quickchat-label quickchat-name">{preview}</span>}
-      </button>
-      <button type="button" className={'quickchat-btn quickchat-superior' + (superior === null ? ' quickchat-top-superior' : '')}
-        title={`superior of the new agent: ${superior ?? 'none (a top-level agent)'}`}
-        {...agentNavProps(superior)}
-        aria-expanded={pop?.kind === 'superior'} onClick={open('superior')}>
-        {/* the shared chip: a project wears its folder mark, not its sentinel tier */}
-        {superior === null ? <SwitchboardMark /> : <TierChip tier={nodeTierOf(supNode)} />}
-        <span className="quickchat-label">{superior ?? TOP_LEVEL_LABEL}</span>
-      </button>
-      <EffortBar compact value={effort} level={effort || orgDefault} levels={levelsFor(tier)}
-        title={`effort for the new agent: ${effort || `org default${orgDefault ? ` (${orgDefault})` : ''}`}`
-          + ' — click the chosen level again for the org default'}
-        onSet={(lvl) => rememberEffort(slug, lvl)} disabled={busy} />
-      <button type="button" className="quickchat-btn quickchat-attach"
-        title={files.length ? `${files.length} file${files.length > 1 ? 's' : ''} attached` : 'attach files'}
-        aria-label="attachments" aria-expanded={pop?.kind === 'files'}
-        onClick={(e) => files.length ? open('files')(e) : fileRef.current?.click()}>
-        <AttachIcon fontSize="inherit" />
-        {files.length > 0 && <span className="quickchat-count">{files.length}</span>}
-      </button>
+      {compact
+        ? (
+          <button type="button" className="quickchat-btn quickchat-options" aria-label="hire options"
+            title={`hire options — model ${tier ? tierLabel(tier) : 'none'}, superior ${superior ?? TOP_LEVEL_LABEL}, `
+              + `effort ${effort || 'org default'}${files.length ? `, ${files.length} attached` : ''}`}
+            aria-haspopup="dialog" aria-expanded={pop?.kind === 'options'} onClick={open('options')}>
+            {tier && <TierChip tier={tier} />}
+            <ExpandMoreIcon fontSize="inherit" />
+            {files.length > 0 && <span className="quickchat-count">{files.length}</span>}
+          </button>
+        )
+        : <>{row.model}{row.superior}{row.effort}{row.attach}</>}
       <button type="button" className="quickchat-btn quickchat-send" title="hire and send (Enter)"
         aria-label="send" disabled={busy || !text.trim()} onClick={() => void send()}>
         <SendIcon fontSize="inherit" />
       </button>
       <input ref={fileRef} type="file" multiple hidden data-testid="quickchat-files"
         onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} />
+      {pop?.kind === 'options' && (() => {
+        const list = hireOptions(pop.anchor)
+        return (
+          <Pop anchor={pop.anchor} onClose={close} kind="options" label="hire options">
+            {([['model', list.model], ['superior', list.superior], ['effort', list.effort], ['files', list.attach]] as const).map(([cap, el]) => (
+              <div className="quickchat-opt" key={cap}><span className="quickchat-opt-cap">{cap}</span>{el}</div>
+            ))}
+          </Pop>
+        )
+      })()}
       {pop?.kind === 'superior' && (
         <Pop anchor={pop.anchor} onClose={close} kind="superior">
         <SuperiorPicker nodes={nodes} agentList={agentList} superior={superior}

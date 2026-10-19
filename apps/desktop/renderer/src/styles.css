@@ -8877,6 +8877,12 @@ main:has(> .orgbar.native-header) > .error {
 @keyframes quickchat-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes quickchat-fade-out { from { opacity: 1; } to { opacity: 0; } }
 .quickchat-pop-model .hsof button.sel { box-shadow: 0 0 0 2px var(--button-accent); }
+/* the hire options collapsed into one dropdown (QuickChatBox quickCompact): the list opens as a column */
+.quickchat-options { gap: 2px; padding: 0 4px; }
+.quickchat-pop-options { display: flex; flex-direction: column; gap: 4px; min-width: 190px; }
+.quickchat-opt { display: flex; align-items: center; gap: 8px; }
+.quickchat-opt-cap { flex: none; width: 56px; color: var(--dim); font-size: 11px; }
+.quickchat-pop-options .quickchat-btn { max-width: 160px; }
 .quickchat-files { margin: 0; padding: 0; list-style: none; max-width: 320px; max-height: 40vh; overflow-y: auto; }
 .quickchat-files li { display: flex; align-items: center; gap: 6px; padding: 2px 4px; font-size: 12px; }
 .quickchat-file { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
