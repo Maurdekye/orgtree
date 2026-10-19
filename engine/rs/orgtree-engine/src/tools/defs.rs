@@ -1484,7 +1484,7 @@ mod builder_stack_tests {
         let project = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_project").unwrap();
         let actual: Vec<serde_json::Value> = serde_json::from_slice(&serde_json::to_vec(&super::all()).unwrap()).unwrap();
         let actual_project = actual.iter().find(|card| card["name"] == "orgtree_project").unwrap().clone();
-        assert!(actual_project["description"].as_str().unwrap().contains("Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours."));
+        assert!(actual_project["description"].as_str().unwrap().contains("Claim via slot watchdog; slots lists holders/line; release_slot releases yours."));
         project["description"] = actual_project["description"].clone();
         let schema = &mut project["inputSchema"];
         schema["properties"]["action"]["enum"] = serde_json::json!(["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","fire_event","listeners","presentations","read_presentation"]);
