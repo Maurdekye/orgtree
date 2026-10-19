@@ -5330,9 +5330,10 @@ export function EffortButton({ value, effective, currentEffort, pendingEffort, l
   // one refresh — the org default is not known here. Transient and honest: it
   // is what the control showed before this change anyway.
   const shown = (pending || value || queuedLevel || effective || '')
+  const isDefault = !(pending ?? value)
   const buttonTitle = queuedChange
     ? `Effort changes to ${queuedLevel} next turn (this turn: ${currentEffort})`
-    : `Thinking effort: ${shown || 'unset'}. ${EFFORT_CHANGE_HELP}`
+    : `Thinking effort: ${shown || 'unset'}${isDefault && shown ? ' (default)' : ''}. ${EFFORT_CHANGE_HELP}`
   const why = value ? 'set on this agent'
     : 'inherited — change it on this agent, or org-wide in ⚙ settings'
   const wrapRef = useRef<HTMLSpanElement | null>(null)
