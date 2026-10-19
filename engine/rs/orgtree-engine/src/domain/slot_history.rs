@@ -51,7 +51,7 @@ pub async fn page(client: &impl GenericClient, project: i64, before: Option<&str
     let rows = rows.into_iter().map(|r| {
         let ended: DateTime<Utc> = r.get(1);
         let cursor = Cursor { id: r.get(0), ended };
-        let row = json!({"lease":r.get::<_,String>(2),"agent":r.get::<_,String>(3),"slot":r.get::<_,i32>(4),
+        let row = json!({"lease":r.get::<_,String>(2),"agent":r.get::<_,String>(3),
             "reason":r.get::<_,Option<String>>(5),"since":crate::util::iso(r.get::<_,DateTime<Utc>>(6)),
             "ended":crate::util::iso(ended),"how":r.get::<_,Option<String>>(7),"by":r.get::<_,Option<String>>(8),
             "queued":r.get::<_,Option<DateTime<Utc>>>(9).map(crate::util::iso)});
