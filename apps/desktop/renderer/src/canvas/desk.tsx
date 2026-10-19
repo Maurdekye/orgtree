@@ -34,7 +34,7 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { CopyFeedback, copyToClipboard, openFallbackObjectMenu, useContextMenu } from './contextmenu'
-import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge, QueuedEffortBadge } from './effort'
+import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge, QueuedEffortBadge, useOrgDefaultEffort } from './effort'
 import { EffortBar } from './effortbar'
 import { tierEffortLevels } from './staffingoptions'
 import { museEffortLevels } from './shared'
@@ -5291,19 +5291,16 @@ function SysLine({ m }: { m: ChatMessage }) {
 // non-default effort header card reads — so the control and the card can
 // never offer or describe different levels.
 
-// `effective` is what the next turn WILL run at, resolved server-side by
-// Org.effective_effort — the same call that builds the --effort flag, so the
-// control and the runtime cannot disagree. It is never empty: orgtree passes
-// the flag on every turn precisely so that this can always name a level.
-// (Reported three times before it was right. Attempt 1 read only
-// node.scope.effort, so an unconfigured agent showed nothing. Attempt 2 fell
-// back to an effort field in the transcript, which the CLI writes for opus and
-// not for haiku — so it worked on the agent I happened to test and nowhere
-// else. The lesson is in §7 of docs/state-architecture-review.md: read the
-// value that CAUSES the behaviour, not one that correlates with it.)
+// `effective` is the per-agent runtime value when the host has it. The Rust
+// tree projection currently sends the org fallback in its settings group
+// (`default_effort` + `effort_default`) but omits `effort_effective` from node
+// rows. The OrgDefaultEffort provider resolves those settings with the same
+// fallback rules as the engine, so an inherited agent still has a level to
+// show even when its row has no effective-effort field.
 export function EffortButton({ value, effective, currentEffort, pendingEffort, levels, onSet }:
 { value: string; effective?: string; currentEffort?: string | null; pendingEffort?: string | null; levels?: string[]
   onSet: (lvl: string) => Promise<unknown> | void }) {
+  const orgDefault = useOrgDefaultEffort()
   const [open, setOpen] = useState(false)
   // OPTIMISTIC (user report 2026-08-03: "a lag of around 3-5 seconds when i
   // change the effort level before it updates visually"). The control used to
@@ -5332,7 +5329,7 @@ export function EffortButton({ value, effective, currentEffort, pendingEffort, l
   // a pending CLEAR falls back to `effective`, which is still the old level for
   // one refresh — the org default is not known here. Transient and honest: it
   // is what the control showed before this change anyway.
-  const shown = (pending || queuedLevel || value || effective || '')
+  const shown = (pending || queuedLevel || value || effective || orgDefault || '')
   const isDefault = !(pending ?? value)
   const buttonTitle = queuedChange
     ? `Effort changes to ${queuedLevel} next turn (this turn: ${currentEffort})`
