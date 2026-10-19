@@ -118,7 +118,7 @@
   bounded per-project slot-status read for held/ended lease details; missing
   history stays unknown. Never infer lease ending from absence in the org's
   capped active-lease feed. [verified: `domain/watchdogs.rs`, `domain/slots.rs`,
-  renderer `canvas/{slotclaim,modals}.tsx`; user 2026-10-19 21:22Z]
+  renderer `canvas/{slotclaim.ts,modals.tsx}`; user 2026-10-19 21:22Z]
 
 - Project edges do not cap agent visibility, tools or folder authority. Chart,
   state inspection and watchdog access use agent reporting relations; top-level
