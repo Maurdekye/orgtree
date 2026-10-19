@@ -25,6 +25,7 @@ pub mod listeners;
 pub mod projects;
 pub mod presentation_chunks;
 pub mod slots;
+pub mod slot_history;
 pub mod peer_mail;
 pub mod scope;
 pub mod tool_groups;
