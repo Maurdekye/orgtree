@@ -61,6 +61,11 @@ const FUTURE_SHARE = 0.25
  *  mirrored (its value is 100 − this), so the rightmost thumb is 0 % */
 export const AHEAD_DEFAULT = 20
 export const AHEAD_KEY = 'orgtree-usage-history-ahead-pct'
+/** two consecutive readings at least this far apart are joined by a STEP (the
+ *  old value held flat, then a jump at the new reading's time), never a slope:
+ *  a diagonal across a long gap would show a gradual change nobody observed
+ *  (user 2026-10-19). Closer readings keep the straight line. */
+export const STEP_GAP_MS = 30 * 60_000
 /** a projection needs a current window at least this long */
 const MIN_TREND_MS = 15 * 60_000
 
@@ -113,6 +118,31 @@ export function slope(pts: Pt[]): number | null {
   let den = 0
   for (const p of pts) { num += (p.t - mt) * (p.v - mv); den += (p.t - mt) ** 2 }
   return den > 0 ? num / den : null
+}
+
+/** The corners of a segment's drawn line: across a gap of STEP_GAP_MS or more
+ *  an extra corner holds the previous value until the new reading's time. */
+export function stepPoints(seg: Pt[]): Pt[] {
+  const out: Pt[] = []
+  for (const p of seg) {
+    const prev = out.at(-1)
+    if (prev && p.t - prev.t >= STEP_GAP_MS) out.push({ t: p.t, v: prev.v })
+    out.push(p)
+  }
+  return out
+}
+
+/** The reading the hover shows at time t: the one nearest, except inside a
+ *  step gap, where the earlier reading is still the value in effect. */
+export function readingAt(segments: Pt[][], t: number): Pt | null {
+  for (const seg of segments) {
+    for (let i = 0; i + 1 < seg.length; i++) {
+      const a = seg[i]!
+      const b = seg[i + 1]!
+      if (t >= a.t && t < b.t && b.t - a.t >= STEP_GAP_MS) return a
+    }
+  }
+  return segments.flat().reduce<Pt | null>((b, p) => (!b || Math.abs(p.t - t) < Math.abs(b.t - t) ? p : b), null)
 }
 
 /** Turn one series' buckets and resets into what the chart draws and the
@@ -355,7 +385,7 @@ function Chart({ m, from, to, now, ahead }: { m: SeriesModel; from: number; to: 
   let tip: ReactNode = null
   if (hover != null) {
     const t = axis.time((hover - PAD.l) / plotW)
-    const near = all.reduce<Pt | null>((b, p) => (!b || Math.abs(p.t - t) < Math.abs(b.t - t) ? p : b), null)
+    const near = readingAt(m.segments, t)
     let body: ReactNode
     if (t > now && m.projection && hasAhead) {
       const { from: a, to: b } = m.projection
@@ -406,7 +436,7 @@ function Chart({ m, from, to, now, ahead }: { m: SeriesModel; from: number; to: 
             </g>
           )}
           {hasPast && m.segments.map((seg, i) => seg.length > 1
-            ? <path key={i} className="uh-line" d={path(seg)} />
+            ? <path key={i} className="uh-line" d={path(stepPoints(seg))} />
             : <circle key={i} className="uh-dot" cx={x(seg[0]!.t)} cy={y(seg[0]!.v)} r={2.5} />)}
           {hasAhead && m.projection && (
             <g>
