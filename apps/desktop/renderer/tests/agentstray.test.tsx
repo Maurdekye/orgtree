@@ -214,6 +214,28 @@ uiTest('desk effort control is absent for no-effort models and has a concise too
       'Thinking effort: medium. Changes apply from the next model call.')
   })
 
+uiTest('desk effort control shows the effective inherited default and queued next-turn value',
+  async ({ mount }) => {
+    const { EffortButton } = await import('../src/canvas/desk')
+    const inherited = await mount(<EffortButton value="" effective="high"
+      levels={['low', 'medium', 'high', 'xhigh', 'max']} onSet={noop} />, (el) => el)
+    const inheritedButton = inherited.el.querySelector<HTMLButtonElement>('.cc-eff')!
+    assert.equal(inheritedButton.textContent, 'high',
+      'the inherited control shows the server-resolved effective default')
+    assert.equal(inheritedButton.classList.contains('inherited'), true,
+      'the effective default remains visually distinguished from an explicit setting')
+
+    const queued = await mount(<EffortButton value="high" effective="high"
+      currentEffort="medium" pendingEffort="high"
+      levels={['low', 'medium', 'high', 'xhigh', 'max']} onSet={noop} />, (el) => el)
+    const queuedButton = queued.el.querySelector<HTMLButtonElement>('.cc-eff')!
+    assert.equal(queuedButton.textContent, 'high', 'the queued value is shown')
+    assert.equal(queuedButton.classList.contains('queued-change'), true,
+      'the queued value uses the shared pending style')
+    assert.equal(queuedButton.getAttribute('title'),
+      'Effort changes to high next turn (this turn: medium)')
+  })
+
 uiTest('every Claude tier in the Agents list uses the shared Claude theme',
   async ({ mount }) => {
     const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
