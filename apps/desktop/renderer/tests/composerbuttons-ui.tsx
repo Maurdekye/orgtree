@@ -8,7 +8,7 @@ globalThis.fetch=async(url)=>new Response(JSON.stringify(String(url).includes('/
   windowed:true,has_older:false,before:null,draft_epoch:'synthetic:0',
 }:{}),{headers:{'Content-Type':'application/json'}})
 document.documentElement.dataset.theme='dark'
-createRoot(document.getElementById('root')!).render(<main style={{padding:18,display:'flex',gap:12}}>
+createRoot(document.getElementById('root')!).render(<main style={{padding:18,display:'flex',flexDirection:'row',gap:12}}>
   {[['idle',false,false],['queued effort / interrupt',true,false],['project broadcast',false,true]].map(([name,busy,project])=>
     <section data-buttons={String(name)} key={String(name)} style={{height:640,minWidth:0,flex:1}}>
       <h4 style={{margin:'0 0 4px'}}>{String(name)}</h4>
