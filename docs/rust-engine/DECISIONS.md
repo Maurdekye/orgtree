@@ -199,6 +199,10 @@ Explicit URLs/ports retain their destination. Test returns the chosen endpoint;
 untested bare-host connections discover through the same helper. Health checks
 remain read-only; they do not register an identity or send mail. No secrets are
 included in discovery output.
+New hub entries receive stable IDs on settings save. The network pass repairs
+old keyless entries using a compare-and-set update; existing valid IDs and
+registration state survive. Earlier Add saved no ID and the registration worker
+silently skipped those entries despite a successful read-only health Test.
 
 **Watchdog recurrence, user 2026-10-17 14:46Z/14:48Z:** periodic polling and
 quiet timers retain fixed next timestamps through restarts. Missed slots

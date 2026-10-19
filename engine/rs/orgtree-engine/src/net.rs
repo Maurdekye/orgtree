@@ -286,7 +286,23 @@ pub fn hub_entries(engine: &Engine, autoconnect: bool, remote: &[String]) -> Vec
 
 /// Stable per-hub keys are required by registration and connection status.
 #[nolog]
-pub fn assign_hub_ids(_hubs:&mut Value)->bool {false}
+pub fn assign_hub_ids(hubs:&mut Value)->bool {
+    let Some(hubs)=hubs.as_array_mut() else {return false};
+    let reserved:HashSet<String>=hubs.iter().filter_map(|h|h["id"].as_str())
+        .filter(|id|!id.is_empty()).map(str::to_owned).collect();
+    let mut seen=HashSet::new();let mut changed=false;
+    for hub in hubs.iter_mut().filter(|h|h.is_object()) {
+        if let Some(id)=hub["id"].as_str().filter(|id|!id.is_empty()) {
+            if seen.insert(id.to_owned()) {continue;}
+        }
+        let id=loop {
+            let id=crate::util::random_hex(4);
+            if !reserved.contains(&id)&&seen.insert(id.clone()) {break id;}
+        };
+        hub["id"]=json!(id);changed=true;
+    }
+    changed
+}
 
 /// Mint the org's identity and hub list when it has none (idempotent: an
 /// existing identity is never touched — the address is permanent).
@@ -350,6 +366,17 @@ async fn participants(engine: &Engine) -> Result<Vec<Part>> {
                     continue;
                 }
             };
+        }
+        // Earlier AddHub saves had no per-hub id, so participants silently
+        // skipped them. Repair them once, without overwriting a concurrent
+        // settings edit or changing an existing valid registration key.
+        let original=net["hubs"].clone();let mut repaired=original.clone();
+        if assign_hub_ids(&mut repaired) {
+            let row=engine.db.get().await?.query_opt(
+                "UPDATE ot.orgs SET net=jsonb_set(net,'{hubs}',$2) WHERE id=$1 AND net->'hubs'=$3 RETURNING net",
+                &[&org_id,&repaired,&original]).await?;
+            let Some(row)=row else {continue};
+            net=row.get(0);
         }
         // the hosted hub's address wins for the implicit local entry
         if let Some(addr) = &hosted {

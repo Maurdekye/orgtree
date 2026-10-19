@@ -340,7 +340,9 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     if b.contains_key("net_autoconnect") || b.contains_key("net_hubs") {
         let mut net = Map::new();
         if let Some(h) = b.get("net_hubs").filter(|v| v.is_array()) {
-            net.insert("hubs".into(), h.clone());
+            let mut hubs=h.clone();
+            crate::net::assign_hub_ids(&mut hubs);
+            net.insert("hubs".into(), hubs);
         }
         // 3.x: auto-connect on adds this computer's hub to the org's list
         // (first), off takes it out
