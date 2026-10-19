@@ -397,7 +397,7 @@ test('§5 the empty state says how to claim and that nobody waits', async (t) =>
   assert.match(panel.textContent ?? '', /No concurrency slot has been held yet\./)
 })
 
-test('slot sections share column headers and the same six-cell row structure', async t => {
+test('slot sections share columns with a separate line position and blank non-applicable positions', async t => {
   const nd = project({ slots_capacity: 1 })
   const state = projectSlotState('build', 1, leases, dogs)
   const v = await mountView(<SlotsView node={nd} state={state} map={new Map([[nd.id, nd]])}
@@ -407,9 +407,13 @@ test('slot sections share column headers and the same six-cell row structure', a
   const table = v.el.querySelector('table')
   assert.ok(table, 'one shared table determines widths for every section')
   assert.deepEqual([...table.querySelectorAll('thead th')].map(el => el.textContent),
-    ['Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Action'])
+    ['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Action'])
   assert.equal(table.querySelectorAll('tbody').length, 3)
-  assert.equal([...table.querySelectorAll('.slot-row')].every(row => row.children.length === 6), true)
+  assert.equal([...table.querySelectorAll('.slot-row')].every(row => row.children.length === 7), true)
+  assert.equal(table.querySelector('.slots-holding .slot-position')?.textContent, '')
+  assert.equal(table.querySelector('.slots-history .slot-position')?.textContent, '')
+  assert.equal(table.querySelector('.slots-line .slot-position')?.textContent, '1st')
+  assert.doesNotMatch(table.querySelector('.slots-line .slot-agent')?.textContent ?? '', /1st/)
   assert.equal(table.querySelector('.slots-holding .slot-ended')?.textContent, '')
   assert.equal(table.querySelector('.slots-line .slot-held')?.textContent, '')
   assert.equal(table.querySelector('.slots-line .slot-ended')?.textContent, '')
