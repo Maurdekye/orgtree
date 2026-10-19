@@ -142,7 +142,7 @@ test('the near-zoom agent name uses the rich tooltip without a plain title', asy
   assert.equal(name.title, 'Claude Opus 5.5 · max', 'hover resolves the rich agent tooltip on the name itself')
 })
 
-test('compact-map agent name uses the rich tooltip; far-zoom icon starts with its name', async t => {
+test('compact-map and far-zoom agent tooltips omit the already visible name', async t => {
   const nd = {
     id: 'worker', state: 'live', tier: 'opus', model_id: 'claude-opus-5-5',
     children: [], seat: 1, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] },
@@ -170,7 +170,7 @@ test('compact-map agent name uses the rich tooltip; far-zoom icon starts with it
   await flush()
   const card = far.el.querySelector<HTMLElement>('.sq')!
   await inAct(() => card.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
-  assert.equal(card.title, 'worker\nClaude Opus 5.5 · max', 'the name-less far-zoom locator identifies its agent')
+  assert.equal(card.title, 'Claude Opus 5.5 · max', 'the floating name already identifies the far-zoom agent')
 })
 
 test('name-less shared agent and project links put the identity first', async t => {
