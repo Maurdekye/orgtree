@@ -9,6 +9,7 @@ import { clearProviderDiscovery } from '../src/api'
 import { hireOf, setMuseProvider, setOpenRouterTiers, setLangServerTiers, USER, tierLabel } from '../src/canvas/shared'
 import type { CanvasNode, HireProviders } from '../src/canvas/shared'
 import { resetStaffingOptionsForTests } from '../src/canvas/staffingoptions'
+import { pinModal, rememberModalOpen, forgetModalPins, forgetModalOpenCache } from '../src/canvas/modalpin'
 import type { ProviderInfo, ProvidersPayload, TreePayload } from '../src/types'
 
 const noop = () => {}
@@ -40,6 +41,11 @@ function adopt(p: ProvidersPayload) {
 async function config(t: TestContext, providers: ProvidersPayload, off?: string, current = 'haiku') {
   const before = globalThis.fetch
   clearProviderDiscovery(); resetStaffingOptionsForTests(); localStorage.clear(); adopt(providers)
+  forgetModalPins(); forgetModalOpenCache()
+  // Restore the real settings panel: the canvas intentionally omits card gear
+  // buttons at its default far zoom, so a gear query is not a stable entry point.
+  pinModal('node-config', { x: 10, y: 10, w: 930, h: 630 }, 'menu-org')
+  rememberModalOpen('node-config', 'menu-org', { agent: 'worker', generation: 1 })
   globalThis.fetch = legacyAppBackend(async input => {
     const url = String(input)
     return json(url === '/api/providers' ? providers : url.endsWith('/accounts-allowed')
@@ -51,11 +57,8 @@ async function config(t: TestContext, providers: ProvidersPayload, off?: string,
   const view = await mountView(<OrgCanvas tree={tree(current)} slug="menu-org"
     op={async () => { throw Error('no mutations in a menu test') }} toast={noop} mailEvt={null} onAccounts={noop} />, el => el)
   t.after(async () => { await view.unmount(); globalThis.fetch = before; clearProviderDiscovery();
-    resetStaffingOptionsForTests(); localStorage.clear(); adopt({ providers: [] }) })
+    resetStaffingOptionsForTests(); localStorage.clear(); forgetModalPins(); forgetModalOpenCache(); adopt({ providers: [] }) })
   await settle()
-  const gear = [...view.el.querySelectorAll<HTMLButtonElement>('.gearbtn')].at(-1)
-  assert.ok(gear, 'actual canvas agent settings action')
-  await inAct(() => gear.click()); await settle()
   const modelTab = [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent === 'Model')
   assert.ok(modelTab, 'the same configuration panel opened by desk/composer')
   await inAct(() => modelTab.click()); await settle()
