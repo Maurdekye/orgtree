@@ -145,7 +145,7 @@ test('§3 narrow: the options collapse into one dropdown button; the input and s
   } finally { await done() }
 })
 
-test('§4 clicking the dropdown lists every hire option; the model option still opens the model picker', async () => {
+test('§4 clicking the dropdown lists every hire option; the model option still opens the model picker (beside the list)', async () => {
   box.width = 900
   const { view, done } = await quick()
   try {
@@ -159,7 +159,7 @@ test('§4 clicking the dropdown lists every hire option; the model option still 
     const modelBtn = pop!.querySelector('.quickchat-model') as HTMLButtonElement
     assert.equal(modelBtn.title, 'no model is available to hire', 'same tooltip as the row')
     await inAct(async () => { modelBtn.click(); await flush(4) })
-    assert.equal(document.body.querySelector('.quickchat-pop-options') === null, true, 'the list gives way to the model picker')
+    assert.equal(document.body.querySelector('.quickchat-pop-options') !== null, true, 'the list stays open beside the model picker')
     assert.equal(document.body.querySelector('.quickchat-pop-model') !== null, true, 'the model picker is open')
   } finally { await done() }
 })
