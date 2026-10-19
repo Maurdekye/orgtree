@@ -37,6 +37,7 @@ pub mod control;
 mod failures;
 pub mod isolation;
 mod pictures;
+mod discovery;
 pub(crate) mod typing;
 
 pub const LOCAL_HUB_ID: &str = "local";
@@ -1405,13 +1406,15 @@ pub async fn reveal(engine: &Engine, org_id: i64, org_slug: &str) -> Result<Valu
 /// `GET /api/net/probe`: does a hub answer at this address right now? (a hint)
 #[logged]
 pub async fn probe(engine: &Engine, address: &str) -> Value {
-    let addr = if address.trim().is_empty() { DEFAULT_HUB_ADDRESS.to_string() } else { normalize_address(address) };
+    let addresses=discovery::candidates(address);
     // a rig run asks no hub but the one it hosts
-    if crate::rig::active() && !(crate::rig::hub() && engine.hub.address.load_full().as_deref() == Some(&addr)) {
+    let addresses:Vec<_>=addresses.into_iter().filter(|addr| !crate::rig::active()
+        || (crate::rig::hub() && engine.hub.address.load_full().as_deref() == Some(addr))).collect();
+    if addresses.is_empty() {
         return json!({ "ok": false });
     }
-    match crate::mailhub::healthz(&addr, Duration::from_secs(2)).await {
-        Some(h) => json!({ "ok": true, "name": h["name"], "version": h["version"] }),
+    match discovery::probe_many(addresses,Duration::from_secs(2)).await {
+        Some((addr,h)) => json!({ "ok": true, "name": h["name"], "version": h["version"],"address":addr }),
         None => json!({ "ok": false }),
     }
 }
@@ -1446,3 +1449,7 @@ pub fn unregister(engine: &Engine, net: Value) {
 
 #[path = "net_cards.rs"]
 pub(crate) mod cards;
+
+#[cfg(test)]
+#[path = "net/discovery_tests.rs"]
+mod discovery_tests;
