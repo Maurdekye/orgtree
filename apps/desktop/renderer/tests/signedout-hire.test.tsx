@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { SpawnChips } from '../src/canvas/cards'
 import { QuickChat } from '../src/QuickChatBox'
 import { DeskModelButton } from '../src/canvas/deskmodel'
+import { HireSheet } from '../src/canvas/OrgCanvas'
 import { antigravityTierOffer, hireOf, syncProviderRegistries, type CanvasNode } from '../src/canvas/shared'
 import { resetStaffingOptionsForTests } from '../src/canvas/staffingoptions'
 import { legacyAppBackend } from './appfeed-fixture'
@@ -24,9 +25,9 @@ const providers: ProviderInfo[] = families.map(([id,label,tier]) => ({
 const hires = () => Object.fromEntries(['claudeHire','codexHire','antigravityHire','museHire','openrouterHire','langserverHire']
   .map((key,i) => [key,hireOf(providers[i])]))
 const noop=()=>{}
-function previews(root:ParentNode, cases:ReadonlyArray<readonly [string,string,string]>=families) {
+function previews(root:ParentNode, cases:ReadonlyArray<readonly [string,string,string]>=families, strip='.hsof') {
   for(const [,label,tier] of cases){
-    const chip=root.querySelector<HTMLButtonElement>('.hsof button.t-'+tier)
+    const chip=root.querySelector<HTMLButtonElement>(strip+' button.t-'+tier)
     assert.ok(!!chip, label+' token exists')
     assert.equal(chip!.disabled,true,label+' cannot hire')
     assert.equal(chip!.classList.contains('codex-preview'),true,label+' uses dashed style')
@@ -38,6 +39,18 @@ for(const family of families)test(`${family[1]} signed-out payload has a disable
   installFetch(new FakeServer());syncProviderRegistries({providers})
   const view=await mountView(<SpawnChips seats={{}} {...hires()} onSpawn={noop}/>,el=>el)
   try{previews(view.el,[family])}finally{await view.unmount()}
+})
+
+test('mobile hire sheet uses the same all-family signed-out explanation and dashed previews',async()=>{
+  installFetch(new FakeServer());syncProviderRegistries({providers})
+  let hiresCalled=0
+  const view=await mountView(<HireSheet anchor={{id:'worker'} as CanvasNode} seats={{}} defaultGrant={0}
+    {...hires()} onHire={()=>hiresCalled++} onClose={noop}/>,el=>el)
+  try{
+    previews(document.body,families,'.hs-tiers')
+    for(const chip of document.querySelectorAll<HTMLButtonElement>('.hs-tiers button'))chip.click()
+    assert.equal(hiresCalled,0)
+  }finally{await view.unmount()}
 })
 for(const side of [undefined,'top','left','right'] as const) test(`signed-out families remain visible on ${side??'bottom'} strip despite empty eligibility`,async()=>{
   installFetch(new FakeServer());syncProviderRegistries({providers})
