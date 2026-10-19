@@ -4468,8 +4468,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           }} />
         {mentions.menu}
         <div className="cc-controls">
-        <div className="cc-fast-row"><FastModeButton node={node} slug={slug} toast={toast} />
-          <UrgentAgentOptions active={node.dnd} value={urgentMail} onChange={setUrgentMail} /></div>
+        <div className="cc-fast-row">
+          <UrgentAgentOptions active={node.dnd} value={urgentMail} onChange={setUrgentMail} />
+          <FastModeButton node={node} slug={slug} toast={toast} /></div>
         <div className="cc-primary-row">
         <EffortButton value={node.scope?.effort ?? ''}
           effective={node.effort_effective ?? ''}
@@ -5419,7 +5420,7 @@ export function EffortButton({ value, effective, currentEffort, pendingEffort, l
           + (queuedChange ? ' queued-change' : '')}
         title={buttonTitle}
         onClick={() => setOpen((o) => !o)}>
-        {shown || 'effort'}
+        <span className="cc-eff-label">{shown || 'effort'}</span>
       </button>
       {open && (
         <span className="eff-pop">
