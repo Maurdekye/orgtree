@@ -1,7 +1,7 @@
 // Proof: the sign-in helper starts sandboxed Codex seats in the user's
 // session (docket windows-sign-in-credential-helper-so-git-gh-work, phase 2),
 // where Codex's Windows sandbox works (openai/codex#46412 breaks it in
-// Session 0). The REAL installed Codex (`--real-cli`) on the Language Server
+// Session 0). The REAL installed Codex (`--real-cli`) on the Language model server
 // lane against tools/rig/fakellm.mjs; the engine reports the boot task's
 // Session 0 (`--session0 1`; a rig started by an agent under the boot-task
 // engine is really in Session 0, and the proof records the sessions it sees).

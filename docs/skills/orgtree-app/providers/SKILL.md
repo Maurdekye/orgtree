@@ -26,4 +26,4 @@ How each harness behaves is in [orgtree-harnesses](../harnesses/SKILL.md).
 - [orgtree-accounts-registry](accounts-registry/SKILL.md): Accounts: account rows, Active, adding (managed, profile folder, API key), removing, clearing marks.
 - [orgtree-api-key-fallback](api-key-fallback/SKILL.md): Subscription inference and falling back to API-key accounts.
 - [orgtree-openrouter](openrouter/SKILL.md): OpenRouter: hireable models, keys, spend caps and the model browser.
-- [orgtree-language-servers](language-servers/SKILL.md): Local language servers: adding, editing, agents at once, seat price.
+- [orgtree-language-servers](language-servers/SKILL.md): Local language model servers: adding, editing, agents at once, seat price.

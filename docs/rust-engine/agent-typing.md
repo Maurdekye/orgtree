@@ -107,7 +107,7 @@ real model).
 Only addresses leave the engine, never content: the body is `{"to": [...]}`
 and the hub refuses any other field. The per-heartbeat helper is `#[nolog]`
 (hot); the call's `run` is logged once. There is no push and no
-notification. Codex, Muse, Antigravity and language-server lanes get the
+notification. Codex, Muse, Antigravity and language model server lanes get the
 same tool shape and validation, but no indicator: only the Claude stream is
 probed.
 

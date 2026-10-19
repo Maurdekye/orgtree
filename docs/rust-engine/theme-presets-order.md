@@ -10,7 +10,7 @@ Muse Eggshell, OpenRouter Lavender, LS Gold, Custom. Shared
 `PROVIDER_THEME_PRESETS` maps the existing provider IDs to preset IDs;
 `VISUAL_THEMES` derives its order from that table for Display and onboarding.
 Providers CLI sections sort a filtered copy using the same table; the existing
-OpenRouter and Language server sections follow them. Orgtree stays first and
+OpenRouter and Language model server sections follow them. Orgtree stays first and
 Custom last. Theme IDs remain appearance values, separate from provider IDs.
 
 Round 445 (rig-sol-b, 2026-10-15) measured the original `a47bb16` targeted

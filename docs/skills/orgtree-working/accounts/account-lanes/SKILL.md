@@ -10,7 +10,7 @@ Use account lanes to identify the credentials and allowance a task spends. Accou
 
 ## Identify the serving account
 
-The current turn's usage board stars its serving lane. A native sign-in is named `<provider>/primary`; additional logins have registry IDs. Each OpenRouter key is `openrouter-N` and a language server is `langserver:<id>`. Email/labels identify a login to a person; use canonical IDs for binding.
+The current turn's usage board stars its serving lane. A native sign-in is named `<provider>/primary`; additional logins have registry IDs. Each OpenRouter key is `openrouter-N` and a local language model server is displayed as `LM server: <name>` with canonical ID `langserver:<id>`. Email/labels identify a login to a person; use canonical IDs for binding. The display rename does not change saved account IDs, provider keys or API routes.
 
 A running turn keeps the account captured at admission. A pending account change is for the next turn. Omitted account on a hire uses compatible hiring defaults and applicable placement; it does not inherit the manager's live login. Omitted account on a retool/rehire preserves the stored binding. `primary` restores the target native provider's sign-in, not guaranteed capacity. OpenRouter keys are peers, with no privileged primary; an unbound existing seat uses the first key in list order, while automatic new placement binds a key.
 

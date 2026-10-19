@@ -35,7 +35,7 @@ export default async function(rig, { flags = {} } = {}) {
     const server = await rig.api('POST', '/api/langservers', { preset: 'llamacpp', address: llm.url,
       harness: 'claude-code', label: 'Order proof llama.cpp', models: [{ id: 'fake-model:latest', context: 65536 }] })
     const tier = Object.values(server.server?.models ?? {})[0]?.tier
-    if (!tier) throw new Error('scratch language-server tier not created')
+    if (!tier) throw new Error('scratch language model server tier not created')
     await rig.op({ op: 'hire', name: 'local', tier, grant: 1, charter: 'Stream order proof only.' })
     const scenario = { default: { turns: [{ match: 'ORDER-PROOF', steps: [
       { text: 'ORDER_FIRST_REPLY', chunk: 64, delay_ms: 1800 },

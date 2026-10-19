@@ -2,7 +2,7 @@
 
 User 2026-10-14 10:59Z requested name, installed state, version and an install
 link only for missing harnesses. Their follow-up adds compact OpenRouter and
-Language server tags, with at most one short explanatory line.
+Language model server tags, with at most one short explanatory line.
 
 `GET /api/harnesses` remains the registry for this page and selectors. It now
 projects `version` from each existing `providers::State` CLI discovery record.

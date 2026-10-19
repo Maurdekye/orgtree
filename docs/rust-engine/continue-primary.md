@@ -5,7 +5,7 @@
 Whitespace is trimmed. The native providers are Claude, OpenAI and Google.
 A qualified identifier must match the target's current tier provider. Empty,
 unknown and mismatched targets are refused before any continuation write.
-OpenRouter and language servers retain their explicit key/server targets; this
+OpenRouter and language model servers retain their explicit key/server targets; this
 change does not introduce native primary aliases for them.
 
 Primary means the provider's ambient sign-in and stores `account = NULL`.

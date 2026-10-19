@@ -1,7 +1,7 @@
 // Proof: Codex agents run without the OS sandbox while the engine is in
 // Windows Session 0 (openai/codex#46412: the sandbox runner dies with
 // 0xC0000142, "timed out connecting runner pipe-in"). The REAL installed
-// Codex (`--real-cli`) on the Language Server lane against
+// Codex (`--real-cli`) on the Language model server lane against
 // tools/rig/fakellm.mjs, whose script makes the agent run commands:
 //   A. the engine's session as measured (a rig started by an agent under the
 //      boot-task engine is in Session 0 itself; the proof records which):

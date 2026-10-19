@@ -1,5 +1,5 @@
-// tools/rig/fakellm.mjs — a fake language server for rig proofs of the
-// Language Server lane: answers like Ollama (model list, metadata, running
+// tools/rig/fakellm.mjs — a fake language model server for rig proofs of the
+// Language model server lane: answers like Ollama (model list, metadata, running
 // windows) and speaks the two APIs the harnesses need — Anthropic Messages
 // (`POST /v1/messages`, Claude Code) and OpenAI Responses (`POST
 // /v1/responses`, Codex) — streamed the way the real servers stream them.

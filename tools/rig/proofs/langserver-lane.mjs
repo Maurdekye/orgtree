@@ -1,6 +1,6 @@
-// Proof: the Language Server lane through the real engine AND the real
+// Proof: the Language model server lane through the real engine AND the real
 // harnesses. The run's agents are the installed Claude Code and Codex
-// (`--real-cli`, their home the run's fake one); the "language server" is
+// (`--real-cli`, their home the run's fake one); the "language model server" is
 // tools/rig/fakellm.mjs, which answers like Ollama and speaks Anthropic
 // Messages and OpenAI Responses from a script. No model, no GPU, no account:
 //   1. the settings probe reads the server's models and windows;
@@ -16,7 +16,7 @@
 //      on a server that takes one agent at a time take turns, while agents
 //      on two different servers run at the same time (the control);
 //   6. with a renderer bundle (`--ui <dir>`, tools/rig/build-ui.mjs): App
-//      settings › Providers › Language Server shows both servers, and Add
+//      settings › Providers › Language model server shows both servers, and Add
 //      server opens the preset form (screenshots in the evidence folder).
 // The follow-ups (coordinator rulings 2026-10-10):
 //   1b. "Create a 64K version of this model": only on request, the server
@@ -28,7 +28,7 @@
 //      installed Codex checks it, and Codex sends the catalog's instructions
 //      with hosted web search off; run directly, the same Codex warns
 //      "model metadata not found" without the catalog and not with it;
-//   5c. a layout saved from this org (language-server agents) is a usable
+//   5c. a layout saved from this org (language model server agents) is a usable
 //      template whose preview plans those slots on their tiers.
 // The GPU spike's rulings (coordinator, 2026-10-10 07:12Z):
 //   7. Codex's first turn on a new thread records every call's tokens (the
@@ -36,7 +36,7 @@
 //      preset offers Codex; a window under 64K is "too small for an agent".
 // The user's reports on 4.2.0-alpha.1 (coordinator rulings 2026-10-10 08:17-08:43Z):
 //   8a. the Ollama preset's help names OLLAMA_LOAD_TIMEOUT and the CUDA-to-Vulkan fallback;
-//   8b. a language-server chip's letter comes from its model, its name says model and server;
+//   8b. a language model server chip's letter comes from its model, its name says model and server;
 //       with the UI: the canvas chips (tooltips), and Quick chat's model picker takes a newly
 //       offered model without a reload;
 //   8c. a seat price per server: 1 by default, a new price moves the live seats on its
@@ -82,7 +82,7 @@ async function codexDirect(rig, p, llm, { catalog, token }) {
     ORGTREE_LANGSERVER_KEY: 'orgtree-local' })
   const q = s => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
   const args = [
-    '-c', `model_provider=${q('orgtree_langserver')}`, '-c', `model_providers.orgtree_langserver.name=${q('Language Server')}`,
+    '-c', `model_provider=${q('orgtree_langserver')}`, '-c', `model_providers.orgtree_langserver.name=${q('Language model server')}`,
     '-c', `model_providers.orgtree_langserver.base_url=${q(`${llm.url}/v1`)}`,
     '-c', `model_providers.orgtree_langserver.env_key=${q('ORGTREE_LANGSERVER_KEY')}`,
     '-c', `model_providers.orgtree_langserver.wire_api=${q('responses')}`, '-c', `model=${q(MODEL)}`,
@@ -169,9 +169,9 @@ export default async function (rig, { flags = {} } = {}) {
     p.check('"Create a 64K version" on a stored Ollama server uses that server', made2.created === VERSION && made2.probe?.reachable === true, made2)
 
     // ------------------------------------------------------------ 3. two agents, one turn each
-    await seed(rig, { org: { name: 'Language Server Org' }, agents: [
-      { name: 'lsclaude', tier: tierA, grant: 1, charter: 'You test the Language Server lane on Claude Code.' },
-      { name: 'lscodex', tier: tierB, grant: 1, charter: 'You test the Language Server lane on Codex.' },
+    await seed(rig, { org: { name: 'Language model server Org' }, agents: [
+      { name: 'lsclaude', tier: tierA, grant: 1, charter: 'You test the Language model server lane on Claude Code.' },
+      { name: 'lscodex', tier: tierB, grant: 1, charter: 'You test the Language model server lane on Codex.' },
     ] })
     const harness = n => rig.one(`SELECT extra->>'harness' AS h FROM ot.agents WHERE name = '${n}'`)?.h
     p.check('each agent carries its server\'s harness', harness('lsclaude') === 'claude-code' && harness('lscodex') === 'codex-cli',
@@ -260,16 +260,16 @@ export default async function (rig, { flags = {} } = {}) {
     p.note(`prompt sizes: Claude Code ${c1?.body_chars ?? '?'} chars (system ${c1?.system_chars ?? '?'}, ${c1?.tools ?? '?'} tools), `
       + `Codex ${x1?.body_chars ?? '?'} chars (instructions ${x1?.instructions_chars ?? '?'}, ${x1?.tools ?? '?'} tools)`)
 
-    // ------------------------------------------------------------ 5c. a template with language-server agents
+    // ------------------------------------------------------------ 5c. a template with language model server agents
     const slug = rig.one(`SELECT slug FROM ot.orgs ORDER BY id DESC LIMIT 1`)?.slug
     const saved = await rig.api('POST', `/api/orgs/${slug}/template`, { name: 'LS proof layout' }).catch(e => ({ error: String(e) }))
     const all = await rig.api('GET', '/api/templates')
     const tpl = (all.templates ?? []).find(t => t.id === 'ls-proof-layout')
-    p.check('a layout saved from this org (its agents on language servers) is a usable template, not "unknown tier"',
+    p.check('a layout saved from this org (its agents on language model servers) is a usable template, not "unknown tier"',
       !!tpl && Array.isArray(tpl.problems) && tpl.problems.length === 0, { saved, tpl })
     const plan = await rig.api('POST', '/api/templates/resolve', { id: 'ls-proof-layout', name: 'LS copy', dirs: [] }).catch(e => ({ error: String(e) }))
     const lsRows = (plan.agents ?? []).filter(x => /^ls-/.test(x.tier ?? ''))
-    p.check('its preview plans every slot on its language-server tier, billing no account, and offers the lane\'s tiers',
+    p.check('its preview plans every slot on its language model server tier, billing no account, and offers the lane\'s tiers',
       plan.ok === true && lsRows.length === (plan.agents ?? []).length && lsRows.length >= 3
       && lsRows.every(x => x.account === null && x.provider === 'langserver' && !x.blocked)
       && (plan.offered ?? []).some(o => o.provider === 'langserver' && o.tier === tierB), plan)
@@ -280,8 +280,8 @@ export default async function (rig, { flags = {} } = {}) {
       const seen = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'langserver-settings.cjs'),
         { preset: 'tall', args: { agent: 'lsclaude', shot: 'langserver', address: llm.url }, out: path.join(p.dir, 'desktop') })
       const v = seen.value ?? {}
-      p.check('App settings shows the Language Server section with both servers and their models', seen.ok
-        && /Language Server/.test(v.before?.head ?? '') && (v.before?.servers ?? []).length === 2
+      p.check('App settings shows the Language model server section with both servers and their models', seen.ok
+        && /Language model server/.test(v.before?.head ?? '') && (v.before?.servers ?? []).length === 2
         && (v.before?.servers ?? []).every(s => s.models.some(m => m.includes('fake-model:latest'))), v.before ?? seen)
       p.check('Add server opens the preset form: the five presets, both harnesses offered for Ollama', seen.ok
         && ['Ollama', 'LM Studio', 'llama.cpp', 'vLLM', 'Custom…'].every(x => (v.after?.presets ?? []).includes(x))
@@ -304,7 +304,7 @@ export default async function (rig, { flags = {} } = {}) {
         && hex6(v.light?.ink) === '#ffffff' && hex6(v.dark?.tier) === '#cda206' && hex6(v.light?.tier) === '#cda206',
         { dark: v.dark, light: v.light })
       // every tier chip is grey on a dark backing in the light themes (styles.css); this lane's too
-      p.check('on the light theme a language-server tier chip gets the dark backing every tier chip gets',
+      p.check('on the light theme a language model server tier chip gets the dark backing every tier chip gets',
         seen.ok && v.chip?.background === 'rgb(49, 49, 49)', v.chip ?? seen)
     } else {
       p.note('no renderer bundle for this run (--ui): the settings screenshots were skipped')
@@ -353,7 +353,7 @@ export default async function (rig, { flags = {} } = {}) {
     const lsTierRows = async () => ((await rig.api('GET', '/api/providers')).providers ?? []).find(x => x.id === 'langserver')?.tiers ?? []
     const rows8 = await lsTierRows()
     const row8 = t => rows8.find(x => x.tier === t)
-    p.check('8b. a language-server tier\'s chip letter comes from its model (fake-model F, other-model O), never the lane\'s L; its name says model and server',
+    p.check('8b. a language model server tier\'s chip letter comes from its model (fake-model F, other-model O), never the lane\'s L; its name says model and server',
       row8(tierA)?.letter === 'F' && row8(tierB)?.letter === 'F' && row8(tierO)?.letter === 'O' && !rows8.some(x => x.letter === 'L')
       && row8(tierO)?.name === `${OTHER} · Fake (Claude Code)`, rows8.map(x => ({ tier: x.tier, letter: x.letter, name: x.name, seat: x.seat })))
 
@@ -376,7 +376,7 @@ export default async function (rig, { flags = {} } = {}) {
     for (const bad of [101, -1]) refused.push(await rig.api('PATCH', `/api/langservers/${a.server?.id}`, { seat: bad }).then(() => 'accepted', e => e.status))
     p.check('8c. 0 is a valid price (the seats on that server\'s models drop to 0); a price outside 0 to 100 is refused',
       s2.lsclaude === 0 && s2.lsclaude2 === 0 && s2.lscodex === 1 && refused.every(s => s === 400), { after: s2, refused, repriced: zero.repriced })
-    // 4.2.0-alpha.1 priced every language-server seat at a flat 0.10: the first start moves them to their server's price
+    // 4.2.0-alpha.1 priced every language model server seat at a flat 0.10: the first start moves them to their server's price
     rig.exec(`UPDATE ot.agents SET seat = 0.1 WHERE name = 'lscodex' AND state = 'live'`)
     await rig.restart()
     const s3 = await rig.waitFor(() => (seatOf('lscodex') === 1 ? seats() : null), { what: 'the start-up reprice of lscodex', timeout: 90000, every: 1000 })
@@ -594,7 +594,7 @@ export default async function (rig, { flags = {} } = {}) {
     } finally {
       await llm2.close()
     }
-    p.keep(rig, { grep: /langserver|ls-ollama|lsclaude|lscodex|lsslow|lsbroken|lscross|lssame|lshalt|language-server|reprice/ })
+    p.keep(rig, { grep: /langserver|ls-ollama|lsclaude|lscodex|lsslow|lsbroken|lscross|lssame|lshalt|language model server|reprice/ })
   } finally {
     await llm.close()
   }

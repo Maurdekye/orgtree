@@ -1,12 +1,12 @@
 ---
 name: orgtree-route-local-server
-description: Explain local language-server harness routes, concurrency, protocol compatibility and context recovery.
+description: Explain local language model server harness routes, concurrency, protocol compatibility and context recovery.
 ---
 Up: [orgtree-harnesses](../SKILL.md)
 
-# Local language-server routes
+# Local language model server routes
 
-A language server such as llama.cpp supplies inference; an installed Claude Code, Codex or OpenCode harness runs the agent. The server is not an extra agent CLI. Setup, addresses, model lists and concurrency controls are owned by [Language servers](../../providers/language-servers/SKILL.md).
+A language model server such as llama.cpp supplies inference; an installed Claude Code, Codex or OpenCode harness runs the agent. The server is not an extra agent CLI. Setup, addresses, model lists and concurrency controls are owned by [Language model servers](../../providers/language-servers/SKILL.md).
 
 ## How it runs
 

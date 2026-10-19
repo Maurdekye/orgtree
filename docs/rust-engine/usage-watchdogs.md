@@ -51,7 +51,7 @@ filter both cached observations and pending delivery. Refusal/freeze notices
 also require visibility of the affected agent and use the account captured
 at turn admission. They reflect usage limits the runtime detects on a turn;
 unknown provider causes and non-usage connection/auth failures are not guessed
-as usage. Local language servers have no reported provider allowance.
+as usage. Local language model servers have no reported provider allowance.
 
 `kind=event` can match `usage.reading`, `usage.refused`, `usage.frozen` (or
 `usage.*`). Those are safe source events; use `kind=usage` for durable per-dog

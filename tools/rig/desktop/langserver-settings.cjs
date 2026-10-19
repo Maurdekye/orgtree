@@ -1,4 +1,4 @@
-// App settings › Providers › Language Server, as the user sees it: the
+// App settings › Providers › Language model server, as the user sees it: the
 // server cards a proof added (one line each, the offered models as chips),
 // then the add form opened from "Add server" with the preset dropdown and the
 // harness the preset allows. With `address`: the form's Find models against

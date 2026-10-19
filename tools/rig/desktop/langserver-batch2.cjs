@@ -1,4 +1,4 @@
-// The Language Server settings after the user's second round (2026-10-10
+// The Language model server settings after the user's second round (2026-10-10
 // 08:48–08:50Z), as the user sees them; langserver-lane.mjs section 9 decides
 // what passes. One server (args.label) listing about 300 models:
 //   the card: one read-only line, its digest, its models as chips, and where

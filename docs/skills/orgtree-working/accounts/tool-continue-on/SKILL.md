@@ -25,7 +25,7 @@ Both fields are required; there are no default target or account values. Strings
 {"node":"worker","account":"openai-1"}
 ```
 
-`primary`, `default`, or the matching `<provider>/primary` select the provider's native sign-in and store an unbound native account. Supported native providers are Claude (`claude`), OpenAI (`openai`), Google (`google`), and Muse (`muse`). A primary alias naming a different provider refuses. OpenRouter has peer `openrouter-N` key IDs and no native primary; language servers have no native primary for this operation.
+`primary`, `default`, or the matching `<provider>/primary` select the provider's native sign-in and store an unbound native account. Supported native providers are Claude (`claude`), OpenAI (`openai`), Google (`google`), and Muse (`muse`). A primary alias naming a different provider refuses. OpenRouter has peer `openrouter-N` key IDs and no native primary; language model servers have no native primary for this operation.
 
 ## Destination checks
 

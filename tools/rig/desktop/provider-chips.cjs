@@ -1,6 +1,6 @@
 // The provider cards' model chips, clicked (user 2026-10-10: "i should be able
 // to click to change the models available without editing the entry"; "do
-// this for both openrouter and language servers, if there are many models
+// this for both openrouter and language model servers, if there are many models
 // selected at once (say >8) then only show their icons, omit their names").
 // provider-chips.mjs adds the servers and the favorites and decides what
 // passes; this script clicks as the user would, reads what the cards show,
@@ -105,7 +105,7 @@ module.exports = async (page, { args }) => {
   }
   const favorites = async () => ((await page.api('GET', '/api/openrouter')).tiers ?? []).map((t) => t.model)
 
-  // 1. the Language Server cards as they open
+  // 1. the Language model server cards as they open
   await scrollTo('[data-chips="user"]')
   await away()
   await page.sleep(600)

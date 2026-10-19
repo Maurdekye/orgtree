@@ -27,7 +27,7 @@ The same actions are available to authorized agents through `orgtree_switch_mode
 and `orgtree_retool` (account and model-version fields); the picker adds no new
 engine operation or permission.
 
-Model groups are Claude, Codex, Antigravity, Muse, OpenRouter and Language servers. Native tiers are ordered by seat cost; the last two groups retain registry order. Provider presence, enabled/sign-in state, legacy visibility and current offered models govern choices. An unavailable installed provider can leave a disabled choice with its reason; an absent provider's tiers can be hidden. The current tier remains visible as a truthful unchanged selection even when it is no longer offered for a new switch.
+Model groups are Claude, Codex, Antigravity, Muse, OpenRouter and Language model servers. Native tiers are ordered by seat cost; the last two groups retain registry order. Provider presence, enabled/sign-in state, legacy visibility and current offered models govern choices. An unavailable installed provider can leave a disabled choice with its reason; an absent provider's tiers can be hidden. The current tier remains visible as a truthful unchanged selection even when it is no longer offered for a new switch.
 
 Saving an actual change goes through engine admission checks, including provider/account compatibility, model entitlement where required and capacity for a dearer seat. Muse model and version choices are checked against the seat's own login catalog; an unknown catalog cannot authorize a version pin. Antigravity Claude tiers have a fixed version and reject a nonempty version pin.
 
@@ -43,7 +43,7 @@ An untouched Save leaves pending changes alone, and cancelling does not ask to
 reset the current conversation. Model and account queues can be cancelled
 together by explicitly choosing both current values.
 
-Cross-provider switches start a fresh session with a handoff summary; the earlier conversation remains available through saved history in the agent's folder. Scratch files and mail remain with the agent. A language-server switch between different harnesses also requires a fresh session. Same-provider changes do not use that cross-provider session reset. Model/provider changes create a new cache namespace; do not promise a provider cache hit or uninterrupted context reuse. See `orgtree-tool-switch-model` (orgtree-working › team) for admission, costs and the underlying operation.
+Cross-provider switches start a fresh session with a handoff summary; the earlier conversation remains available through saved history in the agent's folder. Scratch files and mail remain with the agent. A language model server switch between different harnesses also requires a fresh session. Same-provider changes do not use that cross-provider session reset. Model/provider changes create a new cache namespace; do not promise a provider cache hit or uninterrupted context reuse. See `orgtree-tool-switch-model` (orgtree-working › team) for admission, costs and the underlying operation.
 
 ## Thinking effort
 

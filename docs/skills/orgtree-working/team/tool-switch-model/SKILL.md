@@ -12,7 +12,7 @@ Use [list tiers](../tool-list-tiers/SKILL.md) for identifiers and seat costs, th
 
 If a turn is running, the result has `queued: true`, `pending_switch` and any `replaced` intent. The current model does not change mid-call. A newer choice replaces the older one; choosing the currently active tier cancels a pending switch and returns `unchanged: true`. Applying a queued choice revalidates its authority/eligibility; failure can leave the old configuration and record a dropped intent. Inspect the resulting state before claiming the switch applied.
 
-Within one provider/harness, the saved session is retained when resumable. Crossing providers, or changing language-server harnesses, starts a fresh session with a summary and saved conversation file; the agent identity, scratch files and docket remain. Open questions from the replaced asking session become moot. A same-provider change normally retains account binding; a provider crossing selects the new provider's own login under ordinary admission rules. Preserved history does not guarantee a provider cache hit; model/provider/session changes affect the cache namespace.
+Within one provider/harness, the saved session is retained when resumable. Crossing providers, or changing language model server harnesses, starts a fresh session with a summary and saved conversation file; the agent identity, scratch files and docket remain. Open questions from the replaced asking session become moot. A same-provider change normally retains account binding; a provider crossing selects the new provider's own login under ordinary admission rules. Preserved history does not guarantee a provider cache hit; model/provider/session changes affect the cache namespace.
 
 ```json
 {"node":"draft-checker","tier":"sol"}

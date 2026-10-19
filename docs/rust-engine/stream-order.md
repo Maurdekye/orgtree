@@ -4,7 +4,7 @@ The desk used to keep a completed streamed reply in its separate draft area
 until an HTTP transcript refresh arrived. That area is below live thinking and
 saved tool rows. A following thought or tool could consequently appear above
 the earlier reply. The next reply could also replace that retained draft before
-the fetch returned. Claude Code (including language-server agents) and Codex
+the fetch returned. Claude Code (including language model server agents) and Codex
 shared this renderer path.
 
 The actor now includes `convo_rows` in non-token stream frames: only successfully committed,
@@ -102,7 +102,7 @@ and renderer. It emits thinking/text blocks in both orders, with 200 timed
 token chunks per turn, and counts chat GETs. It uses no real model or user
 server. `partial-order.mjs` separately delays native block completion so two
 partials coexist across a focus-triggered snapshot, in both orders on Claude
-Code, Codex and a scratch language-server lane. Both capture live/final DOM
+Code, Codex and a scratch language model server lane. Both capture live/final DOM
 order and screenshots. Normal block-by-block closure through the real CLI did
 not reproduce the ordering inversion by itself; the delayed-completion
 snapshot case reproduces it. The request storm reproduces through the real

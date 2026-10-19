@@ -30,25 +30,25 @@ compact like an account's: "Active" on the key's identity line (its own line bel
 
 ## Verification and limits
 
-### Language servers terminology (2026-10-12 21:22Z)
+### Language model servers terminology (2026-10-12 21:22Z)
 
-The provider class and collection are named Language servers. Updated category
+The provider class and collection are named Language model servers. Updated category
 surfaces: Providers heading; tier-family menus/cards; agent settings model-family
 choice; canvas hire model-family list; template picker provider label; shared
 provider display label; LS Gold theme. Engine display metadata and
 error navigation pointers match the renamed Providers category. Org Accounts
-already used Language servers.
+already used Language model servers.
 
 Audit correction (rig-opus, 2026-10-13): the engine's `catalog::provider_label`
-names the provider of one agent, so it stays "Language Server". Making it plural
-had produced "the Language servers process exited during the turn" and
-"Language servers is turned off in App settings". The switch in App settings ›
+names the provider of one agent, so it stays "Language model server". Making it plural
+had produced "the Language model servers process exited during the turn" and
+"Language model servers is turned off in App settings". The switch in App settings ›
 Providers belongs to the whole class, so refusing work because it is off says
-"Language servers are turned off in App settings" (`catalog::turned_off`: hire
+"Language model servers are turned off in App settings" (`catalog::turned_off`: hire
 and move refusals, the Providers payload's reason, and the runtime's route
-check). The lineage panel's note likewise reads "Language servers are off".
+check). The lineage panel's note likewise reads "Language model servers are off".
 
-Singular text remains where it names one server: Add language server/configure/
+Singular text remains where it names one server: Add language model server/configure/
 remove actions, one server's model-selection dialog, per-server Usage cards,
 session explanations and individual-server errors. External CLI configuration
 names, agent-tool wire labels and protocol/API/storage identifiers are outside
@@ -143,7 +143,7 @@ name-only saves rename, a supplied key replaces and renames together, and an
 empty custom name restores the existing provider-label meaning. There is no
 separate naming button or dialog. Existing endpoints and activation are retained.
 
-Shared ProviderDialog drafts, including language server add/configure, dismiss
+Shared ProviderDialog drafts, including language model server add/configure, dismiss
 on idle backdrop clicks or Escape. Unsaved fields are discarded as with Cancel,
 focus returns to the opener, and a busy save blocks dismissal. PinFrame records
 where the pointer started so a text-selection drag ending outside the panel
@@ -154,7 +154,7 @@ evidence. Earlier layout measurements above retain their historical provenance.
 
 ### Model panels (user 2026-10-13 19:13UTC)
 
-The shared OpenRouter and language-server model-chip panel has no account rail
+The shared OpenRouter and language model server model-chip panel has no account rail
 indent: its edges align with the key/server card. Empty space opens the same
 browser as +. A native sibling button fills the panel below its chip controls,
 so Enter/Space opens the browser and clicking a chip only toggles that chip.
@@ -162,6 +162,6 @@ Pointer/hover and keyboard focus styling use the provider's lane color. Model
 offerings, allowlist operations and browser contents retain their existing paths.
 Synthetic before/after and behavioral proof remain pending the build queue.
 
-### Language server switch (user 2026-10-14)
+### Language model server switch (user 2026-10-14)
 
-A language server's own on/off switch sits inside its server panel, on the identity line, as an OpenRouter key's does (`KeyActive`): the visible word is **Active**, the accessible name is `<server> active`, the tooltip, the toast (`<server> active|inactive`) and the note under the row (`Inactive: no new hires; existing agents wait for this server to be active again.`) use the same active/inactive words. It was a standalone "Enabled" row below the card. The key row's grid rules in `styles.css` also cover `.ls-server-row` (two columns, one column under 520px); the shared header switch of the Language servers section is still "Enabled" and unchanged. The call is still `updateLangServer(id, { enabled })`, disabled while busy. Checks: `langserver.test.tsx` (name, placement, label, toast, note) and the server-row measurements in `provider-compact-visual.cjs`, synthetic documents only.
+A language model server's own on/off switch sits inside its server panel, on the identity line, as an OpenRouter key's does (`KeyActive`): the visible word is **Active**, the accessible name is `<server> active`, the tooltip, the toast (`<server> active|inactive`) and the note under the row (`Inactive: no new hires; existing agents wait for this server to be active again.`) use the same active/inactive words. It was a standalone "Enabled" row below the card. The key row's grid rules in `styles.css` also cover `.ls-server-row` (two columns, one column under 520px); the shared header switch of the Language model servers section is still "Enabled" and unchanged. The call is still `updateLangServer(id, { enabled })`, disabled while busy. Checks: `langserver.test.tsx` (name, placement, label, toast, note) and the server-row measurements in `provider-compact-visual.cjs`, synthetic documents only.

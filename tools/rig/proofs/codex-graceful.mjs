@@ -3,7 +3,7 @@
 // with an RPC call in flight to lsass crashes lsass (RPCRT4 10.0.26100.9444)
 // and reboots Windows, so every end closes the app-server's stdin and lets
 // it exit by itself before any termination. The REAL installed Codex
-// (`--real-cli`) on the Language Server lane against tools/rig/fakellm.mjs:
+// (`--real-cli`) on the Language model server lane against tools/rig/fakellm.mjs:
 //   1. halting a seat (kill path) ends its Codex by a natural exit;
 //   2. retooling an idle seat (close path: its process is replaced) does too;
 //   3. retiring a seat (stop path) does too;

@@ -16,6 +16,12 @@
 
 # AGENTS.md — working on Orgtree
 
+- User-facing local inference providers are **Language model servers** (compact
+  account labels: **LM server: <name>**), distinct from editor LSP servers.
+  Internal `langserver` IDs, routes, keys, skill paths and filenames stay
+  compatible; there is no migration. [decided: user 2026-10-19 20:56Z;
+  verified: `canvas/langserver.tsx`, `providers/catalog.rs`, `org_accounts.rs`]
+
 - Project policy (settings, Summary, name, order and queue purge) changes require
   the user or a strict agent ancestor. Members retain project reads, mail/inbox,
   queue/slot/listener use, their own lease, events, documents, folders and dead
@@ -172,7 +178,7 @@
   pickers and the hire sheet. Conditional catalog absence and staffing filters
   cannot hide these previews; they grant no entitlement. Sign-in advice uses
   the structured reason, never parsed error text. Antigravity previews retain
-  model switches/legacy hiding. Local language servers do not require the host
+  model switches/legacy hiding. Local language model servers do not require the host
   CLI's native subscription login. See [signed-out hire tokens](docs/rust-engine/signed-out-hire-tokens.md).
   [decided: user/coordinator 2026-10-19; verified: `providers/mod.rs`, `canvas/{shared.ts,cards.tsx,OrgCanvas.tsx}`]
 
@@ -1815,7 +1821,7 @@
 
 - App settings Harnesses is a compact registry list: installed state, cached
   discovery version (unknown when absent), and missing-only install links.
-  OpenRouter / Language server tags use selectable registry provider IDs;
+  OpenRouter / Language model server tags use selectable registry provider IDs;
   listing does not launch CLIs or change authentication. See
   [compact harness settings](docs/rust-engine/harness-settings.md).
   [decided: user 2026-10-14 10:59Z; verified: `harnesses.rs`, renderer `canvas/harnesses.tsx`]
@@ -2050,24 +2056,24 @@
   tool-calls-left-open-by-an-earlier-turn-count-up); verified: `toolclock.tsx`
   `useLiveCall`, `actor.rs` `runtime_value`/`live_view`]
 
-- Provider/category/collection labels use **Language servers**, including tier
+- Provider/category/collection labels use **Language model servers**, including tier
   families, navigation and theme names. Wording about one server stays singular;
   protocol/API/storage IDs remain `langserver`. The engine's
   `catalog::provider_label` names one agent's provider in messages, so it stays
-  "Language Server"; the switched-off refusal comes from `catalog::turned_off`
-  ("Language servers are turned off…"). See the terminology audit in
+  "Language model server"; the switched-off refusal comes from `catalog::turned_off`
+  ("Language model servers are turned off…"). See the terminology audit in
   [compact Providers](docs/rust-engine/provider-compact.md).
   [decided: user 2026-10-12 21:22Z; verified from source: renderer labels and
   `providers/{catalog,mod}.rs`, `domain/ops.rs`, 2026-10-13]
 
 - Providers presentation keeps provider enablement in each header and account
-  (OpenRouter key and language server) activation beside identity, inside the
+  (OpenRouter key and language model server) activation beside identity, inside the
   row's panel, with short visible labels ("Active") and full accessible names
   (`<server> active`). New provider, key or server rows follow the same pattern.
   Scope density CSS to the Providers tab; retain usage/reset/error/inactive states,
   account/key distinctions and separate add/configure dialogs. See
   [compact presentation and proof limits](docs/rust-engine/provider-compact.md).
-  [decided: user 2026-10-12 20:22Z, 2026-10-14 11:42Z (language server switch);
+  [decided: user 2026-10-12 20:22Z, 2026-10-14 11:42Z (language model server switch);
   verified from source: `canvas/accounts.tsx`, `canvas/accountsregistry.tsx`,
   `canvas/langserver.tsx`, 2026-10-12; `canvas/openrouterkeys.tsx`, 2026-10-13]
 
@@ -2081,7 +2087,7 @@
   verified from source: renderer `popout.tsx`, `canvas/modalpin.tsx`,
   `canvas/deskhosts.tsx`, 2026-10-13]
 
-- Language servers setup is documented in [README](README.md#language-servers).
+- Language model servers setup is documented in [README](README.md#language model servers).
   Presence comes from explicitly saved servers and offered models; harness
   choices detect installed Claude Code/Codex CLIs. Keep app/server enablement,
   org access and model offerings distinct, and match the server's real context
@@ -2173,7 +2179,7 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   (`tools/defs.rs`) are not group-scoped. [verified: `runtime/identity.rs`,
   `domain/tool_groups.rs`, 2026-10-13]
 
-- OpenCode is an optional OpenRouter/language-server harness over the reusable
+- OpenCode is an optional OpenRouter/language model server harness over the reusable
   ACP1 transport. Discovery must negotiate an installed OpenCode 2.x entrypoint;
   the per-seat OpenRouter pin still wins. Default/acceptEdits deny Code Mode
   execute; bypass permits nested calls and fetch. Direct file approvals check
@@ -2330,7 +2336,7 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   pre-selection, Quick chat's fallback) and must not be reordered for display. The user's
   chosen OpenRouter models list by output price descending, then input price, then name,
   free ones after the priced and unknown prices last, never as $0 (`openrouter::by_price_desc`,
-  `byOpenrouterPriceDesc`); the OpenRouter model browser and language-server lists keep their own
+  `byOpenrouterPriceDesc`); the OpenRouter model browser and language model server lists keep their own
   order. User-visible text says "most expensive first" / "cheapest first", never "dearest"
   (the OpenRouter picker's price-sort toggle; "dearest" read as odd wording, user
   2026-10-14). [decided: user 2026-10-13 19:14-19:15Z, 2026-10-14 10:57Z, 2026-10-16;
@@ -2439,11 +2445,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   - **Installed harnesses only:** `src/harnesses.rs` is the one registry (Claude Code,
     Codex, Antigravity, Muse Code; opencode joins here) behind every harness choice
     and `GET /api/harnesses` (App settings › Harnesses). Choosing a harness that is
-    not installed is refused (key, hire pin, language server); a saved one since
+    not installed is refused (key, hire pin, language model server); a saved one since
     uninstalled refuses its launch saying so and is never substituted. "Installed" is
     the discovered file still present, else a launch's lookup: nothing is spawned.
     The staffing offers (templates, Quick chat, hire menus) leave out OpenRouter keys
-    and language-server models whose harness is not installed. Every UI harness picker
+    and language model server models whose harness is not installed. Every UI harness picker
     lists ALL supported harnesses: installed first, a separator, the rest greyed out
     and disabled (`HarnessOptions`, `canvas/harnesses.tsx`; user 2026-10-13 22:20Z).
 
@@ -3382,12 +3388,12 @@ measured disposable smoke; detail: `docs/rust-engine/account-removal.md`]
   Hire/staff refusals report missing fields together. [decided: user 2026-10-17;
   verified: `domain/hire_requirements.rs`, `tools/defs.rs`]
 
-- OpenRouter key add/replace and language-server add/configure forms open in
+- OpenRouter key add/replace and language model server add/configure forms open in
   separate `ProviderDialog` surfaces above App settings; keep their API bindings,
   draft/save semantics and nested model browser intact. The dialog uses
   `ModalOverPins`, so it must not be moved back inside a pinned settings stacking
   context. See [provider dialogs](docs/rust-engine/provider-dialogs.md).
-  Each language-server card exposes its existing app-wide `enabled` switch directly.
+  Each language model server card exposes its existing app-wide `enabled` switch directly.
   Org Accounts keeps `allowed` separate from optional effective `enabled` and
   `disabled_reason`: a globally-off lane may be revoked but not newly allowed;
   provider feed changes refresh availability. Account-list generations discard stale
@@ -4024,7 +4030,7 @@ rulings go here and on their ticket.
   mid-compaction closes it `interrupted` with no end time, and `convo::close_open_compactions`
   does the same at engine start for rows a killed engine left `running`. No start or duration
   is ever invented, and harnesses that report no start (Antigravity, OpenCode, OpenRouter,
-  language servers) show nothing. Transcript only; cheap compact is a different thing. The
+  language model servers) show nothing. Transcript only; cheap compact is a different thing. The
   desk counts up with `CompactingLine` (`toolclock.tsx`). [decided: user 2026-10-15; verified:
   `tools/rig/proofs/compaction-live.mjs`; the CLI events are from the 2.1.292 binary and
   the Codex 0.160 schema, not a live run]
@@ -4103,7 +4109,7 @@ rulings go here and on their ticket.
   only the agent's current model survives unavailability. Quick staff request
   suggestions also require an enabled, org-allowed lane, without changing the
   later authentication/quota checks. Routed models require their installed
-  harness: provider discovery omits language-server models lacking it and marks
+  harness: provider discovery omits language model server models lacking it and marks
   OpenRouter absent when none of its stored keys has one. Loading and installed
   signed-out previews remain distinct from confirmed absence.
   [decided: user 2026-10-19 14:14Z; verified: `canvas/OrgCanvas.tsx`,

@@ -14,7 +14,7 @@ installed harness has explicit cached authentication rejection evidence;
 unknown readings, network failures and spend limits do not establish sign-out.
 No authentication request is added by rendering the provider list.
 
-Language servers use their configured endpoint and optional key. Their host
+Language model servers use their configured endpoint and optional key. Their host
 Claude/Codex CLI need not have a native subscription login. No models, an
 offline endpoint or missing harness is not labeled signed out. The common
 renderer supports an explicit signed-out payload for this family too, without
@@ -24,7 +24,7 @@ inventing such a state for today's server configuration protocol.
 previews survive missing Muse/Antigravity account catalogs and the eligible-tier
 filters used by Quick chat and desk pickers. Live selections still require the
 ordinary staffing decision, and these disabled tokens never call a hire/switch
-operation. OpenRouter and language-server tokens remain their configured
+operation. OpenRouter and language model server tokens remain their configured
 favorites/models; there is no invented fallback model when that registry is empty.
 
 Legacy hiding, provider/org switches and installation absence retain their

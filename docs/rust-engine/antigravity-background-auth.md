@@ -105,7 +105,7 @@ discovery runs `agy --version` through `agy_auth::version` **without** the
 silent check: still windowless, updater-disabled, closed stdin, 8 s bound and
 prompt-watched. Only one short line starting with a digit is shown; anything
 else is no version. Measured on AGY 1.3.5 (2026-10-14, one approved query):
-exit 0 in 94 ms, stdout `1.3.5`, no CLI log written (no language server or auth
+exit 0 in 94 ms, stdout `1.3.5`, no CLI log written (no language model server or auth
 stack started), credential untouched. Builds up to 4.3.0-alpha.3 read the
 version only after a passing check, so signed-out or latched installs showed
 "unknown". No other AGY command may skip the check.

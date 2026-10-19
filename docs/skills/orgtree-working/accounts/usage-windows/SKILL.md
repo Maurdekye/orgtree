@@ -28,7 +28,7 @@ A provider has multiple allowances; “usage” is not one interchangeable numbe
 | Muse | Its dated session/five-hour and weekly observations. A reading made under another model is not proof for this model; model-less account-wide readings can establish room. Never assume Wonder and Wonder Full share a pool. |
 | OpenRouter | The key's credit row, including cap spending and shared account balance where reported. A zero balance can exhaust a key whose cap bar is under 100%. No rolling reset time is invented. |
 | Other API keys | Local metered spending; provider quota is unsupported. |
-| Language servers | No published provider quota; the configured agents-at-once cap governs local admission. |
+| Language model servers | No published provider quota; the configured agents-at-once cap governs local admission. |
 
 Default placement guidance excludes an account-and-model pair when an applicable window is full. A full unrelated account/model pool does not constrain this pair. Current explicit account-specific user rulings remain authoritative; do not turn a team exception into a general product rule.
 

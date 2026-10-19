@@ -41,8 +41,8 @@ then gives each harness the folder the way it gives every granted folder:
 
 | Harness | How it gets the folder |
 |---|---|
-| Claude Code (also OpenRouter and language-server seats on it) | `--add-dir`; a read-only entry adds Edit/Write/NotebookEdit/MultiEdit deny rules |
-| Codex (also OpenRouter and language-server seats on it) | no folder is passed for any grant; a write outside the agent's folder is an approval request, which Orgtree accepts on a writable seat |
+| Claude Code (also OpenRouter and language model server seats on it) | `--add-dir`; a read-only entry adds Edit/Write/NotebookEdit/MultiEdit deny rules |
+| Codex (also OpenRouter and language model server seats on it) | no folder is passed for any grant; a write outside the agent's folder is an approval request, which Orgtree accepts on a writable seat |
 | Muse | a read-write entry is a workspace root; a read-only one is not |
 | Antigravity | only its own folder is passed with `--add-dir`, for every grant; it runs with `--dangerously-skip-permissions`, so it reaches the file by path, and its rights hook enforces only the tool switches |
 
@@ -142,7 +142,7 @@ or account was involved. Engine binaries were built here: `fa3a5f3` (before) and
 - `org-shared-notes.mjs` (fake CLIs): 15 of 15 checks after, 2 of 15 before. The two that hold
   before are "an edit doesn't respawn a warm CLI" and "no agent of this org got the other
   org's text", which hold without the feature.
-- `org-shared-notes-real.mjs` (installed Claude Code 2.1.292, a language-server seat on
+- `org-shared-notes-real.mjs` (installed Claude Code 2.1.292, a language model server seat on
   `fakellm.mjs`): 5 of 5 after, 1 of 5 before. After, the CLI's own Write created the org's
   file ("File created successfully at …") on an acceptEdits seat; before, the same Write was
   refused ("Claude requested permissions to write to …"). Writing another org's file was

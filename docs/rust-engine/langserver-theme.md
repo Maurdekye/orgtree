@@ -1,6 +1,6 @@
 # LS Gold
 
-The Language Server provider already used gold in its chats and tier badges, but
+The Language model server provider already used gold in its chats and tier badges, but
 Appearance had no matching preset. The new `langserver` preset is labelled
 **LS Gold** and reuses that existing `#cda206` accent. The user's
 2026-10-11 10:49Z ruling was to keep the existing colour, not choose a new hue.
@@ -11,7 +11,7 @@ the existing provider and tier CSS. Hover (`#dab944`) and soft
 (`rgba(205,162,6,.16)`) are derived by the existing custom-theme helper. The
 account-tint family mapping now uses this accent rather than falling back to
 Claude. The existing dynamic tier CSS already follows `--tier-langserver`.
-The native tray/window preset map and its generated ICO include Language Server.
+The native tray/window preset map and its generated ICO include Language model server.
 
 The existing light-surface provider text remains deep gold, `#4d3a02`, with white
 fill labels. Tier identity stays gold in every contrast mode. Organization-theme
@@ -67,13 +67,13 @@ that. The new preset follows the other presets' accent semantics.
 Measured: `npm run typecheck`; 28 renderer tests selected by `agentcolors contrast
 deployreadycolor langserver`; 15 tests in `tests/themes.test.mjs` and
 `tests/desktop.test.mjs`. Theme saves, reloads, failed saves and native preferences
-are covered, as are all four contrast modes and Language Server organization
+are covered, as are all four contrast modes and Language model server organization
 colour overrides.
 
 Measured offscreen rig: `tools/rig/proofs/langserver-theme.mjs`, using the
 localmodels-opus 4.2.0-alpha.7 (dev) engine and this worktree's rebased renderer.
 A fake model catalog
-created a real Language Server agent, its status tool reached the engine, its
+created a real Language model server agent, its status tool reached the engine, its
 gold tier border rendered, Appearance saved the preset, and the light provider
 ink stayed deep gold. Screenshots and results are in
 `D:\orgtree-work\rig\lstheme-sol\evidence\langserver-theme-20261011T105811`.

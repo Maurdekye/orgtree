@@ -1,6 +1,6 @@
 # Orgtree 4.2.0
 
-Orgtree 4.2.0 adds finer control over agents' tools, expands Language Server support, improves file transfers and conversation updates, and makes Windows startup and shutdown work together more consistently.
+Orgtree 4.2.0 adds finer control over agents' tools, expands Language model server support, improves file transfers and conversation updates, and makes Windows startup and shutdown work together more consistently.
 
 ## Agents and settings
 
@@ -10,9 +10,9 @@ Orgtree 4.2.0 adds finer control over agents' tools, expands Language Server sup
 - **Organization account controls** restrict which accounts agents may use and keep account pickers and usage displays aligned with that choice. Folder grants can also be removed explicitly.
 - **Quick Chat and organization templates** retain more of your preferred placement, defaults and optional organization settings.
 
-## Language servers and usage
+## Language model servers and usage
 
-- Expanded local and remote Language Server setup, model browsing and model options, with support through Claude Code and Codex.
+- Expanded local and remote Language model server setup, model browsing and model options, with support through Claude Code and Codex.
 - Better handling of strict model templates, cancelled model loads, context limits and session recovery, plus a context gauge.
 - Usage history and clearer account labels make it easier to follow consumption. Expired usage-limit markers and frozen-agent displays are handled more consistently.
 
@@ -34,6 +34,6 @@ Orgtree 4.2.0 adds finer control over agents' tools, expands Language Server sup
 ## Notes
 
 - Windows builds remain unsigned. macOS and Linux builds remain prototypes; their automated build and smoke checks do not replace testing on your own machine.
-- Language Server compatibility depends on the model, its template and server. Not every combination has been tested. A reported intermittent freeze when pinning a desk also remains under investigation.
+- Language model server compatibility depends on the model, its template and server. Not every combination has been tested. A reported intermittent freeze when pinning a desk also remains under investigation.
 - The Linux startup and folder-permission fixes from 4.1.2 and 4.1.3 are retained.
 - Release downloads include `SHA256SUMS.txt` for checking file integrity.

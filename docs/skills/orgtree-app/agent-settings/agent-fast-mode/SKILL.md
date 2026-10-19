@@ -16,7 +16,7 @@ separate from thinking effort. The user or an authorized superior can change it.
 - Both controls are hidden when the current harness and model lack support.
   Codex requires an advertised fast or priority service tier for that exact model
   version. First-party Claude Code supports the verified Opus 4.8 and 5 family.
-  Antigravity, OpenCode/OpenRouter, Muse and language-server routes have no verified
+  Antigravity, OpenCode/OpenRouter, Muse and language model server routes have no verified
   equivalent and show neither control.
 - The choice applies to the next turn in the same conversation. A speed-only save
   does not switch model, account or session and does not restart the CLI. A running

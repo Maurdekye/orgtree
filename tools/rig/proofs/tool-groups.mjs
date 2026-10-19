@@ -1,4 +1,4 @@
-// Real installed harnesses against an isolated fake language server. No model
+// Real installed harnesses against an isolated fake language model server. No model
 // generation or live account. Keeps exact first requests for tokenization.
 import fs from 'node:fs'
 import path from 'node:path'

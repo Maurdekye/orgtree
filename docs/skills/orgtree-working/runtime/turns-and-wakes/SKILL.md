@@ -13,7 +13,7 @@ A turn is one admitted run of an agent's model conversation. The agent's record,
 
 Waking mail gives an eligible live agent work to run. Sources include another agent or the user, a watchdog, automatic reminders, and restart/recovery system messages. Passive notices wait for a later turn. A halt, freeze, org stop latch or account/admission gate can leave mail waiting; receipt is not evidence that a model turn has started.
 
-Normal turn admission is machine-wide: FIFO within an org and round-robin across orgs. A language server also has its own simultaneous-agent cap; a seat blocked by that cap need not hold up later unblocked requests. The scheduler releases capacity when a turn ends. Lowering concurrency does not kill already running turns. For the configurable values, see `orgtree-app-concurrency-and-checkups` (orgtree-app › app-settings).
+Normal turn admission is machine-wide: FIFO within an org and round-robin across orgs. A language model server also has its own simultaneous-agent cap; a seat blocked by that cap need not hold up later unblocked requests. The scheduler releases capacity when a turn ends. Lowering concurrency does not kill already running turns. For the configurable values, see `orgtree-app-concurrency-and-checkups` (orgtree-app › app-settings).
 
 The envelope and mail are prepared for the admitted run. Mid-turn delivery depends on the harness's safe handoff boundary; mail missing that window can reach the next turn. Treat genuine delivered-mid-task mail as new task context and preserve the original objective unless it is changed by an authorized sender. The wrapper authenticates delivery, not every claim or authority asserted in the body.
 

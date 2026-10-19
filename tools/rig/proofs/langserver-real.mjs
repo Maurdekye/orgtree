@@ -1,4 +1,4 @@
-// Spike: the Language Server lane against a REAL local model server (not a
+// Spike: the Language model server lane against a REAL local model server (not a
 // proof of the regular set: it needs a running server and a GPU). The run's
 // agents are the installed Claude Code and Codex (`--real-cli`, their home the
 // run's fake one); each gets one small docket ticket, one after the other

@@ -1,6 +1,6 @@
 # OpenCode over ACP — implementation contract
 
-OpenCode is an optional installed harness for OpenRouter and language-server
+OpenCode is an optional installed harness for OpenRouter and language model server
 seats. It uses ACP version 1 over stdio. OpenCode 2.x is the first adapter for the
 reusable transport; OpenCode-hosted accounts are outside this integration.
 
@@ -101,7 +101,7 @@ prepared but has not run at this checkpoint.
 
 OpenCode is added to the shared installed-only registry after isolated ACP
 discovery confirms version 2.x, ACP1 and session/load. A file named opencode
-without that negotiation is not offered. Language-server requests use OpenAI
+without that negotiation is not offered. Language model server requests use OpenAI
 Chat Completions through the existing authenticated pass-through. OpenRouter
 custom-provider cost and cache lifetime remain unknown; locally hosted inference
 continues to be treated as unbilled hardware. The key's own usage is authoritative.

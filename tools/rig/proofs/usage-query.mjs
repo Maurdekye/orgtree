@@ -121,7 +121,7 @@ export default async function (rig) {
   await rig.api('PATCH', `/api/langservers/${server.id}`, { enabled: true })
   await rig.api('PUT', '/api/providers/langserver/enabled', { enabled: false })
   const serversOff = await query({ accounts: [serverLane] })
-  p.check('global language-server switch marks an individually active server inactive', serversOff.ok
+  p.check('global language model server switch marks an individually active server inactive', serversOff.ok
     && serversOff.json.accounts[0].enabled === false, serversOff)
   await rig.api('PUT', '/api/providers/langserver/enabled', { enabled: true })
   await rig.api('POST', `/api/orgs/${rig.org}/settings`, { disabled_accounts: [serverLane] })

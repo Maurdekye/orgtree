@@ -160,11 +160,11 @@ there by the coordinator).
   differs from their key's harness are pinned, so the upgrade moves no seat.
 - **Installed only:** `src/harnesses.rs` decides installed (the discovered file still
   exists, else the launch's lookup; nothing spawned). Key writes, the hire pin and
-  language-server adds refuse a harness that is not installed. A saved choice since
+  language model server adds refuse a harness that is not installed. A saved choice since
   uninstalled is shown "not installed" and refuses its launch with that reason; the
   boundary does not cross to it, and nothing substitutes another harness.
 - **Selectors (every place a harness is chosen):** the OpenRouter key dialog (add and
-  edit, every key alike); the language-server add form (Harness, and Custom's
+  edit, every key alike); the language model server add form (Harness, and Custom's
   API style); the hire/staff `harness` argument (orgtree_hire, orgtree_staff, the hire
   op). The Runtime tab's global row is removed. Each UI selector links to App
   settings › Harnesses.
@@ -178,7 +178,7 @@ there by the coordinator).
   not a harness; the harness follows the provider, key or server. Their one source,
   the staffing offers (`domain/staffing.rs`), offers an OpenRouter key only while its
   harness is installed, a hire naming no key only while some key it could be placed on has its harness installed, and a
-  language-server model only while its server's harness is (registry check).
+  language model server model only while its server's harness is (registry check).
 
 ## Limits (inferred, not measured)
 
@@ -188,7 +188,7 @@ there by the coordinator).
   definitions once (a one-time prompt-prefix change for every agent).
 - The first-key form (no key stored yet, `PUT /api/openrouter/key`) has no harness
   select: that key takes the seed, and its harness is changed in its settings dialog.
-- A language server whose harness was uninstalled refuses its launch by source; the
+- A language model server whose harness was uninstalled refuses its launch by source; the
   rig proof covers OpenRouter seats only.
 
 - The private-text proof injects OpenRouter readings only; the Claude, Codex, Antigravity and

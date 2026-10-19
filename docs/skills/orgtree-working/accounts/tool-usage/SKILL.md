@@ -12,7 +12,7 @@ Use this tool during a turn to inspect account usage without waiting for another
 
 Requires the inherited **inspection** tool group. `refresh: true` additionally requires inherited **runtime** permission. Top-level and nested agents follow the same checks; top-level position grants no exception.
 
-Results cover only accounts allowed by the caller's org account list and origin restrictions. Inactive accounts remain inspectable with `enabled: false`, but cannot be refreshed. There is no show-all-accounts or other-org override. Native sign-ins use canonical IDs such as `openai/primary`; registered accounts use their registry IDs, OpenRouter keys use `openrouter-N`, and language servers use `langserver:<server-id>`. Use the IDs returned by the tool, not email, account label, credential path, or display nickname.
+Results cover only accounts allowed by the caller's org account list and origin restrictions. Inactive accounts remain inspectable with `enabled: false`, but cannot be refreshed. There is no show-all-accounts or other-org override. Native sign-ins use canonical IDs such as `openai/primary`; registered accounts use their registry IDs, OpenRouter keys use `openrouter-N`, and language model servers use `langserver:<server-id>`. Use the IDs returned by the tool, not email, account label, credential path, or display nickname.
 
 ## Parameters
 
@@ -54,7 +54,7 @@ Account rows identify `account`, `provider`, `enabled`, `own_account`, `source`,
 
 A window can contain `kind`, `group`, `model`, `label`, `used_percent`, `amount`, `unit`, `resets_at`, `reset_in_seconds`, `limited`, `marked`, and `state`. `limited` follows the reported percentage/full-state; `marked` reflects stored account marks. State is `limited`, `marked`, `ok`, or `unknown`. A reset countdown is a reported deadline, not evidence that a new reading has arrived.
 
-Non-OpenRouter API-key rows report local metered spend, with provider quota `unsupported`; `no_recorded_spend` is distinct from zero and a database failure. A language-server row reports unsupported quota and its `concurrency_cap`, not a fictitious usage percentage. OpenRouter uses its key's credit standing; do not infer a rolling reset that the provider did not supply.
+Non-OpenRouter API-key rows report local metered spend, with provider quota `unsupported`; `no_recorded_spend` is distinct from zero and a database failure. A language model server row reports unsupported quota and its `concurrency_cap`, not a fictitious usage percentage. OpenRouter uses its key's credit standing; do not infer a rolling reset that the provider did not supply.
 
 ## Optional refresh
 

@@ -6,7 +6,7 @@ Up: [orgtree-harnesses](../SKILL.md)
 
 # Harness comparison
 
-The runtime registry has five harnesses. OpenRouter and local language servers are routes through Claude Code, Codex or OpenCode, not extra agent protocols. The tables retain the source `72ea305` protocol review, reconciled with landed Muse retention at `4447424`, personal globals at `7f5f27f`, native skill delivery at `de6d356` and Antigravity native notes/identity parts at `0f41fc3`. Each cell links to its detailed fact home. Native rule evidence and remaining measurement limits have their own dated/source status in those pages. Unknown means no verified contract here, not zero or unsupported everywhere.
+The runtime registry has five harnesses. OpenRouter and local language model servers are routes through Claude Code, Codex or OpenCode, not extra agent protocols. The tables retain the source `72ea305` protocol review, reconciled with landed Muse retention at `4447424`, personal globals at `7f5f27f`, native skill delivery at `de6d356` and Antigravity native notes/identity parts at `0f41fc3`. Each cell links to its detailed fact home. Native rule evidence and remaining measurement limits have their own dated/source status in those pages. Unknown means no verified contract here, not zero or unsupported everywhere.
 
 Account-window observation is separate from turn-token reporting. Model/window applicability, metadata-reader cadence and freshness are defined in `orgtree-usage-windows` (orgtree-working › accounts); an active stream does not imply a freshly polled account allowance.
 
@@ -36,7 +36,7 @@ Account-window observation is separate from turn-token reporting. Model/window a
 
 ## Provider routes
 
-| Topic | OpenRouter | Local language server |
+| Topic | OpenRouter | Local language model server |
 | --- | --- | --- |
 | How it runs | [Key-selected/pinned Claude, Codex or OpenCode; cross-harness fresh handoff.](../route-openrouter/SKILL.md#how-it-runs) | [All three harnesses; Messages/Responses/Chat Completions respectively; concurrency admission.](../route-local-server/SKILL.md#how-it-runs) |
 | Information and timing | [Driver telemetry plus key cap/account balance; native subscription windows n/a.](../route-openrouter/SKILL.md#information-and-timing) | [Driver telemetry; provider quota n/a; hardware cap not exhaustion.](../route-local-server/SKILL.md#information-and-timing) |

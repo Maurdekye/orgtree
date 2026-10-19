@@ -18,7 +18,7 @@ reason. Ready, uncertain or absent evidence never becomes cold merely because
 the last turn is old; the warning makes no fork or pricing claims.
 
 The modal reads GET /api/orgs/{slug}/nodes/{nid}/compact. This read resolves the
-same effective OpenRouter stamp/account setting or language-server route as the
+same effective OpenRouter stamp/account setting or language model server route as the
 actor, without starting a process. Native Claude, Muse and explicit Claude Code
 routes support the existing normal action; Codex, Antigravity, OpenCode and
 unknown routes show the normal option disabled with a reason. Read failure or

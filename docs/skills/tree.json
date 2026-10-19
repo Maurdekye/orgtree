@@ -6308,7 +6308,7 @@
     "setting:language-servers",
     "screen:langserver-dialogs"
    ],
-   "purpose": "Local language servers: adding, editing, agents at once, seat price.",
+   "purpose": "Local language model servers: adding, editing, agents at once, seat price.",
    "must_cover": [
     "every field"
    ],
@@ -6773,7 +6773,7 @@
    "covers": [
     "route:langserver"
    ],
-   "purpose": "Local language-server seats (e.g. llama.cpp): which harness they run through (Claude Code, Codex or OpenCode), agents-at-once limit, context size, no usage windows.",
+   "purpose": "Local language model server seats (e.g. llama.cpp): which harness they run through (Claude Code, Codex or OpenCode), agents-at-once limit, context size, no usage windows.",
    "must_cover": [
     "how it runs: process model, protocol, turn start/end, interrupt and shutdown, resume",
     "what it reports and when: streaming text, thinking, tool start/end and real timings, token/usage figures, usage windows read, errors and rate-limit signals",

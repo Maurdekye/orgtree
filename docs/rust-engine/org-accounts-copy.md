@@ -9,13 +9,13 @@ dozen words. The paragraph keeps its `.dim.hub-hint` placement/style and says:
 > possible, or stop. New accounts start ticked.
 
 The adjustment from the coordinator's proposed text is “when possible”, since
-mere ticked status is not proof of a usable replacement and language-server
+mere ticked status is not proof of a usable replacement and language model server
 seats do not migrate to a different server. No runtime behavior changes.
 
 Source verification on `0f8638f`: `org_accounts.rs::allowed` stores only
 disabled IDs (a new ID is allowed), `barred` checks the seat's canonical lane,
 and `leave` tries same-provider continuation candidates then freezes with a
-reason. `leave` excludes language servers from replacement selection.
+reason. `leave` excludes language model servers from replacement selection.
 `runtime/actor.rs` admission invokes this before claiming mail (around3439).
 HTTP settings updates the list and rechecks frozen seats (around382), without
 interrupting running turns. These support each remaining statement.

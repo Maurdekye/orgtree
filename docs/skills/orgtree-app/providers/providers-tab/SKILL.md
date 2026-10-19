@@ -6,7 +6,7 @@ Up: [orgtree-providers](../SKILL.md)
 
 # Providers tab
 
-App settings → Providers groups Claude/Claude Code, ChatGPT/Codex, Gemini/Antigravity, Muse/Muse Code, plus OpenRouter and Language Server. Each native row shows installation/connection status and any reported version, identity, sign-in kind/source, path, reason and tier seats. “Installed” is executable discovery, not sign-in or model entitlement.
+App settings → Providers groups Claude/Claude Code, ChatGPT/Codex, Gemini/Antigravity, Muse/Muse Code, plus OpenRouter and Language model server. Each native row shows installation/connection status and any reported version, identity, sign-in kind/source, path, reason and tier seats. “Installed” is executable discovery, not sign-in or model entitlement.
 
 ## Enabled
 

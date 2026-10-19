@@ -1,7 +1,7 @@
-// The Language Server lane's fixes for the user's reports on 4.2.0-alpha.1
+// The Language model server lane's fixes for the user's reports on 4.2.0-alpha.1
 // (coordinator rulings 2026-10-10), as the user sees them. langserver-lane.mjs
 // section 8 decides what passes.
-// mode "chips": the canvas cards of agents on language-server models: each
+// mode "chips": the canvas cards of agents on language model server models: each
 //   chip's letter, tooltip and colours, and a screenshot. Then Quick chat's
 //   model picker, once now and again (same page, no reload) until it lists
 //   `want`: the proof offers that model once `quickchat-before.png` exists.

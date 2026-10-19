@@ -16,7 +16,7 @@ Codex reads AGENTS.md natively; when AGENTS.override.md wins, the engine supplie
 
 - Cargo check passed; workspace tests 73/73 passed; renderer typecheck passed.
 - `standing-native`: 9/9 installed Claude Code native-loading cases passed.
-- `standing-notes`: 24/24 checks passed across eight agents using installed Claude Code and Codex language-server lanes: canonical only, legacy only, both, imports and overrides. Captured first requests contain every own and granted marker exactly once; original files remain intact.
+- `standing-notes`: 24/24 checks passed across eight agents using installed Claude Code and Codex language model server lanes: canonical only, legacy only, both, imports and overrides. Captured first requests contain every own and granted marker exactly once; original files remain intact.
 - `startup-context`: 9/9 checks passed. Edits change the startup fingerprint, leave an active turn alone, and restart the parked CLI while retaining its conversation/session identity.
 
 All request captures used isolated rig state and a fake inference endpoint. No live model inference, credentials or user files were used. Evidence is under `D:\orgtree-work\rig\agy-astra\evidence`: `standing-native-20261011T105138`, `standing-notes-20261011T105300`, and `startup-context-20261011T105206`. Build logs are under `D:\orgtree-work\standing-notes`.

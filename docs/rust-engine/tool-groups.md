@@ -67,7 +67,7 @@ configuration. It writes a content-addressed copy that changes only denied
 capability fields, preserving instructions, model names, context sizes and
 other metadata. If the CLI cannot supply the catalog, startup fails with a
 plain error rather than claiming that tools were removed. This also works
-with the custom catalog already used by language-server seats. Catalog calls
+with the custom catalog already used by language model server seats. Catalog calls
 never log credential-bearing environment arguments.
 
 ## Requesting a group
@@ -89,7 +89,7 @@ through the user's Scope editor.
 - `cargo test --bin orgtree-engine`: 65 passed, including all 128 group masks
   across three harnesses and top-level/subordinate generated instructions.
 - `tools/rig/proofs/tool-groups.mjs` captures real installed Claude Code and
-  Codex first requests against the isolated fake language server; default,
+  Codex first requests against the isolated fake language model server; default,
   groups-off (native switches unchanged), all-capabilities-off and local-chores scopes, inherited denials, execution rejection and
   approval paths. **45/45 runtime checks passed**, using real installed
   harnesses and fake inference, after rebase onto `a88b736`.

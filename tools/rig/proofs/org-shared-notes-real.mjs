@@ -1,5 +1,5 @@
 // Proof: agents edit the org's shared AGENTS.md with the INSTALLED Claude Code
-// (`--real-cli`, a language-server seat answered by tools/rig/fakellm.mjs: no
+// (`--real-cli`, a language model server seat answered by tools/rig/fakellm.mjs: no
 // model, no account), on the default acceptEdits seat, so its own permission
 // check decides every write (docket shared-org-wide-agents-md-every-agent-in-the-org).
 //   wren (org A): his CLI's Write creates A's _shared\AGENTS.md, and any

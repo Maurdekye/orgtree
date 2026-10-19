@@ -450,7 +450,7 @@ the class, size, title/aria and existing viewer action. See [`far-overview.md`](
 **Short org Accounts explanation, user 2026-10-14 18:46UTC:** replace the long
 introductory blurb with at most about 40 words in the same place/style.
 Retain accurate ticked-only access, turn-boundary move/stop and new-account
-default meaning. Drop the detailed App settings and language-server explanation
+default meaning. Drop the detailed App settings and language model server explanation
 from this paragraph, preserving existing per-row help. Source evidence:
 [`org-accounts-copy.md`](org-accounts-copy.md).
 

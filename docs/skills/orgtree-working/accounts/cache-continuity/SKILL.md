@@ -22,7 +22,7 @@ Append-only turns, dynamic org state, mail/notices, usage/status/checkup facts, 
 | Claude API-key authentication | Five-minute guidance. |
 | Codex subscription authentication | Fixed 30-minute estimate; not a guaranteed retention period. |
 | Muse | Cache reads can be observed, but no published TTL or prices; expiry/cost remain unknown. |
-| OpenCode custom providers and language servers | No verified cache lifetime in this integration; unsupported/unobserved stays unknown. |
+| OpenCode custom providers and language model servers | No verified cache lifetime in this integration; unsupported/unobserved stays unknown. |
 
 The forecast compares the sent fingerprint and current plan, then considers positive cache-read/write receipt and expiry. It distinguishes no completed fingerprint, changed prefix, no positive receipt, unsupported capability, expired entry and compatible observed entry. Read its actual cause and receipt time. Matching unexpired local evidence demonstrates compatibility, never a promised future provider hit.
 

@@ -4,9 +4,9 @@ description: Explain local-server fields, compatible APIs, model windows, capaci
 ---
 Up: [orgtree-providers](../SKILL.md)
 
-# Language servers
+# Language model servers
 
-Providers → Language Server connects local/self-hosted model servers such as Ollama, LM Studio, llama.cpp, vLLM or a custom compatible service. This is inference configuration, not an editor LSP. App settings store server/model metadata and separate secret storage retains optional keys.
+Providers → Language model servers connects local/self-hosted model servers such as Ollama, LM Studio, llama.cpp, vLLM or a custom compatible service. This is inference configuration, not an editor LSP. Account and usage labels use `LM server: <name>`; the compatible provider ID remains `langserver`, account ID `langserver:<id>`, and API `/api/langservers`. App settings store server/model metadata and separate secret storage retains optional keys.
 
 ## Add server fields
 

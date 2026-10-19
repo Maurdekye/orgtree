@@ -1,4 +1,4 @@
-// Proof: the Language Server lane passes STRICT chat templates on every
+// Proof: the Language model server lane passes STRICT chat templates on every
 // preset and both harnesses. The live bug (2026-10-10, llama.cpp + Qwen 3.8
 // 27B): every turn failed with "System message must be at the beginning"
 // and was retried every 30 s. The server here is tools/rig/fakellm.mjs in

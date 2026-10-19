@@ -7,7 +7,7 @@ incoming order. This supersedes descending hire-token order from October13.
 Provider model lists and HireSheet lists retain their canonical listing order:
 the most expensive seat first within each family, with Antigravity's
 Claude-backed tiers grouped before Gemini tiers. Runtime OpenRouter and
-language-server lists retain registry order. Default model selection still
+language model server lists retain registry order. Default model selection still
 uses declaration/offer order; the cheapest-first token-strip sort changes none
 of these lists or defaults.
 
@@ -15,7 +15,7 @@ of these lists or defaults.
 sorts that copy by `seatOf`. This is the same catalog-backed seat lookup those
 tokens already use for disabled tooltips; the regular token reads the same
 `seats`/shared registry prices. Canvas and Quick chat callers supply the engine's
-`TreePayload.tiers`, while registered OpenRouter/Language Server rows come from
+`TreePayload.tiers`, while registered OpenRouter/Language model server rows come from
 the providers payload. No separate price table or dollar-rate sorting is added.
 Registry ties keep registry order. All switchboard, node bottom/top/coworker,
 far-zoom expanded and Quick chat strips share this component.

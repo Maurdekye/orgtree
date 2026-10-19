@@ -1,4 +1,4 @@
-// LS Gold: real settings picker and Language Server agent card,
+// LS Gold: real settings picker and Language model server agent card,
 // using the rig's fake model catalog (no local model or account required).
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -18,12 +18,12 @@ export default async function (rig) {
       models: [{ id: 'fake-model:latest', context: 65536 }],
     })
     const tier = Object.values(server.server?.models ?? {})[0]?.tier
-    if (!tier) throw new Error('fake model catalog did not produce a Language Server tier')
+    if (!tier) throw new Error('fake model catalog did not produce a Language model server tier')
     await seed(rig, { org: { name: 'Gold Smoke' }, agents: [
-      { name: 'gold-agent', tier, grant: 1, charter: 'Disposable Language Server theme smoke.' },
+      { name: 'gold-agent', tier, grant: 1, charter: 'Disposable Language model server theme smoke.' },
     ] })
     const status = await rig.tool('gold-agent', 'orgtree_status', { status: 'done', summary: 'LS Gold smoke' })
-    p.check('Language Server agent reports through the real tool route', status.ok, status.text)
+    p.check('Language model server agent reports through the real tool route', status.ok, status.text)
     const r = await runDesktop(rig, path.join(import.meta.dirname, '../desktop/langserver-theme.cjs'), {
       preset: 'wide', out: path.join(p.dir, 'desktop'), timeout: 120000,
     })
@@ -34,7 +34,7 @@ export default async function (rig) {
     const v = r.value ?? {}
     p.check('the settings picker offers and saves LS Gold', v.label === 'LS Gold'
       && v.stored === 'langserver' && v.accent === THEME_ACCENTS.langserver, v)
-    p.check('a Language Server card retains the designated gold tier border',
+    p.check('a Language model server card retains the designated gold tier border',
       v.card?.provider === 'rgb(205, 162, 6)' && v.card?.tier === THEME_ACCENTS.langserver
       && v.card?.border === v.card?.tierBorder, v.card)
     p.check('provider text retains the existing deep gold on light surfaces', v.light?.provider === '#4d3a02', v.light)

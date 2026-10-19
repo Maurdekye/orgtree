@@ -1,9 +1,9 @@
 // Proof: a click on a provider card's model chip changes what can be hired,
 // without the edit form (user 2026-10-10 17:56Z: "i should be able to click to
 // change the models available without editing the entry"; 17:56:51Z: "do this
-// for both openrouter and language servers, if there are many models selected
+// for both openrouter and language model servers, if there are many models selected
 // at once (say >8) then only show their icons, omit their names"). Settings
-// only: no agent turn, no model, no network. The language servers are
+// only: no agent turn, no model, no network. The language model servers are
 // tools/rig/fakellm.mjs; OpenRouter is rig mode's canned key check and canned
 // catalog (rig-home\rig-usage\openrouter-key.json, openrouter-models.json).
 //   0. the canned catalog: the picker's search lists it, and a favorite can be

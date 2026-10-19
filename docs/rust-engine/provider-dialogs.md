@@ -1,6 +1,6 @@
 # Provider configuration dialogs
 
-The Providers tab previously expanded OpenRouter key entry and language-server
+The Providers tab previously expanded OpenRouter key entry and language model server
 forms inline. The user's 2026-10-11 request moves both add and configure flows
 into separate dialogs. Account/server summaries and model chips stay in Providers.
 
@@ -10,7 +10,7 @@ field and restores the opener. Escape closes the top dialog; a nested model
 browser closes before its draft. Backdrop clicks do not discard a draft. Save
 requests retain the existing handlers; dismissal is blocked while busy.
 
-Language-server presets, harness availability, custom API fields, model selection,
+Language model server presets, harness availability, custom API fields, model selection,
 context windows, prices, concurrency and key replacement/removal are unchanged.
 Cancel or Escape discards the draft. Successful Save closes it; failed Save keeps
 the fields available for correction and reports the existing toast. The model
@@ -26,7 +26,7 @@ reuse this shell; this change does not implement that separate feature.
 
 ## Individual availability (2026-10-11)
 
-Each saved language server also has a direct **Use [server]** switch in Providers.
+Each saved language model server also has a direct **Use [server]** switch in Providers.
 It calls the existing server PATCH with only `enabled`; disabling and re-enabling
 preserve its URL, secret, models and other configuration. This is app-wide. The
 existing provider-wide switch remains authoritative, and the configure dialog
@@ -64,13 +64,13 @@ No installed-app or engine integration claim is made for the new lane metadata.
 
 Measured on the renderer source with synthetic responses only:
 
-- 35 focused tests pass: OpenRouter key entry/favorites/harness/usage, language-server
+- 35 focused tests pass: OpenRouter key entry/favorites/harness/usage, language model server
   edit and model browsers, plus add payload, Cancel, nested Escape, pending/rejected
   saves, portal placement and restored focus. Typecheck passes.
 - Offscreen Electron renders the actual components and CSS at 1366×768 and 390×844,
   dark and light. All 16 add/edit cases fit inside the viewport, have no horizontal
   overflow, sit above Providers and have reachable actions after scrolling.
-- Screenshots inspected, including narrow language-server actions and desktop
+- Screenshots inspected, including narrow language model server actions and desktop
   OpenRouter/add-server forms. This is renderer fixture coverage, not an installed
   app or live provider acceptance run. No real key, model server or provider call.
 

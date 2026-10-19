@@ -36,7 +36,7 @@ Behaviour in standalone mode:
   sockets and the UI bundle — needs `Authorization: Bearer <token>` or the
   existing `X-Orgtree-Desktop-Token: <token>` header; anything else is 403.
   The two pre-existing secret-gated bypasses keep their own secrets and are
-  unchanged: `/ls/*` (per-boot language-server proxy secret) and the
+  unchanged: `/ls/*` (per-boot language model server proxy secret) and the
   credential-bridge routes (per-agent credentials). Token headers are masked
   in the verbose wire log. A generated token is printed to **stderr once**, on
   the run that creates it, and never written to the engine log.

@@ -15,7 +15,7 @@ saves **immediately**, independently of the footer Save.
 ones. The default is no disabled IDs: all available accounts are allowed, and
 a newly added account starts ticked. The tab groups machine sign-ins and
 registered accounts under Claude, Codex, Antigravity, Muse, OpenRouter and
-Language servers, showing only groups with rows.
+Language model servers, showing only groups with rows.
 
 An account turned off at application level cannot be re-enabled here: its
 unchecked row is disabled with the reason and points to **App settings >

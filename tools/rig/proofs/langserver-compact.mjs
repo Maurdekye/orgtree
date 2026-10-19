@@ -1,4 +1,4 @@
-// Proof: a Language Server agent whose context fills keeps going. The live
+// Proof: a Language model server agent whose context fills keeps going. The live
 // bug (2026-10-11, alpha.7, llama.cpp + Qwen 3.8 27B, 64K window): Claude
 // Code's compaction got no text back from the model (it can call one of the
 // offered tools, or think until the window is gone), and the turn ended
