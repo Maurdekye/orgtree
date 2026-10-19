@@ -26,7 +26,7 @@ const hires = () => Object.fromEntries(['claudeHire','codexHire','antigravityHir
 const noop=()=>{}
 function previews(root:ParentNode, cases:ReadonlyArray<readonly [string,string,string]>=families) {
   for(const [,label,tier] of cases){
-    const chip=root.querySelector<HTMLButtonElement>('button.t-'+tier)
+    const chip=root.querySelector<HTMLButtonElement>('.hsof button.t-'+tier)
     assert.ok(!!chip, label+' token exists')
     assert.equal(chip!.disabled,true,label+' cannot hire')
     assert.equal(chip!.classList.contains('codex-preview'),true,label+' uses dashed style')
