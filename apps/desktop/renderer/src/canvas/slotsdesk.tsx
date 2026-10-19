@@ -1,12 +1,13 @@
 // canvas/slotsdesk.tsx — the project desk's SLOTS tab (Orgtree 4.4.0; docket
 // `project-slots-first-come-permits-claimed-through`, mockup approved by the
 // user 2026-10-18). Shown only while the project's slot count is at least 1.
-// It leads with "k of N slots held" and the holders, then Holding (
-// agent, reason, held for, lease, force release), Line (place, agent, reason,
-// waiting for, remove from line) and Recent holds (how each ended). The lists
-// come from the `slot_status` op, re-read whenever the tree's slots change;
-// the buttons are the user's (the desktop's viewer), as the project's
-// superior's through the tool.
+// It leads with "k of N slots held" and the holders, then Holding, Line and
+// Recent holds on ONE shared column grid (user 2026-10-19 17:24Z): agent |
+// waited (Line's waiting aligns under it) | held | the rest (reason/lease,
+// ended-ago) | the row's action or ending label. The lists come from the
+// `slot_status` op, re-read whenever the tree's slots change; the buttons
+// are the user's (the desktop's viewer), as the project's superior's
+// through the tool.
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
@@ -20,9 +21,19 @@ import { AgentLink, nodeTierOf } from './identity'
 import { ageClockNow, subscribeAgeClock } from './desk'
 import type { ProjectSlotState } from './slots'
 
-interface Holder { lease: string; agent: string; slot: number; reason?: string | null; since: string; reminders?: number }
+interface Holder { lease: string; agent: string; slot: number; reason?: string | null; queued?: string | null; since: string; reminders?: number }
 interface Waiter { position: number; agent: string; dog: string; since?: string | null }
-interface Hold { lease: string; agent: string; slot: number; reason?: string | null; since: string; ended?: string | null; how?: string | null; by?: string | null }
+interface Hold { lease: string; agent: string; slot: number; reason?: string | null; queued?: string | null; since: string; ended?: string | null; how?: string | null; by?: string | null }
+
+/** A recent hold's ending label: nothing for an ordinary release, a short
+ *  word for the unusual endings (user 2026-10-19 17:23Z). Unknown endings
+ *  show verbatim rather than vanish. */
+export function holdEndLabel(how?: string | null): string {
+  if (!how || how === 'released') return ''
+  if (how.startsWith('released (forced')) return 'forced'
+  if (how.startsWith('idle:')) return 'timed out'
+  return how
+}
 export interface SlotStatus { project: string; slots: number; held: number; holders: Holder[]; line: Waiter[]; history: Hold[] }
 
 /** How long between two times: "45s", "12m", "1h 4m". */
@@ -68,11 +79,12 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
         {holders.map((h) => (
           <div key={h.lease} className="slot-row">
             <span className="slot-agent">{agentLink(h.agent)}</span>
-            {h.reason && <span className="slot-reason">{h.reason}</span>}
-            <span className="dim" title={'since ' + h.since}>held {span(h.since)}</span>
-            <span className="dim mono">lease {h.lease}</span>
-            {(h.reminders ?? 0) > 0 && <span className="dim">{h.reminders} reminder{h.reminders === 1 ? '' : 's'}</span>}
-            <span className="spacer" />
+            <span className="dim slot-wait" title={h.queued ? 'in line since ' + h.queued : undefined}>
+              {h.queued ? `waited ${span(h.queued, h.since)}` : ''}</span>
+            <span className="dim slot-held" title={'since ' + h.since}>held {span(h.since)}</span>
+            <span className="slot-rest">{h.reason && <span className="slot-reason">{h.reason} </span>}
+              <span className="dim mono">lease {h.lease}</span>
+              {(h.reminders ?? 0) > 0 && <span className="dim"> {h.reminders} reminder{h.reminders === 1 ? '' : 's'}</span>}</span>
             <button type="button" className="danger" data-action="force-release"
               title={`take the concurrency slot back from ${h.agent}; the next in line gets it at once`}
               onClick={() => setAsking(h)}>force release</button>
@@ -84,11 +96,11 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
         {line.length === 0 && <div className="dim">Nobody is waiting.</div>}
         {line.map((w) => (
           <div key={w.agent + w.dog} className="slot-row">
-            <span className="slot-no">{ordinal(w.position)}</span>
-            <span className="slot-agent">{agentLink(w.agent)}</span>
-            {nameOf(w) && <span className="slot-reason">{nameOf(w)}</span>}
-            {w.since && <span className="dim" title={'in line since ' + w.since}>waiting {span(w.since)}</span>}
-            <span className="spacer" />
+            <span className="slot-agent"><span className="slot-no">{ordinal(w.position)}</span> {agentLink(w.agent)}</span>
+            <span className="dim slot-wait" title={w.since ? 'in line since ' + w.since : undefined}>
+              {w.since ? `waiting ${span(w.since)}` : ''}</span>
+            <span className="slot-held" />
+            <span className="slot-rest">{nameOf(w) && <span className="slot-reason">{nameOf(w)}</span>}</span>
             <button type="button" data-action="unqueue" title={`remove ${w.agent}'s claim: it leaves the line and is not granted`}
               onClick={() => {
                 op({ op: 'slot_unqueue', node: node.id, agent: w.agent })
@@ -104,9 +116,11 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
         {history.map((h) => (
           <div key={h.lease} className="slot-row">
             <span className="slot-agent">{agentLink(h.agent)}</span>
-            <span className="slot-how">{h.how ?? 'ended'}</span>
-            <span className="dim" title={`held from ${h.since} to ${h.ended ?? '?'}`}>
-              {span(h.since, h.ended)}{h.ended ? ` · ended ${ago(h.ended)} ago` : ''}</span>
+            <span className="dim slot-wait" title={h.queued ? 'in line since ' + h.queued : undefined}>
+              {h.queued ? `waited ${span(h.queued, h.since)}` : ''}</span>
+            <span className="dim slot-held" title={`held from ${h.since} to ${h.ended ?? '?'}`}>held {span(h.since, h.ended)}</span>
+            <span className="dim slot-ended">{h.ended ? `ended ${ago(h.ended)} ago` : ''}</span>
+            <span className="slot-how" title={h.how ?? undefined}>{holdEndLabel(h.how)}</span>
           </div>
         ))}
       </div>

@@ -27,6 +27,7 @@ import { SlotsView } from '../src/canvas/slotsdesk'
 import { NodeSquare } from '../src/canvas/cards'
 import { DeskChat } from '../src/canvas/desk'
 import { DeskDogsProvider } from '../src/canvas/deskdogs'
+import { AgentSurfaceRoutesProvider } from '../src/canvas/panelcorner'
 import { resetConvos } from '../src/convo'
 import { NodeConfig } from '../src/canvas/modals'
 import { ProjectDesk } from '../src/canvas/projectdesk'
@@ -176,11 +177,35 @@ test("§3c the agent desk's header carries a holder's slot chip right after the 
   assert.match(chip!.previousElementSibling?.textContent ?? '', /^\$4\.56/, 'right after the estimated-cost chip')
 })
 
+test("§3e clicking an agent's slot chip opens that project's slots surface; its tooltip is the short held-since line (user 2026-10-19 17:18Z, 17:20Z)", async (t) => {
+  useFakeClock()
+  installFetch(new FakeServer())
+  t.after(() => { resetConvos(); realClock() })
+  const opens: [string, string][] = []
+  const me = agentNode('sa')
+  const view = await mountView(
+    <AgentSurfaceRoutesProvider value={{ open: (kind, id) => { opens.push([kind, id]) }, show: noop }}>
+      <DeskDogsProvider value={{ dogs, slotLeases: leases, open: noop }}>
+        <DeskChat node={me} map={new Map([[me.id, me]])} op={() => Promise.resolve({} as OpResult)}
+          slug="org" toast={noop} bare />
+      </DeskDogsProvider>
+    </AgentSurfaceRoutesProvider>, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(4) })
+  const chip = view.el.querySelector<HTMLElement>('.cc-head .chip.slot-hold')!
+  assert.ok(chip, 'the holder chip in the desk header')
+  assert.match(chip.getAttribute('title') ?? '', /^held since \d{1,2}:\d{2} from project build$/,
+    'the shortened tooltip: held since <short local time> from project <name> (user 2026-10-19 17:20Z)')
+  await inAct(() => chip.click())
+  assert.deepEqual(opens, [['project-slots', 'build']], 'clicking opens the project\'s slots surface')
+})
+
 test("§3d a waiting claim's chip sits in the desk header too: '⏳ build 2nd' (user 2026-10-18 10:52:50Z)", async (t) => {
   const el = await slotDesk(t, agentNode('sb'))
   const chips = [...el.querySelectorAll('.cc-head .chip.slot-wait')]
   assert.deepEqual(chips.map((c) => c.textContent), ['⏳ build 2nd'], "sb's claim, behind sc's")
-  assert.match(chips[0]!.getAttribute('title') ?? '', /2nd in line for project build/)
+  assert.match(chips[0]!.getAttribute('title') ?? '', /^waiting since \d{1,2}:\d{2} for project build$/,
+    'the shortened waiting tooltip (user 2026-10-19 17:20Z)')
   assert.ok(!el.querySelector('.cc-head .chip.slot-hold'), 'sb holds nothing')
 })
 
@@ -230,10 +255,10 @@ test('§4 the Slots count: 0 (none) by default, no switch; saving sends one set_
 
 const status = {
   project: 'build', slots: 1, held: 1,
-  holders: [{ lease: 's3f1c', agent: 'sa', slot: 1, reason: 'alpha7-build', since: '2026-10-18T09:00:00.000Z', reminders: 0 }],
+  holders: [{ lease: 's3f1c', agent: 'sa', slot: 1, reason: 'alpha7-build', queued: '2026-10-18T08:55:00.000Z', since: '2026-10-18T09:00:00.000Z', reminders: 0 }],
   line: [{ position: 1, agent: 'sc', dog: 'w1', since: '2026-10-18T09:03:00.000Z' },
     { position: 2, agent: 'sb', dog: 'w1', since: '2026-10-18T09:05:00.000Z' }],
-  history: [{ lease: 's1', agent: 'sb', slot: 1, reason: 'cargo', since: '2026-10-18T08:40:00.000Z',
+  history: [{ lease: 's1', agent: 'sb', slot: 1, reason: 'cargo', queued: '2026-10-18T08:35:00.000Z', since: '2026-10-18T08:40:00.000Z',
     ended: '2026-10-18T08:52:00.000Z', how: 'released', by: 'sb' },
   { lease: 's2', agent: 'sc', slot: 1, reason: null, since: '2026-10-18T07:00:00.000Z',
     ended: '2026-10-18T08:04:00.000Z', how: 'idle: not released after 3 reminders', by: 'orgtree' }],
@@ -283,17 +308,18 @@ test('visible slot views share one second clock for held, waiting and ended ages
   assert.equal(timer.mock.calls.filter(call => call.arguments[1] === 1000).length, 1, 'one clock for both views')
 })
 
-test('slot header has one count chip and shared model-icon agent links navigate from every list', async t => {
+test('slot header has one count chip and no holder links (user 2026-10-19 17:12Z); shared model-icon agent links navigate from every tab list', async t => {
   const { view, jumps } = await desk(t, project({ slots_capacity: 1 }), status)
   const header = view.el.querySelector('.cc-head-meta.project-slots-meta')
-  assert.ok(header, 'slot chip and holders belong in the shared second header row')
+  assert.ok(header, 'the slot chip belongs in the shared second header row')
   assert.doesNotMatch(header?.textContent ?? '', /concurrency slots? held/, 'the count chip is not repeated as prose')
   assert.ok(header?.querySelector('.project-slots-card'), 'yellow count card moves to the second row too')
   assert.equal(view.el.querySelector('.cc-head-top .project-slots-card') === null, true)
-  const headHolder = header!.querySelector<HTMLButtonElement>('.ref-agent[data-copy-agent-name="sa"]')
-  assert.ok(headHolder?.querySelector('.tier'), 'shared holder link includes its model icon')
-  await inAct(() => headHolder!.click())
-  assert.deepEqual(jumps, ['sa'])
+  assert.equal(header!.querySelector('.ref-agent') === null, true, 'no holder agent links beside the chip (user 2026-10-19 17:12Z)')
+  assert.match(header!.querySelector('.project-slots-card')?.getAttribute('title') ?? '', /sa/, 'the chip tooltip still names the holders')
+  assert.deepEqual(jumps, [])
+  // (the holder links that used to sit here moved to the tab lists below)
+  assert.deepEqual(jumps, [], 'nothing in the header navigates')
   await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.project-slots-card')!.click(); await flush(3) })
   assert.equal(view.el.querySelector('.project-slots .slots-lead') === null, true, 'facts moved into header')
   for (const [section, expected] of [['holding', ['sa']], ['line', ['sc', 'sb']], ['history', ['sb', 'sc']]] as const) {
@@ -302,7 +328,7 @@ test('slot header has one count chip and shared model-icon agent links navigate 
     assert.equal(links.every(link => !!link.querySelector('.tier')), true, `${section} model icons`)
     for (const link of links) await inAct(() => link.click())
   }
-  assert.deepEqual(jumps, ['sa', 'sa', 'sc', 'sb', 'sb', 'sc'])
+  assert.deepEqual(jumps, ['sa', 'sc', 'sb', 'sb', 'sc'])
 })
 
 test('§5 no Slots tab and no header card without a count', async (t) => {
@@ -330,9 +356,16 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   const line = [...panel.querySelectorAll('.slots-line .slot-row')].map((r) => r.textContent ?? '')
   assert.equal(line.length, 2)
   assert.match(line[0], /1st.*sc/); assert.match(line[1], /2nd.*sb/)
+  assert.match(holding, /waited 5m/, 'the holder\'s queue time before the grant (user 2026-10-19 17:24Z)')
+  const histRows = [...panel.querySelectorAll('.slots-history .slot-row')].map((r) => r.textContent ?? '')
+  assert.equal(histRows.length, 2)
+  assert.match(histRows[0], /waited 5m/); assert.match(histRows[0], /held 12m/)
+  assert.doesNotMatch(histRows[0], /released/, 'a normal release carries no label (user 2026-10-19 17:23Z)')
+  assert.doesNotMatch(histRows[1], /waited/, 'an old row without a recorded queue time shows none')
+  assert.match(histRows[1], /timed out/, 'unusual endings keep a short label')
   const hist = panel.querySelector('.slots-history')!.textContent ?? ''
   assert.doesNotMatch(hist, /#\d/)
-  assert.match(hist, /released/); assert.match(hist, /idle: not released after 3 reminders/)
+  assert.doesNotMatch(hist, /idle: not released after 3 reminders/, 'the raw end reason stays in the tool, not the row')
   // force release: nothing before the confirmation
   await inAct(() => { panel.querySelector<HTMLButtonElement>('button[data-action="force-release"]')!.click() })
   assert.equal(ops.some((o) => o.op === 'slot_release'), false, 'nothing before the confirmation')

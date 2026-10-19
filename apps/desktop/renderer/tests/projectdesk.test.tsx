@@ -740,7 +740,7 @@ test('§6b open settings follow the project: a remote description change is not 
 /* ─── §7 the card's count and the app header ────────────────────────────── */
 // USER 2026-10-17 21:21Z: the middle-zoom card shows active/hired like the header.
 
-test('§7a the middle-zoom project card shows the header\'s chip: spinner and active/hired', async (t) => {
+test('§7a the middle-zoom project card shows the plain activity count: spinner and active/hired, no chip box (USER 2026-10-19 17:22Z)', async (t) => {
   serve(t)
   const view = await mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
     dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org"
@@ -748,8 +748,9 @@ test('§7a the middle-zoom project card shows the header\'s chip: spinner and ac
     onHire={noop} onNewProject={noop} onInbox={noop}
     onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
   t.after(() => view.unmount())
-  const chip = view.el.querySelector('.sq.project .sq-head .chip.agents.project-activity')
-  assert.ok(chip, 'the activity chip on the card')
+  const chip = view.el.querySelector('.sq.project .sq-head .project-activity')
+  assert.ok(chip, 'the activity count on the card')
+  assert.equal(chip.classList.contains('chip'), false, 'plain text: no chip box (USER 2026-10-19 17:22Z)')
   assert.equal(chip.querySelector('.org-counts')?.textContent, '1/2')
   assert.ok(chip.querySelector('.working-ct svg.cc-spin'), 'the spinner while dev1 works')
 })

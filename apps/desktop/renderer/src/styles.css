@@ -1429,7 +1429,10 @@ button.badge.audience-fold.alert {
 /* its title is the agent temporary desk's: AgentName's mark and bold name */
 .project-desk-modal > .modalpin-bar.desk-title .modalpin-name { display: inline-flex; align-items: center; gap: 6px; font-size: inherit; }
 .project-desk-modal > .modalpin-bar .modalpin-name .project-mark { color: var(--accent); display: inline-flex; }
-.chip.agents.project-activity { padding: 0 5px; }
+/* the project's active count is plain text beside "Active …", its x/y
+   bold (user 2026-10-19 17:22Z): no chip box, a slightly smaller font */
+.project-activity { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; }
+.project-activity .project-counts { font-weight: 700; }
 /* "Active 5m" / "Idle 5m": an agent card's state word and clock (.sq-idle,
    .sq-idle-time) with their own spacing and colours (user 2026-10-18 07:42Z) */
 .project-last-activity { display: inline-flex; align-items: baseline; white-space: nowrap;
@@ -3187,6 +3190,7 @@ textarea.ask-free-response-input { resize: vertical; }
 .project-slots-card { cursor: pointer; font: inherit; font-size: 11px; }
 .chip.slot-hold { font-size: 10px; padding: 0 5px; border-radius: 8px; white-space: nowrap;
   background: var(--slot); color: var(--slot-ink); border: 1px solid var(--slot); }
+button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; font-size: 10px; line-height: inherit; }
 .chip.slot-wait { font-size: 10px; padding: 0 5px; border-radius: 8px; white-space: nowrap;
   background: transparent; color: var(--slot); border: 1px dashed var(--slot); }
 .wd-chip.slot { border-color: var(--slot); }
@@ -3198,9 +3202,12 @@ textarea.ask-free-response-input { resize: vertical; }
 .project-slots h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }
 .project-slots .slots-lead { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .project-slots .slots-lead .slot-holder { background: var(--slot); color: var(--slot-ink); font-weight: normal; }
-.project-slots .slot-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); }
-.project-slots .slot-row .spacer { flex: 1; }
-.project-slots .slot-no { min-width: 30px; color: var(--slot); font-variant-numeric: tabular-nums; }
+/* one column grid shared by Holding, Line and Recent holds (user
+   2026-10-19 17:24Z): agent | waited | held | the rest | action/label */
+.project-slots .slot-row { display: grid; grid-template-columns: minmax(110px, 1.1fr) 104px 92px minmax(130px, 1fr) auto;
+  align-items: center; column-gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.project-slots .slot-how { color: var(--slot); white-space: nowrap; }
+.project-slots .slot-no { display: inline-block; min-width: 30px; color: var(--slot); font-variant-numeric: tabular-nums; }
 .project-slots .slot-agent { font-weight: 600; }
 .project-slots code { font-size: 11px; }
 .project-queue-tools button { font-size: 11px; padding: 2px 8px; }
@@ -3213,10 +3220,10 @@ textarea.ask-free-response-input { resize: vertical; }
 .project-listeners-badge.bright, .project-listeners-card.bright { border-color: var(--listener);
   background: var(--listener); color: var(--listener-ink); }
 .project-listeners-card { cursor: pointer; font: inherit; font-size: 11px; }
-.project-queue-badge, .project-queue-card { display: inline-flex; align-items: center; align-self: flex-start;
+.project-queue-badge, .project-queue-card, .project-maillisteners-badge, .project-maillisteners-card { display: inline-flex; align-items: center; align-self: flex-start;
   font-size: 10px; line-height: 14px; padding: 0 6px; border-radius: 8px; white-space: nowrap;
   border: 1px solid var(--fq-line); color: var(--fq-line); background: transparent; }
-.project-queue-card { cursor: pointer; font: inherit; font-size: 11px; }
+.project-queue-card, .project-maillisteners-card { cursor: pointer; font: inherit; font-size: 11px; }
 /* the desk's Listeners tab */
 .project-listeners { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
 .project-listeners h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }

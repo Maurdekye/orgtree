@@ -30,7 +30,7 @@ import { scratchFolderAction } from '../scratch-folder'
 import { AgentRetireConfirm, projectMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
 import { projectSlotState, slotBadgeText, slotCount, slotsFull } from './slots'
-import { listenerCards, projectListenerState, queueAckMode, queueCard } from './listeners'
+import { listenerCards, mailListenerCard, projectListenerState, queueAckMode, queueCard } from './listeners'
 import { readQuickChat } from '../quickchat'
 import { agentTooltipProps } from './agentnav'
 import { useAgentSurfaceRoutes } from './panelcorner'
@@ -128,6 +128,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const listenerState = projectListenerState(node.id, tree?.watchdogs ?? [])
   const listenerBadges = listenerCards(node.id, listenerState)
   const queue = queueCard(node.id, waiting, node.mail_held ?? 0, queueAckMode(node))
+  const mailListeners = mailListenerCard(node.id, tree?.watchdogs ?? [])
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
   const cardRef = useRef<HTMLDivElement>(null)
@@ -227,6 +228,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
             {listenerBadges.map((c) => <span key={c.key} className={'project-listeners-badge' + (c.bright ? ' bright' : '')}
               title={c.title}>{c.text}</span>)}
             {queue && <span className="project-queue-badge" title={queue.title}>{queue.text}</span>}
+            {mailListeners && <span className="project-maillisteners-badge" title={mailListeners.title}>{mailListeners.text}</span>}
           </div>
           {/* no description preview here: it lives on the project desk (user 2026-10-18 08:50Z) */}
           {showShortcuts && <div className="sq-actions project-actions">

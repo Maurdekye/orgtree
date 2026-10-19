@@ -17,6 +17,8 @@
 //      the header cards, the tab's badge, its rows (agent, dog, mode,
 //      count, fire actions) and the fire control sending fire_project_event;
 //   §5 the near-zoom card's listener and queue badges.
+//   §6 the magenta mail-listeners card (fair-queue count, user 2026-10-19
+//      17:11Z): beside the queue card on desk + near card, opens inbox.
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs projectlisteners
 
@@ -27,7 +29,7 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import {
-  fireActionTools, listenerCards, listenerLinks, projectListenerState, queueAckMode, queueCard,
+  fireActionTools, listenerCards, listenerLinks, mailListenerCard, projectListenerState, queueAckMode, queueCard,
 } from '../src/canvas/listeners'
 import { watchdogDescription } from '../src/canvas/watchdogdescription'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
@@ -62,6 +64,10 @@ const dogs = [
     fire_actions: [{ tool: 'orgtree_project', args: { action: 'fire_event', name: 'sync' } }] }),
   dog('listener_watch', 'boss', 'later', { count: 3, state: 'paused' }),
   dog('project_listener', 'gone', 'spent', { state: 'spent', spent: true }),
+  // the mail listeners (§6): two armed fair-queue watchers, one paused
+  dog('fair_queue', 'sa', 'mail-a', { once: false }),
+  dog('fair_queue', 'sb', 'mail-b', { once: false }),
+  dog('fair_queue', 'sc', 'mail-c', { state: 'paused', once: false }),
 ]
 
 /* ─── §1 the state and the cards ─────────────────────────────────────────── */
@@ -225,4 +231,39 @@ test('§5 the near card carries the listener and queue badges', async (t) => {
   assert.match(view.el.querySelector('.project-listeners-badge')?.getAttribute('title') ?? '', /listener watch "all-in"/,
     'its tooltip says what the card means')
   assert.equal(view.el.querySelector('.project-queue-badge')?.textContent, 'mail queue 3 waiting · 1 in flight')
+  const activity = view.el.querySelector('.project-activity')
+  assert.ok(activity, 'the activity count on the near card')
+  assert.equal(activity!.classList.contains('chip'), false,
+    'the x/y count is plain text now, no chip box (user 2026-10-19 17:22Z)')
+  assert.match(activity!.querySelector('.project-counts')?.textContent ?? '', /^\d+\/\d+$/, 'the bold x/y count')
+  assert.equal(view.el.querySelector('.project-maillisteners-badge')?.textContent, 'mail listeners 2',
+    'the near card carries the magenta mail-listener badge beside the queue badge')
+})
+
+/* ─── §6 the mail listeners card (user 2026-10-19 17:11-17:12Z) ─────────── */
+
+test('§6 the mail-listener card counts armed fair-queue watchers only, and sits beside the queue card', () => {
+  const card = mailListenerCard('sync', dogs)!
+  assert.equal(card.text, 'mail listeners 2', 'armed fair-queue dogs; the paused one takes no mail')
+  assert.match(card.title, /2 mail listeners \(fair_queue\) armed on project sync: sa, sb/)
+  assert.equal(mailListenerCard('sync', dogs.filter((w) => w.kind !== 'fair_queue')), null,
+    'no card while nobody listens for mail')
+  assert.equal(mailListenerCard('other', dogs), null, 'another project\'s listeners do not count')
+})
+
+test('§6 the desk header carries the mail-listeners card beside the queue card, and clicking it opens the inbox tab', async (t) => {
+  const nd = project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 })
+  const { view } = await desk(t, nd)
+  const listeners = view.el.querySelector<HTMLButtonElement>('.project-maillisteners-card')
+  assert.equal(listeners?.textContent, 'mail listeners 2')
+  assert.equal(view.el.querySelector('.project-queue-card')?.textContent, 'mail queue 3 waiting · 1 in flight',
+    'the queue card stays its own card beside it')
+  await inAct(async () => { listeners!.click(); await flush(3) })
+  assert.equal(view.el.querySelector('.cc-tabs button[data-tab="inbox"]')?.classList.contains('on'), true,
+    'clicking the mail-listeners card opens the inbox tab (user 2026-10-19 17:12Z)')
+})
+
+test('§6 no mail-listeners card without a fair-queue watcher', async (t) => {
+  const { view } = await desk(t, project(), false)
+  assert.equal(Boolean(view.el.querySelector('.project-maillisteners-card')), false)
 })

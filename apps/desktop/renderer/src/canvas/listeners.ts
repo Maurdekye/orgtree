@@ -114,6 +114,22 @@ export function queueCard(project: string, waiting: number, held: number, ack: b
   return { text, title }
 }
 
+/** The magenta mail-listeners card (user 2026-10-19 17:11Z): how many
+ *  agents listen for the project's mail with an armed fair_queue dog
+ *  (paused watchers take no mail and do not count). Sits beside the
+ *  queue card — a standing fact next to the queue's transient one — and
+ *  opens the same inbox. Null while nobody listens. */
+export function mailListenerCard(project: string, dogs: Watchdog[]): QueueCard | null {
+  const armed = dogs.filter((w) => w.kind === 'fair_queue' && !w.spent && w.state === 'armed' && target(w) === project)
+  if (!armed.length) return null
+  const n = armed.length
+  return {
+    text: `mail listeners ${n}`,
+    title: `${n} mail listener${n === 1 ? '' : 's'} (fair_queue) armed on project ${project}: `
+      + `${armed.map((w) => w.owner).join(', ')}. They share its waiting mail. Click for the project mailbox.`,
+  }
+}
+
 /** The tool names a dog runs when it fires, for lists and tabs. */
 export function fireActionTools(w: Watchdog): string[] {
   return (w.fire_actions ?? []).map((a) => a.tool).filter(Boolean)

@@ -50,7 +50,7 @@ import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
 import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
-import { listenerCards, projectListenerState, queueAckMode, queueCard } from './listeners'
+import { listenerCards, mailListenerCard, projectListenerState, queueAckMode, queueCard } from './listeners'
 import { DeskJumpCards } from './deskjumpcards'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
@@ -146,7 +146,7 @@ export function ProjectLastActivity({ node }: { node: CanvasNode }) {
 export function ProjectActivity({ node }: { node: CanvasNode }) {
   const { active, hired } = projectCounts(node)
   return (
-    <span className="chip agents project-activity" title="active / hired agents under this project">
+    <span className="project-activity" title="active / hired agents under this project">
       {/* the spinner's slot only while it spins: an idle chip keeps no gap
           (coordinator visual review 2026-10-17 23:25Z) */}
       {active > 0 && <span className="org-activity">
@@ -482,6 +482,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const listenersArmed = listenerState.armed.length
   const listenerHeaderCards = listenerCards(node.id, listenerState)
   const queue = queueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node))
+  const mailListeners = mailListenerCard(node.id, tree.watchdogs ?? [])
   const hasListeners = listenerState.listeners.length + listenerState.watches.length > 0
   // the Dead letters tab joins them while the project holds open dead letters
   const deadLetters = node.dead_letters ?? 0
@@ -559,17 +560,19 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               agent desk (user 2026-10-18 11:47Z); rendered only popped out */}
           <PopoutWindowControls />
         </div>
-        {(listenerHeaderCards.length > 0 || queue) && <div className="cc-head-meta project-listeners-meta">
+        {(listenerHeaderCards.length > 0 || queue || mailListeners) && <div className="cc-head-meta project-listeners-meta">
           {listenerHeaderCards.map((c) => <button key={c.key} type="button"
             className={'chip project-listeners-card' + (c.bright ? ' bright' : '')}
             title={c.title} onClick={() => setView('listeners')}>{c.text}</button>)}
           {queue && <button type="button" className="chip project-queue-card"
             title={queue.title} onClick={() => setView('inbox')}>{queue.text}</button>}
+          {mailListeners && <button type="button" className="chip project-maillisteners-card"
+            title={mailListeners.title} onClick={() => setView('inbox')}>{mailListeners.text}</button>}
         </div>}
         {slots.total > 0 && <div className="cc-head-meta project-slots-meta">
           <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
-            title="open the Concurrency slots tab" onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>
-          {slots.held.map(h => <AgentLink key={h.lease} id={h.agent} tier={nodeTierOf(map.get(h.agent))} onFocus={onJump} />)}
+            title={'open the Concurrency slots tab' + (slots.held.length ? ` — held by ${slots.held.map(h => h.agent).join(', ')}` : '')} onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>
+          {/* no holder links here (user 2026-10-19 17:12Z): the holders are on the slots tab */}
         </div>}
       </div>
       {/* its presentations and its subtree's, on their own strip under the
