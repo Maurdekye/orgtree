@@ -38,7 +38,7 @@ If you are halted or retired while holding the concurrency slot it is taken back
 
 ## Watching the machine
 
-The project desk's second header row contains the yellow held/total count card, "1 of 1 concurrency slot held" and the holder cards. The **slots** tab shows Holding, the line in order with how long each has waited, and recent holds with how each ended (released, idle, halted, forced). Agent entries use shared jump links with model icons. Slots have no displayed number; a lease identifies each hold, while queue ordinals still show waiting order. `orgtree_project action=slots name=build-machine` gives the same as JSON. The project's superior or the user can force-release a stuck concurrency slot or remove someone from the line there.
+The project desk's second header row contains the yellow held/total count card and the holder cards, without repeating the count as prose. The **slots** tab shows Holding, the line in order with how long each has waited, and recent holds with how each ended (released, idle, halted, forced). Agent entries use shared jump links with model icons. Slots have no displayed number; a lease identifies each hold, while queue ordinals still show waiting order. `orgtree_project action=slots name=build-machine` gives the same as JSON. The project's superior or the user can force-release a stuck concurrency slot or remove someone from the line there.
 
 For what a project is and its other features, see `orgtree-projects` (orgtree-working › team); for the `slot` and `command` watchdogs, `orgtree-tool-watchdog` (orgtree-working › watchdogs); for release and status, `orgtree-tool-project` (orgtree-working › team).
 
