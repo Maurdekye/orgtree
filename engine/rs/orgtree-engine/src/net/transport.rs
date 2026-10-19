@@ -1,10 +1,22 @@
 //! Mail-hub request transport shared with the read-only health Test.
 use super::*;
 
+// The initial connection must fail before short (two-second) health/typing
+// request deadlines expire. A total request timeout cannot safely be replayed:
+// it may occur after the server accepted a write.
+pub(super) const DIRECT_CONNECT_TIMEOUT:Duration=Duration::from_secs(1);
+
 static PROXY:LazyLock<reqwest::Client>=LazyLock::new(||reqwest::Client::builder()
     .connect_timeout(Duration::from_secs(5))
     .user_agent(concat!("orgtree-engine/",env!("CARGO_PKG_VERSION")))
     .build().expect("mail hub proxy client"));
+
+#[nolog]
+pub(super) async fn healthz(address:&str,timeout:Duration)->Option<Value> {
+    let response=send(HTTP.get(format!("{address}/healthz")).timeout(timeout)).await.ok()?;
+    if !response.status().is_success(){return None;}
+    response.json::<Value>().await.ok().filter(Value::is_object)
+}
 
 #[nolog]
 fn retryable(error:&reqwest::Error,url:&reqwest::Url)->bool {

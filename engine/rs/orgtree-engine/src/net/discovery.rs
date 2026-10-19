@@ -59,7 +59,7 @@ pub(super) async fn probe_many(addresses:Vec<String>,limit:Duration)->Option<(St
     let mut pending=tokio::task::JoinSet::new();
     for (index,address) in addresses.into_iter().enumerate() {
         pending.spawn(async move {
-            crate::mailhub::healthz(&address,limit).await
+            transport::healthz(&address,limit).await
                 .filter(|h|h["ok"]==true).map(|health|(index,address,health))
         });
     }
