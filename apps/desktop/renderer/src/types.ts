@@ -739,9 +739,20 @@ export interface Watchdog {
   id: string
   owner: string
   name: string
-  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'usage' | 'fair_queue' | 'slot' | 'project_listener' | 'listener_watch'
+  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'usage' | 'fair_queue' | 'slot' | 'project_listener' | 'listener_watch' | 'mqtt'
   /** a `listener_watch`: armed project listeners that fire it */
   count?: number
+  /** an `mqtt` dog: how it authenticates, never with what: `none`,
+   *  `file: <path>` or `inline credentials (stored encrypted)` */
+  credentials?: string
+  /** an `mqtt` dog: the regex its payload text must match */
+  payload_pattern?: string
+  /** an `mqtt` dog: whether retained messages fire it too */
+  retained?: boolean
+  /** an `mqtt` dog: its broker connection as the engine last saw it */
+  connection?: { state: 'connecting' | 'connected' | 'down' | 'refused'; since?: string; error?: string; retry_at?: string }
+  /** an `mqtt` dog: messages it lost because they came faster than it could take them */
+  dropped?: number
   /** tool calls run as the owner when the dog fires; results ride its fire mail */
   fire_actions?: { tool: string; args?: Record<string, unknown> }[]
   accounts?: string[]

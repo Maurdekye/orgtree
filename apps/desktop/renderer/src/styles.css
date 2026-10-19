@@ -6743,6 +6743,8 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
   background: color-mix(in srgb, var(--warn, #e5c07b) 13%, var(--panel));
   color: var(--warn, #e5c07b); font: 700 7px/1 var(--mono);
 }
+/* an mqtt dog's broker connection: warning colour while down or refused */
+.wd-connection-bad { color: var(--warn, #e5c07b); }
 .wd-once-label {
   display: inline-flex; align-items: center; margin-left: 5px; padding: 1px 5px;
   border: 1px dashed color-mix(in srgb, var(--warn, #e5c07b) 72%, var(--line));

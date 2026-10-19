@@ -1,6 +1,6 @@
 // Focused renderer proof without dependency installs, copies or junctions.
-// Run under the team's build lock: node tools/watchdog-card-smoke.mjs
-// <provisioned checkout> <C:/orgtree-build/helper-transcript-sol/...> [visual]
+// Run under a build-slot grant: node tools/watchdog-card-smoke.mjs
+// <provisioned checkout> <C:/orgtree-build/<your agent>/...> [visual]
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 import { spawnSync } from 'node:child_process'
 const repo = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const [deps, output, mode] = process.argv.slice(2)
-if (!deps || !output || !/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(path.resolve(output))) throw new Error('Provide dependency checkout and assigned C output subdirectory')
+if (!deps || !output || !/^C:[\\/]orgtree-build[\\/][^\\/]+[\\/]/i.test(path.resolve(output))) throw new Error('Provide dependency checkout and an output subdirectory of your assigned C:/orgtree-build/<agent>/ scope')
 const require = createRequire(path.join(path.resolve(deps), 'package.json'))
 const esbuild = require('esbuild')
 fs.mkdirSync(output, { recursive: true })

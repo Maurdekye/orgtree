@@ -167,6 +167,19 @@ export function ConfirmModal({ title, body, confirmLabel, onConfirm, close,
     </div></ModalOverPins>
   )
 }
+// An mqtt dog's broker connection in one line (docs/rust-engine/mqtt-watchdogs.md).
+function mqttConnection(dog: Watchdog): string {
+  const c = dog.connection
+  if (!c) return 'not connected yet'
+  const since = c.since ? ` since ${ago(c.since)} ago` : ''
+  switch (c.state) {
+    case 'connected': return `connected${since}`
+    case 'connecting': return 'connecting…'
+    case 'down': return `down${since}: ${c.error ?? 'unreachable'}; it retries on its own`
+    case 'refused': return `refused by the broker${since}: ${c.error ?? ''}; fix it, then resume to retry now`
+  }
+}
+
 // FR-18: the watchdog detail panel — the click-through half of the user's
 // spec ("clicking on them shows a description of the process / command /
 // file they're watching. they have a mail tab showing the events they've
@@ -245,8 +258,18 @@ export function WatchdogPanel({ slug, dog, dogs, toast, close }: {
             title={expPattern ? 'click to collapse' : 'click to see the full text'}
             onClick={() => setExpPattern((v) => !v)}>{dog.pattern}</div>
         </>}
+        {dog.kind === 'mqtt' && <>
+          <div className="field-label">credentials</div>
+          <div className="chip mono">{dog.credentials ?? 'none'}</div>
+          {dog.payload_pattern && <><div className="field-label">payload filter</div>
+            <div className="chip mono grow wd-cmd">/{dog.payload_pattern}/</div></>}
+          <div className="field-label">connection</div>
+          <div className={'dim wd-connection' + (dog.connection?.state === 'down' || dog.connection?.state === 'refused' ? ' wd-connection-bad' : '')}>
+            {mqttConnection(dog)}</div>
+        </>}
         {dog.health && <div className="ask-warn">{dog.health}</div>}
         {dog.kind === 'event' && dog.last_output && <><div className="field-label">last event</div><div className="chip mono grow wd-cmd">{dog.last_output}</div></>}
+        {dog.kind === 'mqtt' && dog.last_output && <><div className="field-label">last message</div><div className="chip mono grow wd-cmd">{dog.last_output}</div></>}
         <div className="field-label">fire mode</div>
         <div className="dim">{description.fireMode}</div>
         {dog.kind === 'command' && <div className="dim">A command is stopped after 60s; that timeout also counts as a matching event. A nonzero exit alone does not.</div>}

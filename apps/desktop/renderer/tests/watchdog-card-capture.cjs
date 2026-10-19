@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const root = process.env.WATCHDOG_CAPTURE_ROOT
-if (!/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i.test(root || '')) throw Error('Expected assigned C build scope')
+if (!/^C:[\\/]orgtree-build[\\/][^\\/]+[\\/]/i.test(root || '')) throw Error('Expected an assigned C:/orgtree-build/<agent>/ scope')
 app.setPath('userData', path.join(root, 'user-data'))
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {
@@ -11,7 +11,8 @@ app.whenReady().then(async () => {
   try {
     await win.loadFile(path.join(root, 'fixture.html'))
     const receipts = []
-    const cases = process.env.WATCHDOG_CAPTURE_SINGLE === 'true' ? [['queue', 'dark']] : ['queue', 'command', 'silence', 'event'].flatMap(name => ['dark', 'light'].map(theme => [name, theme]))
+    const names = process.env.WATCHDOG_CAPTURE_CASES ? process.env.WATCHDOG_CAPTURE_CASES.split(',') : ['queue', 'command', 'silence', 'event', 'mqtt', 'mqtt-down']
+    const cases = process.env.WATCHDOG_CAPTURE_SINGLE === 'true' ? [['queue', 'dark']] : names.flatMap(name => ['dark', 'light'].map(theme => [name, theme]))
     for (const [name, theme] of cases) {
       let state, image, actualBackground
       await win.webContents.executeJavaScript(`window.setWatchdogCase(${JSON.stringify(name)})`)

@@ -13,6 +13,12 @@ const cases: Record<string, Partial<Watchdog> & { notice?: boolean }> = {
   command: { name: 'build-finished', kind: 'command', target: 'type C:\\synthetic\\build-status.txt', pattern: '^BUILD COMPLETE$', once: true },
   silence: { name: 'worker-quiet', kind: 'activity', target: 'builder', fire_mode: 'silence', quiet_period_s: 600, pattern: '^tool_call', notice: true },
   event: { name: 'team-idle', kind: 'event', target: 'agents.active', threshold: 'below 1', event_scope: 'subtree', once: true },
+  mqtt: { name: 'door-sensor', kind: 'mqtt', target: 'mqtts://broker.local:8883', pattern: 'home/+/door', payload_pattern: '"state":"open"',
+    credentials: 'file: C:\\synthetic\\creds\\broker.json', connection: { state: 'connected', since: '2026-10-18T07:00:00Z' },
+    last_output: 'home/front/door: {"state":"open"}', fired: 3 },
+  'mqtt-down': { name: 'ci-status', kind: 'mqtt', target: 'mqtt://10.0.0.5:1883', pattern: 'ci/+/status', credentials: 'inline credentials (stored encrypted)',
+    connection: { state: 'down', since: '2026-10-18T07:00:00Z', error: 'the broker host refused the TCP connection (is the broker listening on that port?)', retry_at: '2026-10-18T07:05:00Z' },
+    health: '⚠ the broker is unreachable since 2026-10-18T07:00:00Z: the broker host refused the TCP connection (is the broker listening on that port?). It retries on its own (next try 2026-10-18T07:05:00Z); messages published meanwhile are missed.' },
 }
 ;(window as unknown as { setWatchdogCase: (name: string) => void }).setWatchdogCase = name => {
   if (!cases[name]) throw Error('unknown fixture')
