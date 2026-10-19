@@ -10,7 +10,7 @@ test('native close stays open until the renderer save completes, then retries po
   assert.equal(gate(event), true)
   assert.equal(gate(event), true)
   await Promise.resolve(); assert.equal(flushes, 1); assert.equal(closes, 0)
-  finish(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+  finish(); await new Promise<void>(resolve => setImmediate(resolve))
   assert.equal(closes, 1); assert.equal(prevents, 2)
   assert.equal(gate(event), false, 'only the drain retry reaches existing close policy')
 })
@@ -19,7 +19,7 @@ test('renderer drain failure keeps the window alive and permits retry', async ()
   let closes = 0, errors = 0
   const gate = mailReadCloseGate(() => Promise.reject(Error('renderer gone')), () => { closes++ }, () => { errors++ })
   gate({preventDefault() {}})
-  await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+  await new Promise<void>(resolve => setImmediate(resolve))
   assert.equal(closes, 0); assert.equal(errors, 1)
 })
 

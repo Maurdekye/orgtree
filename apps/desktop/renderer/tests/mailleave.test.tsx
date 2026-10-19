@@ -116,12 +116,28 @@ test('a second reference and then a keyboard move mark only the bodies left', as
 
 test('all bodies in an opened folded notice are read, unopened notices are not', async () => {
   const reads: string[] = []
-  const notices = rows.slice(0, 3).map(m => ({...m, from: '@system', kind: 'notice'}))
+  const notices = rows.slice(0, 3).map(m => ({...m, from: '@system', kind: 'notice', tags: []}))
   const view = await mountView(<MailList pending={notices} jumpTo="m0" onRead={m => { reads.push(m.id!) }}/>, el => el)
   assert.equal(view.el.querySelectorAll('.notepile-row').length, 3, 'three full bodies are actually displayed')
   assert.deepEqual(reads, [])
   await view.unmount()
   assert.deepEqual(reads.sort(), ['m0', 'm1', 'm2'])
+})
+
+test('native flush also waits for a read already sent by a removed tab', async () => {
+  let finish!: () => void
+  const pending = new Promise<void>(resolve => { finish = resolve })
+  const view = await mountView(<MailList pending={rows} onRead={() => pending}/>, el => el)
+  await inAct(() => open('m0', view.el))
+  await view.render(<span/>)
+  const waits: Promise<unknown>[] = []
+  window.dispatchEvent(new window.CustomEvent('orgtree:flush-mail-reads', {detail: {waitUntil: (p: Promise<unknown>) => waits.push(p)}}))
+  assert.ok(waits.length > 0)
+  let done = false
+  const drained = Promise.all(waits).then(() => { done = true })
+  await tick(); assert.equal(done, false)
+  finish(); await drained
+  await view.unmount()
 })
 
 test('unopened lists, sent copies and question cards do not create mail reads', async () => {
