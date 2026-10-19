@@ -201,8 +201,9 @@ pub async fn message(
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
     let text = b.text.trim_end().to_string();
-    // slash commands go to the CLI as typed
-    if is_cli_command(&text, &b.attachments, false) {
+    let to_project = crate::domain::projects::is_project(&**e.db.get().await?, a.id).await?;
+    // slash commands go to the CLI as typed; a project has none
+    if is_cli_command(&text, &b.attachments, to_project) {
         let cmd = text.clone();
         let r = ask(&e, org.id, a.id, move |tx| AgentMsg::Command(cmd, tx)).await?;
         if r["started"].as_bool().unwrap_or(false) {
@@ -239,7 +240,6 @@ pub async fn message(
         }
         if b.reply_to.as_ref().is_some_and(|q| replies.first().is_none_or(|first| q != first)) { return Err(ApiError::bad_request("reply_to must match the first replies target")); }
     }
-    let to_project = crate::domain::projects::is_project(&**e.db.get().await?, a.id).await?;
     let sent = mail::send(&e, org.id, out).await?;
     let halted = sent.delivery.contains("is halted");
     // the user writing to a project grants it an audience to the user, after
@@ -254,10 +254,12 @@ pub async fn message(
 }
 
 /// Whether a user's message is a command for the agent's CLI rather than mail:
-/// one line starting with "/" and no attachments.
+/// one line starting with "/", no attachments, to an agent. A project runs no
+/// CLI and its actor answers no command (runtime/actor.rs `spawn`), so there
+/// the same line is ordinary mail for its queue (desk parity G19).
 #[nolog]
-fn is_cli_command(text: &str, attachments: &[String], _to_project: bool) -> bool {
-    text.starts_with('/') && !text.contains('\n') && attachments.is_empty()
+fn is_cli_command(text: &str, attachments: &[String], to_project: bool) -> bool {
+    !to_project && text.starts_with('/') && !text.contains('\n') && attachments.is_empty()
 }
 
 #[cfg(test)]
