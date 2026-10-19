@@ -26,11 +26,12 @@ function index(roots: CanvasNode[]) {
 const wrapped = (n: CanvasNode) => project('outer', [project('inner', [n]), project('empty')])
 const settings = { max_top_grant: 100, default_top_grant: 37, cascade_alloc: true } as TreePayload
 
-test('default desk selects a live agent through root projects and skips empty wrappers', () => {
+test('default desk selects agents through root projects and skips empty wrappers', () => {
   const map=index([project('empty-root'),wrapped(agent('first')),agent('second')])
   assert.equal(defaultAgent(map),'first')
   assert.equal(defaultAgent(index([project('only-empty',[project('nested-empty')])])),null)
-  assert.equal(defaultAgent(index([agent('archived',[project('team',[agent('live-child')])],{state:'archived'})])),'live-child')
+  assert.equal(defaultAgent(index([agent('archived',[project('team',[agent('live-child')])],{state:'archived'})])),'archived',
+    'the existing ghost-ancestor selection remains unchanged')
 })
 
 async function dragToMax(bar: HTMLElement) {
