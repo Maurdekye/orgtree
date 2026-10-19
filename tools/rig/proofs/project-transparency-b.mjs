@@ -73,7 +73,8 @@ export default async function(rig) {
       p.check(`${shape}: questions/scope from a root-project agent open a user card`,ask.ok&&scope.ok&&!!card&&routed.length===0,{ask:ask.text,scope:scope.text,card})
       if(card) {
         await rig.api('POST',`/api/orgs/${rig.org}/nodes/${name}/batch`,{revs:{ask:card.rev,scope:card.rev},answers:['A'],scope:['approve']})
-        p.check('root: the user answer returns to the actual asker',rig.sql(`SELECT id FROM ot.mail WHERE recipient_agent_id=${id(name)} AND sender='@user' AND kind='decision'`).length===1)
+        const answer=rig.sql(`SELECT m.recipient_name,m.sender,m.body FROM ot.asks a JOIN ot.mail m ON m.uid=a.answer_mail WHERE a.uid='${card.uid}' AND a.status='answered'`)
+        p.check('root: the user answer returns to the actual asker',answer.length===1&&answer[0].recipient_name===name&&answer[0].sender==='@user'&&answer[0].body.includes('A: A'),answer)
       } else p.check('root: the user answer returns to the actual asker',false,'no card on baseline')
     }
     const created=await rig.tool(name,'orgtree_work',{action:'create',title:`PTB item ${shape}`,objective:'Synthetic project-transparency handoff and deployer fixture.'})
