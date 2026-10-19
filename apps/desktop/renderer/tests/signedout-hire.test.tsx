@@ -24,8 +24,8 @@ const providers: ProviderInfo[] = families.map(([id,label,tier]) => ({
 const hires = () => Object.fromEntries(['claudeHire','codexHire','antigravityHire','museHire','openrouterHire','langserverHire']
   .map((key,i) => [key,hireOf(providers[i])]))
 const noop=()=>{}
-function previews(root:ParentNode) {
-  for(const [,label,tier] of families){
+function previews(root:ParentNode, cases:ReadonlyArray<readonly [string,string,string]>=families) {
+  for(const [,label,tier] of cases){
     const chip=root.querySelector<HTMLButtonElement>('button.t-'+tier)
     assert.ok(!!chip, label+' token exists')
     assert.equal(chip!.disabled,true,label+' cannot hire')
@@ -34,6 +34,11 @@ function previews(root:ParentNode) {
     assert.match(chip!.title,/Synthetic sign-in remedy/)
   }
 }
+for(const family of families)test(`${family[1]} signed-out payload has a disabled sign-in preview`,async()=>{
+  installFetch(new FakeServer());syncProviderRegistries({providers})
+  const view=await mountView(<SpawnChips seats={{}} {...hires()} onSpawn={noop}/>,el=>el)
+  try{previews(view.el,[family])}finally{await view.unmount()}
+})
 for(const side of [undefined,'top','left','right'] as const) test(`signed-out families remain visible on ${side??'bottom'} strip despite empty eligibility`,async()=>{
   installFetch(new FakeServer());syncProviderRegistries({providers})
   let clicks=0
