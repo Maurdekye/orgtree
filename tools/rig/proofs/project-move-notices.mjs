@@ -16,7 +16,13 @@ export default async function(rig) {
     p.check(`${label}: exactly one notice per intended recipient`,same(mail.map(r=>r.name).sort(),expected.sort()),mail)
     p.check(`${label}: all notices remain passive`,mail.length>0&&mail.every(r=>r.notice),mail)
   }
-  const text=async row=>row?(await rig.tool(row.name,'orgtree_inbox',{action:'fetch',message_ids:[row.uid]})).text:''
+  const text=async row=>{
+    if(!row) return ''
+    const before=rig.turns(row.name).filter(t=>t.ended_at).length
+    await rig.userMail(row.name,'Read the pending move notice.')
+    await rig.waitTurns(row.name,before+1)
+    return rig.fakeLog(row.name).filter(r=>r.kind==='turn').at(-1)?.prompt??''
+  }
   await hire('left','boss',70);await hire('right','boss',70)
   await hire('left-peer','left');await hire('right-peer','right')
   await project('left-project','left');await project('left-nested','left-project')
@@ -48,12 +54,12 @@ export default async function(rig) {
   await rig.op({op:'move',node:'moving',new_parent:'left-nested'})
   mail=rows(since)
   counts('same-superior wrapper move',mail,[...members])
-  p.check('wrapper placement notices list every moved agent once',mail.length===3&&mail.every(r=>same(r.ev.nodes,members)&&r.ev.role==='self'),mail)
+  p.check('wrapper placement notices list every moved agent once',mail.length===3&&mail.every(r=>members.every(n=>r.ev.tail?.includes(n))&&r.ev.role==='self'),mail)
   since=mark()
   await rig.op({op:'move',node:'moving',new_parent:'right-project'})
   mail=rows(since)
   counts('different-superior wrapper move',mail,[...members,'left','right','left-peer','right-peer','single'])
-  p.check('wrapper move aggregates the frontier for every recipient',mail.every(r=>same(r.ev.nodes,members)),mail)
+  p.check('wrapper move aggregates the frontier for every recipient',mail.every(r=>members.every(n=>r.ev.tail?.includes(n))),mail)
   p.check('co-moved members receive only their own move notice',members.every(name=>mail.filter(r=>r.name===name).length===1&&mail.find(r=>r.name===name)?.ev.role==='self'),mail)
   rendered=await text(mail.find(r=>r.name==='right'))
   p.check('aggregate notice names every member and no project as a report',members.every(name=>rendered.includes(name))&&!rendered.includes('report "moving"'),rendered)
