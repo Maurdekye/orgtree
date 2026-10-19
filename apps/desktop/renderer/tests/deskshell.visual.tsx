@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { DeskHosts, DeskSlot } from '../src/canvas/deskhosts'
 import { DeskDogsProvider } from '../src/canvas/deskdogs'
 import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
+import { ProjectSquare } from '../src/canvas/projectcard'
 import { CurrentOrg } from '../src/popout'
 import { USER } from '../src/canvas/shared'
 import type { CanvasNode, OpFn } from '../src/canvas/shared'
@@ -87,6 +88,12 @@ function Surface() {
           <div style={{ width: 620, height: 640, display: 'flex' }} data-fixture="project-desk">
             <ProjectDesk node={build} slug="org" tree={tree} map={map} op={op} toast={noop} refs={refs} bare />
           </div>
+        </div>
+        <div style={{ position: 'relative', height: 180, margin: '0 12px' }} data-fixture="project-card">
+          <ProjectSquare node={build} pos={{ x: 0, y: 0 }} lod="norm" tree={tree} map={map}
+            dragging={false} isDrop={false} op={op} slug="org" toast={noop} zoom={1}
+            hire={{ tiers: [] } as never} seats={{}} onHire={noop} onNewProject={noop} onInbox={noop}
+            onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
         </div>
         {modal && <ProjectDeskModal node={build} slug="org" tree={tree} map={map} op={op} toast={noop}
           refs={refs} close={() => setModal(false)} />}

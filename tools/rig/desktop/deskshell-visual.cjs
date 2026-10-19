@@ -8,7 +8,7 @@ for (const key of ['userData', 'sessionData', 'logs', 'crashDumps']) {
 }
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1320, height: 720, show: false,
+  const win = new BrowserWindow({ width: 1320, height: 900, show: false,
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.session.webRequest.onBeforeRequest((details, done) =>
@@ -42,6 +42,12 @@ app.whenReady().then(async () => {
           agentTabs: tabs('[data-fixture="agent-desk"] .cc-tabs button[data-tab]'),
           projectTabs: tabs('[data-fixture="project-desk"] .cc-tabs button[data-tab]'),
           meta: [...document.querySelectorAll('[data-fixture="project-desk"] .cc-head-meta')].map(e => e.textContent.trim()),
+          cardBadge: document.querySelector('[data-fixture="project-card"] .project-queue-badge')?.textContent ?? null,
+          cardBadgeFits: (() => { const b = document.querySelector('[data-fixture="project-card"] .project-queue-badge')
+            const card = document.querySelector('[data-fixture="project-card"] .sq')
+            if (!b || !card) return null
+            const br = b.getBoundingClientRect(), cr = card.getBoundingClientRect()
+            return br.right <= cr.right + 1 })(),
         }
       })()`)
       fs.writeFileSync(path.join(out, `${theme}-docked.png`), (await win.webContents.capturePage()).toPNG())
