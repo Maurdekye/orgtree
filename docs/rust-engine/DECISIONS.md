@@ -1,5 +1,12 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Fresh per-user installer launch, user 2026-10-19 (4.3.3 and 4.4.0):**
+the reported failure/shortcut wording matches the Finish-page dispatch before
+engine startup. Unelevated Setup creates the GUI process directly after its
+existing exclusive claim; elevated Setup keeps original-user shell dispatch.
+An uncertain dispatch is never retried with elevated rights. Exact coworker
+Windows/plugin cause remains unconfirmed. See [Finish launch](installer-finish-launch.md).
+
 **Watchdog recurrence, user 2026-10-17 14:46Z/14:48Z:** periodic polling and
 quiet timers retain fixed next timestamps through restarts. Missed slots
 produce at most one immediate catch-up, then continue the original phase
