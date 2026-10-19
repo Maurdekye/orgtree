@@ -7,7 +7,8 @@ export function focusComposerBackground(e: MouseEvent<HTMLElement>): void {
   if (e.defaultPrevented || e.button !== 0) return
   const target = e.target as Element
   if (!e.currentTarget.contains(target)) return
-  if (target.closest('button,input,textarea,select,a,label,summary,[role="button"],[role="menuitem"],[role="option"],[role="dialog"],[role="listbox"],[contenteditable]')) return
+  const control = target.closest('button,input,textarea,select,a,label,summary,[role="button"],[role="menuitem"],[role="option"],[role="dialog"],[role="listbox"],[contenteditable]')
+  if (control && e.currentTarget.contains(control)) return
   e.currentTarget.querySelector<HTMLInputElement | HTMLTextAreaElement>(
     'textarea:not(:disabled),input.quickchat-input:not(:disabled)',
   )?.focus({preventScroll:true})

@@ -7,7 +7,7 @@ import { resetConvos } from '../src/convo'
 for(const surface of ['agent','project','quick','reply'] as const){
   test(`${surface}: empty composer areas focus text without taking focus from controls`,async t=>{
     useFakeClock();resetConvos();installFetch(new FakeServer());seedComposer()
-    const v=await mountView(<ComposerFocusFixture surface={surface}/>,el=>el)
+    const v=await mountView(<div role="dialog"><ComposerFocusFixture surface={surface}/></div>,el=>el)
     t.after(async()=>{await v.unmount();resetConvos();realClock()});await flush(5)
     const box=v.el.querySelector<HTMLElement>('.cc-composer,.quickchat,.mail-reply')!
     const input=box.querySelector<HTMLInputElement|HTMLTextAreaElement>('textarea,.quickchat-input')!
