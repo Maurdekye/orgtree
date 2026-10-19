@@ -189,8 +189,8 @@ function OrgSwitchHarness({ initial = 'a' }: { initial?: string }) {
         </PinFrame>
       : <button className="open-modal" onClick={() => setOpen(true)}>open</button>}
   </CurrentOrg.Provider>
-}const frame = (kind = 'org-inbox') => (
-  <PinFrame kind={kind} title="usage limits" panel="settings usage-modal"
+}const frame = (kind = 'org-inbox', deskTitle = false) => (
+  <PinFrame kind={kind} title="usage limits" panel="settings usage-modal" deskTitle={deskTitle}
     close={() => { closes.n += 1 }}>
     <h3>usage limits</h3>
     <Counter />
@@ -483,6 +483,17 @@ test('§4 Escape and the backdrop close a centred modal, never a pinned window',
   assert.equal(v.last().closes, 3)
   // ...and closing does NOT unpin: the window remembers where it was put
   assert.equal(isModalPinned('org-inbox'), true)
+  await v.unmount()
+  reset()
+})
+
+test('a centred desk-title modal has no close X, while pinning keeps the window close control', async () => {
+  reset()
+  const v = await mountView(frame('project-desk', true), shot)
+  assert.equal(v.el.querySelector('.modalpin-x') === null, true,
+    'the centred desk modal uses backdrop or Escape instead of a dedicated close X')
+  await toggle(v.el)
+  assert.ok(v.el.querySelector('.modalpin-x'), 'the pinned window retains its own close control')
   await v.unmount()
   reset()
 })

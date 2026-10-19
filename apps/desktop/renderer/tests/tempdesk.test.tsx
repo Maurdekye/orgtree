@@ -79,6 +79,20 @@ const borrowed = (el: HTMLElement) =>
 
 const setup = () => { resetConvos(); installFetch(new FakeServer()) }
 
+test('temporary desks use backdrop or Escape instead of a dedicated close button', async (t) => {
+  setup()
+  const n = agent('dismissal')
+  let closed = 0
+  const view = await mountView(scene(n, true, () => { closed++ }), (el) => el)
+  t.after(() => view.unmount())
+  await flush()
+  assert.equal(document.querySelector('.tempdesk-close') === null, true,
+    'the modal has no redundant close control')
+  const event = new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  await inAct(() => { document.dispatchEvent(event) })
+  assert.equal(closed, 1, 'Escape still dismisses the temporary desk')
+})
+
 test('Tab stays in the temporary Desk, respects nested dialogs, and releases on close', async (t) => {
   setup()
   const n = agent('keyboard')
@@ -86,7 +100,7 @@ test('Tab stays in the temporary Desk, respects nested dialogs, and releases on 
   t.after(() => view.unmount())
   await flush()
   const box = modal()!
-  const closeButton = box.querySelector<HTMLButtonElement>('.tempdesk-close')!
+  const firstControl = box.querySelector<HTMLButtonElement>('button')!
   const tab = async (shiftKey = false) => {
     const event = new W.KeyboardEvent('keydown', {key:'Tab', shiftKey, bubbles:true, cancelable:true})
     await inAct(() => { (document.activeElement ?? document.body).dispatchEvent(event) })
@@ -103,17 +117,17 @@ test('Tab stays in the temporary Desk, respects nested dialogs, and releases on 
   box.append(hidden, disabled)
   last.focus()
   assert.equal(await tab(), true, 'Tab is contained instead of leaving the modal')
-  assert.equal(document.activeElement, closeButton, 'last control wraps to first')
+  assert.equal(document.activeElement, firstControl, 'last control wraps to first')
   assert.equal(await tab(true), true)
   assert.equal(document.activeElement, last, 'Shift+Tab wraps back')
   last.remove()
   assert.equal(await tab(), true, 'a removed active control still returns focus inside')
-  assert.equal(document.activeElement, closeButton)
+  assert.equal(document.activeElement, firstControl)
   const consumed = (event: KeyboardEvent) => event.preventDefault()
-  closeButton.addEventListener('keydown', consumed)
+  firstControl.addEventListener('keydown', consumed)
   assert.equal(await tab(), true)
-  assert.equal(document.activeElement, closeButton, 'a Desk control can consume Tab before the trap')
-  closeButton.removeEventListener('keydown', consumed)
+  assert.equal(document.activeElement, firstControl, 'a Desk control can consume Tab before the trap')
+  firstControl.removeEventListener('keydown', consumed)
 
   const nested = document.createElement('div')
   nested.setAttribute('role','dialog'); nested.setAttribute('aria-modal','true')
