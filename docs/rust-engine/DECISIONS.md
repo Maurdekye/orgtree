@@ -192,8 +192,11 @@ Windows/plugin cause remains unconfirmed. See [Finish launch](installer-finish-l
 4.4.0):** Test and real mail transport try direct first, then the system/env
 proxy only after an initial connect failure (coordinator 11:09Z compatibility
 correction). HTTP responses, read errors and failures after redirects never
-replay a write. Streaming uploads reopen their body for a connection retry. Bare
-host discovery follows Hubchat: try HTTP ports 7370, 7378 and 7371 plus HTTPS
+replay a write. Streaming uploads reopen their body for a connection retry.
+Hub API URLs name the final endpoint: direct and proxy clients return 3xx
+without following redirects. This prevents a failed redirected connection
+from replaying an already accepted POST (publishing review 2026-10-19).
+Bare host discovery follows Hubchat: try HTTP ports 7370, 7378 and 7371 plus HTTPS
 together, preferring an earlier candidate if it answers within the 750ms grace.
 Explicit URLs/ports retain their destination. Test returns the chosen endpoint;
 untested bare-host connections discover through the same helper. Health checks

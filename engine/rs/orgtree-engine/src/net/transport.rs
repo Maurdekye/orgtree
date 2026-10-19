@@ -8,6 +8,7 @@ pub(super) const DIRECT_CONNECT_TIMEOUT:Duration=Duration::from_secs(1);
 
 static PROXY:LazyLock<reqwest::Client>=LazyLock::new(||reqwest::Client::builder()
     .connect_timeout(Duration::from_secs(5))
+    .redirect(reqwest::redirect::Policy::none())
     .user_agent(concat!("orgtree-engine/",env!("CARGO_PKG_VERSION")))
     .build().expect("mail hub proxy client"));
 
@@ -20,8 +21,9 @@ pub(super) async fn healthz(address:&str,timeout:Duration)->Option<Value> {
 
 #[nolog]
 fn retryable(error:&reqwest::Error,url:&reqwest::Url)->bool {
-    // A response, body/read failure or an error after following a redirect
-    // may follow an accepted write. Only replay a failed initial connect.
+    // All mail clients disable redirects: reqwest's error URL alone does
+    // NOT identify an initial connect failure after an automatic redirect.
+    // With no redirects, a response/read failure cannot be replayed here.
     error.is_connect()&&error.url()==Some(url)
 }
 
@@ -30,7 +32,8 @@ pub(crate) async fn send(request:reqwest::RequestBuilder)->reqwest::Result<reqwe
     send_with_proxy(request,&PROXY).await
 }
 
-/// A caller with stricter redirect policy supplies its matching proxy client.
+/// Callers supply no-redirect direct/proxy clients; configured URLs must be
+/// final hub endpoints. Return 3xx responses instead of following them.
 #[nolog]
 pub(super) async fn send_with_proxy(request:reqwest::RequestBuilder,proxy:&reqwest::Client)->reqwest::Result<reqwest::Response> {
     let (client,request)=request.build_split();let request=request?;

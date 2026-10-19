@@ -125,6 +125,10 @@ pub async fn attachment_limit(engine: &Engine, org_id: i64, peer: &str) -> Resul
 static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .connect_timeout(transport::DIRECT_CONNECT_TIMEOUT)
+        // Hub addresses name the final API endpoint. A redirect followed by
+        // a connect failure must not look like an initial failure and replay
+        // an already accepted POST through the proxy.
+        .redirect(reqwest::redirect::Policy::none())
         // Direct first; transport retries only a failed initial connection
         // through the system/env proxy, as the read-only health Test does.
         .no_proxy()

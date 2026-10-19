@@ -647,6 +647,10 @@
   The direct connect deadline is one second, before short request deadlines;
   total request timeouts are not replayed. Hosting's own loopback health check
   remains strictly direct (separate from the connection Test).
+  Both direct/proxy mail clients disable automatic redirects: a 3xx response
+  is returned as-is. Configure the final hub URL (including HTTPS). reqwest's
+  connect-error URL can remain original after a redirect; URL equality alone
+  does not prove an initial connect failure. [verified: reqwest 0.12.28]
   Streaming upload retries reopen their body. Bare hosts discover 7370, 7378, 7371
   and HTTPS concurrently; explicit URLs/ports stay explicit, including :80.
   Test returns the selected endpoint; registration, status and unregister reuse
