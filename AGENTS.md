@@ -23,6 +23,12 @@
   resume selection. [decided: user/coordinator 2026-10-19; verified:
   `attention/AttentionQueue.tsx`, `tests/attentiondeselect.test.tsx`]
 
+- Composer urgency precedes speed. Agent/project composer controls share
+  a 24px square border box, including armed urgency and queued effort; long
+  effort labels ellipsize inside it with their full value retained in the
+  tooltip. [decided: user 2026-10-19 18:43–18:45Z; verified:
+  `canvas/desk.tsx`, `styles.css`, `tests/composerbuttons-layout.cjs`]
+
 - Empty composer padding and rows focus their text field without scrolling,
   across agent/project desks, Quick chat and replies; nested controls and
   portaled pickers retain focus behavior. Right-side desk controls restore

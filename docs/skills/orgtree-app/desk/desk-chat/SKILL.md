@@ -4,6 +4,11 @@ description: Explain transcript cards, tool displays, reply controls and the des
 ---
 Up: [orgtree-desk](../SKILL.md)
 
+Composer controls use matching 24px square buttons, including urgency,
+speed, effort, send/interrupt, notice, attach and project broadcast. Urgency
+sits immediately left of speed where speed is available. Long effort text
+ellipsizes inside the button; its tooltip keeps the complete effort value.
+
 # Desk Chat tab
 
 Clicking empty space anywhere in the message box, including beside its lower controls, focuses the text field. Buttons and pickers keep their own behavior. The same focus rule applies to project desks, Quick chat and reply boxes. Speed, effort and send/interrupt controls use the same 24px height as the bell and attachment controls.
