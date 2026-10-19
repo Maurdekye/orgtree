@@ -18,6 +18,11 @@ Each fresh popup starts at the top. The viewport contains ten whole 28px rows
 at most, fewer on short work areas; width/height and origin stay within the
 tray icon's display work area. No popup scripts, preload or new bridge are added.
 
+User 21:39Z: with ten or fewer orgs no scrollbar gutter is reserved; count
+columns end at the same inset as the left edge. Above ten the list retains
+its stable scrolling gutter. Native overflow remains automatic so short work
+areas can still reach every org without reserving space when there is no overflow.
+
 `tray-recent.test.mjs` covers bounds, durable order/migration and native open
 routing; the existing tray-toggle and placement tests retain their controls.
 The native synthetic capture uses more than ten orgs and checks initial order,

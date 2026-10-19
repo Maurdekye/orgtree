@@ -37,6 +37,10 @@
   `fired` stays a message count. [decided: user/coordinator 2026-10-19;
   verified: `domain/projects.rs`, `runtime/watchdogs.rs`]
 
+- Tray org lists reserve a scrollbar gutter only above ten orgs. Short lists
+  keep symmetric insets; automatic overflow still serves constrained displays.
+  [decided: user 2026-10-19 21:39Z; verified: `main/traylist.ts`]
+
 - Inline ticket links in transcript tool calls use a thin inset left edge from
   the shared docket status palette. Exact current references refresh on the
   existing live-change epoch; captured transition labels remain historical.

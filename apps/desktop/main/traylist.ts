@@ -106,6 +106,7 @@ export const AUTORENEW_SVG =
  *  spanning activity, name and count, with no internal seam in any state. */
 export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme | string | null): string {
   const accent = themeAccent(theme)
+  const gutter = (rows?.length ?? 0) > TRAY_MAX_VISIBLE_ROWS ? 'stable' : 'auto'
   const body = rows === null
     ? '<div class="empty">The organization list is unavailable.</div>'
     : rows.length === 0
@@ -126,7 +127,7 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
     'html,body{height:100%;background:#181818;color:#dedede;overflow:hidden}' +
     'body{font:13px \'Segoe UI\',system-ui,sans-serif;border:1px solid #333;padding:5px}' +
     `.list{display:grid;grid-template-columns:minmax(18px,max-content) minmax(0,1fr) max-content;line-height:${TRAY_ROW_H - 10}px;` +
-    'height:100%;overflow-y:auto;scrollbar-gutter:stable;scroll-snap-type:y mandatory;outline:none}' +
+    `height:100%;overflow-y:auto;scrollbar-gutter:${gutter};scroll-snap-type:y mandatory;outline:none}` +
     '.row{display:grid;grid-column:1/-1;grid-template-columns:subgrid;align-items:center;' +
     'border-radius:6px;padding:5px 0;color:inherit;text-decoration:none;cursor:default;scroll-snap-align:start}' +
     '.row>span{padding:0 5px;white-space:nowrap;min-width:0}' +
