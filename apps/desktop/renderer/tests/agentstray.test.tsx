@@ -227,7 +227,7 @@ uiTest('desk effort control shows the effective inherited default and queued nex
     assert.equal(inheritedButton.getAttribute('title'),
       'Thinking effort: high (default). Changes apply from the next model call.')
 
-    const queued = await mount(<EffortButton value="high" effective="high"
+    const queued = await mount(<EffortButton value="medium" effective="medium"
       currentEffort="medium" pendingEffort="high"
       levels={['low', 'medium', 'high', 'xhigh', 'max']} onSet={noop} />, (el) => el)
     const queuedButton = queued.el.querySelector<HTMLButtonElement>('.cc-eff')!
