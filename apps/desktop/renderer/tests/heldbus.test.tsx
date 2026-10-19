@@ -357,6 +357,7 @@ test('§4.1 every held type has a real consumer in the product', () => {
     'open-org': 'App.tsx',
     'restore-skipped': 'App.tsx',
     'notification-click': 'notifications.ts',
+    'taskbar-attention': 'notifications.ts',
     'window-identity': 'shell/identity.ts',
     'phone-panel': 'canvas/phonelink.tsx',
   }
