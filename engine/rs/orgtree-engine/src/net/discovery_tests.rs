@@ -96,7 +96,7 @@ async fn real_mail_client_matches_direct_test_with_a_broken_system_proxy() {
         return;
     }
     let(address,server)=fixture("{\"ok\":true}",2).await;
-    assert!(crate::mailhub::healthz(&address,Duration::from_secs(2)).await.is_some(),"the existing direct test must answer first");
+    assert!(transport::healthz(&address,Duration::from_secs(2)).await.is_some(),"the same health Test must answer first");
     let real=transport::send(HTTP.get(format!("{address}/healthz")).timeout(Duration::from_secs(2))).await;
     assert!(real.is_ok_and(|r|r.status().is_success()),"real mail requests must use the same direct transport as the successful test");
     server.await.unwrap();
@@ -131,7 +131,7 @@ async fn proxy_required_test_and_real_mail_preserve_432_connectivity() {
     // Closed loopback port is deliberately unreachable directly; only the
     // local proxy can answer. No corporate endpoint or external DNS is used.
     let address="http://127.0.0.1:1";
-    let health=crate::mailhub::healthz(address,Duration::from_secs(2)).await;
+    let health=transport::healthz(address,Duration::from_secs(2)).await;
     assert!(health.is_some_and(|h|h["ok"]==true),"Test must fall back to the configured proxy on connect failure");
     let real=transport::send(HTTP.post(format!("{address}/api/register")).timeout(Duration::from_secs(2)).json(&json!({"synthetic":true}))).await.unwrap();
     assert!(real.status().is_success());

@@ -17,6 +17,9 @@
 - Mail hub tests and real registration/poll/file requests try direct transport,
   then the system/env proxy only on initial connect failure. Never replay an
   accepted request, HTTP rejection, read failure or redirected connection.
+  The direct connect deadline is one second, before short request deadlines;
+  total request timeouts are not replayed. Hosting's own loopback health check
+  remains strictly direct (separate from the connection Test).
   Streaming upload retries reopen their body. Bare hosts discover 7370, 7378, 7371
   and HTTPS concurrently; explicit URLs/ports stay explicit, including :80.
   Test returns the selected endpoint; registration, status and unregister reuse

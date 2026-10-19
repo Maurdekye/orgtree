@@ -60,7 +60,7 @@ async fn member(engine:&Engine,part:&Part,hid:&str,addr:&str)->Result<()> {
 async fn json_request(engine:&Engine,part:&Part,hid:&str,addr:&str,method:reqwest::Method,path:&str,body:Option<Value>)->Result<Value> {
     isolation::run(engine,&[part.org_id],async {
         member(engine,part,hid,addr).await?;
-        let client=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).connect_timeout(Duration::from_secs(5)).no_proxy().build()?;
+        let client=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).connect_timeout(transport::DIRECT_CONNECT_TIMEOUT).no_proxy().build()?;
         let proxy=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).connect_timeout(Duration::from_secs(5)).build()?;
         let mut request=client.request(method,format!("{addr}{path}")).timeout(Duration::from_secs(10)).header("X-Org-Auth",part.auth());
         if path=="/api/profile-picture" && body.is_none() {request=request.query(&[("slug",part.net_slug.as_str())]);}
