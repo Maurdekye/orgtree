@@ -182,6 +182,10 @@ project that contains itself (that would archive the caller mid-turn); its super
 
 - Mail to a project is an `ot.mail` row addressed to the project (`recipient_agent_id`), state
   `pending`. Nothing wakes for it.
+- A one-line user message starting with `/` is mail here too: `message()` sends such a line to
+  an agent's CLI as a command, but a project has no CLI and its actor answers nothing, so the
+  line goes to the project's queue like any other (`is_cli_command` in `http/nodes.rs`; desk
+  parity G19, coordinator ruling A4 2026-10-19).
 - **Inspection** (user 16:14Z): `orgtree_inbox action=list|fetch project=<name>` shows the
   project's waiting (unread) mail without claiming it.
 - Claiming happens only through fair-queue delivery.
