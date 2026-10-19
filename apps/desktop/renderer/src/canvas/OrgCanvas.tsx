@@ -96,7 +96,7 @@ import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './cont
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import { isProject, ProjectSquare } from './projectcard'
-import { ProjectDesk, ProjectDeskModal } from './projectdesk'
+import { ProjectDesk, ProjectDeskModal, ProjectInboxModal } from './projectdesk'
 import { PROJECT_DRAFT, ProjectDraftNode, projectDraftSteps } from './newproject'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
@@ -4551,7 +4551,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           refs={docRefs}
           close={() => setDocView(null)} /></MaybePortal>
       )}
-      {inboxId && map.get(inboxId) && (
+      {inboxId && map.get(inboxId)?.kind === 'project' && (
+        // a project's own mailbox, as its desk's inbox tab shows it
+        <MaybePortal><ProjectInboxModal node={map.get(inboxId)!} slug={slug} tree={tree} map={map} op={op}
+          toast={toast} refs={canvasRefs}
+          jumpTo={nodeInboxJump?.id ?? null} jumpSeq={nodeInboxJump?.seq}
+          onFocusAgent={centerOn}
+          close={() => { setInboxId(null); setNodeInboxJump(null) }} /></MaybePortal>
+      )}
+      {inboxId && map.get(inboxId) && map.get(inboxId)!.kind !== 'project' && (
         <MaybePortal><NodeInboxModal node={map.get(inboxId)!} slug={slug}
           toast={toast}
           tierOf={(id) => nodeTierOf(map.get(id))}

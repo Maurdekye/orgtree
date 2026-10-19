@@ -19,8 +19,8 @@ import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload, TurnStat } from '../types'
 import type { ReplyTarget } from '../generated/events'
-import { ArrowUpIcon, AttachIcon, AutorenewIcon, CampaignIcon, CloseIcon, FileIcon, FolderIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
-import { broadcastMessage, sendMessage, uploadFile } from '../api'
+import { ArrowUpIcon, AttachIcon, AutorenewIcon, CampaignIcon, CloseIcon, FileIcon, FolderIcon, MailIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
+import { broadcastMessage, retractMail, sendMessage, uploadFile } from '../api'
 import { useComposerEnter } from '../enterkey'
 import { readHistory, recordSent, type HistoryEntry } from '../composerhistory'
 import { draftKey } from '../draftstore'
@@ -44,7 +44,7 @@ import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 import { agentNavProps } from './agentnav'
 import { useAgentMentions, useDeskMentionScope, useOrgMentionCandidates } from './agentmentions'
 import { openFallbackObjectMenu, useContextMenu } from './contextmenu'
-import { PinFrame } from './modalpin'
+import { closeIfCentred, PinFrame } from './modalpin'
 import { AgentLink, AgentName, nodeTierOf } from './identity'
 import type { PinRect } from './pins'
 import { ConfirmModal } from './modals'
@@ -441,6 +441,64 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, re
   </>
 }
 
+/** The PROJECT'S MAILBOX, one view wherever it shows, as an agent's inbox
+ *  tab and its inbox window are one InboxView: the desk's inbox tab and the
+ *  inbox window (the menu's Project mailbox, the tab's pin and pop-out) both
+ *  have the project mail rows, the listeners folder and the purge button. A
+ *  project belongs to no provider, so its unread count wears no provider's
+ *  colour (the desk's own tab counts don't either). `retract` offers the
+ *  user's own waiting mail back, as the agent desk's inbox tab does (the
+ *  engine's retract takes a project's queued mail the same way). */
+export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, retract = false, collapsible,
+  folderAsk, jumpTo, jumpSeq, onOpenMail }: {
+  node: CanvasNode; slug: string; tree: TreePayload; map: Map<string, CanvasNode>; op: OpFn; toast: ToastFn
+  refs?: RefRoutes
+  onJump?: (id: string) => void
+  retract?: boolean
+  collapsible?: boolean
+  folderAsk?: { folder: string; seq: number } | null
+  jumpTo?: string | null
+  jumpSeq?: number | null
+  /** the listeners folder's link to a held job */
+  onOpenMail: (id: string) => void
+}) {
+  const [purging, setPurging] = useState(false)
+  const mailListeners = mailListenerState(node.id, tree.watchdogs ?? [])
+  const waiting = node.mail_pending ?? 0
+  return <>
+    {/* waiting mail nobody holds yet can be purged (user 2026-10-18 08:11Z) */}
+    {node.state === 'live' && waiting > 0 && <div className="project-queue-tools">
+      <button type="button" className="danger" data-action="purge-queue" onClick={() => setPurging(true)}
+        title="retract every mail waiting in this project's queue; mail already handed to an agent stays">
+        Purge waiting mail</button>
+    </div>}
+    <InboxView slug={slug} nid={node.id} projectMail unreadCount={node.mail_pending} toast={toast} collapsible={collapsible}
+      tierOf={(id) => {
+        const n = map.get(id)
+        return n?.kind === 'project' ? 'project' : n?.tier
+      }} hasAgent={(id) => map.has(id)}
+      refs={refs} onFocusAgent={onJump}
+      onRetract={retract ? (m) => retractMail(slug, node.id, m.id)
+        // rethrow: InboxView's optimistic hide rolls back on rejection
+        .catch((e: Error) => { toast([`error: ${e.message}`]); throw e }) : undefined}
+      jumpTo={jumpTo ?? null} jumpSeq={jumpSeq ?? null}
+      extraFolders={[{ id: 'listeners', count: mailListeners.armed.length,
+        render: (rows) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
+          rows={rows} ack={queueAckMode(node)} onOpenMail={onOpenMail} /> }]}
+      folderAsk={folderAsk} />
+    {purging && createPortal(
+      <ConfirmModal title={`purge project ${node.id}'s waiting mail?`}
+        body={`${waiting} waiting mail${waiting === 1 ? '' : 's'} will be retracted. `
+          + 'Mail already handed to an agent, acked or dead-lettered stays.'}
+        confirmLabel="purge" close={() => setPurging(false)}
+        onConfirm={() => {
+          op({ op: 'purge_mail_queue', node: node.id })
+            .then((r) => toast([`purged ${String((r as { purged?: number }).purged ?? 0)} waiting mail from project ${node.id}`]))
+            .catch(() => {})
+        }} />, document.body)}
+  </>
+}
+
 export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig, onPin, onPopout, onOpenDoc }: ProjectDeskProps) {
   const surface = useSurface()
   const [view, setView] = useState<Tab>('desk')
@@ -459,7 +517,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
     setInboxAsk((a) => ({ folder, seq: (a?.seq ?? 0) + 1 }))
     setView('inbox')
   }
-  const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | 'purge' | null>(null)
+  const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | null>(null)
   const fallbackMenu = useContextMenu(toast)
   const mentionRef = useRef<{
     capture: ((agentId: string) => (() => void) | null) | null
@@ -498,7 +556,6 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const listenersArmed = listenerState.armed.length
   const listenerHeaderCards = listenerCards(node.id, listenerState)
   const queue = mailQueueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node), tree.watchdogs ?? [])
-  const mailListeners = mailListenerState(node.id, tree.watchdogs ?? [])
   const hasListeners = listenerState.listeners.length + listenerState.watches.length > 0
   // ⚠ ONE ROW of header cards on every tab (user 2026-10-19 19:02Z, and
   // 19:15Z: "make sure they're all on the same row in the full desk header"):
@@ -583,24 +640,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {shown === 'desk' && <DescriptionEditor node={node} op={op} toast={toast} editable={live} />}
       {shown === 'inbox' && <div className="desk-tabpanel">
         <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
-        {/* waiting mail nobody holds yet can be purged (user 2026-10-18 08:11Z) */}
-        {live && (node.mail_pending ?? 0) > 0 && <div className="project-queue-tools">
-          <button type="button" className="danger" data-action="purge-queue" onClick={() => setAsking('purge')}
-            title="retract every mail waiting in this project's queue; mail already handed to an agent stays">
-            Purge waiting mail</button>
-        </div>}
-        <InboxView slug={slug} nid={node.id} tier="project" projectMail unreadCount={node.mail_pending} toast={toast}
-          tierOf={(id) => {
-            const n = map.get(id)
-            return n?.kind === 'project' ? 'project' : n?.tier
-          }} hasAgent={(id) => map.has(id)}
-          refs={refs} onFocusAgent={onJump}
-          jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq ?? null}
-          extraFolders={[{ id: 'listeners', count: mailListeners.armed.length,
-            render: (rows) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
-              rows={rows} ack={queueAckMode(node)}
-              onOpenMail={(id) => { setInboxJump((j) => ({ id, seq: (j?.seq ?? 0) + 1 })); openInbox('inbox') }} /> }]}
-          folderAsk={inboxAsk} />
+        <ProjectInbox node={node} slug={slug} tree={tree} map={map} op={op} toast={toast} refs={refs} onJump={onJump}
+          retract jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq ?? null} folderAsk={inboxAsk}
+          onOpenMail={(id) => { setInboxJump((j) => ({ id, seq: (j?.seq ?? 0) + 1 })); openInbox('inbox') }} />
       </div>}
       {shown === 'docket' && <div className="desk-tabpanel">
         <PanelCorner kind="agent-docket" slug={slug} nid={node.id} />
@@ -672,16 +714,6 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {asking === 'dissolve' && createPortal(
         <AgentRetireConfirm kind={members.length > 0 ? 'dissolve' : 'retire'} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
-      {asking === 'purge' && createPortal(
-        <ConfirmModal title={`purge project ${node.id}'s waiting mail?`}
-          body={`${node.mail_pending ?? 0} waiting mail${(node.mail_pending ?? 0) === 1 ? '' : 's'} will be retracted. `
-            + 'Mail already handed to an agent, acked or dead-lettered stays.'}
-          confirmLabel="purge" close={() => setAsking(null)}
-          onConfirm={() => {
-            op({ op: 'purge_mail_queue', node: node.id })
-              .then((r) => toast([`purged ${String((r as { purged?: number }).purged ?? 0)} waiting mail from project ${node.id}`]))
-              .catch(() => {})
-          }} />, document.body)}
     </div>
   )
 }
@@ -709,5 +741,43 @@ export function ProjectDeskModal({ close, pinAsWindow, ...props }: ProjectDeskPr
       pinElsewhere={pinAsWindow}>
       <ProjectDesk {...props} bare />
     </DeskModalShell>
+  )
+}
+
+/** A project's INBOX WINDOW: the menu's Project mailbox and its desk's inbox
+ *  tab pinned or popped out. NodeInboxModal's frame (the `node-inbox` kind, so
+ *  pins, pop-outs and restores are the agent inbox window's), with the
+ *  project's own mailbox inside rather than an agent's. */
+export function ProjectInboxModal({ node, slug, tree, map, op, toast, refs, close, jumpTo, jumpSeq, onFocusAgent }: {
+  node: CanvasNode; slug: string; tree: TreePayload; map: Map<string, CanvasNode>; op: OpFn; toast: ToastFn
+  refs?: RefRoutes
+  close: () => void
+  jumpTo?: string | null
+  jumpSeq?: number | null
+  onFocusAgent?: (id: string) => void
+}) {
+  // the listeners folder's link to a held job; a negative seq, so it is never
+  // the same request as a jump the canvas asked for
+  const [held, setHeld] = useState<{ id: string; seq: number } | null>(null)
+  const [ask, setAsk] = useState<{ folder: string; seq: number } | null>(null)
+  useEffect(() => { setHeld(null) }, [jumpTo, jumpSeq])
+  // ⚠ A REFERENCE CLOSES THIS MODAL ON THE WAY OUT, as NodeInboxModal's do:
+  // everything a token can open is under this overlay
+  const leaving = useMemo(() => refs && {
+    world: refs.world,
+    onOpen: (r: Parameters<RefRoutes['onOpen']>[0]) => { closeIfCentred('node-inbox', close, slug); refs.onOpen(r) },
+  }, [refs, close, slug])
+  return (
+    <PinFrame kind="node-inbox" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · inbox`}
+      panel="settings wide" close={close}>
+      <h3 data-copy-agent-name={node.id}><MailIcon fontSize="inherit" /> {node.id} <span className="dim">· inbox</span></h3>
+      <ProjectInbox node={node} slug={slug} tree={tree} map={map} op={op} toast={toast} refs={leaving} collapsible
+        onJump={onFocusAgent ? (id) => { closeIfCentred('node-inbox', close, slug); onFocusAgent(id) } : undefined}
+        jumpTo={held?.id ?? jumpTo} jumpSeq={held?.seq ?? jumpSeq} folderAsk={ask}
+        onOpenMail={(id) => {
+          setHeld((h) => ({ id, seq: Math.min(h?.seq ?? 0, 0) - 1 }))
+          setAsk((a) => ({ folder: 'inbox', seq: (a?.seq ?? 0) + 1 }))
+        }} />
+    </PinFrame>
   )
 }
