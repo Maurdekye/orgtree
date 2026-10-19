@@ -46,15 +46,16 @@ test('Appearance offers the exact four contrast choices independently of custom 
       assert.equal(localStorage.getItem('orgtree-visual-theme'), 'custom:#8435cf')
       assert.ok(document.documentElement.classList.contains('mobile'), 'unrelated root classes survive')
     }
+    await change(contrast, 'charcoal')
     assert.ok([...accent.options].some(o => o.value === 'langserver' && o.textContent === 'LS Gold'))
     await change(accent, 'langserver')
     assert.equal(localStorage.getItem('orgtree-visual-theme'), 'langserver')
     assert.equal(document.documentElement.style.getPropertyValue('--accent'), THEMES.langserver.accent)
-    assert.deepEqual(chosen(), ['obsidian-black'])
-    assert.equal(localStorage.getItem('orgtree-contrast-theme'), 'obsidian-black')
+    assert.deepEqual(chosen(), ['charcoal'])
+    assert.equal(localStorage.getItem('orgtree-contrast-theme'), 'charcoal')
     stop(); applyContrast('charcoal')
     const stopReloaded = startContrastSync()
-    assert.deepEqual(chosen(), ['obsidian-black'], 'startup restores without opening settings')
+    assert.deepEqual(chosen(), ['charcoal'], 'startup restores without opening settings')
     stopReloaded()
   } finally { await view.unmount(); stop(); localStorage.clear(); document.documentElement.classList.remove('mobile'); applyContrast('charcoal') }
 })
@@ -143,7 +144,7 @@ test('native broadcasts beat a stale startup read, and only contrast is written 
     const restore = startContrastSync()
     reads.at(-1)!(stored)
     await flush()
-    assert.deepEqual(chosen(), ['obsidian-black'])
+    assert.deepEqual(chosen(), [stored.contrastTheme ?? 'charcoal'])
     restore()
   } finally { await view.unmount(); stop(); native(); applyContrast('charcoal') }
 })
@@ -200,7 +201,7 @@ test('all four CSS palettes have distinct lightness, readable core text and nati
     return r!*.2126 + g!*.7152 + b!*.0722
   }
   const ratio = (a: string, b: string) => { const x = luminance(a), y = luminance(b); return (Math.max(x,y)+.05)/(Math.min(x,y)+.05) }
-  const backgrounds: number[] = []
+  const backgrounds = new Map<string, number>()
   applyTheme('codex')
   try {
     for (const id of CONTRAST_THEMES) {
@@ -208,7 +209,7 @@ test('all four CSS palettes have distinct lightness, readable core text and nati
       const computed = getComputedStyle(document.documentElement), token = (name: string) => computed.getPropertyValue(name).trim()
       const light = id === 'light' || id === 'solarized-light'
       assert.equal(computed.colorScheme, light ? 'light' : 'dark')
-      backgrounds.push(luminance(token('--bg')))
+      backgrounds.set(id, luminance(token('--bg')))
       for (const surface of ['--bg', '--side', '--panel', '--panel-2', '--input']) {
         for (const ink of ['--ink', '--ink-strong', '--dim']) assert.ok(ratio(token(ink), token(surface)) >= 4.5, `${id}: ${ink} on ${surface}`)
         if (light) for (const ink of ['--ok', '--bad', '--warn', '--work', '--review', '--backlog', '--deploy-ready', '--ice']) {
@@ -217,7 +218,9 @@ test('all four CSS palettes have distinct lightness, readable core text and nati
       }
       assert.equal(token('--accent'), '#22c4bd')
     }
-    assert.equal(new Set(backgrounds).size, 4)
-    assert.ok(backgrounds[3]! < backgrounds[0]! && backgrounds[0]! < backgrounds[2]! && backgrounds[2]! < backgrounds[1]!)
+    assert.equal(new Set(backgrounds.values()).size, 4)
+    assert.ok(backgrounds.get('obsidian-black')! < backgrounds.get('charcoal')! &&
+      backgrounds.get('charcoal')! < backgrounds.get('solarized-light')! &&
+      backgrounds.get('solarized-light')! < backgrounds.get('light')!)
   } finally { style.remove(); applyContrast('charcoal') }
 })
