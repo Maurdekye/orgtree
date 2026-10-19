@@ -68,12 +68,19 @@ test('§1b a sweep of widths flips once per direction (no oscillation)', () => {
 // jsdom does no layout: stand in for it. `box.width` is the Quick chat's width, every
 // measured control is ONE wide, and the observer's callbacks are run by hand.
 const box = { width: 900 }
+const dropdown = { left: 700, right: 890, top: 400, bottom: 520 }
+const SUBW = 360
 const observers = new Set<() => void>()
 const stubLayout = () => {
   const g = globalThis as unknown as Record<string, unknown>
   const proto = (window as unknown as { Element: { prototype: object } }).Element.prototype as unknown as { getBoundingClientRect: () => DOMRect }
   const was = { rect: proto.getBoundingClientRect, ro: g.ResizeObserver }
   proto.getBoundingClientRect = function (this: Element) {
+    if (this.matches('.quickchat-pop-options, .quickchat-options')) {
+      const d = dropdown
+      return { width: d.right - d.left, height: d.bottom - d.top, top: d.top, left: d.left, right: d.right, bottom: d.bottom,
+        x: d.left, y: d.top, toJSON() {} } as DOMRect
+    }
     const width = this.matches('.quickchat') ? box.width
       : this.matches('.quickchat-model, .quickchat-superior, .effort-bar, .quickchat-attach, .quickchat-send') ? ONE : 0
     return { width, height: 22, top: 0, left: 0, right: width, bottom: 22, x: 0, y: 0, toJSON() {} } as DOMRect
@@ -91,7 +98,7 @@ const resize = async (w: number) => {
   box.width = w
   await inAct(async () => { observers.forEach(cb => cb()); await flush(4) })
 }
-const quick = async () => {
+const quick = async (inFooter = false) => {
   localStorage.clear(); resetStaffingOptionsForTests()
   const previous = globalThis.fetch
   globalThis.fetch = legacyAppBackend((async (input: RequestInfo | URL) => {
@@ -100,8 +107,8 @@ const quick = async () => {
       : new Response(JSON.stringify({ providers: [] }), { headers: { 'content-type': 'application/json' } })
   }) as typeof fetch)
   const restoreLayout = stubLayout()
-  const view = await mountView(<QuickChat slug="narrow" tree={tree} op={async () => ({})}
-    toast={() => {}} onHired={() => {}} />, element => element)
+  const chat = <QuickChat slug="narrow" tree={tree} op={async () => ({})} toast={() => {}} onHired={() => {}} />
+  const view = await mountView(inFooter ? <footer>{chat}</footer> : chat, element => element)
   await inAct(async () => { await flush(12) })
   return {
     view,
@@ -170,5 +177,150 @@ test('§5 the row returns once there is room, with hysteresis, and never flips i
     assert.equal(has(view.el, '.quickchat-options'), false)
     await resize(ROOM + 1); assert.equal(row(), true, 'inside the band it stays a row')
     await resize(ROOM - 1); assert.equal(row(), false)
+  } finally { await done() }
+})
+
+// §6 (user 2026-10-19 16:57Z): a picker opened from the dropdown must not cover the
+//    dropdown. It opens BESIDE it (left, else right, else stacked outward), the
+//    dropdown stays, and closing the picker returns to the dropdown alone.
+const viewport = (w: number, h: number) => {
+  const win = window as unknown as Record<string, unknown>
+  const was = { w: win.innerWidth, h: win.innerHeight }
+  win.innerWidth = w; win.innerHeight = h
+  const proto = (window as unknown as { HTMLElement: { prototype: object } }).HTMLElement.prototype
+  Object.defineProperty(proto, 'offsetWidth', { configurable: true, get(this: HTMLElement) { return this.matches('.quickchat-pop') && !this.matches('.quickchat-pop-options') ? SUBW : 0 } })
+  return () => { win.innerWidth = was.w; win.innerHeight = was.h; delete (proto as Record<string, unknown>).offsetWidth }
+}
+const pops = () => ({
+  options: document.body.querySelector('.quickchat-pop-options') as HTMLElement | null,
+  sup: document.body.querySelector('.quickchat-pop-superior') as HTMLElement | null,
+  model: document.body.querySelector('.quickchat-pop-model') as HTMLElement | null,
+})
+const openDropdown = async (view: { el: HTMLElement }) => {
+  await resize(roomOf(view) - 20)
+  await inAct(async () => { (view.el.querySelector('.quickchat-options') as HTMLElement).click(); await flush(4) })
+}
+const clickIn = async (sel: string) => {
+  await inAct(async () => { (document.body.querySelector(sel) as HTMLElement).click(); await flush(4) })
+}
+const key = async (k: string) => inAct(async () => {
+  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true })); await flush(4)
+})
+const pressOutside = async () => inAct(async () => {
+  document.body.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })); await flush(4)
+})
+const setDropdown = (left: number, right: number, top = 400, bottom = 520) => Object.assign(dropdown, { left, right, top, bottom })
+
+test('§6.1 the superior picker opens beside the dropdown (to its left when the right has no room), bottoms aligned, dropdown kept', async () => {
+  box.width = 900; setDropdown(700, 890)
+  const restoreView = viewport(1000, 700)
+  const { view, done } = await quick(true)
+  try {
+    await openDropdown(view)
+    await clickIn('.quickchat-pop-options .quickchat-superior')
+    const p = pops()
+    assert.ok(p.options, 'the dropdown stays open under the picker')
+    assert.ok(p.sup, 'the agent picker is open')
+    assert.equal(p.sup!.style.left, `${700 - 6 - SUBW}px`, 'left of the dropdown, 6px clear')
+    assert.equal(p.sup!.style.bottom, `${700 - 520}px`, 'bottom edge level with the dropdown (it opens upward from the footer)')
+    assert.ok(parseFloat(p.sup!.style.left) + SUBW <= 700, 'no overlap with the dropdown')
+  } finally { await done(); restoreView() }
+})
+
+test('§6.2 with room on the right it opens to the right of the dropdown', async () => {
+  box.width = 900; setDropdown(40, 230)
+  const restoreView = viewport(1000, 700)
+  const { view, done } = await quick(true)
+  try {
+    await openDropdown(view)
+    await clickIn('.quickchat-pop-options .quickchat-superior')
+    assert.equal(pops().sup!.style.left, `${230 + 6}px`)
+  } finally { await done(); restoreView() }
+})
+
+test('§6.3 in a window too narrow for either side it stacks above the dropdown, inside the window', async () => {
+  box.width = 900; setDropdown(100, 290)
+  const restoreView = viewport(400, 700)
+  const { view, done } = await quick(true)
+  try {
+    await openDropdown(view)
+    await clickIn('.quickchat-pop-options .quickchat-superior')
+    const s = pops().sup!.style
+    assert.equal(s.left, `${400 - SUBW - 8}px`, 'clamped inside the window')
+    assert.equal(s.bottom, `${700 - 400 + 6}px`, 'its bottom edge 6px above the dropdown top')
+    assert.equal(s.maxHeight, `${400 - 6 - 8}px`, 'no taller than the space above the dropdown')
+  } finally { await done(); restoreView() }
+})
+
+test('§6.4 the model picker is kept beside the dropdown too', async () => {
+  box.width = 900; setDropdown(700, 890)
+  const restoreView = viewport(1000, 700)
+  const { view, done } = await quick(true)
+  try {
+    await openDropdown(view)
+    await clickIn('.quickchat-pop-options .quickchat-model')
+    const p = pops()
+    assert.ok(p.options && p.model, 'dropdown and model chips both open')
+    assert.equal(p.model!.style.left, `${700 - 6 - SUBW}px`)
+  } finally { await done(); restoreView() }
+})
+
+test('§6.5 Escape closes the picker and returns to the dropdown; a second Escape closes the dropdown', async () => {
+  box.width = 900; setDropdown(700, 890)
+  const restoreView = viewport(1000, 700)
+  const { view, done } = await quick(true)
+  try {
+    await openDropdown(view)
+    await clickIn('.quickchat-pop-options .quickchat-superior')
+    await key('Escape')
+    assert.equal(pops().sup === null, true, 'the picker closed')
+    assert.equal(pops().options !== null, true, 'the dropdown is back on its own')
+    assert.equal(view.el.querySelector('.quickchat-options')!.getAttribute('aria-expanded'), 'true')
+    await key('Escape')
+    assert.equal(pops().options === null, true, 'the second Escape closes the dropdown')
+  } finally { await done(); restoreView() }
+})
+
+test('§6.6 a press inside either pop-over keeps both; a press outside closes both', async () => {
+  box.width = 900; setDropdown(700, 890)
+  const restoreView = viewport(1000, 700)
+  const { view, done } = await quick(true)
+  try {
+    await openDropdown(view)
+    await clickIn('.quickchat-pop-options .quickchat-superior')
+    await inAct(async () => {
+      (document.body.querySelector('.quickchat-pop-options .quickchat-opt-cap') as HTMLElement)
+        .dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })); await flush(4)
+    })
+    assert.equal(pops().options !== null && pops().sup !== null, true, 'a press on the dropdown keeps both')
+    await inAct(async () => {
+      (document.body.querySelector('.quickchat-pop-superior input') as HTMLElement)
+        .dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })); await flush(4)
+    })
+    assert.equal(pops().options !== null && pops().sup !== null, true, 'a press in the picker keeps both')
+    await pressOutside()
+    assert.equal(pops().options === null && pops().sup === null, true, 'outside closes both')
+  } finally { await done(); restoreView() }
+})
+
+test('§6.7 clicking the same option again drops the picker and leaves the dropdown', async () => {
+  box.width = 900; setDropdown(700, 890)
+  const restoreView = viewport(1000, 700)
+  const { view, done } = await quick(true)
+  try {
+    await openDropdown(view)
+    await clickIn('.quickchat-pop-options .quickchat-superior')
+    await clickIn('.quickchat-pop-options .quickchat-superior')
+    assert.equal(pops().sup === null && pops().options !== null, true)
+  } finally { await done(); restoreView() }
+})
+
+test('§6.8 in the wide row nothing changes: the picker opens from its own button, no dropdown', async () => {
+  box.width = 900
+  const { view, done } = await quick(true)
+  try {
+    await inAct(async () => { (view.el.querySelector('.quickchat-superior') as HTMLElement).click(); await flush(4) })
+    assert.equal(pops().sup !== null && pops().options === null, true)
+    assert.equal(pops().sup!.style.left !== '', true)
   } finally { await done() }
 })
