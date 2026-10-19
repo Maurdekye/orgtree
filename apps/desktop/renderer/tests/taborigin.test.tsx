@@ -74,6 +74,16 @@ test('pin pressed in the modal keeps measuring the modal itself',async t=>{
  await inAct(()=>panel.querySelector<HTMLButtonElement>('.modalpin-btn')!.click());await flush(2)
  assert.deepEqual(readModalPins()[modalPinKey('agent-team',org)]?.rect,{x:230,y:165,w:400,h:300})
 })
+test('inline pins retain the existing minimum for a small tab',async t=>{
+ await surface(t)
+ await inAct(()=>requestSurfaceAction('agent-team',org,'pin',{rect:{...tab,w:160,h:120},owner:window}));await flush(2)
+ assert.deepEqual(readModalPins()[modalPinKey('agent-team',org)]?.rect,{x:110,y:120,w:320,h:240})
+})
+test('inline pins clamp to the visible canvas after inheriting source bounds',async t=>{
+ await surface(t)
+ await inAct(()=>requestSurfaceAction('agent-team',org,'pin',{rect:{x:900,y:650,w:500,h:300},owner:window}));await flush(2)
+ assert.deepEqual(readModalPins()[modalPinKey('agent-team',org)]?.rect,{x:350,y:350,w:500,h:300})
+})
 test('request without an inline tab still uses the existing modal origin',async t=>{
  await surface(t)
  await inAct(()=>requestSurfaceAction('agent-team',org,'pin'));await flush(2)
