@@ -6749,6 +6749,11 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
 .wd-chip.slot { border-color: var(--slot); }
 .wd-chip.listener { border-color: var(--listener); }
 .wd-chip.fair-queue { border-color: var(--fq-line); }
+/* Listener-count watches are distinct from ordinary event listeners.
+   Continuous: double cyan border. One-shot: dashed outer + solid inner ring. */
+:is(.wd-chip, .desk-dog-chip).listener-watch { border: 3px double var(--listener); }
+:is(.wd-chip, .desk-dog-chip).listener-watch.oneshot { border: 1px dashed var(--listener);
+  box-shadow: inset 0 0 0 1px var(--panel), inset 0 0 0 2px var(--listener), var(--shadow); }
 .wd-chip .wd-once, .desk-dog-chip .wd-once { color: var(--dim); border-color: currentColor; background: transparent; }
 .edge.tether.wd.off { opacity: .3; }
 .edge.tether.wd.oneshot { stroke-dasharray: 4 3; }
@@ -6845,6 +6850,9 @@ html.mobile .ms-doglist button.slot { border-left: 2px solid var(--slot); }
 html.mobile .ms-doglist button.listener { border-left: 2px solid var(--listener); }
 html.mobile .ms-doglist button.fair-queue { border-left: 2px solid var(--fq-line); }
 html.mobile .ms-doglist button.oneshot { border-left-style: dashed; }
+html.mobile .ms-doglist button.listener-watch { border-left: 3px double var(--listener); }
+html.mobile .ms-doglist button.listener-watch.oneshot { border-left: 1px dashed var(--listener);
+  box-shadow: inset 3px 0 0 var(--panel), inset 4px 0 0 var(--listener); }
 html.mobile .ms-doglist .wd-once {
   min-width: 23px; height: 16px; font-size: 9px;
 }

@@ -21,6 +21,9 @@
   Listener/slot-line rows and mobile dog lists use the shared object host.
   Dog outlines are cyan for event listeners, magenta for fair queues, yellow
   for slot claims; one-shots are dashed and ordinary one-shots stay grey.
+  Listener-count watches have a double cyan outline; one-shot watches combine
+  a dashed outer border with a solid inner cyan line on canvas, desk and mobile.
+  [decided: user 2026-10-19 19:35:54Z; verified: `canvas/watchdogchip.tsx`, `styles.css`]
   See [project watchdog menus](docs/rust-engine/project-watchdog-menus.md).
   [decided: user 2026-10-19 19:06–19:07Z; verified: renderer
   `canvas/{objectnavhost,slotchips,watchdogchip,deskdogs,listenersdesk,slotsdesk}.tsx`]

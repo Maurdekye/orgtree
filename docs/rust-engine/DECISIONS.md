@@ -14,6 +14,10 @@ clicks remain. Event dogs are cyan, fair-queue dogs magenta, slot claims
 yellow; one-shots are dashed in their kind color, ordinary one-shots grey.
 See [project watchdog menus](project-watchdog-menus.md).
 
+User 19:35:54Z: listener_watch dogs keep cyan but have a double outline,
+distinct from ordinary event listeners. One-shot watches retain a dashed
+outer border and a solid cyan inner line across canvas, desk and mobile.
+
 **Project activity on one line, user 2026-10-19 18:47–18:48Z (4.4.0):**
 the plain bold active/hired count and Active/Idle age share the project card's
 meta row without overflow, replacing its earlier wrapping fallback. Count

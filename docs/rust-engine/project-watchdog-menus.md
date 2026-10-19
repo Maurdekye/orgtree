@@ -24,5 +24,10 @@ slot claims yellow. One-shot perimeters are dashed, preserving kind color;
 ordinary one-shot dogs use the normal grey perimeter without a yellow glow.
 The same kind treatment reaches desk jump cards and mobile list borders.
 
+User 19:35:54Z: listener-count watches have a double cyan outline. Continuous
+watches use a 3px double border. One-shot watches use a dashed 1px outer border
+and a solid inner cyan ring, preserving both the watch and one-shot signals.
+The mobile list uses the same double/dashed pair on its left-hand kind edge.
+
 Focused tests: `project-dog-menu.test.tsx`; real-component native specimens:
 `project-dog-visual.tsx` and `project-dog-capture.cjs`. All data are synthetic.
