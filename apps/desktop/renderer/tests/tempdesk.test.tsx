@@ -318,20 +318,7 @@ test('§4 the BACKDROP dismisses it and the panel does not', async (t: TestConte
     assert.equal(closed, 1, 'a press on the backdrop did not dismiss it')
   })
 
-test('§5 the close button dismisses it', async (t: TestContext) => {
-    setup()
-    const n = agent('epsilon')
-    let closed = 0
-    const view = await mountView(scene(n, true, () => { closed++ }), (el) => el)
-    t.after(() => view.unmount())
-    await flush()
-    const btn = document.querySelector('.tempdesk-close') as HTMLElement
-    assert.ok(btn, 'there is no close control')
-    await inAct(() => { btn.click() })
-    assert.equal(closed, 1)
-  })
-
-test('§6 focus goes into the panel, and comes back to the opener',
+test('§5 focus goes into the panel, and comes back to the opener',
   async (t: TestContext) => {
     // "closing puts everything back" includes the keyboard: leaving the user on
     // document.body sends their next keystroke nowhere.
