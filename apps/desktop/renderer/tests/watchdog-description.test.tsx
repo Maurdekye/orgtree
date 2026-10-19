@@ -106,6 +106,35 @@ test('one-shot stream names its exit exception instead of promising every alert 
   assert.match(view.el.textContent ?? '', /exit diagnostic.*does not.*one-shot/i)
 })
 
+// MQTT watchdogs (user 2026-10-19 17:40:50Z; docs/rust-engine/mqtt-watchdogs.md)
+test('mqtt card names its broker, topic filter and how it authenticates, never the credentials', async t => {
+  const view = await panel({ kind: 'mqtt', target: 'mqtts://broker.local:8883', pattern: 'home/+/temperature',
+    payload_pattern: '"state":"open"', retained: false, credentials: 'inline credentials (stored encrypted)',
+    connection: { state: 'down', since: '2026-10-18T07:00:00Z', error: 'the broker closed the connection', retry_at: '2026-10-18T07:05:00Z' },
+    last_output: 'home/kitchen/temperature: 21.5' })
+  t.after(() => view.unmount())
+  assert.equal(view.el.querySelector('.wd-type')?.textContent, 'MQTT topic listener')
+  assert.match(view.el.querySelector('.wd-description')?.textContent ?? '', /home\/\+\/temperature.*mqtts:\/\/broker\.local:8883/)
+  const text = view.el.textContent ?? ''
+  assert.match(text, /untrusted/i)
+  assert.match(text, /inline credentials \(stored encrypted\)/)
+  assert.match(view.el.querySelector('.wd-connection')?.textContent ?? '', /down.*the broker closed the connection/)
+  assert.match(text, /"state":"open"/)
+  assert.match(text, /home\/kitchen\/temperature: 21\.5/)
+  const labels = Array.from(view.el.querySelectorAll('.field-label'), el => el.textContent)
+  for (const label of ['broker', 'topic filter', 'credentials', 'payload filter', 'connection', 'last message']) {
+    assert.ok(labels.includes(label), `${label} in ${labels}`)
+  }
+  assert.doesNotMatch(text, /checked every|next check/)
+  const healthy = await panel({ kind: 'mqtt', target: 'mqtt://localhost:1883', pattern: 'ci/#', credentials: 'none',
+    connection: { state: 'connected', since: '2026-10-18T07:00:00Z' } })
+  try {
+    assert.match(healthy.el.querySelector('.wd-connection')?.textContent ?? '', /connected/)
+    assert.ok(!healthy.el.querySelector('.wd-connection-bad'), 'a connected broker is not flagged')
+    assert.match(healthy.el.querySelector('.wd-description')?.textContent ?? '', /retained messages.*ignored/i)
+  } finally { await healthy.unmount() }
+})
+
 test('full target and regex stay visible and existing management controls remain', async t => {
   const target = 'echo ' + 'long-command-'.repeat(50)
   const view = await panel({ kind: 'command', target, pattern: '^READY$' })
