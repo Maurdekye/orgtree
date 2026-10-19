@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { assignAccount, getProviders, saveScope, userGesture } from '../api'
+import { assignAccount, getProviders, saveScope } from '../api'
+import { userGesture } from '../historyapi'
 import { useAppFeed, useAppRead } from '../appfeed'
 import { historyEnabled, historyUndo } from '../historyregistry'
 import { useOrgHireProviders } from '../orghire'
