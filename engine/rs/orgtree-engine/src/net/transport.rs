@@ -43,13 +43,20 @@ pub(super) async fn send_with_proxy(request:reqwest::RequestBuilder,proxy:&reqwe
 
 /// Streaming upload bodies must be opened separately for each attempt.
 #[nolog]
-pub(super) async fn stream<F,Fut>(mut build:F)->Result<reqwest::Response>
+pub(super) async fn stream<F,Fut>(build:F)->Result<reqwest::Response>
+where F:FnMut(reqwest::Client)->Fut,
+      Fut:std::future::Future<Output=Result<reqwest::RequestBuilder>> {
+    stream_with_proxy(build,&PROXY).await
+}
+
+#[nolog]
+pub(super) async fn stream_with_proxy<F,Fut>(mut build:F,proxy:&reqwest::Client)->Result<reqwest::Response>
 where F:FnMut(reqwest::Client)->Fut,
       Fut:std::future::Future<Output=Result<reqwest::RequestBuilder>> {
     let request=build(HTTP.clone()).await?.build()?;
     let url=request.url().clone();
     match HTTP.execute(request).await {
-        Err(error) if retryable(&error,&url)=>Ok(build(PROXY.clone()).await?.send().await?),
+        Err(error) if retryable(&error,&url)=>Ok(build(proxy.clone()).await?.send().await?),
         result=>Ok(result?),
     }
 }

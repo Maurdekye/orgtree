@@ -182,3 +182,77 @@ fn adding_a_hub_assigns_a_stable_registration_key_and_repairs_old_entries() {
     assert!(!assign_hub_ids(&mut hubs));
     assert_eq!(hubs,saved,"repeated passes must never churn valid connection keys");
 }
+
+/// The proxy stand-in forwards the retried POST to the same local origin,
+/// so this counts accepted writes, not merely request-builder invocations.
+async fn accepted_post_is_not_replayed(streaming:bool,redirect:bool) {
+    use std::sync::atomic::{AtomicUsize,Ordering};
+    let closed=tokio::net::TcpSocket::new_v4().unwrap();
+    closed.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let closed_address=closed.local_addr().unwrap(); // reserved but not listening
+    let origin=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address=format!("http://{}/api/write",origin.local_addr().unwrap());
+    let writes=Arc::new(AtomicUsize::new(0));let accepted=writes.clone();
+    let origin_task=tokio::spawn(async move {
+        loop {
+            let(mut socket,_)=origin.accept().await.unwrap();
+            let mut bytes=[0;4096];let n=socket.read(&mut bytes).await.unwrap();
+            assert!(String::from_utf8_lossy(&bytes[..n]).starts_with("POST "));
+            let index=accepted.fetch_add(1,Ordering::SeqCst);
+            if index==0 {
+                if redirect {
+                    // 303 also exercises a non-cloneable streamed upload:
+                    // reqwest changes the redirected request to GET.
+                    let status=if streaming {"303 See Other"}else{"307 Temporary Redirect"};
+                    let response=format!("HTTP/1.1 {status}\r\nLocation: http://{closed_address}/closed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                }
+                // Otherwise close after accepting the POST without a response.
+            } else {
+                socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+            }
+        }
+    });
+    let proxy=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy_address=format!("http://{}",proxy.local_addr().unwrap());
+    let proxy_calls=Arc::new(AtomicUsize::new(0));let routed=proxy_calls.clone();
+    let forwarded_address=address.clone();
+    let proxy_task=tokio::spawn(async move {
+        let(mut socket,_)=proxy.accept().await.unwrap();
+        let mut bytes=[0;4096];let n=socket.read(&mut bytes).await.unwrap();
+        assert!(String::from_utf8_lossy(&bytes[..n]).starts_with("POST http://"));
+        routed.fetch_add(1,Ordering::SeqCst);
+        let response=reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).build().unwrap()
+            .post(forwarded_address).body("synthetic").send().await.unwrap();
+        assert_eq!(response.status().as_u16(),200);
+        socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+    });
+    let proxy_client=reqwest::Client::builder().no_proxy().proxy(reqwest::Proxy::all(proxy_address).unwrap())
+        .connect_timeout(Duration::from_secs(1)).build().unwrap();
+    let result=if streaming {
+        transport::stream_with_proxy(|http| {
+            let address=address.clone();
+            async move {
+                let body=futures::stream::once(async {Ok::<_,std::io::Error>(vec![1u8,2,3])});
+                Ok(http.post(address).timeout(Duration::from_secs(5)).body(reqwest::Body::wrap_stream(body)))
+            }
+        },&proxy_client).await.map_err(|e|e.to_string())
+    }else{
+        transport::send_with_proxy(HTTP.post(address).timeout(Duration::from_secs(5)).body("synthetic"),&proxy_client)
+            .await.map_err(|e|e.to_string())
+    };
+    origin_task.abort();proxy_task.abort();let _=origin_task.await;let _=proxy_task.await;
+    assert_eq!(writes.load(Ordering::SeqCst),1,"one logical POST must reach the origin exactly once, even if its redirect cannot connect");
+    assert_eq!(proxy_calls.load(Ordering::SeqCst),0,"a response/read failure must never trigger proxy replay");
+    if redirect {assert!(result.is_ok_and(|r|r.status().is_redirection()),"the configured endpoint's redirect is returned without following it");}
+    else {assert!(result.is_err(),"closing after acceptance must remain a read error");}
+}
+
+#[tokio::test]
+async fn redirect_to_closed_port_never_replays_post_through_proxy(){accepted_post_is_not_replayed(false,true).await;}
+#[tokio::test]
+async fn redirect_to_closed_port_never_replays_streamed_post(){accepted_post_is_not_replayed(true,true).await;}
+#[tokio::test]
+async fn read_failure_after_accepted_post_never_replays(){accepted_post_is_not_replayed(false,false).await;}
+#[tokio::test]
+async fn read_failure_after_accepted_stream_never_replays(){accepted_post_is_not_replayed(true,false).await;}
