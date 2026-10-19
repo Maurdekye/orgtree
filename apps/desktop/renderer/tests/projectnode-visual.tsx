@@ -40,6 +40,12 @@
 //             the capture script also opens sa's and build's temporary
 //             desks, so the four desk hosts can be set side by side (user
 //             2026-10-18 11:14Z: one title bar, no empty strip).
+//   deskhead — two full-width project desks: the header cards outlined
+//             (top) and filled (below) in one row with the ↑ superior link,
+//             the near-zoom cards under them for the colours (user
+//             2026-10-19 19:02Z, 19:15Z); &theme=light for the light theme;
+//   deskinbox — one desk whose inbox opens on its listeners folder (19:05Z-
+//             19:33Z): ack mode (dev1 holds a job), &mode=rr round robin.
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
@@ -61,6 +67,7 @@ import type { TreePayload } from '../src/types'
 const noop = () => {}
 const answer = (body: unknown, status = 200) =>
   Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }))
+const relayInboxNow = Date.now()
 window.fetch = ((input: RequestInfo | URL) => {
   const p = new URL(String(input), location.href).pathname
   if (p.endsWith('/api/providers')) return answer({ providers: [] })
@@ -75,6 +82,14 @@ window.fetch = ((input: RequestInfo | URL) => {
     const documents = [row('d1', 'website', 'boss', 'opus', 'Website plan', 3), row('d2', 'dev1', 'dev1', 'haiku', 'Dev notes', 9),
       row('d3', 'boss', 'boss', 'opus', 'Boss notes', 20)]
     return answer({ documents, total: documents.length, next_offset: null, offset: 0 })
+  }
+  if (p.endsWith('/nodes/relay/inbox')) {
+    // fixed at page load: the inbox re-polls, and a job's hand-out must not move
+    const at = (m: number) => new Date(relayInboxNow - m * 60_000).toISOString()
+    return answer({ pending: [], sent: [], delivered: [
+      { id: 'm1', from: 'boss', kind: 'message', body: 'Ship the release notes', at: at(1), queue: { held_by: 'dev1', ack: true, held_at: at(0.8) } },
+      { id: 'm2', from: 'boss', kind: 'message', body: 'Rebuild the docs', at: at(30), queue: { held_by: 'dev2', ack: true, held_at: at(20), acked_at: at(12) } },
+    ] })
   }
   return answer({ detail: 'not in the fixture' }, 404)
 }) as typeof fetch
@@ -172,6 +187,72 @@ function Activity() {
 }
 
 const scene = new URLSearchParams(location.search).get('scene') || 'cards'
+
+/** deskhead / deskinbox: project relay under boss, its header cards outlined
+ *  (one event listener count, mail waiting with nobody listening, 2 of 3
+ *  slots) and filled (a listener watch, two mail listeners in ack mode, all
+ *  3 slots with 2 waiting) */
+const headDog = (kind: string, owner: string, name: string, extra: Record<string, unknown> = {}) => ({
+  id: owner + '/' + name, owner, name, kind, target: 'relay', interval_s: 5, state: 'armed',
+  at: new Date(Date.now() - 42 * 60_000).toISOString(), fired: 0, once: false, spent: false, ...extra })
+const relay = (scope: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+  ...projectNode('relay', 'boss', [agent('dev1', 'relay', { busy: true }), agent('dev2', 'relay'), agent('lead', 'relay')]),
+  charter: 'Relay: hands each job to the next free worker.',
+  configured_scope: { tools: {}, add_dirs: [], ...scope }, ...extra }) as unknown as CanvasNode
+const relayLease = (agentId: string, slot: number) =>
+  ({ project: 'relay', agent: agentId, slot, lease: 'r' + slot, since: new Date(Date.now() - (10 + slot) * 60_000).toISOString(), reminders: 0 })
+interface HeadSet { node: CanvasNode; dogs: unknown[]; leases: unknown[] }
+const mailDogs = [
+  headDog('fair_queue', 'dev1', 'mail-a', { fired: 4, last_fired: new Date(Date.now() - 48_000).toISOString() }),
+  headDog('fair_queue', 'dev2', 'mail-b', { fired: 2, last_fired: new Date(Date.now() - 20 * 60_000).toISOString() }),
+  headDog('fair_queue', 'lead', 'mail-c', { state: 'paused', fired: 1 }),
+  headDog('fair_queue', 'boss', 'mail-d', { at: new Date(Date.now() - 25_000).toISOString() }),
+]
+const headSets: Record<'outlined' | 'filled' | 'roundrobin', HeadSet> = {
+  outlined: { node: relay({ slots_capacity: 3 }, { mail_pending: 3 }),
+    dogs: [headDog('project_listener', 'dev1', 'ready-a'), headDog('project_listener', 'dev2', 'ready-b')],
+    leases: [relayLease('dev1', 1), relayLease('dev2', 2)] },
+  filled: { node: relay({ slots_capacity: 3, mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 }),
+    dogs: [headDog('project_listener', 'dev1', 'ready-a'), headDog('project_listener', 'dev2', 'ready-b'),
+      headDog('listener_watch', 'lead', 'all-ready', { count: 3 }),
+      ...mailDogs,
+      headDog('slot', 'lead', 'wait-a', { once: true, queued_at: new Date(Date.now() - 5 * 60_000).toISOString() }),
+      headDog('slot', 'boss', 'wait-b', { once: true, queued_at: new Date(Date.now() - 2 * 60_000).toISOString() })],
+    leases: [relayLease('dev1', 1), relayLease('dev2', 2), relayLease('lead', 3)] },
+  roundrobin: { node: relay({ slots_capacity: 3 }, { mail_pending: 2 }), dogs: mailDogs, leases: [] },
+}
+const headTree = (set: HeadSet) => ({ ...tree([set.node]), watchdogs: set.dogs, slot_leases: set.leases }) as unknown as TreePayload
+const headMap = (set: HeadSet) => {
+  const boss = agent('boss', '', { parent: null, tier: 'opus', model_id: 'opus', seat: 5, grant: 20 }) as unknown as CanvasNode
+  const kids = (set.node as unknown as { children: CanvasNode[] }).children
+  return new Map<string, CanvasNode>([[boss.id, boss], [set.node.id, set.node], ...kids.map((k) => [k.id, k] as [string, CanvasNode])])
+}
+function HeadDesk({ set, top, height, id }: { set: HeadSet; top: number; height: number; id: string }) {
+  return (
+    <div id={id} className="head-desk" style={{ position: 'absolute', left: 10, top, width: 980, height, border: '1px solid var(--line)', overflow: 'hidden' }}>
+      <ProjectDesk bare node={set.node} slug="org" tree={headTree(set)} map={headMap(set)} op={() => Promise.resolve({} as OpResult)}
+        toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} />
+    </div>
+  )
+}
+function DeskHead() {
+  const near = (set: HeadSet, x: number, id: string) => <div id={id} style={{ position: 'absolute', left: x, top: 0 }}>
+    <ProjectSquare node={set.node} pos={{ x: 0, y: 0 }} lod="norm" tree={headTree(set)} map={headMap(set)}
+      dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop}
+      zoom={1.5} hire={{}} seats={{}} onHire={noop} onNewProject={noop} onInbox={noop}
+      onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+  </div>
+  return (
+    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      <HeadDesk set={headSets.outlined} top={10} height={200} id="desk-outlined" />
+      <HeadDesk set={headSets.filled} top={220} height={200} id="desk-filled" />
+      <div style={{ position: 'absolute', left: 60, top: 440, transform: 'scale(1.5)', transformOrigin: '0 0' }}>
+        {near(headSets.outlined, 0, 'near-outlined')}
+        {near(headSets.filled, 170, 'near-filled')}
+      </div>
+    </main>
+  )
+}
 
 /** attn — the Attention desk panel with project website selected: the project
  *  desk, not the agent desk (user 2026-10-18 14:36Z) */
@@ -329,7 +410,13 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
   : scene === 'activity' ? <Activity />
   : scene === 'slots' ? <Slots />
   : scene === 'cardfix' ? <CardFix />
-  : scene === 'attn' ? <Attn /> : (
+  : scene === 'attn' ? <Attn />
+  : scene === 'deskhead' ? <DeskHead />
+  : scene === 'deskinbox' ? (
+    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      <HeadDesk set={new URLSearchParams(location.search).get('mode') === 'rr' ? headSets.roundrobin : headSets.filled}
+        top={10} height={680} id="desk-inbox" />
+    </main>) : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
     {/* inside the org, as the app is: only an org's surfaces pin and pop out */}

@@ -175,6 +175,91 @@ module.exports = async (page) => {
     screenshots.push(await page.screenshot(`${prefix}-attn-1000x700`))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=deskhead: the project desk's header cards in one
+  // row at full desk width, outlined and filled, dark and light, each card's
+  // computed colours beside its near-zoom badge's; then the inbox's
+  // listeners folder (user 2026-10-19 19:02Z, 19:05Z, 19:15Z)
+  if (only === 'deskhead') {
+    for (const theme of ['', '&theme=light']) {
+      const name = theme ? 'light' : 'dark'
+      await page.goto('/?scene=deskhead' + theme)
+      await page.waitFor('#desk-filled .project-desk .cc-head', { timeout: 15000 })
+      await page.eval(async () => { await new Promise((r) => setTimeout(r, 500)) })
+      await settle()
+      details['deskhead-' + name] = await page.eval(() => {
+        const paint = (el) => {
+          if (!el) return null
+          const s = getComputedStyle(el), r = el.getBoundingClientRect()
+          return { text: el.textContent, color: s.color, background: s.backgroundColor, border: s.borderTopColor,
+            top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right) }
+        }
+        const kinds = { listeners: ['.project-listeners-card', '.project-listeners-badge'],
+          mail: ['.project-queue-card', '.project-queue-badge'], slots: ['.project-slots-card', '.project-slots-badge'] }
+        const out = {}
+        for (const set of ['outlined', 'filled']) {
+          const desk = document.querySelector('#desk-' + set + ' .project-desk')
+          const head = desk.querySelector('.cc-head')
+          const rows = [...head.querySelectorAll('.cc-head-meta')].filter((r) => r.parentElement === head)
+          const cards = {}, sameAsNear = {}
+          for (const [kind, [cardSel, badgeSel]] of Object.entries(kinds)) {
+            const card = paint(desk.querySelector('.cc-head ' + cardSel))
+            const badge = paint(document.querySelector('#near-' + set + ' ' + badgeSel))
+            cards[kind] = { card, badge }
+            sameAsNear[kind] = !!card && !!badge && card.color === badge.color && card.background === badge.background
+              && card.border === badge.border
+          }
+          const up = paint(head.querySelector('.desk-nav-chip'))
+          const tops = [cards.listeners.card, cards.mail.card, cards.slots.card, up].filter(Boolean).map((c) => c.top + (c.bottom - c.top) / 2)
+          out[set] = { metaRows: rows.length, cards, up, sameAsNear,
+            oneLine: tops.length === 4 && Math.max(...tops) - Math.min(...tops) < 4,
+            superiorInBody: !!desk.querySelector('.desk-nav .desk-nav-chip') }
+        }
+        return out
+      })
+      screenshots.push(await page.screenshot(`${prefix}-deskhead-${name}-1000x700`))
+    }
+    const inbox = () => page.eval(() => ({
+      tab: document.querySelector('#desk-inbox .cc-tabs button.on')?.textContent ?? null,
+      folders: [...document.querySelectorAll('#desk-inbox .mail-folders button')].map((b) => b.textContent),
+      open: document.querySelector('#desk-inbox .mail-folders button.on')?.textContent ?? null,
+      headers: [...document.querySelectorAll('#desk-inbox .mail-listeners-table thead th')].map((h) => h.textContent),
+      rows: [...document.querySelectorAll('#desk-inbox .mail-listeners-table tr.listener-row')].map((r) => ({
+        cells: [...r.children].map((c) => c.textContent), holding: r.classList.contains('holding'),
+        live: [...r.querySelectorAll('.slot-time.live')].map((s) => [s.textContent, getComputedStyle(s).color]),
+        background: getComputedStyle(r.children[1]).backgroundColor })),
+    }))
+    for (const [mode, theme] of [['ack', ''], ['ack', '&theme=light'], ['rr', ''], ['rr', '&theme=light']]) {
+      const name = mode + '-' + (theme ? 'light' : 'dark')
+      await page.goto('/?scene=deskinbox' + (mode === 'rr' ? '&mode=rr' : '') + theme)
+      await page.waitFor('#desk-inbox .project-queue-card', { timeout: 15000 })
+      await page.eval(async () => {
+        document.querySelector('#desk-inbox .project-queue-card').click()
+        await new Promise((r) => setTimeout(r, 900))
+      })
+      await settle()
+      details['inbox-' + name] = await inbox()
+      screenshots.push(await page.screenshot(`${prefix}-inbox-listeners-${name}-1000x700`))
+      if (name === 'ack-dark') {
+        // the live times a few seconds on: they count up
+        await page.eval(async () => { await new Promise((r) => setTimeout(r, 3000)) })
+        await settle()
+        details['inbox-ack-dark-3s-later'] = await inbox()
+        screenshots.push(await page.screenshot(`${prefix}-inbox-listeners-ack-dark-3s-later-1000x700`))
+        // the holder's mail link opens the mail in the inbox folder
+        await page.eval(async () => {
+          document.querySelector('#desk-inbox .listener-mail-link').click()
+          await new Promise((r) => setTimeout(r, 900))
+        })
+        await settle()
+        details['inbox-ack-dark-mail-link'] = await page.eval(() => ({
+          open: document.querySelector('#desk-inbox .mail-folders button.on')?.textContent ?? null,
+          selected: document.querySelector('#desk-inbox .mailrow.on')?.textContent ?? null,
+        }))
+        screenshots.push(await page.screenshot(`${prefix}-inbox-mail-link-opened-dark-1000x700`))
+      }
+    }
+    return { details, screenshots }
+  }
   if (only === 'slots') {
     await page.goto('/?scene=slotlines')
     await page.waitFor('.sq.project', { timeout: 15000 })
