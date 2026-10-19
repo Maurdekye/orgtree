@@ -9,6 +9,13 @@
 
 # AGENTS.md — working on Orgtree
 
+- Credit-bar segments and org pixel-per-credit scale flatten projects recursively
+  to the next agents; projects never get a slab, while each agent's grant keeps
+  its subtree grouped. Canvas, settings, desk and inbox request bars share the
+  projection and retain their existing live/held filters and totals.
+  [decided: user 2026-10-19 17:07Z; verified: `canvas/creditsegments.ts`,
+  `canvas/{cards,creditgrant,desk,asks,shared}.ts*`]
+
 - Desk-tab pin/pop-out requests snapshot the owning `.desk-tabpanel` before
   the modal mounts. Shared one-shot origin metadata carries its client box
   and window; modal buttons still measure their own panel. Pins keep existing

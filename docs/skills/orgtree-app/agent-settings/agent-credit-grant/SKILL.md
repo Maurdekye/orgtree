@@ -11,6 +11,8 @@ Up: [orgtree-agent-settings](../SKILL.md)
 
 This control saves immediately through a reallocation when the gesture commits. It does not wait for the form's Save, and the form's Cancel does not reverse an accepted grant.
 
+The bar's allocation segments represent agent reports. It passes through projects (including nested projects), so grouping agents in a project adds no segment and leaves their credit display unchanged. Each agent's own team remains grouped in its grant.
+
 - Drag from the bar; a six-pixel movement threshold prevents accidental drags. Hold in its rightmost 10% after starting a drag to expand the visible range over time. The visible scale is not the maximum allowance.
 - Arrow keys step by one credit. Home selects the minimum; End selects the maximum. Key release or keyboard blur commits. Pointer release commits a drag.
 - Escape cancels the unfinished gesture. Pointer cancellation or lost capture also cancels. A changed credit baseline during editing stops the gesture with a retry message.

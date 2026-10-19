@@ -8,6 +8,8 @@ Up: [orgtree-team](../SKILL.md)
 
 Credits measure concurrent staffing capacity. The seat is the model tier's reservation, the grant is capacity allocated to that agent's team, and free credits are the grant not committed to its live direct reports. They are not tokens, a dollar balance or a promise of remaining turns. [Hire](../tool-hire/SKILL.md) contains the exact held/free arithmetic and superior-insertion funding cases.
 
+Projects are transparent to credits. Credit bars draw one segment for each agent report, passing recursively through nested projects as though their agents reported directly. A project has no segment of its own; an agent's subtree stays grouped in that agent's grant. The same rule applies to the canvas scale, settings slider and desk/inbox credit-request bars, without changing saved balances.
+
 Read the current ORG STATE and use state inspection when you need exact balances; an old charter can describe a different allocation. A live but idle or halted team can still hold capacity. First decide whether an existing worker can own the task, whether finished expertise should be retired for room, or whether another live branch needs its unused grant back.
 
 Use [reallocate](../tool-reallocate/SKILL.md) for an authorized redistribution; its negative-delta refusal protects credits already held by the target's reports. If the caller's allocation is insufficient, use [request credits](../../user/tool-request-credits/SKILL.md) through the permitted request route. A cascade is not permission to silently raise your own grant.
