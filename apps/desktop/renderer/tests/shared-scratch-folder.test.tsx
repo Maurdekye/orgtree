@@ -84,7 +84,7 @@ for (const focused of [false, true]) test(`switchboard shared-folder entry opens
   const open = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
     .find(b => b.textContent?.trim().replace(/\s*▸$/, '') === 'Open')
   assert.ok(open, 'the real Open branch mounted')
-  await inAct(async () => { open.click(); await flush() })
+  await inAct(async () => { open.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); await flush() })
   const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
   assert.ok(items.some(b => b.textContent?.trim() === 'Inbox'), 'the Open submenu mounted')
   const item = items.find(b => b.textContent?.trim() === 'Shared scratch folder')

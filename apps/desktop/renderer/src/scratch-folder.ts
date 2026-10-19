@@ -21,9 +21,10 @@ export function scratchFolderAction(org: string, node: string, toast: ToastFn,
       if (!result.ok) toast([`Could not open ${description}: ${result.error || 'unknown error'}`])
     }).catch((error: Error) => toast([`Could not open ${description}: ${error.message}`]))
   }
-  if (bridge.agentScratchAgentsFileExists && bridge.openAgentScratchAgentsFile) {
+  if (bridge.openAgentScratchAgentsFile) {
     action.folderAgentsFile = {
       exists: async () => {
+        if (!bridge.agentScratchAgentsFileExists) return false
         const result = scope
           ? await bridge.agentScratchAgentsFileExists!(org, node, scope)
           : await bridge.agentScratchAgentsFileExists!(org, node)

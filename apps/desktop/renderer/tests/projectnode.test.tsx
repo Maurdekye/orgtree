@@ -333,7 +333,7 @@ test('§3a a live project\'s menu follows the agent menu\'s order, adapted (user
   assert.deepEqual(labels(projectMenuEntries(nd, handlers(), { claudeHire: offer })),
     ['Focus', 'Open', 'Hire under this project', 'New project…', 'Settings', 'sep', 'Retire project…'])
   assert.deepEqual(entryNamed(projectMenuEntries(nd, handlers(), { claudeHire: offer }), 'Open').children
-    ?.map((c) => c === 'sep' ? 'sep' : c.label), ['Project mailbox', 'Project folder'])
+    ?.map((c) => c === 'sep' ? 'sep' : c.label), ['Project mailbox', 'Team scratch folder'])
 })
 
 test('§3a2 the agent and switchboard entries a project can take: focus, pin in top section, subtree compact and halt (user 22:23Z, 07:18Z)', () => {
@@ -353,7 +353,7 @@ test('§3a2 the agent and switchboard entries a project can take: focus, pin in 
   entryNamed(entries, 'Halt all agents under it…').onSelect()
   const openKids = entryNamed(entries, 'Open').children!
   assert.deepEqual(openKids.map((c) => c === 'sep' ? 'sep' : c.label),
-    ['Desk', 'Desk as a pinned window', 'Desk in a separate window', 'sep', 'Project mailbox', 'Project folder'],
+    ['Desk', 'Desk as a pinned window', 'Desk in a separate window', 'sep', 'Project mailbox', 'Team scratch folder'],
     'Desk as a pinned window sits in the top desk section of Open, before the separator, matching agents')
   const pin = openKids.find((c) => c !== 'sep' && c.label === 'Desk as a pinned window')
   assert.ok(pin && pin !== 'sep', 'pin the project desk as a window')
@@ -361,7 +361,7 @@ test('§3a2 the agent and switchboard entries a project can take: focus, pin in 
   const pinnedEntries = projectMenuEntries(nd, h, { claudeHire: offer, pinned: true })
   const pinnedOpenKids = entryNamed(pinnedEntries, 'Open').children!
   assert.deepEqual(pinnedOpenKids.map((c) => c === 'sep' ? 'sep' : c.label),
-    ['Desk', 'Desk as a pinned window', 'Desk in a separate window', 'sep', 'Project mailbox', 'Project folder'])
+    ['Desk', 'Desk as a pinned window', 'Desk in a separate window', 'sep', 'Project mailbox', 'Team scratch folder'])
   const showPin = pinnedOpenKids.find((c) => c !== 'sep' && c.label === 'Desk as a pinned window')
   assert.ok(showPin && showPin !== 'sep')
   showPin.onSelect()
@@ -389,7 +389,7 @@ test('§3d Desk, Pop out, Presentations with Team presentations submenu, and no 
     'Hire beside and Hire above are not in the project context menu (only via hire tokens)')
   const open = entryNamed(entries, 'Open').children!
   assert.deepEqual(open.map((c) => c === 'sep' ? 'sep' : c.label), ['Desk', 'Desk in a separate window', 'sep',
-    'Project mailbox', 'Project folder', 'Presentations', 'Project docket'])
+    'Project mailbox', 'Team scratch folder', 'Presentations', 'Project docket'])
   for (const c of open) {
     if (c === 'sep') continue
     assert.equal(/\bOpen\b/.test(c.label), false, `Open submenu item "${c.label}" must not contain the word Open`)

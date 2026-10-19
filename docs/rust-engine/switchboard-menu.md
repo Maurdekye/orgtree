@@ -3,8 +3,9 @@
 User 2026-10-19 17:27Z moved the switchboard's Open actions into one **Open**
 submenu, replacing the 2026-10-11 flat layout. It contains **Inbox**, **Global
 docket**, **Presentations** and **Shared scratch folder**, when their existing
-capabilities are available. The scratch-folder entry keeps its nested **Open
-folder / Edit AGENTS.md** actions when the managed folder has an AGENTS.md.
+capabilities are available. Clicking **Open** focuses the switchboard; hover/Right reveals its routes.
+Clicking **Shared scratch folder** opens it; its submenu contains only
+**Edit AGENTS.md**, which creates an empty root note if needed.
 With no available Open routes, the branch is omitted.
 
 The menu follows this order: Focus, Hire an agent, New project, Open, Agents

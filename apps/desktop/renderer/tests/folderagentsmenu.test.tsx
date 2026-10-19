@@ -22,7 +22,7 @@ async function openFolderMenu(view: { el: HTMLElement }) {
   })
 }
 
-test('folder menu adds Edit AGENTS.md only when that folder has a root note', async t => {
+test('folder menu exposes Edit AGENTS.md without a redundant Open folder child', async t => {
   const opened: string[] = []
   const folderAction = Object.assign(noop, {
     folderAgentsFile: {
@@ -46,7 +46,7 @@ test('folder menu adds Edit AGENTS.md only when that folder has a root note', as
   const submenu = document.querySelector<HTMLElement>('.ctxmenu-submenu[aria-label="Scratch folder"]')
   assert.ok(submenu, 'the folder submenu opens through the standard keyboard path')
   assert.deepEqual([...submenu.querySelectorAll('[role="menuitem"]')].map(item => item.textContent?.trim()),
-    ['Open folder', 'Edit AGENTS.md'])
+    ['Edit AGENTS.md'])
   const edit = [...submenu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
     .find(item => item.textContent?.startsWith('Edit AGENTS.md'))
   assert.ok(edit)
@@ -54,21 +54,20 @@ test('folder menu adds Edit AGENTS.md only when that folder has a root note', as
   assert.deepEqual(opened, ['agents'])
 })
 
-test('folder without a root AGENTS.md keeps the plain folder action and adds no submenu', async t => {
+test('folder without a root AGENTS.md retains direct opening and offers editing', async t => {
   const opens: number[] = []
   const folderAction = Object.assign(() => opens.push(1), {
     folderAgentsFile: { exists: async () => false, edit: noop },
   })
-  const entry = { label: 'Project folder', onSelect: folderAction } as MenuItem
+  const entry = { label: 'Team scratch folder', onSelect: folderAction } as MenuItem
   const view = await mountView(<FolderMenu entry={entry} />, el => el)
   t.after(() => view.unmount())
   await openFolderMenu(view)
 
   const item = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-    .find(button => button.textContent?.startsWith('Project folder'))
+    .find(button => button.textContent?.startsWith('Team scratch folder'))
   assert.ok(item)
-  assert.equal(item.hasAttribute('aria-haspopup'), false)
-  assert.equal(document.querySelector('.ctxmenu-submenu[aria-label="Project folder"]'), null)
+  assert.equal(item.getAttribute('aria-haspopup'), 'menu')
   await inAct(async () => { item.click(); await flush(2) })
   assert.deepEqual(opens, [1])
 })

@@ -386,7 +386,7 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     { label: 'Project mailbox', onSelect: () => h.onInbox() }]
   if (h.onTeam) open.push({ label: 'Team', onSelect: h.onTeam })
   if (h.onScratchFolder && (live || node.state === 'archived')) {
-    open.push({ label: 'Project folder', onSelect: h.onScratchFolder })
+    open.push({ label: 'Team scratch folder', onSelect: h.onScratchFolder })
   }
   // point 27 + user 2026-10-18 07:20Z–07:22Z: its presentations are the
   // documents attributed to the project; its team presentations add every one

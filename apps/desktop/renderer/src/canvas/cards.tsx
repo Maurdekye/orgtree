@@ -193,7 +193,8 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     if (onPresentations) openEntries.push({ label: 'Presentations', onSelect: () => onPresentations(true) })
     const sharedScratch = scratchFolderAction(slug, '', toast, 'shared')
     if (sharedScratch) openEntries.push({ label: 'Shared scratch folder', onSelect: sharedScratch })
-    if (openEntries.length) entries.push({ label: 'Open', onSelect: () => {}, submenuOnly: true, children: openEntries })
+    if (openEntries.length) entries.push({ label: 'Open', onSelect: () => onFocus?.(), actionDisabled: !onFocus,
+      title: 'Click to focus the switchboard; hover or press Right to choose what to open', children: openEntries })
     if (onAgents) entries.push({ label: 'Agents list', onSelect: () => onAgents(true) })
     if (onGear) {
       entries.push({ label: 'Org settings',

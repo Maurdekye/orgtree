@@ -3227,7 +3227,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onOpenDesk: go,
       onInbox: () => showNodeSurface('node-inbox', n.id, setInboxId),
       onTeam: () => showNodeSurface('agent-team', n.id, setTeamId),
-      onScratchFolder: scratchFolderAction(slug, n.id, toast),
+      onScratchFolder: scratchFolderAction(slug, n.id, toast, n.kind === 'project' ? 'team' : undefined),
       onTeamScratchFolder: scratchFolderAction(slug, n.id, toast, 'team'),
       onDocket: () => openAgentDocket(n.id, { keepOpen: true }),
       onSlots: () => openProjectSlots(n.id),
@@ -4545,7 +4545,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           antigravityProvider={antigravityProvider} openrouterProvider={openrouterProvider}
           langserverProvider={langserverProvider} museProvider={museProvider}
           presence={presence}
-          onScratchFolder={scratchFolderAction(slug, n.id, toast)}
+          onScratchFolder={scratchFolderAction(slug, n.id, toast, n.kind === 'project' ? 'team' : undefined)}
           onTeamScratchFolder={scratchFolderAction(slug, n.id, toast, 'team')}
           refs={canvasRefs} onFocusAgent={centerOn}
           close={() => setConfigId(null)} />)}

@@ -129,8 +129,8 @@ type FolderAgentsAction = (() => void) & {
 }
 
 /** Native folder callbacks carry only identity-bound capabilities, never a
- *  filesystem path. Resolve them when the menu opens so absence leaves the
- *  existing folder entry untouched. */
+ * filesystem path. Edit is always offered: native creates a missing empty
+ * root note. Parent click opens the folder; hover/Right reveals its actions. */
 async function resolveFolderAgentsEntries(entries: MenuEntry[]): Promise<MenuEntry[]> {
   return Promise.all(entries.map(async entry => {
     if (entry === 'sep') return entry
@@ -138,15 +138,11 @@ async function resolveFolderAgentsEntries(entries: MenuEntry[]): Promise<MenuEnt
       ? await resolveFolderAgentsEntries(entry.children) : undefined
     const note = (entry.onSelect as FolderAgentsAction).folderAgentsFile
     if (!note) return currentChildren ? { ...entry, children: currentChildren } : entry
-    let exists = false
-    try { exists = await note.exists() } catch { /* a missing folder keeps today's menu */ }
-    if (!exists) return currentChildren ? { ...entry, children: currentChildren } : entry
     const children: MenuEntry[] = [
-      { label: 'Open folder', onSelect: entry.onSelect },
       { label: 'Edit AGENTS.md', onSelect: note.edit },
       ...(currentChildren ?? []),
     ]
-    return { ...entry, children, submenuOnly: true }
+    return { ...entry, children, submenuOnly: false }
   }))
 }
 

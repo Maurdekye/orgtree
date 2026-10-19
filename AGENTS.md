@@ -16,6 +16,15 @@
   [decided: user 2026-10-19 18:31–18:32Z; verified: `composerfocus.ts`,
   `canvas/{desk,projectdesk,mail}.tsx`, `QuickChatBox.tsx`, `styles.css`]
 
+- Folder context-menu parents open directly on click/Enter; hover/Right shows
+  Edit AGENTS.md, without an Open folder child. Agent Scratch folder nests its
+  own Edit plus Team scratch folder/Edit; project Team scratch folder and org
+  Shared scratch folder use their scoped roots. Edit creates an empty missing
+  note exclusively, preserving existing contents and refusing linked notes or
+  junction/symlink root paths. Switchboard Open click focuses the switchboard.
+  [decided: user/coordinator 2026-10-19 18:34–18:39Z; verified:
+  `canvas/{cards,contextmenu,agentmenu}.tsx`, `main/scratch-folder.ts`]
+
 - Project concurrency recipes compose existing slots, queues and events; an
   event has no late-subscriber replay, readiness counts registrations, and
   forced/reclaimed leases do not stop old work. See [recipes](docs/skills/orgtree-workflows/collaboration-patterns/concurrency-primitives/SKILL.md).

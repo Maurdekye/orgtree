@@ -19,7 +19,7 @@ app.whenReady().then(async()=>{
    await win.webContents.executeJavaScript(`(()=>{const folder=[...document.querySelectorAll('[role="menuitem"]')].find(b=>b.textContent.trim().replace(' ▸','')==='Shared scratch folder');if(!folder)throw Error('folder missing');folder.focus();folder.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}))})()`)
    await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,120))))')
    const nested=await win.webContents.executeJavaScript(`(()=>{const sub=document.querySelector('.ctxmenu-submenu[aria-label="Shared scratch folder"]');if(!sub)throw Error('nested folder missing');const r=sub.getBoundingClientRect();return {labels:[...sub.querySelectorAll('[role="menuitem"]')].map(b=>b.textContent.trim()),visible:r.x>=0&&r.y>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1}})()`)
-   assert.deepEqual(nested.labels,['Open folder','Edit AGENTS.md']);assert.equal(nested.visible,true)
+   assert.deepEqual(nested.labels,['Edit AGENTS.md']);assert.equal(nested.visible,true)
    fs.writeFileSync(path.join(out,name+'-nested.png'),(await win.webContents.capturePage()).toPNG())
    receipts.push({name,focused,light,width,state,nested})
   }finally{win.destroy()}

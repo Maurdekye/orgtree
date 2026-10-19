@@ -1,5 +1,14 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Open/folder default actions, user 2026-10-19 18:34–18:37Z (4.4.0):**
+switchboard Open clicks focus it; hover/Right retains the route submenu.
+Folder parents click/Enter to open, with no Open folder child. Agent Scratch
+folder contains Edit AGENTS.md plus Team scratch folder, whose submenu has
+its own Edit. Projects say Team scratch folder; the switchboard says Shared
+scratch folder. These show Edit even without a note. Coordinator clarification
+18:39Z: create an empty missing root AGENTS.md exclusively, then open it;
+preserve existing contents and refuse linked notes or junction/symlink roots.
+
 **Transparent model palette, user 2026-10-19 18:31Z (4.4.0):** the shared
 model-token pyramid never has a surrounding background panel, border or
 shadow, including the desk's model/account/version picker. Keep the same

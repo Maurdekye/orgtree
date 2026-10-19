@@ -167,7 +167,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     onTeam: onTeam ? () => onTeam(true) : undefined,
     onDocket: onDocket ? () => onDocket(true) : undefined,
     onSlots: surfaceRoutes ? () => surfaceRoutes.open('project-slots', node.id) : undefined,
-    onScratchFolder: scratchFolderAction(slug, node.id, toast),
+    onScratchFolder: scratchFolderAction(slug, node.id, toast, 'team'),
     onPresentations: onOpenGallery ? () => onOpenGallery(node.id, { keepOpen: true }) : undefined,
     onTeamPresentations: onOpenGallery ? () => onOpenGallery(node.id, { team: true, keepOpen: true }) : undefined,
     onOpenTemporary,
