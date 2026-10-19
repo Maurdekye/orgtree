@@ -1,0 +1,62 @@
+import { flush, inAct, mountView } from './harness'
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
+import { ObjectNavProvider } from '../src/canvas/objectnav'
+import { ObjectNavHost } from '../src/canvas/objectnavhost'
+import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
+import { AgentSlotChips } from '../src/canvas/slotchips'
+import { AgentSurfaceRoutesProvider } from '../src/canvas/panelcorner'
+import { DeskDogsProvider, DogChip } from '../src/canvas/deskdogs'
+import { ListenersView } from '../src/canvas/listenersdesk'
+import type { CanvasNode } from '../src/canvas/shared'
+import type { Watchdog } from '../src/types'
+
+const dog=(kind:Watchdog['kind'],extra:Partial<Watchdog>={}):Watchdog=>({id:'worker/'+kind,name:kind,owner:'worker',kind,target:'@build',state:'armed',once:true,spent:false,at:'2026-10-19T00:00:00Z',fired:0,...extra} as Watchdog)
+async function right(el:Element){await inAct(()=>{el.dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:20,clientY:20}))});await flush()}
+const projectRow=()=>Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(e=>e.textContent==='Project… ▸')
+const labels=()=>Array.from(document.querySelectorAll('[role="menuitem"]')).map(e=>e.textContent)
+
+for(const kind of ['slot','fair_queue','project_listener','listener_watch','activity'] as Watchdog['kind'][]){
+ test(kind+' watchdog borrows the current canonical project menu, keeping its own actions',async t=>{
+  let focus=0,opened=0,version='first'
+  function Register(){useProvideAgentNav(id=>id==='build'?[{label:'Focus',onSelect:()=>{focus++}},{label:'Open',children:[{label:'Project mailbox',onSelect:()=>{}}],onSelect:()=>{}},{label:version,onSelect:()=>{}}]:[]);return null}
+  const w=dog(kind),props={isProject:(id:string)=>id==='build'}
+  const view=await mountView(<AgentNavProvider><ObjectNavProvider><Register/><ObjectNavHost {...props} org="org" dogs={[w]} openDog={()=>{opened++}} toast={()=>{}}/><ObjectMenuBoundary><DogChip dog={w} onOpen={()=>{opened++}}/></ObjectMenuBoundary></ObjectNavProvider></AgentNavProvider>,el=>el)
+  t.after(view.unmount)
+  const chip=view.el.querySelector('button')!
+  await right(chip);assert.ok(projectRow(),'Project submenu exists');assert.ok(labels().includes('Pause'));assert.ok(labels().includes('Remove'));assert.equal(opened,0)
+  await inAct(()=>{projectRow()!.focus();projectRow()!.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))});await flush()
+  assert.deepEqual(labels().slice(-4),['Copy mention','Focus','Open ▸','first']);assert.equal(focus,0)
+  await right(chip);await inAct(()=>projectRow()!.click());assert.equal(focus,1);assert.equal(opened,0)
+  version='fresh';await right(chip);await inAct(()=>{projectRow()!.focus();projectRow()!.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))});await flush();assert.ok(labels().includes('fresh'),'builder read on open, not mount')
+  await inAct(()=>{chip.click()});assert.equal(opened,1,'normal click still opens dog')
+ })
+}
+
+test('ordinary targets, foreign org and spent dogs gain no project navigation',async t=>{
+ function Register(){useProvideAgentNav(()=>[{label:'Focus',onSelect:()=>{}}]);return null}
+ const dogs=[dog('command',{target:'echo build'}),dog('activity',{target:'worker'}),dog('slot',{spent:true,state:'spent'})]
+ const view=await mountView(<AgentNavProvider><ObjectNavProvider><Register/><ObjectNavHost {...{isProject:(id:string)=>id==='build'}} org="org" dogs={dogs} openDog={()=>{}} toast={()=>{}}/><ObjectMenuBoundary>{dogs.map(w=><DogChip key={w.id} dog={w} onOpen={()=>{}}/>)}</ObjectMenuBoundary></ObjectNavProvider></AgentNavProvider>,el=>el)
+ t.after(view.unmount)
+ for(const chip of view.el.querySelectorAll('button')){await right(chip);assert.equal(projectRow()===undefined,true)}
+})
+
+test('held and waiting slot chips offer Project submenu and preserve slots left-click',async t=>{
+ const opened:string[]=[],focused:string[]=[]
+ function Register(){useProvideAgentNav(id=>[{label:'Focus',onSelect:()=>{focused.push(id)}},{label:'Open',children:[{label:'Slots',onSelect:()=>{}}],onSelect:()=>{}}]);return null}
+ const w=dog('slot'),lease={project:'build',agent:'worker',slot:1,lease:'synthetic',since:'2026-10-19T00:00:00Z'}
+ const view=await mountView(<AgentNavProvider><Register/><AgentSurfaceRoutesProvider value={{open:(kind,id)=>{opened.push(kind+':'+id)}}}><ObjectMenuBoundary><AgentSlotChips agent="worker" leases={[lease]} dogs={[w]}/></ObjectMenuBoundary></AgentSurfaceRoutesProvider></AgentNavProvider>,el=>el)
+ t.after(view.unmount)
+ assert.equal(view.el.querySelectorAll('button').length,2)
+ for(const chip of view.el.querySelectorAll('button')){await right(chip);assert.ok(projectRow());assert.deepEqual(opened,[]);await inAct(()=>projectRow()!.click());assert.deepEqual(focused,['build']);focused.length=0;await inAct(()=>{chip.click()});assert.deepEqual(opened,['project-slots:build']);opened.length=0}
+})
+
+test('project listener rows expose dog menus even away from their name buttons',async t=>{
+ const dogs=[dog('project_listener'),dog('listener_watch',{count:2})],node={id:'build',kind:'project',state:'live',children:[]} as unknown as CanvasNode
+ function Register(){useProvideAgentNav(()=>[{label:'Focus',onSelect:()=>{}}]);return null}
+ const view=await mountView(<AgentNavProvider><ObjectNavProvider><Register/><ObjectNavHost {...{isProject:(id:string)=>id==='build'}} org="org" dogs={dogs} openDog={()=>{}} toast={()=>{}}/><DeskDogsProvider value={{org:'org',dogs,open:()=>{}}}><ObjectMenuBoundary><ListenersView node={node} dogs={dogs} map={new Map()} op={async()=>({} as never)} toast={()=>{}}/></ObjectMenuBoundary></DeskDogsProvider></ObjectNavProvider></AgentNavProvider>,el=>el)
+ t.after(view.unmount)
+ assert.equal(view.el.querySelectorAll('.listener-row').length,2)
+ for(const row of view.el.querySelectorAll('.listener-row')){await right(row.querySelector('.dim')!);assert.ok(projectRow());assert.ok(labels().includes('Open details'))}
+})
