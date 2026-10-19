@@ -5329,7 +5329,7 @@ export function EffortButton({ value, effective, currentEffort, pendingEffort, l
   // a pending CLEAR falls back to `effective`, which is still the old level for
   // one refresh — the org default is not known here. Transient and honest: it
   // is what the control showed before this change anyway.
-  const shown = (pending || value || queuedLevel || effective || '')
+  const shown = (pending || queuedLevel || value || effective || '')
   const isDefault = !(pending ?? value)
   const buttonTitle = queuedChange
     ? `Effort changes to ${queuedLevel} next turn (this turn: ${currentEffort})`
