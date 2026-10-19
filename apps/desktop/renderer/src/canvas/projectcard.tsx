@@ -226,7 +226,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
                 + (slots.line.length ? `; in line: ${slots.line.map((w) => w.agent).join(', ')}` : '')}>{slotBadge}</span>}
             {listenerBadges.map((c) => <span key={c.key} className={'project-listeners-badge' + (c.bright ? ' bright' : '')}
               title={c.title}>{c.text}</span>)}
-            {queue && <span className="project-queue-badge" title={queue.title}>{queue.text}</span>}
+            {queue && <span className={'project-queue-badge' + (queue.bright ? ' bright' : '')} title={queue.title}>{queue.text}</span>}
           </div>
           {/* no description preview here: it lives on the project desk (user 2026-10-18 08:50Z) */}
           {showShortcuts && <div className="sq-actions project-actions">

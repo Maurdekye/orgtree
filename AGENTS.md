@@ -22,6 +22,11 @@
   wrapping fallback. Slots, merged mail queue/listeners and event listeners
   remain independent status groups. [decided: user 2026-10-19 18:47Z;
   verified: renderer `styles.css`, `canvas/{projectcard,projectdesk}.tsx`]
+- The merged project mail card fills magenta while any fair-queue listener
+  is armed or ack mail is in flight; queued-only mail remains outlined.
+  Near-card text wraps within the card, including large counts; the tooltip
+  retains complete wording. [decided: user 2026-10-19 18:57Z; verified:
+  `canvas/{listeners,projectcard,projectdesk}.tsx`, `styles.css`]
 
 - Attention list rows toggle off on a second click; Escape clears when the
   list itself has focus. A reader-cleared pane stays empty through refreshes,

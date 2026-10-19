@@ -107,7 +107,7 @@ export function queueAckMode(node: { configured_scope?: unknown }): boolean {
  *  out awaiting an ack. Short chip text in the user's wording
  *  ("2 listeners · 1 q'd · 1 in flight"), zero parts left out, the full
  *  wording in the title. Null while all three are zero. */
-export interface QueueCard { text: string; title: string }
+export interface QueueCard { text: string; title: string; bright: boolean }
 
 export function mailQueueCard(project: string, waiting: number, held: number, ack: boolean, dogs: Watchdog[]): QueueCard | null {
   const armed = dogs.filter((w) => w.kind === 'fair_queue' && !w.spent && w.state === 'armed' && target(w) === project)
@@ -128,7 +128,8 @@ export function mailQueueCard(project: string, waiting: number, held: number, ac
       ? `${waiting} mail${waiting === 1 ? '' : 's'} waiting in project ${project}'s ack queue and ${inFlight} handed out awaiting an ack.`
       : `${waiting} mail${waiting === 1 ? '' : 's'} waiting in project ${project}'s mail queue for a fair_queue watcher.`)
   }
-  return { text: parts.join(' · '), title: facts.join(' ') + ' Click for the project mailbox.' }
+  return { text: parts.join(' · '), title: facts.join(' ') + ' Click for the project mailbox.',
+    bright: listeners > 0 || inFlight > 0 }
 }
 /** The tool names a dog runs when it fires, for lists and tabs. */
 export function fireActionTools(w: Watchdog): string[] {

@@ -15,6 +15,11 @@ Synthetic dark/light captures show card and desk together with held slots
 and waiters, merged mail listeners/queued/in-flight mail, and event listeners
 with an armed listener watch.
 
+User 18:57Z: the merged mail card fills magenta for armed mail listeners or
+in-flight ack mail, and stays outlined for queued mail alone. Near-card long
+counts must remain inside the card. Dark/light synthetic captures include
+filled and outlined states and a long-count case.
+
 **Open/folder default actions, user 2026-10-19 18:34–18:37Z (4.4.0):**
 switchboard Open clicks focus it; hover/Right retains the route submenu.
 Folder parents click/Enter to open, with no Open folder child. Agent Scratch

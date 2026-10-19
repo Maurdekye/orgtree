@@ -541,7 +541,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           {listenerHeaderCards.map((c) => <button key={c.key} type="button"
             className={'chip project-listeners-card' + (c.bright ? ' bright' : '')}
             title={c.title} onClick={() => setView('listeners')}>{c.text}</button>)}
-          {queue && <button type="button" className="chip project-queue-card"
+          {queue && <button type="button" className={'chip project-queue-card' + (queue.bright ? ' bright' : '')}
             title={queue.title} onClick={() => setView('inbox')}>{queue.text}</button>}
         </DeskMetaRow>}
         {slots.total > 0 && <DeskMetaRow className="project-slots-meta">
