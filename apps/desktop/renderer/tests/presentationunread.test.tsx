@@ -23,10 +23,10 @@ for (const surface of ['modal', 'agent', 'project'] as const) {
       const path = String(url)
       if (path.endsWith('/documents/viewed')) {
         posted.push(...JSON.parse(String(options?.body)).marks.map((m: {id:string}) => m.id))
-        return {ok:true, json:async()=>({ok:true})} as Response
+        return {ok:true, headers:new Headers(), json:async()=>({ok:true})} as Response
       }
       const id = path.match(/\/documents\/([^/?]+)$/)?.[1]
-      return {ok:true, json:async()=>id ? {...rows.find(r=>r.id===id),body:'# Synthetic document'}
+      return {ok:true, headers:new Headers(), json:async()=>id ? {...rows.find(r=>r.id===id),body:'# Synthetic document'}
         : {documents:rows,total:rows.length,next_offset:null}} as Response
     }) as typeof fetch
     const props = {slug,toast:()=>{}}

@@ -11,7 +11,7 @@ const rows=[
 ].map(r=>({node:'test-agent',tier:'sol',at,format:'markdown',node_state:'live',evicted:false,...r}))
 globalThis.fetch=(async url=>{
   const id=String(url).match(/\/documents\/([^/?]+)$/)?.[1]
-  return {ok:true,json:async()=>id==='viewed'?{ok:true}:id?{...rows.find(r=>r.id===id),body:'# Synthetic presentation\n\nThis is the selected presentation.'}
+  return {ok:true,headers:new Headers(),json:async()=>id==='viewed'?{ok:true}:id?{...rows.find(r=>r.id===id),body:'# Synthetic presentation\n\nThis is the selected presentation.'}
     :{documents:rows,total:rows.length,next_offset:null}} as Response
 }) as typeof fetch
 createRoot(document.getElementById('root')!).render(<DocGalleryModal slug="synthetic-presentation-unread" toast={()=>{}} close={()=>{}} />)
