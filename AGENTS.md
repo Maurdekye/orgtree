@@ -272,6 +272,12 @@
   Ended ages use exported `slotEndedTimeStyle`: white through3s, logarithmic fade
   to #3a3a3a at24h. Both exports add a thin luminance-selected black/white outline
   (user 19:34Z); reuse these helpers for other time tables.
+  Recent holds use30-row `(ended_at,id)` keyset pages (one lookahead row), backed
+  by partial index `slot_leases_ended_page`; `slot_status` includes the first page
+  and `history_next`, while `slot_history` seeks older rows with the same project
+  reach check. Shared SlotsView loads near the scroll bottom, keeps rows during
+  reads/errors, dedupes leases, and rejects stale responses. [decided: user
+  2026-10-19 19:37Z; verified: `domain/slot_history.rs`, `canvas/slotsdesk.tsx`]
   [decided: user/coordinator 2026-10-19 19:16-19:24Z; verified: `canvas/listeners.ts`,
   `canvas/slotchips.tsx`, `canvas/slotsdesk.tsx`, `domain/slots.rs`,
   `projectlisteners/projectslots.test.tsx`, rig `project-slots.mjs`; 2026-10-19]

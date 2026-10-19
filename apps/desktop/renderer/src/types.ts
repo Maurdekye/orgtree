@@ -2420,6 +2420,8 @@ export interface OpRequest {
   include_dropped?: boolean
   /** slot_release — the lease; `force` for the user's force release */
   lease?: string
+  /** slot_history — opaque keyset cursor for the next older page. */
+  history_before?: string
   force?: boolean
   /** slot_unqueue — the agent removed from the line */
   agent?: string

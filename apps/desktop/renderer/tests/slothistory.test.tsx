@@ -57,3 +57,20 @@ test('a stale older-page response cannot enter a different project',async t=>{
  await inAct(async()=>{release(page(['old-project-row'],null) as unknown as OpResult);await flush(4)})
  assert.deepEqual(rows(v.el),['other1'])
 })
+
+test('new top holds preserve loaded older rows and the existing older cursor',async t=>{
+ let head=0
+ const requests:OpRequest[]=[]
+ const op=async(req:OpRequest)=>{requests.push(req);return (req.op==='slot_status'?
+   ++head===1?page(['s3','s2'],'cursor2'):page(['s4','s3'],'new-head-cursor'):
+   req.history_before==='cursor2'?page(['s2','s1'],'cursor1'):page(['s0'],null)) as unknown as OpResult}
+ const render=(total:number)=><SlotsView node={node()} state={{...state,total}} map={new Map()} op={op} toast={()=>{}}/>
+ const v=await mountView(render(1),el=>el)
+ t.after(()=>v.unmount());await settle();await bottom(v.el)
+ assert.deepEqual(rows(v.el),['s3','s2','s1'])
+ await v.render(render(2));await settle()
+ assert.deepEqual(rows(v.el),['s4','s3','s2','s1'])
+ await bottom(v.el)
+ assert.equal(requests.at(-1)?.history_before,'cursor1')
+ assert.deepEqual(rows(v.el),['s4','s3','s2','s1','s0'])
+})

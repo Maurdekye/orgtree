@@ -760,7 +760,7 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         "configure_project" => configure_project(org, &tx, actor, req, fx).await?,
         "project_presentations" => project_presentations(org, &tx, actor, req).await?,
         "slot_release" => slot_release(org, &tx, actor, req, fx).await?,
-        "slot_status" => slot_status(org, &tx, actor, req).await?,
+        "slot_status" | "slot_history" => slot_status(org, &tx, actor, req).await?,
         "slot_unqueue" => slot_unqueue(org, &tx, actor, req, fx).await?,
         "fire_project_event" => fire_project_event(org, &tx, actor, req, fx).await?,
         "project_listeners" => project_listeners(org, &tx, actor, req).await?,
@@ -2349,6 +2349,9 @@ async fn slot_status(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, 
         if !crate::domain::projects::reaches(tx, *id, n.id).await? {
             refuse!(Forbidden, "only the agents above or below project {} see its concurrency slots", n.name);
         }
+    }
+    if str_arg(req, "op") == Some("slot_history") {
+        return crate::domain::slot_history::page(tx, n.id, str_arg(req, "history_before")).await;
     }
     let scope: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
     crate::domain::slots::status(tx, n.id, &n.name, &scope).await

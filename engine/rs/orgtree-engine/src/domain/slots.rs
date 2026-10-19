@@ -179,21 +179,9 @@ pub async fn status(client: &impl GenericClient, project: i64, name: &str, scope
     let waiting: Vec<Value> = line(client, project).await?.into_iter().enumerate()
         .map(|(i, (_, dog, agent, at))| json!({ "position": i + 1, "agent": agent, "dog": dog, "since": at.map(iso) }))
         .collect();
-    let history: Vec<Value> = client
-        .query(
-            "SELECT l.uid, a.name, l.slot_no, l.reason, l.granted_at, l.ended_at, l.end_reason, l.ended_by, l.queued_at
-               FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id
-              WHERE l.project_id = $1 AND l.ended_at IS NOT NULL ORDER BY l.id DESC LIMIT 20",
-            &[&project],
-        )
-        .await?
-        .iter()
-        .map(|r| json!({ "lease": r.get::<_, String>(0), "agent": r.get::<_, String>(1), "reason": r.get::<_, Option<String>>(3), "since": iso(r.get::<_, DateTime<Utc>>(4)),
-                         "ended": r.get::<_, Option<DateTime<Utc>>>(5).map(iso), "how": r.get::<_, Option<String>>(6),
-                         "by": r.get::<_, Option<String>>(7), "queued": r.get::<_, Option<DateTime<Utc>>>(8).map(iso) }))
-        .collect();
+    let history = super::slot_history::page(client, project, None).await?;
     Ok(json!({ "project": name, "slots": capacity(scope), "held": holders.len(), "holders": holders,
-               "line": waiting, "history": history }))
+               "line": waiting, "history": history["history"], "history_next": history["history_next"] }))
 }
 
 /// The org's held slots for the tree feed's watchdogs group: what the

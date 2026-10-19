@@ -8,8 +8,8 @@
 // are the user's (the desktop's viewer), as the project's superior's
 // through the tool.
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { ReactNode, UIEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn } from '../types'
 import { ago } from './shared'
@@ -35,7 +35,12 @@ export function holdEndLabel(how?: string | null): string {
   if (how.startsWith('idle:')) return 'timed out'
   return how
 }
-export interface SlotStatus { project: string; slots: number; held: number; holders: Holder[]; line: Waiter[]; history: Hold[] }
+export interface SlotStatus { project: string; slots: number; held: number; holders: Holder[]; line: Waiter[]; history: Hold[]; history_next?: string | null }
+
+function uniqueHolds(rows: Hold[]): Hold[] {
+  const seen = new Set<string>()
+  return rows.filter(row => !seen.has(row.lease) && !!seen.add(row.lease))
+}
 
 /** How long between two times: "45s", "12m", "1h 4m". */
 export function span(from: string, to?: string | null): string {
@@ -60,26 +65,58 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
   const [status, setStatus] = useState<SlotStatus | null>(null)
   const [asking, setAsking] = useState<Holder | null>(null)
   const [bump, setBump] = useState(0)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState(false)
+  const generation = useRef(0), historyBusy = useRef(false)
   // re-read when the tree's holders or line change (a grant, release or claim)
   const sig = state.total + '|' + state.held.map((l) => l.lease).join(',') + '|' + state.line.map((w) => w.dog).join(',')
   useEffect(() => {
     let live = true
+    generation.current++; historyBusy.current = false
+    setHistoryLoading(false); setHistoryError(false)
     op({ op: 'slot_status', node: node.id })
-      .then((r) => { if (live) setStatus(r as unknown as SlotStatus) })
+      .then((r) => { if (live) setStatus(previous => {
+        const next = r as unknown as SlotStatus
+        if (previous?.project !== next.project) return next
+        const overlap = next.history.some(row => previous.history.some(old => old.lease === row.lease))
+        // Preserve pages under an overlapping live head update. If the whole
+        // head moved past our window, restart at its cursor rather than leave a gap.
+        return overlap ? {...next, history:uniqueHolds([...next.history,...previous.history]), history_next:previous.history_next} : next
+      }) })
       .catch(() => {})   // `op` toasts the refusal
-    return () => { live = false }
+    return () => { live = false; generation.current++ }
   }, [node.id, sig, bump])
   const reread = () => setBump((n) => n + 1)
   const holders = status?.holders ?? []
   const line = status?.line ?? []
   const history = status?.history ?? []
+  const loadOlder = () => {
+    const before = status?.history_next
+    if (!before || historyBusy.current) return
+    const epoch = generation.current
+    historyBusy.current = true; setHistoryLoading(true); setHistoryError(false)
+    op({op:'slot_history',node:node.id,history_before:before})
+      .then(result => {
+        if (generation.current !== epoch) return
+        const page = result as unknown as Pick<SlotStatus,'history'|'history_next'>
+        setStatus(previous => previous?.history_next === before ? {
+          ...previous, history:uniqueHolds([...previous.history,...page.history]), history_next:page.history_next??null,
+        } : previous)
+      })
+      .catch(() => { if (generation.current === epoch) setHistoryError(true) })
+      .finally(() => { if (generation.current === epoch) { historyBusy.current=false; setHistoryLoading(false) } })
+  }
+  const scrollHistory = (event: UIEvent<HTMLDivElement>) => {
+    const el = event.target as HTMLElement
+    if (el.scrollHeight > el.clientHeight && el.scrollHeight-el.clientHeight-el.scrollTop < 160) loadOlder()
+  }
   // the claim's name is its reason (the line lists its dog; the tree has its name)
   const nameOf = (w: Waiter) => state.line.find((x) => x.agent === w.agent)?.name
   const agentLink = (id: string) => <AgentLink id={id} tier={nodeTierOf(map.get(id))} onFocus={onJump} />
   return (
-    <div className="desk-tabpanel project-slots">
+    <div className="desk-tabpanel project-slots" onScroll={scrollHistory}>
       {actions && <div className="team-tab-toolbar" role="toolbar" aria-label="Slots view controls">{actions}</div>}
-      <div className="slots-table-scroll" role="region" aria-label="Concurrency slot records" tabIndex={0}>
+      <div className="slots-table-scroll" role="region" aria-label="Concurrency slot records" tabIndex={0} onScroll={scrollHistory}>
       <table className="slots-table">
         <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/><col className="slot-col-time"/>
           <col className="slot-col-ended"/><col/><col className="slot-col-action"/></colgroup>
@@ -142,6 +179,11 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
             <td className="slot-action slot-how" title={h.how ?? undefined}>{holdEndLabel(h.how)}</td>
           </tr>
         ))}
+        {(historyLoading || historyError || status?.history_next) && <tr><td colSpan={7} className="slot-history-more" role="status">
+          {historyLoading ? 'Loading older holds…' : historyError ? <>
+            Could not load older holds. <button type="button" onClick={loadOlder}>Retry</button>
+          </> : 'Scroll for older holds'}
+        </td></tr>}
       </tbody>
       </table>
       </div>
