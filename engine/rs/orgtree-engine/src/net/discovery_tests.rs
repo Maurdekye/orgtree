@@ -244,7 +244,7 @@ async fn accepted_post_is_not_replayed(streaming:bool,redirect:bool) {
     origin_task.abort();proxy_task.abort();let _=origin_task.await;let _=proxy_task.await;
     assert_eq!(writes.load(Ordering::SeqCst),1,"one logical POST must reach the origin exactly once, even if its redirect cannot connect");
     assert_eq!(proxy_calls.load(Ordering::SeqCst),0,"a response/read failure must never trigger proxy replay");
-    if redirect {assert!(result.is_ok_and(|r|r.status().is_redirection()),"the configured endpoint's redirect is returned without following it");}
+    if redirect {assert!(result.is_err_and(|error|error.contains(if streaming {"HTTP 303"}else{"HTTP 307"})),"report the redirect status without following it or accepting its body as hub data");}
     else {assert!(result.is_err(),"closing after acceptance must remain a read error");}
 }
 

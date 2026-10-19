@@ -28,20 +28,29 @@ fn retryable(error:&reqwest::Error,url:&reqwest::Url)->bool {
 }
 
 #[nolog]
-pub(crate) async fn send(request:reqwest::RequestBuilder)->reqwest::Result<reqwest::Response> {
+pub(crate) async fn send(request:reqwest::RequestBuilder)->Result<reqwest::Response> {
     send_with_proxy(request,&PROXY).await
 }
 
 /// Callers supply no-redirect direct/proxy clients; configured URLs must be
 /// final hub endpoints. Return 3xx responses instead of following them.
 #[nolog]
-pub(super) async fn send_with_proxy(request:reqwest::RequestBuilder,proxy:&reqwest::Client)->reqwest::Result<reqwest::Response> {
+pub(super) async fn send_with_proxy(request:reqwest::RequestBuilder,proxy:&reqwest::Client)->Result<reqwest::Response> {
     let (client,request)=request.build_split();let request=request?;
     let url=request.url().clone();let replay=request.try_clone();
-    match client.execute(request).await {
+    let response=match client.execute(request).await {
         Err(error) if retryable(&error,&url)&&replay.is_some()=>proxy.execute(replay.unwrap()).await,
         result=>result,
-    }
+    }?;
+    final_response(response)
+}
+
+#[nolog]
+fn final_response(response:reqwest::Response)->Result<reqwest::Response> {
+    // reqwest error_for_status accepts 3xx. Reject centrally so downloads,
+    // uploads and health callers cannot mistake redirect bodies for data.
+    anyhow::ensure!(!response.status().is_redirection(),"mail hub returned HTTP {}; configure the final hub URL",response.status().as_u16());
+    Ok(response)
 }
 
 /// Streaming upload bodies must be opened separately for each attempt.
@@ -58,8 +67,9 @@ where F:FnMut(reqwest::Client)->Fut,
       Fut:std::future::Future<Output=Result<reqwest::RequestBuilder>> {
     let request=build(HTTP.clone()).await?.build()?;
     let url=request.url().clone();
-    match HTTP.execute(request).await {
-        Err(error) if retryable(&error,&url)=>Ok(build(proxy.clone()).await?.send().await?),
-        result=>Ok(result?),
-    }
+    let response=match HTTP.execute(request).await {
+        Err(error) if retryable(&error,&url)=>build(proxy.clone()).await?.send().await?,
+        result=>result?,
+    };
+    final_response(response)
 }
