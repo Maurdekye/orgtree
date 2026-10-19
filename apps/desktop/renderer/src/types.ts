@@ -1788,6 +1788,8 @@ export interface ProviderInfo {
     favorites?: number
   }
   hire_enabled: boolean
+  /** Engine-classified unavailability; never inferred from human error text. */
+  hire_reason?: 'signed_out' | 'not_installed' | 'turned_off' | 'unavailable' | null
   reason: string | null
   /** D-203 (`settings-menu`): the user's own on/off switch for this provider,
    *  machine-wide. OMITTED MEANS ON — an old backend must not read as every
