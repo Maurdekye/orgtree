@@ -2,7 +2,9 @@
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { useEqualSides } from '../src/shell/equalsides'
-import { ShellHeader } from '../src/shell/header'
+import { ShellHeader, ShellAction } from '../src/shell/header'
+import { OrgViewToggle } from '../src/shell/modetoggle'
+import { KillSwitch } from '../src/KillSwitch'
 import { applyTheme } from '../src/themes'
 
 const fakeDesktop = {
@@ -30,11 +32,11 @@ function render(width: number, changed = false) {
     {titles.map((title, i) => <section key={i} data-case={`header-${i}`}>
       <h4>{width}px · {title}</h4><div className="case" style={{width}}>
         <ShellHeader title={changed ? title + ' changed' : title}
-          menu={<button className="shell-menu-button">☰</button>}
-          modes={<button>{changed ? 'Attention' : 'Canvas'}</button>}
+          menu={<div className="shell-menu"><button className="shell-menu-button">☰</button></div>}
+          modes={<OrgViewToggle mode={changed ? 'attention' : 'canvas'} setMode={()=>{}}/>}
           quick={<div className="quickchat"><input className="quickchat-input" placeholder="Quick chat"/><button className="quickchat-btn">Model</button><button className="quickchat-btn">Send</button></div>}
-          guard={<button className="kill-latch">{changed ? 'STOP ALL' : '!'}</button>}
-          actions={<><button>W</button><button>I</button><button>P</button><button>S</button></>} />
+          guard={<KillSwitch slug="synthetic" latched={changed} toast={()=>{}}/>}
+          actions={<>{['Inbox','Work','Presentations','Org settings'].map(label=><ShellAction key={label} label={label} icon={<span>□</span>} onClick={()=>{}}/>)}</>} />
       </div>
     </section>)}
     <section data-case="footer"><h4>{width}px · footer control</h4><div className="case" style={{width}}><Footer/></div></section>
