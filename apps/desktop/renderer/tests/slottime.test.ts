@@ -13,6 +13,12 @@ test('slot time scale interpolates at the logarithmic midpoint', () => {
   assert.equal(slotTimeStyle(Math.sqrt(30 * 300)).backgroundColor, '#7ba81d')
   assert.equal(slotTimeStyle(Math.sqrt(3 * 30)).backgroundColor, '#83cd0f')
 })
+
+test('slot time scale blends intermediate values on the log10 axis', () => {
+  assert.equal(slotTimeStyle(10).backgroundColor, '#80cb0f')
+  assert.equal(slotTimeStyle(100).backgroundColor, '#7ca91c')
+  assert.equal(slotTimeStyle(1000).backgroundColor, '#ccaa23')
+})
 test('slot time scale clamps to its end colours', () => {
   assert.equal(slotTimeStyle(-5).backgroundColor, '#b6ff00')
   assert.equal(slotTimeStyle(30000000).backgroundColor, '#000000')
