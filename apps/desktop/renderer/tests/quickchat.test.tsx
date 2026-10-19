@@ -189,6 +189,7 @@ test('the top-level superior shares the option-list eye and agent selections ret
 
 test('Quick chat selected recipient and picker rows use the shared agent link while left-click keeps selecting', async () => {
   localStorage.clear(); providers(['claude'])
+  rememberSuperior('org', 'boss')
   const view = await mountView(
     <AgentNavProvider>
       <QuickChatAgentNavFixture />
