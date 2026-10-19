@@ -22,6 +22,10 @@
   compatible; there is no migration. [decided: user 2026-10-19 20:56Z;
   verified: `canvas/langserver.tsx`, `providers/catalog.rs`, `org_accounts.rs`]
 
+- The user `/nodes/<project>/scope` route accepts only `peer_mail`; all other
+  fields (including mixed patches) refuse before writes/cascades. Project policy
+  uses project settings. [verified: `http/nodes.rs`; 2026-10-19]
+
 - Team state inspection includes the caller's physical parent/sibling projects,
   matching chart context without granting project policy authority. [verified:
   `tools/orgview.rs`; 2026-10-19]

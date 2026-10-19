@@ -769,8 +769,12 @@ pub(crate) async fn apply_user_scope_in_tx(
         }
     };
     let row = tx
-        .query_one("SELECT scope, charter, team_charter, tier, account, pending_account->>'account' FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
+        .query_one("SELECT scope, charter, team_charter, tier, account, pending_account->>'account',kind FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
         .await?;
+    if row.get::<_,String>(6)=="project" && !b.as_object().is_some_and(|o|
+        o.contains_key("peer_mail") && o.keys().all(|k|matches!(k.as_str(),"op"|"node"|"peer_mail"))) {
+        crate::refuse!(BadRequest,"project scope accepts only peer_mail; use project settings for project policy");
+    }
     let peer_mail = b.get("peer_mail").map(|value| value.as_bool()
         .ok_or_else(|| anyhow::Error::new(crate::domain::UserError::BadRequest("peer_mail must be a boolean".into())))).transpose()?;
     let before: Value = row.get(0);
