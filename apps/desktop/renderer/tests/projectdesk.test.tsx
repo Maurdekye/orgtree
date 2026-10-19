@@ -186,7 +186,7 @@ test('project presentation Reply context action stages the document target and f
   assert.ok(reply, 'project presentation cards offer a Reply action')
   await inAct(() => { reply!.click() })
   const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
-    assert.equal(document.activeElement, box, 'choosing Reply focuses the project composer')
+    assert.equal(document.activeElement === box, true, 'choosing Reply focuses the project composer')
     // the agent composer's reply preview (desk parity G11)
     assert.equal(el.querySelector('.reply-preview.reply-preview-composing')?.textContent?.includes('Release plan'), true,
       'the project composer shows the staged presentation target')
@@ -369,7 +369,7 @@ test('§2b the description: Markdown until focused, monospace while edited, save
   const box = el.querySelector<HTMLTextAreaElement>('textarea.project-description-edit')!
   assert.ok(box, 'focused, it is a text box')
   assert.equal(box.value, '# The site\n\nDeploy from **main** only.', 'the raw text')
-  assert.equal(document.activeElement, box)
+  assert.equal(document.activeElement === box, true, 'the text box has the caret')
   await inAct(() => { setText(box, '# The site\n\nShip it.') })
   await inAct(() => { box.blur() })
   await flush(2)
