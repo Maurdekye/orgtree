@@ -1,6 +1,7 @@
 // Desk parity captures: an agent desk beside a nested project desk, each
-// project tab the parity pass touches, and the project's inbox window, in
-// dark and light. Offscreen and within Session 0's 1024x768 display; two
+// project tab the parity pass touches, the two desks' up rows side by side
+// and the project's inbox window, in dark and light. Offscreen and within
+// Session 0's 1024x768 display; two
 // animation frames and a pause before every capture (team notes, round 439).
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
@@ -44,10 +45,43 @@ app.whenReady().then(async () => {
       await shot(`${theme}-desks`)
       const desks = await js(`(()=>{
         const names = s => [...document.querySelectorAll(s)].map(e => e.getAttribute('data-copy-agent-name') || e.textContent.trim())
-        return { up: names('${P} .cc-head .project-head-cards button.desk-nav-chip'),
-          down: names('${P} .desk-nav button.desk-nav-chip'),
-          agentDown: names('[data-fixture="agent-desk"] .desk-nav button.desk-nav-chip') }
+        const rows = [...document.querySelectorAll('${P} .desk-nav')], members = rows[rows.length - 1]
+        // the up row is the header's next sibling, as on the agent desk (user
+        // 2026-10-19 21:05:53Z, 21:06:08Z); the members' row is the last row
+        return { up: names('${P} .cc-head + .desk-nav button.desk-nav-chip'),
+          headerJumps: document.querySelectorAll('${P} .cc-head .desk-nav-chip').length,
+          down: members ? [...members.querySelectorAll('button.desk-nav-chip')]
+            .map(e => e.getAttribute('data-copy-agent-name') || e.textContent.trim()) : [],
+          agentDown: names('[data-fixture="agent-desk"] .desk-nav button.desk-nav-chip'),
+          audience: !!document.querySelector('${P} .cc-head .badge.aud-user'),
+          nameLink: document.querySelector('${P} .cc-head-left button.cc-name-jump')?.textContent ?? null,
+          replies: document.querySelectorAll('${P} .reply-preview.reply-preview-composing').length,
+          attachments: [...document.querySelectorAll('${P} .attach-row .attach-chip')].map(e => e.textContent.trim()),
+          composerHeight: parseFloat(getComputedStyle(document.querySelector('${P} .project-composer textarea')).height),
+          agentTranscript: document.querySelector('[data-fixture="agent-desk"] .msgs')?.textContent.trim() ?? null }
       })()`)
+      // the up rows side by side: lead, an agent at inner's depth, beside the
+      // project desk; both rows right under the header, same cards and paint
+      await js("window.deskParityVisual.agent('lead')")
+      await wait('[data-fixture="agent-desk"] .cc-head-left[data-copy-agent-name="lead"]')
+      await wait('[data-fixture="agent-desk"] .cc-head + .desk-nav')
+      await shot(`${theme}-uprow`)
+      const uprow = await js(`(()=>{
+        const side = (root) => {
+          const desk = document.querySelector(root), head = desk.querySelector('.cc-head'), row = head.nextElementSibling
+          const chip = row && row.querySelector('button.desk-nav-chip'), s = chip && getComputedStyle(chip)
+          const hr = head.getBoundingClientRect(), rr = row && row.getBoundingClientRect()
+          return { afterHead: !!row && row.classList.contains('desk-nav'),
+            names: row ? [...row.querySelectorAll('button.desk-nav-chip')].map(e => e.getAttribute('data-copy-agent-name')) : [],
+            headerJumps: head.querySelectorAll('.desk-nav-chip').length,
+            gap: rr ? Math.round(rr.top - hr.bottom) : null, height: rr ? Math.round(rr.height) : null,
+            chip: s ? { color: s.color, background: s.backgroundColor, border: s.borderTopColor, font: s.fontSize,
+              padding: s.padding, radius: s.borderTopLeftRadius, height: Math.round(chip.getBoundingClientRect().height) } : null }
+        }
+        return { agent: side('[data-fixture="agent-desk"]'), project: side('${P}') }
+      })()`)
+      await js("window.deskParityVisual.agent('boss')")
+      await wait('[data-fixture="agent-desk"] .cc-head-left[data-copy-agent-name="boss"]')
       await tab('inbox')
       await wait(`${P} .mailrow`)
       await js(`document.querySelector('${P} .mailrow').click()`)
@@ -68,20 +102,32 @@ app.whenReady().then(async () => {
       if (await js('window.deskParityVisual.hasInboxWindow()')) {
         await js('window.deskParityVisual.inboxWindow(true)')
         await wait('.overlay .settings .mail-folders')
+        await js("document.querySelector('.overlay .settings .mailer-listtoggle')?.click()")
         await shot(`${theme}-inbox-window`)
         windowProbe = await js(`(()=>{ const w = document.querySelector('.overlay .settings')
           return { folders: [...w.querySelectorAll('.mail-folders button')].map(b => b.textContent.trim()),
             purge: !!w.querySelector('button[data-action="purge-queue"]'), projectRows: w.querySelectorAll('.mailrow.project-mail').length } })()`)
         await js('window.deskParityVisual.inboxWindow(false)')
       }
-      checks.push({ theme, desks, inbox, docket, inboxWindow: windowProbe })
+      checks.push({ theme, desks, uprow, inbox, docket, inboxWindow: windowProbe })
     }
-    const passed = checks.every(({ desks, inbox, docket, inboxWindow }) =>
-      JSON.stringify(desks.up) === JSON.stringify(['boss', 'outer'])
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+    const passed = checks.every(({ desks, uprow, inbox, docket, inboxWindow }) =>
+      same(desks.up, ['boss', 'outer']) && desks.headerJumps === 0
+      // the agent desk's up row, exactly: placement, order and paint
+      && uprow.agent.afterHead && uprow.project.afterHead && same(uprow.agent.names, ['boss', 'outer'])
+      && same(uprow.project.names, uprow.agent.names) && uprow.agent.headerJumps === 0 && uprow.project.headerJumps === 0
+      && !!uprow.agent.chip && same(uprow.project.chip, uprow.agent.chip)
+      && uprow.project.gap === uprow.agent.gap && uprow.project.height === uprow.agent.height
       && desks.down.join(',') === 'dev1,ui,dev2,show 2 retired'
       && inbox.wait === 'waiting in the project queue' && inbox.count && !/prov-/.test(inbox.count.cls) && inbox.retract
       && docket.badge === '2' && docket.rows === 4
-      && inboxWindow && inboxWindow.purge && inboxWindow.projectRows > 0 && inboxWindow.folders.some(f => f.startsWith('listeners')))
+      && inboxWindow && inboxWindow.purge && inboxWindow.projectRows > 0 && inboxWindow.folders.some(f => f.startsWith('listeners'))
+      // batch 2: the header's audience chip and name link, the composer's reply
+      // preview, staged files with sizes and grown box, a quiet agent transcript
+      && desks.audience && desks.nameLink === 'inner' && desks.replies === 1
+      && desks.attachments.length === 2 && desks.attachments.every(a => /\d+(\.\d+)? ?[KM]?B/.test(a))
+      && desks.composerHeight > 45 && !/retrying/.test(desks.agentTranscript ?? ''))
     fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify({ passed, checks }, null, 2))
     console.log(JSON.stringify({ passed }))
     win.destroy(); app.exit(passed ? 0 : 1)

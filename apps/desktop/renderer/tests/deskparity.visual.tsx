@@ -35,7 +35,7 @@ window.fetch = (async (url: RequestInfo | URL) => {
   const p = String(url)
   const group = new URL(p, 'http://fixture.invalid').searchParams.get('group') ?? 'items'
   const payload = /\/chat(?:\?|$)/.test(p) ? { busy: false, queued: 0, responding: false,
-      last_error: null, messages: [], live: [], draft_epoch: 0, mail_pending: 0, pending_mail: [] }
+      last_error: null, messages: [], live: [], draft_epoch: 'fixture:0', mail_pending: 0, pending_mail: [] }
     : /\/work-items-page/.test(p) ? { format: 'orgtree.work-page/v1', group: 'items', rows: group === 'items' ? rows : [],
       total: rows.length, totals: { items: rows.length, archived: 0, backlogged: 0 }, matched: { items: rows.length, archived: 0, backlogged: 0 },
       counts: { active: 3, attention: 0, archived: 0, backlogged: 0 }, assigned_count: 0, next_offset: null, revision: 'r1', at: '2026-10-19T12:00:00.000Z' }
@@ -49,6 +49,14 @@ window.fetch = (async (url: RequestInfo | URL) => {
 }) as typeof fetch
 
 const noop = () => {}
+// batch 2: the project composer's draft, as a reopened desk finds it: a
+// three-line message, two staged files and a staged presentation reply
+const projectDraft = 'orgtree-draft-v2-' + JSON.stringify(['org', 'project:inner', 0])
+localStorage.setItem(projectDraft, ['Please review the release plan.', 'The docs build is green.', 'Ship it after the review.'].join('\n'))
+localStorage.setItem(projectDraft + '-attachments', JSON.stringify([{ name: 'notes.txt', path: 'uploads/notes.txt', bytes: 2048 },
+  { name: 'checklist.pdf', path: 'uploads/checklist.pdf', bytes: 51200 }]))
+localStorage.setItem(projectDraft + '-replies', JSON.stringify([{ org: 'org', agent: 'inner', generation: 0, eventId: 'doc:d1',
+  quote: 'document: Release plan', sender: 'inner', docId: 'd1' }]))
 const op: OpFn = async () => ({}) as never
 const refs = { world: { org: 'org' }, onOpen: noop } as never
 
@@ -66,8 +74,15 @@ const old = node('old', 'ui', { state: 'archived' })
 const ui = proj('ui', 'inner', [dev2, old], { mail_pending: 0, mail_held: 0 })
 const dev1 = node('dev1', 'inner', { tier: 'opus', busy: true })
 const gone = node('gone', 'inner', { state: 'archived', tier: 'sol' })
-const inner = proj('inner', 'outer', [dev1, ui, gone])
-const outer = proj('outer', 'boss', [inner], { mail_pending: 0, mail_held: 0 })
+// batch 2: it holds the user's audience and one presentation
+const innerDoc = { id: 'd1', title: 'Release plan', at: '2026-10-19T09:00:00.000Z', node: 'inner' }
+const inner = proj('inner', 'outer', [dev1, ui, gone], { audiences_held: [USER], audiences_explicit: [USER],
+  documents: [innerDoc], documents_count: 1 })
+// the up rows side by side (user 2026-10-19 21:05:53Z, 21:06:08Z "same as
+// agent desk headers"): lead is an agent at inner's depth, so its desk's up
+// row shows the same two cards as the project desk's
+const lead = node('lead', 'outer', { tier: 'sol' })
+const outer = proj('outer', 'boss', [inner, lead], { mail_pending: 0, mail_held: 0 })
 const boss = node('boss', USER, { tier: 'opus', children: [outer], mail_pending: 1,
   last_status: { status: 'working', summary: 'Coordinating the docs project.' } })
 const eye = { id: USER, parent: null, tier: null, state: 'user', children: [boss] } as unknown as CanvasNode
@@ -82,9 +97,11 @@ const tree = { slug: 'org', name: 'Fixture', epoch: 1, rev: 1, roots: [boss], wa
 
 function Surface() {
   const [inboxWindow, setInboxWindow] = useState(false)
+  const [agent, setAgent] = useState('boss')
   useEffect(() => {
     Object.assign(window, { deskParityVisual: {
       inboxWindow: (v: boolean) => setInboxWindow(v),
+      agent: (id: string) => setAgent(id),
       hasInboxWindow: () => typeof ProjectInboxModal === 'function',
       contrast: (light: boolean) => {
         document.documentElement.classList.toggle('contrast-light', light)
@@ -96,10 +113,11 @@ function Surface() {
       <DeskDogsProvider value={{ dogs: [], slotLeases: [], open: noop }}>
         <div style={{ display: 'flex', gap: 10, padding: 8, alignItems: 'flex-start' }}>
           <div style={{ width: 470, height: 660, display: 'flex' }} data-fixture="agent-desk">
-            <DeskSlot node={map.get('boss')!} map={map} slug="org" op={op} toast={noop} bare onJump={noop} />
+            <DeskSlot key={agent} node={map.get(agent)!} map={map} slug="org" op={op} toast={noop} bare onJump={noop} />
           </div>
           <div style={{ width: 500, height: 660, display: 'flex' }} data-fixture="project-desk">
-            <ProjectDesk node={map.get('inner')!} slug="org" tree={tree} map={map} op={op} toast={noop} refs={refs} bare onJump={noop} />
+            <ProjectDesk node={map.get('inner')!} slug="org" tree={tree} map={map} op={op} toast={noop} refs={refs} bare onJump={noop}
+              onOpenDoc={noop} />
           </div>
         </div>
         {inboxWindow && ProjectInboxModal && <ProjectInboxModal node={map.get('inner')!} slug="org" tree={tree} map={map} op={op}

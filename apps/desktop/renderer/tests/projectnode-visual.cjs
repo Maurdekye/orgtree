@@ -176,9 +176,10 @@ module.exports = async (page) => {
     return { details, screenshots }
   }
   // PROJECTNODE_VISUAL_ONLY=deskjump: the project desk's jump cards on every
-  // tab, the ↑ superior card in the header row and the members' row above the
-  // message box, as on the agent desk (user 2026-10-19 19:58Z); the deskinbox
-  // scene's full-size desk, every tab dark, summary and inbox light
+  // tab, the ↑ superior card on the up row under the header (21:05:53Z) and
+  // the members' row above the message box, as on the agent desk (user
+  // 2026-10-19 19:58Z); the deskinbox scene's full-size desk, every tab dark,
+  // summary and inbox light
   if (only === 'deskjump') {
     const measure = () => page.eval(() => {
       const desk = document.querySelector('#desk-inbox .project-desk')
@@ -188,11 +189,12 @@ module.exports = async (page) => {
         return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right) }
       }
       const names = (el) => el ? [...el.querySelectorAll('.desk-nav-chip')].map((b) => b.getAttribute('data-copy-agent-name')) : []
-      const navs = [...desk.querySelectorAll('.desk-nav')]
-      const row = box(navs[0]), composer = box(desk.querySelector('.project-composer'))
+      const navs = [...desk.querySelectorAll('.desk-nav')], up = desk.querySelector('.cc-head + .desk-nav')
+      const members = navs.filter((n) => n !== up)[0] ?? null
+      const row = box(members), composer = box(desk.querySelector('.project-composer'))
       const frame = box(document.querySelector('#desk-inbox'))
       return { tab: desk.querySelector('.cc-tabs button.on')?.getAttribute('data-tab') ?? null,
-        up: names(desk.querySelector('.cc-head .project-head-cards')), rows: navs.length, down: names(navs[0]),
+        up: names(up), headerJumps: desk.querySelectorAll('.cc-head .desk-nav-chip').length, rows: navs.length, down: names(members),
         row, composer, aboveComposer: !!row && !!composer && row.bottom <= composer.top + 1,
         insideFrame: !!row && row.top >= frame.top && row.bottom <= frame.bottom }
     })
@@ -248,11 +250,14 @@ module.exports = async (page) => {
             sameAsNear[kind] = !!card && !!badge && card.color === badge.color && card.background === badge.background
               && card.border === badge.border
           }
-          const up = paint(head.querySelector('.desk-nav-chip'))
-          const tops = [cards.listeners.card, cards.mail.card, cards.slots.card, up].filter(Boolean).map((c) => c.top + (c.bottom - c.top) / 2)
+          // the ↑ superior is the agent desk's up row under the header, not a
+          // header card (user 2026-10-19 21:05:53Z, 21:06:08Z)
+          const up = paint(desk.querySelector('.cc-head + .desk-nav .desk-nav-chip'))
+          const tops = [cards.listeners.card, cards.mail.card, cards.slots.card].filter(Boolean).map((c) => c.top + (c.bottom - c.top) / 2)
           out[set] = { metaRows: rows.length, cards, up, sameAsNear,
-            oneLine: tops.length === 4 && Math.max(...tops) - Math.min(...tops) < 4,
-            superiorInBody: !!desk.querySelector('.desk-nav .desk-nav-chip') }
+            oneLine: tops.length === 3 && Math.max(...tops) - Math.min(...tops) < 4,
+            superiorInHeader: !!head.querySelector('.desk-nav-chip'),
+            upRowUnderHeader: !!up && up.top >= Math.round(head.getBoundingClientRect().bottom) - 1 }
         }
         return out
       })
