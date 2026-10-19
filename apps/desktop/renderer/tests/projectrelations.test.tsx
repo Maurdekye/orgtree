@@ -9,6 +9,7 @@ import { cascadePreview, DraftScopeModal } from '../src/canvas/modals'
 import { DraftNode, EyeDesk, NodeSquare } from '../src/canvas/cards'
 import { quickChatHire } from '../src/quickchat'
 import { quickChatChoices } from '../src/quickchat-availability'
+import { defaultAgent } from '../src/attention/AgentDeskPanel'
 import type { TreePayload } from '../src/types'
 import type { StaffingOptions } from '../src/canvas/staffingoptions'
 
@@ -24,6 +25,13 @@ function index(roots: CanvasNode[]) {
 }
 const wrapped = (n: CanvasNode) => project('outer', [project('inner', [n]), project('empty')])
 const settings = { max_top_grant: 100, default_top_grant: 37, cascade_alloc: true } as TreePayload
+
+test('default desk selects a live agent through root projects and skips empty wrappers', () => {
+  const map=index([project('empty-root'),wrapped(agent('first')),agent('second')])
+  assert.equal(defaultAgent(map),'first')
+  assert.equal(defaultAgent(index([project('only-empty',[project('nested-empty')])])),null)
+  assert.equal(defaultAgent(index([agent('archived',[project('team',[agent('live-child')])],{state:'archived'})])),'live-child')
+})
 
 async function dragToMax(bar: HTMLElement) {
   for (const [type,y] of [['pointerdown',300],['pointermove',-3000],['pointerup',-3000]] as const) {

@@ -250,6 +250,19 @@ const fixture = () => [mkNode('boss', { children: [
   mkNode('right', { parent: 'boss', children: [mkNode('grand', { parent: 'right' })] }),
 ] })]
 
+uiTest('floating coworker cards skip structural project siblings', async t => {
+  const c=await mountCanvas(t,[mkNode('boss',{children:[
+    mkNode('left',{parent:'boss'}),
+    mkNode('left-project',{parent:'boss',kind:'project',tier:'project'}),
+    mkNode('mid',{parent:'boss'}),
+    mkNode('right-project',{parent:'boss',kind:'project',tier:'project'}),
+    mkNode('right',{parent:'boss'}),
+  ]})])
+  await openDesk(c,'mid')
+  assert.deepEqual(jumpCards(c.el).map(card=>card.id),['left','right'],
+    'the two real coworkers still get cards when project siblings intervene')
+})
+
 // Read the real tray and jump buttons against measured ring geometry. A y/x
 // tray sort or x-only jump sort fails even though layoutCircular is correct.
 for (const count of [3, 7, 12, 30]) {
