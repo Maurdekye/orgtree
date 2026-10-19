@@ -346,20 +346,24 @@ const slotStatus = {
     { lease: 's3', agent: 'sa', slot: 1, reason: null, since: minsAgo(200), ended: minsAgo(178), how: 'released (forced by @user)', by: '@user' },
     { lease: 's4', agent: 'sb', slot: 1, reason: null, since: minsAgo(300), ended: minsAgo(297), how: 'halted', by: 'orgtree' }],
 }
-function Slots() {
-  const full = buildProject([agent('sa', 'build'), agent('sb', 'build'), agent('sc', 'build')], 1) as unknown as CanvasNode
+function Slots({ multi = false } = {}) {
+  const full = buildProject([agent('sa', 'build'), agent('sb', 'build'), agent('sc', 'build')], multi ? 3 : 1) as unknown as CanvasNode
   const empty = buildProject([agent('sa', 'build')], 2) as unknown as CanvasNode
-  const t = tree([], [slotDog('sc', 'tests-ui', 4), slotDog('sb', 'cargo-test', 1)], { slot_leases: [slotLease] })
+  const currentLease = multi ? { ...slotLease, slots: 2 } : slotLease
+  const t = tree([], [{ ...slotDog('sc', 'tests-ui', 4), slots: multi ? 3 : 1 }, slotDog('sb', 'cargo-test', 1)], { slot_leases: [currentLease] })
+  const currentStatus = multi ? { ...slotStatus, slots: 3, held: 2, holders: [currentLease],
+    line: slotStatus.line.map((w, i) => ({ ...w, slots: i === 0 ? 3 : 1 })),
+    history: slotStatus.history.map((h, i) => ({ ...h, slots: i === 0 ? 2 : 1 })) } : slotStatus
   const desk = (nd: CanvasNode, tr: TreePayload, status: unknown, left: number) => (
-    <div className="slots-desk" style={{ position: 'absolute', left, top: 10, width: 480, height: 680, border: '1px solid var(--line)' }}>
+    <div className="slots-desk" style={{ position: 'absolute', left, top: 10, width: multi ? 980 : 480, height: 680, border: '1px solid var(--line)' }}>
       <ProjectDesk bare node={nd} slug="org" tree={tr} map={new Map([[nd.id, nd]])}
         op={(b) => Promise.resolve((b.op === 'slot_status' ? status : {}) as unknown as OpResult)}
         toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} onConfig={noop} />
     </div>)
   return (
     <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
-      {desk(full, t, slotStatus, 10)}
-      {desk(empty, tree([]), { project: 'build', slots: 2, held: 0, holders: [], line: [], history: [] }, 505)}
+      {desk(full, t, currentStatus, 10)}
+      {!multi && desk(empty, tree([]), { project: 'build', slots: 2, held: 0, holders: [], line: [], history: [] }, 505)}
     </main>
   )
 }
@@ -436,6 +440,7 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
     </main>)
   : scene === 'activity' ? <Activity />
   : scene === 'slots' ? <Slots />
+  : scene === 'multi-slots' ? <Slots multi />
   : scene === 'cardfix' ? <CardFix />
   : scene === 'attn' ? <Attn />
   : scene === 'deskhead' ? <DeskHead />

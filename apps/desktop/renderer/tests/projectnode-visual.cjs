@@ -12,6 +12,22 @@ module.exports = async (page) => {
   const details = {}
   // PROJECTNODE_VISUAL_ONLY=slots: only the project-slots scenes (one quick capture)
   const only = process.env.PROJECTNODE_VISUAL_ONLY
+  if (only === 'multi-slots') {
+    await page.goto('/?scene=multi-slots')
+    await page.waitFor('.project-slots-card', { timeout: 15000 })
+    await page.eval(() => document.querySelector('.project-slots-card').click())
+    await page.waitFor('.slot-quantity', { timeout: 15000 })
+    await settle()
+    details.slots = await page.eval(() => ({
+      header: document.querySelector('.project-slots-card').textContent,
+      headers: [...document.querySelectorAll('.slots-table thead th')].map(e => e.textContent),
+      quantities: [...document.querySelectorAll('.slot-quantity')].map(e => e.textContent),
+      width: document.querySelector('.slots-table').getBoundingClientRect().width,
+    }))
+    if (!details.slots.header.includes('2/3') || details.slots.quantities.slice(0, 3).join() !== '2,3,1') throw new Error('Wrong multi-slot projection')
+    screenshots.push(await page.screenshot(`${prefix}-multi-slots-1000x700`))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=popouts: the pinned agent sb's and project build's
   // desks popped out side by side (user 2026-10-18 11:47Z). A real pop-out is
   // its own OS window, which no screenshot of this one shows, so window.open
