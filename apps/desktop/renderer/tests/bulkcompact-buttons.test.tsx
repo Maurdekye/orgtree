@@ -41,7 +41,10 @@ test('both counted actions and both target/skip previews are visible without a r
   assert.equal(normal.querySelector<HTMLElement>('[data-compact-count]')?.title,'one')
   assert.equal(dialog().querySelector<HTMLElement>('[data-compact-skip="busy"]')?.title,'busy')
   for(const reason of ['do not support compaction','no conversation session'])assert.ok(normal.textContent?.includes(reason),reason)
-  assert.equal(normal.textContent?.includes('mid-turn'),false,'shared busy summary is not repeated')
+  for(const section of [cheap,normal]){
+   assert.equal(section.textContent?.includes('mid-turn'),true,'busy summary applies to each mode')
+   assert.equal(section.querySelector<HTMLElement>('[data-compact-skip="busy"]')?.title,'busy')
+  }
   assert.equal(requests.length,2,'capability reads start on opening for session-bearing candidates only')
   assert.equal(requests.every(r=>r.startsWith('GET ')),true)
   assert.deepEqual(ops,[])
@@ -69,14 +72,17 @@ test('pending normal capability disables only normal, leaving cheap ready with n
  }finally{release(reply({supported:true}));await settled();await view.unmount()}
 })
 
-test('all skipped selection disables both actions and shows one shared reason',async()=>{
+test('all skipped selection disables both actions and shows the reason under each mode',async()=>{
  const view=await mountView(modal([agent('busy',{busy:true})]),el=>el)
  try{
   assert.equal(action()?.textContent,'cheap-compact 0 agents');assert.equal(action()?.disabled,true)
   assert.equal(action(true)?.textContent,'compact 0 agents');assert.equal(action(true)?.disabled,true)
   const shared=dialog().querySelector<HTMLElement>('[data-compact-skip="busy"]')
   assert.equal(shared?.title,'busy');assert.match(shared?.textContent??'',/1 agent mid-turn/)
-  assert.equal(dialog().querySelectorAll('[data-compact-skip]').length,1)
+  assert.equal(dialog().querySelectorAll('[data-compact-skip]').length,2)
+  for(const mode of ['cheap','normal']){
+   assert.equal(dialog().querySelector<HTMLElement>('[data-compact-preview="'+mode+'"] [data-compact-skip="busy"]')?.title,'busy')
+  }
  }finally{await view.unmount()}
 })
 
