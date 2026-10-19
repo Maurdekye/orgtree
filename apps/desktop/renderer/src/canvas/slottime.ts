@@ -1,5 +1,5 @@
 // User 2026-10-19: white to lime over 0-3s; six equal log intervals end at24h.
-const colours = ['#b6ff00', '#4f9b1d', '#a6b51c', '#efa02a', '#df4b28', '#32140f', '#000000'] as const
+const colours = ['#e6ffe0', '#4f9b1d', '#a6b51c', '#efa02a', '#df4b28', '#32140f', '#000000'] as const
 const start = 3, end = 24 * 60 * 60
 const logStep = Math.log(end / start) / (colours.length - 1)
 const rgb = (hex: string) => hex.slice(1).match(/../g)!.map(value => parseInt(value, 16))
