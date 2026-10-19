@@ -282,6 +282,11 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Taskbar notification dot (user 2026-10-19 11:26Z,4.4.0): the app's existing
+unread mail/attention state adds a persistent taskbar/dock badge, clearing on
+resolution and retaining state through focus. No added poll or counter; the
+existing per-org pulse remains separate. See [taskbar dot](taskbar-dot.md).
+
 Project agent-tool parity (user/coordinator 2026-10-18): explicit project mail
 history folders, queue-stage filters and cursor pages; historical mail body
 chunks; revision-bound presentation body continuation; atomic project creation

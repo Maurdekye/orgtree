@@ -1,5 +1,11 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Taskbar notification dot, user 2026-10-19 11:26Z (4.4.0):** a persistent dot
+indicates unread user mail or existing attention-needing elements, clearing only
+when all are gone. Reuse app state and update on changes without polling.
+Windows overlay; dock/platform badge where cheaply supported. This is separate
+from existing attention pulses. See [taskbar dot](taskbar-dot.md).
+
 **Project agent-tool parity, user/coordinator 2026-10-18 (4.4.0):** expose
 project Inbox/Sent history, queue-state filters, cursor pagination and full
 historical body reads without claiming or acknowledging. Full presentation

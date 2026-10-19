@@ -9,6 +9,14 @@
 
 # AGENTS.md — working on Orgtree
 
+- The persistent app-wide taskbar badge reads existing native app-feed unread
+  mail inventory and attention totals, independent of toast preferences/focus.
+  Windows uses an overlay, macOS a dock bullet, Linux its badge API. Update on
+  feed change and attach new windows immediately; no new poll/counter. Existing
+  per-org arrival pulses and tray attention count retain their policies. See
+  [taskbar dot](docs/rust-engine/taskbar-dot.md).
+  [decided: user 2026-10-19 11:26Z; verified: `main/{taskbar-badge,index}.ts`]
+
 - Centered Quick chat side minima must be measured with each side temporarily
   unconstrained (`min-width: max-content`), restoring its inline style before
   paint. Reading flex-clipped control widths feeds the previous minimum back
