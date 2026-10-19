@@ -15,8 +15,14 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, focusAgent, toas
     if (!id || /[\\?#\u0000]/.test(id) || id === '.' || id === '..') return []
     const copy = (text: string) => { void copyToClipboard(anchor, text).then(ok => toast([ok ? 'Copied!' : 'Clipboard unavailable'])) }
     if (kind === 'watchdog') {
-      const dog = dogs.find(d => d.id === id && !d.spent)
-      if (!dog) return []
+      const dog = dogs.find(d => d.id === id)
+      if (!dog || dog.spent || dog.state === 'spent') {
+        if (anchor.getAttribute('data-object-stale') !== 'true') return []
+        const name = anchor.getAttribute('data-object-name') || dog?.name || id.split('/').pop() || id
+        return [{ label: 'Watchdog no longer exists', disabled: true, onSelect: () => {} }, 'sep',
+          { label: 'Copy watchdog name', onSelect: () => copy(name) },
+          { label: 'Copy watchdog id', onSelect: () => copy(id) }]
+      }
       return [{ label: 'Open details', onSelect: () => openDog(dog.id) },
         ...watchdogActions(dog, action => {
           void watchdogAction(org, dog.id, action).then(r => toast([`${dog.name}: ${r.state}`]))

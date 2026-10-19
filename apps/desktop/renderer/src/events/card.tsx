@@ -15,6 +15,7 @@ import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import type { TypedRef } from '../canvas/workrefs'
 import { md } from '../canvas/shared'
 import { DogChip, useDogRoute } from '../canvas/deskdogs'
+import { objectNavProps } from '../canvas/objectnav'
 import { AnsweredAsk, AnsweredCard, ResolvedSections, batchAskQuestions, resolvedSectionKinds } from './answered'
 
 const FAMILY_MARK: Record<Family, string> = {
@@ -62,9 +63,16 @@ function WatchdogObjectLabel({ object }: { object: Extract<NonNullable<Event['ob
   const dog = route?.org === object.org
     ? route.dogs.find(candidate => candidate.id === id && !candidate.spent && candidate.state !== 'spent')
     : undefined
-  return dog && route
-    ? <DogChip dog={dog} onOpen={route.open} />
-    : <span className="event-object">{object.name}</span>
+  if (dog && route) return <DogChip dog={dog} onOpen={route.open} />
+  if (route?.org !== object.org) return <span className="event-object">{object.name}</span>
+  return <button type="button" {...objectNavProps('watchdog', id, object.org)}
+    data-object-stale="true" data-object-name={object.name}
+    className="desk-nav-chip desk-dog-chip spent event-watchdog-gone"
+    title="Watchdog no longer exists" aria-label={`watchdog ${object.name}, no longer exists`} aria-disabled="true"
+    onClick={e => { e.preventDefault(); e.stopPropagation() }}>
+    <span className="wd-glyph" aria-hidden="true">✕</span>
+    {object.name}<span className="dim"> (no longer exists)</span>
+  </button>
 }
 export function eventReference(event: KnownEvent, enclosingOrg: string): TypedRef | null {
   const object = event.object
