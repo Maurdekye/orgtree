@@ -586,10 +586,11 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
     <>
       <DeskHead nodeId={node.id}
         left={<>
-            <span className="project-mark" title="project node: runs no turns, holds no credits">
-              <FolderIcon fontSize="inherit" />
-            </span>
-            <span className="name" title={`project ${node.id}`}>{node.id}</span>
+            {/* the agent desk's name (G14): plain on the focused desk, which
+                is where a click would take you; a link from every other host
+                (popped out, the Attention panel) */}
+            <AgentName id={node.id} tier="project" nameClass="name" atDestination={!bare}
+              onFocus={onJump ? (id: string) => onJump(id) : undefined} nativeTitle={false} />
             <ProjectActivity node={node} />
             <ProjectLastActivity node={node} />
             {!live && <span className="badge dim">{node.state}</span>}
