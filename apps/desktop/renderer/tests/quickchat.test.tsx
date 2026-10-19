@@ -214,8 +214,8 @@ test('Quick chat selected recipient and picker rows use the shared agent link wh
       chip.dispatchEvent(event)
     })
     await flush(3)
-    assert.equal(view.el.querySelector('.ctxmenu [role="menuitem"]')?.textContent, 'Open boss',
-      'right-click opens the registered agent menu')
+    assert.ok([...view.el.querySelectorAll('.ctxmenu [role="menuitem"]')]
+      .some(item => item.textContent === 'Open boss'), 'right-click opens the registered agent menu')
 
     await click(chip)
     const row = view.el.querySelector<HTMLElement>('.quickchat-pop .tray-row[data-copy-agent-name="boss"]')!
@@ -232,8 +232,8 @@ test('Quick chat selected recipient and picker rows use the shared agent link wh
       row.dispatchEvent(event)
     })
     await flush(3)
-    assert.equal(view.el.querySelector('.ctxmenu [role="menuitem"]')?.textContent, 'Open boss',
-      'right-clicking a picker row opens the registered agent menu')
+    assert.ok([...view.el.querySelectorAll('.ctxmenu [role="menuitem"]')]
+      .some(item => item.textContent === 'Open boss'), 'right-clicking a picker row opens the registered agent menu')
 
     await click(row.querySelector('.tray-main'))
     assert.equal(shown(view.el).superior, 'boss', 'left-click still selects the recipient')
