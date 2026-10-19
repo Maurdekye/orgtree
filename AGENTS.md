@@ -98,6 +98,12 @@
   [decided: user 2026-10-19 19:06–19:07Z; verified: renderer
   `canvas/{objectnavhost,slotchips,watchdogchip,deskdogs,listenersdesk,slotsdesk}.tsx`]
 
+- Watchdog links share `WatchdogLink`: current-org tree metadata supplies kind,
+  mode, state and the same glyph/outline as cards; missing metadata stays neutral.
+  Known one-shots retain dashes and listener watches the double cyan perimeter.
+  Tool/event/mail/mobile/detail/slot-line callers preserve their existing routes.
+  [decided: user 2026-10-19 21:10Z; verified: `canvas/watchdoglink.tsx`]
+
 - Project edges do not cap agent visibility, tools or folder authority. Chart,
   state inspection and watchdog access use agent reporting relations; top-level
   rights, credit caps/payers, org-inbox routing and org-folder revocation skip

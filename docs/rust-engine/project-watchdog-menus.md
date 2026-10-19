@@ -31,3 +31,15 @@ The mobile list uses the same double/dashed pair on its left-hand kind edge.
 
 Focused tests: `project-dog-menu.test.tsx`; real-component native specimens:
 `project-dog-visual.tsx` and `project-dog-capture.cjs`. All data are synthetic.
+
+User 21:10Z: watchdog identity links use one shared `WatchdogLink`, including
+tool references, event/transcript/mail cards, mail-listener rows, slot waiting
+reasons, mobile lists and detail headings. Event listener tables also consume
+this component. It reuses the cards' kind outline classes, lifetime flags and
+glyph helper. Its default route resolves metadata from the current org's tree;
+foreign-org or unknown IDs do not acquire another org's appearance or action.
+Unknown metadata uses a neutral chip, and a recorded removed identity retains
+its copy-only stale menu. The detail heading keeps its menu without reopening
+its own panel. Mode is available in the tooltip, without a separate continuous
+label in the listener table. `watchdog-links.test.tsx` and the synthetic
+`watchdog-link-{visual.tsx,capture.cjs}` cover the shared link behavior.

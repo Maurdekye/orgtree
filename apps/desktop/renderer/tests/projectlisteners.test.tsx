@@ -341,7 +341,8 @@ test("§7 one aligned table, values only, as the slots view; Worked and Mail onl
   assert.equal(c[3], '8m', "Worked: sb's last job, handed 07:32 and acked 07:40")
   assert.equal(c[4], '', 'no job held')
   assert.equal(c[5], '0', "Handed: the watchdog's engine count, a bare number")
-  assert.equal(c[6], 'mail-b')
+  assert.equal(first!.querySelector('.watchdog-link-name')?.textContent, 'mail-b')
+  assert.ok(!!first!.querySelector('.watchdog-link.fair-queue .wd-glyph'), 'watchdog identity includes its kind icon and outline')
   const rr = await desk(t, project({}, { mail_pending: 3 }))
   await clickCard(rr.view.el)
   assert.deepEqual(headers(rr.view.el), ['Position', 'Agent', 'Waited', 'Handed', 'Watchdog'],
