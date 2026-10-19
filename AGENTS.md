@@ -870,6 +870,12 @@
   `canvas/agentnav.tsx`, `canvas/OrgCanvas.tsx`, `canvas/contextmenu.tsx`,
   `canvas/docket.tsx`, `providers/catalog.rs`]
 
+- Static catalog tiers with numbered model IDs include the default model in
+  `versions`, even for a single version: this supplies display labels (Astra 6,
+  Terra 5.6, Pro 3.1). A single entry does not imply a version picker; renderer
+  settings require more than one choice. [decided: user 2026-10-19 11:40Z;
+  verified: `providers/catalog.rs`, `canvas/modals.tsx`]
+
 - When a shared agent/project link's visible label omits its identity, its
   native tooltip starts with that name; visible-name labels are not duplicated.
   Shared context-menu identity entries and icon-only model/project marks opt
