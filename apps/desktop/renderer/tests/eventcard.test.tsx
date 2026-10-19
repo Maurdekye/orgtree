@@ -7,10 +7,19 @@ import path from 'node:path'
 import { EventCard } from '../src/events/card'
 import { FAMILIES } from '../src/generated/events'
 import { DeskDogsProvider } from '../src/canvas/deskdogs'
+import { ObjectNavHost } from '../src/canvas/objectnavhost'
+import { ObjectNavProvider } from '../src/canvas/objectnav'
+import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import type { Watchdog } from '../src/types'
 declare const __SRC_DIR__: string
 const directory = path.resolve(__SRC_DIR__, '../tests/fixtures/events')
 const fixtures = readdirSync(directory).filter(f => f.endsWith('.json')).map(f => JSON.parse(readFileSync(path.join(directory, f), 'utf8')))
+async function right(el: Element) {
+  const event = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 })
+  await inAct(() => { el.dispatchEvent(event) })
+  return event.defaultPrevented
+}
+const menuLabels = () => [...document.querySelectorAll('[role="menuitem"]')].map(el => el.textContent)
 
 test('operator renders every canonical family with a type heading', async t => {
   for (const profile of ['operator'] as const) {
@@ -88,7 +97,7 @@ test('explicit received-mail fallback keeps the preview without classifying its 
   }
 })
 
-test('watchdog fire mail links its name only while the watchdog is still openable', async t => {
+test('watchdog fire keeps a truthful link and safe menu when its one-shot dog is gone', async t => {
   const fixture = fixtures.find(f => f.variant === 'monitor.watchdog_fired')!
   const id = 'owner/w1'
   const dog: Watchdog = {
@@ -102,9 +111,10 @@ test('watchdog fire mail links its name only while the watchdog is still openabl
     object: { ...fixture.private.object, org: 'fixture', id, name: dog.name, owner: dog.owner },
   }
   const opened: string[] = []
-  const active = await mountView(<DeskDogsProvider value={{ org: 'fixture', dogs: [dog], open: value => opened.push(value) }}>
-    <EventCard org="fixture" profile="operator" row={{ ev: event, body: fixture.body }} preview />
-  </DeskDogsProvider>, h => h)
+  const active = await mountView(<ObjectNavProvider><ObjectNavHost org="fixture" dogs={[dog]} openDog={value => opened.push(value)} toast={() => {}} />
+    <DeskDogsProvider value={{ org: 'fixture', dogs: [dog], open: value => opened.push(value) }}>
+      <ObjectMenuBoundary><EventCard org="fixture" profile="operator" row={{ ev: event, body: fixture.body }} preview /></ObjectMenuBoundary>
+    </DeskDogsProvider></ObjectNavProvider>, h => h)
   t.after(() => active.unmount())
   const link = active.el.querySelector<HTMLElement>('.event-actor .desk-dog-chip')
   assert.ok(link, 'the fire event name is a watchdog link')
@@ -114,12 +124,20 @@ test('watchdog fire mail links its name only while the watchdog is still openabl
   assert.deepEqual(opened, [id], 'clicking the event link opens the existing watchdog detail route')
 
   for (const dogs of [[], [{ ...dog, spent: true, state: 'spent' as const }]]) {
-    const unavailable = await mountView(<DeskDogsProvider value={{ org: 'fixture', dogs, open: () => assert.fail('spent watchdog opened') }}>
-      <EventCard org="fixture" profile="operator" row={{ ev: event, body: fixture.body }} preview />
-    </DeskDogsProvider>, h => h)
+    const unavailable = await mountView(<ObjectNavProvider><ObjectNavHost org="fixture" dogs={dogs}
+      openDog={() => assert.fail('spent watchdog opened')} toast={() => {}} />
+      <DeskDogsProvider value={{ org: 'fixture', dogs, open: () => assert.fail('spent watchdog opened') }}>
+        <ObjectMenuBoundary><EventCard org="fixture" profile="operator" row={{ ev: event, body: fixture.body }} preview /></ObjectMenuBoundary>
+      </DeskDogsProvider></ObjectNavProvider>, h => h)
     t.after(() => unavailable.unmount())
-    assert.ok(!unavailable.el.querySelector('.event-actor .desk-dog-chip'),
-      'a missing or spent watchdog stays plain text instead of a broken link')
-    assert.match(unavailable.el.querySelector('.event-actor')!.textContent ?? '', /build-done/)
+    const gone = unavailable.el.querySelector<HTMLElement>('.event-actor [data-object-nav="watchdog"]')
+    assert.ok(gone, 'a missing or spent watchdog remains a watchdog link')
+    assert.equal(gone!.getAttribute('aria-disabled'), 'true')
+    assert.match(gone!.getAttribute('title') ?? '', /no longer exists/i)
+    assert.match(gone!.textContent ?? '', /build-done.*no longer exists/i)
+    assert.equal(await right(gone!), true, 'the stale link still opens its watchdog context menu')
+    assert.deepEqual(menuLabels(), ['Watchdog no longer exists', 'Copy watchdog name', 'Copy watchdog id'])
+    await inAct(() => { gone!.click() })
+    assert.deepEqual(opened, [id], 'clicking a stale link never opens a fabricated watchdog')
   }
 })
