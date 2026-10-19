@@ -76,12 +76,15 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
     setHistoryLoading(false); setHistoryError(false)
     op({ op: 'slot_status', node: node.id })
       .then((r) => { if (live) setStatus(previous => {
-        const next = r as unknown as SlotStatus
-        if (previous?.project !== next.project) return next
-        const overlap = next.history.some(row => previous.history.some(old => old.lease === row.lease))
+        // a body without the lists (an error page, an older engine) shows the
+        // empty sections rather than crash the desk (coordinator 2026-10-19)
+        const next = (r ?? null) as unknown as SlotStatus | null
+        if (!next || !previous || previous.project !== next.project) return next
+        const head = next.history ?? [], older = previous.history ?? []
+        const overlap = head.some(row => older.some(old => old.lease === row.lease))
         // Preserve pages under an overlapping live head update. If the whole
         // head moved past our window, restart at its cursor rather than leave a gap.
-        return overlap ? {...next, history:uniqueHolds([...next.history,...previous.history]), history_next:previous.history_next} : next
+        return overlap ? {...next, history:uniqueHolds([...head,...older]), history_next:previous.history_next} : next
       }) })
       .catch(() => {})   // `op` toasts the refusal
     return () => { live = false; generation.current++ }
@@ -98,9 +101,9 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
     op({op:'slot_history',node:node.id,history_before:before})
       .then(result => {
         if (generation.current !== epoch) return
-        const page = result as unknown as Pick<SlotStatus,'history'|'history_next'>
+        const page = (result ?? {}) as unknown as Partial<Pick<SlotStatus,'history'|'history_next'>>
         setStatus(previous => previous?.history_next === before ? {
-          ...previous, history:uniqueHolds([...previous.history,...page.history]), history_next:page.history_next??null,
+          ...previous, history:uniqueHolds([...(previous.history ?? []),...(page.history ?? [])]), history_next:page.history_next??null,
         } : previous)
       })
       .catch(() => { if (generation.current === epoch) setHistoryError(true) })
