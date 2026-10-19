@@ -32,6 +32,7 @@ import type { TreePayload } from '../src/types'
 import type { CanvasNode } from '../src/canvas/shared'
 import { MODAL_OPEN_KEY, MODAL_PINS_KEY, forgetModalOpenCache, forgetModalPins, pinModal, rememberModalOpen } from '../src/canvas/modalpin'
 import { savedWindows, WINDOW_LAYOUT_KEY } from '../src/windowlayout'
+import { OrgDefaultEffort, resolveOrgDefault } from '../src/canvas/effort'
 
 const noop = () => {}
 const txt = (el: HTMLElement) => el.textContent ?? ''
@@ -217,13 +218,23 @@ uiTest('desk effort control is absent for no-effort models and has a concise too
 uiTest('desk effort control shows the effective inherited default and queued next-turn value',
   async ({ mount }) => {
     const { EffortButton } = await import('../src/canvas/desk')
-    const inherited = await mount(<EffortButton value="" effective="high"
-      levels={['low', 'medium', 'high', 'xhigh', 'max']} onSet={noop} />, (el) => el)
+    // The Rust tree sends the org fallback in settings (`default_effort` and
+    // `effort_default`), but agent rows do not carry `effort_effective`.
+    // Reproduce that wire shape rather than supplying the server-resolved
+    // per-agent field that the old test accidentally relied on.
+    const settings = { default_effort: '', effort_default: 'high' }
+    const inherited = await mount(<OrgDefaultEffort.Provider
+      value={resolveOrgDefault(settings.default_effort, settings.effort_default)}>
+      <EffortButton value="" levels={['low', 'medium', 'high', 'xhigh', 'max']}
+        onSet={noop} />
+    </OrgDefaultEffort.Provider>)
     const inheritedButton = inherited.el.querySelector<HTMLButtonElement>('.cc-eff')!
     assert.equal(inheritedButton.textContent, 'high',
-      'the inherited control shows the server-resolved effective default')
+      'an unconfigured agent with no effort_effective row field shows the Rust settings default')
     assert.equal(inheritedButton.classList.contains('inherited'), true,
       'the effective default remains visually distinguished from an explicit setting')
+    assert.equal(inherited.el.querySelector('.effort-bar-pip')?.getAttribute('data-level'), 'high',
+      'the effort selector marks the effective inherited default')
     assert.equal(inheritedButton.getAttribute('title'),
       'Thinking effort: high (default). Changes apply from the next model call.')
 
