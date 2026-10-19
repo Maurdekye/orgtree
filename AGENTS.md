@@ -268,11 +268,15 @@
   The canonical procedure is [feedback](docs/skills/orgtree-working/workspace/feedback/SKILL.md).
   [decided: user 2026-10-19 13:59Z/14:00Z; verified: "settings.rs", "runtime/{identity,actor}.rs", "http/settings.rs", "canvas/accounts.tsx"]
 - A live desk's model letter opens the existing hire tokens with warm shared
-  staffing/account availability. Choosing account/version then Apply uses the
-  existing switch/account/scope and history paths. Busy/cross-provider tier
-  changes confirm first; Escape/click-away does not save. Retired identity chips
-  remain passive. See the [model tab](docs/skills/orgtree-app/agent-settings/agent-model-tab/SKILL.md).
-  [decided: user/coordinator 2026-10-19; verified: `canvas/{deskmodel,desk,identity}.tsx`]
+  default-account availability. Clicking a tier immediately uses the default
+  account and latest version through existing switch/scope/history paths;
+  account/version editing stays in settings. Only cross-provider resets confirm;
+  same-provider busy changes queue directly with a next-turn toast and history
+  Undo. Picking the running tier only cancels its queued model change, preserving
+  account and version. This replaces the staged account/version/Apply row and
+  same-provider busy confirmation. Retired chips remain passive. See the
+  [model tab](docs/skills/orgtree-app/agent-settings/agent-model-tab/SKILL.md).
+  [decided: user/coordinator 2026-10-19 21:34Z; verified: `canvas/{deskmodel,desk,identity}.tsx`]
 
 - Queued model/account selectors show the queued target. Explicitly choosing
   the serving model/account again submits the existing cancellation operation;
@@ -3508,7 +3512,7 @@ This first version was compiled on 2026-10-05 at `6e53697`, before the developme
 ## Read this first
 
 - Model palettes share the transparent `.quickchat-pop-model` wrapper across
-  desk, Quick chat and card callers, including account/version selection.
+  desk, Quick chat and card callers. The desk offers model tokens only.
   Desk sizing must not reintroduce a panel background, border or shadow.
   [decided: user 2026-10-19 18:31Z; verified: renderer `styles.css`,
   `canvas/{deskmodel,pickerpopover}.tsx`]

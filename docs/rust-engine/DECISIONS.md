@@ -7,6 +7,14 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Immediate desk model tokens, user 2026-10-19 21:34Z:** clicking a model chip
+switches at once with the default account and latest version; remove the desk's
+Account/Version/Apply row. Detailed account/version choices remain in agent
+settings. Preserve queued-model cancellation and the history Undo toast.
+Coordinator scope: confirm cross-provider conversation resets only; a busy
+same-provider switch queues directly and its toast says next turn. This replaces
+the staged desk picker and its same-provider busy confirmation.
+
 **Coworker mail, user 2026-10-19 20:35–20:38Z:** projects are full nodes for
 messaging peers. Default peer mail requires a shared physical parent; command
 chain mail still skips projects. Directional project audiences connect direct

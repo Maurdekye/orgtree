@@ -14,7 +14,7 @@ const base={id:'worker',tier:'sol',state:'live',generation:1,children:[],seat:2,
  account:'openai/backup',scope:{tools:{},add_dirs:[],model_version:'5.5'}} as CanvasNode
 const click=async(el:Element|null|undefined)=>inAct(async()=>{assert.ok(el);el.dispatchEvent(new window.MouseEvent('click',{bubbles:true}));await flush(12)})
 const escape=async()=>inAct(async()=>{document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await flush(4)})
-async function setup(history:boolean,extra:Partial<CanvasNode>={},refuse=false){
+async function setup(history:boolean,extra:Partial<CanvasNode>={},refuse=false,defaultState:{default_ok?:boolean;native_ok?:boolean}={}){
  localStorage.clear();resetStaffingOptionsForTests();installFetch(new FakeServer())
  const fallback=globalThis.fetch,acts:Record<string,unknown>[]=[],toasts:{text:string;undo:Parameters<ToastFn>[1]}[]=[]
  let update:(fn:(n:CanvasNode)=>CanvasNode)=>void=()=>{}
@@ -28,17 +28,21 @@ async function setup(history:boolean,extra:Partial<CanvasNode>={},refuse=false){
    if(path.endsWith('/scope'))body=act({op:'scope',...b})
   }
   if(path==='/api/providers')body={providers:['openai','claude'].map(id=>({id,hire_enabled:true,status:{installed:true}}))}
-  if(path.endsWith('/staffing-options'))body={tiers:['sol','luna','opus'].map(tier=>({tier,seat:2,efforts:['high'],default_ok:true,accounts:[{value:tier==='opus'?'claude/backup':'openai/backup',id:'backup',provider:tier==='opus'?'claude':'openai',ambient:false}]})),errors:[],loading:false}
+  if(path.endsWith('/staffing-options'))body={tiers:['sol','luna','opus'].map(tier=>({tier,seat:2,efforts:['high'],default_ok:true,...defaultState,accounts:[{value:tier==='opus'?'claude/backup':'openai/backup',id:'backup',provider:tier==='opus'?'claude':'openai',ambient:false}]})),errors:[],loading:false}
   return body!==null?new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}}):fallback(input,init)
  }) as typeof fetch)
  syncProviderRegistries({providers:[{id:'openai',tiers:[{tier:'sol'},{tier:'luna'}]}]})
  const off=history?bindHistory('instant',{refresh:async()=>{},can:()=>true,run:async()=>{}} as never):()=>{}
- function Fixture(){const[n,setNode]=useState({...base,...extra});update=setNode;return <><QueuedModelBadge node={n}/><DeskModelButton node={n} slug="instant" op={async b=>act(b)} toast={(lines,undo)=>toasts.push({text:lines.join(' '),undo})}/></>}
+ function Fixture(){const[n,setNode]=useState({...base,...extra});update=setNode;return <><QueuedModelBadge node={n}/><DeskModelButton node={n} slug="instant" op={async b=>act(b)} toast={(lines,undo)=>toasts.push({text:lines?.join(' ')??'',undo})}/></>}
  const v=await mountView(<Fixture/>,el=>el);await inAct(async()=>{await flush(16)})
  const open=async()=>click(v.el.querySelector('[aria-label="Change model for worker"]'))
  const pick=async(tier:string)=>click(document.querySelector(`[aria-label="Change agent model"] .t-${tier}`))
  return{v,acts,toasts,open,pick,close:async()=>{await v.unmount();off()}}
 }
+for(const defaultState of [{default_ok:false},{native_ok:false}])test(`default-unavailable tiers cannot silently choose a managed account: ${JSON.stringify(defaultState)}`,async()=>{
+ const s=await setup(false,{busy:true,pending_switch:{tier:'luna'}},false,defaultState)
+ try{await s.open();assert.equal(!!document.querySelector('[aria-label="Change agent model"] .t-luna'),false);await s.pick('sol');assert.equal(s.acts[0]?.tier,'sol');assert.equal(s.acts.length,1)}finally{await s.close()}
+})
 for(const history of [false,true]){
  const mode=history?'history':'legacy'
  test(`${mode}: one chip click switches with default account and latest, without an options row`,async()=>{

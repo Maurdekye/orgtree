@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { assignAccount, getProviders, saveScope } from '../api'
+import { getProviders, saveScope } from '../api'
 import { userGesture } from '../historyapi'
 import { primaryAccount } from '../accountidentity'
 import { useAppFeed, useAppRead } from '../appfeed'
@@ -11,10 +11,10 @@ import { TierChip } from './identity'
 import { ConfirmModal } from './modals'
 import { PickerPopover } from './pickerpopover'
 import { staffingOptions, type StaffingOptions, type StaffingTier } from './staffingoptions'
-import { ALL_TIER_SEAT, hireOf, MODEL_VERSIONS, providerOf, TIER_LETTER, tierLabel,
+import { ALL_TIER_SEAT, hireOf, providerOf, TIER_LETTER, tierLabel,
   type CanvasNode, type OpFn } from './shared'
 
-/** The hire tokens choose a tier; ordinary switch/account/scope operations apply it. */
+/** A chip applies default account/latest; detailed choices stay in agent settings. */
 export function DeskModelButton({node, slug, op, toast}: {
   node: CanvasNode; slug: string; op: OpFn; toast: ToastFn
 }) {
@@ -35,59 +35,46 @@ export function DeskModelButton({node, slug, op, toast}: {
       museHire:of('muse'),openrouterHire:of('openrouter'),langserverHire:of('langserver')}
   },[providers,orgProviders])
   const [anchor,setAnchor]=useState<HTMLElement|null>(null)
-  const [choice,setChoice]=useState<{tier:string;account:string;version:string;accountPicked?:boolean}|null>(null)
-  const [asking,setAsking]=useState(false),[saving,setSaving]=useState(false)
-  const close=()=>{if(!saving){setAnchor(null);setChoice(null);setAsking(false)}}
-  useEffect(()=>{setAnchor(null);setChoice(null);setAsking(false)},[slug,node.id,node.generation,node.state])
+  const [confirmTier,setConfirmTier]=useState<string|null>(null)
+  const [saving,setSaving]=useState(false)
+  const close=()=>{if(!saving){setAnchor(null);setConfirmTier(null)}}
+  useEffect(()=>{setAnchor(null);setConfirmTier(null)},[slug,node.id,node.generation,node.state])
   const snapshot=availability?.slug===slug?availability.value:null
   const rows:StaffingTier[]=Array.isArray(snapshot?.tiers)?snapshot.tiers.filter(row=>
     row&&typeof row.tier==='string'&&Array.isArray(row.accounts)
-    &&(row.default_ok===true||row.accounts.length>0)):[]
-  const pick=(tier:string)=>{
-    const row=rows.find(r=>r.tier===tier)
-    if(!row)return
-    const preferred=node.pending_account?.account??node.account
-    const account=row.accounts.some(a=>a.value===preferred)?preferred!:
-      row.default_ok?'':row.accounts[0]?.value??''
-    setChoice({tier,account,version:tier===node.tier?node.scope?.model_version??'':''})
-  }
-  const currentRow=rows.find(r=>r.tier===choice?.tier)
-  const versions=choice?MODEL_VERSIONS[choice.tier]??[]:[]
-  const changedTier=!!choice&&choice.tier!==node.tier
-  const cancelModel=!!choice&&choice.tier===node.tier&&!!node.pending_switch
-  const modelRequested=changedTier||cancelModel
-  const crossProvider=changedTier&&providerOf(choice!.tier)!==providerOf(node.tier??'')
-  const midTurn=changedTier&&node.busy===true
-  const apply=async()=>{
-    if(!choice||!currentRow||saving)return
-    const validAccount=choice.account?currentRow.accounts.some(a=>a.value===choice.account):currentRow.default_ok
-    if(!validAccount)return
-    const scope={model_version:versions.includes(choice.version)?choice.version:''}
-    const changeVersion=scope.model_version!==(node.scope?.model_version??'')||changedTier
-    const account=choice.account||primaryAccount(providerOf(node.tier??''))
-    const changeAccount=choice.accountPicked===true
-      && (account!==node.account||!!node.pending_account)
-    const cancelAccount=changeAccount&&!!node.pending_account
-      && account===(node.account||primaryAccount(providerOf(node.tier??'')))
-    const switchStep={op:'switch_model',node:node.id,tier:choice.tier,
-      ...(choice.account?{account:choice.account}:{})}
+    &&((row.default_ok===true&&row.native_ok!==false)||row.tier===node.tier)):[]
+  const apply=async(tier:string)=>{
+    const changedTier=tier!==node.tier
+    const cancelModel=!changedTier&&!!node.pending_switch
+    if(saving||!rows.some(row=>row.tier===tier))return
+    if(!changedTier&&!cancelModel){close();return}
+    const switchStep={op:'switch_model',node:node.id,tier,
+      ...(changedTier?{account:primaryAccount(providerOf(tier))}:{})}
+    const scope={model_version:''}
     setSaving(true)
     try{
+      let queued=node.busy===true
       if(historyEnabled(slug)){
-        const steps:Record<string,unknown>[]=[]
-        if(modelRequested)steps.push(switchStep)
-        if(!changedTier&&changeAccount)steps.push({op:'account',node:node.id,account})
-        if(changeVersion)steps.push({op:'scope',node:node.id,...scope})
-        if(steps.length){const result=await userGesture(slug,steps,`Model: ${node.id}`);toast([cancelModel?`${node.id}: model change cancelled`:cancelAccount?`${node.id}: account change cancelled`:`Model choice saved for ${node.id}`],historyUndo(slug,result))}
+        const steps:Record<string,unknown>[]=[switchStep]
+        if(changedTier)steps.push({op:'scope',node:node.id,...scope})
+        const result=await userGesture(slug,steps,`Model: ${node.id}`)
+        const reported=result.results?.[0]?.queued
+        queued=typeof reported==='boolean'?reported:queued
+        toast([cancelModel?`${node.id}: model change cancelled`:queued?`${node.id}: model change queued for next turn`:`Model choice saved for ${node.id}`],historyUndo(slug,result))
       }else{
-        if(modelRequested)await op(switchStep)
-        if(!changedTier&&changeAccount)await assignAccount(slug,node.id,account)
-        if(changeVersion)await saveScope(slug,node.id,scope)
-        toast([cancelModel?`${node.id}: model change cancelled`:cancelAccount?`${node.id}: account change cancelled`:changedTier&&node.busy?`${node.id}: model change queued for next turn`:`Model choice saved for ${node.id}`])
+        const result=await op(switchStep)
+        queued=typeof result?.queued==='boolean'?result.queued:queued
+        if(changedTier)await saveScope(slug,node.id,scope)
+        toast([cancelModel?`${node.id}: model change cancelled`:queued?`${node.id}: model change queued for next turn`:`Model choice saved for ${node.id}`])
       }
-      setAnchor(null);setChoice(null);setAsking(false)
-    }catch(error){toast([`error: ${(error as Error).message}`]);setAsking(false)}
+      setAnchor(null);setConfirmTier(null)
+    }catch(error){toast([`error: ${(error as Error).message}`]);setConfirmTier(null)}
     finally{setSaving(false)}
+  }
+  const pick=(tier:string)=>{
+    if(saving||!rows.some(row=>row.tier===tier))return
+    if(tier!==node.tier&&providerOf(tier)!==providerOf(node.tier??''))setConfirmTier(tier)
+    else void apply(tier)
   }
   if(node.state!=='live'||!node.tier)return <TierChip tier={node.tier} agentName={node.id}/>
   return <>
@@ -97,31 +84,17 @@ export function DeskModelButton({node, slug, op, toast}: {
       onClick={event=>{event.stopPropagation();if(anchor)close();else setAnchor(event.currentTarget)}}>
       {TIER_LETTER[node.tier]??node.tier.slice(0,1).toUpperCase()}
     </button>
-    {anchor&&!asking&&<PickerPopover anchor={anchor} onClose={close} kind="model"
+    {anchor&&!confirmTier&&<PickerPopover anchor={anchor} onClose={close} kind="model"
       label="Change agent model" className="desk-model-picker" focusFirst>
-      <SpawnChips soleHire selected={choice?.tier??node.tier} seats={{...ALL_TIER_SEAT,...Object.fromEntries(rows.map(row=>[row.tier,row.seat]))}}
+      <SpawnChips soleHire selected={node.pending_switch?.tier??node.tier} seats={{...ALL_TIER_SEAT,...Object.fromEntries(rows.map(row=>[row.tier,row.seat]))}}
         tokenTitle={tier=>`Change model to ${tierLabel(tier)}`}
         allowedTiers={rows.map(r=>r.tier)} onSpawn={pick} {...hires}/>
       {!rows.length&&<p role="status">{snapshot?.errors?.join('; ')||'No eligible models available'}</p>}
-      {choice&&currentRow&&<div className="desk-model-options">
-        <label>Account <select aria-label="Model account" value={choice.account}
-          onChange={e=>setChoice({...choice,account:e.target.value,accountPicked:true})}>
-          {currentRow.default_ok&&<option value="">default</option>}
-          {currentRow.accounts.map(a=><option key={a.value} value={a.value}>{a.label||a.id}</option>)}
-        </select></label>
-        {versions.length>1&&<label>Version <select aria-label="Model version" value={choice.version}
-          onChange={e=>setChoice({...choice,version:e.target.value})}>
-          <option value="">latest ({versions[0]})</option>
-          {versions.map(v=><option key={v} value={v}>{tierLabel(choice.tier)} {v}</option>)}
-        </select></label>}
-        <button type="button" aria-label="Apply model change" disabled={saving}
-          onClick={()=>{if(crossProvider||midTurn)setAsking(true);else void apply()}}>apply</button>
-      </div>}
     </PickerPopover>}
-    {asking&&choice&&<ConfirmModal title={midTurn?`queue ${node.id}'s switch to ${tierLabel(choice.tier)}?`:`switch ${node.id} to ${tierLabel(choice.tier)}?`}
-      body={(midTurn?'The current turn keeps its model. This change is queued until the turn ends and applies from the next turn. ':'')
-        +(crossProvider?'Switching providers resets the conversation. The current generation is archived in lineage; scratch files, breadcrumbs and mail survive.':'')}
-      confirmLabel={midTurn?`queue the switch to ${tierLabel(choice.tier)}`:`switch to ${tierLabel(choice.tier)} and reset the conversation`}
-      onConfirm={apply} confirmDisabled={saving} close={close}/>}
+    {confirmTier&&<ConfirmModal title={`switch ${node.id} to ${tierLabel(confirmTier)}?`}
+      body={(node.busy?'The current turn keeps its model. This change is queued until the turn ends and applies from the next turn. ':'')
+        +'Switching providers resets the conversation. The current generation is archived in lineage; scratch files, breadcrumbs and mail survive.'}
+      confirmLabel={`switch to ${tierLabel(confirmTier)} and reset the conversation`}
+      onConfirm={()=>apply(confirmTier)} confirmDisabled={saving} close={close}/>}
   </>
 }

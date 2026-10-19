@@ -62,6 +62,8 @@ async function setup(surface:'settings'|'desk',kind:'model'|'account'|'both',his
  return{v,acts,writes,close:async()=>{await v.unmount();off()}}
 }
 for(const history of [false,true])for(const surface of ['settings','desk'] as const)for(const kind of ['model','account','both'] as const)
+ // Account choices now belong only to settings; the desk chip cancels models immediately.
+ if(surface==='settings'||kind==='model')
  test(`${surface} ${history?'history':'legacy'}: choosing current ${kind} cancels its queued change`,async()=>{
  const s=await setup(surface,kind,history)
  try{
@@ -78,11 +80,6 @@ for(const history of [false,true])for(const surface of ['settings','desk'] as co
   }else{
    await click(s.v.el.querySelector('[aria-label="Change model for worker"]'))
    await click(document.querySelector('[aria-label="Change agent model"] .t-sol'))
-   if(kind!=='model'){
-    assert.equal(document.querySelector<HTMLSelectElement>('select[aria-label="Model account"]')?.value,'openai/backup')
-    await choose('Model account','openai/primary')
-   }
-   await click(document.querySelector('[aria-label="Apply model change"]'))
   }
   if(kind!=='account'){assert.equal(s.acts.some(b=>b.op==='switch_model'&&b.tier==='sol'),true);assert.equal(!!s.v.el.querySelector('[data-next-turn="model"]'),false)}
   if(kind!=='model'){assert.equal(s.acts.some(b=>b.op==='account'&&b.account==='openai/primary'),true);assert.equal(!!s.v.el.querySelector('[data-next-turn="account"]'),false)}

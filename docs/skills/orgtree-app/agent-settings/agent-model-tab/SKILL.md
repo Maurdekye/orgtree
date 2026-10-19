@@ -18,10 +18,15 @@ These are per-agent settings. Agents explain and recommend choices; they do not 
 ## Model and version
 
 Click a live agent desk's model letter to open the same provider-grouped hire
-tokens without opening settings. Pick a tier, its eligible account and optional
-version, then Apply. Escape or clicking away cancels without saving. Busy and
-cross-provider tier changes ask for confirmation with the ordinary switch rules.
-Refusals remain visible, and queued changes appear on the next-turn model card.
+tokens without opening settings. Clicking a tier immediately switches with its
+default account and latest version; change the account or version in agent
+settings afterward. Only a cross-provider conversation reset asks for confirmation.
+Same-provider changes during a busy turn queue directly, and the toast says they
+apply next turn. History-enabled changes keep their Undo toast. Escape or clicking
+away before choosing a tier saves nothing. Refusals remain visible, and queued
+changes appear on the next-turn model card. Only models available with their
+default account are offered for a new switch; choosing the running tier to cancel
+its pending model change does not rebind its account or clear its version pin.
 Pinned and popped-out desks share this control; retired identities stay passive.
 The same actions are available to authorized agents through `orgtree_switch_model`
 and `orgtree_retool` (account and model-version fields); the picker adds no new
@@ -37,11 +42,11 @@ A busy agent's model change is queued for the turn boundary; a later request can
 
 While a model change is queued, the settings model selector shows its target.
 Choose the currently running model again and Save to cancel the queue. The
-desk model picker does the same when you choose the current model and Apply.
+desk model picker does the same immediately when you click the current model.
 The next-turn model card clears when the cancellation arrives from the engine.
 An untouched Save leaves pending changes alone, and cancelling does not ask to
 reset the current conversation. Model and account queues can be cancelled
-together by explicitly choosing both current values.
+together in settings by explicitly choosing both current values.
 
 Cross-provider switches start a fresh session with a handoff summary; the earlier conversation remains available through saved history in the agent's folder. Scratch files and mail remain with the agent. A language model server switch between different harnesses also requires a fresh session. Same-provider changes do not use that cross-provider session reset. Model/provider changes create a new cache namespace; do not promise a provider cache hit or uninterrupted context reuse. See `orgtree-tool-switch-model` (orgtree-working › team) for admission, costs and the underlying operation.
 

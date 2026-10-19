@@ -43,22 +43,14 @@ test('desk model icon opens the hire token picker; Escape and click-away cancel'
   assert.equal(ops.length,0)
  }finally{await v.unmount()}
 })
-test('desk picker uses eligible accounts and version scope; unavailable tiers cannot be chosen',async()=>{
+test('desk picker uses default account and latest; unavailable tiers cannot be chosen',async()=>{
  const{v,ops,writes}=await mount({},false,['luna'])
  try{
   await click(v.el.querySelector('[aria-label="Change model for worker"]'))
   assert.equal(!!document.querySelector('[aria-label="Change agent model"] .t-opus'),false)
   await click(document.querySelector('[aria-label="Change agent model"] .t-luna'))
-  await inAct(async()=>{
-    for(const [label,value] of [['Model account','openai/backup'],['Model version','5.6']]){
-      const select=document.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)!
-      Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value')!.set!.call(select,value)
-      select.dispatchEvent(new window.Event('change',{bubbles:true}));await flush(3)
-    }
-  })
-  await click(document.querySelector('[aria-label="Apply model change"]'))
-  assert.equal(ops[0]?.account,'openai/backup')
-  assert.equal(writes.some(row=>(row as {model_version?:string}).model_version==='5.6'),true)
+  assert.equal(ops[0]?.account,'openai/primary')
+  assert.equal(writes.some(row=>(row as {model_version?:string}).model_version===''),true)
  }finally{await v.unmount()}
 })
 test('cross-provider confirmation cancellation leaves model and scope untouched',async()=>{
@@ -66,7 +58,6 @@ test('cross-provider confirmation cancellation leaves model and scope untouched'
  try{
   await click(v.el.querySelector('[aria-label="Change model for worker"]'))
   await click(document.querySelector('[aria-label="Change agent model"] .t-opus'))
-  await click(document.querySelector('[aria-label="Apply model change"]'))
   assert.match(document.body.textContent??'',/Switching providers resets the conversation/)
   await inAct(async()=>{document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await flush(3)})
   assert.equal(ops.length,0);assert.equal(writes.length,0)
@@ -77,21 +68,17 @@ for(const refuse of [false,true])test(`desk model pick uses switch_model and sur
  try{
   await click(v.el.querySelector('[aria-label="Change model for worker"]'))
   await click(document.querySelector('[aria-label="Change agent model"] .t-luna'))
-  await click(document.querySelector('[aria-label="Apply model change"]'))
   assert.equal(ops[0]?.op,'switch_model');assert.equal(ops[0]?.tier,'luna')
   assert.equal(!!document.querySelector('[aria-label="Change agent model"]'),refuse)
   if(refuse)assert.match(toasts.flat().join(' '),/model unavailable/)
  }finally{await v.unmount()}
 })
-test('busy model selection confirms before queuing; retired icons stay passive',async()=>{
+test('busy same-provider model selection queues directly; retired icons stay passive',async()=>{
  const{v,ops}=await mount({busy:true})
  try{
   await click(v.el.querySelector('[aria-label="Change model for worker"]'))
   await click(document.querySelector('[aria-label="Change agent model"] .t-luna'))
-  await click(document.querySelector('[aria-label="Apply model change"]'))
-  assert.equal(ops.length,0)
-  const confirm=[...document.querySelectorAll('button')].find(b=>b.textContent==='queue the switch to luna')
-  await click(confirm??null);assert.equal(ops[0]?.op,'switch_model')
+  assert.equal(ops[0]?.op,'switch_model')
  }finally{await v.unmount()}
  const retired=await mount({state:'retired'})
  try{assert.equal(!!retired.v.el.querySelector('[aria-label="Change model for worker"]'),false)}finally{await retired.v.unmount()}

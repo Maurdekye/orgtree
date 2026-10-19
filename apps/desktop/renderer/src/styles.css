@@ -1866,9 +1866,8 @@ html.mobile .edge-jump { display: none; }
 .cc-head-left > .tier { margin-inline-end: 2px; }
 .desk-model-button { padding: 0; cursor: pointer; font: inherit; }
 .quickchat-pop-model.desk-model-picker {
-  width: min(400px, calc(100vw - 16px)); box-sizing: border-box;
+  width: max-content; max-width: min(400px, calc(100vw - 16px)); box-sizing: border-box;
 }
-.desk-model-options { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
 .cc-head-left > .cc-name {
   flex: 0 1 auto; min-width: 6ch; max-width: none;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
