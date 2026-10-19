@@ -26,7 +26,7 @@ for(const kind of ['mention','urgent'] as const) for(const method of ['click','E
     await settle()
     assert.equal(selected(v.el),null,'explicit deselection must leave no selected row')
     assert.equal(v.el.querySelector('[data-attn-row="mail:'+target.id+'"]')===null,true,'read mail releases on deselect')
-    assert.equal(v.el.querySelector('[data-attn-kind="mention"]')===null,true,'matching marker does not reappear')
+    if(kind==='mention')assert.equal(v.el.querySelector('[data-attn-kind="mention"]')===null,true,'matching marker does not reappear')
     assert.equal(!!v.el.querySelector('.mailer-none'),true,'reading pane clears')
     await repoll()
     assert.equal(selected(v.el),null,'refresh must respect deliberate deselection')

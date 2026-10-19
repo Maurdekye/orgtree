@@ -188,6 +188,9 @@ export function AttentionQueue({
   // the panel's own selection, and the previous render's rows — the two
   // inputs `retainSelected` needs to honour the urgent-mail rule
   const [selected, setSelected] = useState<string | null>(null)
+  // An empty pane chosen by the reader is different from the initial empty
+  // queue. Polls must not select (and read) another mail after a deselection.
+  const clearedByReader = useRef(false)
   const shown = useRef<AttentionRow[]>([])
   const rows = retainSelected(live, shown.current, selected)
   shown.current = rows
@@ -255,12 +258,22 @@ export function AttentionQueue({
   // the bottom. `bottomFor` is the key still owed that one scroll.
   const bottomFor = useRef<string | null>(null)
   const openRow = (row: AttentionRow) => {
+    clearedByReader.current = false
     if (row.kind === 'ticket' && row.key !== selected) bottomFor.current = row.key
     setSelected(row.key)
     if (row.kind !== 'mail' || !row.mail) return
     // only a mail the server still calls unread is marked — re-selecting a
     // retained row must not post a second read for the same message
     if ((box?.pending ?? []).some((p) => p.id === row.mail!.id)) setToRead(row.mail)
+  }
+  const clearSelection = () => {
+    clearedByReader.current = true
+    bottomFor.current = null
+    setSelected(null)
+  }
+  const clickRow = (row: AttentionRow) => {
+    if (row.key === selected) clearSelection()
+    else openRow(row)
   }
   // New rows fill an empty reading pane, but never replace a live selection.
   // Use the same read/retention path as a click, without moving focus or scroll.
@@ -269,6 +282,12 @@ export function AttentionQueue({
   // above (it was last), else the first. `listWithSel` is that last list.
   const listWithSel = useRef<{ key: string; keys: string[] } | null>(null)
   useEffect(() => {
+    if (!selected && clearedByReader.current) {
+      listWithSel.current = null
+      // Once the queue empties, a later arrival may fill it as before.
+      if (!rows.length) clearedByReader.current = false
+      return
+    }
     if (selected && rows.some((r) => r.key === selected)) {
       listWithSel.current = { key: selected, keys: rows.map((r) => r.key) }
       return
@@ -344,7 +363,14 @@ export function AttentionQueue({
   }, [selected])
 
   const onListKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (!rows.length || e.target !== e.currentTarget) return
+    if (e.defaultPrevented || e.target !== e.currentTarget) return
+    if (e.key === 'Escape' && selected) {
+      e.preventDefault()
+      e.stopPropagation()
+      clearSelection()
+      return
+    }
+    if (!rows.length) return
     const i = rows.findIndex((r) => r.key === selected)
     const go = (to: number) => {
       e.preventDefault()
@@ -434,7 +460,7 @@ export function AttentionQueue({
                 <div key={row.key} className="attn-cell docket-modal" data-attn-row={row.key}
                   data-attn-kind={row.kind} role="option" aria-selected={sel}>
                   <DocketRow item={row.item} selected={sel} org={slug} toast={toast}
-                    ageTick={ageTick} onClick={() => openRow(row)} onDismiss={dismiss}
+                    ageTick={ageTick} onClick={() => clickRow(row)} onDismiss={dismiss}
                     facts={facts} onFocusAgent={onFocusAgent} />
                 </div>
               )
@@ -457,7 +483,7 @@ export function AttentionQueue({
               <div key={row.key} className="attn-cell" data-attn-row={row.key}
                 data-attn-kind={row.kind} role="option" aria-selected={sel}>
                 <MailRowView m={m} view={row.kind === 'mail' ? typed(m) : null}
-                  selected={sel} party={rowParty(m.from)} onClick={() => openRow(row)} />
+                  selected={sel} party={rowParty(m.from)} onClick={() => clickRow(row)} />
               </div>
             )
           })}
