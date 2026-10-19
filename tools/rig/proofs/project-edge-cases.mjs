@@ -69,18 +69,17 @@ export default async function(rig) {
   await rig.op({op:'retire',node:'deep-leaf'})
   p.check('one retirement releases all 70 project mirrors',ledger().every(r=>r.grant===0&&r.seat===0),ledger())
 
-  // Presentation authority and the fake CLI's launch folders use the same list.
+  // Presentation authority and the fake CLI's launch instructions use the same list.
   const last=projects.at(-1),folder=path.join(rig.data,'scratch',rig.org,'_teams',String(last))
   fs.mkdirSync(folder,{recursive:true});const file=path.join(folder,'deep-proof.md');fs.writeFileSync(file,'Synthetic deepest project document.\n')
   const presented=await rig.tool('boss','orgtree_present',{title:'Deep project folder',path:file})
   p.check('project folders beyond the first 64 are readable for presentation',presented.ok,presented.text)
-  await rig.op({op:'cheap_compact',node:'boss'})
   const turns=rig.turns('boss').filter(t=>t.ended_at).length
   await rig.userMail('boss','Inspect synthetic project folder grants.');await rig.waitTurns('boss',turns+1)
-  const dirs=rig.fakeLog('boss').filter(l=>l.kind==='start').at(-1)?.add_dirs??[]
-  const held=new Set(dirs.map(d=>path.resolve(typeof d==='string'?d:d.path).toLowerCase()))
-  const missing=projects.filter(n=>!held.has(path.resolve(rig.data,'scratch',rig.org,'_teams',String(n)).toLowerCase()))
-  p.check('CLI launch grants every project folder below its superior',missing.length===0,{missing,total:projects.length})
+  const instructions=rig.fakeLog('boss').filter(l=>l.kind==='recv'&&l.line?.method==='thread/start').at(-1)?.line?.params?.developerInstructions??''
+  const text=instructions.replaceAll('\\','/').toLowerCase()
+  const missing=projects.filter(n=>!text.includes(path.join(rig.data,'scratch',rig.org,'_teams',String(n)).replaceAll('\\','/').toLowerCase()+' (project '))
+  p.check('CLI launch instructions expose every project folder below its superior',instructions.length>0&&missing.length===0,{missing,total:projects.length})
 
   await project('keep-root');await project('keep-nested','keep-root');await project('keep-empty')
   const moved=await rig.op({op:'move',node:'old-report',new_parent:'deep-69'})
