@@ -48,12 +48,8 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
         let attention: bool = r.get(6);
         let reason: Option<String> = r.get(4);
         let body: String = r.get(2);
-        out.push(json!({
-            "id": format!("mail:{uid}"), "source_id": uid,
-            "kind": mail_kind(attention, &r.get::<_, Option<Value>>(5)), "org": slug, "agent": sender,
-            "title": if urgent { format!("Urgent from {sender}") } else if attention {format!("Mention from {sender}")} else { format!("Mail from {sender}") },
-            "body": gist(&reason.unwrap_or(body), 300),
-        }));
+        out.push(mail_notice(slug, &uid, &sender, urgent, attention,
+            &reason.unwrap_or(body), &r.get::<_, Option<Value>>(5)));
     }
     let work = all_rows(
         client,
@@ -125,6 +121,19 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
 }
 
 #[nolog]
+fn mail_notice(slug: &str, uid: &str, sender: &str, urgent: bool, attention: bool,
+    body: &str, event: &Option<Value>) -> Value {
+    json!({
+        "id": format!("mail:{uid}"), "source_id": uid,
+        // Failure kind controls toast policy; preserve the canonical urgent-or-
+        // mention qualification separately for taskbar attention eligibility.
+        "kind": mail_kind(attention, event), "attention": attention, "org": slug, "agent": sender,
+        "title": if urgent { format!("Urgent from {sender}") } else if attention {format!("Mention from {sender}")} else { format!("Mail from {sender}") },
+        "body": gist(body, 300),
+    })
+}
+
+#[nolog]
 fn mention_notice(slug: &str, agent: &str, generation: i32, marker: &Value) -> Value {
     json!({
         "id": format!("mention:{agent}:{generation}:{}", marker["id"].as_str().unwrap_or("unknown")),
@@ -137,6 +146,19 @@ fn mention_notice(slug: &str, agent: &str, generation: i32, marker: &Value) -> V
 #[cfg(test)]
 mod taskbar_notice_tests {
     use super::*;
+    #[test]
+    fn failure_mail_keeps_its_existing_urgent_or_mention_qualification() {
+        for (urgent, body, expected) in [(false, "Failure", false), (true, "Failure", true), (false, "Help @user", true)] {
+            let mail = json!({"urgent": urgent, "body": body});
+            let attention = super::super::mail_attention::qualifies(&mail);
+            let notice = mail_notice("org", "uid", "helper", urgent, attention, body,
+                &Some(json!({"variant": "runtime.turn_failed_terminal"})));
+            assert_eq!(notice["kind"], "terminal-failure");
+            assert_eq!(notice["attention"], expected);
+            assert_eq!(notice["source_id"], "uid");
+        }
+    }
+
     #[test]
     fn mention_identity_tracks_marker_not_streaming_prose() {
         let first = mention_notice("org", "agent", 3, &json!({"id":"um-1-2","blurb":"Hello @user"}));
