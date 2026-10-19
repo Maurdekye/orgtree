@@ -1503,6 +1503,10 @@ fn args_of(v: &Value, keys: &[&str], agent: &mut dyn FnMut(&Value)) {
 #[path = "convo_model_tests.rs"]
 mod model_change_tests;
 
+#[cfg(test)]
+#[path = "convo_work_ref_tests.rs"]
+mod timed_work_ref_tests;
+
 /// A chip argument written by alpha.0/alpha.1 (the input dumped as JSON, cut
 /// at 300 characters) as the one-line argument `tool_arg` gives today; None
 /// when the argument is not such a dump.
