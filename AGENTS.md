@@ -243,6 +243,13 @@
   a current DND recipient. [decided: user 2026-10-18 17:42–17:43Z;
   verified: `canvas/{cards,desk,dnd,projectdesk}.tsx`, `styles.css`]
 
+- Quick chat's empty Files paperclip keeps the compact hire-options dropdown
+  mounted while the native picker is open and after selection or cancellation.
+  Do not call picker `back()` before opening the file input. Existing Escape /
+  outside-press dismissal and attachment uploads remain unchanged. See
+  [file picker](docs/rust-engine/quickchat-files-picker.md).
+  [verified: `QuickChatBox.tsx`, `tests/quickchat-narrow.test.tsx`; 2026-10-19]
+
 - Quick chat shares the Agents-list switchboard mark for the selected top-level
   superior and its option row. Default models prefer Opus, Sol, Argon, Wonder,
   then any hireable tier; shared staffing availability gates account/model-spent
