@@ -14,7 +14,7 @@ const notices=[row('routine','mail:a'),row('question','ask:q'),row('work-attenti
 const feed={allNotices:()=>[...notices,row('document','doc:d'),row('agent-frozen','frozen:f'),null,{}]}
 
 test('attention menu replaces Recent with every actionable item and restores Recent when empty',()=>{
- const entries=list.taskbarAttention(feed)
+ const entries=list.taskbarAttentionItems(feed)
  assert.equal(entries.length,4)
  const cats=list.taskbarTasks([{slug:'alpha',name:'Alpha'}],'C:/App.exe',undefined,{mail:'mail.ico',ticket:'ticket.ico',mention:'mention.ico'},entries)
  assert.equal(cats[0].name,'Needs attention');assert.equal(cats[0].items.length,4)
@@ -23,7 +23,7 @@ test('attention menu replaces Recent with every actionable item and restores Rec
  assert.equal(list.taskbarTasks([{slug:'alpha',name:'Alpha'}],'C:/App.exe',undefined,{},[])[0].name,'Recent')
 })
 test('menu launch arguments round trip only the org and opaque notice identity',()=>{
- for(const entry of list.taskbarAttention(feed)){
+ for(const entry of list.taskbarAttentionItems(feed)){
   const item=list.taskbarTasks([],'C:/App.exe',undefined,{},[entry])[0].items[0]
   assert.match(item.args,/^--orgtree-taskbar=attention:[A-Za-z0-9_-]+$/)
   assert.deepEqual(plain(list.taskbarTarget([item.args])),{kind:'attention',org:entry.org,id:entry.id})
@@ -35,7 +35,7 @@ test('menu launch arguments round trip only the org and opaque notice identity',
 })
 test('attention inventory is deduplicated and rejects unsafe and incomplete destinations',()=>{
  const rows=[...notices,notices[0],row('question','q',{agent:undefined}),row('work-attention','w',{item:undefined}),row('mention','m',{agent:undefined}),row('routine','bad',{org:'../escape'})]
- assert.equal(list.taskbarAttention({allNotices:()=>rows}).length,4)
+ assert.equal(list.taskbarAttentionItems({allNotices:()=>rows}).length,4)
 })
 test('question destination defaults to the desk and accepts only the two saved choices',()=>{
  assert.equal(policy.DEFAULT_PREFERENCES.questionTarget,'desk')
@@ -49,7 +49,7 @@ test('taskbar activation bypasses banner preferences but revalidates the current
  assert.match(s,/questionTarget !== 'mail'/)
  const main=fs.readFileSync('apps/desktop/main/index.ts','utf8')
  assert.match(main,/revealOrgItem\(target\.org, \{ type: 'taskbar-attention'/)
- assert.match(main,/taskbarAttention\(appFeed\.state\)/)
+ assert.match(main,/taskbarAttentionItems\(appFeed\.state\)/)
 })
 test('taskbar desk focus prefers an existing pin or detached desk before Attention view',()=>{
  const s=fs.readFileSync('apps/desktop/renderer/src/canvas/OrgCanvas.tsx','utf8')
@@ -74,7 +74,7 @@ test('attention menu glyphs are distinct PNGs generated in the owned icon cache'
 test('shipping cold-launch queue delivers the exact attention identity and current question setting to its org',async()=>{
  const source=fs.readFileSync('apps/desktop/main/index.ts','utf8')
  const start=source.indexOf('  // Taskbar navigation'),end=source.indexOf('  /** ⚠ THE EVENTS',start)
- const entry=list.taskbarAttention({allNotices:()=>[notices[1]]})[0]
+ const entry=list.taskbarAttentionItems({allNotices:()=>[notices[1]]})[0]
  const argument=list.taskbarTasks([],'app.exe',undefined,{},[entry])[0].items[0].args
  const reveals=[];let questionTarget='desk'
  const ctx=vm.createContext({process:{argv:['app.exe',argument]},taskbarTarget:list.taskbarTarget,

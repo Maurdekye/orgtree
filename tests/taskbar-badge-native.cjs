@@ -4,7 +4,7 @@ const out=process.env.ORGTREE_BADGE_CAPTURE_ROOT,root=process.env.ORGTREE_BADGE_
 assert.match(out||'',/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
 const {TaskbarDot,taskbarDotBitmap}=require(path.join(out,'badge.cjs'))
 const {actionPng}=require(path.join(out,'icons.cjs'))
-const {taskbarTasks,taskbarAttention}=require(path.join(out,'jumplist.cjs'))
+const {taskbarTasks,taskbarAttentionItems}=require(path.join(out,'jumplist.cjs'))
 app.setPath('userData',path.join(out,'user-data'));app.disableHardwareAcceleration()
 app.setAppUserModelId('Orgtree.SyntheticTaskbarBadge')
 app.whenReady().then(async()=>{
@@ -26,7 +26,7 @@ app.whenReady().then(async()=>{
       {kind:'question',id:'q',org:'demo',agent:'helper',title:'helper asks'},
       {kind:'work-attention',id:'w',org:'demo',item:'review-change',title:'Ticket needs you: Review change'},
       {kind:'mention',id:'a',org:'demo',agent:'helper',title:'helper mentioned you'}]
-    const attention=taskbarAttention({allNotices:()=>rows})
+    const attention=taskbarAttentionItems({allNotices:()=>rows})
     const category=taskbarTasks([],'synthetic.exe',undefined,{},attention)[0]
     const escape=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
     const menu='<aside><h2>'+category.name+'</h2>'+attention.map((entry,i)=>'<div class="menu"><img src="data:image/png;base64,'+actionPng(entry.icon).toString('base64')+'">'+escape(category.items[i].title)+'</div>').join('')+'<footer>Home · New org</footer></aside>'

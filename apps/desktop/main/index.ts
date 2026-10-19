@@ -35,7 +35,7 @@ import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-e
 import { nativeAppFeed, taskbarPicture } from './appfeed'
 import { JumpListIcons } from './jumplist-icons'
 import { TaskbarAttention, attentionPayload } from './taskbar-attention'
-import { TaskbarDot, needsTaskbarDot, taskbarDotBitmap } from './taskbar-badge'
+import { TaskbarDot, taskbarDotBitmap } from './taskbar-badge'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
@@ -47,7 +47,7 @@ import type { DesktopEvent, RunAsAdministratorState, StartupKind } from '../../.
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
-import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttention, type TaskbarAttention, type TaskbarOrg, type TaskbarTarget } from './jumplist'
+import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttentionItems, type TaskbarAttentionItem, type TaskbarOrg, type TaskbarTarget } from './jumplist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
@@ -436,14 +436,13 @@ else {
     const bound = org ? windows.byOrg(org) : undefined
     const record = bound ? records.get(bound.id) : undefined
     return (record ?? lastUsed())?.window
-  })
-  const taskbarDot = new TaskbarDot({
+  }, new TaskbarDot({
     platform: process.platform,
     windows: () => BrowserWindow.getAllWindows(),
     dot: () => nativeImage.createFromBitmap(taskbarDotBitmap(), { width: 16, height: 16 }),
     dockBadge: text => app.dock?.setBadge(text),
     badgeCount: count => { app.setBadgeCount(count) },
-  })
+  }))
   /** Every main window's minimize, restore, show, hide and focus, and the
    *  Orgtree actions behind them, in diagnostics/desktop-windows.jsonl
    *  (main/window-events.ts). `get`, not `identity`: identity reconciles
@@ -520,7 +519,7 @@ else {
     })
   let taskbarContents = ''
   let taskbarLatest: readonly TaskbarOrg[] = []
-  let taskbarWaiting: readonly TaskbarAttention[] = []
+  let taskbarWaiting: readonly TaskbarAttentionItem[] = []
   const refreshTaskbar = (orgs: readonly TaskbarOrg[], attention = taskbarWaiting) => {
     if (process.platform !== 'win32') return
     taskbarLatest = orgs
@@ -2416,7 +2415,7 @@ else {
         if (registerNow) windows.register({ id, senderId: window.webContents.id, window, kind, ...(org ? { org } : {}) })
         watchWindowEvents(window, id, () => windowFacts(id), windowEvents)
         window.setIcon(runtimeIcon())
-        taskbarDot.apply(window)
+        taskbarAttention.applyBadge(window)
         const capture = () => savePlacement(record)
         window.on('moved', capture)
         window.on('resized', capture)
@@ -2441,7 +2440,7 @@ else {
         })
         window.webContents.on('did-create-window', child => {
           child.setIcon(runtimeIcon())
-          taskbarDot.apply(child)
+          taskbarAttention.applyBadge(child)
           child.on('closed', quitAfterLastView)
         })
         // ⚠ ONE LISTENER. Electron runs every 'close' listener even when
@@ -2713,8 +2712,8 @@ else {
       let noticeSet = ''
       const appFeed = nativeAppFeed(engine, () => {
         if (quitting || installerUpgradeShutdown || appFeed.status !== 'current') return
-        refreshTaskbar(taskbarOrgs(appFeed.state), taskbarAttention(appFeed.state))
-        taskbarDot.set(needsTaskbarDot(appFeed.state))
+        refreshTaskbar(taskbarOrgs(appFeed.state), taskbarAttentionItems(appFeed.state))
+        taskbarAttention.updateInventory(appFeed.state)
         const total = appFeed.state.attentionTotal()
         if (total !== attentionTotal) { attentionTotal = total; rebuildTray() }
         const next = JSON.stringify(appFeed.state.allNotices())

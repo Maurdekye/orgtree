@@ -85,9 +85,9 @@ test('one window closing during an overlay write cannot block the other windows'
 })
 test('central current app-feed changes and new windows are wired to the dot',()=>{
   const source=fs.readFileSync('apps/desktop/main/index.ts','utf8')
-  const update='taskbarDot.set(needsTaskbarDot(appFeed.state))'
+  const update='taskbarAttention.updateInventory(appFeed.state)'
   assert.equal(source.includes(update),true)
   assert.ok(source.indexOf(update)<source.indexOf('const next = JSON.stringify(appFeed.state.allNotices())'),'badge update precedes the notice short circuit')
-  assert.equal(source.includes('taskbarDot.apply(window)'),true)
-  assert.equal(source.includes('taskbarDot.apply(child)'),true)
+  assert.equal(source.includes('taskbarAttention.applyBadge(window)'),true)
+  assert.equal(source.includes('taskbarAttention.applyBadge(child)'),true)
 })

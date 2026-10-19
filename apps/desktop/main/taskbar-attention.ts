@@ -1,3 +1,5 @@
+import { needsTaskbarDot, type BadgeFeed, type BadgeWindow, type TaskbarDot } from './taskbar-badge'
+
 interface FlashWindow {
   isDestroyed(): boolean
   isFocused(): boolean
@@ -44,12 +46,19 @@ export interface AttentionItem { id: string; org?: string }
  *  Nothing else about the rule changed: the new-arrival trigger, the known-set
  *  baseline, the refusal to flash a window the user is already looking at and
  *  the clearing on activation are all exactly as they were. */
-export class TaskbarAttention {
+export class TaskbarAttention<Image = unknown> {
   private known = new Set<string>()
   /** The windows with a flash currently running. v2 held one boolean, which
    *  was the same statement when there was one window. */
   private flashing = new Set<FlashWindow>()
-  constructor(private target: (org?: string) => FlashWindow | undefined) {}
+  constructor(private target: (org?: string) => FlashWindow | undefined,
+    private badge?: TaskbarDot<Image>) {}
+
+  /** The existing controller owns both native effects. The current app feed
+   * supplies badge presence; the existing qualifying identity set still owns
+   * arrival pulses. Focus stops a pulse, never unread state. */
+  updateInventory(feed: BadgeFeed): void { this.badge?.set(needsTaskbarDot(feed)) }
+  applyBadge(window: BadgeWindow<Image>): void { this.badge?.apply(window) }
 
   /** @returns whether this call started a pulse — for tests and for callers
    *  that want to log a real attention event rather than a poll. */

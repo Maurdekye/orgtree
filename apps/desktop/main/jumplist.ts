@@ -4,7 +4,7 @@ export type TaskbarTarget = { kind: 'homepage' | 'create' } | { kind: 'org'; slu
   | { kind: 'attention'; org: string; id: string }
 export type TaskbarOrg = { slug: string; name: string; logo?: string }
 export type TaskbarIcons = { home?: string; create?: string; mail?: string; ticket?: string; mention?: string; orgs?: Record<string, string> }
-export type TaskbarAttention = { org: string; id: string; title: string; icon: 'mail' | 'ticket' | 'mention' }
+export type TaskbarAttentionItem = { org: string; id: string; title: string; icon: 'mail' | 'ticket' | 'mention' }
 const PREFIX = '--orgtree-taskbar='
 const SLUG = /^[a-z0-9@-]+$/
 
@@ -31,14 +31,14 @@ export function taskbarTarget(argv: readonly string[]): TaskbarTarget | null {
 
 /** The same complete, current inventory as the badge. No banner preference,
  * renderer-local dismissal or notification history may hide a waiting item. */
-export function taskbarAttention(state: Pick<AppFeedState, 'allNotices'>): TaskbarAttention[] {
-  const seen = new Set<string>(), out: TaskbarAttention[] = []
+export function taskbarAttentionItems(state: Pick<AppFeedState, 'allNotices'>): TaskbarAttentionItem[] {
+  const seen = new Set<string>(), out: TaskbarAttentionItem[] = []
   for (const raw of state.allNotices()) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
     const n = raw as Record<string, unknown>
     if (typeof n.org !== 'string' || n.org.length > 128 || !SLUG.test(n.org)
         || typeof n.id !== 'string' || !n.id || n.id.length > 200 || /[\x00-\x1f]/.test(n.id)) continue
-    let icon: TaskbarAttention['icon']
+    let icon: TaskbarAttentionItem['icon']
     if (n.kind === 'question' || n.kind === 'mention') {
       if (typeof n.agent !== 'string' || !n.agent) continue
       icon = n.kind === 'question' ? 'mail' : 'mention'
@@ -71,7 +71,7 @@ export function taskbarOrgs(state: AppFeedState): TaskbarOrg[] {
 
 /** Explicit custom category, followed by Windows' fixed Tasks section.
  * Names stay display text; only the validated slug goes into arguments. */
-export function taskbarTasks(orgs: readonly TaskbarOrg[], exe: string, appPath?: string, icons: TaskbarIcons = {}, attention: readonly TaskbarAttention[] = []): Electron.JumpListCategory[] {
+export function taskbarTasks(orgs: readonly TaskbarOrg[], exe: string, appPath?: string, icons: TaskbarIcons = {}, attention: readonly TaskbarAttentionItem[] = []): Electron.JumpListCategory[] {
   // Windows paths cannot contain quotes. Escape trailing slashes before the
   // closing quote for development's `electron.exe "<app path>"` invocation.
   const appArg = appPath ? `"${appPath.replace(/(\\+)$/, '$1$1')}" ` : ''

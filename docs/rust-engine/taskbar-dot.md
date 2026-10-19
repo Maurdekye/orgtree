@@ -12,9 +12,18 @@ not clear it: the last unread/pending item must resolve. An unchanged feed avoid
 native writes. macOS uses a dock bullet; Linux uses its available badge API with
 presence represented by one, clearing with zero. Unsupported badges are best effort.
 
-The existing `TaskbarAttention` pulse remains separate: only new attention items
-pulse their owning org's window, with its existing focus/dedup policy. The badge
-adds ordinary unread mail without changing those pulse rules or the tray count.
+The existing `TaskbarAttention` controller owns both native effects. Its
+`updateInventory` and `applyBadge` methods delegate persistent overlay/platform
+writes to `TaskbarDot`; its original `set` and `focused` paths retain per-org
+arrival pulses and their focus/dedup policy. Ordinary unread mail adds a badge
+without inventing a pulse policy or changing the tray/toolbar counts. There is
+one host controller, one existing app feed, no second reader or poller. The
+badge adapter caches native writes, not a second pending-attention counter.
+
+Jump-list row types and the pure inventory projection are named
+`TaskbarAttentionItem` / `taskbarAttentionItems`; neither may shadow the existing
+controller class or its host variable. Full root `npm run typecheck` is required
+for host changes; changed-module checks cannot validate host import resolution.
 
 `tests/taskbar-badge.test.mjs` covers the shared app-feed projection, transitions,
 window lifecycle and platform adapters. `taskbar-badge-native.cjs` applies and

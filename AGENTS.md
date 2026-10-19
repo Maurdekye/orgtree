@@ -23,6 +23,12 @@
   view. Banner muting never disables these navigation actions. [decided: user
   2026-10-19 11:32–11:33Z; verified: `main/jumplist.ts`, `renderer/src/notifications.ts`]
   [decided: user 2026-10-19 11:26Z; verified: `main/{taskbar-badge,index}.ts`]
+  `TaskbarAttention` is the existing native controller (arrival pulses plus
+  persistent badge lifecycle); jump-list rows are `TaskbarAttentionItem` and
+  the pure projection is `taskbarAttentionItems`. Keep those names distinct
+  from the host's controller variable. Validate host changes with the ROOT
+  typecheck: scoped module checks and esbuild do not catch host name collisions.
+  [verified: `main/{index,taskbar-attention,jumplist}.ts`; 2026-10-19]
 
 - Centered Quick chat side minima must be measured with each side temporarily
   unconstrained (`min-width: max-content`), restoring its inline style before
