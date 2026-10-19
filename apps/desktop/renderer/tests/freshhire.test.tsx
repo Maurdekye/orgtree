@@ -6,6 +6,7 @@ import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { QuickChat } from '../src/QuickChatBox'
 import { clearProviderDiscovery } from '../src/api'
 import { setMuseProvider } from '../src/canvas/shared'
+import { resetStaffingOptionsForTests } from '../src/canvas/staffingoptions'
 import type { ProviderInfo, ProvidersPayload, TreePayload } from '../src/types'
 
 // Rust providers::payload omits uninstalled harnesses. The older availability
@@ -36,11 +37,16 @@ const scenarios: { name: string; payload: ProvidersPayload; visible: string[]; d
 for (const surface of ['canvas', 'quickchat'] as const) for (const scenario of scenarios) {
   test(`${surface}: ${scenario.name} uses sparse discovery, without changing Muse`, async t => {
     const oldFetch = globalThis.fetch
-    clearProviderDiscovery(); setMuseProvider(null); localStorage.clear()
+    clearProviderDiscovery(); resetStaffingOptionsForTests(); setMuseProvider(null); localStorage.clear()
     let providerReads = 0
     globalThis.fetch = legacyAppBackend(async input => {
       const url = String(input)
       const body = url === '/api/providers' ? (providerReads++, scenario.payload)
+        // 4.4 Quick chat additionally filters by staffing. A cached offer must
+        // never override this machine's completed absence observation.
+        : url.includes('staffing-options') ? { tiers: Object.values(samples).map(tier => ({
+            tier, seat: 2, efforts: ['high'], accounts: [], default_ok: true,
+          })), loading: false, stale: false, errors: [], at: 0, generation: 0 }
         : url.includes('accounts') ? { accounts: [] }
         : url.includes('charters') ? { charters: [] }
         : { ok: true, tiers: [], entries: [], items: [], documents: [], refs: [], live: [], pending_mail: [] }
@@ -52,7 +58,7 @@ for (const surface of ['canvas', 'quickchat'] as const) for (const scenario of s
       : <QuickChat tree={tree} slug={tree.slug} op={op} toast={noop} onHired={noop} />, el => el)
     t.after(async () => {
       await view.unmount(); globalThis.fetch = oldFetch
-      clearProviderDiscovery(); setMuseProvider(null); localStorage.clear()
+      clearProviderDiscovery(); resetStaffingOptionsForTests(); setMuseProvider(null); localStorage.clear()
     })
     await inAct(async () => { await flush(10) })
     assert.ok(providerReads > 0, 'the real provider reader consumed the fixture')
