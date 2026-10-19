@@ -9,6 +9,15 @@
 
 # AGENTS.md — working on Orgtree
 
+- Desk-tab pin/pop-out requests snapshot the owning `.desk-tabpanel` before
+  the modal mounts. Shared one-shot origin metadata carries its client box
+  and window; modal buttons still measure their own panel. Pins keep existing
+  minima/canvas clamping; inline pop-outs use native exact client mapping and
+  request-only work-area clamping, without changing other exact-frame launches
+  or saved state. See [tab window origins](docs/rust-engine/tab-window-origins.md).
+  [decided: user/coordinator 2026-10-19 13:32/13:38Z; verified:
+  `canvas/{panelcorner,modalpin}.tsx`, `popout.tsx`, `main/windows.ts`]
+
 - Presentation lists share unread mail's bold/accent title and brighter metadata
   for new or replaced documents, using existing `viewed_at` plus `docviewed` marks.
   Shared gallery rows subscribe to viewed changes; successful user opens clear
