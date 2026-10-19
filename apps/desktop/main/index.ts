@@ -26,6 +26,7 @@ import { registerHeldEventChannels } from './held-events'
 import { beginCreation, cancelCreation, openOrg, orgWindowRegistry, planRestore, resolveNativeSender } from './org-windows'
 import { windowOutbox, type WindowOutbox } from './window-outbox'
 import { performClose } from './window-close'
+import { mailReadCloseGate, rendererMailReadFlushScript } from './mail-read-close'
 import { OrgPlacement, orgOfKey, placementKey } from './org-placement'
 import type { OrgOpenOutcome, OrgWindowKind } from '../../../packages/contracts/desktop-window'
 import { detectHarnesses, harnessSetupMenu, type HarnessSetup } from './harnesses'
@@ -969,7 +970,7 @@ else {
     await Promise.all([...records.values()].map(async record => {
       savePlacement(record)
       if (record.window.isDestroyed()) return
-      try { await record.window.webContents.executeJavaScript('window.dispatchEvent(new Event("orgtree:before-exit"))') }
+      try { await record.window.webContents.executeJavaScript(rendererMailReadFlushScript('orgtree:before-exit')) }
       catch { /* Crashed renderer cannot save layout. */ }
     }))
   }
@@ -2441,6 +2442,11 @@ else {
         window.webContents.on('did-create-window', child => {
           child.setIcon(runtimeIcon())
           taskbarAttention.applyBadge(child)
+          const drainReads = mailReadCloseGate(
+            () => bounded(child.webContents.executeJavaScript(rendererMailReadFlushScript()), UPDATE_LAYOUT_MS),
+            () => { if (!child.isDestroyed()) child.close() },
+            error => { void dialog.showMessageBox({type: 'error', message: 'Could not save opened mail as read.', detail: String(error)}).catch(() => {}) })
+          child.on('close', event => { if (!quitting) drainReads(event) })
           child.on('closed', quitAfterLastView)
         })
         // ⚠ ONE LISTENER. Electron runs every 'close' listener even when
@@ -2456,7 +2462,12 @@ else {
           captureOpenWindowsForShutdown()
           quitting = true
         })
+        const drainReads = mailReadCloseGate(
+          () => bounded(window.webContents.executeJavaScript(rendererMailReadFlushScript()), UPDATE_LAYOUT_MS),
+          () => { if (!window.isDestroyed()) window.close() },
+          error => { void dialog.showMessageBox(window, {type: 'error', message: 'Could not save opened mail as read.', detail: String(error)}).catch(() => {}) })
         window.on('close', event => {
+          if (!quitting && drainReads(event)) return
           savePlacement(record)
           performClose({
             quitting,

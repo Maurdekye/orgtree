@@ -1,4 +1,6 @@
 import { hasMailAttention } from '../mailattention'
+import { useReadOnLeave } from '../mailleave'
+import { useSurfaceDocument } from '../popout'
 import { beginOpen, useOpenCommit } from '../opentiming'
 import { useRecordMailbox } from '../recordpanelhooks'
 import { useMailboxHistory } from '../usemailhistory'
@@ -91,7 +93,7 @@ export interface MailListProps {
    *  identity the pane refused to. */
   rowSender?: (id: string, m: MailRow) => ReactNode
   outgoing?: boolean
-  onRead?: (m: MailRow) => void
+  onRead?: (m: MailRow) => void | Promise<unknown>
   /** `notice` is set only when the reply box's notice toggle was armed at
    *  send; the host forwards it to its own send call. */
   onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean, targets?: MailRow[]) => void
@@ -458,13 +460,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   useOpenCommit('mail-item',`${org ?? refs?.world.org ?? ''}/${keyOf(cur)}`,!!cur,cur)
   // per-mail read (user ruling): a VIEWED unread mail is marked read the
   // moment you click OFF it — select another mail, or leave the list
-  const curRef = useRef<MailRow | undefined>(undefined); curRef.current = cur
-  const readRef = useRef(onRead); readRef.current = onRead
-  // ask rows are not real mail — their ids must never reach markRead
-  const leave = (m: MailRow | undefined) => {
-    if (m?._wait && m.id && !m._ask) readRef.current?.(m)
-  }
-  useEffect(() => () => leave(curRef.current), [])
+  const owner = useSurfaceDocument().defaultView ?? window
+  useReadOnLeave(JSON.stringify([org ?? refs?.world.org ?? '', !!outgoing]),
+    cur && !outgoing ? curPile ?? [cur] : [], onRead, owner)
   const party = partyOf
   // a custom sender renderer owns the whole head identity (it receives the
   // mail too — the org inbox uses this for "@agent as @org → @recipient")
@@ -495,12 +493,11 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     const isCur = Boolean(cur && keyOf(m) === keyOf(cur))
     const select = () => {
       if (isCur) return
-      leave(cur)
       setSelId(keyOf(m))
     }
     const entries: MenuEntry[] = [
       isCur
-        ? { label: 'Close', onSelect: () => { leave(cur); setSelId(null) } }
+        ? { label: 'Close', onSelect: () => { setSelId(null) } }
         : { label: 'Open', onSelect: select },
     ]
     const canReply = Boolean(onReply && !outgoing && !m._ask && answerable(m))
@@ -587,7 +584,6 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
         : Math.max(0, idx - 1)
     const m = list[next]!
     if (cur && keyOf(m) === keyOf(cur)) return
-    leave(cur)
     setSelId(keyOf(m))
     // rendered rows mirror list order, so the index addresses the row —
     // no attribute-selector escaping games with the composite fallback key
@@ -663,11 +659,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             onClick={() => {
               if (cur && keyOf(m) === keyOf(cur)) {
                 // toggling the selected row off — reading it counts as read
-                leave(cur)
                 setSelId(null)
               } else {
                 beginOpen('mail-item',`${org ?? refs?.world.org ?? ''}/${keyOf(m)}`)
-                leave(cur)
                 setSelId(keyOf(m))
               }
             }}
@@ -1802,7 +1796,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   const markRead = () => {
     if (!inbox?.unread) return
     const len = logLen                  // captured BEFORE the round trip
-    orgInboxRead(slug).then(() => setAckLen((n) => Math.max(n, len)))
+    return orgInboxRead(slug).then(() => setAckLen((n) => Math.max(n, len)))
       .catch(() => {})                  // a failed write arms nothing (D-089)
   }
   // F-06: the @net: delivery ladder glyph — ▫ queued · ✓ sent (hub custody)

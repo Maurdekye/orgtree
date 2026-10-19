@@ -895,6 +895,7 @@ export const clearInbox = (slug: string): Promise<{ ok: boolean }> =>
 export const markRead = (slug: string, ids: string[]): Promise<{ read: number }> =>
   req(`/api/orgs/${slug}/inbox/read`, {
     method: 'POST',
+    keepalive: true,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ids }),
   })
