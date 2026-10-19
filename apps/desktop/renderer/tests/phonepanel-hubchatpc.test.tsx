@@ -52,3 +52,16 @@ test('Hubchat on this PC: "Set up my phone with a code instead" leads to the dow
   assert.ok(!seen.some(s => s === 'POST /api/desktop/phone/link'), seen.join(', '))
   await view.unmount()
 })
+
+test('phone setup modal dismisses with Escape and has no dedicated close button', async () => {
+  g.fetch = () => Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(state) })
+  let closed = 0
+  const view = await mountView(<PhonePanel org="acme" onClose={() => { closed++ }} />, el => el)
+  await inAct(async () => { await flush(10) })
+  assert.ok(!view.el.querySelector('.phone-x'), 'the modal has no separate close control')
+  await inAct(async () => {
+    view.el.ownerDocument.defaultView!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  assert.equal(closed, 1, 'Escape dismisses the phone setup modal')
+  await view.unmount()
+})
