@@ -7,7 +7,7 @@ Up: [orgtree-runtime](../SKILL.md)
 
 # Do Not Disturb
 
-Cards and agent desks show DND in their header token row, beside effort rather than status. The composer's round `!` urgency button sits beside Fast and turns bright orange when armed. It appears only for a current DND recipient. A project composer offers the same button while broadcast is on and at least one live recipient is in DND; only those recipients receive urgent mail, while other recipients receive ordinary mail. A reason remains required.
+Cards and agent desks show DND in their header token row, beside effort rather than status. The composer's round `!` urgency button sits beside Fast and turns orange-red (`#ff4500`) when armed; the message box outline uses the same color. It appears only for a current DND recipient. A project composer offers the same button while broadcast is on and at least one live recipient is in DND; only those recipients receive urgent mail, while other recipients receive ordinary mail. User-originated urgent sends do not require a reason.
 
 Call `orgtree_status status=working summary="Focused work" dnd=true` during your own running turn. DND is available with status reporting, even with every tool group off. The card and desk show a small DND badge. It protects every harness, including Antigravity and other harnesses whose mid-turn mail handoff can interrupt work and lose prompt-cache reuse.
 
@@ -23,9 +23,9 @@ DND belongs only to the current turn. When that turn actually ends, including an
 
 ## Urgent bypass
 
-Only mail marked urgent bypasses DND. An urgent send requires a nonblank `urgent_reason` and ordinary mail authority. Agent recipients can be marked urgent only while they are currently in DND; a stale or non-DND target is refused clearly by the agent tool, per recipient for a plural send. Urgency adds no new wake or notification-noise behavior to agent mail; normal notice and wake rules still apply. It shows the existing urgent marking in the mail view.
+Only mail marked urgent bypasses DND. A user-originated urgent send may omit `urgent_reason`. Agent-originated urgent mail sent through `orgtree_message` still requires a nonblank `urgent_reason` and ordinary mail authority. Agent recipients can be marked urgent only while they are currently in DND; a stale or non-DND target is refused clearly by the agent tool, per recipient for a plural send. Urgency adds no new wake or notification-noise behavior to agent mail; normal notice and wake rules still apply. It shows the existing urgent marking in the mail view.
 
-The user's agent composer shows the urgent toggle and reason only while its recipient is in DND, changing live. A project megaphone shows it when any recipient is in DND and applies urgent only to those recipients; other recipients receive ordinary mail. Normal delivery results remain per recipient. Urgent mail to the user keeps its existing behavior.
+The user's agent composer shows the urgent toggle only while its recipient is in DND, changing live; it does not ask the user to type a reason. A project megaphone shows the toggle when any recipient is in DND and applies urgency only to those recipients; other recipients receive ordinary mail. Normal delivery results remain per recipient. Agent-originated urgent mail to the user still requires a nonblank reason.
 
 ## See also
 
