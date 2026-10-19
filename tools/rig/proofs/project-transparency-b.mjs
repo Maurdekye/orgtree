@@ -144,8 +144,8 @@ export default async function(rig) {
   for(const s of shapes) p.check(`${s.shape}: a real idle reminder reaches the computed deployer`,reminded(s).some(r=>r.recipient_name===(s.manager??s.name)),reminded(s))
   await switches(false)
 
-  // Movement leaves structural placement intact but describes the reporting
-  // change. Same-superior movement still reaches both physical peer groups.
+  // Cross-superior movement preserves the chosen project placement and names
+  // the actual reporting change. Same-superior exact counts have their own proof.
   for(const s of shapes.filter(s=>s.manager)) {
     const before=mark()
     await rig.op({op:'move',node:s.name,new_parent:'root-inner-destination'}).catch(async e=>{
