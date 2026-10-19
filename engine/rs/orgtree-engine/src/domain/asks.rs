@@ -483,8 +483,8 @@ async fn credit_room(engine: &Engine, org_id: i64, agent_id: i64) -> Result<(f64
     let settings = crate::feed::groups::effective_settings(&settings, &engine.settings.defaults());
     let rows = client.query(
         "WITH RECURSIVE up(id, parent_id, depth) AS (
-           SELECT id, parent_id, 0 FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live'
-           UNION ALL SELECT a.id, a.parent_id, u.depth + 1 FROM ot.agents a JOIN up u ON a.id = u.parent_id
+           SELECT id, superior_id, 0 FROM ot.agent_reporting WHERE id = $1 AND org_id = $2 AND state = 'live'
+           UNION ALL SELECT a.id, a.superior_id, u.depth + 1 FROM ot.agent_reporting a JOIN up u ON a.id = u.parent_id
             WHERE u.depth < 1024 AND a.org_id = $2)
          SELECT a.grant_credits::float8, u.parent_id,
                 (a.grant_credits - coalesce((SELECT sum(c.seat + c.grant_credits) FROM ot.agents c
@@ -561,11 +561,11 @@ async fn held_scope_in(client: &impl tokio_postgres::GenericClient, engine: &Eng
     let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
     let settings = crate::feed::groups::effective_settings(&settings, &engine.settings.defaults());
     let rows = client.query(
-        "WITH RECURSIVE up(id, parent_id, scope, depth) AS (
-           SELECT id, parent_id, scope, 0 FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live'
-           UNION ALL SELECT a.id, a.parent_id, a.scope, u.depth + 1 FROM ot.agents a JOIN up u ON a.id = u.parent_id
+        "WITH RECURSIVE up(id, parent_id, scope, kind, depth) AS (
+           SELECT id, parent_id, scope, kind, 0 FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live'
+           UNION ALL SELECT a.id, a.parent_id, a.scope, a.kind, u.depth + 1 FROM ot.agents a JOIN up u ON a.id = u.parent_id
             WHERE u.depth < 1024 AND a.org_id = $2)
-         SELECT scope, parent_id FROM up ORDER BY depth DESC LIMIT 1025", &[&agent_id, &org_id],
+         SELECT scope, parent_id, kind FROM up ORDER BY depth DESC LIMIT 1025", &[&agent_id, &org_id],
     ).await?;
     let Some(root) = rows.first() else { refuse!(NotFound, "the requesting agent is not live") };
     if root.get::<_, Option<i64>>(1).is_some() {
@@ -573,6 +573,7 @@ async fn held_scope_in(client: &impl tokio_postgres::GenericClient, engine: &Eng
     }
     let mut effective = scope::org_ceiling(&settings["dirs"]);
     for row in rows {
+        if row.get::<_, &str>(2)=="project" { continue; }
         effective = scope::clamp(&row.get::<_, Value>(0), &effective);
     }
     Ok(effective)
@@ -1042,7 +1043,7 @@ pub async fn credit_decide(engine: &Arc<Engine>, org: &Arc<OrgHandle>, body: &Va
         // front, rather than warning of stranded reports it never strands.
         let r = tx
             .query_one(
-                "SELECT a.grant_credits::float8, a.parent_id IS NULL, o.settings,
+                "SELECT a.grant_credits::float8, ot.superior_of(a.id) IS NULL, o.settings,
                         (SELECT coalesce(sum(c.seat + c.grant_credits), 0)::float8 FROM ot.agents c WHERE c.parent_id = a.id AND c.state = 'live')
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1",
                 &[&open.agent_id],

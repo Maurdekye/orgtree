@@ -299,15 +299,15 @@ fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling:
 }
 
 #[logged]
-fn inspection_visible(id: i64, caller: i64, visibility: &str, rows: &HashMap<i64, (Option<i64>, Value)>) -> bool {
+fn inspection_visible(id: i64, caller: i64, visibility: &str, rows: &HashMap<i64, (Option<i64>, Value)>,
+    reporting: &HashMap<i64, Option<i64>>) -> bool {
     if id == caller || visibility == "full" { return true; }
-    let (Some((parent, _)), Some((caller_parent, _))) = (rows.get(&id), rows.get(&caller)) else {
-        return false;
-    };
     // Match chart's superior/peer rows, including other top-level agents.
     // Reports at every depth are inspectable even with self visibility.
-    if visibility != "self" && (Some(id) == *caller_parent || parent == caller_parent) {
-        return true;
+    if visibility != "self" {
+        if let (Some(parent),Some(caller_parent))=(reporting.get(&id),reporting.get(&caller)) {
+            if Some(id)==*caller_parent || parent==caller_parent { return true; }
+        }
     }
     let mut next = Some(id);
     for _ in 0..=1024 {
@@ -332,6 +332,7 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     let settings = crate::feed::groups::effective_settings(&settings, &engine.settings.defaults());
     let ceiling = crate::domain::scope::org_ceiling(&settings["dirs"]);
     let mut scopes = HashMap::new();
+    let mut reporting = HashMap::new();
     let mut records = Vec::new();
     let mut after = 0i64;
     loop {
@@ -359,13 +360,17 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
               -- a project node (docs/rust-engine/PROJECT-NODES.md) says so
               || CASE WHEN a.kind='project' THEN jsonb_build_object('kind', 'project') ELSE '{}'::jsonb END
               || CASE WHEN a.provider='openrouter' AND a.extra ? 'harness' THEN jsonb_build_object('harness', a.extra->'harness',
-                   'harness_pinned', coalesce((a.extra->>'harness_pin')::boolean, false)) ELSE '{}'::jsonb END
+                   'harness_pinned', coalesce((a.extra->>'harness_pin')::boolean, false)) ELSE '{}'::jsonb END,
+              a.kind='agent', ot.superior_of(a.id)
              FROM ot.agents a WHERE a.org_id=$1 AND a.state<>'deleted' AND a.id>$2 ORDER BY a.id LIMIT 256",
             &[&caller.org_id, &after]).await?;
         if page.is_empty() { break; }
         for r in page {
             let id: i64 = r.get(0);
-            scopes.insert(id, (r.get(1), r.get(2)));
+            let agent:bool=r.get(4);
+            // Project kind, not stale scope keys, makes this row transparent.
+            scopes.insert(id, (r.get(1), if agent { r.get(2) } else { json!({"transparent":true}) }));
+            if agent { reporting.insert(id,r.get(5)); }
             records.push((id, r.get::<_, Value>(3)));
             after = id;
         }
@@ -381,12 +386,12 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     // The snapshot is coherent and owned. CPU work and verbose scope logging
     // cannot occupy a Tokio async worker or retain a database-pool client.
     let span = tracing::Span::current();
-    tokio::task::spawn_blocking(move || span.in_scope(|| inspection_projection(caller_id, caller_name, archived, names, scopes, records, ceiling))).await?
+    tokio::task::spawn_blocking(move || span.in_scope(|| inspection_projection(caller_id, caller_name, archived, names, scopes, reporting, records, ceiling))).await?
 }
 
 #[logged]
 fn inspection_projection(caller_id: i64, caller_name: String, archived: bool, names: Vec<String>,
-    scopes: HashMap<i64, (Option<i64>, Value)>, records: Vec<(i64, Value)>, ceiling: Value) -> Result<Done> {
+    scopes: HashMap<i64, (Option<i64>, Value)>, reporting: HashMap<i64, Option<i64>>, records: Vec<(i64, Value)>, ceiling: Value) -> Result<Done> {
     // Rank the complete live sibling set before visibility/name filtering.
     // Archived rows have no live index and do not consume an insertion slot.
     let mut siblings: HashMap<Option<i64>, Vec<(i64, f64)>> = HashMap::new();
@@ -407,7 +412,7 @@ fn inspection_projection(caller_id: i64, caller_name: String, archived: bool, na
     let visibility = own_scope["org_visibility"].as_str().unwrap_or("team");
     let mut out = Vec::new();
     for (id, mut row) in records {
-        if (!archived && row["state"] != "live") || !inspection_visible(id, caller_id, visibility, &scopes) { continue; }
+        if (!archived && row["state"] != "live") || !inspection_visible(id, caller_id, visibility, &scopes, &reporting) { continue; }
         if !names.is_empty() && !names.iter().any(|n| row["name"] == *n) { continue; }
         row["sibling_index"] = positions.get(&id).map(|p| json!(p.0)).unwrap_or(Value::Null);
         row["live_sibling_count"] = json!(siblings.get(&scopes[&id].0).map(Vec::len).unwrap_or(0));
@@ -442,7 +447,8 @@ mod fast_tools_tests {
         let scopes=HashMap::from([(1,(None,json!({"org_visibility":"full","fast_mode":true}))),
             (2,(Some(1),json!({}))), (3,(Some(1),json!({"fast_mode":true})))]);
         let records=(1..=3).map(|id|(id,json!({"name":format!("n{id}"),"state":"live","tier":"sol"}))).collect();
-        let d=inspection_projection(1,"n1".into(),false,vec![],scopes,records,ceiling).unwrap();
+        let reporting=scopes.iter().map(|(id,(parent,_))|(*id,*parent)).collect();
+        let d=inspection_projection(1,"n1".into(),false,vec![],scopes,reporting,records,ceiling).unwrap();
         let out:Value=serde_json::from_str(&d.text).unwrap();
         assert_eq!(out["nodes"][0]["scope"]["fast_mode"],true);
         assert_eq!(out["nodes"][1]["scope"]["fast_mode"],false);

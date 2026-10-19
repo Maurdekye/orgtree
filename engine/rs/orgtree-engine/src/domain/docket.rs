@@ -2078,7 +2078,7 @@ pub async fn delete(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug:
     let mut it = load(&*tx, org.id, slug, true).await?;
     if let Who::Agent { id, name, .. } = who {
         let owner_top = it.owner_name() == Some(name.as_str())
-            && tx.query_one("SELECT parent_id IS NULL FROM ot.agents WHERE id = $1", &[id]).await?.get::<_, bool>(0);
+            && tx.query_one("SELECT ot.superior_of($1) IS NULL", &[id]).await?.get::<_, bool>(0);
         let above_owner = match it.owner_id {
             Some(o) => below(&*tx, *id).await?.contains(&o),
             None => false,
@@ -2573,7 +2573,7 @@ pub(crate) async fn recover_abandoned(engine: &Arc<Engine>, org: &Arc<OrgHandle>
              OR a.generation < CASE WHEN w.owner->>'generation' ~ '^[0-9]{1,9}$' THEN (w.owner->>'generation')::integer ELSE 0 END)
          ORDER BY w.created_at, w.id LIMIT 8 FOR UPDATE OF w SKIP LOCKED", &[&org.id]).await?;
     if rows.is_empty() { return Ok(()); }
-    let Some(target) = tx.query_opt("SELECT id, name, generation FROM ot.agents WHERE org_id = $1 AND state = 'live' AND kind = 'agent' AND parent_id IS NULL ORDER BY name LIMIT 1 FOR SHARE", &[&org.id]).await? else { return Ok(()) };
+    let Some(target) = tx.query_opt("SELECT id, name, generation FROM ot.agents WHERE org_id = $1 AND state = 'live' AND kind = 'agent' AND ot.superior_of(id) IS NULL ORDER BY name LIMIT 1 FOR SHARE", &[&org.id]).await? else { return Ok(()) };
     let id: i64 = target.get(0);
     let name: String = target.get(1);
     let generation: i32 = target.get(2);

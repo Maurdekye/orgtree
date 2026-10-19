@@ -1629,11 +1629,11 @@ async fn effective_scope(engine: &Engine, agent: i64) -> Result<Value> {
         .get(0);
     let chain = client
         .query(
-            "WITH RECURSIVE chain(id, parent_id, scope, depth) AS (
-               SELECT id, parent_id, scope, 0 FROM ot.agents WHERE id = $1
-               UNION ALL SELECT a.id, a.parent_id, a.scope, c.depth + 1 FROM ot.agents a JOIN chain c ON a.id = c.parent_id
+            "WITH RECURSIVE chain(id, parent_id, scope, kind, depth) AS (
+               SELECT id, parent_id, scope, kind, 0 FROM ot.agents WHERE id = $1
+               UNION ALL SELECT a.id, a.parent_id, a.scope, a.kind, c.depth + 1 FROM ot.agents a JOIN chain c ON a.id = c.parent_id
                 WHERE c.depth < 1024)
-             SELECT scope FROM chain ORDER BY depth DESC",
+             SELECT scope FROM chain WHERE kind='agent' ORDER BY depth DESC",
             &[&agent],
         )
         .await?;

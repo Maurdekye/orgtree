@@ -272,17 +272,18 @@ async fn caller_tools(engine: &Engine, caller: &Caller) -> Result<Value> {
 #[logged]
 pub(super) async fn caller_tools_in<C: tokio_postgres::GenericClient + Sync>(client: &C, caller: &Caller) -> Result<Value> {
     let rows = client.query(
-        "WITH RECURSIVE chain(id,parent_id,scope,depth) AS (
-           SELECT id,parent_id,scope,0 FROM ot.agents WHERE id=$1 AND org_id=$2
-           UNION ALL SELECT a.id,a.parent_id,a.scope,c.depth+1 FROM ot.agents a JOIN chain c ON a.id=c.parent_id
+        "WITH RECURSIVE chain(id,parent_id,scope,kind,depth) AS (
+           SELECT id,parent_id,scope,kind,0 FROM ot.agents WHERE id=$1 AND org_id=$2
+           UNION ALL SELECT a.id,a.parent_id,a.scope,a.kind,c.depth+1 FROM ot.agents a JOIN chain c ON a.id=c.parent_id
              WHERE a.org_id=$2 AND c.depth<1024)
-         SELECT scope, parent_id, depth FROM chain ORDER BY depth DESC", &[&caller.agent_id, &caller.org_id]).await?;
+         SELECT scope, parent_id, depth, kind FROM chain ORDER BY depth DESC", &[&caller.agent_id, &caller.org_id]).await?;
     let Some(top) = rows.first() else { crate::refuse!(Forbidden, "agent scope is unavailable"); };
     if top.get::<_, Option<i64>>(1).is_some() {
         crate::refuse!(Forbidden, "agent scope ancestry is incomplete");
     }
     let mut tools = json!({"mcp":["*"]});
     for row in rows {
+        if row.get::<_, &str>(3)=="project" { continue; }
         let scope: Value = row.get(0);
         tools = crate::domain::scope::clamp_tools(&scope["tools"], &tools);
     }
@@ -295,7 +296,7 @@ pub struct Me {
     pub id: i64,
     pub org_id: i64,
     pub name: String,
-    pub parent_id: Option<i64>,
+    pub superior_id: Option<i64>,
     pub generation: i32,
     pub visibility: String,
 }
@@ -303,10 +304,10 @@ pub struct Me {
 #[logged]
 pub async fn me(client: &Client, caller: &Caller) -> Result<Me> {
     let r = client
-        .query_one("SELECT id, org_id, name, parent_id, generation FROM ot.agents WHERE id = $1", &[&caller.agent_id])
+        .query_one("SELECT a.id,a.org_id,a.name,r.superior_id,a.generation FROM ot.agents a JOIN ot.agent_reporting r ON r.id=a.id WHERE a.id=$1", &[&caller.agent_id])
         .await?;
     let visibility = effective_visibility(client, caller.agent_id).await?;
-    Ok(Me { id: r.get(0), org_id: r.get(1), name: r.get(2), parent_id: r.get(3), generation: r.get(4), visibility })
+    Ok(Me { id: r.get(0), org_id: r.get(1), name: r.get(2), superior_id: r.get(3), generation: r.get(4), visibility })
 }
 
 /// How much of the org an agent may see: the narrowest visibility along its
@@ -316,12 +317,12 @@ pub async fn me(client: &Client, caller: &Caller) -> Result<Me> {
 pub async fn effective_visibility(client: &Client, agent_id: i64) -> Result<String> {
     let rows = client
         .query(
-            "WITH RECURSIVE up(id, parent_id, vis, depth) AS (
-               SELECT id, parent_id, scope->>'org_visibility', 0 FROM ot.agents WHERE id = $1
+            "WITH RECURSIVE up(id, parent_id, vis, kind, depth) AS (
+               SELECT id, parent_id, scope->>'org_visibility', kind, 0 FROM ot.agents WHERE id = $1
                UNION ALL
-               SELECT a.id, a.parent_id, a.scope->>'org_visibility', u.depth + 1
+               SELECT a.id, a.parent_id, a.scope->>'org_visibility', a.kind, u.depth + 1
                  FROM ot.agents a JOIN up u ON a.id = u.parent_id WHERE u.depth < 1024)
-             SELECT vis FROM up",
+             SELECT vis FROM up WHERE kind='agent'",
             &[&agent_id],
         )
         .await?;
@@ -390,7 +391,8 @@ pub async fn visible(client: &Client, me: &Me) -> Result<Option<std::collections
         "self" => {
             // its own reports, as 3.x's roster names them for self visibility
             let rows = client
-                .query("SELECT id FROM ot.agents WHERE org_id = $1 AND parent_id = $2 AND state <> 'deleted'", &[&me.org_id, &me.id])
+                .query("SELECT id FROM ot.agents WHERE org_id=$1 AND state<>'deleted'
+                    AND (id IN (SELECT ot.reports_of($1,$2)) OR (kind='project' AND parent_id=$2))", &[&me.org_id, &me.id])
                 .await?;
             set.extend(rows.iter().map(|r| r.get::<_, i64>(0)));
             return Ok(Some(set));
@@ -400,23 +402,19 @@ pub async fn visible(client: &Client, me: &Me) -> Result<Option<std::collections
     // team: superior, peers, reports
     let rows = client
         .query(
-            "SELECT id FROM ot.agents WHERE org_id = $1 AND state <> 'deleted'
-               AND (id = $2 OR parent_id = $3 OR parent_id IS NOT DISTINCT FROM $2)",
-            &[&me.org_id, &me.parent_id, &me.id],
+            "SELECT id FROM ot.agent_reporting WHERE org_id=$1 AND state<>'deleted'
+               AND (id=$2 OR superior_id=$3 OR superior_id IS NOT DISTINCT FROM $2)",
+            &[&me.org_id, &me.superior_id, &me.id],
         )
         .await?;
     for r in rows {
         set.insert(r.get(0));
     }
-    if me.parent_id.is_none() {
-        // a top-level agent's peers are the other top-level agents
-        let rows = client
-            .query("SELECT id FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state <> 'deleted'", &[&me.org_id])
-            .await?;
-        for r in rows {
-            set.insert(r.get(0));
-        }
-    }
+    // Keep structural project context visible as before; it confers no agent relation.
+    let projects=client.query("SELECT p.id FROM ot.agents p JOIN ot.agents me ON me.id=$2
+        WHERE p.org_id=$1 AND p.kind='project' AND p.state<>'deleted'
+          AND (p.id=me.parent_id OR p.parent_id=me.id OR p.parent_id IS NOT DISTINCT FROM me.parent_id)", &[&me.org_id,&me.id]).await?;
+    set.extend(projects.iter().map(|r|r.get::<_,i64>(0)));
     if me.visibility == "subtree" {
         let rows = client
             .query(

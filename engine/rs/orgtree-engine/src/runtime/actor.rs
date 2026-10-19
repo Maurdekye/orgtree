@@ -1886,7 +1886,7 @@ impl Actor {
         let settings = crate::feed::groups::effective_settings(&org_settings, &self.engine.settings.defaults());
         let mut eff = scope::org_ceiling(&settings["dirs"]);
         for s in &chain {
-            eff = scope::clamp(&s.get::<_, Value>(0), &eff);
+            if s.get::<_, &str>(4)!="project" { eff = scope::clamp(&s.get::<_, Value>(0), &eff); }
         }
         let configured = scope::normalize(&r.get::<_, Value>(4));
         let tier: String = r.get(2);

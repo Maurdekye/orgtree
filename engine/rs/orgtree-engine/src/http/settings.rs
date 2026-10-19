@@ -81,7 +81,7 @@ async fn sweep_top_grants(
     }
     let rows = client
         .query(
-            "SELECT id, name, scope FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state <> 'deleted'
+            "SELECT id, name, scope FROM ot.agents WHERE org_id = $1 AND kind='agent' AND ot.superior_of(id) IS NULL AND state <> 'deleted'
               ORDER BY sibling_order, id FOR UPDATE",
             &[&org_id],
         )
@@ -324,7 +324,7 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
         let over: Vec<String> = client
             .query(
                 "SELECT name, grant_credits::float8 FROM ot.agents
-                  WHERE org_id = $1 AND parent_id IS NULL AND state = 'live' AND grant_credits > $2::float8
+                  WHERE org_id = $1 AND kind='agent' AND ot.superior_of(id) IS NULL AND state = 'live' AND grant_credits > $2::float8
                   ORDER BY sibling_order, id",
                 &[&o.id, &cap],
             )

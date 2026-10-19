@@ -162,6 +162,12 @@ async fn hold(tx: &Transaction<'_>, id: i64) -> Result<f64> {
         .get(0))
 }
 
+/// Reporting/payer relation; raw Node.parent is exclusively structural placement.
+#[logged]
+async fn agent_superior(tx: &Transaction<'_>, id: i64) -> Result<Option<i64>> {
+    Ok(tx.query_one("SELECT ot.superior_of($1)", &[&id]).await?.get(0))
+}
+
 /// `id` and its ancestors, root first, locked in that order.
 #[logged]
 async fn chain(tx: &Transaction<'_>, id: i64) -> Result<Vec<Node>> {
@@ -966,7 +972,7 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
 #[logged]
 async fn capability(tx: &Transaction<'_>, id: i64, settings: &Value) -> Result<Value> {
     let mut sc = scope::org_ceiling(&settings["dirs"]);
-    for n in chain(tx, id).await? { sc = scope::clamp(&n.scope, &sc); }
+    for n in chain(tx, id).await? { if !n.project() { sc = scope::clamp(&n.scope, &sc); } }
     Ok(sc)
 }
 
@@ -974,7 +980,7 @@ async fn capability(tx: &Transaction<'_>, id: i64, settings: &Value) -> Result<V
 async fn insertion_authority(tx: &Transaction<'_>, actor: &Actor, target: &Node) -> Result<()> {
     if target.state != "live" { refuse!(Conflict, "superior insertion needs a live target"); }
     if let Actor::Agent { id, .. } = actor {
-        if target.parent.is_none() { refuse!(Forbidden, "only the user can insert above a top-level agent"); }
+        if agent_superior(tx,target.id).await?.is_none() { refuse!(Forbidden, "only the user can insert above a top-level agent"); }
         if !within(tx, *id, target.id).await? { refuse!(Forbidden, "insert a superior only above yourself or your reports"); }
     }
     Ok(())
@@ -1602,6 +1608,10 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     let grant = req["grant"].as_f64().unwrap_or(n.grant);
     if grant < 0.0 { refuse!(BadRequest, "a grant cannot be negative"); }
     let grant = grant + anchor_stake;
+    let credit_top=match &parent {None=>true,Some(p)=>p.project() && agent_superior(tx,p.id).await?.is_none()};
+    if credit_top && grant > caps.max_top + 1e-9 {
+        refuse!(Conflict, "a top-level grant of {grant:.0} is over this organization's cap of {:.0}", caps.max_top);
+    }
     let raised = match &parent {
         Some(p) => ensure_room(tx, actor, Some(p.id), seat + grant - anchor_stake, caps.cascade_hire, caps.max_top, fx).await?,
         None => {
@@ -1774,16 +1784,20 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     fx.dogs_off.extend(crate::runtime::watchdogs::pause_owned(tx, &ids).await?);
     let mut clawed = 0.0;
     if rescind {
-        if let Some(pid) = n.parent {
+        if let Some(pid) = agent_superior(tx,n.id).await? {
             // the freed stake goes back to the user, not the superior
             let p = node_by_id(tx, pid).await?;
-            let h = hold(tx, pid).await?;
+            // The archived reports have already released their stakes, but
+            // structural project mirrors are settled only at commit.
+            let h:f64=tx.query_one("SELECT coalesce(sum(seat+grant_credits),0)::float8 FROM ot.agents
+                WHERE id IN (SELECT ot.reports_of($1,$2)) AND state='live'", &[&org.id,&pid]).await?.get(0);
             clawed = (n.seat + n.grant).min((p.grant - h).max(0.0));
             tx.execute(
                 "UPDATE ot.agents SET grant_credits = grant_credits - $2::float8::numeric, row_version = row_version + 1 WHERE id = $1",
                 &[&pid, &clawed],
             )
             .await?;
+            fx.agents.insert(pid);
         }
     }
     event(tx, org.id, if rescind { "rescind" } else { "retire" }, actor, Some(n.id),
@@ -2506,6 +2520,9 @@ async fn reallocate(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction
     let caps = caps(engine, tx, org.id).await?;
     let mut raised = Vec::new();
     if delta > 0.0 {
+        if agent_superior(tx,n.id).await?.is_none() && n.grant+delta > caps.max_top+1e-9 {
+            refuse!(Conflict, "a top-level grant of {:.0} is over this organization's cap of {:.0}", n.grant+delta,caps.max_top);
+        }
         match n.parent {
             Some(p) => raised = ensure_room(tx, actor, Some(p), delta, caps.cascade_alloc, caps.max_top, fx).await?,
             None => {
@@ -2918,7 +2935,9 @@ async fn swap(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
     }
     authorize(tx, actor, &a, "swap").await?;
     authorize(tx, actor, &b, "swap").await?;
-    if matches!(actor, Actor::Agent { .. }) && (a.parent.is_none() || b.parent.is_none()) {
+    let a_superior=agent_superior(tx,a.id).await?;
+    let b_superior=agent_superior(tx,b.id).await?;
+    if matches!(actor, Actor::Agent { .. }) && (a_superior.is_none() || b_superior.is_none()) {
         refuse!(Forbidden, "only the user reseats the top level");
     }
     // As in 3.x, grants ride the seats: a same-tier exchange, or one between
@@ -2927,11 +2946,13 @@ async fn swap(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
     // must fit their free credits, or the swap is refused before anything
     // changes ("reallocate first"); nobody's grant is raised for it.
     let raised: Vec<String> = Vec::new();
-    let siblings = a.parent.is_some() && a.parent == b.parent;
+    let siblings = a_superior==b_superior;
     if (a.seat - b.seat).abs() > 1e-9 && !siblings {
         // the commander of a nested pair first
         let (top, low) = if within(tx, b.id, a.id).await? { (&b, &a) } else { (&a, &b) };
-        let direct = low.parent == Some(top.id);
+        let top_superior=if top.id==a.id {a_superior} else {b_superior};
+        let low_superior=if low.id==a.id {a_superior} else {b_superior};
+        let direct = low_superior == Some(top.id);
         let free = |n: &Node| {
             let (id, grant) = (n.id, n.grant);
             async move { Ok::<f64, anyhow::Error>(grant - hold(tx, id).await?) }
@@ -2939,7 +2960,7 @@ async fn swap(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
         let short = |payer: &str, have: f64, need: f64| {
             format!("seating it costs {need} more than {payer}'s free ({have}) — reallocate first (§4.6)")
         };
-        if let Some(pid) = top.parent {
+        if let Some(pid) = top_superior {
             let p = node_by_id(tx, pid).await?;
             let have = free(&p).await?;
             if have + top.seat - low.seat < -1e-9 {
@@ -2953,7 +2974,7 @@ async fn swap(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
                 refuse!(Conflict, "\"{}\" would fund \"{}\"'s seat ({}) out of the exchanged grant with free {} — the seat-cost difference does not fit; reallocate first (§4.6)",
                     low.name, top.name, top.seat, have + low.seat - top.seat);
             }
-        } else if let Some(pid) = low.parent {
+        } else if let Some(pid) = low_superior {
             let p = node_by_id(tx, pid).await?;
             let have = free(&p).await?;
             if have + low.seat - top.seat < -1e-9 {
@@ -2966,8 +2987,8 @@ async fn swap(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
     let b_parent = if a.parent == Some(b.id) { Some(a.id) } else { a.parent };
     // Snapshot before projects move with their seats. Resolving an old raw
     // project parent afterwards can name the OTHER agent as former superior.
-    let old_superior_a: Option<i64> = tx.query_one("SELECT ot.superior_of($1)", &[&a.id]).await?.get(0);
-    let old_superior_b: Option<i64> = tx.query_one("SELECT ot.superior_of($1)", &[&b.id]).await?.get(0);
+    let old_superior_a = a_superior;
+    let old_superior_b = b_superior;
     // reports follow the seat
     tx.execute(
         "UPDATE ot.agents SET parent_id = CASE WHEN parent_id = $1 THEN $2 ELSE $1 END, row_version = row_version + 1

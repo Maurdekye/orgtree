@@ -738,7 +738,7 @@ async fn bar_orgs(engine: &Engine, org_id: Option<i64>) -> anyhow::Result<Vec<St
                  SELECT o.slug, (SELECT m.id FROM ot.mail m WHERE m.org_id = o.id AND m.sender = '@user' ORDER BY m.id DESC LIMIT 1) AS last
                    FROM ot.orgs o
                   WHERE o.state = 'active' AND ($1::bigint IS NULL OR o.id = $1)
-                    AND EXISTS (SELECT 1 FROM ot.agents a WHERE a.org_id = o.id AND a.parent_id IS NULL AND a.state = 'live' AND a.kind = 'agent')) x
+                    AND EXISTS (SELECT 1 FROM ot.agents a WHERE a.org_id = o.id AND ot.superior_of(a.id) IS NULL AND a.state = 'live' AND a.kind = 'agent')) x
               WHERE last IS NOT NULL ORDER BY last DESC LIMIT 20",
             &[&org_id],
         )

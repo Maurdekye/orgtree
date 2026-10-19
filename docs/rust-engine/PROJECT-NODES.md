@@ -70,6 +70,25 @@ lifecycle, idle deployment reminders), `project-lifecycle-relations.mjs` (insert
 swap, promotion, native compaction, project-wrapper moves and retired/deleted notices), and
 `project-folder-raise.mjs` (exact upward folder grant plus Summary read/clear).
 
+Visibility and tool/folder ceilings consult agent rows only, using `kind` rather
+than trusting a surviving `transparent` scope key. Chart self/team reporting
+frontiers, state inspection's peer/superior checks and watchdog access use the
+same agent relations; structural project context remains available. State
+inspection retains its existing ability to inspect all descendants.
+
+Top-level authority is `ot.superior_of(agent) IS NULL`, including agents beneath
+root projects: audience grant/revoke, org-inbox routing, docket deletion/recovery,
+phone eligibility, grant caps and cap warnings. Org-folder revocation and downgrade
+sweep these agents so a removed grant cannot reappear when the org re-adds a folder.
+Credit requests skip project mirrors, rescind debits the real payer, and swap
+affordability compares real payers. Structural mirrors still settle normally.
+The org audit includes these top-level agents' stakes.
+
+An agent can grant a report an audience with its own reporting peer or superior.
+The signed sibling-delegation exception still requires the grantee and grantor to
+share a physical parent; this does not extend the peer-mail OFF gate across projects.
+Stage C proofs: `project-access-relations.mjs` and `project-credit-relations.mjs`.
+
 Stage A regression proof: `tools/rig/proofs/project-transparency-a.mjs` drives the real engine
 with fake CLIs and a scratch database across direct, project, nested, root-project and empty
 project cases. It also checks single/batch moves and whole-project moves preserve settings and

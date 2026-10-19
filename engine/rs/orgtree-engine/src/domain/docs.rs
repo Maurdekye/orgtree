@@ -57,16 +57,18 @@ pub(crate) async fn presenter_in<C: tokio_postgres::GenericClient + Sync>(engine
     let settings = crate::feed::groups::effective_settings(&r.get::<_, Value>(3), &engine.settings.defaults());
     let chain = client.query(
         "WITH RECURSIVE chain AS (
-           SELECT id, parent_id, scope, 0 AS depth FROM ot.agents WHERE id = $1 AND org_id = $2
-           UNION ALL SELECT a.id, a.parent_id, a.scope, c.depth + 1
+           SELECT id, parent_id, scope, kind, 0 AS depth FROM ot.agents WHERE id = $1 AND org_id = $2
+           UNION ALL SELECT a.id, a.parent_id, a.scope, a.kind, c.depth + 1
            FROM ot.agents a JOIN chain c ON a.id = c.parent_id WHERE a.org_id = $2 AND c.depth < 1024)
-         SELECT c.scope, c.parent_id, c.id FROM chain c ORDER BY depth DESC LIMIT 1025",
+         SELECT c.scope, c.parent_id, c.id, c.kind FROM chain c ORDER BY depth DESC LIMIT 1025",
         &[&agent_id, &org.id]).await?;
     if chain.first().map(|r| r.get::<_, Option<i64>>(1).is_some()).unwrap_or(true) {
         refuse!(Forbidden, "cannot resolve your complete folder authority chain");
     }
     let mut effective = scope::org_ceiling(&settings["dirs"]);
-    for ancestor in &chain { effective = scope::clamp(&ancestor.get::<_, Value>(0), &effective); }
+    for ancestor in &chain {
+        if ancestor.get::<_, &str>(3)!="project" { effective = scope::clamp(&ancestor.get::<_, Value>(0), &effective); }
+    }
     let mut dirs: Vec<String> = Vec::new();
     for d in effective["add_dirs"].as_array().into_iter().flatten() {
         if let Some(p) = d["path"].as_str() {

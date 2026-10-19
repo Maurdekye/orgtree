@@ -448,7 +448,7 @@ impl Actor {
             let raw = &self.live_raw[&id];
             let parent = raw["parent_id"].as_i64();
             let parent_eff = parent.and_then(|p| self.eff_scope.get(&p)).unwrap_or(&ceiling);
-            let eff = scope::clamp(&raw["scope"], parent_eff);
+            let eff = if raw["kind"]=="project" {parent_eff.clone()} else {scope::clamp(&raw["scope"], parent_eff)};
             let mut projected = agent_body(raw, &eff, parent, &ctx);
             projected["elicitations"] = json!(self.engine.elicitations.agent_cards(self.org_row["id"].as_i64().unwrap_or(0),id));
             let body = Arc::new(projected);
@@ -544,7 +544,7 @@ impl Actor {
             };
             for (id, raw) in retired_now {
                 let parent = raw["parent_id"].as_i64();
-                let eff = scope::clamp(&raw["scope"], &ceiling);
+                let eff = if raw["kind"]=="project" {ceiling.clone()} else {scope::clamp(&raw["scope"], &ceiling)};
                 let body = Arc::new(agent_body(&raw, &eff, parent, &ctx));
                 for (sid, s) in self.sockets.iter_mut() {
                     for (n, sub) in s.subs.iter_mut() {
@@ -1111,7 +1111,7 @@ async fn read_sub(
         org_slug: org_row["slug"].as_str().unwrap_or(""),
     };
     for (id, raw) in raws {
-        let eff = scope::clamp(&raw["scope"], &ceiling);
+        let eff = if raw["kind"]=="project" {ceiling.clone()} else {scope::clamp(&raw["scope"], &ceiling)};
         let body = agent_body(&raw, &eff, raw["parent_id"].as_i64(), &ctx);
         out.push(("agent".into(), id.to_string(), body));
     }

@@ -63,11 +63,11 @@ fn spoken(p: &str) -> String {
     }
 }
 
-/// A live agent or project of this org.
+/// A live seat and its nearest agent superior (placement stays separate).
 #[logged]
 async fn live(client: &impl tokio_postgres::GenericClient, org_id: i64, name: &str) -> Result<(i64, Option<i64>)> {
     let r = client
-        .query_opt("SELECT id, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org_id, &name])
+        .query_opt("SELECT id, ot.superior_of(id) FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org_id, &name])
         .await?;
     match r {
         Some(r) => Ok((r.get(0), r.get(1))),
@@ -96,8 +96,8 @@ async fn top_of(client: &impl tokio_postgres::GenericClient, node: i64) -> Resul
     Ok(client
         .query_one(
             "WITH RECURSIVE up(id, parent_id, name, depth) AS (
-               SELECT id, parent_id, name, 0 FROM ot.agents WHERE id = $1
-               UNION ALL SELECT a.id, a.parent_id, a.name, up.depth + 1 FROM ot.agents a JOIN up ON a.id = up.parent_id WHERE up.depth < 1024)
+               SELECT id, superior_id, name, 0 FROM ot.agent_reporting WHERE id = $1
+               UNION ALL SELECT a.id, a.superior_id, a.name, up.depth + 1 FROM ot.agent_reporting a JOIN up ON a.id = up.parent_id WHERE up.depth < 1024)
              SELECT name FROM up WHERE parent_id IS NULL",
             &[&node],
         )
@@ -283,7 +283,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
     if grantee.is_empty() {
         refuse!(BadRequest, "name who receives the audience (from)");
     }
-    let (gid, grantee_parent) = live(client, org.id, &grantee).await?;
+    let (gid, _) = live(client, org.id, &grantee).await?;
     let grantor = match actor {
         Actor::User => party(target),
         Actor::Agent { id, name } => {
@@ -336,10 +336,11 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
                     let (oid, oparent) = live(client, org.id, other).await?;
                     let peer = oparent == my_parent && oid != *id;
                     let superior = my_parent == Some(oid);
-                    let delegated = if grantee_parent.is_some() && grantee_parent == oparent {
-                        let nearest = client.query_one("SELECT ot.superior_of($1), ot.superior_of($2)", &[&gid, &oid]).await?;
-                        super::peer_mail::delegate(*id, grantee_parent, oparent, nearest.get(0), nearest.get(1))
-                    } else { false };
+                    // Signed exception: sibling delegation still requires the
+                    // same physical parent, even though peer/superior use the agent graph.
+                    let relation=client.query_one("SELECT a.parent_id,b.parent_id,ot.superior_of(a.id),ot.superior_of(b.id)
+                        FROM ot.agents a JOIN ot.agents b ON b.id=$2 WHERE a.id=$1", &[&gid,&oid]).await?;
+                    let delegated=super::peer_mail::delegate(*id,relation.get(0),relation.get(1),relation.get(2),relation.get(3));
                     if !(peer || superior || delegated) {
                         refuse!(Forbidden, "you grant audiences with yourself, a live peer, your direct superior, the user (top-level), the org inbox, or between direct tree siblings whose nearest agent superior is you");
                     }

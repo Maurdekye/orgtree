@@ -25,6 +25,15 @@
   [decided: user 2026-10-19 19:06–19:07Z; verified: renderer
   `canvas/{objectnavhost,slotchips,watchdogchip,deskdogs,listenersdesk,slotsdesk}.tsx`]
 
+- Project edges do not cap agent visibility, tools or folder authority. Chart,
+  state inspection and watchdog access use agent reporting relations; top-level
+  rights, credit caps/payers, org-inbox routing and org-folder revocation skip
+  projects. Audience grants with a caller's own peer/superior use this graph;
+  delegation between reports still requires the same physical parent. See
+  [project invariants](docs/rust-engine/PROJECT-NODES.md).
+  [verified: `tools/{mod,orgview}.rs`, `domain/{ops,asks,audiences,orginbox}.rs`,
+  `http/settings.rs`; 2026-10-19]
+
 - Project near-card activity count and Active/Idle age share one nowrap row.
   Count inherits its compact 10px font; the state word yields before the clock
   so the normal 124px card does not wrap or overflow. This replaces the old
