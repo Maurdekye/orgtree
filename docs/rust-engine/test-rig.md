@@ -311,7 +311,8 @@ also replaces a hosted hub's binary while the engine is down, as installing anot
 kills it at once instead (an install or a crash: its job takes PostgreSQL and the CLIs with it);
 follow it with `restart()`. A safe-start engine wakes no agent at start, so a run that needs the
 restart path (cut turns closed, their mail settled, the restart message and notices, freeze timers
-re-armed, waiting mail woken) is started with `recover` (`up --recover`, or `{ recover: true }`
+re-armed, waiting mail woken, every armed watchdog re-armed: a safe start re-arms event dogs only)
+is started with `recover` (`up --recover`, or `{ recover: true }`
 from a script's `setup()`). A safe start also never runs the automatic wakes (working checkups,
 idle docket reminders, abandoned docket recovery); `reminders` (`up --reminders [seconds]`, or
 `{ reminders: true }`) starts that sweep on a 5 s cycle (or every N seconds; the product's is
