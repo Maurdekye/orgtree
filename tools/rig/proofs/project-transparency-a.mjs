@@ -137,12 +137,12 @@ export default async function(rig) {
   // Reset only synthetic damage so the upward check is independent on red.
   for (const n of saved) rig.exec(`UPDATE ot.agents SET scope='${JSON.stringify(n.scope).replaceAll("'","''")}'::jsonb WHERE id=${n.id}`)
   const beforeRaise=scopes()
-  const raised=await rig.op({op:'retool',node:'scope-worker',tools:{web:true}})
+  const raised=await rig.op({op:'retool',node:'scope-worker',tools:{web:true},org_visibility:'full'})
   p.check('agent retool raises only real ancestors, preserving project config',scopes().every((n,i)=>same(n.scope,beforeRaise[i].scope) && n.row_version===beforeRaise[i].row_version) && !(raised.cascaded??[]).some(n=>saved.some(p=>p.name===n)),raised.cascaded)
-  await rig.op({op:'retool',node:'scope-manager',tools:{web:false}})
+  await rig.op({op:'retool',node:'scope-manager',tools:{web:false},org_visibility:'team'})
   for (const n of saved) rig.exec(`UPDATE ot.agents SET scope='${JSON.stringify(n.scope).replaceAll("'","''")}'::jsonb WHERE id=${n.id}`)
   const beforeHttp=scopes()
-  await rig.api('POST',`/api/orgs/${rig.org}/nodes/scope-worker/scope`,{tools:{web:true}})
+  await rig.api('POST',`/api/orgs/${rig.org}/nodes/scope-worker/scope`,{tools:{web:true},org_visibility:'full'})
   p.check('desktop upward grant skips project scope writes',scopes().every((n,i)=>same(n.scope,beforeHttp[i].scope) && n.row_version===beforeHttp[i].row_version))
 
   // Moving into a project and moving a whole project subtree must retain
