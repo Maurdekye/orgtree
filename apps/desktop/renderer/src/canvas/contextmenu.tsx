@@ -463,8 +463,10 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       keyboard: !inside,
       doc,
     })
+    // A later async capability result may already have replaced the entries.
+    // The initial folder pass must not restore its stale pending list over it.
     void resolveFolderAgentsEntries(list).then(resolved => setState(s =>
-      s && s.opening === id && opening.current === id ? { ...s, entries: resolved } : s))
+      s && s.opening === id && opening.current === id && s.entries === list ? { ...s, entries: resolved } : s))
     if (objectPending) {
       void objectPending.then(async resolved => {
         const withFolderActions = await resolveFolderAgentsEntries(resolved)
