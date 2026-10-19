@@ -31,7 +31,12 @@ test('Appearance offers the exact four contrast choices independently of custom 
   try {
     const contrast = select(view.el), accent = view.el.querySelector<HTMLSelectElement>('[aria-label="Visual theme"]')!
     assert.equal(view.el.querySelectorAll('select').length, 2)
-    assert.deepEqual([...contrast.options].map(x => x.textContent), ['Charcoal', 'Light', 'Solarized Light', 'Obsidian Black'])
+    assert.deepEqual([...contrast.options].map(x => [x.value, x.textContent]), [
+      ['obsidian-black', 'Obsidian Black'],
+      ['charcoal', 'Charcoal'],
+      ['solarized-light', 'Solarized Light'],
+      ['light', 'Light'],
+    ])
     assert.equal(contrast.value, 'charcoal')
     for (const id of CONTRAST_THEMES) {
       await change(contrast, id)
