@@ -169,12 +169,17 @@ pub fn watchdog_ref(org: &str, uid: &str, name: &str, owner: &str) -> Value {
 }
 
 /// `monitor.watchdog_fired`.
-pub fn watchdog_fired(org: &str, uid: &str, name: &str, owner: &str, prefix: &str, lines: &[String], once: bool) -> Value {
+pub fn watchdog_fired(org: &str, uid: &str, name: &str, owner: &str, prefix: &str, lines: &[String], once: bool, fire_actions: Option<&str>) -> Value {
     let mut o = envelope("monitor.watchdog_fired", watchdog_actor(uid), watchdog_ref(org, uid, name, owner));
     o.insert("prefix".into(), json!(prefix));
     o.insert("lines".into(), json!(lines));
     o.insert("count".into(), json!(lines.len()));
     o.insert("once".into(), json!(once));
+    // fire-time tool-call results: the owner's turn renders this event,
+    // not the mail body, so the results must ride here too
+    if let Some(text) = fire_actions.filter(|t| !t.is_empty()) {
+        o.insert("fire_actions".into(), json!(text));
+    }
     Value::Object(o)
 }
 

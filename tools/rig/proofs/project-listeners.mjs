@@ -66,6 +66,9 @@ export default async function (rig) {
     { watch: said(watch), sa: mails('sa', 'go: start build 7').length, sb: mails('sb', 'go: start build 7').length })
   await rig.waitFor(() => mails('boss', 'LISTENERS READY').length === 1, { what: 'the watch fire mail', timeout: 30000 }).catch(() => {})
   const bossMail = mails('boss', 'LISTENERS READY')[0]?.body ?? ''
+  const bossEv = rig.one(`SELECT ev->>'fire_actions' AS fa FROM ot.mail WHERE recipient_agent_id = ${node('boss').id} AND body LIKE '%LISTENERS READY%' ORDER BY id DESC LIMIT 1`)
+  p.check('the watch mail\'s event carries the results too (the owner\'s turn renders ev, not body)',
+    /orgtree_project: ok/.test(bossEv?.fa ?? ''), bossEv)
   p.check('the watch mail carries the fire-action result (run as the superior, at fire time)',
     /Fire actions/.test(bossMail) && /orgtree_project: ok/.test(bossMail) && /delivered/.test(bossMail), bossMail.slice(0, 400))
   p.check('the one-shot listener is spent by the fire; the continuous one lives',
@@ -135,6 +138,9 @@ export default async function (rig) {
     action: 'create', name: 'queue-dog', kind: 'fair_queue', target: 'sync',
     fire_actions: [{ tool: 'orgtree_chart' }],
   })
+  const echoEv = rig.one(`SELECT ev->>'fire_actions' AS fa FROM ot.mail WHERE recipient_agent_id = ${node('sl').id} AND body LIKE '%PROJECT EVENT%' ORDER BY id DESC LIMIT 1`)
+  p.check('a listener\'s own fire-action note rides its mail event too (appended before the wake)',
+    /SKIPPED/.test(echoEv?.fa ?? ''), echoEv)
   p.check('a fair_queue watchdog cannot carry fire actions (its fire is a handed mail)',
     !fqActions.ok && /cannot carry fire_actions/.test(fqActions.text), said(fqActions))
   await rig.restart()

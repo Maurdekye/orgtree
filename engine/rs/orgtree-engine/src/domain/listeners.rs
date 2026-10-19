@@ -223,7 +223,7 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
         let lines: Vec<String> = std::iter::once(format!("{by} fired the event on project {pname}"))
             .chain(message.map(|m| gist(m, 200)))
             .collect();
-        let ev = crate::events::watchdog_fired(&org_slug, &dog_uid, &name, &owner_name, "PROJECT EVENT —", &lines, once);
+        let ev = crate::events::watchdog_fired(&org_slug, &dog_uid, &name, &owner_name, "PROJECT EVENT —", &lines, once, None);
         tx.execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
                                   recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies)
@@ -298,7 +298,8 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     })
 }
 
-/// Append a listener's fire-action results to its fire mail while that
+/// Append a listener's fire-action results to its fire mail (body and
+/// the `ev` the owner's turn renders) while that
 /// mail is still pending (the normal path: the owner is woken only after
 /// this). If it was already claimed or read in between, the results
 /// arrive as their own short watchdog mail instead of vanishing.
@@ -306,7 +307,9 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
 async fn append_results(engine: &Arc<Engine>, org_id: i64, d: &Delivery, text: &str) {
     let appended = match engine.db.get().await {
         Ok(client) => client
-            .execute("UPDATE ot.mail SET body = body || $2 WHERE uid = $1 AND state = 'pending'", &[&d.mail, &text])
+            .execute("UPDATE ot.mail SET body = body || $2,
+                        ev = CASE WHEN ev IS NULL THEN ev ELSE jsonb_set(ev, '{fire_actions}', to_jsonb($2::text)) END
+                     WHERE uid = $1 AND state = 'pending'", &[&d.mail, &text])
             .await
             .map(|n| n == 1)
             .unwrap_or(false),

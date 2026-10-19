@@ -1888,7 +1888,13 @@ fn r_wd_fired(ev: &Value) -> Option<String> {
     } else {
         String::new()
     };
-    let body = format!("[WATCHDOG {name}]{prefix} {count} event(s):\n{}{more}", lines.join("\n"));
+    // fire-time tool-call results ride the event (the mail body carries
+    // them too, but this rendering is what the owner's turn reads)
+    let actions = match opt(ev, "fire_actions").as_str() {
+        Some(t) if !t.is_empty() => format!("\n{}", take(t, 4000)),
+        _ => String::new(),
+    };
+    let body = format!("[WATCHDOG {name}]{prefix} {count} event(s):\n{}{more}{actions}", lines.join("\n"));
     Some(if truthy(req(ev, "once")?) { watchdog_once_note(&body) } else { body })
 }
 
@@ -2455,4 +2461,42 @@ released; continue."
 #[nolog]
 pub fn render_agent(ev: &serde_json::Value) -> Option<String> {
     render(ev)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn fired_ev(extra: Value) -> Value {
+        let mut ev = json!({"variant": "monitor.watchdog_fired", "prefix": " LISTENERS READY —",
+            "lines": ["project sync now has 2 event listeners armed"], "count": 1, "once": true,
+            "object": {"kind": "watchdog", "org": "o", "id": "all-in", "name": "all-in", "owner": "boss"}});
+        ev.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        ev
+    }
+
+    /// The owner's turn renders watchdog mail from `ev`, not the mail
+    /// body: fire-action results the engine appended to the body were
+    /// invisible until they rode the event too (alpha.11 smoke, user
+    /// 2026-10-19).
+    #[test]
+    fn a_watchdog_fire_renders_its_fire_action_results() {
+        let text = render_agent(&fired_ev(json!({"fire_actions":
+            "Fire actions (run as you, with your current authority):\n  orgtree_project: ok\n    {\"delivered\":2}\n"})))
+            .expect("a watchdog fire renders");
+        assert!(text.contains("orgtree_project: ok"), "the results reach the owner: {text}");
+        assert!(text.contains("{\"delivered\":2}"), "the result body rides along: {text}");
+        assert!(text.contains("project sync now has 2 event listeners armed"), "the fire lines stay: {text}");
+        assert!(text.trim_end().ends_with("arm a new one."), "the one-shot note still closes it: {text}");
+        assert!(text.find("orgtree_project: ok").unwrap() < text.find("ONE-SHOT").unwrap(),
+            "results precede the one-shot note: {text}");
+    }
+
+    #[test]
+    fn a_watchdog_fire_without_actions_renders_as_before() {
+        let text = render_agent(&fired_ev(json!({}))).expect("a watchdog fire renders");
+        assert!(text.contains("[WATCHDOG all-in]"), "{text}");
+        assert!(!text.contains("Fire actions"), "{text}");
+    }
 }

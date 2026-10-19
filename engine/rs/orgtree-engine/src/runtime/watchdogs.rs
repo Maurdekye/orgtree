@@ -1299,11 +1299,13 @@ async fn fire(engine: &Arc<Engine>, dog: &mut Dog, events: &[String], prefix: &s
     // fire-time tool calls run now, as the owner, and their results ride
     // this same mail (the fire is already recorded above)
     let actions: Vec<Value> = dog.memo["fire_actions"].as_array().cloned().unwrap_or_default();
+    let mut results = String::new();
     if !actions.is_empty() {
-        body.push_str(&run_fire_actions(engine, dog.org_id, dog.owner, &dog.owner_name, &dog.uid, &dog.name, &actions).await);
+        results = run_fire_actions(engine, dog.org_id, dog.owner, &dog.owner_name, &dog.uid, &dog.name, &actions).await;
+        body.push_str(&results);
     }
     let lines: Vec<String> = events.iter().take(40).cloned().collect();
-    let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, prefix.trim(), &lines, once));
+    let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, prefix.trim(), &lines, once, Some(&results)));
     events::ALERT_DELIVERY.scope(true,deliver(engine, dog, body, ev)).await;
     if once {
         disarm(engine, dog.row);
@@ -1324,7 +1326,7 @@ async fn fire_exited(engine: &Arc<Engine>, dog: &Dog, events: &[String]) -> Resu
     drop(client);
     let mut body = fire_body(dog, events, " STREAM EXITED —", false, fired);
     body.push_str("The stream is not restarted; resume the watchdog to start it again.\n");
-    let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, "STREAM EXITED —", events, false));
+    let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, "STREAM EXITED —", events, false, None));
     events::ALERT_DELIVERY.scope(true,deliver(engine, dog, body, ev)).await;
     Ok(())
 }
