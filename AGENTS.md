@@ -665,11 +665,14 @@
   The fast next-turn badge compares saved scope to `fast_mode_current`, captured
   only after native turn acceptance; idle/unknown/command turns clear it. Keep
   the field in the runtime overlay allowlist, never infer it from save success.
-  The same queued-fast badge appears beside the active bolt at near zoom; only
-  supported live/busy seats with known opposite serving speed show it. Composer
-  badge and bolt share the top 30px row; effort and Send stay in a separate
+  The queued-fast badge shares the account/model/effort next-turn group in
+  the desk header and near-zoom badge row; only
+  supported live/busy seats with known opposite serving speed show it. No
+  next-turn cards render in the composer. Its bolt keeps the top 30px row;
+  effort and Send stay in a separate
   right-aligned lower row (user16:47Z restores the original vertical placement). [decided:
-  user/coordinator 2026-10-18 14:51-14:52Z; verified: `canvas/{nextturn,desk,cards}.tsx`, `styles.css`]
+  user/coordinator 2026-10-19 13:39Z, replacing the composer queued-card placement;
+  verified: `canvas/{nextturn,effort,desk,cards,fastmodebutton}.tsx`, `styles.css`]
   Near-zoom cards show a passive bolt (tooltip "fast") for supported active speed:
   busy reads known fast_mode_current; idle reads saved scope. Unknown busy speed
   is silent. The rich agent hover ends with "fast"; desk speed help is unchanged.

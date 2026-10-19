@@ -4,7 +4,6 @@ import type { CanvasNode } from './shared'
 import { saveScope } from '../api'
 import { BoltIcon } from '../icons'
 import { FAST_MODE_HELP, useFastMode } from './fastmode'
-import { QueuedFastBadge } from './nextturn'
 
 export function FastModeButton({ node, slug, toast }: { node: CanvasNode; slug: string; toast: ToastFn }) {
   const supported = useFastMode(node.tier, node.scope?.model_version)
@@ -17,5 +16,5 @@ export function FastModeButton({ node, slug, toast }: { node: CanvasNode; slug: 
       void saveScope(slug, node.id, { fast_mode: !on })
         .catch((e: Error) => toast([`error: ${e.message}`])).finally(() => setSaving(false))
     }}><BoltIcon fontSize="inherit" /></button>
-  return <><QueuedFastBadge node={node} />{button}</>
+  return button
 }

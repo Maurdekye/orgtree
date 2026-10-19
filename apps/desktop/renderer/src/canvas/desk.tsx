@@ -6,7 +6,7 @@ import { SystemRuns, transcriptEntries, revealSystemRuns } from '../events/syste
 import { livePartials } from '../livePartials'
 import { revealPendingRun } from './pendingrun'
 import { TranscriptFlow } from './transcriptflow'
-import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
+import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge } from './nextturn'
 import { rememberEffort } from '../quickchat'
 import { ToolInputDetails } from './toolinput'
 import { hasHelperTranscript, HelperTranscript } from './helpertranscript'
@@ -32,7 +32,7 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { CopyFeedback, copyToClipboard, openFallbackObjectMenu, useContextMenu } from './contextmenu'
-import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge } from './effort'
+import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge, QueuedEffortBadge } from './effort'
 import { EffortBar } from './effortbar'
 import { tierEffortLevels } from './staffingoptions'
 import { museEffortLevels } from './shared'
@@ -3770,6 +3770,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <ServingAccountBadge account={node.serving_account} />
         <QueuedAccountBadge node={node} />
         <QueuedModelBadge node={node} />
+        <QueuedEffortBadge node={node}
+          effortLevels={MUSE_TIERS.includes(node.tier ?? '')
+            ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null,
+              node.pending_account?.account ?? node.account ?? null)
+            : tierEffortLevels(slug, node.tier)} />
+        <QueuedFastBadge node={node} />
         {node.pending_effort && <EffortLevelBadge node={node}
           effortLevels={MUSE_TIERS.includes(node.tier ?? '')
             ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null,

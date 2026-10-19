@@ -40,7 +40,7 @@ import {
   AgentWorkstate, ContextWheel, deriveAgentVisualState, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, LastTurnAge,
   MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
-import { EffortLevelBadge } from './effort'
+import { EffortLevelBadge, QueuedEffortBadge } from './effort'
 import { useFastMode } from './fastmode'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { DocChips } from './docs'
@@ -2061,7 +2061,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {activeFast && <span className="badge fast-mode" title="fast" aria-label="fast">
             <BoltIcon fontSize="inherit" />
           </span>}
-          <QueuedFastBadge node={node} />
           {node.remote_controlled &&
             <span className="badge frozen"
               title="the user is driving this session from another device — mail queues until release (gear panel)">
@@ -2092,6 +2091,10 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <ServingAccountBadge account={node.serving_account} />
           <QueuedAccountBadge node={node} />
           <QueuedModelBadge node={node} />
+          <QueuedEffortBadge node={node} effortLevels={MUSE_TIERS.includes(node.tier ?? '')
+            ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null, node.account ?? null)
+            : tierEffortLevels(slug, node.tier)} />
+          <QueuedFastBadge node={node} />
           {/* NON-DEFAULT THINKING EFFORT (docket
               `show-non-default-effort-level-on-agent-headers`), on the card's
               badge row as on the desk's — the SAME component, reading the same

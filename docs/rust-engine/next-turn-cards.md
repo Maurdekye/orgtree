@@ -1,11 +1,18 @@
 # Queued next-turn cards
 
-A queued account, model or effort change keeps the current card and adds
+A queued account, model, effort or speed change keeps the current card and adds
 `next turn -> <target>` in the badge rows below the status. The current model
 chip and name keep the title line to themselves (user ruling 09:49Z).
 Ambient account aliases display as `default`.
 Hover text is `<agent>'s <kind> will change from <current> to <next> next turn`.
 These are the user's 2026-10-08 09:03-09:06Z rulings.
+
+User 2026-10-19 13:39Z: all four pending cards are grouped together in the
+agent desk header (including pinned and popped-out desks) and the near-zoom
+canvas badge row. None appears in the message box. The composer retains its
+speed and effort controls. Targets and tooltips still use the shared
+`NextTurnBadge`; reverting, applying or clearing the pending metadata removes
+the corresponding card without leaving a duplicate in another surface.
 
 `canvas/nextturn.tsx` owns the card and tooltip. Model cards use `tierLabel`,
 including the independent Antigravity labels. Account cards prefer the serving

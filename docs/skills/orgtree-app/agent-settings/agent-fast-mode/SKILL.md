@@ -21,7 +21,7 @@ separate from thinking effort. The user or an authorized superior can change it.
 - The choice applies to the next turn in the same conversation. A speed-only save
   does not switch model, account or session and does not restart the CLI. A running
   turn keeps its existing speed. There is no promise of a prompt-cache hit.
-- While a turn is running, a badge beside the lightning button says **next turn →
+- While a turn is running, a badge in the desk header says **next turn →
   fast on** or **next turn → fast off** when the saved choice differs from the
   speed request sent to that turn. Its tooltip gives both values. It clears on
   next admission, turn completion or reverting the choice. Unknown serving state

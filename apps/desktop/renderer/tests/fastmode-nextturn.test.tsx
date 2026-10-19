@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { RecordOverlay } from '../src/recordoverlay'
 import { FastModeButton } from '../src/canvas/fastmodebutton'
+import { QueuedFastBadge } from '../src/canvas/nextturn'
 import { syncProviderRegistries } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 
@@ -10,7 +11,8 @@ const node = (requested: boolean, current: boolean | null | undefined, busy = tr
   id: 'worker', tier: 'sol', state: 'live', children: [], busy,
   scope: { tools: {}, add_dirs: [], fast_mode: requested }, fast_mode_current: current,
 } as CanvasNode)
-const control = (n: CanvasNode) => <FastModeButton node={n} slug="fixture" toast={() => {}} />
+const control = (n: CanvasNode) => <><QueuedFastBadge node={n} />
+  <FastModeButton node={n} slug="fixture" toast={() => {}} /></>
 const badge = (el: HTMLElement) => el.querySelector<HTMLElement>('[data-next-turn="fast"]')
 test.beforeEach(() => {
   syncProviderRegistries({ providers: [{ id: 'openai', tiers: [{ tier: 'sol', fast_mode: true }] }] })

@@ -196,8 +196,18 @@ export function EffortLevelBadge({ node, effortLevels }: {
       title={detail} aria-label={detail}>
       {level}
     </span>
-    {pending && <NextTurnBadge agent={node.id} kind="effort" current={level} next={pending} />}
   </>)
+}
+
+/** The pending target belongs with the other next-turn cards, not the current level. */
+export function QueuedEffortBadge({ node, effortLevels }: {
+  node: Pick<CanvasNode, 'id' | 'effort_current' | 'pending_effort'>
+  effortLevels?: readonly string[]
+}) {
+  if (effortLevels?.length === 0 || !validLevel(node.pending_effort)
+    || !validLevel(node.effort_current) || node.pending_effort === node.effort_current) return null
+  return <NextTurnBadge agent={node.id} kind="effort"
+    current={node.effort_current} next={node.pending_effort} />
 }
 
 /** Help for controls that change an individual agent's effort. */
