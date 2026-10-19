@@ -347,7 +347,7 @@ test('§1e Retire all agents asks first, and only then sends the one request '
   const dialog = [...document.querySelectorAll('h3, .modal h3, .overlay h3')]
     .find((h) => /dissolve ALL agents/i.test(h.textContent ?? ''))
   assert.ok(dialog, 'no confirmation appeared before retiring every agent')
-  assert.equal(seen.length, 0, 'no mutation may be sent before the user confirms')
+  assert.deepEqual(seen, [], 'no mutation may be sent before the user confirms')
 
   const confirm = [...document.querySelectorAll('button')]
     .find((b) => b.textContent?.trim() === 'dissolve all')
