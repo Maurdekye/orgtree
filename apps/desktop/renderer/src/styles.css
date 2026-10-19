@@ -6769,10 +6769,13 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
 .wd-chip.spent .wd-glyph { color: var(--warn, #e5c07b); }
 /* Kind outlines win over state/one-shot chrome. Ordinary one-shots keep
    their normal grey, with dashes as the finite-lifetime signal. */
+/* The shared button hover rule has higher specificity; give it this chip's
+   own perimeter color rather than the focused agent's neutral accent. */
+:is(.wd-chip, .desk-dog-chip) { --button-accent: var(--line); }
 :is(.wd-chip, .desk-dog-chip).oneshot { border-color: var(--line); }
-:is(.wd-chip, .desk-dog-chip).slot { border-color: var(--slot); }
-:is(.wd-chip, .desk-dog-chip).listener { border-color: var(--listener); }
-:is(.wd-chip, .desk-dog-chip).fair-queue { border-color: var(--fq-line); }
+:is(.wd-chip, .desk-dog-chip).slot { border-color: var(--slot); --button-accent: var(--slot); }
+:is(.wd-chip, .desk-dog-chip).listener { border-color: var(--listener); --button-accent: var(--listener); }
+:is(.wd-chip, .desk-dog-chip).fair-queue { border-color: var(--fq-line); --button-accent: var(--fq-line); }
 /* Listener-count watches are distinct from ordinary event listeners.
    Continuous: double cyan border. One-shot: dashed outer + solid inner ring. */
 :is(.wd-chip, .desk-dog-chip).listener-watch { border: 3px double var(--listener); }

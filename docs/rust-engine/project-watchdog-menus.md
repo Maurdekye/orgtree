@@ -47,3 +47,5 @@ label in the listener table. `watchdog-links.test.tsx` and the synthetic
 Follow-up 21:18Z: canvas and desk link perimeters use one late CSS kind-color
 rule, including hovered one-shot links; mode words are omitted from mail
 listener cells as well as event listener tables. The chip tooltip retains mode.
+Kind rules also set the chip's `--button-accent`, which the shared button hover
+rule consumes; its long `:not(...)` selector otherwise overrides kind borders.

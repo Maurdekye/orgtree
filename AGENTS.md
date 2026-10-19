@@ -109,6 +109,9 @@
   Known one-shots retain dashes and listener watches the double cyan perimeter.
   Tool/event/mail/mobile/detail/slot-line callers preserve their existing routes.
   [decided: user 2026-10-19 21:10Z; verified: `canvas/watchdoglink.tsx`]
+  Their kind perimeter also sets `--button-accent`: the shared high-specificity
+  button hover rule otherwise repaints it neutral grey. [verified: `styles.css`;
+  native hover capture 2026-10-19]
 
 - Project edges do not cap agent visibility, tools or folder authority. Chart,
   state inspection and watchdog access use agent reporting relations; top-level
