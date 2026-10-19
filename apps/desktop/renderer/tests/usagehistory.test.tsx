@@ -492,3 +492,71 @@ test('§4.7 the projection runs as far as the pane ahead reaches', () => {
   const wide = modelSeries(s7, [], { ...base, horizonMs: UH.aheadAxis(SINCE, NOW, 1).right - NOW })
   assert.equal(wide.projection!.to.t, NOW + D, 'at 100 % it runs the whole plot')
 })
+
+// §6 (user 2026-10-19): across a large time gap between two readings the line is a
+//    STEP at the new reading (hold the old value, jump when the new one arrives),
+//    never a diagonal that suggests a change nobody observed.
+const MIN = 60_000
+const P = (t: number, v: number) => ({ t, v })
+
+test('§6.1 stepPoints: a gap of STEP_GAP_MS or more gets a corner at the new time with the old value', () => {
+  assert.equal(UH.STEP_GAP_MS, 30 * MIN)
+  const seg = [P(0, 10), P(10 * MIN, 12), P(10 * MIN + UH.STEP_GAP_MS, 30), P(10 * MIN + UH.STEP_GAP_MS + MIN, 31)]
+  assert.deepEqual(UH.stepPoints(seg), [
+    P(0, 10), P(10 * MIN, 12),
+    P(10 * MIN + UH.STEP_GAP_MS, 12),  // held flat until the new reading ...
+    P(10 * MIN + UH.STEP_GAP_MS, 30),  // ... then the jump, exactly at its time
+    P(10 * MIN + UH.STEP_GAP_MS + MIN, 31),
+  ])
+  const close = [P(0, 10), P(UH.STEP_GAP_MS - 1, 12)]
+  assert.deepEqual(UH.stepPoints(close), close, 'just under the threshold stays linear')
+  assert.deepEqual(UH.stepPoints([P(0, 1)]), [P(0, 1)])
+})
+
+test('§6.2 the drawn line steps across a long gap and stays linear across a short one', async () => {
+  const f = stubFetch(payload({
+    oldest: iso(NOW - 3 * 24 * H),
+    series: [series([bucket(NOW - 3 * H, 10), bucket(NOW - 3 * H + 6 * MIN, 12),
+      bucket(NOW - H, 30), bucket(NOW - H + 6 * MIN, 31)])],
+  }))
+  await withWidth(async () => {
+    try {
+      const view = await mountView(<UsageHistoryModal close={() => {}} />, (el) => el)
+      await inAct(async () => { await flush(8) })
+      const d = view.el.querySelector('path.uh-line')!.getAttribute('d')!
+      const pts = d.match(/[ML]([\d.]+),([\d.]+)/g)!.map((s) => s.slice(1).split(',').map(Number) as [number, number])
+      assert.equal(pts.length, 5, `4 readings + 1 corner in ${d}`)
+      assert.equal(pts[2]![1], pts[1]![1], 'flat: the corner holds the previous value')
+      assert.equal(pts[2]![0], pts[3]![0], 'then a vertical jump at the new reading')
+      assert.ok(pts[3]![1] < pts[2]![1], 'the jump goes up to 30 %')
+      assert.ok(pts[1]![0] < pts[2]![0] && pts[1]![1] !== pts[0]![1], 'the 6-minute pair keeps its linear slope')
+      await view.unmount()
+    } finally { f.restore() }
+  })
+})
+
+test('§6.3 the hover readout inside a long gap shows the value in effect, not the nearer later reading', async () => {
+  const f = stubFetch(payload({
+    oldest: iso(NOW - 3 * 24 * H),
+    series: [series([bucket(NOW - 3 * H, 10), bucket(NOW - 3 * H + 6 * MIN, 12), bucket(NOW - H, 30)])],
+  }))
+  await withWidth(async () => {
+    try {
+      const view = await mountView(<UsageHistoryModal close={() => {}} />, (el) => el)
+      await inAct(async () => { await flush(8) })
+      const ax = UH.aheadAxis(NOW - 7 * 24 * H, NOW, UH.AHEAD_DEFAULT / 100)
+      const svg = view.el.querySelector('.uh-plot svg')!
+      const hoverAt = async (t: number) => {
+        const px = 44 + ax.at(t) * (800 - 44 - 12)
+        await inAct(async () => {
+          svg.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: px }))
+          await flush(2)
+        })
+        return view.el.querySelector('.uh-tip')?.textContent ?? ''
+      }
+      assert.match(await hoverAt(NOW - 1.1 * H), /^12%/, 'closer to the 30 % reading, but it had not happened yet')
+      assert.match(await hoverAt(NOW - H + 2 * MIN), /^30%/, 'after the jump it reads the new value')
+      await view.unmount()
+    } finally { f.restore() }
+  })
+})
