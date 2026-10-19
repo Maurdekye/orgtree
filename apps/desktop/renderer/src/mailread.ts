@@ -27,6 +27,7 @@ interface LocalRead {
   savedAt?: number
   boxAgrees?: boolean
   treeAgrees?: boolean
+  pending?: Promise<void>
 }
 
 const entries = new Map<string, LocalRead>()
@@ -52,11 +53,14 @@ export function useLocalReads(): number {
 export function markReadNow(slug: string, mail: { id: string; urgent?: boolean; mailbox_attention?: boolean },
   save: () => Promise<unknown>): Promise<void> {
   const k = key(slug, mail.id)
-  if (entries.has(k)) return Promise.resolve()      // already read here
+  const existing = entries.get(k)
+  // A close may join a read started by a reply or an explicit read action.
+  // Its optimistic appearance is not proof that the save has completed.
+  if (existing) return existing.pending ?? Promise.resolve()
   const mine: LocalRead = { slug, id: mail.id, urgent: hasMailAttention(mail), state: 'saving' }
   entries.set(k, mine)
   emit()
-  return save().then(() => {
+  const pending = save().then(() => {
     if (entries.get(k) === mine) {
       mine.state = 'saved'
       mine.savedAt = Date.now()
@@ -66,6 +70,8 @@ export function markReadNow(slug: string, mail: { id: string; urgent?: boolean; 
     if (entries.get(k) === mine) { entries.delete(k); emit() }
     throw e
   })
+  mine.pending = pending
+  return pending
 }
 
 /** The user read this mail here; the server may not say so yet. */
