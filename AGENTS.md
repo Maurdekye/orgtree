@@ -1773,8 +1773,11 @@
   Ticket references use Open details / Owner… / separator / three copy actions;
   Owner uses the canonical agent menu, click/Enter focuses, hover/Right expands.
   Ticket/watchdog link menus share direct-object
-  action builders and the current-org per-window registry. Updated per user
-  2026-10-14 10:29–10:46UTC, relayed by coordinator-opus. See
+  action builders and the current-org per-window registry.
+  Monitor fire/quiet card watchdog names retain their object menu after a dog
+  is spent or removed: show "no longer exists" with copy-name/ID actions only.
+  [decided: user 2026-10-19; verified: renderer `events/card.tsx`, `canvas/objectnavhost.tsx`]
+  Updated per user 2026-10-14 10:29–10:46UTC, relayed by coordinator-opus. See
   [timing, menu contract and verification status](docs/rust-engine/tool-writing-and-link-menus.md).
   [decided: user 2026-10-13 17:47–17:50UTC; verified from source:
   `runtime/toolwriting.rs`, renderer `toolclock.tsx`, `objectactions.ts`, `objectnav.tsx`]

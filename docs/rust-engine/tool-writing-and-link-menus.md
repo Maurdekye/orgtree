@@ -146,6 +146,10 @@ no management actions. Tickets are fetched by exact current-org ID when needed;
 missing targets produce no operative menu. Opening a menu does not execute an
 object action. Path/query-shaped ticket IDs are refused before lookup.
 
+Monitor fire/quiet cards retain a spent or removed watchdog's recorded name as
+an object link. Its label and tooltip say "no longer exists"; its menu offers
+copy name/ID, with no live-dog actions or fabricated details (user 2026-10-19).
+
 Ticket rows and links share `ticketReferenceActions` and `ticketOwnerAction`.
 The transcript order stays canonical; docket rows append their contextual fold
 and eligible quick-staff actions after one separator (user 2026-10-14: match +
