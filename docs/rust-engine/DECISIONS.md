@@ -7,6 +7,14 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Project activity on one line, user 2026-10-19 18:47–18:48Z (4.4.0):**
+the plain bold active/hired count and Active/Idle age share the project card's
+meta row without overflow, replacing its earlier wrapping fallback. Count
+uses the compact card font, and only the state word yields before the clock.
+Synthetic dark/light captures show card and desk together with held slots
+and waiters, merged mail listeners/queued/in-flight mail, and event listeners
+with an armed listener watch.
+
 **Open/folder default actions, user 2026-10-19 18:34–18:37Z (4.4.0):**
 switchboard Open clicks focus it; hover/Right retains the route submenu.
 Folder parents click/Enter to open, with no Open folder child. Agent Scratch

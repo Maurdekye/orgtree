@@ -16,6 +16,13 @@
 
 # AGENTS.md — working on Orgtree
 
+- Project near-card activity count and Active/Idle age share one nowrap row.
+  Count inherits its compact 10px font; the state word yields before the clock
+  so the normal 124px card does not wrap or overflow. This replaces the old
+  wrapping fallback. Slots, merged mail queue/listeners and event listeners
+  remain independent status groups. [decided: user 2026-10-19 18:47Z;
+  verified: renderer `styles.css`, `canvas/{projectcard,projectdesk}.tsx`]
+
 - Attention list rows toggle off on a second click; Escape clears when the
   list itself has focus. A reader-cleared pane stays empty through refreshes,
   without reading another mail. Initial/empty-queue arrivals and resolved-row

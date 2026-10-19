@@ -1407,7 +1407,7 @@ button.badge.audience-fold.alert {
 .sq.project { border-style: dashed; border-top-width: 1px; background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%); }
 .sq.project.norm { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .sq.project .project-mark { flex: none; display: inline-flex; color: var(--accent); font-size: 15px; }
-.sq.project .project-meta { gap: 6px; }
+.sq.project .project-meta { gap: 4px; }
 .sq.project .project-actions { opacity: 1; }
 /* the project desk (projectdesk.tsx): the agent desk's frame with a project's tabs */
 .project-desk .cc-head-left { display: inline-flex; align-items: center; gap: 6px; }
@@ -1437,12 +1437,13 @@ button.badge.audience-fold.alert {
    .sq-idle-time) with their own spacing and colours (user 2026-10-18 07:42Z) */
 .project-last-activity { display: inline-flex; align-items: baseline; white-space: nowrap;
   min-width: 0; max-width: 100%; overflow: hidden; }
-/* the activity line never runs off the card (user 2026-10-18 10:51Z, "2/19
-   Active 80s"): it wraps under the chip when the row is too narrow, and alone
-   on its line the word truncates (.sq-idle's ellipsis) before the clock */
-.sq.project .project-meta { flex-wrap: wrap; row-gap: 2px; }
-.sq.project .project-meta .project-activity { flex: none; }
-.sq.project .project-meta .project-activity { font-size: 10px; }
+/* Count + Active/Idle age are one line (user 2026-10-19 18:47Z, replacing
+   the earlier wrapping fallback). The state word yields before the clock;
+   the org-counts 12px default must not defeat the card's compact count font. */
+.sq.project .project-meta { flex-wrap: nowrap; }
+.sq.project .project-meta .project-activity { flex: none; font-size: 10px; }
+.sq.project .project-meta .project-counts { font-size: inherit; }
+.sq.project .project-meta .project-last-activity { flex: 1 1 0; }
 /* the description editor: Markdown until focused, monospace while edited (user 2026-10-17 20:06Z) */
 .project-desk .project-description-md, .project-desk .project-description-edit {
   flex: 1; min-height: 240px; overflow: auto; box-sizing: border-box; width: 100%;
