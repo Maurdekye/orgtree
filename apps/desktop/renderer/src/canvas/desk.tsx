@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { DndBadge, UrgentAgentOptions, type UrgentAgentMail } from './dnd'
 import { AgentCompactConfirm } from './agentcompact'
 import { historyEnabled, historyUndo } from '../historyregistry'
@@ -5031,9 +5032,9 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
         {' '}{shortTool(t.name)}
         {toolArg ? <span className="targ"> {toolArg}</span> : null}
         {t.file_paths?.map((file, i) => file.link
-          ? <a key={`${file.path}-${i}`} className="local-file tool-file-link" href="#"
+          ? <Fragment key={`${file.path}-${i}`}>{' '}<a className="local-file tool-file-link" href="#"
               data-local-path={file.path} title={`Show in folder — ${file.path}`}
-              onClick={e => e.stopPropagation()}>{' '}{file.path.split(/[\\/]/).filter(Boolean).at(-1) || file.path}</a>
+              onClick={e => e.stopPropagation()}>{file.path.split(/[\\/]/).filter(Boolean).at(-1) || file.path}</a></Fragment>
           : <span key={`${file.path}-${i}`} className="tool-file-path"> {file.path}</span>)}
         {t.diff && <span className="tdiffn"> +{t.diff.plus} −{t.diff.minus}</span>}
         {t.task && (
