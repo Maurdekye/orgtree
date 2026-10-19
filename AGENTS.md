@@ -22,7 +22,7 @@
   the structured reason, never parsed error text. Antigravity previews retain
   model switches/legacy hiding. Local language servers do not require the host
   CLI's native subscription login. See [signed-out hire tokens](docs/rust-engine/signed-out-hire-tokens.md).
-  [decided: user/coordinator 2026-10-19; verified: `providers/mod.rs`, `canvas/{shared,cards,OrgCanvas}.tsx`]
+  [decided: user/coordinator 2026-10-19; verified: `providers/mod.rs`, `canvas/{shared.ts,cards.tsx,OrgCanvas.tsx}`]
 
 - Desk-tab pin/pop-out requests snapshot the owning `.desk-tabpanel` before
   the modal mounts. Shared one-shot origin metadata carries its client box
