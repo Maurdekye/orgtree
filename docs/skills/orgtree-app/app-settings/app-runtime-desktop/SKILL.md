@@ -18,6 +18,16 @@ These Runtime-tab controls apply to the desktop installation on this machine. Th
 
 ## Startup and updates
 
+The installer's **Run Orgtree** Finish action launches directly when Setup is
+already unelevated. Elevated Setup dispatches through the original user's
+shell; the installation's per-user/all-users choice alone does not establish
+its current rights. Both routes retain exclusive launch ownership. A dispatch
+success does not confirm engine readiness. If Setup reports a launch failure,
+the desktop shortcut remains available; collect `orgtree-installer.log` beside
+Setup (or in `%TEMP%`) for the exact dispatch result. An engine log may not yet
+exist if no desktop process started. This is an installer action, not an agent
+tool or the Run on boot preference.
+
 The stored startup key retains the older name startAtLogin; the switch was called "run on startup" before 4.3.1. On an all-users Windows installation, the switch controls the boot engine task, the sign-in credential-helper task and the desktop's login entry. Turning it Off disables both tasks without deleting them. A running engine keeps running. Changing the switch uses one elevated Windows prompt and records the installer's choice. The actual boot-task state wins over a disagreeing saved preference when reconciled.
 
 On per-user Windows installs, macOS and Linux, startup uses the applicable login registration. Turning startup Off leaves an engine already running alone; it prevents the next automatic start. It is not an interrupt or shutdown control. A second startup change while the first is pending is refused; wait for the result before advising another attempt.

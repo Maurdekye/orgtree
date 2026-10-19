@@ -626,6 +626,13 @@
   the read-only database client, with its request tracing span and outer
   scope/count logs preserved. See [scope follow-up](docs/rust-engine/session-placement-blips.md#scope-inspection-follow-up).
   [decided: coordinator 2026-10-17; verified: `tools/orgview.rs`, `domain/scope.rs`]
+- Finish-page launch uses native Exec only when Setup's actual token is
+  unelevated; elevated Setup keeps original-user shell dispatch. Both follow
+  the exclusive launch claim; uncertain shell failure is never replayed with
+  elevated rights. Dispatch does not prove engine readiness. See
+  [Finish launch](docs/rust-engine/installer-finish-launch.md).
+  [verified: `build/installer.nsh`; decided: coordinator/user 2026-10-19,
+  4.3.3 slow fresh-install launch fix]
 
 - Session-placement loss requires three two-second misses; recovery is immediate.
   Overdue ticks are skipped and each recovered blip logs once. A per-engine

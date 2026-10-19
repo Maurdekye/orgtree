@@ -3807,6 +3807,7 @@
    "purpose": "Runtime > desktop behavior: run on boot (where agents run), exit on close, automatic updates, run as administrator.",
    "must_cover": [
     "each switch, default and effect",
+    "installer Finish launch: token-based native/original-user dispatch, exclusive ownership and installer log before engine startup",
     "restarting the background engine",
     "run on boot: the engine at boot in Session 0, agents in the signed-in session while the user is signed in; \"run on sign-in\" where Orgtree cannot start at boot"
    ],
