@@ -154,6 +154,18 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
     let mut seen=std::collections::HashSet::new();
     for (target,role) in targets {
         if !seen.insert(target) {continue;}
+        if n.project && matches!(op,"hire"|"retire"|"dissolve"|"delete"|"rehire") {
+            // Agent lifecycle roles cannot describe a placement container.
+            // Keep the same passive recipients using the existing plain notice
+            // schema, without claiming that the project is a report or peer.
+            let verb=match op {"hire"=>"created","retire"=>"retired","dissolve"=>"dissolved","delete"=>"permanently deleted",_=>"restored"};
+            let actor=if by==crate::events::USER {"the user".to_string()} else {format!("\"{by}\"")};
+            let mut body=format!("Project \"{}\" was {verb} by {actor}.",n.name);
+            if op=="dissolve" {body.push_str(&format!(" Its whole subtree was retired ({} node(s)).",d["nodes"].as_i64().unwrap_or(1)));}
+            let ev=crate::events::typed("ordinary.notice",crate::events::SYSTEM,object.clone(),json!({"body":body}));
+            if let Some(id)=store(tx,org,target,by,ev,&body).await? {changed.push(id);}
+            continue;
+        }
         let (variant,fields)=match op {
             "compacted" => ("lifecycle.compacted",json!({"node":n.name,"relation":role,"generation":n.generation,"predecessor":d["session"],"auto":d["auto"],"lost":true,"size_note":null})),
             "switch_queued" => ("lifecycle.switch_queued",json!({"node":n.name,"old":d["old"],"new":d["new"],"by":by})),

@@ -1242,10 +1242,10 @@ async fn apply_hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction
             for h in hires.iter().rev() {
                 let Some(id) = opt_id(&h["agent"]) else { continue };
                 let (name, _) = who(tx, org.id, id).await?;
-                let reports: Vec<String> = tx.query("SELECT name FROM ot.agents WHERE parent_id = $1 AND state = 'live' ORDER BY sibling_order, id", &[&id])
+                let children: Vec<String> = tx.query("SELECT name FROM ot.agents WHERE parent_id = $1 AND state = 'live' ORDER BY sibling_order, id", &[&id])
                     .await?.iter().map(|r| r.get(0)).collect();
-                if !reports.is_empty() {
-                    refuse!(Conflict, "{name} has live reports of its own now ({}); they are never retired with it", reports.join(", "));
+                if !children.is_empty() {
+                    refuse!(Conflict, "{name} has live child nodes now ({}); they are never retired with it", children.join(", "));
                 }
                 run(engine, org, tx, json!({ "op": "retire", "node": name }), pending).await?;
             }

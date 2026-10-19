@@ -22,6 +22,11 @@
   compatible; there is no migration. [decided: user 2026-10-19 20:56Z;
   verified: `canvas/langserver.tsx`, `providers/catalog.rs`, `org_accounts.rs`]
 
+- Project lifecycle notices use project wording and remain passive, with the
+  same agent recipients; they never call the container a report or peer.
+  Undo-hire still refuses live child nodes, including empty projects. [verified:
+  `domain/lifecycle.rs`, `domain/undo.rs`, rig `project-label-notices.mjs`; 2026-10-19]
+
 - The user `/nodes/<project>/scope` route accepts only `peer_mail`; all other
   fields (including mixed patches) refuse before writes/cascades. Project policy
   uses project settings. [verified: `http/nodes.rs`; 2026-10-19]
