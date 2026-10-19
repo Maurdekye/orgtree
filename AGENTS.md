@@ -596,8 +596,11 @@
   a refusal, never a success toast. Direct Halt/Unhalt have no ellipsis; team
   bulk compaction uses two counted confirm buttons (normal/cheap), plus Cancel,
   with count-only summaries and covered agent names in each line's tooltip,
-  not inline lists. Shared skip reasons appear once; Normal-only reasons stay
-  under Normal, with unsupported harnesses grouped. No expanders or radios.
+  not inline lists. Mid-turn and no-measured-context skip lines appear under
+  BOTH Cheap and Normal, each with complete hover names; other shared reasons
+  appear once. Normal-only reasons stay under Normal, with unsupported harnesses
+  grouped. No expanders or radios. [decided: user 2026-10-19 11:47Z;
+  verified: canvas/bulkcompact.tsx]
   [decided: user/coordinator 2026-10-18 17:28-17:58Z]
   Opening only reads Normal
   support; pending/zero-target Normal is disabled while eligible Cheap remains

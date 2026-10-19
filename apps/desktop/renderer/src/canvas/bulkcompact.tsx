@@ -275,12 +275,17 @@ export function BulkCompactConfirm({ title, scope, targets, op, toast, close, sl
   }
   const cheapCount = base.eligible.length
   const normalCount = normal.eligible.length
+  // These exclusions apply to either action; keep their hover names beside
+  // each mode rather than visually attaching them only to Normal.
+  const modeSkips = base.skipped.filter(row => row.reason === SKIP_BUSY || row.reason === SKIP_EMPTY)
+  const sharedSkips = base.skipped.filter(row => row.reason !== SKIP_BUSY && row.reason !== SKIP_EMPTY)
   const body = <div className="bulk-compact-summary">
     <section data-compact-preview="cheap">
       <p><strong>Cheap compact:</strong> fresh session with a summary handoff (keeps settings and team)</p>
       <p data-compact-count="cheap" title={coveredNames(base.eligible)}>
         {plural(cheapCount, 'agent') + ' will be cheap-compacted, one at a time.'}
       </p>
+      <SkipCounts rows={modeSkips} />
     </section>
     <section data-compact-preview="normal">
       <p><strong>Normal compact:</strong> the harness compacts its conversation</p>
@@ -292,8 +297,9 @@ export function BulkCompactConfirm({ title, scope, targets, op, toast, close, sl
             {plural(normalCount, 'agent') + ' will be compacted, one at a time.'}
           </p>}
       <SkipCounts rows={normal.skipped.slice(base.skipped.length)} />
+      <SkipCounts rows={modeSkips} />
     </section>
-    <div data-compact-shared-skips><SkipCounts rows={base.skipped} /></div>
+    <div data-compact-shared-skips><SkipCounts rows={sharedSkips} /></div>
     <p className="bulk-compact-note">Running turns are never interrupted; you'll get a summary of every outcome.</p>
   </div>
   return <ConfirmModal title={title} body={body}

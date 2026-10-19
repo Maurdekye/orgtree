@@ -3471,7 +3471,7 @@
     "every agent-menu item",
     "agents and projects: Desk, Desk as a pinned window, Desk in a separate window in that order; keep existing actions",
     "own-led numeric-id team scratch next to personal scratch",
-    "plain bulk Compact entries open two counted buttons and count-only summaries with hover names, shared reasons once, disabled zero targets and cancellation"
+    "plain bulk Compact entries open two counted buttons and count-only summaries with hover names, busy and no-context under both modes, other shared reasons once, disabled zero targets and cancellation"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/contextmenu.tsx:461",
