@@ -48,7 +48,9 @@ same contracted graph. `ot.agent_reporting` exposes agent rows with `superior_id
 `ot.reports_of(org, superior)` returns the first agents reached through projects,
 with NULL selecting the user-level frontier. Callers retain their lifecycle-state
 filters. Moves, swaps and promotion snapshot the former **agent** superior before
-changing placement, since a project parent can itself move with a seat. Docket
+changing placement, since a project parent can itself move with a seat. Moving a
+project wrapper notifies its first agent reports about their changed superior;
+the agents below those reports retain their supervisor. Docket
 deployment reminders and `next_action` use identical agent-only relations.
 
 The user's 2026-10-19 exceptions remain: peer-mail OFF and its delegation gate
@@ -65,7 +67,7 @@ reads, so a reader-side wipe cannot be mistaken for a scope-cascade bug.
 
 Stage B proofs: `project-transparency-b.mjs` (request routing, real turn contexts,
 lifecycle, idle deployment reminders), `project-lifecycle-relations.mjs` (insertion,
-swap, promotion, native compaction and retired/deleted notices), and
+swap, promotion, native compaction, project-wrapper moves and retired/deleted notices), and
 `project-folder-raise.mjs` (exact upward folder grant plus Summary read/clear).
 
 Stage A regression proof: `tools/rig/proofs/project-transparency-a.mjs` drives the real engine

@@ -8,15 +8,15 @@ use tokio_postgres::Transaction;
 #[derive(Debug)]
 struct Seat {
     name: String, parent: Option<i64>, parent_name: Option<String>,
-    generation: i32, tier: String, seat: f64, grant: f64,
+    generation: i32, tier: String, seat: f64, grant: f64, project: bool,
 }
 
 #[logged]
 async fn seat(tx: &Transaction<'_>, id: i64) -> Result<Seat> {
-    let r = tx.query_one("SELECT a.id,a.name,p.id,p.name,a.generation,a.tier,a.seat::float8,a.grant_credits::float8
+    let r = tx.query_one("SELECT a.id,a.name,p.id,p.name,a.generation,a.tier,a.seat::float8,a.grant_credits::float8,a.kind='project'
         FROM ot.agents a LEFT JOIN ot.agents p ON p.id=ot.superior_of(a.id) WHERE a.id=$1", &[&id]).await?;
     Ok(Seat { name:r.get(1), parent:r.get(2), parent_name:r.get(3),
-              generation:r.get(4), tier:r.get(5), seat:r.get(6), grant:r.get(7) })
+              generation:r.get(4), tier:r.get(5), seat:r.get(6), grant:r.get(7), project:r.get(8) })
 }
 
 /// Current live peers, read in bounded pages so large orgs lose no recipients.
@@ -56,6 +56,16 @@ async fn store(tx: &Transaction<'_>, org: i64, recipient: i64, by: &str, ev: Val
 pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject: Option<i64>, d: &Value) -> Result<Vec<i64>> {
     let Some(id) = subject else { return Ok(Vec::new()) };
     let n = seat(tx,id).await?;
+    if n.project && op=="move" {
+        // Moving a wrapper changes the superior of its first agents only. Keep
+        // the structural event on the project, but notify about those agents;
+        // reports below an agent still have the same superior after the move.
+        let mut changed=Vec::new();
+        for report in siblings(tx,org,Some(id),id).await? {
+            changed.extend(Box::pin(record(tx,org,op,by,Some(report),d)).await?);
+        }
+        return Ok(changed);
+    }
     let slug: String = tx.query_one("SELECT slug FROM ot.orgs WHERE id=$1", &[&org]).await?.get(0);
     let object = crate::events::node_ref(&slug,&n.name,n.generation as i64);
     let mut targets: Vec<(i64,String)> = Vec::new();
