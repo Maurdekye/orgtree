@@ -233,6 +233,8 @@ uiTest('desk effort control shows the effective inherited default and queued nex
       'an unconfigured agent with no effort_effective row field shows the Rust settings default')
     assert.equal(inheritedButton.classList.contains('inherited'), true,
       'the effective default remains visually distinguished from an explicit setting')
+    await inAct(() => inheritedButton.click())
+    await flush()
     assert.equal(inherited.el.querySelector('.effort-bar-pip')?.getAttribute('data-level'), 'high',
       'the effort selector marks the effective inherited default')
     assert.equal(inheritedButton.getAttribute('title'),
