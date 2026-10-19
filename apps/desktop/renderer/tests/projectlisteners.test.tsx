@@ -19,20 +19,26 @@
 //   §5 the near-zoom card's listener and queue badges.
 //   §6 the magenta mail-listeners card (fair-queue count, user 2026-10-19
 //      17:11Z): beside the queue card on desk + near card, opens inbox.
+//   §7 the inbox's listeners folder (user 2026-10-19 19:05Z-19:33Z): the mail
+//      card opens inbox › listeners: the project's mail listeners in the
+//      engine's delivery order, as the slots view's table, with live
+//      Waited/Worked times (Worked and the held mail only in ack mode).
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs projectlisteners
 
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
+import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import {
-  fireActionTools, listenerCards, listenerLinks, mailQueueCard, projectListenerState, queueAckMode,
+  fireActionTools, listenerCards, listenerLinks, mailListenerState, mailQueueCard, projectListenerState, queueAckMode,
 } from '../src/canvas/listeners'
+import { MailListenersView, mailListenerRows } from '../src/canvas/maillisteners'
+import { slotTimeStyle } from '../src/canvas/slottime'
 import { watchdogDescription } from '../src/canvas/watchdogdescription'
-import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
+import type { CanvasNode, MailRow, OpRequest, OpResult } from '../src/canvas/shared'
 import type { TreePayload, Watchdog } from '../src/types'
 
 const noop = () => {}
@@ -270,4 +276,168 @@ test('§6 the desk header carries ONE merged mail card, and clicking it opens th
 test('§6 no mail card without a watcher, waiting mail or in-flight job', async (t) => {
   const { view } = await desk(t, project(), false)
   assert.equal(Boolean(view.el.querySelector('.project-queue-card')), false)
+})
+
+/* ─── §7 the inbox's listeners folder (user 2026-10-19 19:05Z-19:33Z) ───── */
+
+/** the project's mailbox as the inbox polls it: a job handed to sa at 08:00
+ *  and not yet acked; one handed to sb at 07:32 and acked at 07:40 */
+function serveInbox(t: TestContext) {
+  const inner = globalThis.fetch
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+    if (new URL(String(url), 'http://x').pathname === '/api/orgs/org/nodes/sync/inbox')
+      return Promise.resolve(new Response(JSON.stringify({ pending: [], sent: [], delivered: [
+        { id: 'm1', from: 'boss', kind: 'message', body: 'build it\nall of it', at: '2026-10-19T07:59:00.000Z',
+          queue: { held_by: 'sa', ack: true, held_at: '2026-10-19T08:00:00.000Z' } },
+        { id: 'm2', from: 'boss', kind: 'message', body: 'test it', at: '2026-10-19T07:30:00.000Z',
+          queue: { held_by: 'sb', ack: true, held_at: '2026-10-19T07:32:00.000Z', acked_at: '2026-10-19T07:40:00.000Z' } },
+      ] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    return inner(url, init)
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = inner })
+}
+const folders = (el: Element) => [...el.querySelectorAll('.mail-folders button')]
+  .map((b) => (b.textContent ?? '').replace(/\s+/g, ' ').trim())
+const openFolder = (el: Element) => (el.querySelector('.mail-folders button.on')?.textContent ?? '').replace(/\s+\d+$/, '').trim()
+const tabOn = (el: Element, tab: string) => el.querySelector(`.cc-tabs button[data-tab="${tab}"]`)?.classList.contains('on')
+const showTab = (el: Element, tab: string) => inAct(async () => {
+  el.querySelector<HTMLButtonElement>(`.cc-tabs button[data-tab="${tab}"]`)!.click(); await flush(4)
+})
+const clickFolder = (el: Element, name: string) => inAct(async () => {
+  [...el.querySelectorAll<HTMLButtonElement>('.mail-folders button')].find((b) => b.textContent?.startsWith(name))!.click()
+  await flush(3)
+})
+const clickCard = (el: Element) => inAct(async () => {
+  el.querySelector<HTMLButtonElement>('.project-queue-card')!.click(); await flush(6)
+})
+const headers = (el: Element) => [...el.querySelectorAll('.mail-listeners-table thead th')].map((h) => h.textContent)
+const tableRows = (el: Element) => [...el.querySelectorAll<HTMLTableRowElement>('.mail-listeners-table tbody tr.listener-row')]
+const cells = (row: Element) => [...row.children].map((c) => (c.textContent ?? '').replace(/\s+/g, ' ').trim())
+
+test('§7 the mail card opens the inbox on a new listeners folder after inbox and sent', async (t) => {
+  const nd = project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 })
+  const { view } = await desk(t, nd)
+  serveInbox(t)
+  await clickCard(view.el)
+  assert.equal(tabOn(view.el, 'inbox'), true, 'the inbox tab')
+  assert.deepEqual(folders(view.el), ['inbox 3', 'sent', 'listeners 2'], 'a third folder, its badge counting the armed mail listeners')
+  assert.equal(openFolder(view.el), 'listeners', 'opened on the listeners folder')
+  assert.equal(tabOn(view.el, 'listeners'), false, 'not the desk-level event listeners tab, which stays as it is')
+  assert.ok(view.el.querySelector('.cc-tabs button[data-tab="listeners"]'), 'that tab is still there')
+  assert.equal(view.el.querySelector('.project-listeners'), null, 'the event listeners panel is not drawn here')
+})
+
+test("§7 one aligned table, values only, as the slots view; Worked and Mail only in ack mode (user 19:28Z, 19:29:12Z, 19:33Z)", async (t) => {
+  const ackDesk = await desk(t, project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 }))
+  serveInbox(t)
+  await clickCard(ackDesk.view.el)
+  assert.deepEqual(headers(ackDesk.view.el), ['Position', 'Agent', 'Waited', 'Worked', 'Mail', 'Handed', 'Watchdog'])
+  const [first] = tableRows(ackDesk.view.el)
+  const c = cells(first!)
+  assert.equal(c[0], '1st', 'the place in the order, as the slots line')
+  assert.equal(first!.querySelector('.slot-agent [data-copy-agent-name]')?.getAttribute('data-copy-agent-name'), 'sb',
+    'the agent, as a link with its model card')
+  assert.match(c[2]!, /^\d+(s|m|h \d+m)$/, 'Waited: a time and nothing else')
+  assert.equal(c[3], '8m', "Worked: sb's last job, handed 07:32 and acked 07:40")
+  assert.equal(c[4], '', 'no job held')
+  assert.equal(c[5], '0', "Handed: the watchdog's engine count, a bare number")
+  assert.equal(c[6], 'mail-b')
+  const rr = await desk(t, project({}, { mail_pending: 3 }))
+  await clickCard(rr.view.el)
+  assert.deepEqual(headers(rr.view.el), ['Position', 'Agent', 'Waited', 'Handed', 'Watchdog'],
+    'round robin: no Worked and no Mail column (user 19:29:12Z)')
+})
+
+test("§7 the order is the engine's pick: never woken first, then least recently woken, then the oldest dog; ack holders after the free, the rest last", () => {
+  const fq = (owner: string, extra: Partial<Watchdog> = {}) => dog('fair_queue', owner, 'mail-' + owner, { once: false, ...extra })
+  const listeners = [
+    fq('sa', { last_fired: '2026-10-19T09:00:00.000Z' }),
+    fq('sb', { at: '2026-10-19T06:00:00.000Z' }),
+    fq('sc', { state: 'paused' }),
+    fq('sd'),
+    fq('se', { last_fired: '2026-10-19T08:00:00.000Z' }),
+  ]
+  const map = new Map(['sa', 'sb', 'sc', 'sd', 'se'].map((id) => [id, agentNode(id)] as [string, CanvasNode]))
+  const st = mailListenerState('sync', listeners)
+  assert.deepEqual(mailListenerRows(st, map, [], false).map((r) => [r.dog.owner, r.position, r.out]),
+    [['sb', 1, null], ['sd', 2, null], ['se', 3, null], ['sa', 4, null], ['sc', null, 'paused']],
+    'round robin: the never woken (older dog first), then by last hand-out; a paused dog takes none')
+  const jobs = [{ id: 'm1', from: 'boss', kind: 'message', body: 'job', at: '2026-10-19T07:59:00.000Z',
+    queue: { held_by: 'se', ack: true, held_at: '2026-10-19T08:00:00.000Z' } }] as MailRow[]
+  const halted = new Map(map)
+  halted.set('sd', { ...agentNode('sd'), halt: { phase: 'halted', requested_at: '2026-10-19T08:30:00.000Z', by: 'user' } } as CanvasNode)
+  assert.deepEqual(mailListenerRows(st, halted, jobs, true).map((r) => [r.dog.owner, r.position, r.out]),
+    [['sb', 1, null], ['sa', 2, null], ['se', null, 'holding'], ['sc', null, 'paused'], ['sd', null, 'halted']],
+    'ack mode: a holder and a halted agent are handed nothing; holders follow the free listeners')
+})
+
+test('§7 a holder: a marked row, its Worked counts up, its last wait ended at the hand-out, and its mail opens in the inbox (user 19:28Z-19:30Z)', async (t) => {
+  const nd = project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 })
+  const { view } = await desk(t, nd)
+  serveInbox(t)
+  await clickCard(view.el)
+  const row = tableRows(view.el).find((r) => r.querySelector('[data-copy-agent-name="sa"]'))!
+  assert.ok(row.classList.contains('holding'), 'the holder row is marked')
+  const c = cells(row)
+  assert.equal(c[0], '', 'a holder has no place in the order until it acks')
+  assert.equal(c[2], '1h 0m', 'its last wait: armed 07:00, handed its job 08:00')
+  assert.equal(row.querySelector('.slot-wait .slot-time')?.classList.contains('live'), false, 'that wait is over')
+  assert.ok(row.querySelector('.slot-held .slot-time.live'), 'its work on the job is counting up')
+  const link = row.querySelector<HTMLButtonElement>('.listener-mail-link')!
+  assert.equal(link.textContent, 'build it', "the job's first line")
+  await inAct(async () => { link.click(); await flush(6) })
+  assert.equal(openFolder(view.el), 'inbox', 'the link opens the inbox folder')
+  assert.match(view.el.querySelector('.mailrow.on')?.textContent ?? '', /build it/, 'with that mail selected')
+})
+
+test('§7 open times count up with the shared second clock, in the shared slot time colours', async (t) => {
+  useFakeClock()
+  t.after(() => realClock())
+  const at = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
+  const listeners = [dog('fair_queue', 'sa', 'mail-a', { once: false, at: at(3600) }),
+    dog('fair_queue', 'sb', 'mail-b', { once: false, at: at(30) })]
+  const jobs = [{ id: 'm1', from: 'boss', kind: 'message', body: 'job', at: at(10),
+    queue: { held_by: 'sa', ack: true, held_at: at(5) } }] as MailRow[]
+  const map = new Map(['sa', 'sb'].map((id) => [id, agentNode(id)] as [string, CanvasNode]))
+  const view = await mountView(<MailListenersView node={project({ mail_queue: 'ack' })} state={mailListenerState('sync', listeners)}
+    map={map} rows={jobs} ack />, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(() => flush(2))
+  const live = () => tableRows(view.el).map((r) => r.querySelector('.slot-time.live')?.textContent)
+  assert.deepEqual(live(), ['30s', '5s'], "sb is waiting (1st), sa works on its job")
+  await advance(1000)
+  assert.deepEqual(live(), ['31s', '6s'], 'both count up together')
+  const sbWait = tableRows(view.el)[0]!.querySelector<HTMLElement>('.slot-time.live')!
+  const norm = (c: string) => { const i = document.createElement('i'); i.style.color = c; return i.style.color }
+  assert.equal(sbWait.style.color, norm(slotTimeStyle(31).color), 'the shared colour scale')
+})
+
+test('§7 opening the inbox from its tab starts on the inbox folder again; the card switches an open inbox to listeners', async (t) => {
+  const nd = project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 })
+  const { view } = await desk(t, nd)
+  serveInbox(t)
+  await clickCard(view.el)
+  assert.equal(openFolder(view.el), 'listeners')
+  await showTab(view.el, 'desk')
+  await showTab(view.el, 'inbox')
+  assert.equal(openFolder(view.el), 'inbox', 'the tab strip opens the inbox folder, not the last card click')
+  await clickFolder(view.el, 'sent')
+  assert.equal(openFolder(view.el), 'sent')
+  await clickCard(view.el)
+  assert.equal(openFolder(view.el), 'listeners', 'a card click switches the open inbox to its listeners')
+})
+
+test('§7 a mail card naming only waiting mail opens the inbox folder; the empty listeners folder says how to listen', async (t) => {
+  const nd = project({}, { mail_pending: 3 })
+  const { view } = await desk(t, nd, false)
+  serveInbox(t)
+  const card = view.el.querySelector<HTMLButtonElement>('.project-queue-card')!
+  assert.equal(card.textContent, "3 q'd")
+  await clickCard(view.el)
+  assert.equal(tabOn(view.el, 'inbox'), true)
+  assert.equal(openFolder(view.el), 'inbox', 'no listener to show: the waiting mail')
+  assert.deepEqual(folders(view.el), ['inbox 3', 'sent', 'listeners'], 'the folder is there without a badge')
+  await clickFolder(view.el, 'listeners')
+  assert.match(view.el.querySelector('.project-mail-listeners')?.textContent ?? '', /kind=fair_queue target=sync/,
+    'the empty folder says how an agent starts listening')
 })
