@@ -2166,7 +2166,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // project desk"), never the agent desk.
   const projectDeskOf = (n: CanvasNode) => <ProjectDesk bare node={n} slug={slug} tree={tree} map={map} op={op} toast={toast}
     refs={canvasRefs} onJump={centerOn} onConfig={() => toggleConfig(n.id)} onOpenDoc={openDocView}
-    onPopout={() => openProjectDesk(n.id, true)} />
+    onPopout={() => openProjectDesk(n.id, true)}
+    onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(n.id) ? () => dismissRetiredAgent(n.id) : undefined} />
   // the DOCUMENT READER's own copy: same world, same routes, plus the one
   // thing that belongs to the reader rather than to the canvas — a document
   // opening another document SWAPS the reader, while everything else lives
@@ -4161,6 +4162,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onOpenGallery={onOpenAgentGallery}
               onOpenTemporary={!isMobile ? () => openProjectDesk(n.id) : undefined}
               onPopout={!isMobile ? () => openProjectDesk(n.id, true) : undefined}
+              onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(n.id)
+                ? () => dismissRetiredAgent(n.id) : undefined}
               onDragStart={startNodeDrag} onDragMove={moveNodeDrag}
               onDragEnd={endNodeDrag} onDragCancel={abortNodeDrag} />
           }

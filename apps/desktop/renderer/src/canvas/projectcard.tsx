@@ -89,6 +89,8 @@ interface ProjectSquareProps {
   /** its desk as a temporary modal, or popped out to a window (point 27) */
   onOpenTemporary?: () => void
   onPopout?: () => void
+  /** hide it again when it was revealed under hide-retired (its desk's dismiss) */
+  onDismiss?: () => void
   onDragStart: (e: React.PointerEvent<HTMLDivElement>, id: string) => void
   onDragMove: (e: React.PointerEvent<HTMLDivElement>, id: string) => void
   onDragEnd: (e: React.PointerEvent<HTMLDivElement>, id: string, node: CanvasNode, focused: boolean) => void
@@ -97,7 +99,7 @@ interface ProjectSquareProps {
 
 export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, onFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
   onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onTeam, onSettings, onDocket, onOpenDoc, onOpenGallery,
-  onOpenTemporary, onPopout, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
+  onOpenTemporary, onPopout, onDismiss, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   const surfaceRoutes = useAgentSurfaceRoutes()
   // the mailbox hover button obeys "Show agent card shortcuts", like an
@@ -281,7 +283,8 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       )}
       {deskOpen && (
         <ProjectDesk node={node} slug={slug} tree={tree!} map={map ?? new Map()} toast={toast} refs={refs!}
-          op={op} onJump={onJump} onConfig={onSettings} onPin={onPin} onPopout={onPopout} onOpenDoc={onOpenDoc} />
+          op={op} onJump={onJump} onConfig={onSettings} onPin={onPin} onPopout={onPopout} onOpenDoc={onOpenDoc}
+          onDismiss={onDismiss} />
       )}
       {pinnedFocus && !deskOpen && onShowPin && (
         <div className="pin-holder"><PinnedPlaceholder id={node.id} onShow={onShowPin} /></div>

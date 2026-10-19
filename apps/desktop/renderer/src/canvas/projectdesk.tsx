@@ -31,7 +31,7 @@ import { InboxView } from './mail'
 import { useWorkItems } from './useworkitems'
 import { actionableTeamCount, AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { AgentGalleryView } from './gallery'
-import { PanelCorner, revealAgentPanelTab } from './panelcorner'
+import { PanelCorner, revealAgentPanelTab, useAgentSurfaceRoutes } from './panelcorner'
 import { AgentTeamView, liveTeamCount } from './team'
 import { PopoutButton, PopoutWindowControls, useSurface } from '../popout'
 import type { RefRoutes } from './reflinks'
@@ -82,6 +82,9 @@ export interface ProjectDeskProps {
   onPopout?: () => void
   /** open a presented document (the header's presentation strip) */
   onOpenDoc?: (id: string) => void
+  /** hide an explicitly revealed retired project again (hide-retired
+   *  setting), as an agent desk's `dismiss` does */
+  onDismiss?: () => void
 }
 
 /** The agents under a project, nested projects crossed but not counted:
@@ -499,8 +502,13 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
   </>
 }
 
-export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig, onPin, onPopout, onOpenDoc }: ProjectDeskProps) {
+export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig: configProp, onPin, onPopout, onOpenDoc, onDismiss }: ProjectDeskProps) {
   const surface = useSurface()
+  // a host that passes no settings handler gets the shell's own opener, so
+  // the gear is never missing or dead, as on the agent desk (AgentSurfaceRoutes)
+  const surfaceRoutes = useAgentSurfaceRoutes()
+  const onConfig = configProp
+    ?? (surfaceRoutes?.settings ? () => surfaceRoutes.settings?.(node.id) : undefined)
   const [view, setView] = useState<Tab>('desk')
   const teamCount = liveTeamCount(map, node.id)
   useEffect(() => {
@@ -608,6 +616,11 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
                 onClick={() => setAsking('dissolve')}>dissolve</button>}
               {!live && node.state === 'archived' && <button data-action="restore"
                 onClick={() => { void op({ op: 'rehire', node: node.id }).catch(() => {}) }}>restore</button>}
+              {!live && onDismiss && (
+                <button data-action="dismiss" onClick={onDismiss} title="dismiss — hide this retired project again">
+                  dismiss
+                </button>
+              )}
         </>}
         tabs={<DeskTabs shown={shown} tabs={tabs.map((v) => ({ id: v, label: v === 'desk' ? 'summary' : v === 'dead' ? 'dead letters' : v, count: count(v), showCount: v !== 'slots' }))} onShow={(v) => {
           if (v === 'inbox') { setInboxAsk(null); setInboxJump(null) }
