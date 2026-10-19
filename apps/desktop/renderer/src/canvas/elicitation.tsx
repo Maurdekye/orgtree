@@ -47,8 +47,8 @@ export function ElicitationAsk({ ask, slug, toast }: { ask: AskInfo; slug: strin
   return <form ref={visibility} className="askcard elicitation-card" data-elicitation-id={ask.id}
     onSubmit={ev => { ev.preventDefault(); void submit('accept') }}>
     <div className="ask-head"><strong>MCP permission · {e.server}</strong></div>
-    <p>{e.message}</p>
-    {e.mode === 'url' ? <p><a href={e.url ?? undefined} target="_blank" rel="noopener noreferrer">{e.url}</a></p>
+    <p className="ask-q">{e.message}</p>
+    <div className="ask-rows elicitation-fields">{e.mode === 'url' ? <p><a href={e.url ?? undefined} target="_blank" rel="noopener noreferrer">{e.url}</a></p>
       : fields.map(([key, s], i) => {
         const id = `${ask.id}-field-${i}`, required = e.schema?.required?.includes(key)
         const choices = options(s.type === 'array' ? s.items ?? {} : s)
@@ -70,7 +70,7 @@ export function ElicitationAsk({ ask, slug, toast }: { ask: AskInfo; slug: strin
             minLength={s.minLength} maxLength={s.maxLength} placeholder={s.format}
             value={value == null ? '' : String(value)} onChange={ev => change(key, ev.target.value)} />}
         </label>
-      })}
+      })}</div>
     <p className="dim">This request expires in five minutes. {e.mode === 'url' ? 'Open the link yourself before accepting. ' : ''}Your decision applies to this request.</p>
     {error && <p role="alert">{error}</p>}
     <div className="row">

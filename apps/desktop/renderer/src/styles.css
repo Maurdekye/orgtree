@@ -9602,3 +9602,7 @@ button.node-link.node-link:focus-visible {
 .elicitation-card { padding: 16px; }
 .elicitation-field { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
 .elicitation-field small { opacity: .7; }
+
+.elicitation-fields { min-height: 0; max-height: 45vh; overflow-y: auto; }
+.elicitation-card > .row, .elicitation-card > .ask-head { flex-shrink: 0; }
+.elicitation-card > .ask-q { max-height: 120px; overflow-y: auto; }
