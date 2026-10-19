@@ -43,7 +43,8 @@ window.fetch = (async (url: RequestInfo | URL) => {
       counts: { attention: 0, active: 0, archived: 0, backlogged: 0 } }
     : /\/nodes\/inner\/inbox/.test(p) ? { pending: [waiting], delivered: [held], sent: [] }
     : /\/inbox/.test(p) ? { pending: [], delivered: [], sent: [] }
-    : /\/transfers/.test(p) ? { transfers: [], next_cursor: null } : { ok: true }
+    : /\/transfers/.test(p) ? { transfers: [], next_cursor: null }
+    : /\/history(?:\?|$)/.test(p) ? { items: [] } : { ok: true }
   return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
 }) as typeof fetch
 

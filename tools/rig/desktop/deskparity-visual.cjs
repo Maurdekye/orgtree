@@ -67,9 +67,9 @@ app.whenReady().then(async () => {
       let windowProbe = null
       if (await js('window.deskParityVisual.hasInboxWindow()')) {
         await js('window.deskParityVisual.inboxWindow(true)')
-        await wait('.modalpin-win .mail-folders, [role="dialog"] .mail-folders')
+        await wait('.overlay .settings .mail-folders')
         await shot(`${theme}-inbox-window`)
-        windowProbe = await js(`(()=>{ const w = document.querySelector('.modalpin-win, [role="dialog"]')
+        windowProbe = await js(`(()=>{ const w = document.querySelector('.overlay .settings')
           return { folders: [...w.querySelectorAll('.mail-folders button')].map(b => b.textContent.trim()),
             purge: !!w.querySelector('button[data-action="purge-queue"]'), projectRows: w.querySelectorAll('.mailrow.project-mail').length } })()`)
         await js('window.deskParityVisual.inboxWindow(false)')
