@@ -882,7 +882,12 @@ pub fn payload(engine: &Engine) -> Value {
             }
             agy_offers(tier, &st.agy_models)
         });
-        providers.push(entry(catalog::GOOGLE, "Antigravity", "agy", &st.agy, tiers));
+        let mut e = entry(catalog::GOOGLE, "Antigravity", "agy", &st.agy, tiers);
+        e["preview_tiers"] = json!(catalog::listed().iter()
+            .filter(|t| t.provider == catalog::GOOGLE
+                && (!catalog::antigravity_claude(t.tier) || engine.settings.antigravity_claude_enabled()))
+            .map(|t| t.tier).collect::<Vec<_>>());
+        providers.push(e);
     }
     if st.muse.installed {
         let found = st.muse_probe.as_ref();

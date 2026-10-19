@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { SpawnChips } from '../src/canvas/cards'
 import { QuickChat } from '../src/QuickChatBox'
 import { DeskModelButton } from '../src/canvas/deskmodel'
-import { hireOf, syncProviderRegistries, type CanvasNode } from '../src/canvas/shared'
+import { antigravityTierOffer, hireOf, syncProviderRegistries, type CanvasNode } from '../src/canvas/shared'
 import { resetStaffingOptionsForTests } from '../src/canvas/staffingoptions'
 import { legacyAppBackend } from './appfeed-fixture'
 import type { ProviderInfo, TreePayload } from '../src/types'
@@ -57,6 +57,15 @@ test('off, absent, unknown and signed-in missing catalogs retain their existing 
   const p={...providers[0]!,hire_reason:undefined,reason:'some probe failure'}
   const view=await mountView(<SpawnChips seats={{}} claudeHire={hireOf(p)} onSpawn={noop}/>,el=>el)
   try{assert.equal(view.el.querySelector('button.t-opus')?.getAttribute('title')?.includes('Sign in to hire'),false)}finally{await view.unmount()}
+})
+
+test('signed-out preview inventory preserves Antigravity model switches and legacy hiding',()=>{
+  const hire=hireOf({...providers[2]!,preview_tiers:['flash','argon','barium','carbon']})
+  assert.equal(antigravityTierOffer(hire,'argon'),'disable')
+  assert.equal(antigravityTierOffer(hire,'barium'),'disable')
+  assert.equal(antigravityTierOffer(hire,'carbon'),'disable')
+  assert.equal(antigravityTierOffer(hire,'agy-opus'),'hide')
+  assert.equal(antigravityTierOffer(hire,'pro'),'hide')
 })
 
 for(const surface of ['quick','desk'] as const)test(`${surface} picker retains signed-out previews with no staffing choices`,async()=>{

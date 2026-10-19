@@ -1790,6 +1790,8 @@ export interface ProviderInfo {
   hire_enabled: boolean
   /** Engine-classified unavailability; never inferred from human error text. */
   hire_reason?: 'signed_out' | 'not_installed' | 'turned_off' | 'unavailable' | null
+  /** Optional preview inventory preserves provider model switches while signed out. */
+  preview_tiers?: string[]
   reason: string | null
   /** D-203 (`settings-menu`): the user's own on/off switch for this provider,
    *  machine-wide. OMITTED MEANS ON — an old backend must not read as every

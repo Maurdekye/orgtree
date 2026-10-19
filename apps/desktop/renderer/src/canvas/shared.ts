@@ -658,6 +658,7 @@ export interface HireState {
   installed: boolean
   reason: string | null
   signedOut?: boolean
+  previewTiers?: string[]
   /** D-203's seam, agreed with `settings-menu` and built here so their change
    *  is a server field rather than a frontend refactor: the user has switched
    *  this provider OFF in settings. Distinct from `installed` ON PURPOSE —
@@ -750,7 +751,8 @@ export const hireDisabledReason = (h: HireState | null | undefined, label: strin
 // row positive absence; loading/failed/older payloads retain the unknown rule.
 export const hireOf = (p: ProviderInfo | null | undefined, absenceKnown = false, orgEnabled?: boolean): HireState | null =>
   (p ? { enabled: !!p.hire_enabled, installed: !!p.status?.installed,
-         reason: p.reason, signedOut: p.hire_reason === 'signed_out', userEnabled: p.user_enabled, orgEnabled,
+         reason: p.reason, signedOut: p.hire_reason === 'signed_out', previewTiers: p.preview_tiers,
+         userEnabled: p.user_enabled, orgEnabled,
          reserve: p.reserve ?? null,
          offeredTiers: (p.tiers ?? []).map((t) => t.tier) }
     : absenceKnown || orgEnabled === false ? { enabled: false, installed: false, reason: null, orgEnabled } : null)
@@ -768,7 +770,7 @@ export const codexTierOffer = (
 ): FamilyOffer => {
   if (tierHiddenAsLegacy(tier)) return 'hide'
   const base = familyOffer(h)
-  if (signedOutHire(h)) return 'disable'
+  if (signedOutHire(h)) return h?.previewTiers && !h.previewTiers.includes(tier) ? 'hide' : 'disable'
   return !CODEX_ALWAYS_TIERS.includes(tier)
     && !h?.offeredTiers?.includes(tier) ? 'hide' : base
 }
@@ -781,7 +783,7 @@ export const antigravityTierOffer = (
   h: HireState | null | undefined, tier: string,
 ): FamilyOffer => {
   if (optInLegacyHidden(tier)) return 'hide'
-  if (signedOutHire(h)) return 'disable'
+  if (signedOutHire(h)) return h?.previewTiers && !h.previewTiers.includes(tier) ? 'hide' : 'disable'
   if (CONDITIONAL_ANTIGRAVITY_TIERS.includes(tier)
     && !h?.offeredTiers?.includes(tier)) return 'hide'
   return familyOffer(h)
