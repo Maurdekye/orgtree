@@ -1874,3 +1874,40 @@ mod tool_refs_tests {
         assert_eq!(tool_refs("orgtree_staff", &json!({ "action": "update", "slug": "fix-x" }), Some(out)), json!([{ "kind": "ticket", "id": "fix-x" }]));
     }
 }
+
+#[cfg(test)]
+mod mqtt_credential_tests {
+    use super::*;
+
+    const CANARY: &str = "MQTT-PW-CANARY-90210";
+
+    /// An agent passes an mqtt watchdog's inline credentials (user ruling
+    /// 2026-10-19 17:43:37Z): the saved transcript keeps a placeholder, never
+    /// the secret, and a URL keeps no user:password@. A credentials file
+    /// path is no secret and stays readable (docs/rust-engine/mqtt-watchdogs.md).
+    #[test]
+    fn an_mqtt_watchdogs_inline_credentials_never_reach_the_saved_transcript() {
+        let name = "mcp__orgtree__orgtree_watchdog";
+        let inline = json!({ "action": "create", "kind": "mqtt", "target": format!("mqtt://ha:{CANARY}@broker.local"),
+                             "pattern": "home/#", "credentials": { "username": "ha", "password": CANARY } });
+        // a model that puts the password at the top level by mistake
+        let stray = json!({ "password": CANARY, "kind": "mqtt" });
+        let file = json!({ "action": "create", "kind": "mqtt", "target": "mqtts://broker.local", "pattern": "home/#",
+                           "credentials": "creds/broker.json" });
+        let mut body = json!({ "tools": [
+            { "id": "t1", "name": name, "arg": tool_arg(name, &inline), "input": inline },
+            { "id": "t2", "name": name, "arg": tool_arg(name, &stray), "input": stray },
+            { "id": "t3", "name": name, "arg": tool_arg(name, &file), "input": file },
+        ] });
+        let inputs = take_tool_inputs(&mut body, 7);
+        let saved = format!("{body}{inputs}");
+        assert!(!saved.contains(CANARY), "a secret reached the saved transcript: {saved}");
+        assert!(inputs["t1"]["input"]["credentials"].as_str().is_some_and(|s| s.contains("inline credentials")), "{inputs}");
+        assert_eq!(inputs["t1"]["input"]["target"], json!("mqtt://*****@broker.local"));
+        assert_eq!(inputs["t1"]["input"]["pattern"], json!("home/#"));
+        assert_eq!(inputs["t3"]["input"]["credentials"], json!("creds/broker.json"), "a file path is no secret");
+        // other tools keep their arguments as they were
+        let mut other = json!({ "tools": [{ "id": "t4", "name": "Bash", "input": { "command": "echo password" } }] });
+        assert_eq!(take_tool_inputs(&mut other, 8)["t4"]["input"]["command"], json!("echo password"));
+    }
+}

@@ -2638,6 +2638,34 @@ mod tests {
         }
     }
 
+    /// An mqtt dog is pushed messages, so it runs no checks; its health is
+    /// its connection's (docs/rust-engine/mqtt-watchdogs.md).
+    #[test]
+    fn an_mqtt_dog_warns_only_about_its_connection() {
+        assert_eq!(health(&quiet_dog("mqtt")), None, "a connected or connecting mqtt dog is healthy");
+        let mut down = quiet_dog("mqtt");
+        down.run = json!({"mqtt": {"state": "down", "since": "2026-01-01T00:00:00Z", "error": "the broker closed the connection",
+                                   "retry_at": "2026-01-01T00:05:00Z"}});
+        let h = health(&down).unwrap_or_default();
+        assert!(h.contains("unreachable") && h.contains("the broker closed the connection"), "{h}");
+        let mut refused = quiet_dog("mqtt");
+        refused.run = json!({"mqtt": {"state": "refused", "since": "2026-01-01T00:00:00Z",
+                                      "error": "the broker refused the username or password (CONNACK 4)", "retry_at": "2026-01-01T01:00:00Z"}});
+        let h = health(&refused).unwrap_or_default();
+        assert!(h.contains("REFUSED") && h.contains("CONNACK 4"), "{h}");
+    }
+
+    /// The mail of an mqtt fire labels its payloads as outside input.
+    #[test]
+    fn an_mqtt_fire_mail_labels_its_payloads_untrusted() {
+        let mut d = quiet_dog("mqtt");
+        d.target = "mqtt://broker.local:1883".into();
+        let body = fire_body(&d, &["2026-10-19T18:02:11.000Z  home/door  4 bytes\n    │ open".to_string()], " MQTT —", false, 1);
+        assert!(body.contains("UNTRUSTED"), "{body}");
+        assert!(body.contains("\n    │ open"), "{body}");
+        assert!(!fire_body(&quiet_dog("file"), &["x".to_string()], "", false, 1).contains("UNTRUSTED"));
+    }
+
     #[test]
     fn slot_line_labels_show_queue_order_without_numbering_permits() {
         for (place, text) in [(1, "1st"), (2, "2nd"), (3, "3rd"), (11, "11th"), (12, "12th"), (21, "21st")] {

@@ -1642,3 +1642,24 @@ mod normal_compact_tool_contract_tests {
         assert_eq!(cap("openrouter", Some("opencode"))["supported"], false);
     }
 }
+
+#[cfg(test)]
+mod mqtt_card_tests {
+    /// The watchdog card offers the mqtt kind (user 2026-10-19 17:40:50Z):
+    /// a broker target, a topic-filter pattern, and credentials as a file
+    /// path or an inline object (docs/rust-engine/mqtt-watchdogs.md).
+    #[test]
+    fn the_watchdog_card_offers_the_mqtt_kind_and_its_fields() {
+        let cards = super::all();
+        let dog = cards.iter().find(|c| c["name"] == "orgtree_watchdog").unwrap();
+        let props = &dog["inputSchema"]["properties"];
+        assert!(props["kind"]["enum"].as_array().unwrap().iter().any(|k| k == "mqtt"), "{}", props["kind"]);
+        for field in ["credentials", "payload_pattern", "retained"] {
+            assert!(props.get(field).is_some(), "{field} is missing");
+        }
+        let creds = props["credentials"].to_string();
+        assert!(creds.contains("\"string\"") && creds.contains("\"object\""), "a file path or an inline object: {creds}");
+        let d = dog["description"].as_str().unwrap();
+        assert!(d.contains("mqtt") && d.len() <= 900, "{} bytes: {d}", d.len());
+    }
+}

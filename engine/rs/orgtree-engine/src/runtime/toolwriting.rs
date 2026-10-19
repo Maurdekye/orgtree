@@ -186,4 +186,15 @@ mod tests {
         w.start(0, "", "unknown", 3);
         assert!(w.active(2).is_empty());
     }
+    /// The live preview of a call being written shows no mqtt watchdog's
+    /// inline credentials either (docs/rust-engine/mqtt-watchdogs.md).
+    #[test]
+    fn an_mqtt_watchdogs_inline_credentials_never_show_in_the_live_preview() {
+        let mut w = ToolWriting::default();
+        w.start(0, "a", "mcp__orgtree__orgtree_watchdog", 1);
+        w.delta(0, r#"{"action":"create","kind":"mqtt","target":"mqtt://broker.local","pattern":"home/#","credentials":{"username":"ha-user","password":"PREVIEW-CANARY-1"#);
+        let shown = w.active(1)[0].to_string();
+        assert!(!shown.contains("PREVIEW-CANARY") && !shown.contains("ha-user"), "{shown}");
+        assert_eq!(w.active(1)[0]["tool"]["preview_input"]["pattern"], "home/#");
+    }
 }

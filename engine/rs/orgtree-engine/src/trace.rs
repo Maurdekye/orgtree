@@ -1113,3 +1113,25 @@ mod elicitation_log_tests {
         assert!(fit_value("test | ",Shown::json(&serde_json::json!({"kind":"question","question":"ordinary-visible"}))).contains("ordinary-visible"));
     }
 }
+
+#[cfg(test)]
+mod url_credential_log_tests {
+    use super::*;
+    /// A URL's `user:password@` never reaches the log, whatever the field is
+    /// called (an mqtt watchdog's target typed with credentials, a git URL).
+    #[test]
+    fn a_url_with_credentials_is_logged_without_them() {
+        for value in [
+            serde_json::json!({"target": "mqtt://ha:URL-CANARY-5@broker.local:1883"}),
+            serde_json::json!(["git clone https://bot:URL-CANARY-5@github.com/x/y.git"]),
+            serde_json::json!("mqtts://URL-CANARY-5@[::1]:8883"),
+        ] {
+            let shown = fit_value("test | ", Shown::json(&value));
+            assert!(!shown.contains("URL-CANARY-5"), "{shown}");
+            assert!(shown.contains("*****@"), "{shown}");
+        }
+        let plain = fit_value("test | ", Shown::json(&serde_json::json!({"target": "mqtt://broker.local", "to": "someone@example.com",
+                                                                          "path": "a/b@c"})));
+        assert!(plain.contains("mqtt://broker.local") && plain.contains("someone@example.com") && plain.contains("a/b@c"), "{plain}");
+    }
+}

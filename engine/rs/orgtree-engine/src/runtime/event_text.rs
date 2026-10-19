@@ -2499,4 +2499,19 @@ mod tests {
         assert!(text.contains("[WATCHDOG all-in]"), "{text}");
         assert!(!text.contains("Fire actions"), "{text}");
     }
+
+    /// An MQTT fire (docs/rust-engine/mqtt-watchdogs.md): the owner's turn
+    /// reads its payloads behind the UNTRUSTED label, each up to 4 KB, and
+    /// the true count of the messages the fire gathered.
+    #[test]
+    fn an_mqtt_fire_renders_its_untrusted_label_and_whole_payloads() {
+        let line = format!("2026-10-19T18:02:11.000Z  home/door  1500 bytes\n    │ {}", "x".repeat(1500));
+        let text = render_agent(&fired_ev(json!({"source": "mqtt", "prefix": " MQTT —", "lines": [line.clone()], "count": 3, "once": false})))
+            .expect("an mqtt fire renders");
+        assert!(text.contains("UNTRUSTED"), "{text}");
+        assert!(text.contains(&line), "a payload is not cut at 500 characters: {text}");
+        assert!(text.contains("… 2 more"), "the true count shows the rest: {text}");
+        let plain = render_agent(&fired_ev(json!({"once": false}))).unwrap();
+        assert!(!plain.contains("UNTRUSTED"), "other kinds keep their rendering: {plain}");
+    }
 }

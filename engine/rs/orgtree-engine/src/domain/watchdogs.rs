@@ -118,4 +118,25 @@ mod tests {
         let plain=view(&json!({"uid":"x","kind":"project_listener","memo":{"target_id":7}}),"b");
         assert!(plain.get("count").is_none() && plain.get("fire_actions").is_none());
     }
+    /// An mqtt dog's card (docs/rust-engine/mqtt-watchdogs.md) says how it
+    /// authenticates, never with what, and what state its connection is in.
+    #[test]
+    fn an_mqtt_view_names_its_credentials_without_them_and_shows_its_connection() {
+        let raw=json!({"uid":"door","kind":"mqtt","state":"armed","target":"mqtts://broker.local:8883","pattern":"home/#",
+            "created_at":"2026-01-01T00:00:00Z",
+            "memo":{"mqtt":{"credentials":{"kind":"inline"},"retained":true,"payload_pattern":"open"},
+                    "run":{"mqtt":{"state":"down","since":"2026-01-01T00:00:00Z","error":"the broker closed the connection",
+                                   "retry_at":"2026-01-01T00:01:00Z"},"dropped":2}}});
+        let v=view(&raw,"boss");
+        assert_eq!(v["credentials"],json!("inline credentials (stored encrypted)"));
+        assert_eq!((v["retained"].clone(),v["payload_pattern"].clone()),(json!(true),json!("open")));
+        assert_eq!(v["connection"]["state"],json!("down"));
+        assert_eq!(v["connection"]["error"],json!("the broker closed the connection"));
+        assert_eq!(v["dropped"],json!(2));
+        let file=json!({"uid":"d2","kind":"mqtt","memo":{"mqtt":{"credentials":{"kind":"file","path":"C:\\creds\\broker.json"}}}});
+        assert_eq!(view(&file,"boss")["credentials"],json!("file: C:\\creds\\broker.json"));
+        let anonymous=view(&json!({"uid":"d3","kind":"mqtt","memo":{"mqtt":{"credentials":null}}}),"boss");
+        assert_eq!(anonymous["credentials"],json!("none"));
+        assert!(view(&json!({"uid":"x","kind":"command"}),"boss").get("credentials").is_none());
+    }
 }
