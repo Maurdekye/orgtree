@@ -53,7 +53,7 @@ import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
 import { listenerCards, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { DeskJumpCards } from './deskjumpcards'
-import { DeskDocsStrip, DeskMetaRow, DeskTabs } from './deskshell'
+import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs } from './deskshell'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
 /** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
@@ -501,9 +501,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   }
   const content = (
     <>
-      <div className="cc-head">
-        <div className="cc-head-top">
-          <span className="cc-head-left" data-copy-agent-name={node.id} {...agentNavProps(node.id)}>
+      <DeskHead nodeId={node.id}
+        left={<>
             <span className="project-mark" title="project node: runs no turns, holds no credits">
               <FolderIcon fontSize="inherit" />
             </span>
@@ -511,10 +510,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             <ProjectActivity node={node} />
             <ProjectLastActivity node={node} />
             {!live && <span className="badge dim">{node.state}</span>}
-          </span>
-          <span className="spacer" aria-hidden="true" />
-          <span className="cc-head-right">
-            <span className="cc-actions">
+        </>}
+        actions={<>
               {live && agents.length > 0 && (
                 <button className={allHalted ? '' : 'danger'} data-action="halt-all"
                   title={`${allHalted ? 'release' : 'halt'} all ${agents.length} live agents under this project`}
@@ -526,8 +523,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
                 onClick={() => setAsking('dissolve')}>dissolve</button>}
               {!live && node.state === 'archived' && <button data-action="restore"
                 onClick={() => { void op({ op: 'rehire', node: node.id }).catch(() => {}) }}>restore</button>}
-            </span>
-            <DeskTabs shown={shown} tabs={tabs.map((v) => ({ id: v, label: v === 'desk' ? 'summary' : v === 'dead' ? 'dead letters' : v, count: count(v), showCount: v !== 'slots' }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as Tab) }} />
+        </>}
+        tabs={<DeskTabs shown={shown} tabs={tabs.map((v) => ({ id: v, label: v === 'desk' ? 'summary' : v === 'dead' ? 'dead letters' : v, count: count(v), showCount: v !== 'slots' }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as Tab) }} />}
+        rightExtras={<>
             {/* in its own window frame (the modal, pinned or popped out) the
                 frame's pop-out, beside the tabs as on the agent desk (user 11:14Z) */}
             {surface && <PopoutButton />}
@@ -535,23 +533,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               <button type="button" className="popout-button" title="Open in new window" aria-label="Open in new window"
                 onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPopout() }}>↗</button>
             )}
-            {onPin && (
-              <button className="cc-icon cc-pin" aria-label={`pin project ${node.id}'s desk as a window`}
-                title="pin as a window — it stays put while the canvas moves" onClick={onPin}>
-                <PushPinIcon fontSize="inherit" />
-              </button>
-            )}
-            {onConfig && (
-              <button className="cc-icon" aria-label={`settings for ${node.id}`}
-                title={`settings for ${node.id}`} onClick={onConfig}>
-                <SettingsIcon fontSize="inherit" />
-              </button>
-            )}
-          </span>
-          {/* the window controls, last on the header row as on a popped-out
-              agent desk (user 2026-10-18 11:47Z); rendered only popped out */}
-          <PopoutWindowControls />
-        </div>
+        </>}
+        pin={onPin ? { ariaLabel: `pin project ${node.id}'s desk as a window`, onPin } : null}
+        settings={onConfig ? { label: node.id, onConfig } : null}
+        meta={<>
         {(listenerHeaderCards.length > 0 || queue) && <DeskMetaRow className="project-listeners-meta">
           {listenerHeaderCards.map((c) => <button key={c.key} type="button"
             className={'chip project-listeners-card' + (c.bright ? ' bright' : '')}
@@ -564,7 +549,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             title={'open the Concurrency slots tab' + (slots.held.length ? ` — held by ${slots.held.map(h => h.agent).join(', ')}` : '')} onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>
           {/* no holder links here (user 2026-10-19 17:12Z): the holders are on the slots tab */}
         </DeskMetaRow>}
-      </div>
+        </>} />
       {/* its presentations and its subtree's, on their own strip under the
           header as on an agent desk (user 2026-10-17 22:47:29Z) */}
       {onOpenDoc && subtreeDocs(node).length > 0 && (

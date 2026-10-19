@@ -6,9 +6,74 @@
 // callbacks — nothing here owns state, so DeskChatInner's ownership
 // invariants inside OwnedDeskChat are untouched.
 import type { ReactNode } from 'react'
+import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn } from '../types'
-import { DocIcon } from '../icons'
+import { DocIcon, SettingsIcon } from '../icons'
+import { PopoutWindowControls } from '../popout'
+import { agentNavProps } from './agentnav'
 import { PresentationCard, recentDocumentChips } from './docs'
+
+/** The desk header frame (.cc-head), step 2 of the same item: identity on
+ *  the left, actions + tabs + pin/settings on the right, window controls
+ *  outside the wrapping right span, meta rows below. Both desks render
+ *  exactly this; only the slot contents differ. The left span carries the
+ *  copy-agent-name marker and nav props for both kinds. */
+export function DeskHead({ nodeId, left, actions, tabs, rightExtras, pin, settings, meta }: {
+  nodeId: string
+  left: ReactNode
+  actions?: ReactNode
+  tabs: ReactNode
+  /** pop-out controls, whose conditions differ per host */
+  rightExtras?: ReactNode
+  pin?: { ariaLabel: string; onPin: () => void } | null
+  settings?: { label: string; onConfig?: () => void } | null
+  meta?: ReactNode
+}) {
+  return (
+    <div className="cc-head">
+      <div className="cc-head-top">
+        {/* ⚠ MARKED UNCONDITIONALLY, unlike every other target. The scope
+            predicate everywhere else is "the primary click navigates", and on
+            the FOCUSED desk this name deliberately does not: `atDestination`
+            makes it plain text, because the click would take you where you
+            already are. But the desk header name is the surface the original
+            ticket was filed about — "in Desk view the context menu on an
+            agent's displayed name shows only Copy agent name" — so it is in
+            scope by name, not by predicate, and the marker goes on the
+            header region rather than on the name's navigating branch. */}
+        <span className="cc-head-left" data-copy-agent-name={nodeId}
+          {...agentNavProps(nodeId)}>
+          {left}
+        </span>
+        <span className="spacer" aria-hidden="true" />
+        <span className="cc-head-right">
+          <span className="cc-actions">
+            {actions}
+          </span>
+          {tabs}
+          {rightExtras}
+          {pin && (
+            <button className="cc-icon cc-pin" aria-label={pin.ariaLabel}
+              title="pin as a window — it stays put while the canvas moves"
+              onClick={pin.onPin}>
+              <PushPinIcon fontSize="inherit" />
+            </button>
+          )}
+          {settings && (
+            <button className="cc-icon" aria-label={`settings for ${settings.label}`}
+              title={`settings for ${settings.label}`} onClick={settings.onConfig}>
+              <SettingsIcon fontSize="inherit" />
+            </button>
+          )}
+        </span>
+        {/* Outside .cc-head-right on purpose: the header wraps at narrow
+            widths and the window controls must not wrap with it. */}
+        <PopoutWindowControls />
+      </div>
+      {meta}
+    </div>
+  )
+}
 
 /** One tab on a desk. `id` is the stable route (data-tab); `label` is only
  *  what the button says (the project desk's desk tab says "summary"). */

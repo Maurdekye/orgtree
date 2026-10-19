@@ -108,7 +108,7 @@ import type {
 import { ConfirmModal, PilePicker } from './modals'
 import { InboxView, RetiredFold } from './mail'
 import { DeskJumpCards } from './deskjumpcards'
-import { DeskDocsStrip, DeskMetaRow, DeskTabs } from './deskshell'
+import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs } from './deskshell'
 import { AskCard } from './asks'
 import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems, teamItems } from './docket'
@@ -3570,19 +3570,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     <AgentDirectoryProvider value={agentDir}>
     <FoldProvider value={folds.store}>
     <ReplySourceProvider value={resolveReplySource}>
-      <div className="cc-head">
-        <div className="cc-head-top">
-        {/* ⚠ MARKED UNCONDITIONALLY, unlike every other target. The scope
-            predicate everywhere else is "the primary click navigates", and on
-            the FOCUSED desk this name deliberately does not: `atDestination`
-            makes it plain text, because the click would take you where you
-            already are. But the desk header name is the surface the original
-            ticket was filed about — "in Desk view the context menu on an
-            agent's displayed name shows only Copy agent name" — so it is in
-            scope by name, not by predicate, and the marker goes on the
-            header region rather than on the name's navigating branch. */}
-        <span className="cc-head-left" data-copy-agent-name={node.id}
-          {...agentNavProps(node.id)}>
+      <DeskHead nodeId={node.id}
+        left={<>
           {/* ⚠ `bare` IS THE DESTINATION TEST, which is why this reads
               `atDestination={!bare}` and never compares ids. A switchboard
               panel and a pinned window BOTH show this agent's own name, and
@@ -3630,10 +3619,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             recordedState={node.last_status?.status}
             reportedSummary={bannerDuplicatesStatus ? node.last_status?.summary : undefined}
             tier={node.tier} />
-        </span>
-        <span className="spacer" aria-hidden="true" />
-        <span className="cc-head-right">
-          <span className="cc-actions">
+        </>}
+        actions={<>
             {(live || node.halt) && <HaltControl key={node.id} slug={slug} nid={node.id}
               halt={node.halt} toast={toast} />}
             {live && !liveKids &&
@@ -3648,26 +3635,15 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                 dismiss
               </button>
             )}
-          </span>
-          <DeskTabs shown={view} tabs={(['chat', 'inbox', 'docket', 'presented', 'team'] as const).filter(v => v !== 'team' || teamCount > 0).map((v) => ({ id: v, label: v, count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />
+          </>}
+        tabs={<DeskTabs shown={view} tabs={(['chat', 'inbox', 'docket', 'presented', 'team'] as const).filter(v => v !== 'team' || teamCount > 0).map((v) => ({ id: v, label: v, count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
+        rightExtras={<>
           {/* FR-3: pin this desk to screenspace as a draggable window */}
           {!(hidePopout && !surface?.detached) && <PopoutButton />}
-          {onPin && !surface?.detached &&
-            <button className="cc-icon cc-pin" aria-label={`pin ${node.id}'s desk as a window`}
-              title="pin as a window — it stays put while the canvas moves"
-              onClick={onPin}>
-              <PushPinIcon fontSize="inherit" />
-            </button>}
-          <button className="cc-icon" aria-label={`settings for ${node.id}`}
-            title={`settings for ${node.id}`} onClick={onConfig}>
-            <SettingsIcon fontSize="inherit" />
-          </button>
-        </span>
-        {/* Outside .cc-head-right on purpose: the header wraps at narrow
-            widths and the window controls must not wrap with it. */}
-        <PopoutWindowControls />
-        </div>
-        <DeskMetaRow>
+          </>}
+        pin={onPin && !surface?.detached ? { ariaLabel: `pin ${node.id}'s desk as a window`, onPin } : null}
+        settings={{ label: node.id, onConfig }}
+        meta={<DeskMetaRow>
         {mcpConfigured && <McpToolCountMark count={node.mcp_tool_count}
           last={node.last_turn_mcp_tool_count}
           provider={node.mcp_tool_count_provider}
@@ -3782,7 +3758,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             : tierEffortLevels(slug, node.tier)} />}
         <DndBadge active={node.dnd} />
         </DeskMetaRow>
-      </div>
+        } />
       {/* F-01: superior chip at the TOP. For a top-level agent the superior is
           the user, so the chip targets the switchboard (map carries the eye
           root under USER) — unless this desk IS a switchboard panel (bare),
