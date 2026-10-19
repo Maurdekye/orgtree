@@ -79,7 +79,7 @@ for(const surface of ['quick','desk'] as const)test(`${surface} picker retains s
     return body?new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}}):oldFetch(input,init)
   }) as typeof fetch)
   syncProviderRegistries({providers})
-  const node={id:'worker',tier:'sol',state:'live',generation:1,scope:{},children:[]} as CanvasNode
+  const node={id:'worker',tier:'sol',state:'live',generation:1,scope:{},children:[]} as unknown as CanvasNode
   const view=await mountView(surface==='quick'
     ?<QuickChat slug="signedout" tree={{slug:'signedout',roots:[]} as unknown as TreePayload} op={async()=>({})} toast={noop} onHired={noop}/>
     :<DeskModelButton node={node} slug="signedout" op={async()=>({})} toast={noop}/>,el=>el)
