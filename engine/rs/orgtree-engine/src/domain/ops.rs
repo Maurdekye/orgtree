@@ -333,9 +333,8 @@ async fn ensure_room(
     Ok(raised)
 }
 
-/// May `actor` act on `target`? The user always; an agent downward only,
-/// and on a project from below too, as if the project were its subordinate
-/// (user 2026-10-16 16:11Z: agents above or below a project control it).
+/// General project reach includes ancestors and members. Policy mutations use
+/// authorize_project_policy instead (user 2026-10-19); operational reach remains.
 #[logged]
 async fn authorize(tx: &Transaction<'_>, actor: &Actor, target: &Node, verb: &str) -> Result<()> {
     if let Actor::Agent { id, .. } = actor {
@@ -349,6 +348,18 @@ async fn authorize(tx: &Transaction<'_>, actor: &Actor, target: &Node, verb: &st
             return Ok(());
         }
         refuse!(Forbidden, "you can only {verb} agents below you (or a project you are above or below); {} is not", target.name);
+    }
+    Ok(())
+}
+
+/// Project policy belongs to the user and strict agent ancestors. Membership,
+/// including membership in a root project, grants operational reach only.
+#[logged]
+async fn authorize_project_policy(tx: &Transaction<'_>, actor: &Actor, target: &Node, verb: &str) -> Result<()> {
+    if let Actor::Agent { id, .. } = actor {
+        if *id == target.id || !within(tx, *id, target.id).await? {
+            refuse!(Forbidden, "only the user or an agent above project {} may {verb}; members may read and use it", target.name);
+        }
     }
     Ok(())
 }
@@ -2028,7 +2039,8 @@ async fn move_planned(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
 #[logged]
 async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects, preauthorized: bool) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
-    if !preauthorized { authorize(tx, actor, &n, "rename").await?; }
+    if n.project() { authorize_project_policy(tx, actor, &n, "rename it").await?; }
+    else if !preauthorized { authorize(tx, actor, &n, "rename").await?; }
     let new = valid_name(str_arg(req, "name").unwrap_or(""))?;
     if new == n.name {
         return Ok(json!({ "node": new, "unchanged": true }));
@@ -2061,8 +2073,8 @@ async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
 }
 
 /// Replace a project's description, the standing charter of every agent
-/// under it (user 2026-10-17 19:14Z, 20:06Z). Whoever controls the project
-/// may: the user and the agents above or below it.
+/// under it (user 2026-10-17 19:14Z, 20:06Z). Only the user and agents above
+/// may write it (user 2026-10-19); members may still read it.
 #[logged]
 async fn set_description(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
@@ -2077,6 +2089,7 @@ async fn set_description(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Act
         return Ok(json!({"node":n.name,"description":text.unwrap_or_default()}));
     };
     let Some(text) = description.as_str() else { refuse!(BadRequest,"description must be a string"); };
+    authorize_project_policy(tx, actor, &n, "change its Summary").await?;
     let text = text.trim().to_string();
     tx.execute("UPDATE ot.agents SET charter = $2, row_version = row_version + 1 WHERE id = $1",
         &[&n.id, &(!text.is_empty()).then_some(text.clone())]).await?;
@@ -2098,7 +2111,7 @@ async fn set_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Acto
     if !n.project() {
         refuse!(BadRequest, "{} is an agent: only a project has a mail queue", n.name);
     }
-    authorize(tx, actor, &n, "set its mail queue").await?;
+    authorize_project_policy(tx, actor, &n, "set its mail queue").await?;
     let ack = match str_arg(req, "mode") {
         None => None,
         Some(m) if m == crate::domain::projects::MODE_ACK => Some(true),
@@ -2219,7 +2232,7 @@ fn project_setting_ops(node:&str, settings:&Value) -> Result<Vec<Value>> {
 async fn configure_project(org:&Arc<OrgHandle>,tx:&Transaction<'_>,actor:&Actor,req:&Value,fx:&mut Effects)->Result<Value> {
     let n=node_by_name(tx,org.id,str_arg(req,"node").unwrap_or("")).await?;
     if !n.project() { refuse!(BadRequest,"{} is not a project",n.name); }
-    authorize(tx,actor,&n,"configure").await?;
+    authorize_project_policy(tx,actor,&n,"configure it").await?;
     let settings=&req["settings"];
     for step in project_setting_ops(&n.name,settings)? {
         match step["op"].as_str().unwrap() {
@@ -2284,7 +2297,7 @@ async fn set_slots(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, re
     if !n.project() {
         refuse!(BadRequest, "{} is an agent: only a project has concurrency slots", n.name);
     }
-    authorize(tx, actor, &n, "set its concurrency slots").await?;
+    authorize_project_policy(tx, actor, &n, "set its concurrency slots").await?;
     let Some(count) = req.get("capacity").and_then(Value::as_i64).filter(|c| (0..=crate::domain::slots::MAX_CAPACITY).contains(c)) else {
         refuse!(BadRequest, "capacity is the number of concurrency slots, 0 (none) to {}", crate::domain::slots::MAX_CAPACITY);
     };
@@ -2443,7 +2456,7 @@ async fn purge_mail_queue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Ac
     if !n.project() {
         refuse!(BadRequest, "{} is an agent: only a project's mail queue can be purged", n.name);
     }
-    authorize(tx, actor, &n, "purge its mail queue").await?;
+    authorize_project_policy(tx, actor, &n, "purge its mail queue").await?;
     tx.query_one("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&n.id]).await?;
     let purged = crate::domain::projects::purge_waiting(tx, n.id, &actor.label()).await?;
     event(tx, org.id, "purge_mail_queue", actor, Some(n.id), json!({ "node": n.name, "purged": purged }), fx).await?;
@@ -2749,7 +2762,8 @@ async fn reprice(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
 #[logged]
 async fn reorder(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
-    authorize(tx, actor, &n, "reorder").await?;
+    if n.project() { authorize_project_policy(tx, actor, &n, "reorder it").await?; }
+    else { authorize(tx, actor, &n, "reorder").await?; }
     if n.state != "live" { refuse!(Conflict, "reorder needs a live target"); }
     for field in ["parent", "new_parent", "target", "above"] {
         if req.get(field).is_some() { refuse!(BadRequest, "reorder changes only sibling position; omit {field}"); }
