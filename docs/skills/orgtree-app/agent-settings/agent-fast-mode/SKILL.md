@@ -26,9 +26,12 @@ separate from thinking effort. The user or an authorized superior can change it.
   speed request sent to that turn. Its tooltip gives both values. It clears on
   next admission, turn completion or reverting the choice. Unknown serving state
   shows no badge; saving alone does not prove a change is pending.
-  The same queued-state card and tooltip appear at near canvas zoom beside the
-  independent active-fast bolt. The composer keeps the badge directly left of the bolt on the top row,
-  both 30px tall. Effort and Send/Stop remain on a separate lower row, right
+  The same queued-state card and tooltip appear at near canvas zoom with the
+  pending account, model and effort cards. None appears in the composer.
+  Its speed toggle keeps the top row: either queued direction uses a slightly
+  darker highlight until admission. Steady on has the ordinary active highlight;
+  steady off has none.
+  Effort and Send/Stop remain on a separate lower row, right
   aligned beneath them. The text field retains a 10ch minimum on narrow desks.
 - The agent hover tooltip includes **fast** when saved on for a supported model.
   Changing to an unsupported model ignores the stored choice and hides the controls.

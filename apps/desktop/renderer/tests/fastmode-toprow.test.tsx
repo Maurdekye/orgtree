@@ -5,14 +5,15 @@ import { DeskChat } from '../src/canvas/desk'
 import { resetConvos } from '../src/convo'
 import { agent, seedFastMode } from './fastmode-near-fixture'
 test.beforeEach(()=>{seedFastMode();installFetch(new FakeServer());resetConvos()})
-for(const next of [true,false])test(`queued fast ${next?'on':'off'} stays above effort and send`,async()=>{
+for(const next of [true,false])test(`queued fast ${next?'on':'off'} is in the header while its toggle stays above send`,async()=>{
  const n=agent(next,{busy:true,responding:true,fast_mode_current:!next,effort_effective:'high'})
  const view=await mountView(<DeskChat node={n} map={new Map([[n.id,n]])} slug="fixture" bare op={async()=>({})} toast={()=>{}}/>,el=>el)
  try{
-  const controls=view.el.querySelector('.cc-controls')!, bolt=controls.querySelector('.cc-fast')!, badge=controls.querySelector('[data-next-turn="fast"]')!
+  const controls=view.el.querySelector('.cc-controls')!, bolt=controls.querySelector('.cc-fast')!, badge=view.el.querySelector('[data-next-turn="fast"]')!
   const top=bolt.closest('.cc-fast-row'), lower=controls.querySelector('.cc-primary-row')
   assert.equal(!!top,true,'the toggle is back in the top control row')
-  assert.equal(top!.contains(badge),true,'queued label shares only the top row with the bolt')
+  assert.equal(!!badge.closest('.cc-head-meta'),true,'queued label belongs to the header')
+  assert.equal(controls.contains(badge),false,'no queued label in the composer')
   assert.equal(!!lower,true,'effort and Send retain their own lower row')
   assert.equal(lower!.querySelector('.cc-eff')!==null,true)
   assert.equal(lower!.querySelector('.cc-send')!==null,true)

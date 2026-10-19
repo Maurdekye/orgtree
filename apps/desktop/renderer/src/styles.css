@@ -6109,7 +6109,7 @@ svg.MuiSvgIcon-root {
   display: flex; flex-direction: column; align-items: center;
   gap: 4px; flex: none;
 }
-/* Fast stays above Send; its queued label shares the top 30px baseline.
+/* Fast stays above Send; pending cards live in the agent header.
    Effort and Send keep their own lower row and the same right edge. */
 .cc-composer:has(> .cc-controls) textarea { min-width: 10ch; }
 .cc-controls {
@@ -6120,11 +6120,10 @@ svg.MuiSvgIcon-root {
   display: flex; align-items: center; justify-content: flex-end; gap: 6px;
 }
 .cc-fast-row:empty { display: none; }
-.cc-controls .next-turn, .cc-controls .cc-fast,
+.cc-controls .cc-fast,
 .cc-controls .cc-eff, .cc-controls .cc-send {
   height: 30px; box-sizing: border-box; flex: none;
 }
-.cc-controls .next-turn { display: inline-flex; align-items: center; }
 .cc-controls .cc-fast, .cc-controls .cc-send { width: 30px; }
 .cc-fast {
   width: 24px; height: 24px; padding: 0; flex: none; border-radius: 50%;
@@ -6133,6 +6132,10 @@ svg.MuiSvgIcon-root {
 }
 .cc-fast:hover, .cc-fast.on { color: var(--agent-accent-text, var(--accent)); border-color: var(--button-accent); }
 .cc-fast.on { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.cc-fast.on.queued-speed {
+  color: color-mix(in srgb, var(--agent-accent-text, var(--accent)) 82%, black);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
 .cc-fast:disabled { opacity: .5; cursor: not-allowed; }
 /* file attach in the composer — same 24px circle family as send, so the
    row's controls read as one aligned set (user design pass) */

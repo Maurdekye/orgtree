@@ -59,15 +59,15 @@ test('the composer speed control keeps its toggle without rendering a pending ca
   } finally {await v.unmount()}
 })
 
-test('queued-on speed is highlighted distinctly until the turn admits fast mode',async()=>{
-  const n=agent(), control=(node:CanvasNode)=><FastModeButton node={node} slug="org" toast={noop}/>
+for (const next of [true,false]) test('pending speed '+next+' is highlighted distinctly until admission',async()=>{
+  const n={...agent(),scope:{...agent().scope,fast_mode:next},fast_mode_current:!next}, control=(node:CanvasNode)=><FastModeButton node={node} slug="org" toast={noop}/>
   const v=await mountView(control(n),el=>el)
   try {
-    assert.equal(!!v.el.querySelector('.cc-fast.on.queued-on'),true)
-    await v.render(control({...n,fast_mode_current:true}))
-    assert.equal(!!v.el.querySelector('.cc-fast.on'),true)
-    assert.equal(!!v.el.querySelector('.queued-on'),false)
-    await v.render(control({...n,scope:{...n.scope,fast_mode:false}}))
+    assert.equal(!!v.el.querySelector('.cc-fast.on.queued-speed'),true)
+    await v.render(control({...n,fast_mode_current:next}))
+    assert.equal(!!v.el.querySelector('.cc-fast.on'),next)
+    assert.equal(!!v.el.querySelector('.queued-speed'),false)
+    await v.render(control({...n,scope:{...n.scope,fast_mode:false},fast_mode_current:false}))
     assert.equal(!!v.el.querySelector('.cc-fast.on'),false)
   } finally {await v.unmount()}
 })

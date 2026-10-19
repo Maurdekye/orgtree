@@ -669,6 +669,8 @@
   the desk header and near-zoom badge row; only
   supported live/busy seats with known opposite serving speed show it. No
   next-turn cards render in the composer. Its bolt keeps the top 30px row;
+  either pending speed direction uses a darker highlight, steady on the ordinary
+  highlight and steady off none (user 2026-10-19 13:40–13:41Z).
   effort and Send stay in a separate
   right-aligned lower row (user16:47Z restores the original vertical placement). [decided:
   user/coordinator 2026-10-19 13:39Z, replacing the composer queued-card placement;

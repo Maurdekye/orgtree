@@ -47,12 +47,13 @@ test('far/map exclude queued cards and provider support loss clears them',async(
  const view=await mountView(<NearCard node={queued}/>,el=>el)
  try{assert.equal(!!badge(view.el),true);await inAct(()=>syncProviderRegistries({providers:[]}));assert.equal(badge(view.el)===null,true)}finally{await view.unmount()}
 })
-test('real desk composer keeps queued badge, bolt, effort and stop in one controls group',async()=>{
+test('real desk puts queued speed in the header and keeps composer controls together',async()=>{
  const n=agent(true,{responding:true,busy:true,fast_mode_current:false,effort_effective:'high'})
  const view=await mountView(<DeskChat node={n} map={new Map([[n.id,n]])} slug="fixture" bare op={async()=>({})} toast={()=>{}}/>,el=>el)
  try{
-  const mark=badge(view.el), controls=mark?.closest('.cc-controls')
-  assert.equal(!!controls,true,'one wrapping controls group owns the badge')
+  const mark=badge(view.el), controls=view.el.querySelector('.cc-controls')
+  assert.equal(!!mark?.closest('.cc-head-meta'),true,'header owns the pending card')
+  assert.equal(!!controls?.querySelector('[data-next-turn]'),false)
   for(const selector of ['.cc-fast','.cc-eff','.cc-send'])assert.equal(controls!.querySelector(selector)!==null,true,selector)
  }finally{await view.unmount();resetConvos()}
 })
