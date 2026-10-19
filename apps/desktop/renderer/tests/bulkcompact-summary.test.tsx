@@ -29,22 +29,28 @@ test('large selection has count-only mode lines with exact covered names on hove
   assert.equal(body().querySelector('details, summary, .agentlink, .desk-jump-card')===null,true)
  }finally{await view.unmount()}
 })
-test('shared skips occur once and normal-only reason groups have counts and complete hover names',async()=>{
+test('busy and no-context summaries appear in each mode with exact hover names',async()=>{
  const view=await mount(summaryTargets())
  try{
   await settle();const lines=skipLines()
-  assert.equal(lines.length,4,'busy/empty shared once; unsupported/sessionless only for Normal')
-  for(const [word,n,prefix] of [['mid-turn',5,'busy'],['no measured context',5,'empty'],['do not support compaction',9,'codex'],['no conversation session',2,'sessionless']] as const){
-   const rows=lines.filter(p=>p.textContent?.includes(word));assert.equal(rows.length,1,word)
-   assert.match(rows[0]!.textContent??'',new RegExp('^'+n+' agents'))
-   assert.deepEqual(rows[0]!.title.split(', '),Array.from({length:n},(_,i)=>prefix+'-'+(i+1)))
-   assert.equal(rows[0]!.closest('[data-compact-preview="cheap"]')===null,true)
+  assert.equal(lines.length,6,'busy/empty in both modes; unsupported/sessionless only for Normal')
+  for(const mode of ['cheap','normal']){
+   const section=body().querySelector<HTMLElement>('[data-compact-preview="'+mode+'"]')!
+   for(const [key,n,prefix] of [['busy',5,'busy'],['empty',5,'empty']] as const){
+    const line=section.querySelector<HTMLElement>('[data-compact-skip="'+key+'"]')
+    assert.ok(line,mode+' has '+key+' summary')
+    assert.match(line.textContent??'',new RegExp('^'+n+' agents'))
+    assert.deepEqual(line.title.split(', '),Array.from({length:n},(_,i)=>prefix+'-'+(i+1)))
+   }
+   assert.equal(section.querySelector('[data-compact-skip="unsupported"]')!==null,mode==='normal')
+   assert.equal(section.querySelector('[data-compact-skip="sessionless"]')!==null,mode==='normal')
   }
-  assert.equal(lines.find(p=>p.textContent?.includes('mid-turn'))!.closest('[data-compact-preview]')===null,true)
-  assert.equal(lines.find(p=>p.textContent?.includes('do not support'))!.closest('[data-compact-preview="normal"]')!==null,true)
+  assert.equal(body().querySelector('[data-compact-shared-skips] [data-compact-skip="busy"]')===null,true)
+  assert.equal(body().querySelector('[data-compact-shared-skips] [data-compact-skip="empty"]')===null,true)
   assert.equal(body().textContent?.includes("Running turns are never interrupted; you'll get a summary of every outcome."),true)
  }finally{await view.unmount()}
 })
+
 test('pending support uses a counted hover list without names in prose and leaves Cheap ready',async()=>{
  let release!:(r:Response)=>void
  const pending=new Promise<Response>(resolve=>{release=resolve})
@@ -60,13 +66,13 @@ test('pending support uses a counted hover list without names in prose and leave
   assert.equal(buttons.find(b=>b.textContent==='cheap-compact 1 agent')?.disabled,false)
  }finally{release(response({supported:true}));await settle();await view.unmount()}
 })
-test('zero targets keep both count lines and show one shared skipped summary with hover names',async()=>{
+test('zero targets keep both count lines and each mode shows the skipped hover names',async()=>{
  const view=await mount([agent('running',{busy:true})])
  try{
   await settle()
   assert.equal(count('cheap')?.textContent,'0 agents will be cheap-compacted, one at a time.')
   assert.equal(count('normal')?.textContent,'0 agents will be compacted, one at a time.')
-  assert.equal(skipLines().length,1);assert.equal(skipLines()[0]?.title,'running')
+  assert.equal(skipLines().length,2);assert.equal(skipLines().every(line=>line.title==='running'),true)
   const actions=[...dialog().querySelectorAll<HTMLButtonElement>('.row > button')].slice(0,2)
   assert.equal(actions.every(b=>b.disabled),true)
  }finally{await view.unmount()}
@@ -103,4 +109,20 @@ test('mixed unsupported harnesses merge while unknown reasons and failed reads s
   assert.equal(lines.find(p=>p.textContent?.includes('could not be checked'))?.title,'offline')
   assert.equal(lines.find(p=>p.textContent?.includes('already compacted'))?.title,'reset')
  }finally{await view.unmount()}
+})
+
+test('both modes retain busy and no-context hover lists while Normal support is pending',async()=>{
+ let release!:(r:Response)=>void
+ const pending=new Promise<Response>(resolve=>{release=resolve})
+ globalThis.fetch=(async()=>pending) as typeof fetch
+ const view=await mount([agent('ready'),agent('busy',{busy:true}),agent('empty',{occupancy:0})])
+ try{
+  for(const mode of ['cheap','normal']){
+   const section=body().querySelector<HTMLElement>('[data-compact-preview="'+mode+'"]')!
+   assert.equal(section.querySelector<HTMLElement>('[data-compact-skip="busy"]')?.title,'busy')
+   assert.equal(section.querySelector<HTMLElement>('[data-compact-skip="empty"]')?.title,'empty')
+  }
+  assert.equal(count('cheap')?.textContent,'1 agent will be cheap-compacted, one at a time.')
+  assert.equal(body().querySelector<HTMLElement>('[role="status"]')?.title,'ready')
+ }finally{release(response({supported:true}));await settle();await view.unmount()}
 })
