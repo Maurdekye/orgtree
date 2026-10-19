@@ -996,7 +996,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // (a draft project has no bar: a project holds no credits)
   const draftCredits = draft && !draft.project
     ? (seats[draft.tier] ?? 0) + (draftGrant
-      ?? draftOpeningGrant(draft, tree.default_top_grant ?? 50))
+      ?? draftOpeningGrant(draft, tree.default_top_grant ?? 50, map))
     : undefined
   const target = useMemo(() => canvasTargets(vroot, map, hidden, chartLayout, tree, inboxPxc, draftCredits),
     [vroot, map, tree, hidden, chartLayout, inboxPxc, draftCredits])
@@ -2872,7 +2872,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       }
       // №17: a re-parent is one mis-drag away — the toast carries the reverse
       moveShown(body, drop === USER ? null : drop).then(r => toast(
-        [`${id} now reports to ${drop === USER ? 'you' : drop}`],
+        [`${id} moved under ${drop === USER ? 'top level' : drop}`],
         tree.undo_history ? historyUndo(slug, r) : () => moveShown({ op: 'move', node: id, new_parent: parent ?? null },
           parent == null || parent === USER ? null : parent)
           .catch(() => {})))
@@ -3411,7 +3411,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (!draft || !!next.project !== !!draft.project) {
       setDraftForm(next.project ? null : {
         name: '', charter: '', scope: null, chosen: [],
-        grant: draftOpeningGrant(next, tree.default_top_grant ?? 50),
+        grant: draftOpeningGrant(next, tree.default_top_grant ?? 50, map),
       })
     }
     setDraft(next)
@@ -4691,7 +4691,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             antigravityHire={antigravityHire} claudeHire={claudeHire}
             openrouterHire={openrouterHire} langserverHire={langserverHire} museHire={museHire}
             checking={!!providerPayload?.checking}
-            defaultGrant={!map.get(sheetId)!.parent ? (tree.default_top_grant ?? 50) : 0}
+            defaultGrant={draftOpeningGrant({parent: sheetId}, tree.default_top_grant, map)}
+            sideDefaultGrant={draftOpeningGrant({parent: map.get(sheetId)!.parent ?? null}, tree.default_top_grant, map)}
             onClose={() => setHireOpen(false)}
             onSettings={onAccounts ? () => {
               setHireOpen(false); onAccounts()
@@ -4845,7 +4846,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
 // capability note this sheet draws needs a control that mounts the real
 // component rather than a helper standing in for it.
 export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire,
-  museHire: museHireProp, checking, defaultGrant,
+  museHire: museHireProp, checking, defaultGrant, sideDefaultGrant = defaultGrant,
   onHire, onSettings,
   onClose }: {
   anchor: CanvasNode
@@ -4860,6 +4861,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   /** the engine is still checking the sign-ins: say so, never "not set up" */
   checking?: boolean
   defaultGrant: number
+  sideDefaultGrant?: number
   onHire: (tier: string, name: string, grant: number,
     placement: 'below' | 'left' | 'right' | 'above') => void
   onSettings?: () => void
@@ -4938,6 +4940,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   const pickTier = (t: string) => { touched.current = true; setTier(t) }
   const [name, setName] = useState('')
   const [grant, setGrant] = useState(defaultGrant)
+  const grantTouched = useRef(false)
   const [placement, setPlacement] =
     useState<'below' | 'left' | 'right' | 'above'>('below')
   const normalizedName = normalizeUserEnteredName(name.toLowerCase())
@@ -5003,7 +5006,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
              ['above', 'superior — ' + anchor.id + ' moves under the hire']] as const)
             .map(([p, lbl]) => (
               <button key={p} className={'ask-row' + (placement === p ? ' on' : '')}
-                onClick={() => setPlacement(p)}>
+                onClick={() => { setPlacement(p); if (!grantTouched.current) setGrant(p === 'below' ? defaultGrant : sideDefaultGrant) }}>
                 <span className={'ask-dot' + (placement === p ? ' on' : '')} />
                 <span className="ask-row-body">{lbl}</span>
               </button>
@@ -5014,7 +5017,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
           onChange={(e) => setName(e.target.value.toLowerCase())} />
         <div className="field-label">credit grant</div>
         <input type="number" min={0} value={grant}
-          onChange={(e) => setGrant(Math.max(0, Math.round(Number(e.target.value) || 0)))} />
+          onChange={(e) => { grantTouched.current = true; setGrant(Math.max(0, Math.round(Number(e.target.value) || 0))) }} />
         <div className="row">
           <button className="primary" disabled={!ok}
             onClick={() => onHire(tier, normalizeUserEnteredName(name), grant, placement)}>hire</button>

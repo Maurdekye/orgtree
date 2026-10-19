@@ -4,7 +4,7 @@ import { SetBlock } from './settingskit'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
 import type { TreePayload } from '../types'
-import { fmtCredits, USER } from './shared'
+import { agentSuperior, fmtCredits, isTopLevel, DRAFT } from './shared'
 import type { CanvasNode, OpFn } from './shared'
 
 /** User reallocation headroom. Ancestor raises are whole credits (ensure_room),
@@ -15,12 +15,12 @@ export function grantLimits(node: CanvasNode, map: Map<string, CanvasNode>,
   const min = Math.max(0, grant - (node.free ?? 0))
   const chain: CanvasNode[] = []
   const seen = new Set([node.id])
-  let parent = node.parent
-  while (parent && parent !== USER) {
-    const n = map.get(parent)
-    if (!n || seen.has(parent) || !Number.isFinite(n.free) || !Number.isFinite(n.grant))
+  let current = node
+  while (!isTopLevel(current, map)) {
+    const n = agentSuperior(current, map)
+    if (!n || seen.has(n.id) || !Number.isFinite(n.free) || !Number.isFinite(n.grant))
       return { min, max: grant, unavailable: true }
-    seen.add(parent); chain.push(n); parent = n.parent
+    seen.add(n.id); chain.push(n); current = n
   }
   if (!chain.length) return { min, max: Math.max(grant, tree.max_top_grant), unavailable: false }
   if (tree.cascade_alloc === false)
@@ -29,6 +29,15 @@ export function grantLimits(node: CanvasNode, map: Map<string, CanvasNode>,
   let extra = Math.max(0, tree.max_top_grant - root.grant!)
   for (const n of chain.reverse()) extra = Math.max(0, n.free! + Math.floor(extra + 1e-9))
   return { min, max: grant + extra, unavailable: false }
+}
+
+/** Subordinate hires consume a seat AND their grant from the same funding
+ * chain. Top-level caps apply to the grant only (the user funds the seat). */
+export function hireGrantMax(parent: string | null, seat: number, map: Map<string, CanvasNode>,
+  tree: Pick<TreePayload, 'max_top_grant' | 'cascade_hire'>, anchorStake = 0): number {
+  const draft: CanvasNode = {id: DRAFT, parent, tier: null, state: 'draft', children: [], grant: 0, free: 0}
+  const limits = grantLimits(draft, map, {max_top_grant: tree.max_top_grant, cascade_alloc: tree.cascade_hire})
+  return Math.max(0, Math.floor(limits.max - (isTopLevel(draft, map) ? anchorStake : seat)))
 }
 
 type Gesture = { from: number; value: number; raw: number; scale: number; pointer?: number; x?: number; moved?: boolean }

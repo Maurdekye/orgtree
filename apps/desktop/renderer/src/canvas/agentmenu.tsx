@@ -40,7 +40,7 @@ import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
 import { ConfirmModal } from './modals'
 import { AgentCompactConfirm } from './agentcompact'
-import { fmtCredits, hireTierChoices, tierLabel, USER } from './shared'
+import { effectiveReports, fmtCredits, hireTierChoices, tierLabel, USER } from './shared'
 import { slotCount } from './slots'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
 
@@ -448,7 +448,7 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   }
   const ask = h.onRetireAsk
   if (live && ask) {
-    const team = (node.children ?? []).some((c) => c.state === 'live')
+    const team = effectiveReports(node.children ?? []).some((c) => c.state === 'live')
     const lifecycle: MenuEntry[] = []
     if (agents.length > 0) {
       lifecycle.push({
@@ -540,7 +540,7 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
     )
   }
   if (kind === 'retire-all') {
-    const direct = node.children.filter((child) => child.state === 'live')
+    const direct = effectiveReports(node.children).filter((child) => child.state === 'live')
     const total = subtreeAgents(node).filter((target) => target.id !== node.id).length
     const nested = Math.max(0, total - direct.length)
     const warning = nested
@@ -621,14 +621,14 @@ export async function continueFrozenOnAccount(slug: string, nid: string,
   }
 }
 
-/** Execute one normal retirement per current direct report. Keeping this as a
+/** Execute one normal retirement per current effective agent report (through projects). Keeping this as a
  * client-side fan-out is intentional: each call re-enters the established
  * authority, active-turn interruption, recursive subtree, and seat/grant
  * accounting path. A concurrent change can therefore affect one target
  * without making the remaining targets unreportable. */
 export async function retireAllSubordinates(node: CanvasNode, op: OpFn,
   toast: ToastFn): Promise<void> {
-  const targets = node.children.filter((child) => child.state === 'live')
+  const targets = effectiveReports(node.children).filter((child) => child.state === 'live')
   if (!targets.length) {
     toast([`No live subordinates of ${node.id} remained; nothing was retired.`])
     return

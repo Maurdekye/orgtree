@@ -1,3 +1,4 @@
+import { agentSuperior, effectiveReports, isTopLevel } from './shared'
 import { watchdogActions } from './objectactions'
 import { WatchdogCountdown } from './watchdogcountdown'
 import { watchdogDescription } from './watchdogdescription'
@@ -594,7 +595,7 @@ interface DraftScopeModalProps {
 }
 
 export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accounts: propAccounts }: DraftScopeModalProps) {
-  const parent = draft.parent ? map.get(draft.parent) : null
+  const parent = agentSuperior(draft, map)
   const inherited = (): DraftScope => ({
     add_dirs: (parent ? parent.scope?.add_dirs : tree.dirs) ?? [],
     tools: parent?.scope?.tools
@@ -899,10 +900,12 @@ export function cascadePreview(
   },
 ): { id: string; gains: string[] }[] {
   const out: { id: string; gains: string[] }[] = []
-  let cur = map.get(nodeId)?.parent ?? null
-  while (cur && cur !== USER) {
-    const n = map.get(cur)
-    if (!n?.scope) break
+  let n = map.has(nodeId) ? agentSuperior(map.get(nodeId)!, map) : undefined
+  const seen = new Set([nodeId])
+  while (n && !seen.has(n.id)) {
+    seen.add(n.id)
+    const cur = n.id
+    if (!n.scope) break
     const gains: string[] = []
     if (want.dirs) {
       const held = new Map((n.scope.add_dirs ?? []).map((d) => [d.path, d.mode]))
@@ -934,7 +937,7 @@ export function cascadePreview(
       if (PM_RANK.indexOf(want.pm) > PM_RANK.indexOf(c)) gains.push(`mode ${c}→${want.pm}`)
     }
     if (gains.length) out.push({ id: cur, gains })
-    cur = n.parent ?? null
+    n = agentSuperior(n, map)
   }
   return out
 }
@@ -1098,7 +1101,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
     return () => { live = false }
   }, [])
   const live = node.state === 'live'
-  const members = node.children.some((c) => c.state !== 'archived')
+  const members = effectiveReports(node.children).some((c) => c.state !== 'archived')
   const save = async () => {
     setBusy(true)
     try {
@@ -1454,8 +1457,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
       })
       .catch((e: Error) => toast([`error: ${e.message}`])))
   }
-  const parent = map.get(node.id)?.parent
-  const parentNode = parent && parent !== USER ? map.get(parent) : null
+  const parentNode = agentSuperior(node, map)
   const parentTools = parentNode?.scope?.tools ?? null   // null = the user: everything
   const parentDirs = parentNode
     ? (parentNode.scope?.add_dirs ?? [])
@@ -1588,10 +1590,10 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           {/* retire asks too (user bug 2026-08-09) — it sat as the one
               seat-freeing action firing straight off the click, beside a
               dissolve button that asks */}
-          {node.state === 'live' && !node.children.some((c) => c.state !== 'archived') &&
+          {node.state === 'live' && !effectiveReports(node.children).some((c) => c.state !== 'archived') &&
             <button className="danger" onClick={() => setAsking('retire')}>
               retire · {fmtCredits(node.seat! + node.grant!)}</button>}
-          {node.state === 'live' && node.children.some((c) => c.state !== 'archived') &&
+          {node.state === 'live' && effectiveReports(node.children).some((c) => c.state !== 'archived') &&
             <button className="danger" onClick={() => setAsking('dissolve')}>
               dissolve subtree · {fmtCredits(node.seat! + node.grant!)}</button>}
           {node.state === 'archived' &&
@@ -1770,7 +1772,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
                 const pd = addable.find((x) => x.path === e.target.value)
                 if (pd) setDirs([...dirs, { ...pd }])
               }}>
-                <option value="" disabled>+ grant a folder the {parent && parent !== USER ? 'parent holds' : 'org holds'}…</option>
+                <option value="" disabled>+ grant a folder the {parentNode ? 'superior holds' : 'org holds'}…</option>
                 {addable.map((pd) => <option key={pd.path} value={pd.path}>{pd.path} ({pd.mode})</option>)}
               </select>
             </div>
@@ -1905,7 +1907,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
       )}
       {asking === 'rescind' && (
         <ConfirmModal title={`rescind ${node.id}?`}
-          body={!node.parent || node.parent === USER
+          body={isTopLevel(node, map)
             ? 'Retire this agent and its subtree. There is no superior grant to reduce. Context is kept.'
             : `Retired (subtree included), AND its superior's grant shrinks by the ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}-credit stake — the freed headroom does not return. Rehiring this seat later needs new capacity granted from above. Context is kept.`}
           confirmLabel="rescind"

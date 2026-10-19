@@ -2094,8 +2094,10 @@ export function subtreeDocs(node: CanvasNode): NonNullable<CanvasNode['documents
  *  innermost. An agent directly under an agent gets its one card. */
 export function upJumpTargets(node: Pick<CanvasNode, 'parent'>, map: Map<string, CanvasNode>): CanvasNode[] {
   const chain: CanvasNode[] = []
+  const seen = new Set<string>()
   let id = node.parent
-  while (id && map.has(id)) {
+  while (id && map.has(id) && !seen.has(id)) {
+    seen.add(id)
     const p = map.get(id)!
     chain.push(p)
     if (p.kind !== 'project') break
@@ -2118,6 +2120,28 @@ export function downJumpTargets(reports: CanvasNode[]): CanvasNode[] {
     if (c.kind === 'project' && c.state === 'live') out.push(...downJumpTargets(c.children ?? []))
   }
   return out
+}
+
+/** Structural reporting crosses projects, but never skips an archived agent.
+ * Lifecycle filtering belongs to the action, not to reporting/top-level rights. */
+export function agentSuperior(node: Pick<CanvasNode, 'parent'>, map: Map<string, CanvasNode>): CanvasNode | undefined {
+  return upJumpTargets(node, map).find(n => n.kind !== 'project' && n.id !== USER)
+}
+
+/** The next agents below a node, in placement order; project containers remain
+ * in the tree but are never recipients of an agent-only supervisory action. */
+export function effectiveReports(children: CanvasNode[]): CanvasNode[] {
+  return downJumpTargets(children).filter(n => n.kind !== 'project' && n.id !== USER)
+}
+
+/** Both root conventions (null in payloads and USER in the canvas) are valid.
+ * An incomplete/cyclic ancestry is not evidence of top-level rights. */
+export function isTopLevel(node: Pick<CanvasNode, 'parent'>, map: Map<string, CanvasNode>): boolean {
+  if (node.parent == null || node.parent === USER) return true
+  const chain = upJumpTargets(node, map)
+  if (chain.some(n => n.kind !== 'project' && n.id !== USER)) return false
+  const outer = chain[0]
+  return !!outer && (outer.id === USER || outer.parent == null || outer.parent === USER)
 }
 
 /** The neighbour lines along siblings already in peer order: consecutive
@@ -2300,8 +2324,9 @@ export const INBOX_CLEAR = 48
  *  default grant (50 unless configured); a report starts at 0. DraftNode's
  *  initial value, and what the canvas sizes the draft's credit bar from until
  *  the draft reports a change. */
-export function draftOpeningGrant(draft: DraftState, defaultTop: number | null | undefined): number {
-  return draft.parent == null ? (defaultTop ?? 50) : 0
+export function draftOpeningGrant(draft: Pick<DraftState, 'parent'>, defaultTop: number | null | undefined,
+  map: Map<string, CanvasNode> = new Map()): number {
+  return isTopLevel(draft, map) ? (defaultTop ?? 50) : 0
 }
 
 export interface Box { x: number; y: number; w: number; h: number }

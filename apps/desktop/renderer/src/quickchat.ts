@@ -1,3 +1,4 @@
+import { isTopLevel, type CanvasNode } from './canvas/shared'
 // quickchat.ts — Quick chat's memory and its pure rules (docket
 // `quick-prompt-hire-kick-off-and-focus-an-agent-fr`).
 //
@@ -215,11 +216,11 @@ export function quickChatName(message: string, taken: (name: string) => boolean)
  *  superior gets a user audience in the same transaction, before its first
  *  turn; a top-level agent already writes to the user. */
 export function quickChatHire(c: { message: string; name: string; tier: string;
-  effort: string; superior: QuickSuperior; grant: number }) {
+  effort: string; superior: QuickSuperior; grant: number }, map: Map<string, CanvasNode> = new Map()) {
   return {
     op: 'hire', name: c.name, tier: c.tier, parent: c.superior, grant: c.grant,
     ...(c.effort ? { effort: c.effort } : {}),
-    ...(c.superior !== null ? { audiences: ['user'] } : {}),
+    ...(!isTopLevel({parent: c.superior}, map) ? { audiences: ['user'] } : {}),
     kickoff: c.message, kickoff_kind: 'message',
   }
 }

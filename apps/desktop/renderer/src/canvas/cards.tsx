@@ -1,3 +1,4 @@
+import { grantLimits, hireGrantMax } from './creditgrant'
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge } from './nextturn'
 import { DndBadge } from './dnd'
 import { hireDisabledReason, signedOutHire } from './shared'
@@ -30,7 +31,7 @@ import {
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon, FolderIcon,
 } from '../icons'
 import {
-  ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, orderAntigravityTiers, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
+  effectiveReports, isTopLevel, ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, orderAntigravityTiers, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
   USER_H, USER_W, useAgentShortcuts, Z_MAX, Z_MINI,
 } from './shared'
 import type {
@@ -405,8 +406,8 @@ export function EyeDesk({ map, op, slug, toast,
   pinnedIds, onShowPin, onGeneralContextMenu }: EyeDeskProps) {
   const isPinned = (id: string) => !!pinnedIds?.has(id)
   const agents = [...map.values()].filter((n) =>
-    n.id !== USER && n.id !== DRAFT && n.state === 'live' && !n.isBearerOf
-    && (n.parent === USER || n.audiences_held?.includes(USER)))
+    n.id !== USER && n.id !== DRAFT && n.kind !== 'project' && n.state === 'live' && !n.isBearerOf
+    && (isTopLevel(n, map) || n.audiences_held?.includes(USER)))
     // tab order mirrors the tree's left→right spatial order (user ruling)
     .sort((a, b) => (posX?.(a.id) ?? 0) - (posX?.(b.id) ?? 0))
   const [minned, setMinned] = useState<Set<string>>(() => {
@@ -555,7 +556,7 @@ export function EyeDesk({ map, op, slug, toast,
               </button>}
               {/* ✕ only on audience-granted lines; closing RESCINDS the grant
                   (user spec) — top-level lines have no ✕, they are intrinsic */}
-              {a.parent !== USER && (a.audiences_explicit ?? a.audiences_held)?.includes(USER) &&
+              {!isTopLevel(a, map) && (a.audiences_explicit ?? a.audiences_held)?.includes(USER) &&
                 <button className="eye-tab-x"
                   title="close this line (rescinds its audience with you)"
                   onClick={() => audienceAction(slug, 'revoke', a.id, USER)
@@ -1202,7 +1203,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   const cut = chosen.filter((c) => c.truncated)
   // top-level drafts pre-fill the org's default grant (50 unless configured)
   const [localGrant, setLocalGrant] = useState(() =>
-    draftOpeningGrant(draft, defaultTop))
+    draftOpeningGrant(draft, defaultTop, map))
   const grant = form?.grant ?? localGrant
   const setGrant = (next: number | ((current: number) => number)) => {
     const value = typeof next === 'function' ? next(grant) : next
@@ -1212,13 +1213,11 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   const grantCb = useRef(onGrant)
   grantCb.current = onGrant
   useEffect(() => { grantCb.current?.(grant) }, [grant])
-  // user ruling: drag the allocation as high as you want — the cost bubbles
-  // up the chain to you (§4.6) — bounded only by the org's GLOBAL grant cap
-  // (settings: top-level grant cap) or, when the cascade_hire setting is
-  // off, the parent's own free credits.
-  const max = tree?.cascade_hire === false && draft.parent != null
-    ? (map.get(draft.parent)?.free ?? 0)
-    : maxTop
+  // Projects are placement only. Match the real agent funding chain and
+  // reserve the new seat before offering grant headroom.
+  const max = hireGrantMax(draft.parent, seats[draft.tier] ?? 0, map,
+    {max_top_grant: maxTop, cascade_hire: tree?.cascade_hire},
+    draft.above ? (map.get(draft.above.anchor)?.seat ?? 0) + (map.get(draft.above.anchor)?.grant ?? 0) : 0)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) onCancel() }
     window.addEventListener('keydown', onKey)
@@ -1605,7 +1604,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   useSubmittedAsks()
   useSeenMentions()
   const [asking, setAsking] = useState<RetireKind | null>(null)
-  const liveKids = node.children.some((c) => c.state === 'live')
+  const liveKids = effectiveReports(node.children).some((c) => c.state === 'live')
   // NEAREST-EDGE chip gating (user ruling 2026-08-04): only the set at the
   // edge the cursor is closest to shows — bottom hires a report, left/right
   // hire a coworker, top (FR-25) inserts a superior. Tracked here from the
@@ -1869,13 +1868,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         <CreditBar seat={seat} grant={grant} committed={grant - free}
           segments={creditSegments(node.children)}   /* unrecoverable still holds */
           min={grant - free}
-          /* reallocate cascades up the chain (§4.6), so the parent's free is
-             not a ceiling — unless the cascade_alloc setting turns that off.
-             Otherwise the org's global grant cap bounds the drag. */
-          max={cascadeAlloc === false && node.parent !== USER
-            ? grant + (map.get(node.parent!)?.free ?? 0)
-            : maxTop}
-          maxGhost={cascadeAlloc === false && node.parent !== USER}
+          max={Math.floor(grantLimits(node, map, {max_top_grant: maxTop, cascade_alloc: cascadeAlloc}).max)}
+          maxGhost={cascadeAlloc === false && !isTopLevel(node, map)}
           onCommit={(delta) => op({ op: 'reallocate', node: node.id, delta })
             .then(() => toast(
               [`${node.id} grant ${delta > 0 ? '+' : ''}${fmtCredits(delta)}`],

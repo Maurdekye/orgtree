@@ -32,7 +32,7 @@ import { museHireAccount, museLandingAccount } from './canvas/musehire'
 import { agentNavProps } from './canvas/agentnav'
 import { MUSE_TIERS, museEffortLevels, useAgyModelsRefresh } from './canvas/shared'
 import {
-  ALL_TIER_SEAT, hireOf, tierLabel, type CanvasNode,
+  agentSuperior, draftOpeningGrant, ALL_TIER_SEAT, hireOf, tierLabel, type CanvasNode,
 } from './canvas/shared'
 import { AttachIcon, ExpandMoreIcon, SendIcon } from './icons'
 import {
@@ -210,7 +210,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       ),
       superior: (
         <button key="superior" type="button" className={'quickchat-btn quickchat-superior' + (superior === null ? ' quickchat-top-superior' : '')}
-          title={`superior of the new agent: ${superior ?? 'none (a top-level agent)'}`}
+          title={`hire under: ${superior ?? TOP_LEVEL_LABEL}; superior: ${agentSuperior({parent: superior}, nodes)?.id ?? 'you'}`}
           {...agentNavProps(superior)}
           aria-expanded={pop?.kind === 'superior'} onClick={go('superior')}>
           {/* the shared chip: a project wears its folder mark, not its sentinel tier */}
@@ -279,7 +279,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     if (!message || busy) return
     if (!tier) { toast(['Quick chat: no model is available to hire']); return }
     setBusy(true); close()
-    const grant = superior === null ? (tree.default_top_grant ?? 50) : 0
+    const grant = draftOpeningGrant({parent: superior}, tree.default_top_grant, nodes)
     const taken = new Set(nodes.keys())
     // with attachments the hire carries no kickoff: the files upload into the
     // new agent's folder and the message goes as its first mail, the way the
@@ -292,7 +292,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         const name = quickChatName(message, n => taken.has(n))
         let born: string
         try {
-          const { kickoff, kickoff_kind, ...bare } = quickChatHire({ message, name, tier, effort: (() => { const lv = levelsFor(tier); return lv && !lv.includes(effort) ? '' : effort })(), superior, grant })
+          const { kickoff, kickoff_kind, ...bare } = quickChatHire({ message, name, tier, effort: (() => { const lv = levelsFor(tier); return lv && !lv.includes(effort) ? '' : effort })(), superior, grant }, nodes)
           const account = chosen?.account ?? museHireAccount(slug, tier, tree.default_account)
           const r = await op({ ...(carry.length ? bare : { ...bare, kickoff, kickoff_kind }), ...(account ? { account } : {}) }, { quiet: true })
           born = typeof r?.node === 'string' && r.node ? r.node : name
@@ -351,7 +351,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       {compact
         ? (
           <button type="button" className="quickchat-btn quickchat-options" aria-label="hire options"
-            title={`hire options — model ${tier ? tierLabel(tier) : 'none'}, superior ${superior ?? TOP_LEVEL_LABEL}, `
+            title={`hire options — model ${tier ? tierLabel(tier) : 'none'}, placement ${superior ?? TOP_LEVEL_LABEL}, `
               + `effort ${effort || 'org default'}${files.length ? `, ${files.length} attached` : ''}`}
             aria-haspopup="dialog" aria-expanded={pop?.kind === 'options'} onClick={open('options')}>
             {tier && <TierChip tier={tier} />}
@@ -370,7 +370,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         const list = hireOptions(pop.anchor)
         return (
           <Pop anchor={pop.anchor} onClose={close} kind="options" label="hire options" group={group} noEscape={!!pop.via}>
-            {([['model', list.model], ['superior', list.superior], ['effort', list.effort], ['files', list.attach]] as const).map(([cap, el]) => (
+            {([['model', list.model], ['placement', list.superior], ['effort', list.effort], ['files', list.attach]] as const).map(([cap, el]) => (
               <div className="quickchat-opt" key={cap}><span className="quickchat-opt-cap">{cap}</span>{el}</div>
             ))}
           </Pop>
@@ -493,7 +493,7 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick, activeO
       <AgentTray map={liveMap} rows={indentedRows} query={query} onQuery={setQuery}
         archived={false} onArchived={() => {}} onPick={pick} compactAt={compactAt}
         rowProps={n => agentNavProps(n.id)}
-        selected={hi} filterLabel="filter superiors"
+        selected={hi} filterLabel="filter hire locations"
         filterActions={onActiveOnly && <ActiveAgentsFilter checked={activeOnly} onChange={onActiveOnly} />}
         leadingRows={showRoot && (
           <div className={'tray-row quickchat-top' + (!rootMatches ? ' ghost' : '') + (hi === null && rootMatches ? ' sel' : '')}

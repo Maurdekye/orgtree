@@ -1,3 +1,4 @@
+import { effectiveReports } from './shared'
 import { Fragment } from 'react'
 import { focusComposerBackground } from '../composerfocus'
 import { ShellOutputContext, LiveShellOutput } from '../shelloutput'
@@ -3412,7 +3413,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     },
   }
 
-  const liveKids = node.children.some((c) => c.state === 'live')
+  const liveKids = effectiveReports(node.children).some((c) => c.state === 'live')
   const lastTurn = node.turns?.[node.turns.length - 1]
   const { used: contextOccupancy, estimated: contextEstimated, window: contextWindow } = contextReading(node, chat)
   // measured fill as a fraction of the window, for the mid-turn banner's

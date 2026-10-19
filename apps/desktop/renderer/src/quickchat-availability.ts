@@ -1,11 +1,11 @@
-import type { CanvasNode } from './canvas/shared'
+import { isTopLevel, type CanvasNode } from './canvas/shared'
 import type { StaffingOptions, StaffingTier } from './canvas/staffingoptions'
 import type { TreePayload } from './types'
 
 /** Mirror the user's hire credit cascade, including transparent projects and the top grant cap. */
 function fitsCredits(seat: number, tree: TreePayload, nodes: Map<string, CanvasNode>, superior: string | null): boolean {
   const cap = tree.max_top_grant == null ? 1000 : tree.max_top_grant > 0 ? tree.max_top_grant : Infinity
-  if (superior === null) return (tree.default_top_grant ?? 50) <= cap
+  if (isTopLevel({parent: superior}, nodes)) return (tree.default_top_grant ?? 50) <= cap
   const chain: CanvasNode[] = []
   const seen = new Set<string>()
   let id: string | null = superior
