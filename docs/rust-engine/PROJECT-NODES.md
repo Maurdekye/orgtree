@@ -344,10 +344,26 @@ agents under the project".
     awaiting ack, acked, released, ack of, dead letter, purged); the preview. In the project's
     own mailbox a mail nobody holds yet puts its kind chip on that middle line too. Nothing in
     it wraps: the recipient yields with an ellipsis [user 2026-10-18 14:24Z].
-  - Jump cards on every tab, as on the agent desk [user 2026-10-19 19:58Z]: up to the parent
-    in the header's card row, down to its live members in a row above the message box. The
+  - Jump cards on every tab, as on the agent desk [user 2026-10-19 19:58Z]: up to the nearest
+    agent superior and the projects between (`upJumpTargets`) on the agent desk's up row, its
+    own `.desk-nav` right under the header and never among the header cards [user 2026-10-19
+    21:05:53Z "superior jump cards go in a different row than the header cards", 21:06:08Z
+    "same as agent desk headers"; replaces the 19:15Z one-row placement]; down to its members
+    above the message box in the agent desk's report row (`DeskReportRow`: nested projects'
+    members too, retired ones behind its retired controls). The
     desk tab holds the Summary editor: Markdown (`md`) while unfocused, a monospace text box
     while focused. Leaving the box saves a change with `set_description`; Escape drops it.
+  - **Parity with the agent desk** [user 2026-10-19 19:59Z]: the project desk reuses the agent
+    desk's pieces, not copies. Header: `AgentName` (plain on the focused desk, a link from other
+    hosts), `HeldAudienceChips` (held audiences, revoke on explicit grants), dismiss for a
+    retired project shown under hide-retired, and the settings gear. Inbox: one `ProjectInbox`
+    view on the tab and in its window (`ProjectInboxModal`) with purge, the listeners folder and
+    retract; waiting mail reads "waiting in the project queue". The docket badge counts
+    actionable owned tickets (`actionableTeamCount`). The composer grows like the agent's,
+    keeps staged files and reply previews with its draft, takes files dropped anywhere on the
+    desk, cancels replies on Escape, and arms notice/broadcast with Alt+N/Alt+B through the
+    notice store. Signed differences: no chat or turns, no model/effort/account/credit
+    controls, and no Team checkbox on the presented tab (user commit 0592f78).
   - Header: active/hired agents under it (live agents, nested projects crossed, project nodes
     not counted; active = a turn executing, the org list's rule) with the spinner while any is
     active; halt all / unhalt all (the agent batch-halt confirmation); dissolve (the

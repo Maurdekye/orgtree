@@ -1,3 +1,13 @@
+- Project desks reuse the agent desk's pieces, never copies: the up row (its own
+  `.desk-nav` right after `DeskHead`, never among the header cards; user
+  2026-10-19 21:05:53Z, 21:06:08Z "same as agent desk headers"), `DeskReportRow`,
+  `HeldAudienceChips`, `AgentName`, `ReplyPreview`, the notice store and draft
+  attachments. Change one desk's header, jump rows or composer and check the
+  other; `tests/projectdeskparity.test.tsx` holds the parity. Signed
+  differences: no chat/turns, no model/effort/account/credit controls, no
+  presented-tab Team checkbox. See [project nodes](docs/rust-engine/PROJECT-NODES.md).
+  [decided: user 2026-10-19 19:59Z; verified: `canvas/{desk,projectdesk}.tsx`]
+
 - Renderer supervisory controls use `agentSuperior`, `effectiveReports` and
   `isTopLevel` to cross project containers: credits follow agent funding, root
   project hires use top-level defaults, user lines belong to agents, and
