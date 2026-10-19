@@ -106,7 +106,7 @@ export default async function (rig) {
   p.check('dev2 watches it too (two owners may each keep a web-queue)', q2.ok, said(q2))
   const send = (from, text) => rig.tool(from, 'orgtree_message', { metadata: { to: 'website' }, body: text })
   const outsider = await send('carol', 'Carol is beside the project, not above or below it.')
-  p.check('carol, beside the project, cannot write to it', !outsider.ok && /above or below project website/.test(outsider.text), said(outsider))
+  p.check('carol, beside the project, cannot write to it', !outsider.ok && /project reach or an audience with website/.test(outsider.text), said(outsider))
   const m2 = await send('boss', 'Second request (from boss).')
   p.check('boss writes to the project and is told who got it', m2.ok && /handed it to dev2/.test(m2.text), said(m2))
   const m3 = await send('boss', 'Third request (from boss).')
@@ -169,7 +169,7 @@ export default async function (rig) {
   p.check('dev1\'s status notice goes to boss, not to the project', st.ok && notice?.recipient_name === 'boss', { said: said(st), notice })
   const toBoss = await rig.tool('dev1', 'orgtree_message', { metadata: { to: 'boss' }, body: 'Hello boss.' })
   const toPeer = await rig.tool('dev1', 'orgtree_message', { metadata: { to: 'carol' }, body: 'Hello carol, peer under boss.' })
-  p.check('dev1 may write to boss and to boss\'s other reports', toBoss.ok && toPeer.ok, { boss: said(toBoss), carol: said(toPeer) })
+  p.check('dev1 may write to boss but needs an audience for coworkers outside its project', toBoss.ok && !toPeer.ok, { boss: said(toBoss), carol: said(toPeer) })
   const bossTurns = rig.turns('boss').filter(t => t.ended_at).length
   await rig.waitTurns('boss', bossTurns + 1).catch(() => {})
   const bossPrompt = identity('boss')
@@ -180,9 +180,11 @@ export default async function (rig) {
   // ------------------------------------------------------------ control
   const retireInside = await rig.tool('dev1', 'orgtree_retire', { node: 'website' })
   p.check('dev1 cannot retire the project it is inside', !retireInside.ok && /inside project website/.test(retireInside.text), said(retireInside))
-  const rename = await rig.tool('dev1', 'orgtree_rename', { node: 'website', name: 'site' })
+  const memberRename = await rig.tool('dev1', 'orgtree_rename', { node: 'website', name: 'site' })
+  p.check('a member cannot rename its project', !memberRename.ok && node('website')?.id === web.id && !node('site'), said(memberRename))
+  const rename = await rig.tool('boss', 'orgtree_rename', { node: 'website', name: 'site' })
   const dogTargets = rig.sql(`SELECT DISTINCT target FROM ot.watchdogs WHERE kind = 'fair_queue'`)
-  p.check('dev1 renames the project from below; the fair_queue dogs follow', rename.ok && node('site')?.id === web.id
+  p.check('boss renames the project from above; the fair_queue dogs follow', rename.ok && node('site')?.id === web.id
     && dogTargets.length === 1 && dogTargets[0].target === 'site', { said: said(rename), dogTargets })
   const switchProject = await rig.tool('boss', 'orgtree_switch_model', { node: 'site', tier: 'sonnet' })
   p.check('agent-only operations refuse a project', !switchProject.ok && /is a project, not an agent/.test(switchProject.text), said(switchProject))
@@ -233,7 +235,9 @@ export default async function (rig) {
   p.check('the agents under it get the new description', dev5Again.includes('Standing charter from project ui: The UI, rewritten.'),
     dev5Again.match(/Standing charter from [^\n]*/g) ?? [])
   const fromBelow = await rig.tool('dev5', 'orgtree_project', { action: 'describe', name: 'ui', description: 'From below.' })
-  p.check('an agent under it edits it with orgtree_project describe', fromBelow.ok && rig.one(`SELECT charter FROM ot.agents WHERE id = ${node('ui').id}`).charter === 'From below.', said(fromBelow))
+  p.check('a member cannot edit its project Summary', !fromBelow.ok && rig.one(`SELECT charter FROM ot.agents WHERE id = ${node('ui').id}`).charter === 'The UI, rewritten.', said(fromBelow))
+  const fromAbove = await rig.tool('boss', 'orgtree_project', { action: 'describe', name: 'ui', description: 'From above.' })
+  p.check('an ancestor edits the project Summary', fromAbove.ok && rig.one(`SELECT charter FROM ot.agents WHERE id = ${node('ui').id}`).charter === 'From above.', said(fromAbove))
   const beside = await rig.tool('alice', 'orgtree_project', { action: 'describe', name: 'ui', description: 'Nope.' })
   p.check('an agent beside it cannot', !beside.ok, said(beside))
   const onAgent = await opTry({ op: 'set_description', node: 'dev5', description: 'x' })
