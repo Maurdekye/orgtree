@@ -48,18 +48,39 @@ test('ended age is white through three seconds and clamps to dark grey from twen
   for (const seconds of [86400, 86401, Infinity]) assert.equal(slotEndedTimeStyle(seconds).color, '#3a3a3a')
 })
 
-test('both shared time scales have thin black or white outlines contrasting with their text', () => {
-  const luminance = (hex: string) => {
-    const c = hex.slice(1).match(/../g)!.map(v => parseInt(v, 16) / 255)
-      .map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
-    return c[0] * .2126 + c[1] * .7152 + c[2] * .0722
-  }
+test('both shared time scales default to a diffuse glow without a hard ring', () => {
   for (const styleOf of [slotTimeStyle, slotEndedTimeStyle]) {
-    for (const seconds of [0, 1.5, ...colours.map((_, i) => atStop(i)), 100, 1000, 86401]) {
+    for (const seconds of [0, 3, 2820, 14400, 86400]) {
       const style = styleOf(seconds)
-      const outline = luminance(style.color) >= .179 ? '#000000' : '#ffffff'
-      assert.equal(style.textShadow, `-0.5px 0 ${outline}, 0.5px 0 ${outline}, 0 -0.5px ${outline}, 0 0.5px ${outline}`)
+      assert.match(style.textShadow, /^0 0 3px rgba\(/)
+      assert.doesNotMatch(style.textShadow, /0\.5px/)
+      assert.deepEqual(style, styleOf(seconds, 'glow'))
       assert.equal('backgroundColor' in style, false)
     }
   }
 })
+
+for (const appearance of ['dot', 'underline'] as const) {
+  test(`the ${appearance} option preserves true colour and lifts number contrast in both themes`, () => {
+    const luminance = (hex: string) => {
+      const c = hex.slice(1).match(/../g)!.map(v => parseInt(v, 16) / 255)
+        .map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
+      return c[0] * .2126 + c[1] * .7152 + c[2] * .0722
+    }
+    for (const styleOf of [slotTimeStyle, slotEndedTimeStyle]) {
+      for (const seconds of [0, 3, 2820, 14400, 86400]) {
+        const trueColor = styleOf(seconds).color
+        const style = styleOf(seconds, appearance)
+        assert.equal(style.textShadow, 'none')
+        assert.ok(style.backgroundImage?.includes(trueColor), 'marker keeps the actual scale colour')
+        assert.match(style.backgroundImage ?? '', appearance === 'dot' ? /radial-gradient/ : /linear-gradient/)
+        const tint = /^light-dark\((#[0-9a-f]{6}), (#[0-9a-f]{6})\)$/.exec(style.color)
+        assert.ok(tint, 'readable tints adapt to the surface colour scheme')
+        for (const [text, background] of [[tint[1], '#fafafa'], [tint[2], '#1f1f1f']]) {
+          const a = luminance(text), b = luminance(background)
+          assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05) >= 4.5)
+        }
+      }
+    }
+  })
+}

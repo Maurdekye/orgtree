@@ -3,6 +3,8 @@ const colours = ['#e6ffe0', '#4f9b1d', '#a6b51c', '#efa02a', '#df4b28', '#32140f
 const start = 3, end = 24 * 60 * 60
 const logStep = Math.log(end / start) / (colours.length - 1)
 const rgb = (hex: string) => hex.slice(1).match(/../g)!.map(value => parseInt(value, 16))
+export type TimeReadability = 'glow' | 'dot' | 'underline'
+export const TIME_READABILITY: TimeReadability = 'glow'
 
 export interface SlotTimeTextStyle { color: string; textShadow: string }
 
@@ -15,7 +17,7 @@ function outlinedTime(color: string): SlotTimeTextStyle {
 }
 
 /** Logarithmic interpolation in RGB, applied directly to text (user 19:24-19:26Z). */
-export function slotTimeStyle(seconds: number): SlotTimeTextStyle {
+export function slotTimeStyle(seconds: number, _appearance: TimeReadability = TIME_READABILITY): SlotTimeTextStyle {
   const at = Number.isNaN(seconds) ? 0 : Math.max(0, seconds)
   let color: string = colours[0]
   if (at < start) color = '#' + rgb(colours[0]).map(value =>
@@ -33,7 +35,7 @@ export function slotTimeStyle(seconds: number): SlotTimeTextStyle {
 }
 
 /** Ended ages stay white through3s, then fade on the same log axis to dark grey. */
-export function slotEndedTimeStyle(seconds: number): SlotTimeTextStyle {
+export function slotEndedTimeStyle(seconds: number, _appearance: TimeReadability = TIME_READABILITY): SlotTimeTextStyle {
   const at = Number.isNaN(seconds) ? 0 : Math.max(0, seconds)
   const blend = at <= start ? 0 : at >= end ? 1 : Math.log(at / start) / Math.log(end / start)
   const grey = Math.round(255 + (0x3a - 255) * blend + 1e-10).toString(16).padStart(2, '0')
