@@ -283,11 +283,11 @@ test('visible slot views share one second clock for held, waiting and ended ages
   assert.equal(timer.mock.calls.filter(call => call.arguments[1] === 1000).length, 1, 'one clock for both views')
 })
 
-test('slot header facts use a second header row and shared model-icon agent links navigate from every list', async t => {
+test('slot header has one count chip and shared model-icon agent links navigate from every list', async t => {
   const { view, jumps } = await desk(t, project({ slots_capacity: 1 }), status)
   const header = view.el.querySelector('.cc-head-meta.project-slots-meta')
-  assert.ok(header, 'held facts belong in the shared second header row')
-  assert.match(header?.textContent ?? '', /1 of 1 concurrency slot held/)
+  assert.ok(header, 'slot chip and holders belong in the shared second header row')
+  assert.doesNotMatch(header?.textContent ?? '', /concurrency slots? held/, 'the count chip is not repeated as prose')
   assert.ok(header?.querySelector('.project-slots-card'), 'yellow count card moves to the second row too')
   assert.equal(view.el.querySelector('.cc-head-top .project-slots-card') === null, true)
   const headHolder = header!.querySelector<HTMLButtonElement>('.ref-agent[data-copy-agent-name="sa"]')
@@ -321,7 +321,7 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   const panel = view.el.querySelector<HTMLElement>('.project-slots')!
   assert.ok(panel, 'the slots panel')
   assert.deepEqual(ops.filter((o) => o.op === 'slot_status'), [{ op: 'slot_status', node: 'build' }])
-  assert.match(view.el.querySelector('.project-slots-meta')?.textContent ?? '', /1 of 1 concurrency slot held/)
+  assert.doesNotMatch(view.el.querySelector('.project-slots-meta')?.textContent ?? '', /concurrency slots? held/)
   assert.match(view.el.querySelector('.cc-tabs button[data-tab="slots"]')?.textContent ?? '', /^slots$/, 'the tab omits redundant held/total counts')
   const sections = [...panel.querySelectorAll('h4')].map((h) => h.textContent)
   assert.deepEqual(sections, ['Holding', 'Line', 'Recent holds'])
@@ -356,7 +356,7 @@ test('§5 the empty state says how to claim and that nobody waits', async (t) =>
   assert.equal(card?.textContent, 'slots 0/2')
   assert.equal(card?.classList.contains('full'), false, 'an outline while a slot is free')
   const panel = view.el.querySelector<HTMLElement>('.project-slots')!
-  assert.match(view.el.querySelector('.project-slots-meta')?.textContent ?? '', /0 of 2 concurrency slots held/)
+  assert.doesNotMatch(view.el.querySelector('.project-slots-meta')?.textContent ?? '', /concurrency slots? held/)
   assert.match(panel.textContent ?? '', /Nobody holds a concurrency slot\./)
   assert.match(panel.textContent ?? '', /orgtree_watchdog action=create kind=slot target=build/)
   assert.match(panel.textContent ?? '', /Nobody is waiting\./)

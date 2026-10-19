@@ -46,7 +46,7 @@ import { PinFrame } from './modalpin'
 import { AgentLink, AgentName, nodeTierOf } from './identity'
 import type { PinRect } from './pins'
 import { ConfirmModal } from './modals'
-import { projectSlotState, slotCount, slotHeaderText, slotLeadText, slotsFull } from './slots'
+import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
 import { DeadLettersView } from './deaddesk'
 import { DeskJumpCards } from './deskjumpcards'
@@ -554,7 +554,6 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         {slots.total > 0 && <div className="cc-head-meta project-slots-meta">
           <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
             title="open the Concurrency slots tab" onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>
-          <span>{slotLeadText(slots)}</span>
           {slots.held.map(h => <AgentLink key={h.lease} id={h.agent} tier={nodeTierOf(map.get(h.agent))} onFocus={onJump} />)}
         </div>}
       </div>
