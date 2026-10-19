@@ -151,7 +151,7 @@ async fn download(e: &Engine, p: &Part, job: &Job, f: &File) -> Result<u64> {
     if offset > 0 {
         request = request.header("Range", format!("bytes={offset}-")).header("If-Range", f.validator.as_deref().unwrap_or(""));
     }
-    let response = request.send().await?;
+    let response = transport::send(request).await?;
     let status = response.status().as_u16();
     if matches!(status, 401 | 403 | 404 | 410 | 413) {
         return Err(transfers::permanent(&format!("download HTTP {status}; retry after correcting the cause")));

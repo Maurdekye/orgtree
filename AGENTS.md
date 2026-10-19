@@ -641,13 +641,15 @@
   [verified: `build/installer.nsh`; decided: coordinator/user 2026-10-19,
   4.3.3 slow fresh-install launch fix]
 
-- Mail hub tests and real registration/poll/file requests use direct transport,
-  bypassing per-PC proxies consistently. Bare hosts discover 7370, 7378, 7371
+- Mail hub tests and real registration/poll/file requests try direct transport,
+  then the system/env proxy only on initial connect failure. Never replay an
+  accepted request, HTTP rejection, read failure or redirected connection.
+  Streaming upload retries reopen their body. Bare hosts discover 7370, 7378, 7371
   and HTTPS concurrently; explicit URLs/ports stay explicit, including :80.
   Test returns the selected endpoint; registration, status and unregister reuse
   only a registered address within the current candidates. Discovery remains
   under org cancellation and rig isolation. [decided: user/coordinator 2026-10-19;
-  verified: `net.rs`, `net/discovery.rs`, `canvas/connections.tsx`]
+  verified: `net.rs`, `net/transport.rs`, `net/discovery.rs`, `canvas/connections.tsx`]
 
 - Session-placement loss requires three two-second misses; recovery is immediate.
   Overdue ticks are skipped and each recovered blip logs once. A per-engine
