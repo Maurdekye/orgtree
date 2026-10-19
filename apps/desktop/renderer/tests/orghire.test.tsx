@@ -34,7 +34,12 @@ const json = (value: unknown) => new Response(JSON.stringify(value), {
   headers: { 'Content-Type': 'application/json' },
 })
 const settle = () => inAct(async () => { await flush(12) })
-const changed = () => inAct(async () => { bumpLive(); flushLive(); await flush(12) })
+const changed = () => inAct(async () => {
+  bumpLive(); flushLive()
+  // flushLive delivers on a timer task; flush() drains setImmediate/microtasks
+  // only, which can finish before that timer runs on Windows.
+  await new Promise(resolve => setTimeout(resolve, 0)); await flush(12)
+})
 const tokens = (scope: ParentNode, id: keyof typeof samples) =>
   [...scope.querySelectorAll<HTMLButtonElement>(`.hsof button.t-${samples[id]}`)]
 
@@ -54,8 +59,9 @@ async function fixture(t: TestContext, surface: 'canvas' | 'quickchat', options:
     const url = String(input)
     const match = url.match(/^\/api\/orgs\/([^/]+)\/accounts-allowed$/)
     if (match) {
-      reads.push(match[1])
-      return options.lanes?.(match[1]) ?? json({ org: match[1], accounts: all() })
+      const slug = match[1]!
+      reads.push(slug)
+      return options.lanes?.(slug) ?? json({ org: slug, accounts: all() })
     }
     return json(url === '/api/providers' ? providers
       // A cached staffing offer must not override freshly changed org access.
