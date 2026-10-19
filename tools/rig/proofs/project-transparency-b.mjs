@@ -124,13 +124,13 @@ export default async function(rig) {
     }
   }
 
-  // Same physical parent OFF remains the signed policy exception. A different
-  // project with the same supervisor remains reachable without delegation.
+  // Physical peers obey OFF; sharing an agent superior across projects does
+  // not confer mail reach. The earlier peer-to-worker grant is directional.
   await rig.op({op:'configure_project',node:'inner-nested',settings:{peer_mail:false}})
   await hire('nested-sibling','inner-nested')
   const denied=await rig.tool('worker-nested','orgtree_send_notice',{to:'nested-sibling',body:'PTB blocked'})
-  const allowed=await rig.tool('worker-nested','orgtree_send_notice',{to:'peer-nested',body:'PTB allowed'})
-  p.check('physical-parent peer-mail OFF exception is preserved',!denied.ok&&allowed.ok,{denied:denied.text,allowed:allowed.text})
+  const cross=await rig.tool('worker-nested','orgtree_send_notice',{to:'peer-nested',body:'PTB cross-project blocked'})
+  p.check('physical-parent OFF and directional cross-project mail boundaries are preserved',!denied.ok&&!cross.ok,{denied:denied.text,cross:cross.text})
   const policyPrompt=await turn('worker-nested','PTB-POLICY')
   p.check('peer-mail policy labels its physical project independently of superior guidance',policyPrompt.includes('Peer mail under inner-nested: OFF')&&policyPrompt.includes('manager-nested'),policyPrompt.slice(0,1800))
 

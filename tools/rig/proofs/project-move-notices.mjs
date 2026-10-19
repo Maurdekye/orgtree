@@ -62,7 +62,7 @@ export default async function(rig) {
   p.check('wrapper move aggregates the frontier for every recipient',mail.every(r=>members.every(n=>r.ev.tail?.includes(n))),mail)
   p.check('co-moved members receive only their own move notice',members.every(name=>mail.filter(r=>r.name===name).length===1&&mail.find(r=>r.name===name)?.ev.role==='self'),mail)
   rendered=await text(mail.find(r=>r.name==='right'))
-  p.check('aggregate notice names every member and no project as a report',members.every(name=>rendered.includes(name))&&!rendered.includes('report "moving"'),rendered)
+  p.check('aggregate notice names every member and no project as a report',rendered.includes('Moved agents: "moving-a", "moving-b", "moving-c".')&&!rendered.includes('report "moving"'),rendered)
 
   // The destination superior was also a peer: superior role wins, never twice.
   await hire('nested-boss','left',10);await hire('overlap','left')
