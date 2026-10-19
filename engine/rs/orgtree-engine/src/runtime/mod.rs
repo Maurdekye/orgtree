@@ -38,6 +38,7 @@ pub mod startup;
 pub mod tasks;
 pub mod tool_policy;
 pub mod toolwriting;
+pub mod shell_output;
 pub mod token_counts;
 pub mod usage_reset;
 pub mod watchdogs;
