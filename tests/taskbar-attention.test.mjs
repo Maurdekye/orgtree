@@ -64,3 +64,9 @@ test('mentions join the native notice projection using the existing duplicate-ma
  assert.match(s,/a\.state = 'live'.*user_mention/s)
  assert.ok((s.match(/DUPLICATE_MENTION_SQL/g)||[]).length>=2)
 })
+test('attention menu glyphs are distinct PNGs generated in the owned icon cache',()=>{
+ const {actionPng}=load('apps/desktop/main/jumplist-icons.ts')
+ const icons=['mail','ticket','mention'].map(kind=>actionPng(kind))
+ assert.equal(new Set(icons.map(x=>x.toString('base64'))).size,3)
+ for(const png of icons){assert.equal(png.subarray(0,8).toString('hex'),'89504e470d0a1a0a');assert.equal(png.readUInt32BE(16),64)}
+})
