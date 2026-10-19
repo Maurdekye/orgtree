@@ -108,7 +108,7 @@ test('starting a presentation reply focuses the composer without scrolling its h
   const f = await fixture(t)
   const doc = f.frame.querySelector<HTMLElement>('.desk-docs [data-doc-id="doc1"]')!
   await inAct(() => { doc.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true })) })
-  const reply = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(el => el.textContent === 'Reply to')!
+  const reply = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(el => el.textContent === 'Reply')!
   assert.equal(!!reply, true, 'presentation reply action is available')
   await inAct(async () => { reply.click(); await new Promise(r => setTimeout(r, 35)); await flush(3) })
   f.stable()

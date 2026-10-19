@@ -92,7 +92,7 @@ export function presentationMenu(el: Element | null, slug: string,
       },
     })
   }
-  if (acts.reply && !gone) entries.push({ label: acts.replyLabel ?? 'Reply to', onSelect: acts.reply })
+  if (acts.reply && !gone) entries.push({ label: acts.replyLabel ?? 'Reply', onSelect: acts.reply })
   entries.push(...presentationIdentityActions(el, doc, acts.nodeMenu, acts.toast))
   const copied = (what: string) => (ok: boolean) =>
     acts.toast?.([ok ? `copied ${what}` : `could not copy ${what} — clipboard unavailable`])
