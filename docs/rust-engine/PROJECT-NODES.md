@@ -58,6 +58,15 @@ apply only to siblings sharing a physical parent; the Team badge counts physical
 children, including each project as one. The turn's peer-policy line therefore
 names its physical parent separately from its agent superior.
 
+Project policy belongs to the user and strict agent ancestors (user 2026-10-19
+18:27Z): peer mail, slot capacity, Summary, queue settings, name, order and purging
+waiting mail. `authorize_project_policy` protects both composite configuration
+and individual mutation paths. Members, including nested and root-project members,
+retain settings/Summary reads, mail/inbox, fair-queue and slot claims, their own
+lease release, listeners/events, presentations/folders and dead-letter operations.
+The scratch-DB proof `project-policy-authority.mjs` checks refusal without mutation
+and preserves these operational paths alongside ancestor/user positive controls.
+
 `orgtree_project action=describe` without `description` reads the Summary. An
 explicit string changes it; an explicit empty string clears it. Previously omission
 was treated as empty and erased the Summary while appearing to read it. `settings`
@@ -109,6 +118,13 @@ Summaries, and rehearses the repair through startup twice. On the d5b5d44 debug 
 default stack overflowed before the first CLI started; the comparative red/green rig uses
 test-only `RUST_MIN_STACK=16777216`. Production stack settings are unchanged.
 
+`node tools/project-reporting-guard.mjs --self-test` guards 13 audited reporting
+entry points against raw placement-parent reads and removal of their reporting
+helper. Its 26 in-memory mutants prove the checks reject those regressions. This
+is a scoped source check, not a Rust parser: new reporting entry points must be
+audited and added. Structural placement and signed policy exceptions remain legal;
+the metamorphic rig proofs establish behavior across the different tree shapes.
+
 ## It runs no turns
 
 The actor refuses to start for a project (`runtime::actor::spawn` reads `kind` first), so no
@@ -138,9 +154,13 @@ Agents outside that line cannot reach it. With reach an agent may:
 - watch it with a `fair_queue` watchdog;
 - present a document under it (`orgtree_present` with `project`);
 - read and write its folder;
-- act on the project node as on a subordinate: rename, reorder, retire, dissolve or move it,
+- act on the project node as on a subordinate: retire, dissolve or move it,
   create a nested project in it; hire under it or move its own reports into it when the credits
   come from its own allocation (see Cost: only an agent above the project can pay).
+
+Policy controls have narrower authority (user 2026-10-19): only the user and
+agents above the project may change its settings, Summary, name or order, or
+purge waiting mail. Members can read settings and use the operational features.
 
 **Creating one**: `create_project` (agents: `orgtree_project`). The parent defaults to the
 caller; agents must give `index`; only the user creates at the top level; an agent creates one
@@ -339,8 +359,9 @@ agents under the project".
   model, effort, account, rescind, credit grant, visible agents, file and command access,
   tools/MCP and turn limits.
 - **`set_description`** (op; `orgtree_project action=describe` for agents) replaces a project's
-  Summary. It is authorized like rename (the user, agents above or below the project) and
-  reconfigures the subtree.
+  Summary when passed an explicit string, authorized like rename (the user and agents above
+  the project), and reconfigures the subtree. Omission/null reads the Summary with project
+  reach, including members; an explicit empty string clears it.
 - **The project hire token** [user 2026-10-16 21:02Z]: every hire strip ends with a (since 21:23:44Z theme-coloured)
   square with a folder icon, alone on the outermost row. That covers the eye card, all four
   edges of a card and a project's own strip. Its tooltip says "create a project … (free)" and

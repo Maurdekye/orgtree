@@ -7,6 +7,14 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Project policy authority, user 2026-10-19 18:27Z:** only the user and agents
+strictly above a project may change peer mail, slot capacity, Summary, queue
+settings, name, order or purge waiting mail. Members retain operational reach,
+including nested members and members of root projects. This narrows the older
+above-or-below control rule for policy only. Physical-parent peer-mail scope and
+Team badges (each direct child, including a project, counts once) stay unchanged.
+See [project nodes](PROJECT-NODES.md).
+
 **Project watchdog menus/outlines, user 2026-10-19 19:06–19:07Z:** slot
 chips and every project-targeted watchdog offer Project… via the shared
 project-link menu, everywhere their chips/rows render. Existing primary
