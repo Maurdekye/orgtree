@@ -1464,3 +1464,27 @@ All entries are dated 2026-10-06 unless stated otherwise.
     Contract and verification limits: [helper transcripts](helper-transcripts.md).
 
 88. **Agent scratch is opened in the OS file explorer; event history lives in agent settings** (user 2026-10-17 19:16–19:18Z). Remove the Files browser from agent desks and its listing endpoint, but preserve the separate `read_scratch` tool, Quick chat attachments and uploads. Keep personal and team scratch-folder actions in the agent menu and settings header, following the same native capability and live/archive availability rules. Move the desk History view into an agent-settings History tab only when retained records exist; stale desk Files/History views fall back to Chat. Project settings without agent history have no History tab.
+
+89. **MQTT watchdogs** (user 2026-10-19 17:40:50Z "a native mqtt watchdog, that can listen for a
+    specific topic pattern on an mqtt connection"; credentials 17:43:37Z "agents can utilize
+    credentials dynamically, even if they dont see them directly"; coordinator rulings 18:04Z;
+    docket `native-mqtt-watchdog-fire-on-a-topic-pattern-fro`).
+    - `kind=mqtt`: target `mqtt://`/`mqtts://` broker, `pattern` = topic filter, optional
+      `payload_pattern`, `retained` (default off), QoS 0, MQTT 3.1.1, no publishing.
+    - The owner's web tool is required, checked at create, at every runner start and every
+      minute (a dog reaches the network with its owner's hands).
+    - Credentials per dog: a file in the owner's folders, re-read on every connect, or inline,
+      sealed with AES-256-GCM under a DPAPI machine-scope key file in migration 0036's
+      `ot.watchdog_secrets` (row id as AAD, deleted on remove/spent). This protects copies taken
+      off the machine, not a reader on it. Lists, cards, mail, saved transcripts and logs show only
+      the file path or "inline credentials"; top-level secrets and URL user info are refused.
+    - Trust: Mozilla roots (webpki-roots); a custom CA in the credentials file replaces them for
+      that broker (pinning). The OS certificate store is not used unless the user asks.
+    - One connection per org, broker, credentials and client id. Backoff is 2 s doubling to 5 min
+      for network failures and 1 min to 1 h for refusals. The connection state is visible, and the
+      owner is told about a refusal, an outage longer than a minute, and the recovery.
+    - Payloads are untrusted outside input: every fire (mail and event rendering) and `list`'s last
+      message carry the UNTRUSTED label; payload lines are guttered and escaped.
+    - Crate: rumqttc =0.25.1 (Apache-2.0), default features off, rustls on ring; license check in
+      THIRD_PARTY_NOTICES.md.
+    Details: [`mqtt-watchdogs.md`](mqtt-watchdogs.md).

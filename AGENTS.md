@@ -25,6 +25,22 @@
   [verified: `domain/{projects,ops}.rs`, `runtime/watchdogs/events.rs`,
   `http/orgops.rs`; 2026-10-19]
 
+- MQTT watchdogs (`kind=mqtt`) subscribe to a topic filter on an mqtt(s) broker.
+  The owner needs the web tool, rechecked every minute. Credentials are a file in
+  the owner's folders (re-read on each connect) or inline, sealed in
+  `ot.watchdog_secrets` (migration 0036; AES-256-GCM under a DPAPI machine key,
+  which protects off-machine copies only). Never print or log them: lists and
+  cards show only the path or "inline credentials"; `convo::redact_tool_input`
+  blanks saved inputs, arg lines and previews; `credentials`/`pass`/`passwd` are
+  masked log keys and URL user info is masked. `rumqttc` logging stays off (its
+  Debug prints passwords and payloads), and `MqttOptions` lives only in `#[nolog]`
+  code. Payloads are untrusted: fire mail, event rendering and `list` label them.
+  One connection per org + broker + credentials + client id (`src/mqtt` hub).
+  A safe-start rehearsal re-arms only event dogs, so it never connects to a
+  broker. See [mqtt watchdogs](docs/rust-engine/mqtt-watchdogs.md).
+  [decided: user 2026-10-19 17:40Z/17:43Z, coordinator 18:04Z; verified:
+  `src/mqtt/*`, `runtime/watchdogs/mqtt.rs`, `runtime/convo.rs`, `trace.rs`]
+
 - Slot chips and all current-project-targeted watchdog menus offer Project…
   through the shared project-link menu; primary slot clicks still open Slots.
   Listener/slot-line rows and mobile dog lists use the shared object host.
