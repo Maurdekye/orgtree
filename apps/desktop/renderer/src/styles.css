@@ -3199,17 +3199,33 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .wd-chip.listener { border-color: var(--listener); }
 .wd-chip.listener .wd-glyph { color: var(--listener); }
 /* the desk's Slots tab */
-.project-slots { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
+.project-slots { display: flex; flex-direction: column; gap: 4px; min-width:0; overflow: auto; }
 .project-slots h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }
 .project-slots .slots-lead { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .project-slots .slots-lead .slot-holder { background: var(--slot); color: var(--slot-ink); font-weight: normal; }
-/* one column grid shared by Holding, Line and Recent holds (user
-   2026-10-19 17:24Z): agent | waited | held | the rest | action/label */
-.project-slots .slot-row { display: grid; grid-template-columns: minmax(110px, 1.1fr) 104px 92px minmax(130px, 1fr) auto;
-  align-items: center; column-gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+/* One table computes widths for every section. Narrow hosts scroll the data,
+   keeping the action column visible instead of clipping its buttons. */
+.slots-table-scroll { width:100%; max-width:100%; min-width:0; overflow:auto; }
+.slots-table { width:100%; min-width:760px; table-layout:fixed; border-collapse:separate; border-spacing:0; font-variant-numeric:tabular-nums; }
+.slots-table .slot-col-agent { width:22%; }
+.slots-table .slot-col-time { width:76px; }
+.slots-table .slot-col-ended { width:96px; }
+.slots-table .slot-col-action { width:132px; }
+.slots-table th,.slots-table td { padding:4px; text-align:left; vertical-align:middle; }
+.slots-table thead th { color:var(--dim); font-size:11px; font-weight:600; border-bottom:1px solid var(--line); }
+.slots-table .slot-row > * { border-bottom:1px solid var(--line); }
+.slots-table .slot-section th { padding:0 4px; }
+.slots-table .slot-empty { padding:4px; white-space:normal; }
+.slots-table .slot-action { position:sticky; right:0; z-index:1; background:var(--panel); }
+.project-slots .slot-action > button { box-sizing:border-box; min-width:0; min-height:26px; margin:0; padding:3px 8px; font-size:11px; white-space:nowrap; }
+.slots-table .slot-rest { overflow-wrap:anywhere; font-size:11px; }
+.slots-table .slot-reason,.slots-table .slot-lease { display:block; }
+.slot-time { display:inline-block; padding:1px 5px; border:1px solid color-mix(in srgb,var(--ink) 18%,transparent);
+  border-radius:999px; font-size:10px; line-height:14px; white-space:nowrap; }
 .project-slots .slot-how { color: var(--slot); white-space: nowrap; }
 .project-slots .slot-no { display: inline-block; min-width: 30px; color: var(--slot); font-variant-numeric: tabular-nums; }
-.project-slots .slot-agent { font-weight: 600; }
+.project-slots .slot-agent { font-weight: 600; overflow:hidden; }
+.project-slots .slot-agent .ref-agent { max-width:100%; }
 .project-slots code { font-size: 11px; }
 .project-queue-tools button { font-size: 11px; padding: 2px 8px; }
 /* project event listeners: the cyan header/near-zoom cards (dark for the

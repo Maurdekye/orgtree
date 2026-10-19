@@ -208,8 +208,13 @@
   "held since HH:MM from project X" / "waiting since … for project X"; the
   project card's active count is plain bold text (no chip box) beside
   "Active …". Slot leases record `queued_at` (migration 0034) so Holding /
-  Line / Recent holds share one grid (agent | waited | held | rest), and a
-  recent hold labels only unusual endings. [verified: `canvas/listeners.ts`,
+  Line / Recent holds share one semantic table (Agent | Waited | Held | Ended |
+  Claim / lease | Action), with value-only time cells and blank inapplicable
+  cells. Narrow surfaces scroll horizontally with the action column pinned.
+  Time pills share `slottime.ts`: flat lime at 0-3s, then log10-interpolated
+  decade stops through green/yellow/orange/red to black at 3,000,000s, clamped;
+  black/white text maximizes contrast. Recent holds label only unusual endings.
+  [decided: user/coordinator 2026-10-19 19:16-19:18Z; verified: `canvas/listeners.ts`,
   `canvas/slotchips.tsx`, `canvas/slotsdesk.tsx`, `domain/slots.rs`,
   `projectlisteners/projectslots.test.tsx`, rig `project-slots.mjs`; 2026-10-19]
 - Project event listeners (user 2026-10-19 07:40Z): `project_listener` dogs

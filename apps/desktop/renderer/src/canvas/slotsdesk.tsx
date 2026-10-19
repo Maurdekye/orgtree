@@ -2,9 +2,8 @@
 // `project-slots-first-come-permits-claimed-through`, mockup approved by the
 // user 2026-10-18). Shown only while the project's slot count is at least 1.
 // It leads with "k of N slots held" and the holders, then Holding, Line and
-// Recent holds on ONE shared column grid (user 2026-10-19 17:24Z): agent |
-// waited (Line's waiting aligns under it) | held | the rest (reason/lease,
-// ended-ago) | the row's action or ending label. The lists come from the
+// Recent holds in one table, with shared column headers and value-only time
+// pills (user 2026-10-19 19:16-19:18Z). The lists come from the
 // `slot_status` op, re-read whenever the tree's slots change; the buttons
 // are the user's (the desktop's viewer), as the project's superior's
 // through the tool.
@@ -17,6 +16,7 @@ import { ago } from './shared'
 import type { CanvasNode, OpFn } from './shared'
 import { ConfirmModal } from './modals'
 import { ordinal } from './slots'
+import { slotTimeStyle } from './slottime'
 import { AgentLink, nodeTierOf } from './identity'
 import { ageClockNow, subscribeAgeClock } from './desk'
 import type { ProjectSlotState } from './slots'
@@ -43,6 +43,12 @@ export function span(from: string, to?: string | null): string {
   if (s < 3600) return `${Math.round(s / 60)}m`
   const m = Math.round(s / 60)
   return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+function SlotTime({ from, to, ended = false }: { from: string; to?: string | null; ended?: boolean }) {
+  const seconds = Math.max(0, ((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000)
+  return <span className="slot-time" style={slotTimeStyle(seconds)}>
+    {ended ? `${ago(from)} ago` : span(from, to)}</span>
 }
 
 export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
@@ -72,57 +78,68 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
   return (
     <div className="desk-tabpanel project-slots">
       {actions && <div className="team-tab-toolbar" role="toolbar" aria-label="Slots view controls">{actions}</div>}
-      <h4>Holding</h4>
-      <div className="slots-holding">
-        {holders.length === 0 && <div className="dim">Nobody holds a concurrency slot. An agent above or below the project claims one
-          with <code>orgtree_watchdog action=create kind=slot target={node.id}</code>; it is granted at once while a concurrency slot is free.</div>}
+      <div className="slots-table-scroll" role="region" aria-label="Concurrency slot records" tabIndex={0}>
+      <table className="slots-table">
+        <colgroup><col className="slot-col-agent"/><col className="slot-col-time"/><col className="slot-col-time"/>
+          <col className="slot-col-ended"/><col/><col className="slot-col-action"/></colgroup>
+        <thead><tr>{['Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Action'].map(label =>
+          <th key={label} scope="col" className={label === 'Action' ? 'slot-action' : undefined}>{label}</th>)}</tr></thead>
+      <tbody className="slots-holding">
+        <tr className="slot-section"><th colSpan={6} scope="rowgroup"><h4>Holding</h4></th></tr>
+        {holders.length === 0 && <tr><td colSpan={6} className="dim slot-empty">Nobody holds a concurrency slot. An agent above or below the project claims one
+          with <code>orgtree_watchdog action=create kind=slot target={node.id}</code>; it is granted at once while a concurrency slot is free.</td></tr>}
         {holders.map((h) => (
-          <div key={h.lease} className="slot-row">
-            <span className="slot-agent">{agentLink(h.agent)}</span>
-            <span className="dim slot-wait" title={h.queued ? 'in line since ' + h.queued : undefined}>
-              {h.queued ? `waited ${span(h.queued, h.since)}` : ''}</span>
-            <span className="dim slot-held" title={'since ' + h.since}>held {span(h.since)}</span>
-            <span className="slot-rest">{h.reason && <span className="slot-reason">{h.reason} </span>}
-              <span className="dim mono">lease {h.lease}</span>
-              {(h.reminders ?? 0) > 0 && <span className="dim"> {h.reminders} reminder{h.reminders === 1 ? '' : 's'}</span>}</span>
-            <button type="button" className="danger" data-action="force-release"
+          <tr key={h.lease} className="slot-row">
+            <th scope="row" className="slot-agent">{agentLink(h.agent)}</th>
+            <td className="slot-wait" title={h.queued ? 'in line since ' + h.queued : undefined}>
+              {h.queued ? <SlotTime from={h.queued} to={h.since}/> : ''}</td>
+            <td className="slot-held" title={'since ' + h.since}><SlotTime from={h.since}/></td>
+            <td className="slot-ended"/>
+            <td className="slot-rest">{h.reason && <span className="slot-reason">{h.reason}</span>}
+              <span className="dim mono slot-lease">{h.lease}</span>
+              {(h.reminders ?? 0) > 0 && <span className="dim"> {h.reminders} reminder{h.reminders === 1 ? '' : 's'}</span>}</td>
+            <td className="slot-action"><button type="button" className="danger" data-action="force-release"
               title={`take the concurrency slot back from ${h.agent}; the next in line gets it at once`}
-              onClick={() => setAsking(h)}>force release</button>
-          </div>
+              onClick={() => setAsking(h)}>force release</button></td>
+          </tr>
         ))}
-      </div>
-      <h4>Line</h4>
-      <div className="slots-line">
-        {line.length === 0 && <div className="dim">Nobody is waiting.</div>}
+      </tbody>
+      <tbody className="slots-line">
+        <tr className="slot-section"><th colSpan={6} scope="rowgroup"><h4>Line</h4></th></tr>
+        {line.length === 0 && <tr><td colSpan={6} className="dim slot-empty">Nobody is waiting.</td></tr>}
         {line.map((w) => (
-          <div key={w.agent + w.dog} className="slot-row">
-            <span className="slot-agent"><span className="slot-no">{ordinal(w.position)}</span> {agentLink(w.agent)}</span>
-            <span className="dim slot-wait" title={w.since ? 'in line since ' + w.since : undefined}>
-              {w.since ? `waiting ${span(w.since)}` : ''}</span>
-            <span className="slot-held" />
-            <span className="slot-rest">{nameOf(w) && <span className="slot-reason">{nameOf(w)}</span>}</span>
-            <button type="button" data-action="unqueue" title={`remove ${w.agent}'s claim: it leaves the line and is not granted`}
+          <tr key={w.agent + w.dog} className="slot-row">
+            <th scope="row" className="slot-agent"><span className="slot-no">{ordinal(w.position)}</span> {agentLink(w.agent)}</th>
+            <td className="slot-wait" title={w.since ? 'in line since ' + w.since : undefined}>
+              {w.since ? <SlotTime from={w.since}/> : ''}</td>
+            <td className="slot-held" />
+            <td className="slot-ended" />
+            <td className="slot-rest">{nameOf(w) && <span className="slot-reason">{nameOf(w)}</span>}</td>
+            <td className="slot-action"><button type="button" data-action="unqueue" title={`remove ${w.agent}'s claim: it leaves the line and is not granted`}
               onClick={() => {
                 op({ op: 'slot_unqueue', node: node.id, agent: w.agent })
                   .then(() => { toast([`${w.agent} removed from project ${node.id}'s concurrency slot line`]); reread() })
                   .catch(() => {})
-              }}>remove from line</button>
-          </div>
+              }}>remove from line</button></td>
+          </tr>
         ))}
-      </div>
-      <h4>Recent holds</h4>
-      <div className="slots-history">
-        {history.length === 0 && <div className="dim">No concurrency slot has been held yet.</div>}
+      </tbody>
+      <tbody className="slots-history">
+        <tr className="slot-section"><th colSpan={6} scope="rowgroup"><h4>Recent holds</h4></th></tr>
+        {history.length === 0 && <tr><td colSpan={6} className="dim slot-empty">No concurrency slot has been held yet.</td></tr>}
         {history.map((h) => (
-          <div key={h.lease} className="slot-row">
-            <span className="slot-agent">{agentLink(h.agent)}</span>
-            <span className="dim slot-wait" title={h.queued ? 'in line since ' + h.queued : undefined}>
-              {h.queued ? `waited ${span(h.queued, h.since)}` : ''}</span>
-            <span className="dim slot-held" title={`held from ${h.since} to ${h.ended ?? '?'}`}>held {span(h.since, h.ended)}</span>
-            <span className="dim slot-ended">{h.ended ? `ended ${ago(h.ended)} ago` : ''}</span>
-            <span className="slot-how" title={h.how ?? undefined}>{holdEndLabel(h.how)}</span>
-          </div>
+          <tr key={h.lease} className="slot-row">
+            <th scope="row" className="slot-agent">{agentLink(h.agent)}</th>
+            <td className="slot-wait" title={h.queued ? 'in line since ' + h.queued : undefined}>
+              {h.queued ? <SlotTime from={h.queued} to={h.since}/> : ''}</td>
+            <td className="slot-held" title={`held from ${h.since} to ${h.ended ?? '?'}`}><SlotTime from={h.since} to={h.ended}/></td>
+            <td className="slot-ended">{h.ended ? <SlotTime from={h.ended} ended/> : ''}</td>
+            <td className="slot-rest">{h.reason && <span className="slot-reason">{h.reason}</span>}<span className="dim mono slot-lease">{h.lease}</span></td>
+            <td className="slot-action slot-how" title={h.how ?? undefined}>{holdEndLabel(h.how)}</td>
+          </tr>
         ))}
+      </tbody>
+      </table>
       </div>
       {asking && createPortal(
         <ConfirmModal title={`take the concurrency slot of ${node.id} back from ${asking.agent}?`}
