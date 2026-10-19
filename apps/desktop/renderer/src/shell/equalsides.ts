@@ -33,7 +33,7 @@ export function useEqualSides(on: boolean) {
         return kids.reduce((w, k) => w + k.getBoundingClientRect().width, 0)
           + gap * Math.max(0, kids.length - 1)
           + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
-        } finally {
+      } finally {
         if (min) el.style.setProperty('min-width', min, priority)
         else el.style.removeProperty('min-width')
       }
