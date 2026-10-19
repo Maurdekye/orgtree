@@ -17,6 +17,9 @@ use crate::providers::catalog;
 use crate::refuse;
 use crate::util::{gist, slugify};
 
+#[cfg(test)]
+mod menu_availability_tests;
+
 /// A tier a new hire can take now.
 #[derive(Debug)]
 struct Offer {
