@@ -18,7 +18,8 @@ app.whenReady().then(async()=>{
     try{
      const expected=scenario==='queued'?'3 q\'d':scenario==='flight'?'1 in flight':scenario==='long'?"128 listeners · 999999 q'd · 128 in flight":"2 listeners · 3 q'd · 1 in flight"
      for(const q of [...state.cards,state.desk]){assert.equal(q.text,expected);assert.equal(q.bright,scenario!=='queued');assert.equal(q.background==='rgba(0, 0, 0, 0)',scenario==='queued')}
-     assert.ok(state.cards.every(q=>q.contained&&q.textFits),'all mail text stays within the near card horizontally')
+     assert.ok(state.cards.every(q=>q.contained&&q.textFits&&q.queueBottom<=q.cardBottom),'all mail text stays within the near card horizontally and vertically')
+     assert.equal(await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.fixture-card .project-slots-badge,.fixture-card .project-listeners-badge')).every(el=>{const r=el.getBoundingClientRect(),c=el.closest('.sq').getBoundingClientRect();return r.left>=c.left&&r.right<=c.right&&r.bottom<=c.bottom})`),true,'slot and event status remain inside the card with long counts')
      cases.push({name,passed:true,state})
     }catch(error){cases.push({name,passed:false,state,error:error.message})}
     if(scenario!=='flight')fs.writeFileSync(path.join(out,'project-mail-'+name+'.png'),(await win.webContents.capturePage()).toPNG())

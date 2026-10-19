@@ -26,6 +26,13 @@ if(scenario==='queued'||scenario==='flight'){
  node.mail_pending=999999;node.mail_held=128
 }
 const leases=[1,2,3].map(n=>({project:node.id,agent:'worker-'+n,slot:n,lease:'synthetic-'+n,since,reason:'Synthetic held permit'}))
+if(scenario==='long'){
+ (node.configured_scope as {slots_capacity:number}).slots_capacity=64
+ for(let i=4;i<=64;i++)leases.push({project:node.id,agent:'synthetic-holder-'+i,slot:i,lease:'synthetic-'+i,since,reason:'Synthetic held permit'})
+ for(let i=2;i<128;i++)dogs.push(dog('slot','synthetic-waiter-'+i,'wait-'+i))
+ for(let i=2;i<128;i++)dogs.push(dog('project_listener','synthetic-event-'+i,'event-'+i))
+ dogs.find(d=>d.kind==='listener_watch')!.count=999
+}
 const tree={slug:'fixture',name:'Fixture',roots:[node],watchdogs:dogs,slot_leases:leases,net:{hubs:[]},nodes:[],edges:[]} as unknown as TreePayload
 const map=new Map<string,CanvasNode>([[node.id,node],...children.map(n=>[n.id,n] as [string,CanvasNode])])
 window.fetch=legacyAppBackend(async()=>new Response(JSON.stringify({items:[],nodes:[],facts:[],rows:[],agents:[]}),{headers:{'content-type':'application/json'}}))
