@@ -66,7 +66,8 @@ for (const next of [true,false]) test('pending speed '+next+' is highlighted dis
   const n={...agent(),scope:{...agent().scope,fast_mode:next},fast_mode_current:!next}, control=(node:CanvasNode)=><FastModeButton node={node} slug="org" toast={noop}/>
   const v=await mountView(control(n),el=>el)
   try {
-    assert.equal(!!v.el.querySelector('.cc-fast.on.queued-speed'),true)
+    assert.equal(!!v.el.querySelector('.cc-fast.on.queued-speed.queued-change'),true)
+    assert.equal(v.el.querySelector('.cc-fast')?.getAttribute('aria-pressed'),String(next))
     assert.equal(v.el.querySelector('.cc-fast')?.getAttribute('title'),`Fast mode turns ${next ? 'on' : 'off'} next turn (this turn: ${next ? 'off' : 'on'})`)
     await v.render(control({...n,fast_mode_current:next}))
     assert.equal(!!v.el.querySelector('.cc-fast.on'),next)
