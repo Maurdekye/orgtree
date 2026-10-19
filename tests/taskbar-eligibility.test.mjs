@@ -60,3 +60,17 @@ test('existing attention summary still lights the dot before its notice inventor
  assert.equal(needsTaskbarDot(feed([],1)),true)
  assert.equal(needsTaskbarDot(feed([],0)),false)
 })
+
+test('standalone terminal failures do not request attention without urgent or mention qualification',()=>{
+ for(const attention of [undefined,false,'true',1]){
+  const state=feed([{...row('terminal-failure'),attention}])
+  assert.equal(needsTaskbarDot(state),false)
+  assert.deepEqual(taskbarAttentionItems(state),[])
+ }
+})
+
+test('failure mail qualified by the existing urgent-or-mention flag still appears as mail',()=>{
+ const state=feed([{...row('terminal-failure'),attention:true}])
+ assert.equal(needsTaskbarDot(state),true)
+ assert.equal(taskbarAttentionItems(state)[0].icon,'mail')
+})
