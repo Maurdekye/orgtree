@@ -2127,13 +2127,28 @@ else {
         return { ok: false, error: `Could not open templates folder: ${message}` }
       }
     })
-    // ⚠ REVEAL, NEVER OPEN, AND NEVER `shell.openPath` HERE (user ruling,
-    // 2026-09-13). These paths arrive from markdown an AGENT wrote, so opening
-    // one the way a double-click does would make any link in chat a one-click
-    // way to RUN a program — the reported example was an installer.
-    // `showItemInFolder` selects the file in the OS file manager and can
-    // launch nothing. Swapping it for a launcher reverses a decision the user
-    // made on that argument; it is not an implementation detail.
+    // Ordinary markdown/file-link clicks remain reveal-only. An explicit
+    // "Open" choice in the tool-row context menu is the user action that may
+    // launch a file; it uses this separate authenticated route, never the
+    // click-to-reveal route below.
+    handleApp('desktop:local-file-status', value => {
+      if (typeof value !== 'string' || !value) return { ok: false, error: 'No path given' }
+      const target = path.normalize(value)
+      if (!path.isAbsolute(target)) return { ok: false, error: `Not an absolute path: ${value}` }
+      try { return { ok: true, exists: fs.statSync(target).isFile() } }
+      catch { return { ok: true, exists: false } }
+    })
+    handleApp('desktop:open-local-file', async value => {
+      if (typeof value !== 'string' || !value) return { ok: false, error: 'No path given' }
+      const target = path.normalize(value)
+      if (!path.isAbsolute(target)) return { ok: false, error: `Not an absolute path: ${value}` }
+      try {
+        if (!fs.statSync(target).isFile()) return { ok: false, error: `No such file: ${target}` }
+      } catch { return { ok: false, error: `No such file: ${target}` } }
+      const error = await shell.openPath(target)
+      return error ? { ok: false, error } : { ok: true }
+    })
+    // `showItemInFolder` selects the file in the OS file manager and launches nothing.
     handleApp('desktop:reveal-file', value => {
       if (typeof value !== 'string' || !value) return { ok: false, error: 'No path given' }
       const target = path.normalize(value)

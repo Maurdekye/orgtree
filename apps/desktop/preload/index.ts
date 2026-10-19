@@ -72,6 +72,8 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     agentScratchAgentsFileExists: (org: string, node: string, scope?: 'team' | 'shared') => ipcRenderer.invoke('desktop:agent-scratch-agents-file-exists', org, node, scope),
     openAgentScratchAgentsFile: (org: string, node: string, scope?: 'team' | 'shared') => ipcRenderer.invoke('desktop:open-agent-scratch-agents-file', org, node, scope),
     revealFile: (path: string) => ipcRenderer.invoke('desktop:reveal-file', path),
+    localFileStatus: (path: string) => ipcRenderer.invoke('desktop:local-file-status', path),
+    openLocalFile: (path: string) => ipcRenderer.invoke('desktop:open-local-file', path),
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
     getUpdateCapability: () => ipcRenderer.invoke('desktop:update-capability'),
     getRunAsAdministrator: () => ipcRenderer.invoke('desktop:run-as-admin'),

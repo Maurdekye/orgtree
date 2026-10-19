@@ -33,7 +33,8 @@ import { appendReplyTarget, readReplies, replyContext, replyFromRow, replyWire, 
 import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
-import { CopyFeedback, copyToClipboard, openFallbackObjectMenu, useContextMenu } from './contextmenu'
+import { CopyFeedback, copyToClipboard, openFallbackObjectMenu, useContextMenu, useCopyFeedback } from './contextmenu'
+import { desktop } from '../desktop'
 import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge, QueuedEffortBadge, useOrgDefaultEffort } from './effort'
 import { EffortBar } from './effortbar'
 import { tierEffortLevels } from './staffingoptions'
@@ -4983,6 +4984,8 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
   // canvas/foldstate.tsx for why a component-local `useState` could not
   // survive the row being re-keyed mid-stream
   const [open, toggleOpen] = useFold(toolFoldKey(t))
+  const fileMenu = useContextMenu()
+  const toast = useCopyFeedback()
   const live = useLiveCall(t.started_at)
   const writing = !!t.writing_started_at
   const running = live && !writing && !!t.started_at && !t.ended_at && t.result === undefined && !t.error
@@ -5046,7 +5049,56 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
         {t.file_paths?.map((file, i) => file.link
           ? <Fragment key={`${file.path}-${i}`}>{' '}<a className="local-file tool-file-link" href="#"
               data-local-path={file.path} title={`Show in folder — ${file.path}`}
-              onClick={e => e.stopPropagation()}>{file.path.split(/[\\/]/).filter(Boolean).at(-1) || file.path}</a></Fragment>
+              onClick={e => e.stopPropagation()}
+              onContextMenu={e => {
+                e.stopPropagation()
+                const anchor = e.currentTarget
+                const id = fileMenu.open(e, [{ label: 'Checking file…', disabled: true, onSelect: () => {} }], anchor)
+                if (id === undefined) return
+                void (async () => {
+                  let status: { ok: boolean; exists?: boolean; error?: string } | undefined
+                  try { status = await desktop()?.localFileStatus?.(file.path) }
+                  catch { /* the disabled state below explains the unavailable action */ }
+                  if (!status?.ok) {
+                    fileMenu.replace([{ label: 'File actions unavailable', disabled: true,
+                      title: status?.error ?? 'File actions are unavailable in this window', onSelect: () => {} }], id)
+                    return
+                  }
+                  if (!status.exists) {
+                    fileMenu.replace([{ label: 'File no longer exists', disabled: true,
+                      title: 'This path no longer names a file', onSelect: () => {} }], id)
+                    return
+                  }
+                  const action = async (kind: 'open' | 'reveal') => {
+                    try {
+                      const result = kind === 'open'
+                        ? await desktop()?.openLocalFile?.(file.path)
+                        : await desktop()?.revealFile?.(file.path)
+                      toast?.([result?.ok
+                        ? (kind === 'open' ? 'Opened file' : 'Showed file in folder')
+                        : result?.error ?? 'File actions are unavailable in this window'])
+                    } catch (error) {
+                      toast?.([error instanceof Error ? error.message : String(error)])
+                    }
+                  }
+                  fileMenu.replace([
+                    { label: 'Open', onSelect: () => { void action('open') } },
+                    { label: 'Show in folder', onSelect: () => { void action('reveal') } },
+                    'sep',
+                    { label: 'Copy path', onSelect: () => {
+                      void copyToClipboard(anchor, file.path).then(ok => toast?.([
+                        ok ? 'Copied path' : 'Could not copy — clipboard unavailable',
+                      ]))
+                    } },
+                    { label: 'Copy file name', onSelect: () => {
+                      const name = file.path.split(/[\\/]/).filter(Boolean).at(-1) || file.path
+                      void copyToClipboard(anchor, name).then(ok => toast?.([
+                        ok ? 'Copied file name' : 'Could not copy — clipboard unavailable',
+                      ]))
+                    } },
+                  ], id)
+                })()
+              }}>{file.path.split(/[\\/]/).filter(Boolean).at(-1) || file.path}</a></Fragment>
           : <span key={`${file.path}-${i}`} className="tool-file-path"> {file.path}</span>)}
         {t.diff && <span className="tdiffn"> +{t.diff.plus} −{t.diff.minus}</span>}
         {t.task && (
@@ -5114,7 +5166,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
       {open && (t.images ?? 0) > 0 && t.id && Array.from({ length: t.images! }).map((_, i) => (
         <img key={i} className="toolimg" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')} alt="tool result"
           src={`/api/orgs/${slug}/nodes/${nid}/toolimg/${t.id}?idx=${i}`} />))}
-    </div>{presentation}{downloadCard}</>
+    </div>{presentation}{downloadCard}{fileMenu.node}</>
   )
 }
 

@@ -194,10 +194,14 @@ export interface DesktopBridge {
   agentScratchAgentsFileExists?(org: string, node: string, scope?: 'team' | 'shared'): Promise<{ ok: boolean; exists?: boolean; error?: string }>
   openAgentScratchAgentsFile?(org: string, node: string, scope?: 'team' | 'shared'): Promise<{ ok: boolean; error?: string }>
   /** Reveal an absolute local file in the OS file manager — Explorer opens
-   *  with the file SELECTED and nothing is launched. Deliberately not an
-   *  "open" (user ruling, 2026-09-13): links come from agent-written markdown,
-   *  so an open would be a one-click way to run a program. */
+   *  with the file SELECTED and nothing is launched. Ordinary file links keep
+   *  this safe reveal-only click behaviour; the explicit tool-row context-menu
+   *  action is separately confirmed by the user before opening a file. */
   revealFile?(path: string): Promise<{ ok: boolean; error?: string }>
+  /** Inspect a renderer-supplied absolute file path before offering file actions. */
+  localFileStatus?(path: string): Promise<{ ok: boolean; exists?: boolean; error?: string }>
+  /** Open a file only after an explicit user choice in its context menu. */
+  openLocalFile?(path: string): Promise<{ ok: boolean; error?: string }>
   getUpdateStatus(): Promise<UpdateStatus>
   getUpdateCapability?(): Promise<UpdateCapability>
   getRunAsAdministrator?(): Promise<RunAsAdministratorState>

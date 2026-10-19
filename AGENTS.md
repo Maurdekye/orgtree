@@ -662,9 +662,15 @@
 
 - Markdown links to local Windows files may use `file:///C:/...` or another
   drive letter; normalize only this empty-authority form before sanitization and
-  keep it reveal-only. Unsupported file URLs stay plain text after sanitization
+  keep ordinary clicks reveal-only. Unsupported file URLs stay plain text after sanitization
   removes their href. [verified: `apps/desktop/renderer/src/canvas/shared.ts`,
   `apps/desktop/renderer/tests/windowslinks.test.ts`; 2026-10-17]
+- A file link rendered from an agent tool row keeps the same reveal-only click,
+  but its explicit right-click menu may offer `Open`, `Show in folder`, and copy
+  actions. The authenticated native routes reject relative/missing paths; no
+  agent tool gains local-file authority. [decided: user 2026-10-19; verified:
+  `main/index.ts`, `preload/index.ts`, `canvas/desk.tsx`,
+  `tests/toolfilelinks.test.tsx`]
 - Idle ages on the desk, card and tray use the completed turn's `ended_at`;
   open/legacy rows without it retain the `started_at` fallback. Active time
   remains on `inflight_at`, including ordinary Antigravity hook mail delivery.
@@ -3882,8 +3888,9 @@ rulings go here and on their ticket.
   windows; a saved window whose org is gone opens as an error window. Pinned means pinned.
   [decided: user 2026-09-04, 2026-09-21]
 - Notifications default to needs-attention only (questions, urgent mail, ticket attention).
-  Clicking a file link reveals the file in Explorer and never opens or runs it. [decided:
-  user 2026-09-07, 2026-09-13]
+  Ordinary clicks on local file links reveal the file in Explorer and never open or run it;
+  the tool-row context menu separately offers an explicit `Open` choice (user 2026-10-19).
+  [decided: user 2026-09-07, 2026-09-13; updated 2026-10-19]
 
 ### Installer, updates and data
 

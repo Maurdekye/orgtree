@@ -145,6 +145,14 @@ inputs, scanning history or rewriting rows. Recorded identities/transitions win
 over a recovered value. Regression origin: `9e24692` appended timing text while
 the old extractor required one JSON document for the whole result.
 
+Tool-call filename links use the shared context menu. Their ordinary click keeps
+the established reveal-in-folder behaviour; an explicit `Open` menu choice uses
+the authenticated native file opener. `Show in folder`, `Copy path`, and `Copy
+file name` are available while the absolute path still resolves to a file. The
+menu checks availability when opened and replaces its pending state only if it
+is still the current menu. Missing files show a disabled explanation. This is a
+user-directed UI action and adds no local-file capability to agent tools.
+
 Per-window object navigation follows the existing agent-navigation registry.
 The host reads the current org and uses existing ticket/watchdog routes. Ticket
 React chips, sanitized Markdown chips, bare ticket mentions and tool-output

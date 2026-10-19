@@ -307,6 +307,9 @@ function liveBody(doc: Document | null | undefined): HTMLElement | null {
 
 export interface ContextMenuHandle {
   append: (entry: MenuEntry, opening: number) => void
+  /** Replace entries after an asynchronous capability check, only if this
+   *  is still the currently open menu. */
+  replace: (entries: MenuEntry[], opening: number) => void
   /** the object's `onContextMenu`. `entries` may be a thunk so a list that
    *  renders many rows builds only the pressed row's items. */
   open: (e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => number | undefined
@@ -353,6 +356,8 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   const anchorRef = useRef<Element | null>(null)
   const opening = useRef(0)
   const close = useCallback(() => setState(null), [])
+  const replace = useCallback((entries: MenuEntry[], id: number) => setState(s =>
+    s && opening.current === id ? { ...s, entries } : s), [])
   const append = useCallback((entry: MenuEntry, id: number) => setState(s => s && opening.current === id ? { ...s,
     entries: [...s.entries.filter(e => e === 'sep' || entry === 'sep' || e.label !== entry.label), entry] } : s), [])
   const reanchor = useCallback((el: Element | null) => { if (el) anchorRef.current = el }, [])
@@ -499,7 +504,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   const node = target
     ? createPortal(<ContextMenu state={state} anchorRef={anchorRef} close={close} />, target)
     : null
-  return { open, close, append, reanchor, isOpen: !!target, node }
+  return { open, close, append, replace, reanchor, isOpen: !!target, node }
 }
 
 const stop = (e: SyntheticEvent) => e.stopPropagation()
