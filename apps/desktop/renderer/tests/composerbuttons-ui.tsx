@@ -8,11 +8,11 @@ globalThis.fetch=async(url)=>new Response(JSON.stringify(String(url).includes('/
   windowed:true,has_older:false,before:null,draft_epoch:'synthetic:0',
 }:{}),{headers:{'Content-Type':'application/json'}})
 document.documentElement.dataset.theme='dark'
-createRoot(document.getElementById('root')!).render(<main style={{padding:18}}>
+createRoot(document.getElementById('root')!).render(<main style={{padding:18,display:'flex',gap:12}}>
   {[['idle',false,false],['queued effort / interrupt',true,false],['project broadcast',false,true]].map(([name,busy,project])=>
-    <section data-buttons={String(name)} key={String(name)} style={{height:215}}>
+    <section data-buttons={String(name)} key={String(name)} style={{height:640,minWidth:0,flex:1}}>
       <h4 style={{margin:'0 0 4px'}}>{String(name)}</h4>
-      <div className="desk-body" style={{height:180,display:'flex',flexDirection:'column'}}>
+      <div className="desk-body" style={{height:600,display:'flex',flexDirection:'column'}}>
         <ComposerButtonsFixture busy={!!busy} project={!!project}/>
       </div>
     </section>)}
