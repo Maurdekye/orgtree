@@ -664,6 +664,8 @@ interface SpawnChipsProps {
   onToggleExpanded?: () => void
   /** the tier already chosen, drawn as selected (Quick chat's model picker) */
   selected?: string
+  /** A non-hiring surface reuses the tokens with its own action wording. */
+  tokenTitle?: (tier: string) => string
   /** Quick chat can narrow the model menu to its current account/credit eligibility. */
   allowedTiers?: string[]
   /** the PROJECT token (user 2026-10-16 21:02Z): a light grey square with a
@@ -682,7 +684,7 @@ const costBadge = (seat: number): string => {
 
 export function SpawnChips({ onSpawn, seats, side, soleHire,
   codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, museHire: museHireProp, onNoHarness, zoom,
-  expanded = false, onToggleExpanded, selected, allowedTiers, onProject }: SpawnChipsProps) {
+  expanded = false, onToggleExpanded, selected, tokenTitle, allowedTiers, onProject }: SpawnChipsProps) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
   // the Muse family's state, adopted from the canvas's providers poll
@@ -721,10 +723,10 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
           // word is dropped entirely — see `soleHire`. The cost badge
           // stays: it is the one part that still says something the user
           // cannot read off the badge's position.
-          `hire ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`
+          tokenTitle?.(t) ?? (`hire ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`
             + (soleHire ? ''
               : ` ${side === 'top' ? 'superior' : side ? 'coworker' : 'subordinate'}`)
-            + ` ${costBadge(seat)}` + legacyMark(t)}
+            + ` ${costBadge(seat)}` + legacyMark(t))}
         onClick={(e) => { e.stopPropagation(); onSpawn(t) }}>
         {letter}
       </button>

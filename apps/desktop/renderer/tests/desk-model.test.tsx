@@ -34,6 +34,7 @@ test('desk model icon opens the hire token picker; Escape and click-away cancel'
  try{
   await click(v.el.querySelector('[aria-label="Change model for worker"]'))
   assert.ok(document.querySelector('[aria-label="Change agent model"] .t-luna'))
+  assert.equal(document.querySelector('[aria-label="Change agent model"] .t-luna')?.getAttribute('title'),'Change model to luna')
   await inAct(async()=>{document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await flush(3)})
   assert.equal(!!document.querySelector('[aria-label="Change agent model"]'),false)
   await click(v.el.querySelector('[aria-label="Change model for worker"]'))

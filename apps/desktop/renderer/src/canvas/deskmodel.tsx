@@ -92,6 +92,7 @@ export function DeskModelButton({node, slug, op, toast}: {
     {anchor&&!asking&&<PickerPopover anchor={anchor} onClose={close} kind="model"
       label="Change agent model" className="desk-model-picker" focusFirst>
       <SpawnChips soleHire selected={choice?.tier??node.tier} seats={{...ALL_TIER_SEAT,...Object.fromEntries(rows.map(row=>[row.tier,row.seat]))}}
+        tokenTitle={tier=>`Change model to ${tierLabel(tier)}`}
         allowedTiers={rows.map(r=>r.tier)} onSpawn={pick} {...hires}/>
       {!rows.length&&<p role="status">{snapshot?.errors?.join('; ')||'No eligible models available'}</p>}
       {choice&&currentRow&&<div className="desk-model-options">
