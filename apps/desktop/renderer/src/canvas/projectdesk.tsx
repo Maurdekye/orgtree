@@ -35,7 +35,7 @@ import { PanelCorner, revealAgentPanelTab } from './panelcorner'
 import { AgentTeamView, liveTeamCount } from './team'
 import { PopoutButton, PopoutWindowControls, useSurface } from '../popout'
 import type { RefRoutes } from './reflinks'
-import { ageClockNow, DeskReportRow, LastTurnAge, NavChip, subscribeAgeClock } from './desk'
+import { ageClockNow, DeskReportRow, HeldAudienceChips, LastTurnAge, NavChip, subscribeAgeClock } from './desk'
 import { PresentationCard, recentDocumentChips } from './docs'
 import { DocIcon } from '../icons'
 import { subtreeAgents } from './bulkcompact'
@@ -567,6 +567,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const upLinks = onJump && up.length > 0 ? <DeskJumpCards ids={up.map((n) => n.id)} render={(id) =>
     <NavChip key={id} n={up.find((n) => n.id === id)!} dir="up" onJump={onJump} />} /> : null
   const headCards = listenerHeaderCards.length > 0 || !!queue || slots.total > 0 || !!upLinks
+    || (node.audiences_held?.length ?? 0) > 0
   // the Dead letters tab joins them while the project holds open dead letters
   const deadLetters = node.dead_letters ?? 0
   const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : []), ...(hasListeners ? ['listeners' as const] : [])]
@@ -632,6 +633,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           {slots.total > 0 && <button type="button" className={'project-slots-card' + (slotsFull(slots) ? ' full' : '')}
             title={'open the Concurrency slots tab' + (slots.held.length ? ` — held by ${slots.held.map(h => h.agent).join(', ')}` : '')} onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>}
           {/* no holder links here (user 2026-10-19 17:12Z): the holders are on the slots tab */}
+          {/* the audiences it holds, as on the agent desk's header (G15) */}
+          <HeldAudienceChips node={node} map={map} slug={slug} toast={toast} />
           {upLinks}
         </DeskMetaRow>} />
       {/* its presentations and its subtree's, on their own strip under the

@@ -1835,6 +1835,41 @@ export function NavChip({ n, dir, onJump }:
   </span>
 }
 
+/** The audiences a node holds, as header chips, the same on agent and project
+ *  desks: the user, the org inbox and agents. Retired grantor agents fold
+ *  behind one chip (user feature 2026-08-17); USER/EXTERN are pseudo-peers,
+ *  always "live". Only an explicit grant has the revoke ✕: inherited access
+ *  names its source project and has no misleading personal revoke
+ *  (project-audiences.md). A project holds them too: user mail grants the
+ *  project a user audience its direct members write with. */
+export function HeldAudienceChips({ node, map, slug, toast }: {
+  node: Pick<CanvasNode, 'id' | 'audiences_held' | 'audiences_explicit' | 'audiences_inherited'>
+  map: Map<string, CanvasNode>
+  slug: string
+  toast: ToastFn
+}) {
+  const held = node.audiences_held ?? []
+  const heldRet = held.filter((g) => g !== USER && g !== EXTERN
+    && map.get(g)?.state !== 'live')
+  const heldChip = (g: string, dim = false) => (
+    <span key={g} className={'badge ' + (g === USER ? 'free aud-user' : dim ? 'dim' : '')}
+      title={[audienceGrantTooltip(g, map.get(g)?.kind),
+        ...(node.audiences_inherited?.filter((a) => a.grantor === g)
+          .map((a) => `Inherited from project ${a.project}`) ?? [])].join('; ')}>
+      <HearingIcon fontSize="inherit" />
+      {g === USER ? 'user' : g === EXTERN ? 'org inbox' : g}
+      {(node.audiences_explicit ?? held).includes(g) && <button className="chip-x" title="Revoke"
+        onClick={() => audienceAction(slug, 'revoke', node.id, g)
+          .then(() => toast([`audience ${node.id}→${g} rescinded`]))
+          .catch((e: Error) => toast([`error: ${e.message}`]))}><CloseIcon fontSize="inherit" /></button>}
+    </span>
+  )
+  return <>
+    {held.filter((g) => !heldRet.includes(g)).map((g) => heldChip(g))}
+    <RetiredFold ids={heldRet} render={(g) => heldChip(g, true)} />
+  </>
+}
+
 /** F-01's bottom row, the same on agent and project desks: one card per
  *  report, then one per watchdog the desk's agent owns (user 2026-09-29;
  *  clicking one opens its detail modal). Drafts are not agents yet and bearer
@@ -3532,24 +3567,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // badge to claim; this is not the "not yet known" case (that stays a
   // runtime concern for McpToolCountMark's own '—'/'~N' fallback below).
   const mcpConfigured = (node.scope?.tools.mcp?.length ?? 0) > 0
-  // held-audience badges: retired grantor-agents fold behind one chip (user
-  // feature 2026-08-17) — USER/EXTERN are pseudo-peers, always "live"
-  const held = node.audiences_held ?? []
-  const heldRet = held.filter((g) => g !== USER && g !== EXTERN
-    && map.get(g)?.state !== 'live')
-  const heldChip = (g: string, dim = false) => (
-    <span key={g} className={'badge ' + (g === USER ? 'free aud-user' : dim ? 'dim' : '')}
-      title={[audienceGrantTooltip(g, map.get(g)?.kind),
-        ...(node.audiences_inherited?.filter((a) => a.grantor === g)
-          .map((a) => `Inherited from project ${a.project}`) ?? [])].join('; ')}>
-      <HearingIcon fontSize="inherit" />
-      {g === USER ? 'user' : g === EXTERN ? 'org inbox' : g}
-      {(node.audiences_explicit ?? held).includes(g) && <button className="chip-x" title="Revoke"
-        onClick={() => audienceAction(slug, 'revoke', node.id, g)
-          .then(() => toast([`audience ${node.id}→${g} rescinded`]))
-          .catch((e: Error) => toast([`error: ${e.message}`]))}><CloseIcon fontSize="inherit" /></button>}
-    </span>
-  )
   // The desk's own tree, handed to the transcript's mail cards. The lookup
   // reads a ref so a rebuilt-but-identical `map` does not churn the value;
   // the memo keys on `agentFactsSig` because an id or tier change must reach
@@ -3778,10 +3795,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         {node.bearer_state &&
           <span className={'badge ' + (node.bearer_state === 'preserving' ? 'dim' : '')}>
             {node.bearer_state}</span>}
-        {held.filter((g) => !heldRet.includes(g))
-          .map((g) => heldChip(g))}
-        <RetiredFold ids={heldRet}
-          render={(g) => heldChip(g, true)} />
+        <HeldAudienceChips node={node} map={map} slug={slug} toast={toast} />
         <SpendBadge node={node} />
         {/* its project slots, held and waiting, right after the $ chip
             (user 2026-10-18 10:52:50Z) */}
