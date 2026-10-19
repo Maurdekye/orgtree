@@ -124,6 +124,9 @@ pub async fn attachment_limit(engine: &Engine, org_id: i64, peer: &str) -> Resul
 static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
+        // Hub tests are direct too. A per-PC proxy must not make a successful
+        // health check disagree with registration, polling or file delivery.
+        .no_proxy()
         .user_agent(concat!("orgtree-engine/", env!("CARGO_PKG_VERSION")))
         .build()
         .unwrap_or_default()
@@ -229,7 +232,7 @@ pub fn normalize_address(addr: &str) -> String {
     }
     let a = if a.contains("://") { a.to_string() } else { format!("http://{a}") };
     match reqwest::Url::parse(&a) {
-        Ok(u) if u.scheme() == "http" && u.port().is_none() && u.host_str().is_some() => {
+        Ok(u) if u.scheme() == "http" && u.port().is_none() && u.host_str().is_some() && !discovery::has_port(&a) => {
             let mut v = u.clone();
             let _ = v.set_port(Some(DEFAULT_HUB_PORT));
             v.to_string().trim_end_matches('/').to_string()
@@ -362,19 +365,15 @@ async fn participants(engine: &Engine) -> Result<Vec<Part>> {
                 net["hubs"] = hubs;
             }
         }
-        let mut hubs: Vec<(String, String)> = net["hubs"]
-            .as_array()
-            .map(|hs| {
-                hs.iter()
-                    .filter(|h| h["enabled"].as_bool().unwrap_or(true))
-                    .filter_map(|h| {
-                        let id = h["id"].as_str()?.to_string();
-                        let a = normalize_address(h["address"].as_str()?);
-                        (!a.is_empty()).then_some((id, a))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut hubs=Vec::<(String,String)>::new();
+        for hub in net["hubs"].as_array().into_iter().flatten() {
+            if !hub["enabled"].as_bool().unwrap_or(true) {continue;}
+            let (Some(id),Some(input))=(hub["id"].as_str(),hub["address"].as_str()) else {continue};
+            if input.trim().is_empty() {continue;}
+            let known=net["state"][id]["address"].as_str();
+            let address=discovery::for_connection(engine,org_id,id,input,known).await;
+            hubs.push((id.to_owned(),address));
+        }
         // a rig run reaches the hub it hosts, never another
         if crate::rig::hub() {
             hubs.retain(|(_, a)| hosted.as_deref() == Some(a.as_str()));
@@ -1364,7 +1363,7 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
         .enumerate()
         .map(|(i, h)| {
             let id = h["id"].as_str().unwrap_or("").to_string();
-            let addr = normalize_address(h["address"].as_str().unwrap_or(""));
+            let addr = discovery::known_address(h["address"].as_str().unwrap_or(""),state[&id]["address"].as_str());
             let st = status.get(&(org_id, id.clone())).cloned().unwrap_or_default();
             let registered = state[&id]["registered_at"].is_string() && state[&id]["address"].as_str() == Some(addr.as_str());
             let roster: Vec<Value> = rosters
@@ -1433,7 +1432,11 @@ pub fn unregister(engine: &Engine, net: Value) {
     let auth = format!("{slug}:{secret}");
     let mut addrs: Vec<String> = net["hubs"]
         .as_array()
-        .map(|hs| hs.iter().filter(|h| h["enabled"].as_bool().unwrap_or(true)).filter_map(|h| h["address"].as_str().map(normalize_address)).collect())
+          .map(|hs| hs.iter().filter(|h| h["enabled"].as_bool().unwrap_or(true)).filter_map(|h| {
+              let input=h["address"].as_str()?;
+              let registered=h["id"].as_str().and_then(|id|net["state"][id]["address"].as_str());
+              Some(discovery::known_address(input,registered))
+          }).collect())
         .unwrap_or_default();
     // a rig run reaches the hub it hosts, never another
     if crate::rig::hub() {

@@ -188,6 +188,15 @@ existing exclusive claim; elevated Setup keeps original-user shell dispatch.
 An uncertain dispatch is never retried with elevated rights. Exact coworker
 Windows/plugin cause remains unconfirmed. See [Finish launch](installer-finish-launch.md).
 
+**Mail hub connection consistency, user 2026-10-19 10:22–10:24Z (4.3.3 and
+4.4.0):** Test and real mail transport use the same direct proxy policy. Bare
+host discovery follows Hubchat: try HTTP ports 7370, 7378 and 7371 plus HTTPS
+together, preferring an earlier candidate if it answers within the 750ms grace.
+Explicit URLs/ports retain their destination. Test returns the chosen endpoint;
+untested bare-host connections discover through the same helper. Health checks
+remain read-only; they do not register an identity or send mail. No secrets are
+included in discovery output.
+
 **Watchdog recurrence, user 2026-10-17 14:46Z/14:48Z:** periodic polling and
 quiet timers retain fixed next timestamps through restarts. Missed slots
 produce at most one immediate catch-up, then continue the original phase

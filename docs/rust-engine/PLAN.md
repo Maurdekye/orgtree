@@ -295,6 +295,11 @@ setting stays `description`. The project header says `dissolve`, and its `slots`
 tab has no held/total count. Summary top and left padding match, without an extra
 first-block Markdown margin.
 
+Mail hubs (user 2026-10-19, 4.3.3/4.4.0): bare hosts discover the Hubchat
+candidate ports and HTTPS concurrently; explicit destinations remain explicit.
+Test saves its selected endpoint for Add and uses the same direct proxy policy
+as real mail connections. The test remains a read-only health check.
+
 Everything not listed here is meant to behave as it does today. "Inert" means the setting has no
 effect; per the user (2026-10-06) such controls are removed from the settings menus rather than
 left in place (UI clean-up is allowed outside the canvas). "Refused" means using it shows an error
