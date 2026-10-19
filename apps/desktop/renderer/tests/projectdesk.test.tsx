@@ -11,7 +11,8 @@
 //      presented tab counts AND
 //      shows the subtree's documents (review P2);
 //   §2 the main tab: jump cards up to the parent and down to the members
-//      (the chat desk's NavChip), and the description editor: Markdown while
+//      (the chat desk's NavChip), both on every tab as on the agent desk
+//      (user 2026-10-19 19:58Z), and the description editor: Markdown while
 //      not focused, monospace text while focused, saved by set_description on
 //      leaving it, dropped by Escape (user 20:06Z); a click puts the caret at about
 //      the clicked spot, and at rest it has no border or background (user
@@ -110,13 +111,16 @@ function serve(t: TestContext) {
 async function desk(t: TestContext, h: { jump?: (id: string) => void; config?: () => void;
   pin?: () => void; popout?: () => void; bare?: boolean; node?: CanvasNode; ops?: OpRequest[]
   toast?: (lines: string[]) => void; openDoc?: (id: string) => void;
-  fetch?: (inner: typeof fetch) => typeof fetch } = {}) {
+  fetch?: (inner: typeof fetch) => typeof fetch; tree?: TreePayload } = {}) {
   serve(t)
   if (h.fetch) globalThis.fetch = h.fetch(globalThis.fetch!)
   const nd = h.node ?? project()
   const ops = h.ops ?? []
-  const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree} map={projectMap(nd)}
-    op={(b) => { ops.push(b); return Promise.resolve({} as OpResult) }}
+  // the slots tab reads the engine's slot_status shape (§2g opens it)
+  const answer = (b: OpRequest) => b.op === 'slot_status'
+    ? { project: nd.id, slots: 0, held: 0, holders: [], line: [], history: [], history_next: null } : {}
+  const view = await mountView(<ProjectDesk node={nd} slug="org" tree={h.tree ?? tree} map={projectMap(nd)}
+    op={(b) => { ops.push(b); return Promise.resolve(answer(b) as unknown as OpResult) }}
     toast={h.toast ?? noop} refs={refs} bare={h.bare} onJump={h.jump} onConfig={h.config} onPin={h.pin} onPopout={h.popout}
     onOpenDoc={h.openDoc} />, (el) => el)
   t.after(() => view.unmount())
@@ -311,11 +315,39 @@ test('§2a jump cards up to the parent and down to its members', async (t) => {
   // up: the parent's link among the header cards (user 2026-10-19 19:02Z); down: the members' row
   assert.deepEqual(names(el.querySelector('.cc-head .project-head-cards')!), ['boss'])
   const navs = [...el.querySelectorAll('.desk-nav')]
-  assert.equal(navs.length, 1, 'one row down, under the description')
+  assert.equal(navs.length, 1, 'one row down, under the summary')
   assert.deepEqual(names(navs[0]!), ['dev1', 'ui'])
   await inAct(() => { navs[0]!.querySelector<HTMLButtonElement>('button.desk-nav-chip')!.click() })
   assert.deepEqual(jumped, ['dev1'])
   assert.equal(el.querySelector('textarea.project-description-edit') === null, true, 'the editor is not open yet')
+})
+
+// "superior and subordinate jump cards persist across agent desk tabs,
+// should be the same for project tabs" (user 2026-10-19 19:58Z): the ↑ card
+// in the header row and the members' row above the message box, on every tab
+test('§2g the jump cards stay on every tab, the members\' row above the message box', async (t) => {
+  const jumped: string[] = []
+  const nd = project({ dead_letters: 1, configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2 } } as Partial<CanvasNode>)
+  const dogs = [{ id: 'dev1/ready', owner: 'dev1', name: 'ready', kind: 'project_listener', target: 'website', interval_s: 5,
+    state: 'armed', at: '2026-10-19T07:00:00.000Z', fired: 0, once: true, spent: false }]
+  const el = await desk(t, { jump: (id) => jumped.push(id), node: nd,
+    tree: { slug: 'org', roots: [], watchdogs: dogs, slot_leases: [] } as unknown as TreePayload })
+  const names = (row: Element | null) => [...(row?.querySelectorAll('button.desk-nav-chip') ?? [])].map((b) => b.getAttribute('data-copy-agent-name'))
+  assert.deepEqual(tabs(el), ['desk', 'inbox', 'docket', 'presented', 'team', 'slots', 'dead', 'listeners'], 'every tab a project desk has')
+  for (const tab of tabs(el)) {
+    await inAct(async () => { el.querySelector<HTMLButtonElement>(`.cc-tabs button[data-tab="${tab}"]`)!.click(); await flush(2) })
+    assert.equal(el.querySelector(`.cc-tabs button[data-tab="${tab}"]`)?.classList.contains('on'), true, `${tab} is open`)
+    assert.deepEqual(names(el.querySelector('.cc-head .project-head-cards')), ['boss'], `${tab}: the superior's card in the header row`)
+    const navs = [...el.querySelectorAll('.desk-nav')]
+    assert.equal(navs.length, 1, `${tab}: one row down`)
+    assert.deepEqual(names(navs[0]!), ['dev1', 'ui'], `${tab}: the members' cards`)
+    const composer = el.querySelector('.project-composer')
+    assert.ok(composer, `${tab}: the message box`)
+    assert.equal(navs[0]!.compareDocumentPosition(composer!) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING,
+      `${tab}: the members' row sits above the message box`)
+  }
+  await inAct(() => { el.querySelector<HTMLButtonElement>('.desk-nav button.desk-nav-chip[data-copy-agent-name="ui"]')!.click() })
+  assert.deepEqual(jumped, ['ui'], 'a member card jumps from any tab')
 })
 
 test('§2b the description: Markdown until focused, monospace while edited, saved on leaving', async (t) => {

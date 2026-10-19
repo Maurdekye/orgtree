@@ -28,7 +28,7 @@ async function fixture(t: TestContext, count: number, host = 'canvas') {
   await inAct(async () => { await flush(4) })
   const el = doc.querySelector<HTMLElement>('[data-host]')!
   // the parent's link is one of the header cards (user 2026-10-19 19:02Z);
-  // the members keep their own row at the bottom of the summary
+  // the members keep their own row above the message box, on every tab (19:58Z)
   assert.equal(el.querySelector('.cc-head .project-head-cards .desk-nav-chip')?.getAttribute('data-copy-agent-name'), 'boss')
   const rows = el.querySelectorAll<HTMLElement>('.desk-nav')
   assert.equal(rows.length, 1, 'the member row stays separate from the header row')
