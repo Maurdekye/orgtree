@@ -90,14 +90,17 @@ export default async function(rig) {
     p.check(`${shape}: deploy_ready names the agent deployer (or top-level owner)`,item.next_action?.node===(manager??name)&&item.next_action?.role===(manager?'deployer':'owner'),item.next_action)
 
     // Mail relationship and roster checks use a real turn, not a fabricated view.
+    const physicalPeers=['direct','empty'].includes(shape)
+    // Cross-project coworkers now need an explicit directional audience.
+    if(!physicalPeers) await rig.api('POST',`/api/orgs/${rig.org}/audiences`,{action:'grant',node:peer,target:name})
     await rig.tool(peer,'orgtree_send_notice',{to:name,body:`PTB-PEER-${shape}`})
     if(manager) await rig.tool(manager,'orgtree_send_notice',{to:name,body:`PTB-SUPERIOR-${shape}`})
     else await rig.userMail(name,'PTB-SUPERIOR-root',{notice:true})
     const prompt=await turn(name,`PTB-CONTEXT-${shape}`)
-    p.check(`${shape}: mail identifies the logical peer and immediate superior`,prompt.includes(`FROM ${peer} (your peer)`)&&(!manager||prompt.includes(`FROM ${manager} (your superior)`)),prompt.slice(-4500))
+    p.check(`${shape}: mail identifies physical coworkers and agent superior`,prompt.includes(`FROM ${peer} (${physicalPeers?'your peer':'an agent'})`)&&(!manager||prompt.includes(`FROM ${manager} (your superior)`)),prompt.slice(-4500))
     p.check(`${shape}: user-contact guidance names the agent superior, never a project`,manager?prompt.includes(`direct superior (${manager})`):!prompt.includes('direct superior ('),prompt.slice(0,1700))
     const roster=prompt.split('\n').find(l=>l.startsWith('Your reports:'))??''
-    p.check(`${shape}: the roster includes logical peers and excludes projects as reports`,roster.includes(peer)&&!roster.includes('empty-below-worker'),roster)
+    p.check(`${shape}: roster peers use physical membership and exclude projects`,roster.includes(peer)===physicalPeers&&!roster.includes('empty-below-worker'),roster)
     if(manager) {
       const bossPrompt=await turn(manager,`PTB-ROSTER-${shape}`)
       p.check(`${shape}: the superior's roster names its report through projects`,/^Your reports:.*worker-/m.test(bossPrompt)&&bossPrompt.split('\n').find(l=>l.startsWith('Your reports:'))?.includes(name),bossPrompt.slice(0,1700))

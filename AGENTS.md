@@ -22,6 +22,12 @@
   compatible; there is no migration. [decided: user 2026-10-19 20:56Z;
   verified: `canvas/langserver.tsx`, `providers/catalog.rs`, `org_accounts.rs`]
 
+- ORG STATE charts retain project rows and physical placement; report rosters
+  use the agent frontier. Coworker rosters use physical siblings, matching the
+  mail boundary. Project keys remain in semantic deltas rather than becoming
+  spurious removals. [decided: coordinator 2026-10-19 20:31Z; verified:
+  `runtime/envelope.rs`; 2026-10-19]
+
 - Move notices dedupe recipients. Same-superior placement changes notify only
   the moved agents; project moves aggregate their first agent frontier once per
   recipient, with self/superior roles before peers. Placement and group names

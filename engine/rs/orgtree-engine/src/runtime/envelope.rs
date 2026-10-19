@@ -70,6 +70,8 @@ struct Row {
     id: i64,
     name: String,
     parent: Option<i64>,
+    superior: Option<i64>,
+    project: bool,
     tier: String,
     state: String,
     halted: bool,
@@ -290,9 +292,10 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
         crate::domain::peer_mail::enabled(parent_scope.as_ref().unwrap_or(&Value::Null)));
     let rows: Vec<Row> = client
         .query(
-            "SELECT a.id, a.name, r.superior_id, a.tier, a.state, a.halt IS NOT NULL, a.last_status, a.inflight_at,
-                    (SELECT t.started_at FROM ot.turns t WHERE t.agent_id = a.id ORDER BY t.id DESC LIMIT 1), a.frozen IS NOT NULL
-               FROM ot.agent_reporting r JOIN ot.agents a ON a.id=r.id
+            "SELECT a.id, a.name, a.parent_id, a.tier, a.state, a.halt IS NOT NULL, a.last_status, a.inflight_at,
+                    (SELECT t.started_at FROM ot.turns t WHERE t.agent_id = a.id ORDER BY t.id DESC LIMIT 1), a.frozen IS NOT NULL,
+                    r.superior_id,a.kind='project'
+               FROM ot.agents a LEFT JOIN ot.agent_reporting r ON r.id=a.id
               WHERE a.org_id = $1 AND a.state IN ('live', 'archived', 'unrecoverable')
               ORDER BY a.sibling_order, a.id LIMIT $2",
             &[&org_id, &MAX_AGENTS],
@@ -310,6 +313,8 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
             inflight_at: r.get(7),
             last_turn: r.get(8),
             frozen: r.get(9),
+            superior: r.get(10),
+            project: r.get(11),
         })
         .collect();
     let ask = client
@@ -320,7 +325,7 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
         .await?
         .map(|a| (a.get::<_, String>(0), a.get::<_, Value>(1), a.get::<_, DateTime<Utc>>(2)));
     drop(client);
-    let live: HashMap<i64, Live> = rows.iter().filter(|r| r.state == "live").map(|r| (r.id, live_of(engine, r.id))).collect();
+    let live: HashMap<i64, Live> = rows.iter().filter(|r| r.state == "live" && !r.project).map(|r| (r.id, live_of(engine, r.id))).collect();
     let facts = Facts {
         agent_id, my_name, parent, vis, seat, grant, hold, sid, prior, superior, user_audience, rows, ask, peer_policy, audiences,
     };
@@ -361,12 +366,13 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
         kids.entry(r.parent).or_default().push(r);
     }
     let by_id: HashMap<i64, &Row> = rows.iter().map(|r| (r.id, r)).collect();
-    let mine = names(kids.get(&Some(agent_id)).map(Vec::as_slice).unwrap_or(&[]));
+    let mine = names(&rows.iter().filter(|r| !r.project && r.superior==Some(agent_id)).collect::<Vec<_>>());
+    let placement=by_id.get(&agent_id).map(|r|r.parent).unwrap_or(parent);
     let reports = if mine.is_empty() { "none yet".to_string() } else { mine.join(", ") };
     let roster = if vis == "self" {
         format!("Your reports: {reports}.")
     } else {
-        let peers: Vec<String> = names(kids.get(&parent).map(Vec::as_slice).unwrap_or(&[]))
+        let peers: Vec<String> = names(&kids.get(&placement).into_iter().flatten().copied().filter(|r|!r.project).collect::<Vec<_>>())
             .into_iter()
             .filter(|n| n.as_str() != my_name.as_str())
             .collect();
@@ -449,9 +455,9 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
         ("peer_policy", "Peer mail policy", peer_policy.clone()), ("audiences", "Your effective audiences", audiences.clone())] {
         entries.insert(id.into(), delta::Entry::new(label, &json!(text), if text.is_empty() { format!("{label}: none") } else { text }));
     }
-    for r in rows.iter().filter(|r| r.state == "live") {
-        let role = if r.parent == Some(agent_id) { Some("report") }
-            else if vis != "self" && r.parent == parent && r.id != agent_id { Some("peer") } else { None };
+    for r in rows.iter().filter(|r| r.state == "live" && !r.project) {
+        let role = if r.superior == Some(agent_id) { Some("report") }
+            else if vis != "self" && r.parent == placement && r.id != agent_id { Some("peer") } else { None };
         if let Some(role) = role {
             let label = format!("{role} {}", r.name);
             entries.insert(format!("{role}:{}", r.id), delta::Entry::new(&label, &json!(r.name), format!("Current {role}: {}",r.name)));
@@ -504,10 +510,11 @@ pub async fn relationships(engine: &Engine, agent_id: i64, senders: &[String]) -
         return Ok(out);
     }
     let client = engine.db.get().await?;
-    let me = client.query_one("SELECT org_id, name, superior_id FROM ot.agent_reporting WHERE id = $1", &[&agent_id]).await?;
+    let me = client.query_one("SELECT r.org_id,r.name,r.superior_id,a.parent_id FROM ot.agent_reporting r JOIN ot.agents a ON a.id=r.id WHERE r.id = $1", &[&agent_id]).await?;
     let org_id: i64 = me.get(0);
     let my_name: String = me.get(1);
     let my_parent: Option<i64> = me.get(2);
+    let my_placement: Option<i64> = me.get(3);
     let ancestors: Vec<String> = client
         .query(
             "WITH RECURSIVE up(id, parent_id, depth) AS (
@@ -522,7 +529,7 @@ pub async fn relationships(engine: &Engine, agent_id: i64, senders: &[String]) -
         .collect();
     let rows = client
         .query(
-            "SELECT name, id, superior_id FROM ot.agent_reporting WHERE org_id = $1 AND name = ANY ($2) AND state <> 'deleted' LIMIT 64",
+            "SELECT r.name,r.id,r.superior_id,a.parent_id FROM ot.agent_reporting r JOIN ot.agents a ON a.id=r.id WHERE r.org_id = $1 AND r.name = ANY ($2) AND r.state <> 'deleted' LIMIT 64",
             &[&org_id, &agents],
         )
         .await?;
@@ -537,7 +544,7 @@ pub async fn relationships(engine: &Engine, agent_id: i64, senders: &[String]) -
             "your superior"
         } else if parent == Some(agent_id) {
             "your report"
-        } else if parent == my_parent {
+        } else if r.get::<_,Option<i64>>(3) == my_placement {
             "your peer"
         } else if ancestors.contains(&name) {
             "a superior above your chain"

@@ -37,8 +37,12 @@ export default async function(rig) {
   const state=prompt.slice(prompt.indexOf('[ORG STATE'),prompt.indexOf('[END ORG STATE]'))
   p.check('ORG STATE keeps root and nested projects as structural chart rows',/root \[project\]/.test(state)&&/root-nested \[project\]/.test(state)&&/own-project \[project\]/.test(state),state)
   p.check('reports roster contracts projects while chart preserves placement',state.split('\n').find(l=>l.startsWith('Your reports:'))?.includes('member')&&!state.split('\n').find(l=>l.startsWith('Your reports:'))?.includes('own-project'),state)
+  // Simulate a pre-upgrade structural project entry in the same session.
+  // Old contracted charts delete it and produce a false Removed delta.
+  const pid=rig.agentRow('own-project').id
+  rig.exec(`UPDATE ot.agents SET extra=jsonb_set(extra,'{envelope,org_state,entries,agent:${pid}}','{"key":"previous-structural-row","label":"own-project"}'::jsonb) WHERE name='boss'`)
   const next=await turn('boss')
-  p.check('unchanged chart never emits removed project deltas',!next.includes('Removed: root')&&!next.includes('Removed: own-project'),next.slice(0,2500))
+  p.check('existing structural project entries never become removed project deltas',!next.includes('Removed: own-project'),next.slice(0,2500))
 
   await rig.op({op:'retool',node:'boss',tools:{web:false}})
   const snapshots=()=>rig.sql("SELECT id,name,scope,charter,team_charter,row_version FROM ot.agents WHERE name IN ('boss','own-project') ORDER BY id")

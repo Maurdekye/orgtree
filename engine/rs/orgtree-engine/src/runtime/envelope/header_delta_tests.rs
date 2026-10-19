@@ -4,7 +4,8 @@ fn fixture(reports: usize, small_report: bool) -> (Facts, DateTime<Utc>) {
     let now = crate::util::parse_ts("2030-01-01T00:00:00Z").unwrap();
     let rows = (1..=reports + 1).map(|id| Row {
         id: id as i64, name: if id == 1 { "coordinator".into() } else { format!("worker-{id:02}") },
-        parent: (id > 1).then_some(1), tier: if id == 1 { "opus".into() } else { "sol".into() },
+        parent: (id > 1).then_some(1), superior: (id > 1).then_some(1), project: false,
+        tier: if id == 1 { "opus".into() } else { "sol".into() },
         state: "live".into(), halted: false, frozen: false,
         status: Some(json!({"status":"working","summary":format!("Implementing synthetic work item {id}"),"at":iso(now - chrono::Duration::minutes(5))})),
         inflight_at: None, last_turn: None,
