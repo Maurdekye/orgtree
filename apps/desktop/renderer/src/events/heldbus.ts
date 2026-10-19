@@ -53,7 +53,7 @@ import { desktop } from '../desktop'
  *  set is small and stable, and the test pins it against main's source rather
  *  than trusting this comment. */
 export const HELD_TYPES = [
-  'open-org', 'notification-click', 'window-identity', 'restore-skipped',
+  'open-org', 'notification-click', 'taskbar-attention', 'window-identity', 'restore-skipped',
   // the tray's "Connect your phone…" (phonelink.tsx)
   'phone-panel',
 ] as const

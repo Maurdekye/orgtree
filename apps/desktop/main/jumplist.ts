@@ -1,8 +1,10 @@
 import type { AppFeedState } from '../../../packages/contracts/app-feed'
 
 export type TaskbarTarget = { kind: 'homepage' | 'create' } | { kind: 'org'; slug: string }
+  | { kind: 'attention'; org: string; id: string }
 export type TaskbarOrg = { slug: string; name: string; logo?: string }
-export type TaskbarIcons = { home?: string; create?: string; orgs?: Record<string, string> }
+export type TaskbarIcons = { home?: string; create?: string; mail?: string; ticket?: string; mention?: string; orgs?: Record<string, string> }
+export type TaskbarAttention = { org: string; id: string; title: string; icon: 'mail' | 'ticket' | 'mention' }
 const PREFIX = '--orgtree-taskbar='
 const SLUG = /^[a-z0-9@-]+$/
 
@@ -14,7 +16,42 @@ export function taskbarTarget(argv: readonly string[]): TaskbarTarget | null {
   if (target === 'home') return { kind: 'homepage' }
   if (target === 'new') return { kind: 'create' }
   if (target.startsWith('org:') && SLUG.test(target.slice(4))) return { kind: 'org', slug: target.slice(4) }
+  if (target.startsWith('attention:') && target.length <= 1200 && /^[A-Za-z0-9_-]+$/.test(target.slice(10))) {
+    try {
+      const [org, id, ...rest] = JSON.parse(Buffer.from(target.slice(10), 'base64url').toString('utf8'))
+      if (!rest.length && typeof org === 'string' && org.length <= 128 && SLUG.test(org)
+          && typeof id === 'string' && id.length > 0 && id.length <= 200 && !/[\x00-\x1f]/.test(id))
+        return { kind: 'attention', org, id }
+    } catch { /* malformed shell arguments never become navigation */ }
+  }
   return null
+}
+
+/** The same complete, current inventory as the badge. No banner preference,
+ * renderer-local dismissal or notification history may hide a waiting item. */
+export function taskbarAttention(state: Pick<AppFeedState, 'allNotices'>): TaskbarAttention[] {
+  const seen = new Set<string>(), out: TaskbarAttention[] = []
+  for (const raw of state.allNotices()) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    const n = raw as Record<string, unknown>
+    if (typeof n.org !== 'string' || n.org.length > 128 || !SLUG.test(n.org)
+        || typeof n.id !== 'string' || !n.id || n.id.length > 200 || /[\x00-\x1f]/.test(n.id)) continue
+    let icon: TaskbarAttention['icon']
+    if (n.kind === 'question' || n.kind === 'mention') {
+      if (typeof n.agent !== 'string' || !n.agent) continue
+      icon = n.kind === 'question' ? 'mail' : 'mention'
+    } else if (n.kind === 'work-attention') {
+      if (typeof n.item !== 'string' || !n.item) continue
+      icon = 'ticket'
+    } else if (['routine', 'urgent-mail', 'terminal-failure'].includes(n.kind as string)) icon = 'mail'
+    else continue
+    const key = JSON.stringify([n.org, n.id])
+    if (seen.has(key)) continue
+    seen.add(key)
+    const title = typeof n.title === 'string' && n.title ? n.title : 'Needs your attention'
+    out.push({ org: n.org, id: n.id, title: `${n.org}: ${title}`.replace(/[\x00-\x1f]/g, ' ').slice(0, 200), icon })
+  }
+  return out
 }
 
 /** Same slug order as the org switcher; trashed orgs are absent. Until its
@@ -32,7 +69,7 @@ export function taskbarOrgs(state: AppFeedState): TaskbarOrg[] {
 
 /** Explicit custom category, followed by Windows' fixed Tasks section.
  * Names stay display text; only the validated slug goes into arguments. */
-export function taskbarTasks(orgs: readonly TaskbarOrg[], exe: string, appPath?: string, icons: TaskbarIcons = {}): Electron.JumpListCategory[] {
+export function taskbarTasks(orgs: readonly TaskbarOrg[], exe: string, appPath?: string, icons: TaskbarIcons = {}, attention: readonly TaskbarAttention[] = []): Electron.JumpListCategory[] {
   // Windows paths cannot contain quotes. Escape trailing slashes before the
   // closing quote for development's `electron.exe "<app path>"` invocation.
   const appArg = appPath ? `"${appPath.replace(/(\\+)$/, '$1$1')}" ` : ''
@@ -45,5 +82,9 @@ export function taskbarTasks(orgs: readonly TaskbarOrg[], exe: string, appPath?:
   const current = orgs.filter(org => SLUG.test(org.slug))
   const recent = current.map(org => task(org.name || org.slug, `org:${org.slug}`, `Open ${org.name || org.slug}`,
     typeof icons.orgs?.[org.slug] === 'string' ? icons.orgs[org.slug] : undefined))
-  return [...(recent.length ? [{ type: 'custom' as const, name: 'Recent', items: recent }] : []), { type: 'tasks', items }]
+  const waiting = attention.map(entry => task(entry.title,
+    'attention:' + Buffer.from(JSON.stringify([entry.org, entry.id])).toString('base64url'),
+    `Open ${entry.title}`, icons[entry.icon]))
+  return [...(waiting.length ? [{ type: 'custom' as const, name: 'Needs attention', items: waiting }]
+    : recent.length ? [{ type: 'custom' as const, name: 'Recent', items: recent }] : []), { type: 'tasks', items }]
 }

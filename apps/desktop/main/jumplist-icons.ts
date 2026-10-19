@@ -9,12 +9,32 @@ type Point = readonly [number, number]
 // The same 24-unit silhouettes as icons.ts: MUI HomeOutlined and Add.
 // Only straight segments occur in these glyphs. Even/odd fill preserves the
 // outlined home's cutout. Supersampling produces a platform-independent PNG.
-const GLYPHS: Record<'home' | 'create', readonly (readonly Point[])[]> = {
+type ActionIcon = 'home' | 'create' | 'mail' | 'ticket' | 'mention'
+const circle = (x: number, y: number, r: number, start = 0, end = Math.PI * 2): Point[] =>
+  Array.from({ length: 65 }, (_, i) => { const a = start + (end - start) * i / 64; return [x + r * Math.cos(a), y + r * Math.sin(a)] })
+const GLYPHS: Record<ActionIcon, readonly (readonly Point[])[]> = {
   home: [
     [[12,5.69],[17,10.19],[17,18],[15,18],[15,12],[9,12],[9,18],[7,18],[7,10.19]],
     [[12,3],[2,12],[5,12],[5,20],[11,20],[11,14],[13,14],[13,20],[19,20],[19,12],[22,12]],
   ],
   create: [[[19,13],[13,13],[13,19],[11,19],[11,13],[5,13],[5,11],[11,11],[11,5],[13,5],[13,11],[19,11]]],
+  mail: [
+    [[2,4],[22,4],[22,20],[2,20]],
+    [[4,6],[12,11],[20,6]],
+    [[4,8],[12,13],[20,8],[20,18],[4,18]],
+  ],
+  ticket: [
+    [[2,4],[22,4],[22,10],[20,10],[20,14],[22,14],[22,20],[2,20],[2,14],[4,14],[4,10],[2,10]],
+    [[4,6],[20,6],[20,8],[18,10],[18,14],[20,16],[20,18],[4,18],[4,16],[6,14],[6,10],[4,8]],
+    [[11,7],[13,7],[13,9],[11,9]], [[11,11],[13,11],[13,13],[11,13]], [[11,15],[13,15],[13,17],[11,17]],
+  ],
+  // Alternate-email's ring, inner counter and hooked right stem, flattened
+  // to the same 24-unit outline weight as the app's MUI silhouettes.
+  mention: [
+    [...circle(12,12,10,Math.PI/2,Math.PI*2),[22,13.5],[20,13.5],[20,12],...circle(12,12,8,Math.PI*2,Math.PI/2),[17,20],[17,22]],
+    circle(12,12,5),circle(12,12,3),
+    [[15,11],[17,11],[17,14],[18,15],[19,15],[20,14],[22,14],[21,16],[19,17],[17,17],[15,15]],
+  ],
 }
 const hash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
 const validHash = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
@@ -31,7 +51,7 @@ function chunk(kind: string, data: Buffer): Buffer {
   return Buffer.concat([size, payload, sum])
 }
 
-export function actionPng(kind: 'home' | 'create'): Buffer {
+export function actionPng(kind: ActionIcon): Buffer {
   const size = 64, samples = 4, rows = Buffer.alloc(size * (1 + size * 4))
   const inside = (x: number, y: number) => {
     let fill = false
@@ -111,7 +131,7 @@ export class JumpListIcons {
 
   private async drain(): Promise<boolean> {
     let changed = false
-    for (const kind of ['home','create'] as const) if (!this.fixed[kind]) {
+    for (const kind of ['home','create','mail','ticket','mention'] as const) if (!this.fixed[kind]) {
       try {
         const png = actionPng(kind)
         this.fixed[kind] = await this.write(kind + '-' + hash(png),png,64,64)

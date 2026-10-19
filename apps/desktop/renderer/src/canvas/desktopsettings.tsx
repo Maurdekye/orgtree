@@ -91,6 +91,13 @@ export function DesktopSettings() {
         : 'Check, download and install updates when idle. Turn off to update manually; a download already started may finish.'} />
   </SetGroup>
   <SetGroup title="Notifications">
+    <SetRow label="open questions" hint="Choose what a question in the taskbar menu opens. An existing pinned or popped-out desk is brought to the front.">
+      <select aria-label="open questions" value={prefs?.questionTarget ?? 'desk'} disabled={!prefs || busy}
+        onChange={e => put({ questionTarget: e.target.value === 'mail' ? 'mail' : 'desk' })}>
+        <option value="desk">focus the agent desk</option>
+        <option value="mail">open questions as mail</option>
+      </select>
+    </SetRow>
     <SetToggle label="Notifications"
       checked={masterOn} disabled={!prefs || busy}
       onChange={notificationsEnabled => put({ notificationsEnabled })}

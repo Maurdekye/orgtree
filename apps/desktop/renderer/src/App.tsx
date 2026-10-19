@@ -533,6 +533,7 @@ export default function App() {
   usePersistedModalOpen('gallery', slug, showGallery)
   usePersistedModalOpen('docket', slug, showDocket)
   const [focusAgent, setFocusAgent] = useState<string | null>(null)
+  const [focusAgentDesk, setFocusAgentDesk] = useState(false)
   // Quick chat: the agent it just hired, focused once the tree carries it
   // (the canvas cannot centre on a card it has not laid out yet)
   const [quickFocus, setQuickFocus] = useState<string | null>(null)
@@ -692,7 +693,15 @@ export default function App() {
   }, [tree, slug])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
-    if (v3 && viewMode === 'attention' && attentionNotification.current?.(nativeTarget)) {
+    if (nativeTarget.focusDesk && nativeTarget.agent) {
+      const agent = flatNodes(tree).get(nativeTarget.agent)
+      if (!agent || nativeTarget.generation === undefined || (agent.generation ?? 0) === nativeTarget.generation) {
+        setFocusAgentDesk(true); setFocusAgent(agent?.id ?? nativeTarget.agent)
+      }
+      setNativeTarget(null)
+      return
+    }
+    if (!nativeTarget.fromTaskbar && v3 && viewMode === 'attention' && attentionNotification.current?.(nativeTarget)) {
       setNativeTarget(null)
       return
     }
@@ -1866,7 +1875,8 @@ export default function App() {
                 ) : undefined}
                 agentList={agentList}
                 focusAgent={focusAgent}
-                onFocusAgentHandled={() => setFocusAgent(null)}
+                focusAgentDesk={focusAgentDesk}
+                onFocusAgentHandled={() => { setFocusAgent(null); setFocusAgentDesk(false) }}
                 openMailAt={mailJump}
                 onOpenMailHandled={() => setMailJump(null)}
                 openDocAt={docJump}

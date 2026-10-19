@@ -193,6 +193,8 @@ export interface OrgCanvasProps {
   onOrgSettings?: (keepOpen?: boolean) => void
   /** focus an agent's desk on the canvas (camera centerOn / mobile sheet) */
   focusAgent?: string | null
+  /** Taskbar question/mention: raise an existing desk before Attention selection. */
+  focusAgentDesk?: boolean
   onFocusAgentHandled?: () => void
   /** open one message, from a panel that owns no mailbox — the docket's
    *  `@mail:` references. The three boxes live on THIS side and the router
@@ -482,7 +484,7 @@ export const HUD_SWITCHBOARD = 'jump to the switchboard'
 const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, onPresentations, onOrgSettings, onWorkItem,
-  onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
+  onAccounts, focusAgent, focusAgentDesk, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery, canvasShortcuts,
   renderOrgSlot, canvasContent = 'shown', agentList, activeAgentsOnly = false,
   onActiveAgentsOnly }: OrgCanvasProps) {
@@ -2177,6 +2179,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
 
   useEffect(() => {
     if (!focusAgent) return
+    if (focusAgentDesk && pinnedIdsRef.current.has(focusAgent)) {
+      showPin(slug, focusAgent, vpSizeNow()); onFocusAgentHandled?.(); return
+    }
+    if (focusAgentDesk && revealExistingDesk(slug, mapRef.current.get(focusAgent))) {
+      onFocusAgentHandled?.(); return
+    }
     if (hidden.has(focusAgent)) {
       const par = map.get(focusAgent)?.parent
       const node = map.get(focusAgent)
@@ -2192,7 +2200,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       centerOn(focusAgent)
     }
     onFocusAgentHandled?.()
-  }, [focusAgent, map, hidden, setFront, centerOn, onFocusAgentHandled])
+  }, [focusAgent, focusAgentDesk, slug, map, hidden, setFront, centerOn, onFocusAgentHandled])
 
   // a REAL fit: the camera that puts the whole org inside the actual viewport
   const fitView = useCallback((): View | null => {

@@ -44,7 +44,7 @@ export async function notifyOnce(notice: NativeNotice): Promise<boolean> {
   finally { inFlight.delete(key) }
 }
 
-export type DesktopNotice = NativeNotice
+export type DesktopNotice = NativeNotice & { focusDesk?: boolean; fromTaskbar?: boolean }
 /** Inbox question rows use a namespace so ask IDs cannot collide with mail. */
 export function notificationInboxTarget(notice: DesktopNotice): string {
   const source = notice.source_id ?? notice.id.replace(/^(mail|ask):/, '')
@@ -293,12 +293,26 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
           && (!active || active.some(a => identity(a) === identity(n)))) target.current(current)
       }).catch(() => { /* the main window is still shown if the engine is down */ })
     })
+    const offTaskbar = onHeldEvent('taskbar-attention', event => {
+      const n = event.data as { id?: unknown; org?: unknown; questionTarget?: unknown } | null
+      if (!n || typeof n.id !== 'string' || typeof n.org !== 'string') return
+      const key = identity({ org: n.org, id: n.id }), request = ++click
+      // A shell item can outlive its source. Resolve its opaque identity from
+      // the current feed, never from launch arguments. Banner muting is not a
+      // navigation permission: an explicit taskbar click still opens mail.
+      void readNotices(true).then(({ notices }) => {
+        if (!alive || click !== request) return
+        const current = notices.get(key)
+        if (current) target.current({ ...current, fromTaskbar: true, focusDesk: current.kind === 'mention'
+          || (current.kind === 'question' && n.questionTarget !== 'mail') })
+      }).catch(() => { /* the org window remains available during reconnect */ })
+    })
     // Compatibility with shells predating the native poll/cleanup contract.
     const timer = owner && feedRef.current.status === 'unsupported' && !bridge.syncNotifications
       ? setInterval(() => { void poll() }, 6000) : undefined
     const off = onLiveBump(() => {
       if (feedRef.current.status === 'unsupported') void poll(true)
     })
-    return () => { alive = false; wake.current = null; clearTimeout(retry); clearInterval(timer); off(); offNative(); offClick() }
+    return () => { alive = false; wake.current = null; clearTimeout(retry); clearInterval(timer); off(); offNative(); offClick(); offTaskbar() }
   }, [bridge, owner, ready, feed.status === 'unsupported'])
 }

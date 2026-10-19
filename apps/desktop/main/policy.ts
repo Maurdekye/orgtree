@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 import type { DesktopIdentity } from './build-channel'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore', activeAgentsOnly: false, quickChatActiveAgentsOnly: false, attentionDeskActiveAgentsOnly: false }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore', questionTarget: 'desk', activeAgentsOnly: false, quickChatActiveAgentsOnly: false, attentionDeskActiveAgentsOnly: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -38,6 +38,9 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
     } else if (key === 'agentColorSource') {
       if (!isAgentColorSource(val)) throw new Error('Invalid agent color source')
       result.agentColorSource = val
+    } else if (key === 'questionTarget') {
+      if (val !== 'desk' && val !== 'mail') throw new Error('Invalid question destination')
+      result.questionTarget = val
     } else if (key === 'startupMode') {
       if (!isStartupMode(val)) throw new Error('Invalid startup mode')
       result.startupMode = val

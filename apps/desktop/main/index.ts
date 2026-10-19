@@ -47,7 +47,7 @@ import type { DesktopEvent, RunAsAdministratorState, StartupKind } from '../../.
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
-import { taskbarOrgs, taskbarTarget, taskbarTasks, type TaskbarOrg, type TaskbarTarget } from './jumplist'
+import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttention, type TaskbarAttention, type TaskbarOrg, type TaskbarTarget } from './jumplist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
@@ -490,6 +490,8 @@ else {
         const target = pendingTaskbar.shift()!
         try {
           if (target.kind === 'org') await requestOrgWindow(target.slug, null)
+          else if (target.kind === 'attention') await revealOrgItem(target.org, { type: 'taskbar-attention',
+            data: { org: target.org, id: target.id, questionTarget: preferences.get().questionTarget ?? 'desk' } })
           else {
             const record = await createMainWindow?.({ kind: target.kind })
             if (record) revealWindow(record)
@@ -518,16 +520,18 @@ else {
     })
   let taskbarContents = ''
   let taskbarLatest: readonly TaskbarOrg[] = []
-  const refreshTaskbar = (orgs: readonly TaskbarOrg[]) => {
+  let taskbarWaiting: readonly TaskbarAttention[] = []
+  const refreshTaskbar = (orgs: readonly TaskbarOrg[], attention = taskbarWaiting) => {
     if (process.platform !== 'win32') return
     taskbarLatest = orgs
+    taskbarWaiting = attention
     void taskbarIcons.prepare(orgs).then(changed => {
       if (changed && !quitting && !installerUpgradeShutdown) refreshTaskbar(taskbarLatest)
     })
-    const categories = taskbarTasks(orgs, process.execPath, app.isPackaged ? undefined : app.getAppPath(), taskbarIcons.paths(orgs))
+    const categories = taskbarTasks(orgs, process.execPath, app.isPackaged ? undefined : app.getAppPath(), taskbarIcons.paths(orgs), attention)
     const next = JSON.stringify(categories)
     if (next === taskbarContents) return
-    // Do not rewrite the shell menu on agent activity/attention changes, or
+    // Do not rewrite the shell menu on unchanged agent activity, or
     // flood warnings if the shell refuses this exact list. Retry a new list.
     taskbarContents = next
     try {
@@ -545,7 +549,7 @@ else {
    *  reveal, an identity that changed, a report of what could not be restored.
    *  Each happens once, and a renderer that was not listening yet has no way
    *  to discover it afterwards. */
-  const HELD_EVENT_TYPES = new Set<DesktopEvent['type']>(['open-org', 'notification-click', 'window-identity', 'restore-skipped', 'phone-panel'])
+  const HELD_EVENT_TYPES = new Set<DesktopEvent['type']>(['open-org', 'notification-click', 'taskbar-attention', 'window-identity', 'restore-skipped', 'phone-panel'])
   /** ⚠ THERE IS NO TIMER, and that is the point. An earlier revision sent
    *  held events anyway once a grace expired, which marks them delivered
    *  whether or not anybody was listening - the original loss with a delay in
@@ -2709,7 +2713,7 @@ else {
       let noticeSet = ''
       const appFeed = nativeAppFeed(engine, () => {
         if (quitting || installerUpgradeShutdown || appFeed.status !== 'current') return
-        refreshTaskbar(taskbarOrgs(appFeed.state))
+        refreshTaskbar(taskbarOrgs(appFeed.state), taskbarAttention(appFeed.state))
         taskbarDot.set(needsTaskbarDot(appFeed.state))
         const total = appFeed.state.attentionTotal()
         if (total !== attentionTotal) { attentionTotal = total; rebuildTray() }

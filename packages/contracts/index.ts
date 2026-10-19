@@ -34,6 +34,8 @@ export interface DesktopPreferences extends NotificationPreferences {
   exitOnClose: boolean
   startAtLogin: boolean
   automaticUpdates: boolean
+  /** Taskbar question actions: focus the asking desk by default, or its inbox row. */
+  questionTarget?: 'desk' | 'mail'
   routineNotifications: boolean
   /** The Agents List shows only agents currently running a turn. */
   activeAgentsOnly?: boolean
@@ -69,7 +71,7 @@ export interface DesktopNotification {
   /** work-attention only: the raise's `manual_attention.set_rev` — one
    *  identity per raise, matched against the raises the user dismissed */
   rev?: number
-  kind: 'question' | 'urgent-mail' | 'terminal-failure' | 'work-attention' | 'routine' | 'document' | 'agent-frozen'
+  kind: 'question' | 'urgent-mail' | 'terminal-failure' | 'work-attention' | 'routine' | 'document' | 'agent-frozen' | 'mention'
 }
 export interface NotificationIdentity { id: string; org: string }
 export interface ViewTarget { kind: 'organization' | 'agent' | 'docket' | 'documents'; org: string; agent?: string; generation?: number }
@@ -78,7 +80,7 @@ export interface DesktopWindowState { visible: boolean; restoreWindows: boolean 
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
 import type { OrgOpenOutcome, OrgWindowIdentity, StartupMode } from './desktop-window'
 
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'notification-poll' | 'provider-login-status' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs' | 'phone-panel'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'taskbar-attention' | 'notification-poll' | 'provider-login-status' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs' | 'phone-panel'; data: unknown }
 /** One popped-out desk or modal window, addressed by the frame name the
  *  renderer opened it under. A popout is frameless like the main window, so its
  *  own header draws the window controls and needs to know whether the window is
