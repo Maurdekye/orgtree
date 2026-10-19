@@ -16,7 +16,7 @@ module.exports=async function verifyComposerButtons(js,phase){
  const armed=await measure();
  if(initial.length!==3||initial.some(r=>r.buttons.length<(r.state==='project broadcast'?5:6)))throw Error('missing actual composer controls '+JSON.stringify(initial));
  const all=[...initial,...armed],equal=all.every(r=>r.buttons.every(b=>b.width===24&&b.height===24)),order=all.every(r=>r.urgentBeforeFast);
- if(all.some(r=>r.buttons.some(b=>b.bottom>700)))throw Error('controls outside capture');
+ if(all.some(r=>r.buttons.some(b=>b.bottom>700)))throw Error('controls outside capture '+JSON.stringify(all));
  if(phase==='green'?!equal||!order:equal||order)throw Error('unexpected control regression '+JSON.stringify({equal,order,all}));
  if(!armed.every(r=>r.armed)||initial.some(r=>r.armed))throw Error('urgent toggle changed behavior');
  return {equal,order,initial,armed};
