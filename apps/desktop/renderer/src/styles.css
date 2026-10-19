@@ -2294,10 +2294,6 @@ button.cc-name:focus-visible {
   padding-left: 7px;
 }
 .turn-mail.from-user { border-color: color-mix(in srgb, var(--accent) 26%, var(--line-soft)); }
-.turn-mail.urgent-mail {
-  border-left: 3px solid #ff4500;
-  padding-left: 7px;
-}
 .turn-mail.urgent-mail .urgentkind,
 .mailrow.urgent-mail .urgentkind {
   background: #ff4500; border-color: #ff4500; color: #1a1a1a;
@@ -8239,6 +8235,12 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 :is(.event-surface, .msg.user.event-surface.event-notice):is(
   [data-event-variant="context.drive_restart_interrupted"],
   [data-event-variant="runtime.restart_notice"]) { border-left-color: var(--bad); }
+/* Mail urgency takes precedence over the passive-notice edge above. The
+   highest-specificity branch also keeps user-authored notice cards orange-red. */
+:is(.turn-mail.urgent-mail, .msg.user.event-surface.event-notice.urgent-mail) {
+  border-left: 3px solid #ff4500;
+  padding-left: 7px;
+}
 .mailer-read > .event-head { padding-left: 0; padding-right: 0; }
 .mailer-read .mailer-body .event-body { padding-left: 0; padding-right: 0; }
 .event-member { margin: 4px 0; min-width: 0; }
