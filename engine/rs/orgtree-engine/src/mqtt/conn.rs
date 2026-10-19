@@ -200,6 +200,9 @@ impl Task {
             }
             match self.session(cancel).await {
                 End::Cancelled => return,
+                // its last dog left and none came back within the linger,
+                // or the connection failed while it waited: nobody to tell
+                End::Idle | End::Failed { .. } if self.subs.is_empty() => return,
                 End::Idle => {}
                 End::Failed { refused, error } => {
                     let wait = self.backoff.failed(refused, &self.timing);
@@ -212,8 +215,10 @@ impl Task {
         }
     }
 
-    /// No dog left: stay open `linger` for one that may come back. False
-    /// when nobody came (the connection closes) or on cancel.
+    /// No dog and no session (a fresh handle before its first attach, or
+    /// every dog left during a backoff): keep the handle `linger` for one
+    /// that may come. False when nobody came (the handle closes) or on
+    /// cancel. A connected session lingers in [`Task::session`] instead.
     async fn linger(&mut self, cancel: &CancellationToken) -> bool {
         let until = Instant::now() + self.timing.linger;
         while self.subs.is_empty() {
@@ -299,6 +304,9 @@ impl Task {
         let (ev_tx, mut ev_rx) = mpsc::channel(64);
         let pumping = tokio::spawn(tracing::Instrument::instrument(pump(eventloop, ev_tx), tracing::Span::current()));
         let mut live = Live { client, connected: false, subscribed: HashSet::new(), queued: VecDeque::new(), inflight: HashMap::new() };
+        // set while no dog is left: the session stays open `linger` for one
+        // that may come back, then ends
+        let mut idle: Option<Instant> = None;
         let end = loop {
             tokio::select! {
                 biased;
@@ -307,10 +315,15 @@ impl Task {
                     let Some(cmd) = cmd else { break End::Cancelled };
                     let connected = live.connected;
                     self.command(cmd, if connected { Some(&mut live) } else { None });
-                    if self.subs.is_empty() || !self.authorized() {
+                    if self.subs.is_empty() {
+                        idle.get_or_insert_with(|| Instant::now() + self.timing.linger);
+                    } else if !self.authorized() {
                         break End::Idle;
+                    } else {
+                        idle = None;
                     }
                 }
+                _ = tokio::time::sleep_until(idle.unwrap_or_else(Instant::now)), if idle.is_some() => break End::Idle,
                 ev = ev_rx.recv() => match ev {
                     None => break End::Failed { refused: false, error: "the connection's event loop stopped".into() },
                     Some(Ok(event)) => self.event(event, &mut live),
@@ -543,7 +556,9 @@ pub(super) fn classify(e: &ConnectionError) -> (bool, String) {
         ConnectionError::NetworkTimeout => (false, "no answer from the broker within the connect timeout".into()),
         ConnectionError::FlushTimeout => (false, "writing to the broker timed out".into()),
         // in TLS 1.3 a broker refuses a missing client certificate after the
-        // handshake: the alert arrives on the first read
+        // handshake: the alert arrives on the first read, which rumqttc's
+        // codec wraps as a deserialization error (framed.rs)
+        ConnectionError::MqttState(StateError::Deserialization(rumqttc::mqttbytes::Error::Io(io))) => io_failure(io),
         ConnectionError::MqttState(StateError::Io(io)) => io_failure(io),
         ConnectionError::MqttState(s) => (false, state_text(s)),
         ConnectionError::NotConnAck(_) => (false, "the broker answered CONNECT with something other than CONNACK".into()),

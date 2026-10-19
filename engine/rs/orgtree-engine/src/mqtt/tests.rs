@@ -274,10 +274,20 @@ async fn the_last_dog_leaving_closes_the_connection_after_the_linger() {
     drop(two);
     assert!(b.until(3, |b| b.filters() == vec!["a/#".to_string()]).await, "the leaving dog's filter is unsubscribed: {:?}", b.filters());
     drop(one);
+    // a dog back within the linger reuses the open connection
+    let mut back = attach(&hub, &k, &src, "c/#", 3, &cancel).await;
+    state(&mut back, "connected", 5).await;
+    assert!(b.until(3, |b| b.filters() == vec!["c/#".to_string()]).await, "{:?}", b.filters());
+    assert_eq!(b.accepted(), 1, "no reconnect for a dog back within the linger");
+    drop(back);
     assert!(b.until(3, |b| b.live() == 0).await, "closed once its last dog left");
-    assert_eq!(hub.connections(), 0);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while hub.connections() > 0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(hub.connections(), 0, "the hub forgets the closed connection");
     // a dog arriving later opens a fresh one
-    let mut again = attach(&hub, &k, &src, "a/#", 3, &cancel).await;
+    let mut again = attach(&hub, &k, &src, "a/#", 4, &cancel).await;
     state(&mut again, "connected", 5).await;
     assert_eq!(b.accepted(), 2);
     cancel.cancel();
