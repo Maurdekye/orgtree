@@ -5,6 +5,7 @@ import vm from 'node:vm'
 import {createRequire} from 'node:module'
 const req=createRequire(process.env.ORGTREE_TEST_DEPS||import.meta.url)
 const {buildSync}=req('esbuild')
+const {transformSync}=req('esbuild')
 function load(file){const module={exports:{}};vm.runInNewContext(buildSync({entryPoints:[file],bundle:true,write:false,platform:'node',format:'cjs'}).outputFiles[0].text,{module,exports:module.exports,require:req,Buffer});return module.exports}
 const list=load('apps/desktop/main/jumplist.ts'),policy=load('apps/desktop/main/policy.ts')
 const plain=x=>JSON.parse(JSON.stringify(x))
@@ -69,4 +70,22 @@ test('attention menu glyphs are distinct PNGs generated in the owned icon cache'
  const icons=['mail','ticket','mention'].map(kind=>actionPng(kind))
  assert.equal(new Set(icons.map(x=>x.toString('base64'))).size,3)
  for(const png of icons){assert.equal(png.subarray(0,8).toString('hex'),'89504e470d0a1a0a');assert.equal(png.readUInt32BE(16),64)}
+})
+test('shipping cold-launch queue delivers the exact attention identity and current question setting to its org',async()=>{
+ const source=fs.readFileSync('apps/desktop/main/index.ts','utf8')
+ const start=source.indexOf('  // Taskbar navigation'),end=source.indexOf('  /** ⚠ THE EVENTS',start)
+ const entry=list.taskbarAttention({allNotices:()=>[notices[1]]})[0]
+ const argument=list.taskbarTasks([],'app.exe',undefined,{},[entry])[0].items[0].args
+ const reveals=[];let questionTarget='desk'
+ const ctx=vm.createContext({process:{argv:['app.exe',argument]},taskbarTarget:list.taskbarTarget,
+  quitting:false,installerUpgradeShutdown:false,console,path:req('node:path'),app:{getPath:()=> 'C:/synthetic'},JumpListIcons:class{},
+  preferences:{get:()=>({questionTarget})},revealOrgItem:async(org,event)=>reveals.push({org,event}),
+  requestOrgWindow:()=>assert.fail('attention uses item routing'),createMainWindow:()=>assert.fail('no homepage'),revealWindow:()=>{},
+ })
+ vm.runInContext(transformSync(source.slice(start,end)+'\nglobalThis.router={acceptTaskbar,drainTaskbar}',{loader:'ts'}).code,ctx)
+ assert.equal(reveals.length,0)
+ await ctx.router.drainTaskbar()
+ assert.deepEqual(plain(reveals),[{org:'alpha',event:{type:'taskbar-attention',data:{org:'alpha',id:'ask:q',questionTarget:'desk'}}}])
+ questionTarget='mail';ctx.router.acceptTaskbar(['app.exe',argument]);await ctx.router.drainTaskbar()
+ assert.equal(reveals[1].event.data.questionTarget,'mail','setting is read on activation, not cached in the menu')
 })
