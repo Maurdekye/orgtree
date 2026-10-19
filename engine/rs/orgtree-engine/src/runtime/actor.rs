@@ -2091,6 +2091,7 @@ impl Actor {
             own_notes,
             skills_dir: &skills,
             builtin_skills: prompt::builtin_skills_lane(lane),
+            suggest_agent_feedback: self.engine.settings.suggest_agent_feedback(),
         })
     }
 

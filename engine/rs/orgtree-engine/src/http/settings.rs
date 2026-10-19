@@ -562,6 +562,7 @@ async fn runtime_payload(engine: &Engine) -> Value {
         "working_checkups_enabled": sw.checkups,
         "wait_for_mcp_tools_enabled": engine.settings.wait_for_mcp_tools(),
         "project_listener_wake_enabled": engine.settings.project_listener_wake(),
+        "suggest_agent_feedback_enabled": engine.settings.suggest_agent_feedback(),
         "idle_docket_reminders_enabled": sw.idle,
         "blocked_docket_reminders_enabled": sw.blocked,
         "max_concurrent_turns": engine.settings.max_concurrent_turns(),
@@ -580,6 +581,7 @@ pub async fn get_runtime(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>>
 
 #[logged]
 pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String, Value>>) -> ApiResult<Json<Value>> {
+    let feedback_before = e.settings.suggest_agent_feedback();
     let mut rt = Map::new();
     let mut verbose = None;
     let mut warming = None;
@@ -607,7 +609,7 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
             "wait_for_mcp_tools_enabled" => {
                 rt.insert(k.clone(), json!(v.as_bool().unwrap_or(false)));
             }
-            "project_listener_wake_enabled" => {
+            "project_listener_wake_enabled" | "suggest_agent_feedback_enabled" => {
                 let on = v.as_bool().ok_or_else(|| ApiError::bad_request(format!("{k} is true or false")))?;
                 rt.insert(k.clone(), json!(on));
             }
@@ -655,6 +657,13 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
         if e.settings.antigravity_claude_enabled() {
             crate::accounts::wake_waiting(&e, crate::accounts::Waiting::Native("google".into())).await;
             if e.settings.keep_warm() { crate::runtime::warm_all(&e); }
+        }
+    }
+    if b.contains_key("suggest_agent_feedback_enabled") && e.settings.suggest_agent_feedback() != feedback_before {
+        // The prompt changes for every org. Busy turns finish; the next turn
+        // gets a freshly planned prefix through the ordinary reconfigure path.
+        for org in e.orgs.all() {
+            reconfigure_org(&e, org.id).await?;
         }
     }
     if b.contains_key("enter_key_behavior") {

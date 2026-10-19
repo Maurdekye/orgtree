@@ -58,6 +58,8 @@ pub struct Identity<'a> {
     /// the seat receives the built-in Orgtree skill library (`SKILL_LANES`): its
     /// prompt carries the trimmed rules and points to skill pages for the how-to
     pub builtin_skills: bool,
+    /// App-wide Runtime suggestion; checked at plan time, never probes credentials.
+    pub suggest_agent_feedback: bool,
 }
 
 /// Lanes the rig has verified to load the built-in skill library. Only these get
@@ -103,6 +105,10 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
     let group = |g: &str| crate::domain::tool_groups::enabled(tools, g);
     let mut s = String::new();
+
+    if i.suggest_agent_feedback {
+        s.push_str("ORGTREE FEEDBACK: user setting Runtime > \"Suggest agents to give feedback to Orgtree\" can be turned off. If a GitHub account is usable (gh auth status or equivalent), consider reporting bugs you or the user find to github.com/Maurdekye/orgtree under that account. First read orgtree-feedback (orgtree-working > workspace), redact the complete draft, show it to the user and wait for explicit OK before posting.\n\n");
+    }
 
     // ---- who, and whom it answers to ----
     s.push_str(&format!("You are \"{}\", an agent in the organization \"{}\" (orgtree). ", i.name, i.org_name));
@@ -534,7 +540,7 @@ mod group_tests {
             charter, team_charter: Some("Keep the user's words."), cascade: &[],
             superior: if top { None } else { Some("coordinator") }, org_md: None, lane, scope,
             codex_sandbox: None, mcp_servers: &[], extern_holder: true, folder_notes: &[],
-            own_notes: &[], skills_dir: "D:/skills", builtin_skills: false,
+            own_notes: &[], skills_dir: "D:/skills", builtin_skills: false, suggest_agent_feedback: true,
         })
     }
 
@@ -1388,12 +1394,44 @@ mod trim_tests {
             charter: None, team_charter: None, cascade: &[],
             superior: if top { None } else { Some("coordinator") }, org_md: None, lane, scope: &scope,
             codex_sandbox: None, mcp_servers: &[], extern_holder: true, folder_notes: &[],
-            own_notes: &[], skills_dir: "C:/Users/someone/.claude/skills", builtin_skills,
+            own_notes: &[], skills_dir: "C:/Users/someone/.claude/skills", builtin_skills, suggest_agent_feedback: true,
         })
     }
 
     fn all_on() -> Value {
         json!({ "permission_mode": "acceptEdits", "add_dirs": [{ "path": "E:/repo", "mode": "rw" }] })
+    }
+
+    #[test]
+    fn feedback_pointer_obeys_runtime_choice_on_all_lanes_and_profiles() {
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            for builtin_skills in [false, true] {
+                for top in [false, true] {
+                    let scope = all_on();
+                    let mut i = Identity {
+                        name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
+                        charter: None, team_charter: None, cascade: &[],
+                        superior: if top { None } else { Some("lead") }, org_md: None, lane, scope: &scope,
+                        codex_sandbox: None, mcp_servers: &[], extern_holder: false,
+                        folder_notes: &[], own_notes: &[], skills_dir: "D:/skills", builtin_skills,
+                        suggest_agent_feedback: true,
+                    };
+                    let on = identity(&i);
+                    assert_eq!(on.matches("ORGTREE FEEDBACK:").count(), 1);
+                    for cue in ["user setting Runtime > \"Suggest agents to give feedback to Orgtree\" can be turned off",
+                        "gh auth status or equivalent", "github.com/Maurdekye/orgtree",
+                        "orgtree-feedback (orgtree-working > workspace)", "redact the complete draft",
+                        "show it to the user and wait for explicit OK before posting"] {
+                        assert!(on.contains(cue), "{lane:?}: missing {cue}");
+                    }
+                    i.suggest_agent_feedback = false;
+                    let off = identity(&i);
+                    assert!(!off.contains("ORGTREE FEEDBACK:"));
+                    assert!(!off.contains("github.com/Maurdekye/orgtree"));
+                    assert!(on.ends_with(&off), "only the conditional pointer changes");
+                }
+            }
+        }
     }
 
     #[test]

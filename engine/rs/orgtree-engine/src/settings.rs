@@ -110,6 +110,11 @@ impl AppSettings {
     pub fn project_listener_wake(&self) -> bool {
         self.runtime().get("project_listener_wake_enabled").and_then(Value::as_bool).unwrap_or(true)
     }
+    /// Suggest public feedback only through the redacted, user-approved issue procedure.
+    #[nolog]
+    pub fn suggest_agent_feedback(&self) -> bool {
+        self.runtime().get("suggest_agent_feedback_enabled").and_then(Value::as_bool).unwrap_or(true)
+    }
     #[nolog]
     pub fn wait_for_mcp_tools(&self) -> bool {
         self.runtime().get("wait_for_mcp_tools_enabled").and_then(Value::as_bool).unwrap_or(false)
@@ -213,5 +218,24 @@ pub fn deep_merge(target: &mut Value, patch: &Value) {
             }
         }
         (t, p) => *t = p.clone(),
+    }
+}
+
+#[cfg(test)]
+mod feedback_tests {
+    use super::*;
+
+    #[test]
+    fn feedback_defaults_on_and_round_trips_explicit_choices() {
+        assert!(AppSettings::new(json!({})).suggest_agent_feedback());
+        assert!(AppSettings::new(json!({"runtime": {}})).suggest_agent_feedback());
+        let mut stored = json!({"runtime":{"warming_enabled":false},"providers":{"claude":false}});
+        for on in [false, true, false] {
+            deep_merge(&mut stored, &json!({"runtime":{"suggest_agent_feedback_enabled":on}}));
+            let reloaded = AppSettings::new(serde_json::from_str(&serde_json::to_string(&stored).unwrap()).unwrap());
+            assert_eq!(reloaded.suggest_agent_feedback(), on);
+            assert!(!reloaded.keep_warm());
+            assert!(!reloaded.provider_enabled("claude"));
+        }
     }
 }
