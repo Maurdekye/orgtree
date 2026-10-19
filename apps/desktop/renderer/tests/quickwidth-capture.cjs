@@ -1,0 +1,31 @@
+const {app,BrowserWindow}=require('electron')
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
+const out=process.env.QUICK_WIDTH_CAPTURE_ROOT
+assert.match(out||'',/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
+app.setPath('userData',path.join(out,'user-data'));app.disableHardwareAcceleration()
+app.whenReady().then(async()=>{
+  const win=new BrowserWindow({width:980,height:650,show:false,useContentSize:true,
+    webPreferences:{contextIsolation:true,sandbox:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}})
+  try {
+    win.webContents.setZoomFactor(.7)
+    await win.loadFile(path.join(out,'fixture.html'))
+    const result=await win.webContents.executeJavaScript(`(async()=>{
+      const frames=n=>new Promise(resolve=>{const step=()=>--n?requestAnimationFrame(step):resolve();requestAnimationFrame(step)});
+      const results=[];
+      for(const [width,changed] of [[1280,false],[1024,false],[800,false],[640,false],[512,false],[1024,true],[1280,true]]) {
+        window.quickWidthFixture(width,changed);await frames(20);
+        const rows=[...document.querySelectorAll('[data-case]')],samples=rows.map(()=>[]);
+        for(let i=0;i<80;i++){await frames(1);rows.forEach((row,j)=>{const q=row.querySelector('.shell-header-quick,.shell-statusbar-quick');samples[j].push(q.getBoundingClientRect().width)})}
+        results.push(...rows.map((row,i)=>({width,changed,case:row.dataset.case,min:Math.min(...samples[i]),max:Math.max(...samples[i]),tail:samples[i].slice(-12),samples:samples[i]})));
+      }
+      return results;
+    })()`)
+    fs.writeFileSync(path.join(out,'metrics.json'),JSON.stringify(result,null,2))
+    await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,120))))')
+    fs.writeFileSync(path.join(out,'quickwidth.png'),(await win.webContents.capturePage()).toPNG())
+    const unstable=result.filter(row=>row.max-row.min>.1)
+    console.log(JSON.stringify({cases:result.length,unstable:unstable.map(({samples,...row})=>row)}))
+    assert.equal(unstable.length,0,'Quick chat must settle, not alternate widths each frame')
+    assert.ok(result.every(row=>row.min>=199.9),'Quick chat keeps its 200px floor')
+  }finally{win.destroy()}
+}).then(()=>app.exit(0),error=>{console.error(error.stack||error);app.exit(1)})
