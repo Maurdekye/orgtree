@@ -116,6 +116,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
   replyAvailable, onLocateReply, meta, annotation, foldKey }: Omit<SegmentProps, 'segments'> & { meta?: ReactNode; foldKey?: string | readonly string[]; row: {
     id?: string | null; from: string; kind?: string; notice?: boolean; body: string; at: string;
     relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
+    urgent?: boolean; urgent_reason?: string;
     reply_to?: unknown; replies?: unknown[]; ev?: unknown; ev_raw?: unknown; ev_error?: unknown;
     client_op?: string | null; ghost_id?: number | string | null; message_id?: string | null;
   } }) {
@@ -143,10 +144,10 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
       world={world} onOpen={onOpen} actor={actor} imgBase={base} foldKey={keys} />
   const isNotice = isNoticeRow(row)
   return <section
-        {...surface} className={'turn-mail ' + surface.className + (isNotice ? ' passive event-notice' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}
+        {...surface} className={'turn-mail ' + surface.className + (isNotice ? ' passive event-notice' : '') + (row.urgent ? ' urgent-mail' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}
         data-reply-mail={annotation ? undefined : row.id ?? undefined} data-reply-event={!annotation && row.id ? `mail:${row.id}` : undefined}
         data-reply-sender={row.from} data-reply-quote={row.body}>
-        <header className="turn-mail-head event-head">{card(row, false, "header")}<time>{fmtFull(row.at)}</time>
+        <header className="turn-mail-head event-head">{card(row, false, "header")}{row.urgent && <span className="urgentkind" title={row.urgent_reason ? `urgent — ${row.urgent_reason}` : 'urgent'}>urgent</span>}<time>{fmtFull(row.at)}</time>
           {decoded.kind !== 'known' && !ordinaryLegacy && <>
             {/* label-subordinate-messages-and-link-their-sender: an untyped
                 row (most agent-to-agent mail — plain body, no schema'd `ev`)

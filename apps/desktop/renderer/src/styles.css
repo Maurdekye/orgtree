@@ -2294,6 +2294,14 @@ button.cc-name:focus-visible {
   padding-left: 7px;
 }
 .turn-mail.from-user { border-color: color-mix(in srgb, var(--accent) 26%, var(--line-soft)); }
+.turn-mail.urgent-mail {
+  border-left: 3px solid #ff4500;
+  padding-left: 7px;
+}
+.turn-mail.urgent-mail .urgentkind,
+.mailrow.urgent-mail .urgentkind {
+  background: #ff4500; border-color: #ff4500; color: #1a1a1a;
+}
 .turn-mail-head {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 7px;
   margin-bottom: 4px; color: var(--dim); font-size: 10.5px; line-height: 1.3;
@@ -3312,6 +3320,12 @@ textarea.ask-free-response-input { resize: vertical; }
 .mailrow.urgent.notice { border-left-style: var(--notice-edge-style); }
 .mailrow.urgent:hover { background: color-mix(in srgb, var(--accent) 16%, var(--panel-2)); }
 .mailrow.urgent.on { background: color-mix(in srgb, var(--accent) 21%, var(--bg)); }
+.mailrow.urgent-mail {
+  border-left: 4px solid #ff4500; padding-left: 6px;
+  background: color-mix(in srgb, #ff4500 12%, transparent);
+}
+.mailrow.urgent-mail:hover { background: color-mix(in srgb, #ff4500 16%, var(--panel-2)); }
+.mailrow.urgent-mail.on { background: color-mix(in srgb, #ff4500 21%, var(--bg)); }
 /* the FILLED chip. Every other chip in this list is an outline (.askkind,
    .noticekind), so filled-vs-outlined is the one step in the existing
    vocabulary that was still unspent — it reads as louder without needing a
