@@ -679,17 +679,22 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const listenerHeaderCards = listenerCards(node.id, listenerState)
   const queue = mailQueueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node), tree.watchdogs ?? [])
   const hasListeners = listenerState.listeners.length + listenerState.watches.length > 0
-  // ⚠ ONE ROW of header cards on every tab (user 2026-10-19 19:02Z, and
-  // 19:15Z: "make sure they're all on the same row in the full desk header"):
-  // the cyan listener cards, the magenta mail card, the amber slots card and
-  // the ↑ superior link, as the agent desk's superior row sits under its
-  // header on every tab. The cards wear the near-zoom badge rules and NOT the
+  // ⚠ ONE ROW of header cards on every tab (user 2026-10-19 19:02Z, 19:15Z:
+  // "make sure they're all on the same row in the full desk header"): the
+  // cyan listener cards, the magenta mail card, the amber slots card and the
+  // held audiences. The cards wear the near-zoom badge rules and NOT the
   // generic `.chip`, whose grey (later in styles.css, same specificity)
   // repainted every outlined card.
-  const upLinks = onJump && up.length > 0 ? <DeskJumpCards ids={up.map((n) => n.id)} render={(id) =>
-    <NavChip key={id} n={up.find((n) => n.id === id)!} dir="up" onJump={onJump} />} /> : null
-  const headCards = listenerHeaderCards.length > 0 || !!queue || slots.total > 0 || !!upLinks
+  const headCards = listenerHeaderCards.length > 0 || !!queue || slots.total > 0
     || (node.audiences_held?.length ?? 0) > 0
+  // the superior's cards are NOT among them: they are the agent desk's up row,
+  // their own `.desk-nav` under the header on every tab (user 2026-10-19
+  // 21:05:53Z "superior jump cards go in a different row than the header
+  // cards", 21:06:08Z "same as agent desk headers")
+  const upRow = onJump && up.length > 0 ? <div className="desk-nav">
+    <DeskJumpCards ids={up.map((n) => n.id)} render={(id) =>
+      <NavChip key={id} n={up.find((n) => n.id === id)!} dir="up" onJump={onJump} />} />
+  </div> : null
   // the Dead letters tab joins them while the project holds open dead letters
   const deadLetters = node.dead_letters ?? 0
   const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : []), ...(hasListeners ? ['listeners' as const] : [])]
@@ -768,8 +773,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           {/* no holder links here (user 2026-10-19 17:12Z): the holders are on the slots tab */}
           {/* the audiences it holds, as on the agent desk's header (G15) */}
           <HeldAudienceChips node={node} map={map} slug={slug} toast={toast} />
-          {upLinks}
         </DeskMetaRow>} />
+      {upRow}
       {/* its presentations and its subtree's, on their own strip under the
           header as on an agent desk (user 2026-10-17 22:47:29Z) */}
       {onOpenDoc && subtreeDocs(node).length > 0 && (
@@ -820,7 +825,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           subordinate jump cards persist across agent desk tabs, should be the
           same for project tabs"), in the agent desk's own row: nested
           projects' members too, retired ones behind its retired controls; the
-          superior's cards are in the header row */}
+          superior's cards are the up row under the header */}
       <DeskReportRow node={node} map={map} onJump={onJump} />
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}

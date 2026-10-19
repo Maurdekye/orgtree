@@ -3252,8 +3252,10 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .sq.project .project-queue-badge { max-width: 100%; font-size: 9px; line-height: 12px;
   padding: 0 4px; white-space: normal; overflow-wrap: anywhere; }
 /* the project desk's ONE header card row (projectdesk.tsx, user 2026-10-19
-   19:02Z): the cards above and the ↑ superior link centred on one line; the
-   row wraps only when the desk is too narrow for them */
+   19:02Z): the cards above and the held audiences centred on one line; the
+   row wraps only when the desk is too narrow for them. The ↑ superior cards
+   are not in it: they are the agent desk's up row under the header (user
+   2026-10-19 21:05:53Z) */
 .project-head-cards > * { align-self: center; }
 /* the desk's Listeners tab */
 .project-listeners { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
