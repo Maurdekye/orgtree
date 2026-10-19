@@ -22,7 +22,7 @@ flushSync(() => createRoot(document.getElementById('root')!).render(
       openTicket={slug => opened.push(slug)} toast={() => {}} />
       <main style={{ padding: 24, maxWidth: 920 }}>
         <h2>Docket tool calls</h2>
-        <p>Create takes its ticket identity from the timed result. Update keeps its input slug.</p>
+        <p>New create, update, and a saved create row recovered from its retained result.</p>
         <ObjectMenuBoundary>{__WORK_TOOL_CHIPS__.map(t =>
           <div key={t.id} style={{ marginBlock: 20 }}><ToolChip t={t} slug="fixture" nid="owner"
             onWorkLink={work => opened.push(work.slug)} /></div>

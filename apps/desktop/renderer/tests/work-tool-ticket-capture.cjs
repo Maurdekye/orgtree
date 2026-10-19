@@ -12,15 +12,15 @@ app.whenReady().then(async () => {
     await win.loadFile(path.join(out, 'fixture.html'))
     const result = await win.webContents.executeJavaScript(`(async()=>{
       const end=performance.now()+5000;
-      while(document.querySelectorAll('.tline [data-object-nav="ticket"]').length!==2){
+      while(document.querySelectorAll('.tline [data-object-nav="ticket"]').length!==3){
         if(performance.now()>end)throw Error('Create/update ticket links missing');
         await new Promise(r=>setTimeout(r,20));
       }
       await new Promise(r=>setTimeout(r,150));
       const tickets=[...document.querySelectorAll('.tline [data-object-nav="ticket"]')];
-      if(tickets.length!==2)throw Error('Reference lookup removed the links');
+      if(tickets.length!==3)throw Error('Reference lookup removed the links');
       tickets[1].click();
-      tickets[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:360,clientY:180}));
+      tickets[2].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:360,clientY:260}));
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,180))));
       return {ids:tickets.map(x=>x.dataset.objectId),lines:[...document.querySelectorAll('.tline')].map(x=>x.textContent),
         opened:window.openedTickets,menu:[...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(x=>x.textContent.trim())};

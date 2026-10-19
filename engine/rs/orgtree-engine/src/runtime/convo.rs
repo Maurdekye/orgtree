@@ -668,6 +668,8 @@ pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>
                         updates.push(body);
                     }
                 }
+                restore_result_refs(&mut messages);
+                restore_result_refs(&mut updates);
                 restore_mail_notices(client, agent_id, &mut messages).await?;
                 restore_mail_notices(client, agent_id, &mut updates).await?;
                 return Ok(Page { messages, updates, incremental: true, has_older: false, before: None, after: cursor });
@@ -698,6 +700,7 @@ pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>
     rows.reverse();
     let before = if has_older { rows.first().map(|(s, _)| s.to_string()) } else { None };
     let mut messages: Vec<Value> = rows.into_iter().map(|(_, b)| b).collect();
+    restore_result_refs(&mut messages);
     restore_mail_notices(client, agent_id, &mut messages).await?;
     Ok(Page {
         messages,
@@ -1514,6 +1517,29 @@ fn tool_ref_result(text: &str) -> Option<Value> {
         return primary(first["text"].as_str()?);
     }
     Some(value)
+}
+
+/// Recover omissions only from this already bounded page's retained tool results.
+/// Existing identities and recorded transitions win; no history rewrite or IO.
+#[nolog]
+fn restore_result_refs(messages: &mut [Value]) {
+    for message in messages {
+        for chip in message.get_mut("tools").and_then(Value::as_array_mut).into_iter().flatten() {
+            if !chip["error"].is_null() { continue; }
+            let Some(result) = chip["result"].as_str() else { continue };
+            let fresh = tool_refs(chip["name"].as_str().unwrap_or(""), &chip["input"], Some(result));
+            let Some(fresh) = fresh.as_array().filter(|r| !r.is_empty()) else { continue };
+            let mut refs = chip["refs"].as_array().cloned().unwrap_or_default();
+            for new in fresh {
+                if let Some(old) = refs.iter_mut().find(|r| r["kind"] == new["kind"] && r["id"] == new["id"]) {
+                    for key in ["status_change", "model_change"] {
+                        if old[key].is_null() && !new[key].is_null() { old[key] = new[key].clone(); }
+                    }
+                } else { refs.push(new.clone()); }
+            }
+            chip["refs"] = Value::Array(refs);
+        }
+    }
 }
 
 /// Handler-supplied document/mail cards are separate from displayed MCP text.

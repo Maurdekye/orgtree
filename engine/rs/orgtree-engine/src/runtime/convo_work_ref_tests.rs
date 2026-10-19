@@ -1,4 +1,4 @@
-use super::{apply_tool_card, tool_arg, tool_refs, tool_result_text};
+use super::{apply_tool_card, restore_result_refs, tool_arg, tool_refs, tool_result_text};
 use serde_json::{json, Value};
 
 fn recorded_result(body: Value) -> Value {
@@ -40,6 +40,11 @@ fn timed_work_create_records_the_result_slug_beside_its_owner() {
         chips.truncate(1);
         chips.push(json!({"id":"update-ticket", "name":"mcp__orgtree__orgtree_work",
             "arg":tool_arg("orgtree_work", &update), "refs":tool_refs("orgtree_work", &update, Some(&text))}));
+        let (old_result, _) = tool_result_text(&recorded_result(body));
+        let mut saved = vec![json!({"tools":[{"id":"saved-create","name":"mcp__orgtree__orgtree_work",
+            "arg":"create","input_seq":7,"result":old_result,"refs":[{"kind":"agent","id":"worker"}]}]})];
+        restore_result_refs(&mut saved);
+        chips.push(saved[0]["tools"][0].clone());
         std::fs::write(path, serde_json::to_vec_pretty(&chips).unwrap()).unwrap();
     }
 }
@@ -129,4 +134,31 @@ fn timed_message_keeps_mail_ids_and_agent_links() {
     assert_eq!(chip["mail"],card["mail"]);
     assert_eq!(chip["mails"],card["mails"]);
     assert_eq!(chip["refs"],json!([{"kind":"agent","id":"worker"},{"kind":"agent","id":"manager"}]));
+}
+
+#[test]
+fn saved_timed_create_rows_regain_the_missing_ticket_without_inputs_or_rewrites() {
+    let (text, _) = tool_result_text(&recorded_result(json!({"created":"restore-ticket-cards","slug":"restore-ticket-cards","rev":1})));
+    let mut rows = vec![json!({"role":"assistant","tools":[{"id":"old-create","name":"mcp__orgtree__orgtree_work",
+        "arg":"create","input_seq":7,"result":text,"refs":[{"kind":"agent","id":"worker"}]}]})];
+    restore_result_refs(&mut rows);
+    assert_eq!(rows[0]["tools"][0]["refs"],json!([
+        {"kind":"agent","id":"worker"},{"kind":"ticket","id":"restore-ticket-cards"}]));
+    let once = rows.clone();
+    restore_result_refs(&mut rows);
+    assert_eq!(rows,once,"page projection is idempotent and retains original tool text");
+}
+
+#[test]
+fn saved_ref_repair_preserves_recorded_changes_and_does_not_repair_failed_calls() {
+    let input=json!({"action":"update","slug":"restore-ticket-cards"});
+    let (text, _) = tool_result_text(&recorded_result(json!({"updated":"restore-ticket-cards","previous_status":"open","status":"done"})));
+    let original=json!({"kind":"ticket","id":"restore-ticket-cards","status_change":{"from":"blocked","to":"done"}});
+    let mut rows=vec![json!({"tools":[
+        {"name":"orgtree_work","input":input,"result":text,"refs":[original.clone()]},
+        {"name":"orgtree_work","input":input,"result":text,"error":"refused","refs":[]}
+    ]})];
+    restore_result_refs(&mut rows);
+    assert_eq!(rows[0]["tools"][0]["refs"],json!([original]));
+    assert_eq!(rows[0]["tools"][1]["refs"],json!([]));
 }
