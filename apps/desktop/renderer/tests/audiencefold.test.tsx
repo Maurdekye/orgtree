@@ -11,7 +11,7 @@ import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { AudienceFold, AUDIENCE_FOLD_LIMIT, OrgInboxModal } from '../src/canvas/mail'
+import { AudienceFold, AudienceHolderRows, AUDIENCE_FOLD_LIMIT, OrgInboxModal } from '../src/canvas/mail'
 import type { TreePayload } from '../src/types'
 import type { CanvasNode } from '../src/canvas/shared'
 
@@ -140,4 +140,30 @@ uiTest('§5 org inbox holders use the labeled audience-holder chips from Your in
     assert.deepEqual(JSON.parse(String(revoke?.init?.body)), {
       action: 'revoke', node: 'holder1', target: '@extern',
     }, 'the shared row preserves outside-mail revoke semantics')
+  })
+
+uiTest('§6 audience chips explain the grant target and the remove control says Revoke',
+  async (mount) => {
+    const cases = [
+      { id: 'user-holder', target: '@user', kind: 'agent', title: 'Can message you directly: send you mail and ask you questions' },
+      { id: 'extern-holder', target: '@extern', kind: 'agent', title: 'Can read and answer outside mail sent to the org inbox' },
+      { id: 'agent-holder', target: 'agent-one', kind: 'agent', title: 'Can message agent agent-one directly, even though it is outside your normal chain' },
+      { id: 'project-holder', target: 'project-one', kind: 'project', title: 'Can message project project-one directly, even though it is outside your normal chain' },
+    ]
+    const nodes = new Map<string, CanvasNode>(cases.map(({ id, kind }) => [id, {
+      id, state: 'live', tier: 'sol', kind,
+    } as CanvasNode]))
+    const { el } = await mount(<>
+      {cases.map(({ id, target }) => <AudienceHolderRows key={target} ids={[id]}
+        nodes={nodes} audienceTarget={target} onRemove={noop} removeTitle="Revoke" />)}
+    </>)
+    await flush()
+    const chips = [...el.querySelectorAll('.aud-badge')]
+    assert.equal(chips.length, cases.length)
+    for (let i = 0; i < cases.length; i++) {
+      assert.equal(chips[i].getAttribute('title'), cases[i].title,
+        `${cases[i].target} audience explains what it grants`)
+      assert.equal(chips[i].querySelector('.chip-x')?.getAttribute('title'), 'Revoke',
+        'the remove affordance names its action')
+    }
   })
