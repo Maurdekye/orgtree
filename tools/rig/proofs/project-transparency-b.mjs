@@ -24,6 +24,9 @@ export default async function(rig) {
     {what:'fixture turns settle',timeout:45000})
   const turn = async (name,text) => {
     await settled()
+    // Inspect a complete current snapshot rather than mistaking a legitimate
+    // unchanged-header delta for a missing roster.
+    rig.exec(`UPDATE ot.agents SET extra=extra #- '{envelope,org_state}' WHERE id=${id(name)}`)
     const before = rig.turns(name).filter(t=>t.ended_at).length
     await rig.userMail(name,text)
     await rig.waitTurns(name,before+1)
@@ -39,10 +42,8 @@ export default async function(rig) {
       if(shape!=='one') {await project(`inner-${shape}`,parent);parent=`inner-${shape}`}
     }
     const peer=`peer-${shape}`
-    await hire(peer,manager??'root-peer-project',0).catch(async e=>{
-      if(manager) throw e
-      await project('root-peer-project');await hire(peer,'root-peer-project')
-    })
+    if(!manager) await project('root-peer-project')
+    await hire(peer,manager??'root-peer-project')
     const name=`worker-${shape}`
     let since=mark()
     await hire(name,parent,12)
@@ -93,8 +94,9 @@ export default async function(rig) {
     else await rig.userMail(name,'PTB-SUPERIOR-root',{notice:true})
     const prompt=await turn(name,`PTB-CONTEXT-${shape}`)
     p.check(`${shape}: mail identifies the logical peer and immediate superior`,prompt.includes(`FROM ${peer} (your peer)`)&&(!manager||prompt.includes(`FROM ${manager} (your superior)`)),prompt.slice(-4500))
-    p.check(`${shape}: user-contact guidance names the agent superior, never a project`,manager?prompt.includes(`direct superior (${manager})`):!prompt.includes('you do not have direct contact with the user'),prompt.slice(0,1700))
-    p.check(`${shape}: the roster includes logical peers and excludes projects as reports`,prompt.includes(peer)&&!/^Your reports:.*empty-below-worker/m.test(prompt),prompt.slice(0,1700))
+    p.check(`${shape}: user-contact guidance names the agent superior, never a project`,manager?prompt.includes(`direct superior (${manager})`):!prompt.includes('direct superior ('),prompt.slice(0,1700))
+    const roster=prompt.split('\n').find(l=>l.startsWith('Your reports:'))??''
+    p.check(`${shape}: the roster includes logical peers and excludes projects as reports`,roster.includes(peer)&&!roster.includes('empty-below-worker'),roster)
     if(manager) {
       const bossPrompt=await turn(manager,`PTB-ROSTER-${shape}`)
       p.check(`${shape}: the superior's roster names its report through projects`,/^Your reports:.*worker-/m.test(bossPrompt)&&bossPrompt.split('\n').find(l=>l.startsWith('Your reports:'))?.includes(name),bossPrompt.slice(0,1700))
