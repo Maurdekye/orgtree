@@ -20,6 +20,21 @@
 //       owned, here by the agents under the project;
 //   G21 the project's inbox window (Project mailbox, the tab's pin and
 //       pop-out) is the desk tab's mailbox: project rows, listeners, purge.
+// Batch 2, the header and the message box:
+//   G14 the header name is the agent desk's: a link wherever it is not
+//       where the click would take you;
+//   G15 the header shows the audiences the project holds, as the agent's;
+//   G16 a revealed retired project's desk offers dismiss;
+//   G20 the gear falls back to the shell's settings route;
+//   G17 a project desk is the last desk once used, in neutral chrome;
+//   G8  the message box grows with the draft, as the agent's does;
+//   G13 the canvas desk's box takes the caret when it opens;
+//   G9  staged attachments survive closing the desk, images as thumbnails;
+//   G10 a file dropped anywhere on the desk is attached;
+//   G11 reply previews are the agent composer's: several, kept with the
+//       draft, Escape cancels them;
+//   G12 the notice toggle is the agent desk's per-desk store, and Alt+N /
+//       Alt+B work anywhere inside the desk.
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs projectdeskparity
 
@@ -29,9 +44,13 @@ import assert from 'node:assert/strict'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import * as projectdesk from '../src/canvas/projectdesk'
 import { SlotsView } from '../src/canvas/slotsdesk'
+import { AgentSurfaceRoutesProvider } from '../src/canvas/panelcorner'
+import { buttonAccent, buttonAgentOf, setButtonAgent } from '../src/buttoncolours'
+import { resetNoticeStore } from '../src/noticestore'
 import { setHideRetiredOn, USER } from '../src/canvas/shared'
 import type { CanvasNode, MailRow } from '../src/canvas/shared'
 import type { OpRequest, OpResult, TreePayload, WorkItem } from '../src/types'
+import type { ReactElement } from 'react'
 
 const { ProjectDesk } = projectdesk
 const noop = () => {}
@@ -320,4 +339,212 @@ test('G21 the project\'s inbox window is its desk tab\'s mailbox: project rows, 
   assert.ok(purge, 'the purge button')
   assert.equal([...(win.querySelector('.mail-folders .tab-count')?.classList ?? [])].some((c) => c.startsWith('prov-')), false,
     'no provider colour on its count')
+})
+
+/* ─── batch 2: the header and the message box ───────────────────────────── */
+
+/** a project desk view the test can unmount and mount again */
+async function deskView(t: TestContext, node: CanvasNode, h: {
+  bare?: boolean; jump?: (id: string) => void; config?: () => void; dismiss?: () => void
+  openDoc?: (id: string) => void; wrap?: (desk: ReactElement) => ReactElement
+} = {}) {
+  const desk = <ProjectDesk node={node} slug="org" tree={{ slug: 'org', roots: [] } as unknown as TreePayload}
+    map={mapOf(node)} op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs} bare={h.bare}
+    onJump={h.jump ?? noop} onConfig={h.config} onOpenDoc={h.openDoc} {...{ onDismiss: h.dismiss }} />
+  const view = await mountView(h.wrap ? h.wrap(desk) : desk, (el) => el)
+  let unmounted = false
+  t.after(async () => { if (!unmounted) await view.unmount() })
+  await inAct(async () => { await flush(4) })
+  return { el: view.el, unmount: async () => { unmounted = true; await view.unmount() } }
+}
+const typeInto = async (box: HTMLTextAreaElement, text: string) => inAct(() => {
+  Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text)
+  box.dispatchEvent(new Event('input', { bubbles: true }))
+})
+const composerBox = (el: Element) => el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
+/** the draft keys a project composer stores under, cleared after each test */
+const forgetDrafts = (t: TestContext) => t.after(() => {
+  for (const k of Object.keys(localStorage)) if (k.includes('project:website')) localStorage.removeItem(k)
+  resetNoticeStore()
+})
+
+test('G14 the header name is a link from a window, plain on the focused canvas desk, as the agent desk\'s', async (t) => {
+  serve(t)
+  const jumped: string[] = []
+  const popped = await deskView(t, project('website', [agent('dev1')]), { bare: true, jump: (id) => jumped.push(id) })
+  const link = popped.el.querySelector<HTMLButtonElement>('.cc-head-left button.cc-name-jump')
+  assert.ok(link, 'the shared AgentName link')
+  assert.equal(link!.textContent, 'website')
+  assert.ok(popped.el.querySelector('.cc-head-left > .project-mark svg'), 'its folder mark')
+  await inAct(() => { link!.click() })
+  assert.deepEqual(jumped, ['website'], 'the click goes to the project')
+  const canvas = await deskView(t, project('website', [agent('dev1')]), { jump: (id) => jumped.push(id) })
+  const name = canvas.el.querySelector('.cc-head-left .cc-name.name')
+  assert.ok(name, 'the name, with its .name hook kept for the title-bar rules')
+  assert.equal(name!.tagName, 'SPAN', 'the focused desk is where a click would take you: plain text')
+})
+
+test('G15 the header shows the audiences the project holds, with a revoke on the explicit grant', async (t) => {
+  const calls: string[] = []
+  serve(t, (method, path) => {
+    if (method === 'POST' && path === '/api/orgs/org/audiences') { calls.push(path); return json({ ok: true }) }
+    return null
+  })
+  const { el } = await deskView(t, project('website', [agent('dev1')],
+    { audiences_held: ['@user'], audiences_explicit: ['@user'] } as Partial<CanvasNode>))
+  const chip = el.querySelector('.cc-head .badge.aud-user')
+  assert.ok(chip, 'the user audience chip, as on the agent desk')
+  assert.match(chip!.textContent ?? '', /user/)
+  const revoke = chip!.querySelector<HTMLButtonElement>('button.chip-x[title="Revoke"]')
+  assert.ok(revoke, 'an explicit grant can be revoked')
+  await inAct(async () => { revoke!.click(); await flush(2) })
+  assert.deepEqual(calls, ['/api/orgs/org/audiences'])
+})
+
+test('G16 a revealed retired project offers dismiss, as a revealed retired agent does', async (t) => {
+  serve(t)
+  let dismissed = 0
+  const { el } = await deskView(t, project('website', [], { state: 'archived' } as Partial<CanvasNode>),
+    { dismiss: () => { dismissed++ } })
+  const button = el.querySelector<HTMLButtonElement>('.cc-actions button[data-action="dismiss"]')
+  assert.ok(button, 'the dismiss action')
+  await inAct(() => { button!.click() })
+  assert.equal(dismissed, 1)
+  const plain = await deskView(t, project('website', [], { state: 'archived' } as Partial<CanvasNode>))
+  assert.equal(!!plain.el.querySelector('button[data-action="dismiss"]'), false, 'none without a dismiss route')
+})
+
+test('G20 a host without a settings handler still has the gear: the shell\'s route opens the project\'s settings', async (t) => {
+  serve(t)
+  const opened: string[] = []
+  const routes = { open: noop, show: noop, settings: (id: string) => { opened.push(id) } }
+  const { el } = await deskView(t, project('website', [agent('dev1')]),
+    { wrap: (desk) => <AgentSurfaceRoutesProvider value={routes}>{desk}</AgentSurfaceRoutesProvider> })
+  const gear = el.querySelector<HTMLButtonElement>('button[aria-label="settings for website"]')
+  assert.ok(gear, 'the gear')
+  await inAct(() => { gear!.click() })
+  assert.deepEqual(opened, ['website'])
+})
+
+test('G17 using a project desk makes it the last desk, and its chrome stays neutral', async (t) => {
+  serve(t)
+  setButtonAgent('org', null)
+  t.after(() => setButtonAgent('org', null))
+  const { el } = await deskView(t, project('website', [agent('dev1')]), { bare: true })
+  await inAct(() => { el.querySelector('.project-desk')!.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })) })
+  assert.equal(buttonAgentOf('org'), 'website', 'a press on a pinned project desk registers it, as on an agent desk')
+  assert.equal(buttonAccent('project'), 'var(--line-hover)', 'a project wears no provider colour')
+  assert.equal(buttonAccent('opus'), 'var(--prov-claude)', 'positive control: an agent wears its provider')
+})
+
+test('G8 the message box grows with the draft up to about eight rows, as the agent composer does', async (t) => {
+  serve(t); forgetDrafts(t)
+  const { el } = await deskView(t, project('website', [agent('dev1')]), { bare: true })
+  const box = composerBox(el)
+  Object.defineProperty(box, 'scrollHeight', { configurable: true, get: () => box.value.length > 40 ? 300 : 44 })
+  await typeInto(box, 'a long message '.repeat(10))
+  assert.equal(box.style.height, '160px', 'capped at 160px')
+  await typeInto(box, 'short')
+  assert.equal(box.style.height, '44px', 'and back down with the text')
+})
+
+test('G13 the canvas desk\'s message box takes the caret when it opens; a window does not', async (t) => {
+  serve(t); forgetDrafts(t)
+  const canvas = await deskView(t, project('website', [agent('dev1')]))
+  assert.equal(document.activeElement, composerBox(canvas.el), 'focused on the canvas desk')
+  await canvas.unmount()
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+  const pinned = await deskView(t, project('website', [agent('dev1')]), { bare: true })
+  assert.notEqual(document.activeElement, composerBox(pinned.el), 'a window keeps focus where it was')
+})
+
+const pickFiles = async (input: HTMLInputElement, files: File[]) => inAct(async () => {
+  Object.defineProperty(input, 'files', { configurable: true, value: files })
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+  await flush(4)
+})
+
+test('G9 staged attachments survive closing and reopening the desk; an image shows as its thumbnail with its size', async (t) => {
+  serve(t); forgetDrafts(t)
+  const first = await deskView(t, project('website', [agent('dev1')]), { bare: true })
+  await pickFiles(first.el.querySelector<HTMLInputElement>('.project-composer input[type="file"]')!,
+    [new File(['x'], 'notes.txt'), new File(['y'], 'shot.png')])
+  assert.equal(first.el.querySelectorAll('.attach-row .attach-chip, .attach-row .attach-thumbwrap').length, 2, 'positive control: both staged')
+  await first.unmount()
+  const again = await deskView(t, project('website', [agent('dev1')]), { bare: true })
+  const chip = again.el.querySelector('.attach-row .attach-chip')
+  assert.ok(chip, 'the file is still staged after reopening')
+  assert.match(chip!.textContent ?? '', /notes\.txt/)
+  assert.match(chip!.textContent ?? '', /0 B/, 'with its size, as on the agent desk')
+  assert.ok(again.el.querySelector('.attach-row .attach-thumbwrap img.attach-thumb'), 'the image as its thumbnail')
+})
+
+test('G10 a file dropped anywhere on the desk is attached, as on the agent desk', async (t) => {
+  const calls = serve(t); forgetDrafts(t)
+  const { el } = await deskView(t, project('website', [agent('dev1')]), { bare: true })
+  const drop = new Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperty(drop, 'dataTransfer', { value: { files: [new File(['z'], 'dropped.txt')], types: ['Files'] } })
+  await inAct(async () => { el.querySelector('.project-description-md')!.dispatchEvent(drop); await flush(4) })
+  assert.ok(calls.some((c) => c.startsWith('POST /api/orgs/org/nodes/website/upload')), calls.join('\n'))
+  assert.match(el.querySelector('.attach-row')?.textContent ?? '', /dropped\.txt/)
+  assert.equal(drop.defaultPrevented, true, 'the browser does not navigate to the file')
+})
+
+const docs = [{ id: 'p1', title: 'Release plan', at: '2026-10-19T09:00:00.000Z', node: 'website' },
+  { id: 'p2', title: 'Budget', at: '2026-10-19T10:00:00.000Z', node: 'website' }]
+const replyTo = async (el: Element, id: string) => {
+  const card = el.querySelector<HTMLElement>(`.desk-docs [data-doc-id="${id}"]`)!
+  await inAct(() => { card.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })) })
+  const reply = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')].find((b) => b.textContent?.trim() === 'Reply')!
+  await inAct(async () => { reply.click(); await flush(2) })
+}
+
+test('G11 reply previews are the agent composer\'s: several targets, Cancel all, Escape, kept with the draft, all sent', async (t) => {
+  const bodies: unknown[] = []
+  serve(t)
+  const inner = globalThis.fetch
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'POST' && new URL(String(url), 'http://x').pathname === '/api/orgs/org/nodes/website/message') {
+      bodies.push(JSON.parse(String(init.body)))
+      return json({ accepted: true, id: 'm1', delivery: 'queued' })
+    }
+    return inner(url, init)
+  }) as typeof fetch
+  forgetDrafts(t)
+  const node = project('website', [agent('dev1')], { documents: docs } as Partial<CanvasNode>)
+  const first = await deskView(t, node, { bare: true, openDoc: noop })
+  await replyTo(first.el, 'p1')
+  assert.equal(first.el.querySelectorAll('.reply-preview.reply-preview-composing').length, 1, 'the shared reply preview')
+  assert.match(first.el.querySelector('.reply-preview')!.textContent ?? '', /Release plan/)
+  await replyTo(first.el, 'p2')
+  assert.equal(first.el.querySelectorAll('.reply-preview.reply-preview-composing').length, 2, 'a second target joins the first')
+  assert.ok([...first.el.querySelectorAll('button.link')].some((b) => b.textContent === 'Cancel all replies'))
+  await inAct(() => { composerBox(first.el).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  assert.equal(first.el.querySelectorAll('.reply-preview').length, 0, 'Escape cancels the prepared replies')
+  await replyTo(first.el, 'p1'); await replyTo(first.el, 'p2')
+  await first.unmount()
+  const again = await deskView(t, node, { bare: true, openDoc: noop })
+  assert.equal(again.el.querySelectorAll('.reply-preview.reply-preview-composing').length, 2, 'kept with the draft')
+  await typeInto(composerBox(again.el), 'About both')
+  await inAct(async () => { composerBox(again.el).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await flush(4) })
+  assert.deepEqual(bodies, [{ text: 'About both', targets: [{ kind: 'document', org: 'org', id: 'p1' }, { kind: 'document', org: 'org', id: 'p2' }] }])
+  assert.equal(again.el.querySelectorAll('.reply-preview').length, 0, 'a sent reply clears its targets')
+})
+
+test('G12 the notice toggle survives closing the desk, and Alt+N / Alt+B work anywhere inside it', async (t) => {
+  serve(t); forgetDrafts(t)
+  const node = project('website', [agent('dev1')])
+  const first = await deskView(t, node, { bare: true })
+  await inAct(() => { first.el.querySelector<HTMLButtonElement>('.project-composer .cc-notice-toggle')!.click() })
+  assert.equal(first.el.querySelector('.project-composer .cc-notice-toggle')!.classList.contains('armed'), true)
+  await first.unmount()
+  const again = await deskView(t, node, { bare: true })
+  const toggle = () => again.el.querySelector('.project-composer .cc-notice-toggle')!
+  assert.equal(toggle().classList.contains('armed'), true, 'still armed after reopening, as an agent desk\'s')
+  const tab = again.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="inbox"]')!
+  tab.focus()
+  await inAct(() => { tab.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', altKey: true, bubbles: true, cancelable: true })) })
+  assert.equal(toggle().classList.contains('armed'), false, 'Alt+N from a tab button toggles it')
+  await inAct(() => { tab.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', altKey: true, bubbles: true, cancelable: true })) })
+  assert.equal(again.el.querySelector('.cc-broadcast-toggle')!.getAttribute('aria-pressed'), 'true', 'and Alt+B the broadcast')
 })

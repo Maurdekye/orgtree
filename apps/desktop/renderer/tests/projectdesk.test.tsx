@@ -187,7 +187,8 @@ test('project presentation Reply context action stages the document target and f
   await inAct(() => { reply!.click() })
   const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
     assert.equal(document.activeElement, box, 'choosing Reply focuses the project composer')
-    assert.equal(el.querySelector('.project-reply-target')?.textContent?.includes('Release plan'), true,
+    // the agent composer's reply preview (desk parity G11)
+    assert.equal(el.querySelector('.reply-preview.reply-preview-composing')?.textContent?.includes('Release plan'), true,
       'the project composer shows the staged presentation target')
     await inAct(() => { setText(box, 'Following up on the plan') })
     await inAct(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
