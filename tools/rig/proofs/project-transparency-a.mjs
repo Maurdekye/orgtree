@@ -100,7 +100,8 @@ export default async function(rig) {
     const before=rig.turns(s.name).filter(t=>t.ended_at).length
     await rig.userMail(s.name,'PT-NET: start then die mid-response.')
     await rig.waitTurns(s.name,before+1,{timeout:60000})
-    await checkReport(s,'runtime.report_stalled_repeated')
+    const repeated=await checkReport(s,'runtime.report_stalled')
+    p.check(`${s.name}: repeated failure retains cause and attempt count`,repeated.length===1 && repeated[0].ev.cause==='repeated' && repeated[0].ev.attempts===4)
     p.check(`${s.name}: exhausted retries retain subject notice`,rig.sql(`SELECT id FROM ot.mail WHERE recipient_agent_id=${id(s.name)} AND ev->>'variant'='runtime.turn_failed_repeated'`).length===1)
     await settle(s.name)
     await rig.userMail(s.name,'PT-AUTH: reject this credential.')
