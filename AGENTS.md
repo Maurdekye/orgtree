@@ -276,10 +276,12 @@
   cells. Narrow surfaces scroll horizontally with the action column pinned.
   Time text shares exported `slottime.ts` helper: linear white-to-#e6ffe0 at 0-3s, then five equal
   logarithmic intervals through green/yellow/orange/red to bright red #ff4040 at24h, clamped;
+  a mirrored dark-green-to-red light palette ends #d60000; `light-dark()` switches
+  with the surface color scheme (optional explicit theme is available in tests).
   plain text only, without pill backgrounds (user 19:24Z). Line order has its own
   Position column, blank for holders/history (user 19:25Z). Recent holds label only unusual endings.
   Ended ages use exported `slotEndedTimeStyle`: white through3s, logarithmic fade
-  to readable mid grey #999999 at24h. Both exports return plain coloured text;
+  to readable mid grey #999999 at24h (light: #1a1a1a to #717171). Both exports return plain coloured text;
   no glow, dot, underline or outline (user 2026-10-19 20:13Z, replacing the
   comparison treatments). Reuse these helpers for other time tables.
   Recent holds use30-row `(ended_at,id)` keyset pages (one lookahead row), backed
