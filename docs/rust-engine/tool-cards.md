@@ -74,3 +74,37 @@ metadata, property order and tool order. Intentional contract changes update the
 fixture alongside their source change. Stack verification separately runs a real
 debug fake-Codex admission with `RUST_MIN_STACK` absent. Assembly frame allocations
 are static measurements, not measured total stack use or remaining headroom.
+
+### The actor's turn path
+
+A debug poll frame reserves its own slots for every future it awaits inline,
+usually two or three copies each, and never shares them between await points.
+`Box::pin(call)` still builds the future in the caller's frame before moving it.
+At rust-engine 9edbc13 the first turn of a synthetic Codex agent overflowed the
+2 MiB engine worker stack right after `Actor::start_turn` entered
+`Actor::ensure_proc`. The static frame allocations (`dumpbin /unwindinfo` with the
+PDB beside the exe) on that path were:
+
+| Poll frame | 9edbc13 | Boxed |
+| --- | ---: | ---: |
+| `Actor::run` | 422,688 | 11,584 |
+| `Actor::handle_msg` (inner + logged wrapper) | 736,880 | 46,512 |
+| `Actor::on_slot` (inner) | 58,544 | 25,440 |
+| `Actor::start_turn` (inner) | 256,136 | 101,104 |
+| `Actor::ensure_proc` (inner) | 137,408 | 35,392 |
+| `Actor::ensure_codex` (inner) | 64,728 | 40,440 |
+
+The awaited futures were 3 to 37 KB each (`size_of` of each method's future in
+a debug test build): `run` awaits nine of about 17 KB, `handle_msg` about forty.
+`boxed(|| self.method(args))` builds the future inside the small helper's frame
+and moves it to the heap, so the awaiting frame keeps a pointer. Every actor
+future of about 3 KB or more awaited in `run`, `handle_msg`, `on_slot`,
+`start_turn`, `ensure_proc` and `ensure_codex` goes through it.
+
+`tools/rig/proofs/debug-stack-first-turn.mjs` runs a first Codex turn and a
+first Claude turn on a debug engine with `RUST_MIN_STACK` unset: it fails at
+9edbc13 and passes after. With the fix the whole proof also passes at a
+1.5 MiB worker stack (engine start fails at 1.25 MiB, before any turn).
+Release builds inline these poll functions: the largest actor frame in an
+alpha.10 release engine is 43,640 bytes and its largest frame overall 89,112.
+Those are static frame allocations, not measured stack use.

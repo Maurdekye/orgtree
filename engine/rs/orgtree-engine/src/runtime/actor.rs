@@ -752,6 +752,19 @@ impl Fingerprint {
 /// A fingerprint part's digest. Not logged: its input is the launch's own
 /// material, the granted MCP servers' configuration (environment, headers,
 /// arguments that can be credentials) included; the digest is what is kept.
+/// Builds a future in a frame of its own and moves it to the heap, so the
+/// awaiting function's poll frame keeps only a pointer. A debug build reserves
+/// two or three copies of every future awaited inline in the awaiting poll
+/// frame, and the actor's turn path (run, handle_msg, on_slot, start_turn,
+/// ensure_proc) outgrew the 2 MiB engine worker stack that way at a first
+/// Codex turn. `Box::pin(call)` alone still builds the future in the caller's
+/// frame first. See [stack safety](docs/rust-engine/tool-cards.md#stack-safety).
+#[nolog]
+#[inline(never)]
+fn boxed<F: std::future::Future>(make: impl FnOnce() -> F) -> std::pin::Pin<Box<F>> {
+    Box::pin(make())
+}
+
 #[nolog]
 fn hash(s: &str) -> String {
     hex::encode(&Sha256::digest(s.as_bytes())[..12])
@@ -1030,7 +1043,7 @@ impl Actor {
     }
 
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Envelope>) {
-        self.update_forecast().await;
+        boxed(|| self.update_forecast()).await;
         self.publish();
         loop {
             let deadline = self.next_deadline();
@@ -1041,39 +1054,39 @@ impl Actor {
                         // a keepalive's CLI is not the agent's: its lines end the keepalive
                         AgentMsg::Claude(process, v) if self.keepalive.as_ref().map(|k| k.process) == Some(process) => {
                             let span = self.span.clone();
-                            tracing::Instrument::instrument(self.on_keepalive_event(v), span).await;
+                            tracing::Instrument::instrument(boxed(|| self.on_keepalive_event(v)), span).await;
                             Ok(())
                         }
                         // the CLI's stream runs under its turn's request
                         AgentMsg::Claude(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
-                            tracing::Instrument::instrument(self.on_claude(v), span).await
+                            tracing::Instrument::instrument(boxed(|| self.on_claude(v)), span).await
                         }
                         AgentMsg::Codex(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
-                            tracing::Instrument::instrument(self.on_codex(v), span).await
+                            tracing::Instrument::instrument(boxed(|| self.on_codex(v)), span).await
                         }
                         AgentMsg::Agy(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
-                            tracing::Instrument::instrument(self.on_agy(v), span).await
+                            tracing::Instrument::instrument(boxed(|| self.on_agy(v)), span).await
                         }
                         AgentMsg::Acp(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
-                            tracing::Instrument::instrument(self.on_acp(v), span).await
+                            tracing::Instrument::instrument(boxed(|| self.on_acp(v)), span).await
                         }
                         AgentMsg::Muse(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
-                            tracing::Instrument::instrument(self.on_muse(v), span).await
+                            tracing::Instrument::instrument(boxed(|| self.on_muse(v)), span).await
                         }
                         // every other message is a request of its own, caused by its sender's
                         other => {
                             let span = crate::trace::request_from(&self.client, env.cause.as_deref());
-                            tracing::Instrument::instrument(self.handle_msg(other), span).await
+                            tracing::Instrument::instrument(boxed(|| self.handle_msg(other)), span).await
                         }
                     };
                     if let Err(e) = res {
@@ -1084,7 +1097,7 @@ impl Actor {
                 }
                 _ = sleep_until(deadline) => {
                     let span = crate::trace::request(&self.client);
-                    if let Err(e) = tracing::Instrument::instrument(self.on_timer(), span).await {
+                    if let Err(e) = tracing::Instrument::instrument(boxed(|| self.on_timer()), span).await {
                         tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "agent timer error");
                     }
                 }
@@ -1101,7 +1114,7 @@ impl Actor {
             }
         }
         rx.close();
-        self.close_proc().await;
+        boxed(|| self.close_proc()).await;
         if !self.stopping {
             self.publish_idle();
         }
@@ -1316,40 +1329,40 @@ impl Actor {
                 if self.turn.is_some() && self.steer_since.is_none() {
                     self.steer_since = Some(Instant::now());
                 }
-                self.on_wake().await?
+                boxed(|| self.on_wake()).await?
             }
             AgentMsg::WakeIdle(reply) => {
                 let idle = !self.stopping && self.turn.is_none() && self.waiting_since.is_none() && self.slot.is_none()
                     && self.keepalive.is_none();
                 if idle {
-                    self.on_wake().await?;
+                    boxed(|| self.on_wake()).await?;
                 }
                 let _ = reply.send(idle && self.waiting_since.is_some());
             }
-            AgentMsg::CacheKeepalive => self.start_keepalive().await?,
-            AgentMsg::Slot(slot) => self.on_slot(slot).await?,
+            AgentMsg::CacheKeepalive => boxed(|| self.start_keepalive()).await?,
+            AgentMsg::Slot(slot) => boxed(|| self.on_slot(slot)).await?,
             AgentMsg::Loading(what) => {
                 self.loading = what;
                 self.publish();
             }
-            AgentMsg::WarmFailed(slot, why) => self.on_warm_failed(slot, why).await?,
+            AgentMsg::WarmFailed(slot, why) => boxed(|| self.on_warm_failed(slot, why)).await?,
             AgentMsg::Claude(process, v) => {
-                if self.owns_process(process) { self.on_claude(v).await?; }
+                if self.owns_process(process) { boxed(|| self.on_claude(v)).await?; }
             }
             AgentMsg::Codex(process, v) => {
-                if self.owns_process(process) { self.on_codex(v).await?; }
+                if self.owns_process(process) { boxed(|| self.on_codex(v)).await?; }
             }
             AgentMsg::Agy(process, v) => {
-                if self.owns_process(process) { self.on_agy(v).await?; }
+                if self.owns_process(process) { boxed(|| self.on_agy(v)).await?; }
             }
             AgentMsg::Acp(process, v) => {
-                if self.owns_process(process) { self.on_acp(v).await?; }
+                if self.owns_process(process) { boxed(|| self.on_acp(v)).await?; }
             }
             AgentMsg::Muse(process, v) => {
-                if self.owns_process(process) { self.on_muse(v).await?; }
+                if self.owns_process(process) { boxed(|| self.on_muse(v)).await?; }
             }
             AgentMsg::Hook { input, reply } => {
-                let out = match self.on_hook(&input).await {
+                let out = match boxed(|| self.on_hook(&input)).await {
                     Ok(v) => v,
                     Err(e) => {
                         tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "mail hook failed");
@@ -1358,7 +1371,7 @@ impl Actor {
                 };
                 let _ = reply.send(out);
             }
-            AgentMsg::ProcExited { process, reason } => self.on_exit(process, &reason).await?,
+            AgentMsg::ProcExited { process, reason } => boxed(|| self.on_exit(process, &reason)).await?,
             AgentMsg::Session { pref, use_id, reply } => {
                 if let Some(p) = pref {
                     self.session_pref = p;
@@ -1390,8 +1403,8 @@ impl Actor {
                 let _ = reply.send(r);
             }
             AgentMsg::Halt(reply) => {
-                self.cancel_keepalive().await;
-                let r = self.halt().await?;
+                boxed(|| self.cancel_keepalive()).await;
+                let r = boxed(|| self.halt()).await?;
                 let _ = reply.send(r);
             }
             AgentMsg::Unhalt(reply) => {
@@ -1403,11 +1416,11 @@ impl Actor {
                 self.changed(vec![Change::Agent(self.id)]);
                 crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("agent.unhalted",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id})));
                 let _ = reply.send(json!({ "unhalted": true, "status": "idle" }));
-                self.on_wake().await?;
+                boxed(|| self.on_wake()).await?;
             }
             AgentMsg::Command(text, reply) => {
-                self.cancel_keepalive().await;
-                let r = match self.command(&text, crate::domain::compaction::CommandOrigin::User).await {
+                boxed(|| self.cancel_keepalive()).await;
+                let r = match boxed(|| self.command(&text, crate::domain::compaction::CommandOrigin::User)).await {
                     Ok(v) => v,
                     Err(e) => json!({ "started": false, "reason": format!("{e:#}") }),
                 };
@@ -1417,42 +1430,42 @@ impl Actor {
                 if reply.is_closed() { return Ok(()); }
                 // Recheck the tool scope and strict descendant relation in the actor's
                 // queue, before cancelling keepalive or asking the native harness.
-                let r = match self.compact_from_agent(&caller).await {
+                let r = match boxed(|| self.compact_from_agent(&caller)).await {
                     Ok(v) => v,
                     Err(e) => json!({ "started": false, "reason": format!("{e:#}") }),
                 };
                 let _ = reply.send(r);
             }
             AgentMsg::Effort(previous, reply) => {
-                let r = self.effort_saved(&previous).await;
+                let r = boxed(|| self.effort_saved(&previous)).await;
                 let _ = reply.send(r);
-                self.update_forecast().await;
+                boxed(|| self.update_forecast()).await;
                 self.publish();
             }
             AgentMsg::Process { action, reply } => {
-                self.cancel_keepalive().await;
-                let r = self.process_control(&action).await;
-                self.update_forecast().await;
+                boxed(|| self.cancel_keepalive()).await;
+                let r = boxed(|| self.process_control(&action)).await;
+                boxed(|| self.update_forecast()).await;
                 self.publish();
                 let _ = reply.send(r);
             }
             AgentMsg::Reconfigured => {
                 self.reconfigured = self.proc.is_some();
-                self.replace_idle_process().await;
-                self.update_forecast().await;
+                boxed(|| self.replace_idle_process()).await;
+                boxed(|| self.update_forecast()).await;
                 self.publish();
             }
             AgentMsg::ApplyQueued => {
                 // a running turn's end applies it; an idle agent takes it now
                 if !self.stopping && self.turn.is_none() {
-                    self.apply_pending_config().await?;
+                    boxed(|| self.apply_pending_config()).await?;
                 }
             }
             AgentMsg::Live(reply) => {
                 let _ = reply.send(self.live_view());
             }
             AgentMsg::NextTurn(reply) => {
-                let _ = reply.send(self.next_turn().await);
+                let _ = reply.send(boxed(|| self.next_turn()).await);
             }
             AgentMsg::Stop(reply) => {
                 // engine shutdown: a running turn's mail stays claimed and
@@ -1465,8 +1478,8 @@ impl Actor {
                 if self.waiting_since.take().is_some() {
                     self.engine.sched.cancel(self.id);
                 }
-                self.cancel_keepalive().await;
-                self.kill_proc().await;
+                boxed(|| self.cancel_keepalive()).await;
+                boxed(|| self.kill_proc()).await;
                 if let Some(t) = self.take_turn() {
                     if !self.engine.is_stopping() {
                         self.settle_cut_turn(t.id).await;
@@ -1485,7 +1498,7 @@ impl Actor {
                 }
             }
             AgentMsg::Warm(reply) => {
-                let warm = self.warm().await;
+                let warm = boxed(|| self.warm()).await;
                 let _ = reply.send(warm);
             }
             AgentMsg::CloseIdle if self.turn.is_none() && self.proc.is_some() && self.bg_pending() => {
@@ -1497,8 +1510,8 @@ impl Actor {
                 if self.turn.is_none() && self.proc.is_some() {
                     crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("cli.evicted",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id})));
                     self.keep_until = None;
-                    self.close_proc().await;
-                    self.update_forecast().await;
+                    boxed(|| self.close_proc()).await;
+                    boxed(|| self.update_forecast()).await;
                     self.publish();
                 }
             }
@@ -1787,7 +1800,7 @@ impl Actor {
         self.slot = Some(slot);
         // Admission is complete before slow process replacement/initialization.
         self.publish();
-        match self.start_turn().await {
+        match boxed(|| self.start_turn()).await {
             Ok(true) => {}
             Ok(false) => {
                 self.slot = None;
@@ -2767,16 +2780,16 @@ impl Actor {
         self.account_gate(ctx, route.as_ref())?;
         if ctx.harness.as_deref() == Some("opencode") {
             let route = route.as_ref().ok_or_else(|| anyhow!("OpenCode requires an OpenRouter or language model server lane"))?;
-            return self.ensure_acp(ctx, route).await;
+            return boxed(|| self.ensure_acp(ctx, route)).await;
         }
         if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
-            return self.ensure_codex(ctx, route.as_ref()).await;
+            return boxed(|| self.ensure_codex(ctx, route.as_ref())).await;
         }
         if ctx.provider == catalog::GOOGLE {
-            return self.ensure_agy(ctx).await;
+            return boxed(|| self.ensure_agy(ctx)).await;
         }
         if ctx.provider == catalog::MUSE {
-            return self.ensure_muse(ctx).await;
+            return boxed(|| self.ensure_muse(ctx)).await;
         }
         if ctx.provider != catalog::CLAUDE && route.is_none() {
             return Err(anyhow!("{} agents cannot run on this engine build yet", catalog::provider_label(&ctx.provider)));
@@ -2796,7 +2809,7 @@ impl Actor {
         if reuse {
             return Ok(());
         }
-        self.close_proc().await;
+        boxed(|| self.close_proc()).await;
         self.reconfigured = false;
         let skill_use = self.skill_use(ctx, &plan).await?;
         let (mut spec, _) = self.claude_spec(ctx, route.as_ref(), &plan, false).await?;
@@ -2804,7 +2817,7 @@ impl Actor {
         let resume = spec.resume.clone();
         let effort = spec.effort.clone();
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
-        let proc = ClaudeProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
+        let proc = boxed(|| ClaudeProc::spawn(self.engine.clone(), spec, caller, self.tx.clone())).await?;
         let session_id = proc.session_id.clone();
         if ctx.session_id.is_some() && resume.as_deref() != Some(session_id.as_str()) {
             self.flag_handoff("its previous session could not be resumed").await;
@@ -3049,7 +3062,7 @@ impl Actor {
         if reuse {
             return Ok(());
         }
-        self.close_proc().await;
+        boxed(|| self.close_proc()).await;
         self.reconfigured = false;
         let skill_use = self.skill_use(ctx, &plan).await?;
         let view = self.engine.accounts.view();
@@ -3177,7 +3190,7 @@ impl Actor {
             },
         };
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
-        let mut proc = CodexProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
+        let mut proc = boxed(|| CodexProc::spawn(self.engine.clone(), spec, caller, self.tx.clone())).await?;
         let session_id = proc.session_id.clone();
         if resume.is_some() && resume.as_deref() != Some(session_id.as_str()) {
             self.flag_handoff("its previous Codex thread could not be resumed").await;
@@ -4067,9 +4080,9 @@ impl Actor {
     /// Claim waiting mail, make sure the CLI runs, send the opening message.
     async fn start_turn(&mut self) -> Result<bool> {
         // real work comes first (3.x `_cancel_working_cache`)
-        self.cancel_keepalive().await;
+        boxed(|| self.cancel_keepalive()).await;
         let admitted_at = Utc::now();
-        let mut ctx = self.load_ctx().await?;
+        let mut ctx = boxed(|| self.load_ctx()).await?;
         if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
             return Ok(false);
         }
@@ -4086,7 +4099,7 @@ impl Actor {
             } else { blocked };
             if let Some(e) = failure {
                 self.last_error = Some(e.to_string());
-                self.close_proc().await;
+                boxed(|| self.close_proc()).await;
                 return Ok(false);
             }
         }
@@ -4094,7 +4107,7 @@ impl Actor {
         // one it allows (or freezes, saying none is left) before any mail is
         // claimed, and admission is tried again (the account list, user 2026-10-10)
         if let Some(lane) = crate::org_accounts::barred(&self.engine, &ctx.org_slug, &ctx.tier, ctx.account.as_deref()) {
-            crate::org_accounts::leave(&self.engine, self.org_id, &ctx.org_slug, self.id, &ctx.tier, ctx.account.as_deref(), &lane).await;
+            boxed(|| crate::org_accounts::leave(&self.engine, self.org_id, &ctx.org_slug, self.id, &ctx.tier, ctx.account.as_deref(), &lane)).await;
             self.reconfigured = self.proc.is_some();
             self.retry_admission();
             return Ok(false);
@@ -4124,7 +4137,7 @@ impl Actor {
             // any mail is claimed, and admission is tried again on a timer,
             // never at once, so a refusal that persists cannot spin (decision 62)
             if queued {
-                if let Err(e) = self.apply_pending_config().await {
+                if let Err(e) = boxed(|| self.apply_pending_config()).await {
                     tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the queued configuration could not be applied; admission retries");
                 }
             }
@@ -4138,7 +4151,7 @@ impl Actor {
         // (a harness not installed here is not crossed to: the launch refuses, saying so)
         if let Some(want) = ctx.harness_want.clone().filter(|w| ctx.harness_stamp.as_deref() != Some(w.as_str()))
             .filter(|w| ctx.harness_stamp.is_none() || crate::harnesses::installed(&self.engine, w)) {
-            self.cross_harness(tx, &ctx, &want).await?;
+            boxed(|| self.cross_harness(tx, &ctx, &want)).await?;
             drop(client);
             self.retry_admission();
             return Ok(false);
@@ -4179,7 +4192,7 @@ impl Actor {
         tx.commit().await?;
         drop(client);
         let mut raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
-        let reset_note = match self.cold_reset(&mut ctx).await {
+        let reset_note = match boxed(|| self.cold_reset(&mut ctx)).await {
             Ok(note) => note,
             Err(e) => {
                 tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the cold-cache reset failed; resuming the session");
@@ -4190,7 +4203,7 @@ impl Actor {
         // Placement selection consumes an on-demand session choice. An
         // admission hold must retain that choice for the original unsent turn.
         let use_session = self.use_session;
-        if let Err(e) = self.ensure_proc(&ctx).await {
+        if let Err(e) = boxed(|| self.ensure_proc(&ctx)).await {
             self.return_mail(turn_id, true).await;
             if e.is::<crate::runtime::session_host::PlacementPending>() {
                 self.use_session = use_session;
@@ -4200,7 +4213,7 @@ impl Actor {
             return Err(e);
         }
         self.admit_refusals = 0;
-        self.session_notes(turn_id, &mut raw).await;
+        boxed(|| self.session_notes(turn_id, &mut raw)).await;
         let handoff = match self.take_handoff(&ctx).await {
             Ok(n) => n,
             Err(e) => {
@@ -4282,7 +4295,7 @@ impl Actor {
         };
         if !sent {
             self.return_mail(turn_id, true).await;
-            self.close_proc().await;
+            boxed(|| self.close_proc()).await;
             let why = refused.map(|r| {
                 if prompt::input_length_refusal(&r) {
                     format!(": Input exceeds maximum length; input {} UTF-8 bytes / {} characters; Orgtree budget {budget} bytes; mail {} items",

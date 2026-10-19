@@ -1,3 +1,17 @@
+- The actor's large futures on its turn path are awaited through `boxed(|| …)`
+  (`runtime/actor.rs`), which builds each one in a frame of its own: a debug
+  poll frame keeps two or three copies of every future awaited inline, and
+  `Box::pin(call)` still builds the future there first. Inline, `run` →
+  `handle_msg` → `on_slot` → `start_turn` → `ensure_proc` → `ensure_codex`
+  held about 1.6 MiB of static frames and overflowed the 2 MiB engine worker
+  stack at a first Codex turn (rust-engine 9edbc13); boxed, about 360 KB.
+  Await new large actor futures (a few KB or more) the same way, never raise
+  stack limits, measure frames with `dumpbin /unwindinfo` beside the PDB and
+  run `tools/rig/proofs/debug-stack-first-turn.mjs` on the default stack. See
+  [stack safety](docs/rust-engine/tool-cards.md#stack-safety).
+  [verified: `runtime/actor.rs`; debug-stack-first-turn proof red at 9edbc13,
+  green after; 2026-10-19]
+
 - Project desks reuse the agent desk's pieces, never copies: the up row (its own
   `.desk-nav` right after `DeskHead`, never among the header cards; user
   2026-10-19 21:05:53Z, 21:06:08Z "same as agent desk headers"), `DeskReportRow`,
@@ -1270,8 +1284,9 @@
     agent above (user 2026-10-16 20:40Z).
   - Project mail reaches agents only through `fair_queue` dogs: one watcher per mail, the
     least recently woken first.
-  - New awaits on the actor's turn path (`load_ctx`, `mail::send`) are `Box::pin`ned. Inline,
-    they overflowed the debug engine thread's stack at turn start.
+  - New awaits on the actor's turn path go through `boxed` (see the actor stack entry at the
+    top; it replaced call-site `Box::pin`). Inline, they overflowed the debug engine thread's
+    stack at turn start.
   - A project's description (`charter`) is the team charter of its subtree: `load_ctx`'s
     cascade takes it in place of `team_charter` for a project ancestor (user 2026-10-17 19:14Z).
   Design and rulings: [project nodes](docs/rust-engine/PROJECT-NODES.md).
