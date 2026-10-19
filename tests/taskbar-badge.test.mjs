@@ -74,6 +74,11 @@ test('Linux uses the available platform badge API and clears on zero',()=>{
 test('destroyed windows are skipped without touching their shell state',()=>{
   const w=window();w.destroyed=true;const {controller}=windowsDot([w]);controller.set(true);controller.apply(w);assert.deepEqual(w.calls,[])
 })
+test('an unavailable platform badge does not break feed delivery',()=>{
+  const controller=new TaskbarDot({platform:'linux',windows:()=>[],dot:()=>null,badgeCount:()=>{throw Error('unsupported desktop')}})
+  assert.doesNotThrow(()=>controller.set(true))
+  assert.doesNotThrow(()=>controller.set(false))
+})
 test('one window closing during an overlay write cannot block the other windows',()=>{
   const gone=window(),live=window();gone.setOverlayIcon=()=>{throw Error('window closed')}
   const {controller}=windowsDot([gone,live]);assert.doesNotThrow(()=>controller.set(true));assert.deepEqual(live.calls.map(c=>c.image),['dot'])
