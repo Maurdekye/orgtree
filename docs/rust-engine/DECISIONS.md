@@ -7,6 +7,13 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Project watchdog menus/outlines, user 2026-10-19 19:06–19:07Z:** slot
+chips and every project-targeted watchdog offer Project… via the shared
+project-link menu, everywhere their chips/rows render. Existing primary
+clicks remain. Event dogs are cyan, fair-queue dogs magenta, slot claims
+yellow; one-shots are dashed in their kind color, ordinary one-shots grey.
+See [project watchdog menus](project-watchdog-menus.md).
+
 **Project activity on one line, user 2026-10-19 18:47–18:48Z (4.4.0):**
 the plain bold active/hired count and Active/Idle age share the project card's
 meta row without overflow, replacing its earlier wrapping fallback. Count

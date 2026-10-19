@@ -1953,7 +1953,11 @@ html.mobile .edge-jump { display: none; }
 /* a watchdog's card in the same row (canvas/deskdogs.tsx): the desk chip,
    told apart from an agent by the canvas satellite's state glyph (green while
    armed) and a dashed border — a dog is not an agent */
-.desk-dog-chip { border-style: dashed; }
+.desk-dog-chip { border-style: solid; }
+.desk-dog-chip.oneshot { border-style: dashed; }
+.desk-dog-chip.slot { border-color: var(--slot); }
+.desk-dog-chip.listener { border-color: var(--listener); }
+.desk-dog-chip.fair-queue { border-color: var(--fq-line); }
 .desk-dog-chip .wd-glyph { font-size: 9px; }
 .wd-next-check { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .desk-dog-chip .wd-next-check { font-size: 9px; opacity: .82; }
@@ -6705,9 +6709,7 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
    watch-state chrome, so "paused" cannot hide "one-shot dog". */
 .wd-chip.oneshot {
   border-style: dashed;
-  border-color: color-mix(in srgb, var(--warn, #e5c07b) 68%, var(--line));
-  box-shadow: 0 0 7px color-mix(in srgb, var(--warn, #e5c07b) 24%, transparent),
-    var(--shadow);
+  box-shadow: var(--shadow);
 }
 .wd-once {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
@@ -6741,6 +6743,13 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
   cursor: default;
 }
 .wd-chip.spent .wd-glyph { color: var(--warn, #e5c07b); }
+/* Kind outlines win over state/one-shot chrome. Ordinary one-shots keep
+   their normal grey, with dashes as the finite-lifetime signal. */
+.wd-chip.oneshot { border-color: var(--line); }
+.wd-chip.slot { border-color: var(--slot); }
+.wd-chip.listener { border-color: var(--listener); }
+.wd-chip.fair-queue { border-color: var(--fq-line); }
+.wd-chip .wd-once, .desk-dog-chip .wd-once { color: var(--dim); border-color: currentColor; background: transparent; }
 .edge.tether.wd.off { opacity: .3; }
 .edge.tether.wd.oneshot { stroke-dasharray: 4 3; }
 .edge.tether.wd.spent { animation: wd-depart 15s linear both; }
@@ -6830,8 +6839,12 @@ html.mobile .ms-doglist button {
 }
 html.mobile .ms-doglist .wd-next-check { margin-left: auto; font-size: 11px; }
 html.mobile .ms-doglist button.oneshot {
-  border-left: 2px dashed color-mix(in srgb, var(--warn, #e5c07b) 70%, var(--line));
+  border-left: 2px dashed var(--line);
 }
+html.mobile .ms-doglist button.slot { border-left: 2px solid var(--slot); }
+html.mobile .ms-doglist button.listener { border-left: 2px solid var(--listener); }
+html.mobile .ms-doglist button.fair-queue { border-left: 2px solid var(--fq-line); }
+html.mobile .ms-doglist button.oneshot { border-left-style: dashed; }
 html.mobile .ms-doglist .wd-once {
   min-width: 23px; height: 16px; font-size: 9px;
 }

@@ -12,6 +12,10 @@
 import { createContext, useContext } from 'react'
 import type { Watchdog } from '../types'
 import type { SlotLease } from './slots'
+import type { ReactNode } from 'react'
+import { useContextMenu } from './contextmenu'
+import { agentNavElementAt } from './agentnav'
+import { watchdogKindClass } from './watchdogchip'
 import { objectNavProps } from './objectnav'
 import { WatchdogCountdown } from './watchdogcountdown'
 
@@ -33,6 +37,13 @@ export const DeskDogsProvider = Ctx.Provider
  *  transcript's watchdog card. Null where no canvas hands one down. */
 export function useDogRoute(): DeskDogs | null { return useContext(Ctx) }
 
+/** Row whitespace borrows the dog menu; a nested agent link keeps its own menu. */
+export function WatchdogRow({id,org,children,className,as:Tag='div'}:{id:string;org?:string;children:ReactNode;className?:string;as?:'div'|'tr'}){
+ const route=useDogRoute(),menu=useContextMenu()
+ return <Tag {...objectNavProps('watchdog',id,org??route?.org)} className={className}
+   onContextMenu={e=>menu.open(e,[],agentNavElementAt(e.target,e.currentTarget)??e.currentTarget)}>{children}{menu.node}</Tag>
+}
+
 /** The watchdogs owned by `agentId`, in the tree's order. A one-shot dog that
  *  has already fired (`spent`) is a departing tombstone with nothing to open
  *  that means anything, so it gets no card. */
@@ -50,7 +61,7 @@ const glyph = (w: Watchdog) => w.state === 'armed' ? w.kind === 'event' ? '⚡' 
 export function DogChip({ dog, onOpen }: { dog: Watchdog; onOpen: (id: string) => void }) {
   const route = useDogRoute()
   return (
-    <button type="button" {...(!dog.spent ? objectNavProps('watchdog', dog.id, route?.org) : {})} className={'desk-nav-chip desk-dog-chip ' + dog.state}
+    <button type="button" {...(!dog.spent ? objectNavProps('watchdog', dog.id, route?.org) : {})} className={'desk-nav-chip desk-dog-chip ' + dog.state+' '+watchdogKindClass(dog)+(dog.once?' oneshot':'')}
       title={`${dog.once ? 'one-shot dog' : 'watchdog'} "${dog.name}" (${dog.kind}) — `
         + `${dog.state}; click for detail`}
       aria-label={`watchdog ${dog.name}, ${dog.state}`}

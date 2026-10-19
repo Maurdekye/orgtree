@@ -1,14 +1,14 @@
 import { getWorkItem, watchdogAction } from '../api'
 import type { ToastFn, Watchdog } from '../types'
 import { copyToClipboard } from './contextmenu'
-import { ticketOwnerAction, ticketReferenceActions, watchdogActions } from './objectactions'
+import { nodeMenuAction, ticketOwnerAction, ticketReferenceActions, watchdogActions } from './objectactions'
 import { useAgentNavRegistry } from './agentnav'
 import { useProvideObjectNav } from './objectnav'
 
 /** The current org's existing routes, shared by links and direct object menus. */
-export function ObjectNavHost({ org, dogs, openDog, openTicket, focusAgent, toast }:
+export function ObjectNavHost({ org, dogs, openDog, openTicket, focusAgent, toast, isProject }:
   { org: string; dogs: Watchdog[]; openDog: (id: string) => void;
-    openTicket?: (id: string) => void; focusAgent?: (id: string) => void; toast: ToastFn }) {
+    openTicket?: (id: string) => void; focusAgent?: (id: string) => void; toast: ToastFn; isProject?: (id:string)=>boolean }) {
   const agents = useAgentNavRegistry()
   useProvideObjectNav((kind, id, targetOrg, anchor) => {
     if (targetOrg !== org) return []
@@ -23,7 +23,10 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, focusAgent, toas
           { label: 'Copy watchdog name', onSelect: () => copy(name) },
           { label: 'Copy watchdog id', onSelect: () => copy(id) }]
       }
+      const project=typeof dog.target==='string'?dog.target.replace(/^@/,''):''
+      const projectEntry=isProject?.(project)?nodeMenuAction('Project…',anchor,project,agents?.current?.(project,anchor)??[],toast):undefined
       return [{ label: 'Open details', onSelect: () => openDog(dog.id) },
+        ...(projectEntry?[projectEntry]:[]),
         ...watchdogActions(dog, action => {
           void watchdogAction(org, dog.id, action).then(r => toast([`${dog.name}: ${r.state}`]))
             .catch((error: Error) => toast([`error: ${error.message}`]))

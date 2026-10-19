@@ -13,7 +13,7 @@ import type { ToastFn, Watchdog } from '../types'
 import { ago } from './shared'
 import type { CanvasNode, OpFn } from './shared'
 import { AgentLink, nodeTierOf } from './identity'
-import { useDogRoute } from './deskdogs'
+import { useDogRoute, WatchdogRow } from './deskdogs'
 import { fireActionTools, projectListenerState } from './listeners'
 
 export function ListenersView({ node, dogs, map, onJump, op, toast }: {
@@ -67,14 +67,14 @@ export function ListenersView({ node, dogs, map, onJump, op, toast }: {
         {state.listeners.length === 0 && <div className="dim">No agent listens on this project. An agent above or below it arms one
           with <code>orgtree_watchdog action=create kind=project_listener target={node.id} once=true</code> and is woken when the event fires.</div>}
         {state.listeners.map((w) => (
-          <div key={w.id} className="listener-row">
+          <WatchdogRow key={w.id} id={w.id} className="listener-row">
             <span className="listener-agent">{agentLink(w.owner)}</span>
             {dogButton(w)}
             <span className="dim">{mode(w)}{w.state === 'paused' ? ' · paused' : ''}{w.notice ? ' · passive' : ''}</span>
             {actions(w)}
             <span className="spacer" />
             <span className="dim">{w.fired} fired{w.last_fired ? ` · last ${ago(w.last_fired)} ago` : ''}</span>
-          </div>
+          </WatchdogRow>
         ))}
       </div>
       <h4>Listener watches</h4>
@@ -83,7 +83,7 @@ export function ListenersView({ node, dogs, map, onJump, op, toast }: {
           are armed — with a fire action it releases the whole group at once:
           <code> orgtree_watchdog action=create kind=listener_watch target={node.id} count=N once=true</code>.</div>}
         {state.watches.map((w) => (
-          <div key={w.id} className="listener-row">
+          <WatchdogRow key={w.id} id={w.id} className="listener-row">
             <span className="listener-agent">{agentLink(w.owner)}</span>
             {dogButton(w)}
             <span className="listener-count" title={`${state.armed.length} of ${w.count ?? '?'} event listeners armed`}>
@@ -92,7 +92,7 @@ export function ListenersView({ node, dogs, map, onJump, op, toast }: {
             {actions(w)}
             <span className="spacer" />
             <span className="dim">{w.fired} fired{w.last_fired ? ` · last ${ago(w.last_fired)} ago` : ''}</span>
-          </div>
+          </WatchdogRow>
         ))}
       </div>
     </div>

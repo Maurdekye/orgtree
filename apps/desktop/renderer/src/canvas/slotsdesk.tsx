@@ -20,6 +20,7 @@ import { slotTimeStyle } from './slottime'
 import { AgentLink, nodeTierOf } from './identity'
 import { ageClockNow, subscribeAgeClock } from './desk'
 import type { ProjectSlotState } from './slots'
+import { WatchdogRow } from './deskdogs'
 
 interface Holder { lease: string; agent: string; slot: number; reason?: string | null; queued?: string | null; since: string; reminders?: number }
 interface Waiter { position: number; agent: string; dog: string; since?: string | null }
@@ -109,7 +110,7 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
         <tr className="slot-section"><th colSpan={7} scope="rowgroup"><h4>Line</h4></th></tr>
         {line.length === 0 && <tr><td colSpan={7} className="dim slot-empty">Nobody is waiting.</td></tr>}
         {line.map((w) => (
-          <tr key={w.agent + w.dog} className="slot-row">
+          <WatchdogRow as="tr" key={w.agent + w.dog} id={state.line.find(x=>x.agent===w.agent)?.dog??w.dog} className="slot-row">
             <td className="slot-position"><span className="slot-no">{ordinal(w.position)}</span></td>
             <th scope="row" className="slot-agent">{agentLink(w.agent)}</th>
             <td className="slot-wait" title={w.since ? 'in line since ' + w.since : undefined}>
@@ -123,7 +124,7 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
                   .then(() => { toast([`${w.agent} removed from project ${node.id}'s concurrency slot line`]); reread() })
                   .catch(() => {})
               }}>remove from line</button></td>
-          </tr>
+          </WatchdogRow>
         ))}
       </tbody>
       <tbody className="slots-history">

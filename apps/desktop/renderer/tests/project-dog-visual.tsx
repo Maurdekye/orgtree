@@ -32,6 +32,6 @@ createRoot(document.getElementById('root')!).render(<AgentNavProvider><ObjectNav
   <div style={{position:'absolute',left:85,top:23,maxWidth:125}}><DogChip dog={dog} onOpen={id=>opened.push(id)}/></div>
  </section>)}
  <section id="slot-chips" style={{position:'absolute',left:535,top:100,display:'flex',gap:6}}><AgentSlotChips agent="worker" leases={[{agent:'worker',project:node.id,slot:1,lease:'synthetic',since:now}]} dogs={dogs}/></section>
- <section id="listener-rows" style={{position:'absolute',left:24,top:525,width:460,fontSize:11}}><ListenersView node={node} dogs={dogs.filter(w=>w.once)} map={new Map()} op={async()=>({} as never)} toast={noop}/></section>
+ <section id="listener-rows" style={{position:'absolute',left:24,top:505,width:940,fontSize:11}}><ListenersView node={node} dogs={dogs.filter(w=>w.once)} map={new Map()} op={async()=>({} as never)} toast={noop}/></section>
  </ObjectMenuBoundary></AgentSurfaceRoutesProvider></DeskDogsProvider>
  </ObjectNavProvider></AgentNavProvider>)

@@ -16,6 +16,15 @@
 
 # AGENTS.md — working on Orgtree
 
+- Slot chips and all current-project-targeted watchdog menus offer Project…
+  through the shared project-link menu; primary slot clicks still open Slots.
+  Listener/slot-line rows and mobile dog lists use the shared object host.
+  Dog outlines are cyan for event listeners, magenta for fair queues, yellow
+  for slot claims; one-shots are dashed and ordinary one-shots stay grey.
+  See [project watchdog menus](docs/rust-engine/project-watchdog-menus.md).
+  [decided: user 2026-10-19 19:06–19:07Z; verified: renderer
+  `canvas/{objectnavhost,slotchips,watchdogchip,deskdogs,listenersdesk,slotsdesk}.tsx`]
+
 - Project near-card activity count and Active/Idle age share one nowrap row.
   Count inherits its compact 10px font; the state word yields before the clock
   so the normal 124px card does not wrap or overflow. This replaces the old
