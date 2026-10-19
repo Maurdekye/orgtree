@@ -51,6 +51,7 @@ app.whenReady().then(async()=>{
     '/': ['text/html', fs.readFileSync(path.join(root,'fixture.html'),'utf8').replace(/href="file:[^"]*styles\.css"/, 'href="/styles.css"')],
     '/fixture.js': ['text/javascript', fs.readFileSync(path.join(root,'fixture.js'))],
     '/styles.css': ['text/css', fs.readFileSync(process.env.TEAM_HEADER_STYLES)],
+    '/katex/dist/katex.min.css': ['text/css', fs.readFileSync(process.env.TEAM_HEADER_KATEX)],
   }
   const server=http.createServer((req,res)=>{const file=files[(req.url||'').split('?')[0]];
     res.writeHead(file?200:404,{'content-type':file?.[0]||'text/plain'});res.end(file?.[1]||'Not in synthetic fixture')})

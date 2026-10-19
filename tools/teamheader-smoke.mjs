@@ -23,6 +23,7 @@ if(geometry){
   command=require('electron');args=[path.join(repo,'apps/desktop/renderer/tests/teamheader-capture.cjs')]
   delete env.ELECTRON_RUN_AS_NODE;env.TEAM_HEADER_OUTPUT=output
   env.TEAM_HEADER_STYLES=path.join(repo,'apps/desktop/renderer/src/styles.css')
+  env.TEAM_HEADER_KATEX=require.resolve('katex/dist/katex.min.css')
 }else{
   command=process.execPath;args=['--max-old-space-size=1024','--test','--test-reporter=tap','--test-force-exit','--test-concurrency=1',path.join(output,'test.mjs')]
 }
