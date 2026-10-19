@@ -35,7 +35,10 @@ function check(s) {
   return errors
 }
 async function record(win,label) {
-  await painted(win)
+  // Layout reads force style/layout; only screenshots require painted frames.
+  // A native hidden child need not schedule requestAnimationFrame callbacks.
+  if(label.startsWith('detached')) await new Promise(resolve=>setTimeout(resolve,150))
+  else await painted(win)
   const state=await win.webContents.executeJavaScript(measure)
   const errors=check(state); rows.push({label,state,errors}); console.log((errors.length?'FAIL ':'PASS ')+label+': '+errors.join('; '))
   return state
@@ -90,10 +93,8 @@ app.whenReady().then(async()=>{
     console.log('Request actual pop-out')
     await parent.webContents.executeJavaScript(`document.querySelector('.team-panel .popout-button').click(); true`,true)
     console.log('Pop-out click returned')
-    await parent.webContents.executeJavaScript(`new Promise((resolve,reject)=>{let n=0;const check=()=>{
-      const children=[...document.querySelectorAll('.popout-placeholder')];
-      if(children.length)resolve();else if(++n<100)setTimeout(check,20);else reject(Error('No actual detached surface'));};check()})`)
     if(!child)throw Error('No actual Electron child window')
+    console.log('Measuring actual child, independently of the opener notice')
     for(const width of [480,320]){
       child.setContentSize(width,380)
       const state=await record(child,'detached-'+width)
