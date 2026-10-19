@@ -211,8 +211,8 @@
   Line / Recent holds share one semantic table (Agent | Waited | Held | Ended |
   Claim / lease | Action), with value-only time cells and blank inapplicable
   cells. Narrow surfaces scroll horizontally with the action column pinned.
-  Time text shares `slottime.ts`: linear white-to-lime at 0-3s, then log10-interpolated
-  decade stops through green/yellow/orange/red to black at 3,000,000s, clamped;
+  Time text shares `slottime.ts`: linear white-to-lime at 0-3s, then six equal
+  logarithmic intervals through green/yellow/orange/red to black at24h, clamped;
   plain text only, without pill backgrounds (user 19:24Z). Line order has its own
   Position column, blank for holders/history (user 19:25Z). Recent holds label only unusual endings.
   [decided: user/coordinator 2026-10-19 19:16-19:24Z; verified: `canvas/listeners.ts`,
