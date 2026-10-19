@@ -23,7 +23,8 @@
 // and whose agent it belongs to. Everything else is looked up from that.
 
 import { createContext, useContext, useSyncExternalStore } from 'react'
-import type { ReactNode } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import type { SurfaceOrigin } from '../popout'
 import { DocIcon, DocketIcon, MailIcon, PinIcon, ViewListIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { detachedPanel, revealSurface, subscribeWindows, windowRevision } from '../windowlife'
@@ -83,6 +84,17 @@ const PANELS: Record<AgentPanelKind, { noun: string; icon: ReactNode }> = {
 const windowFor = (kind: AgentPanelKind, org: string | null, nid: string) =>
   detachedPanel(kind, org, { agent: nid })
 
+/** Snapshot BEFORE show() can replace the tab. Invalid/pre-layout hosts keep
+ * the existing modal measurement; the source is one gesture, not stored state. */
+function tabOrigin(button: HTMLElement): SurfaceOrigin | undefined {
+  const host = button.closest<HTMLElement>('.desk-tabpanel')
+  const owner = host?.ownerDocument.defaultView
+  if (!host || !owner || owner.closed) return undefined
+  const r = host.getBoundingClientRect()
+  if (![r.left, r.top, r.width, r.height].every(Number.isFinite) || r.width <= 0 || r.height <= 0) return undefined
+  return { rect: { x: r.left, y: r.top, w: r.width, h: r.height }, owner }
+}
+
 const PANEL_TABS: Readonly<Record<string, AgentPanelKind | undefined>> = {
   inbox: 'node-inbox', docket: 'agent-docket', presented: 'agent-gallery', team: 'agent-team', slots: 'project-slots',
 }
@@ -120,7 +132,7 @@ export function PanelCorner({ kind, slug, nid }: {
   const { noun, icon } = PANELS[kind]
   const windows = modalPinsAvailable()
 
-  const pin = () => {
+  const pin = (e: ReactMouseEvent<HTMLButtonElement>) => {
     // ⚠ UNPINNING IS THE TITLE BAR'S OWN TWO CALLS, not a third spelling of
     // them: `toggle` in modalpin.tsx does exactly `unpinModal` then
     // `forgetModalOpen`. It is done here rather than through the request
@@ -131,19 +143,21 @@ export function PanelCorner({ kind, slug, nid }: {
     // PINNING does need the panel: the rect a fresh pin takes is the panel's
     // own box, so the surface has to exist and measure itself. Open it, then
     // ask it to pin itself.
+    const origin = tabOrigin(e.currentTarget)
     routes.show(kind, nid)
-    requestSurfaceAction(kind, slug, 'pin')
+    requestSurfaceAction(kind, slug, 'pin', origin)
   }
 
-  const popout = () => {
+  const popout = (e: ReactMouseEvent<HTMLButtonElement>) => {
     // Already in a window of its own: raise that window rather than open a
     // second one — the same answer "Show desk window" gives in the agent menu.
     // Redocking is deliberately NOT offered from out here: the title bar's ↙ is
     // in the window, where the reader can see what they are returning.
     const open = windowFor(kind, slug, nid)
     if (open) { revealSurface(open); return }
+    const origin = tabOrigin(e.currentTarget)
     routes.show(kind, nid)
-    requestSurfaceAction(kind, slug, 'popout')
+    requestSurfaceAction(kind, slug, 'popout', origin)
   }
 
   return (

@@ -2,6 +2,7 @@ import { beginOpen } from '../opentiming'
 import { pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap, onViewportGeometry } from './pinspace'
 import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, PopoutWindowControls, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
+import type { SurfaceOrigin } from '../popout'
 import { detachedKind, revealDetachedPanel } from '../windowlife'
 // canvas/modalpin.tsx — PINNING A MODAL TO THE WINDOW (user spec 2026-09-06):
 // "most openable modals in the app should be able to be pinned to the window
@@ -416,19 +417,19 @@ export function toggleNodePanel(kind: string, current: string | null, target: st
  * landed between the press and the mount.
  */
 export type SurfaceRequest = 'pin' | 'popout'
-type SurfaceActor = (request: SurfaceRequest) => void
+type SurfaceActor = (request: SurfaceRequest, origin?: SurfaceOrigin) => void
 const surfaceActors = new Map<string, SurfaceActor>()
-const pendingSurfaceRequests = new Map<string, SurfaceRequest>()
+const pendingSurfaceRequests = new Map<string, { request: SurfaceRequest; origin?: SurfaceOrigin }>()
 
 /** ask the modal surface for `kind` to pin or pop ITSELF out. Runs at once if
  *  that surface is already mounted; otherwise waits for it to mount, which is
  *  what makes "open it and pin it" one press. */
 export const requestSurfaceAction = (kind: string, org: string | null,
-  request: SurfaceRequest): void => {
+  request: SurfaceRequest, origin?: SurfaceOrigin): void => {
   const key = modalPinKey(kind, org)
   const actor = surfaceActors.get(key)
-  if (actor) { actor(request); return }
-  pendingSurfaceRequests.set(key, request)
+  if (actor) { actor(request, origin); return }
+  pendingSurfaceRequests.set(key, { request, origin })
 }
 
 /** the surface's side of the channel: register while mounted, and take
@@ -441,7 +442,7 @@ export const claimSurfaceRequests = (kind: string, org: string | null,
   if (queued !== undefined) {
     pendingSurfaceRequests.delete(key)
     // the surface is mounting as this runs; let the commit finish first
-    queueMicrotask(() => actor(queued))
+    queueMicrotask(() => actor(queued.request, queued.origin))
   }
   return () => { if (surfaceActors.get(key) === actor) surfaceActors.delete(key) }
 }
@@ -751,14 +752,23 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
     }
   }
 
-  const toggle = () => {
-    if (!pinned && pinElsewhere) { pinElsewhere(measureRect(panelRef.current)); return }
+  const toggle = (origin?: SurfaceOrigin) => {
+    const measured = () => {
+      if (!origin || origin.owner.closed) return measureRect(panelRef.current)
+      // A tab adopted into another document reports that window's client
+      // coordinates. Translate to this pin owner's viewport before applying
+      // its existing canvas offset, minimum and visible-area clamp.
+      return { ...origin.rect,
+        x: origin.rect.x + origin.owner.screenX - ownerWindow.screenX,
+        y: origin.rect.y + origin.owner.screenY - ownerWindow.screenY }
+    }
+    if (!pinned && pinElsewhere) { pinElsewhere(measured()); return }
     if (pinned) {
       unpinModal(kind, orgScope)
       forgetModalOpen(kind, orgScope)
     } else {
-      const measured = measureRect(panelRef.current)
-      pinModal(kind, clampRect({...measured, x:measured.x-(bounds?.x ?? 0), y:measured.y-(bounds?.y ?? 0)}, bounds, modalMin), orgScope)
+      const box = measured()
+      pinModal(kind, clampRect({...box, x:box.x-(bounds?.x ?? 0), y:box.y-(bounds?.y ?? 0)}, bounds, modalMin), orgScope)
       rememberModalOpen(kind, orgScope, restore)
     }
   }
@@ -772,13 +782,16 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
   // request to pin an already-pinned window, or to pop out a window already
   // popped out, is nothing rather than its opposite.
   const actLatest = useRef<SurfaceActor>(() => {})
-  actLatest.current = (request: SurfaceRequest) => {
-    if (request === 'pin') { if (!pinned) toggle() }
-    else if (!detached) surface?.open()
+  actLatest.current = (request: SurfaceRequest, origin?: SurfaceOrigin) => {
+    if (request === 'pin') { if (!pinned) toggle(origin) }
+    else if (!detached) {
+      if (origin && !origin.owner.closed) surface?.openFrom(origin)
+      else surface?.open()
+    }
   }
   useEffect(() => {
     if (!pinnable || orgScope === null) return
-    return claimSurfaceRequests(kind, orgScope, (r) => actLatest.current(r))
+    return claimSurfaceRequests(kind, orgScope, (r, origin) => actLatest.current(r, origin))
   }, [pinnable, orgScope, kind])
 
   // THE BAR'S CONTEXT MENU (contextmenu.tsx, 2026-09-07): the three controls

@@ -15,6 +15,12 @@ import { initiatingDocument, keepWorking, noteActionDocument, openSurfaces, pend
 import type { BorrowedSurface } from './windowlife'
 import { followRainbowWindow } from './rainbow'
 
+/** One gesture's client box and its actual window; never persisted. */
+export interface SurfaceOrigin {
+  rect: { x: number; y: number; w: number; h: number }
+  owner: Window
+}
+
 interface SurfaceContextValue {
   document: Document
   overlays: HTMLElement
@@ -23,6 +29,7 @@ interface SurfaceContextValue {
    *  that native window. See popoutRegistry in main/windows.ts. */
   name: string
   open: () => void
+  openFrom: (origin: SurfaceOrigin) => void
   redock: () => void
   error: string
 }
@@ -526,7 +533,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     return declared && declared.w > 0 && declared.h > 0 ? declared : null
   }
 
-  const open = (restoring = false) => {
+  const open = (restoring = false, origin?: SurfaceOrigin) => {
     if (child.current && !child.current.closed) { reveal(); return }
     const transaction = ++epoch.current
     const restore = preservePosition(parts.container)
@@ -543,8 +550,10 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       // sitting where the user was looking at it.
       // The owner's own screen origin is what turns the surface's box, which
       // is in THIS window's client coordinates, into a place on the screen.
-      w = owner.defaultView!.open('', popoutName.current,
-        popupFeatures(layoutKey, surfaceShape(), owner.defaultView, latest.current.minDimensions, restoring, latest.current.exactSourceBox))
+      const sourceOwner = origin?.owner ?? owner.defaultView!
+      w = sourceOwner.open('', popoutName.current,
+        popupFeatures(layoutKey, origin?.rect ?? surfaceShape(), sourceOwner, latest.current.minDimensions,
+          restoring, !!origin || latest.current.exactSourceBox) + (origin ? ',orgtreeClampDisplay=1' : ''))
       if (!w) throw new Error('The browser blocked this window. Allow pop-ups for this site and try again.')
       child.current = w
       const d = w.document
@@ -733,7 +742,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         <button onClick={redock}>Return here</button>
       </DetachedNotice>}
     </div>
-    {ready && createPortal(<SurfaceDocumentContext.Provider value={owner}><SurfaceOverlayContext.Provider value={parts.overlays}><SurfaceContext.Provider value={{ document: owner, overlays: parts.overlays, detached, name: popoutName.current, open, redock, error }}>
+    {ready && createPortal(<SurfaceDocumentContext.Provider value={owner}><SurfaceOverlayContext.Provider value={parts.overlays}><SurfaceContext.Provider value={{ document: owner, overlays: parts.overlays, detached, name: popoutName.current, open, openFrom: origin => open(false, origin), redock, error }}>
       <ObjectMenuBoundary className="movable-events" onPointerDown={detached ? stop : undefined}
         onPointerMove={detached ? stop : undefined} onPointerUp={detached ? stop : undefined}
         onPointerCancel={detached ? stop : undefined} onClick={detached ? stop : undefined}

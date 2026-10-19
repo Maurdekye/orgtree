@@ -205,6 +205,17 @@ export function popoutDisplayBounds(owner: BrowserWindow, rect: Electron.Rectang
     ? rect : target
 }
 
+/** Inline tab launches inherit their box, then fit the matching monitor's
+ * work area. Other exact-frame launches keep their established placement. */
+export function tabPopoutBounds(features: string, rect: Electron.Rectangle,
+  displays: Pick<Electron.Screen, 'getDisplayMatching'>): Electron.Rectangle {
+  if (!features.split(',').some(part => part.trim().toLowerCase() === 'orgtreeclampdisplay=1')) return rect
+  const area = displays.getDisplayMatching(rect).workArea
+  const width = Math.min(rect.width, area.width), height = Math.min(rect.height, area.height)
+  return { x: Math.max(area.x, Math.min(rect.x, area.x + area.width - width)),
+    y: Math.max(area.y, Math.min(rect.y, area.y + area.height - height)), width, height }
+}
+
 export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void, openExternal: OpenExternal = url => shell.openExternal(url), trackPopout?: TrackPopout): void {
   // did-create-window supplies parsed options, not the original feature text.
   // Retain only the named placement accepted by this window's open handler.
@@ -261,8 +272,9 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
     // in styles.css, without which the window cannot be moved at all.
     const minDims = parsePopoutFeatures(details.features)
     const requested = exactPopoutBounds(details.features, window)
-    const exact = requested && process.platform === 'win32' && screen
+    const mapped = requested && process.platform === 'win32' && screen
       ? popoutDisplayBounds(window, requested, screen) : requested
+    const exact = mapped && screen ? tabPopoutBounds(details.features, mapped, screen) : mapped
     if (exact) exactPlacements.set(details.frameName, exact)
     else exactPlacements.delete(details.frameName)
     return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, frame: false,
