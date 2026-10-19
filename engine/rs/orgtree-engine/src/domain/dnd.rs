@@ -79,7 +79,15 @@ mod tests {
         let wake=source.split("async fn on_wake(").nth(1).unwrap().split("fn cancel_warm").next().unwrap();
         assert!(wake.find("dnd::may_steer").unwrap()<wake.find("self.steer_agy()").unwrap());
         assert!(wake.find("dnd::may_steer").unwrap()<wake.find("self.steer_codex()").unwrap());
-        assert!(source.contains("THEN NULL ELSE 64 END"),"released batch has no ordinary row cap");
+        // All mail now shares ordered byte-budget admission (af86189), not
+        // a special uncapped DND release followed by a capped ordinary batch.
+        for name in ["start_turn","steer_codex","steer_agy","on_hook"] {
+            let body=source.split(&format!("async fn {name}(")).nth(1).unwrap();
+            let claim=body.split("RETURNING id, to_jsonb(ot.mail.*)").next().unwrap();
+            let pending=claim.rsplit("SELECT id FROM ot.mail WHERE").next().unwrap();
+            assert!(pending.contains("ORDER BY id FOR UPDATE SKIP LOCKED"),"{name} must admit pending mail in order");
+            assert!(!pending.contains("LIMIT"),"{name} must leave admission to the input-byte budget");
+        }
         assert!(source.contains("prompt::batch(&mails"),"input-byte budget remains authoritative");
     }
     #[test] fn held_and_manually_read_status_are_projected_for_senders() {
