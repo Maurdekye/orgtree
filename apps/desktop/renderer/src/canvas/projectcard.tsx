@@ -30,6 +30,7 @@ import { scratchFolderAction } from '../scratch-folder'
 import { AgentRetireConfirm, projectMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
 import { projectSlotState, slotBadgeText, slotCount, slotsFull } from './slots'
+import { listenerCards, projectListenerState, queueAckMode, queueCard } from './listeners'
 import { readQuickChat } from '../quickchat'
 import { agentTooltipProps } from './agentnav'
 import { useAgentSurfaceRoutes } from './panelcorner'
@@ -121,6 +122,11 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   // with a slot free (the approved slots mockup, user 2026-10-18)
   const slots = projectSlotState(node.id, slotCount(node), tree?.slot_leases ?? [], tree?.watchdogs ?? [])
   const slotBadge = slotBadgeText(slots)
+  // its event listeners at a glance (cyan) and its mail queue (the
+  // fair-queue rose), beside the slots badge (user 2026-10-19)
+  const listenerState = projectListenerState(node.id, tree?.watchdogs ?? [])
+  const listenerBadges = listenerCards(node.id, listenerState)
+  const queue = queueCard(node.id, waiting, node.mail_held ?? 0, queueAckMode(node))
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
   const cls = ['sq', 'project', node.state, deskOpen ? 'desk' : lod, 'edge-' + edge]
@@ -190,6 +196,9 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               title={`${slots.held.length} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
                 + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '')
                 + (slots.line.length ? `; in line: ${slots.line.map((w) => w.agent).join(', ')}` : '')}>{slotBadge}</span>}
+            {listenerBadges.map((c) => <span key={c.key} className={'project-listeners-badge' + (c.bright ? ' bright' : '')}
+              title={c.title}>{c.text}</span>)}
+            {queue && <span className="project-queue-badge" title={queue.title}>{queue.text}</span>}
           </div>
           {/* no description preview here: it lives on the project desk (user 2026-10-18 08:50Z) */}
           {showShortcuts && <div className="sq-actions project-actions">

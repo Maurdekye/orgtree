@@ -737,7 +737,11 @@ export interface Watchdog {
   id: string
   owner: string
   name: string
-  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'usage' | 'fair_queue' | 'slot'
+  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'usage' | 'fair_queue' | 'slot' | 'project_listener' | 'listener_watch'
+  /** a `listener_watch`: armed project listeners that fire it */
+  count?: number
+  /** tool calls run as the owner when the dog fires; results ride its fire mail */
+  fire_actions?: { tool: string; args?: Record<string, unknown> }[]
   accounts?: string[]
   windows?: string[]
   usage_events?: string[]

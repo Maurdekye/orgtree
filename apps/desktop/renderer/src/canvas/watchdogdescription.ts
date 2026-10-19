@@ -17,11 +17,13 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
     file: 'File listener', command: 'Periodic command listener', process: 'Process listener',
     stream: 'Stream listener', activity: 'Activity listener',
     event: `Orgtree event listener · ${target}`, fair_queue: 'Mail queue listener', slot: 'Concurrency slot claim',
+    project_listener: 'Project event listener', listener_watch: 'Project listener watch',
     usage: 'Usage event listener',
   }
   const labels: Record<Watchdog['kind'], string> = {
     file: 'watched file', command: 'command (each interval)', process: 'watched process',
     stream: 'listening command (realtime)', activity: 'watched agent', event: 'engine event', fair_queue: 'project', slot: 'project',
+    project_listener: 'project', listener_watch: 'project',
     usage: 'usage',
   }
   const count = dog.kind === 'event' && ['agents.active', 'agents.live'].includes(dog.target)
@@ -48,6 +50,8 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
       : place != null
         ? `Concurrency slot claim: ${ordinal(place)} in line for ${target}.`
         : `Concurrency slot claim for ${target}; queue position unavailable.`; break
+    case 'project_listener': summary = `Listens on project ${target} and ${alert} each time its event is fired, with the firer's message when one is carried. Every armed listener on the project receives the same fire at the same instant.`; break
+    case 'listener_watch': summary = `Watches the event listeners armed on project ${target} and ${alert} when their count reaches ${dog.count ?? '?'}. Staying at or above the count does not fire again; dropping below and reaching it again does (a continuous watch).`; break
   }
   if (silence && dog.kind !== 'fair_queue') {
     const source = dog.kind === 'file' ? `${pattern} appended lines in ${target}`
@@ -57,10 +61,15 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
       : `${pattern} ${target} engine events`
     summary = `${alert.charAt(0).toUpperCase() + alert.slice(1)} after ${quiet} without ${source}. Only matching events reset this timer; other activity does not.`
   }
+  if (dog.fire_actions?.length) {
+    summary += ` When it fires it also runs ${dog.fire_actions.map((a) => a.tool).join(', ')} as ${dog.owner}, with the authority ${dog.owner} holds then; the results ride its fire mail.`
+  }
   const polling = ['file', 'command', 'process'].includes(dog.kind)
   const cadence = dog.kind === 'slot' ? 'Granted when a project concurrency slot is free; no polling interval.'
     : dog.kind === 'usage' ? 'Cached provider events; clock checks within 15s for stale/reset edges. No provider requests.'
     : dog.kind === 'fair_queue' ? 'Delivered when project mail is waiting; no polling interval.'
+    : dog.kind === 'project_listener' ? 'Delivered when the project event is fired; no polling interval.'
+    : dog.kind === 'listener_watch' ? 'Checked whenever a listener on the project arms, pauses or is spent; no polling interval.'
     : polling ? `Checked every ${dog.interval_s}s`
     : silence ? 'Listens continuously; alerts follow the silence timer.'
     : `Listens continuously · minimum alert gap ${dog.interval_s}s (at most one alert per gap)`
@@ -73,6 +82,8 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
     ? `fires after ${quiet} of silence — ${quiet} without a matching event; resets after each match and fire`
     : dog.kind === 'slot' ? 'once, when granted a project slot'
     : dog.kind === 'fair_queue' ? 'on each assigned project message'
+    : dog.kind === 'project_listener' ? 'on each event fired on the project'
+    : dog.kind === 'listener_watch' ? 'when the armed listener count reaches its count'
     : dog.kind === 'process' ? 'on an observed up-to-down transition'
     : dog.kind === 'command' ? 'on matching output or a command timeout'
     : dog.kind === 'file' ? 'on new matching appended lines'

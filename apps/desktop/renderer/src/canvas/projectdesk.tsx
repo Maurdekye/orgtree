@@ -49,11 +49,13 @@ import { ConfirmModal } from './modals'
 import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
 import { DeadLettersView } from './deaddesk'
+import { ListenersView } from './listenersdesk'
+import { listenerCards, projectListenerState, queueAckMode, queueCard } from './listeners'
 import { DeskJumpCards } from './deskjumpcards'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
 /** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
-type Tab = typeof PROJECT_DESK_TABS[number] | 'slots' | 'dead'
+type Tab = typeof PROJECT_DESK_TABS[number] | 'slots' | 'dead' | 'listeners'
 
 export interface ProjectDeskProps {
   node: CanvasNode
@@ -474,16 +476,23 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const parent = node.parent && map.has(node.parent) && !(bare && node.parent === USER) ? map.get(node.parent)! : null
   const members = node.children.filter((c) => c.state === 'live')
   const slots = projectSlotState(node.id, slotCount(node), tree.slot_leases ?? [], tree.watchdogs ?? [])
+  // its event listeners (cyan cards + the listeners tab) and mail queue
+  // (the magenta card), user 2026-10-19
+  const listenerState = projectListenerState(node.id, tree.watchdogs ?? [])
+  const listenersArmed = listenerState.armed.length
+  const listenerHeaderCards = listenerCards(node.id, listenerState)
+  const queue = queueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node))
+  const hasListeners = listenerState.listeners.length + listenerState.watches.length > 0
   // the Dead letters tab joins them while the project holds open dead letters
   const deadLetters = node.dead_letters ?? 0
-  const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : [])]
+  const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : []), ...(hasListeners ? ['listeners' as const] : [])]
     .filter(v => v !== 'team' || teamCount > 0)
   const shown: Tab = tabs.includes(view) ? view : 'desk'
   const count = (tab: Tab) => tab === 'team' ? teamCount : tab === 'inbox' ? node.mail_pending ?? 0
     : tab === 'docket' ? mine?.length ?? 0
       // its own presentations (point 27, user 2026-10-17 23:28Z)
       : tab === 'presented' ? (node.documents_count ?? node.documents?.length ?? 0)
-        : tab === 'dead' ? deadLetters : 0
+        : tab === 'dead' ? deadLetters : tab === 'listeners' ? listenersArmed : 0
   const replyToDoc = (doc: { id: string; title: string }) => {
     setReplyTarget({ target: { kind: 'document', org: slug, id: doc.id }, title: doc.title || '(untitled)' })
     setReplyFocus((v) => v + 1)
@@ -550,6 +559,13 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               agent desk (user 2026-10-18 11:47Z); rendered only popped out */}
           <PopoutWindowControls />
         </div>
+        {(listenerHeaderCards.length > 0 || queue) && <div className="cc-head-meta project-listeners-meta">
+          {listenerHeaderCards.map((c) => <button key={c.key} type="button"
+            className={'chip project-listeners-card' + (c.bright ? ' bright' : '')}
+            title={c.title} onClick={() => setView('listeners')}>{c.text}</button>)}
+          {queue && <button type="button" className="chip project-queue-card"
+            title={queue.title} onClick={() => setView('inbox')}>{queue.text}</button>}
+        </div>}
         {slots.total > 0 && <div className="cc-head-meta project-slots-meta">
           <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
             title="open the Concurrency slots tab" onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>
@@ -623,6 +639,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {shown === 'slots' && <SlotsView node={node} state={slots} map={map} onJump={onJump} op={op} toast={toast}
         actions={<PanelCorner kind="project-slots" slug={slug} nid={node.id} />} />}
       {shown === 'dead' && <DeadLettersView node={node} map={map} onJump={onJump} op={op} toast={toast} />}
+      {shown === 'listeners' && <ListenersView node={node} dogs={tree.watchdogs ?? []} map={map} onJump={onJump} op={op} toast={toast} />}
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
         members={agents.length} recipients={agents} replyTarget={replyTarget} focusRequest={replyFocus}

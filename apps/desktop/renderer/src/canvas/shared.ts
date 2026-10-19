@@ -1147,6 +1147,8 @@ export interface CanvasNode {
   charter?: string | null
   team_charter?: string | null
   mail_pending?: number
+  /** a project's handed-but-unacked queue jobs (ack mode in flight); 0 for an agent */
+  mail_held?: number
   /** a project's open dead letters (ack-queue jobs out of attempts); 0 for an agent */
   dead_letters?: number
   limit_locked?: boolean

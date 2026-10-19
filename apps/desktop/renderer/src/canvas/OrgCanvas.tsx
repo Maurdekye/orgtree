@@ -108,6 +108,7 @@ import { useSurfaceDocument } from '../popout'
 import { setAttentionLayout } from '../attention/mode'
 import type { CanvasShortcutRef } from '../shell/appshortcuts'
 import { ordinal, projectLineLanes, slotCount, slotLinks, slotPlace } from './slots'
+import { listenerLinks } from './listeners'
 import type { ProjectLine, SlotLease } from './slots'
 
 /** What the org host hands a view rendered in its slot. Every field is
@@ -3719,11 +3720,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const isProjectId = (p: string) => map.get(p)?.kind === 'project'
   const fqLinks = fairQueueLinks(tree.watchdogs ?? [], isProjectId)
   const slLinks = slotLinks(tree.watchdogs ?? [], tree.slot_leases ?? [], isProjectId)
+  const lsLinks = listenerLinks(tree.watchdogs ?? [], isProjectId)
   const lanes = projectLineLanes([
     ...audLines.filter((a) => isProjectId(a.grantor) !== isProjectId(a.grantee))
       .map((a): ProjectLine => ({ key: 'a' + a.grantor + '→' + a.grantee, agent: a.grantor, project: a.grantee })),
     ...fqLinks.map((l): ProjectLine => ({ key: l.key, agent: l.owner, project: l.project })),
     ...slLinks.map((l): ProjectLine => ({ key: l.key, agent: l.owner, project: l.project })),
+    ...lsLinks.map((l): ProjectLine => ({ key: l.key, agent: l.owner, project: l.project })),
   ])
   const shifted = (key: string, s: Seg): Seg => {
     const dy = lanes.get(key) ?? 0
@@ -3827,6 +3830,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }
   for (const l of fqLinks) bowed(l.key, l.owner, l.project, 'edge fq-line' + (l.paused ? ' off' : ''))
   for (const l of slLinks) bowed(l.key, l.owner, l.project, 'edge slot-line' + (l.holding ? '' : ' wait'))
+  // a project event listener's cyan line completes the CMY triplet (user
+  // 2026-10-19): the listener's solid, its watch's dashed, paused dimmed
+  for (const l of lsLinks) bowed(l.key, l.owner, l.project,
+    'edge ' + (l.watch ? 'listener-watch-line' : 'listener-line') + (l.paused ? ' off' : ''))
   if ((tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX)) {
     // no box↔eye tether (user revision) — the panel stands alone; only
     // audience lines to its holders. Those connect FACING sides: an agent
@@ -4267,6 +4274,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             <button key={'dog' + w.id} {...(!w.spent ? objectNavProps('watchdog', w.id, slug) : {})}
               className={'wd-chip ' + w.state
                 + (w.kind === 'slot' ? ' slot' : '')
+                + (w.kind === 'project_listener' || w.kind === 'listener_watch' ? ' listener' : '')
                 + (w.once ? ' oneshot' : '')
                 + (w.spent ? ' spent' : '')}
               style={{ transform: `translate(${p.x}px, ${p.y}px)`,

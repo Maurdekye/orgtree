@@ -227,6 +227,17 @@ export function WatchdogPanel({ slug, dog, dogs, toast, close }: {
         <div className={'chip mono grow wd-cmd' + (expTarget ? ' wd-expand' : '')}
           title={expTarget ? 'click to collapse' : 'click to see the full text'}
           onClick={() => setExpTarget((v) => !v)}>{dog.target}</div>
+        {(dog.fire_actions?.length ?? 0) > 0 && <>
+          <div className="field-label">fire actions</div>
+          <div className="wd-usage-filters">
+            <div className="dim">Run as {dog.owner} when this watchdog fires, with the authority held then; the results ride its fire mail:</div>
+            {dog.fire_actions!.map((a, i) => <div key={i} className="chip mono grow wd-cmd">{a.tool} {JSON.stringify(a.args ?? {})}</div>)}
+          </div>
+        </>}
+        {dog.kind === 'listener_watch' && <>
+          <div className="field-label">listener count</div>
+          <div className="chip mono">{dog.count ?? '?'} armed listeners</div>
+        </>}
         {dog.pattern && dog.kind !== 'process' && dog.kind !== 'fair_queue' && dog.kind !== 'slot' && <>
           <div className="field-label">{description.patternLabel}</div>
           <div className={'chip mono grow wd-cmd' + (expPattern ? ' wd-expand' : '')}
