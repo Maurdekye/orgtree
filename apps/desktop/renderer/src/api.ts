@@ -1179,6 +1179,12 @@ export const setWaitForMcpToolsEnabled = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ wait_for_mcp_tools_enabled: enabled }),
   })
+export const setSuggestAgentFeedback = (enabled: boolean): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ suggest_agent_feedback_enabled: enabled }),
+  })
 export const setIdleDocketRemindersEnabled = (
   enabled: boolean,
 ): Promise<RuntimeSettingsPayload> =>

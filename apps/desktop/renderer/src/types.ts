@@ -1988,6 +1988,8 @@ export interface RuntimeSettingsPayload {
    *  listener, wake one agent under it to arm one. Absent from an older
    *  engine, which reads as on. */
   project_listener_wake_enabled?: boolean
+  /** Default on: suggest redacted, user-approved GitHub feedback. */
+  suggest_agent_feedback_enabled?: boolean
   /** Default off: nudge an idle agent about the unfinished items it owns. */
   idle_docket_reminders_enabled: boolean
   /** Default off: additionally remind agents about their own BLOCKED items,

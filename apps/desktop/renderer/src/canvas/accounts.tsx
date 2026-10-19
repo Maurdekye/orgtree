@@ -23,7 +23,7 @@ import {
   setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
   setMaxConcurrentTurns,
   setProviderEnabled,
-  setProjectListenerWake, setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
+  setSuggestAgentFeedback, setProjectListenerWake, setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
 } from '../api'
 import { desktop } from '../desktop'
@@ -901,6 +901,12 @@ export function AccountsPanel({ toast, close, initialTab }: {
             + 'the project’s mailbox until someone arms one.'} />
       </SetGroup>
       <ShowLegacyModelsToggle />
+      <SetGroup title="Orgtree feedback">
+        <SetToggle label="Suggest agents to give feedback to Orgtree"
+          checked={runtime?.suggest_agent_feedback_enabled !== false}
+          disabled={!runtime || busy} onChange={v => changeRuntime(setSuggestAgentFeedback, v)}
+          hint="When enabled, agents with a connected GitHub account are encouraged to report bugs or issues you or they find to github.com/Maurdekye/orgtree under that account. They show you a redacted draft and wait for your OK before posting. Applies from their next turn." />
+      </SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="mailhub" idBase="app-settings" active={tab === 'mailhub'}>
       <MailHubSettings active={tab === 'mailhub'} />
