@@ -47,7 +47,7 @@ import type { PreparedFixture } from './update-fixture'
 import type { DesktopEvent, RunAsAdministratorState, StartupKind } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
 import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
-import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
+import { popupBounds, sortTrayRows, trayListHtml, trayNavigationSlug } from './traylist'
 import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttentionItems, type TaskbarAttentionItem, type TaskbarOrg, type TaskbarTarget } from './jumplist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
@@ -296,6 +296,10 @@ else {
   // effective theme for native tray/taskbar/window icons and is never persisted.
   let effectiveTheme: VisualTheme | undefined
   let placement: OrgPlacement | undefined
+  const rememberOrgOpen = (org: string) => {
+    try { placement?.recordOrgOpen(org) }
+    catch (error) { console.warn('Recent organization order could not be saved', error) }
+  }
   /** Geometry only. Whether a window should REOPEN next launch is a separate
    *  fact, recorded when it is opened and when the user closes it. */
   const savePlacement = (record: MainWindowRecord) => {
@@ -632,6 +636,7 @@ else {
     const rows = await engine.orgActivity()
     if (seq !== trayPopupSeq || quitting) return   // a newer click or quit superseded this fetch
     trayPopupPending = false
+    const orderedRows = sortTrayRows(rows, placement?.recentOrgs() ?? [])
     // Windows hands the icon rect on click; an empty rect falls back to the
     // cursor so the popup still lands on the right display
     const point = anchor.width > 0 ? { x: anchor.x + Math.round(anchor.width / 2), y: anchor.y } : screen.getCursorScreenPoint()
@@ -673,7 +678,7 @@ else {
       (currentTheme.visualTheme !== 'orgtree' || currentTheme.visualThemeExplicit === true)
       ? currentTheme.visualTheme : undefined
     const theme = effectiveTheme ?? explicitTheme ?? 'claude'
-    try { await popup.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(trayListHtml(rows, theme))) }
+    try { await popup.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(trayListHtml(orderedRows, theme))) }
     catch { if (trayPopup === popup) closeTrayPopup(); return }
     if (trayPopup !== popup || popup.isDestroyed()) return
     popup.show()
@@ -1947,6 +1952,7 @@ else {
       const decision = windows.bindCreated(caller.id, org)
       if (decision.action !== 'bound') return decision
       adoptIdentity(caller)
+      rememberOrgOpen(decision.org)
       return { action: 'bound', windowId: caller.id, org: decision.org } as OrgOpenOutcome
     })
     handle('desktop:set-unsaved-creation', (caller, dirty) => { windows.setUnsavedCreation(caller.id, dirty === true) })
@@ -2690,6 +2696,7 @@ else {
           const record = records.get(outcome.windowId)
           if (record) { adoptIdentity(record); revealWindow(record) }
         }
+        if (outcome.action === 'opened' || outcome.action === 'focused' || outcome.action === 'bound') rememberOrgOpen(outcome.org)
         return outcome
       }
       /** WHAT AN ORDINARY LAUNCH OPENS (settled behavior; the alternative is

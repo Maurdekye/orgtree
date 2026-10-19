@@ -13,6 +13,13 @@
   event has no late-subscriber replay, readiness counts registrations, and
   forced/reclaimed leases do not stop old work. See [recipes](docs/skills/orgtree-workflows/collaboration-patterns/concurrency-primitives/SKILL.md).
   [verified: `domain/{slots,projects,listeners,ops}.rs`, `runtime/watchdogs.rs`; 2026-10-19]
+- The tray left-click popup shows at most ten whole org rows, with native
+  wheel/keyboard/scrollbar overflow and fresh-open scroll at the top. The existing
+  window-state file's validated `recentOrgs` order tracks successful explicit
+  open/focus/bind requests; startup restore, closing and geometry capture do not
+  reorder it. Real deletion clears its entry. The popup remains scriptless and
+  sorted unknown orgs retain engine order. See [tray recency](docs/rust-engine/tray-recency.md).
+  [decided: user 2026-10-19 18:04Z; verified: `main/{traylist,org-placement,index}.ts`]
 
 - Expanded shell rows can show ephemeral Codex/Muse output and genuine ACP
   execution-content snapshots. Keep 32 KiB UTF-8 tails/256 KiB per actor, 4 Hz max,

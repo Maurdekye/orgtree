@@ -282,6 +282,11 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Tray list (user 2026-10-19 18:04Z,4.4.0): at most ten org rows visible,
+most recently opened first, scrolling for the complete inventory and fresh-open
+position at the top. Recency persists independently of startup window membership.
+See [tray recency](tray-recency.md).
+
 Inbox read-on-leave (user 2026-10-19 13:20Z,4.4.0): all ways of leaving an
 opened mail share the same read rule, including filtering and native close.
 The app drains pending read saves before graceful shutdown; it never reads

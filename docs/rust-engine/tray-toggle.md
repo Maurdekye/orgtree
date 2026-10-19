@@ -1,5 +1,10 @@
 # Tray list toggle
 
+The list shows the ten most recently opened orgs at most in its viewport,
+with native scrolling for the complete inventory. The existing window-state
+file records explicit open order separately from restore membership; reopening
+the tray starts at the top. See [recency and overflow](tray-recency.md).
+
 The primary tray click toggles the org activity list. Pending activity reads count
 as open intent: another click cancels the read, and its late result cannot create
 a popup. Every close invalidates the request generation. A loading popup also

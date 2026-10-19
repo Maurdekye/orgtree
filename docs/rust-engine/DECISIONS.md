@@ -1,5 +1,11 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Tray list limit and recency, user 2026-10-19 18:04Z (4.4.0):** show at
+most ten orgs at once in the tray left-click menu, most recently opened first,
+with wheel/keyboard/scrollbar overflow for the rest and top position on reopen.
+Record order durably in existing native window state, independently of startup
+membership. See [tray recency](tray-recency.md).
+
 **Inbox read on every leave, user 2026-10-19 13:20Z (4.4.0):** an opened
 unread mail becomes read when its body stops being displayed, including filter,
 reference, folder, tab, modal, pin, pop-out and app-close routes. One committed

@@ -43,7 +43,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fitWindow, type Bounds, type Placement } from './window-placement'
-import type { OrgWindowIdentity } from '../../../packages/contracts/desktop-window'
+import { isOrgSlug, type OrgWindowIdentity } from '../../../packages/contracts/desktop-window'
 
 /** One remembered position. `key` is `homepage` or `org:<slug>`; a Create
  *  window is never saved, because its only content is a draft that is
@@ -62,6 +62,8 @@ export interface OrgPlacementFile {
   /** The startup reopen membership: the window keys that were open when the
    *  app was last shut down, in the order they should come back. */
   session: string[]
+  /** Explicit successful org opens, newest first; not startup membership. */
+  recentOrgs?: string[]
 }
 
 export const HOMEPAGE_KEY = 'homepage'
@@ -125,12 +127,15 @@ export function migratePlacementFile(raw: unknown): OrgPlacementFile {
     // Membership names windows; a key with no geometry is not one we can place.
     ? value.session.filter((key): key is string => typeof key === 'string' && !!key && known.has(key))
     : []
+  const recentOrgs = Array.isArray(value.recentOrgs)
+    ? [...new Set(value.recentOrgs.filter(isOrgSlug))] : []
   return {
     version: 2,
     ...(validPlacement(value.default) ? { default: value.default } : {}),
     geometry,
     // De-duplicated: one window per key, whatever the file says.
     session: [...new Set(session)],
+    ...(recentOrgs.length ? { recentOrgs } : {}),
   }
 }
 
@@ -158,6 +163,15 @@ export class OrgPlacement {
   /** Every position ever captured. For diagnostics and for asking whether a
    *  key has a remembered position; NEVER the restore list. */
   geometry(): readonly SavedWindowPlacement[] { return this.value.geometry }
+
+  /** Opening/focusing an org is a user navigation event. Startup restoration,
+   * closing and geometry capture must not rewrite this independent order. */
+  recentOrgs(): string[] { return [...(this.value.recentOrgs ?? [])] }
+  recordOrgOpen(org: string): void {
+    if (!isOrgSlug(org) || this.value.recentOrgs?.[0] === org) return
+    this.value.recentOrgs = [org, ...(this.value.recentOrgs ?? []).filter(slug => slug !== org)]
+    this.write()
+  }
 
   restoreWindow(key: string, areas: Bounds[]): Placement | undefined {
     const saved = this.value.geometry.find(entry => entry.key === key)?.placement ?? this.value.default
@@ -223,6 +237,7 @@ export class OrgPlacement {
     const before = JSON.stringify(this.value)
     this.value.geometry = this.value.geometry.filter(entry => entry.key !== key)
     this.value.session = this.value.session.filter(entry => entry !== key)
+    if (this.value.recentOrgs) this.value.recentOrgs = this.value.recentOrgs.filter(slug => slug !== org)
     if (JSON.stringify(this.value) !== before) this.write()
   }
 

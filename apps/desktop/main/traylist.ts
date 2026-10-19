@@ -51,6 +51,18 @@ export function orgActivityRows(raw: unknown): OrgActivityRow[] | null {
   return out
 }
 
+/** Explicit opens are most-recent-first. Orgs without history retain the
+ * current engine listing order; stale history cannot add an absent org. */
+export function sortTrayRows(rows: readonly OrgActivityRow[] | null, recent: readonly string[]): OrgActivityRow[] | null {
+  if (rows === null) return null
+  const rank = new Map<string, number>()
+  for (const [index, slug] of recent.entries()) if (!rank.has(slug)) rank.set(slug, index)
+  return [...rows].sort((a, b) => {
+    const ar = rank.get(a.slug) ?? Infinity, br = rank.get(b.slug) ?? Infinity
+    return ar === br ? 0 : ar - br
+  })
+}
+
 /** A reserved, non-resolvable origin (.invalid, RFC 2606): row hrefs are
  *  `<prefix><slug>`, the will-navigate/window-open interceptors cancel the
  *  navigation unconditionally and act only on URLs this parser accepts. */
@@ -66,6 +78,7 @@ const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, c =>
 
 export const TRAY_ROW_H = 28
 export const TRAY_LIST_W = 200
+export const TRAY_MAX_VISIBLE_ROWS = 10
 // The unavailable sentence is wider than an org row's ellipsized name.
 const TRAY_STATUS_W = 260
 const TRAY_LIST_PAD = 12
@@ -97,7 +110,7 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
     ? '<div class="empty">The organization list is unavailable.</div>'
     : rows.length === 0
       ? '<div class="empty">No organizations yet.</div>'
-      : '<div class="list">' + rows.map(r =>
+      : '<div class="list" tabindex="0" autofocus role="navigation" aria-label="Organizations">' + rows.map(r =>
         `<a class="row${r.attention > 0 ? ' attn' : ''}" href="${TRAY_NAV_PREFIX}${escapeHtml(r.slug)}"` +
         ` title="${escapeHtml(r.name)} — ${r.working} active / ${r.live} hired` +
         `${r.attention > 0 ? ` — ${r.attention} need${r.attention === 1 ? 's' : ''} your attention` : ''}">` +
@@ -110,11 +123,12 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
     '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">' +
     '<style>' +
     `:root{color-scheme:dark;--accent:${accent}}*{box-sizing:border-box;margin:0;padding:0}` +
-    'html,body{background:#181818;color:#dedede;overflow-x:hidden}' +
+    'html,body{height:100%;background:#181818;color:#dedede;overflow:hidden}' +
     'body{font:13px \'Segoe UI\',system-ui,sans-serif;border:1px solid #333;padding:5px}' +
-    `.list{display:grid;grid-template-columns:minmax(18px,max-content) minmax(0,1fr) max-content;line-height:${TRAY_ROW_H - 10}px}` +
+    `.list{display:grid;grid-template-columns:minmax(18px,max-content) minmax(0,1fr) max-content;line-height:${TRAY_ROW_H - 10}px;` +
+    'height:100%;overflow-y:auto;scrollbar-gutter:stable;scroll-snap-type:y mandatory;outline:none}' +
     '.row{display:grid;grid-column:1/-1;grid-template-columns:subgrid;align-items:center;' +
-    'border-radius:6px;padding:5px 0;color:inherit;text-decoration:none;cursor:default}' +
+    'border-radius:6px;padding:5px 0;color:inherit;text-decoration:none;cursor:default;scroll-snap-align:start}' +
     '.row>span{padding:0 5px;white-space:nowrap;min-width:0}' +
     '.row:hover{background:color-mix(in srgb,var(--accent) 10%,transparent);color:#f0f0f0}' +
     '.row:focus-visible{background:color-mix(in srgb,var(--accent) 15%,transparent);color:#fff;outline:none}' +
@@ -136,10 +150,11 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
  *  the taskbar is at the bottom (the normal case), below when there is no
  *  room above — always clamped inside the icon's display work area. */
 export function popupBounds(anchor: Rect, workArea: Rect, rowCount: number): Rect {
-  const height = Math.min(
-    Math.max(rowCount, 1) * TRAY_ROW_H + TRAY_LIST_PAD,
-    Math.max(TRAY_ROW_H + TRAY_LIST_PAD, Math.round(workArea.height * 0.6)))
-  const width = rowCount > 0 ? TRAY_LIST_W : TRAY_STATUS_W
+  const available = Math.min(workArea.height, Math.round(workArea.height * 0.6))
+  const visibleRows = Math.min(Math.max(rowCount, 1), TRAY_MAX_VISIBLE_ROWS,
+    Math.max(1, Math.floor((available - TRAY_LIST_PAD) / TRAY_ROW_H)))
+  const height = Math.min(workArea.height, visibleRows * TRAY_ROW_H + TRAY_LIST_PAD)
+  const width = Math.min(workArea.width, rowCount > 0 ? TRAY_LIST_W : TRAY_STATUS_W)
   let x = Math.round(anchor.x + anchor.width / 2 - width / 2)
   x = Math.max(workArea.x, Math.min(x, workArea.x + workArea.width - width))
   let y = anchor.y - height - 4
