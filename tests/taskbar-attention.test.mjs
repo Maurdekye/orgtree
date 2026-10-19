@@ -6,7 +6,7 @@ import {createRequire} from 'node:module'
 const req=createRequire(process.env.ORGTREE_TEST_DEPS||import.meta.url)
 const {buildSync}=req('esbuild')
 const {transformSync}=req('esbuild')
-function load(file){const module={exports:{}};vm.runInNewContext(buildSync({entryPoints:[file],bundle:true,write:false,platform:'node',format:'cjs'}).outputFiles[0].text,{module,exports:module.exports,require:req,Buffer});return module.exports}
+function load(file){const module={exports:{}};vm.runInNewContext(buildSync({entryPoints:[file],bundle:true,write:false,platform:'node',format:'cjs'}).outputFiles[0].text,{module,exports:module.exports,require:req,Buffer,process});return module.exports}
 const list=load('apps/desktop/main/jumplist.ts'),policy=load('apps/desktop/main/policy.ts')
 const plain=x=>JSON.parse(JSON.stringify(x))
 const row=(kind,id,extra={})=>({kind,id,org:'alpha',title:'A title',body:'Details',agent:'helper',source_id:'source',...extra})
