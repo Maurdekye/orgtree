@@ -9,6 +9,12 @@
 
 # AGENTS.md — working on Orgtree
 
+- Presentation lists share unread mail's bold/accent title and brighter metadata
+  for new or replaced documents, using existing `viewed_at` plus `docviewed` marks.
+  Shared gallery rows subscribe to viewed changes; successful user opens clear
+  the highlight across surfaces. Agent reads do not consume this user state.
+  [decided: user 2026-10-19 13:17Z; verified: `canvas/{gallery,docviewed,docs}.ts*`, `http/docs.rs`]
+
 
 - The persistent app-wide taskbar badge reads existing native app-feed unread
   mail inventory and attention totals, independent of toast preferences/focus.

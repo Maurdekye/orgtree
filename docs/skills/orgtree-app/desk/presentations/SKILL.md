@@ -14,6 +14,8 @@ The org gallery groups documents from currently hired agents first, with Show re
 
 Open a card to read its Markdown or HTML preview. The reader identifies title/author/time and supported references, plus applicable reply/dismiss/download controls. A missing/failed load says so instead of manufacturing an empty document. An HTML card offers its explicit prototype/new-tab route; previewing content does not grant it an agent's tool authority.
 
+Presentation lists highlight documents you have never opened, or that changed since your last view, like unread mail: a bold accent title and brighter metadata. This applies to the full Presentations window and agent/project Presented tabs, including pinned and popped-out views. Opening a presentation clears its highlight through the existing saved user viewed state. An agent reading it does not mark it viewed by you.
+
 Pin/window controls change the reading surface. Closing a reader leaves the presentation in its collection; Dismiss removes its displayed card through the document operation. These are different from retiring its author.
 
 Organization and agent presentation modals collapse the list into a menu-controlled overlay when their reading area is 896 CSS pixels wide or less. The breakpoint follows that area's width in a popout too, including snap-layout resizing; widening restores the list column. Resizing and moving the panel retain selection, filters and list position. Inline desk lists remain columns.
