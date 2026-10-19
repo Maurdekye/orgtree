@@ -45,6 +45,7 @@ export function useReadOnLeave<T extends ReadableMail>(scope: string, displayed:
   const committed = useRef<{scope: string; mails: Map<string, {mail: T; read: NonNullable<typeof read>; attempted: boolean}>}>(
     {scope, mails: new Map()})
   const reader = useRef<Reader>({owner, flush: () => {}})
+  const lifetime = useRef(0)
   reader.current.owner = owner
   const leave = (item: {mail: T; read: NonNullable<typeof read>; attempted: boolean}) => {
     if (item.attempted || !item.mail._wait || item.mail._ask || !item.mail.id) return
@@ -65,8 +66,19 @@ export function useReadOnLeave<T extends ReadableMail>(scope: string, displayed:
   })
   useLayoutEffect(() => {
     const current = reader.current
+    lifetime.current++
     readers.add(current)
-    return () => { current.flush(); readers.delete(current) }
+    return () => {
+      const ended = ++lifetime.current
+      // StrictMode simulates an unmount then immediately sets effects up again
+      // on the same committed pane. That is not a user leaving its mail.
+      // Retain registration until this microtask so native close can still
+      // include a real unmount whose save has not started yet.
+      queueMicrotask(() => {
+        if (lifetime.current !== ended) return
+        current.flush(); readers.delete(current)
+      })
+    }
   }, [])
   useLayoutEffect(() => {
     const close = (event: Event) => waitFor(event, owner)

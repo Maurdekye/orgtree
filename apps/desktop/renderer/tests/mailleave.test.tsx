@@ -2,6 +2,7 @@ import './harness'
 import { flush, inAct, JSDOM, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { StrictMode } from 'react'
 import { MailList } from '../src/canvas/mail'
 import { SurfaceDocumentOwner } from '../src/popout'
 import type { MailListProps } from '../src/canvas/mail'
@@ -148,4 +149,13 @@ test('unopened lists, sent copies and question cards do not create mail reads', 
     await view.unmount()
   }
   assert.deepEqual(reads, [])
+})
+
+test('StrictMode effect rehearsal is not leaving the initially displayed mail', async () => {
+  const reads: string[] = []
+  const view = await mountView(<StrictMode><MailList pending={rows} jumpTo="m0" onRead={m => { reads.push(m.id!) }}/></StrictMode>, el => el)
+  await tick(); assert.match(pane(view.el), /message 0/)
+  assert.deepEqual(reads, [])
+  await view.unmount(); await tick()
+  assert.deepEqual(reads, ['m0'])
 })
