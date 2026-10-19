@@ -340,9 +340,10 @@ agents under the project".
     awaiting ack, acked, released, ack of, dead letter, purged); the preview. In the project's
     own mailbox a mail nobody holds yet puts its kind chip on that middle line too. Nothing in
     it wraps: the recipient yields with an ellipsis [user 2026-10-18 14:24Z].
-  - The desk tab holds the chat desk's jump cards (up to the parent, down to its live members)
-    and the Summary editor: Markdown (`md`) while unfocused, a monospace text box while
-    focused. Leaving the box saves a change with `set_description`; Escape drops it.
+  - Jump cards on every tab, as on the agent desk [user 2026-10-19 19:58Z]: up to the parent
+    in the header's card row, down to its live members in a row above the message box. The
+    desk tab holds the Summary editor: Markdown (`md`) while unfocused, a monospace text box
+    while focused. Leaving the box saves a change with `set_description`; Escape drops it.
   - Header: active/hired agents under it (live agents, nested projects crossed, project nodes
     not counted; active = a turn executing, the org list's rule) with the spinner while any is
     active; halt all / unhalt all (the agent batch-halt confirmation); dissolve (the
