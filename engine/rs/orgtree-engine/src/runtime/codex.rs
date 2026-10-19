@@ -979,6 +979,39 @@ mod sandbox_tests {
 }
 
 #[cfg(test)]
+mod elicitation_stream_tests {
+    use super::*;
+    use tokio::io::AsyncWriteExt;
+
+    /// A fake app-server's request must stay answerable while its unrelated
+    /// notifications keep flowing; disconnect must cancel, not invent consent.
+    #[tokio::test]
+    async fn elicitation_stream_waits_for_human_without_blocking_and_cancels_on_disconnect() {
+        let engine = Engine::for_tests(PathBuf::from("C:/orgtree-build/compaction-cmds-sol/elicit-test"));
+        let caller = Caller { org_id:1, org_slug:"fixture".into(), agent_id:7, name:"fixture".into() };
+        let (actor, mut events) = mpsc::unbounded_channel();
+        let (writer, mut responses) = mpsc::unbounded_channel();
+        let (_waiters, waiting) = mpsc::unbounded_channel();
+        let (mut fake, reader) = tokio::io::duplex(8192);
+        let process = uuid::Uuid::new_v4();
+        let task = tokio::spawn(read_stdout(engine,Box::new(reader),caller,actor,process,writer,waiting,
+            Policy {may_write:true,may_shell:true}));
+        fake.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":\"elicit-7\",\"method\":\"mcpServer/elicitation/request\",\"params\":{\"serverName\":\"fake-browser\",\"threadId\":\"thread-1\",\"turnId\":null,\"mode\":\"form\",\"message\":\"Allow opening the synthetic page?\",\"requestedSchema\":{\"type\":\"object\",\"properties\":{\"allow\":{\"type\":\"boolean\"}},\"required\":[\"allow\"]}}}\n").await.unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(80),responses.recv()).await.is_err(),
+            "a human permission request must not receive an automatic refusal or approval");
+        fake.write_all(b"{\"method\":\"thread/status/changed\",\"params\":{\"threadId\":\"thread-1\"}}\n").await.unwrap();
+        assert!(matches!(tokio::time::timeout(Duration::from_secs(2),events.recv()).await.unwrap(),
+            Some(AgentMsg::Codex(p,v)) if p==process && v["method"]=="thread/status/changed"));
+        drop(fake);
+        task.await.unwrap();
+        let response:Value=serde_json::from_str(&tokio::time::timeout(Duration::from_secs(2),responses.recv()).await.unwrap().unwrap()).unwrap();
+        assert_eq!(response["id"],"elicit-7");
+        assert_eq!(response["result"]["action"],"cancel");
+        assert!(response.get("error").is_none());
+    }
+}
+
+#[cfg(test)]
 mod fast_mode_tests {
     use super::*;
 
