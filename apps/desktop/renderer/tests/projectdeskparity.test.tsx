@@ -30,8 +30,8 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import * as projectdesk from '../src/canvas/projectdesk'
 import { SlotsView } from '../src/canvas/slotsdesk'
 import { setHideRetiredOn, USER } from '../src/canvas/shared'
-import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
-import type { MailRow, TreePayload, WorkItem } from '../src/types'
+import type { CanvasNode, MailRow } from '../src/canvas/shared'
+import type { OpRequest, OpResult, TreePayload, WorkItem } from '../src/types'
 
 const { ProjectDesk } = projectdesk
 const noop = () => {}
@@ -308,7 +308,7 @@ test('G21 the project\'s inbox window is its desk tab\'s mailbox: project rows, 
   const website = project('website', [agent('dev1')], { mail_pending: 1 } as Partial<CanvasNode>)
   const props = { node: website, slug: 'org', tree: { slug: 'org', roots: [] } as unknown as TreePayload, map: mapOf(website),
     op: () => Promise.resolve({ purged: 1 } as unknown as OpResult), toast: noop, refs, close: noop }
-  const view = await mountView(<Window {...props as never} />, (el) => el)
+  const view = await mountView(<Window {...props as unknown as Parameters<typeof Window>[0]} />, (el) => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(4) })
   // the window is portaled out of the mount
