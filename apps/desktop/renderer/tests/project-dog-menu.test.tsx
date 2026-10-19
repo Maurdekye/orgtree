@@ -10,6 +10,8 @@ import { AgentSurfaceRoutesProvider } from '../src/canvas/panelcorner'
 import { DeskDogsProvider, DogChip } from '../src/canvas/deskdogs'
 import { ListenersView } from '../src/canvas/listenersdesk'
 import { SlotsView } from '../src/canvas/slotsdesk'
+import { MailListenersView } from '../src/canvas/maillisteners'
+import { mailListenerState } from '../src/canvas/listeners'
 import { projectSlotState } from '../src/canvas/slots'
 import { WatchdogSatellite } from '../src/canvas/watchdogchip'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -84,4 +86,17 @@ test('semantic slot line keeps its seven table cells, coloured time and nested a
  await right(row.querySelector('.slot-rest')!);assert.ok(projectRow());await inAct(()=>projectRow()!.click());assert.deepEqual(focused,['build'])
  await right(row.querySelector('[data-agent-nav="worker"]')!);assert.equal(projectRow()===undefined,true,'inner agent link keeps its menu')
  await inAct(()=>Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(e=>e.textContent==='Focus')!.click());assert.deepEqual(focused,['build','worker'])
+})
+
+test('mail listener rows (the inbox listeners table) are watchdog rows; the agent link keeps its own menu',async t=>{
+ const w=dog('fair_queue',{once:false}),node={id:'build',kind:'project',state:'live',children:[]} as unknown as CanvasNode
+ const focused:string[]=[]
+ function Register(){useProvideAgentNav(id=>[{label:'Focus',onSelect:()=>focused.push(id)}]);return null}
+ const map=new Map([['worker',{id:'worker',state:'live',tier:'haiku',children:[]} as unknown as CanvasNode]])
+ const view=await mountView(<AgentNavProvider><ObjectNavProvider><Register/><ObjectNavHost {...{isProject:(id:string)=>id==='build'}} org="org" dogs={[w]} openDog={()=>{}} toast={()=>{}}/><DeskDogsProvider value={{org:'org',dogs:[w],open:()=>{}}}><ObjectMenuBoundary><MailListenersView node={node} state={mailListenerState('build',[w])} map={map} onJump={id=>focused.push('jump:'+id)} rows={[]} ack={false}/></ObjectMenuBoundary></DeskDogsProvider></ObjectNavProvider></AgentNavProvider>,el=>el)
+ t.after(view.unmount);await flush()
+ const row=view.el.querySelector('.mail-listeners-table tr.listener-row')!
+ assert.equal(row.tagName,'TR');assert.equal(row.getAttribute('data-object-nav'),'watchdog');assert.equal(row.getAttribute('data-object-id'),w.id)
+ await right(row.querySelector('.listener-handed')!);assert.ok(projectRow(),'the row borrows the dog menu');assert.ok(labels().includes('Open details'))
+ await right(row.querySelector('[data-agent-nav="worker"]')!);assert.equal(projectRow()===undefined,true,'inner agent link keeps its menu')
 })
