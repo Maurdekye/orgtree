@@ -22,7 +22,7 @@ test('standalone slots reuses its live view, handles disabled capacity and close
   assert.ok(document.querySelector('button[title="Open in new window"]'),'standard pop-out control')
   await v.render(render(node(0)));assert.match(document.body.textContent??'',/This project has no concurrency slots/)
   assert.equal(document.querySelector('.project-slots')===null,true);assert.equal(reads,1)
-  await inAct(()=>requestSurfaceAction('project-slots','slot-host','close'))
+  await inAct(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})))
   assert.equal(closed,1)
 })
 

@@ -416,7 +416,7 @@ test('slot sections share columns with a separate line position and blank non-ap
   assert.deepEqual([...table.querySelectorAll('thead th')].map(el => el.textContent),
     ['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Slots', 'Action'])
   assert.equal(table.querySelectorAll('tbody').length, 3)
-  assert.equal([...table.querySelectorAll('.slot-row')].every(row => row.children.length === 7), true)
+  assert.equal([...table.querySelectorAll('.slot-row')].every(row => row.children.length === 8), true)
   assert.equal(table.querySelector('.slots-holding .slot-position')?.textContent, '')
   assert.equal(table.querySelector('.slots-history .slot-position')?.textContent, '')
   assert.equal(table.querySelector('.slots-line .slot-position')?.textContent, '1st')
