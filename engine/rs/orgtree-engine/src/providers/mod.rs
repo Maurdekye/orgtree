@@ -1231,6 +1231,56 @@ pub fn start(engine: &Arc<Engine>) {
 }
 
 #[cfg(test)]
+mod model_version_tests {
+    use super::*;
+
+    fn assert_named_version(name: &str, version: &str, expected: &str) {
+        let tier = catalog::tier(name).unwrap();
+        assert_eq!(catalog::display_name(tier, None).as_deref(), Some(expected));
+        assert_eq!(catalog::display_name(tier, Some(version)).as_deref(), Some(expected));
+        assert_eq!(catalog::model_for(name, Some(version)), tier.model);
+        let row = tier_rows(tier.provider, true).into_iter()
+            .find(|row| row["tier"] == name).unwrap();
+        assert_eq!(row["display_name"], expected);
+        assert_eq!(row["display_versions"][version], expected);
+    }
+
+    #[test]
+    fn astra_names_version_six_in_the_provider_payload() {
+        assert_named_version("astra", "6", "ChatGPT Astra 6");
+    }
+
+    #[test]
+    fn legacy_terra_names_its_existing_model_version() {
+        assert_named_version("terra", "5.6", "ChatGPT Terra 5.6");
+    }
+
+    #[test]
+    fn legacy_pro_names_its_existing_model_version() {
+        assert_named_version("pro", "3.1", "Gemini Pro 3.1");
+    }
+
+    #[test]
+    fn luna_retains_version_six_and_older_pins() {
+        assert_named_version("luna", "6", "ChatGPT Luna 6");
+        let luna = catalog::tier("luna").unwrap();
+        assert_eq!(catalog::display_name(luna, Some("5.6")).as_deref(), Some("ChatGPT Luna 5.6"));
+        assert_eq!(catalog::model_for("luna", Some("5.6")), "gpt-5.6-luna");
+    }
+
+    #[test]
+    fn every_numbered_static_model_has_a_default_display_version() {
+        for tier in catalog::TIERS.iter().filter(|tier| tier.model.bytes().any(|c| c.is_ascii_digit())) {
+            let version = tier.versions.iter().find(|(_, model)| *model == tier.model)
+                .unwrap_or_else(|| panic!("{} lacks its default model version", tier.tier)).0;
+            assert!(catalog::display_name(tier, None).unwrap().ends_with(&format!(" {version}")));
+        }
+        assert_eq!(catalog::display_name(catalog::tier("gpt-reserve").unwrap(), None).as_deref(),
+            Some("ChatGPT Reserve"));
+    }
+}
+
+#[cfg(test)]
 mod conditional_tests {
     use super::agy_offers;
 

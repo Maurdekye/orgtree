@@ -10,7 +10,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { ActiveAgentSummary } from '../src/App'
 import { NodeConfig } from '../src/canvas/modals'
-import { CODEX_TIER_SEAT, setOpenRouterTiers, TIER_SEAT, USER } from '../src/canvas/shared'
+import { CODEX_TIER_SEAT, MODEL_VERSIONS, setOpenRouterTiers, TIER_SEAT, USER } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpRequest, OpResult, ProviderInfo, TreeNode, TreePayload } from '../src/types'
 
@@ -84,6 +84,24 @@ const options = (el: HTMLElement) =>
   [...el.querySelectorAll<HTMLOptionElement>('.model-switch option')]
 const option = (el: HTMLElement, tier: string) =>
   options(el).find((o) => o.value === tier)!
+
+for (const [tier, version] of [['astra', '6'], ['terra', '5.6'], ['pro', '3.1']]) {
+  configTest(`${tier} does not offer a picker for its single model version`, async (mount) => {
+    const previous = MODEL_VERSIONS[tier]
+    // Exercise the one-entry guard even if the renderer omits this catalog entry.
+    MODEL_VERSIONS[tier] = [version]
+    try {
+      const { el } = await mount({ node: node(tier) })
+      assert.ok(el.querySelector('.model-switch'), 'the model settings rendered')
+      assert.equal(el.textContent?.includes('Model version'), false)
+      assert.equal([...el.querySelectorAll('select option')]
+        .some(o => o.textContent === `latest (${version})`), false)
+    } finally {
+      if (previous === undefined) delete MODEL_VERSIONS[tier]
+      else MODEL_VERSIONS[tier] = previous
+    }
+  })
+}
 
 for (const [tier, seat, latest, older] of [
   ['sol', 2, '6.1', ['6', '5.6']], ['luna', 0.1, '6', ['5.6']]] as const) {

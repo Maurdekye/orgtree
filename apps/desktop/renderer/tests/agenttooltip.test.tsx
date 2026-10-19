@@ -11,11 +11,30 @@ import { AgentLink, ProjectLink } from '../src/canvas/identity'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 import type { AgentTooltipInfo } from '../src/canvas/agentnav'
+import { agentTooltipInfo } from '../src/canvas/OrgCanvas'
 
 function RegisteredLink({ id, title }: { id: string; title: string }) {
   const info: AgentTooltipInfo = { title }
   useProvideAgentNav(() => [], target => target === id ? info : null)
   return <button type="button" {...agentNavProps(id)}>{id}</button>
+}
+
+for (const [tier, family] of [['astra', 'Astra'], ['luna', 'Luna']]) {
+  test(`${family} version six reaches the native tooltip from catalog display data`, async t => {
+    const displayName = `ChatGPT ${family} 6`
+    const info = agentTooltipInfo({ id: 'worker', state: 'live', tier,
+      model_id: `gpt-6-${tier}`, effort_effective: 'xhigh', scope: {} },
+    [{ id: 'openai', tiers: [{ tier, display_name: displayName,
+      display_versions: { '6': displayName } }] }])!
+    const v = await mountView(<AgentNavProvider>
+      <RegisteredLink id="worker" title={info.title} />
+    </AgentNavProvider>, host => host)
+    t.after(() => v.unmount())
+    await flush()
+    const link = v.el.querySelector<HTMLElement>('[data-agent-tooltip="worker"]')!
+    await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+    assert.equal(link.title, `${displayName} \u00b7 xhigh`)
+  })
 }
 
 test('agent links set the native title and do not render a custom tooltip', async () => {
