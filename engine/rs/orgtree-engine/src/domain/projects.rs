@@ -242,30 +242,30 @@ pub async fn dispatch(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
         if steps.is_empty() { break; }
         let mut wakes: HashMap<i64, bool> = HashMap::new();
         for step in steps {
-        if step.spent {
-            crate::runtime::watchdogs::disarm(engine, step.dog_row);
-        }
-        changes::notify_id(engine, org_id, vec![
-            Change::Mailbox(project),
-            Change::Mailbox(step.watcher_id),
-            Change::Watchdogs,
-            Change::Spark { from: step.project.clone(), to: step.handed.watcher.clone() },
-            Change::EngineEvent(crate::runtime::watchdogs::events::event(
-                "mail.waiting",
-                crate::runtime::watchdogs::events::Scope::Agent(org_id, step.watcher_id),
-                json!({ "agent_id": step.watcher_id, "mail_id": step.handed.copy }),
-            )),
-        ]);
-        *wakes.entry(step.watcher_id).or_default() |= !step.notice;
-        out.push(step.handed);
+            if step.spent {
+                crate::runtime::watchdogs::disarm(engine, step.dog_row);
+            }
+            changes::notify_id(engine, org_id, vec![
+                Change::Mailbox(project),
+                Change::Mailbox(step.watcher_id),
+                Change::Watchdogs,
+                Change::Spark { from: step.project.clone(), to: step.handed.watcher.clone() },
+                Change::EngineEvent(crate::runtime::watchdogs::events::event(
+                    "mail.waiting",
+                    crate::runtime::watchdogs::events::Scope::Agent(org_id, step.watcher_id),
+                    json!({ "agent_id": step.watcher_id, "mail_id": step.handed.copy }),
+                )),
+            ]);
+            *wakes.entry(step.watcher_id).or_default() |= !step.notice;
+            out.push(step.handed);
         }
         for (watcher, wake) in wakes {
-        if wake {
-            crate::runtime::wake(engine, org_id, watcher);
-        } else if let Some(h) = engine.agents.get(watcher) {
-            // a running agent also receives notices at its next tool boundary
-            h.send(crate::runtime::AgentMsg::Wake);
-        }
+            if wake {
+                crate::runtime::wake(engine, org_id, watcher);
+            } else if let Some(h) = engine.agents.get(watcher) {
+                // a running agent also receives notices at its next tool boundary
+                h.send(crate::runtime::AgentMsg::Wake);
+            }
         }
     }
     Ok(out)
@@ -345,63 +345,63 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
         let sender: Option<i64> = m.get(3);
         let others: Vec<Watcher> = eligible.iter().filter(|w| !skip_own || Some(w.owner) != sender).cloned().collect();
         let Some(w) = pick(&others).cloned() else { continue };
-    let mail_id: i64 = m.get(0);
-    let mail_uid: String = m.get(1);
-    let body: String = m.get(7);
-    let notice = m.get::<_, bool>(6) || w.notice;
-    let copy = uid("m");
-    let via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack } });
-    tx.execute(
-        "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
-                              recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason,
-                              client_op, state, net_id, net_hub, replies, extra)
-         VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18, $19, $20)",
-        &[
-            &copy, &org_id, &m.get::<_, String>(2), &m.get::<_, Option<i64>>(3), &m.get::<_, Option<i32>>(4), &w.owner,
-            &w.owner_name, &m.get::<_, String>(5), &notice, &body, &m.get::<_, Value>(8), &m.get::<_, Option<Value>>(9),
-            &m.get::<_, Option<Value>>(10), &m.get::<_, bool>(11), &m.get::<_, Option<String>>(12),
-            &m.get::<_, Option<String>>(16), &m.get::<_, Option<String>>(13), &m.get::<_, Option<String>>(14),
-            &m.get::<_, Value>(15), &via,
-        ],
-    )
-    .await?;
-    tx.execute(
-        "UPDATE ot.mail SET state = 'read', read_at = now(), delivered_at = coalesce(delivered_at, now()),
-                extra = extra || jsonb_build_object('claimed', jsonb_build_object('by', $2::text, 'by_id', $3::bigint,
-                        'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean, 'wakes', 0),
-                        'attempts', coalesce((extra->>'attempts')::int, 0) + 1,
-                        'attempt_log', coalesce(extra->'attempt_log', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
-                            'n', coalesce((extra->>'attempts')::int, 0) + 1, 'by', $2::text, 'by_id', $3::bigint,
-                            'copy', $5::text, 'at', now())))
-          WHERE id = $1",
-        &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack],
-    )
-    .await?;
-    let sender: String = m.get(2);
-    let ring = json!([{ "at": iso(Utc::now()), "gist": gist(&format!("mail from {sender}: {body}"), 200) }]);
-    let served: DateTime<Utc> = tx
-        .query_one(
-            "UPDATE ot.watchdogs SET fired = fired + 1, last_fired = clock_timestamp(),
-                    events = (SELECT coalesce(jsonb_agg(x ORDER BY n), '[]'::jsonb) FROM (
-                        SELECT x, n FROM jsonb_array_elements(events || $2) WITH ORDINALITY AS e(x, n)
-                         ORDER BY n DESC LIMIT $3) s)
-              WHERE id = $1 RETURNING last_fired",
-            &[&w.row, &ring, &EVENTS_KEEP],
+        let mail_id: i64 = m.get(0);
+        let mail_uid: String = m.get(1);
+        let body: String = m.get(7);
+        let notice = m.get::<_, bool>(6) || w.notice;
+        let copy = uid("m");
+        let via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack } });
+        tx.execute(
+            "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
+                                  recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason,
+                                  client_op, state, net_id, net_hub, replies, extra)
+             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18, $19, $20)",
+            &[
+                &copy, &org_id, &m.get::<_, String>(2), &m.get::<_, Option<i64>>(3), &m.get::<_, Option<i32>>(4), &w.owner,
+                &w.owner_name, &m.get::<_, String>(5), &notice, &body, &m.get::<_, Value>(8), &m.get::<_, Option<Value>>(9),
+                &m.get::<_, Option<Value>>(10), &m.get::<_, bool>(11), &m.get::<_, Option<String>>(12),
+                &m.get::<_, Option<String>>(16), &m.get::<_, Option<String>>(13), &m.get::<_, Option<String>>(14),
+                &m.get::<_, Value>(15), &via,
+            ],
         )
-        .await?
-        .get(0);
-    if let Some(next) = eligible.iter_mut().find(|next| next.row == w.row) {
-        next.remaining -= 1;
-        next.last_fired = Some(served);
-    }
-    steps.push(Step {
-        handed: Handed { mail: mail_uid, copy, watcher: w.owner_name.clone(), dog: w.uid.clone() },
-        project: pname.clone(),
-        watcher_id: w.owner,
-        notice,
-        dog_row: w.row,
-        spent: w.once,
-    });
+        .await?;
+        tx.execute(
+            "UPDATE ot.mail SET state = 'read', read_at = now(), delivered_at = coalesce(delivered_at, now()),
+                    extra = extra || jsonb_build_object('claimed', jsonb_build_object('by', $2::text, 'by_id', $3::bigint,
+                            'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean, 'wakes', 0),
+                            'attempts', coalesce((extra->>'attempts')::int, 0) + 1,
+                            'attempt_log', coalesce(extra->'attempt_log', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+                                'n', coalesce((extra->>'attempts')::int, 0) + 1, 'by', $2::text, 'by_id', $3::bigint,
+                                'copy', $5::text, 'at', now())))
+              WHERE id = $1",
+            &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack],
+        )
+        .await?;
+        let sender: String = m.get(2);
+        let ring = json!([{ "at": iso(Utc::now()), "gist": gist(&format!("mail from {sender}: {body}"), 200) }]);
+        let served: DateTime<Utc> = tx
+            .query_one(
+                "UPDATE ot.watchdogs SET fired = fired + 1, last_fired = clock_timestamp(),
+                        events = (SELECT coalesce(jsonb_agg(x ORDER BY n), '[]'::jsonb) FROM (
+                            SELECT x, n FROM jsonb_array_elements(events || $2) WITH ORDINALITY AS e(x, n)
+                             ORDER BY n DESC LIMIT $3) s)
+                  WHERE id = $1 RETURNING last_fired",
+                &[&w.row, &ring, &EVENTS_KEEP],
+            )
+            .await?
+            .get(0);
+        if let Some(next) = eligible.iter_mut().find(|next| next.row == w.row) {
+            next.remaining -= 1;
+            next.last_fired = Some(served);
+        }
+        steps.push(Step {
+            handed: Handed { mail: mail_uid, copy, watcher: w.owner_name.clone(), dog: w.uid.clone() },
+            project: pname.clone(),
+            watcher_id: w.owner,
+            notice,
+            dog_row: w.row,
+            spent: w.once,
+        });
     }
     // A one-shot accepts its whole available batch; becoming spent is atomic
     // with those copies, never after the first message of the batch.
