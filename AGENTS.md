@@ -3864,6 +3864,16 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
 
 ### Desktop and renderer
 
+- **`.chip` repaints whatever wears it:** it sits late in `styles.css` at one-class
+  specificity, so a `chip x-card` element loses `.x-card`'s border, background and text
+  colour (only a two-class state like `.x-card.full` survives). A coloured card does not
+  wear `.chip`; the project desk's header cards lost their colours this way. [verified:
+  `styles.css`, `tests/projectdeskhead.test.tsx` (computed colours), 2026-10-19]
+- **`useMailboxHistory` takes only `'inbox'` or `'sent'`:** it adopts a folder when it
+  reads that folder's pages, so any other folder (a host folder such as the project
+  inbox's listeners) never settles and remakes the box on every render, an endless
+  update loop through InboxView's retract sweep. Pass the mail folder underneath.
+  [verified: `usemailhistory.ts`, `canvas/mail.tsx`, 2026-10-19]
 - **Move previews preserve sibling order:** native moves retain `ui_order`, creation
   time and ordinal. Record projection and pending moves share the comparator in
   `treeorder.ts` (then Python Unicode name order); keep the tie-break fields on the
