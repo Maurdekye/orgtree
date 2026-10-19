@@ -1227,6 +1227,62 @@ pub fn start(engine: &Arc<Engine>) {
 }
 
 #[cfg(test)]
+mod claude_location_tests {
+    use super::*;
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            Self(std::env::temp_dir().join(format!("orgtree-claude-location-{}-{nonce}", std::process::id())))
+        }
+        fn appdata(&self) -> PathBuf { self.0.join("AppData").join("Roaming") }
+        fn native(&self) -> PathBuf { self.0.join(".local").join("bin").join(crate::util::exe_name("claude")) }
+        fn shim(&self) -> PathBuf { self.appdata().join("npm").join("claude.cmd") }
+        fn write(&self, path: &Path) {
+            assert!(path.starts_with(&self.0));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"presence only, never execute").unwrap();
+        }
+        fn locate(&self) -> Option<PathBuf> { known_claude(&self.0, Some(&self.appdata())) }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn native_install_is_found_without_path_or_appdata() {
+        let f = Fixture::new(); f.write(&f.native());
+        assert_eq!(known_claude(&f.0, None), Some(f.native()));
+    }
+    #[test]
+    #[cfg(windows)]
+    fn npm_global_shim_is_found_without_path() {
+        let f = Fixture::new(); f.write(&f.shim());
+        assert_eq!(f.locate(), Some(f.shim()));
+    }
+    #[test]
+    fn native_install_keeps_precedence_over_npm_shim() {
+        let f = Fixture::new(); f.write(&f.native()); f.write(&f.shim());
+        assert_eq!(f.locate(), Some(f.native()));
+    }
+    #[test]
+    fn npm_real_executable_keeps_precedence() {
+        let f = Fixture::new(); f.write(&f.native()); f.write(&f.shim());
+        let exe = f.appdata().join("npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe");
+        f.write(&exe);
+        assert_eq!(f.locate(), Some(exe));
+    }
+    #[test]
+    fn missing_files_and_directories_are_not_installs() {
+        let f = Fixture::new();
+        assert_eq!(f.locate(), None);
+        std::fs::create_dir_all(f.native()).unwrap();
+        assert_eq!(f.locate(), None);
+    }
+}
+
+#[cfg(test)]
 mod conditional_tests {
     use super::agy_offers;
 
