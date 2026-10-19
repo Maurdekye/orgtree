@@ -52,7 +52,7 @@ async fn member(engine:&Engine,part:&Part,hid:&str,addr:&str)->Result<()> {
     let Some(row)=row else {anyhow::bail!("organization departed")};
     let net:Value=row.get(0);
     anyhow::ensure!(net.pointer("/identity/slug").and_then(Value::as_str)==Some(part.net_slug.as_str()),"network identity changed");
-    anyhow::ensure!(net["hubs"].as_array().is_some_and(|hs|hs.iter().any(|h|h["id"].as_str()==Some(hid)&&h["enabled"].as_bool().unwrap_or(true)&&normalize_address(h["address"].as_str().unwrap_or(""))==addr)),"hub disabled or changed");
+    anyhow::ensure!(net["hubs"].as_array().is_some_and(|hs|hs.iter().any(|h|h["id"].as_str()==Some(hid)&&h["enabled"].as_bool().unwrap_or(true)&&discovery::known_address(h["address"].as_str().unwrap_or(""),net["state"][hid]["address"].as_str())==addr)),"hub disabled or changed");
     Ok(())
 }
 
