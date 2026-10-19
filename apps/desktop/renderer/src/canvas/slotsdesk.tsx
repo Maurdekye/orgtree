@@ -80,16 +80,17 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
       {actions && <div className="team-tab-toolbar" role="toolbar" aria-label="Slots view controls">{actions}</div>}
       <div className="slots-table-scroll" role="region" aria-label="Concurrency slot records" tabIndex={0}>
       <table className="slots-table">
-        <colgroup><col className="slot-col-agent"/><col className="slot-col-time"/><col className="slot-col-time"/>
+        <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/><col className="slot-col-time"/>
           <col className="slot-col-ended"/><col/><col className="slot-col-action"/></colgroup>
-        <thead><tr>{['Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Action'].map(label =>
+        <thead><tr>{['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Action'].map(label =>
           <th key={label} scope="col" className={label === 'Action' ? 'slot-action' : undefined}>{label}</th>)}</tr></thead>
       <tbody className="slots-holding">
-        <tr className="slot-section"><th colSpan={6} scope="rowgroup"><h4>Holding</h4></th></tr>
-        {holders.length === 0 && <tr><td colSpan={6} className="dim slot-empty">Nobody holds a concurrency slot. An agent above or below the project claims one
+        <tr className="slot-section"><th colSpan={7} scope="rowgroup"><h4>Holding</h4></th></tr>
+        {holders.length === 0 && <tr><td colSpan={7} className="dim slot-empty">Nobody holds a concurrency slot. An agent above or below the project claims one
           with <code>orgtree_watchdog action=create kind=slot target={node.id}</code>; it is granted at once while a concurrency slot is free.</td></tr>}
         {holders.map((h) => (
           <tr key={h.lease} className="slot-row">
+            <td className="slot-position"/>
             <th scope="row" className="slot-agent">{agentLink(h.agent)}</th>
             <td className="slot-wait" title={h.queued ? 'in line since ' + h.queued : undefined}>
               {h.queued ? <SlotTime from={h.queued} to={h.since}/> : ''}</td>
@@ -105,11 +106,12 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
         ))}
       </tbody>
       <tbody className="slots-line">
-        <tr className="slot-section"><th colSpan={6} scope="rowgroup"><h4>Line</h4></th></tr>
-        {line.length === 0 && <tr><td colSpan={6} className="dim slot-empty">Nobody is waiting.</td></tr>}
+        <tr className="slot-section"><th colSpan={7} scope="rowgroup"><h4>Line</h4></th></tr>
+        {line.length === 0 && <tr><td colSpan={7} className="dim slot-empty">Nobody is waiting.</td></tr>}
         {line.map((w) => (
           <tr key={w.agent + w.dog} className="slot-row">
-            <th scope="row" className="slot-agent"><span className="slot-no">{ordinal(w.position)}</span> {agentLink(w.agent)}</th>
+            <td className="slot-position"><span className="slot-no">{ordinal(w.position)}</span></td>
+            <th scope="row" className="slot-agent">{agentLink(w.agent)}</th>
             <td className="slot-wait" title={w.since ? 'in line since ' + w.since : undefined}>
               {w.since ? <SlotTime from={w.since}/> : ''}</td>
             <td className="slot-held" />
@@ -125,10 +127,11 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
         ))}
       </tbody>
       <tbody className="slots-history">
-        <tr className="slot-section"><th colSpan={6} scope="rowgroup"><h4>Recent holds</h4></th></tr>
-        {history.length === 0 && <tr><td colSpan={6} className="dim slot-empty">No concurrency slot has been held yet.</td></tr>}
+        <tr className="slot-section"><th colSpan={7} scope="rowgroup"><h4>Recent holds</h4></th></tr>
+        {history.length === 0 && <tr><td colSpan={7} className="dim slot-empty">No concurrency slot has been held yet.</td></tr>}
         {history.map((h) => (
           <tr key={h.lease} className="slot-row">
+            <td className="slot-position"/>
             <th scope="row" className="slot-agent">{agentLink(h.agent)}</th>
             <td className="slot-wait" title={h.queued ? 'in line since ' + h.queued : undefined}>
               {h.queued ? <SlotTime from={h.queued} to={h.since}/> : ''}</td>

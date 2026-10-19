@@ -3206,7 +3206,8 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 /* One table computes widths for every section. Narrow hosts scroll the data,
    keeping the action column visible instead of clipping its buttons. */
 .slots-table-scroll { width:100%; max-width:100%; min-width:0; overflow:auto; }
-.slots-table { width:100%; min-width:760px; table-layout:fixed; border-collapse:separate; border-spacing:0; font-variant-numeric:tabular-nums; }
+.slots-table { width:100%; min-width:824px; table-layout:fixed; border-collapse:separate; border-spacing:0; font-variant-numeric:tabular-nums; }
+.slots-table .slot-col-position { width:64px; }
 .slots-table .slot-col-agent { width:22%; }
 .slots-table .slot-col-time { width:76px; }
 .slots-table .slot-col-ended { width:96px; }
