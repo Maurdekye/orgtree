@@ -3805,6 +3805,15 @@ rulings go here and on their ticket.
   the decision, and stale replies cannot cross orgs or supersede newer reads.
   [decided: user 2026-10-19 12:32-12:33Z; verified: `orghire.ts`,
   `canvas/shared.ts`, `tests/orghire.test.tsx`]
+- Model-switch menus use the same org-aware hire states as canvas chips;
+  only the agent's current model survives unavailability. Quick staff request
+  suggestions also require an enabled, org-allowed lane, without changing the
+  later authentication/quota checks. Routed models require their installed
+  harness: provider discovery omits language-server models lacking it and marks
+  OpenRouter absent when none of its stored keys has one. Loading and installed
+  signed-out previews remain distinct from confirmed absence.
+  [decided: user 2026-10-19 14:14Z; verified: `canvas/OrgCanvas.tsx`,
+  `canvas/shared.ts`, `domain/staffing.rs`, `providers/mod.rs`]
 
 ### Desktop UI
 

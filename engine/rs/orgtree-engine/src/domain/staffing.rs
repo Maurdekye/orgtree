@@ -61,7 +61,8 @@ fn runnable_tiers(engine: &Engine, org_slug: &str) -> Vec<Offer> {
                          efforts: if t.provider == catalog::MUSE { muse_efforts(engine, t) } else { efforts(t, &st) } })
         .collect();
     let key_set = engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
-    if key_set && engine.settings.provider_enabled(catalog::OPENROUTER) {
+    if key_set && engine.settings.provider_enabled(catalog::OPENROUTER)
+        && host_for(engine, org_slug, "", catalog::OPENROUTER) {
         for (tier, seat, _) in engine.providers.openrouter_tiers() {
             out.push(Offer { tier, seat, provider: catalog::OPENROUTER, efforts: catalog::EFFORTS.to_vec() });
         }
@@ -78,6 +79,14 @@ fn runnable_tiers(engine: &Engine, org_slug: &str) -> Vec<Offer> {
             }
         }
     }
+    // Request mode suggests a model without binding a login, but cannot
+    // suggest a provider the org has switched off. Use the settings page's
+    // canonical lanes; authentication/quota remain the existing later gates.
+    let lanes = crate::org_accounts::lanes(engine, org_slug);
+    out.retain(|t| lanes.iter().any(|lane| lane["provider"] == t.provider
+        && lane["allowed"] == true && lane["enabled"] == true
+        && (t.provider != catalog::LANGSERVER
+            || crate::org_accounts::tier_lane(engine, &t.tier).as_deref() == lane["id"].as_str())));
     out
 }
 

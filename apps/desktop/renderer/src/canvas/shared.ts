@@ -972,6 +972,14 @@ export type ProviderPresence = Record<ProviderId, boolean>
 export const ALL_PRESENT: ProviderPresence = {
   claude: true, openai: true, google: true, openrouter: true, langserver: true, muse: true }
 
+/** Model switchers consume the very same org/discovery verdict as hire chips.
+ * Current selections are retained separately by tierShown(..., keep). */
+export const presenceOfHires = (h: HireProviders): ProviderPresence => ({
+  claude: providerShown(h.claudeHire), openai: providerShown(h.codexHire),
+  google: providerShown(h.antigravityHire), openrouter: providerShown(h.openrouterHire),
+  langserver: providerShown(h.langserverHire), muse: providerShown(h.museHire),
+})
+
 export const presenceOf = (p: {
   claude?: ProviderInfo | null
   openai?: ProviderInfo | null

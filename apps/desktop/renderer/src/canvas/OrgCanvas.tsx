@@ -43,7 +43,7 @@ import {
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
-  ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOf, segD, setLangServerTiers, setOpenRouterTiers,
+  ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOfHires, segD, setLangServerTiers, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, PROVIDER_LABEL, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   fairQueueLinks, peerLinkPairs, peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
@@ -728,10 +728,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // D-202: which families exist on this machine at all, for the surfaces that
   // are not hire strips (the model-switch dropdown, the lineage rehire
   // dropdown). Same verdict the chips use — see `providerShown`.
-  const presence = useMemo(() => presenceOf({
-    claude: claudeProvider, openai: codexProvider, google: antigravityProvider,
-    openrouter: openrouterProvider, langserver: langserverProvider, muse: museProvider,
-  }), [claudeProvider, codexProvider, antigravityProvider, openrouterProvider, langserverProvider, museProvider])
+  const presence = presenceOfHires({
+    claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire,
+  })
   const userDisabled = useMemo(() => ({
     claude: claudeProvider?.user_enabled === false,
     openai: codexProvider?.user_enabled === false,
@@ -4541,7 +4540,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         <MaybePortal><NodeDetailGate slug={slug} node={map.get(configId)!}>
           {(n) => (
         <NodeConfig node={n} map={map} tree={tree} slug={slug}
-          op={op} toast={toast} codexProvider={codexProvider}
+          op={op} toast={toast} claudeProvider={claudeProvider} codexProvider={codexProvider}
           antigravityProvider={antigravityProvider} openrouterProvider={openrouterProvider}
           langserverProvider={langserverProvider} museProvider={museProvider}
           presence={presence}

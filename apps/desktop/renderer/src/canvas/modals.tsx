@@ -1011,6 +1011,7 @@ interface NodeConfigProps {
   slug: string
   op: OpFn
   toast: ToastFn
+  claudeProvider?: ProviderInfo | null
   codexProvider?: ProviderInfo | null
   antigravityProvider?: ProviderInfo | null
   openrouterProvider?: ProviderInfo | null
@@ -1215,7 +1216,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   </PinFrame>
 }
 
-function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
+function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexProvider,
   antigravityProvider, openrouterProvider, langserverProvider, museProvider, presence = ALL_PRESENT,
   onScratchFolder, onTeamScratchFolder, refs, onFocusAgent, close }: NodeConfigProps) {
   const [tab, setTab] = useState<NodeConfigTab>('charter')
@@ -1482,6 +1483,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, codexProvider,
     // The current tier remains a truthful selected no-op even if policy has
     // since tightened around it; save does not call switch_model for a no-op.
     if (t === node.tier) return null
+    if (TIERS.includes(t) && claudeProvider && !claudeProvider.hire_enabled)
+      return claudeProvider.reason ?? 'provider state unavailable'
     if (CODEX_TIERS.includes(t) && codexUnavailable) return codexUnavailable
     if (ANTIGRAVITY_TIERS.includes(t) && antigravityUnavailable) return antigravityUnavailable
     if (MUSE_TIERS.includes(t) && museUnavailable) return museUnavailable

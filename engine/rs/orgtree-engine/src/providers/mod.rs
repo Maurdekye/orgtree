@@ -954,10 +954,14 @@ pub fn payload(engine: &Engine) -> Value {
                         "label": label, "name": name, "color": color })
             })
             .collect();
-        let s = CliStatus { installed: key_set, connected: key_set, ..Default::default() };
+        let harness_present = !st.probed || crate::openrouter::keys(engine).iter().any(|a|
+            crate::harnesses::installed(engine, &crate::openrouter::key_harness(engine, &a.id)));
+        let s = CliStatus { installed: key_set && harness_present, connected: key_set, ..Default::default() };
         let mut e = entry(catalog::OPENROUTER, "OpenRouter", "openrouter", &s, tiers);
         if !key_set {
             e["reason"] = json!("no OpenRouter API key is set (App settings › Providers › OpenRouter)");
+        } else if !harness_present {
+            e["reason"] = json!("no installed harness can run the stored OpenRouter keys");
         }
         providers.push(e);
     }
@@ -967,6 +971,8 @@ pub fn payload(engine: &Engine) -> Value {
     if !servers.is_empty() {
         let tiers: Vec<Value> = crate::langserver::tiers(engine)
             .into_iter()
+            .filter(|(tier, ..)| !st.probed || crate::langserver::route_of(engine, tier)
+                .is_some_and(|(s, _)| crate::harnesses::installed(engine, s["harness"].as_str().unwrap_or("claude-code"))))
             .map(|(t, s, m, label, server)| {
                 json!({ "tier": t, "provider": catalog::LANGSERVER, "seat": s, "model": m, "letter": catalog::monogram(&label),
                         "label": label, "server": server, "name": format!("{label} · {server}") })
