@@ -66,7 +66,10 @@ export default async function (rig) {
   await rig.userMail('alice', 'Hello alice.')
   await rig.waitTurns('alice', ended + 1)
   const started = rig.fakeLog('alice').filter(l => l.kind === 'start').at(-1)?.add_dirs ?? []
-  p.check('alice\'s next CLI start carries alpha, beta and gamma', started.length === 3 && [alpha, beta, gamma].every(d => started.some(s => same(s, d))), started)
+  // Launch also grants built-in skills and org/team workspaces. Count only
+  // this proof's configured folders; the automatic folders are legitimate.
+  const configured = started.filter(s => same(path.dirname(s), root))
+  p.check('alice\'s next CLI start carries alpha, beta and gamma', configured.length === 3 && [alpha, beta, gamma].every(d => configured.some(s => same(s, d))), started)
 
   // ---------------------------------------------------------------- a mode change clamps beneath
   const narrow = await retool({ add_dirs: [{ path: alpha, mode: 'ro' }] })
