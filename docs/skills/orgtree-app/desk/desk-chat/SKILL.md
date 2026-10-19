@@ -6,7 +6,7 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Desk Chat tab
 
-File-reading/writing tool calls show an explicit path as a local-file link immediately after the tool chip. Skill reads link when the event includes the resolved `SKILL.md` path or when a name-only call resolves to exactly one file in the selected, materialized skill registry; missing or ambiguous names stay unlinked.
+File-reading/writing tool calls show a local-file link immediately after the tool chip, labelled with only the filename; hovering shows the full path. A path already shown by the link is omitted from the tool argument so it appears once. Skill reads link when the event includes the resolved `SKILL.md` path or when a name-only call resolves to exactly one file in the selected, materialized skill registry; missing or ambiguous names stay unlinked.
 
 Chat is the conversation surface. It includes messages, thoughts when supplied, tools, typed events, attachments and pending delivery rows. Opening another tab does not stop the agent. Earlier messages load on demand; failure offers retry rather than claiming the transcript ends there.
 

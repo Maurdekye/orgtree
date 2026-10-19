@@ -4973,6 +4973,11 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
   const live = useLiveCall(t.started_at)
   const writing = !!t.writing_started_at
   const running = live && !writing && !!t.started_at && !t.ended_at && t.result === undefined && !t.error
+  const toolArg = t.arg && t.file_paths?.some(file => {
+    const path = file.path.replace(/\//g, '\\')
+    const arg = t.arg!.replace(/\//g, '\\')
+    return path === arg || (t.arg!.length === 90 && path.startsWith(arg))
+  }) ? '' : t.arg
   const shellError = isFailedShellCall(t)
   const expandable = true
   const presentation = t.presentation && !t.error && onOpenDoc
@@ -5024,11 +5029,11 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
           : running ? <span title="Executing tool call" aria-label="executing tool call"><ArrowRightIcon fontSize="inherit" className="tooldot tool-running-status" /></span>
             : <DotIcon fontSize="inherit" className="tooldot" />}
         {' '}{shortTool(t.name)}
-        {t.arg ? <span className="targ"> {t.arg}</span> : null}
+        {toolArg ? <span className="targ"> {toolArg}</span> : null}
         {t.file_paths?.map((file, i) => file.link
           ? <a key={`${file.path}-${i}`} className="local-file tool-file-link" href="#"
               data-local-path={file.path} title={`Show in folder — ${file.path}`}
-              onClick={e => e.stopPropagation()}>{' '}{file.path}</a>
+              onClick={e => e.stopPropagation()}>{' '}{file.path.split(/[\\/]/).filter(Boolean).at(-1) || file.path}</a>
           : <span key={`${file.path}-${i}`} className="tool-file-path"> {file.path}</span>)}
         {t.diff && <span className="tdiffn"> +{t.diff.plus} −{t.diff.minus}</span>}
         {t.task && (
