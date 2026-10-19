@@ -217,6 +217,76 @@ module.exports = async (page) => {
     }
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=listenerstable: the desk's event Listeners tab
+  // as one slots-style table (user 2026-10-19 21:08Z-21:11Z), dark and
+  // light, beside the Slots tab and the inbox's listeners folder it should
+  // look like; then a project nobody listens to: both listeners views are
+  // still there, empty (21:19Z)
+  if (only === 'listenerstable') {
+    const table = (sel) => page.eval((q) => {
+      const t = document.querySelector(q)
+      if (!t) return null
+      const x = (el) => Math.round(el.getBoundingClientRect().left)
+      const heads = [...t.querySelectorAll('thead th')]
+      const rows = [...t.querySelectorAll('tbody tr.slot-row')]
+      return {
+        headers: heads.map((h) => h.textContent),
+        sections: [...t.querySelectorAll('tr.slot-section h4')].map((h) => h.textContent),
+        empties: [...t.querySelectorAll('td.slot-empty')].map((c) => c.textContent.slice(0, 60)),
+        rows: rows.map((r) => ({ cells: [...r.children].map((c) => c.textContent),
+          chip: r.querySelector('.watchdog-link')?.className ?? null,
+          chipTitle: r.querySelector('.watchdog-link')?.getAttribute('title') ?? null,
+          chipTag: r.querySelector('.watchdog-link')?.tagName ?? null,
+          border: getComputedStyle(r.children[0]).borderBottomColor,
+          opacity: [...r.children].map((c) => getComputedStyle(c).opacity) })),
+        // every row's cells start under their header: one aligned table
+        aligned: rows.every((r) => [...r.children].every((c, i) => !heads[i] || Math.abs(x(c) - x(heads[i])) < 1)),
+        headerStyle: heads[0] ? (({ color, fontSize, fontWeight, borderBottomColor }) => ({ color, fontSize, fontWeight, borderBottomColor }))(getComputedStyle(heads[0])) : null,
+      }
+    }, sel)
+    const openTab = (tab) => page.eval(async (t) => {
+      document.querySelector(`#desk-inbox .cc-tabs button[data-tab="${t}"]`).click()
+      await new Promise((r) => setTimeout(r, 700))
+    }, tab)
+    for (const theme of ['', '&theme=light']) {
+      const name = theme ? 'light' : 'dark'
+      await page.goto('/?scene=deskinbox&mode=lt' + theme)
+      await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+      await openTab('listeners')
+      await settle()
+      details['listeners-' + name] = await table('#desk-inbox .listeners-table')
+      screenshots.push(await page.screenshot(`${prefix}-listenerstable-${name}-1000x700`))
+      if (theme) continue
+      await openTab('slots')
+      await settle()
+      details['slots-' + name] = await table('#desk-inbox .project-slots .slots-table')
+      screenshots.push(await page.screenshot(`${prefix}-listenerstable-slots-${name}-1000x700`))
+      await page.eval(async () => {
+        document.querySelector('#desk-inbox .project-queue-card').click()
+        await new Promise((r) => setTimeout(r, 900))
+      })
+      await settle()
+      details['maillisteners-' + name] = await table('#desk-inbox .mail-listeners-table')
+      screenshots.push(await page.screenshot(`${prefix}-listenerstable-maillisteners-${name}-1000x700`))
+    }
+    await page.goto('/?scene=deskinbox&mode=empty')
+    await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+    details['empty-tabs'] = await page.eval(() => [...document.querySelectorAll('#desk-inbox .cc-tabs button')].map((b) => b.textContent))
+    await openTab('listeners')
+    await settle()
+    details['empty-listeners'] = await table('#desk-inbox .listeners-table')
+    screenshots.push(await page.screenshot(`${prefix}-listenerstable-empty-dark-1000x700`))
+    await openTab('inbox')
+    await page.eval(async () => {
+      [...document.querySelectorAll('#desk-inbox .mail-folders button')].find((b) => b.textContent.startsWith('listeners')).click()
+      await new Promise((r) => setTimeout(r, 700))
+    })
+    await settle()
+    details['empty-maillisteners'] = await table('#desk-inbox .mail-listeners-table')
+    details['empty-folders'] = await page.eval(() => [...document.querySelectorAll('#desk-inbox .mail-folders button')].map((b) => b.textContent))
+    screenshots.push(await page.screenshot(`${prefix}-listenerstable-empty-maillisteners-dark-1000x700`))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=deskhead: the project desk's header cards in one
   // row at full desk width, outlined and filled, dark and light, each card's
   // computed colours beside its near-zoom badge's; then the inbox's

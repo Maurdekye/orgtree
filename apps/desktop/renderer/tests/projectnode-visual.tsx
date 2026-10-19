@@ -47,7 +47,10 @@
 //   deskinbox — one desk whose inbox opens on its listeners folder (19:05Z-
 //             19:33Z): ack mode (dev1 holds a job), &mode=rr round robin;
 //             PROJECTNODE_VISUAL_ONLY=deskjump opens each of its tabs: the
-//             jump cards stay on every one (19:58Z).
+//             jump cards stay on every one (19:58Z); &mode=lt its event
+//             listeners table (one-shot, continuous, fired, never fired,
+//             paused; two watches, one with a fire action, user 21:08Z-
+//             21:11Z), &mode=empty a project nobody listens to (21:19Z).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
@@ -210,7 +213,8 @@ const mailDogs = [
   headDog('fair_queue', 'lead', 'mail-c', { state: 'paused', fired: 1 }),
   headDog('fair_queue', 'boss', 'mail-d', { at: new Date(Date.now() - 25_000).toISOString() }),
 ]
-const headSets: Record<'outlined' | 'filled' | 'roundrobin', HeadSet> = {
+const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
+const headSets: Record<'outlined' | 'filled' | 'roundrobin' | 'listeners' | 'empty', HeadSet> = {
   outlined: { node: relay({ slots_capacity: 3 }, { mail_pending: 3 }),
     dogs: [headDog('project_listener', 'dev1', 'ready-a'), headDog('project_listener', 'dev2', 'ready-b')],
     leases: [relayLease('dev1', 1), relayLease('dev2', 2)] },
@@ -222,6 +226,17 @@ const headSets: Record<'outlined' | 'filled' | 'roundrobin', HeadSet> = {
       headDog('slot', 'boss', 'wait-b', { once: true, queued_at: new Date(Date.now() - 2 * 60_000).toISOString() })],
     leases: [relayLease('dev1', 1), relayLease('dev2', 2), relayLease('lead', 3)] },
   roundrobin: { node: relay({ slots_capacity: 3 }, { mail_pending: 2 }), dogs: mailDogs, leases: [] },
+  listeners: { node: relay({ slots_capacity: 3 }, { mail_pending: 2 }),
+    dogs: [headDog('project_listener', 'dev1', 'ready-a', { once: true }),
+      headDog('project_listener', 'dev2', 'build-done', { fired: 3, last_fired: ago(180) }),
+      headDog('project_listener', 'lead', 'deploy-watch'),
+      headDog('project_listener', 'boss', 'ready-boss', { once: true, state: 'paused' }),
+      headDog('listener_watch', 'lead', 'all-ready', { once: true, count: 3,
+        fire_actions: [{ tool: 'orgtree_project', args: { action: 'fire_event', name: 'relay' } }] }),
+      headDog('listener_watch', 'boss', 'quorum', { count: 2, state: 'paused', notice: true, fired: 1, last_fired: ago(7200) }),
+      ...mailDogs],
+    leases: [relayLease('dev1', 1), relayLease('dev2', 2)] },
+  empty: { node: relay({}), dogs: [], leases: [] },
 }
 const headTree = (set: HeadSet) => ({ ...tree([set.node]), watchdogs: set.dogs, slot_leases: set.leases }) as unknown as TreePayload
 const headMap = (set: HeadSet) => {
@@ -236,12 +251,14 @@ const headSlotStatus = (set: HeadSet) => {
   const slots = (set.node as unknown as { configured_scope: { slots_capacity?: number } }).configured_scope.slots_capacity ?? 0
   return { project: set.node.id, slots, held: set.leases.length, holders: set.leases, line, history: [], history_next: null }
 }
-function HeadDesk({ set, top, height, id }: { set: HeadSet; top: number; height: number; id: string }) {
+function HeadDesk({ set, top, height, id, route = false }: { set: HeadSet; top: number; height: number; id: string; route?: boolean }) {
+  const desk = <ProjectDesk bare node={set.node} slug="org" tree={headTree(set)} map={headMap(set)}
+    op={(b) => Promise.resolve((b.op === 'slot_status' ? headSlotStatus(set) : {}) as unknown as OpResult)}
+    toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} />
   return (
     <div id={id} className="head-desk" style={{ position: 'absolute', left: 10, top, width: 980, height, border: '1px solid var(--line)', overflow: 'hidden' }}>
-      <ProjectDesk bare node={set.node} slug="org" tree={headTree(set)} map={headMap(set)}
-        op={(b) => Promise.resolve((b.op === 'slot_status' ? headSlotStatus(set) : {}) as unknown as OpResult)}
-        toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} />
+      {/* the canvas's dog route, so watchdog chips are the buttons the app shows */}
+      {route ? <DeskDogsProvider value={{ org: 'org', dogs: set.dogs as never, open: noop }}>{desk}</DeskDogsProvider> : desk}
     </div>
   )
 }
@@ -422,11 +439,13 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
   : scene === 'cardfix' ? <CardFix />
   : scene === 'attn' ? <Attn />
   : scene === 'deskhead' ? <DeskHead />
-  : scene === 'deskinbox' ? (
-    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
-      <HeadDesk set={new URLSearchParams(location.search).get('mode') === 'rr' ? headSets.roundrobin : headSets.filled}
-        top={10} height={680} id="desk-inbox" />
-    </main>) : (
+  : scene === 'deskinbox' ? (() => {
+    const mode = new URLSearchParams(location.search).get('mode')
+    return <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      <HeadDesk set={mode === 'rr' ? headSets.roundrobin : mode === 'lt' ? headSets.listeners : mode === 'empty' ? headSets.empty : headSets.filled}
+        top={10} height={680} id="desk-inbox" route={mode === 'lt' || mode === 'empty'} />
+    </main>
+  })() : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
     {/* inside the org, as the app is: only an org's surfaces pin and pop out */}
