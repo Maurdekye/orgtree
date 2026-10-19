@@ -24,7 +24,8 @@ app.whenReady().then(async()=>{
   assert.ok(receipt.initial.rowHeights.every(height=>height===28))
   fs.writeFileSync(path.join(out,'tray-recent-top.png'),(await win.webContents.capturePage()).toPNG())
   win.webContents.focus();await win.webContents.executeJavaScript('document.querySelector(".list").focus()')
-  win.webContents.sendInputEvent({type:'mouseWheel',x:90,y:100,deltaX:0,deltaY:168,canScroll:true})
+  // Electron wheel deltas follow the wheel direction: negative moves down.
+  win.webContents.sendInputEvent({type:'mouseWheel',x:90,y:100,deltaX:0,deltaY:-168,canScroll:true})
   await wait(win);receipt.wheel=await measure(win);assert.ok(receipt.wheel.top>0,'real wheel scroll reaches later orgs')
   await win.webContents.executeJavaScript('document.querySelector(".list").scrollTop=0;document.querySelector(".list").focus()');await wait(win)
   win.webContents.sendInputEvent({type:'keyDown',keyCode:'PageDown'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'PageDown'})
