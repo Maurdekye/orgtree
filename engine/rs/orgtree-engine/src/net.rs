@@ -96,8 +96,8 @@ impl AttachmentLimit {
 #[logged]
 async fn attachment_limit_at(address: &str) -> AttachmentLimit {
     let health = async {
-        transport::send(HTTP.get(format!("{address}/healthz")).timeout(Duration::from_secs(5))).await?
-            .error_for_status()?.json::<Value>().await
+        let response=transport::send(HTTP.get(format!("{address}/healthz")).timeout(Duration::from_secs(5))).await?;
+        Ok::<Value,anyhow::Error>(response.error_for_status()?.json::<Value>().await?)
     }.await.unwrap_or(Value::Null);
     AttachmentLimit::from_health(&health)
 }

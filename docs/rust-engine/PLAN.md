@@ -288,8 +288,8 @@ Test saves its selected endpoint for Add. Test and real mail connections try
 direct first, then the system/env proxy only on initial connect failure; HTTP
 responses and read errors never replay a write. The test remains a read-only
 health check.
-Hub URLs name the final API endpoint; 3xx responses are returned without
-automatic redirects so a failed redirect cannot replay an accepted write.
+Hub URLs name the final API endpoint; 3xx responses become explicit HTTP-status
+errors without automatic redirects, so a failed redirect cannot replay a write.
 New connections receive stable per-hub IDs; older saved keyless connections are
 repaired automatically so the registration worker can connect them.
 
