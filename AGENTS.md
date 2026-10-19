@@ -23,6 +23,11 @@
   only a registered address within the current candidates. Discovery remains
   under org cancellation and rig isolation. [decided: user/coordinator 2026-10-19;
   verified: `net.rs`, `net/transport.rs`, `net/discovery.rs`, `canvas/connections.tsx`]
+- New hub settings receive stable per-hub IDs on save; the network pass repairs
+  older missing/empty/duplicate IDs once. Existing valid IDs remain stable;
+  the repair compares the old hub array to avoid overwriting concurrent edits.
+  Without an ID the registration worker skips the hub even when Test succeeds.
+  [verified: `http/settings.rs`, `net.rs`; 2026-10-19]
 
 - Session-placement loss requires three two-second misses; recovery is immediate.
   Overdue ticks are skipped and each recovered blip logs once. A per-engine
