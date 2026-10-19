@@ -4810,19 +4810,19 @@ main.solo { width: 100%; }
   background: color-mix(in srgb, var(--accent) 18%, var(--bg));
 }
 /* Docket status styling */
-.docket-status { font-weight: 600; }
-.docket-status.status-open { color: var(--ink); }
-.docket-status.status-in_progress { color: var(--work); }
-.docket-status.status-blocked { color: var(--bad); }
-.docket-status.status-review { color: var(--review); }
+.docket-status { font-weight: 600; color: var(--docket-status-color, inherit); }
+:is(.docket-status, .tool-ticket).status-open { --docket-status-color: var(--ink); }
+:is(.docket-status, .tool-ticket).status-in_progress { --docket-status-color: var(--work); }
+:is(.docket-status, .tool-ticket).status-blocked { --docket-status-color: var(--bad); }
+:is(.docket-status, .tool-ticket).status-review { --docket-status-color: var(--review); }
 /* `waiting` takes --warn, the band that already marks PENDING things — every
    other declared token is a docket status already, or too near one. */
-.docket-status.status-waiting { color: var(--warn); }
-.docket-status.status-approved { color: var(--approved); }
-.docket-status.status-deploy_ready { color: var(--deploy-ready); }
-.docket-status.status-backlogged { color: var(--backlog); }
-.docket-status.status-done { color: var(--ok); }
-.docket-status.status-superseded, .docket-status.status-dropped { color: var(--dim); }
+:is(.docket-status, .tool-ticket).status-waiting { --docket-status-color: var(--warn); }
+:is(.docket-status, .tool-ticket).status-approved { --docket-status-color: var(--approved); }
+:is(.docket-status, .tool-ticket).status-deploy_ready { --docket-status-color: var(--deploy-ready); }
+:is(.docket-status, .tool-ticket).status-backlogged { --docket-status-color: var(--backlog); }
+:is(.docket-status, .tool-ticket).status-done { --docket-status-color: var(--ok); }
+:is(.docket-status, .tool-ticket).status-superseded, :is(.docket-status, .tool-ticket).status-dropped { --docket-status-color: var(--dim); }
 .docket-status.attention { color: var(--agent-accent-text, var(--accent)); }
 /* a question is answered in the Inbox, so its ticket says so quietly: no
    attention colour, no glow (user 2026-09-30) */
@@ -9433,6 +9433,7 @@ main:has(> .orgbar.native-header) > .error {
 .tool-ref-agent { display: inline-flex; align-items: center; gap: 6px; }
 .tool-refs .desk-dog-chip.gone { opacity: 0.55; cursor: default; }
 .tool-refs .tool-ticket { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.tool-refs .tool-ticket { box-shadow: inset 3px 0 0 var(--docket-status-color, transparent); }
 .tool-refs .tool-ticket-plain { font-family: var(--mono); font-size: 10.5px; }
 .tool-work-transition { display: inline-flex; align-items: baseline; gap: 4px; margin-left: 6px; }
 .tool-model-transition { display: inline-flex; align-items: center; gap: 4px; }

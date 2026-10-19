@@ -8,6 +8,8 @@ import { WatchdogLink } from './watchdoglink'
 import type { ToolChip } from '../types'
 import { objectNavProps } from './objectnav'
 import { WorkStatusTransition } from './docketstatus'
+import { liveRevision, onLiveBump } from '../livebus'
+import type { WorkReference } from '../workreferences'
 import { HubContactChip } from './agentmentions'
 import { ModelChange } from './modelchange'
 
@@ -15,16 +17,26 @@ import { ModelChange } from './modelchange'
  *  is looked up first; one that does not exist (typo, deleted) stays plain
  *  text, like an unknown agent name gets no link. */
 function TicketRef({ org, id, onOpen }: { org: string; id: string; onOpen?: WorkLinkFn }) {
-  const [known, setKnown] = useState<boolean | null>(null)
+  const key = JSON.stringify([org, id])
+  const [settled, setSettled] = useState<{ key: string; row: WorkReference | null } | null>(null)
   useEffect(() => {
     let live = true
-    getWorkReferences(org, '', [id]).then(rows => { if (live) setKnown(!!rows.get(id)) })
-      .catch(() => { if (live) setKnown(null) })
-    return () => { live = false }
+    let request = 0
+    const refresh = () => {
+      const current = ++request
+      getWorkReferences(org, `live:${liveRevision()}`, [id])
+        .then(rows => { if (live && current === request) setSettled({ key, row: rows.get(id) ?? null }) })
+        .catch(() => { if (live && current === request) setSettled(null) })
+    }
+    refresh()
+    const off = onLiveBump(refresh)
+    return () => { live = false; off() }
   }, [org, id])
-  if (known === false || !onOpen) return <span className="tool-ticket-plain dim">{id}</span>
+  const current = settled?.key === key ? settled : null
+  if (current?.row === null || !onOpen) return <span className="tool-ticket-plain dim">{id}</span>
+  const status = current?.row?.status
   return (
-    <button type="button" {...objectNavProps('ticket', id, org)} className="desk-nav-chip tool-ticket"
+    <button type="button" {...objectNavProps('ticket', id, org)} className={`desk-nav-chip tool-ticket${status ? ` status-${status}` : ''}`}
       title={`open ${id} in the work docket`} aria-label={`ticket ${id}`}
       onClick={() => onOpen({ slug: id } as Parameters<WorkLinkFn>[0])}>
       <DocketIcon fontSize="inherit" />{id}

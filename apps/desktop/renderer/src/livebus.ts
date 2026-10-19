@@ -22,6 +22,9 @@
 
 type Fn = () => void
 const subs = new Set<Fn>()
+let revision = 0
+/** One epoch per delivered change, shared by bounded reference readers. */
+export const liveRevision = (): number => revision
 
 /** Subscribe; returns the unsubscribe. */
 export const onLiveBump = (fn: Fn): (() => void) => {
@@ -33,6 +36,7 @@ let timer: ReturnType<typeof setTimeout> | null = null
 
 const deliverLive = (): void => {
   timer = null
+  ++revision
   for (const fn of [...subs]) fn()
 }
 
