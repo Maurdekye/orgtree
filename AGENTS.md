@@ -19,6 +19,12 @@
 
 # AGENTS.md — working on Orgtree
 
+- Inline ticket links in transcript tool calls use a thin inset left edge from
+  the shared docket status palette. Exact current references refresh on the
+  existing live-change epoch; captured transition labels remain historical.
+  No polling or card geometry changes. [decided: user 2026-10-19 21:14Z;
+  verified: `canvas/toolrefs.tsx`, `livebus.ts`, `styles.css`]
+
 - User-facing local inference providers are **Language model servers** (compact
   account labels: **LM server: <name>**), distinct from editor LSP servers.
   Internal `langserver` IDs, routes, keys, skill paths and filenames stay
