@@ -2087,7 +2087,7 @@
   verified from source: renderer `popout.tsx`, `canvas/modalpin.tsx`,
   `canvas/deskhosts.tsx`, 2026-10-13]
 
-- Language model servers setup is documented in [README](README.md#language model servers).
+- Language model servers setup is documented in [README](README.md#language-servers).
   Presence comes from explicitly saved servers and offered models; harness
   choices detect installed Claude Code/Codex CLIs. Keep app/server enablement,
   org access and model offerings distinct, and match the server's real context

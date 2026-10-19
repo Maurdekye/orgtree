@@ -61,11 +61,13 @@ Open **App settings > Providers** to discover installed providers and use their 
 | Antigravity | Install and sign into [Antigravity](https://antigravity.google/download). |
 | Muse Code | Install and sign into [Muse Code](https://dev.meta.ai/docs/muse-code#install). |
 | OpenRouter | Configure your OpenRouter API key and choose the models you want offered. |
-| Language model servers | Connect a model server on your machine or network, using an installed Claude Code or Codex CLI. See [setup below](#language model servers). |
+| Language model servers | Connect a model server on your machine or network, using an installed Claude Code or Codex CLI. See [setup below](#language-servers). |
 
 For providers with secondary-account support, use the add-account button in that provider's header. Create a managed profile, or import an existing profile where that provider supports it, then use the account row to manage it or sign in again. Muse supports managed profiles and API keys, but not profile-folder import. Account usage belongs in the dedicated **Usage** window, opened from the **Orgtree** menu.
 
 Orgtree does not include model access. Your provider's subscription, API charges and usage limits still apply. Availability depends on the provider, installed tools and signed-in account.
+
+<a id="language-servers"></a>
 
 ### Language model servers
 
