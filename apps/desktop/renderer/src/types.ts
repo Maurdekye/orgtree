@@ -1269,6 +1269,7 @@ export interface ChatPayload {
   occupancy_estimated?: boolean
   context_window?: number | null
   tool_tokens?: ToolTokenCount[]
+  shell_output?: import('./shelloutput').ShellOutputFrame | null
   messages: ChatMessage[]
   /** THE DRAFT'S SUPERSESSION, AS STATE. An opaque token that changes whenever
    *  a turn's streamed text becomes durable (supervisor.draft_epoch). The desk

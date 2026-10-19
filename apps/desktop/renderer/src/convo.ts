@@ -30,6 +30,8 @@ import { useCallback, useContext, useEffect, useSyncExternalStore } from 'react'
 import { OrgRecordContext } from './recordsession'
 import { watchNode } from './streamrooms'
 import { readToolTokens } from './tokenmetrics'
+import { acceptShellOutput } from './shelloutput'
+import type { ShellOutputFrame } from './shelloutput'
 import type { ToolTokenCount } from './types'
 
 /** Only the newest CHAT_WINDOW rows are fetched and rendered; scrolling to the
@@ -180,6 +182,7 @@ function legacyGhostVisible(c: ChatPayload, g: PendingGhost): boolean {
 }
 
 export interface Convo {
+  shellOutput?: ShellOutputFrame | null
   toolTokens?: Record<string, ToolTokenCount>
   chat: ChatPayload | null
   /** the server's live tail (chat.live), mirrored here so a render need not
@@ -219,6 +222,7 @@ type HistoryRetry = { kind: 'initial' | 'refresh' } | { kind: 'page'; before: st
   | { kind: 'growth'; win: number }
 
 interface Entry {
+  outputAt?: number
   tokenAt?: number
   historyRetry?: HistoryRetry
   historyTimer?: ReturnType<typeof setTimeout>
@@ -1247,7 +1251,9 @@ export function refreshConvo(slug: string, nid: string,
     if (stalledGrowth) retryHistory(e, slug, nid, { kind: 'growth', win: askedWin })
     const toolTokens = !c.busy ? {} : changedConversation ? readToolTokens(c.tool_tokens)
       : startedAt >= (e.tokenAt ?? 0) && Array.isArray(c.tool_tokens) ? readToolTokens(c.tool_tokens) : e.s.toolTokens
-    patchEntry(e, { chat: c, toolTokens, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
+    const shellOutput = startedAt < (e.outputAt ?? 0) && !changedConversation ? e.s.shellOutput
+      : !c.busy ? null : acceptShellOutput(changedConversation ? null : e.s.shellOutput,c.shell_output,c.turn_started_at)
+    patchEntry(e, { chat: c, toolTokens, shellOutput, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
     // the grow-path settle: a leave-history recorded while this (viewport
     // window growth) refresh was the in-flight work runs now, once no page
     // request remains to own it
@@ -1576,6 +1582,12 @@ function drainAssistantGaps(e: Entry, id: string, row: ChatMessage): ChatMessage
 export function ingestStream(slug: string, ev: StreamEvent): void {
   const k = key(slug, ev.node)
   const e = entry(k)
+  if(ev.shell_output_clear){e.outputAt=Date.now();patch(k,{shellOutput:null})}
+  if (ev.kind === 'shell_output') {
+    const shellOutput=acceptShellOutput(e.s.shellOutput,ev.shell_output,e.s.chat?.turn_started_at)
+    if(shellOutput!==e.s.shellOutput){e.outputAt=Date.now();patch(k,{shellOutput})}
+    return
+  }
   if (ev.kind === 'tool_tokens') {
     const start = Date.parse(ev.turn_started_at ?? '')
     const current = Date.parse(e.s.chat?.turn_started_at ?? '')
@@ -1792,7 +1804,8 @@ export function ingestPulse(slug: string, ev: PulseEvent): void {
   // every token that arrived before it
   flushLive(e)
   if (ev.event === 'turn_done') {
-    patch(k, { toolTokens: {} })
+    e.outputAt=Date.now()
+    patch(k, { toolTokens: {}, shellOutput: null })
     // the live tail is cleared server-side (sticky rows survive there); here
     // only the sub-second scaffolding needs resetting — and by the same rule as
     // ingestStream, it retires on the FETCH below rather than right now, or the

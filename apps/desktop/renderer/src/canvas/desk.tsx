@@ -1,4 +1,5 @@
 import { Fragment } from 'react'
+import { ShellOutputContext, LiveShellOutput } from '../shelloutput'
 import { DeskModelButton } from './deskmodel'
 import { creditSegments } from './creditsegments'
 import { DndBadge, UrgentAgentOptions, type UrgentAgentMail } from './dnd'
@@ -4508,6 +4509,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     <TurnActiveContext.Provider value={turnActive}>
     <RunningTurnContext.Provider value={turnStart}>
     <LiveTokenContext.Provider value={convo.toolTokens ?? {}}>
+    <ShellOutputContext.Provider value={convo.shellOutput ?? null}>
     <fieldset ref={deskRef} disabled={staleIdentity} className="desk-control-scope"
       // ESCAPE CANCELS A PREPARED REPLY, exactly as its × does (user
       // 2026-10-13). It bubbles, so anything that already took this Escape —
@@ -4563,6 +4565,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           }
         }}>{content}</div>
     </div></fieldset>
+    </ShellOutputContext.Provider>
     </LiveTokenContext.Provider>
     </RunningTurnContext.Provider>
     </TurnActiveContext.Provider>
@@ -5136,6 +5139,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
             <DocketIcon fontSize="inherit" /> open</button>)}
       </span>
       {open && (t.result_lines ?? 0) > 0 && <div className="dim tool-line-count">{t.result_lines} line{t.result_lines === 1 ? '' : 's'}</div>}
+      {open && <LiveShellOutput tool={t} />}
       {open && (writing
         ? t.preview_input !== null && typeof t.preview_input === 'object' && Object.keys(t.preview_input).length > 0
           ? <div className="toolinput"><StructuredJson value={t.preview_input} /></div> : null
