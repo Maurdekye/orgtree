@@ -36,8 +36,8 @@ async fn explicit_local_hub_control_still_answers() {
 
 #[test]
 fn explicit_standard_ports_and_ipv6_are_not_rewritten_to_7370() {
-    assert_eq!(normalize_address("example.invalid:80"),"http://example.invalid");
-    assert_eq!(normalize_address("http://[::1]:80"),"http://[::1]");
+    assert_eq!(normalize_address("example.invalid:80"),"http://example.invalid:80");
+    assert_eq!(normalize_address("http://[::1]:80"),"http://[::1]:80");
     assert_eq!(normalize_address("[::1]:7378"),"http://[::1]:7378");
 }
 
@@ -47,6 +47,7 @@ fn registered_endpoint_is_reused_only_within_the_current_candidate_set() {
     assert_eq!(discovery::known_address("other.invalid",Some("http://office.invalid:7378")),"http://other.invalid:7370");
     assert_eq!(discovery::known_address("office.invalid:7371",Some("http://office.invalid:7378")),"http://office.invalid:7371");
     assert_eq!(discovery::candidates("[::1]")[1],"http://[::1]:7378");
+    assert_eq!(discovery::candidates("office.invalid:80"),vec!["http://office.invalid:80"]);
 }
 
 #[tokio::test]
