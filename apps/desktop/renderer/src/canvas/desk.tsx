@@ -69,7 +69,7 @@ import type { ReactNode } from 'react'
 import type {
   CacheForecast, ChatMessage, ChatPayload, CodexRouteInfo, PendingMail,
   Denial, Readiness, ServingAccount, TreeFrozen, TreeNode, TurnStat,
-  ToolChip as ToolChipData, ToastFn, TurnSlotQueued,
+  ToolChip as ToolChipData, ToastFn, TurnSlotQueued, Watchdog,
 } from '../types'
 import { openAppSettings } from './settingskit'
 import {
@@ -1835,6 +1835,69 @@ export function NavChip({ n, dir, onJump }:
   </span>
 }
 
+/** F-01's bottom row, the same on agent and project desks: one card per
+ *  report, then one per watchdog the desk's agent owns (user 2026-09-29;
+ *  clicking one opens its detail modal). Drafts are not agents yet and bearer
+ *  pseudo-cards are consultable stack layers, not reports. Projects are
+ *  passthrough: their members are jump cards too, the live ones as cards and
+ *  the retired ones behind the retired controls (user 2026-10-17 22:13Z),
+ *  which collapse a long-lived team's graves behind one chip (user ruling
+ *  2026-08-04), or behind the "N retired" picker while retired agents are
+ *  hidden. A project desk passes no dogs: a project owns none (its listeners
+ *  are header cards). Reports need somewhere to jump to: without `onJump`
+ *  only the dogs show. */
+export function DeskReportRow({ node, map, onJump, dogs: deskDogs }: {
+  node: Pick<CanvasNode, 'id' | 'children'>
+  map: Map<string, CanvasNode>
+  onJump?: (id: string) => void
+  dogs?: { dogs: Watchdog[]; open: (id: string) => void } | null
+}) {
+  const [showRetired, setShowRetired] = useState(false)
+  const hideRetired = useHideRetired()
+  const [retiredMenuOpen, setRetiredMenuOpen] = useState(false)
+  const jump = onJump ?? (() => {})
+  const reports = onJump ? downJumpTargets(node.children) : []
+  const alive = reports.filter((c) => c.state === 'live')
+  const retired = reports.filter((c) => c.state !== 'live')
+  if (!reports.length && !deskDogs) return null
+  const dogs = deskDogs?.dogs ?? []
+  const cardIds = [...alive.map((c) => 'n:' + c.id), ...dogs.map((w) => 'd:' + w.id)]
+  const renderCard = (k: string) => {
+    if (k.startsWith('n:')) {
+      return <NavChip key={k} n={alive.find((x) => x.id === k.slice(2))!} dir="down" onJump={jump} />
+    }
+    return <DogChip key={k} dog={dogs.find((x) => x.id === k.slice(2))!} onOpen={deskDogs!.open} />
+  }
+  return (
+    <div className="desk-nav">
+      <DeskJumpCards ids={cardIds} render={renderCard}>{folded => <>
+        {!folded && alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
+        {hideRetired && retired.length > 0 && <>
+          <button className="desk-nav-chip desk-retired-token" onClick={() => setRetiredMenuOpen(true)}>
+            {retired.length} retired
+          </button>
+          {retiredMenuOpen && <ModalOverPins><PilePicker
+            pile={{ key: `desk-retired:${node.id}`, parent: node.id, kind: 'a', list: retired.map(c => c.id), front: retired[0]!.id }}
+            map={map} close={() => setRetiredMenuOpen(false)}
+            onPick={id => { setRetiredMenuOpen(false); jump(id) }} /></ModalOverPins>}
+        </>}
+        {!hideRetired && retired.length > 0 && (
+          <button className="desk-nav-chip dim"
+            title={showRetired ? 'collapse the retired reports'
+              : retired.map((c) => c.id).join(', ')}
+            onClick={() => setShowRetired((v) => !v)}>
+            {showRetired ? 'hide retired'
+              : `show ${retired.length} retired`}
+          </button>
+        )}
+        {!hideRetired && showRetired && retired.map((c) =>
+            <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
+        {!folded && dogs.map((w) => <DogChip key={'dog:' + w.id} dog={w} onOpen={deskDogs!.open} />)}
+        </>}</DeskJumpCards>
+    </div>
+  )
+}
+
 /** the slice of a card the spend badge reads — CanvasNode does not declare
  *  every additive TreeNode field, and synthetic cards carry a subset */
 type SpendNode = {
@@ -2399,10 +2462,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // that scrolls away.
   const [asking, setAsking] = useState<'dissolve' | 'retire' | null>(null)
   const [askCompact, setAskCompact] = useState(false)
-  // F-01 footer: retired reports collapsed behind one chip (user ruling)
-  const [showRetired, setShowRetired] = useState(false)
-  const hideRetired = useHideRetired()
-  const [retiredMenuOpen, setRetiredMenuOpen] = useState(false)
   // this agent's own watchdogs, as cards in the bottom jump row (deskdogs.tsx)
   const deskDogs = useDeskDogs(node.id)
   const dogRoute = useDogRoute()
@@ -4238,59 +4297,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           pxc={pxc}
           maxTop={maxTop} />
       )}
-      {/* F-01: subordinate chips at the BOTTOM — one per direct report. Drafts
-          are not agents yet; bearer pseudo-cards are consultable stack layers,
-          not reports. Retired reports collapse behind one expandable chip
-          (user ruling 2026-08-04) — a long-lived team's footer is otherwise
-          mostly graves.
-          Then one card per watchdog THIS agent owns (user 2026-09-29), after
-          its reports; clicking one opens that watchdog's detail modal. */}
-      {(() => {
-        // reports need somewhere to jump to; without `onJump` only the dogs show
-        const jump = onJump ?? (() => {})
-        // projects are passthrough: their members are jump cards too, live
-        // ones as cards and retired ones behind the retired controls
-        const reports = onJump ? downJumpTargets(node.children) : []
-        const alive = reports.filter((c) => c.state === 'live')
-        const retired = reports.filter((c) => c.state !== 'live')
-        if (!reports.length && !deskDogs) return null
-        const dogs = deskDogs?.dogs ?? []
-        const cardIds = [...alive.map((c) => 'n:' + c.id), ...dogs.map((w) => 'd:' + w.id)]
-        const renderCard = (k: string) => {
-          if (k.startsWith('n:')) {
-            return <NavChip key={k} n={alive.find((x) => x.id === k.slice(2))!} dir="down" onJump={jump} />
-          }
-          return <DogChip key={k} dog={dogs.find((x) => x.id === k.slice(2))!} onOpen={deskDogs!.open} />
-        }
-        return (
-          <div className="desk-nav">
-            <DeskJumpCards ids={cardIds} render={renderCard}>{folded => <>
-              {!folded && alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
-              {hideRetired && retired.length > 0 && <>
-                <button className="desk-nav-chip desk-retired-token" onClick={() => setRetiredMenuOpen(true)}>
-                  {retired.length} retired
-                </button>
-                {retiredMenuOpen && <ModalOverPins><PilePicker
-                  pile={{ key: `desk-retired:${node.id}`, parent: node.id, kind: 'a', list: retired.map(c => c.id), front: retired[0]!.id }}
-                  map={map} close={() => setRetiredMenuOpen(false)}
-                  onPick={id => { setRetiredMenuOpen(false); jump(id) }} /></ModalOverPins>}
-              </>}
-              {!hideRetired && retired.length > 0 && (
-                <button className="desk-nav-chip dim"
-                  title={showRetired ? 'collapse the retired reports'
-                    : retired.map((c) => c.id).join(', ')}
-                  onClick={() => setShowRetired((v) => !v)}>
-                  {showRetired ? 'hide retired'
-                    : `show ${retired.length} retired`}
-                </button>
-              )}
-              {!hideRetired && showRetired && retired.map((c) =>
-                  <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
-              {!folded && dogs.map((w) => <DogChip key={'dog:' + w.id} dog={w} onOpen={deskDogs!.open} />)}
-              </>}</DeskJumpCards>
-          </div>
-        )
-      })()}
+      {/* F-01: subordinate chips at the BOTTOM, then this agent's own
+          watchdogs (DeskReportRow) */}
+      <DeskReportRow node={node} map={map} onJump={onJump} dogs={deskDogs} />
       {/* №13: the composer is present under EVERY tab — finding a wrong number
           on the inbox or docket tab shouldn't cost your place to say so */}
       {replyMenu.node}
