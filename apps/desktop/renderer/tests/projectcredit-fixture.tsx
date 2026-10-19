@@ -2,6 +2,7 @@ import { NodeSquare } from '../src/canvas/cards'
 import { CreditGrant } from '../src/canvas/creditgrant'
 import { DeskChat } from '../src/canvas/desk'
 import { InboxAskCard } from '../src/canvas/asks'
+import { USER } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { AskInfo, TreeNode, TreePayload } from '../src/types'
 
@@ -15,7 +16,7 @@ export const reports=[agent('test-manager',2,4,{children:[agent('test-grandchild
 const project=(id:string,children:CanvasNode[]):CanvasNode=>({id,kind:'project',state:'live',tier:'project',
   seat:0,grant:children.reduce((sum,c)=>sum+(c.state==='archived'?0:(c.seat??0)+(c.grant??0)),0),free:0,children})
 export const groupedReports=[project('test-wrapper',[reports[0]!,project('test-nested',[reports[1]!,reports[2]!,reports[3]!]),project('test-empty',[])])]
-export const makeNode=(grouped:boolean):CanvasNode=>agent('test-superior',4,20,{free:9,parent:'user',children:grouped?groupedReports:reports})
+export const makeNode=(grouped:boolean):CanvasNode=>agent('test-superior',4,20,{free:9,parent:USER,children:grouped?groupedReports:reports})
 export const makeTree=(roots:CanvasNode[]):TreePayload=>({roots,max_top_grant:100,cascade_alloc:true} as unknown as TreePayload)
 export const noop=()=>{}
 const op=async()=>({})
