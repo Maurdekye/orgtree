@@ -1323,6 +1323,43 @@ export function AudienceFold({ ids, label, alert = false, render, limit = AUDIEN
   </>)
 }
 
+/** One labeled holder row shared by the user's inbox and the org mailbox.
+ * Each surface supplies its own revoke action; presentation and identity stay
+ * identical while audience authority remains owned by the caller. */
+export function AudienceHolderRows({ ids, nodes, onRemove, removeTitle,
+  label = 'audience holders', foldLabel = label, alert = false, onFocusAgent,
+}: {
+  ids: string[]
+  nodes: ReadonlyMap<string, CanvasNode>
+  onRemove: (id: string) => void
+  removeTitle: string
+  label?: string
+  foldLabel?: string
+  alert?: boolean
+  onFocusAgent?: (agentId: string) => void
+}) {
+  if (!ids.length) return null
+  const live = ids.filter((id) => nodes.get(id)?.state === 'live')
+  const retired = ids.filter((id) => nodes.get(id)?.state !== 'live')
+  const render = (id: string, dim = false) => (
+    <span key={id} className={'badge aud-badge ' + (dim ? 'dim' : 'free')}>
+      <HearingIcon fontSize="inherit" />
+      <AgentName id={id} tier={nodes.get(id)?.tier}
+        onFocus={onFocusAgent ? (agentId: string) => onFocusAgent(agentId) : undefined} />
+      <button className="chip-x" title={removeTitle} type="button"
+        onClick={() => onRemove(id)}><CloseIcon fontSize="inherit" /></button>
+    </span>
+  )
+  return <>
+    <div className="field-label">{label}</div>
+    <div className="row aud-holders-row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+      <AudienceFold ids={live} label={foldLabel} alert={alert && live.length > 1}
+        render={(id) => render(id)} />
+      <RetiredFold ids={retired} render={(id) => render(id, true)} />
+    </div>
+  </>
+}
+
 // The node's own mailbox (user ruling: its own tab, separate from history),
 // with the same folders as the user's: inbox + sent.
 interface InboxViewProps {
@@ -1822,16 +1859,6 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     return <span className={'net-state' + (m._state === 'read' ? ' read' : '')}
       title={tip}> {g}</span>
   }
-  const holderChip = (h: string, dim = false) => (
-    <span key={h} className={'badge ' + (dim ? 'dim' : 'free')}>
-      <HearingIcon fontSize="inherit" />{h}
-      <button className="chip-x" title="revoke this inbox audience"
-        onClick={() => audienceAction(slug, 'revoke', h, EXTERN)
-          .then(() => toast([`org-inbox audience for ${h} rescinded`]))
-          .catch((e: Error) => toast([`error: ${e.message}`]))}>
-        <CloseIcon fontSize="inherit" /></button>
-    </span>
-  )
   return (
     <PinFrame kind="org-inbox" title="The org inbox" panel="settings wide"
       close={close}>
@@ -1846,18 +1873,13 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
         )}
         {tab === 'mail' ? (<>
           <TransferPanel slug={slug} />
-          <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-            <AudienceFold
-              ids={holders.filter((h) => map.get(h)?.state === 'live')}
-              label="org inbox audience holders"
-              // One holder is the org's standing safety rule. Folding must
-              // save space, never make a second external-mail recipient read
-              // as ordinary: the count remains visible and becomes a warning.
-              alert={holders.filter((h) => map.get(h)?.state === 'live').length > 1}
-              render={(h) => holderChip(h)} />
-            <RetiredFold
-              ids={holders.filter((h) => map.get(h)?.state !== 'live')}
-              render={(h) => holderChip(h, true)} />
+          <div className="org-audience-holders">
+            <AudienceHolderRows ids={holders} nodes={map}
+              foldLabel="org inbox audience holders" alert
+              removeTitle="revoke this inbox audience"
+              onRemove={(h) => audienceAction(slug, 'revoke', h, EXTERN)
+                .then(() => toast([`org-inbox audience for ${h} rescinded`]))
+                .catch((e: Error) => toast([`error: ${e.message}`]))} />
             <span className="dim" style={{ fontSize: 11.5 }}>
               {holders.length === 0
                 ? 'inbound mail auto-grants the senior top-level agent — or drag an agent onto the mailbox to choose who reads it'

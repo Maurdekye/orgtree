@@ -124,4 +124,20 @@ uiTest('§5 org inbox holders use the labeled audience-holder chips from Your in
       'the holder name uses the same identity renderer as Your inbox')
     assert.equal(chip.querySelector('.chip-x')?.getAttribute('title'),
       'revoke this inbox audience', 'the existing remove affordance remains available')
+    let revoke: { url: string; init?: RequestInit } | undefined
+    const originalFetch = window.fetch
+    window.fetch = async (input, init) => {
+      revoke = { url: String(input), init }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 })
+    }
+    try {
+      await inAct(() => (chip.querySelector('.chip-x') as HTMLButtonElement).click())
+    } finally {
+      window.fetch = originalFetch
+    }
+    assert.equal(revoke?.url, '/api/orgs/mine/audiences',
+      'removing a holder still uses the org audience endpoint')
+    assert.deepEqual(JSON.parse(String(revoke?.init?.body)), {
+      action: 'revoke', node: 'holder1', target: '@extern',
+    }, 'the shared row preserves outside-mail revoke semantics')
   })

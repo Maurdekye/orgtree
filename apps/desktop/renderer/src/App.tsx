@@ -109,12 +109,12 @@ import { TreeReadPacer } from './treepace'
 import type { TreeRequest } from './treepace'
 import { AgentNavProvider, agentNavProps } from './canvas/agentnav'
 import { ObjectNavProvider } from './canvas/objectnav'
-import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
+import { AudienceHolderRows, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord } from './Canvas'
 import { KillSwitch } from './KillSwitch'
 import type { KillSwitchActions } from './KillSwitch'
 import {
   AutorenewIcon, BlockIcon, CheckIcon, ChevronRightIcon, CloseIcon, CopyIcon, EyeIcon, LanIcon,
-  DataUsageIcon, ShowChartIcon, DeleteIcon, DocIcon, DocketIcon, ExpandMoreIcon, GitHubIcon, HearingIcon, HomeIcon, LockIcon,
+  DataUsageIcon, ShowChartIcon, DeleteIcon, DocIcon, DocketIcon, ExpandMoreIcon, GitHubIcon, HomeIcon, LockIcon,
   FolderIcon, LockOpenIcon, MailIcon, MenuIcon, PlayIcon, PublicIcon, SettingsIcon,
   StopIcon, StorageIcon, WarnIcon,
 } from './icons'
@@ -124,7 +124,6 @@ import { activeDocCount, ago, ALL_TIERS, attentionPip, deskDpi, fmtCredits, form
 import { InboxAskCard } from './canvas/asks'
 import { askMailRow, openAsks, submittedCards, submittedOpenCount } from './canvas/openasks'
 import { SenderChip } from './canvas/senderchip'
-import { AgentName } from './canvas/identity'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
 import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
 import { langServerDoc } from './canvas/langserver'
@@ -2867,23 +2866,6 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   const act = (action: string, node: string, target?: string | null) =>
     audienceAction(slug, action, node, target)
       .catch((e: Error) => toast([`error: ${e.message}`]))
-  // an audience holder is an agent of this org, so it wears the same chip and
-  // the same jump as everywhere else. `nodes.get(g)?.tier` may be undefined
-  // for a holder no longer in the tree — AgentName then draws no chip, which
-  // is the honest answer rather than a guessed one.
-  const audBadge = (g: string, dim = false) => (
-    <span key={g} className={'badge aud-badge ' + (dim ? 'dim' : 'free')}>
-      <HearingIcon fontSize="inherit" />
-      {/* the id alone — `AgentName` calls back with (id, event) and
-          `onFocusAgent` is declared one-argument. Wrapped at its source here
-          today, so nothing is corrupted; mail.tsx's defaultIdentity records
-          what the bare handoff cost when the source was `centerOn`. */}
-      <AgentName id={g} tier={nodes.get(g)?.tier}
-        onFocus={onFocusAgent ? (id: string) => onFocusAgent(id) : undefined} />
-      <button className="chip-x" title="rescind" type="button"
-        onClick={() => act('revoke', g)}><CloseIcon fontSize="inherit" /></button>
-    </span>
-  )
   // Asks ride the inbox as their OWN mail rows (user ruling 2026-08-04),
   // interleaved chronologically with real mail — the only difference is the
   // reading pane shows the response UI as the body instead of a reply box.
@@ -2942,20 +2924,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
           </>
         )}
         {userAud.length > 0 && (
-          <>
-            <div className="field-label">audience holders</div>
-            <div className="row aud-holders-row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-              <AudienceFold
-                ids={userAud.filter((a) => nodes.get(a.grantee)?.state === 'live')
-                  .map((a) => a.grantee)}
-                label="audience holders"
-                render={(g) => audBadge(g)} />
-              <RetiredFold
-                ids={userAud.filter((a) =>
-                  nodes.get(a.grantee)?.state !== 'live').map((a) => a.grantee)}
-                render={(g) => audBadge(g, true)} />
-            </div>
-          </>
+          <AudienceHolderRows ids={userAud.map((a) => a.grantee)} nodes={nodes}
+            onRemove={(id) => act('revoke', id)} removeTitle="rescind"
+            onFocusAgent={onFocusAgent} />
         )}
         <MailFolders folder={folder} setFolder={setFolder}
           folders={['inbox', 'sent', 'record']}
