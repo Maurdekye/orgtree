@@ -31,6 +31,9 @@ separate from thinking effort. The user or an authorized superior can change it.
   Its speed toggle keeps the top row: either queued direction uses a slightly
   darker highlight until admission. Steady on has the ordinary active highlight;
   steady off has none.
+  Hovering a pending speed toggle says **Fast mode turns on next turn** or
+  **Fast mode turns off next turn**. After admission or reverting, the ordinary
+  speed help returns.
   Effort and Send/Stop remain on a separate lower row, right
   aligned beneath them. The text field retains a 10ch minimum on narrow desks.
 - The agent hover tooltip includes **fast** when saved on for a supported model.

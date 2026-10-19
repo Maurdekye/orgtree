@@ -64,9 +64,11 @@ for (const next of [true,false]) test('pending speed '+next+' is highlighted dis
   const v=await mountView(control(n),el=>el)
   try {
     assert.equal(!!v.el.querySelector('.cc-fast.on.queued-speed'),true)
+    assert.equal(v.el.querySelector('.cc-fast')?.getAttribute('title'),`Fast mode turns ${next ? 'on' : 'off'} next turn`)
     await v.render(control({...n,fast_mode_current:next}))
     assert.equal(!!v.el.querySelector('.cc-fast.on'),next)
     assert.equal(!!v.el.querySelector('.queued-speed'),false)
+    assert.equal(v.el.querySelector('.cc-fast')?.getAttribute('title')?.includes('next turn'),false)
     await v.render(control({...n,scope:{...n.scope,fast_mode:false},fast_mode_current:false}))
     assert.equal(!!v.el.querySelector('.cc-fast.on'),false)
   } finally {await v.unmount()}
