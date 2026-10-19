@@ -11,6 +11,7 @@ import { DeskDogsProvider, DogChip } from '../src/canvas/deskdogs'
 import { ListenersView } from '../src/canvas/listenersdesk'
 import { SlotsView } from '../src/canvas/slotsdesk'
 import { projectSlotState } from '../src/canvas/slots'
+import { WatchdogSatellite } from '../src/canvas/watchdogchip'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { Watchdog } from '../src/types'
 
@@ -18,6 +19,13 @@ const dog=(kind:Watchdog['kind'],extra:Partial<Watchdog>={}):Watchdog=>({id:'wor
 async function right(el:Element){await inAct(()=>{el.dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:20,clientY:20}))});await flush()}
 const projectRow=()=>Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(e=>e.textContent==='Project… ▸')
 const labels=()=>Array.from(document.querySelectorAll('[role="menuitem"]')).map(e=>e.textContent)
+
+test('listener watches have a distinct kind class on the real canvas and desk chips',async t=>{
+ const dogs=[dog('project_listener'),dog('listener_watch'),dog('listener_watch',{id:'worker/watch-once',once:false})]
+ const view=await mountView(<>{dogs.map(w=><section key={w.id} data-kind={w.kind}><WatchdogSatellite dog={w} dogs={dogs} org="org" onOpen={()=>{}}/><DogChip dog={w} onOpen={()=>{}}/></section>)}</>,el=>el)
+ t.after(view.unmount)
+ for(const row of view.el.querySelectorAll('section'))for(const chip of row.querySelectorAll('button'))assert.equal(chip.classList.contains('listener-watch'),row.getAttribute('data-kind')==='listener_watch')
+})
 
 for(const kind of ['slot','fair_queue','project_listener','listener_watch','activity'] as Watchdog['kind'][]){
  test(kind+' watchdog borrows the current canonical project menu, keeping its own actions',async t=>{
