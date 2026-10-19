@@ -37,6 +37,8 @@ export interface MailListenerRow {
   out: 'paused' | 'gone' | 'holding' | 'halted' | null
   /** the job it holds (ack mode): the project mailbox's copy */
   held: MailRow | null
+  /** all unacked jobs in the batch; held is the first for timing */
+  heldMails: MailRow[]
   /** its most recent wait for mail */
   waited: Stretch | null
   /** its most recent job, hand-out to ack (ack mode only) */
@@ -62,12 +64,13 @@ export function mailListenerRows(state: MailListenerState, map: Map<string, Canv
   const listed = state.listeners.map((w): MailListenerRow => {
     const owner = map.get(w.owner)
     const jobs = rows.filter((m) => m.queue?.held_by === w.owner && m.queue.held_at)
-    const held = ack ? jobs.find((m) => awaitingAck(m, w.owner)) ?? null : null
+    const heldMails = ack ? jobs.filter((m) => awaitingAck(m, w.owner)) : []
+    const held = heldMails[0] ?? null
     const acked = jobs.filter((m) => m.queue!.acked_at)
       .sort((a, b) => time(b.queue!.acked_at) - time(a.queue!.acked_at))
     const out = w.state === 'paused' ? 'paused' as const
       : !owner || owner.state !== 'live' ? 'gone' as const
-        : held ? 'holding' as const
+        : heldMails.length >= (w.batch ?? 1) ? 'holding' as const
           : ack && owner.halt ? 'halted' as const : null
     let waited: Stretch | null = null
     let worked: Stretch | null = null
@@ -87,7 +90,7 @@ export function mailListenerRows(state: MailListenerState, map: Map<string, Canv
       // round robin: it waits again from its last hand-out
       waited = { from: later(w.at, w.last_fired) }
     }
-    return { dog: w, position: null, out, held, waited, worked }
+    return { dog: w, position: null, out, held, heldMails, waited, worked }
   })
   const rank = (r: MailListenerRow) => (r.out === null ? 0 : r.out === 'holding' ? 1 : 2)
   const key = (w: Watchdog) => [w.last_fired ? time(w.last_fired) : -Infinity, time(w.at)]
@@ -133,7 +136,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   useSyncExternalStore(subscribeAgeClock, ageClockNow, ageClockNow)
   const route = useDogRoute()
   const list = mailListenerRows(state, map, rows, ack)
-  const cols = ['Position', 'Agent', 'Waited', ...(ack ? ['Worked', 'Mail'] : []), 'Handed', 'Watchdog']
+  const cols = ['Position', 'Agent', 'Waited', ...(ack ? ['Worked', 'Mail'] : []), 'Handed', 'Batch', 'Watchdog']
   const dogName = (w: Watchdog) => <WatchdogLink dog={w} className="listener-dog" onOpen={route?.open}/>
   return (
     <div className="project-mail-listeners">
@@ -141,7 +144,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
         <table className="slots-table mail-listeners-table">
           <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/>
             {ack && <><col className="slot-col-time"/><col className="listener-col-mail"/></>}
-            <col className="listener-col-handed"/><col className="listener-col-dog"/></colgroup>
+            <col className="listener-col-handed"/><col className="listener-col-handed"/><col className="listener-col-dog"/></colgroup>
           <thead><tr>{cols.map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
           <tbody>
             {list.length === 0 && <tr><td colSpan={cols.length} className="dim slot-empty">Nobody listens for {node.id}'s mail,
@@ -160,11 +163,12 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                   <AgentLink id={r.dog.owner} tier={nodeTierOf(map.get(r.dog.owner))} onFocus={onJump} /></th>
                 <td className="slot-wait">{r.waited && <ListenerTime {...r.waited} />}</td>
                 {ack && <td className="slot-held">{r.worked && <ListenerTime {...r.worked} />}</td>}
-                {ack && <td className="listener-mail">{r.held && (
-                  <button type="button" className="listener-mail-link" data-mail={r.held.id}
-                    title={`${r.dog.owner} holds this job until it acks it (from ${r.held.from}); click to read it in the inbox`}
-                    onClick={() => onOpenMail?.(r.held!.id)}>{r.held.body.split('\n')[0] || r.held.id}</button>)}</td>}
+                {ack && <td className="listener-mail">{r.heldMails.map(m => (
+                  <div key={m.id}><button type="button" className="listener-mail-link" data-mail={m.id}
+                    title={`${r.dog.owner} holds this job until it acks it (from ${m.from}); click to read it in the inbox`}
+                    onClick={() => onOpenMail?.(m.id)}>{m.body.split('\n')[0] || m.id}</button></div>))}</td>}
                 <td className="listener-handed" title="mails this listener's watchdog has been handed (engine count)">{r.dog.fired}</td>
+                <td className="listener-batch" title="maximum messages per batch and unacked mails in ACK mode">{r.dog.batch ?? 1}</td>
                 <td className="listener-dog-cell">{dogName(r.dog)}
                   {r.dog.notice && <span className="dim"> passive</span>}</td>
               </WatchdogRow>

@@ -43,7 +43,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLe
       : count
         ? `Watches ${target} and ${alert} when the count of ${counted} changes in the ${scope}, excluding ${dog.owner}${dog.pattern ? `, with an event payload ${pattern}` : ''}.`
         : `Listens for ${target} and ${alert} when ${pattern} engine events arrive.`; break
-    case 'fair_queue': summary = `Delivers mail waiting in project ${target} to ${dog.owner}, one message at a time, shared fairly with other armed listeners. Each message goes to one listener, the least recently served first.`; break
+    case 'fair_queue': summary = `Delivers mail waiting in project ${target} to ${dog.owner}, ${(dog.batch ?? 1) === 1 ? 'one message at a time' : `up to ${dog.batch} messages with one wake per batch`}, shared fairly with other armed listeners. It never waits for a full batch. Each message goes to one listener, the least recently served first. In ACK mode the batch limit caps unacked mails; each mail needs its own acknowledgement.`; break
     case 'slot': summary = slotClaimDescription(dog,dogs,target,slotLease); break
     case 'project_listener': summary = `Listens on project ${target} and ${alert} each time its event is fired, with the firer's message when one is carried. Every armed listener on the project receives the same fire at the same instant.`; break
     case 'listener_watch': summary = `Watches the event listeners armed on project ${target} and ${alert} when their count reaches ${dog.count ?? '?'}. Staying at or above the count does not fire again; dropping below and reaching it again does (a continuous watch).`; break
@@ -78,7 +78,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLe
   const fireMode = silence
     ? `fires after ${quiet} of silence — ${quiet} without a matching event; resets after each match and fire`
     : dog.kind === 'slot' ? 'once, when granted a project slot'
-    : dog.kind === 'fair_queue' ? 'on each assigned project message'
+    : dog.kind === 'fair_queue' ? `on each assigned batch of up to ${dog.batch ?? 1} messages`
     : dog.kind === 'project_listener' ? 'on each event fired on the project'
     : dog.kind === 'listener_watch' ? 'when the armed listener count reaches its count'
     : dog.kind === 'process' ? 'on an observed up-to-down transition'

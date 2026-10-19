@@ -455,7 +455,7 @@ test("§7 one aligned table, values only, as the slots view; Worked and Mail onl
   const ackDesk = await desk(t, project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 }))
   serveInbox(t)
   await clickCard(ackDesk.view.el)
-  assert.deepEqual(headers(ackDesk.view.el), ['Position', 'Agent', 'Waited', 'Worked', 'Mail', 'Handed', 'Watchdog'])
+  assert.deepEqual(headers(ackDesk.view.el), ['Position', 'Agent', 'Waited', 'Worked', 'Mail', 'Handed', 'Batch', 'Watchdog'])
   const [first] = tableRows(ackDesk.view.el)
   const c = cells(first!)
   assert.equal(c[0], '1st', 'the place in the order, as the slots line')
@@ -469,7 +469,7 @@ test("§7 one aligned table, values only, as the slots view; Worked and Mail onl
   assert.ok(!!first!.querySelector('.watchdog-link.fair-queue .wd-glyph'), 'watchdog identity includes its kind icon and outline')
   const rr = await desk(t, project({}, { mail_pending: 3 }))
   await clickCard(rr.view.el)
-  assert.deepEqual(headers(rr.view.el), ['Position', 'Agent', 'Waited', 'Handed', 'Watchdog'],
+  assert.deepEqual(headers(rr.view.el), ['Position', 'Agent', 'Waited', 'Handed', 'Batch', 'Watchdog'],
     'round robin: no Worked and no Mail column (user 19:29:12Z)')
 })
 
