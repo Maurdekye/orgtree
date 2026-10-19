@@ -50,6 +50,7 @@ function fixture(initial, { platform = 'win32', bootTask = true } = {}) {
     runtimeIcon: () => ({ isEmpty: () => true }), attentionTotal: 0,
     BrowserWindow: { getAllWindows: () => [] }, applyWindowIcon() {},
     refreshTrayUpdates() {}, refreshTrayEngine() {}, refreshTrayHub() {},
+    refreshTrayEpic() {}, epicMuteTrayItem: () => ({ id: 'epic-mute' }),
     label: () => 'Ready', updatesSupported: false,
     hubMenuItem: () => ({ id: 'mailhub-status', label: 'Mail hub' }),
     NOTIFICATION_OPTIONS: [], detectHarnesses: () => [], harnessSetupMenu: () => [], trayHarnesses: null,
