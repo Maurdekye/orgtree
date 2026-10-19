@@ -324,3 +324,75 @@ test('§6.8 in the wide row nothing changes: the picker opens from its own butto
     assert.equal(pops().sup!.style.left !== '', true)
   } finally { await done() }
 })
+
+// The empty-files action opens a native picker, not another pop-over. Its
+// launching dropdown must remain mounted across blur, cancel and selection.
+test('§7.1 empty files opens the picker and keeps the dropdown through blur and cancel', async () => {
+  box.width = 900
+  const { view, done } = await quick(true)
+  try {
+    await openDropdown(view)
+    const input = view.el.querySelector<HTMLInputElement>('[data-testid="quickchat-files"]')!
+    let picks = 0
+    input.addEventListener('click', () => {
+      picks++
+      window.dispatchEvent(new window.Event('blur'))
+    })
+    await inAct(async () => {
+      const attach = document.querySelector<HTMLElement>('.quickchat-pop-options .quickchat-attach')!
+      attach.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }))
+      attach.click(); await flush(4)
+    })
+    assert.equal(picks, 1, 'opens the existing file input once')
+    assert.equal(pops().options !== null, true, 'native picker blur keeps the dropdown')
+    await inAct(async () => {
+      input.dispatchEvent(new window.Event('cancel', { bubbles: true }))
+      window.dispatchEvent(new window.Event('focus')); await flush(4)
+    })
+    assert.equal(pops().options !== null, true, 'cancel returns to the same options')
+    await key('Escape')
+    assert.equal(pops().options === null, true, 'Escape still dismisses the dropdown')
+  } finally { await done() }
+})
+
+test('§7.2 chosen files stay attached with dropdown open; adding more keeps both pop-overs', async () => {
+  box.width = 900
+  const { view, done } = await quick(true)
+  try {
+    await openDropdown(view)
+    await clickIn('.quickchat-pop-options .quickchat-attach')
+    const input = view.el.querySelector<HTMLInputElement>('[data-testid="quickchat-files"]')!
+    const choose = async (name: string) => inAct(async () => {
+      Object.defineProperty(input, 'files', { configurable: true,
+        value: [new window.File(['synthetic'], name, { type: 'text/plain' })] })
+      input.dispatchEvent(new window.Event('change', { bubbles: true })); await flush(4)
+    })
+    await choose('first.txt')
+    assert.equal(pops().options !== null, true, 'selection keeps the options visible')
+    assert.equal(document.querySelector('.quickchat-pop-options .quickchat-count')?.textContent, '1')
+    await clickIn('.quickchat-pop-options .quickchat-attach')
+    assert.equal(document.querySelector('.quickchat-file')?.textContent, 'first.txt')
+    let picks = 0
+    input.addEventListener('click', () => { picks++; window.dispatchEvent(new window.Event('blur')) })
+    await clickIn('.quickchat-add')
+    assert.equal(picks, 1, 'existing add-files action still opens the native picker')
+    await choose('second.txt')
+    assert.equal(pops().options !== null && document.querySelector('.quickchat-pop-files') !== null, true)
+    assert.deepEqual([...document.querySelectorAll('.quickchat-file')].map(el => el.textContent), ['first.txt', 'second.txt'])
+    await pressOutside()
+    assert.equal(pops().options === null && document.querySelector('.quickchat-pop-files') === null, true)
+    assert.equal(view.el.querySelector('.quickchat-options .quickchat-count')?.textContent, '2', 'dismissal preserves files')
+  } finally { await done() }
+})
+
+test('§7.3 wide empty-files action opens the existing picker without creating a dropdown', async () => {
+  box.width = 900
+  const { view, done } = await quick(true)
+  try {
+    let picks = 0
+    view.el.querySelector('[data-testid="quickchat-files"]')!.addEventListener('click', () => { picks++ })
+    await clickIn('.quickchat-attach')
+    assert.equal(picks, 1)
+    assert.equal(pops().options === null, true)
+  } finally { await done() }
+})
