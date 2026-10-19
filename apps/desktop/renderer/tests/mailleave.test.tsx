@@ -103,6 +103,27 @@ test('a list refresh and scrolling leave the still-displayed mail unread', async
   assert.match(pane(view.el), /message 0/); assert.deepEqual(reads, [])
 })
 
+test('a second reference and then a keyboard move mark only the bodies left', async t => {
+  const reads: string[] = []
+  const props = {pending: rows, onRead: (m: {id?: string}) => { reads.push(m.id!) }}
+  const view = await mountView(<MailList {...props} jumpTo="m0"/>, el => el)
+  t.after(() => view.unmount())
+  await view.render(<MailList {...props} jumpTo="m1" jumpSeq={2}/>); await tick()
+  assert.deepEqual(reads, ['m0'])
+  await inAct(() => view.el.querySelector('.mailer')!.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowUp', altKey: true, bubbles: true})))
+  assert.deepEqual(reads, ['m0', 'm1'])
+})
+
+test('all bodies in an opened folded notice are read, unopened notices are not', async () => {
+  const reads: string[] = []
+  const notices = rows.slice(0, 3).map(m => ({...m, from: '@system', kind: 'notice'}))
+  const view = await mountView(<MailList pending={notices} jumpTo="m0" onRead={m => { reads.push(m.id!) }}/>, el => el)
+  assert.equal(view.el.querySelectorAll('.notepile-row').length, 3, 'three full bodies are actually displayed')
+  assert.deepEqual(reads, [])
+  await view.unmount()
+  assert.deepEqual(reads.sort(), ['m0', 'm1', 'm2'])
+})
+
 test('unopened lists, sent copies and question cards do not create mail reads', async () => {
   const reads: string[] = []
   for (const props of [{pending: rows}, {delivered: rows, outgoing: true},

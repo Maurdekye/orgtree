@@ -14,6 +14,14 @@
   Shared gallery rows subscribe to viewed changes; successful user opens clear
   the highlight across surfaces. Agent reads do not consume this user state.
   [decided: user 2026-10-19 13:17Z; verified: `canvas/{gallery,docviewed,docs}.ts*`, `http/docs.rs`]
+- Inbox read-on-leave follows committed reading-pane bodies, not selection
+  call sites. Filters, references, folders, tabs and unmounts preserve the
+  departing mail and its org-bound reader. Native window close/app exit drain
+  pending reads before teardown; adopted pop-outs use their owner document.
+  Scrolling while the body stays displayed does not leave it. Agent/project
+  delivery queues remain read-only to this UI (no user-read callback).
+  [decided: user 2026-10-19 13:20Z; verified: `mailleave.ts`,
+  `canvas/mail.tsx`, `main/mail-read-close.ts`]
 
 
 - The persistent app-wide taskbar badge reads existing native app-feed unread

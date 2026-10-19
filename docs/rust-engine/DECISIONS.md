@@ -1,5 +1,14 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Inbox read on every leave, user 2026-10-19 13:20Z (4.4.0):** an opened
+unread mail becomes read when its body stops being displayed, including filter,
+reference, folder, tab, modal, pin, pop-out and app-close routes. One committed
+reading-pane lifecycle owns this rule; native close waits for pending saves.
+Opening alone preserves unread, unviewed mail is untouched, and scrolling a
+list while its reading pane remains displayed is not deselection. Folded
+notices acknowledge every full body displayed. Agent/project delivery queues
+retain their delivery/ACK rules. See [read lifecycle](inbox-read-leave.md).
+
 **Taskbar notification dot, user 2026-10-19 11:26Z (4.4.0):** a persistent dot
 indicates unread user mail or existing attention-needing elements, clearing only
 when all are gone. Reuse app state and update on changes without polling.

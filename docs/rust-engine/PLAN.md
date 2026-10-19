@@ -282,6 +282,12 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Inbox read-on-leave (user 2026-10-19 13:20Z,4.4.0): all ways of leaving an
+opened mail share the same read rule, including filtering and native close.
+The app drains pending read saves before graceful shutdown; it never reads
+unopened rows or consumes agent/project delivery queues. See
+[read lifecycle](inbox-read-leave.md).
+
 Taskbar notification dot (user 2026-10-19 11:26Z,4.4.0): the app's existing
 unread mail/attention state adds a persistent taskbar/dock badge, clearing on
 resolution and retaining state through focus. No added poll or counter; the

@@ -964,6 +964,10 @@ else {
       if (!windows.isNotificationOwner(caller.id)) return undefined
       return handler(...args)
     })
+  const flushReadWindow = async (window: BrowserWindow) => {
+    const result = await bounded(window.webContents.executeJavaScript(rendererMailReadFlushScript()), UPDATE_LAYOUT_MS)
+    if (result !== 'ok') throw new Error(result === 'timeout' ? 'Saving opened mail timed out. Try closing again.' : String(result.error))
+  }
   const saveWindowLayout = async () => {
     // EVERY window, not one: each has its own position, and each renderer has
     // its own layout to flush. A crashed renderer simply does not answer.
@@ -2443,7 +2447,7 @@ else {
           child.setIcon(runtimeIcon())
           taskbarAttention.applyBadge(child)
           const drainReads = mailReadCloseGate(
-            () => bounded(child.webContents.executeJavaScript(rendererMailReadFlushScript()), UPDATE_LAYOUT_MS),
+            () => flushReadWindow(child),
             () => { if (!child.isDestroyed()) child.close() },
             error => { void dialog.showMessageBox({type: 'error', message: 'Could not save opened mail as read.', detail: String(error)}).catch(() => {}) })
           child.on('close', event => { if (!quitting) drainReads(event) })
@@ -2463,7 +2467,7 @@ else {
           quitting = true
         })
         const drainReads = mailReadCloseGate(
-          () => bounded(window.webContents.executeJavaScript(rendererMailReadFlushScript()), UPDATE_LAYOUT_MS),
+          () => flushReadWindow(window),
           () => { if (!window.isDestroyed()) window.close() },
           error => { void dialog.showMessageBox(window, {type: 'error', message: 'Could not save opened mail as read.', detail: String(error)}).catch(() => {}) })
         window.on('close', event => {
