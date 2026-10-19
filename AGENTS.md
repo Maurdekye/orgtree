@@ -9,6 +9,13 @@
 
 # AGENTS.md — working on Orgtree
 
+- Centered Quick chat side minima must be measured with each side temporarily
+  unconstrained (`min-width: max-content`), restoring its inline style before
+  paint. Reading flex-clipped control widths feeds the previous minimum back
+  into ResizeObserver and can alternate Quick chat widths. Only publish changed
+  minima; observe nested title/control text too. See [width stability](docs/rust-engine/quickchat-width-stability.md).
+  [verified: `shell/equalsides.ts`, `tests/quickwidth-capture.cjs`; 2026-10-19]
+
 - Startup tool descriptions retain the 12,000-byte aggregate and 900-byte/card
   caps for flat and split mail shapes. Keep concise authority/call cues on cards;
   move full operational detail into the named tool guides. Description-only
