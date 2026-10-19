@@ -33,7 +33,7 @@ export default async function (rig) {
   const holding = () => leases().filter(l => !l.ended_at).map(l => l.holder).sort()
   const leaseOf = who => leases().find(l => l.holder === who && !l.ended_at)
   const claim = (who, name = 'build-slot') => rig.tool(who, 'orgtree_watchdog', { action: 'create', name, kind: 'slot', target: 'build' })
-  const granted = who => rig.sql(`SELECT body FROM ot.mail WHERE recipient_agent_id = ${node(who).id} AND body LIKE '%You now hold concurrency slot%' ORDER BY id`)
+  const granted = who => rig.sql(`SELECT body FROM ot.mail WHERE recipient_agent_id = ${node(who).id} AND body LIKE '%You now hold a concurrency slot%' ORDER BY id`)
 
   // ------------------------------------------------------------ a project with slots
   const made = await opTry({ op: 'create_project', name: 'build', parent: 'boss', description: 'The build machine.' })
@@ -104,6 +104,15 @@ export default async function (rig) {
   await opTry({ op: 'unhalt', nodes: ['sb'] })
   await settle('the last turns')
 
+  // queue time is recorded on the lease and shown in status (user 2026-10-19)
+  const qrows = rig.sql(`SELECT queued_at, granted_at FROM ot.slot_leases WHERE queued_at IS NOT NULL`)
+  const qstatus = await rig.tool('boss', 'orgtree_project', { action: 'slots', name: 'build' })
+  p.check('each lease records when its claim queued, and status history carries it',
+    leases().length > 0 && qrows.length === leases().length
+    && qrows.every(r => Date.parse(r.queued_at) <= Date.parse(r.granted_at))
+    && qrows.some(r => Date.parse(r.queued_at) < Date.parse(r.granted_at))
+    && (qstatus.json?.history ?? []).every(h => 'queued' in h),
+    { qrows, history: qstatus.json?.history })
   p.file('leases.json', leases())
   p.keep(rig, { agents: ['sa', 'sb', 'sc', 'boss'], grep: /slot|lease/i })
   return p.summary()

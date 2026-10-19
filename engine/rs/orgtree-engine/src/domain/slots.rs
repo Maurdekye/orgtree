@@ -98,7 +98,7 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
         if !free.is_empty() {
             let waiting = tx
                 .query(
-                    "SELECT w.id, w.owner_agent_id, coalesce(w.memo->>'reason', w.name, '') FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+                    "SELECT w.id, w.owner_agent_id, coalesce(w.memo->>'reason', w.name, ''), (w.memo->>'queued_at')::bigint FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
                       WHERE w.kind = 'slot' AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $1 AND NOT w.memo ? 'lease'
                         AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL
                       ORDER BY (w.memo->>'queued_at')::bigint, w.id LIMIT 200",
@@ -116,9 +116,9 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
                 let dog: i64 = w.get(0);
                 let lease = uid("s");
                 tx.execute(
-                    "INSERT INTO ot.slot_leases (uid, org_id, project_id, holder_agent_id, slot_no, reason, dog_id)
-                     VALUES ($1, $2, $3, $4, $5, nullif($6, ''), $7)",
-                    &[&lease, &org_id, &project, &owner, &slot, &w.get::<_, String>(2), &dog],
+                    "INSERT INTO ot.slot_leases (uid, org_id, project_id, holder_agent_id, slot_no, reason, dog_id, queued_at)
+                     VALUES ($1, $2, $3, $4, $5, nullif($6, ''), $7, CASE WHEN $8::bigint IS NULL THEN NULL ELSE to_timestamp($8::bigint / 1000.0) END)",
+                    &[&lease, &org_id, &project, &owner, &slot, &w.get::<_, String>(2), &dog, &w.get::<_, Option<i64>>(3)],
                 )
                 .await?;
                 tx.execute(
@@ -167,21 +167,21 @@ pub async fn line(client: &impl GenericClient, project: i64) -> Result<Vec<(i64,
 pub async fn status(client: &impl GenericClient, project: i64, name: &str, scope: &Value) -> Result<Value> {
     let holders: Vec<Value> = client
         .query(
-            "SELECT l.uid, a.name, l.slot_no, l.reason, l.granted_at, l.wakes FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id
+            "SELECT l.uid, a.name, l.slot_no, l.reason, l.granted_at, l.wakes, l.queued_at FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id
               WHERE l.project_id = $1 AND l.ended_at IS NULL ORDER BY l.slot_no",
             &[&project],
         )
         .await?
         .iter()
         .map(|r| json!({ "lease": r.get::<_, String>(0), "agent": r.get::<_, String>(1), "reason": r.get::<_, Option<String>>(3), "since": iso(r.get::<_, DateTime<Utc>>(4)),
-                         "reminders": r.get::<_, i32>(5) }))
+                         "reminders": r.get::<_, i32>(5), "queued": r.get::<_, Option<DateTime<Utc>>>(6).map(iso) }))
         .collect();
     let waiting: Vec<Value> = line(client, project).await?.into_iter().enumerate()
         .map(|(i, (_, dog, agent, at))| json!({ "position": i + 1, "agent": agent, "dog": dog, "since": at.map(iso) }))
         .collect();
     let history: Vec<Value> = client
         .query(
-            "SELECT l.uid, a.name, l.slot_no, l.reason, l.granted_at, l.ended_at, l.end_reason, l.ended_by
+            "SELECT l.uid, a.name, l.slot_no, l.reason, l.granted_at, l.ended_at, l.end_reason, l.ended_by, l.queued_at
                FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id
               WHERE l.project_id = $1 AND l.ended_at IS NOT NULL ORDER BY l.id DESC LIMIT 20",
             &[&project],
@@ -190,7 +190,7 @@ pub async fn status(client: &impl GenericClient, project: i64, name: &str, scope
         .iter()
         .map(|r| json!({ "lease": r.get::<_, String>(0), "agent": r.get::<_, String>(1), "reason": r.get::<_, Option<String>>(3), "since": iso(r.get::<_, DateTime<Utc>>(4)),
                          "ended": r.get::<_, Option<DateTime<Utc>>>(5).map(iso), "how": r.get::<_, Option<String>>(6),
-                         "by": r.get::<_, Option<String>>(7) }))
+                         "by": r.get::<_, Option<String>>(7), "queued": r.get::<_, Option<DateTime<Utc>>>(8).map(iso) }))
         .collect();
     Ok(json!({ "project": name, "slots": capacity(scope), "held": holders.len(), "holders": holders,
                "line": waiting, "history": history }))
