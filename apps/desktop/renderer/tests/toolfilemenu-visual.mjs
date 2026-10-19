@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url'
 import { runDesktop } from '../../../../tools/rig/desktop.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const root = path.resolve(here, '../../../..')
 const [outputArg, evidenceArg, depsArg] = process.argv.slice(2)
 if (!outputArg || !evidenceArg || !depsArg) throw new Error('Usage: toolfilemenu-visual.mjs <C build output> <C evidence> <shared node_modules>')
 const output = path.resolve(outputArg), evidence = path.resolve(evidenceArg), deps = path.resolve(depsArg)
@@ -21,9 +20,9 @@ await esbuild.build({
   entryPoints: [path.join(here, 'toolfilemenu-visual.tsx')],
   outfile: path.join(output, 'probe.js'),
   nodePaths: [deps], bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', logLevel: 'warning',
+  loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl' },
 })
 esbuild.stop()
-writeFileSync(path.join(output, 'probe.css'), readFileSync(path.join(root, 'apps/desktop/renderer/src/styles.css')))
 const server = createServer((req, res) => {
   if (req.url === '/') {
     res.setHeader('Content-Type', 'text/html')
