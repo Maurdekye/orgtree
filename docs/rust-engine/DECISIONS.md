@@ -15,6 +15,8 @@ replaces the 11:26Z unread-mail rule: ordinary unread mail and standalone failur
 notices do not count. Failure mail still counts if urgent or mentioning the user.
 The menu follows the same rule. Clear when all qualifying items are gone.
 Reuse app state and update on changes without polling.
+User 17:10Z: remove the overlay's white/grey halo and render clean alpha edges
+at 100/125/150/200% DPI with separately sampled image representations.
 Windows overlay; dock/platform badge where cheaply supported. This is separate
 from existing attention pulses. See [taskbar dot](taskbar-dot.md).
 

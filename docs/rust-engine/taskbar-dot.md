@@ -9,8 +9,11 @@ the notice's `attention` boolean independently of its toast kind. Badge and
 menu share `isTaskbarAttentionNotice`; no new counter or poll exists.
 Notification preferences govern interruptions and do not hide this indicator.
 
-Windows uses a red dot with the tray indicator's light rim as an overlay icon on
-each live app window. New windows immediately receive current state. Focus does
+Windows uses a standalone red circle with real alpha antialiasing and no white
+ring or grey halo (user 2026-10-19 17:10Z). Each physical raster is sampled
+separately at 100/125/150/175/200/250/300/400% DPI. Electron decodes straight-alpha
+PNG representations; the raw bitmap helper uses premultiplied BGRA. The tray
+icon retains its existing artwork. New windows immediately receive current state. Focus does
 not clear it: the last qualifying item must resolve. An unchanged feed avoids
 native writes. macOS uses a dock bullet; Linux uses its available badge API with
 presence represented by one, clearing with zero. Unsupported badges are best effort.
@@ -33,6 +36,10 @@ window lifecycle and platform adapters. `taskbar-badge-native.cjs` applies and
 clears the real Windows overlay API on a hidden synthetic window, then captures
 an explicit synthetic before/dot/cleared comparison of the actual bitmap. It
 does not claim to capture Windows taskbar pixels or use the installed app.
+The native smoke validates PNG decoding and premultiplied pixels at
+100/125/150/200%, then captures those actual representations on light, dark
+and grey backgrounds. This proves the supplied image data, not a real monitor's
+Windows taskbar rendering at each DPI.
 
 While the inventory contains waiting items, the Windows custom jump-list
 category is **Needs attention**, replacing **Recent**. Every urgent mail,

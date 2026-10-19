@@ -67,6 +67,10 @@
   and menu share `isTaskbarAttentionNotice`. [decided: user 2026-10-19 16:51–16:55Z;
   verified: `main/{taskbar-badge,jumplist}.ts`, `domain/notices.rs`]
   These indicators are independent of toast preferences/focus.
+  The overlay artwork has no tray-style white ring. Its PNG alpha is decoded
+  by Electron with separately sampled 100–400% DPI representations; raw bitmap
+  helpers use premultiplied BGRA. [decided: user 2026-10-19 17:10Z;
+  verified: `main/taskbar-dot-art.ts`, `tests/taskbar-badge-native.cjs`]
   Windows uses an overlay, macOS a dock bullet, Linux its badge API. Update on
   feed change and attach new windows immediately; no new poll/counter. Existing
   per-org arrival pulses and tray attention count retain their policies. See

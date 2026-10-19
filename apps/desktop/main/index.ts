@@ -36,7 +36,7 @@ import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-e
 import { nativeAppFeed, taskbarPicture } from './appfeed'
 import { JumpListIcons } from './jumplist-icons'
 import { TaskbarAttention, attentionPayload } from './taskbar-attention'
-import { TaskbarDot, taskbarDotBitmap } from './taskbar-badge'
+import { TaskbarDot, taskbarDotImage } from './taskbar-badge'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
@@ -440,7 +440,7 @@ else {
   }, new TaskbarDot({
     platform: process.platform,
     windows: () => BrowserWindow.getAllWindows(),
-    dot: () => nativeImage.createFromBitmap(taskbarDotBitmap(), { width: 16, height: 16 }),
+    dot: () => taskbarDotImage(nativeImage),
     dockBadge: text => app.dock?.setBadge(text),
     badgeCount: count => { app.setBadgeCount(count) },
   }))

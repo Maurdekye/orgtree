@@ -1,4 +1,4 @@
-import { addAttentionDot } from './tray-dot'
+export { taskbarDotBitmap, taskbarDotImage } from './taskbar-dot-art'
 
 export interface BadgeWindow<Image> {
   isDestroyed(): boolean
@@ -28,15 +28,6 @@ export function isTaskbarAttentionNotice(notice: unknown): boolean {
  * and mentions. Notice rows cover updates before their summary arrives. */
 export function needsTaskbarDot(feed: BadgeFeed): boolean {
   return feed.attentionTotal() > 0 || feed.allNotices().some(isTaskbarAttentionNotice)
-}
-
-/** Crop the existing tray dot to a centered 16px Windows overlay, retaining
- * its red fill, light rim and transparent corners. Bitmap format is BGRA. */
-export function taskbarDotBitmap(): Buffer {
-  const source = addAttentionDot(Buffer.alloc(32 * 32 * 4), 32, 32)
-  const bitmap = Buffer.alloc(16 * 16 * 4)
-  for (let y = 0; y < 16; y++) source.copy(bitmap, y * 16 * 4, (y * 32 + 16) * 4, (y * 32 + 32) * 4)
-  return bitmap
 }
 
 /** Persistent app-wide state, separate from the arrival/focus taskbar pulse.
