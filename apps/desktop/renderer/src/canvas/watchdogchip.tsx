@@ -6,6 +6,8 @@ import { WatchdogCountdownTitle } from './watchdogcountdown'
 
 export const watchdogKindClass=(w:Watchdog)=>w.kind==='slot'?'slot':w.kind==='fair_queue'?'fair-queue':w.kind==='listener_watch'?'listener listener-watch':w.kind==='project_listener'?'listener':''
 
+export const watchdogGlyph=(w:Watchdog)=>w.spent||w.state==='spent'?'↗':w.state==='paused'?'◫':w.state!=='armed'?'✕':w.kind==='slot'&&!w.lease?'⏳':w.kind==='event'?'⚡':'◉'
+
 /** The canvas satellite, shared with the isolated visual fixture. */
 export function WatchdogSatellite({ dog:w, dogs, org, style, onOpen }: {
   dog:Watchdog; dogs:Watchdog[]; org:string; style?:CSSProperties; onOpen:(id:string)=>void

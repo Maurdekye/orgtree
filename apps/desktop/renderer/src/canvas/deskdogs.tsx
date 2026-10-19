@@ -9,33 +9,16 @@
 // in the same chip style, and open the SAME detail modal the satellite chip
 // opens: the canvas hands its existing route down (as AgentSurfaceRoutes does
 // for the desk's tab modals), so there is no second way to open a watchdog.
-import { createContext, useContext } from 'react'
 import type { Watchdog } from '../types'
-import type { SlotLease } from './slots'
 import type { ReactNode } from 'react'
 import { useContextMenu } from './contextmenu'
 import { agentNavElementAt } from './agentnav'
 import { watchdogKindClass } from './watchdogchip'
 import { objectNavProps } from './objectnav'
 import { WatchdogCountdown } from './watchdogcountdown'
-
-export interface DeskDogs {
-  org?: string
-  /** the organization's watchdogs, as the tree carries them */
-  dogs: Watchdog[]
-  /** the org's held project slots (`tree.slot_leases`): the desk header's slot chips */
-  slotLeases?: SlotLease[]
-  /** exactly what the canvas satellite chip's click does */
-  open: (id: string) => void
-}
-
-const Ctx = createContext<DeskDogs | null>(null)
-export const DeskDogsProvider = Ctx.Provider
-
-/** The whole route (every watchdog of the org, and the canvas's own open), for
- *  a surface that names a dog by id rather than listing an agent's — the
- *  transcript's watchdog card. Null where no canvas hands one down. */
-export function useDogRoute(): DeskDogs | null { return useContext(Ctx) }
+import { useDogRoute } from './watchdogroute'
+export { DeskDogsProvider, useDogRoute } from './watchdogroute'
+export type { DeskDogs } from './watchdogroute'
 
 /** Row whitespace borrows the dog menu; a nested agent link keeps its own menu. */
 export function WatchdogRow({id,org,children,className,as:Tag='div'}:{id:string;org?:string;children:ReactNode;className?:string;as?:'div'|'tr'}){
@@ -48,7 +31,7 @@ export function WatchdogRow({id,org,children,className,as:Tag='div'}:{id:string;
  *  has already fired (`spent`) is a departing tombstone with nothing to open
  *  that means anything, so it gets no card. */
 export function useDeskDogs(agentId: string): { dogs: Watchdog[]; open: (id: string) => void } | null {
-  const ctx = useContext(Ctx)
+  const ctx = useDogRoute()
   if (!ctx) return null
   const dogs = ctx.dogs.filter((w) => w.owner === agentId && !w.spent)
   return dogs.length ? { dogs, open: ctx.open } : null
