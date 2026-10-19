@@ -30,6 +30,7 @@ import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject
   PointerEvent as ReactPointerEvent } from 'react'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
+import { CloseIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { clampRect, PIN_MIN_H, PIN_MIN_W } from './pins'
 import type { PinRect } from './pins'
