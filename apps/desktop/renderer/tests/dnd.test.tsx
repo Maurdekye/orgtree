@@ -65,9 +65,9 @@ test('armed urgency marks the icon and message box with orange-red', () => {
   const projectComposer=readFileSync(path.join(__SRC_DIR__,'canvas/projectdesk.tsx'),'utf8')
   const icon=css.match(/\.cc-notice-toggle\.cc-urgent-toggle\.armed\s*\{([^}]*)\}/)?.[1] ?? ''
   const outline=css.match(/\.cc-composer\.urgent-armed(?::focus-within)?\s*\{([^}]*)\}/)?.[1] ?? ''
-  assert.match(agentComposer,/urgentMail\s*\?\s*' urgent-armed'/,
+  assert.equal(/urgentMail\s*\?\s*' urgent-armed'/.test(agentComposer),true,
     'the shared desk composer applies the armed outline in canvas, pinned and popped-out hosts')
-  assert.match(projectComposer,/urgentMail\s*\?\s*' urgent-armed'/,
+  assert.equal(/urgentMail\s*\?\s*' urgent-armed'/.test(projectComposer),true,
     'project broadcasts use the same active urgency treatment')
   assert.match(icon,/color:\s*#ff4500/i)
   assert.match(icon,/border-color:\s*#ff4500/i)
