@@ -47,6 +47,8 @@ Direct user mail or commands create an agent's own user grant only when it has n
 
 A project's nearest real-agent superior manages its audience requests and decisions; the user does so if there is no such superior. Members cannot manage the project's grants. Use orgtree_audience action=request from=project-name target=agent-or-project for a managed project; its context menu also offers Acquire/Drop audience. Chart and state inspection identify inherited source projects. Drop audience acts on explicit grants, not inherited-only routes; change the source project's grant to remove an inherited route. The org-inbox/outside-mail audience remains agent-only. The separate permission to present within one's own project includes nested members and does not imply recursive audience inheritance.
 
+For exact load-balancer/FIFO job, acknowledgement, retry/dead-letter and signal-vs-broadcast calls, open [orgtree-concurrency-primitives](../concurrency-primitives/SKILL.md). This page owns queue settings and operational details.
+
 ## Recipe
 
 1. Create the project and hire the workers under it; put the job's standing instructions in the project's Summary (`description` setting; it is every worker's standing charter).

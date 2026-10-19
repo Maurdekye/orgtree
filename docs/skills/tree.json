@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 179,
+  "leaves": 180,
   "tools": 47,
-  "concepts": 54,
-  "total": 201
+  "concepts": 55,
+  "total": 202
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -24,7 +24,7 @@
   "skills-docs-sol": 13,
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
-  "skilltree-opus": 4,
+  "skilltree-opus": 5,
   "compaction-cmds-sol": 1,
   "epic-combo-sol": 1
  },
@@ -2766,19 +2766,16 @@
    "kind": "concept",
    "registered": false,
    "covers": [],
-   "purpose": "Heavy builds and tests through two concurrency-slot grants, with RAM floors, durable waits and immediate release; filesystem locks retired.",
+   "purpose": "Heavy-work permits: current build project Summary and assignment are authoritative; no filesystem fallback; prepare, batch, isolate and release immediately.",
    "must_cover": [
-    "slot watchdog claim and release_slot immediately after assigned batch",
-    "two slots per USER 2026-10-18 17:47Z; slot 2 grant valid",
-    "retired build.lock/build.queue protocol; missing tools require coordinator help",
-    "6 GB free RAM engine phases; 3 GB otherwise; check before each phase",
-    "keep grant through low RAM with one once RAM watchdog",
-    "batch red, green and capture into one grant",
-    "declared priority build overrides",
-    "Cargo -j2, assigned Job limits, C: artifact scope and 100 GB allowance",
-    "synthetic rig isolation and foreground work; no polling"
+    "current project Summary as source of capacity, Cargo jobs, RAM floors and low-RAM policy",
+    "tool availability and stale clients",
+    "preparation and assigned foreground batch",
+    "immediate release and ancestor recovery",
+    "retired filesystem protocol; no fallback"
    ],
    "sources": [
+    "User/coordinator 2026-10-19 17:10Z capacity change and 18:02Z ruling: current @build-slot project Summary is authoritative for changing resource policy",
     "User/coordinator build-permit rulings 2026-10-18 16:52Z and USER 17:47Z m4fe8bc86eda3",
     "engine/rs/orgtree-engine/src/tools/defs.rs (slot watchdog and project release_slot)",
     "docs/rust-engine/test-rig.md"
@@ -7110,13 +7107,14 @@
    "level": 2,
    "kind": "section",
    "registered": false,
-   "purpose": "Choose independent committee decisions, accountable development-team roles and an iterative release process.",
+   "purpose": "Independent decisions, development/release workflows and cooperative project concurrency recipes.",
    "children": [
     "committee-mode",
     "dev-team",
     "iterative-development",
     "work-queues",
-    "build-slots"
+    "build-slots",
+    "concurrency-primitives"
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
@@ -7353,24 +7351,16 @@
    "covers": [
     "workflow:build-slots"
    ],
-   "purpose": "Build-machine concurrency-slot workflow: authorized count (currently two), tool availability, batch claim, keep grant through low RAM with a once watchdog, foreground work and immediate release; priority override, configurable reminders and ancestor recovery.",
+   "purpose": "Build-machine slot workflow: current project Summary supplies capacity/resource policy; prepare, batch, observe assigned gates and release immediately.",
    "must_cover": [
-    "a build-machine project builders reach",
-    "authorized slot count; two in this organization per USER 2026-10-18 17:47Z",
-    "keep the checkup and ack timeout on",
-    "claim with a slot watchdog before the phase",
-    "no polling while in line",
-    "6 GB engine / 3 GB otherwise; keep grant through low RAM with one once watchdog",
-    "release right after the phase",
-    "reclaim on halt, retire or idle",
-    "the Concurrency slots tab and action=slots",
-    "force-release and remove from line",
-    "release_slot and own slots status with team OR watchdogs; other project actions and force release need team",
-    "batch red, green and capture into one grant; declared priority overrides",
-    "retired filesystem fallback; coordinator enables or refreshes missing tools",
-    "watchdog-only status is own_only and held=0 is not global availability"
+    "current project Summary as source of capacity, Cargo jobs, RAM floors and low-RAM policy",
+    "tool availability and stale clients",
+    "preparation and assigned foreground batch",
+    "immediate release and ancestor recovery",
+    "retired filesystem protocol; no fallback"
    ],
    "sources": [
+    "User/coordinator 2026-10-19 17:10Z capacity change and 18:02Z ruling: current @build-slot project Summary is authoritative for changing resource policy",
     "User/coordinator build-permit rulings 2026-10-18 16:52Z and USER 17:47Z m4fe8bc86eda3",
     "User slot rulings 2026-10-18 08:37Z-08:51Z (docket project-slots-first-come-permits-claimed-through)",
     "engine/rs/orgtree-engine/src/domain/slots.rs",
@@ -7451,6 +7441,42 @@
     "engine/rs/orgtree-engine/src/http/settings.rs",
     "apps/desktop/renderer/src/canvas/accounts.tsx"
    ]
+  },
+  {
+   "path": "orgtree-workflows/collaboration-patterns/concurrency-primitives",
+   "name": "orgtree-concurrency-primitives",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "workflow:concurrency-primitives"
+   ],
+   "purpose": "Exact worked project mutex/semaphore, lease recovery, queues, signals, latch-like waits, readiness/barrier, per-resource and topic protocols, with unsupported primitives and limits.",
+   "must_cover": [
+    "mutex and counting semaphore",
+    "lease, force release and line removal",
+    "load balancer and ACK FIFO with retries/dead letters",
+    "broadcast, signal and one-shot latch limits",
+    "readiness monitor and barrier with fire_actions",
+    "per-resource locks and topics",
+    "cooperative only, arrival order only, no read/write lock, shared atomic variable or deadlock detection"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs",
+    "engine/rs/orgtree-engine/src/tools/treetools.rs",
+    "engine/rs/orgtree-engine/src/domain/slots.rs",
+    "engine/rs/orgtree-engine/src/domain/projects.rs",
+    "engine/rs/orgtree-engine/src/domain/listeners.rs",
+    "engine/rs/orgtree-engine/src/domain/ops.rs",
+    "engine/rs/orgtree-engine/src/domain/docket.rs",
+    "engine/rs/orgtree-engine/src/runtime/watchdogs.rs"
+   ],
+   "see_also": [
+    "build-slots",
+    "work-queues"
+   ],
+   "writer": "skilltree-opus",
+   "status": "fixed"
   }
  ],
  "exempt": {

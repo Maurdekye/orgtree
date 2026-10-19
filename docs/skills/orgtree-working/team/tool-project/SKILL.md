@@ -6,6 +6,8 @@ Up: [orgtree-team](../SKILL.md)
 
 # orgtree_project
 
+For worked coordination calls and their limits, open `orgtree-concurrency-primitives` (orgtree-workflows > collaboration-patterns). This tool page owns authority, fields and refusals.
+
 ## Call contract
 
 Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. above wraps a node atomically in its existing position instead of index/parent. settings reads all values; configure (name, settings) patches settings atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment/DND/reply authority and reports each outcome. presentations lists project/team cards; read_presentation reads a bounded body chunk with next_chunk_index continuation. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent). Dead letters: dead_letters (name; id reads one); retry_dead_letter, drop_dead_letter (name, id[, reason]); event project.dead_letter alerts. Event listeners: fire_event (name, optional body) fires the project's event to its armed `project_listener` watchdogs at once; listeners (name) lists them and their `listener_watch` watches.
@@ -101,7 +103,7 @@ A project's nearest real-agent superior manages its audience requests and decisi
 
 ## Running clients with stale tools
 
-A CLI keeps the tool definitions it loaded at startup. New orgtree_project actions or watchdog kinds do not appear in an already-running CLI after an app update. If a tool/action/kind is missing, start a fresh CLI. Before claiming a concurrency slot, verify you have BOTH orgtree_watchdog kind=slot AND orgtree_project release_slot; otherwise you cannot release it. A project ancestor may force-release a lease already stranded this way. Follow the coordinator's fallback machine-lock protocol when directed; do not invent a live-API workaround.
+A CLI keeps the tool definitions it loaded at startup. New orgtree_project actions or watchdog kinds do not appear in an already-running CLI after an app update. If a tool/action/kind is missing, start a fresh CLI. Before claiming a concurrency slot, verify you have BOTH orgtree_watchdog kind=slot AND orgtree_project release_slot; otherwise you cannot release it. A project ancestor may force-release a lease already stranded this way. The filesystem build-lock protocol is retired: follow the current build project's Summary, and do not invent a fallback or live-API workaround.
 
 ## See also
 

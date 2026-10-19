@@ -7,33 +7,31 @@ Up: [orgtree-workspace](../SKILL.md)
 
 # Heavy work uses a concurrency-slot permit
 
-This is a development-team practice, not an Orgtree runtime limit or build authorization. Follow the current coordinator assignment before any build, install or test phase. A documentation-only assignment may prohibit all builds even when the machine is free.
+This is a development-team practice, not an Orgtree runtime limit or build authorization. A documentation-only assignment may prohibit builds even when a permit is free.
 
-The @build-slot project's concurrency slot is the only heavy-phase permit. As of USER 2026-10-18 17:47Z, it has **two slots**: two heavy phases may run at once while RAM allows, including work outside this repository. A grant on slot 2 is valid. This replaces the former one-heavy-phase machine-wide rule. The filesystem build.lock and build.queue.txt protocol is retired: do not create, take, hand over or wait on those files; remove your obsolete lock watchdogs.
+The **current @build-slot project Summary and coordinator assignment are the source of truth** for concurrent capacity, Cargo jobs, RAM floors, containment and how long a low-RAM holder may wait. Read those before each batch; this page deliberately does not repeat their changing numbers. The standing project charter carries its Summary; an authorized `orgtree_project action=settings name=build-slot` reads it as `description`, while `action=slots name=build-slot` reports the actual configured capacity and current line. If the policy is missing, inconsistent or unreadable, ask the coordinator before starting. Other holders may run concurrently when current capacity permits; use only your assigned output/target scope.
 
-## Claim, batch and release
+Use only the project's concurrency-slot permit. The filesystem `build.lock`/`build.queue.txt` protocol is retired: do not create, take, hand over or wait on those files. The historical skill path remains for existing links.
 
-1. Confirm your CLI exposes the [slot watchdog](../../watchdogs/tool-watchdog/SKILL.md) and [project release_slot action](../../team/tool-project/SKILL.md). If either is missing, do not start heavy work: tell the coordinator, who can enable the tool group or refresh the session. Documentation seats may intentionally have watchdogs disabled. There is no filesystem-lock fallback.
-2. Claim with `orgtree_watchdog action=create kind=slot target=build-slot name=<assigned work>`. A free slot is granted immediately with its slot number and lease. Otherwise the one-shot claim holds your FIFO place and wakes you when granted. Do light work or end the turn while queued; do not poll or treat a queue entry as a grant. With watchdogs but no team group, project `action=slots` reports only your own holds and queue entries: `held=0` does not prove the project is free.
-3. Batch the assigned red, green and capture work into one grant. Check free RAM immediately before starting each phase: **6 GB for engine phases; 3 GB otherwise**, including renderer and packaging. The slot does not check memory for you.
-4. If RAM is too low after a grant, **keep the slot**. Arm one once RAM watchdog for your required floor, read its smoke result, and end the turn. Run when it fires and the floor is met. Do not release or requeue merely because RAM is low. If the engine actually reclaims the lease, obtain a new grant before running.
-5. Run the assigned work in the foreground, then release immediately with `orgtree_project action=release_slot lease=<granted lease> note=<result and seconds>`, before reports, mail or unrelated work. Orgtree grants the next waiting claim; no filesystem handover or handover message is needed.
+## Prepare, claim, batch and release
 
-A coordinator-declared priority build overrides ordinary scheduling: non-priority holders release immediately and follow the coordinator's priority instructions. Slot possession alone grants no new build or test scope.
+1. Do light preparation first: source checkout, storage audit, test/fix commits and command/fixture preparation. Confirm this CLI exposes both [slot watchdog creation](../../watchdogs/tool-watchdog/SKILL.md) and the [project release action](../../team/tool-project/SKILL.md). Missing tools require coordinator help or a fresh CLI; documentation seats may intentionally lack them. There is no filesystem fallback and no authority to call a live API around the tools.
+2. Claim with `orgtree_watchdog action=create kind=slot target=build-slot name=<assigned work>`. A free permit returns a lease and fires immediately. Otherwise the one-shot dog holds your place; end the turn or do light work, and await its grant mail. Do not poll or treat queue position as a grant. Before running, verify the lease is still held.
+3. Batch the assigned red, green, typecheck and capture work into the grant. Check fresh free RAM before each phase against the **current Summary's floor**. Slot allocation does not check RAM or authorize a build. Follow the Summary's current low-RAM wait/release deadline using a once RAM watchdog; read its smoke result. A reclaimed/released lease needs a new grant before work resumes.
+4. Run the assigned batch in the foreground with the **current Summary's Cargo jobs and assigned kernel Job/resource limits**. Keep all generated artifacts under your exact assigned `C:/orgtree-build/<you>` scope; other holders use their own targets.
+5. Release immediately when the batch ends, including on failure, before reports, mail or unrelated waits: `orgtree_project action=release_slot lease=<granted lease> note=<result and seconds>`. The next waiting claim is granted without a filesystem handover or handover message.
 
-## Resource and storage constraints
+A coordinator-declared priority build is an external team agreement: follow the current priority instructions, including prompt release by other holders. The engine's slot line itself has no priority mode. With watchdogs and no team group, `action=slots` shows the full holders/line status within project reach, but hides other holders' lease IDs. An ancestor with team authority can recover a stuck lease or remove a waiting claim; details are in the project tool guide. A release/reclaim does not stop a holder's process, so confirm its protected work has stopped before a replacement uses the resource.
 
-For Rust work, use Cargo `-j 2` and the kernel Job containment/resource limits assigned to the phase, alongside the RAM floor above. Aggregate generated build artifacts must remain within the team's 100 GB allowance. Cleanup is limited to authorized old inactive generated output after resolved-path and activity checks; protect source, live data, evidence and required deliverables.
+## Storage, isolation and waiting
 
-All new build artifacts go in the exact assigned scope under `C:/orgtree-build`. Source worktrees remain on D:. The rig's `cargoTarget()` accepts only paths under `C:/orgtree-build/<agent>` on C:, rejects other C: paths, and continues to refuse E:. A source or permit location does not authorize build output there.
+Follow the current team storage cap. Cleanup needs authorization plus resolved-path/activity checks; protect source, live data, evidence and required deliverables. Source worktrees remain on D:, separate from generated output. A permit never widens build, storage or folder scope.
 
-Use only the assigned synthetic rig with fake CLI, scratch database and isolated data root. A bare SAFE_START engine can still read live sign-ins and run usage probes; it is not an isolated test environment. Never touch live data to obtain a check result.
+Use only the assigned synthetic rig with fake CLI, scratch database and isolated data root. A bare SAFE_START engine can still read live sign-ins and run usage probes; it is not an isolated test environment. Never touch live data to obtain a test result.
 
-## Wait and finish cleanly
+Use [waiting for events](../../watchdogs/waiting-for-events/SKILL.md) instead of polling turns. Keep long work in the foreground, stop idle daemons you own, and never end the turn with your own background children running. Record failures and measured counts honestly after releasing the grant.
 
-Use [waiting for events](../../watchdogs/waiting-for-events/SKILL.md) for one-shot waits rather than polling turns. Keep long work in the foreground, stop idle daemons you own, and do not end the turn with your own background children still running. Record failures and measured counts honestly after releasing the grant.
-
-The skill name and path retain “under the lock” for existing links; the procedure above uses only concurrency slots. For the general setup recipe, open orgtree-workflows › collaboration-patterns › orgtree-build-slots.
+For the generic build-machine application, open `orgtree-build-slots` (orgtree-workflows > collaboration-patterns). For the full mutex/semaphore, lease-recovery and other coordination recipes, open `orgtree-concurrency-primitives` in that same section. Those recipes supply mechanics; the live project Summary supplies this machine's policy.
 
 ## See also
 

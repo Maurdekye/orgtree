@@ -7,6 +7,8 @@ Up: [orgtree-watchdogs](../SKILL.md)
 
 # orgtree_watchdog
 
+For worked queue/slot/event/readiness/barrier protocols, open `orgtree-concurrency-primitives` (orgtree-workflows > collaboration-patterns). This page owns each watchdog kind, constraints and fire-time authority.
+
 ## Call contract
 
 Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. project_listener receives a project's fired events; listener_watch fires at a count of armed listeners. fire_actions run orgtree tool calls as you at fire time. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. Event/count/silence semantics and catalog are in the guide. No added authority.

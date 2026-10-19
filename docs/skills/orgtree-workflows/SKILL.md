@@ -9,6 +9,6 @@ This category of the built-in Orgtree skill library, also called the glossary or
 
 | Section | What it answers |
 | --- | --- |
-| [orgtree-collaboration-patterns](collaboration-patterns/SKILL.md) | Independent committee decisions, development-team roles and iterative specification/feedback/hardening releases. |
+| [orgtree-collaboration-patterns](collaboration-patterns/SKILL.md) | Independent decisions, development teams, iterative releases and project concurrency recipes. |
 
 For individual tools and operating rules, open `orgtree-working`. For screens, settings and template controls, open `orgtree-app`. Cross-category references use skill names and breadcrumbs; follow the named category rather than inventing a relative path.

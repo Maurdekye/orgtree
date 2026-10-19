@@ -9,6 +9,11 @@
 
 # AGENTS.md — working on Orgtree
 
+- Project concurrency recipes compose existing slots, queues and events; an
+  event has no late-subscriber replay, readiness counts registrations, and
+  forced/reclaimed leases do not stop old work. See [recipes](docs/skills/orgtree-workflows/collaboration-patterns/concurrency-primitives/SKILL.md).
+  [verified: `domain/{slots,projects,listeners,ops}.rs`, `runtime/watchdogs.rs`; 2026-10-19]
+
 - Expanded shell rows can show ephemeral Codex/Muse output and genuine ACP
   execution-content snapshots. Keep 32 KiB UTF-8 tails/256 KiB per actor, 4 Hz max,
   turn/tool identity and clear-on-final/interrupt/exit. Never persist interim
@@ -192,13 +197,13 @@
   handout order, not completion order. See [projects](docs/skills/orgtree-working/team/projects/SKILL.md).
   [decided: user 2026-10-18 17:59Z; verified: `canvas/modals.tsx`]
 
-- Heavy development work uses only @build-slot concurrency grants: two slots
-  (user 2026-10-18 17:47Z), replacing the filesystem build.lock/queue protocol
-  and one-heavy-phase rule. Batch assigned red/green/capture; check free RAM
-  before each phase (6 GB engine, 3 GB otherwise); keep a grant through low RAM
-  with one once RAM watchdog, unless a declared priority build requires release.
-  Release immediately after the batch. See [build permits](docs/skills/orgtree-working/workspace/builds-under-the-lock/SKILL.md).
-  [decided: user/coordinator 2026-10-18 16:52Z/17:47Z]
+- Heavy development work uses only @build-slot concurrency grants. Read its
+  current project Summary and coordinator assignment for capacity, Cargo jobs,
+  RAM floors, containment and low-RAM waiting deadlines; historical numeric
+  examples are not current policy. Prepare before claiming; release immediately
+  after the assigned foreground batch. The filesystem build.lock/queue protocol
+  is retired. See [build permits](docs/skills/orgtree-working/workspace/builds-under-the-lock/SKILL.md).
+  [decided: user/coordinator 2026-10-19 17:10Z/18:02Z]
 
 - Org window headers show the canonical cropped org logo immediately before
   the name, at text height. Pushed `picture_revision` changes refresh it; a
