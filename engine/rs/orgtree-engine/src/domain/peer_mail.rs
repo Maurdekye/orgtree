@@ -85,9 +85,11 @@ mod tests {
         assert!(check(Relation {from_parent:Some(100),to_parent:Some(100),..siblings()},false,"project-p").is_err());
     }
     #[test]
-    fn cross_project_reporting_peers_and_top_level_peers_keep_reach() {
-        assert!(check(Relation {from_parent:Some(100),to_parent:Some(200),..siblings()},false,"project-p").is_ok());
+    fn peer_mail_requires_the_same_physical_parent_even_with_the_same_superior() {
+        assert!(check(Relation {from_parent:Some(100),to_parent:Some(200),..siblings()},false,"project-p").is_err());
+        assert!(check(Relation {from_parent:Some(100),to_parent:Some(200),..siblings()},true,"project-p").is_ok());
         assert!(check(Relation {from_parent:None,to_parent:None,from_superior:None,to_superior:None,..siblings()},false,"user").is_ok());
+        assert!(check(Relation {from_parent:Some(100),to_parent:Some(200),from_superior:None,to_superior:None,..siblings()},false,"root-project").is_err());
     }
     #[test]
     fn unset_is_on_and_new_parent_setting_is_used() {
