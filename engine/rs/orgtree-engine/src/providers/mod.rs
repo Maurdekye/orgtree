@@ -41,6 +41,8 @@ pub struct State {
     pub claude: CliStatus,
     pub codex: CliStatus,
     pub agy: CliStatus,
+    /// Silent check's explicit sign-out result; transient failures remain unknown.
+    pub agy_signed_out: Option<bool>,
     /// OpenRouter favorites: (tier, seat, model id, label, color, letter, display name)
     pub openrouter: Vec<(String, f64, String, String, String, String, String)>,
     /// models the Antigravity account lists (conditional tiers)
@@ -364,7 +366,13 @@ pub async fn discover(engine: &Engine) {
         // "unknown" for every signed-out or latched install).
         let version = agy_auth::version(&p).await
             .or_else(|| prev.version.clone().filter(|_| prev.path.as_deref() == Some(p.as_path())));
-        let connected = agy_auth::preflight(engine, &p).await.is_ok();
+        let auth = agy_auth::preflight(engine, &p).await;
+        st.agy_signed_out = match &auth {
+            Ok(_) => Some(false),
+            Err(agy_auth::Failure::SignedOut) => Some(true),
+            _ => None,
+        };
+        let connected = auth.is_ok();
         st.agy = CliStatus {
             installed: true,
             version,
@@ -847,10 +855,15 @@ pub fn payload(engine: &Engine) -> Value {
         }
         let enabled = engine.settings.provider_enabled(id);
         let hire = s.installed && s.connected && enabled;
+        let signed_out = native_signed_out(id, &st, s.connected);
         let reason = if !s.installed {
             Some(format!("{label} is not installed on this machine"))
         } else if !s.connected {
-            Some(format!("{label} is installed but not signed in"))
+            Some(if signed_out == Some(true) {
+                format!("{label} is installed but not signed in")
+            } else {
+                format!("{label} sign-in status is unavailable; refresh it in App settings")
+            })
         } else if !enabled {
             Some(catalog::turned_off(id))
         } else {
@@ -863,7 +876,7 @@ pub fn payload(engine: &Engine) -> Value {
                 "source": s.source, "connected": s.connected, "email": s.email, "kind": s.kind,
             },
             "hire_enabled": hire, "reason": reason, "user_enabled": enabled,
-            "hire_reason": hire_reason(s.installed, enabled, st.probed.then_some(!s.connected)),
+            "hire_reason": hire_reason(s.installed, enabled, signed_out),
         })
     };
     let mut providers = vec![];
@@ -1026,6 +1039,17 @@ pub fn payload(engine: &Engine) -> Value {
 }
 
 #[nolog]
+fn native_signed_out(provider: &str, st: &State, connected: bool) -> Option<bool> {
+    if !st.probed { return None; }
+    if connected { return Some(false); }
+    match provider {
+        catalog::GOOGLE => st.agy_signed_out,
+        catalog::MUSE => st.muse_probe.as_ref()?.probe.account_state.as_deref().map(|s| s == "loggedOut"),
+        _ => Some(true),
+    }
+}
+
+#[nolog]
 fn hire_reason(installed: bool, enabled: bool, signed_out: Option<bool>) -> Option<&'static str> {
     if !enabled { Some("turned_off") }
     else if !installed { Some("not_installed") }
@@ -1042,6 +1066,20 @@ fn all_signed_out(states: impl IntoIterator<Item = Option<bool>>) -> bool {
 #[cfg(test)]
 mod signed_out_hire_tests {
     use super::*;
+    #[test]
+    fn transient_native_checks_do_not_claim_sign_out() {
+        let mut st = State { probed: true, ..Default::default() };
+        assert_eq!(native_signed_out(catalog::GOOGLE, &st, false), None);
+        assert_eq!(native_signed_out(catalog::MUSE, &st, false), None);
+        st.agy_signed_out = Some(true);
+        assert_eq!(native_signed_out(catalog::GOOGLE, &st, false), Some(true));
+        assert_eq!(native_signed_out(catalog::GOOGLE, &st, true), Some(false));
+        st.muse_probe = Some(MuseDiscovery { at: chrono::Utc::now(),
+            probe: muse_models::MuseProbe { account_state: Some("loggedOut".into()), ..Default::default() } });
+        assert_eq!(native_signed_out(catalog::MUSE, &st, false), Some(true));
+        st.probed = false;
+        assert_eq!(native_signed_out(catalog::CLAUDE, &st, false), None);
+    }
     #[test]
     fn sign_out_requires_installed_enabled_and_positive_evidence() {
         assert_eq!(hire_reason(true, true, Some(true)), Some("signed_out"));
