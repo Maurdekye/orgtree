@@ -6,6 +6,7 @@ import { StrictMode } from 'react'
 import { MailList } from '../src/canvas/mail'
 import { SurfaceDocumentOwner } from '../src/popout'
 import type { MailListProps } from '../src/canvas/mail'
+import { markReadNow, resetLocalReads } from '../src/mailread'
 
 window.HTMLElement.prototype.scrollIntoView = () => {}
 const rows = Array.from({length: 6}, (_, i) => ({id: `m${i}`, from: 'alpha', to: 'beta',
@@ -158,4 +159,21 @@ test('StrictMode effect rehearsal is not leaving the initially displayed mail', 
   assert.deepEqual(reads, [])
   await view.unmount(); await tick()
   assert.deepEqual(reads, ['m0'])
+})
+
+test('native close waits for a previously-started optimistic read of the selected mail', async () => {
+  resetLocalReads()
+  let finish!: () => void
+  const save = new Promise<void>(resolve => { finish = resolve })
+  const read = (m: {id?: string}) => markReadNow('existing-read', {id: m.id!}, () => save)
+  const view = await mountView(<MailList pending={rows} onRead={read}/>, el => el)
+  await inAct(() => open('m0', view.el))
+  const first = read(rows[0]!)
+  const waits: Promise<unknown>[] = []
+  window.dispatchEvent(new window.CustomEvent('orgtree:flush-mail-reads', {detail: {waitUntil: (p: Promise<unknown>) => waits.push(p)}}))
+  let closed = false
+  const drained = Promise.all(waits).then(() => { closed = true })
+  await tick()
+  try { assert.equal(closed, false, 'duplicate optimistic read must retain the original save promise') }
+  finally { finish(); await first; await drained; await view.unmount(); resetLocalReads() }
 })
