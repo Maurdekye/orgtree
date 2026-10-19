@@ -29,7 +29,7 @@ export { subtreeDocCount }
 import type { CanvasNode, OpFn } from './shared'
 import { InboxView } from './mail'
 import { useWorkItems } from './useworkitems'
-import { AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket'
+import { actionableTeamCount, AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner, revealAgentPanelTab } from './panelcorner'
 import { AgentTeamView, liveTeamCount } from './team'
@@ -573,7 +573,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
     .filter(v => v !== 'team' || teamCount > 0)
   const shown: Tab = tabs.includes(view) ? view : 'desk'
   const count = (tab: Tab) => tab === 'team' ? teamCount : tab === 'inbox' ? node.mail_pending ?? 0
-    : tab === 'docket' ? mine?.length ?? 0
+    // the agent badge's rule: actionable tickets owned, here by its agents
+    : tab === 'docket' ? actionableTeamCount(mine)
       // its own presentations (point 27, user 2026-10-17 23:28Z)
       : tab === 'presented' ? (node.documents_count ?? node.documents?.length ?? 0)
         : tab === 'dead' ? deadLetters : tab === 'listeners' ? listenersArmed : 0

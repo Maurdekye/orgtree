@@ -1752,6 +1752,18 @@ export function actionableAssignedCount(data: {
       && !item.superseded_by).length ?? 0
 }
 
+/** A PROJECT desk's docket badge: the agent badge's rule over the items its
+ *  docket lists (`teamItems`, the tickets owned by agents under it, user
+ *  2026-10-17 22:21Z) — actionable tickets currently owned, never the done,
+ *  blocked, backlogged or archived rows the tab also shows. It counts the
+ *  rows the poll has loaded (the first page of open items). */
+export function actionableTeamCount(items: readonly WorkItem[] | null | undefined): number {
+  return (items ?? []).filter((item) =>
+    !!item.owner?.node && item.owner_current === true && !item.archived
+      && !NON_ACTIONABLE_BADGE_STATUSES.has(item.status)
+      && !item.superseded_by).length
+}
+
 /** THE AGENT'S OWN DOCKET — the desk tab (user ruling 2026-09-05 21:07: the
  *  Progress tab's contents are replaced entirely by the items assigned to this
  *  agent).
