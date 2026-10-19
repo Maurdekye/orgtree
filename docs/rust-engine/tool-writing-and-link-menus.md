@@ -136,6 +136,15 @@ their CLI emits the corresponding blocks.
 
 ## Menus
 
+Tool references read the primary JSON payload before the appended execution-time
+block (and accept a retained MCP envelope). A created ticket or watchdog ID must
+come from that payload; named agent/project refs still come from arguments.
+Document and sent-mail cards arrive separately as ToolCard metadata. Existing
+bounded transcript pages recover omitted result refs without fetching full tool
+inputs, scanning history or rewriting rows. Recorded identities/transitions win
+over a recovered value. Regression origin: `9e24692` appended timing text while
+the old extractor required one JSON document for the whole result.
+
 Per-window object navigation follows the existing agent-navigation registry.
 The host reads the current org and uses existing ticket/watchdog routes. Ticket
 React chips, sanitized Markdown chips, bare ticket mentions and tool-output

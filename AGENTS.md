@@ -1809,6 +1809,10 @@
   wording stays in aria/tooltips; unsupported observations are never invented.
   Ticket references use Open details / Owner… / separator / three copy actions;
   Owner uses the canonical agent menu, click/Enter focuses, hover/Right expands.
+  Tool reference metadata parses the primary JSON before an appended tool timing
+  block; bounded transcript reads repair missing refs from retained results
+  without rewriting history. Document/mail cards keep their separate ToolCard
+  channel. [verified: `runtime/convo.rs`, `runtime/actor.rs`; user 2026-10-19]
   Ticket/watchdog link menus share direct-object
   action builders and the current-org per-window registry.
   Monitor fire/quiet card watchdog names retain their object menu after a dog
