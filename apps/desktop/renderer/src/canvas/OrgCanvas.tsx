@@ -105,6 +105,7 @@ import { TierChip, nodeTierOf } from './identity'
 import { ObjectNavProvider, objectNavProps } from './objectnav'
 import { WatchdogCountdown, WatchdogCountdownTitle } from './watchdogcountdown'
 import { ObjectNavHost } from './objectnavhost'
+import { WatchdogSatellite } from './watchdogchip'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 import { setAttentionLayout } from '../attention/mode'
@@ -4268,28 +4269,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         {!compact && lod !== 'mini' && (tree.watchdogs ?? []).map((w) => {
           const p = posOf('dog:' + w.id)
           if (!p || hidden.has(w.owner) || !intersectsViewport({ ...p, w: DOG_W, h: DOG_H }, visibleRect)) return null
-          const title = `${w.once ? 'one-shot dog' : 'watchdog'} "${w.name}" (${w.kind}) — `
-            + `${w.spent ? 'departing after its spark' : w.state}; click for detail`
-          // a slot claim waiting in line: "⏳ build 1st", in the slot style
-          const place = w.kind === 'slot' ? slotPlace(w, tree.watchdogs ?? []) : null
           return (
-            <button key={'dog' + w.id} {...(!w.spent ? objectNavProps('watchdog', w.id, slug) : {})}
-              className={'wd-chip ' + w.state
-                + (w.kind === 'slot' ? ' slot' : '')
-                + (w.kind === 'project_listener' || w.kind === 'listener_watch' ? ' listener' : '')
-                + (w.once ? ' oneshot' : '')
-                + (w.spent ? ' spent' : '')}
+            <WatchdogSatellite key={'dog' + w.id} dog={w} dogs={tree.watchdogs ?? []} org={slug}
               style={{ transform: `translate(${p.x}px, ${p.y}px)`,
                        width: DOG_W, height: DOG_H }}
-              title={title}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); toggleDog(w.id) }}>
-              <span className="wd-glyph">{place ? '⏳' : w.state === 'armed' ? '◉'
-                : w.state === 'paused' ? '◫' : w.spent ? '↗' : '✕'}</span>
-              {w.once && !place && <span className="wd-once" aria-label="one-shot dog">1×</span>}
-              <span className="wd-name"><WatchdogCountdownTitle dog={w} title={title}>{place
-                ? `${w.target.replace(/^@/, '')} ${ordinal(place)}` : w.name}</WatchdogCountdownTitle></span>
-            </button>
+              onOpen={id=>toggleDog(id)} />
           )
         })}
         {(tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX) && (
