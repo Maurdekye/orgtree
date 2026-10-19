@@ -46,9 +46,9 @@ test('project hover puts the same name presentation above the card layer', async
 test('project keyboard focus reveals the name and blur retracts it', async t => {
   const v = await mountView(element(), el => el); t.after(() => v.unmount())
   const card = v.el.querySelector<HTMLElement>('.sq.project')!
-  await inAct(() => card.dispatchEvent(new FocusEvent('focusin', { bubbles: true })))
+  await inAct(() => card.dispatchEvent(new MouseEvent('focusin', { bubbles: true })))
   assert.equal(!!v.el.querySelector('.sq-far-ghost.on'), true)
-  await inAct(() => card.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: document.body })))
+  await inAct(() => card.dispatchEvent(new MouseEvent('focusout', { bubbles: true, relatedTarget: document.body })))
   assert.equal(!!v.el.querySelector('.sq-far-ghost.on'), false)
   await inAct(() => new Promise(r => setTimeout(r, 300)))
   assert.equal(!!v.el.querySelector('.sq-far-ghost'), false)
