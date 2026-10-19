@@ -32,6 +32,13 @@
   Inactive desk mail cards explicitly override generic button backgrounds.
   [verified: `styles.css`, `tests/project-mail-state-capture.cjs`; 2026-10-19]
 
+- Collapsed mail-row tag previews show every matching active filter tag in
+  filter order before +N; the count and hover list contain only hidden tags.
+  Multiple matching tags wrap within the row and keep full labels on hover.
+  No-filter and one/two-tag previews keep their existing order.
+  [decided: user/coordinator 2026-10-19; verified: `canvas/mail.tsx`,
+  `tests/mail-tag-order.test.tsx`]
+
 - Attention list rows toggle off on a second click; Escape clears when the
   list itself has focus. A reader-cleared pane stays empty through refreshes,
   without reading another mail. Initial/empty-queue arrivals and resolved-row

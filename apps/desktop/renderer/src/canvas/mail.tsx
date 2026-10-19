@@ -641,6 +641,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           const view = typedView(m)
           return (
           <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view} hideMailReplyKind={hideMailReplyKind} projectMail={projectMail}
+            filterTags={tagFilter?.selected}
             onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
@@ -739,15 +740,20 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   )
 }
 
-function TagChips({tags,onTag,preview=false}:{tags?:string[];onTag?:(tag:string)=>void;preview?:boolean}) {
+function TagChips({tags,onTag,preview=false,filterTags}:{tags?:string[];onTag?:(tag:string)=>void;preview?:boolean;filterTags?:readonly string[]}) {
   const collapsed=preview&&(tags?.length??0)>=3
-  const shown=collapsed?tags?.slice(0,1):tags
+  const matches=collapsed&&filterTags
+    ? [...new Set(filterTags.map(mailTagKey))].flatMap(key=>tags?.find(tag=>mailTagKey(tag)===key)??[])
+    : []
+  const shown=collapsed?(matches.length?matches:tags?.slice(0,1)):tags
+  const visible=new Set(shown?.map(mailTagKey))
+  const hidden=tags?.filter(tag=>!visible.has(mailTagKey(tag)))??[]
   return <>{shown?.map(tag=>{
     const key=mailTagKey(tag),style={'--mail-tag-hue':mailTagHue(key)} as CSSProperties
     return onTag ? <button type="button" className="mail-tag" data-tag-key={key} style={style} key={key}
       title={`Filter by ${tag}`} onClick={e=>{e.stopPropagation();onTag(tag)}}>{tag}</button>
       : <span className="mail-tag" data-tag-key={key} style={style} key={key} title={tag}>{tag}</span>
-  })}{collapsed&&tags&&<span className="mail-tag mail-tag-more" title={tags.slice(1).join(', ')}>+{tags.length-1}</span>}</>
+  })}{collapsed&&hidden.length>0&&<span className="mail-tag mail-tag-more" title={hidden.join(', ')}>+{hidden.length}</span>}</>
 }
 
 const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s+/g, ' ').slice(0, 90)
@@ -759,7 +765,7 @@ const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s
  *  `MailList` renders its rows through it; `pile` is the size of a folded run
  *  of system notices (1 = a single message). */
 export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, party, mark,
-  onRetract, onClick, onContextMenu, rowRef, onTag, hideMailReplyKind, onFocusAgent, hasAgent, tierOf, projectMail }: {
+  onRetract, onClick, onContextMenu, rowRef, onTag, hideMailReplyKind, onFocusAgent, hasAgent, tierOf, projectMail, filterTags }: {
   /** a project's own mailbox: chips always take the meta line (MailListProps) */
   projectMail?: boolean
   onFocusAgent?: (id: string) => void
@@ -769,6 +775,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
   hideMailReplyKind?: boolean
   m: MailRow
   onTag?: (tag:string)=>void
+  filterTags?: readonly string[]
   pile?: number
   /** the typed event this row decodes to, or null for plain mail */
   view: EventView | null
@@ -893,8 +900,9 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           ever see. The body is still one click away in the reading
           pane, and the `l1` header keeps the row identifiable. */}
       {!isSystemNotice(m)
-        && <div className="l2">
-          <TagChips tags={m.tags} onTag={onTag} preview/>
+        && <div className={'l2'+((m.tags?.length??0)>=3&&(filterTags?.length??0)>1?' mail-tags-filtered':'')}
+          title={filterTags?.length ? m.tags?.join(', ') : undefined}>
+          <TagChips tags={m.tags} onTag={onTag} preview filterTags={filterTags}/>
           <span className="mail-preview-text">{reply && <span className="dim" title={[reply.from, reply.at && fmtFull(reply.at), reply.gist].filter(Boolean).join(' · ')}>
             ↩ {briefLine(reply.gist || 'original unavailable')} · </span>}
           {briefLine(view ? eventSummary(view.event) : m.body)}</span></div>}

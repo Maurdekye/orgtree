@@ -9473,6 +9473,8 @@ button.mail-tag-choice[aria-pressed="true"], .settings button.mail-tag-choice[ar
 /* rows: chips sit on the preview line's baseline without growing it */
 .mailrow .l2 { display:flex; align-items:baseline; gap:4px; min-width:0; }
 .mailrow .l2 .mail-tag { flex-shrink:0; max-width:110px; }
+.mailrow .l2.mail-tags-filtered { flex-wrap:wrap; }
+.mailrow .l2.mail-tags-filtered .mail-tag { max-width:min(110px, 100%); }
 .mailrow .l2 .mail-tag + .mail-preview-text { margin-left:2px; }
 .mail-preview-text { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
