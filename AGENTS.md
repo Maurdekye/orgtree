@@ -14,6 +14,14 @@
   minima; observe nested title/control text too. See [width stability](docs/rust-engine/quickchat-width-stability.md).
   [verified: `shell/equalsides.ts`, `tests/quickwidth-capture.cjs`; 2026-10-19]
 
+- Mail hub tests and real registration/poll/file requests use direct transport,
+  bypassing per-PC proxies consistently. Bare hosts discover 7370, 7378, 7371
+  and HTTPS concurrently; explicit URLs/ports stay explicit, including :80.
+  Test returns the selected endpoint; registration, status and unregister reuse
+  only a registered address within the current candidates. Discovery remains
+  under org cancellation and rig isolation. [decided: user/coordinator 2026-10-19;
+  verified: `net.rs`, `net/discovery.rs`, `canvas/connections.tsx`]
+
 - Session-placement loss requires three two-second misses; recovery is immediate.
   Overdue ticks are skipped and each recovered blip logs once. A per-engine
   placement hint keeps turn selection stable during debounce without extending

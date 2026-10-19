@@ -41,6 +41,14 @@ fn explicit_standard_ports_and_ipv6_are_not_rewritten_to_7370() {
     assert_eq!(normalize_address("[::1]:7378"),"http://[::1]:7378");
 }
 
+#[test]
+fn registered_endpoint_is_reused_only_within_the_current_candidate_set() {
+    assert_eq!(discovery::known_address("office.invalid",Some("http://office.invalid:7378")),"http://office.invalid:7378");
+    assert_eq!(discovery::known_address("other.invalid",Some("http://office.invalid:7378")),"http://other.invalid:7370");
+    assert_eq!(discovery::known_address("office.invalid:7371",Some("http://office.invalid:7378")),"http://office.invalid:7371");
+    assert_eq!(discovery::candidates("[::1]")[1],"http://[::1]:7378");
+}
+
 #[tokio::test]
 async fn candidates_start_concurrently_before_any_candidate_can_answer() {
     let barrier=Arc::new(tokio::sync::Barrier::new(3));
