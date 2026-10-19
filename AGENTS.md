@@ -15,6 +15,12 @@
   feed change and attach new windows immediately; no new poll/counter. Existing
   per-org arrival pulses and tray attention count retain their policies. See
   [taskbar dot](docs/rust-engine/taskbar-dot.md).
+  The Windows menu replaces Recent with the complete waiting-item inventory;
+  activation revalidates an opaque org/notice identity through a held event.
+  Question destination is `questionTarget` (`desk` default, or `mail`), and
+  explicit taskbar desk actions prefer an existing pin/pop-out even in Attention
+  view. Banner muting never disables these navigation actions. [decided: user
+  2026-10-19 11:32–11:33Z; verified: `main/jumplist.ts`, `renderer/src/notifications.ts`]
   [decided: user 2026-10-19 11:26Z; verified: `main/{taskbar-badge,index}.ts`]
 
 - Centered Quick chat side minima must be measured with each side temporarily
