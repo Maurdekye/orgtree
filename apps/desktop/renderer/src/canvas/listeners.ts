@@ -100,36 +100,36 @@ export function queueAckMode(node: { configured_scope?: unknown }): boolean {
   return (node.configured_scope as { mail_queue?: unknown } | undefined)?.mail_queue === 'ack'
 }
 
-/** A project mail queue's magenta card (the fair-queue rose): waiting mail,
- *  plus the handed-and-unacked in-flight count while ack mode is on. */
+/** A project's one magenta mail card (the fair-queue rose, merged by the
+ *  user 2026-10-19 18:17Z): how many agents listen for its mail with an
+ *  armed fair_queue dog (paused watchers take no mail and do not count),
+ *  how much mail waits, and — while ack mode is on — how much is handed
+ *  out awaiting an ack. Short chip text in the user's wording
+ *  ("2 listeners · 1 q'd · 1 in flight"), zero parts left out, the full
+ *  wording in the title. Null while all three are zero. */
 export interface QueueCard { text: string; title: string }
 
-export function queueCard(project: string, waiting: number, held: number, ack: boolean): QueueCard | null {
-  const inFlight = ack ? held : 0
-  if (waiting <= 0 && inFlight <= 0) return null
-  const text = ack ? `mail queue ${waiting} waiting · ${inFlight} in flight` : `mail queue ${waiting}`
-  const title = ack
-    ? `${waiting} mail${waiting === 1 ? '' : 's'} waiting in project ${project}'s ack queue and ${inFlight} handed out awaiting an ack. Click for the project mailbox.`
-    : `${waiting} mail${waiting === 1 ? '' : 's'} waiting in project ${project}'s mail queue for a fair_queue watcher. Click for the project mailbox.`
-  return { text, title }
-}
-
-/** The magenta mail-listeners card (user 2026-10-19 17:11Z): how many
- *  agents listen for the project's mail with an armed fair_queue dog
- *  (paused watchers take no mail and do not count). Sits beside the
- *  queue card — a standing fact next to the queue's transient one — and
- *  opens the same inbox. Null while nobody listens. */
-export function mailListenerCard(project: string, dogs: Watchdog[]): QueueCard | null {
+export function mailQueueCard(project: string, waiting: number, held: number, ack: boolean, dogs: Watchdog[]): QueueCard | null {
   const armed = dogs.filter((w) => w.kind === 'fair_queue' && !w.spent && w.state === 'armed' && target(w) === project)
-  if (!armed.length) return null
-  const n = armed.length
-  return {
-    text: `mail listeners ${n}`,
-    title: `${n} mail listener${n === 1 ? '' : 's'} (fair_queue) armed on project ${project}: `
-      + `${armed.map((w) => w.owner).join(', ')}. They share its waiting mail. Click for the project mailbox.`,
+  const listeners = armed.length
+  const inFlight = ack ? held : 0
+  if (listeners <= 0 && waiting <= 0 && inFlight <= 0) return null
+  const parts: string[] = []
+  if (listeners > 0) parts.push(`${listeners} listener${listeners === 1 ? '' : 's'}`)
+  if (waiting > 0) parts.push(`${waiting} q'd`)
+  if (inFlight > 0) parts.push(`${inFlight} in flight`)
+  const facts: string[] = []
+  if (listeners > 0) {
+    facts.push(`${listeners} mail listener${listeners === 1 ? '' : 's'} (fair_queue) armed on project ${project}: `
+      + `${armed.map((w) => w.owner).join(', ')}. They share its waiting mail.`)
   }
+  if (waiting > 0 || inFlight > 0) {
+    facts.push(ack
+      ? `${waiting} mail${waiting === 1 ? '' : 's'} waiting in project ${project}'s ack queue and ${inFlight} handed out awaiting an ack.`
+      : `${waiting} mail${waiting === 1 ? '' : 's'} waiting in project ${project}'s mail queue for a fair_queue watcher.`)
+  }
+  return { text: parts.join(' · '), title: facts.join(' ') + ' Click for the project mailbox.' }
 }
-
 /** The tool names a dog runs when it fires, for lists and tabs. */
 export function fireActionTools(w: Watchdog): string[] {
   return (w.fire_actions ?? []).map((a) => a.tool).filter(Boolean)

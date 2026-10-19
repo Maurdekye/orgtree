@@ -29,7 +29,7 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import {
-  fireActionTools, listenerCards, listenerLinks, mailListenerCard, projectListenerState, queueAckMode, queueCard,
+  fireActionTools, listenerCards, listenerLinks, mailQueueCard, projectListenerState, queueAckMode,
 } from '../src/canvas/listeners'
 import { watchdogDescription } from '../src/canvas/watchdogdescription'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
@@ -106,20 +106,26 @@ test('§2 one cyan line per listener and watch on canvas; paused dimmed; spent a
   assert.deepEqual(listenerLinks(dogs, () => false), [], 'no project on canvas, no lines')
 })
 
-test('§2 the queue card counts waiting mail and, only in ack mode, the in-flight jobs', () => {
+test('§2 the merged mail card counts listeners, waiting mail and, only in ack mode, the in-flight jobs (user 2026-10-19 18:17Z)', () => {
   assert.equal(queueAckMode(project({ mail_queue: 'ack' })), true)
   assert.equal(queueAckMode(project()), false, 'round-robin by default')
-  assert.equal(queueCard('sync', 0, 0, false), null, 'an empty queue shows nothing')
-  assert.equal(queueCard('sync', 0, 0, true), null)
-  const plain = queueCard('sync', 3, 2, false)!
-  assert.equal(plain.text, 'mail queue 3', 'no in-flight outside ack mode')
+  assert.equal(mailQueueCard('sync', 0, 0, false, []), null, 'nothing waiting and nobody listening shows nothing')
+  assert.equal(mailQueueCard('sync', 0, 0, true, []), null)
+  const plain = mailQueueCard('sync', 3, 2, false, [])!
+  assert.equal(plain.text, "3 q'd", 'the short user wording; no in-flight outside ack mode')
   assert.match(plain.title, /3 mails waiting in project sync's mail queue/)
-  const ack = queueCard('sync', 3, 2, true)!
-  assert.equal(ack.text, 'mail queue 3 waiting · 2 in flight')
+  const ack = mailQueueCard('sync', 3, 2, true, [])!
+  assert.equal(ack.text, "3 q'd · 2 in flight")
   assert.match(ack.title, /2 handed out awaiting an ack/)
-  const heldOnly = queueCard('sync', 0, 1, true)!
-  assert.equal(heldOnly.text, 'mail queue 0 waiting · 1 in flight', 'in-flight alone still shows in ack mode')
-  assert.equal(queueCard('sync', 0, 1, false), null, 'and never outside it')
+  const heldOnly = mailQueueCard('sync', 0, 1, true, [])!
+  assert.equal(heldOnly.text, '1 in flight', 'zero parts are left out; in-flight alone still shows in ack mode')
+  assert.equal(mailQueueCard('sync', 0, 1, false, []), null, 'and never outside it')
+  const merged = mailQueueCard('sync', 3, 1, true, dogs)!
+  assert.equal(merged.text, "2 listeners · 3 q'd · 1 in flight", 'one card: listeners, queue, in flight')
+  assert.match(merged.title, /2 mail listeners \(fair_queue\) armed on project sync: sa, sb/)
+  assert.match(merged.title, /3 mails waiting in project sync's ack queue and 1 handed out awaiting an ack/)
+  assert.equal(mailQueueCard('sync', 0, 0, false, dogs)!.text, '2 listeners', 'listeners alone still show')
+  assert.equal(mailQueueCard('other', 0, 0, false, dogs), null, 'another project\'s listeners do not count')
   assert.deepEqual(fireActionTools(dogs[4]), ['orgtree_project'])
   assert.deepEqual(fireActionTools(dogs[0]), [])
 })
@@ -187,7 +193,7 @@ test('§4 the header cards, the tab, its rows and the fire control', async (t) =
   assert.equal(cyan?.textContent, 'listeners 2/2', 'the bright watch card in the header')
   assert.equal(cyan?.classList.contains('bright'), true)
   const queue = view.el.querySelector<HTMLButtonElement>('.project-queue-card')
-  assert.equal(queue?.textContent, 'mail queue 3 waiting · 1 in flight', 'the magenta queue card beside it')
+  assert.equal(queue?.textContent, "2 listeners · 3 q'd · 1 in flight", 'the one merged magenta mail card beside it')
   const tab = view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="listeners"]')
   assert.ok(tab, 'the listeners tab')
   assert.match(tab!.textContent ?? '', /^listeners 2$/, 'its badge counts the armed listeners')
@@ -230,40 +236,38 @@ test('§5 the near card carries the listener and queue badges', async (t) => {
   assert.equal(view.el.querySelector('.project-listeners-badge')?.classList.contains('bright'), true)
   assert.match(view.el.querySelector('.project-listeners-badge')?.getAttribute('title') ?? '', /listener watch "all-in"/,
     'its tooltip says what the card means')
-  assert.equal(view.el.querySelector('.project-queue-badge')?.textContent, 'mail queue 3 waiting · 1 in flight')
+  assert.equal(view.el.querySelector('.project-queue-badge')?.textContent, "2 listeners · 3 q'd · 1 in flight")
   const activity = view.el.querySelector('.project-activity')
   assert.ok(activity, 'the activity count on the near card')
   assert.equal(activity!.classList.contains('chip'), false,
     'the x/y count is plain text now, no chip box (user 2026-10-19 17:22Z)')
   assert.match(activity!.querySelector('.project-counts')?.textContent ?? '', /^\d+\/\d+$/, 'the bold x/y count')
-  assert.equal(view.el.querySelector('.project-maillisteners-badge')?.textContent, 'mail listeners 2',
-    'the near card carries the magenta mail-listener badge beside the queue badge')
+  assert.equal(view.el.querySelector('.project-maillisteners-badge'), null,
+    'one merged badge now, no separate mail-listeners badge (user 2026-10-19 18:17Z)')
 })
 
-/* ─── §6 the mail listeners card (user 2026-10-19 17:11-17:12Z) ─────────── */
+/* ─── §6 the merged mail card (user 2026-10-19 18:17Z) ─────────────────── */
 
-test('§6 the mail-listener card counts armed fair-queue watchers only, and sits beside the queue card', () => {
-  const card = mailListenerCard('sync', dogs)!
-  assert.equal(card.text, 'mail listeners 2', 'armed fair-queue dogs; the paused one takes no mail')
+test('§6 the merged card counts armed fair-queue watchers only', () => {
+  const card = mailQueueCard('sync', 0, 0, false, dogs)!
+  assert.equal(card.text, '2 listeners', 'armed fair-queue dogs; the paused one takes no mail')
   assert.match(card.title, /2 mail listeners \(fair_queue\) armed on project sync: sa, sb/)
-  assert.equal(mailListenerCard('sync', dogs.filter((w) => w.kind !== 'fair_queue')), null,
-    'no card while nobody listens for mail')
-  assert.equal(mailListenerCard('other', dogs), null, 'another project\'s listeners do not count')
+  assert.equal(mailQueueCard('sync', 0, 0, false, dogs.filter((w) => w.kind !== 'fair_queue')), null,
+    'no card while nobody listens and nothing waits')
 })
 
-test('§6 the desk header carries the mail-listeners card beside the queue card, and clicking it opens the inbox tab', async (t) => {
+test('§6 the desk header carries ONE merged mail card, and clicking it opens the inbox tab', async (t) => {
   const nd = project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 })
   const { view } = await desk(t, nd)
-  const listeners = view.el.querySelector<HTMLButtonElement>('.project-maillisteners-card')
-  assert.equal(listeners?.textContent, 'mail listeners 2')
-  assert.equal(view.el.querySelector('.project-queue-card')?.textContent, 'mail queue 3 waiting · 1 in flight',
-    'the queue card stays its own card beside it')
-  await inAct(async () => { listeners!.click(); await flush(3) })
+  const card = view.el.querySelector<HTMLButtonElement>('.project-queue-card')
+  assert.equal(card?.textContent, "2 listeners · 3 q'd · 1 in flight")
+  assert.equal(view.el.querySelector('.project-maillisteners-card'), null, 'no separate mail-listeners card')
+  await inAct(async () => { card!.click(); await flush(3) })
   assert.equal(view.el.querySelector('.cc-tabs button[data-tab="inbox"]')?.classList.contains('on'), true,
-    'clicking the mail-listeners card opens the inbox tab (user 2026-10-19 17:12Z)')
+    'clicking the merged card opens the inbox tab (user 2026-10-19 17:12Z, merged 18:17Z)')
 })
 
-test('§6 no mail-listeners card without a fair-queue watcher', async (t) => {
+test('§6 no mail card without a watcher, waiting mail or in-flight job', async (t) => {
   const { view } = await desk(t, project(), false)
-  assert.equal(Boolean(view.el.querySelector('.project-maillisteners-card')), false)
+  assert.equal(Boolean(view.el.querySelector('.project-queue-card')), false)
 })

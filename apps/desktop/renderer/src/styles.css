@@ -3220,10 +3220,13 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .project-listeners-badge.bright, .project-listeners-card.bright { border-color: var(--listener);
   background: var(--listener); color: var(--listener-ink); }
 .project-listeners-card { cursor: pointer; font: inherit; font-size: 11px; }
-.project-queue-badge, .project-queue-card, .project-maillisteners-badge, .project-maillisteners-card { display: inline-flex; align-items: center; align-self: flex-start;
+.project-queue-badge, .project-queue-card { display: inline-flex; align-items: center; align-self: flex-start;
   font-size: 10px; line-height: 14px; padding: 0 6px; border-radius: 8px; white-space: nowrap;
   border: 1px solid var(--fq-line); color: var(--fq-line); background: transparent; }
-.project-queue-card, .project-maillisteners-card { cursor: pointer; font: inherit; font-size: 11px; }
+.project-queue-card { cursor: pointer; font: inherit; font-size: 11px; }
+/* the merged mail badge must never cross the card edge (user 2026-10-19 18:16Z):
+   the short text wraps inside the card instead of overflowing it */
+.project-queue-badge { display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: break-word; }
 /* the desk's Listeners tab */
 .project-listeners { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
 .project-listeners h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }

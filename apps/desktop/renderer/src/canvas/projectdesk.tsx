@@ -50,7 +50,7 @@ import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
 import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
-import { listenerCards, mailListenerCard, projectListenerState, queueAckMode, queueCard } from './listeners'
+import { listenerCards, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { DeskJumpCards } from './deskjumpcards'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
@@ -481,8 +481,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const listenerState = projectListenerState(node.id, tree.watchdogs ?? [])
   const listenersArmed = listenerState.armed.length
   const listenerHeaderCards = listenerCards(node.id, listenerState)
-  const queue = queueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node))
-  const mailListeners = mailListenerCard(node.id, tree.watchdogs ?? [])
+  const queue = mailQueueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node), tree.watchdogs ?? [])
   const hasListeners = listenerState.listeners.length + listenerState.watches.length > 0
   // the Dead letters tab joins them while the project holds open dead letters
   const deadLetters = node.dead_letters ?? 0
@@ -560,14 +559,12 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               agent desk (user 2026-10-18 11:47Z); rendered only popped out */}
           <PopoutWindowControls />
         </div>
-        {(listenerHeaderCards.length > 0 || queue || mailListeners) && <div className="cc-head-meta project-listeners-meta">
+        {(listenerHeaderCards.length > 0 || queue) && <div className="cc-head-meta project-listeners-meta">
           {listenerHeaderCards.map((c) => <button key={c.key} type="button"
             className={'chip project-listeners-card' + (c.bright ? ' bright' : '')}
             title={c.title} onClick={() => setView('listeners')}>{c.text}</button>)}
           {queue && <button type="button" className="chip project-queue-card"
             title={queue.title} onClick={() => setView('inbox')}>{queue.text}</button>}
-          {mailListeners && <button type="button" className="chip project-maillisteners-card"
-            title={mailListeners.title} onClick={() => setView('inbox')}>{mailListeners.text}</button>}
         </div>}
         {slots.total > 0 && <div className="cc-head-meta project-slots-meta">
           <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
