@@ -6,7 +6,7 @@ import { agentSuperior, effectiveReports, isTopLevel, draftOpeningGrant, USER } 
 import type { CanvasNode, DraftScope } from '../src/canvas/shared'
 import { retireAllSubordinates, agentMenuEntries } from '../src/canvas/agentmenu'
 import { cascadePreview, DraftScopeModal } from '../src/canvas/modals'
-import { EyeDesk } from '../src/canvas/cards'
+import { DraftNode, EyeDesk, NodeSquare } from '../src/canvas/cards'
 import { quickChatHire } from '../src/quickchat'
 import { quickChatChoices } from '../src/quickchat-availability'
 import type { TreePayload } from '../src/types'
@@ -24,6 +24,34 @@ function index(roots: CanvasNode[]) {
 }
 const wrapped = (n: CanvasNode) => project('outer', [project('inner', [n]), project('empty')])
 const settings = { max_top_grant: 100, default_top_grant: 37, cascade_alloc: true } as TreePayload
+
+async function dragToMax(bar: HTMLElement) {
+  for (const [type,y] of [['pointerdown',300],['pointermove',-3000],['pointerup',-3000]] as const) {
+    await inAct(()=>bar.dispatchEvent(new window.MouseEvent(type,{bubbles:true,clientY:y,button:0})))
+  }
+}
+for (const cascade of [false,true]) test(`card credit drag respects agent funding through projects, cascade=${cascade}`, async t=>{
+  installFetch(new FakeServer())
+  const child=agent('child'), map=index([agent('boss',[wrapped(child)],{grant:80,free:7})]),calls:unknown[]=[]
+  const noop=()=>{}
+  const view=await mountView(<NodeSquare node={child} map={map} pos={{x:0,y:0}} lod="norm" focused={false}
+    dragging={false} isDrop={false} seats={{sol:2}} maxTop={100} cascadeAlloc={cascade} pxc={5} zoom={1}
+    slug="synthetic" op={async b=>{calls.push(b);return {}}} toast={noop} onSpawn={noop} onConfig={noop}
+    onInbox={noop} onLineage={noop} onMailLink={noop} onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop}/>,el=>el)
+  t.after(()=>view.unmount())
+  await dragToMax(view.el.querySelector('.cbar')!)
+  assert.deepEqual(calls,[{op:'reallocate',node:'child',delta:cascade?27:7}])
+})
+for (const cascade of [false,true]) test(`hire card reserves the seat before granting credits, cascade=${cascade}`,async t=>{
+  installFetch(new FakeServer())
+  const map=index([agent('boss',[project('team')],{grant:80,free:7})]);let proposed=-1
+  const view=await mountView(<DraftNode draft={{parent:'team',tier:'sol'}} map={map} pos={{x:0,y:0}}
+    tree={{...settings,cascade_hire:cascade}} seats={{sol:2}} maxTop={100} defaultTop={37} pxc={5} zoom={1}
+    onCancel={()=>{}} onConfirm={()=>{}} onGrant={n=>{proposed=n}}/>,el=>el)
+  t.after(()=>view.unmount());await flush(3)
+  await dragToMax(view.el.querySelector('.cbar')!);await flush(3)
+  assert.equal(proposed,cascade?25:5)
+})
 
 test('structural helpers cross projects but retain archived agent superiors', () => {
   const child=agent('child'), boss=agent('boss',[wrapped(child)],{state:'archived'})
