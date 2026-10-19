@@ -24,6 +24,15 @@ app.whenReady().then(async()=>{
   }
   const opened=await win.webContents.executeJavaScript('window.fixtureOpened')
   check('left-click-slots',()=>assert.deepEqual(opened,['project-slots:synthetic-build','project-slots:synthetic-build']),opened)
+  await win.loadFile(path.join(out,'index.html'),{query:{scene:'slots'}})
+  await win.webContents.executeJavaScript(`new Promise((resolve,reject)=>{const until=Date.now()+8000;const ready=()=>{if(document.querySelector('#slot-menu-fixture .slots-line .slot-row'))return resolve();if(Date.now()>until)return reject(Error('table fixture not ready'));setTimeout(ready,20)};ready()})`)
+  for(const light of [false,true]){
+   const theme=light?'light':'dark';await win.webContents.executeJavaScript(`document.documentElement.classList.toggle('contrast-light',${light});const cell=document.querySelector('#slot-menu-fixture .slots-line .slot-rest');cell.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:570,clientY:330}))`);await wait(win)
+   const state=await win.webContents.executeJavaScript(`(()=>{const row=document.querySelector('#slot-menu-fixture .slots-line .slot-row'),p=Array.from(document.querySelectorAll('[role=menuitem]')).find(e=>e.textContent==='Project… ▸');if(p){p.focus();p.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))}return{tag:row.tagName,cells:row.children.length,position:row.firstElementChild.textContent,time:row.querySelector('.slot-time')?.getAttribute('style'),headers:Array.from(document.querySelectorAll('#slot-menu-fixture thead th')).map(e=>e.textContent),project:!!p}})()`);await wait(win)
+   check(theme+'-semantic-slot-row',()=>{assert.equal(state.tag,'TR');assert.equal(state.cells,7);assert.equal(state.position,'1st');assert.ok(state.time);assert.equal(state.project,true);assert.deepEqual(state.headers,['Position','Agent','Waited','Held','Ended','Claim / lease','Action'])},state)
+   fs.writeFileSync(path.join(out,'project-dog-table-'+theme+'.png'),(await win.webContents.capturePage()).toPNG())
+   await win.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);await wait(win)
+  }
  }finally{win.destroy()}
- const failed=cases.filter(c=>!c.passed),receipt={tests:cases.length,passed:cases.length-failed.length,failed:failed.length,cases,expectedRed:red};fs.writeFileSync(path.join(out,'capture.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));assert.equal(cases.length,23);assert.equal(failed.length,red?14:0)
+ const failed=cases.filter(c=>!c.passed),receipt={tests:cases.length,passed:cases.length-failed.length,failed:failed.length,cases,expectedRed:red};fs.writeFileSync(path.join(out,'capture.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));assert.equal(cases.length,25);assert.equal(failed.length,red?14:0)
 }).then(()=>app.exit(0),e=>{console.error(e.stack||e);app.exit(1)})

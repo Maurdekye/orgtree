@@ -16,6 +16,8 @@ Canvas satellites, desk jump cards, detail headings, transcript references,
 mobile dog lists, project listener rows and slot waiting rows use that same
 menu. Nested agent links in project rows retain their own canonical menus.
 Pause/Resume/Remove and left-click detail routes are unchanged.
+Slot waiting rows render a real `tr` through the shared row wrapper; their
+seven cells, Position column and coloured SlotTime values remain intact.
 
 Event listener/watch dogs use cyan, fair-queue mail listeners magenta, and
 slot claims yellow. One-shot perimeters are dashed, preserving kind color;

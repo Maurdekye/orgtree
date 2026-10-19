@@ -8,6 +8,8 @@ import { AgentSurfaceRoutesProvider } from '../src/canvas/panelcorner'
 import { WatchdogSatellite } from '../src/canvas/watchdogchip'
 import { DogChip, DeskDogsProvider } from '../src/canvas/deskdogs'
 import { ListenersView } from '../src/canvas/listenersdesk'
+import { SlotsView } from '../src/canvas/slotsdesk'
+import { projectSlotState } from '../src/canvas/slots'
 import { projectMenuEntries } from '../src/canvas/agentmenu'
 import { applyTheme } from '../src/themes'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -18,6 +20,11 @@ const kinds=['command','fair_queue','slot','project_listener','listener_watch'] 
 const dogs=kinds.flatMap((kind,i)=>[false,true].map(once=>({id:'worker/'+kind+(once?'-once':''),name:kind+(once?'-once':''),owner:'worker',kind,target:node.id,state:'armed',once,spent:false,at:now,queued_at:now,count:3,fired:0,interval_s:60} as Watchdog)))
 const opened:string[]=[];(window as unknown as {fixtureOpened:string[]}).fixtureOpened=opened
 const projectActions=()=>projectMenuEntries(node,{onOpenDesk:()=>opened.push('focus'),onOpenTemporary:noop,onPin:noop,onPopout:noop,onInbox:noop,onSlots:noop,onSettings:noop},{})
+const slotScene=new URLSearchParams(location.search).get('scene')==='slots'
+const at=(minutes:number)=>new Date(Date.now()-minutes*60000).toISOString()
+const status={holders:[{agent:'worker',lease:'synthetic-held',slot:1,reason:'Synthetic held permit',queued:at(15),since:at(5)}],
+ line:dogs.filter(w=>w.kind==='slot').map((w,i)=>({agent:w.owner,dog:w.id,position:i+1,since:at(20+i)})),
+ history:[{agent:'worker',lease:'synthetic-ended',slot:1,reason:'Synthetic completed permit',queued:at(90),since:at(75),ended:at(30),how:'released'}]}
 function Register(){useProvideAgentNav(id=>id===node.id?projectActions():[]);return null}
 localStorage.clear();applyTheme('orgtree')
 createRoot(document.getElementById('root')!).render(<AgentNavProvider><ObjectNavProvider><Register/>
@@ -26,6 +33,7 @@ createRoot(document.getElementById('root')!).render(<AgentNavProvider><ObjectNav
  <ObjectMenuBoundary style={{padding:24,height:650,boxSizing:'border-box'}}>
  <h2 style={{margin:'0 0 10px'}}>Project watchdogs and slot chips</h2>
  <p style={{fontSize:12}}>Synthetic fixtures · continuous / one-shot · full shared project menu</p>
+ {slotScene?<section id="slot-menu-fixture" style={{position:'absolute',left:24,top:105,width:940}}><SlotsView node={node} state={projectSlotState(node.id,3,[],dogs)} map={new Map()} onJump={noop} op={async()=>status as never} toast={noop}/></section>:<>
  {dogs.map((dog,i)=><section key={dog.id} className="outline-sample" data-kind={dog.kind} data-once={String(dog.once)} style={{position:'absolute',left:24+(i%2)*235,top:115+Math.floor(i/2)*78,width:218,height:66}}>
   <small style={{fontSize:11}}>{dog.kind} {dog.once?'(one-shot)':'(continuous)'}</small>
   <WatchdogSatellite dog={dog} dogs={dogs} org="fixture" style={{left:0,top:23,width:75,height:32,fontSize:9}} onOpen={id=>opened.push(id)}/>
@@ -33,5 +41,6 @@ createRoot(document.getElementById('root')!).render(<AgentNavProvider><ObjectNav
  </section>)}
  <section id="slot-chips" style={{position:'absolute',left:535,top:100,display:'flex',gap:6}}><AgentSlotChips agent="worker" leases={[{agent:'worker',project:node.id,slot:1,lease:'synthetic',since:now}]} dogs={dogs}/></section>
  <section id="listener-rows" style={{position:'absolute',left:24,top:505,width:940,fontSize:11}}><ListenersView node={node} dogs={dogs.filter(w=>w.once)} map={new Map()} op={async()=>({} as never)} toast={noop}/></section>
+ </>}
  </ObjectMenuBoundary></AgentSurfaceRoutesProvider></DeskDogsProvider>
  </ObjectNavProvider></AgentNavProvider>)
