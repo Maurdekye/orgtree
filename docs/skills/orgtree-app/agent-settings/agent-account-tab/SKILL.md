@@ -15,6 +15,12 @@ These controls are in the Model tab. They apply to the selected agent. Agents ex
 
 A vanished saved account remains visible as unavailable. If only one replacement exists, **Use …** explicitly selects it. The mere opening or saving of an unchanged selector does not silently rebind it. Muse choices additionally reflect which logins offer the selected model; an unknown or stale eligibility answer still requires engine validation.
 
+A queued account change is shown as the selected target. To cancel it, choose
+the account currently serving the agent again, then Save (settings) or Apply
+(desk model picker). This submits the existing account cancellation request;
+the next-turn account card clears on the engine update. Saving an untouched
+selector preserves the queue.
+
 Changing providers updates the form's account choice for the new provider. On Save a model switch and its account travel together; an account-only edit uses account assignment before the scope save. A busy assignment is queued for the turn boundary. A direct idle rebind validates the account and marks the process for reconfiguration. It refuses a genuine usage-limit freeze: releasing that freeze requires the continuation/recovery workflow, not an account selector used as an unlock.
 
 An account change creates a new cache namespace; account and provider session behavior is harness-specific. Do not promise that a displayed subscription login is free of limits or that a manual binding will be balanced onto another login automatically. See `orgtree-account-lanes` (orgtree-working › accounts) for account gates, billing, manual choices and continuation behavior.

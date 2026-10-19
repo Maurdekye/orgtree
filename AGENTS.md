@@ -31,6 +31,13 @@
   remain passive. See the [model tab](docs/skills/orgtree-app/agent-settings/agent-model-tab/SKILL.md).
   [decided: user/coordinator 2026-10-19; verified: `canvas/{deskmodel,desk,identity}.tsx`]
 
+- Queued model/account selectors show the queued target. Explicitly choosing
+  the serving model/account again submits the existing cancellation operation;
+  an untouched settings Save preserves both queues. A combined cancellation
+  sends both operations, including through history; unedited version pins stay
+  omitted. [decided: user 2026-10-19 16:59–17:00Z;
+  verified: `canvas/{modals,deskmodel}.tsx`]
+
 - Presentation lists share unread mail's bold/accent title and brighter metadata
   for new or replaced documents, using existing `viewed_at` plus `docviewed` marks.
   Shared gallery rows subscribe to viewed changes; successful user opens clear

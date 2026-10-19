@@ -1270,7 +1270,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   const setTeamCharter = set<string>('teamCharter', teamCharter)
   const peerMail = val('peerMail', node.peer_mail ?? node.configured_scope?.peer_mail ?? scope.peer_mail ?? true)
   const setPeerMail = set<boolean>('peerMail', peerMail)
-  const model = val('model', node.tier!)
+  const model = val('model', node.pending_switch?.tier ?? node.tier!)
   const setModel = set<string>('model', model)
   const effort = val('effort', scope.effort ?? '')
   const setEffort = set<string>('effort', effort)
@@ -1316,8 +1316,9 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   // multi-account (D5): the node's binding — chosen WITH a cross-provider
   // switch (atomic, backend-required) or reassigned on its own; disclosure
   // (billing/standing) surfaces in the toast at the point of action
-  const acct = val('account', node.account ?? '')
+  const acct = val('account', node.pending_account?.account ?? node.account ?? '')
   const setAcct = set<string>('account', acct)
+  const [accountPicked, setAccountPicked] = useState(false)
   const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>([])
   const [hostIdentity, setHostIdentity] = useState<HostIdentity>({})
   // the Muse logins that offer the chosen model (unknown ones stay choices:
@@ -1349,19 +1350,24 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   // D-196: does this save move the agent to a DIFFERENT PROVIDER? Answered by
   // the shared `providerOf`, never by testing tier membership inline — the
   // second copy of that question is what D-182 was about.
-  const crossProvider = model !== node.tier
+  // Re-selecting the serving value is an explicit cancellation, not a no-op.
+  // Merely saving another field must leave the displayed queue untouched.
+  const modelRequested = 'model' in edit && (model !== node.tier || !!node.pending_switch)
+  const cancelModel = modelRequested && model === node.tier && !!node.pending_switch
+  const crossProvider = modelRequested && model !== node.tier
     && providerOf(model) !== providerOf(node.tier ?? '')
   // D-234 (user ruling 2026-09-03): a switch asked for while the agent is
   // MID-TURN is queued, not applied — and the user must understand that at
   // the moment of the action, so a busy node's switch asks too, whatever the
   // provider. `busy` is the supervisor's live answer layered onto the node.
-  const midTurn = model !== node.tier && Boolean(node.busy)
+  const midTurn = modelRequested && model !== node.tier && Boolean(node.busy)
   const asksFirst = crossProvider || midTurn
   // ONE save implementation, reached either directly or through the
   // confirmation. Extracted rather than duplicated so the confirmed path
   // cannot drift from the unconfirmed one — and so CANCEL is simply "never
   // call this", which is what makes cancelling total rather than partial.
-  const acctChanged = acct !== (node.account ?? '')
+  const acctChanged = 'account' in edit
+    && (acct !== (node.account ?? '') || (accountPicked && !!node.pending_account))
   // the capability fields ride only when EDITED: omitted means unchanged on
   // the wire, and any capability field makes the save lock and re-clamp the
   // node's whole subtree — re-sending untouched folders and tools made an
@@ -1379,25 +1385,26 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
     auto_cheap_compact: accMode === '' ? {}
       : { enabled: accMode === 'on',
           occ: (+accOcc || 25) / 100 },
-    model_version: versions.includes(modelVersion)
-      ? modelVersion : '',
+    ...('modelVersion' in edit || (modelRequested && model !== node.tier)
+      ? { model_version: versions.includes(modelVersion) ? modelVersion : '' } : {}),
     ...fallbackPayload }
   const doSave = () => {
     if (tree.undo_history) {
       const steps: Record<string, unknown>[] = []
-      if (model !== node.tier) steps.push({ op: 'switch_model', node: node.id, tier: model, ...(acct ? { account: acct } : {}) })
-      else if (acctChanged && acct) steps.push({ op: 'account', node: node.id, account: acct })
+      if (modelRequested) steps.push({ op: 'switch_model', node: node.id, tier: model, ...(acct ? { account: acct } : {}) })
+      if (model === node.tier && acctChanged && acct) steps.push({ op: 'account', node: node.id, account: acct })
       steps.push({ op: 'scope', node: node.id, ...scopeBody })
       return userGesture(slug, steps, `Settings: ${node.id}`)
         .then(r => {
           const results = r.results ?? []
           const saved = results[results.length - 1] ?? {}
           const lines = savePopups(saved)
+          if (cancelModel && !r.duplicate) lines.push(`${node.id}: model change cancelled`)
           for (const result of results.slice(0, -1)) lines.push(...(result.warnings ?? []))
           if (model === node.tier && acctChanged && acct && !r.duplicate) {
-            const d = results[0] as Awaited<ReturnType<typeof assignAccount>> | undefined
+            const d = results[modelRequested ? 1 : 0] as Awaited<ReturnType<typeof assignAccount>> | undefined
             if (d?.queued) lines.push(`${node.id} → account ${d.account} queued — applies when the current turn ends`)
-            else if (d?.cancelled) lines.push(`${node.id}: queued account change to ${d.cancelled} cancelled — keeps ${d.account}`)
+            else if (d?.cancelled) lines.push(`${node.id}: account change cancelled`)
             else if (d) lines.push(`${node.id} → account ${d.account}`
               + (d.billing_mode ? ` (${d.billing_mode})` : '')
               + (d.standing?.state === 'limited' ? ` — WILL WAIT until ${new Date((d.standing.until ?? 0) * 1000).toLocaleString()}`
@@ -1409,20 +1416,21 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         }).catch((e: Error) => toast([`error: ${e.message}`]))
     }
     return (
-    (model !== node.tier
+    (modelRequested
       ? op({ op: 'switch_model', node: node.id, tier: model,
              // atomic switch+rebind: the account rides the same act (the
              // backend requires it for a cross-provider switch on a bound
              // node and refuses a mismatched one)
              ...(acct ? { account: acct } : {}) })
-      : acctChanged && acct
+      : Promise.resolve())
+      .then(() => model === node.tier && acctChanged && acct
         ? assignAccount(slug, node.id, acct).then((d) => {
             if (d.queued) {
               toast([`${node.id} → account ${d.account} queued — applies when the current turn ends`])
               return
             }
             if (d.cancelled) {
-              toast([`${node.id}: queued account change to ${d.cancelled} cancelled — keeps ${d.account}`])
+              toast([`${node.id}: account change cancelled`])
               return
             }
             toast([`${node.id} → account ${d.account}`
@@ -1440,6 +1448,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         scopeBody))
       .then((r) => {
         const lines = savePopups(r)
+        if (cancelModel) lines.push(`${node.id}: model change cancelled`)
         toast(lines)
         close()
       })
@@ -1616,7 +1625,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         <SetRow label="Model" hint="Choose its model; switching providers starts a new conversation."><select className="model-switch" aria-label="model tier" title={modelChoiceTitle(model, unavailable(model))}
           value={model} onChange={(e) => {
             const next = e.target.value
-            if (providerOf(next) !== providerOf(model)) setAcct(
+            if (next === node.tier && node.pending_switch && providerOf(next) !== providerOf(model)) setAcct(node.account ?? '')
+            else if (providerOf(next) !== providerOf(model)) setAcct(
               acct && ['claude', 'openai', 'google', 'muse'].includes(providerOf(next))
                 ? primaryAccount(providerOf(next)) : '')
             setModel(next)
@@ -1667,7 +1677,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         {['claude', 'openai', 'google', 'muse'].includes(providerOf(model)) && (
           <>
         <SetRow label="Account" hint={node.account?.startsWith('missing:') ? `The saved account is missing: ${node.account}.` : 'Choose the signed-in account this agent uses.'}><AccountSelect rows={acctRows} provider={providerOf(model)} value={acct}
-              host={hostIdentity} onChange={setAcct}
+              host={hostIdentity} onChange={value => { setAccountPicked(true); setAcct(value) }}
               eligible={museModel ? museEligible : undefined}
               ineligibleNote={museModel ? `does not offer ${tierLabel(model)}${museVersion ? ' ' + museVersion : ''}` : undefined} /></SetRow>
         {museWhy && <p className="set-hint muse-unoffered" role="note">{museWhy}; choose a Muse login that offers it.</p>}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { assignAccount, getProviders, saveScope } from '../api'
 import { userGesture } from '../historyapi'
+import { primaryAccount } from '../accountidentity'
 import { useAppFeed, useAppRead } from '../appfeed'
 import { historyEnabled, historyUndo } from '../historyregistry'
 import { useOrgHireProviders } from '../orghire'
@@ -34,7 +35,7 @@ export function DeskModelButton({node, slug, op, toast}: {
       museHire:of('muse'),openrouterHire:of('openrouter'),langserverHire:of('langserver')}
   },[providers,orgProviders])
   const [anchor,setAnchor]=useState<HTMLElement|null>(null)
-  const [choice,setChoice]=useState<{tier:string;account:string;version:string}|null>(null)
+  const [choice,setChoice]=useState<{tier:string;account:string;version:string;accountPicked?:boolean}|null>(null)
   const [asking,setAsking]=useState(false),[saving,setSaving]=useState(false)
   const close=()=>{if(!saving){setAnchor(null);setChoice(null);setAsking(false)}}
   useEffect(()=>{setAnchor(null);setChoice(null);setAsking(false)},[slug,node.id,node.generation,node.state])
@@ -45,13 +46,16 @@ export function DeskModelButton({node, slug, op, toast}: {
   const pick=(tier:string)=>{
     const row=rows.find(r=>r.tier===tier)
     if(!row)return
-    const account=row.accounts.some(a=>a.value===node.account)?node.account!:
+    const preferred=node.pending_account?.account??node.account
+    const account=row.accounts.some(a=>a.value===preferred)?preferred!:
       row.default_ok?'':row.accounts[0]?.value??''
     setChoice({tier,account,version:tier===node.tier?node.scope?.model_version??'':''})
   }
   const currentRow=rows.find(r=>r.tier===choice?.tier)
   const versions=choice?MODEL_VERSIONS[choice.tier]??[]:[]
   const changedTier=!!choice&&choice.tier!==node.tier
+  const cancelModel=!!choice&&choice.tier===node.tier&&!!node.pending_switch
+  const modelRequested=changedTier||cancelModel
   const crossProvider=changedTier&&providerOf(choice!.tier)!==providerOf(node.tier??'')
   const midTurn=changedTier&&node.busy===true
   const apply=async()=>{
@@ -60,22 +64,26 @@ export function DeskModelButton({node, slug, op, toast}: {
     if(!validAccount)return
     const scope={model_version:versions.includes(choice.version)?choice.version:''}
     const changeVersion=scope.model_version!==(node.scope?.model_version??'')||changedTier
-    const changeAccount=!!choice.account&&choice.account!==node.account
+    const account=choice.account||primaryAccount(providerOf(node.tier??''))
+    const changeAccount=choice.accountPicked===true
+      && (account!==node.account||!!node.pending_account)
+    const cancelAccount=changeAccount&&!!node.pending_account
+      && account===(node.account||primaryAccount(providerOf(node.tier??'')))
     const switchStep={op:'switch_model',node:node.id,tier:choice.tier,
       ...(choice.account?{account:choice.account}:{})}
     setSaving(true)
     try{
       if(historyEnabled(slug)){
         const steps:Record<string,unknown>[]=[]
-        if(changedTier)steps.push(switchStep)
-        else if(changeAccount)steps.push({op:'account',node:node.id,account:choice.account})
+        if(modelRequested)steps.push(switchStep)
+        if(!changedTier&&changeAccount)steps.push({op:'account',node:node.id,account})
         if(changeVersion)steps.push({op:'scope',node:node.id,...scope})
-        if(steps.length){const result=await userGesture(slug,steps,`Model: ${node.id}`);toast([`Model choice saved for ${node.id}`],historyUndo(slug,result))}
+        if(steps.length){const result=await userGesture(slug,steps,`Model: ${node.id}`);toast([cancelModel?`${node.id}: model change cancelled`:cancelAccount?`${node.id}: account change cancelled`:`Model choice saved for ${node.id}`],historyUndo(slug,result))}
       }else{
-        if(changedTier)await op(switchStep)
-        else if(changeAccount)await assignAccount(slug,node.id,choice.account)
+        if(modelRequested)await op(switchStep)
+        if(!changedTier&&changeAccount)await assignAccount(slug,node.id,account)
         if(changeVersion)await saveScope(slug,node.id,scope)
-        toast([changedTier&&node.busy?`${node.id}: model change queued for next turn`:`Model choice saved for ${node.id}`])
+        toast([cancelModel?`${node.id}: model change cancelled`:cancelAccount?`${node.id}: account change cancelled`:changedTier&&node.busy?`${node.id}: model change queued for next turn`:`Model choice saved for ${node.id}`])
       }
       setAnchor(null);setChoice(null);setAsking(false)
     }catch(error){toast([`error: ${(error as Error).message}`]);setAsking(false)}
@@ -97,7 +105,7 @@ export function DeskModelButton({node, slug, op, toast}: {
       {!rows.length&&<p role="status">{snapshot?.errors?.join('; ')||'No eligible models available'}</p>}
       {choice&&currentRow&&<div className="desk-model-options">
         <label>Account <select aria-label="Model account" value={choice.account}
-          onChange={e=>setChoice({...choice,account:e.target.value})}>
+          onChange={e=>setChoice({...choice,account:e.target.value,accountPicked:true})}>
           {currentRow.default_ok&&<option value="">default</option>}
           {currentRow.accounts.map(a=><option key={a.value} value={a.value}>{a.label||a.id}</option>)}
         </select></label>
