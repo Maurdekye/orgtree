@@ -24,6 +24,7 @@ await esbuild.build({
   platform: 'browser',
   format: 'iife',
   jsx: 'automatic',
+  loader: { '.woff2': 'dataurl', '.woff': 'dataurl', '.ttf': 'dataurl' },
   logLevel: 'warning',
 })
 esbuild.stop()
