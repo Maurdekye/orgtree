@@ -1,11 +1,11 @@
-//! The Language Server lane: models on the user's own local or self-hosted
+//! The Language model server lane: models on the user's own local or self-hosted
 //! model servers (Ollama, LM Studio, llama.cpp, vLLM, or any server that
 //! speaks the Anthropic Messages or the OpenAI Responses API), driven by one
 //! of the installed harnesses: Claude Code against the server's
 //! Anthropic-compatible `/v1/messages`, or Codex with the server as its model
 //! provider (`/v1/responses`; Codex refuses Chat Completions).
 //!
-//! Each server the user adds (App settings › Providers › Language Server)
+//! Each server the user adds (App settings › Providers › Language model server)
 //! lists the models it offers; every offered model is a hireable tier
 //! `ls-<server>-<model>`. Nothing is metered: a server has no usage limit,
 //! only an agents-at-once cap, because one GPU serves only a few agents.
@@ -220,7 +220,7 @@ pub fn server_seat(server: &Value) -> f64 {
     server["seat"].as_f64().filter(|s| s.is_finite() && *s >= 0.0).unwrap_or(DEFAULT_SEAT)
 }
 
-/// The seat price of a language-server tier: its server's (None when no
+/// The seat price of a language model server tier: its server's (None when no
 /// server offers it now).
 #[logged]
 pub fn seat_of_tier(engine: &Engine, tier: &str) -> Option<f64> {
@@ -237,7 +237,7 @@ fn check_seat(seat: f64) -> Result<f64> {
     Ok((seat * 100.0).round() / 100.0)
 }
 
-/// Bring every live agent on a language-server model to its server's seat
+/// Bring every live agent on a language model server model to its server's seat
 /// price, org by org (after a price change in the settings, and once at
 /// start: the move from the old flat 0.10 to the default 1). Each org runs
 /// it as its own `reprice` op; one that cannot make room is reported and
@@ -252,7 +252,7 @@ pub async fn reprice_everywhere(engine: &Arc<Engine>) -> Vec<Value> {
             }
             Ok(_) => {}
             Err(e) => {
-                tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "language-server seats not repriced");
+                tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "language model server seats not repriced");
                 out.push(json!({ "org": org.slug, "error": format!("{e:#}") }));
             }
         }
@@ -348,7 +348,7 @@ pub fn normalize_address(raw: &str) -> Result<String> {
     let with_scheme = if raw.contains("://") { raw.to_string() } else { format!("http://{raw}") };
     let url = reqwest::Url::parse(&with_scheme).map_err(|e| anyhow!(crate::domain::UserError::BadRequest(format!("{raw} is not a server address ({e})"))))?;
     if url.scheme() != "http" && url.scheme() != "https" {
-        crate::refuse!(BadRequest, "a language server address starts with http:// or https://");
+        crate::refuse!(BadRequest, "a language model server address starts with http:// or https://");
     }
     if url.host_str().unwrap_or("").is_empty() {
         crate::refuse!(BadRequest, "{raw} names no host");
@@ -467,7 +467,7 @@ pub struct ServerPatch {
 
 #[logged]
 pub async fn update_server(engine: &Engine, id: &str, patch: ServerPatch) -> Result<Value> {
-    let Some(cur) = server(engine, id) else { crate::refuse!(NotFound, "no language server {id}") };
+    let Some(cur) = server(engine, id) else { crate::refuse!(NotFound, "no language model server {id}") };
     let mut p = Map::new();
     if let Some(l) = patch.label.as_deref().map(str::trim) {
         if l.is_empty() {
@@ -528,7 +528,7 @@ pub async fn update_server(engine: &Engine, id: &str, patch: ServerPatch) -> Res
 /// it holds the key.
 pub async fn update_key(engine: &Engine, id: &str, key: Option<&str>) -> Result<()> {
     if server(engine, id).is_none() {
-        crate::refuse!(NotFound, "no language server {id}");
+        crate::refuse!(NotFound, "no language model server {id}");
     }
     set_key(engine, id, key).await?;
     let set = key.map(|k| !k.trim().is_empty()).unwrap_or(false);
@@ -542,7 +542,7 @@ pub async fn update_key(engine: &Engine, id: &str, key: Option<&str>) -> Result<
 #[logged]
 pub async fn remove_server(engine: &Engine, id: &str) -> Result<()> {
     if server(engine, id).is_none() {
-        crate::refuse!(NotFound, "no language server {id}");
+        crate::refuse!(NotFound, "no language model server {id}");
     }
     set_key(engine, id, None).await?;
     let mut client = engine.db.get().await?;
@@ -824,7 +824,7 @@ pub async fn ollama_loaded(w: &Warm) -> std::result::Result<bool, String> {
 /// Ollama's own words. Uses the key: not logged.
 pub async fn ollama_load(w: &Warm) -> std::result::Result<(), String> {
     let started = std::time::Instant::now();
-    tracing::info!(server = %w.server, model = %w.model, "loading a language-server model before the turn");
+    tracing::info!(server = %w.server, model = %w.model, "loading a language model server model before the turn");
     let client = reqwest::Client::builder().user_agent(USER_AGENT).build().map_err(|e| e.to_string())?;
     let mut req = client
         .post(format!("{}/api/generate", w.address.trim_end_matches('/')))
@@ -838,10 +838,10 @@ pub async fn ollama_load(w: &Warm) -> std::result::Result<(), String> {
     let failed = body["error"].as_str().map(str::to_string)
         .or_else(|| (!status.is_success()).then(|| format!("it answered {status}")));
     if let Some(why) = failed {
-        tracing::warn!(server = %w.server, model = %w.model, error = %why, "a language-server model did not load");
+        tracing::warn!(server = %w.server, model = %w.model, error = %why, "a language model server model did not load");
         return Err(format!("Ollama could not load {}: {why}", w.model));
     }
-    tracing::info!(server = %w.server, model = %w.model, secs = started.elapsed().as_secs(), "language-server model loaded");
+    tracing::info!(server = %w.server, model = %w.model, secs = started.elapsed().as_secs(), "language model server model loaded");
     Ok(())
 }
 
@@ -948,7 +948,7 @@ where
 
 // ------------------------------------------------------------------ launching
 
-/// What a language-server seat needs before it can launch.
+/// What a language model server seat needs before it can launch.
 pub struct Route {
     pub server: String,
     /// where the harness is pointed: the engine's pass-through to the
@@ -983,20 +983,20 @@ impl std::fmt::Debug for Route {
 #[logged]
 pub async fn route(engine: &Engine, tier: &str) -> Result<Route> {
     if !engine.settings.provider_enabled(crate::providers::catalog::LANGSERVER) {
-        anyhow::bail!("Language servers are turned off in App settings");
+        anyhow::bail!("Language model servers are turned off in App settings");
     }
     let (s, m) = route_of(engine, tier).ok_or_else(|| {
-        anyhow!("{tier} is not a model of any language server this app knows (App settings › Providers › Language servers); switch this agent to another tier")
+        anyhow!("{tier} is not a model of any language model server this app knows (App settings › Providers › Language model servers); switch this agent to another tier")
     })?;
     let id = s["id"].as_str().unwrap_or("").to_string();
     if s["enabled"].as_bool() == Some(false) {
-        anyhow::bail!("the language server {} is turned off in App settings › Providers", s["label"].as_str().unwrap_or(&id));
+        anyhow::bail!("the language model server {} is turned off in App settings › Providers", s["label"].as_str().unwrap_or(&id));
     }
     // a server's harness no longer installed refuses, saying so: never a
     // silent switch to the other (user 2026-10-13)
     let harness = s["harness"].as_str().unwrap_or("claude-code");
     if !crate::harnesses::installed(engine, harness) {
-        anyhow::bail!("{} (the harness of the language server {})", crate::harnesses::not_installed(harness), s["label"].as_str().unwrap_or(&id));
+        anyhow::bail!("{} (the harness of the language model server {})", crate::harnesses::not_installed(harness), s["label"].as_str().unwrap_or(&id));
     }
     Ok(Route {
         base_url: crate::lsproxy::base(engine, &id),
@@ -1075,7 +1075,7 @@ pub fn codex_overrides(r: &Route, compact_at: f64, catalog: Option<&Path>) -> Ve
     let mut out = Vec::new();
     let mut kvs = vec![
         format!("model_provider={}", q(CODEX_PROVIDER)),
-        format!("{p}.name={}", q("Language Server")),
+        format!("{p}.name={}", q("Language model server")),
         format!("{p}.base_url={}", q(&r.base_url)),
         format!("{p}.env_key={}", q(KEY_ENV)),
         format!("{p}.wire_api={}", q("responses")),
@@ -1103,7 +1103,7 @@ pub fn codex_overrides(r: &Route, compact_at: f64, catalog: Option<&Path>) -> Ve
 /// The instructions Codex sends for a model missing from its catalog (its
 /// built-in default prompt, as Codex 0.160.0 sends it; Apache-2.0, see
 /// THIRD_PARTY_NOTICES.md). A catalog entry must carry instructions, and a
-/// language server's entries carry these, so an entry changes nothing but
+/// language model server's entries carry these, so an entry changes nothing but
 /// what it is for.
 const CODEX_DEFAULT_INSTRUCTIONS: &str = include_str!("../assets/codex-default-instructions.md");
 
@@ -1119,7 +1119,7 @@ pub fn codex_catalog(server: &Value) -> Value {
     let instructions = CODEX_DEFAULT_INSTRUCTIONS.replace("\r\n", "\n");
     let mut models: Vec<&Value> = server["models"].as_object().map(|m| m.values().collect()).unwrap_or_default();
     models.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
-    let label = server["label"].as_str().unwrap_or("a language server");
+    let label = server["label"].as_str().unwrap_or("a language model server");
     let entries: Vec<Value> = models
         .into_iter()
         .filter_map(|m| {
@@ -1128,7 +1128,7 @@ pub fn codex_catalog(server: &Value) -> Value {
             Some(json!({
                 "slug": id,
                 "display_name": m["label"].as_str().filter(|l| !l.trim().is_empty()).unwrap_or(id),
-                "description": format!("{id} on {label} (Language Server)"),
+                "description": format!("{id} on {label} (Language model server)"),
                 "default_reasoning_level": Value::Null,
                 "supported_reasoning_levels": [],
                 "shell_type": "unified_exec",
@@ -1224,7 +1224,7 @@ pub async fn codex_catalog_file(exe: &Path, home: &Path, server: &Value) -> Opti
         if let Err(e) = written {
             let _ = std::fs::remove_file(&tmp);
             if !file.is_file() {
-                tracing::warn!(server = id, error = %e, "could not write the language server's Codex catalog; launching without it");
+                tracing::warn!(server = id, error = %e, "could not write the language model server's Codex catalog; launching without it");
                 return None;
             }
         }
@@ -1254,7 +1254,7 @@ pub async fn codex_catalog_file(exe: &Path, home: &Path, server: &Value) -> Opti
             Ok(Err(e)) => e.to_string(),
             Err(_) => "Codex did not answer in time".to_string(),
         };
-        tracing::warn!(server = id, why = %why, "the installed Codex cannot read the language server's model catalog; launching without it");
+        tracing::warn!(server = id, why = %why, "the installed Codex cannot read the language model server's model catalog; launching without it");
         return None;
     }
     let _ = std::fs::write(&marker, b"");

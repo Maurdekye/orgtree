@@ -358,12 +358,12 @@ pub fn stored_forecast(raw: &Value, now: DateTime<Utc>, threshold: Option<f64>) 
             && !raw["limit_locked"].as_bool().unwrap_or(false),
         raw["session_id"].as_str().is_some(),
     );
-    // a language server keeps its own prompt cache and says nothing about it
+    // a language model server keeps its own prompt cache and says nothing about it
     if catalog::is_langserver(raw["tier"].as_str().unwrap_or("")) {
         let codex = raw.pointer("/x_extra/harness").and_then(Value::as_str) == Some("codex-cli");
         return Some(json!({ "generation": raw["generation"].as_i64().unwrap_or(0).to_string(), "state": "uncertain",
                             "readiness": "unknown", "readiness_cause": "unsupported_capability",
-                            "reason": "a language server publishes no cache data", "source": "unsupported_capability",
+                            "reason": "a language model server publishes no cache data", "source": "unsupported_capability",
                             "lane": if codex { "codex" } else { "claude" }, "last_receipt_at": null,
                             "ttl_seconds": null, "expires_at": null }));
     }

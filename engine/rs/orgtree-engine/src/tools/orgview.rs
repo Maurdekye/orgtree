@@ -476,7 +476,7 @@ pub async fn list_tiers(engine: &Arc<Engine>) -> Result<Done> {
     if engine.settings.provider_enabled(catalog::LANGSERVER) {
         for (tier, seat, model, _, server) in crate::langserver::tiers(engine) {
             let context = crate::langserver::route_of(engine, &tier).map(|(_, m)| crate::langserver::context_of(&m));
-            out.push(json!({ "tier": tier, "provider": "Language Server", "seat": seat, "model": model,
+            out.push(json!({ "tier": tier, "provider": "Language model server", "seat": seat, "model": model,
                              "server": server, "context": context }));
         }
     }

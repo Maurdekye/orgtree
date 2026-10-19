@@ -1,4 +1,4 @@
-//! The Language Server lane's pass-through. A harness on the lane is pointed
+//! The Language model server lane's pass-through. A harness on the lane is pointed
 //! at `http://127.0.0.1:<engine port>/ls/<server id>` and sends this boot's
 //! pass-through secret as its key; the engine hands each request on to the
 //! server (its own key, or the lane's placeholder, replaces the secret, so
@@ -77,10 +77,10 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
     let (server_id, tail) = rest.find('/').map_or((rest, ""), |i| (&rest[..i], &rest[i..]));
     if !authorized(&parts.headers) {
         return error(StatusCode::UNAUTHORIZED, tail,
-            "this address is Orgtree's language-server pass-through: it takes requests only from the agents Orgtree launches");
+            "this address is Orgtree's language model server pass-through: it takes requests only from the agents Orgtree launches");
     }
     let Some(server) = crate::langserver::server(&engine, server_id) else {
-        return error(StatusCode::NOT_FOUND, tail, &format!("no language server {server_id} in App settings › Providers"));
+        return error(StatusCode::NOT_FOUND, tail, &format!("no language model server {server_id} in App settings › Providers"));
     };
     let label = server["label"].as_str().unwrap_or(server_id).to_string();
     let query = parts.uri.query().map(|q| format!("?{q}")).unwrap_or_default();
@@ -97,7 +97,7 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
     if let Some(a) = &assist {
         tracing::info!(server = %server_id, path = %tail, tools = a.tools, thinking = a.thinking, shortened = a.shortened,
             chars_before = a.chars.0, chars_after = a.chars.1, thinking_off = a.thinking_off,
-            "language-server pass-through: a summary request (compaction), reshaped for a local model");
+            "language model server pass-through: a summary request (compaction), reshaped for a local model");
     }
     let key = crate::langserver::key(&engine, server_id).await.unwrap_or_else(|| crate::langserver::NO_KEY.to_string());
     let mut headers = HeaderMap::new();
@@ -111,13 +111,13 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
     let resp = match sent {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!(server = %server_id, path = %tail, error = %e, "language-server pass-through: no answer");
-            return error(StatusCode::BAD_GATEWAY, tail, &format!("the language server {label} did not answer: {e}"));
+            tracing::warn!(server = %server_id, path = %tail, error = %e, "language model server pass-through: no answer");
+            return error(StatusCode::BAD_GATEWAY, tail, &format!("the language model server {label} did not answer: {e}"));
         }
     };
     let status = resp.status();
     tracing::info!(server = %server_id, method = %parts.method, path = %tail, status = status.as_u16(), normalized,
-        "language-server pass-through");
+        "language model server pass-through");
     let mut back = HeaderMap::new();
     for (name, value) in resp.headers().iter().filter(|(n, _)| forwardable(n)) {
         back.append(name.clone(), value.clone());
@@ -127,14 +127,14 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
         let text = String::from_utf8_lossy(&body);
         if status.is_server_error() && is_template_error(&text) {
             tracing::warn!(server = %server_id, status = status.as_u16(),
-                "language-server pass-through: the chat template refused the request; answered 400 (not retried)");
+                "language model server pass-through: the chat template refused the request; answered 400 (not retried)");
             return error(StatusCode::BAD_REQUEST, tail, &format!(
                 "the chat template of {label} refused this conversation ({status}; it would refuse it on every retry): {}",
                 server_words(&text)));
         }
         if let Some(counts) = context_overflow(&text) {
             tracing::warn!(server = %server_id, status = status.as_u16(), prompt = ?counts.0, window = ?counts.1,
-                "language-server pass-through: the request is longer than the server's window; answered as prompt-too-long");
+                "language model server pass-through: the request is longer than the server's window; answered as prompt-too-long");
             return overflow_error(tail, &label, counts, &server_words(&text));
         }
         let mut r = Response::new(Body::from(body));
@@ -508,7 +508,7 @@ fn overflow_error(tail: &str, label: &str, counts: (Option<i64>, Option<i64>), w
         (Some(p), Some(w)) => format!("prompt is too long: {p} tokens > {w} maximum"),
         _ => "prompt is too long for the model's context window".to_string(),
     };
-    let message = format!("{said} (the language server {label}: {words})");
+    let message = format!("{said} (the language model server {label}: {words})");
     let body = if tail.contains("/messages") {
         json!({ "type": "error", "error": { "type": "invalid_request_error", "message": message } })
     } else {
@@ -864,7 +864,7 @@ mod tests {
         assert!(context_full("stream disconnected before completion: Incomplete response returned, reason: max_output_tokens"));
         assert!(context_full(r#"API Error: 400 {"error":{"code":400,"type":"exceed_context_size_error","message":"request (70123 tokens) exceeds the available context size (65536 tokens), try increasing it"}}"#));
         assert!(!context_full("API Error: Claude's response exceeded the 8192 output token maximum."));
-        assert!(!context_full("the language server llama.cpp did not answer: error sending request"));
+        assert!(!context_full("the language model server llama.cpp did not answer: error sending request"));
         assert!(!context_full("Jinja Exception: System message must be at the beginning."));
     }
 

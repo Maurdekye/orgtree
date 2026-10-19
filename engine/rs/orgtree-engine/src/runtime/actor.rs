@@ -56,7 +56,7 @@ pub struct LiveView {
 const KEEP_ALIVE: Duration = Duration::from_secs(600);
 const ACTOR_IDLE_EXIT: Duration = Duration::from_secs(60);
 const MCP_WAIT: Duration = Duration::from_secs(30);
-/// The language-server lane's own Claude config folder and Codex home
+/// The language model server lane's own Claude config folder and Codex home
 /// (under `<data>\profiles`): no login lives there, so none can reach a server.
 const LANGSERVER_CLAUDE_CONFIG: &str = "langserver-claude";
 const LANGSERVER_CODEX_HOME: &str = crate::langserver::CODEX_HOME_DIR;
@@ -174,7 +174,7 @@ struct Ctx {
 }
 
 /// How a gateway seat reaches its endpoint: OpenRouter, or one of the
-/// user's language servers (`local`). The key never prints.
+/// user's language model servers (`local`). The key never prints.
 struct OrRoute {
     key: String,
     codex: bool,
@@ -816,7 +816,7 @@ struct Actor {
     parked: bool,
     slot: Option<Slot>,
     waiting_since: Option<DateTime<Utc>>,
-    /// a language server loading this turn's model before its CLI starts (the desk's words)
+    /// a language model server loading this turn's model before its CLI starts (the desk's words)
     loading: Option<String>,
     /// the task that waits for the slot and loads the model first, while one may be loading
     warm_task: Option<tokio::task::AbortHandle>,
@@ -1703,7 +1703,7 @@ impl Actor {
             return Ok(());
         }
         self.waiting_since = Some(Utc::now());
-        // a language-server seat also needs room under its server's agents-at-once cap
+        // a language model server seat also needs room under its server's agents-at-once cap
         let tier: String = row.get(6);
         let lane = if catalog::is_langserver(&tier) {
             crate::langserver::route_of(&self.engine, &tier).map(|(s, _)| {
@@ -1752,7 +1752,7 @@ impl Actor {
         self.loading = None;
     }
 
-    /// The language server could not load the turn's model: the slot goes
+    /// The language model server could not load the turn's model: the slot goes
     /// back, and the turn fails the way a CLI that never started does (its
     /// mail stays in the mailbox; the agent and its superior are told).
     async fn on_warm_failed(&mut self, slot: Slot, why: String) -> Result<()> {
@@ -1898,7 +1898,7 @@ impl Actor {
         } else {
             model
         };
-        // a language-server tier runs its server's model id, on its server's harness
+        // a language model server tier runs its server's model id, on its server's harness
         let local = if catalog::is_langserver(&tier) { crate::langserver::route_of(&self.engine, &tier) } else { None };
         let model = match &local {
             Some((_, m)) => m["id"].as_str().map(str::to_string).unwrap_or(model),
@@ -2007,7 +2007,7 @@ impl Actor {
             compact_at,
             cold_reset,
             occupancy: r.get(25),
-            // a language-server model's window is the one the CLI is told (its setting can change any time)
+            // a language model server model's window is the one the CLI is told (its setting can change any time)
             context_window: local_window
                 .or_else(|| r.get::<_, Option<i32>>(26))
                 .or_else(|| catalog::tier(&r.get::<_, String>(2)).and_then(|t| t.context).map(|c| c as i32)),
@@ -2059,7 +2059,7 @@ impl Actor {
         Ok(OrRoute { key, codex, reasoning: fav["reasoning"].as_bool().unwrap_or(false), local: None })
     }
 
-    /// What a language-server seat needs before it can launch: the lane on,
+    /// What a language model server seat needs before it can launch: the lane on,
     /// its server and model still configured, the server enabled.
     async fn langserver_route(&self, ctx: &Ctx) -> Result<OrRoute> {
         let r = crate::langserver::route(&self.engine, &ctx.tier).await?;
@@ -2543,7 +2543,7 @@ impl Actor {
         Ok(Some(note))
     }
 
-    /// The language server's window filled and the CLI could not compact the
+    /// The language model server's window filled and the CLI could not compact the
     /// conversation: as a cheap compact does, the agent goes on in a fresh
     /// session that starts with a handoff note (the whole conversation saved
     /// in its folder), and a system message wakes it to carry on. `run`: the
@@ -2766,7 +2766,7 @@ impl Actor {
         };
         self.account_gate(ctx, route.as_ref())?;
         if ctx.harness.as_deref() == Some("opencode") {
-            let route = route.as_ref().ok_or_else(|| anyhow!("OpenCode requires an OpenRouter or language-server lane"))?;
+            let route = route.as_ref().ok_or_else(|| anyhow!("OpenCode requires an OpenRouter or language model server lane"))?;
             return self.ensure_acp(ctx, route).await;
         }
         if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
@@ -3069,7 +3069,7 @@ impl Actor {
         let local = route.and_then(|r| r.local.as_ref());
         let (codex_home, api_key) = if route.is_some() {
             // its own home: the host login never holds OpenRouter (or
-            // language-server) threads, and no login is ever sent to a server
+            // language model server) threads, and no login is ever sent to a server
             let home = self.engine.cfg.path("profiles").join(if local.is_some() { LANGSERVER_CODEX_HOME } else { "openrouter-codex" });
             std::fs::create_dir_all(&home)?;
             (Some(home.to_string_lossy().to_string()), None)
@@ -7168,7 +7168,7 @@ impl Actor {
         // an OpenRouter seat on Claude Code is priced from its favorite's rates
         // (the CLI's own counter does not know the gateway's prices)
         let openrouter = self.provider == catalog::OPENROUTER;
-        // a language server is the user's own hardware: nothing is billed
+        // a language model server is the user's own hardware: nothing is billed
         let langserver = self.provider == catalog::LANGSERVER;
         let cost = if langserver {
             0.0
@@ -7297,7 +7297,7 @@ impl Actor {
                 None => {}
             }
         }
-        // A language server's window filled and the CLI could not compact the
+        // A language model server's window filled and the CLI could not compact the
         // conversation (live 2026-10-11: "Prompt is too long · automatic
         // compaction failed: summarization produced empty response"): the
         // agent goes on in a fresh session seeded with a handoff note, a few
@@ -7365,7 +7365,7 @@ impl Actor {
             )
             .await?;
         let tier_now = self.tier_of(&client).await;
-        // a language server's model has the window its server gives it (App
+        // a language model server's model has the window its server gives it (App
         // settings › Providers), which the user can change: always the latest
         let window = catalog::tier(&tier_now).and_then(|t| t.context).map(|c| c as i32).or_else(|| {
             langserver
@@ -8152,11 +8152,11 @@ impl Actor {
                            "last_receipt_at": receipt_at, "ttl_seconds": null, "expires_at": null,
                            "precompact_action": action });
         }
-        // a language server keeps its own prompt cache in its memory and says
+        // a language model server keeps its own prompt cache in its memory and says
         // nothing about it: no expiry to count down, nothing to reset for
         if ctx.provider == catalog::LANGSERVER {
             return json!({ "generation": generation, "state": "uncertain", "readiness": "unknown",
-                           "readiness_cause": "unsupported_capability", "reason": "a language server publishes no cache data",
+                           "readiness_cause": "unsupported_capability", "reason": "a language model server publishes no cache data",
                            "source": "unsupported_capability", "lane": lane, "last_receipt_at": receipt_at,
                            "ttl_seconds": null, "expires_at": null });
         }

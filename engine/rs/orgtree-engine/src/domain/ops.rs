@@ -408,7 +408,7 @@ async fn name_free(tx: &Transaction<'_>, org_id: i64, name: &str) -> Result<()> 
 /// seat is stamped at hire (and on a move into the lane) with its key's
 /// harness, which unpins it (`extra.harness_pin`); a rehire keeps the stamp
 /// and the pin. An unpinned seat follows its key's later changes at its next
-/// turn boundary (the actor's `start_turn`). A language-server seat runs on
+/// turn boundary (the actor's `start_turn`). A language model server seat runs on
 /// its server's harness, stamped the same way for every reader of
 /// `extra.harness` (the server's own setting stays the authority at launch).
 #[logged]
@@ -427,7 +427,7 @@ async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: 
     } else {
         return Ok(());
     };
-    // a language server's harness is fixed: always restamp it
+    // a language model server's harness is fixed: always restamp it
     let replace = replace || catalog::is_langserver(tier);
     tx.execute(
         "UPDATE ot.agents SET extra = CASE WHEN $3 OR NOT (coalesce(extra, '{}'::jsonb) ? 'harness')
@@ -440,7 +440,7 @@ async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: 
     Ok(())
 }
 
-/// The harness a language-server agent runs on now: its stamp, else (an
+/// The harness a language model server agent runs on now: its stamp, else (an
 /// agent stamped before the stamp existed) its server's.
 #[logged]
 async fn langserver_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: &str) -> Result<Option<String>> {
@@ -471,7 +471,7 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
     }
     // the org's account list (Org settings › Accounts): an OpenRouter tier
     // is its key's lane (the first key unless one is named), a
-    // language-server tier its server's, an explicit primary the default login
+    // language model server tier its server's, an explicit primary the default login
     // (an OpenRouter tier naming no key is placed on a key the org uses: no
     // lane to check yet)
     let unnamed_key = catalog::is_openrouter(tier) && !matches!(crate::accounts::choice(raw), crate::accounts::Choice::Account(_));
@@ -601,7 +601,7 @@ async fn agy_admit(engine: &Engine, op: &str, req: &Value) -> Result<()> {
     refuse!(Conflict, "{tier} is a conditional Antigravity tier and is not available to this account right now: model '{}' is not in the model list the Antigravity CLI returns for this account yet", t.model)
 }
 
-/// The seat price of a tier (catalog, an OpenRouter favorite, or a language server's model).
+/// The seat price of a tier (catalog, an OpenRouter favorite, or a language model server's model).
 #[logged]
 fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
     if catalog::antigravity_claude(tier) && !engine.settings.antigravity_claude_enabled() {
@@ -618,7 +618,7 @@ fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
         if let Some(seat) = crate::langserver::seat_of_tier(engine, tier) {
             return Ok(seat);
         }
-        refuse!(NotFound, "{tier} is not a model of any language server this app knows (App settings › Providers › Language servers)");
+        refuse!(NotFound, "{tier} is not a model of any language model server this app knows (App settings › Providers › Language model servers)");
     }
     refuse!(BadRequest, "unknown tier {tier}")
 }
@@ -1366,7 +1366,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
             let native = match catalog::provider_of(&tier) {
                 catalog::OPENAI => "codex-cli".to_string(),
                 catalog::GOOGLE => "antigravity".to_string(),
-                // a language server's harness is the one it was added with
+                // a language model server's harness is the one it was added with
                 catalog::LANGSERVER => crate::langserver::route_of(engine, &tier)
                     .and_then(|(s, _)| s["harness"].as_str().map(str::to_string))
                     .unwrap_or_else(|| "claude-code".to_string()),
@@ -2615,7 +2615,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         refuse!(Conflict, "{}", catalog::turned_off(to));
     }
     validate_account(engine, &org.slug, &tier, str_arg(req, "account"))?;
-    // A language server's harness is fixed per server, so a move to a model
+    // A language model server's harness is fixed per server, so a move to a model
     // on a server with the other harness (Claude Code <-> Codex) is a crossing
     // too: neither CLI can resume the other's session (coordinator ruling
     // 2026-10-10). Between servers on one harness the session carries on: the
@@ -2712,7 +2712,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     Ok(json!({ "node": n.name, "previous_tier": n.tier, "tier": tier, "cascaded": raised, "warnings": warnings }))
 }
 
-/// Bring this org's live agents on language-server models to their
+/// Bring this org's live agents on language model server models to their
 /// server's seat price (a price set in App settings, or the move from the
 /// old flat 0.10 to the default 1). The price is the server's own: the op
 /// takes none from the request. A rise makes room the way a model switch

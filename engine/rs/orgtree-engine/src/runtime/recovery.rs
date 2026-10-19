@@ -138,7 +138,7 @@ pub fn countdown_until(secs: i64, prior: &Value, now: chrono::DateTime<Utc>) -> 
 pub fn classify(error: &str, res: &Value, gateway: bool, died_in_flight: bool) -> Option<Class> {
     if super::prompt::input_length_refusal(error) { return None; }
     let status = res.get("api_error_status").and_then(Value::as_i64);
-    // a gateway (OpenRouter, a language server) answers with its own status
+    // a gateway (OpenRouter, a language model server) answers with its own status
     if gateway {
         if let Some(s) = status {
             return match s {
@@ -164,7 +164,7 @@ pub fn classify(error: &str, res: &Value, gateway: bool, died_in_flight: bool) -
     None
 }
 
-/// How many times in a row a language-server agent whose context filled is
+/// How many times in a row a language model server agent whose context filled is
 /// moved to a fresh session before the failure is reported as terminal (a
 /// completed turn starts the count again).
 pub const CTX_RESET_MAX: i64 = 3;
@@ -174,7 +174,7 @@ pub const CTX_RESET_MAX: i64 = 3;
 /// long" (with or without "automatic compaction failed"), its stop at the
 /// window ("reached its context window limit"), Codex's "ran out of room",
 /// its compaction without a summary, an answer the window cut off (on a
-/// language server Codex sets no reply limit), and a server's own overflow
+/// language model server Codex sets no reply limit), and a server's own overflow
 /// words.
 #[logged]
 pub fn context_full(error: &str) -> bool {
@@ -297,7 +297,7 @@ pub fn auth_freeze(error: &str, account: Option<&str>, provider: &str) -> Value 
     let remedy = match provider {
         crate::providers::catalog::OPENROUTER => "credential rejected — replace the OpenRouter key in App settings → Providers, then resume",
         crate::providers::catalog::LANGSERVER => {
-            "the language server refused its key — check it in App settings → Providers → Language servers, then resume"
+            "the language model server refused its key — check it in App settings → Providers → Language model servers, then resume"
         }
         crate::providers::catalog::MUSE => "Muse Code needs its sign-in again (App settings → Providers → Muse), then resume",
         _ => "credential rejected — replace it, then resume",

@@ -22,7 +22,7 @@ pub struct Harness {
     pub what: &'static str,
     /// the providers whose agents it runs (catalog ids)
     pub providers: &'static [&'static str],
-    /// whether a person picks it (OpenRouter keys, language servers, a
+    /// whether a person picks it (OpenRouter keys, language model servers, a
     /// hire's pin); the others run their own provider's agents only
     pub selectable: bool,
     pub install_url: &'static str,

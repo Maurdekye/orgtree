@@ -4,7 +4,7 @@
 //! give the slot back by dropping it. Lowering N never stops a running turn.
 //! The same task keeps the machine-wide cap on idle ("parked") CLI processes:
 //! past the cap, the one parked longest is asked to close.
-//! A turn on one of the user's language servers also counts against that
+//! A turn on one of the user's language model servers also counts against that
 //! server's own agents-at-once cap (one GPU serves only a few agents): while
 //! the server is full the turn waits, and the turns queued behind it that
 //! the cap does not hold back go first.
@@ -71,7 +71,7 @@ pub struct Slot {
     held: Arc<AtomicUsize>,
     org: i64,
     agent: i64,
-    /// the language server this turn holds a place on
+    /// the language model server this turn holds a place on
     lane: Option<String>,
 }
 
@@ -153,7 +153,7 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
         let mut rotation: VecDeque<i64> = VecDeque::new();
         let mut parked: VecDeque<i64> = VecDeque::new();
         let cap = max_parked();
-        // turns running per language server
+        // turns running per language model server
         let mut lanes: HashMap<String, usize> = HashMap::new();
         let sched = &engine.sched;
         while let Some((msg, span)) = rx.recv().await {

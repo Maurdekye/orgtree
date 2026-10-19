@@ -111,7 +111,7 @@ pub fn lane_of(a: &AccountInfo) -> String {
 
 /// The lane a seat on `tier` bound to `account` runs on, when that is not a
 /// provider login: an OpenRouter tier its key's (the first key when
-/// unbound; empty with no key stored), a language-server tier its server's.
+/// unbound; empty with no key stored), a language model server tier its server's.
 /// None for a tier that runs on a provider account.
 #[logged]
 pub fn seat_lane(engine: &Engine, tier: &str, account: Option<&str>) -> Option<String> {
@@ -122,7 +122,7 @@ pub fn seat_lane(engine: &Engine, tier: &str, account: Option<&str>) -> Option<S
 }
 
 /// The lane an accountless tier runs on when no account is named:
-/// OpenRouter's first key, or its language server's. None for a tier that
+/// OpenRouter's first key, or its language model server's. None for a tier that
 /// runs on a provider account (and for OpenRouter with no key stored).
 #[logged]
 pub fn tier_lane(engine: &Engine, tier: &str) -> Option<String> {
@@ -177,7 +177,7 @@ pub fn lanes(engine: &Engine, org_slug: &str) -> Vec<Value> {
         let label = s["label"].as_str().filter(|l| !l.is_empty()).unwrap_or(&id).to_string();
         let why = provider_off(catalog::LANGSERVER)
             .or_else(|| (s["enabled"].as_bool() == Some(false)).then_some("this server is turned off in App settings › Providers"));
-        push(format!("langserver:{id}"), catalog::LANGSERVER, format!("{label} (language server)"), why);
+        push(format!("langserver:{id}"), catalog::LANGSERVER, format!("LM server: {label}"), why);
     }
     out
 }
@@ -274,7 +274,7 @@ pub async fn leave(engine: &Arc<Engine>, org_id: i64, org_slug: &str, agent_id: 
         format!("this org ({org_slug}) does not use the OpenRouter key {lane}, and it allows no other OpenRouter key this agent could run on; \
                  tick one in Org settings › Accounts (or move the agent to another tier)")
     } else if let Some(server) = lane.strip_prefix("langserver:") {
-        format!("this org ({org_slug}) does not use the language server {server}; \
+        format!("this org ({org_slug}) does not use the language model server {server}; \
                  tick it in Org settings › Accounts (or move the agent to another tier)")
     } else {
         format!(

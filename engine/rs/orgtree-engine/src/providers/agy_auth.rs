@@ -490,7 +490,7 @@ async fn capture_inner(mut cmd: Command, timeout: Duration) -> Result<Output, Fa
 /// AGY launch that is NOT preceded by the silent check, so a signed-out or
 /// latched install still shows its version. Measured on AGY 1.3.5
 /// (2026-10-14): exit 0 in 94 ms, stdout `1.3.5`, no CLI log written (no
-/// language server or auth stack started), credential untouched. It is still
+/// language model server or auth stack started), credential untouched. It is still
 /// bounded, windowless, updater-disabled and watched for an auth prompt.
 #[nolog]
 pub fn version(exe: &Path) -> BoxFuture<'static, Option<String>> {

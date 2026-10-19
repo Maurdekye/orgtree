@@ -1,4 +1,4 @@
-//! App settings › Providers › Language Server: the user's own model
+//! App settings › Providers › Language model server: the user's own model
 //! servers. List, add, edit, remove, set a key, and ask a server which
 //! models it offers. A key crosses the wire once, inward; no response ever
 //! carries one.
@@ -223,7 +223,7 @@ impl std::fmt::Debug for VariantBody {
 pub async fn ollama_variant(State(e): State<Arc<Engine>>, Json(b): Json<VariantBody>) -> ApiResult<Json<Value>> {
     let (address, key) = match b.server.as_deref() {
         Some(id) => {
-            let Some(s) = langserver::server(&e, id) else { return Err(ApiError::not_found(format!("no language server {id}"))) };
+            let Some(s) = langserver::server(&e, id) else { return Err(ApiError::not_found(format!("no language model server {id}"))) };
             if s["preset"].as_str() != Some("ollama") {
                 return Err(ApiError::bad_request("only an Ollama server makes model versions"));
             }
@@ -241,7 +241,7 @@ pub async fn ollama_variant(State(e): State<Arc<Engine>>, Json(b): Json<VariantB
 #[logged]
 pub async fn probe(State(e): State<Arc<Engine>>, Json(b): Json<ProbeBody>) -> ApiResult<Json<Value>> {
     if let Some(id) = b.server.as_deref() {
-        let Some(s) = langserver::server(&e, id) else { return Err(ApiError::not_found(format!("no language server {id}"))) };
+        let Some(s) = langserver::server(&e, id) else { return Err(ApiError::not_found(format!("no language model server {id}"))) };
         let key = langserver::key(&e, id).await;
         let v = langserver::probe(
             s["preset"].as_str().unwrap_or("custom"),

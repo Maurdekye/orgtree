@@ -2224,8 +2224,9 @@ fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier
         }
         let star = if lane == selected_lane { "*" } else { "" };
         let cap = srv["max_agents"].as_i64().unwrap_or(1);
-        roster.push(format!("{lane} ({}, local)", gist(srv["label"].as_str().unwrap_or(""), 40)));
-        lines.push(format!("{lane}{star} | local | - | - | - | - | no limit; {cap} agent(s) at once"));
+        let display = format!("LM server: {}", gist(srv["label"].as_str().unwrap_or(""), 40));
+        roster.push(format!("{lane} ({display}, local)"));
+        lines.push(format!("{display} ({lane}){star} | local | - | - | - | - | no limit; {cap} agent(s) at once"));
         key_lines.push(format!("{lane}|local|{cap}"));
         row_ids.push(format!("{lane}|local"));
     }

@@ -67,7 +67,7 @@ fn runnable_tiers(engine: &Engine, org_slug: &str) -> Vec<Offer> {
             out.push(Offer { tier, seat, provider: catalog::OPENROUTER, efforts: catalog::EFFORTS.to_vec() });
         }
     }
-    // the offered models of every enabled language server whose harness is
+    // the offered models of every enabled language model server whose harness is
     // installed (no effort: a local model's reasoning switch is its own)
     if engine.settings.provider_enabled(catalog::LANGSERVER) {
         for (tier, seat, _, _, _) in crate::langserver::tiers(engine) {
@@ -90,7 +90,7 @@ fn runnable_tiers(engine: &Engine, org_slug: &str) -> Vec<Offer> {
     out
 }
 
-/// A lane that bills no account: the user's own language servers. Its hires
+/// A lane that bills no account: the user's own language model servers. Its hires
 /// name no account and need no sign-in. (OpenRouter's keys are accounts
 /// since several keys, ruling 2026-10-11: a hire naming none is placed on a
 /// key, every key alike.)
@@ -100,7 +100,7 @@ fn accountless(provider: &str) -> bool {
 }
 
 /// `host_ready`, and the org has not switched that lane off (its provider's
-/// own login, any OpenRouter key, or a language server's lane).
+/// own login, any OpenRouter key, or a language model server's lane).
 #[logged]
 fn host_for(engine: &Engine, org_slug: &str, tier: &str, provider: &str) -> bool {
     // a hire naming no OpenRouter key is placed on a key (balancing at

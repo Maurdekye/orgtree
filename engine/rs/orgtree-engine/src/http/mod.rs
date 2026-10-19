@@ -148,7 +148,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/openrouter/keys/{id}", axum::routing::put(accounts::openrouter_key_update).delete(accounts::openrouter_key_remove))
         .route("/api/openrouter/models", get(accounts::openrouter_models))
         .route("/api/openrouter/favorites", axum::routing::put(accounts::openrouter_favorite))
-        // the user's own model servers (App settings › Providers › Language Server)
+        // the user's own model servers (App settings › Providers › Language model server)
         .route("/api/harnesses", get(accounts::harnesses))
         .route("/api/langservers", get(langserver::list).post(langserver::add))
         .route("/api/langservers/probe", post(langserver::probe))

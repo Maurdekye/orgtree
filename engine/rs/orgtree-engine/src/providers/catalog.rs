@@ -5,7 +5,7 @@ pub const CLAUDE: &str = "claude";
 pub const OPENAI: &str = "openai";
 pub const GOOGLE: &str = "google";
 pub const OPENROUTER: &str = "openrouter";
-/// Models on the user's own (local or self-hosted) language servers, driven
+/// Models on the user's own (local or self-hosted) language model servers, driven
 /// by Claude Code or Codex (`crate::langserver`).
 pub const LANGSERVER: &str = "langserver";
 /// Meta's Muse Code CLI, driven over its Muse Session Protocol (`muse serve`;
@@ -267,7 +267,7 @@ pub fn listed() -> &'static [&'static Tier] {
 }
 
 /// Where a catalog tier stands in `listed()`; tiers outside the catalog
-/// (OpenRouter, language servers) come after it.
+/// (OpenRouter, language model servers) come after it.
 #[nolog]
 pub fn listed_rank(name: &str) -> usize {
     listed().iter().position(|t| t.tier == name).unwrap_or(usize::MAX)
@@ -287,7 +287,7 @@ pub fn is_openrouter(tier: &str) -> bool {
     tier.starts_with("or-")
 }
 
-/// A model on one of the user's language servers (`ls-<server>-<model>`).
+/// A model on one of the user's language model servers (`ls-<server>-<model>`).
 #[nolog]
 pub fn is_langserver(tier: &str) -> bool {
     tier.starts_with(crate::langserver::TIER_PREFIX)
@@ -306,27 +306,27 @@ pub fn provider_of(tier: &str) -> &'static str {
 }
 
 /// The provider one agent runs on, as messages about that agent name it
-/// ("the Language Server process exited…"), so it stays singular. The
-/// provider class and collection are "Language servers" (user 2026-10-12
+/// ("the Language model server process exited…"), so it stays singular. The
+/// provider class and collection are "Language model servers" (user 2026-10-12
 /// 21:22Z): see the Providers payload and `turned_off`.
 pub fn provider_label(provider: &str) -> &'static str {
     match provider {
         OPENAI => "Codex",
         GOOGLE => "Antigravity",
         OPENROUTER => "OpenRouter",
-        LANGSERVER => "Language Server",
+        LANGSERVER => "Language model server",
         MUSE => "Muse",
         _ => "Claude",
     }
 }
 
 /// Why a provider switched off in App settings › Providers can't be used.
-/// That switch belongs to the whole class, so Language servers take a
+/// That switch belongs to the whole class, so Language model servers take a
 /// plural verb (as `langserver::route` says it).
 #[nolog]
 pub fn turned_off(provider: &str) -> String {
     match provider {
-        LANGSERVER => "Language servers are turned off in App settings".to_string(),
+        LANGSERVER => "Language model servers are turned off in App settings".to_string(),
         _ => format!("{} is turned off in App settings", provider_label(provider)),
     }
 }

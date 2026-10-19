@@ -463,7 +463,7 @@ pub struct Planned {
     pub tier: Option<String>,
     pub note: Option<String>,
     /// `primary`, an account id, or None (OpenRouter bills its key; a
-    /// language server bills nobody)
+    /// language model server bills nobody)
     pub account: Option<String>,
     pub seat: f64,
     pub grant: f64,
@@ -517,7 +517,7 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
                     Some(x) if *x == s.tier => (Some(x.clone()), None),
                     Some(x) => (Some(x.clone()), Some(format!("{} → {x}: {} is not available", s.tier, s.tier))),
                     None if catalog::is_langserver(&s.tier) => (None, Some(format!(
-                        "{} cannot run on this computer now (no language server here offers it, or its server is turned off)", s.tier))),
+                        "{} cannot run on this computer now (no language model server here offers it, or its server is turned off)", s.tier))),
                     None if checking(av, &s.tier) => (None, Some(checking_note(&s.tier))),
                     None => (None, Some(format!("{} cannot run on this computer now ({} is not signed in or turned off)",
                         s.tier, catalog::provider_label(catalog::provider_of(&s.tier))))),
@@ -530,7 +530,7 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
             let mut note = note;
             let account = offer.and_then(|o| {
                 let fits = |a: &str| (a == "primary" && o.default_ok) || o.accounts.iter().any(|x| x == a);
-                // a language server bills nobody (an OpenRouter tier is placed
+                // a language model server bills nobody (an OpenRouter tier is placed
                 // on its keys like any login: `primary` is the original key)
                 if o.provider == catalog::LANGSERVER {
                     None
@@ -1177,7 +1177,7 @@ mod tests {
         // a server that is gone: blocked, and the note says why in its words
         let (p, blocked) = plan(&t, &Choices::default(), &claude_only(), &[]).unwrap();
         assert_eq!(blocked, vec!["local".to_string()]);
-        assert!(p[1].note.as_deref().unwrap().contains("no language server here offers it"));
+        assert!(p[1].note.as_deref().unwrap().contains("no language model server here offers it"));
     }
 
     #[test]

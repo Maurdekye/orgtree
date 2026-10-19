@@ -1011,12 +1011,12 @@ pub fn payload(engine: &Engine) -> Value {
             .collect();
         let any = !tiers.is_empty();
         let s = CliStatus { installed: true, connected: any, ..Default::default() };
-        let mut e = entry(catalog::LANGSERVER, "Language servers", "language server", &s, tiers);
+        let mut e = entry(catalog::LANGSERVER, "Language model servers", "language model server", &s, tiers);
         // Local servers use their configured endpoint/key, not the host CLI's
         // native subscription login. No-models/offline is not sign-out evidence.
         e["hire_reason"] = json!(hire_reason(true, engine.settings.provider_enabled(catalog::LANGSERVER), None));
         if !any {
-            e["reason"] = json!("no language server offers a model yet (App settings › Providers › Language servers)");
+            e["reason"] = json!("no language model server offers a model yet (App settings › Providers › Language model servers)");
         }
         providers.push(e);
     }
