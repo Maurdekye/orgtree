@@ -191,11 +191,22 @@ async function desk(t: TestContext, nd: CanvasNode, withDogs = true) {
   return { view, ops }
 }
 
-test('§4 no listeners tab and no cards while nobody listens', async (t) => {
+test('§4 while nobody listens: no cards, but both listeners views stay, empty (user 2026-10-19 21:19:48Z)', async (t) => {
   const { view } = await desk(t, project(), false)
-  assert.equal(Boolean(view.el.querySelector('.cc-tabs button[data-tab="listeners"]')), false, 'no listeners tab')
   assert.equal(Boolean(view.el.querySelector('.project-listeners-card')), false, 'no cyan card')
   assert.equal(Boolean(view.el.querySelector('.project-queue-card')), false, 'no queue card')
+  const tab = view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="listeners"]')
+  assert.ok(tab, 'the Listeners tab is always there, so it never turns off and on')
+  assert.equal(tab!.textContent, 'listeners', 'no count while none is armed')
+  await inAct(async () => { tab!.click(); await flush(3) })
+  const empties = [...view.el.querySelectorAll('.project-listeners .listeners-table td.slot-empty')].map((c) => c.textContent ?? '')
+  assert.equal(empties.length, 2, 'it shows both empty sections')
+  await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="inbox"]')!.click(); await flush(4) })
+  const folder = [...view.el.querySelectorAll<HTMLButtonElement>('.mail-folders button')].find((b) => b.textContent?.startsWith('listeners'))
+  assert.ok(folder, "the inbox's Listeners folder is always there too")
+  await inAct(async () => { folder!.click(); await flush(3) })
+  assert.match(view.el.querySelector('.mail-listeners-table td.slot-empty')?.textContent ?? '', /Nobody listens for sync's mail/,
+    'showing its empty state')
 })
 
 test('§4 the header cards, the tab, its rows and the fire control', async (t) => {

@@ -149,7 +149,8 @@ test('§1a the project desk: the agent desk frame, the project\'s name, the agen
   assert.equal(name?.closest('[data-agent-tooltip]')?.getAttribute('data-agent-tooltip'), 'website',
     'the project desk name carries the same identity hover as its project card')
   assert.equal(name?.hasAttribute('title'), false, 'no static title in front of the shared hover')
-  assert.deepEqual(tabs(el), ['desk', 'inbox', 'docket', 'presented', 'team'])
+  assert.deepEqual(tabs(el), ['desk', 'inbox', 'docket', 'presented', 'team', 'listeners'],
+    'the Listeners tab even with no listener (user 2026-10-19 21:19:48Z)')
   assert.equal(el.querySelector('.cc-tabs button[data-tab="desk"]')?.classList.contains('on'), true, 'it opens on its main tab')
   assert.equal(el.querySelector('.cc-tabs button[data-tab="inbox"] .tab-count')?.textContent, '2')
   assert.equal(el.querySelector('.cc-tabs button[data-tab="chat"]') === null, true, 'no chat tab')
@@ -925,7 +926,7 @@ test('§9 Open desk: the project desk as a temporary modal that pins and pops ou
   assert.ok(panel!.classList.contains('pin-project'), 'in the org theme, as a pinned project window')
   assert.equal(panel!.querySelector('.cc-head-left .name')?.textContent, 'website', 'holding the project desk')
   assert.deepEqual([...panel!.querySelectorAll('.cc-tabs button')].map((b) => b.getAttribute('data-tab')),
-    ['desk', 'inbox', 'docket', 'presented', 'team'])
+    ['desk', 'inbox', 'docket', 'presented', 'team', 'listeners'])
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   await flush(1)
   assert.equal(closed, 1, 'Escape closes a centred modal')
