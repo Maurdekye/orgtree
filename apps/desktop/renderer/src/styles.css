@@ -5234,7 +5234,12 @@ span.ref-chip.ref-chip {
 }
 .team-tab-toolbar > .panel-corner { position: static; margin-left: 0; }
 .team-empty { padding: 12px 8px; }
-.team-panel > h3 { margin: 0 0 4px; font-size: 13px; }
+/* Team names itself in the shared bar in every mode. A centered tray normally
+   has a controls-only bar aligned right; stretch this title row across it. */
+.team-panel > .modalpin-bar:not(.on):not(.detached) {
+  align-self: stretch; min-width: 0; min-height: 26px;
+  padding: 0 4px 0 8px; font-size: 13px;
+}
 /* ABOVE the panel, never in its flow: an extra row would cost the reading pane
    height on a desk that has little to spare, and these three buttons are chrome
    for the panel rather than part of what it lists. */

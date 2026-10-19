@@ -84,8 +84,7 @@ export function TeamModal({ map, nid, onPick, refs, compactAt, close }: {
   const { list, activeControl } = useTeamList({ map, nid, onPick, refs, compactAt })
   return <PinFrame kind="agent-team" title={`${nid} · Team`} panel="tray-panel team-panel"
     restore={{ agent: nid, generation: map.get(nid)?.generation }} close={close}
-    dialogLabel={`${nid} · Team`} headerActions={activeControl}>
-    <h3 data-copy-agent-name={nid}>{nid} <span className="dim">· Team</span></h3>
+    dialogLabel={`${nid} · Team`} titleInModal headerActions={activeControl}>
     {list}
   </PinFrame>
 }

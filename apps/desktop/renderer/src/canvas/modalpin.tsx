@@ -544,6 +544,9 @@ export interface PinFrameProps {
   children: ReactNode
   /** compact actions beside pin/pop-out in the title bar */
   headerActions?: ReactNode
+  /** Use the shared title/action row in the centered modal too. Its caller
+   * omits a separate content heading, so pin/unpin keeps one stable header. */
+  titleInModal?: boolean
   /** A DESK'S TITLE BAR (user 2026-10-18 11:14Z, the project desk): the bar
    *  is the surface's title bar centred and pinned, as the agent temporary
    *  desk's (tempdesk.tsx). Centred it carries the title and a close button
@@ -596,7 +599,7 @@ export function PinFrame(props: PinFrameProps) {
     <PinFrameInner {...props} orgScope={scope} panelRef={panelRef} /></MovableSurface>
 }
 
-function PinFrameInner({ kind, title, titleBar, deskTitle = false, pinElsewhere, panel, close, children, headerActions,
+function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal = false, pinElsewhere, panel, close, children, headerActions,
   onEsc, backdropClose = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope, panelRef }: PinFrameProps & { orgScope: string | null; panelRef: RefObject<HTMLDivElement | null> }) {
   const pin = useModalPin(kind, orgScope)
   const surface = useSurface()
@@ -867,7 +870,7 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, pinElsewhere,
           {/* the push-pin says PINNED, so it belongs to that mode alone; a
               detached window is not pinned to anything. */}
           {pinned && <PushPinIcon fontSize="inherit" className="modalpin-glyph" />}
-          {(pinned || ownWindow || deskTitle) && <>
+          {(pinned || ownWindow || deskTitle || titleInModal) && <>
             {/* ⚠ THIS IS THE SURFACE'S HEADING IN BOTH WINDOW MODES, not
                 decoration. The panel's own <h3> is hidden by CSS in both (one
                 title, not two — Astra 2026-09-06), so if this span carried no
