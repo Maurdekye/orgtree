@@ -21,3 +21,6 @@ export function slotTimeStyle(seconds: number): { color: string } {
   }
   return { color }
 }
+
+// Semantic red checkpoint for the new independent ended-age scale.
+export const slotEndedTimeStyle = slotTimeStyle

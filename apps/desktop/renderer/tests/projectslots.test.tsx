@@ -299,6 +299,10 @@ test('visible slot views share one second clock for held, waiting and ended ages
       assert.equal(panel.querySelector('.slots-holding .slot-held')?.textContent, `${held}s`)
       assert.equal(panel.querySelector('.slots-line .slot-wait')?.textContent?.trim(), `${waiting}s`)
       assert.equal(panel.querySelector('.slots-history .slot-ended')?.textContent, `${ended}s ago`)
+      const endedStyle = panel.querySelector<HTMLElement>('.slots-history .slot-ended .slot-time')!.style
+      assert.match(endedStyle.color, /^rgb\((\d+), \1, \1\)$/, 'ended ages use greyscale rather than the duration palette')
+      assert.equal([...panel.querySelectorAll<HTMLElement>('.slot-time')].every(time => time.style.textShadow.includes('0.5px')), true,
+        'every live, waiting, finished duration and ended age has the shared outline')
     }
   }
   ages(32, 41, 12)
