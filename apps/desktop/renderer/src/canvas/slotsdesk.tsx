@@ -2,8 +2,8 @@
 // `project-slots-first-come-permits-claimed-through`, mockup approved by the
 // user 2026-10-18). Shown only while the project's slot count is at least 1.
 // It leads with "k of N slots held" and the holders, then Holding, Line and
-// Recent holds in one table, with shared column headers and value-only time
-// pills (user 2026-10-19 19:16-19:18Z). The lists come from the
+// Recent holds in one table, with shared column headers and value-only coloured
+// times (user 2026-10-19 19:16-19:24Z). The lists come from the
 // `slot_status` op, re-read whenever the tree's slots change; the buttons
 // are the user's (the desktop's viewer), as the project's superior's
 // through the tool.

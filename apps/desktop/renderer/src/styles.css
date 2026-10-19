@@ -3220,8 +3220,7 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .project-slots .slot-action > button { box-sizing:border-box; min-width:0; min-height:26px; margin:0; padding:3px 8px; font-size:11px; white-space:nowrap; }
 .slots-table .slot-rest { overflow-wrap:anywhere; font-size:11px; }
 .slots-table .slot-reason,.slots-table .slot-lease { display:block; }
-.slot-time { display:inline-block; padding:1px 5px; border:1px solid color-mix(in srgb,var(--ink) 18%,transparent);
-  border-radius:999px; font-size:10px; line-height:14px; white-space:nowrap; }
+.slot-time { white-space:nowrap; }
 .project-slots .slot-how { color: var(--slot); white-space: nowrap; }
 .project-slots .slot-no { display: inline-block; min-width: 30px; color: var(--slot); font-variant-numeric: tabular-nums; }
 .project-slots .slot-agent { font-weight: 600; overflow:hidden; }
