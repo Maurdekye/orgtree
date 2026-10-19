@@ -2,7 +2,7 @@ import { agentSuperior, effectiveReports, isTopLevel } from './shared'
 import { watchdogActions } from './objectactions'
 import { WatchdogCountdown } from './watchdogcountdown'
 import { watchdogDescription } from './watchdogdescription'
-import { objectNavProps } from './objectnav'
+import { WatchdogLink } from './watchdoglink'
 import { useSurfaceDocument } from '../popout'
 import { userGesture } from '../historyapi'
 import { historyUndo } from '../historyregistry'
@@ -207,7 +207,7 @@ export function WatchdogPanel({ slug, dog, dogs, toast, close }: {
   return (
     <PinFrame kind="watchdog" restore={{ watchdog: dog.id }} title={`${dog.name} · watchdog`} panel="settings content-height watchdog-detail"
       close={close}>
-        <h3 {...objectNavProps('watchdog', dog.id, slug)}>{dog.kind === 'event' ? '⚡' : '🐕'} {dog.name}</h3>
+        <h3><WatchdogLink dog={dog} org={slug} atDestination/></h3>
         {/* THE DOG'S LIVE STATE IS NOT ITS NAME. It used to sit inside the h3,
             which a pinned window hides along with the duplicated heading —
             and 'departing' is exactly the thing you keep a watchdog window

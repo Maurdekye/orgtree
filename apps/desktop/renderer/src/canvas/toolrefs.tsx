@@ -4,7 +4,7 @@ import { getWorkReferences } from '../api'
 import { DocketIcon } from '../icons'
 import type { WorkLinkFn } from './shared'
 import { useAgentDirectory } from './identity'
-import { DogChip, useDogRoute } from './deskdogs'
+import { WatchdogLink } from './watchdoglink'
 import type { ToolChip } from '../types'
 import { objectNavProps } from './objectnav'
 import { WorkStatusTransition } from './docketstatus'
@@ -43,7 +43,6 @@ export function ToolRefs({ refs, owner, agent, org, onWorkLink, modelChanges = f
   org: string; onWorkLink?: WorkLinkFn; modelChanges?: boolean
 }) {
   const dir = useAgentDirectory()
-  const route = useDogRoute()
   return <span className="tool-refs" onClick={(e) => e.stopPropagation()}>
     {refs.map((r, i) => {
       if (r.kind === 'agent') {
@@ -64,13 +63,7 @@ export function ToolRefs({ refs, owner, agent, org, onWorkLink, modelChanges = f
       </span>
       // `owner/uid` names a team member's dog; a bare id is this agent's own
       const handle = r.id.includes('/') ? r.id : `${owner}/${r.id}`
-      const dog = route?.dogs.find(w => w.id === handle && !w.spent)
-      return dog
-        ? <DogChip key={'w' + handle} dog={dog} onOpen={route!.open} />
-        : <span key={'w' + handle} className="desk-nav-chip desk-dog-chip gone" role="note"
-            title={`watchdog "${r.id}" is gone (fired or removed)`}>
-            <span className="wd-glyph" aria-hidden="true">✕</span>{r.id}
-          </span>
+      return <WatchdogLink key={'w'+handle} id={handle} name={r.id} org={org}/>
     })}
   </span>
 }

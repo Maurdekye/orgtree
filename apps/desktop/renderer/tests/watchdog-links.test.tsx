@@ -4,6 +4,8 @@ import { mountView, inAct } from './harness'
 import { DeskDogsProvider, DogChip } from '../src/canvas/deskdogs'
 import { ToolRefs } from '../src/canvas/toolrefs'
 import type { Watchdog } from '../src/types'
+import { WatchdogLink } from '../src/canvas/watchdoglink'
+import { WatchdogSatellite } from '../src/canvas/watchdogchip'
 
 const dog: Watchdog = {id:'worker/watch',owner:'worker',name:'watch',kind:'listener_watch',target:'build',count:2,
   once:true,state:'armed',at:'2026-10-19T00:00:00Z',fired:0,interval_s:30}
@@ -28,9 +30,9 @@ test('tool watchdog links resolve metadata from the current org and update on ch
     <ToolRefs refs={refs} owner="worker" org="demo" agent={id=>id}/></DeskDogsProvider>
   const v=await mountView(show(dog),el=>el);t.after(()=>v.unmount())
   assert.ok(!!v.el.querySelector('.watchdog-link.listener-watch.oneshot'))
-  await v.rerender(show({...dog,kind:'fair_queue',once:false}))
+  await v.render(show({...dog,kind:'fair_queue',once:false}))
   assert.ok(!!v.el.querySelector('.watchdog-link.fair-queue:not(.oneshot)'))
-  await v.rerender(show(dog,'other'))
+  await v.render(show(dog,'other'))
   assert.equal(v.el.querySelector('.watchdog-link.listener-watch')===null,true,'foreign registry metadata must not bleed into this org')
 })
 
@@ -44,4 +46,28 @@ test('missing watchdog metadata keeps a neutral shared chip without inventing it
   assert.equal(chip!.classList.contains('oneshot'),false)
   assert.match(chip!.textContent??'',/gone/)
   assert.equal(chip!.tagName,'SPAN')
+})
+
+test('each kind and lifetime uses the same icon and perimeter classes in links and cards',async t=>{
+  const kinds:Watchdog['kind'][]=['command','event','mqtt','slot','fair_queue','project_listener','listener_watch']
+  for(const kind of kinds)for(const once of [false,true]){
+    const w={...dog,kind,once}
+    const v=await mountView(<><WatchdogSatellite dog={w} dogs={[w]} org="demo" onOpen={()=>{}}/>
+      <WatchdogLink dog={w} onOpen={()=>{}}/></>,el=>el)
+    try{
+      const [card,link]=[v.el.querySelector('.wd-chip')!,v.el.querySelector('.watchdog-link')!]
+      assert.equal(link.querySelector('.wd-glyph')!.textContent,card.querySelector('.wd-glyph')!.textContent)
+      for(const cls of ['slot','fair-queue','listener','listener-watch','oneshot'])assert.equal(link.classList.contains(cls),card.classList.contains(cls),kind+' '+cls)
+      assert.match(link.getAttribute('title')??'',once?/fires once/:/continuous/)
+    }finally{await v.unmount()}
+  }
+})
+
+test('at the watchdog destination the chip keeps its menu without reopening the panel',async t=>{
+  const v=await mountView(<WatchdogLink dog={dog} org="demo" atDestination onOpen={()=>{throw Error('destination reopened')}}/>,el=>el)
+  t.after(()=>v.unmount())
+  const chip=v.el.querySelector<HTMLElement>('.watchdog-link')!
+  assert.equal(chip.tagName,'SPAN')
+  assert.equal(chip.getAttribute('data-object-id'),dog.id)
+  await inAct(async()=>chip.click())
 })

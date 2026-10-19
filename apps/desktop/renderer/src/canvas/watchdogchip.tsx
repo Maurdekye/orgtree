@@ -18,7 +18,7 @@ export function WatchdogSatellite({ dog:w, dogs, org, style, onOpen }: {
     className={'wd-chip '+w.state+' '+watchdogKindClass(w)+(w.once?' oneshot':'')+(w.spent?' spent':'')}
     style={style} title={title} onPointerDown={e=>e.stopPropagation()}
     onClick={e=>{e.stopPropagation();onOpen(w.id)}}>
-    <span className="wd-glyph">{place?'⏳':w.state==='armed'?'◉':w.state==='paused'?'◫':w.spent?'↗':'✕'}</span>
+    <span className="wd-glyph">{watchdogGlyph(w)}</span>
     {w.once&&!place&&<span className="wd-once" aria-label="one-shot dog">1×</span>}
     <span className="wd-name"><WatchdogCountdownTitle dog={w} title={title}>{place?`${w.target.replace(/^@/,'')} ${ordinal(place)}`:w.name}</WatchdogCountdownTitle></span>
   </button>

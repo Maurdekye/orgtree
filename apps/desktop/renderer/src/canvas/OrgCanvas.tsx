@@ -102,10 +102,10 @@ import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
 import type { AgentTooltipInfo } from './agentnav'
 import { TierChip, nodeTierOf } from './identity'
-import { ObjectNavProvider, objectNavProps } from './objectnav'
-import { WatchdogCountdown } from './watchdogcountdown'
+import { ObjectNavProvider } from './objectnav'
 import { ObjectNavHost } from './objectnavhost'
-import { WatchdogSatellite, watchdogKindClass } from './watchdogchip'
+import { WatchdogSatellite } from './watchdogchip'
+import { WatchdogLink } from './watchdoglink'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 import { setAttentionLayout } from '../attention/mode'
@@ -4648,15 +4648,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               {sheetDogs && myDogs.length > 0 && (
                 <div className="ms-doglist">
                   {myDogs.map((w) => (
-                    <button key={w.id} {...(!w.spent?objectNavProps('watchdog',w.id,slug):{})} className={(w.once ? 'oneshot ' : '') + w.state+' '+watchdogKindClass(w)}
-                      onClick={() => { toggleDog(w.id); setSheetDogs(false) }}>
-                      <span className="wd-glyph">{w.state === 'armed' ? '◉'
-                        : w.state === 'paused' ? '◫' : w.spent ? '↗' : '✕'}</span>
-                      {w.once && <span className="wd-once" aria-label="one-shot dog">1×</span>}
+                    <WatchdogLink key={w.id} dog={w} org={slug} countdown
+                      onOpen={() => { toggleDog(w.id); setSheetDogs(false) }}>
                       {w.name} · {w.once ? 'one-shot dog · ' : ''}
                       {w.spent ? 'departing' : w.state}
-                      <WatchdogCountdown dog={w} compact />
-                    </button>
+                    </WatchdogLink>
                   ))}
                 </div>
               )}

@@ -13,9 +13,8 @@ import type { Watchdog } from '../types'
 import type { ReactNode } from 'react'
 import { useContextMenu } from './contextmenu'
 import { agentNavElementAt } from './agentnav'
-import { watchdogKindClass } from './watchdogchip'
 import { objectNavProps } from './objectnav'
-import { WatchdogCountdown } from './watchdogcountdown'
+import { WatchdogLink } from './watchdoglink'
 import { useDogRoute } from './watchdogroute'
 export { DeskDogsProvider, useDogRoute } from './watchdogroute'
 export type { DeskDogs } from './watchdogroute'
@@ -37,22 +36,8 @@ export function useDeskDogs(agentId: string): { dogs: Watchdog[]; open: (id: str
   return dogs.length ? { dogs, open: ctx.open } : null
 }
 
-const glyph = (w: Watchdog) => w.state === 'armed' ? w.kind === 'event' ? '⚡' : '◉' : w.state === 'paused' ? '◫' : '✕'
-
 /** One watchdog's card: the canvas chip's glyph and name, in the desk's chip
  *  style, marked as a dog (not an agent) by its glyph and its class. */
 export function DogChip({ dog, onOpen }: { dog: Watchdog; onOpen: (id: string) => void }) {
-  const route = useDogRoute()
-  return (
-    <button type="button" {...(!dog.spent ? objectNavProps('watchdog', dog.id, route?.org) : {})} className={'desk-nav-chip desk-dog-chip ' + dog.state+' '+watchdogKindClass(dog)+(dog.once?' oneshot':'')}
-      title={`${dog.once ? 'one-shot dog' : 'watchdog'} "${dog.name}" (${dog.kind}) — `
-        + `${dog.state}; click for detail`}
-      aria-label={`watchdog ${dog.name}, ${dog.state}`}
-      onClick={() => onOpen(dog.id)}>
-      <span className="wd-glyph" aria-hidden="true">{glyph(dog)}</span>
-      {dog.once && <span className="wd-once" aria-hidden="true">1×</span>}
-      {dog.name}
-      <WatchdogCountdown dog={dog} compact />
-    </button>
-  )
+  return <WatchdogLink dog={dog} onOpen={onOpen} countdown/>
 }

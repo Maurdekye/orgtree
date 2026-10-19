@@ -16,6 +16,7 @@ import type { Watchdog } from '../types'
 import type { CanvasNode, MailRow } from './shared'
 import { AgentLink, nodeTierOf } from './identity'
 import { useDogRoute, WatchdogRow } from './deskdogs'
+import { WatchdogLink } from './watchdoglink'
 import { ageClockNow, subscribeAgeClock } from './desk'
 import type { MailListenerState } from './listeners'
 import { ordinal } from './slots'
@@ -133,10 +134,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const route = useDogRoute()
   const list = mailListenerRows(state, map, rows, ack)
   const cols = ['Position', 'Agent', 'Waited', ...(ack ? ['Worked', 'Mail'] : []), 'Handed', 'Watchdog']
-  const dogName = (w: Watchdog) => route
-    ? <button type="button" className="listener-dog" title={`watchdog "${w.name}" (${w.kind}) — ${w.state}; click for detail`}
-        onClick={() => route.open(w.id)}>{w.name}</button>
-    : <span className="listener-dog">{w.name}</span>
+  const dogName = (w: Watchdog) => <WatchdogLink dog={w} className="listener-dog" onOpen={route?.open}/>
   return (
     <div className="project-mail-listeners">
       <div className="slots-table-scroll" role="region" aria-label={`Mail listeners of project ${node.id}`} tabIndex={0}>

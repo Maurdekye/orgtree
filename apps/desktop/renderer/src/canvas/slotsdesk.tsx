@@ -21,6 +21,7 @@ import { AgentLink, nodeTierOf } from './identity'
 import { ageClockNow, subscribeAgeClock } from './desk'
 import type { ProjectSlotState } from './slots'
 import { WatchdogRow } from './deskdogs'
+import { WatchdogLink } from './watchdoglink'
 
 interface Holder { lease: string; agent: string; slot: number; reason?: string | null; queued?: string | null; since: string; reminders?: number }
 interface Waiter { position: number; agent: string; dog: string; since?: string | null }
@@ -157,7 +158,8 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
               {w.since ? <SlotTime from={w.since}/> : ''}</td>
             <td className="slot-held" />
             <td className="slot-ended" />
-            <td className="slot-rest">{nameOf(w) && <span className="slot-reason">{nameOf(w)}</span>}</td>
+            <td className="slot-rest"><WatchdogLink id={state.line.find(x=>x.agent===w.agent)?.dog??w.dog}
+              owner={w.agent} name={nameOf(w)??w.dog} className="slot-reason"/></td>
             <td className="slot-action"><button type="button" data-action="unqueue" title={`remove ${w.agent}'s claim: it leaves the line and is not granted`}
               onClick={() => {
                 op({ op: 'slot_unqueue', node: node.id, agent: w.agent })
