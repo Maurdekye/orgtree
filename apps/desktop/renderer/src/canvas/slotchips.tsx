@@ -15,7 +15,7 @@
 
 import type { MouseEvent } from 'react'
 import type { Watchdog } from '../types'
-import { ordinal, slotHoldsOf, slotPlace } from './slots'
+import { ordinal, slotHoldsOf, slotPlace, slotUnits } from './slots'
 import type { SlotLease } from './slots'
 import { useAgentSurfaceRoutes } from './panelcorner'
 import { useContextMenu } from './contextmenu'
@@ -45,19 +45,21 @@ export function AgentSlotChips({ agent, leases, dogs }: { agent: string; leases:
     : undefined
   return <>
     {holds.map((l) => {
-      const title = `held since ${at(l.since)} from project ${l.project}`
+      const count = slotUnits(l.slots), amount = count === 1 ? '' : ` ×${count}`
+      const title = (count === 1 ? '' : `holds ${count} slots; `) + `held since ${at(l.since)} from project ${l.project}`
       return open(l.project)
         ? <button key={l.lease} type="button" className="chip slot-hold" title={title}
-            onContextMenu={context(l.project)} onClick={open(l.project)}>⬢ {l.project}</button>
-        : <span key={l.lease} className="chip slot-hold" title={title} onContextMenu={context(l.project)}>⬢ {l.project}</span>
+            onContextMenu={context(l.project)} onClick={open(l.project)}>⬢ {l.project}{amount}</button>
+        : <span key={l.lease} className="chip slot-hold" title={title} onContextMenu={context(l.project)}>⬢ {l.project}{amount}</span>
     })}
     {waits.map(({ w, place }) => {
       const project = w.target.replace(/^@/, '')
-      const title = `waiting since ${at(w.queued_at ?? w.at)} for project ${project}`
+      const count = slotUnits(w.slots), amount = count === 1 ? '' : ` ×${count}`
+      const title = (count === 1 ? '' : `waiting for ${count} slots; `) + `waiting since ${at(w.queued_at ?? w.at)} for project ${project}`
       return open(project)
         ? <button key={w.id} type="button" className="chip slot-wait" title={title}
-            onContextMenu={context(project)} onClick={open(project)}>⏳ {project} {ordinal(place!)}</button>
-        : <span key={w.id} className="chip slot-wait" title={title} onContextMenu={context(project)}>⏳ {project} {ordinal(place!)}</span>
+            onContextMenu={context(project)} onClick={open(project)}>⏳ {project}{amount} {ordinal(place!)}</button>
+        : <span key={w.id} className="chip slot-wait" title={title} onContextMenu={context(project)}>⏳ {project}{amount} {ordinal(place!)}</span>
     })}
     {menu.node}
   </>

@@ -378,7 +378,7 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   await inAct(() => { panel.querySelector<HTMLButtonElement>('button[data-action="force-release"]')!.click() })
   assert.equal(ops.some((o) => o.op === 'slot_release'), false, 'nothing before the confirmation')
   assert.match(document.body.textContent ?? '', /take the concurrency slot of build back from sa\?/)
-  assert.match(document.body.textContent ?? '', /the next in line, sc, gets it at once/)
+  assert.match(document.body.textContent ?? '', /FIFO queue is checked/)
   const go = [...document.querySelectorAll('button')].find((b) => b.textContent === 'force release' && !b.closest('.project-slots'))!
   await inAct(async () => { go.click(); await flush(3) })
   assert.deepEqual(ops.filter((o) => o.op === 'slot_release'), [{ op: 'slot_release', lease: 's3f1c', force: true }])
@@ -414,7 +414,7 @@ test('slot sections share columns with a separate line position and blank non-ap
   const table = v.el.querySelector('table')
   assert.ok(table, 'one shared table determines widths for every section')
   assert.deepEqual([...table.querySelectorAll('thead th')].map(el => el.textContent),
-    ['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Action'])
+    ['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Slots', 'Action'])
   assert.equal(table.querySelectorAll('tbody').length, 3)
   assert.equal([...table.querySelectorAll('.slot-row')].every(row => row.children.length === 7), true)
   assert.equal(table.querySelector('.slots-holding .slot-position')?.textContent, '')

@@ -3212,6 +3212,7 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .slots-table .slot-col-time { width:76px; }
 .slots-table .slot-col-ended { width:96px; }
 .slots-table .slot-col-action { width:132px; }
+.slots-table .slot-col-quantity { width:48px; }
 .slots-table th,.slots-table td { padding:4px; text-align:left; vertical-align:middle; }
 .slots-table thead th { color:var(--dim); font-size:11px; font-weight:600; border-bottom:1px solid var(--line); }
 .slots-table .slot-row > * { border-bottom:1px solid var(--line); }

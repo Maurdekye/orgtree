@@ -29,7 +29,7 @@ import { useContextMenu } from './contextmenu'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentRetireConfirm, projectMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
-import { projectSlotState, slotBadgeText, slotCount, slotsFull } from './slots'
+import { projectSlotState, slotBadgeText, slotCount, slotsFull, heldSlotCount } from './slots'
 import { listenerCards, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { readQuickChat } from '../quickchat'
 import { agentTooltipProps } from './agentnav'
@@ -223,7 +223,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               {node.state !== 'live' && <span className="badge dim">{node.state}</span>}
             </div>
             {slotBadge && <span className={'project-slots-badge' + (slotsFull(slots) ? ' full' : '')}
-              title={`${slots.held.length} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
+              title={`${heldSlotCount(slots)} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
                 + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '')
                 + (slots.line.length ? `; in line: ${slots.line.map((w) => w.agent).join(', ')}` : '')}>{slotBadge}</span>}
             {listenerBadges.map((c) => <span key={c.key} className={'project-listeners-badge' + (c.bright ? ' bright' : '')}

@@ -736,6 +736,8 @@ export interface AskTab {
 export interface Watchdog {
   /** fair_queue: messages per assignment round and maximum unacked mail; default 1 */
   batch?: number
+  /** slot: capacity units requested atomically in one lease; default 1 */
+  slots?: number
   next_check_at?: string
   next_silence_at?: string
   id: string

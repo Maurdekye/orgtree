@@ -1,5 +1,5 @@
 import type {Watchdog} from '../types'
-import {ordinal,slotPlace} from './slots'
+import {ordinal,slotPlace,slotUnits} from './slots'
 
 export interface SlotClaimLeaseState { state:'held'|'ended'; how?:string }
 
@@ -27,17 +27,21 @@ function leaseEnding(how?:string):string {
 }
 
 export function slotClaimDescription(dog:Watchdog,dogs:Watchdog[],target:string,lease?:SlotClaimLeaseState):string {
+  const count=slotUnits(dog.slots)
+  const quantity=count===1?'a concurrency slot':`${count} concurrency slots`
   const notified=slotGrantNotified(dog)
   const granted=notified||!!dog.lease||(dog.slot!=null&&dog.slot>0)
   if(granted){
-    const identity=`Granted a concurrency slot of ${target}${dog.lease?` (lease ${dog.lease})`:''}`
-    const detail=lease?.state==='held'?'lease is held':lease?.state==='ended'?leaseEnding(lease.how)
+    const identity=`Granted ${quantity} of ${target}${dog.lease?` (lease ${dog.lease})`:''}`
+    const detail=lease?.state==='held'?(count===1?'lease is held':`holds ${count} slots`):lease?.state==='ended'?leaseEnding(lease.how)
       :dog.lease?'lease status unavailable':'lease details unavailable'
     return `${identity}; ${detail}; grant notification ${notified?'sent':'pending'}.`
   }
-  if(dog.state==='paused')return `Concurrency slot claim for ${target} is paused; resuming rejoins at the back of the line.`
-  if(dog.state!=='armed')return `Concurrency slot claim for ${target} is no longer waiting; no grant is recorded.`
+  const amount=count===1?'':` (${count} slots)`
+  if(dog.state==='paused')return `Concurrency slot claim${amount} for ${target} is paused; resuming rejoins at the back of the line.`
+  if(dog.state!=='armed')return `Concurrency slot claim${amount} for ${target} is no longer waiting; no grant is recorded.`
   const place=slotPlace(dog,dogs)
-  return place!=null?`Concurrency slot claim: ${ordinal(place)} in line for ${target}.`
-    :`Concurrency slot claim for ${target}; queue position unavailable.`
+  const waiting=count===1?'':`; waiting for ${count} slots`
+  return place!=null?`Concurrency slot claim: ${ordinal(place)} in line for ${target}${waiting}.`
+    :`Concurrency slot claim for ${target}; queue position unavailable${waiting}.`
 }

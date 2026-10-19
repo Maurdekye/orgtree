@@ -15,7 +15,7 @@ import type { ToastFn } from '../types'
 import { ago } from './shared'
 import type { CanvasNode, OpFn } from './shared'
 import { ConfirmModal } from './modals'
-import { ordinal } from './slots'
+import { ordinal, slotUnits } from './slots'
 import { slotTimeStyle, slotEndedTimeStyle } from './slottime'
 import { AgentLink, nodeTierOf } from './identity'
 import { ageClockNow, subscribeAgeClock } from './desk'
@@ -23,9 +23,9 @@ import type { ProjectSlotState } from './slots'
 import { WatchdogRow } from './deskdogs'
 import { WatchdogLink } from './watchdoglink'
 
-interface Holder { lease: string; agent: string; slot: number; reason?: string | null; queued?: string | null; since: string; reminders?: number }
-interface Waiter { position: number; agent: string; dog: string; since?: string | null }
-interface Hold { lease: string; agent: string; slot: number; reason?: string | null; queued?: string | null; since: string; ended?: string | null; how?: string | null; by?: string | null }
+interface Holder { lease: string; agent: string; slot?: number; slots?: number; reason?: string | null; queued?: string | null; since: string; reminders?: number }
+interface Waiter { position: number; agent: string; dog: string; slots?: number; since?: string | null }
+interface Hold { lease: string; agent: string; slot?: number; slots?: number; reason?: string | null; queued?: string | null; since: string; ended?: string | null; how?: string | null; by?: string | null }
 
 /** A recent hold's ending label: nothing for an ordinary release, a short
  *  word for the unusual endings (user 2026-10-19 17:23Z). Unknown endings
@@ -125,12 +125,12 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
       <div className="slots-table-scroll" role="region" aria-label="Concurrency slot records" tabIndex={0} onScroll={scrollHistory}>
       <table className="slots-table">
         <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/><col className="slot-col-time"/>
-          <col className="slot-col-ended"/><col/><col className="slot-col-action"/></colgroup>
-        <thead><tr>{['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Action'].map(label =>
+          <col className="slot-col-ended"/><col/><col className="slot-col-quantity"/><col className="slot-col-action"/></colgroup>
+        <thead><tr>{['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Slots', 'Action'].map(label =>
           <th key={label} scope="col" className={label === 'Action' ? 'slot-action' : undefined}>{label}</th>)}</tr></thead>
       <tbody className="slots-holding">
-        <tr className="slot-section"><th colSpan={7} scope="rowgroup"><h4>Holding</h4></th></tr>
-        {holders.length === 0 && <tr><td colSpan={7} className="dim slot-empty">Nobody holds a concurrency slot. An agent above or below the project claims one
+        <tr className="slot-section"><th colSpan={8} scope="rowgroup"><h4>Holding</h4></th></tr>
+        {holders.length === 0 && <tr><td colSpan={8} className="dim slot-empty">Nobody holds a concurrency slot. An agent above or below the project claims one
           with <code>orgtree_watchdog action=create kind=slot target={node.id}</code>; it is granted at once while a concurrency slot is free.</td></tr>}
         {holders.map((h) => (
           <tr key={h.lease} className="slot-row">
@@ -143,15 +143,16 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
             <td className="slot-rest">{h.reason && <span className="slot-reason">{h.reason}</span>}
               <span className="dim mono slot-lease">{h.lease}</span>
               {(h.reminders ?? 0) > 0 && <span className="dim"> {h.reminders} reminder{h.reminders === 1 ? '' : 's'}</span>}</td>
+            <td className="slot-quantity">{slotUnits(h.slots)}</td>
             <td className="slot-action"><button type="button" className="danger" data-action="force-release"
-              title={`take the concurrency slot back from ${h.agent}; the next in line gets it at once`}
+              title={`take all ${slotUnits(h.slots)} reserved slot(s) back from ${h.agent}; check the FIFO queue`}
               onClick={() => setAsking(h)}>force release</button></td>
           </tr>
         ))}
       </tbody>
       <tbody className="slots-line">
-        <tr className="slot-section"><th colSpan={7} scope="rowgroup"><h4>Line</h4></th></tr>
-        {line.length === 0 && <tr><td colSpan={7} className="dim slot-empty">Nobody is waiting.</td></tr>}
+        <tr className="slot-section"><th colSpan={8} scope="rowgroup"><h4>Line</h4></th></tr>
+        {line.length === 0 && <tr><td colSpan={8} className="dim slot-empty">Nobody is waiting.</td></tr>}
         {line.map((w) => (
           <WatchdogRow as="tr" key={w.agent + w.dog} id={state.line.find(x=>x.agent===w.agent)?.dog??w.dog} className="slot-row">
             <td className="slot-position"><span className="slot-no">{ordinal(w.position)}</span></td>
@@ -162,6 +163,7 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
             <td className="slot-ended" />
             <td className="slot-rest"><WatchdogLink id={state.line.find(x=>x.agent===w.agent)?.dog??w.dog}
               owner={w.agent} name={nameOf(w)??w.dog} className="slot-reason"/></td>
+            <td className="slot-quantity">{slotUnits(w.slots)}</td>
             <td className="slot-action"><button type="button" data-action="unqueue" title={`remove ${w.agent}'s claim: it leaves the line and is not granted`}
               onClick={() => {
                 op({ op: 'slot_unqueue', node: node.id, agent: w.agent })
@@ -172,8 +174,8 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
         ))}
       </tbody>
       <tbody className="slots-history">
-        <tr className="slot-section"><th colSpan={7} scope="rowgroup"><h4>Recent holds</h4></th></tr>
-        {history.length === 0 && <tr><td colSpan={7} className="dim slot-empty">No concurrency slot has been held yet.</td></tr>}
+        <tr className="slot-section"><th colSpan={8} scope="rowgroup"><h4>Recent holds</h4></th></tr>
+        {history.length === 0 && <tr><td colSpan={8} className="dim slot-empty">No concurrency slot has been held yet.</td></tr>}
         {history.map((h) => (
           <tr key={h.lease} className="slot-row">
             <td className="slot-position"/>
@@ -183,10 +185,11 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
             <td className="slot-held" title={`held from ${h.since} to ${h.ended ?? '?'}`}><SlotTime from={h.since} to={h.ended}/></td>
             <td className="slot-ended">{h.ended ? <SlotTime from={h.ended} ended/> : ''}</td>
             <td className="slot-rest">{h.reason && <span className="slot-reason">{h.reason}</span>}<span className="dim mono slot-lease">{h.lease}</span></td>
+            <td className="slot-quantity">{slotUnits(h.slots)}</td>
             <td className="slot-action slot-how" title={h.how ?? undefined}>{holdEndLabel(h.how)}</td>
           </tr>
         ))}
-        {(historyLoading || historyError || status?.history_next) && <tr><td colSpan={7} className="slot-history-more" role="status">
+        {(historyLoading || historyError || status?.history_next) && <tr><td colSpan={8} className="slot-history-more" role="status">
           {historyLoading ? 'Loading older holds…' : historyError ? <>
             Could not load older holds. <button type="button" onClick={loadOlder}>Retry</button>
           </> : 'Scroll for older holds'}
@@ -195,15 +198,15 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
       </table>
       </div>
       {asking && createPortal(
-        <ConfirmModal title={`take the concurrency slot of ${node.id} back from ${asking.agent}?`}
-          body={`${asking.agent} has held it for ${span(asking.since)}${asking.reason ? ` (${asking.reason})` : ''}. `
-            + `It is recorded as "released (forced by @user)", ${asking.agent} is told, and `
-            + (line[0] ? `the next in line, ${line[0].agent}, gets it at once.` : 'the concurrency slot is free again.')}
+        <ConfirmModal title={`take ${slotUnits(asking.slots) === 1 ? 'the concurrency slot' : `${slotUnits(asking.slots)} concurrency slots`} of ${node.id} back from ${asking.agent}?`}
+          body={`${asking.agent} has held this lease for ${span(asking.since)}${asking.reason ? ` (${asking.reason})` : ''}. `
+            + `All ${slotUnits(asking.slots)} reserved slot(s) are released together and recorded as "released (forced by @user)". `
+            + 'The FIFO queue is checked; its head is granted only when all requested slots are free.'}
           confirmLabel="force release" close={() => setAsking(null)}
           onConfirm={() => {
             const h = asking
             op({ op: 'slot_release', lease: h.lease, force: true })
-              .then(() => { toast([`concurrency slot of ${node.id} taken back from ${h.agent}`]); reread() })
+              .then(() => { toast([`${slotUnits(h.slots)} concurrency slot(s) of ${node.id} taken back from ${h.agent}`]); reread() })
               .catch(() => {})
           }} />, document.body)}
     </div>

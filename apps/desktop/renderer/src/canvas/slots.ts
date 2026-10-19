@@ -13,11 +13,12 @@
 
 import type { Watchdog } from '../types'
 
-/** One held slot, as the tree feed's watchdogs group carries it. */
+/** One held lease, as the tree feed's watchdogs group carries it. */
 export interface SlotLease {
   project: string
   agent: string
   slot: number
+  slots?: number
   lease: string
   reason?: string | null
   since: string
@@ -25,12 +26,16 @@ export interface SlotLease {
 }
 
 /** A claim waiting in a project's line; `place` is 1-based. */
-export interface SlotWaiter { agent: string; dog: string; name: string; since?: string; place: number }
+export interface SlotWaiter { agent: string; dog: string; name: string; since?: string; place: number; slots?: number }
 
 export interface ProjectSlotState { total: number; held: SlotLease[]; line: SlotWaiter[] }
 
 /** The largest slot count a project may have (engine `slots::MAX_CAPACITY`). */
 export const MAX_SLOTS = 64
+
+/** Legacy payloads reserved one slot. The private slot ordinal is unrelated. */
+export const slotUnits = (n?: number) => Number.isInteger(n) && n! >= 1 && n! <= MAX_SLOTS ? n! : 1
+export const heldSlotCount = (s: Pick<ProjectSlotState, 'held'>) => s.held.reduce((n, l) => n + slotUnits(l.slots), 0)
 
 /** A project's slot count: `slots_capacity` in its scope, 0 (none) by default
  *  or when out of range (user 2026-10-18 08:42Z: the count is the switch). */
@@ -52,7 +57,7 @@ export function projectSlotState(project: string, total: number, leases: SlotLea
   return {
     total,
     held: leases.filter((l) => l.project === project).sort((a, b) => a.slot - b.slot),
-    line: lineOf(project, dogs).map((w, i) => ({ agent: w.owner, dog: w.id, name: w.name, since: w.queued_at, place: i + 1 })),
+    line: lineOf(project, dogs).map((w, i) => ({ agent: w.owner, dog: w.id, name: w.name, since: w.queued_at, place: i + 1, slots: slotUnits(w.slots) })),
   }
 }
 
@@ -65,22 +70,22 @@ const waitingNote = (s: ProjectSlotState) => s.line.length ? ` · ${s.line.lengt
 
 /** The project card's badge: "1/1 held · 2 waiting", "0/2 held"; none without slots. */
 export function slotBadgeText(s: ProjectSlotState): string | null {
-  return s.total > 0 ? `${s.held.length}/${s.total} held${waitingNote(s)}` : null
+  return s.total > 0 ? `${heldSlotCount(s)}/${s.total} held${waitingNote(s)}` : null
 }
 
 /** The desk header's card (user 08:46Z): "slots 1/1 · 2 waiting". */
 export function slotHeaderText(s: ProjectSlotState): string {
-  return `slots ${s.held.length}/${s.total}${waitingNote(s)}`
+  return `slots ${heldSlotCount(s)}/${s.total}${waitingNote(s)}`
 }
 
 /** The Concurrency slots tab's lead: "1 of 1 concurrency slot held", "0 of 2
  *  concurrency slots held" (spelled out, user 2026-10-18 12:16Z). */
 export function slotLeadText(s: ProjectSlotState): string {
-  return `${s.held.length} of ${s.total} concurrency slot${s.total === 1 ? '' : 's'} held`
+  return `${heldSlotCount(s)} of ${s.total} concurrency slot${s.total === 1 ? '' : 's'} held`
 }
 
 /** Every slot is held: the badge and card are filled, otherwise outlined. */
-export const slotsFull = (s: ProjectSlotState) => s.total > 0 && s.held.length >= s.total
+export const slotsFull = (s: ProjectSlotState) => s.total > 0 && heldSlotCount(s) >= s.total
 
 /** The slots `agent` holds: its card's "⬢ build" chips. */
 export function slotHoldsOf(agent: string, leases: SlotLease[]): SlotLease[] {
@@ -97,15 +102,17 @@ export function slotPlace(dog: Watchdog, dogs: Watchdog[]): number | null {
 /** A slot claim's card text: its place and who holds, or its grant. */
 export function slotClaimText(dog: Watchdog, dogs: Watchdog[], leases: SlotLease[], total: number): string {
   const project = target(dog)
-  if (dog.lease) return `Granted a concurrency slot of ${project} (lease ${dog.lease}).`
+  const n = slotUnits(dog.slots)
+  if (dog.lease) return `Granted ${n === 1 ? 'a concurrency slot' : `${n} concurrency slots`} of ${project} (lease ${dog.lease}).`
   if (dog.state === 'paused') return `Concurrency slot claim on project ${project}, paused: out of the line; resuming rejoins at the back.`
   const line = lineOf(project, dogs)
   const at = line.findIndex((w) => w.id === dog.id)
   if (at < 0) return `Concurrency slot claim on project ${project}.`
   const ahead = line.slice(0, at).map((w) => w.owner)
-  const held = leases.filter((l) => l.project === project).map((l) => l.agent)
+  const holds = leases.filter((l) => l.project === project)
+  const held = holds.map((l) => l.agent)
   return `Concurrency slot claim: ${ordinal(at + 1)} in line for project ${project} (behind ${ahead.length ? ahead.join(', ') : 'nobody'}; `
-    + `${held.length} of ${total} held${held.length ? ' by ' + held.join(', ') : ''}).`
+    + `${heldSlotCount({ held: holds })} of ${total} held${held.length ? ' by ' + held.join(', ') : ''})${n > 1 ? `; waiting for ${n} slots` : ''}.`
 }
 
 /** A slot line on the canvas: a holder's solid, a waiter's dashed (option A). */
