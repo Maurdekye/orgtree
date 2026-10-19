@@ -38,6 +38,7 @@ mod failures;
 pub mod isolation;
 mod pictures;
 mod discovery;
+pub(crate) mod transport;
 pub(crate) mod typing;
 
 pub const LOCAL_HUB_ID: &str = "local";

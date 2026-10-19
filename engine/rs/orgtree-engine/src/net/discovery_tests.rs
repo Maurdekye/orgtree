@@ -2,14 +2,18 @@ use super::*;
 use tokio::io::{AsyncReadExt,AsyncWriteExt};
 
 async fn fixture(body:&str,requests:usize)->(String,tokio::task::JoinHandle<()>) {
+    fixture_status(body,requests,"200 OK").await
+}
+
+async fn fixture_status(body:&str,requests:usize,status:&str)->(String,tokio::task::JoinHandle<()>) {
     let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address=format!("http://{}",listener.local_addr().unwrap());
-    let body=body.to_owned();
+    let body=body.to_owned();let status=status.to_owned();
     let task=tokio::spawn(async move {
         for _ in 0..requests {
             let(mut socket,_)=listener.accept().await.unwrap();
             let mut request=[0;4096];let _=socket.read(&mut request).await.unwrap();
-            let response=format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body);
+            let response=format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body);
             socket.write_all(response.as_bytes()).await.unwrap();
         }
     });
@@ -93,7 +97,68 @@ async fn real_mail_client_matches_direct_test_with_a_broken_system_proxy() {
     }
     let(address,server)=fixture("{\"ok\":true}",2).await;
     assert!(crate::mailhub::healthz(&address,Duration::from_secs(2)).await.is_some(),"the existing direct test must answer first");
-    let real=HTTP.get(format!("{address}/healthz")).timeout(Duration::from_secs(2)).send().await;
+    let real=transport::send(HTTP.get(format!("{address}/healthz")).timeout(Duration::from_secs(2))).await;
     assert!(real.is_ok_and(|r|r.status().is_success()),"real mail requests must use the same direct transport as the successful test");
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn proxy_required_test_and_real_mail_preserve_432_connectivity() {
+    const CHILD:&str="ORGTREE_HUB_REQUIRED_PROXY_CHILD";
+    if std::env::var(CHILD).as_deref()!=Ok("1") {
+        let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let proxy=format!("http://{}",listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let listener=tokio::net::TcpListener::from_std(listener).unwrap();
+        let server=tokio::spawn(async move {
+            for _ in 0..3 {
+                let (mut socket,_)=listener.accept().await.unwrap();
+                let mut request=[0;4096];let n=socket.read(&mut request).await.unwrap();
+                let request=String::from_utf8_lossy(&request[..n]);
+                assert!(request.contains("http://127.0.0.1:1/"),"proxy must receive the originally configured endpoint");
+                socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}").await.unwrap();
+            }
+        });
+        let output=tokio::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact","net::discovery_tests::proxy_required_test_and_real_mail_preserve_432_connectivity","--nocapture"])
+            .env(CHILD,"1").env("HTTP_PROXY",&proxy).env("HTTPS_PROXY",&proxy).env("ALL_PROXY",&proxy).env("NO_PROXY","")
+            .output().await.unwrap();
+        if !output.status.success(){server.abort();}
+        assert!(output.status.success(),"proxy-required child failed: {}{}",String::from_utf8_lossy(&output.stdout),String::from_utf8_lossy(&output.stderr));
+        tokio::time::timeout(Duration::from_secs(3),server).await.unwrap().unwrap();
+        return;
+    }
+    // Closed loopback port is deliberately unreachable directly; only the
+    // local proxy can answer. No corporate endpoint or external DNS is used.
+    let address="http://127.0.0.1:1";
+    let health=crate::mailhub::healthz(address,Duration::from_secs(2)).await;
+    assert!(health.is_some_and(|h|h["ok"]==true),"Test must fall back to the configured proxy on connect failure");
+    let real=transport::send(HTTP.post(format!("{address}/api/register")).timeout(Duration::from_secs(2)).json(&json!({"synthetic":true}))).await.unwrap();
+    assert!(real.status().is_success());
+    let builds=Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count=builds.clone();
+    let response=transport::stream(|http| {
+        let count=count.clone();
+        async move {
+            count.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
+            let bytes=futures::stream::once(async {Ok::<_,std::io::Error>(vec![1u8,2,3])});
+            Ok(http.post(format!("{address}/api/attachments")).timeout(Duration::from_secs(2)).body(reqwest::Body::wrap_stream(bytes)))
+        }
+    }).await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!(builds.load(std::sync::atomic::Ordering::SeqCst),2,"streaming body must be recreated only after failed direct connect");
+}
+
+#[tokio::test]
+async fn an_http_response_never_replays_a_mail_write() {
+    let(address,server)=fixture_status("{\"error\":\"denied\"}",1,"403 Forbidden").await;
+    let builds=Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count=builds.clone();
+    let response=transport::stream(|http| {
+        let address=address.clone();let count=count.clone();
+        async move {count.fetch_add(1,std::sync::atomic::Ordering::SeqCst);Ok(http.post(address).body("synthetic"))}
+    }).await.unwrap();
+    assert_eq!(response.status().as_u16(),403);
+    assert_eq!(builds.load(std::sync::atomic::Ordering::SeqCst),1);
     server.await.unwrap();
 }
