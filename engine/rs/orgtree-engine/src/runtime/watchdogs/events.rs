@@ -162,7 +162,7 @@ impl Access {
         let me=identity(engine,d.owner).await?;
         let c=engine.db.get().await?;
         let visible=crate::tools::visible(&c,&me).await?;
-        let rows=c.query("WITH RECURSIVE down(id,depth) AS (SELECT $1::bigint,0 UNION ALL SELECT a.id,d.depth+1 FROM ot.agents a JOIN down d ON a.parent_id=d.id WHERE a.org_id=$2 AND a.state<>'deleted' AND d.depth<1024) SELECT id,name,state,id IN (SELECT id FROM down) FROM ot.agents WHERE org_id=$2 AND state<>'deleted'", &[&d.owner,&me.org_id]).await?;
+        let rows=c.query("WITH RECURSIVE down(id,depth) AS (SELECT $1::bigint,0 UNION ALL SELECT a.id,d.depth+1 FROM ot.agents a JOIN down d ON a.parent_id=d.id WHERE a.org_id=$2 AND a.state<>'deleted' AND d.depth<1024) SELECT id,name,state,id IN (SELECT id FROM down) FROM ot.agents WHERE org_id=$2 AND state<>'deleted' AND kind='agent'", &[&d.owner,&me.org_id]).await?;
         let mut names=HashMap::new();let mut ids=HashSet::new();let mut live=HashSet::new();let mut down=HashSet::new();
         for r in rows {let id:i64=r.get(0);names.insert(r.get(1),id);ids.insert(id);if r.get::<_,String>(2)=="live"{live.insert(id);}if r.get::<_,bool>(3){down.insert(id);}}
         let slugs:Vec<String>=events.iter().filter_map(|e|match &e.scope{Scope::Docket(org,s) if *org==me.org_id=>Some(s.clone()),_=>None}).collect::<HashSet<_>>().into_iter().collect();
@@ -238,9 +238,9 @@ async fn count(engine: &Engine, owner: i64, active: bool, scope: &str, members: 
     let c=engine.db.get().await?;
     let visible=crate::tools::visible(&c,&me).await?;
     let rows=if scope=="org" {
-        c.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state<>'deleted'", &[&me.org_id]).await?
+        c.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state<>'deleted' AND kind='agent'", &[&me.org_id]).await?
     } else {
-        c.query("WITH RECURSIVE down(id,depth) AS (SELECT $1::bigint,0 UNION ALL SELECT a.id,d.depth+1 FROM ot.agents a JOIN down d ON a.parent_id=d.id WHERE a.org_id=$2 AND a.state<>'deleted' AND d.depth<1024) SELECT id FROM down", &[&owner,&me.org_id]).await?
+        c.query("WITH RECURSIVE down(id,depth) AS (SELECT $1::bigint,0 UNION ALL SELECT a.id,d.depth+1 FROM ot.agents a JOIN down d ON a.parent_id=d.id WHERE a.org_id=$2 AND a.state<>'deleted' AND d.depth<1024) SELECT d.id FROM down d JOIN ot.agents a ON a.id=d.id WHERE a.kind='agent'", &[&owner,&me.org_id]).await?
     };
     Ok(rows.iter().filter(|r| {let id:i64=r.get(0);id!=owner && visible.as_ref().map(|v|v.contains(&id)).unwrap_or(true)
         && members.map(|ids|ids.contains(&id)).unwrap_or_else(|| !active || engine.agents.get(id).map(|h|h.view.load()["busy"]==true).unwrap_or(false))}).count() as i64)

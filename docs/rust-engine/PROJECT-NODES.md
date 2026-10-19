@@ -89,6 +89,19 @@ The signed sibling-delegation exception still requires the grantee and grantor t
 share a physical parent; this does not extend the peer-mail OFF gate across projects.
 Stage C proofs: `project-access-relations.mjs` and `project-credit-relations.mjs`.
 
+Credit mirrors sum the first live agents through live project-only edges in one
+statement, without depending on intermediate mirror values or a 64-pass limit.
+Folder discovery pages every live descendant project, then orders nearest first;
+neither launch nor presentation authority stops after 64 projects. Both follow
+the existing 1024-depth tree bound.
+
+Live-agent watchdog smoke, initial baselines and later samples exclude project
+rows. Empty projects and archived reports do not block self-retirement, while a
+live agent report still does. Retirement/promotion labels count agent reports;
+an archived move names its agent payer or the user. The org retire-all endpoint
+selects top-level agents through projects, retaining root project wrappers and
+their settings. Stage E proof: `project-edge-cases.mjs`.
+
 Stage A regression proof: `tools/rig/proofs/project-transparency-a.mjs` drives the real engine
 with fake CLIs and a scratch database across direct, project, nested, root-project and empty
 project cases. It also checks single/batch moves and whole-project moves preserve settings and

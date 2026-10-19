@@ -359,7 +359,7 @@ pub async fn dissolve_all(State(e): State<Arc<Engine>>, Path(slug): Path<String>
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
     let tops: Vec<String> = client
-        .query("SELECT name FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state = 'live' ORDER BY id", &[&o.id])
+        .query("SELECT name FROM ot.agents WHERE org_id=$1 AND kind='agent' AND ot.superior_of(id) IS NULL AND state='live' ORDER BY id", &[&o.id])
         .await?
         .iter()
         .map(|r| r.get(0))

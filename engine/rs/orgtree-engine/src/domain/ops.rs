@@ -1754,7 +1754,7 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     match actor {
         // an agent may retire itself once it has no live reports
         Actor::Agent { id, .. } if *id == n.id => {
-            if !team.is_empty() {
+            if tx.query_opt("SELECT 1 FROM ot.agents WHERE id=ANY($1) AND kind='agent' AND state='live' LIMIT 1", &[&team]).await?.is_some() {
                 refuse!(Conflict, "you still have live reports; retire or hand them over first");
             }
         }
@@ -1765,7 +1765,7 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     }
     // a seat with live reports takes its whole team with it
     let reports: Vec<String> = tx
-        .query("SELECT name FROM ot.agents WHERE parent_id = $1 AND state = 'live' ORDER BY sibling_order, id", &[&n.id])
+        .query("SELECT name FROM ot.agents WHERE id IN (SELECT ot.reports_of($1,$2)) AND state='live' ORDER BY sibling_order,id", &[&org.id,&n.id])
         .await?
         .iter()
         .map(|r| r.get(0))
@@ -2015,8 +2015,12 @@ async fn move_planned(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     fx.events = true;
     let mut out = json!({ "node": n.name, "cascaded": raised });
     if !live {
+        let payer=match agent_superior(tx,n.id).await? {
+            Some(id)=>node_by_id(tx,id).await?.name,
+            None=>"the user".to_owned(),
+        };
         out["warnings"] = json!([format!("{} is archived: moving it is free, but its rehire cost ({}) now falls on {} (§4.5)",
-            n.name, n.seat + n.grant, target.as_ref().map(|t| t.name.as_str()).unwrap_or("the user"))]);
+            n.name, n.seat + n.grant, payer)]);
     }
     Ok(out)
 }

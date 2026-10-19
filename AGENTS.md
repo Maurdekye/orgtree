@@ -16,6 +16,15 @@
 
 # AGENTS.md — working on Orgtree
 
+- Project credit mirrors sum the first live agent frontier in one statement,
+  including beyond 64 nested projects. All live descendant project folders are
+  paged into launch/presentation grants. Live-agent watchdog baselines exclude
+  projects; empty projects and archived reports do not block self-retirement.
+  Retire-all preserves root project wrappers. See
+  [project invariants](docs/rust-engine/PROJECT-NODES.md).
+  [verified: `domain/{projects,ops}.rs`, `runtime/watchdogs/events.rs`,
+  `http/orgops.rs`; 2026-10-19]
+
 - Slot chips and all current-project-targeted watchdog menus offer Project…
   through the shared project-link menu; primary slot clicks still open Slots.
   Listener/slot-line rows and mobile dog lists use the shared object host.

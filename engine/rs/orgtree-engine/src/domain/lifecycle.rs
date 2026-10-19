@@ -176,7 +176,7 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             }
             "self_subjugate" => {
                 let t=seat(tx,target).await?;
-                let count:i64=tx.query_one("WITH RECURSIVE team(id,depth) AS (SELECT id,1 FROM ot.agents WHERE parent_id=$1 AND state='live' UNION ALL SELECT a.id,t.depth+1 FROM ot.agents a JOIN team t ON a.parent_id=t.id WHERE a.state='live' AND t.depth<1024) SELECT count(*) FROM team", &[&id]).await?.get(0);
+                let count:i64=tx.query_one("WITH RECURSIVE team(id,depth) AS (SELECT id,1 FROM ot.agents WHERE parent_id=$1 AND state='live' UNION ALL SELECT a.id,t.depth+1 FROM ot.agents a JOIN team t ON a.parent_id=t.id WHERE a.state='live' AND t.depth<1024) SELECT count(*) FROM team t JOIN ot.agents a ON a.id=t.id WHERE a.kind='agent'", &[&id]).await?.get(0);
                 ("lifecycle.subtree_promoted",json!({"promoted":d["promoted"],"demoted":n.name,"role":role,"by":by,"reports_to_after":t.parent_name,"subtree":count}))
             }
             _=>continue,

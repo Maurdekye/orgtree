@@ -424,32 +424,36 @@ pub async fn waiting(client: &impl GenericClient, project: i64, limit: i64) -> R
 /// the nearest superior above the project"): a project's grant always
 /// equals the stake of its live children, so the agent above it holds those
 /// stakes and the project never has credits of its own. Called at the end
-/// of every tree operation, inside its transaction; nested projects settle
-/// over successive passes, innermost changes first. Returns the projects
+/// of every tree operation, inside its transaction. Sum the first live agent
+/// frontier through live projects, never their possibly stale mirror grants.
+/// This settles all supported depths in one statement. Returns the projects
 /// whose grant moved and their parents (whose free credits moved with them).
 #[logged]
 pub async fn settle_credits(tx: &impl GenericClient, org_id: i64) -> Result<Vec<i64>> {
     let mut changed = Vec::new();
-    for _ in 0..64 {
-        let rows = tx
+    let rows = tx
             .query(
-                "WITH held AS (
-                   SELECT p.id, coalesce((SELECT sum(c.seat + c.grant_credits) FROM ot.agents c
-                                           WHERE c.parent_id = p.id AND c.state = 'live'), 0) AS stake
-                     FROM ot.agents p WHERE p.org_id = $1 AND p.kind = 'project' AND p.state = 'live')
+                "WITH RECURSIVE frontier(root,id,kind,stake,depth) AS (
+                   SELECT p.id,c.id,c.kind,c.seat+c.grant_credits,1 FROM ot.agents p
+                     JOIN ot.agents c ON c.parent_id=p.id AND c.org_id=$1 AND c.state='live'
+                    WHERE p.org_id=$1 AND p.kind='project' AND p.state='live'
+                   UNION ALL
+                   SELECT f.root,c.id,c.kind,c.seat+c.grant_credits,f.depth+1
+                     FROM frontier f JOIN ot.agents c ON c.parent_id=f.id
+                    WHERE f.kind='project' AND f.depth<1024 AND c.org_id=$1 AND c.state='live'),
+                 held AS (
+                   SELECT p.id,coalesce(sum(f.stake) FILTER (WHERE f.kind='agent'),0) AS stake
+                     FROM ot.agents p LEFT JOIN frontier f ON f.root=p.id
+                    WHERE p.org_id=$1 AND p.kind='project' AND p.state='live' GROUP BY p.id)
                  UPDATE ot.agents a SET grant_credits = held.stake, seat = 0, row_version = a.row_version + 1
                    FROM held WHERE a.id = held.id AND (a.grant_credits <> held.stake OR a.seat <> 0)
                  RETURNING a.id, a.parent_id",
                 &[&org_id],
             )
             .await?;
-        if rows.is_empty() {
-            break;
-        }
-        for r in &rows {
-            changed.push(r.get::<_, i64>(0));
-            changed.extend(r.get::<_, Option<i64>>(1));
-        }
+    for r in &rows {
+        changed.push(r.get::<_, i64>(0));
+        changed.extend(r.get::<_, Option<i64>>(1));
     }
     Ok(changed)
 }
@@ -458,20 +462,28 @@ pub async fn settle_credits(tx: &impl GenericClient, org_id: i64) -> Result<Vec<
 /// nearest first: the folders an agent above a project holds.
 #[logged]
 pub async fn below(client: &impl GenericClient, agent: i64) -> Result<Vec<(i64, String)>> {
-    Ok(client
+    let mut out = Vec::new();
+    let mut after = 0_i64;
+    loop {
+      let page = client
         .query(
             "WITH RECURSIVE down(id, depth) AS (
                SELECT id, 1 FROM ot.agents WHERE parent_id = $1 AND state = 'live'
                UNION ALL SELECT a.id, d.depth + 1 FROM ot.agents a JOIN down d ON a.parent_id = d.id
                 WHERE d.depth < 1024 AND a.state = 'live')
-             SELECT a.id, a.name FROM down d JOIN ot.agents a ON a.id = d.id
-              WHERE a.kind = 'project' ORDER BY d.depth, a.sibling_order, a.id LIMIT 64",
-            &[&agent],
+             SELECT a.id,a.name,d.depth,a.sibling_order FROM down d JOIN ot.agents a ON a.id=d.id
+              WHERE a.kind='project' AND a.id>$2 ORDER BY a.id LIMIT 256",
+            &[&agent,&after],
         )
-        .await?
-        .iter()
-        .map(|r| (r.get(0), r.get(1)))
-        .collect())
+        .await?;
+      if page.is_empty() { break; }
+      for r in page {
+          after=r.get(0);
+          out.push((r.get::<_,i32>(2),r.get::<_,f64>(3),after,r.get::<_,String>(1)));
+      }
+    }
+    out.sort_by(|a,b|a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
+    Ok(out.into_iter().map(|(_,_,id,name)|(id,name)).collect())
 }
 
 /// Ack mode: put every un-acked mail whose holder is gone back at the front
