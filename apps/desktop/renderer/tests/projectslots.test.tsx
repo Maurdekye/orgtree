@@ -296,9 +296,9 @@ test('visible slot views share one second clock for held, waiting and ended ages
   await inAct(async () => { await flush(3) })
   const ages = (held: number, waiting: number, ended: number) => {
     for (const panel of view.el.querySelectorAll('.project-slots')) {
-      assert.match(panel.querySelector('.slots-holding')?.textContent ?? '', new RegExp(`held ${held}s`))
-      assert.match(panel.querySelector('.slots-line')?.textContent ?? '', new RegExp(`waiting ${waiting}s`))
-      assert.match(panel.querySelector('.slots-history')?.textContent ?? '', new RegExp(`ended ${ended}s ago`))
+      assert.equal(panel.querySelector('.slots-holding .slot-held')?.textContent, `${held}s`)
+      assert.equal(panel.querySelector('.slots-line .slot-wait')?.textContent?.trim(), `${waiting}s`)
+      assert.equal(panel.querySelector('.slots-history .slot-ended')?.textContent, `${ended}s ago`)
     }
   }
   ages(32, 41, 12)
@@ -356,10 +356,11 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   const line = [...panel.querySelectorAll('.slots-line .slot-row')].map((r) => r.textContent ?? '')
   assert.equal(line.length, 2)
   assert.match(line[0], /1st.*sc/); assert.match(line[1], /2nd.*sb/)
-  assert.match(holding, /waited 5m/, 'the holder\'s queue time before the grant (user 2026-10-19 17:24Z)')
+  assert.equal(panel.querySelector('.slots-holding .slot-wait')?.textContent?.trim(), '5m', 'queue time before the grant')
   const histRows = [...panel.querySelectorAll('.slots-history .slot-row')].map((r) => r.textContent ?? '')
   assert.equal(histRows.length, 2)
-  assert.match(histRows[0], /waited 5m/); assert.match(histRows[0], /held 12m/)
+  assert.equal(panel.querySelector('.slots-history .slot-wait')?.textContent?.trim(), '5m')
+  assert.equal(panel.querySelector('.slots-history .slot-held')?.textContent, '12m')
   assert.doesNotMatch(histRows[0], /released/, 'a normal release carries no label (user 2026-10-19 17:23Z)')
   assert.doesNotMatch(histRows[1], /waited/, 'an old row without a recorded queue time shows none')
   assert.match(histRows[1], /timed out/, 'unusual endings keep a short label')
@@ -394,4 +395,23 @@ test('§5 the empty state says how to claim and that nobody waits', async (t) =>
   assert.match(panel.textContent ?? '', /orgtree_watchdog action=create kind=slot target=build/)
   assert.match(panel.textContent ?? '', /Nobody is waiting\./)
   assert.match(panel.textContent ?? '', /No concurrency slot has been held yet\./)
+})
+
+test('slot sections share column headers and the same six-cell row structure', async t => {
+  const nd = project({ slots_capacity: 1 })
+  const state = projectSlotState('build', 1, leases, dogs)
+  const v = await mountView(<SlotsView node={nd} state={state} map={new Map([[nd.id, nd]])}
+    op={async () => status as unknown as OpResult} toast={noop}/>, el => el)
+  t.after(() => v.unmount())
+  await inAct(async () => { await flush(3) })
+  const table = v.el.querySelector('table')
+  assert.ok(table, 'one shared table determines widths for every section')
+  assert.deepEqual([...table.querySelectorAll('thead th')].map(el => el.textContent),
+    ['Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Action'])
+  assert.equal(table.querySelectorAll('tbody').length, 3)
+  assert.equal([...table.querySelectorAll('.slot-row')].every(row => row.children.length === 6), true)
+  assert.equal(table.querySelector('.slots-holding .slot-ended')?.textContent, '')
+  assert.equal(table.querySelector('.slots-line .slot-held')?.textContent, '')
+  assert.equal(table.querySelector('.slots-line .slot-ended')?.textContent, '')
+  assert.match(table.querySelector('.slots-history .slot-rest')?.textContent ?? '', /s1/)
 })
