@@ -4,9 +4,12 @@
 // color like they do on the zoom card").
 //
 // WHAT THIS FILE HOLDS THE CODE TO:
-//   §1 one row: the cyan listener card, the magenta mail card, the amber
-//      slots card and the ↑ superior link share ONE header meta row, on
-//      every tab, and the superior link is not drawn a second time;
+//   §1 one row: the cyan listener card, the magenta mail card and the amber
+//      slots card share ONE header meta row, on every tab; the ↑ superior
+//      link is NOT in it but on the agent desk's up row right under the
+//      header (user 2026-10-19 21:05:53Z "superior jump cards go in a
+//      different row than the header cards", 21:06:08Z "same as agent desk
+//      headers"), drawn once;
 //   §2 the colours, with the real styles.css: each header card wears its
 //      near-zoom badge's colours, outlined and filled, and never the generic
 //      grey `.chip` (which, later in styles.css at equal specificity, used to
@@ -105,7 +108,7 @@ function stylesheet(t: TestContext) {
 
 /* ─── §1 one row ─────────────────────────────────────────────────────────── */
 
-test('§1 the listener, mail and slots cards and the ↑ superior link share one header row, on every tab', async (t) => {
+test('§1 the listener, mail and slots cards share one header row and the ↑ superior link has the up row under it, on every tab', async (t) => {
   const { view, jumps } = await desk(t, outlined)
   const head = view.el.querySelector('.cc-head')!
   const rows = [...head.querySelectorAll('.cc-head-meta')].filter((r) => r.parentElement === head)
@@ -115,27 +118,39 @@ test('§1 the listener, mail and slots cards and the ↑ superior link share one
     : c.classList.contains('project-queue-card') ? 'mail'
       : c.classList.contains('project-slots-card') ? 'slots'
         : c.querySelector('.desk-nav-chip') || c.classList.contains('desk-nav-chip') ? 'superior' : c.className)
-  assert.deepEqual(kinds, ['listeners', 'mail', 'slots', 'superior'], 'the order the user saw, in one row')
+  assert.deepEqual(kinds, ['listeners', 'mail', 'slots'], 'the order the user saw, in one row, the superior not among them')
   assert.match(row.textContent ?? '', /listeners 1/)
   assert.match(row.textContent ?? '', /3 q'd/)
   assert.match(row.textContent ?? '', /slots 2\/3/)
-  assert.match(row.textContent ?? '', /boss/)
+  // the agent desk's up row: its own .desk-nav, the header's next sibling
+  const up = head.nextElementSibling
+  assert.equal(up?.classList.contains('desk-nav'), true, 'the up row follows the header, as on the agent desk')
+  assert.deepEqual([...up!.querySelectorAll('.desk-nav-chip')].map((c) => c.getAttribute('data-copy-agent-name')), ['boss'])
   assert.equal(view.el.querySelectorAll('.desk-nav-chip[data-copy-agent-name="boss"]').length, 1,
     'the superior link is not drawn a second time (the summary keeps its down cards for members)')
-  await inAct(async () => { row.querySelector<HTMLElement>('.desk-nav-chip')!.click(); await flush(2) })
+  await inAct(async () => { up!.querySelector<HTMLElement>('.desk-nav-chip')!.click(); await flush(2) })
   assert.deepEqual(jumps, ['boss'], 'the superior link still jumps')
-  // the header row is the header's: it stays while another tab is open
+  // both rows are the header's: they stay while another tab is open
   await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="docket"]')!.click(); await flush(2) })
   assert.equal(view.el.querySelector('.cc-tabs button[data-tab="docket"]')?.classList.contains('on'), true)
-  const again = view.el.querySelector('.cc-head > .cc-head-meta')
-  assert.ok(again?.querySelector('.desk-nav-chip'), 'the superior link stays in the row on the docket tab')
-  assert.ok(again?.querySelector('.project-slots-card'), 'and the cards with it')
+  assert.ok(view.el.querySelector('.cc-head + .desk-nav .desk-nav-chip[data-copy-agent-name="boss"]'),
+    'the superior link stays on the up row on the docket tab')
+  assert.ok(view.el.querySelector('.cc-head > .cc-head-meta .project-slots-card'), 'and the cards stay in the header row')
 })
 
-test('§1 no header row while the project has no card and no superior to show', async (t) => {
+test('§1 no header row and no up row while the project has no card and no superior to show', async (t) => {
   const bare = { node: project({}, { parent: null }), dogs: [] as Watchdog[], leases: [] as SlotLease[] }
   const { view } = await desk(t, bare)
-  assert.equal(view.el.querySelector('.cc-head .cc-head-meta'), null)
+  assert.ok(!view.el.querySelector('.cc-head .cc-head-meta'), 'no header row')
+  assert.ok(!view.el.querySelector('.cc-head + .desk-nav'), 'no up row')
+})
+
+test('§1 a superior alone draws no header row, only the up row under the header', async (t) => {
+  const solo = { node: project({}), dogs: [] as Watchdog[], leases: [] as SlotLease[] }
+  const { view } = await desk(t, solo)
+  assert.ok(!view.el.querySelector('.cc-head .cc-head-meta'), 'the header row holds cards only')
+  assert.deepEqual([...view.el.querySelectorAll('.cc-head + .desk-nav .desk-nav-chip')]
+    .map((c) => c.getAttribute('data-copy-agent-name')), ['boss'], 'the superior on the up row')
 })
 
 /* ─── §2 the colours ─────────────────────────────────────────────────────── */

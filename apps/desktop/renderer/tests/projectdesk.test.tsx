@@ -313,20 +313,25 @@ test('§2a jump cards up to the parent and down to its members', async (t) => {
   const jumped: string[] = []
   const el = await desk(t, { jump: (id) => jumped.push(id) })
   const names = (row: Element) => [...row.querySelectorAll('button.desk-nav-chip')].map((b) => b.getAttribute('data-copy-agent-name'))
-  // up: the parent's link among the header cards (user 2026-10-19 19:02Z); down: the members' row
-  assert.deepEqual(names(el.querySelector('.cc-head .project-head-cards')!), ['boss'])
+  // up: the parent's link on the agent desk's up row right under the header
+  // (user 2026-10-19 21:05:53Z, 21:06:08Z "same as agent desk headers"),
+  // never among the header cards; down: the members' row
+  assert.equal(el.querySelector('.cc-head .desk-nav-chip') === null, true, 'no jump card among the header cards')
   const navs = [...el.querySelectorAll('.desk-nav')]
-  assert.equal(navs.length, 1, 'one row down, under the summary')
+  assert.equal(navs.length, 2, 'the up row under the header, one row down under the summary')
+  assert.equal(el.querySelector('.cc-head + .desk-nav') === navs[0], true, 'the up row is the header\'s next sibling')
+  assert.deepEqual(names(navs[0]!), ['boss'])
   // nested projects crossed, retired members behind the retired control, as on the agent desk (G3)
-  assert.deepEqual(names(navs[0]!), ['dev1', 'ui', 'dev2', null])
-  await inAct(() => { navs[0]!.querySelector<HTMLButtonElement>('button.desk-nav-chip')!.click() })
+  assert.deepEqual(names(navs[1]!), ['dev1', 'ui', 'dev2', null])
+  await inAct(() => { navs[1]!.querySelector<HTMLButtonElement>('button.desk-nav-chip')!.click() })
   assert.deepEqual(jumped, ['dev1'])
   assert.equal(el.querySelector('textarea.project-description-edit') === null, true, 'the editor is not open yet')
 })
 
 // "superior and subordinate jump cards persist across agent desk tabs,
 // should be the same for project tabs" (user 2026-10-19 19:58Z): the ↑ card
-// in the header row and the members' row above the message box, on every tab
+// on the up row under the header (21:05:53Z) and the members' row above the
+// message box, on every tab
 test('§2g the jump cards stay on every tab, the members\' row above the message box', async (t) => {
   const jumped: string[] = []
   const nd = project({ dead_letters: 1, configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2 } } as Partial<CanvasNode>)
@@ -339,13 +344,14 @@ test('§2g the jump cards stay on every tab, the members\' row above the message
   for (const tab of tabs(el)) {
     await inAct(async () => { el.querySelector<HTMLButtonElement>(`.cc-tabs button[data-tab="${tab}"]`)!.click(); await flush(2) })
     assert.equal(el.querySelector(`.cc-tabs button[data-tab="${tab}"]`)?.classList.contains('on'), true, `${tab} is open`)
-    assert.deepEqual(names(el.querySelector('.cc-head .project-head-cards')), ['boss'], `${tab}: the superior's card in the header row`)
+    assert.equal(el.querySelector('.cc-head .desk-nav-chip') === null, true, `${tab}: no jump card among the header cards`)
+    assert.deepEqual(names(el.querySelector('.cc-head + .desk-nav')), ['boss'], `${tab}: the superior's card on the up row under the header`)
     const navs = [...el.querySelectorAll('.desk-nav')]
-    assert.equal(navs.length, 1, `${tab}: one row down`)
-    assert.deepEqual(names(navs[0]!), ['dev1', 'ui', 'dev2', null], `${tab}: the members' cards, then the retired control`)
+    assert.equal(navs.length, 2, `${tab}: the up row and one row down`)
+    assert.deepEqual(names(navs[1]!), ['dev1', 'ui', 'dev2', null], `${tab}: the members' cards, then the retired control`)
     const composer = el.querySelector('.project-composer')
     assert.ok(composer, `${tab}: the message box`)
-    assert.equal(navs[0]!.compareDocumentPosition(composer!) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING,
+    assert.equal(navs[1]!.compareDocumentPosition(composer!) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING,
       `${tab}: the members' row sits above the message box`)
   }
   await inAct(() => { el.querySelector<HTMLButtonElement>('.desk-nav button.desk-nav-chip[data-copy-agent-name="ui"]')!.click() })

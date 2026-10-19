@@ -117,6 +117,10 @@ async function mountDesk(t: TestContext, node: CanvasNode, map: Map<string, Canv
 }
 const chipNames = (row: Element | null | undefined) =>
   [...(row?.querySelectorAll('button.desk-nav-chip[data-copy-agent-name]') ?? [])].map((b) => b.getAttribute('data-copy-agent-name'))
+/** the agent desk's up row, the header's next sibling, and the members' row,
+ *  the other jump row (above the message box) */
+const upRow = (el: Element) => el.querySelector('.cc-head + .desk-nav')
+const membersRow = (el: Element) => [...el.querySelectorAll('.desk-nav')].find((r) => r !== upRow(el)) ?? null
 const openTab = async (el: Element, tab: string) => {
   await inAct(async () => { el.querySelector<HTMLButtonElement>(`.cc-tabs button[data-tab="${tab}"]`)!.click(); await flush(4) })
 }
@@ -181,9 +185,12 @@ test('G2a a nested project\'s up cards pass through the outer project to the nea
   const map = mapOf(boss)
   const jumped: string[] = []
   const el = await mountDesk(t, map.get('inner')!, map, { jump: (id) => jumped.push(id) })
-  const head = el.querySelector('.cc-head .project-head-cards')
-  assert.deepEqual(chipNames(head), ['boss', 'outer'], 'the agent superior first, then the projects between, outermost first')
-  await inAct(() => { head!.querySelector<HTMLButtonElement>('button[data-copy-agent-name="boss"]')!.click() })
+  // on the agent desk's up row right under the header, never among the
+  // header cards (user 2026-10-19 21:05:53Z, 21:06:08Z)
+  const up = upRow(el)
+  assert.deepEqual(chipNames(up), ['boss', 'outer'], 'the agent superior first, then the projects between, outermost first')
+  assert.deepEqual(chipNames(el.querySelector('.cc-head')), [], 'no jump card among the header cards')
+  await inAct(() => { up!.querySelector<HTMLButtonElement>('button[data-copy-agent-name="boss"]')!.click() })
   assert.deepEqual(jumped, ['boss'])
 })
 
@@ -193,9 +200,10 @@ test('G2b a top-level project points at the switchboard on the canvas, not in a 
   const eye = { id: USER, parent: null, tier: null, state: 'user', children: [top] } as unknown as CanvasNode
   const map = mapOf(eye)
   const canvas = await mountDesk(t, map.get('top')!, map)
-  assert.match(canvas.querySelector('.cc-head .project-head-cards')?.textContent ?? '', /switchboard/)
+  assert.match(upRow(canvas)?.textContent ?? '', /switchboard/)
   const pinned = await mountDesk(t, map.get('top')!, map, { bare: true })
   assert.equal(/switchboard/.test(pinned.querySelector('.cc-head')?.textContent ?? ''), false)
+  assert.equal(upRow(pinned) === null, true, 'no up row in a pinned window')
 })
 
 /* ─── G3 down through projects, retired behind its control ──────────────── */
@@ -213,16 +221,16 @@ test('G3a the members\' row passes through nested projects and folds retired mem
   const { website, map } = team()
   const jumped: string[] = []
   const el = await mountDesk(t, website, map, { jump: (id) => jumped.push(id) })
-  const row = el.querySelector('.desk-nav')
+  const row = membersRow(el)
   assert.deepEqual(chipNames(row), ['dev1', 'ui', 'dev2'], 'live members, nested projects crossed')
   const toggle = [...row!.querySelectorAll<HTMLButtonElement>('button.desk-nav-chip')].find((b) => /retired/.test(b.textContent ?? ''))
   assert.ok(toggle, 'the agent desk\'s retired control')
   assert.equal(toggle!.textContent, 'show 2 retired')
   assert.equal(toggle!.title, 'old, gone')
   await inAct(() => { toggle!.click() })
-  assert.deepEqual(chipNames(el.querySelector('.desk-nav')), ['dev1', 'ui', 'dev2', 'old', 'gone'])
+  assert.deepEqual(chipNames(membersRow(el)), ['dev1', 'ui', 'dev2', 'old', 'gone'])
   assert.equal(toggle!.textContent, 'hide retired')
-  await inAct(() => { el.querySelector<HTMLButtonElement>('.desk-nav button[data-copy-agent-name="dev2"]')!.click() })
+  await inAct(() => { membersRow(el)!.querySelector<HTMLButtonElement>('button[data-copy-agent-name="dev2"]')!.click() })
   assert.deepEqual(jumped, ['dev2'], 'a nested member jumps')
 })
 
@@ -232,10 +240,10 @@ test('G3b with retired agents hidden, the row offers the "N retired" picker inst
   t.after(() => setHideRetiredOn(false))
   const { website, map } = team()
   const el = await mountDesk(t, website, map)
-  const token = el.querySelector<HTMLButtonElement>('.desk-nav button.desk-retired-token')
+  const token = membersRow(el)?.querySelector<HTMLButtonElement>('button.desk-retired-token')
   assert.ok(token, 'the agent desk\'s retired token')
   assert.equal(token!.textContent?.trim(), '2 retired')
-  assert.deepEqual(chipNames(el.querySelector('.desk-nav')), ['dev1', 'ui', 'dev2'])
+  assert.deepEqual(chipNames(membersRow(el)), ['dev1', 'ui', 'dev2'])
 })
 
 /* ─── G4-G6 the inbox tab ───────────────────────────────────────────────── */

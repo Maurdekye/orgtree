@@ -27,12 +27,14 @@ async function fixture(t: TestContext, count: number, host = 'canvas') {
   t.after(async () => { await view.unmount(); popup?.window.close(); localStorage.removeItem(JUMP_FOLD_KEY) })
   await inAct(async () => { await flush(4) })
   const el = doc.querySelector<HTMLElement>('[data-host]')!
-  // the parent's link is one of the header cards (user 2026-10-19 19:02Z);
-  // the members keep their own row above the message box, on every tab (19:58Z)
-  assert.equal(el.querySelector('.cc-head .project-head-cards .desk-nav-chip')?.getAttribute('data-copy-agent-name'), 'boss')
+  // the parent's link is the agent desk's up row right under the header
+  // (user 2026-10-19 21:05:53Z, 21:06:08Z "same as agent desk headers"); the
+  // members keep their own row above the message box, on every tab (19:58Z)
+  assert.deepEqual([...el.querySelectorAll('.cc-head + .desk-nav .desk-nav-chip')]
+    .map((c) => c.getAttribute('data-copy-agent-name')), ['boss'])
   const rows = el.querySelectorAll<HTMLElement>('.desk-nav')
-  assert.equal(rows.length, 1, 'the member row stays separate from the header row')
-  return { row: rows[0]!, jumped }
+  assert.equal(rows.length, 2, 'the up row under the header, the member row of its own')
+  return { row: rows[1]!, jumped }
 }
 
 for (const host of ['canvas', 'pinned', 'pop-out', 'Attention']) {
