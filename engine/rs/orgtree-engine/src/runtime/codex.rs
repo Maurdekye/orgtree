@@ -1008,7 +1008,7 @@ mod elicitation_stream_tests {
             "a human permission request must not receive an automatic refusal or approval");
         fake.write_all(b"{\"method\":\"thread/status/changed\",\"params\":{\"threadId\":\"thread-1\"}}\n").await.unwrap();
         assert!(matches!(tokio::time::timeout(Duration::from_secs(2),events.recv()).await.unwrap(),
-            Some(AgentMsg::Codex(p,v)) if p==process && v["method"]=="thread/status/changed"));
+            Some(crate::runtime::Envelope { msg:AgentMsg::Codex(p,v), .. }) if p==process && v["method"]=="thread/status/changed"));
         drop(fake);
         task.await.unwrap();
         let response:Value=serde_json::from_str(&tokio::time::timeout(Duration::from_secs(2),responses.recv()).await.unwrap().unwrap()).unwrap();
