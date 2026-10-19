@@ -25,11 +25,10 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { DeskChat } from './desk'
+import { DeskTitleBar } from './deskshell'
 import type { DeskChatProps } from './desk'
 import { providerOf, useEsc } from './shared'
 import type { CanvasNode } from './shared'
-import { AgentName } from './identity'
-import PushPinIcon from '@mui/icons-material/PushPin'
 import { useOverlayRoot, useSurfaceDocument } from '../popout'
 import type { PinRect } from './pins'
 
@@ -137,19 +136,8 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
       <div className={'tempdesk-panel prov-' + providerOf(node.tier ?? '')} ref={panel} tabIndex={-1}
         role="dialog" aria-modal="true"
         aria-label={`${node.id} · desk, opened temporarily`}>
-        <div className="tempdesk-head pinwin-title" data-copy-agent-name={node.id}>
-          <AgentName id={node.id} tier={node.tier} nameClass="pinwin-name" />
-          <span className="spacer" />
-          {onPin && (
-            <button className="tempdesk-pin pinwin-unpin" onClick={() => {
-              const rect = sourceBox()
-              if (rect) onPin(rect)
-            }}
-              aria-label={`pin ${node.id}`} title={`pin ${node.id}'s desk as a window`}>
-              <PushPinIcon fontSize="inherit" />
-            </button>
-          )}
-        </div>
+        <DeskTitleBar id={node.id} tier={node.tier}
+          onPin={onPin ? () => { const rect = sourceBox(); if (rect) onPin(rect) } : undefined} />
         {/* ⚠ `borrow` IS THE WHOLE MECHANISM. It takes the canonical desk for
             this modal's lifetime and the registry returns it on unmount — see
             `Desks.endBorrow`. `bare` renders the desk 1:1 rather than

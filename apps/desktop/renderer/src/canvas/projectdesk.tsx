@@ -53,7 +53,7 @@ import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
 import { listenerCards, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { DeskJumpCards } from './deskjumpcards'
-import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs } from './deskshell'
+import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs } from './deskshell'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
 /** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
@@ -667,17 +667,16 @@ export function ProjectDeskModal({ close, pinAsWindow, ...props }: ProjectDeskPr
   pinAsWindow?: (rect: PinRect) => void
 }) {
   return (
-    <PinFrame kind="project-desk" title={`Project ${props.node.id}`}
-      restore={{ agent: props.node.id }}
-      // the agent temporary desk's frame, not a settings panel's type and
-      // buttons, so it reads as the canvas desk does (user 2026-10-18 08:25Z);
-      // pin-project: the org theme, as a pinned project window
+    // the agent temporary desk's frame, not a settings panel's type and
+    // buttons, so it reads as the canvas desk does (user 2026-10-18 08:25Z);
+    // pin-project: the org theme, as a pinned project window; one title
+    // bar, as the agent desk's: folder and name, pin and close — the desk
+    // below does not repeat the name (styles.css, user 11:14Z)
+    <DeskModalShell kind="project-desk" title={`Project ${props.node.id}`}
+      nodeId={props.node.id} tier="project"
       panel="tempdesk-panel pin-project project-desk-modal" close={close}
-      // one title bar, as the agent desk's: folder and name, pin and close;
-      // the desk below does not repeat the name (styles.css, user 11:14Z)
-      deskTitle titleBar={<AgentName id={props.node.id} tier="project" nameClass="pinwin-name" />}
       pinElsewhere={pinAsWindow}>
       <ProjectDesk {...props} bare />
-    </PinFrame>
+    </DeskModalShell>
   )
 }

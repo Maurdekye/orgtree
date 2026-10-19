@@ -7,11 +7,69 @@
 // invariants inside OwnedDeskChat are untouched.
 import type { ReactNode } from 'react'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
+import PushPinFilledIcon from '@mui/icons-material/PushPin'
 import type { ToastFn } from '../types'
 import { DocIcon, SettingsIcon } from '../icons'
 import { PopoutWindowControls } from '../popout'
 import { agentNavProps } from './agentnav'
+import { AgentName } from './identity'
+import { PinFrame } from './modalpin'
+import type { PinRect } from './pins'
 import { PresentationCard, recentDocumentChips } from './docs'
+
+/** The one name a desk modal's title bar shows (step 3): the pin-window
+ *  name, so a framed desk never repeats it in its own header. */
+export function DeskModalName({ id, tier }: { id: string; tier?: string | null }) {
+  return <AgentName id={id} tier={tier} nameClass="pinwin-name" />
+}
+
+/** A desk modal's title bar: the name, and the pin button while pinning is
+ *  on offer. The temporary agent desk renders this as its head; the
+ *  project desk's PinFrame bar carries the same name element. */
+export function DeskTitleBar({ id, tier, onPin }: {
+  id: string
+  tier?: string | null
+  onPin?: () => void
+}) {
+  return (
+    <div className="tempdesk-head pinwin-title" data-copy-agent-name={id}>
+      <DeskModalName id={id} tier={tier} />
+      <span className="spacer" />
+      {onPin && (
+        <button className="tempdesk-pin pinwin-unpin" onClick={onPin}
+          aria-label={`pin ${id}`} title={`pin ${id}'s desk as a window`}>
+          <PushPinFilledIcon fontSize="inherit" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** The framed-desk modal shell: PinFrame in its desk configuration — the
+ *  temporary desk's panel type, one title bar carrying the desk's name,
+ *  the desk inside bare. The project desk's modal is this; the temporary
+ *  agent desk keeps its own frame (its borrow and focus semantics are
+ *  desk-specific) and shares the title bar above instead. */
+export function DeskModalShell({ kind, title, nodeId, tier, panel, close, pinElsewhere, children }: {
+  kind: string
+  title: string
+  nodeId: string
+  tier?: string | null
+  panel: string
+  close: () => void
+  pinElsewhere?: (rect: PinRect) => void
+  children: ReactNode
+}) {
+  return (
+    <PinFrame kind={kind} title={title}
+      restore={{ agent: nodeId }}
+      panel={panel} close={close}
+      deskTitle titleBar={<DeskModalName id={nodeId} tier={tier} />}
+      pinElsewhere={pinElsewhere}>
+      {children}
+    </PinFrame>
+  )
+}
 
 /** The desk header frame (.cc-head), step 2 of the same item: identity on
  *  the left, actions + tabs + pin/settings on the right, window controls
