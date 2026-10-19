@@ -2925,7 +2925,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
         )}
         {userAud.length > 0 && (
           <AudienceHolderRows ids={userAud.map((a) => a.grantee)} nodes={nodes}
-            onRemove={(id) => act('revoke', id)} removeTitle="rescind"
+            onRemove={(id) => act('revoke', id)} audienceTarget={USER}
             onFocusAgent={onFocusAgent} />
         )}
         <MailFolders folder={folder} setFolder={setFolder}

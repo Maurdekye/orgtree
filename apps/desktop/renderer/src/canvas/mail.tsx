@@ -29,7 +29,7 @@ import {
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon,
 } from '../icons'
 import {
-  EXTERN, fmtCredits, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
+  audienceGrantTooltip, EXTERN, fmtCredits, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
   useHideRetired,
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
@@ -1326,13 +1326,14 @@ export function AudienceFold({ ids, label, alert = false, render, limit = AUDIEN
 /** One labeled holder row shared by the user's inbox and the org mailbox.
  * Each surface supplies its own revoke action; presentation and identity stay
  * identical while audience authority remains owned by the caller. */
-export function AudienceHolderRows({ ids, nodes, onRemove, removeTitle,
-  label = 'audience holders', foldLabel = label, alert = false, onFocusAgent,
+export function AudienceHolderRows({ ids, nodes, onRemove, audienceTarget = USER,
+  audienceTargetKind, label = 'audience holders', foldLabel = label, alert = false, onFocusAgent,
 }: {
   ids: string[]
   nodes: ReadonlyMap<string, CanvasNode>
   onRemove: (id: string) => void
-  removeTitle: string
+  audienceTarget?: string
+  audienceTargetKind?: string
   label?: string
   foldLabel?: string
   alert?: boolean
@@ -1342,11 +1343,12 @@ export function AudienceHolderRows({ ids, nodes, onRemove, removeTitle,
   const live = ids.filter((id) => nodes.get(id)?.state === 'live')
   const retired = ids.filter((id) => nodes.get(id)?.state !== 'live')
   const render = (id: string, dim = false) => (
-    <span key={id} className={'badge aud-badge ' + (dim ? 'dim' : 'free')}>
+    <span key={id} className={'badge aud-badge ' + (dim ? 'dim' : 'free')}
+      title={audienceGrantTooltip(audienceTarget, audienceTargetKind)}>
       <HearingIcon fontSize="inherit" />
       <AgentName id={id} tier={nodes.get(id)?.tier}
         onFocus={onFocusAgent ? (agentId: string) => onFocusAgent(agentId) : undefined} />
-      <button className="chip-x" title={removeTitle} type="button"
+      <button className="chip-x" title="Revoke" type="button"
         onClick={() => onRemove(id)}><CloseIcon fontSize="inherit" /></button>
     </span>
   )
@@ -1875,8 +1877,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
           <TransferPanel slug={slug} />
           <div className="org-audience-holders">
             <AudienceHolderRows ids={holders} nodes={map}
-              foldLabel="org inbox audience holders" alert
-              removeTitle="revoke this inbox audience"
+              foldLabel="org inbox audience holders" alert audienceTarget={EXTERN}
               onRemove={(h) => audienceAction(slug, 'revoke', h, EXTERN)
                 .then(() => toast([`org-inbox audience for ${h} rescinded`]))
                 .catch((e: Error) => toast([`error: ${e.message}`]))} />

@@ -118,12 +118,15 @@ uiTest('§5 org inbox holders use the labeled audience-holder chips from Your in
     assert.ok(row, 'holders render in the shared compact row')
     const chip = row.querySelector('.aud-badge')
     assert.ok(chip, 'each holder uses the shared pill styling')
+    assert.equal(chip.getAttribute('title'),
+      'Can read and answer outside mail sent to the org inbox',
+      'org inbox holders explain the access they receive')
     assert.equal(chip.querySelector('.tier')?.textContent, 'S',
       'the holder pill shows its agent tier')
     assert.equal(chip.querySelector('.cc-name')?.textContent, 'holder1',
       'the holder name uses the same identity renderer as Your inbox')
     assert.equal(chip.querySelector('.chip-x')?.getAttribute('title'),
-      'revoke this inbox audience', 'the existing remove affordance remains available')
+      'Revoke', 'the existing remove affordance remains available')
     let revoke: { url: string; init?: RequestInit } | undefined
     const originalFetch = globalThis.fetch
     globalThis.fetch = async (input, init) => {
@@ -154,8 +157,10 @@ uiTest('§6 audience chips explain the grant target and the remove control says 
       id, state: 'live', tier: 'sol', kind,
     } as CanvasNode]))
     const { el } = await mount(<>
-      {cases.map(({ id, target }) => <AudienceHolderRows key={target} ids={[id]}
-        nodes={nodes} audienceTarget={target} onRemove={noop} removeTitle="Revoke" />)}
+      {cases.map(({ id, target, kind }) => <AudienceHolderRows key={target} ids={[id]}
+        nodes={nodes} audienceTarget={target}
+        audienceTargetKind={kind}
+        onRemove={noop} />)}
     </>)
     await flush()
     const chips = [...el.querySelectorAll('.aud-badge')]

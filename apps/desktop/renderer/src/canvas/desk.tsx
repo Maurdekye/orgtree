@@ -88,7 +88,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, stripMarkdownCode, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, useHideRetired, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, audienceGrantTooltip, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, stripMarkdownCode, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, useHideRetired, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -3475,10 +3475,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     && map.get(g)?.state !== 'live')
   const heldChip = (g: string, dim = false) => (
     <span key={g} className={'badge ' + (g === USER ? 'free aud-user' : dim ? 'dim' : '')}
-      title={node.audiences_inherited?.filter((a) => a.grantor === g).map((a) => `Inherited from project ${a.project}`).join('; ') || undefined}>
+      title={[audienceGrantTooltip(g, map.get(g)?.kind),
+        ...(node.audiences_inherited?.filter((a) => a.grantor === g)
+          .map((a) => `Inherited from project ${a.project}`) ?? [])].join('; ')}>
       <HearingIcon fontSize="inherit" />
       {g === USER ? 'user' : g === EXTERN ? 'org inbox' : g}
-      {(node.audiences_explicit ?? held).includes(g) && <button className="chip-x"
+      {(node.audiences_explicit ?? held).includes(g) && <button className="chip-x" title="Revoke"
         onClick={() => audienceAction(slug, 'revoke', node.id, g)
           .then(() => toast([`audience ${node.id}→${g} rescinded`]))
           .catch((e: Error) => toast([`error: ${e.message}`]))}><CloseIcon fontSize="inherit" /></button>}
