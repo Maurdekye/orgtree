@@ -783,6 +783,9 @@ struct EventGrab {
     message: String,
     phase: Option<String>,
     fields: String,
+    /// A `log` record's own target: tracing-log forwards every record
+    /// through one callsite whose target is `log`
+    log_target: Option<String>,
 }
 
 impl Visit for EventGrab {
@@ -791,6 +794,9 @@ impl Visit for EventGrab {
             "message" => self.message.push_str(v),
             "phase" => self.phase = Some(v.to_string()),
             name => {
+                if name == "log.target" {
+                    self.log_target = Some(v.to_string());
+                }
                 let _ = write!(self.fields, " {name}={v}");
             }
         }
@@ -880,9 +886,6 @@ where
     }
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
-        if silenced(event.metadata().target()) {
-            return;
-        }
         let mut rq: Option<(u32, String)> = None;
         let mut frame: Option<(u32, Option<(u32, String)>)> = None;
         if let Some(scope) = ctx.event_scope(event) {
@@ -906,6 +909,10 @@ where
         let meta = event.metadata();
         let mut g = EventGrab::default();
         event.record(&mut g);
+        // by its own target, or a `log` record's (tracing-log: target `log`)
+        if silenced(meta.target()) || g.log_target.as_deref().is_some_and(silenced) {
+            return;
+        }
         let ours = meta.target() == "call";
         let bare = ours || meta.target() == "wire";
         let mut msg = String::with_capacity(g.message.len() + 64);
