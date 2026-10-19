@@ -489,7 +489,7 @@ impl std::fmt::Write for Capture {
 fn masked(key: &str) -> bool {
     const KEYS: &[&str] = &[
         "secret", "secret_hash", "password", "passwordhash", "password_hash", "newpassword", "new_password",
-        "oldpassword", "old_password", "token", "apikey", "api_key", "kiosktoken", "admintoken", "desktop_token",
+        "oldpassword", "old_password", "pass", "passwd", "token", "apikey", "api_key", "kiosktoken", "admintoken", "desktop_token",
         "access_token", "refresh_token", "id_token", "auth_token", "oauth_token", "authorization", "cookie",
         "set-cookie", "x-orgtree-desktop-token", "key", "secret_key", "client_secret", "private_key", "credentials",
         "anthropic_api_key", "openai_api_key", "openrouter_key",
@@ -1140,5 +1140,16 @@ mod url_credential_log_tests {
         let plain = fit_value("test | ", Shown::json(&serde_json::json!({"target": "mqtt://broker.local", "to": "someone@example.com",
                                                                           "path": "a/b@c"})));
         assert!(plain.contains("mqtt://broker.local") && plain.contains("someone@example.com") && plain.contains("a/b@c"), "{plain}");
+    }
+
+    /// A watchdog call's credentials, inline or stray at the top level, are
+    /// masked in a logged argument like any password.
+    #[test]
+    fn watchdog_credentials_are_masked_in_logged_arguments() {
+        let args = serde_json::json!({"kind": "mqtt", "credentials": {"username": "ha", "password": "ARG-CANARY-1"},
+                                      "pass": "ARG-CANARY-2", "passwd": "ARG-CANARY-3", "password": "ARG-CANARY-4"});
+        let shown = fit_value("test | ", Shown::json(&args));
+        assert!(!shown.contains("ARG-CANARY"), "{shown}");
+        assert!(shown.contains("\"kind\":\"mqtt\""), "{shown}");
     }
 }
