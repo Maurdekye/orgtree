@@ -255,7 +255,6 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         out.ev = Some(crate::events::ordinary(&out.from.name(), &out.kind, out.notice, &out.body));
     }
     let to = out.to.trim().trim_start_matches('@').to_string();
-    super::dnd::validate_urgent(out.urgent,out.urgent_reason.as_deref(),true,false)?;
     if out.body.trim().is_empty() && out.attachments.is_empty() {
         refuse!(BadRequest, "a message needs a body");
     }
@@ -355,7 +354,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
     }
     let tx = client.transaction().await?;
     let dnd_active:bool=tx.query_one("SELECT ot.agent_dnd($1)",&[&target_id]).await?.get(0);
-    super::dnd::validate_urgent(out.urgent,out.urgent_reason.as_deref(),false,dnd_active)?;
+    super::dnd::validate_urgent(out.urgent,out.urgent_reason.as_deref(),matches!(&out.from, From::User),dnd_active)?;
     let dnd_held=dnd_active && !out.urgent;
     let (contact_changes,forwarded) = if direct_user_contact(&out.from, out.ev.as_ref()) {
         super::runtime_notices::deep_reach_batch_tx(&*tx,org_id,target_id,&out.body,false,out.grant_reply_audience,notices).await?

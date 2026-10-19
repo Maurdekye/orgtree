@@ -3222,7 +3222,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const send = () => {
     let t = text.trim()
     if ((!t && !attached.length) || !canMail) return
-    if (node.dnd && urgentMail && !urgentMail.urgent_reason.trim()) { toast(["Urgent mail needs a reason."]); return }
     if (!t) t = '(file attached)'
     const paths = attached.map((a) => a.path)
     const sentReply = reply
@@ -4360,7 +4359,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         midTurn={processActive} composerFocused={composerFocused}
         cheapCompactOn={node.cheap_compact_on}
         cheapCompactOcc={node.cheap_compact_occ} contextRatio={contextRatio} />
-      <div className={'cc-composer' + (canMail ? '' : ' off') + (noticeArmed ? ' notice-armed' : '')}>
+      <div className={'cc-composer' + (canMail ? '' : ' off') + (noticeArmed ? ' notice-armed' : '')
+        + (urgentMail ? ' urgent-armed' : '')}>
         {/* the notice toggle sits ABOVE the attach button, not beside it
             (user 2026-09-17). One column, bottom-aligned by the composer's
             align-items:flex-end, so the attach button stays exactly where it

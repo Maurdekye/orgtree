@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-export interface UrgentAgentMail { urgent: true; urgent_reason: string }
+export interface UrgentAgentMail { urgent: true; urgent_reason?: string }
 
 /** Shared token on the card and desk header, beside effort. */
 export function DndBadge({ active }: { active?: boolean }) {
@@ -16,9 +16,7 @@ export function UrgentAgentOptions({ active, value, onChange }: {
   return <div className="dnd-urgent-options">
     <button type="button" className={'cc-notice-toggle cc-urgent-toggle' + (value ? ' armed' : '')}
       aria-label="Urgent: bypass Do Not Disturb" aria-pressed={!!value}
-      title="Urgent: bypass Do Not Disturb (requires a reason)"
-      onClick={() => onChange(value ? undefined : { urgent:true, urgent_reason:'' })}>!</button>
-    {value && <input aria-label="Urgent reason" placeholder="why this must interrupt now" value={value.urgent_reason}
-      onChange={e => onChange({ urgent:true, urgent_reason:e.target.value })} />}
+      title="Urgent: bypass Do Not Disturb"
+      onClick={() => onChange(value ? undefined : { urgent:true })}>!</button>
   </div>
 }

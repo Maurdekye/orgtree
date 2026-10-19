@@ -302,7 +302,6 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, re
   }
   const send = () => {
     if (!can || busy || (!text.trim() && attached.length === 0)) return
-    if(megaphone && dndRecipients.length && urgentMail && !urgentMail.urgent_reason.trim()) {toast(['Urgent mail needs a reason.']);return}
     setBusy(true)
     const asNotice = notice
     const files = attached.map((a) => a.path)
@@ -369,7 +368,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, re
       </span>)}
     </div>}
     <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')
-      + (megaphone ? ' broadcast-armed' : '')}>
+      + (megaphone ? ' broadcast-armed' : '') + (urgentMail ? ' urgent-armed' : '')}>
       {mentions.menu}
       <div className="cc-btnstack">
         <button className={'cc-notice-toggle' + (notice ? ' armed' : '')} type="button" disabled={!can}

@@ -202,9 +202,8 @@ export interface MailEntry {
   attachments?: MailAttachment[]
   delivering?: boolean
   retracted?: boolean          // api.py node_mail_retract mirrors into the log
-  /** D-169: user-bound mail its sender tagged urgent, with the one-line
-   *  reason it had to give to do so. Written as a PAIR by ledger.post_mail
-   *  or not at all — `urgent` never appears without a non-blank reason.
+  /** D-169: user-bound mail its sender tagged urgent. A user can arm urgency
+   *  without a reason; agent-origin urgent mail still requires one.
    *  ⚠ These reach the mailbox by a DIFFERENT route from `urgent_unread`:
    *  GET /api/orgs/{slug}/inbox returns `user_inbox` verbatim, with no
    *  per-entry rebuild, so unlike the tree projection there is no key list

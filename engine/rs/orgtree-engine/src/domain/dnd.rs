@@ -9,12 +9,12 @@ use crate::{changes::{self,Change},engine::Engine};
 pub fn may_steer(active: bool, urgent_waiting: bool) -> bool { !active || urgent_waiting }
 
 #[nolog]
-pub fn validate_urgent(urgent: bool, reason: Option<&str>, to_user: bool, active: bool) -> Result<()> {
+pub fn validate_urgent(urgent: bool, reason: Option<&str>, user_sender: bool, active: bool) -> Result<()> {
     if !urgent { return Ok(()); }
-    if reason.is_none_or(|s| s.trim().is_empty()) {
+    if !user_sender && reason.is_none_or(|s| s.trim().is_empty()) {
         crate::refuse!(BadRequest,"urgent needs urgent_reason: explain why this must interrupt now");
     }
-    if !to_user && !active {
+    if !user_sender && !active {
         crate::refuse!(BadRequest,"urgent to an agent is available only while that agent is currently in Do Not Disturb");
     }
     Ok(())

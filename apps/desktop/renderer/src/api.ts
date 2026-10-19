@@ -1427,7 +1427,7 @@ export const sendMessage = (
   notice?: boolean,
   replies?: MailReplyWire[],
   targets?: ReplyTarget[],
-  urgency?: { urgent: true; urgent_reason: string },
+  urgency?: { urgent: true; urgent_reason?: string },
 ): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {
     method: 'POST',
@@ -1459,7 +1459,7 @@ export interface BroadcastResult {
  *  failed grant leaves the mail delivered. */
 export interface AudienceGrantResult { granted: boolean; error?: string }
 export const broadcastMessage = (slug: string, project: string, text: string, attachments?: string[],
-  notice?: boolean, urgency?: {urgent:true;urgent_reason:string}, targets?: ReplyTarget[]): Promise<BroadcastResult> =>
+  notice?: boolean, urgency?: {urgent:true;urgent_reason?:string}, targets?: ReplyTarget[]): Promise<BroadcastResult> =>
   req(`/api/orgs/${slug}/nodes/${project}/broadcast`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, ...(urgency ?? {}), ...(attachments?.length ? { attachments } : {}),

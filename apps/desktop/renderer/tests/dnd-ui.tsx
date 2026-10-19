@@ -8,12 +8,14 @@ import type { CanvasNode } from '../src/canvas/shared'
 const node={id:'focused-agent',tier:'sol',state:'live',busy:true,phase:'thinking',dnd:true,
   last_status:{status:'working',summary:'Finishing the focused change'}} as unknown as CanvasNode
 function Fixture(){
-  const [urgent,setUrgent]=useState<UrgentAgentMail | undefined>({urgent:true,urgent_reason:'Blocking dependency before this turn ends'})
+  const [urgent,setUrgent]=useState<UrgentAgentMail | undefined>({urgent:true})
   return <main style={{padding:24,width:900,color:'var(--text)',background:'var(--bg)',height:600}}>
     <h2>focused-agent</h2>
     <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:20}}><AgentWorkstate node={node}/></div>
-    <div style={{border:'1px solid var(--line)',padding:16,marginBottom:24}}>
+    <div className="cc-composer urgent-armed" style={{marginBottom:24}}>
+      <textarea aria-label="message to focused-agent" readOnly value="Please check the build when you can." />
       <UrgentAgentOptions active value={urgent} onChange={setUrgent}/>
+      <button className="cc-send" type="button">↑</button>
     </div>
     <div style={{height:320}}><MailList outgoing delivered={[
       {id:'held',from:'sender',to:'focused-agent',kind:'message',body:'Please check the next change when your turn ends.',at:'2026-10-18T14:00:00Z',dnd_held:true},

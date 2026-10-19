@@ -9520,7 +9520,13 @@ button.node-link.node-link:focus-visible {
 
 /* Turn-local DND stays a small inline state on cards, desks and mail. */
 .badge.dnd-badge { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); white-space: nowrap; }
-.cc-notice-toggle.cc-urgent-toggle.armed { color: #ff9500; border-color: #ff9500; background: color-mix(in srgb, #ff9500 10%, transparent); }
+.cc-notice-toggle.cc-urgent-toggle.armed { color: #ff4500; border-color: #ff4500; background: color-mix(in srgb, #ff4500 10%, transparent); }
+.cc-composer.urgent-armed,
+.cc-composer.urgent-armed:focus-within { border-color: #ff4500; }
+.cc-composer.project-composer.broadcast-armed.urgent-armed {
+  border-color: #ff4500;
+  box-shadow: 0 0 0 1px #ff4500, 0 0 10px color-mix(in srgb, #ff4500 45%, transparent);
+}
 .dnd-mail-state { font-size: 10px; opacity: .7; white-space: nowrap; }
 .dnd-urgent-options { display: flex; align-items: center; gap: 6px; font-size: 11px; }
 .dnd-urgent-options label { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }

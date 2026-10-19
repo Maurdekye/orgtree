@@ -217,12 +217,14 @@
 
 - Do Not Disturb is a durable per-turn flag controlled by self status.dnd.
   Every harness gates ordinary mail before steering or interrupt; only urgent
-  bypasses, and agent urgency requires current DND plus a reason. Turn end and
+  bypasses. User-origin urgent mail may omit a reason; agent-origin urgency
+  requires current DND plus a nonblank reason. The armed user composer marks
+  its ! and message-box outline orange-red (#ff4500). Turn end and
   recovery release unread mail in order within the prompt byte budget. Inbox
   previews do not consume; explicit fetch/chunk reads held mail once. See
   [DND](docs/skills/orgtree-working/runtime/do-not-disturb/SKILL.md).
   [decided: user 2026-10-18 13:44–13:49Z; verified: `domain/{dnd,mail}.rs`,
-  `runtime/actor.rs`, migration 0033, `canvas/dnd.tsx`]
+  `runtime/actor.rs`, migration 0033, `canvas/{dnd,desk,projectdesk}.tsx`]
 
 - Team panels reuse the canvas Agents `tray-panel` frame and direct `AgentTray`,
   with Active in `PinFrame.headerActions`; no settings wrapper or bottom Close.
