@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { SlotsView } from '../src/canvas/slotsdesk'
 import { mountView, inAct, flush } from './harness'
+import { SlotsView } from '../src/canvas/slotsdesk'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 
 const node = (id='build') => ({id, kind:'project', tier:'project', state:'live', children:[]}) as unknown as CanvasNode
@@ -52,7 +52,8 @@ test('a stale older-page response cannot enter a different project',async t=>{
    page([req.node==='other'?'other1':'s2'],'cursor') as unknown as OpResult
  const v=await mountView(<SlotsView node={node()} state={state} map={new Map()} op={op} toast={()=>{}}/>,el=>el)
  t.after(()=>v.unmount());await settle();await bottom(v.el)
- await inAct(async()=>{v.root.render(<SlotsView node={node('other')} state={state} map={new Map()} op={op} toast={()=>{}}/>);await flush(4)})
+ await v.render(<SlotsView node={node('other')} state={state} map={new Map()} op={op} toast={()=>{}}/>)
+ await settle()
  await inAct(async()=>{release(page(['old-project-row'],null) as unknown as OpResult);await flush(4)})
  assert.deepEqual(rows(v.el),['other1'])
 })
