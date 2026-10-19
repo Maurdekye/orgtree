@@ -14,8 +14,12 @@
 //   §3 the two kinds' own words in the watchdog detail description,
 //      including the fire-time tool calls;
 //   §4 the desk: no listeners tab and no cards without any dog; with dogs,
-//      the header cards, the tab's badge, its rows (agent, dog, mode,
-//      count, fire actions) and the fire control sending fire_project_event;
+//      the header cards, the tab's badge, its rows and the fire control
+//      sending fire_project_event; §4b the tab as ONE table like the slots
+//      and mail listeners tables (user 2026-10-19 21:08Z-21:11Z): header
+//      row, two section rows, only the columns with data, no mode words
+//      (the shared watchdog chip shows one-shot or continuous), Fired and
+//      Last fired empty for one-shot dogs, a dash while one never fired;
 //   §5 the near-zoom card's listener and queue badges.
 //   §6 the magenta mail-listeners card (fair-queue count, user 2026-10-19
 //      17:11Z): beside the queue card on desk + near card, opens inbox.
@@ -36,7 +40,9 @@ import {
   fireActionTools, listenerCards, listenerLinks, mailListenerState, mailQueueCard, projectListenerState, queueAckMode,
 } from '../src/canvas/listeners'
 import { MailListenersView, mailListenerRows } from '../src/canvas/maillisteners'
-import { slotTimeStyle } from '../src/canvas/slottime'
+import { ListenersView } from '../src/canvas/listenersdesk'
+import { DeskDogsProvider } from '../src/canvas/deskdogs'
+import { slotEndedTimeStyle, slotTimeStyle } from '../src/canvas/slottime'
 import { watchdogDescription } from '../src/canvas/watchdogdescription'
 import type { CanvasNode, MailRow, OpRequest, OpResult } from '../src/canvas/shared'
 import type { TreePayload, Watchdog } from '../src/types'
@@ -212,9 +218,8 @@ test('§4 the header cards, the tab, its rows and the fire control', async (t) =
   assert.deepEqual(sections, ['Event listeners', 'Listener watches'])
   const rows = [...panel.querySelectorAll('.listener-row')].map((r) => r.textContent ?? '')
   assert.equal(rows.length, 5, 'three listeners and two watches, paused included')
-  assert.match(rows[0], /ready-a/); assert.match(rows[0], /one-shot/)
-  assert.match(rows[1], /continuous/)
-  assert.match(rows[3], /all-in/); assert.match(rows[3], /2\/2/); assert.match(rows[3], /runs orgtree_project on fire/)
+  assert.match(rows[0], /ready-a/)
+  assert.match(rows[3], /all-in/); assert.match(rows[3], /2\/2/); assert.match(rows[3], /orgtree_project/)
   // the fire control sends the op, message first as written
   const input = panel.querySelector<HTMLInputElement>('.listener-fire input')!
   Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(input, 'go now')
@@ -222,6 +227,114 @@ test('§4 the header cards, the tab, its rows and the fire control', async (t) =
   await inAct(async () => { panel.querySelector<HTMLButtonElement>('button[data-action="fire-event"]')!.click(); await flush(3) })
   assert.deepEqual(ops.filter((o) => o.op === 'fire_project_event'),
     [{ op: 'fire_project_event', node: 'sync', body: 'go now' }], 'firing from the desk runs the same op as the agent tool')
+})
+
+/* ─── §4b the tab as one table (user 2026-10-19 21:08Z-21:11Z) ──────────── */
+
+/** the tab's dogs, timed from the (fake) clock: a one-shot listener, a
+ *  continuous one that fired 3 minutes ago, one that never fired, a paused
+ *  one-shot; a one-shot watch carrying the sync's fire action, and a paused,
+ *  passive continuous watch that fired 2 hours ago */
+function tableDogs(): Watchdog[] {
+  const before = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
+  return [
+    dog('project_listener', 'sa', 'ready-a'),
+    dog('project_listener', 'sb', 'ready-b', { once: false, fired: 3, last_fired: before(180) }),
+    dog('project_listener', 'sd', 'ready-d', { once: false }),
+    dog('project_listener', 'sc', 'ready-c', { state: 'paused' }),
+    dog('listener_watch', 'boss', 'all-in', { count: 4,
+      fire_actions: [{ tool: 'orgtree_project', args: { action: 'fire_event', name: 'sync' } }] }),
+    dog('listener_watch', 'boss', 'later', { count: 5, once: false, state: 'paused', notice: true, fired: 1, last_fired: before(7200) }),
+  ]
+}
+
+/** the tab on its own, under the canvas's dog route (its open recorded) */
+async function listenersTable(t: TestContext, list: Watchdog[], opened: string[] = []) {
+  const map = new Map(['sa', 'sb', 'sc', 'sd', 'boss'].map((id) => [id, agentNode(id)] as [string, CanvasNode]))
+  const view = await mountView(<DeskDogsProvider value={{ org: 'org', dogs: list, open: (id) => { opened.push(id) } }}>
+    <ListenersView node={project()} dogs={list} map={map} op={() => Promise.resolve({} as OpResult)} toast={noop} />
+  </DeskDogsProvider>, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(() => flush(2))
+  return view
+}
+const listenerHeaders = (el: Element) => [...el.querySelectorAll('.listeners-table thead th')].map((h) => h.textContent)
+const listenerRows = (el: Element) => [...el.querySelectorAll<HTMLTableRowElement>('.listeners-table tbody tr.listener-row')]
+const listenerRow = (el: Element, id: string) =>
+  el.querySelector<HTMLTableRowElement>(`.listeners-table tbody tr.listener-row[data-object-id="${id}"]`)!
+const rowCells = (row: Element) => [...row.children].map((c) => (c.textContent ?? '').replace(/\s+/g, ' ').trim())
+
+test('§4b one table like the slots and mail listeners tables: header row, two section rows, aligned values (user 21:08Z)', async (t) => {
+  useFakeClock()
+  t.after(() => realClock())
+  const opened: string[] = []
+  const view = await listenersTable(t, tableDogs(), opened)
+  const panel = view.el.querySelector('.project-listeners')!
+  assert.ok(panel.querySelector('.listener-fire input'), 'the fire box stays above the table')
+  assert.equal(panel.querySelectorAll('.slots-table-scroll > table.slots-table.listeners-table').length, 1,
+    'ONE table, in the slots table style')
+  assert.deepEqual(listenerHeaders(view.el), ['Agent', 'Watchdog', 'Armed', 'Fired', 'Last fired', 'On fire'])
+  assert.deepEqual([...view.el.querySelectorAll('.listeners-table tr.slot-section h4')].map((h) => h.textContent),
+    ['Event listeners', 'Listener watches'], 'the two kinds as section rows, as the slots table\'s Holding and Line')
+  const rows = listenerRows(view.el)
+  assert.equal(rows.length, 6, 'four listeners and two watches, paused included')
+  for (const r of rows) {
+    assert.equal(r.children.length, 6, 'every row fills every column, so both sections line up')
+    assert.ok(r.classList.contains('slot-row'), "the slots table's row style")
+    assert.equal(r.getAttribute('data-object-nav'), 'watchdog', 'a watchdog row, as the slots line and the mail listeners')
+  }
+  assert.equal(listenerRow(view.el, 'sa/ready-a').querySelector('.slot-agent [data-copy-agent-name]')?.getAttribute('data-copy-agent-name'),
+    'sa', 'the agent, as a link with its model card')
+  const rest = (id: string) => rowCells(listenerRow(view.el, id)).slice(2)
+  assert.deepEqual(rest('sa/ready-a'), ['', '', '', ''], 'a one-shot listener: no fired count and no last fire (user 21:11Z)')
+  assert.deepEqual(rest('sb/ready-b'), ['', '3', '3m ago', ''], 'a continuous one: how often and how long ago it fired (user 21:10Z)')
+  assert.deepEqual(rest('sd/ready-d'), ['', '0', '—', ''], 'a dash while it never fired')
+  assert.deepEqual(rest('sc/ready-c'), ['', '', '', ''])
+  assert.deepEqual(rest('boss/all-in'), ['3/4', '', '', 'orgtree_project'],
+    'a watch: the armed listeners over its count, and the tool calls it runs on fire')
+  assert.deepEqual(rest('boss/later'), ['3/5', '1', '2h ago', ''])
+  // the mode is the chip's: no words in the table (user 21:09Z)
+  assert.doesNotMatch(view.el.querySelector('.listeners-table')!.textContent ?? '', /continuous|one-shot/,
+    'no "continuous" or "one-shot" words')
+  const chip = (id: string) => listenerRow(view.el, id).querySelector<HTMLElement>('.listener-dog-cell .watchdog-link')!
+  assert.ok(chip('sa/ready-a').classList.contains('oneshot'), "a one-shot listener: the watchdog card's one-shot outline")
+  assert.equal(chip('sb/ready-b').classList.contains('oneshot'), false, 'a continuous one: the plain outline')
+  assert.ok(chip('sb/ready-b').classList.contains('listener'), "the listener kind's cyan")
+  assert.ok(chip('boss/all-in').classList.contains('listener-watch'), "a watch: the watch's double outline")
+  assert.match(chip('sb/ready-b').title, /continuous/, 'hovering the chip names the mode')
+  assert.match(chip('sa/ready-a').title, /once|one-shot/)
+  await inAct(async () => { chip('sb/ready-b').click(); await flush(2) })
+  assert.deepEqual(opened, ['sb/ready-b'], "clicking the chip opens the dog's detail, as on the canvas")
+  // paused and passive stay in words beside the chip, as in the mail listeners table
+  assert.ok(listenerRow(view.el, 'sc/ready-c').classList.contains('out'), 'a paused dog: a dimmed row')
+  assert.match(rowCells(listenerRow(view.el, 'sc/ready-c'))[1], /paused/)
+  assert.match(rowCells(listenerRow(view.el, 'boss/later'))[1], /paused/)
+  assert.match(rowCells(listenerRow(view.el, 'boss/later'))[1], /passive/)
+  // Last fired is the slots table's Ended time: its format and colours, ageing with the shared clock
+  const last = listenerRow(view.el, 'sb/ready-b').querySelector<HTMLElement>('.listener-last')!
+  const time = last.querySelector<HTMLElement>('.slot-time')!
+  const norm = (c: string) => { const i = document.createElement('i'); i.style.color = c; return i.style.color }
+  assert.ok(time.getAttribute('style'), 'a coloured time')
+  assert.equal(time.style.color, norm(slotEndedTimeStyle(180).color), "the slots table's Ended colour")
+  assert.match(last.title, /^last fired /, 'the full time on hover')
+  await advance(120_000, 1000)
+  assert.equal(rowCells(listenerRow(view.el, 'sb/ready-b'))[4], '5m ago', 'it ages with the shared clock')
+})
+
+test('§4b only the columns that carry data; empty sections as the slots table (user 21:08:19Z)', async (t) => {
+  const listeners = tableDogs().filter((w) => w.kind === 'project_listener')
+  const view = await listenersTable(t, listeners)
+  assert.deepEqual(listenerHeaders(view.el), ['Agent', 'Watchdog', 'Fired', 'Last fired'],
+    'no Armed column without a watch, no On fire column without fire actions')
+  for (const r of listenerRows(view.el)) assert.equal(r.children.length, 4)
+  const empty = view.el.querySelector<HTMLTableCellElement>('.listeners-table td.slot-empty')!
+  assert.match(empty.textContent ?? '', /No listener watch is armed/, "the watches section's empty row")
+  assert.equal(empty.colSpan, 4, 'spanning the table')
+  const none = await listenersTable(t, [])
+  const empties = [...none.el.querySelectorAll('.listeners-table td.slot-empty')].map((c) => c.textContent ?? '')
+  assert.equal(empties.length, 2, 'both sections say they are empty')
+  assert.match(empties[0]!, /No agent listens on this project/)
+  assert.match(empties[1]!, /No listener watch is armed/)
 })
 
 /* ─── §5 the near-zoom card ──────────────────────────────────────────────── */

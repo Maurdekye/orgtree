@@ -70,7 +70,7 @@ test('project listener rows expose dog menus even away from their name buttons',
  const view=await mountView(<AgentNavProvider><ObjectNavProvider><Register/><ObjectNavHost {...{isProject:(id:string)=>id==='build'}} org="org" dogs={dogs} openDog={()=>{}} toast={()=>{}}/><DeskDogsProvider value={{org:'org',dogs,open:()=>{}}}><ObjectMenuBoundary><ListenersView node={node} dogs={dogs} map={new Map()} op={async()=>({} as never)} toast={()=>{}}/></ObjectMenuBoundary></DeskDogsProvider></ObjectNavProvider></AgentNavProvider>,el=>el)
  t.after(view.unmount)
  assert.equal(view.el.querySelectorAll('.listener-row').length,2)
- for(const row of view.el.querySelectorAll('.listener-row')){await right(row.querySelector('.dim')!);assert.ok(projectRow());assert.ok(labels().includes('Open details'))}
+ for(const row of view.el.querySelectorAll('.listener-row')){await right(row.querySelector('.listener-fired')!);assert.ok(projectRow());assert.ok(labels().includes('Open details'))}
 })
 
 test('semantic slot line keeps its seven table cells, coloured time and nested agent menu',async t=>{
