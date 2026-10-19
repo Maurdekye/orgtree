@@ -93,6 +93,10 @@ ${variables}
   StrCpy \${result} "ok"
 !macroend
 !define StdUtils.ExecShellAsUser '!insertmacro FixtureExecShellAsUser'
+!macro _Fixture_UAC_IsAdmin _a _b _t _f
+  StrCmp "1" "1" \`\${_t}\` \`\${_f}\`
+!macroend
+!define UAC_IsAdmin \`"" Fixture_UAC_IsAdmin ""\`
 ${macro('orgtreeUpgradeFunctions')}
 ${macro('customWelcomePage')}
 ${macro('customFinishPage')}

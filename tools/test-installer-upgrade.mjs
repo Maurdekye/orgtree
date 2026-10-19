@@ -49,6 +49,18 @@ Var OrgFixtureLogDetail
   StrCpy $OrgFixtureLogDetail "\${detail}"
 !macroend`
 
+// Finish now observes the process token before choosing native creation or
+// original-user shell dispatch. These older composition/upgrade fixtures do
+// not exercise that callback; model elevated Setup so any future invocation
+// retains their stubbed shell boundary. The dedicated Finish fixture covers
+// both token states and real native creation.
+const tokenProbeStub = `!ifndef UAC_IsAdmin
+!macro _Fixture_UAC_IsAdmin _a _b _t _f
+  StrCmp "1" "1" \`\${_t}\` \`\${_f}\`
+!macroend
+!define UAC_IsAdmin \`"" Fixture_UAC_IsAdmin ""\`
+!endif`
+
 const nsi = `!include LogicLib.nsh
 !include "${mui}"
 Name "Orgtree upgrade fixture"
@@ -165,6 +177,7 @@ ${logStub}
   StrCpy \`\${_result}\` "ok"
 !macroend
 !define StdUtils.ExecShellAsUser \`!insertmacro _StubExecShellAsUser\`
+${tokenProbeStub}
 ${finishMacro}
 ${welcome}
 !insertmacro customFinishPage
@@ -348,6 +361,7 @@ SilentInstall silent
 !define orgtreeOriginalIsUpdated \`\${isUpdated}\`
 ${vars}
 ${logStub}
+${tokenProbeStub}
 ${finishMacro}
 ${welcome}
 !insertmacro customFinishPage

@@ -887,7 +887,30 @@ orgtreeSilentElevateDone:
         MessageBox MB_OK|MB_ICONEXCLAMATION "Orgtree could not be started from Setup, because it could not confirm that nothing else is starting it.$\r$\nStart Orgtree from its shortcut." /SD IDOK
         Return
       ${endif}
-      ${StdUtils.ExecShellAsUser} $1 "$0" "open" ""
+      # A per-user Setup already has the intended user's unelevated token.
+      # Do not send that launch through Explorer/COM: on a busy first install
+      # shell dispatch can fail even though opening the desktop shortcut later
+      # works. Exec uses CreateProcess and returns after creation, without a
+      # shell response/readiness deadline. The existing exclusive claim still
+      # decides ownership BEFORE either path can launch.
+      #
+      # Install mode alone is NOT proof of the token. A per-user Setup can be
+      # explicitly run as administrator, so only the UAC token observation
+      # permits direct creation. Elevated Setup retains original-user dispatch;
+      # an ambiguous shell failure never falls back to our elevated token.
+      ${ifNot} ${UAC_IsAdmin}
+        !insertmacro OrgLog "finish-run-native" "starting [$0] directly with Setup's unelevated token"
+        ClearErrors
+        Exec '"$0"'
+        ${if} ${errors}
+          StrCpy $1 "create-process-failed"
+        ${else}
+          StrCpy $1 "ok"
+        ${endif}
+      ${else}
+        !insertmacro OrgLog "finish-run-as-user" "starting [$0] through the original user's shell from elevated Setup"
+        ${StdUtils.ExecShellAsUser} $1 "$0" "open" ""
+      ${endif}
       ${if} $1 == "ok"
       ${orif} $1 == "fallback"
         !insertmacro OrgLog "finish-run" "the user started [$0] from the Finish page"
