@@ -1,6 +1,7 @@
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge } from './nextturn'
 import { DndBadge } from './dnd'
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
+import { creditSegments } from './creditsegments'
 import { toggleAgentHalt } from './haltcontrol'
 // canvas/cards.tsx — the canvas's card components: the overseer eye
 // (UserNode) with its switchboard (EyeDesk), the hire chips (SpawnChips),
@@ -1883,8 +1884,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       }}>
       {live && !node.isBearerOf && lod !== 'mini' && (
         <CreditBar seat={seat} grant={grant} committed={grant - free}
-          segments={node.children.filter((c) => c.state !== 'archived')
-            .map((c) => ({ seat: c.seat!, grant: c.grant! }))}   /* unrecoverable still holds */
+          segments={creditSegments(node.children)}   /* unrecoverable still holds */
           min={grant - free}
           /* reallocate cascades up the chain (§4.6), so the parent's free is
              not a ceiling — unless the cascade_alloc setting turns that off.

@@ -25,6 +25,7 @@ import type { Section } from '../generated/events'
 import { answerAsk, creditDecide, fileBase, resolveBatch } from '../api'
 import { askFailure, askHidden, submitAsk, useSubmittedAsks } from '../asksubmitted'
 import { CreditBar } from './cards'
+import { creditSegments } from './creditsegments'
 import { AnsweredCard, CreditCard, ScopeCard, miniFromAskInfo } from '../events/answered'
 import { CloseIcon, WarnIcon } from '../icons'
 import { isMobile } from '../mobile'
@@ -899,8 +900,7 @@ export function InboxAskCard({ ask, slug, tree, node, toast }: {
     <AskCard ask={ask} slug={slug} toast={toast}
       seat={node?.seat ?? 0}
       committed={(node?.grant ?? 0) - (node?.free ?? 0)}
-      segments={(node?.children ?? []).filter((c) => c.state === 'live')
-        .map((c) => ({ seat: c.seat, grant: c.grant }))}
+      segments={creditSegments(node?.children ?? [], c => c.state === 'live')}
       pxc={orgPxc(tree)}
       maxTop={tree.max_top_grant ?? 1000} />
   )

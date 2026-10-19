@@ -20,7 +20,7 @@ export const makeTree=(roots:CanvasNode[]):TreePayload=>({roots,max_top_grant:10
 export const noop=()=>{}
 const op=async()=>({})
 export type Surface='canvas'|'settings'|'desk'|'inbox'
-export function ProjectCreditFixture({surface,grouped,askEnabled=true}:{surface:Surface;grouped:boolean;askEnabled?:boolean}) {
+export function ProjectCreditFixture({surface,grouped}:{surface:Surface;grouped:boolean}) {
   const node=makeNode(grouped),map=new Map([[node.id,node]]),tree=makeTree([node])
   const slug=`synthetic-credit-${surface}-${grouped}`
   const ask:AskInfo={id:`credit-${surface}-${grouped}`,node:node.id,kind:'credit',status:'open',at:'2026-10-19T17:00:00Z',old:20,new:25}

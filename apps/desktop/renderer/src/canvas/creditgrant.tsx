@@ -1,4 +1,5 @@
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
+import { creditSegments } from './creditsegments'
 import { SetBlock } from './settingskit'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
@@ -154,7 +155,7 @@ export function CreditGrant({ node, map, tree, op }: {
         }} onBlur={() => { if (gesture.current?.pointer === undefined) void commit() }}>
         <div className="cbar" style={{height: length, transform: `translateX(${length}px) rotate(90deg)`, background: creditBarBackground(pxc)}}>
           <CreditBarPaint seat={seat} cur={value} committed={limits.min} pxc={pxc}
-            segments={node.children.filter(c => c.state !== 'archived').map(c => ({seat: c.seat ?? 0, grant: c.grant ?? 0}))} />
+            segments={creditSegments(node.children)} />
         </div>
       </div>
     </div>

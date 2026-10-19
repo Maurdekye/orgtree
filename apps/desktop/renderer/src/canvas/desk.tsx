@@ -1,5 +1,6 @@
 import { Fragment } from 'react'
 import { DeskModelButton } from './deskmodel'
+import { creditSegments } from './creditsegments'
 import { DndBadge, UrgentAgentOptions, type UrgentAgentMail } from './dnd'
 import { AgentCompactConfirm } from './agentcompact'
 import { historyEnabled, historyUndo } from '../historyregistry'
@@ -4267,8 +4268,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <AskCard ask={ask} slug={slug} toast={toast}
           seat={node.seat ?? 0}
           committed={(node.grant ?? 0) - (node.free ?? 0)}
-          segments={node.children.filter((c) => c.state === 'live' && !c.isBearerOf)
-            .map((c) => ({ seat: c.seat ?? 0, grant: c.grant ?? 0 }))}
+          segments={creditSegments(node.children, c => c.state === 'live' && !c.isBearerOf)}
           pxc={pxc}
           maxTop={maxTop} />
       )}

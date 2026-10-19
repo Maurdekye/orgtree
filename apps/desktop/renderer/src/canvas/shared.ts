@@ -1,4 +1,5 @@
 import { useSurfaceDocument } from '../popout'
+import { creditSegments } from './creditsegments'
 import { syncFastModes } from './fastmode'
 import { isNoticeRow } from '../events/decode'
 // canvas/shared.ts — the split Canvas's leaf module: the canvas view types,
@@ -1982,8 +1983,7 @@ export const fmtCredits = (n: number): string =>
  *  credit-ask card (user ruling 2026-08-05: the ask bar must look identical
  *  to the agent's existing bar, same scale included) */
 export function orgPxc(tree: TreePayload): number {
-  const holds = tree.roots
-    .filter((n) => n.state === 'live')
+  const holds = creditSegments(tree.roots, n => n.state === 'live')
     .map((n) => n.seat + n.grant)
   if (!holds.length) return NODE_H / 10
   if (holds.length === 1) return NODE_H / holds[0]!
