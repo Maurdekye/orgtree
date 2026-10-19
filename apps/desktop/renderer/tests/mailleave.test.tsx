@@ -7,7 +7,7 @@ import { SurfaceDocumentOwner } from '../src/popout'
 import type { MailListProps } from '../src/canvas/mail'
 
 window.HTMLElement.prototype.scrollIntoView = () => {}
-const rows = Array.from({length: 6}, (_, i) => ({id: `m${i}`, from: 'alpha',
+const rows = Array.from({length: 6}, (_, i) => ({id: `m${i}`, from: 'alpha', to: 'beta',
   at: `2026-10-19T10:00:0${i}Z`, body: `message ${i}`, tags: [i ? 'other' : 'chosen']}))
 const pane = (el: HTMLElement) => el.querySelector('.mailer-read')?.textContent ?? ''
 const open = (id: string, el: HTMLElement) => {
