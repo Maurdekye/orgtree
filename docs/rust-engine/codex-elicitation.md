@@ -32,12 +32,14 @@ fields. The new path does not write saved provider/browser permission settings.
 
 ## Protocol evidence and reported saved permissions
 
-The installed package metadata identifies Codex CLI 0.160.0. The retained
-generated `McpServerElicitationRequestParams` schema describes `serverName`,
+An approved offline schema export with an isolated empty home/environment
+identifies the installed Codex CLI 0.160.0 protocol. The generated `McpServerElicitationRequestParams` schema describes `serverName`,
 `threadId`, nullable `turnId`, form/openai-form and URL modes; its response
 schema requires `action` from `accept`, `decline`, `cancel` and permits content
 and client metadata. This implementation supports the typed primitive MCP form
-schema, including titled/legacy enums. No real Codex/browser session is used
+schema, including titled/legacy enums. The additional `openai/userVerification`
+mode requires a device-authenticated proof and fails closed; this implementation
+does not fabricate or substitute a form for that proof. No real Codex/browser session is used
 for validation; tests send synthetic JSON-RPC through the production reader.
 
 Before the fix, the unknown-method branch returned JSON-RPC -32601 without
