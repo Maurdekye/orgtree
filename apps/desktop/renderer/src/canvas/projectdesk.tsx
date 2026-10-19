@@ -51,7 +51,8 @@ import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
 import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
-import { listenerCards, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
+import { listenerCards, mailListenerState, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
+import { MailListenersView } from './maillisteners'
 import { DeskJumpCards } from './deskjumpcards'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs } from './deskshell'
 
@@ -448,6 +449,15 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   }, [view, teamCount])
   const [replyTarget, setReplyTarget] = useState<{ target: ReplyTarget; title: string }>()
   const [replyFocus, setReplyFocus] = useState(0)
+  // the inbox folder the mail card asks for (user 2026-10-19 19:05Z): a new
+  // seq is a new click; opening the inbox from its tab forgets it
+  const [inboxAsk, setInboxAsk] = useState<{ folder: string; seq: number } | null>(null)
+  // a mail the listeners folder links to (a held job, user 2026-10-19 19:30Z)
+  const [inboxJump, setInboxJump] = useState<{ id: string; seq: number } | null>(null)
+  const openInbox = (folder: string) => {
+    setInboxAsk((a) => ({ folder, seq: (a?.seq ?? 0) + 1 }))
+    setView('inbox')
+  }
   const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | 'purge' | null>(null)
   const fallbackMenu = useContextMenu(toast)
   const mentionRef = useRef<{
@@ -484,6 +494,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const listenersArmed = listenerState.armed.length
   const listenerHeaderCards = listenerCards(node.id, listenerState)
   const queue = mailQueueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node), tree.watchdogs ?? [])
+  const mailListeners = mailListenerState(node.id, tree.watchdogs ?? [])
   const hasListeners = listenerState.listeners.length + listenerState.watches.length > 0
   // ⚠ ONE ROW of header cards on every tab (user 2026-10-19 19:02Z, and
   // 19:15Z: "make sure they're all on the same row in the full desk header"):
@@ -533,7 +544,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               {!live && node.state === 'archived' && <button data-action="restore"
                 onClick={() => { void op({ op: 'rehire', node: node.id }).catch(() => {}) }}>restore</button>}
         </>}
-        tabs={<DeskTabs shown={shown} tabs={tabs.map((v) => ({ id: v, label: v === 'desk' ? 'summary' : v === 'dead' ? 'dead letters' : v, count: count(v), showCount: v !== 'slots' }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as Tab) }} />}
+        tabs={<DeskTabs shown={shown} tabs={tabs.map((v) => ({ id: v, label: v === 'desk' ? 'summary' : v === 'dead' ? 'dead letters' : v, count: count(v), showCount: v !== 'slots' }))} onShow={(v) => {
+          if (v === 'inbox') { setInboxAsk(null); setInboxJump(null) }
+          if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as Tab)
+        }} />}
         rightExtras={<>
             {/* in its own window frame (the modal, pinned or popped out) the
                 frame's pop-out, beside the tabs as on the agent desk (user 11:14Z) */}
@@ -550,7 +564,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             className={'project-listeners-card' + (c.bright ? ' bright' : '')}
             title={c.title} onClick={() => setView('listeners')}>{c.text}</button>)}
           {queue && <button type="button" className={'project-queue-card' + (queue.bright ? ' bright' : '')}
-            title={queue.title} onClick={() => setView('inbox')}>{queue.text}</button>}
+            title={queue.title} onClick={() => openInbox(queue.listeners > 0 ? 'listeners' : 'inbox')}>{queue.text}</button>}
           {slots.total > 0 && <button type="button" className={'project-slots-card' + (slotsFull(slots) ? ' full' : '')}
             title={'open the Concurrency slots tab' + (slots.held.length ? ` — held by ${slots.held.map(h => h.agent).join(', ')}` : '')} onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>}
           {/* no holder links here (user 2026-10-19 17:12Z): the holders are on the slots tab */}
@@ -581,7 +595,13 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
             const n = map.get(id)
             return n?.kind === 'project' ? 'project' : n?.tier
           }} hasAgent={(id) => map.has(id)}
-          refs={refs} onFocusAgent={onJump} />
+          refs={refs} onFocusAgent={onJump}
+          jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq ?? null}
+          extraFolders={[{ id: 'listeners', count: mailListeners.armed.length,
+            render: (rows) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
+              rows={rows} ack={queueAckMode(node)}
+              onOpenMail={(id) => { setInboxJump((j) => ({ id, seq: (j?.seq ?? 0) + 1 })); openInbox('inbox') }} /> }]}
+          folderAsk={inboxAsk} />
       </div>}
       {shown === 'docket' && <div className="desk-tabpanel">
         <PanelCorner kind="agent-docket" slug={slug} nid={node.id} />

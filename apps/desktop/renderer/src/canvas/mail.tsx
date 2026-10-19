@@ -1423,6 +1423,21 @@ interface InboxViewProps {
   collapsible?: boolean
   /** a project's mailbox: forwarded to both folders (MailListProps.projectMail) */
   projectMail?: boolean
+  /** folders after inbox and sent that the HOST draws (the project desk's
+   *  mail listeners, user 2026-10-19 19:05Z) */
+  extraFolders?: InboxExtraFolder[]
+  /** the host asking for a folder (the project's mail card opening its
+   *  listeners): a new `seq` is a new request; the same one again is not */
+  folderAsk?: { folder: string; seq: number } | null
+}
+
+/** A folder the host draws in the mail pane: `id` is its name on the folder
+ *  strip, `count` its badge, `render` gets the mailbox rows loaded here
+ *  (waiting and delivered). */
+export interface InboxExtraFolder {
+  id: string
+  count?: number
+  render: (rows: MailRow[]) => ReactNode
 }
 
 // Only a plain delivery uses the compact marker. Ack/release/dead-letter
@@ -1489,14 +1504,23 @@ export function QueueChip({ q, onFocusAgent, hasAgent, tierOf }: {
 }
 
 export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, tier, onFocusAgent, toast,
-  tierOf, hasAgent, refs, collapsible, projectMail }: InboxViewProps) {
-  const [folder, setFolder] = useState('inbox')
+  tierOf, hasAgent, refs, collapsible, projectMail, extraFolders, folderAsk }: InboxViewProps) {
+  const [chosen, setFolder] = useState(() => folderAsk?.folder ?? 'inbox')
+  // a new request from the host opens its folder (a repoll is the same request)
+  useEffect(() => { if (folderAsk) setFolder(folderAsk.folder) }, [folderAsk?.folder, folderAsk?.seq])
+  const extra = extraFolders?.find((f) => f.id === chosen)
+  // a host folder that is no longer offered falls back to the inbox
+  const folder = extra || chosen === 'sent' ? chosen : 'inbox'
   // G5: was a fetch keyed on the `pulse` prop, which meant it refreshed on turn
   // events and on nothing else — and a mail DELIVERY is not a turn event, so
   // the one panel whose whole job is showing mail was the one that did not
   // learn when mail arrived. Polled while mounted instead.
   const mailbox = useRecordMailbox(slug, nid)
-  const history = useMailboxHistory(slug, mailbox.value, folder, true, 0, nid)
+  // ⚠ ALWAYS A MAIL FOLDER: the history hook adopts a folder only when it
+  // reads that folder's pages, so a host folder handed to it never settled and
+  // remade its box on every render (an endless update loop). A host folder
+  // keeps the inbox's rows loaded, which is also what it is drawn from.
+  const history = useMailboxHistory(slug, mailbox.value, folder === 'sent' ? 'sent' : 'inbox', true, 0, nid)
   const box = history.box
   // the exact question, for a reference that landed outside the window this
   // poll returns. Same box, same access — it is the one-row form of the
@@ -1579,8 +1603,11 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
       <TransferPanel slug={slug} agent={nid} />
       <MailFolders folder={folder} setFolder={setFolder}
         unread={unreadCount === undefined ? pending.length : Math.max(0, unreadCount
-          - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier} />
+          - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier}
+        folders={extraFolders?.length ? ['inbox', 'sent', ...extraFolders.map((f) => f.id)] : undefined}
+        counts={Object.fromEntries((extraFolders ?? []).map((f) => [f.id, f.count ?? 0]))} />
       <div className="mailpane">
+        {extra ? extra.render([...pending, ...(box?.delivered ?? [])]) : <>
         {history.error&&<div role="alert">Could not load older mail. <button onClick={history.retry}>Retry</button></div>}
         {mailbox.error ? <div className="dim pad" role="alert">Could not load mailbox. <button onClick={mailbox.retry}>Retry</button></div> : box == null
           ? <div className="dim pad">loading…</div>
@@ -1627,6 +1654,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
                 onFocusAgent={onFocusAgent}
                 fileHref={(p) => fileUrl(slug, nid, p)}
                 mdBase={() => fileBase(slug, nid)} />}
+        </>}
       </div>
     </div>
   )
@@ -1639,9 +1667,11 @@ export interface MailFoldersProps {
   /** provider-themes the inbox count by the mailbox OWNER (absent for the
    *  user's own inbox and the org inbox, which belong to no provider) */
   tier?: string | null
+  /** badges on folders other than the inbox (a project's mail listeners) */
+  counts?: Record<string, number>
 }
 
-export function MailFolders({ folder, setFolder, unread, folders, tier }: MailFoldersProps) {
+export function MailFolders({ folder, setFolder, unread, folders, tier, counts }: MailFoldersProps) {
   return (
     <div className="mail-folders">
       {(folders ?? ['inbox', 'sent']).map((f) => (
@@ -1650,6 +1680,7 @@ export function MailFolders({ folder, setFolder, unread, folders, tier }: MailFo
           {f}{f === 'inbox' && unread > 0
             ? <>{' '}<span className={'tab-count'
                 + (tier ? ' prov-' + providerOf(tier) : '')}>{unread}</span></>
+            : f !== 'inbox' && (counts?.[f] ?? 0) > 0 ? <>{' '}<span className="tab-count">{counts![f]}</span></>
             : ''}
         </button>
       ))}

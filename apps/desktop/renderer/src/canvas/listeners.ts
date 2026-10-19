@@ -107,10 +107,28 @@ export function queueAckMode(node: { configured_scope?: unknown }): boolean {
  *  out awaiting an ack. Short chip text in the user's wording
  *  ("2 listeners · 1 q'd · 1 in flight"), zero parts left out, the full
  *  wording in the title. Null while all three are zero. */
-export interface QueueCard { text: string; title: string; bright: boolean }
+export interface QueueCard {
+  text: string
+  title: string
+  bright: boolean
+  /** the armed mail listeners it counts: a card naming any opens the inbox's
+   *  listeners folder, one naming only mail opens the inbox folder */
+  listeners: number
+}
+
+/** A project's MAIL LISTENERS (the inbox's listeners folder, user 2026-10-19
+ *  19:05Z): its fair_queue dogs, armed or paused, in the tree's order. Only
+ *  the armed ones take its mail; spent one-shots are gone. */
+export interface MailListenerState { listeners: Watchdog[]; armed: Watchdog[] }
+
+export function mailListenerState(project: string, dogs: Watchdog[]): MailListenerState {
+  const listeners = dogs.filter((w) => w.kind === 'fair_queue' && !w.spent
+    && (w.state === 'armed' || w.state === 'paused') && target(w) === project)
+  return { listeners, armed: listeners.filter((w) => w.state === 'armed') }
+}
 
 export function mailQueueCard(project: string, waiting: number, held: number, ack: boolean, dogs: Watchdog[]): QueueCard | null {
-  const armed = dogs.filter((w) => w.kind === 'fair_queue' && !w.spent && w.state === 'armed' && target(w) === project)
+  const armed = mailListenerState(project, dogs).armed
   const listeners = armed.length
   const inFlight = ack ? held : 0
   if (listeners <= 0 && waiting <= 0 && inFlight <= 0) return null
@@ -128,8 +146,9 @@ export function mailQueueCard(project: string, waiting: number, held: number, ac
       ? `${waiting} mail${waiting === 1 ? '' : 's'} waiting in project ${project}'s ack queue and ${inFlight} handed out awaiting an ack.`
       : `${waiting} mail${waiting === 1 ? '' : 's'} waiting in project ${project}'s mail queue for a fair_queue watcher.`)
   }
-  return { text: parts.join(' · '), title: facts.join(' ') + ' Click for the project mailbox.',
-    bright: listeners > 0 || inFlight > 0 }
+  return { text: parts.join(' · '),
+    title: facts.join(' ') + (listeners > 0 ? ' Click for the mail listeners.' : ' Click for the project mailbox.'),
+    bright: listeners > 0 || inFlight > 0, listeners }
 }
 /** The tool names a dog runs when it fires, for lists and tabs. */
 export function fireActionTools(w: Watchdog): string[] {

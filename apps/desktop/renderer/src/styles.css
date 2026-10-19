@@ -3268,6 +3268,28 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .project-listeners .listener-agent { font-weight: 600; }
 .project-listeners .listener-count { color: var(--listener); font-variant-numeric: tabular-nums; }
 .project-listeners .listener-dog { font-family: monospace; font-size: 11px; }
+/* the project inbox's listeners folder (maillisteners.tsx): the slots
+   table's layout and time colours, in the queue's rose for the order and for
+   a listener holding a job (ack mode), as the filled mail card */
+.project-mail-listeners { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 4px 10px 8px; }
+.slots-table.mail-listeners-table { min-width: 620px; }
+.mail-listeners-table .listener-col-mail { width: 30%; }
+.mail-listeners-table .listener-col-handed { width: 64px; }
+.mail-listeners-table .listener-col-dog { width: 20%; }
+.mail-listeners-table .slot-no { display: inline-block; min-width: 30px; color: var(--fq-line); font-variant-numeric: tabular-nums; }
+.mail-listeners-table .slot-agent { font-weight: 600; overflow: hidden; }
+.mail-listeners-table .slot-agent .ref-agent { max-width: 100%; }
+.mail-listeners-table .listener-handed { font-variant-numeric: tabular-nums; }
+.mail-listeners-table .listener-dog-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.mail-listeners-table .listener-dog { font-family: monospace; font-size: 11px; }
+.mail-listeners-table .listener-row.out > * { opacity: .6; }
+.mail-listeners-table .listener-row.holding > * { background: color-mix(in srgb, var(--fq-line) 14%, transparent); }
+.mail-listeners-table .listener-row.holding > :first-child { box-shadow: inset 3px 0 0 var(--fq-line); }
+.mail-listeners-table .listener-mail { overflow: hidden; }
+.mail-listeners-table .listener-mail-link { display: block; max-width: 100%; margin: 0; padding: 0; border: 0; background: none;
+  font: inherit; font-size: 11px; color: var(--fq-line); text-align: left; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-listeners-table .listener-mail-link:hover { background: none; text-decoration: underline; }
 .project-listeners code { font-size: 11px; }
 /* the desk's Dead letters tab */
 .project-dead-letters { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
