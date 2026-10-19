@@ -316,7 +316,8 @@ test('§2a jump cards up to the parent and down to its members', async (t) => {
   assert.deepEqual(names(el.querySelector('.cc-head .project-head-cards')!), ['boss'])
   const navs = [...el.querySelectorAll('.desk-nav')]
   assert.equal(navs.length, 1, 'one row down, under the summary')
-  assert.deepEqual(names(navs[0]!), ['dev1', 'ui'])
+  // nested projects crossed, retired members behind the retired control, as on the agent desk (G3)
+  assert.deepEqual(names(navs[0]!), ['dev1', 'ui', 'dev2', null])
   await inAct(() => { navs[0]!.querySelector<HTMLButtonElement>('button.desk-nav-chip')!.click() })
   assert.deepEqual(jumped, ['dev1'])
   assert.equal(el.querySelector('textarea.project-description-edit') === null, true, 'the editor is not open yet')
@@ -340,7 +341,7 @@ test('§2g the jump cards stay on every tab, the members\' row above the message
     assert.deepEqual(names(el.querySelector('.cc-head .project-head-cards')), ['boss'], `${tab}: the superior's card in the header row`)
     const navs = [...el.querySelectorAll('.desk-nav')]
     assert.equal(navs.length, 1, `${tab}: one row down`)
-    assert.deepEqual(names(navs[0]!), ['dev1', 'ui'], `${tab}: the members' cards`)
+    assert.deepEqual(names(navs[0]!), ['dev1', 'ui', 'dev2', null], `${tab}: the members' cards, then the retired control`)
     const composer = el.querySelector('.project-composer')
     assert.ok(composer, `${tab}: the message box`)
     assert.equal(navs[0]!.compareDocumentPosition(composer!) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING,
