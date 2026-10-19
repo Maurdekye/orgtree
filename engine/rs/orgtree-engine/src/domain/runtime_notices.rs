@@ -13,7 +13,7 @@ pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: O
     if freeze.is_none() {crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("turn.stalled",crate::runtime::watchdogs::events::Scope::Agent(org_id,agent_id),json!({"agent_id":agent_id})));}
     if !tell { return Ok(()) }
     let c=engine.db.get().await?;
-    let r=c.query_one("SELECT a.name,a.generation,p.name,a.account,a.session_id,o.slug FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id LEFT JOIN ot.agents p ON p.id=a.parent_id AND p.state='live' WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
+    let r=c.query_one("SELECT a.name,a.generation,p.name,a.account,a.session_id,o.slug FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id LEFT JOIN ot.agents p ON p.id=ot.live_superior_of(a.id) WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
     drop(c);
     let name:String=r.get(0);
     let parent:Option<String>=r.get(2);
@@ -46,7 +46,7 @@ pub async fn launch_failed(engine: &Arc<Engine>, org_id: i64, agent_id: i64, doo
     crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("turn.stalled",crate::runtime::watchdogs::events::Scope::Agent(org_id,agent_id),json!({"agent_id":agent_id})));
     if !tell { return Ok(()) }
     let c=engine.db.get().await?;
-    let r=c.query_one("SELECT a.name,a.generation,p.name,o.slug,a.session_id FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id LEFT JOIN ot.agents p ON p.id=a.parent_id AND p.state='live' WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
+    let r=c.query_one("SELECT a.name,a.generation,p.name,o.slug,a.session_id FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id LEFT JOIN ot.agents p ON p.id=ot.live_superior_of(a.id) WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
     drop(c);
     let name:String=r.get(0);
     let parent:Option<String>=r.get(2);

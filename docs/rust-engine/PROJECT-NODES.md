@@ -23,12 +23,31 @@ built yet.
 - Scope: a project's stored scope is `{"transparent": true}` and `scope::clamp` passes the
   parent's effective scope straight through such a node. A project never narrows or widens what
   its children may do; they are clamped by the agents above it.
+  Retool descendant propagation uses the node's kind to pass through projects, never writing
+  an agent cap over their settings. Upward grants through retool and desktop scope edits also
+  skip project rows. Migration 0035 restores missing/false transparency markers once, including
+  archived projects, while retaining every surviving setting. It cannot reconstruct erased
+  policy values or Summary text; it neither invents them nor replays stale settings.
 - **Superior** of an agent = its nearest *agent* ancestor (`ot.superior_of(id)`, SQL function in
   0025). A project is transparent for reporting: status notices, "your superior" in the prompt,
   the superior/peer mail rules and the "top-level agent" tests use the nearest agent ancestor.
   Agents under a top-level project are therefore top-level agents (they may write to the user).
   [decided: user 2026-10-16 20:40Z, confirming the implementer's proposal: a node that "takes no
   action" cannot receive reports, so they go to the nearest agent]
+
+Runtime outcome cards use `ot.live_superior_of(id)`: the nearest **live agent** ancestor,
+skipping projects and inactive agents, or the user when none exists. This applies to usage-limit
+and terminal-error reports, failed launches, exhausted retries, and credential/balance parks.
+It changes the recipient, preserving the existing card payloads, subject copies, wake behavior
+and once-per-episode gates. Structural authority continues to use `ot.superior_of(id)`; an
+inactive ancestor does not confer top-level authority on its reports.
+
+Stage A regression proof: `tools/rig/proofs/project-transparency-a.mjs` drives the real engine
+with fake CLIs and a scratch database across direct, project, nested, root-project and empty
+project cases. It also checks single/batch moves and whole-project moves preserve settings and
+Summaries, and rehearses the repair through startup twice. On the d5b5d44 debug baseline the
+default stack overflowed before the first CLI started; the comparative red/green rig uses
+test-only `RUST_MIN_STACK=16777216`. Production stack settings are unchanged.
 
 ## It runs no turns
 

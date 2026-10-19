@@ -325,7 +325,7 @@ async fn who(engine: &Engine, org_id: i64, agent_id: i64) -> Result<Option<Who>>
         .query_opt(
             "SELECT a.name, a.generation, p.name, a.account, a.session_id, o.slug
                FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
-               LEFT JOIN ot.agents p ON p.id = a.parent_id AND p.state = 'live'
+               LEFT JOIN ot.agents p ON p.id = ot.live_superior_of(a.id)
               WHERE a.id = $1 AND a.org_id = $2 AND a.state = 'live'",
             &[&agent_id, &org_id],
         )

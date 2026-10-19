@@ -3244,7 +3244,7 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         let mut below_actor = matches!(actor, Actor::User);
         for a in ancestors.iter().filter(|a| a.id != n.id) {
             if matches!(actor, Actor::Agent { id, .. } if *id == a.id) { below_actor = true; continue; }
-            if !below_actor { continue; }
+            if !below_actor || a.project() { continue; }
             let raised = scope::raise(&a.scope, &granted);
             if raised != scope::normalize(&a.scope) {
                 tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&raised]).await?;
@@ -3297,6 +3297,12 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         for id in &below {
             let child = node_by_id(tx,*id).await?;
             let Some(parent) = child.parent.and_then(|id| effective.get(&id)) else { refuse!(Conflict,"scope subtree changed during retool"); };
+            // A project stores policy, never an agent grant. Pass the cap
+            // through by kind even if an old cascade damaged its marker.
+            if child.project() {
+                effective.insert(*id,parent.clone());
+                continue;
+            }
             let bounded = scope::clamp(&child.scope,parent);
             let stored = scope::normalize(&child.scope);
             if bounded != stored {

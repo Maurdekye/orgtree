@@ -1002,7 +1002,11 @@ async fn cascade_up(tx: &tokio_postgres::Transaction<'_>, mut parent: Option<i64
         if depth > 1024 {
             break;
         }
-        let r = tx.query_one("SELECT name, scope, parent_id FROM ot.agents WHERE id = $1 FOR UPDATE", &[&pid]).await?;
+        let r = tx.query_one("SELECT name, scope, parent_id, kind FROM ot.agents WHERE id = $1 FOR UPDATE", &[&pid]).await?;
+        parent = r.get(2);
+        // Project settings are not a scope cap and must never be rewritten
+        // by a grant to an agent somewhere below them.
+        if r.get::<_, String>(3) == crate::domain::projects::KIND { continue; }
         let name: String = r.get(0);
         let cur = scope::normalize(&r.get::<_, Value>(1));
         let mut next = cur.clone();
@@ -1058,7 +1062,6 @@ async fn cascade_up(tx: &tokio_postgres::Transaction<'_>, mut parent: Option<i64
             tx.execute("UPDATE ot.agents SET scope = $2, row_version = row_version + 1 WHERE id = $1", &[&pid, &next]).await?;
             changed.push(name);
         }
-        parent = r.get(2);
     }
     Ok(changed)
 }

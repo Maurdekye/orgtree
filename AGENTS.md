@@ -1044,6 +1044,12 @@
   - Every query that picks agents to run, warm, notify, remind or count filters
     `kind = 'agent'`.
   - An agent's superior is `ot.superior_of(id)`, its nearest agent ancestor, not `parent_id`.
+  - Runtime freeze/error, launch, exhausted-retry and parked cards use
+    `ot.live_superior_of(id)` (nearest live agent, otherwise user). Retool and desktop
+    scope cascades pass through project rows without writing their policy. Migration
+    0035 repairs damaged transparency once while retaining surviving settings.
+    [verified: `domain/runtime_notices.rs`, `runtime/recovery.rs`, `domain/ops.rs`,
+    `http/nodes.rs`, migration 0035; 2026-10-19]
   - A project's scope is transparent: `scope::clamp` passes its parent's scope through.
   - Its `grant_credits` mirrors its live children's stake and is re-settled by
     `projects::settle_credits` at the end of every `run_in_tx`, so costs go to the nearest
