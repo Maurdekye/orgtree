@@ -13,6 +13,20 @@ const tray=require(path.join(temp,'traylist.cjs')),{OrgPlacement,migratePlacemen
 test.after(()=>{assert.ok(fs.realpathSync(temp).toLowerCase().startsWith(fs.realpathSync(scope).toLowerCase()+path.sep));fs.rmSync(temp,{recursive:true,force:true})})
 const rows=Array.from({length:15},(_,i)=>({slug:'org-'+i,name:'Organization '+i,working:i%3,live:20,attention:0}))
 
+for(const count of [1,4,10])test(`tray list reserves no scrollbar gutter for ${count} orgs`,()=>{
+ const html=tray.trayListHtml(rows.slice(0,count))
+ assert.match(html,/scrollbar-gutter:auto/)
+ assert.doesNotMatch(html,/scrollbar-gutter:stable|overflow-y:scroll/)
+ assert.equal((html.match(/<a class="row/g)||[]).length,count)
+})
+
+test('eleven orgs retain the stable scrolling gutter and all aligned rows',()=>{
+ const html=tray.trayListHtml(rows.slice(0,11))
+ assert.match(html,/overflow-y:auto;scrollbar-gutter:stable/)
+ assert.equal((html.match(/<a class="row/g)||[]).length,11)
+ assert.equal(tray.popupBounds({x:900,y:650,width:24,height:24},{x:0,y:0,width:1000,height:650},11).height,292)
+})
+
 test('the tray viewport is capped at ten rows without dropping any organization',()=>{
  const bounds=tray.popupBounds({x:900,y:900,width:24,height:24},{x:0,y:0,width:1200,height:900},rows.length)
  assert.equal(bounds.height,10*tray.TRAY_ROW_H+12)
