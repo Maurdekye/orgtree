@@ -28,6 +28,12 @@ settings.
   Labels that already show the name keep the existing tooltip without a
   duplicate name. Canvas card names use that same host and have no competing
   name-only `title`.
+- Far-zoom agent and project cards reveal their names in the same floating,
+  click-through label above the card layer on hover or focus. Their native
+  tooltips omit the redundant name and retain the model/account or project
+  details. Normal project icons and other identity-less links still prefix
+  the name. Zooming out of the mini presentation removes the floating label
+  immediately. [user 2026-10-19 17:21Z]
 - The docket reply recipient Select keeps its MUI menu inside its
   `ObjectMenuBoundary` (`disablePortal`) so right-clicks reach the delegated
   agent menu. The shared context menu uses z-index 1600, above MUI popovers,

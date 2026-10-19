@@ -1059,6 +1059,9 @@ button.badge.audience-fold.alert {
 .sq-far-scaler .tier {
   flex: none;
 }
+.sq-far-scaler .project-mark {
+  flex: none; display: inline-flex; align-items: center; font-size: 16px;
+}
 .sq-far-name {
   opacity: 0;
   max-width: 0;

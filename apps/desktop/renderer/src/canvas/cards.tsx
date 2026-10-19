@@ -57,6 +57,7 @@ import { BulkCompactConfirm, allAgents } from './bulkcompact'
 import { useDeskActionsNow } from './deskhosts'
 import { isMobile } from '../mobile'
 import { AgentName, TierChip } from './identity'
+import { FarZoomName, useFarZoomReveal } from './farzoomname'
 import { PinnedPlaceholder } from './pins'
 import { ConfirmModal, DraftScopeModal } from './modals'
 import { firstUseName, useFirstUse } from './firstuse'
@@ -1766,31 +1767,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   const [nameFocus, setNameFocus] = useState(false)
   const farEligible = lod === 'mini' && !focused && !mapMode
   const farWant = farEligible && (nameHover || nameFocus)
-  // The copy starts in the card's resting look and is switched to the revealed
-  // look right after it is laid out, so the original lift/fade plays; on leaving it stays
-  // mounted until the reverse has played.
-  const [farMounted, setFarMounted] = useState(false)
-  const [farOn, setFarOn] = useState(false)
-  const ghostRef = useRef<HTMLSpanElement>(null)
-  useLayoutEffect(() => {
-    // Only pointer/focus leave retracts the mini reveal. A zoom or desk change
-    // replaces that presentation immediately, including a rapid return to mini.
-    if (!farEligible) {
-      setFarMounted(false)
-      setFarOn(false)
-      return
-    }
-    if (farWant) {
-      setFarMounted(true)
-      void ghostRef.current?.offsetWidth // commit the resting look so the change below animates
-      setFarOn(true)
-      return
-    }
-    setFarOn(false)
-    const t = setTimeout(() => setFarMounted(false), 260)
-    return () => clearTimeout(t)
-  }, [farWant, farEligible])
-  const farGhost = farEligible && (farWant || farMounted)
+  const farReveal = useFarZoomReveal(farEligible, farWant)
+  const farGhost = farReveal.visible
   const [fullNameAt, setFullNameAt] = useState<{ left: number; top: number } | null>(null)
   useLayoutEffect(() => {
     const el = nameRef.current
@@ -1855,7 +1833,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   }
   return (
     <div ref={cardRef} data-first-use-agent={node.id} data-copy-agent-name={focused ? undefined : node.id}
-      {...agentTooltipProps(focused ? undefined : node.id, lod === 'mini')}
+      {...agentTooltipProps(focused ? undefined : node.id)}
       className={cls.join(' ') + (farGhost ? ' far-ghosted' : '')} style={style}
       onPointerDown={(e) => {
         downAt.current = { x: e.clientX, y: e.clientY }
@@ -2222,16 +2200,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       {asking && createPortal(
         <AgentRetireConfirm kind={asking} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
-      {farGhost && cardRef.current?.parentElement && createPortal(
-        <span ref={ghostRef} className={'sq-far-ghost' + (farOn && farWant ? ' on' : '')} aria-hidden="true"
-          style={{ left: pos.x, top: pos.y, width: NODE_W, height: NODE_H }}>
-          <span className="sq-far-tier">
-            <span className="sq-far-scaler">
-              <TierChip tier={node.tier} />
-              <span className="sq-far-name">{node.id}</span>
-            </span>
-          </span>
-        </span>, cardRef.current.parentElement)}
+      <FarZoomName reveal={farReveal} cardRef={cardRef} pos={pos} name={node.id}
+        icon={<TierChip tier={node.tier} />} />
     </div>
   )
 }

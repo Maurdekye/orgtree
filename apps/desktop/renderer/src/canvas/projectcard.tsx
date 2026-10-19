@@ -13,7 +13,7 @@
 // retirement. Agents and projects hang under it like under any card; dropping
 // a card on it moves that card in.
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { audienceAction } from '../api'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
@@ -34,6 +34,7 @@ import { listenerCards, projectListenerState, queueAckMode, queueCard } from './
 import { readQuickChat } from '../quickchat'
 import { agentTooltipProps } from './agentnav'
 import { useAgentSurfaceRoutes } from './panelcorner'
+import { FarZoomName, useFarZoomReveal } from './farzoomname'
 
 export function isProject(node: Pick<CanvasNode, 'kind'> | null | undefined): boolean {
   return node?.kind === 'project'
@@ -129,6 +130,29 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const queue = queueCard(node.id, waiting, node.mail_held ?? 0, queueAckMode(node))
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [nameHover, setNameHover] = useState(false)
+  const [nameFocus, setNameFocus] = useState(false)
+  const farEligible = lod === 'mini' && !focused && !pinnedFocus
+  const farReveal = useFarZoomReveal(farEligible, farEligible && (nameHover || nameFocus))
+  // A portaled menu can disappear without pointerleave/blur. Reconcile the
+  // card's real hover/focus, as agent cards do, so its label cannot get stuck.
+  const menuWasOpen = useRef(false)
+  useEffect(() => {
+    const was = menuWasOpen.current
+    menuWasOpen.current = menu.isOpen
+    if (menu.isOpen || !was) return
+    const settle = () => {
+      const el = cardRef.current
+      let over = false
+      try { over = !!el?.matches(':hover') } catch { /* no :hover support */ }
+      setNameHover(over)
+      setNameFocus(!!el && el.contains(el.ownerDocument.activeElement))
+    }
+    settle()
+    const timer = setTimeout(settle, 120)
+    return () => clearTimeout(timer)
+  }, [menu.isOpen])
   const cls = ['sq', 'project', node.state, deskOpen ? 'desk' : lod, 'edge-' + edge]
   if (dragging) cls.push('lifted')
   if (isDrop) cls.push('drop')
@@ -162,11 +186,15 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     onShowPin,
   }, { ...hire, pinned, quickChatTier: readQuickChat(slug, tree?.quick_chat).tier })
   return (
-    <div data-copy-agent-name={node.id} className={cls.join(' ')} style={style}
+    <div ref={cardRef} data-copy-agent-name={node.id} className={cls.join(' ')} style={style}
       aria-label={`project ${node.id}`}
+      onFocus={(e) => { if (e.currentTarget.contains(e.target as Node)) setNameFocus(true) }}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setNameFocus(false) }}
+      onPointerEnter={() => setNameHover(true)}
+      onPointerLeave={() => setNameHover(false)}
       // a desk's own presses pan the canvas or work its controls, as an agent desk's do
       onPointerDown={(e) => { if (!deskOpen) onDragStart(e, node.id) }}
-      onPointerMove={(e) => { trackEdge(e); onDragMove(e, node.id) }}
+      onPointerMove={(e) => { setNameHover(true); trackEdge(e); onDragMove(e, node.id) }}
       onPointerUp={(e) => onDragEnd(e, node.id, node, false)}
       onPointerCancel={(e) => onDragCancel(e, node.id)}
       onClick={(e) => {
@@ -177,7 +205,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       }}
       onContextMenu={(e) => menu.open(e, menuEntries)}>
       {lod === 'mini' ? (
-        <span className="project-mini" {...agentTooltipProps(node.id, true)}><FolderIcon fontSize="inherit" /></span>
+        <span className="project-mini" {...agentTooltipProps(node.id)}><FolderIcon fontSize="inherit" /></span>
       ) : (
         <>
           <div className="sq-head project-head">
@@ -266,6 +294,8 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       {asking && createPortal(
         <AgentRetireConfirm kind={asking} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
+      <FarZoomName reveal={farReveal} cardRef={cardRef} pos={pos} name={node.id}
+        icon={<span className="project-mark"><FolderIcon fontSize="inherit" /></span>} />
     </div>
   )
 }

@@ -1012,6 +1012,12 @@
   settings require more than one choice. [decided: user 2026-10-19 11:40Z;
   verified: `providers/catalog.rs`, `canvas/modals.tsx`]
 
+- Far-zoom agent and project cards share a floating hover/focus name above the
+  card layer; their native tooltips contain details without a repeated name.
+  Other zoom levels and identity-less links keep their existing name rules.
+  [decided: user 2026-10-19 17:21Z; verified: `canvas/farzoomname.tsx`,
+  `canvas/cards.tsx`, `canvas/projectcard.tsx`]
+
 - When a shared agent/project link's visible label omits its identity, its
   native tooltip starts with that name; visible-name labels are not duplicated.
   Shared context-menu identity entries and icon-only model/project marks opt
