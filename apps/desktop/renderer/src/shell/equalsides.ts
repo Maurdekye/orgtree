@@ -30,9 +30,11 @@ export function useEqualSides(on: boolean) {
         const cs = getComputedStyle(el)
         const kids = [...el.children] as HTMLElement[]
         const gap = parseFloat(cs.columnGap) || 0
-        return kids.reduce((w, k) => w + k.getBoundingClientRect().width, 0)
+        const width = kids.reduce((w, k) => w + k.getBoundingClientRect().width, 0)
           + gap * Math.max(0, kids.length - 1)
           + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+        const title = kids.find(k => k.classList.contains('shell-header-title'))
+        return { width, title: title?.getBoundingClientRect().width ?? 0 }
       } finally {
         if (min) el.style.setProperty('min-width', min, priority)
         else el.style.removeProperty('min-width')
@@ -43,12 +45,24 @@ export function useEqualSides(on: boolean) {
         const value = `${Math.ceil(width)}px`
         if (h.style.getPropertyValue(key) !== value) h.style.setProperty(key, value)
       }
-      set('--shell-start-min', need(a))
-      set('--shell-end-min', need(b))
+      const left = need(a), right = need(b)
+      // Long org names still yield to the controls and Quick chat's responsive
+      // floor. This budget comes from the bar width, never a clipped title.
+      const quick = h.querySelector<HTMLElement>(':scope > .shell-header-quick')
+      if (left.title && quick) {
+        const gap = parseFloat(getComputedStyle(h).columnGap) || 0
+        const floor = parseFloat(getComputedStyle(quick).minWidth) || 0
+        const available = Math.floor(h.clientWidth - gap * 2 - floor)
+        const fixed = Math.ceil(left.width - left.title)
+        left.width = Math.min(left.width, Math.max(fixed, available - Math.ceil(right.width)))
+      }
+      set('--shell-start-min', left.width)
+      set('--shell-end-min', right.width)
     }
     const sizes = new ResizeObserver(sync)
     const watch = () => {
       sizes.disconnect()
+      sizes.observe(h)
       for (const k of [...a.children, ...b.children]) sizes.observe(k)
       sync()
     }
