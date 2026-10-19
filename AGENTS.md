@@ -7,6 +7,12 @@
   [Finish launch](docs/rust-engine/installer-finish-launch.md).
   [verified: `build/installer.nsh`; decided: coordinator/user 2026-10-19,
   4.3.3 slow fresh-install launch fix]
+- Centered Quick chat side minima must be measured with each side temporarily
+  unconstrained (`min-width: max-content`), restoring its inline style before
+  paint. Reading flex-clipped control widths feeds the previous minimum back
+  into ResizeObserver and can alternate Quick chat widths. Only publish changed
+  minima; observe nested title/control text too. See [width stability](docs/rust-engine/quickchat-width-stability.md).
+  [verified: `shell/equalsides.ts`, `tests/quickwidth-capture.cjs`; 2026-10-19]
 
 - Session-placement loss requires three two-second misses; recovery is immediate.
   Overdue ticks are skipped and each recovered blip logs once. A per-engine

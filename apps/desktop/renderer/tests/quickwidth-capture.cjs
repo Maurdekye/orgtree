@@ -25,7 +25,10 @@ app.whenReady().then(async()=>{
     fs.writeFileSync(path.join(out,'quickwidth.png'),(await win.webContents.capturePage()).toPNG())
     const unstable=result.filter(row=>row.max-row.min>.1)
     console.log(JSON.stringify({cases:result.length,unstable:unstable.map(({samples,...row})=>row)}))
+    assert.equal(result.length,28,'every header/footer configuration must be sampled')
     assert.equal(unstable.length,0,'Quick chat must settle, not alternate widths each frame')
     assert.ok(result.every(row=>row.min>=199.9),'Quick chat keeps its 200px floor')
+    assert.ok(result.find(row=>row.width===1280&&!row.changed&&row.case==='header-0').min>
+      result.find(row=>row.width===1024&&!row.changed&&row.case==='header-0').min,'Quick chat grows again when the window widens')
   }finally{win.destroy()}
 }).then(()=>app.exit(0),error=>{console.error(error.stack||error);app.exit(1)})

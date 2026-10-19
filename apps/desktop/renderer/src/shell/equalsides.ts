@@ -27,13 +27,13 @@ export function useEqualSides(on: boolean) {
       const priority = el.style.getPropertyPriority('min-width')
       el.style.setProperty('min-width', 'max-content')
       try {
-      const cs = getComputedStyle(el)
-      const kids = [...el.children] as HTMLElement[]
-      const gap = parseFloat(cs.columnGap) || 0
-      return kids.reduce((w, k) => w + k.getBoundingClientRect().width, 0)
-        + gap * Math.max(0, kids.length - 1)
-        + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
-      } finally {
+        const cs = getComputedStyle(el)
+        const kids = [...el.children] as HTMLElement[]
+        const gap = parseFloat(cs.columnGap) || 0
+        return kids.reduce((w, k) => w + k.getBoundingClientRect().width, 0)
+          + gap * Math.max(0, kids.length - 1)
+          + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+        } finally {
         if (min) el.style.setProperty('min-width', min, priority)
         else el.style.removeProperty('min-width')
       }
