@@ -49,8 +49,8 @@ export default async function (rig) {
   p.check('one event listener per agent per project', !twice.ok && /already/.test(twice.text), said(twice))
   const outsider = await listen('carol', 'nosey', 'sync', true)
   p.check('only agents above or below the project listen on it', !outsider.ok && /above or below/.test(outsider.text), said(outsider))
-  const patterned = await rig.tool('sa', 'orgtree_watchdog', { action: 'create', name: 'p2', kind: 'project_listener', target: 'sync', pattern: 'go' })
-  p.check('a listener takes every event: no pattern', !patterned.ok && /already|no pattern/.test(patterned.text), said(patterned))
+  const patterned = await rig.tool('boss', 'orgtree_watchdog', { action: 'create', name: 'p2', kind: 'project_listener', target: 'sync', pattern: 'go' })
+  p.check('a listener takes every event: no pattern', !patterned.ok && /no pattern/.test(patterned.text), said(patterned))
 
   // The headline flow: the superior's watch is already satisfied, fires at
   // once, and its fire action releases everyone in the same instant.
@@ -97,10 +97,10 @@ export default async function (rig) {
   const carolFire = await rig.tool('carol', 'orgtree_project', { action: 'fire_event', name: 'sync2' })
   p.check('an agent off the line cannot fire the event', !carolFire.ok && /above or below/.test(carolFire.text), said(carolFire))
   const listed = await rig.tool('boss', 'orgtree_project', { action: 'listeners', name: 'sync2' })
-  p.check('action=listeners names the listeners and the watches',
+  p.check('action=listeners names the listeners (a spent watch is gone, as in watchdog list)',
     listed.ok && listed.json?.listeners_armed === 2
     && (listed.json?.listeners ?? []).map(l => l.agent).sort().join() === 'sd,se'
-    && (listed.json?.watches ?? []).some(w => w.dog === 'pair' && w.count === 2), said(listed))
+    && !(listed.json?.watches ?? []).some(w => w.dog === 'pair'), said(listed))
 
   // ------------------------------------------------------------ continuous re-cross
   const again = await rig.tool('boss', 'orgtree_watchdog', { action: 'create', name: 'pair-again', kind: 'listener_watch', target: 'sync2', count: 2 })

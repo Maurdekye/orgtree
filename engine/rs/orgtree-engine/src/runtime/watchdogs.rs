@@ -1851,6 +1851,13 @@ async fn slot_claim_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::p
 /// like a slot claim, so the result can say whether it already fired.
 #[logged]
 async fn listener_watch_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::projects::Project, row: i64, count: i64) -> Result<String> {
+    // the satisfying count is read before evaluating: the fire itself may
+    // spend one-shot listeners (a fire_event action), and the result
+    // should name the count that fired it, not what remains after
+    let before = {
+        let client = engine.db.get().await?;
+        crate::domain::listeners::armed_count(&**client, org_id, p.id).await?
+    };
     Box::pin(crate::domain::listeners::evaluate(engine, org_id, p.id)).await?;
     let client = engine.db.get().await?;
     let armed = crate::domain::listeners::armed_count(&**client, org_id, p.id).await?;
@@ -1860,7 +1867,7 @@ async fn listener_watch_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domai
         .map(|r| r.get(0))
         .unwrap_or(0);
     Ok(if fired > 0 {
-        format!("LISTENER WATCH: project {} already has {armed} event listeners armed (this watch waits for {count}), so it FIRED at once, running its fire actions if it carries any", p.name)
+        format!("LISTENER WATCH: project {} already has {before} event listeners armed (this watch waits for {count}), so it FIRED at once, running its fire actions if it carries any", p.name)
     } else {
         format!("LISTENER WATCH: project {} has {armed} of {count} event listeners armed; it fires and wakes you when the count is reached (arming or resuming a listener re-checks at once)", p.name)
     })
