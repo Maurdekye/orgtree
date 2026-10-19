@@ -3986,7 +3986,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .hsof button.t-argon { color: var(--tier-argon); border-color: color-mix(in srgb, var(--tier-argon) 45%, var(--line)); }
 .hsof button.t-barium { color: var(--tier-barium); border-color: color-mix(in srgb, var(--tier-barium) 45%, var(--line)); }
 .hsof button.t-carbon { color: var(--tier-carbon); border-color: color-mix(in srgb, var(--tier-carbon) 45%, var(--line)); }
-.hsof button.codex-preview:disabled { opacity: .45; border-style: dashed; }
+.hsof button.codex-preview:disabled, .hs-tier.codex-preview:disabled { opacity: .45; border-style: dashed; }
 /* an opt-in LEGACY tier (Terra), shown only with "show legacy models" on */
 .hsof button.legacy { border-style: dashed; }
 /* D-199: the no-harness badge. Not a tier chip — it is WIDER than the square

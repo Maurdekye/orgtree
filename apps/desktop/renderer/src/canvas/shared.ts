@@ -657,6 +657,7 @@ export interface HireState {
   enabled: boolean
   installed: boolean
   reason: string | null
+  signedOut?: boolean
   /** D-203's seam, agreed with `settings-menu` and built here so their change
    *  is a server field rather than a frontend refactor: the user has switched
    *  this provider OFF in settings. Distinct from `installed` ON PURPOSE —
@@ -732,6 +733,15 @@ export const familyOffer = (h: HireState | null | undefined): FamilyOffer =>
     : h.userEnabled === false || h.orgEnabled === false ? 'hide'
       : h.enabled ? 'offer' : h.installed ? 'disable' : 'hide')
 
+/** Only the engine's explicit classification authorizes sign-in advice. */
+export const signedOutHire = (h: HireState | null | undefined): boolean =>
+  h?.signedOut === true && familyOffer(h) === 'disable'
+
+export const hireDisabledReason = (h: HireState | null | undefined, label: string): string =>
+  signedOutHire(h)
+    ? `${label} isn't signed in. Sign in to hire agents from it.${h?.reason ? ' ' + h.reason : ''}`
+    : h?.reason ?? 'hiring is not enabled yet'
+
 /** The `/api/providers` entry narrowed to what any presence question needs.
  *  Lived inline in OrgCanvas until D-202 gave a second and third surface the
  *  same question; one derivation, so no caller can decide `installed`
@@ -740,7 +750,7 @@ export const familyOffer = (h: HireState | null | undefined): FamilyOffer =>
 // row positive absence; loading/failed/older payloads retain the unknown rule.
 export const hireOf = (p: ProviderInfo | null | undefined, absenceKnown = false, orgEnabled?: boolean): HireState | null =>
   (p ? { enabled: !!p.hire_enabled, installed: !!p.status?.installed,
-         reason: p.reason, userEnabled: p.user_enabled, orgEnabled,
+         reason: p.reason, signedOut: p.hire_reason === 'signed_out', userEnabled: p.user_enabled, orgEnabled,
          reserve: p.reserve ?? null,
          offeredTiers: (p.tiers ?? []).map((t) => t.tier) }
     : absenceKnown || orgEnabled === false ? { enabled: false, installed: false, reason: null, orgEnabled } : null)
@@ -758,6 +768,7 @@ export const codexTierOffer = (
 ): FamilyOffer => {
   if (tierHiddenAsLegacy(tier)) return 'hide'
   const base = familyOffer(h)
+  if (signedOutHire(h)) return 'disable'
   return !CODEX_ALWAYS_TIERS.includes(tier)
     && !h?.offeredTiers?.includes(tier) ? 'hide' : base
 }
@@ -770,6 +781,7 @@ export const antigravityTierOffer = (
   h: HireState | null | undefined, tier: string,
 ): FamilyOffer => {
   if (optInLegacyHidden(tier)) return 'hide'
+  if (signedOutHire(h)) return 'disable'
   if (CONDITIONAL_ANTIGRAVITY_TIERS.includes(tier)
     && !h?.offeredTiers?.includes(tier)) return 'hide'
   return familyOffer(h)
@@ -779,7 +791,8 @@ export const antigravityTierOffer = (
  *  evidence (the tier is not among the payload's Muse rows), no offer. */
 export const museTierOffer = (
   h: HireState | null | undefined, tier: string,
-): FamilyOffer => (!h?.offeredTiers?.includes(tier) ? 'hide' : familyOffer(h))
+): FamilyOffer => (signedOutHire(h) ? 'disable'
+  : !h?.offeredTiers?.includes(tier) ? 'hide' : familyOffer(h))
 
 /** Shared hire-sheet and context-menu eligibility, including per-tier rollout gates. */
 export const hireTierOffer = (provider: string, hire: HireState | null | undefined,

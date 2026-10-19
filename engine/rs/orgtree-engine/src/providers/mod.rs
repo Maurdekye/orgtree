@@ -863,6 +863,7 @@ pub fn payload(engine: &Engine) -> Value {
                 "source": s.source, "connected": s.connected, "email": s.email, "kind": s.kind,
             },
             "hire_enabled": hire, "reason": reason, "user_enabled": enabled,
+            "hire_reason": hire_reason(s.installed, enabled, st.probed.then_some(!s.connected)),
         })
     };
     let mut providers = vec![];
@@ -935,6 +936,7 @@ pub fn payload(engine: &Engine) -> Value {
         if !st.muse.connected && elsewhere && engine.settings.provider_enabled(catalog::MUSE) {
             e["hire_enabled"] = json!(true);
             e["reason"] = Value::Null;
+            e["hire_reason"] = Value::Null;
         }
         if st.muse.connected && !any && e["reason"].is_null() {
             e["reason"] = json!(match found.and_then(|d| d.probe.catalog.as_ref()).map(|c| c.source.as_str()) {
@@ -956,8 +958,19 @@ pub fn payload(engine: &Engine) -> Value {
             .collect();
         let harness_present = !st.probed || crate::openrouter::keys(engine).iter().any(|a|
             crate::harnesses::installed(engine, &crate::openrouter::key_harness(engine, &a.id)));
-        let s = CliStatus { installed: key_set && harness_present, connected: key_set, ..Default::default() };
+        let keys: Vec<_> = crate::openrouter::keys(engine).into_iter()
+            .filter(|a| a.enabled && (!st.probed || crate::harnesses::installed(engine,
+                &crate::openrouter::key_harness(engine, &a.id)))).collect();
+        // A missing/failed read is unknown. Only every enabled runnable key's
+        // explicit authentication evidence disables this family for sign-in.
+        let signed_out = all_signed_out(keys.iter().map(|a| crate::usage::openrouter_reading(engine, &a.id)
+            .map(|v| v["reauth_required"] == true || v["reauth_evidence"] == "not_connected")));
+        let s = CliStatus { installed: key_set && harness_present, connected: key_set && !signed_out, ..Default::default() };
         let mut e = entry(catalog::OPENROUTER, "OpenRouter", "openrouter", &s, tiers);
+        e["hire_reason"] = json!(hire_reason(s.installed, engine.settings.provider_enabled(catalog::OPENROUTER), Some(signed_out)));
+        if signed_out {
+            e["reason"] = json!("OpenRouter rejected the enabled API keys; update them in App settings › Providers › OpenRouter");
+        }
         if !key_set {
             e["reason"] = json!("no OpenRouter API key is set (App settings › Providers › OpenRouter)");
         } else if !harness_present {
@@ -981,6 +994,9 @@ pub fn payload(engine: &Engine) -> Value {
         let any = !tiers.is_empty();
         let s = CliStatus { installed: true, connected: any, ..Default::default() };
         let mut e = entry(catalog::LANGSERVER, "Language servers", "language server", &s, tiers);
+        // Local servers use their configured endpoint/key, not the host CLI's
+        // native subscription login. No-models/offline is not sign-out evidence.
+        e["hire_reason"] = json!(hire_reason(true, engine.settings.provider_enabled(catalog::LANGSERVER), None));
         if !any {
             e["reason"] = json!("no language server offers a model yet (App settings › Providers › Language servers)");
         }
@@ -1002,6 +1018,40 @@ pub fn payload(engine: &Engine) -> Value {
         "apikey_fallback": map("apikey_fallback", false),
         "subscription_inference": map("subscription_inference", true),
     })
+}
+
+#[nolog]
+fn hire_reason(installed: bool, enabled: bool, signed_out: Option<bool>) -> Option<&'static str> {
+    if !enabled { Some("turned_off") }
+    else if !installed { Some("not_installed") }
+    else if signed_out == Some(true) { Some("signed_out") }
+    else { None }
+}
+
+#[nolog]
+fn all_signed_out(states: impl IntoIterator<Item = Option<bool>>) -> bool {
+    let mut states = states.into_iter().peekable();
+    states.peek().is_some() && states.all(|s| s == Some(true))
+}
+
+#[cfg(test)]
+mod signed_out_hire_tests {
+    use super::*;
+    #[test]
+    fn sign_out_requires_installed_enabled_and_positive_evidence() {
+        assert_eq!(hire_reason(true, true, Some(true)), Some("signed_out"));
+        assert_eq!(hire_reason(true, true, None), None);
+        assert_eq!(hire_reason(true, true, Some(false)), None);
+        assert_eq!(hire_reason(true, false, Some(true)), Some("turned_off"));
+        assert_eq!(hire_reason(false, true, Some(true)), Some("not_installed"));
+    }
+    #[test]
+    fn openrouter_unknown_or_one_working_key_is_not_signed_out() {
+        assert!(all_signed_out([Some(true), Some(true)]));
+        for states in [vec![], vec![None], vec![Some(true), None], vec![Some(true), Some(false)]] {
+            assert!(!all_signed_out(states));
+        }
+    }
 }
 
 /// Whether a Muse tier is offered: its model (or one of its versions) is a

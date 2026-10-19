@@ -38,6 +38,7 @@ import { audienceAction, getAccountRegistry, getProviders, orgInboxRead, reorder
 import { useAgyModelsRefresh, museEffortLevels } from './shared'
 import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
 import { ReorderMarker, rowReorderSlot } from './reorderpreview'
+import { hireDisabledReason } from './shared'
 import {
   AddIcon, ChevronLeftIcon, ChevronRightIcon, FrozenIcon,
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
@@ -4903,7 +4904,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
                      : f.key === 'antigravity'
                        ? orderAntigravityTiers(f.tiers, f.seatOf, 'desc')
                        : bySeatDesc(f.tiers, f.seatOf)) as readonly string[],
-                   reason: f.hire?.reason ?? 'hiring is not enabled yet' }))
+                   reason: hireDisabledReason(f.hire, f.key === 'claude' ? 'Claude' : f.label) }))
     // an OpenRouter row with no favorites yet has no buttons to draw
     .filter((f) => f.offer !== 'hide' && f.tiers.length > 0),
   // the registry is not React state: its ids ride the deps so a favorite
@@ -4969,7 +4970,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
                 if (tOffer === 'hide') return null
                 return (
                   <button key={t}
-                    className={'hs-tier t-' + t + (tier === t ? ' on' : '')}
+                    className={'hs-tier t-' + t + (tier === t ? ' on' : '') + (tOffer === 'disable' ? ' codex-preview' : '')}
                     disabled={tOffer !== 'offer'}
                     title={modelChoiceTitle(t, tOffer === 'offer' ? undefined : f.reason)}
                     onClick={() => pickTier(t)}>

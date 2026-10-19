@@ -1,5 +1,6 @@
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge } from './nextturn'
 import { DndBadge } from './dnd'
+import { hireDisabledReason, signedOutHire } from './shared'
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
 import { creditSegments } from './creditsegments'
 import { toggleAgentHalt } from './haltcontrol'
@@ -738,10 +739,10 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
   // so the remedy the user reads here is the remedy the accounts panel and
   // the server's refusal name too.
   const outChip = (t: string, letter: string | undefined, label: string,
-                   reason: string | null, seat: number) => (
+                   hire: HireState | null | undefined, seat: number) => (
     <button key={t} disabled className={'t-' + t + ' codex-preview'}
       title={`${tierLabel(t)} — ${label}; `
-        + (reason ?? 'hiring is not enabled yet') + ` ${costBadge(seat)}`}>
+        + hireDisabledReason(hire, label) + ` ${costBadge(seat)}`}>
       {letter}
     </button>
   )
@@ -793,7 +794,8 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     // Sort the filtered copy by the same seat lookup used by these tokens;
     // stable ties retain the incoming catalog order, including OR/LS rows.
     // Provider grouping/count order and dearest-first selectors are separate.
-    const offered = tiers.filter((t) => offerOf(t) !== 'hide' && (!allowedTiers || allowedTiers.includes(t)))
+    const offered = tiers.filter((t) => offerOf(t) !== 'hide'
+      && (signedOutHire(hire) || !allowedTiers || allowedTiers.includes(t)))
     const vis = key === 'antigravity'
       ? orderAntigravityTiers(offered, seatOf, 'asc')
       : offered.sort((a, b) => seatOf(a) - seatOf(b))
@@ -804,7 +806,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
       body: vis.map((t) => (
         offerOf(t) === 'offer'
           ? chip(t, letters[t])
-          : outChip(t, letters[t], label, hire?.reason ?? null, seatOf(t))
+          : outChip(t, letters[t], label, hire, seatOf(t))
       )),
     })
   }
