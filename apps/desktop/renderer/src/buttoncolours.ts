@@ -20,8 +20,10 @@ export function setButtonAgent(org: string, agent: string | null): void {
 export function buttonAgentOf(org: string): string | null { return selected.get(org) ?? null }
 export const onButtonAgent = subscribe
 
+/** A project belongs to no provider: its desk keeps the neutral chrome rather
+ *  than the claude colour `providerOf` falls back to for an unknown tier. */
 export function buttonAccent(tier?: string | null): string {
-  return tier ? `var(--prov-${providerOf(tier)})` : 'var(--line-hover)'
+  return tier && tier !== 'project' ? `var(--prov-${providerOf(tier)})` : 'var(--line-hover)'
 }
 
 export function useButtonColours(org: string | null,
