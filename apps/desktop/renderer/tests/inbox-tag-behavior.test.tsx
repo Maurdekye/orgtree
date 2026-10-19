@@ -48,9 +48,9 @@ test('returning within the margin cancels closing and typed search keeps its pop
     assert.equal(trigger(v.el).getAttribute('aria-expanded'),'true')
   }finally{await v.unmount();realClock()}
 })
-async function inbox(slug:string,base:InboxPayload,filtered:InboxPayload,lookup?:MailEntry){
+async function inbox(slug:string,base:InboxPayload,filtered:InboxPayload,lookup?:MailEntry,initialTags=['alpha','build']){
   const previous=globalThis.fetch,calls:string[]=[]
-  localStorage.setItem(`orgtree-user-mail-tags:${slug}`,JSON.stringify(['alpha','build']))
+  localStorage.setItem(`orgtree-user-mail-tags:${slug}`,JSON.stringify(initialTags))
   window.sessionStorage.setItem(`orgtree-user-inbox-arrivals:${slug}`,JSON.stringify(['old']))
   window.sessionStorage.setItem(`orgtree-user-inbox-last-opened:${slug}`,'old')
   globalThis.fetch=withoutMailTransfers((async(url:unknown)=>{
@@ -65,6 +65,22 @@ async function inbox(slug:string,base:InboxPayload,filtered:InboxPayload,lookup?
   return{...v,calls,dispose:async()=>{await v.unmount();globalThis.fetch=previous;localStorage.removeItem(`orgtree-user-mail-tags:${slug}`)}}
 }
 const selected=(el:HTMLElement)=>el.querySelector('.mailrow.on')?.textContent??''
+
+test('user inbox keeps the clicked tagged mail through the server-filtered page update',async()=>{
+  const old=mail('old',['alpha']),clicked=mail('other',['Review']),fresh=mail('new',['Review'])
+  const v=await inbox('filter-tag-click',box([fresh,clicked,old]),box([fresh,clicked]),undefined,[])
+  try{
+    await inAct(()=>[...v.el.querySelectorAll<HTMLElement>('.mailrow')].find(r=>r.textContent?.includes('body-old'))!.click())
+    await inAct(async()=>{
+      const row=[...v.el.querySelectorAll<HTMLElement>('.mailrow')].find(r=>r.textContent?.includes('body-other'))!
+      row.querySelector<HTMLButtonElement>('button[data-tag-key="review"]')!.click()
+      await flush(30)
+    })
+    assert.match(selected(v.el),/body-other/)
+    assert.match(v.el.querySelector('.mailer-read')?.textContent??'',/body-other/)
+    assert.equal(window.sessionStorage.getItem('orgtree-user-inbox-last-opened:filter-tag-click'),'other')
+  }finally{await v.dispose()}
+})
 test('unrelated and partially matching new mail do not replace a filtered remembered selection',async()=>{
   const old=mail('old'),other=mail('other',['alpha'])
   const v=await inbox('filter-remember',box([other,old]),box([old]))
