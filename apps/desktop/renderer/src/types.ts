@@ -761,7 +761,7 @@ export interface Watchdog {
   threshold_percent?: number
   /** a `slot` claim (project slots): when it joined the line, its order */
   queued_at?: string
-  /** a granted `slot` claim: its lease and slot number */
+  /** a granted `slot` claim's public lease; only legacy snapshots carry a slot number */
   lease?: string
   slot?: number
   threshold?: string

@@ -113,6 +113,13 @@
   button hover rule otherwise repaints it neutral grey. [verified: `styles.css`;
   native hover capture 2026-10-19]
 
+- Slot watchdog projections omit private slot numbers intentionally: a lease,
+  fired/spent state or timestamp identifies a grant. Description panels use the
+  bounded per-project slot-status read for held/ended lease details; missing
+  history stays unknown. Never infer lease ending from absence in the org's
+  capped active-lease feed. [verified: `domain/watchdogs.rs`, `domain/slots.rs`,
+  renderer `canvas/{slotclaim,modals}.tsx`; user 2026-10-19 21:22Z]
+
 - Project edges do not cap agent visibility, tools or folder authority. Chart,
   state inspection and watchdog access use agent reporting relations; top-level
   rights, credit caps/payers, org-inbox routing and org-folder revocation skip

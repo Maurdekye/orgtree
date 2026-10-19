@@ -49,3 +49,15 @@ rule, including hovered one-shot links; mode words are omitted from mail
 listener cells as well as event listener tables. The chip tooltip retains mode.
 Kind rules also set the chip's `--button-accent`, which the shared button hover
 rule consumes; its long `:not(...)` selector otherwise overrides kind borders.
+
+User 21:22Z: slot-claim descriptions distinguish queued/paused claims from
+grants pending notification, notified grants and ended leases. The engine's
+watchdog projection deliberately withholds private slot numbers, so lease,
+fired/spent state and last-fired timestamps provide grant evidence. A missing
+lease identifier remains a grant with details unavailable. The detail panel
+reads the existing project slot status when opened or active leases change;
+its complete holder list and bounded recent history distinguish held, released,
+expired and revoked leases. An ended lease outside that history says its end
+details are unavailable; read failures keep lease status unknown. Old responses
+cannot overwrite another watchdog/org. No polling or engine fields were added.
+The org's active-lease feed is capped and is not used to infer lease endings.
