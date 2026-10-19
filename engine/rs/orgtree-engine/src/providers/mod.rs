@@ -193,6 +193,13 @@ fn known_claude(profile: &Path, appdata: Option<&Path>) -> Option<PathBuf> {
     if local.is_file() {
         return Some(local);
     }
+    #[cfg(windows)]
+    if let Some(appdata) = appdata {
+        let shim = appdata.join("npm").join("claude.cmd");
+        if shim.is_file() {
+            return Some(shim);
+        }
+    }
     None
 }
 

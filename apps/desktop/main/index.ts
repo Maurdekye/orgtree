@@ -2617,7 +2617,12 @@ else {
       }
       // Not awaited: start-up must still reach the poll below (engine stats,
       // update checks) while nobody has dismissed this, e.g. on a fresh machine.
-      if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) void dialog.showMessageBox(first.window, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' }).catch(() => {})
+      if (!process.argv.includes('--background')) void engine.harnesses().then(registry => {
+        if (quitting || first.window.isDestroyed()) return
+        // Engine discovery also knows native installs absent from desktop PATH.
+        // The bounded registry read returns null for an old/offline engine.
+        if (!(registry ?? detectHarnesses()).some(h => h.detected)) return dialog.showMessageBox(first.window, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
+      }).catch(() => {})
       const refresh = async () => {
         if (quitting || installerUpgradeShutdown) return
         // Native timers keep running when Chromium throttles a hidden window.

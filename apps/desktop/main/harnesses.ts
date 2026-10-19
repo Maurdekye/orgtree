@@ -7,6 +7,14 @@ const names = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode (ACP)
 const registryIds: Record<string, string> = { claude: 'claude-code', codex: 'codex-cli' }
 export type HarnessSetup = { id: string; name: string; url: string; detected: boolean }
 
+function knownClaude() {
+  const profile = os.homedir()
+  const candidates = [path.join(profile, '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude')]
+  if (process.platform === 'win32') candidates.push(path.join(
+    process.env.APPDATA || path.join(profile, 'AppData', 'Roaming'), 'npm', 'claude.cmd'))
+  return candidates.find(file => { try { return fs.statSync(file).isFile() } catch { return false } })
+}
+
 function knownMuse() {
   if (process.env.ORGTREE_MUSE_BIN) return process.env.ORGTREE_MUSE_BIN
   const dir = process.platform === 'win32'
@@ -17,6 +25,7 @@ function knownMuse() {
 
 /** Presence only. Never launches, logs in, installs, or contacts a provider. */
 export function detectHarnesses(searchPath = process.env.PATH ?? '', knownLocations: Partial<Record<keyof typeof HARNESS_LINKS, string>> = {
+  claude: knownClaude(),
   codex: process.env.ORGTREE_CODEX,
   muse: knownMuse(),
   opencode: process.platform === 'win32' ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'npm', 'node_modules', '@opencode', 'cli', 'bin', 'opencode.exe') : undefined,
