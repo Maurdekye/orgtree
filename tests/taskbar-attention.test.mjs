@@ -27,7 +27,7 @@ test('menu launch arguments round trip only the org and opaque notice identity',
   assert.match(item.args,/^--orgtree-taskbar=attention:[A-Za-z0-9_-]+$/)
   assert.deepEqual(plain(list.taskbarTarget([item.args])),{kind:'attention',org:entry.org,id:entry.id})
  }
- for(const data of [['../escape','id'],['alpha',''],['alpha','x'.repeat(201)],['alpha','id','extra'],{org:'alpha',id:'id'}]){
+ for(const data of ['ab',['../escape','id'],['alpha',''],['alpha','x'.repeat(201)],['alpha','id','extra'],{org:'alpha',id:'id'}]){
   assert.equal(list.taskbarTarget(['--orgtree-taskbar=attention:'+Buffer.from(JSON.stringify(data)).toString('base64url')]),null)
  }
  assert.equal(list.taskbarTarget(['--orgtree-taskbar=attention:%%%']),null)

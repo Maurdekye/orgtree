@@ -16,10 +16,12 @@ export function taskbarTarget(argv: readonly string[]): TaskbarTarget | null {
   if (target === 'home') return { kind: 'homepage' }
   if (target === 'new') return { kind: 'create' }
   if (target.startsWith('org:') && SLUG.test(target.slice(4))) return { kind: 'org', slug: target.slice(4) }
-  if (target.startsWith('attention:') && target.length <= 1200 && /^[A-Za-z0-9_-]+$/.test(target.slice(10))) {
+  if (target.startsWith('attention:') && target.length <= 2000 && /^[A-Za-z0-9_-]+$/.test(target.slice(10))) {
     try {
-      const [org, id, ...rest] = JSON.parse(Buffer.from(target.slice(10), 'base64url').toString('utf8'))
-      if (!rest.length && typeof org === 'string' && org.length <= 128 && SLUG.test(org)
+      const value: unknown = JSON.parse(Buffer.from(target.slice(10), 'base64url').toString('utf8'))
+      if (!Array.isArray(value) || value.length !== 2) return null
+      const [org, id] = value
+      if (typeof org === 'string' && org.length <= 128 && SLUG.test(org)
           && typeof id === 'string' && id.length > 0 && id.length <= 200 && !/[\x00-\x1f]/.test(id))
         return { kind: 'attention', org, id }
     } catch { /* malformed shell arguments never become navigation */ }

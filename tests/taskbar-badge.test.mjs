@@ -23,7 +23,7 @@ test('ordinary unread user mail lights the dot without a notification preference
 })
 test('existing questions docket attention and mention totals light the dot',()=>{
   assert.equal(needsTaskbarDot(feed(1)),true)
-  for(const kind of ['question','work-attention'])assert.equal(needsTaskbarDot(feed(0,[{kind}])),true)
+  for(const kind of ['question','work-attention','mention'])assert.equal(needsTaskbarDot(feed(0,[{kind}])),true)
 })
 test('documents frozen agents malformed entries and an empty inventory do not invent attention',()=>{
   assert.equal(needsTaskbarDot(feed(0,[null,{},[],{kind:'document'},{kind:'agent-frozen'}])),false)

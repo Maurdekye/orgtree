@@ -23,7 +23,7 @@ export function needsTaskbarDot(feed: BadgeFeed): boolean {
     if (!notice || typeof notice !== 'object' || Array.isArray(notice)) return false
     const kind = (notice as { kind?: unknown }).kind
     return kind === 'routine' || kind === 'urgent-mail' || kind === 'terminal-failure'
-      || kind === 'question' || kind === 'work-attention'
+      || kind === 'question' || kind === 'work-attention' || kind === 'mention'
   })
 }
 
