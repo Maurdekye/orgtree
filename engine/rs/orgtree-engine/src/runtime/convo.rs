@@ -1516,6 +1516,14 @@ fn tool_ref_result(text: &str) -> Option<Value> {
     Some(value)
 }
 
+/// Handler-supplied document/mail cards are separate from displayed MCP text.
+#[nolog] // copies private tool metadata without logging it
+pub(super) fn apply_tool_card(chip: &mut Value, card: &Value) {
+    if let (Some(chip), Some(card)) = (chip.as_object_mut(), card.as_object()) {
+        for (key, value) in card { chip.insert(key.clone(), value.clone()); }
+    }
+}
+
 #[nolog]
 fn args_of(v: &Value, keys: &[&str], agent: &mut dyn FnMut(&Value)) {
     for k in keys {

@@ -5099,12 +5099,8 @@ impl Actor {
                                 chip["error"] = json!(format!("stopped by Orgtree: no output for {} (the silence limit)", span_text(limit)));
                             }
                             convo::retain_failed_shell_output(chip, &text, failed, item["truncated"] == true);
-                            if let Some(extra) = card.as_ref().and_then(|c| c.as_object()) {
-                                if let Some(c) = chip.as_object_mut() {
-                                    for (k, val) in extra {
-                                        c.insert(k.clone(), val.clone());
-                                    }
-                                }
+                            if let Some(extra) = card.as_ref() {
+                                convo::apply_tool_card(chip, extra);
                             }
                         }
                     }
@@ -6654,11 +6650,7 @@ impl Actor {
                             chip["diff"] = diff;
                         }
                         if let Some(extra) = turn.cards.remove(&tid) {
-                            if let (Some(c), Some(e)) = (chip.as_object_mut(), extra.as_object()) {
-                                for (k, val) in e {
-                                    c.insert(k.clone(), val.clone());
-                                }
-                            }
+                            convo::apply_tool_card(chip, &extra);
                         }
                     }
                 }
