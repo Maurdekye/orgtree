@@ -1620,7 +1620,10 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
                    box, so the token is exact (`@mail:org/node/<nid>/<id>`).
                    The Sent list below passes none — see MailListProps.refOf */
                 refOf={(m) => m.id ? refToken({ kind: 'mail', org: slug, box: 'node', node: nid, id: m.id }) : null}
-                waitLabel="awaiting next turn" jumpTo={jumpTo} jumpSeq={jumpSeq}
+                /* a project takes no turns: its waiting mail waits for a
+                   listener to claim it (coordinator 2026-10-19 20:15Z) */
+                waitLabel={projectMail ? 'waiting in the project queue' : 'awaiting next turn'}
+                jumpTo={jumpTo} jumpSeq={jumpSeq}
                 lookup={nodeLookup}
                 fileHref={(p) => fileUrl(slug, nid, p)}
                 mdBase={() => fileBase(slug, nid)}
