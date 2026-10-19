@@ -9,7 +9,7 @@ import {
 import { NodeSquare } from '../src/canvas/cards'
 import { AgentLink, ProjectLink } from '../src/canvas/identity'
 import type { CanvasNode } from '../src/canvas/shared'
-import type { OpResult } from '../src/types'
+import type { OpResult, ProviderInfo } from '../src/types'
 import type { AgentTooltipInfo } from '../src/canvas/agentnav'
 import { agentTooltipInfo } from '../src/canvas/OrgCanvas'
 
@@ -23,9 +23,9 @@ for (const [tier, family] of [['astra', 'Astra'], ['luna', 'Luna']]) {
   test(`${family} version six reaches the native tooltip from catalog display data`, async t => {
     const displayName = `ChatGPT ${family} 6`
     const info = agentTooltipInfo({ id: 'worker', state: 'live', tier,
-      model_id: `gpt-6-${tier}`, effort_effective: 'xhigh', scope: {} },
+      model_id: `gpt-6-${tier}`, effort_effective: 'xhigh', scope: {} } as CanvasNode,
     [{ id: 'openai', tiers: [{ tier, display_name: displayName,
-      display_versions: { '6': displayName } }] }])!
+      display_versions: { '6': displayName } }] }] as ProviderInfo[])!
     const v = await mountView(<AgentNavProvider>
       <RegisteredLink id="worker" title={info.title} />
     </AgentNavProvider>, host => host)
