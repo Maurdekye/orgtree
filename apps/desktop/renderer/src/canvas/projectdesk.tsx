@@ -14,20 +14,25 @@ import { useDndRecipients } from '../nodemetadata'
 // desk's jump cards, up to its parent and down to its members, stay on every
 // tab as on the agent desk (user 2026-10-19 19:58Z).
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload, TurnStat } from '../types'
 import type { ReplyTarget } from '../generated/events'
-import { ArrowUpIcon, AttachIcon, AutorenewIcon, CampaignIcon, CloseIcon, FileIcon, FolderIcon, MailIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
-import { broadcastMessage, retractMail, sendMessage, uploadFile } from '../api'
+import { ArrowUpIcon, AttachIcon, AutorenewIcon, CampaignIcon, CloseIcon, FileIcon, MailIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
+import { broadcastMessage, fileUrl, retractMail, sendMessage, uploadFile } from '../api'
 import { useComposerEnter } from '../enterkey'
 import { readHistory, recordSent, type HistoryEntry } from '../composerhistory'
-import { draftKey } from '../draftstore'
+import { draftKey, readAttachments, storeAttachments, type DraftAttachment } from '../draftstore'
+import { appendReplyTarget, readReplies, replyFromRow, storeReplies, type ReplyContext } from '../eventReply'
+import { isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed, toggleNoticeArmed, unregisterChat, useNoticeArmed } from '../noticestore'
+import { setButtonAgent } from '../buttoncolours'
 import { ago, md, subtreeDocCount, subtreeDocs, upJumpTargets, USER } from './shared'
 export { subtreeDocCount }
 import type { CanvasNode, OpFn } from './shared'
 import { InboxView } from './mail'
+import { ReplyPreview } from './replypreview'
+import { AttachThumb, fmtBytes, isImg } from './img'
 import { useWorkItems } from './useworkitems'
 import { actionableTeamCount, AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { AgentGalleryView } from './gallery'
@@ -262,14 +267,27 @@ function DescriptionEditor({ node, op, toast, editable }: {
  *  (`broadcastMessage`). Attachments upload into the project's own uploads
  *  folder and ride either kind of send. No slash commands: a project has no
  *  CLI. */
-function ProjectComposer({ node, slug, tree, map, toast, members, recipients, replyTarget, focusRequest, onClearReply, onRegisterMention }: {
+function ProjectComposer({ node, slug, tree, map, toast, members, recipients, bare, replies, onReplies, replyAvailable,
+  onLocateReply, docTitle, focusRequest, onRegisterMention, onRegisterAttach }: {
   node: CanvasNode; slug: string; tree: TreePayload; map: Map<string, CanvasNode>; toast: ToastFn; members: number; recipients: CanvasNode[]
-  replyTarget?: { target: ReplyTarget; title: string }
+  /** a window or another host's frame: the box does not take focus on open */
+  bare?: boolean
+  /** the presentations this message replies to, kept with the draft (ProjectDesk owns them) */
+  replies: ReplyContext[]
+  onReplies: (next: ReplyContext[]) => void
+  replyAvailable: (r: ReplyContext) => boolean
+  onLocateReply: (r: ReplyContext) => void
+  docTitle: (id: string) => string | undefined
   focusRequest: number
-  onClearReply: () => void
   onRegisterMention?: (capture: ((agentId: string) => (() => void) | null) | null, noteRightDown: () => void) => void
+  /** the desk's drop zone hands its files to the box's own upload */
+  onRegisterAttach?: (attach: ((file: File) => void) | null) => void
 }) {
   const messageDraftKey = draftKey(slug, `project:${node.id}`, 0)
+  // the notice toggle's key in the agent desk's store (noticestore.ts): one
+  // armed state per desk, the same in every view of it, kept across closing
+  // and reopening it, with Alt+N anywhere inside the desk (G12)
+  const chatKey = `${slug}/${node.id}`
   const [text, setTextState] = useState(() => {
     try { return localStorage.getItem(messageDraftKey) || '' } catch { return '' }
   })
@@ -286,8 +304,22 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, re
   const [histAt, setHistAt] = useState<number | null>(null)
   const histStash = useRef('')
   const histCaret = useRef(false)
-  const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
-  const [notice, setNotice] = useState(false)
+  // staged attachments ride the draft, as the agent composer's do: closing
+  // and reopening the desk keeps them (G9)
+  const [attached, setAttachedRaw] = useState<DraftAttachment[]>(() => readAttachments(messageDraftKey))
+  const setAttached = useCallback((next: DraftAttachment[] | ((previous: DraftAttachment[]) => DraftAttachment[])) => {
+    setAttachedRaw((previous) => {
+      const value = typeof next === 'function' ? next(previous) : next
+      storeAttachments(messageDraftKey, value)
+      return value
+    })
+  }, [messageDraftKey])
+  const notice = useNoticeArmed(chatKey)
+  useEffect(() => {
+    registerChat(chatKey)
+    return () => { unregisterChat(chatKey) }
+  }, [chatKey])
+  const toggleNotice = () => { setActiveChatKey(chatKey); toggleNoticeArmed(chatKey) }
   const [megaphone, setMegaphone] = useState(false)
   const [urgentMail,setUrgentMail]=useState<UrgentAgentMail | undefined>()
   const dndRecipients=useDndRecipients(slug,recipients)
@@ -309,29 +341,91 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, re
       .then((r) => setAttached((a) => [...a, { name: file.name, path: r.path, bytes: r.bytes }]))
       .catch((e: Error) => toast([`upload error: ${e.message}`]))
   }
+  onRegisterAttach?.(can ? attach : null)
+  // the box grows with the draft, from two rows to about eight (160px), and
+  // follows a width change that rewraps it, as the agent composer does (G8)
+  const grow = useCallback(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+  }, [])
+  useLayoutEffect(grow, [text, grow])
+  const composerRO = useRef<ResizeObserver | null>(null)
+  const attachComposer = useCallback((el: HTMLTextAreaElement | null) => {
+    composerRO.current?.disconnect()
+    composerRO.current = null
+    textareaRef.current = el
+    if (!el) return
+    // the canvas desk takes the caret when it opens, as the agent desk's
+    // does (G13); a window or another host's frame (bare) does not
+    if (!bare && !el.dataset.f) {
+      el.dataset.f = '1'
+      el.focus({ preventScroll: true })
+    }
+    if (typeof ResizeObserver === 'undefined') return
+    let width = -1
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return
+      width = el.clientWidth
+      grow()
+    })
+    composerRO.current = ro
+    ro.observe(el)
+  }, [bare, grow])
+  // Alt+N (notice) and Alt+B (broadcast) anywhere inside the desk, as the
+  // agent desk's Alt+N: outside every desk they go to the active one
+  useEffect(() => {
+    const win = textareaRef.current?.ownerDocument.defaultView ?? window
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || !e.altKey) return
+      const key = e.key.toLowerCase()
+      if (key !== 'n' && key !== 'b') return
+      const root = textareaRef.current?.closest('.project-desk')
+      if (!root) return
+      const target = e.target as Element | null
+      const active = root.ownerDocument.activeElement
+      const inside = (!!target && root.contains(target)) || (!!active && root.contains(active))
+      if (!inside) {
+        if (typeof target?.closest === 'function' && target.closest('.desk-control-scope, .desk-bare, .desk-over')) return
+        if (typeof active?.closest === 'function' && active.closest('.desk-control-scope, .desk-bare, .desk-over')) return
+        if (!isChatActive(chatKey)) return
+      }
+      e.preventDefault()
+      e.stopImmediatePropagation?.()
+      setActiveChatKey(chatKey)
+      if (key === 'n') toggleNoticeArmed(chatKey)
+      else if (node.state === 'live' && members > 0) setMegaphone((v) => !v)
+    }
+    win.addEventListener('keydown', onKey)
+    return () => win.removeEventListener('keydown', onKey)
+  }, [chatKey, node.state, members])
   const send = () => {
     if (!can || busy || (!text.trim() && attached.length === 0)) return
     setBusy(true)
-    const asNotice = notice
+    const asNotice = isNoticeArmed(chatKey)
     const files = attached.map((a) => a.path)
+    // the replies' typed document targets: the engine resolves them for each
+    // recipient (http/nodes.rs), so a broadcast keeps them too
+    const targets: ReplyTarget[] = replies.flatMap((r) => r.docId ? [{ kind: 'document' as const, org: r.org, id: r.docId }] : [])
     // a failed audience grant leaves the mail delivered: say so (coordinator 09:43Z)
     const grant = (g?: { granted: boolean; error?: string } | null) => g && !g.granted
       ? [`sent, but the project's user audience couldn't be granted${g.error ? ` (${g.error})` : ''}`] : []
     const done = (lines: string[]) => {
       if (recordSent(slug, node.id, text)) setSentHistory(readHistory(slug, node.id))
-      setText(''); setAttached([]); setNotice(false)
-      if (replyTarget) onClearReply()
+      setText(''); setAttached([]); setNoticeArmed(chatKey, false)
+      if (replies.length) onReplies([])
       if (megaphone) setMegaphone(false)
       setHistAt(null); histStash.current = ''
       toast(lines)
     }
     ;(megaphone
       ? broadcastMessage(slug, node.id, text, files, asNotice, dndRecipients.length ? urgentMail : undefined,
-        replyTarget ? [replyTarget.target] : undefined).then((r) => done([
+        targets.length ? targets : undefined).then((r) => done([
         `sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${node.id}`
           + (asNotice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`), ...grant(r.audience_grant)]))
       : sendMessage(slug, node.id, text, files, undefined, undefined, asNotice, undefined,
-        replyTarget ? [replyTarget.target] : undefined).then((r) => done([
+        targets.length ? targets : undefined).then((r) => done([
         `to project ${node.id}${asNotice ? ' as a notice' : ''}: ${r.delivery ?? 'sent'}`, ...grant(r.audience_grant)])))
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setBusy(false))
@@ -364,17 +458,25 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, re
     if (el) el.selectionStart = el.selectionEnd = el.value.length
   }, [text])
   return <>
-    {replyTarget && <div className="project-reply-target">
-      <span>Reply to {replyTarget.title}</span>
-      <button className="chip-x" type="button" aria-label="Remove reply target" title="remove reply target"
-        onClick={onClearReply}><CloseIcon fontSize="inherit" /></button>
-    </div>}
+    {/* the agent composer's reply previews (G11): one per target, a remove
+        ✕ on each, "Cancel all replies" for several, Escape on the desk */}
+    {replies.map((r) => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}/${r.docId ?? ''}`}
+      reply={r} available={replyAvailable(r)} onLocate={() => onLocateReply(r)}
+      onRemove={() => onReplies(replies.filter((x) => x !== r))}
+      presentationTitle={r.docId ? docTitle(r.docId) : undefined} />)}
+    {replies.length > 1 && <button className="link" onClick={() => onReplies([])}>Cancel all replies</button>}
+    {/* staged attachments, an image as its thumbnail, as on the agent desk (G9) */}
     {attached.length > 0 && <div className="attach-row">
-      {attached.map((a, i) => <span key={a.path + i} className="attach-chip">
-        <FileIcon fontSize="inherit" /> {a.name}
-        <button className="chip-x" title="remove from this message"
-          onClick={() => setAttached((x) => x.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
-      </span>)}
+      {attached.map((a, i) => (isImg(a.name)
+        ? <AttachThumb key={a.path + i} href={fileUrl(slug, node.id, a.path)}
+            name={a.name} meta={fmtBytes(a.bytes)}
+            onRemove={() => setAttached((x) => x.filter((_, j) => j !== i))} />
+        : <span key={a.path + i} className="attach-chip">
+            <FileIcon fontSize="inherit" /> {a.name}
+            <span className="dim"> {fmtBytes(a.bytes)}</span>
+            <button className="chip-x" title="remove from this message"
+              onClick={() => setAttached((x) => x.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
+          </span>))}
     </div>}
     <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')
       + (megaphone ? ' broadcast-armed' : '') + (urgentMail ? ' urgent-armed' : '')} onClick={focusComposerBackground}>
@@ -384,7 +486,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, re
           aria-label={notice ? 'Notice-send armed: next message arrives as a passive notice' : 'Notice-send: send next message as a passive notice'}
           title={notice ? 'Notice-send armed: the next message arrives as a passive notice, waking nobody (Alt+N)'
             : 'Send the next message as a passive notice, waking nobody (Alt+N)'}
-          onClick={() => setNotice((v) => !v)}>
+          onClick={toggleNotice}>
           {notice ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
         </button>
         <button className="cc-attach" type="button" disabled={!can}
@@ -393,21 +495,22 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, re
       </div>
       <input type="file" ref={fileRef} style={{ display: 'none' }} multiple
         onChange={(e) => { [...e.target.files!].forEach(attach); e.target.value = '' }} />
-      <textarea ref={textareaRef} rows={2} value={text} disabled={!can} title={enterKey.hint}
+      <textarea ref={attachComposer} rows={2} value={text} disabled={!can} title={enterKey.hint}
         aria-label={`message every agent under project ${node.id}`}
         placeholder={node.state !== 'live' ? `project ${node.id} is ${node.state}`
           : !megaphone ? `message project ${node.id}: one agent under it takes it…`
             : `message all ${members} agent${members === 1 ? '' : 's'} under ${node.id}…`}
-        onChange={(e) => { setText(e.target.value); mentions.syncCaret() }}
+        onChange={(e) => { setText(e.target.value); grow(); mentions.syncCaret() }}
         onSelect={mentions.syncCaret}
         onClick={mentions.syncCaret}
         onKeyUp={mentions.syncCaret}
+        onFocus={() => setActiveChatKey(chatKey)}
         onPaste={(e) => {
           if (e.clipboardData?.files?.length) { e.preventDefault(); [...e.clipboardData.files].forEach(attach) }
         }}
         onKeyDown={(e) => {
           if (mentions.onKeyDown(e)) return
-          if (e.altKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); e.stopPropagation(); setNotice((v) => !v); return }
+          if (e.altKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); e.stopPropagation(); toggleNotice(); return }
           if (e.altKey && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); e.stopPropagation(); setMegaphone((v) => !v); return }
           if ((e.key === 'ArrowUp' || e.key === 'ArrowDown')
             && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -514,8 +617,19 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   useEffect(() => {
     if (view === 'team' && teamCount === 0) setView('desk')
   }, [view, teamCount])
-  const [replyTarget, setReplyTarget] = useState<{ target: ReplyTarget; title: string }>()
+  // the presentations the next message replies to: the agent composer's reply
+  // targets (G11), kept with the composer's draft, so closing the desk or a
+  // host switching projects (the Attention panel) never mixes them up
+  const replyKey = draftKey(slug, `project:${node.id}`, 0)
+  const [replyState, setReplyState] = useState(() => ({ key: replyKey, list: readReplies(replyKey) }))
+  const replies = replyState.key === replyKey ? replyState.list : readReplies(replyKey)
+  useEffect(() => {
+    setReplyState((s) => s.key === replyKey ? s : { key: replyKey, list: readReplies(replyKey) })
+  }, [replyKey])
+  const setReplies = (list: ReplyContext[]) => { setReplyState({ key: replyKey, list }); storeReplies(replyKey, list) }
   const [replyFocus, setReplyFocus] = useState(0)
+  // the desk's drop zone hands files to the composer's upload (G10)
+  const dropAttach = useRef<((file: File) => void) | null>(null)
   // the inbox folder the mail card asks for (user 2026-10-19 19:05Z): a new
   // seq is a new click; opening the inbox from its tab forgets it
   const [inboxAsk, setInboxAsk] = useState<{ folder: string; seq: number } | null>(null)
@@ -588,7 +702,13 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       : tab === 'presented' ? (node.documents_count ?? node.documents?.length ?? 0)
         : tab === 'dead' ? deadLetters : tab === 'listeners' ? listenersArmed : 0
   const replyToDoc = (doc: { id: string; title: string }) => {
-    setReplyTarget({ target: { kind: 'document', org: slug, id: doc.id }, title: doc.title || '(untitled)' })
+    // the agent desk's presentation reply source (replyToPresentation): the
+    // document's event id, its title as the quote, the project as sender
+    const source = replyFromRow(slug, node.id, node.generation ?? 0, { event_id: `doc:${doc.id}` },
+      `document: ${doc.title || '(untitled)'}`)
+    if (!source || !live) return
+    try { setReplies(appendReplyTarget(replies, { ...source, sender: node.id, docId: doc.id })) }
+    catch (e) { toast([String((e as Error).message)]); return }
     setReplyFocus((v) => v + 1)
   }
   const content = (
@@ -653,7 +773,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {/* its presentations and its subtree's, on their own strip under the
           header as on an agent desk (user 2026-10-17 22:47:29Z) */}
       {onOpenDoc && subtreeDocs(node).length > 0 && (
-        <DeskDocsStrip slug={slug} docs={subtreeDocs(node)} toast={toast} onOpen={onOpenDoc} onReply={replyToDoc} replyLabel="Reply" />
+        <DeskDocsStrip slug={slug} docs={subtreeDocs(node)} toast={toast} onOpen={onOpenDoc} onReply={live ? replyToDoc : undefined} replyLabel="Reply" />
       )}
       {shown === 'desk' && <DescriptionEditor node={node} op={op} toast={toast} editable={live} />}
       {shown === 'inbox' && <div className="desk-tabpanel">
@@ -704,14 +824,40 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       <DeskReportRow node={node} map={map} onJump={onJump} />
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
-        members={agents.length} recipients={agents} replyTarget={replyTarget} focusRequest={replyFocus}
-        onClearReply={() => setReplyTarget(undefined)}
-        onRegisterMention={(capture, noteRightDown) => { mentionRef.current = { capture, noteRightDown } }} />
+        members={agents.length} recipients={agents} bare={bare} focusRequest={replyFocus}
+        replies={replies} onReplies={setReplies}
+        replyAvailable={(r) => !!r.docId && (Boolean(onOpenDoc) || subtreeDocs(node).some((d) => d.id === r.docId))}
+        onLocateReply={(r) => { if (r.docId) onOpenDoc?.(r.docId) }}
+        docTitle={(id) => subtreeDocs(node).find((d) => d.id === id)?.title}
+        onRegisterMention={(capture, noteRightDown) => { mentionRef.current = { capture, noteRightDown } }}
+        onRegisterAttach={(attach) => { dropAttach.current = attach }} />
     </>
   )
   return (
     <div className={bare ? 'desk-bare project-desk' : 'desk-over project-desk'} onWheel={(e) => e.stopPropagation()}
+      // the desk a click or keystroke was in is the last desk ("Focus last
+      // desk") and the active chat (Alt+N outside every desk), as an agent
+      // desk's is in each of its hosts (G17)
+      onFocusCapture={() => { setActiveChatKey(`${slug}/${node.id}`); setButtonAgent(slug, node.id) }}
+      // ESCAPE CANCELS A PREPARED REPLY, as on the agent desk: anything that
+      // already took this Escape (a menu, a popover, the Summary editor, an
+      // IME composition) goes first (G11)
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape' || !replies.length || e.defaultPrevented || e.nativeEvent.isComposing
+          || e.currentTarget.ownerDocument.querySelector('.lb-overlay, .picker-overlay')) return
+        e.preventDefault(); e.stopPropagation(); setReplies([])
+      }}
+      // a file dropped anywhere on the desk is attached, as on the agent desk
+      // (G10); other drags keep their own drop behaviour
+      onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault() }}
+      onDrop={(e) => {
+        if (!e.dataTransfer?.files?.length) return
+        e.preventDefault()
+        ;[...e.dataTransfer.files].forEach((f) => dropAttach.current?.(f))
+      }}
       onPointerDown={(e) => {
+        setActiveChatKey(`${slug}/${node.id}`)
+        setButtonAgent(slug, node.id)
         // as the agent desk: only real controls claim the gesture, so a press
         // on the desk's own chrome still pans the canvas
         if ((e.target as Element).closest('button, input, textarea, select, a, label, .mailrow, .project-description-md')) {
