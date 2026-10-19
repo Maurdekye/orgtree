@@ -1,4 +1,8 @@
-"""Run the four cheap SOURCE AUDITS before landing: about a minute, no database.
+"""Run source audits before landing, including the Rust project-reporting guard.
+
+Rust 4.x: use --rust-only to run the reporting contracts, whole-source deny-list
+and mutant checks without loading the retired Python engine. The default legacy
+lane runs that same mandatory guard first, then the older audits below.
 
 Every new or edited test module can break these without touching product code,
 and they were the bulk of the 21 python regressions found at v3 34c8649
@@ -22,6 +26,7 @@ themselves -- only the crate's vector test does.
 Usage (from the checkout you are about to land, after your final rebase):
 
     python tools/source-audits.py [--json-output PATH]
+    python tools/source-audits.py --rust-only [--json-output PATH]
 
 It checks the anchors, then runs the four modules through
 tools/run-python-verification.py (one fresh interpreter each, this checkout's
