@@ -78,3 +78,37 @@ test('adding a hub is one address field; the reachability test reports without g
     ] }])
   } finally { await view.unmount(); delete g.fetch }
 })
+
+test('a discovered hub endpoint is the address saved after Test', async () => {
+  g.fetch = async () => new Response(JSON.stringify({ ok: true, name: 'office', address: 'http://office.example:7378' }), { headers: { 'Content-Type': 'application/json' } })
+  const patches: unknown[] = []
+  function Fixture() {
+    const [address, setAddress] = useState('office.example')
+    return <AddHub slug="org" address={address} setAddress={setAddress} toast={() => {}} current={[]} busy={false}
+      apply={async patch => { patches.push(patch); return true }} />
+  }
+  const view = await mountView(<Fixture />, el => el)
+  try {
+    await inAct(async () => { [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Test')!.click(); await flush(8) })
+    assert.equal(view.el.querySelector<HTMLInputElement>('input')!.value, 'http://office.example:7378')
+    await inAct(async () => { view.el.querySelector<HTMLButtonElement>('button[type="submit"]')!.click(); await flush(8) })
+    assert.deepEqual(patches, [{ net_hubs: [{ address: 'http://office.example:7378', enabled: true }] }])
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('an old hub test cannot replace or validate an address edited while it was pending', async () => {
+  let finish!: (response: Response) => void
+  g.fetch = () => new Promise<Response>(resolve => { finish = resolve })
+  function Fixture() {
+    const [address, setAddress] = useState('old.example')
+    return <AddHub slug="org" address={address} setAddress={setAddress} toast={() => {}} current={[]} busy={false} apply={async () => true} />
+  }
+  const view = await mountView(<Fixture />, el => el)
+  try {
+    await inAct(() => { [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Test')!.click() })
+    await type(view.el.querySelector<HTMLInputElement>('input')!, 'new.example')
+    await inAct(async () => { finish(new Response(JSON.stringify({ ok: true, name: 'old office', address: 'http://old.example:7378' }), { headers: { 'Content-Type': 'application/json' } })); await flush(8) })
+    assert.equal(view.el.querySelector<HTMLInputElement>('input')!.value, 'new.example')
+    assert.equal(view.el.querySelector('[role="status"]') === null, true)
+  } finally { await view.unmount(); delete g.fetch }
+})
