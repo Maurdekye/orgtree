@@ -175,6 +175,46 @@ module.exports = async (page) => {
     screenshots.push(await page.screenshot(`${prefix}-attn-1000x700`))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=deskjump: the project desk's jump cards on every
+  // tab, the ↑ superior card in the header row and the members' row above the
+  // message box, as on the agent desk (user 2026-10-19 19:58Z); the deskinbox
+  // scene's full-size desk, every tab dark, summary and inbox light
+  if (only === 'deskjump') {
+    const measure = () => page.eval(() => {
+      const desk = document.querySelector('#desk-inbox .project-desk')
+      const box = (el) => {
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right) }
+      }
+      const names = (el) => el ? [...el.querySelectorAll('.desk-nav-chip')].map((b) => b.getAttribute('data-copy-agent-name')) : []
+      const navs = [...desk.querySelectorAll('.desk-nav')]
+      const row = box(navs[0]), composer = box(desk.querySelector('.project-composer'))
+      const frame = box(document.querySelector('#desk-inbox'))
+      return { tab: desk.querySelector('.cc-tabs button.on')?.getAttribute('data-tab') ?? null,
+        up: names(desk.querySelector('.cc-head .project-head-cards')), rows: navs.length, down: names(navs[0]),
+        row, composer, aboveComposer: !!row && !!composer && row.bottom <= composer.top + 1,
+        insideFrame: !!row && row.top >= frame.top && row.bottom <= frame.bottom }
+    })
+    for (const theme of ['', '&theme=light']) {
+      const name = theme ? 'light' : 'dark'
+      await page.goto('/?scene=deskinbox' + theme)
+      await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+      const tabs = await page.eval(() => [...document.querySelectorAll('#desk-inbox .cc-tabs button')].map((b) => b.getAttribute('data-tab')))
+      details['deskjump-tabs-' + name] = tabs
+      for (const tab of tabs) {
+        if (theme && tab !== 'desk' && tab !== 'inbox') continue
+        await page.eval(async (t) => {
+          document.querySelector(`#desk-inbox .cc-tabs button[data-tab="${t}"]`).click()
+          await new Promise((r) => setTimeout(r, 700))
+        }, tab)
+        await settle()
+        details['deskjump-' + tab + '-' + name] = await measure()
+        screenshots.push(await page.screenshot(`${prefix}-deskjump-${tab}-${name}-1000x700`))
+      }
+    }
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=deskhead: the project desk's header cards in one
   // row at full desk width, outlined and filled, dark and light, each card's
   // computed colours beside its near-zoom badge's; then the inbox's

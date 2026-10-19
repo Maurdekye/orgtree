@@ -45,7 +45,9 @@
 //             the near-zoom cards under them for the colours (user
 //             2026-10-19 19:02Z, 19:15Z); &theme=light for the light theme;
 //   deskinbox — one desk whose inbox opens on its listeners folder (19:05Z-
-//             19:33Z): ack mode (dev1 holds a job), &mode=rr round robin.
+//             19:33Z): ack mode (dev1 holds a job), &mode=rr round robin;
+//             PROJECTNODE_VISUAL_ONLY=deskjump opens each of its tabs: the
+//             jump cards stay on every one (19:58Z).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
@@ -227,10 +229,18 @@ const headMap = (set: HeadSet) => {
   const kids = (set.node as unknown as { children: CanvasNode[] }).children
   return new Map<string, CanvasNode>([[boss.id, boss], [set.node.id, set.node], ...kids.map((k) => [k.id, k] as [string, CanvasNode])])
 }
+/** the slots tab's slot_status, from the set's leases and its waiting slot dogs */
+const headSlotStatus = (set: HeadSet) => {
+  const dogs = set.dogs as { kind: string; owner: string; id: string; queued_at?: string }[]
+  const line = dogs.filter((w) => w.kind === 'slot').map((w, i) => ({ position: i + 1, agent: w.owner, dog: w.id, since: w.queued_at ?? null }))
+  const slots = (set.node as unknown as { configured_scope: { slots_capacity?: number } }).configured_scope.slots_capacity ?? 0
+  return { project: set.node.id, slots, held: set.leases.length, holders: set.leases, line, history: [], history_next: null }
+}
 function HeadDesk({ set, top, height, id }: { set: HeadSet; top: number; height: number; id: string }) {
   return (
     <div id={id} className="head-desk" style={{ position: 'absolute', left: 10, top, width: 980, height, border: '1px solid var(--line)', overflow: 'hidden' }}>
-      <ProjectDesk bare node={set.node} slug="org" tree={headTree(set)} map={headMap(set)} op={() => Promise.resolve({} as OpResult)}
+      <ProjectDesk bare node={set.node} slug="org" tree={headTree(set)} map={headMap(set)}
+        op={(b) => Promise.resolve((b.op === 'slot_status' ? headSlotStatus(set) : {}) as unknown as OpResult)}
         toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} />
     </div>
   )
