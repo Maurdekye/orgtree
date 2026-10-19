@@ -43,7 +43,7 @@ test('actual urgent mail flags highlight transcript cards and inbox rows; prose 
   assert.equal(inboxRows[0]!.querySelector('.urgentkind')?.textContent, 'urgent')
 
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  assert.match(css, /\.turn-mail\.urgent-mail\s*\{[^}]*#ff4500/i,
+  assert.match(css, /:is\(\.turn-mail\.urgent-mail, \.msg\.user\.event-surface\.event-notice\.urgent-mail\)\s*\{[^}]*#ff4500/is,
     'transcript urgency uses the shared orangered color')
   assert.match(css, /\.mailrow\.urgent-mail\s*\{[^}]*#ff4500/i,
     'inbox urgency uses the shared orangered color')
