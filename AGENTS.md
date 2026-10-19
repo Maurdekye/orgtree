@@ -670,6 +670,15 @@
   the read-only database client, with its request tracing span and outer
   scope/count logs preserved. See [scope follow-up](docs/rust-engine/session-placement-blips.md#scope-inspection-follow-up).
   [decided: coordinator 2026-10-17; verified: `tools/orgview.rs`, `domain/scope.rs`]
+
+- The startup no-harness warning prefers the engine's bounded harness registry
+  read, falling back to desktop presence only for an unavailable/old engine.
+  Both locators recognize Claude's native `~/.local/bin` install and Windows
+  npm global `claude.cmd` without PATH. Engine launch keeps its real-executable
+  and explicit-override precedence; presence scans never execute or sign in.
+  [decided: coordinator/user 2026-10-19; verified: `main/harnesses.ts`,
+  `main/index.ts`, `providers/mod.rs`]
+
 - Finish-page launch uses native Exec only when Setup's actual token is
   unelevated; elevated Setup keeps original-user shell dispatch. Both follow
   the exclusive launch claim; uncertain shell failure is never replayed with
