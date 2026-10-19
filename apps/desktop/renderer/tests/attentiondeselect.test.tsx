@@ -16,7 +16,7 @@ for(const kind of ['mention','urgent'] as const) for(const method of ['click','E
     localStorage.clear();resetLocalReads();resetSeenMentions()
     const target=kind==='mention'?mention:urgent,state=installAttentionServer(target)
     let focus:AttentionNotificationFocus|null=null
-    const v=await mountView(<AttentionDeselectFixture onNotificationFocus={f=>{focus=f}}/>,el=>el)
+    const v=await mountView(<AttentionDeselectFixture marker={kind==='mention'} onNotificationFocus={f=>{focus=f}}/>,el=>el)
     t.after(async()=>{await v.unmount();resetLocalReads();resetSeenMentions()});await settle()
     assert.equal(selected(v.el),'mail:'+target.id,'initial mail auto-selection remains')
     assert.deepEqual(state.reads,[target.id],'opening reads exactly once')

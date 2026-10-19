@@ -11,9 +11,9 @@ export const urgent: MailEntry = { ...mention, id:'urgent-mail', at:'2026-10-19T
 export const remaining: MailEntry = { ...urgent, id:'remaining', at:'2026-10-19T18:40:00Z', body:'Another unread request.' }
 export const question: AskInfo = { id:'question', node:'writer', kind:'question', status:'open',
   at:'2026-10-19T18:43:00Z', question:'Which result should we use?', options:[{label:'First'}] }
-export const tree = (withQuestion = false) => ({ slug:org, name:org, roots:[{
+export const tree = (withQuestion = false, marker = true) => ({ slug:org, name:org, roots:[{
   id:'writer', tier:'sol', state:'live', generation:0, seat:2, grant:2, free:0, children:[],
-  user_mention:{id:'mention-marker',event_id:'e1',at:mention.at,blurb:mention.body},
+  user_mention:marker?{id:'mention-marker',event_id:'e1',at:mention.at,blurb:mention.body}:null,
 }], asks:withQuestion?[question]:[], asks_open:withQuestion?1:0,
   work_items_summary:{attention:0,active:0}, max_top_grant:1000,
 } as unknown as TreePayload)
@@ -35,10 +35,10 @@ export function installAttentionServer(target: MailEntry = mention) {
   return state
 }
 
-export function AttentionDeselectFixture({withQuestion=false,onNotificationFocus}: {
-  withQuestion?:boolean;onNotificationFocus?:(focus:AttentionNotificationFocus|null)=>void
+export function AttentionDeselectFixture({withQuestion=false,marker=true,onNotificationFocus}: {
+  withQuestion?:boolean;marker?:boolean;onNotificationFocus?:(focus:AttentionNotificationFocus|null)=>void
 }) {
-  return <AttentionQueue slug={org} tree={tree(withQuestion)} toast={()=>{}}
+  return <AttentionQueue slug={org} tree={tree(withQuestion,marker)} toast={()=>{}}
     treeStatus={{loading:false,failed:false,stale:false,unavailable:false,error:null,at:Date.now()}}
     onNotificationFocus={onNotificationFocus}/>
 }
