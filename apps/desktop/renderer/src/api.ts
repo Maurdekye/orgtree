@@ -675,7 +675,7 @@ export const answerAsk = (
   // a string, or a list for a multi tab's picks; `rev` echoes the card
   // revision so a mid-render amend refuses the stale submission
   body: { selected?: (string | string[])[]; text?: string; rev?: number
-    dismiss?: boolean },
+    dismiss?: boolean; action?: 'accept' | 'decline' | 'cancel'; content?: Record<string, unknown> },
 ): Promise<{ answered: string; node: string }> =>
   req(`/api/orgs/${slug}/asks/${aid}/answer`, {
     method: 'POST',

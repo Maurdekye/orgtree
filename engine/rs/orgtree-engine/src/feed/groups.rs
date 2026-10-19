@@ -189,7 +189,8 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             json!({ "retired_total": r.get::<_, i64>(0), "retired_roots_total": r.get::<_, i64>(1) })
         }
         "asks" => {
-            let asks = compute::asks(client, org_id).await?;
+            let mut asks = compute::asks(client, org_id).await?;
+            asks.extend(engine.elicitations.cards(org_id));
             let open = asks.iter().filter(|a| a["status"] == "open").count();
             let credit_requests: Vec<Value> = asks
                 .iter()

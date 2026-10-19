@@ -50,7 +50,7 @@ export function submittedOpenCount(tree: Pick<TreePayload, 'asks'> | null | unde
     // in one row; legacy headers can contain separate question/credit/scope
     // rows. CAS revision keys are not a row count in the Rust engine.
     const ids = new Set((tree?.asks ?? [])
-      .filter(row => row.node === a.node && askIsOpen(row)).map(row => row.id))
+      .filter(row => row.node === a.node && row.kind !== 'elicitation' && askIsOpen(row)).map(row => row.id))
     n += ids.size || (a.kind === 'batch' ? Math.max(1, Object.keys(a.revs ?? {}).length) : 1)
   }
   return n
@@ -68,6 +68,8 @@ function openCards(tree: Pick<TreePayload, 'asks'> | null | undefined,
   nodes: Iterable<TreeNode>): AskInfo[] {
   const out: AskInfo[] = []
   const batched = new Set<string>()
+  // MCP requests have independent identities; never merge them with ordinary asks.
+  for (const a of tree?.asks ?? []) if (a.kind === 'elicitation' && askIsOpen(a)) out.push(a)
   for (const n of nodes) {
     if (askIsOpen(n.ask)) { out.push(n.ask!); batched.add(n.id) }
   }
@@ -76,6 +78,7 @@ function openCards(tree: Pick<TreePayload, 'asks'> | null | undefined,
   // (FR-14 — never one card per request kind)
   const loose = new Map<string, AskInfo[]>()
   for (const a of tree?.asks ?? []) {
+    if (a.kind === 'elicitation') continue
     if (askIsOpen(a) && !batched.has(a.node)) loose.set(a.node, [...(loose.get(a.node) ?? []), a])
   }
   for (const [node, rows] of loose) {

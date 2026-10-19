@@ -4262,6 +4262,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           card leaves on the click, and the answer is queued at once as its
           "Request resolved" entry (see the invariant above pendMail).
           Nulled/interrupted states stay visible on the inbox rows. */}
+      {node.elicitations?.map(request => <AskCard key={request.id} ask={request} slug={slug} toast={toast} />)}
       {ask && showAsk && (
         <AskCard ask={ask} slug={slug} toast={toast}
           seat={node.seat ?? 0}

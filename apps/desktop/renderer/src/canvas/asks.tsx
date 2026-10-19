@@ -30,6 +30,7 @@ import { CloseIcon, WarnIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { useComposerEnter } from '../enterkey'
 import { useQuestionVisibility } from '../notification-visibility'
+import { ElicitationAsk } from './elicitation'
 import { md, orgPxc } from './shared'
 
 /** Each card owns its inputs, so a deterministic id keeps the visible label
@@ -103,6 +104,7 @@ export function AskCard({ ask, slug, toast, seat = 0, committed = 0, maxTop,
   // point 31: a submitted card is gone on the click, in every view
   if (live && askHidden(slug, ask.id)) return null
   if (!live) return <NulledAsk ask={ask} credit={credit} />
+  if (ask.kind === 'elicitation' && ask.elicitation) return <ElicitationAsk key={ask.id} ask={ask} slug={slug} toast={toast} />
   // FR-14: the composed batch — mixed tabs, one submit. Legacy open cards
   // (a rolling deploy's pre-batch payload) fall through to the old forms.
   if (ask.kind === 'batch' && ask.tabs?.length) {

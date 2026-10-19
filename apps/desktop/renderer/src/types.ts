@@ -601,6 +601,7 @@ export interface TreeNode {
    *  outlive the turn's reply, which is why a node can sit busy for a long
    *  time with nothing else to show. FR-2's progress panel renders it. */
   bg_tasks?: number
+  elicitations?: AskInfo[]
   last_error: string | null
   /** G4: what the agent is doing this instant, derived server-side from the
    *  live tail. The client used to build this itself from websocket events. */
@@ -644,6 +645,7 @@ export interface CreditRequest {
  *  dismissed/withdrawn/superseded = grey null; interrupted = orange null
  *  (historical — the wake-void was retired 2026-08-06; `reason` says why). */
 export interface AskInfo {
+  elicitation?: import('./canvas/elicitation').Elicitation
   id: string
   node: string
   kind?: string              // "question" | "credit" (credit rows may omit it in credit_requests)

@@ -449,7 +449,9 @@ impl Actor {
             let parent = raw["parent_id"].as_i64();
             let parent_eff = parent.and_then(|p| self.eff_scope.get(&p)).unwrap_or(&ceiling);
             let eff = scope::clamp(&raw["scope"], parent_eff);
-            let body = Arc::new(agent_body(raw, &eff, parent, &ctx));
+            let mut projected = agent_body(raw, &eff, parent, &ctx);
+            projected["elicitations"] = json!(self.engine.elicitations.agent_cards(self.org_row["id"].as_i64().unwrap_or(0),id));
+            let body = Arc::new(projected);
             self.eff_scope.insert(id, eff);
             let same = self.live_body.get(&id).map(|b| **b == *body).unwrap_or(false);
             if !same {

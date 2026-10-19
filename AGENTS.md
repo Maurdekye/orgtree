@@ -4202,3 +4202,10 @@ Cold archived docket projections covered by the existing policy spec use its typ
   [decided: user 2026-10-19; verified: `canvas/modalpin.tsx`,
   `canvas/tempdesk.tsx`, `tests/modalpin.test.tsx`, `tests/tempdesk.test.tsx`]
 
+- Codex MCP elicitation uses independent human-only AskInfo cards and the
+  existing answer route, never ordinary ask parts or agent mail. Five-minute
+  expiry declines; disconnect/shutdown cancels. URL mode is user-open only;
+  typed answers stay ephemeral and unlogged. No saved provider permission is
+  written. See [elicitation](docs/rust-engine/codex-elicitation.md).
+  [decided: user/coordinator 2026-10-19; verified: runtime/elicitation.rs,
+  runtime/codex.rs, http/asks.rs, canvas/elicitation.tsx]

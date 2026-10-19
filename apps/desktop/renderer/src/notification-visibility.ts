@@ -5,7 +5,7 @@ import { useCallback, useRef } from 'react'
 const cards = new Set<HTMLElement>()
 export function useQuestionVisibility(org: string, id: string) {
   const previous = useRef<HTMLElement | null>(null)
-  return useCallback((element: HTMLDivElement | null) => {
+  return useCallback((element: HTMLElement | null) => {
     if (previous.current) cards.delete(previous.current)
     previous.current = element
     if (element) {

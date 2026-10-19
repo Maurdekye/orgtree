@@ -69,3 +69,12 @@ Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a dif
 - [orgtree-harness-comparison](../harness-comparison/SKILL.md)
 - [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)
 - [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
+## MCP permission requests
+
+MCP servers can ask the human for permission or typed form input. These requests
+appear as independent cards on the agent desk and in Attention, with Accept,
+Decline and Cancel. They go to the human, not a superior agent, and do not
+replace ordinary agent questions. Unanswered requests decline after five minutes;
+disconnect or shutdown cancels. URL mode shows a link for the human to open,
+without opening it automatically. Decisions apply only to that request; Orgtree
+does not save a provider/browser permission rule or send the answer as agent mail.

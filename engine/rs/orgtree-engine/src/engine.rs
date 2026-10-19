@@ -40,6 +40,7 @@ pub struct Engine {
     pub dogs: crate::runtime::watchdogs::Registry,
     pub usage: crate::usage::Usage,
     pub net: crate::net::Net,
+    pub elicitations: crate::runtime::elicitation::Registry,
 }
 
 pub type EngineRef = Arc<Engine>;
@@ -94,6 +95,7 @@ impl Engine {
             dogs: Default::default(),
             usage: Default::default(),
             net: Default::default(),
+            elicitations: Default::default(),
         })
     }
 }

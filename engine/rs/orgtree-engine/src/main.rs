@@ -264,6 +264,7 @@ async fn run_with_cluster(
         dogs: runtime::watchdogs::Registry::default(),
         usage: usage::Usage::default(),
         net: net::Net::default(),
+        elicitations: runtime::elicitation::Registry::default(),
     });
 
     progress("engine-load-orgs");

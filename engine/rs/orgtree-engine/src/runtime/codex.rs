@@ -585,6 +585,8 @@ async fn read_stdout(
     mut waiters_rx: mpsc::UnboundedReceiver<(i64, oneshot::Sender<Value>)>,
     policy: Policy,
 ) {
+    let requests_stop = tokio_util::sync::CancellationToken::new();
+    let _requests_guard = requests_stop.clone().drop_guard();
     let mut reader = BufReader::with_capacity(1 << 16, stdout);
     let mut buf: Vec<u8> = Vec::new();
     // owned only by this task: request id â†’ its waiter
@@ -622,11 +624,15 @@ async fn read_stdout(
                 let id = v["id"].clone();
                 let params = v["params"].clone();
                 let (engine, caller, writer, actor) = (engine.clone(), caller.clone(), writer.clone(), actor.clone());
+                let requests_stop = requests_stop.clone();
                 // every server request (a tool call, an approval) is its own request
                 let span = crate::trace::request(&crate::trace::agent_client(caller.agent_id, &caller.name));
                 tokio::spawn(tracing::Instrument::instrument(
                     async move {
-                        let reply = match answer(&engine, &caller, &actor, &method, &params, policy, process).await {
+                        let result = if method == "mcpServer/elicitation/request" {
+                            Ok(super::elicitation::request(&engine,&caller,&params,&requests_stop).await)
+                        } else { answer(&engine, &caller, &actor, &method, &params, policy, process).await };
+                        let reply = match result {
                             Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
                             Err(e) => json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": e.to_string() } }),
                         };
@@ -643,6 +649,7 @@ async fn read_stdout(
             _ => {}
         }
     };
+    requests_stop.cancel();
     let _ = actor.post(AgentMsg::ProcExited { process, reason });
 }
 
