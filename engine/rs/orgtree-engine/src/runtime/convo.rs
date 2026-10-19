@@ -1352,6 +1352,7 @@ pub fn tool_arg(_name: &str, input: &Value) -> String {
 #[nolog]
 pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
     let base = name.rsplit("__").next().unwrap_or(name);
+    let result = result.and_then(tool_ref_result);
     let mut refs: Vec<Value> = Vec::new();
     let mut agent = |v: &Value| {
         if let Some(a) = v.as_str().map(str::trim) {
@@ -1412,7 +1413,7 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
             }
             let id = input["id"].as_str().map(str::to_string).or_else(|| {
                 if input["action"] != "create" { return None; }
-                let v: Value = serde_json::from_str(result?.trim()).ok()?;
+                let v = result.as_ref()?;
                 v["id"].as_str().map(str::to_string)
             });
             if let Some(id) = id.filter(|i| !i.trim().is_empty()) {
@@ -1434,7 +1435,7 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
         "orgtree_work" | "orgtree_staff" if input["action"] != "list" => {
             ticket(&input["slug"]);
             if input["slug"].as_str().map_or(true, |s| s.trim().is_empty()) && input["action"] != "get" {
-                if let Some(v) = result.and_then(|r| serde_json::from_str::<Value>(r.trim()).ok()) {
+                if let Some(v) = result.as_ref() {
                     for k in ["slug", "created", "work_item"] {
                         if v[k].is_string() { ticket(&v[k]); break; }
                     }
@@ -1453,7 +1454,7 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
     // Every provider already calls this with the uncut result before storing
     // the row, so the small transition survives clipping and chat reloads.
     if base == "orgtree_work" && !matches!(input["action"].as_str(), Some("get" | "list")) {
-        if let Some(v) = result.and_then(|r| serde_json::from_str::<Value>(r.trim()).ok()) {
+        if let Some(v) = result.as_ref() {
             let slug = ["updated", "superseded", "assigned"].iter().find_map(|k| v[*k].as_str());
             if let (Some(slug), Some(from), Some(to)) = (slug, v["previous_status"].as_str(), v["status"].as_str()) {
                 let statuses = crate::domain::docket::STATUSES;
@@ -1472,7 +1473,7 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
     // results know only the new tier; neither input nor today's tree proves
     // their previous model. Keep this before result clipping for every lane.
     if matches!(base, "orgtree_retool" | "orgtree_switch_model") {
-        if let Some(v) = result.and_then(|r| serde_json::from_str::<Value>(r.trim()).ok()) {
+        if let Some(v) = result.as_ref() {
             let node = v["node"].as_str().map(str::trim).filter(|s| !s.is_empty() && *s != "user" && !s.starts_with('@'));
             let to = v["tier"].as_str().map(str::trim).filter(|s| !s.is_empty());
             let from = v["previous_tier"].as_str().map(str::trim).filter(|s| !s.is_empty());
@@ -1490,6 +1491,29 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
         }
     }
     Value::Array(refs)
+}
+
+/// Read the primary JSON result before the separately appended timing block.
+/// Some harnesses retain the MCP envelope instead of flattening its text.
+#[nolog] // pure extraction; result text may contain private data
+fn tool_ref_result(text: &str) -> Option<Value> {
+    fn primary(text: &str) -> Option<Value> {
+        let mut stream = serde_json::Deserializer::from_str(text).into_iter::<Value>();
+        let value = stream.next()?.ok()?;
+        let tail = text[stream.byte_offset()..].trim();
+        if !tail.is_empty() {
+            let elapsed = tail.strip_prefix("execution time: ")?.strip_suffix("ms")?.parse::<f64>().ok()?;
+            if !elapsed.is_finite() || elapsed < 0.0 { return None; }
+        }
+        (value.is_object() && value["isError"] != true && value["success"] != false).then_some(value)
+    }
+    let value = primary(text)?;
+    if let Some(blocks) = value["content"].as_array().or_else(|| value["contentItems"].as_array()) {
+        let first = blocks.first()?;
+        if !matches!(first["type"].as_str(), Some("text" | "inputText")) { return None; }
+        return primary(first["text"].as_str()?);
+    }
+    Some(value)
 }
 
 #[nolog]
