@@ -22,7 +22,7 @@ function Register(){useProvideAgentNav(id=>id===node.id?projectActions():[]);ret
 localStorage.clear();applyTheme('orgtree')
 createRoot(document.getElementById('root')!).render(<AgentNavProvider><ObjectNavProvider><Register/>
  <ObjectNavHost {...{isProject:(id:string)=>id===node.id}} org="fixture" dogs={dogs} openDog={id=>opened.push(id)} toast={noop}/>
- <DeskDogsProvider value={{org:'fixture',dogs,open:id=>opened.push(id)}}><AgentSurfaceRoutesProvider value={{open:(kind,id)=>opened.push(kind+':'+id)}}>
+ <DeskDogsProvider value={{org:'fixture',dogs,open:id=>opened.push(id)}}><AgentSurfaceRoutesProvider value={{open:(kind,id)=>opened.push(kind+':'+id),show:noop}}>
  <ObjectMenuBoundary style={{padding:24,height:650,boxSizing:'border-box'}}>
  <h2 style={{margin:'0 0 10px'}}>Project watchdogs and slot chips</h2>
  <p style={{fontSize:12}}>Synthetic fixtures · continuous / one-shot · full shared project menu</p>

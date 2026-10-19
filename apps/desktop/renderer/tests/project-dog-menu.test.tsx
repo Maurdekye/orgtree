@@ -34,7 +34,7 @@ for(const kind of ['slot','fair_queue','project_listener','listener_watch','acti
  })
 }
 
-test('ordinary targets, foreign org and spent dogs gain no project navigation',async t=>{
+test('ordinary targets and spent dogs gain no project navigation',async t=>{
  function Register(){useProvideAgentNav(()=>[{label:'Focus',onSelect:()=>{}}]);return null}
  const dogs=[dog('command',{target:'echo build'}),dog('activity',{target:'worker'}),dog('slot',{spent:true,state:'spent'})]
  const view=await mountView(<AgentNavProvider><ObjectNavProvider><Register/><ObjectNavHost {...{isProject:(id:string)=>id==='build'}} org="org" dogs={dogs} openDog={()=>{}} toast={()=>{}}/><ObjectMenuBoundary>{dogs.map(w=><DogChip key={w.id} dog={w} onOpen={()=>{}}/>)}</ObjectMenuBoundary></ObjectNavProvider></AgentNavProvider>,el=>el)
@@ -46,7 +46,7 @@ test('held and waiting slot chips offer Project submenu and preserve slots left-
  const opened:string[]=[],focused:string[]=[]
  function Register(){useProvideAgentNav(id=>[{label:'Focus',onSelect:()=>{focused.push(id)}},{label:'Open',children:[{label:'Slots',onSelect:()=>{}}],onSelect:()=>{}}]);return null}
  const w=dog('slot'),lease={project:'build',agent:'worker',slot:1,lease:'synthetic',since:'2026-10-19T00:00:00Z'}
- const view=await mountView(<AgentNavProvider><Register/><AgentSurfaceRoutesProvider value={{open:(kind,id)=>{opened.push(kind+':'+id)}}}><ObjectMenuBoundary><AgentSlotChips agent="worker" leases={[lease]} dogs={[w]}/></ObjectMenuBoundary></AgentSurfaceRoutesProvider></AgentNavProvider>,el=>el)
+ const view=await mountView(<AgentNavProvider><Register/><AgentSurfaceRoutesProvider value={{open:(kind,id)=>{opened.push(kind+':'+id)},show:()=>{}}}><ObjectMenuBoundary><AgentSlotChips agent="worker" leases={[lease]} dogs={[w]}/></ObjectMenuBoundary></AgentSurfaceRoutesProvider></AgentNavProvider>,el=>el)
  t.after(view.unmount)
  assert.equal(view.el.querySelectorAll('button').length,2)
  for(const chip of view.el.querySelectorAll('button')){await right(chip);assert.ok(projectRow());assert.deepEqual(opened,[]);await inAct(()=>projectRow()!.click());assert.deepEqual(focused,['build']);focused.length=0;await inAct(()=>{chip.click()});assert.deepEqual(opened,['project-slots:build']);opened.length=0}
