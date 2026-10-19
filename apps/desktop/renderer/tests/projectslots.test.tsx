@@ -314,8 +314,8 @@ test('visible slot views share one second clock for held, waiting and ended ages
 
 test('slot header has one count chip and no holder links (user 2026-10-19 17:12Z); shared model-icon agent links navigate from every tab list', async t => {
   const { view, jumps } = await desk(t, project({ slots_capacity: 1 }), status)
-  const header = view.el.querySelector('.cc-head-meta.project-slots-meta')
-  assert.ok(header, 'the slot chip belongs in the shared second header row')
+  const header = view.el.querySelector('.cc-head-meta.project-head-cards')
+  assert.ok(header, 'the slot chip belongs in the one header card row (user 2026-10-19 19:02Z)')
   assert.doesNotMatch(header?.textContent ?? '', /concurrency slots? held/, 'the count chip is not repeated as prose')
   assert.ok(header?.querySelector('.project-slots-card'), 'yellow count card moves to the second row too')
   assert.equal(view.el.querySelector('.cc-head-top .project-slots-card') === null, true)
@@ -351,7 +351,7 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   const panel = view.el.querySelector<HTMLElement>('.project-slots')!
   assert.ok(panel, 'the slots panel')
   assert.deepEqual(ops.filter((o) => o.op === 'slot_status'), [{ op: 'slot_status', node: 'build' }])
-  assert.doesNotMatch(view.el.querySelector('.project-slots-meta')?.textContent ?? '', /concurrency slots? held/)
+  assert.doesNotMatch(view.el.querySelector('.project-head-cards')?.textContent ?? '', /concurrency slots? held/)
   assert.match(view.el.querySelector('.cc-tabs button[data-tab="slots"]')?.textContent ?? '', /^slots$/, 'the tab omits redundant held/total counts')
   const sections = [...panel.querySelectorAll('h4')].map((h) => h.textContent)
   assert.deepEqual(sections, ['Holding', 'Line', 'Recent holds'])
@@ -394,7 +394,7 @@ test('§5 the empty state says how to claim and that nobody waits', async (t) =>
   assert.equal(card?.textContent, 'slots 0/2')
   assert.equal(card?.classList.contains('full'), false, 'an outline while a slot is free')
   const panel = view.el.querySelector<HTMLElement>('.project-slots')!
-  assert.doesNotMatch(view.el.querySelector('.project-slots-meta')?.textContent ?? '', /concurrency slots? held/)
+  assert.doesNotMatch(view.el.querySelector('.project-head-cards')?.textContent ?? '', /concurrency slots? held/)
   assert.match(panel.textContent ?? '', /Nobody holds a concurrency slot\./)
   assert.match(panel.textContent ?? '', /orgtree_watchdog action=create kind=slot target=build/)
   assert.match(panel.textContent ?? '', /Nobody is waiting\./)

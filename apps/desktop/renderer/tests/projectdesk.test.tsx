@@ -307,12 +307,13 @@ test('clicking an already-open project desk focuses it again', async (t) => {
 test('§2a jump cards up to the parent and down to its members', async (t) => {
   const jumped: string[] = []
   const el = await desk(t, { jump: (id) => jumped.push(id) })
-  const navs = [...el.querySelectorAll('.desk-nav')]
-  assert.equal(navs.length, 2, 'one row up, one row down')
   const names = (row: Element) => [...row.querySelectorAll('button.desk-nav-chip')].map((b) => b.getAttribute('data-copy-agent-name'))
-  assert.deepEqual(names(navs[0]!), ['boss'])
-  assert.deepEqual(names(navs[1]!), ['dev1', 'ui'])
-  await inAct(() => { navs[1]!.querySelector<HTMLButtonElement>('button.desk-nav-chip')!.click() })
+  // up: the parent's link among the header cards (user 2026-10-19 19:02Z); down: the members' row
+  assert.deepEqual(names(el.querySelector('.cc-head .project-head-cards')!), ['boss'])
+  const navs = [...el.querySelectorAll('.desk-nav')]
+  assert.equal(navs.length, 1, 'one row down, under the description')
+  assert.deepEqual(names(navs[0]!), ['dev1', 'ui'])
+  await inAct(() => { navs[0]!.querySelector<HTMLButtonElement>('button.desk-nav-chip')!.click() })
   assert.deepEqual(jumped, ['dev1'])
   assert.equal(el.querySelector('textarea.project-description-edit') === null, true, 'the editor is not open yet')
 })

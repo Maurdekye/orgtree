@@ -27,10 +27,12 @@ async function fixture(t: TestContext, count: number, host = 'canvas') {
   t.after(async () => { await view.unmount(); popup?.window.close(); localStorage.removeItem(JUMP_FOLD_KEY) })
   await inAct(async () => { await flush(4) })
   const el = doc.querySelector<HTMLElement>('[data-host]')!
+  // the parent's link is one of the header cards (user 2026-10-19 19:02Z);
+  // the members keep their own row at the bottom of the summary
+  assert.equal(el.querySelector('.cc-head .project-head-cards .desk-nav-chip')?.getAttribute('data-copy-agent-name'), 'boss')
   const rows = el.querySelectorAll<HTMLElement>('.desk-nav')
-  assert.equal(rows.length, 2, 'parent and member rows remain separate')
-  assert.equal(rows[0]!.querySelector('[data-copy-agent-name]')?.getAttribute('data-copy-agent-name'), 'boss')
-  return { row: rows[1]!, jumped }
+  assert.equal(rows.length, 1, 'the member row stays separate from the header row')
+  return { row: rows[0]!, jumped }
 }
 
 for (const host of ['canvas', 'pinned', 'pop-out', 'Attention']) {
