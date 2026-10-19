@@ -4,10 +4,10 @@ description: Explain transcript cards, tool displays, reply controls and the des
 ---
 Up: [orgtree-desk](../SKILL.md)
 
-Composer controls use matching 24px square buttons, including urgency,
-speed, effort, send/interrupt, notice, attach and project broadcast. Urgency
-sits immediately left of speed where speed is available. Long effort text
-ellipsizes inside the button; its tooltip keeps the complete effort value.
+Composer controls use matching 24px heights. Effort grows wide enough to show
+its complete chosen or queued level, without ellipsis; urgency, speed,
+send/interrupt, notice, attach and project broadcast stay 24px square. Urgency
+sits immediately left of speed where speed is available.
 
 # Desk Chat tab
 
