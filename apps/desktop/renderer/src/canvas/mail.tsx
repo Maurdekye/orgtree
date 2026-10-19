@@ -800,7 +800,8 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
     && view.event.variant !== 'ordinary.notice'
     && !(hideMailReplyKind && view.event.variant === 'reply.mail') ? view.title : null
   const noticeRun = !m._ask && isMailNotice(m) && isPile
-  const urgent = !m._ask && Boolean(m.urgent)
+  const urgentMail = Boolean(m.urgent)
+  const urgent = !m._ask && urgentMail
   const metaLine = queued || (Boolean(projectMail) && Boolean(kind || m._ask || noticeRun || urgent))
   const chips = <>
     {kind && <span className="event-row-kind">{kind}</span>}
@@ -816,7 +817,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
         was still unused. Its tooltip carries the sender's reason,
         which is the whole point of requiring one: the user judges
         the interruption instead of just receiving it. */}
-    {urgent
+    {urgentMail
       && <span className="urgentkind" title={m.urgent_reason
         ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
   </>
@@ -845,7 +846,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
            (`notepile`, not `pile` — `.pile-*` is the retired-sibling
            stack on the canvas and the two share nothing.) */
         + (isPile ? ' notepile' : '')
-        + (urgent ? ' urgent-mail' : '')
+        + (urgentMail ? ' urgent-mail' : '')
         /* D-169: urgent mail sits at the TOP of that same ladder — one
            notch above an open ask on the one axis this list already
            uses (edge + tint + chip), not a new colour. It does NOT
