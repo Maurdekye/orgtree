@@ -27,6 +27,7 @@ import { resolveOrgDefault } from './canvas/effort'
 import { EffortBar } from './canvas/effortbar'
 import { staffingOptions, tierEffortLevels, type StaffingOptions } from './canvas/staffingoptions'
 import { museHireAccount, museLandingAccount } from './canvas/musehire'
+import { agentNavProps } from './canvas/agentnav'
 import { MUSE_TIERS, museEffortLevels, useAgyModelsRefresh } from './canvas/shared'
 import {
   ALL_TIER_SEAT, hireOf, tierLabel, type CanvasNode,
@@ -243,6 +244,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       </button>
       <button type="button" className={'quickchat-btn quickchat-superior' + (superior === null ? ' quickchat-top-superior' : '')}
         title={`superior of the new agent: ${superior ?? 'none (a top-level agent)'}`}
+        {...agentNavProps(superior)}
         aria-expanded={pop?.kind === 'superior'} onClick={open('superior')}>
         {/* the shared chip: a project wears its folder mark, not its sentinel tier */}
         {superior === null ? <SwitchboardMark /> : <TierChip tier={nodeTierOf(supNode)} />}
@@ -381,6 +383,7 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick, activeO
       }}>
       <AgentTray map={liveMap} rows={indentedRows} query={query} onQuery={setQuery}
         archived={false} onArchived={() => {}} onPick={pick} compactAt={compactAt}
+        rowProps={n => agentNavProps(n.id)}
         selected={hi} filterLabel="filter superiors"
         filterActions={onActiveOnly && <ActiveAgentsFilter checked={activeOnly} onChange={onActiveOnly} />}
         leadingRows={showRoot && (
