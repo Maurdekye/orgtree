@@ -1346,7 +1346,7 @@ export const setOrgPicture = (slug: string, owner: number, data: string | null, 
 // checkbox never gates on it; a hub that is down still gets configured)
 export const probeHub = (
   address = '',
-): Promise<{ ok: boolean; name?: string | null }> =>
+): Promise<{ ok: boolean; name?: string | null; address?: string }> =>
   req(`/api/net/probe${address ? `?address=${encodeURIComponent(address)}` : ''}`)
 export const saveScope = (slug: string, nid: string, scope: ScopeRequest): Promise<OpResult> =>
   staleAfter(slug, req(`/api/orgs/${slug}/nodes/${nid}/scope`, {

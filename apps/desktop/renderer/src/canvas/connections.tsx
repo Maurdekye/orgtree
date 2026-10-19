@@ -13,7 +13,7 @@
 // immediately — hub membership is operational state, not a form draft.
 
 import { openPhonePanel } from './phonelink'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { SetBlock, SetGroup, SetRow, SetToggle } from './settingskit'
 import { getOrgNet, probeHub, saveSettings } from '../api'
 import type { NetHub, TreePayload, ToastFn } from '../types'
@@ -147,14 +147,19 @@ export function AddHub({ slug: _slug, address, setAddress, toast, current, busy,
 }) {
   const [probing, setProbing] = useState(false)
   const [probe, setProbe] = useState('')
+  const currentAddress = useRef(address)
+  currentAddress.current = address
   const test = async () => {
     setProbing(true); setProbe('')
+    const tested = address.trim()
     try {
-      const r = await probeHub(address.trim())
+      const r = await probeHub(tested)
+      if (currentAddress.current.trim() !== tested) return
+      if (r.ok && r.address) setAddress(r.address)
       setProbe(r.ok ? `Reachable — ${r.name || 'unnamed hub'} answered.`
         : 'Not answering right now. You can still add it: mail queues and delivery starts when it comes up.')
     } catch (e) {
-      setProbe(`The test itself failed (${(e as Error).message}) — the address was not changed.`)
+      if (currentAddress.current.trim() === tested) setProbe(`The test itself failed (${(e as Error).message}) — the address was not changed.`)
     } finally { setProbing(false) }
   }
   return <SetGroup title="Add a mail hub">
@@ -167,7 +172,7 @@ export function AddHub({ slug: _slug, address, setAddress, toast, current, busy,
       }
     }}>
       <SetBlock label="Hub address"
-        hint="A bare host works — http and the standard port 7370 are assumed. A tunneled hub keeps its https address.">
+        hint="A bare host tries ports 7370, 7378 and 7371 and https together. An explicit port or URL is used as typed.">
         <div className="row" style={{ alignItems: 'center' }}>
           <input style={{ flex: 1 }} required value={address} aria-label="Hub address" onChange={e => { setAddress(e.target.value); setProbe('') }}
             placeholder="http://host:7370 or https://hub.example" />
