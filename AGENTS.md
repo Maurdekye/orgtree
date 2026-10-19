@@ -67,6 +67,12 @@
   [decided: user 2026-10-19 13:20Z; verified: `mailleave.ts`,
   `canvas/mail.tsx`, `main/mail-read-close.ts`]
 
+- Urgent mail cards use the explicit `urgent` mail flag for an orange-red
+  (`#ff4500`) edge and an `urgent` text chip in transcript and inbox surfaces;
+  mailbox-attention alone keeps its existing styling. [decided: user
+  2026-10-19 17:19Z; verified: `events/segments.tsx`, `canvas/mail.tsx`,
+  `styles.css`]
+
 
 - The persistent app-wide taskbar badge reads existing native app-feed attention
   totals and qualifying notices: urgent mail, questions, ticket flags and mentions.
