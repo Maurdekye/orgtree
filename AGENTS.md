@@ -9,6 +9,13 @@
 
 # AGENTS.md — working on Orgtree
 
+- Attention list rows toggle off on a second click; Escape clears when the
+  list itself has focus. A reader-cleared pane stays empty through refreshes,
+  without reading another mail. Initial/empty-queue arrivals and resolved-row
+  neighbor selection still open normally; explicit clicks/keys/notifications
+  resume selection. [decided: user/coordinator 2026-10-19; verified:
+  `attention/AttentionQueue.tsx`, `tests/attentiondeselect.test.tsx`]
+
 - Empty composer padding and rows focus their text field without scrolling,
   across agent/project desks, Quick chat and replies; nested controls and
   portaled pickers retain focus behavior. Right-side desk controls restore

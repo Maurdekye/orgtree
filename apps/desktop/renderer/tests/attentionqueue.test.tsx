@@ -399,8 +399,7 @@ test('§2 dismissing a ticket goes through the docket\'s own endpoint, and the r
   const v = await mountView(panel(), titles)
   await settle()
 
-  await inAct(() => { rowEl(v.el, 'ticket:cutover')!.click() })
-  await settle()
+  assert.equal(selectedKey(v.el), 'ticket:cutover', 'the newest ticket is already open')
   // the body is the docket's own pane: title, status line, and its Dismiss
   const pane = v.el.querySelector('[data-attn-detail="ticket"]') as HTMLElement
   assert.equal(pane.querySelector('.docket-pane-head b')?.textContent, 'Cut over the index')
@@ -447,8 +446,7 @@ test('§2.2 a refused dismissal brings the row back and says why', async () => {
   const v = await mountView(<AttentionQueue slug={SLUG} tree={tree()} toast={(m) => { toasts.push(...m) }}
     treeStatus={FRESH} />, titles)
   await settle()
-  await inAct(() => { rowEl(v.el, 'ticket:cutover')!.click() })
-  await settle()
+  assert.equal(selectedKey(v.el), 'ticket:cutover')
   const dismiss = [...v.el.querySelectorAll('[data-attn-detail="ticket"] button')]
     .find((b) => /Dismiss/.test(b.textContent ?? '')) as HTMLButtonElement
   await inAct(() => { dismiss.click() })
@@ -481,8 +479,7 @@ test('§3 opening an urgent mail reads it, and it stays while it is selected', a
   const v = await mountView(panel(), titles)
   await settle()
 
-  await inAct(() => { rowEl(v.el, 'mail:m1')!.click() })
-  await settle()
+  assert.equal(selectedKey(v.el), 'mail:m1', 'the newest mail is already open')
   // the body is the inbox's own reading pane, with its reply box
   const pane = v.el.querySelector('[data-attn-detail="mail"]') as HTMLElement
   assert.ok(!!pane.querySelector('.mailer-head'), "the inbox pane's head")
@@ -516,14 +513,14 @@ test('§3.1 a mail the server still calls unread is not read twice', async () =>
   installServer({ items: [], pending: [urgent] })
   const v = await mountView(panel(), titles)
   await settle()
-  await inAct(() => { rowEl(v.el, 'mail:m1')!.click() })
-  await settle()
+  assert.equal(selectedKey(v.el), 'mail:m1')
   server.pending = []
   await repoll()
   await inAct(() => { rowEl(v.el, 'mail:m1')!.click() })
   await settle()
   assert.equal(server.posts.filter((p) => /\/inbox\/read$/.test(p.path)).length, 1,
-    're-selecting a retained row posts nothing')
+    'deselecting a retained row posts nothing')
+  assert.equal(selectedKey(v.el), null)
   await v.unmount()
 })
 
@@ -814,8 +811,7 @@ test('§8 an open question from an agent outside the tree is listed and answerab
   // by its request count, exactly as it does a held agent's batch
   assert.deepEqual(titles(v.el), ['question:1 request(s) awaiting one submit'],
     "listed from the header's open requests")
-  await inAct(() => { rowEl(v.el, 'question:q88')!.click() })
-  await settle()
+  assert.equal(selectedKey(v.el), 'question:q88', 'the question is already open')
   assert.ok(!!v.el.querySelector('[data-attn-detail="question"] .askcard'),
     "and the body is the inbox's own ask card")
   assert.match(v.el.querySelector('[data-attn-detail="question"] .askcard')?.textContent ?? '',

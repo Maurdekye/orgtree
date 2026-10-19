@@ -24,6 +24,13 @@ The desk panel's agent drawer offers search and archive inclusion. Choose an age
 
 Unread mail mentioning @user in visible content uses the same mail entry and read/selection retention as urgent mail, without an urgent tag or fabricated reason. Its matching sender/prose mention blurb is suppressed while that mail represents it; reading clears that matching marker, and unrelated mention rows remain.
 
+Click a selected mail, question or ticket row again to clear its reading pane,
+or press Escape while the queue list has focus. A read mail then leaves the
+queue. Refreshing keeps a deliberately cleared pane empty and does not read
+another mail. Choose a row, use the arrow keys or open a notification to resume.
+Initial entries, new arrivals into an empty queue and the neighbor of a resolved
+entry still select automatically.
+
 ## Jump to a transcript mention
 
 The header’s glowing @ button, just left of STOP ALL, has the same count and behavior as in Canvas. It opens the newest unobserved transcript mention in the Attention desk, switches to Chat when necessary, and uses the existing text highlight and observed clearing. Mail mentions remain on the Inbox attention path.
