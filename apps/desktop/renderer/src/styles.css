@@ -3257,15 +3257,25 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
    are not in it: they are the agent desk's up row under the header (user
    2026-10-19 21:05:53Z) */
 .project-head-cards > * { align-self: center; }
-/* the desk's Listeners tab */
+/* the desk's Listeners tab (listenersdesk.tsx): the fire box, then ONE table
+   in the slots table's style, as the inbox's mail listeners (user 2026-10-19
+   21:08Z-21:11Z); a watch's armed count in the listener cyan */
 .project-listeners { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
 .project-listeners h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }
 .project-listeners .listener-fire { display: flex; gap: 6px; align-items: center; }
 .project-listeners .listener-fire input { flex: 1; min-width: 0; }
-.project-listeners .listener-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); }
-.project-listeners .listener-row .spacer { flex: 1; }
-.project-listeners .listener-agent { font-weight: 600; }
-.project-listeners .listener-count { color: var(--listener); font-variant-numeric: tabular-nums; }
+.slots-table.listeners-table { min-width: 520px; }
+.listeners-table .listener-col-dog { width: 30%; }
+.listeners-table .listener-col-count, .listeners-table .listener-col-fired { width: 64px; }
+.listeners-table .listener-col-actions { width: 22%; }
+.listeners-table .slot-agent { font-weight: 600; overflow: hidden; }
+.listeners-table .slot-agent .ref-agent { max-width: 100%; }
+.listeners-table .listener-dog-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.listeners-table .listener-count { color: var(--listener); }
+.listeners-table .listener-actions { overflow-wrap: anywhere; font-family: monospace; font-size: 11px; }
+/* a paused dog's row dims as the mail listeners' do; its chip already dims
+   itself, so its cell is left out rather than dimmed twice */
+.listeners-table .listener-row.out > :not(.listener-dog-cell) { opacity: .6; }
 .project-listeners .listener-dog { font-family: monospace; font-size: 11px; }
 /* the project inbox's listeners folder (maillisteners.tsx): the slots
    table's layout and time colours, in the queue's rose for the order and for

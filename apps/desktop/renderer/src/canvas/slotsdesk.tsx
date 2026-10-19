@@ -52,7 +52,9 @@ export function span(from: string, to?: string | null): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-function SlotTime({ from, to, ended = false }: { from: string; to?: string | null; ended?: boolean }) {
+/** A time in the shared slot colours: a span, or with `ended` how long ago
+ *  (the Ended column; the listeners tab's Last fired reads it too). */
+export function SlotTime({ from, to, ended = false }: { from: string; to?: string | null; ended?: boolean }) {
   const seconds = Math.max(0, ((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000)
   return <span className="slot-time" style={ended ? slotEndedTimeStyle(seconds) : slotTimeStyle(seconds)}>
     {ended ? `${ago(from)} ago` : span(from, to)}</span>

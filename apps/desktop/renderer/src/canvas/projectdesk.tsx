@@ -678,7 +678,6 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const listenersArmed = listenerState.armed.length
   const listenerHeaderCards = listenerCards(node.id, listenerState)
   const queue = mailQueueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node), tree.watchdogs ?? [])
-  const hasListeners = listenerState.listeners.length + listenerState.watches.length > 0
   // ⚠ ONE ROW of header cards on every tab (user 2026-10-19 19:02Z, 19:15Z:
   // "make sure they're all on the same row in the full desk header"): the
   // cyan listener cards, the magenta mail card, the amber slots card and the
@@ -695,9 +694,12 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
     <DeskJumpCards ids={up.map((n) => n.id)} render={(id) =>
       <NavChip key={id} n={up.find((n) => n.id === id)!} dir="up" onJump={onJump} />} />
   </div> : null
-  // the Dead letters tab joins them while the project holds open dead letters
+  // the Dead letters tab joins them while the project holds open dead letters;
+  // the Listeners tab is always there, empty or not (user 2026-10-19 21:19:48Z:
+  // one that follows its dogs keeps turning off and on), and only Slots
+  // follows a setting (21:20:24Z)
   const deadLetters = node.dead_letters ?? 0
-  const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : []), ...(hasListeners ? ['listeners' as const] : [])]
+  const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : []), 'listeners' as const]
     .filter(v => v !== 'team' || teamCount > 0)
   const shown: Tab = tabs.includes(view) ? view : 'desk'
   const count = (tab: Tab) => tab === 'team' ? teamCount : tab === 'inbox' ? node.mail_pending ?? 0
