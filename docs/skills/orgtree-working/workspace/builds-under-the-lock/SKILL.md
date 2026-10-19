@@ -9,7 +9,9 @@ Up: [orgtree-workspace](../SKILL.md)
 
 This is a development-team practice, not an Orgtree runtime limit or build authorization. A documentation-only assignment may prohibit builds even when a permit is free.
 
-The **current @build-slot project Summary and coordinator assignment are the source of truth** for concurrent capacity, Cargo jobs, RAM floors, containment and how long a low-RAM holder may wait. Read those before each batch; this page deliberately does not repeat their changing numbers. The standing project charter carries its Summary; an authorized `orgtree_project action=settings name=build-slot` reads it as `description`, while `action=slots name=build-slot` reports the actual configured capacity and current line. If the policy is missing, inconsistent or unreadable, ask the coordinator before starting. Other holders may run concurrently when current capacity permits; use only your assigned output/target scope.
+The **current @build-slot project Summary and coordinator assignment are the source of truth** for concurrent capacity, Cargo jobs, RAM floors, containment and how long a low-RAM holder may wait. Read those before each batch; this page deliberately does not repeat their changing numbers. The standing project charter carries its Summary; an authorized `orgtree_project action=settings name=build-slot` with no `settings` argument reads it as `settings.description`, while `action=slots name=build-slot` reports the actual configured capacity and current line. If the policy is missing, inconsistent or unreadable, ask the coordinator before starting. Other holders may run concurrently when current capacity permits; use only your assigned output/target scope.
+
+Read with `action=settings`, never `action=describe`: omitted-description `describe` clears the Summary in 4.4.0-alpha.12 and earlier. See the [project tool warning](../../team/tool-project/SKILL.md#read-the-summary-without-changing-it).
 
 Use only the project's concurrency-slot permit. The filesystem `build.lock`/`build.queue.txt` protocol is retired: do not create, take, hand over or wait on those files. The historical skill path remains for existing links.
 

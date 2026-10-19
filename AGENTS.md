@@ -240,6 +240,12 @@
   handout order, not completion order. See [projects](docs/skills/orgtree-working/team/projects/SKILL.md).
   [decided: user 2026-10-18 17:59Z; verified: `canvas/modals.tsx`]
 
+- Read a project Summary with `orgtree_project action=settings` and no
+  `settings` argument (`settings.description` in the result). In
+  4.4.0-alpha.12 and earlier, omitted-description `action=describe` clears it.
+  See the [project tool warning](docs/skills/orgtree-working/team/tool-project/SKILL.md#read-the-summary-without-changing-it).
+  [verified: `tools/treetools.rs`, `domain/ops.rs`; 2026-10-19]
+
 - Heavy development work uses only @build-slot concurrency grants. Read its
   current project Summary and coordinator assignment for capacity, Cargo jobs,
   RAM floors, containment and low-RAM waiting deadlines; historical numeric

@@ -14,6 +14,18 @@ Create/control projects above or below you: no turns/credits. create requires na
 
 `orgtree_project` slot release and status need **either team or watchdogs**. With watchdogs on and team off, its card exposes only `action=release_slot` (your own lease, optional note), the dead-letter actions below, `action=slots` (all holders with reasons and ages, the full ordered line and recent holds; other agents' lease IDs are hidden), and the event actions `action=fire_event` / `action=listeners` below. Project reach and lease ownership still apply. All other project actions and force release require team. Full slot coordination status is available without team, subject to project reach. With both groups off, the project tool is absent and calls are refused. Missing switches still default on; inherited denials still apply.
 
+## Read the Summary without changing it
+
+Use `action=settings` with no `settings` argument to read a project. The Summary is returned as `settings.description`:
+
+```json
+{"action":"settings","name":"build-slot"}
+```
+
+**4.4.0-alpha.12 and earlier: `action=describe` with no `description` CLEARS the Summary.** It is a write, never a read. Always supply the intended `description` when deliberately replacing a Summary; an explicit empty string clears it. Use the settings read above on all versions.
+
+## Create or edit a project
+
 Project administration requires `team`. `action=describe` with `name` and `description` replaces a project's Summary (you must be above or below the project; its agents carry the new text from their next start). `action=create` makes a **project node** (what one is and who reaches it: [orgtree-projects](../projects/SKILL.md)).
 
 - `name` (required): a new name in the organization, 1–64 letters, digits, `-`, `_` or `.`, unique among agents and projects.

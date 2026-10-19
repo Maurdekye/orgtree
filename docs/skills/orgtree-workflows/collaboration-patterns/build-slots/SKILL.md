@@ -13,7 +13,9 @@ Use a project semaphore when several agents share a build machine. Agents agree 
 
 An authorized coordinator places all builders above or below a shared project, such as @build-machine, and configures its `slots` to the authorized capacity. Builders beside the project cannot claim it. Prefer insertion above an existing worker team when every builder needs reach; the general recipes show the exact call. Keep the idle-reclaim settings (Runtime working checkups, project ack timeout and reminder budget) consistent with the team's policy.
 
-For this organization's machine, **read the current @build-slot project Summary and coordinator assignment** before claiming. They are authoritative for capacity, Cargo jobs, RAM floors, containment and low-RAM waiting deadlines. This page does not freeze those changing values. Read the standing project charter, or `orgtree_project action=settings name=build-slot` when authorized; `action=slots name=build-slot` reports actual configured capacity and line status. If you cannot obtain the current policy, ask the coordinator. A grant does not reserve RAM, and another holder may build concurrently when authorized capacity permits.
+For this organization's machine, **read the current @build-slot project Summary and coordinator assignment** before claiming. They are authoritative for capacity, Cargo jobs, RAM floors, containment and low-RAM waiting deadlines. This page does not freeze those changing values. Read the standing project charter, or `orgtree_project action=settings name=build-slot` with no `settings` argument when authorized (Summary is `settings.description`); `action=slots name=build-slot` reports actual configured capacity and line status. If you cannot obtain the current policy, ask the coordinator. A grant does not reserve RAM, and another holder may build concurrently when authorized capacity permits.
+
+Read with `action=settings`, never `action=describe`: omitted-description `describe` clears the Summary in 4.4.0-alpha.12 and earlier. The canonical warning and safe read call are in `orgtree-tool-project` (orgtree-working > team).
 
 ## Run one assigned batch
 
