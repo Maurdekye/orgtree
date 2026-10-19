@@ -384,29 +384,7 @@ async fn an_explicit_client_id_is_used_and_a_second_use_is_detected() {
 /// password that connects nor one that is refused may reach the log.
 #[tokio::test]
 async fn no_password_reaches_the_engine_log() {
-    use std::sync::Mutex;
-    #[derive(Clone)]
-    struct Capture(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for Capture {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    struct VerboseReset(bool);
-    impl Drop for VerboseReset {
-        fn drop(&mut self) {
-            crate::trace::set_verbose(self.0);
-        }
-    }
-    let capture = Capture(Arc::new(Mutex::new(Vec::new())));
-    let (dispatch, guard) = crate::trace::test_sink(capture.clone());
-    let subscriber = tracing::dispatcher::set_default(&dispatch);
-    let _ = tracing_log::LogTracer::init();
-    let _verbose = VerboseReset(crate::trace::set_verbose(true));
+    let capture = crate::trace::LogCapture::start().await;
     let b = TestBroker::start(Opts { login: Some(("ha".into(), CANARY.into())), ..Default::default() }).await;
     let hub = Hub::with_timing(Timing::fast());
     let cancel = CancellationToken::new();
@@ -429,10 +407,7 @@ async fn no_password_reaches_the_engine_log() {
     cancel.cancel();
     drop((a, r, f));
     tokio::time::sleep(Duration::from_millis(100)).await;
-    drop(subscriber);
-    drop(dispatch);
-    drop(guard);
-    let log = String::from_utf8_lossy(&capture.0.lock().unwrap()).to_string();
+    let log = capture.finish().await;
     assert!(log.contains("mqtt.Hub.attach(") || log.contains("Hub.attach("), "verbose positive control: the attach call line was logged");
     assert!(log.contains("mqtt connected"), "positive control: the connection's own lines were captured");
     assert!(!log.contains(CANARY), "a password reached the log:\n{}", log.lines().filter(|l| l.contains(CANARY)).collect::<Vec<_>>().join("\n"));

@@ -397,30 +397,7 @@ async fn kick_retries_a_refused_connection_at_once() {
 /// target with a secret query: none of it reaches the engine log.
 #[tokio::test]
 async fn secrets_never_reach_the_log() {
-    use std::io::Write;
-    use std::sync::Mutex;
-    #[derive(Clone)]
-    struct Capture(Arc<Mutex<Vec<u8>>>);
-    impl Write for Capture {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    struct VerboseReset(bool);
-    impl Drop for VerboseReset {
-        fn drop(&mut self) {
-            crate::trace::set_verbose(self.0);
-        }
-    }
-    let capture = Capture(Arc::new(Mutex::new(Vec::new())));
-    let (dispatch, guard) = crate::trace::test_sink(capture.clone());
-    let subscriber = tracing::dispatcher::set_default(&dispatch);
-    let _ = tracing_log::LogTracer::init();
-    let _verbose = VerboseReset(crate::trace::set_verbose(true));
+    let capture = crate::trace::LogCapture::start().await;
     let s = TestServer::start(Opts { require: vec![("authorization".into(), format!("Bearer {CANARY}"))], ..Default::default() }).await;
     let hub = Hub::with_timing(Timing::fast());
     let cancel = CancellationToken::new();
@@ -445,10 +422,7 @@ async fn secrets_never_reach_the_log() {
     cancel.cancel();
     drop((c, r, f));
     tokio::time::sleep(Duration::from_millis(100)).await;
-    drop(subscriber);
-    drop(dispatch);
-    drop(guard);
-    let log = String::from_utf8_lossy(&capture.0.lock().unwrap()).to_string();
+    let log = capture.finish().await;
     assert!(log.contains("websocket connected"), "positive control: the connection's own lines were captured");
     assert!(log.contains("parse_target("), "verbose positive control: a call line was logged");
     assert!(log.contains("api_key=*****"), "the refused target was logged masked");

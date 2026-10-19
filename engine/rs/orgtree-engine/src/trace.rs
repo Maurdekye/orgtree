@@ -832,6 +832,91 @@ fn silenced(target: &str) -> bool {
         .any(|c| target.strip_prefix(c).is_some_and(|rest| rest.is_empty() || rest.starts_with("::")))
 }
 
+/// The real engine log of one test, for log canaries (mqtt, websocket):
+/// a [`test_sink`] that is the default dispatcher on the test's thread (a
+/// current-thread runtime's tasks too), with verbose call logging on and
+/// `log` records (rumqttc, tungstenite) forwarded as the engine does.
+/// A positive control failed in 1 of 3 parallel full-suite runs
+/// (coordinator 2026-10-19 22:04Z); measured again here at 8 test threads.
+/// The cause is tracing-core's: while exactly ONE dispatcher is registered,
+/// a callsite first hit on ANOTHER thread (a parallel test with no
+/// subscriber) takes its interest from that thread's default alone and
+/// caches `never` for every thread (`dispatchers::rebuilder`, JustOne). A
+/// capture therefore also registers a no-op `peer` dispatcher, so every
+/// registration asks both. Captures are serialized (they share the verbose
+/// switch), and one is read only once a line it writes last has reached
+/// the buffer: tracing-appender's WorkerGuard waits only about a second.
+#[cfg(test)]
+pub(crate) struct LogCapture {
+    buf: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    default: Option<tracing::dispatcher::DefaultGuard>,
+    dispatch: Option<tracing::Dispatch>,
+    guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+    verbose_was: bool,
+    /// Keeps a second dispatcher registered (see above).
+    _peer: tracing::Dispatch,
+    _serial: tokio::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+static CAPTURES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[cfg(test)]
+#[derive(Clone)]
+struct CaptureSink(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+#[cfg(test)]
+impl std::io::Write for CaptureSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl LogCapture {
+    /// Start capturing (after any other capture has finished).
+    pub(crate) async fn start() -> LogCapture {
+        let serial = CAPTURES.lock().await;
+        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (dispatch, guard) = test_sink(CaptureSink(buf.clone()));
+        // registering it rebuilds every callsite's interest with both
+        let peer = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+        let default = tracing::dispatcher::set_default(&dispatch);
+        let _ = tracing_log::LogTracer::init();
+        let verbose_was = set_verbose(true);
+        LogCapture { buf, default: Some(default), dispatch: Some(dispatch), guard: Some(guard), verbose_was, _peer: peer, _serial: serial }
+    }
+
+    /// Stop capturing and return the whole log, once its last line is in.
+    pub(crate) async fn finish(mut self) -> String {
+        let end = format!("log capture ends {}", crate::util::random_hex(8));
+        tracing::info!("{end}");
+        drop(self.default.take());
+        drop(self.dispatch.take());
+        drop(self.guard.take());
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            let text = String::from_utf8_lossy(&self.buf.lock().unwrap_or_else(|e| e.into_inner())).to_string();
+            if text.contains(&end) {
+                return text;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "the log capture's last line never arrived: its writer did not flush");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for LogCapture {
+    fn drop(&mut self) {
+        set_verbose(self.verbose_was);
+    }
+}
+
 /// Exercise the real engine formatter without installing a global subscriber
 /// or opening any application diagnostics directory.
 #[cfg(test)]
