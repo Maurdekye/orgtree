@@ -2320,7 +2320,11 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         status.push_str(&format!(" Its id is \"{id}\": another of your watchdogs is already \"{named}\"."));
     }
     if smoked["broken"].as_bool().unwrap_or(false) && kind == "mqtt" {
-        status = format!("⚠ ARMED, BUT THE BROKER DOES NOT ACCEPT IT YET — see `smoke`. The dog keeps retrying and tells you when the connection changes. {status}");
+        status = if smoked["paused"].as_bool().unwrap_or(false) {
+            format!("⚠ THE BROKER REFUSED THE SUBSCRIPTION — see `smoke`. The dog pauses itself: fix the broker's access rules or the topic filter, then resume it. {status}")
+        } else {
+            format!("⚠ ARMED, BUT NOT CONNECTED — see `smoke`. The dog keeps retrying and tells you when the connection changes. {status}")
+        };
     } else if smoked["broken"].as_bool().unwrap_or(false) {
         status = format!(
             "⚠ ARMED BUT ITS TARGET DOES NOT WORK — see `smoke`. This dog will sit `armed, fired: 0` forever, which looks exactly like the condition never happening. Fix the target and re-create it. {status}"

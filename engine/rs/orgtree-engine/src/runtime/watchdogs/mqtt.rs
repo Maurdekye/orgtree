@@ -203,7 +203,7 @@ pub(super) async fn smoke(engine: &Arc<Engine>, owner: i64, c: &Created) -> (Val
         Smoke::Unconfirmed => json!({ "ran": format!("connected to {url}; the broker has not confirmed the subscription to {} yet", c.filter),
                                       "note": format!("messages published from now on fire this dog; {retained}") }),
         Smoke::SubRefused => json!({ "ran": format!("⚠ connected to {url}, but the broker REFUSED the subscription to {} (SUBACK 0x80): its access rules may not allow it", c.filter),
-                                     "broken": true, "note": "the dog is PAUSED: fix the broker's access rules or the filter, then resume it" }),
+                                     "broken": true, "paused": true, "note": "the dog is PAUSED: fix the broker's access rules or the filter, then resume it" }),
         Smoke::Refused(e) => json!({ "ran": format!("⚠ the broker refused this client: {e}"), "broken": true,
                                      "note": "the dog stays armed and retries slowly (1 min, growing to 1 h). Fix the credentials (a credentials file is read again on every attempt) or the broker, then resume the dog to retry at once" }),
         Smoke::Down(e) => json!({ "ran": format!("⚠ {url} cannot be reached now: {e}"), "broken": true,
