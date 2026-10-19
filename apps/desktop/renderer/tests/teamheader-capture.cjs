@@ -74,7 +74,7 @@ app.whenReady().then(async()=>{
         const expected=await parent.webContents.executeJavaScript('getComputedStyle(document.body).backgroundColor')
         let image,actual
         for(let n=0;n<5;n++){
-          parent.webContents.invalidate();await painted(parent);image=await parent.webContents.capturePage()
+          await painted(parent);image=await parent.webContents.capturePage()
           if(image.isEmpty())throw Error('Empty capture');const b=image.toBitmap();actual='rgb('+b[2]+', '+b[1]+', '+b[0]+')';if(actual===expected)break
         }
         if(actual!==expected)throw Error('Stale capture palette')
