@@ -301,8 +301,8 @@ test('visible slot views share one second clock for held, waiting and ended ages
       assert.equal(panel.querySelector('.slots-history .slot-ended')?.textContent, `${ended}s ago`)
       const endedStyle = panel.querySelector<HTMLElement>('.slots-history .slot-ended .slot-time')!.style
       assert.match(endedStyle.color, /^rgb\((\d+), \1, \1\)$/, 'ended ages use greyscale rather than the duration palette')
-      assert.equal([...panel.querySelectorAll<HTMLElement>('.slot-time')].every(time => time.style.textShadow.includes('0 0 3px')), true,
-        'every live, waiting, finished duration and ended age has the shared diffuse glow')
+      assert.equal([...panel.querySelectorAll<HTMLElement>('.slot-time')].every(time => !time.style.textShadow && !time.style.backgroundImage), true,
+        'every live, waiting, finished duration and ended age is plain coloured text')
     }
   }
   ages(32, 41, 12)
