@@ -100,7 +100,28 @@ def first_failure(stderr: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--json-output", type=Path, help="also write every module's receipt here")
+    parser.add_argument("--rust-only", action="store_true", help="run Rust source guards without the retired Python-engine audits")
     args = parser.parse_args()
+    # The reporting guard is mandatory in both lanes. This standalone script
+    # imports no engine package, so --rust-only never loads the installed app.
+    try:
+        guard = subprocess.run(["node", "tools/project-reporting-guard.mjs", "--self-test"],
+                               cwd=REPO, capture_output=True, text=True, timeout=60)
+        print(guard.stdout, end="")
+        if guard.stderr:
+            print(guard.stderr, file=sys.stderr, end="")
+        guard_ok = guard.returncode == 0
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"CANNOT RUN project reporting guard: {exc}")
+        return 2
+    if args.rust_only:
+        if args.json_output:
+            args.json_output.write_text(json.dumps({"repo": str(REPO), "project_reporting": {
+                "passed": guard_ok, "runner_exit": guard.returncode, "stdout": guard.stdout,
+                "stderr": guard.stderr}}, indent=2) + "\n", encoding="utf-8")
+        return 0 if guard_ok else 1
+    if not guard_ok:
+        return 1
     try:
         ok = anchor_audit()
     except (OSError, ValueError, KeyError, TypeError) as exc:

@@ -32,8 +32,10 @@
   the user or a strict agent ancestor. Members retain project reads, mail/inbox,
   queue/slot/listener use, their own lease, events, documents, folders and dead
   letters. `authorize_project_policy` is separate from operational project reach.
-  The scoped reporting guard and its mutant checks run with
-  `node tools/project-reporting-guard.mjs --self-test`. See
+  The reporting guard (named entry points plus whole-source raw-parent deny-list)
+  and its mutant checks run through `python tools/source-audits.py --rust-only`
+  without loading the retired Python engine. Direct user contact uses the agent
+  superior, so root-project agents get no redundant persistent user grant. See
   [project invariants](docs/rust-engine/PROJECT-NODES.md).
   [decided: user 2026-10-19 18:27Z; verified: `domain/ops.rs`; 2026-10-19]
 

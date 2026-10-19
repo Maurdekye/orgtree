@@ -13,6 +13,7 @@ const sourceRoot=path.join(root,'engine/rs/orgtree-engine/src')
 const contracts=[
   ['domain/runtime_notices.rs','end_turn','ot.live_superior_of'],
   ['domain/runtime_notices.rs','launch_failed','ot.live_superior_of'],
+  ['domain/runtime_notices.rs','deep_reach_batch_tx','ot.superior_of'],
   ['runtime/recovery.rs','who','ot.live_superior_of'],
   ['domain/lifecycle.rs','seat','ot.superior_of'],
   ['domain/lifecycle.rs','siblings','ot.reports_of'],
@@ -25,7 +26,23 @@ const contracts=[
   ['runtime/convo.rs','superior_hint','ot.superior_of'],
   ['domain/ops.rs','agent_superior','ot.superior_of'],
 ]
-const sources=new Map(contracts.map(([file])=>[file,fs.readFileSync(path.join(sourceRoot,file),'utf8')]))
+function rustFiles(dir) {
+  return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?rustFiles(path.join(dir,e.name)):
+    e.isFile()&&e.name.endsWith('.rs')?[path.join(dir,e.name)]:[])
+}
+const sources=new Map(rustFiles(sourceRoot).map(file=>[path.relative(sourceRoot,file).replaceAll('\\','/'),fs.readFileSync(file,'utf8')]))
+// Structural modules only. These sites describe placement/folders or chart
+// roots, never authority. A new exception requires a source audit and reason.
+const structural=new Map([
+  ['domain/projects.rs','Project folder traversal follows physical ancestry.'],
+  ['feed/compute.rs','Archived chart roots preserve physical tree placement.'],
+  ['feed/groups.rs','Organization chart grouping counts physical roots.'],
+])
+function rawDecisions(file,source) {
+  if(structural.has(file)) return []
+  const patterns=/\bparent_id\s+IS\s+NULL\b|\.\s*parent\s*\.\s*is_none\s*\(\s*\)|\bJOIN[^\r\n"]*=\s*a\.parent_id\b/gi
+  return [...source.matchAll(patterns)].map(m=>`${file}:${source.slice(0,m.index).split('\n').length}: raw parent decision outside structural allowlist: ${m[0]}`)
+}
 const escape=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
 function body(source,name) {
   const matches=[...source.matchAll(new RegExp(`^([ \\t]*)(?:pub(?:\\([^)]*\\))? )?(?:async )?fn ${escape(name)}\\(`,'gm'))]
@@ -47,6 +64,7 @@ function violations(contract,source) {
   return errors
 }
 let errors=[]
+for(const [file,source] of sources) errors.push(...rawDecisions(file,source))
 for(const contract of contracts) {
   try { errors.push(...violations(contract,sources.get(contract[0]))) }
   catch(e) {errors.push(`${contract[0]}::${contract[1]}: ${e.message}`)}
@@ -67,6 +85,11 @@ if(process.argv.includes('--self-test')) {
   assert.deepEqual(violations(contract,sources.get(contract[0])+'\nfn structural_placement() { let p = row.parent_id; }\n'),[],
     'the guard must not ban structural placement outside its audited boundaries')
   assert.throws(()=>body('fn renamed() {}','missing'),'renamed/removed functions must fail closed')
+  for(const source of ['SELECT id FROM ot.agents WHERE parent_id IS NULL','if a.parent.is_none() {}','JOIN ot.agents p ON p.id = a.parent_id']) {
+    assert.equal(rawDecisions('runtime/new_reporting.rs',source).length,1,'new reporting code must not bypass the guard')
+    rejected++
+  }
+  assert.deepEqual(rawDecisions('domain/projects.rs','SELECT id FROM ot.agents WHERE parent_id IS NULL'),[])
 }
-console.log(JSON.stringify({guard:'project-reporting',contracts:contracts.length,rejected_mutants:rejected,passed:errors.length===0,errors},null,2))
+console.log(JSON.stringify({guard:'project-reporting',contracts:contracts.length,scanned_files:sources.size,structural_exceptions:[...structural],rejected_mutants:rejected,passed:errors.length===0,errors},null,2))
 process.exitCode=errors.length?1:0

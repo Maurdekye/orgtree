@@ -95,10 +95,10 @@ async fn descends(client: &impl tokio_postgres::GenericClient, root: i64, node: 
 async fn top_of(client: &impl tokio_postgres::GenericClient, node: i64) -> Result<String> {
     Ok(client
         .query_one(
-            "WITH RECURSIVE up(id, parent_id, name, depth) AS (
+            "WITH RECURSIVE up(id, superior_id, name, depth) AS (
                SELECT id, superior_id, name, 0 FROM ot.agent_reporting WHERE id = $1
-               UNION ALL SELECT a.id, a.superior_id, a.name, up.depth + 1 FROM ot.agent_reporting a JOIN up ON a.id = up.parent_id WHERE up.depth < 1024)
-             SELECT name FROM up WHERE parent_id IS NULL",
+               UNION ALL SELECT a.id, a.superior_id, a.name, up.depth + 1 FROM ot.agent_reporting a JOIN up ON a.id = up.superior_id WHERE up.depth < 1024)
+             SELECT name FROM up WHERE superior_id IS NULL",
             &[&node],
         )
         .await?

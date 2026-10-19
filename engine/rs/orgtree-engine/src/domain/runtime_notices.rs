@@ -224,7 +224,7 @@ pub(super) async fn deep_reach_batch_tx(
     use crate::changes::Change;
     // Same per-org serialization as explicit grants, compatible with FK key-share reads.
     c.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org_id]).await?;
-    let r=c.query_one("SELECT a.name,a.generation,o.slug,a.parent_id,a.kind FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
+    let r=c.query_one("SELECT a.name,a.generation,o.slug,ot.superior_of(a.id),a.kind FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
     if r.get::<_,Option<i64>>(3).is_none() { return Ok((Vec::new(),Vec::new())); }
     let name:String=r.get(0);
     let org:String=r.get(2);
@@ -238,7 +238,7 @@ pub(super) async fn deep_reach_batch_tx(
         changed.extend([Change::Audiences,Change::Events,Change::Agent(agent_id),Change::Mailbox(agent_id)]);
         changed.push(Change::EngineEvent(crate::runtime::watchdogs::events::event("audience.granted",crate::runtime::watchdogs::events::Scope::NamedAgent(org_id,name.clone()),json!({"agent":name,"grantor":"@user"}))));
     }
-    let rows=c.query("WITH RECURSIVE up(id,parent_id,depth) AS (SELECT id,parent_id,0 FROM ot.agents WHERE id=$1 AND org_id=$2 UNION ALL SELECT a.id,a.parent_id,u.depth+1 FROM ot.agents a JOIN up u ON a.id=u.parent_id WHERE u.depth<1024 AND a.org_id=$2) SELECT DISTINCT a.id,a.name FROM up JOIN ot.agents a ON a.id=up.id WHERE depth>0 AND a.state='live' AND a.kind='agent'", &[&agent_id,&org_id]).await?;
+    let rows=c.query("WITH RECURSIVE up(id,superior_id,depth) AS (SELECT id,ot.superior_of(id),0 FROM ot.agents WHERE id=$1 AND org_id=$2 UNION ALL SELECT a.id,a.superior_id,u.depth+1 FROM ot.agent_reporting a JOIN up u ON a.id=u.superior_id WHERE u.depth<1024 AND a.org_id=$2) SELECT DISTINCT a.id,a.name FROM up JOIN ot.agents a ON a.id=up.id WHERE depth>0 AND a.state='live' AND a.kind='agent'", &[&agent_id,&org_id]).await?;
     let forwarded=notices.pending(rows.iter().map(|r| r.get::<_,i64>(0)));
     for row in rows {
         let id:i64=row.get(0);
