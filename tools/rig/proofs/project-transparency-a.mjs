@@ -145,6 +145,18 @@ export default async function(rig) {
   await rig.api('POST',`/api/orgs/${rig.org}/nodes/scope-worker/scope`,{tools:{web:true}})
   p.check('desktop upward grant skips project scope writes',scopes().every((n,i)=>same(n.scope,beforeHttp[i].scope) && n.row_version===beforeHttp[i].row_version))
 
+  // Moving into a project and moving a whole project subtree must retain
+  // both sides' policy and Summary, despite changed credits/row versions.
+  const projectSettings=()=>rig.sql(`SELECT id,scope,charter FROM ot.agents WHERE org_id=${orgId} AND kind='project' ORDER BY id`)
+  const beforeMove=projectSettings()
+  await rig.op({op:'move',node:'scope-worker',new_parent:'inner-project'})
+  p.check('moving an agent through projects retains all project settings and Summaries',same(projectSettings(),beforeMove))
+  await rig.op({op:'move',node:'scope-worker',new_parent:'scope-inner'})
+  await rig.op({op:'move',node:'scope-outer',new_parent:'outer-project'})
+  p.check('moving a nested project subtree retains settings and Summaries',same(projectSettings(),beforeMove))
+  await rig.op({op:'moves',moves:[{node:'scope-outer',new_parent:'scope-manager'},{node:'scope-worker',new_parent:'scope-empty'}]})
+  p.check('batch moves retain project settings and Summaries',same(projectSettings(),beforeMove))
+
   // Rehearse an upgrade ONLY through the engine startup migration path.
   // All surviving current settings, including an unknown future key, survive.
   await project('repair-empty','boss')
