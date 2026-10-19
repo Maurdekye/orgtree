@@ -23,10 +23,12 @@ app.whenReady().then(async()=>{
    check(theme+'-mail-listener-links',()=>{assert.equal(mail.length,2);assert.ok(mail.every(m=>m.kind));assert.deepEqual(mail.map(m=>m.style),['solid','dashed'])},mail)
    const unknown=await win.webContents.executeJavaScript(`(()=>{const el=document.querySelector('#unknown-link .watchdog-link');return{tag:el.tagName,cls:el.className,disabled:el.getAttribute('aria-disabled'),title:el.title}})()`)
    check(theme+'-unknown-neutral',()=>{assert.equal(unknown.tag,'SPAN');assert.equal(unknown.disabled,'true');assert.doesNotMatch(unknown.cls,/listener-watch|fair-queue|oneshot/);assert.match(unknown.title,/kind and mode unknown/)},unknown)
+   const bounds=await win.webContents.executeJavaScript(`({bottom:document.querySelector('main').getBoundingClientRect().bottom,height:innerHeight,width:document.documentElement.scrollWidth,viewport:innerWidth})`)
+   check(theme+'-fixture-fits',()=>{assert.ok(bounds.bottom<=bounds.height);assert.ok(bounds.width<=bounds.viewport)},bounds)
    fs.writeFileSync(path.join(out,'watchdog-links-'+theme+'.png'),(await win.webContents.capturePage()).toPNG())
   }
   const action=await win.webContents.executeJavaScript(`(()=>{const el=document.querySelector('.tool-sample .watchdog-link');el.click();return{expected:el.dataset.objectId,opened:window.fixtureOpened}})()`)
   check('tool-link-opens-real-dog',()=>assert.deepEqual(action.opened,[action.expected]),action)
  }finally{win.destroy()}
- const receipt={tests:cases.length,passed:cases.filter(c=>c.passed).length,failed:cases.filter(c=>!c.passed).length,cases};fs.writeFileSync(path.join(out,'capture.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));assert.equal(receipt.tests,33);assert.equal(receipt.failed,0)
+ const receipt={tests:cases.length,passed:cases.filter(c=>c.passed).length,failed:cases.filter(c=>!c.passed).length,cases};fs.writeFileSync(path.join(out,'capture.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));assert.equal(receipt.tests,35);assert.equal(receipt.failed,0)
 }).then(()=>app.exit(0),e=>{console.error(e.stack||e);app.exit(1)})
