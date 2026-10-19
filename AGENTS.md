@@ -3259,6 +3259,12 @@ This first version was compiled on 2026-10-05 at `6e53697`, before the developme
 
 ## Read this first
 
+- Model palettes share the transparent `.quickchat-pop-model` wrapper across
+  desk, Quick chat and card callers, including account/version selection.
+  Desk sizing must not reintroduce a panel background, border or shadow.
+  [decided: user 2026-10-19 18:31Z; verified: renderer `styles.css`,
+  `canvas/{deskmodel,pickerpopover}.tsx`]
+
 > **3.x Python engine — legacy.** For 4.0.0 work use [Orgtree 4.0.0: read this first](#orgtree-400-rust-engine-read-this-first); rules 2, 3, 8, 9 and 10 below still apply. (2026-10-06)
 
 These rules prevent the mistakes that have cost the most: lost work, a crashed machine,

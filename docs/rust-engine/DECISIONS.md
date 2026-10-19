@@ -1,5 +1,11 @@
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Transparent model palette, user 2026-10-19 18:31Z (4.4.0):** the shared
+model-token pyramid never has a surrounding background panel, border or
+shadow, including the desk's model/account/version picker. Keep the same
+transparent wrapper across its callers; individual controls retain their
+normal styling. The desk-specific panel override is removed.
+
 **Tray list limit and recency, user 2026-10-19 18:04Z (4.4.0):** show at
 most ten orgs at once in the tray left-click menu, most recently opened first,
 with wheel/keyboard/scrollbar overflow for the rest and top position on reopen.

@@ -1864,8 +1864,6 @@ html.mobile .edge-jump { display: none; }
 .desk-model-button { padding: 0; cursor: pointer; font: inherit; }
 .quickchat-pop-model.desk-model-picker {
   width: min(400px, calc(100vw - 16px)); box-sizing: border-box;
-  padding: 12px; border: 1px solid var(--line); border-radius: 6px;
-  background: var(--panel); box-shadow: var(--shadow);
 }
 .desk-model-options { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
 .cc-head-left > .cc-name {
@@ -8900,10 +8898,13 @@ main:has(> .orgbar.native-header) > .error {
 .quickchat-user-mark .eye path { stroke-width: 4; }
 .quickchat-user-mark .eye .iris { stroke-width: 3; }
 .quickchat-empty { padding: 4px 8px; color: var(--dim); font-size: 12px; }
-/* the model picker IS the canvas hire strip (user 2026-10-10): no panel
+/* The model picker IS the canvas hire strip (user 2026-10-10, reiterated
+   2026-10-19): ALL callers, including desk model/account/version selection,
+   share this transparent wrapper; callers may size it but never add a panel.
+   No panel
    behind it, the families centred into the same symmetric pyramid, and the
    strip's .15s fade in and out (the fade-out is a leaving copy, see Pop) */
-.quickchat-pop-model { padding: 0; border: none; background: none; box-shadow: none; }
+.quickchat-pop-model { padding: 0; border: none; border-radius: 0; background: transparent; box-shadow: none; }
 .quickchat-pop-model .hsof {
   position: static; transform: none; opacity: 1; pointer-events: auto;
   animation: quickchat-fade-in .15s both;
