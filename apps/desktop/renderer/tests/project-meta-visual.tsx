@@ -45,7 +45,7 @@ function Card({scale}:{scale:number}){return <section className="fixture-card" d
  </section>}
 createRoot(document.getElementById('root')!).render(<>
  <h1>One project · slots, mail and event listeners together</h1>
- <p className="fixture-caption">Synthetic data · {scenario} mail state · 4/24 active for 17m · 3 held / 2 waiting slots · {scenario==='long'?"128 mail listeners / 999999 queued / 128 in flight":scenario==='queued'?'3 queued / nobody listening':scenario==='flight'?'1 in flight / nobody listening':'2 mail listeners / 3 queued / 1 in flight'} · 2 of 3 event listeners ready</p>
+ <p className="fixture-caption">Synthetic data · {scenario} mail state · 4/24 active for 17m · {scenario==='long'?'64 held / 128 waiting slots':'3 held / 2 waiting slots'} · {scenario==='long'?"128 mail listeners / 999999 queued / 128 in flight":scenario==='queued'?'3 queued / nobody listening':scenario==='flight'?'1 in flight / nobody listening':'2 mail listeners / 3 queued / 1 in flight'} · {scenario==='long'?'128 of 999':'2 of 3'} event listeners ready</p>
  {[1,0.75,1.25].map(scale=><Card key={scale} scale={scale}/>)}
  <section id="fixture-desk" style={{position:'absolute',left:280,top:90,width:680,height:480,border:'1px solid var(--line)',borderRadius:6,overflow:'hidden'}}>
   <ProjectDesk bare node={node} slug="fixture" tree={tree} map={map} refs={refs} toast={noop} op={async()=>({} as never)}/>
