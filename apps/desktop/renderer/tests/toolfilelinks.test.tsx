@@ -1,7 +1,7 @@
 import './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mountView } from './harness'
+import { flush, inAct, mountView } from './harness'
 import { ToolChip } from '../src/canvas/desk'
 
 test('tool file links show only the filename, expose the full path on hover, and replace a duplicate truncated argument', async t => {
@@ -48,4 +48,74 @@ test('relative file paths without an event working directory stay plain text', a
   t.after(() => view.unmount())
   assert.equal(view.el.querySelector('a[data-local-path]') === null, true)
   assert.match(view.el.querySelector('.tline')?.textContent ?? '', /notes\/todo\.md/)
+})
+
+test('tool-row file links open the shared file context menu with file actions', async t => {
+  const path = 'C:\\synthetic\\scratch\\cancel-next.png'
+  const oldBridge = Object.getOwnPropertyDescriptor(window, 'orgtreeDesktop')
+  const oldClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  const copied: string[] = []
+  const opened: string[] = []
+  const revealed: string[] = []
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { copied.push(text) } } })
+  Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: {
+    localFileStatus: async (target: string) => ({ ok: true, exists: target === path }),
+    openLocalFile: async (target: string) => { opened.push(target); return { ok: true } },
+    revealFile: async (target: string) => { revealed.push(target); return { ok: true } },
+  } })
+  t.after(() => {
+    if (oldBridge) Object.defineProperty(window, 'orgtreeDesktop', oldBridge)
+    else delete (window as unknown as { orgtreeDesktop?: unknown }).orgtreeDesktop
+    if (oldClipboard) Object.defineProperty(navigator, 'clipboard', oldClipboard)
+    else delete (navigator as Navigator & { clipboard?: unknown }).clipboard
+  })
+  const view = await mountView(<ToolChip t={{ id: 'read-menu', name: 'Read',
+    file_paths: [{ path, link: true }] }} slug="org" nid="agent" />, el => el)
+  t.after(() => view.unmount())
+  const link = view.el.querySelector<HTMLAnchorElement>('a[data-local-path]')!
+  const event = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })
+  await inAct(() => { link.dispatchEvent(event) })
+  await flush(3)
+
+  assert.equal(event.defaultPrevented, true, 'the file link takes its own context menu')
+  const labels = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')]
+    .map(item => item.textContent)
+  assert.deepEqual(labels, ['Open', 'Show in folder', 'Copy path', 'Copy file name'])
+  const copyPath = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')]
+    .find(item => item.textContent === 'Copy path')!
+  await inAct(() => { copyPath.click() })
+  await flush(2)
+  assert.deepEqual(copied, [path], 'Copy path copies the full local path')
+
+  for (const [label, target] of [['Open', opened], ['Show in folder', revealed]] as const) {
+    await inAct(() => { link.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })) })
+    await flush(3)
+    const item = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')]
+      .find(candidate => candidate.textContent === label)!
+    await inAct(() => { item.click() })
+    await flush(2)
+    assert.deepEqual(target, [path], `${label} uses the selected local path`)
+  }
+})
+
+test('tool-row file menu reports a path that disappeared before the menu opened', async t => {
+  const oldBridge = Object.getOwnPropertyDescriptor(window, 'orgtreeDesktop')
+  Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: {
+    localFileStatus: async () => ({ ok: true, exists: false }),
+  } })
+  t.after(() => {
+    if (oldBridge) Object.defineProperty(window, 'orgtreeDesktop', oldBridge)
+    else delete (window as unknown as { orgtreeDesktop?: unknown }).orgtreeDesktop
+  })
+  const view = await mountView(<ToolChip t={{ id: 'missing-menu', name: 'Read',
+    file_paths: [{ path: 'C:\\synthetic\\missing.txt', link: true }] }} slug="org" nid="agent" />, el => el)
+  t.after(() => view.unmount())
+  const link = view.el.querySelector<HTMLAnchorElement>('a[data-local-path]')!
+  await inAct(() => { link.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })) })
+  await flush(3)
+
+  const menu = document.querySelector('.ctxmenu')!
+  assert.ok(menu, 'the missing path still gets a context menu')
+  assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(item => item.textContent), ['File no longer exists'])
+  assert.equal((menu.querySelector('[role="menuitem"]') as HTMLButtonElement).disabled, true)
 })
