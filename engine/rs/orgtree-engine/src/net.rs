@@ -284,6 +284,10 @@ pub fn hub_entries(engine: &Engine, autoconnect: bool, remote: &[String]) -> Vec
     hubs
 }
 
+/// Stable per-hub keys are required by registration and connection status.
+#[nolog]
+pub fn assign_hub_ids(_hubs:&mut Value)->bool {false}
+
 /// Mint the org's identity and hub list when it has none (idempotent: an
 /// existing identity is never touched — the address is permanent).
 #[logged]

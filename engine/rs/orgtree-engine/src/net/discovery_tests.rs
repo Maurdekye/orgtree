@@ -162,3 +162,23 @@ async fn an_http_response_never_replays_a_mail_write() {
     assert_eq!(builds.load(std::sync::atomic::Ordering::SeqCst),1);
     server.await.unwrap();
 }
+
+#[test]
+fn adding_a_hub_assigns_a_stable_registration_key_and_repairs_old_entries() {
+    // The actual AddHub payload deliberately has no caller-generated id.
+    let mut hubs=json!([
+        {"address":"http://office.invalid:7378","enabled":true},
+        {"id":"kept","address":"http://other.invalid:7378","enabled":false},
+        {"id":"","address":"http://third.invalid:7378","enabled":true},
+        {"id":"kept","address":"http://fourth.invalid:7378","enabled":true}
+    ]);
+    assert!(assign_hub_ids(&mut hubs),"new and already persisted keyless hubs must become registration participants");
+    let ids:Vec<_>=hubs.as_array().unwrap().iter().map(|h|h["id"].as_str().filter(|id|!id.is_empty()).expect("registration worker requires a nonempty string id")).collect();
+    assert_eq!(ids[1],"kept","existing valid key must preserve registrations and status");
+    assert_eq!(ids.iter().copied().collect::<HashSet<_>>().len(),4);
+    assert_eq!(hubs[0]["address"],"http://office.invalid:7378");
+    assert_eq!(hubs[1]["enabled"],false);
+    let saved=hubs.clone();
+    assert!(!assign_hub_ids(&mut hubs));
+    assert_eq!(hubs,saved,"repeated passes must never churn valid connection keys");
+}
