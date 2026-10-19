@@ -1873,12 +1873,26 @@ fn r_wd_fired(ev: &Value) -> Option<String> {
     let prefix = f(ev, "prefix")?;
     let count_v = req(ev, "count")?;
     let count = py_str(count_v);
+    // an mqtt fire (docs/rust-engine/mqtt-watchdogs.md): whole payloads (the
+    // dog bounds them), the UNTRUSTED label, and the true message count
+    let mqtt = opt(ev, "source").as_str() == Some("mqtt");
+    let cap = if mqtt { crate::mqtt::render::PER_MESSAGE + 1024 } else { 500 };
     let lines: Vec<String> = match lines_v {
-        Value::Array(a) => a.iter().take(20).map(|x| x.as_str().map(|s| take(s, 500))).collect::<Option<_>>()?,
+        Value::Array(a) => a.iter().take(20).map(|x| x.as_str().map(|s| take(s, cap))).collect::<Option<_>>()?,
         Value::String(s) => s.chars().take(20).map(String::from).collect(),
         _ => return None,
     };
     let c = num(count_v)?;
+    if mqtt {
+        let more = if c > lines.len() as f64 { format!("\n… {} more", c as i64 - lines.len() as i64) } else { String::new() };
+        let actions = match opt(ev, "fire_actions").as_str() {
+            Some(t) if !t.is_empty() => format!("\n{}", take(t, 4000)),
+            _ => String::new(),
+        };
+        let body = format!("[WATCHDOG {name}]{prefix} {count} message(s):\n{}\n{}{more}{actions}",
+                           crate::mqtt::render::UNTRUSTED, lines.join("\n"));
+        return Some(if truthy(req(ev, "once")?) { watchdog_once_note(&body) } else { body });
+    }
     let more = if c > 20.0 {
         let rest = match count_v {
             Value::Number(n) if n.is_f64() => py_float_repr(c - 20.0),

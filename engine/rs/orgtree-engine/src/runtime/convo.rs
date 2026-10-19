@@ -392,7 +392,8 @@ fn take_tool_inputs_with_skill_files(
                 tool_file_paths_with_skill_files(chip.get("name").and_then(Value::as_str).unwrap_or(""), input, skill_files)
             });
             if let Some(paths) = paths { chip.insert("file_paths".into(), paths); }
-            if let Some(input) = chip.remove("input") {
+            if let Some(mut input) = chip.remove("input") {
+                redact_tool_input(chip.get("name").and_then(Value::as_str).unwrap_or(""), &mut input);
                 let source = chip.remove("input_source");
                 kept.insert("input".into(), input);
                 kept.insert("codex".into(), json!(source));
@@ -1318,12 +1319,21 @@ pub fn clip(text: &str, max: usize) -> (String, bool) {
 
 /// The short argument a tool chip shows beside the tool name.
 #[nolog]
-pub fn tool_arg(_name: &str, input: &Value) -> String {
+pub fn tool_arg(name: &str, input: &Value) -> String {
     // a call's own human-readable `description` is the line when it has one
     // (user 2026-10-08); otherwise the most identifying argument IS the line
     // (`Bash ls /e/…`): the first of these that is a non-empty string, else
     // any string, whitespace collapsed and at most 90 characters — never the
     // input dumped as JSON
+    let redacted;
+    let input = if is_watchdog_tool(name) {
+        let mut copy = input.clone();
+        redact_tool_input(name, &mut copy);
+        redacted = copy;
+        &redacted
+    } else {
+        input
+    };
     let Some(o) = input.as_object() else { return String::new() };
     let flat = |s: &str| -> String { s.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(90).collect() };
     for k in ["description", "command", "file_path", "path", "pattern", "query", "url", "prompt", "name", "text", "to", "body"] {
@@ -1340,6 +1350,43 @@ pub fn tool_arg(_name: &str, input: &Value) -> String {
         }
     }
     o.values().filter_map(Value::as_str).find(|s| !s.trim().is_empty()).map(flat).unwrap_or_default()
+}
+
+/// What a transcript keeps in place of an mqtt watchdog's inline credentials.
+pub const CREDENTIALS_HIDDEN: &str = "[inline credentials: stored encrypted, not shown]";
+
+#[nolog]
+fn is_watchdog_tool(name: &str) -> bool {
+    name.rsplit("__").next().unwrap_or(name) == "orgtree_watchdog"
+}
+
+/// An Orgtree tool call's arguments as Orgtree keeps and shows them (saved
+/// tool inputs, the chip line, the live preview): an mqtt watchdog's inline
+/// credentials and any stray top-level secret are blanked, and a URL keeps
+/// no `user:password@` (user 2026-10-19 17:43:37Z; docs/rust-engine/mqtt-
+/// watchdogs.md). A credentials file path is no secret and stays.
+#[nolog]
+pub fn redact_tool_input(name: &str, input: &mut Value) {
+    if !is_watchdog_tool(name) {
+        return;
+    }
+    let Some(o) = input.as_object_mut() else { return };
+    if let Some(c) = o.get_mut("credentials") {
+        let path = c.as_str().is_some_and(|s| s.contains('/') || s.contains('\\') || s.to_ascii_lowercase().ends_with(".json"));
+        if !c.is_null() && !path {
+            *c = json!(CREDENTIALS_HIDDEN);
+        }
+    }
+    for k in ["username", "password", "user", "pass", "passwd", "token"] {
+        if let Some(v) = o.get_mut(k) {
+            *v = json!("[redacted]");
+        }
+    }
+    for v in o.values_mut() {
+        if let Some(clean) = v.as_str().and_then(crate::util::mask_userinfo) {
+            *v = json!(clean);
+        }
+    }
 }
 
 /// The agents and the watchdog an Orgtree tool call concerns, for the links the

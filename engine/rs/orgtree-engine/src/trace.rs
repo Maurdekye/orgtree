@@ -537,6 +537,11 @@ fn render(v: &Value, out: &mut Capture) {
             }
             out.push_str("]");
         }
+        // a URL's user:password@ never reaches the log, whatever the field
+        Value::String(s) => match crate::util::mask_userinfo(s) {
+            Some(masked) => out.push_str(&Value::String(masked).to_string()),
+            None => out.push_str(&v.to_string()),
+        },
         other => out.push_str(&other.to_string()),
     }
 }
@@ -1066,7 +1071,9 @@ pub fn init(cfg: &crate::config::Config) -> (Vec<tracing_appender::non_blocking:
         .thread_name("orgtree-log")
         .finish(file);
     let filter = tracing_subscriber::EnvFilter::try_from_env("ORGTREE_LOG").unwrap_or_else(|_| {
-        tracing_subscriber::EnvFilter::new("info,tokio_postgres=warn,hyper=warn,hyper_util=warn,h2=warn,reqwest=warn,tower_http=warn,rustls=warn")
+        // rumqttc logs through `log`; its error lines can carry a broker's
+        // packet (payload bytes): the mqtt hub logs its own states instead
+        tracing_subscriber::EnvFilter::new("info,tokio_postgres=warn,hyper=warn,hyper_util=warn,h2=warn,reqwest=warn,tower_http=warn,rustls=warn,rumqttc=off")
     });
     let (console, console_guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .lossy(true)

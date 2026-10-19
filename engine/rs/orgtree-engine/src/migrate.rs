@@ -41,6 +41,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0033_do_not_disturb", include_str!("../migrations/0033_do_not_disturb.sql")),
     ("0034_slot_queued_at", include_str!("../migrations/0034_slot_queued_at.sql")),
     ("0035_project_supervision", include_str!("../migrations/0035_project_supervision.sql")),
+    ("0036_watchdog_secrets", include_str!("../migrations/0036_watchdog_secrets.sql")),
     ("0037_agent_reporting", include_str!("../migrations/0037_agent_reporting.sql")),
 ];
 

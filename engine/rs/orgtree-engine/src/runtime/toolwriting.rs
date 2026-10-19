@@ -62,6 +62,8 @@ impl ToolWriting {
             if let Some(partial) = partial_input(&c.input).as_object() {
                 if let Some(base) = input.as_object_mut() { base.extend(partial.clone()); }
             }
+            // an mqtt watchdog's inline credentials never show, even half written
+            super::convo::redact_tool_input(&c.name, &mut input);
             let file_paths = super::convo::tool_file_paths(&c.name, &input);
             json!({
             "event_id": format!("tool-writing-{turn}-{id}"), "role": "assistant", "kind": "tool_writing",

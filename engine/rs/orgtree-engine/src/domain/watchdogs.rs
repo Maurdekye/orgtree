@@ -13,6 +13,19 @@ pub fn handle(owner: &str, uid: &str) -> String {
     format!("{owner}/{uid}")
 }
 
+/// How an mqtt dog authenticates, as lists and cards show it: its
+/// credentials file, or that inline credentials are stored encrypted;
+/// never the credentials (docs/rust-engine/mqtt-watchdogs.md).
+#[nolog]
+pub fn credentials_label(memo: &Value) -> String {
+    let c = &memo["mqtt"]["credentials"];
+    match c["kind"].as_str() {
+        Some("file") => format!("file: {}", c["path"].as_str().unwrap_or("")),
+        Some("inline") => "inline credentials (stored encrypted)".into(),
+        _ => "none".into(),
+    }
+}
+
 /// A `watchdogs` row → the `Watchdog` the canvas and desk render.
 pub fn view(w: &Value, owner: &str) -> Value {
     let mut o = Map::new();
@@ -33,6 +46,15 @@ pub fn view(w: &Value, owner: &str) -> Value {
     // a listener_watch's threshold and any dog's fire-time tool calls (bounded at create)
     for key in ["count","fire_actions"] { if let Some(v)=w["memo"].get(key).filter(|v|!v.is_null()){o.insert(key.into(),v.clone());} }
     if let Some(v)=w["memo"]["run"].get("last_output"){o.insert("last_output".into(),v.clone());}
+    // an mqtt dog: how it authenticates (never with what) and its connection
+    if w["kind"] == "mqtt" {
+        o.insert("credentials".into(), json!(credentials_label(&w["memo"])));
+        for key in ["payload_pattern", "retained"] {
+            if let Some(v) = w["memo"]["mqtt"].get(key).filter(|v| !v.is_null()) { o.insert(key.into(), v.clone()); }
+        }
+        if let Some(v) = w["memo"]["run"].get("mqtt").filter(|v| v.is_object()) { o.insert("connection".into(), v.clone()); }
+        if let Some(v) = w["memo"]["run"].get("dropped").filter(|v| !v.is_null()) { o.insert("dropped".into(), v.clone()); }
+    }
     if let Some(p) = w.get("pattern").filter(|v| !v.is_null()) {
         o.insert("pattern".into(), p.clone());
     }

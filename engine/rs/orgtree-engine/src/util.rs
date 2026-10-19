@@ -106,6 +106,36 @@ pub fn json_f64(v: &Value, key: &str) -> Option<f64> {
     v.get(key).and_then(Value::as_f64)
 }
 
+/// `s` with the `user:password@` of every URL in it replaced by `*****@`,
+/// or None when it holds none. Only the authority part counts, so an
+/// e-mail address or a path with `@` is left alone.
+#[nolog]
+pub fn mask_userinfo(s: &str) -> Option<String> {
+    if !s.contains("://") || !s.contains('@') {
+        return None;
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    let mut changed = false;
+    while let Some(i) = rest.find("://") {
+        let start = i + 3;
+        out.push_str(&rest[..start]);
+        let after = &rest[start..];
+        let end = after.find(|c: char| c == '/' || c == '?' || c == '#' || c.is_whitespace() || c == '"').unwrap_or(after.len());
+        match after[..end].rfind('@') {
+            Some(at) => {
+                out.push_str("*****");
+                out.push_str(&after[at..end]);
+                changed = true;
+            }
+            None => out.push_str(&after[..end]),
+        }
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    changed.then_some(out)
+}
+
 /// Collapse whitespace and cap a one-line gist.
 pub fn gist(text: &str, max: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
