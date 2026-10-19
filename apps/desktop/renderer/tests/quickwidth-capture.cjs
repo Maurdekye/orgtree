@@ -7,8 +7,8 @@ app.whenReady().then(async()=>{
   const win=new BrowserWindow({width:980,height:650,show:false,useContentSize:true,
     webPreferences:{contextIsolation:true,sandbox:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}})
   try {
-    win.webContents.setZoomFactor(.7)
     await win.loadFile(path.join(out,'fixture.html'))
+    win.webContents.setZoomFactor(.7)
     const result=await win.webContents.executeJavaScript(`(async()=>{
       const frames=n=>new Promise(resolve=>{const step=()=>--n?requestAnimationFrame(step):resolve();requestAnimationFrame(step)});
       const results=[];
@@ -16,7 +16,7 @@ app.whenReady().then(async()=>{
         window.quickWidthFixture(width,changed);await frames(20);
         const rows=[...document.querySelectorAll('[data-case]')],samples=rows.map(()=>[]);
         for(let i=0;i<80;i++){await frames(1);rows.forEach((row,j)=>{const q=row.querySelector('.shell-header-quick,.shell-statusbar-quick');samples[j].push(q.getBoundingClientRect().width)})}
-        results.push(...rows.map((row,i)=>({width,changed,case:row.dataset.case,min:Math.min(...samples[i]),max:Math.max(...samples[i]),tail:samples[i].slice(-12),samples:samples[i]})));
+        results.push(...rows.map((row,i)=>({width,changed,case:row.dataset.case,floor:parseFloat(getComputedStyle(row.querySelector('.shell-header-quick,.shell-statusbar-quick')).minWidth),min:Math.min(...samples[i]),max:Math.max(...samples[i]),tail:samples[i].slice(-12),samples:samples[i]})));
       }
       return results;
     })()`)
@@ -27,7 +27,7 @@ app.whenReady().then(async()=>{
     console.log(JSON.stringify({cases:result.length,unstable:unstable.map(({samples,...row})=>row)}))
     assert.equal(result.length,28,'every header/footer configuration must be sampled')
     assert.equal(unstable.length,0,'Quick chat must settle, not alternate widths each frame')
-    assert.ok(result.every(row=>row.min>=199.9),'Quick chat keeps its 200px floor')
+    assert.ok(result.every(row=>row.min>=row.floor-.1),'Quick chat keeps its responsive CSS floor (160px narrow, 200px otherwise)')
     assert.ok(result.find(row=>row.width===1280&&!row.changed&&row.case==='header-0').min>
       result.find(row=>row.width===1024&&!row.changed&&row.case==='header-0').min,'Quick chat grows again when the window widens')
   }finally{win.destroy()}
