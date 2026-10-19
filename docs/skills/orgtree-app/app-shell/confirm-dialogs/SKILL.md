@@ -7,7 +7,9 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # Confirmations
 
-Shared confirmation dialogs initially focus Cancel, trap Tab within the dialog, and allow Escape or the backdrop to cancel. Confirm closes the dialog before invoking its action. A confirmation concerns the named operation and target; a batch can still encounter changed state or individual refusals during execution.
+Shared confirmation dialogs initially focus Cancel, trap Tab within the dialog, and allow Escape or the backdrop to cancel. Confirm closes the dialog before invoking its action. Standard modal surfaces also dismiss with Escape or a click on the backdrop; they do not need a separate close button. Keep buttons that express a decision or action, including confirmation Cancel, Save and Apply. Pinned panels and popped-out windows are window surfaces, so keep their window controls.
+
+A confirmation concerns the named operation and target; a batch can still encounter changed state or individual refusals during execution.
 
 | Confirmation | What to inspect before accepting |
 |---|---|

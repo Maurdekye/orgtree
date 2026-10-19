@@ -153,7 +153,7 @@ export function ClearMarkDialog({ row, mark, toast, reload, close }: {
         <input value={reason} maxLength={500} onChange={e => setReason(e.target.value)} /></label>
     </>}
     <div className="dialog-actions">
-      <button onClick={close} disabled={busy}>{shown ? 'Cancel' : 'Close'}</button>
+      {shown && <button onClick={close} disabled={busy}>Cancel</button>}
       {shown && <button className="danger" disabled={busy} onClick={() => { void submit() }}>
         Clear {poolLabel(shown.pool)} mark on {accountDisplayId(row)}</button>}
     </div>

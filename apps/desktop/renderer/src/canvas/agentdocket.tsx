@@ -79,6 +79,5 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
       onChanged={() => setBump(n => n + 1)} refs={routes}
       emptyText={useSubtree && unplaced.length ? <>checking whether retired owners belong to this team…</> : undefined}
       onFocusAgent={id => routes.onOpen(resolveRef({ kind: 'agent', org: slug, id }, refs.world))} />
-    <div className="row"><button className="primary" onClick={close}>Close</button></div>
   </PinFrame>
 }

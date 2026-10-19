@@ -30,7 +30,6 @@ import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject
   PointerEvent as ReactPointerEvent } from 'react'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
-import { CloseIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { clampRect, PIN_MIN_H, PIN_MIN_W } from './pins'
 import type { PinRect } from './pins'
@@ -549,9 +548,10 @@ export interface PinFrameProps {
   titleInModal?: boolean
   /** A DESK'S TITLE BAR (user 2026-10-18 11:14Z, the project desk): the bar
    *  is the surface's title bar centred and pinned, as the agent temporary
-   *  desk's (tempdesk.tsx). Centred it carries the title and a close button
-   *  too, and no pop-out: the desk puts that in its own header beside its
-   *  tabs. Popped out there is no bar at all (11:47Z): the desk's header row
+   *  desk's (tempdesk.tsx). Centred it carries the title, but no close
+   *  button; Escape and the backdrop dismiss it. It has no pop-out: the desk
+   *  puts that in its own header beside its tabs. Popped out there is no bar
+   *  at all (11:47Z): the desk's header row
    *  is the window's, with the window controls, as a popped-out agent desk. */
   deskTitle?: boolean
   /** what the bar shows as the title, where it differs from `title` (which
@@ -895,7 +895,7 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
             {pinned ? <PushPinIcon fontSize="inherit" />
               : <PushPinOutlinedIcon fontSize="inherit" />}
           </button>}
-          {(pinned || (deskTitle && !detached)) && (
+          {pinned && (
             <button type="button" className="modalpin-btn modalpin-x" title="close"
               aria-label="close this window"
               onPointerDown={(e) => e.stopPropagation()}

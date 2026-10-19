@@ -15,6 +15,7 @@ import { req } from '../api'
 import { desktop as desktopBridge } from '../desktop'
 import { onHeldEvent } from '../events/heldbus'
 import { setHubchatInstalled } from './agentmentions'
+import { useEsc } from './shared'
 import './phonelink.css'
 
 export const SETUP_GUIDE_URL = 'https://github.com/Maurdekye/orgtree-hubchat/blob/main/docs/setup.md'
@@ -210,6 +211,7 @@ function Ok({ children }: { children: React.ReactNode }) {
 }
 
 export function PhonePanel({ org: opened, onClose }: { org: string | null; onClose: () => void }) {
+  useEsc(onClose)
   // opened from Home or the tray: the org the card would link, else the
   // linked one, else the first organization
   const [org, setOrg] = useState<string | null>(opened)
@@ -383,7 +385,6 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
       <div className="phone-head">
         <div className="phone-title">Chat from your phone</div>
         <div className="phone-lead">{lead}</div>
-        <button type="button" className="phone-x" aria-label="Close" onClick={onClose}>✕</button>
       </div>
       {!state && <div className="phone-body dim">{error || 'Loading…'}</div>}
       {state && <div className="phone-cols">

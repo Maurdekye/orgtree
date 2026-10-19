@@ -170,7 +170,6 @@ export function SaveTemplateModal({ slug, orgName, tree, close }: { slug: string
             <button className="primary" onClick={(e) => downloadTemplate(e.currentTarget.ownerDocument, saved)}>
               Download {saved.file}</button>
             <button onClick={() => { void openTemplatesFolder() }}>open templates folder</button>
-            <button onClick={close}>close</button>
           </div>
         </>)}
       </div>

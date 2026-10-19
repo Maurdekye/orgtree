@@ -19,6 +19,5 @@ export function ProjectSlotsModal({slug,nid,map,tree,op,toast,close,onJump}:{
     {node&&count>0?<><div className="dim">{slotLeadText(state)}</div>
       <SlotsView node={node} state={state} map={map} onJump={onJump} op={op} toast={toast}/></>
       :<div className="hint" role="status">{node?'This project has no concurrency slots.':'This project is no longer available.'}</div>}
-    <div className="row"><button type="button" className="primary" onClick={close}>Close</button></div>
   </PinFrame>
 }

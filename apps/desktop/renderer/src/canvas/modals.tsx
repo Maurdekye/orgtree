@@ -280,7 +280,6 @@ export function WatchdogPanel({ slug, dog, dogs, toast, close }: {
           {actions.filter(a => !a.danger).map(a => <button key={a.label} className={dog.state !== 'armed' ? 'primary' : undefined} onClick={a.onSelect}>{a.label.toLowerCase()}</button>)}
           <span style={{ flex: 1 }} />
           {actions.filter(a => a.danger).map(a => <button key={a.label} className="danger" onClick={a.onSelect}>{a.label.toLowerCase()}</button>)}
-          <button onClick={close}>close</button>
         </div>
     </PinFrame>
   )

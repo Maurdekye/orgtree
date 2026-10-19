@@ -29,7 +29,6 @@ import type { DeskChatProps } from './desk'
 import { providerOf, useEsc } from './shared'
 import type { CanvasNode } from './shared'
 import { AgentName } from './identity'
-import { CloseIcon } from '../icons'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import { useOverlayRoot, useSurfaceDocument } from '../popout'
 import type { PinRect } from './pins'
@@ -130,11 +129,11 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
       if (e.target === e.currentTarget) { e.stopPropagation(); close() }
       else e.stopPropagation()
     }}>
-      {/* THE PINNED DESK'S FRAME AND TITLE BAR (user 2026-09-29: reuse the
+      {/* THE TEMPORARY DESK'S FRAME AND TITLE BAR (user 2026-09-29: reuse the
           pinned-desk styling): the provider accent border, the tier + bold
-          name, a small state chip and the same close button, from the
-          `.pinwin-*` classes — and, as in a pin, the desk's own header does
-          not repeat the name (styles.css). */}
+          name and a small state chip from the `.pinwin-*` classes. It closes
+          by backdrop or Escape; the desk's own header does not repeat the name
+          (styles.css). */}
       <div className={'tempdesk-panel prov-' + providerOf(node.tier ?? '')} ref={panel} tabIndex={-1}
         role="dialog" aria-modal="true"
         aria-label={`${node.id} · desk, opened temporarily`}>
@@ -150,10 +149,6 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
               <PushPinIcon fontSize="inherit" />
             </button>
           )}
-          <button className="tempdesk-close pinwin-unpin" onClick={close}
-            aria-label="close" title="close — nothing about the canvas changes">
-            <CloseIcon fontSize="inherit" />
-          </button>
         </div>
         {/* ⚠ `borrow` IS THE WHOLE MECHANISM. It takes the canonical desk for
             this modal's lifetime and the registry returns it on unmount — see

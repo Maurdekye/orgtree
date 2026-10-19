@@ -4771,7 +4771,6 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
         ))}
         {!gens.length &&
           <div className="dim pad">no prior generations — this agent has never compacted</div>}
-        <div className="row"><button onClick={close}>close</button></div>
       {/* ⚠ A CHILD OF THE FRAME IS NOT ENOUGH, and the earlier comment here
           was wrong: `position: fixed` fills the screen but does NOT escape the
           host's stacking context, so a confirmation nested inside a pinned

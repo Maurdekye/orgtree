@@ -27,7 +27,6 @@ export function ConnectionsPanel({ tree, toast, close }: {
   return <PinFrame kind="connections" title="Connections" panel="settings wide" close={close}>
     <h3>Connections</h3>
     <Connections tree={tree} toast={toast} adding={adding} setAdding={setAdding} />
-    <button onClick={close}>close</button>
   </PinFrame>
 }
 

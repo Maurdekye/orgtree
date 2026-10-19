@@ -14,7 +14,7 @@ Pinning makes a screen-space window that stays put while the canvas pans/zooms. 
 
 The pinned desk's close/unpin control minimizes it back to its original desk. If that card is off-screen, the toast explains where to find it; Show on canvas navigates there while keeping the pin open. An archived agent's pin can remain readable. The title bar is not an instruction to rehire it.
 
-Pinnable modals have frame controls/menu entries to Pin to window or Unpin, Open in new window/Return to main window, and Close. Unsupported surfaces show fewer actions. Pinning is disabled while detached; close dismisses the modal rather than merely changing its pin state. The related overlap/fade, snap and jump-fold choices are in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).
+Pinnable modal surfaces dismiss when Escape is pressed or the backdrop is clicked. Their centered form has no separate close button. Once pinned, the surface is a window and keeps its Close control; detached windows use their native window controls. Pinning is disabled while detached; closing a pinned window dismisses the modal rather than merely changing its pin state. The related overlap/fade, snap and jump-fold choices are in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).
 
 ## Separate windows and Close
 
@@ -32,7 +32,7 @@ A persistent desk keeps its canonical content. Native Close returns it only to a
 
 ## Temporary Desk modal
 
-Open → Desk borrows the existing desk into a modal for a glance without changing focus, adding a pin or saving a layout of its own. Closing by Escape/backdrop/control returns the desk to its prior placement, including its draft and scroll state. Actions inside are the real desk's actions, not a read-only replica. If a Pin control is offered, the user can deliberately turn this temporary view into a persistent pin.
+Open → Desk borrows the existing desk into a modal for a glance without changing focus, adding a pin or saving a layout of its own. Closing by Escape or backdrop returns the desk to its prior placement, including its draft and scroll state. Actions inside are the real desk's actions, not a read-only replica. If a Pin control is offered, the user can deliberately turn this temporary view into a persistent pin.
 
 A browser can block a requested popup and report an error; native focusing and screen placement also depend on the available desktop capability. These descriptions are source behavior, not evidence that a particular device/window arrangement has been visually verified.
 

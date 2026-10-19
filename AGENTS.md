@@ -4142,3 +4142,10 @@ Cold archived docket projections covered by the existing policy spec use its typ
   `canvas/shared.ts`). [decided: user 2026-10-18; verified: `canvas/identity.tsx`,
   `canvas/reflinks.tsx`, `canvas/refmd.tsx`, `canvas/agentmentions.tsx`]
 
+- Centered modal surfaces dismiss on Escape or backdrop click and do not need a
+  dedicated close button. Keep decision/action buttons such as confirmation
+  Cancel, Save and Apply. Pinned and detached surfaces are windows and retain
+  their window controls; do not confuse those with modal close buttons.
+  [decided: user 2026-10-19; verified: `canvas/modalpin.tsx`,
+  `canvas/tempdesk.tsx`, `tests/modalpin.test.tsx`, `tests/tempdesk.test.tsx`]
+

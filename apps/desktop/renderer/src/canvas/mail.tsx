@@ -1957,10 +1957,6 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
         </>) : (
           <NetSection net={net} />
         )}
-        <div className="row">
-          <span className="spacer" />
-          <button onClick={close}>close</button>
-        </div>
     </PinFrame>
   )
 }
