@@ -458,12 +458,15 @@ test('G8 the message box grows with the draft up to about eight rows, as the age
 
 test('G13 the canvas desk\'s message box takes the caret when it opens; a window does not', async (t) => {
   serve(t); forgetDrafts(t)
+  // booleans, never the elements themselves: a failing check would hand the
+  // reporter a React-managed node, and inspecting it exhausts memory (team
+  // notes, round 439; it took the whole file down at the red commit)
   const canvas = await deskView(t, project('website', [agent('dev1')]))
-  assert.equal(document.activeElement, composerBox(canvas.el), 'focused on the canvas desk')
+  assert.equal(document.activeElement === composerBox(canvas.el), true, 'focused on the canvas desk')
   await canvas.unmount()
   ;(document.activeElement as HTMLElement | null)?.blur?.()
   const pinned = await deskView(t, project('website', [agent('dev1')]), { bare: true })
-  assert.notEqual(document.activeElement, composerBox(pinned.el), 'a window keeps focus where it was')
+  assert.equal(document.activeElement === composerBox(pinned.el), false, 'a window keeps focus where it was')
 })
 
 const pickFiles = async (input: HTMLInputElement, files: File[]) => inAct(async () => {
