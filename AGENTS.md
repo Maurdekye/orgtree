@@ -3989,6 +3989,14 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   inbox's listeners) never settles and remakes the box on every render, an endless
   update loop through InboxView's retract sweep. Pass the mail folder underneath.
   [verified: `usemailhistory.ts`, `canvas/mail.tsx`, 2026-10-19]
+- **An agent link hands its handler the click event too:** `NodeLink`/`AgentName` call
+  `onFocus(id, event)`, and the canvas's `centerOn(id, z, onCanvas)` fits that slot, so a
+  surface passing it through whole sent the event as the zoom: a NaN camera, the desk
+  closed, the camera never moved and the sticky focus then fought every drag (the
+  project desk's tables, user bug 2026-10-19 21:17Z). `centerOn` takes only a finite
+  number as `z` and only `true` as `onCanvas`; keep it so, and wrap any other handler
+  with a second parameter. [verified: `canvas/OrgCanvas.tsx`, `canvas/identity.tsx`,
+  `tests/projectlinkjump.test.tsx`, 2026-10-19]
 - **Move previews preserve sibling order:** native moves retain `ui_order`, creation
   time and ordinal. Record projection and pending moves share the comparator in
   `treeorder.ts` (then Python Unicode name order); keep the tie-break fields on the

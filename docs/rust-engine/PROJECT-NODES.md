@@ -452,10 +452,16 @@ A project carries a manual event (replacing the "round" primitive floated
   listeners are armed, or one brighter `listeners x/y` card per armed
   watch; a magenta `mail queue` card (the `--fq-line` rose) shows waiting
   mail and, in ack mode, the handed-but-unacked in-flight count (new
-  feed field `mail_held`, `x_mail_held` beside `x_mail_pending`). The
-  desk gains a **listeners** tab while any listener/watch targets the
-  project (badge = armed listeners) listing both with mode, count and
-  fire actions, plus the fire control (`canvas/listenersdesk.tsx`).
+  feed field `mail_held`, `x_mail_held` beside `x_mail_pending`). Every
+  project desk has a **listeners** tab, empty or not (badge = armed
+  listeners; user 2026-10-19 21:19Z, as the inbox's listeners folder):
+  the fire control, then one table in the Slots table's style with both
+  kinds as sections (user 21:08Z-21:11Z): Agent, the shared watchdog chip
+  (its outline tells one-shot from continuous; no mode words), Armed (a
+  watch's armed listeners over its count), Fired and Last fired (empty
+  for one-shot dogs, a dash before a first fire) and On fire (the tool
+  calls); Armed and On fire show only while some row has data for them
+  (`canvas/listenersdesk.tsx`).
 
 ## Agent tools
 
