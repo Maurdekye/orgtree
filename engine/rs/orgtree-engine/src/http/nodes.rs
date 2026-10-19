@@ -202,7 +202,7 @@ pub async fn message(
     let a = agent(&e, &org, &nid).await?;
     let text = b.text.trim_end().to_string();
     // slash commands go to the CLI as typed
-    if text.starts_with('/') && !text.contains('\n') && b.attachments.is_empty() {
+    if is_cli_command(&text, &b.attachments, false) {
         let cmd = text.clone();
         let r = ask(&e, org.id, a.id, move |tx| AgentMsg::Command(cmd, tx)).await?;
         if r["started"].as_bool().unwrap_or(false) {
@@ -251,6 +251,36 @@ pub async fn message(
         "halted": halted, "notice": b.notice, "dnd_held": sent.dnd_held, "audience_grant": audience,
         "steering": !sent.dnd_held && e.agents.get(a.id).map(|h| h.view.load().get("busy").and_then(Value::as_bool).unwrap_or(false)).unwrap_or(false),
     })))
+}
+
+/// Whether a user's message is a command for the agent's CLI rather than mail:
+/// one line starting with "/" and no attachments.
+#[nolog]
+fn is_cli_command(text: &str, attachments: &[String], _to_project: bool) -> bool {
+    text.starts_with('/') && !text.contains('\n') && attachments.is_empty()
+}
+
+#[cfg(test)]
+mod cli_command_tests {
+    use super::is_cli_command;
+
+    #[test]
+    fn a_one_line_slash_message_to_an_agent_is_a_command_for_its_cli() {
+        assert!(is_cli_command("/compact", &[], false), "positive control: the agent's command");
+        assert!(!is_cli_command("/compact\nand more", &[], false), "two lines are mail");
+        assert!(!is_cli_command("/compact", &["u0123456789ab-notes.txt".to_string()], false),
+            "a staged file makes it mail");
+        assert!(!is_cli_command("compact", &[], false), "no slash, no command");
+    }
+
+    #[test]
+    fn a_slash_message_to_a_project_is_mail_for_its_queue() {
+        // desk parity G19 (coordinator ruling A4, 2026-10-19): a project runs
+        // no CLI and its actor answers no command, so the command branch
+        // answered the user "the agent did not answer in time"
+        assert!(!is_cli_command("/compact", &[], true));
+        assert!(!is_cli_command("/deploy the docs after the review", &[], true));
+    }
 }
 
 /// The staged uploads a user's message carries, as mail attachments (at most
