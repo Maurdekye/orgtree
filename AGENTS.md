@@ -39,6 +39,14 @@
   [decided: user/coordinator 2026-10-19; verified: `canvas/mail.tsx`,
   `tests/mail-tag-order.test.tsx`]
 
+- Enabling a mail-row tag filter opens that row's mail when the previously
+  open mail no longer matches. Matching selections and reader-cleared panes
+  stay as they are; removing a tag does not select another mail. Remember the
+  explicit target before updating tags so user inbox server-filter refreshes
+  retain it. Shared user/agent/project lists use the same handler.
+  [decided: user 2026-10-19 19:23Z; verified: `canvas/mail.tsx`,
+  `tests/{mail-tag-selection,inbox-tag-behavior}.test.tsx`]
+
 - Agent lifecycle recipients, requests, turn rosters/labels, fresh-session recall
   and docket deployers use `ot.superior_of` / `ot.agent_reporting` / `ot.reports_of`.
   Snapshot former agent superiors before moves/swaps; physical parent links remain

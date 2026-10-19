@@ -454,6 +454,19 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // the pane directly rather than pretended into the list, where it would
   // sit in the wrong place in a run of send times.
   const cur = curPile?.[0] ?? (foundOutside ?? undefined)
+  const filterByRowTag = (m: MailRow, tag: string) => {
+    if (!tagFilter) return
+    const next = toggleMailTag(tagFilter.selected, tag)
+    // An enabled row tag that hides the open mail explicitly opens its source.
+    // Remember before changing filters: the user inbox's selection hook runs
+    // against the new tags and must see this choice, rather than the old mail.
+    if (next.length > tagFilter.selected.length && cur && !mailMatchesTags(cur.tags, next)) {
+      beginOpen('mail-item', `${org ?? refs?.world.org ?? ''}/${keyOf(m)}`)
+      setSelId(keyOf(m))
+      if (selectOldestUnread && m.id && !m._ask) onOpenMail?.(m.id)
+    }
+    tagFilter.onChange(next)
+  }
   const openedMailId = cur && !cur._ask && selectOldestUnread ? cur.id : null
   useEffect(() => {
     if (openedMailId) onOpenMail?.(openedMailId)
@@ -645,7 +658,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
-            party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>tagFilter.onChange(toggleMailTag(tagFilter.selected,tag)):undefined}
+            party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>filterByRowTag(m,tag):undefined}
             rowRef={(el) => {
               // a jump aimed at a folded member lands on the row that now
               // carries it, not on nothing
