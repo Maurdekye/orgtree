@@ -10,7 +10,7 @@ use crate::{engine::Engine, tools::Caller, changes::{self,Change}};
 pub const TIMEOUT: Duration = Duration::from_secs(300);
 struct Pending {
     org: i64, agent: i64, card: Value, deadline: tokio::time::Instant,
-    reply: mpsc::UnboundedSender<Value>, _capacity: OwnedSemaphorePermit,
+    reply: mpsc::UnboundedSender<Value>,
 }
 pub struct Registry {
     requests: papaya::HashMap<String, Arc<Pending>>,
@@ -31,7 +31,7 @@ impl Registry {
         self.requests.pin().iter().filter(|(_,p)|p.org==org && p.agent==agent).map(|(_,p)|p.card.clone()).collect()
     }
     #[nolog]
-    fn start(&self, caller:&Caller, params:&Value, duration:Duration) -> Result<(String,mpsc::UnboundedReceiver<Value>)> {
+    fn start(&self, caller:&Caller, params:&Value, duration:Duration) -> Result<(String,mpsc::UnboundedReceiver<Value>,OwnedSemaphorePermit)> {
         if params.to_string().len()>65536 {bail!("MCP permission request too large")}
         let server=params["serverName"].as_str().filter(|s|!s.is_empty()).ok_or_else(||anyhow::anyhow!("missing server name"))?;
         if !params["threadId"].is_string() || !params["message"].is_string() {bail!("invalid MCP request identity or message")}
@@ -49,8 +49,8 @@ impl Registry {
             "message":params["message"],"url":params.get("url"),"schema":params.get("requestedSchema"),
             "expires_at":crate::util::iso(chrono::Utc::now()+chrono::Duration::from_std(duration)?)}});
         self.requests.pin().insert(id.clone(),Arc::new(Pending {org:caller.org_id,agent:caller.agent_id,card,
-            deadline:tokio::time::Instant::now()+duration,reply,_capacity:permit}));
-        Ok((id,rx))
+            deadline:tokio::time::Instant::now()+duration,reply}));
+        Ok((id,rx,permit))
     }
     /// Called only by the authenticated desktop answer route. No field values
     /// are returned to the HTTP caller or saved in the request-card history.
@@ -71,7 +71,7 @@ impl Registry {
     }
 }
 
-struct Cleanup {engine:Arc<Engine>,org:i64,agent:i64,id:String}
+struct Cleanup {engine:Arc<Engine>,org:i64,agent:i64,id:String,_capacity:OwnedSemaphorePermit}
 impl Drop for Cleanup {
     fn drop(&mut self) {
         self.engine.elicitations.requests.pin().remove(&self.id);
@@ -85,12 +85,12 @@ pub async fn request(engine:&Arc<Engine>,caller:&Caller,params:&Value,stop:&Canc
 #[nolog]
 async fn wait(engine:&Arc<Engine>,caller:&Caller,params:&Value,stop:&CancellationToken,duration:Duration)->Value {
     if stop.is_cancelled() || engine.shutdown.is_cancelled() {return json!({"action":"cancel"})}
-    let Ok((id,mut rx))=engine.elicitations.start(caller,params,duration) else {
+    let Ok((id,mut rx,capacity))=engine.elicitations.start(caller,params,duration) else {
         // Fail closed without exposing the request (or answers) in diagnostics.
         tracing::warn!(agent=caller.agent_id,"unsupported or over-capacity MCP elicitation");
         return json!({"action":"decline"})
     };
-    let _cleanup=Cleanup {engine:engine.clone(),org:caller.org_id,agent:caller.agent_id,id};
+    let _cleanup=Cleanup {engine:engine.clone(),org:caller.org_id,agent:caller.agent_id,id,_capacity:capacity};
     changes::notify_id(engine,caller.org_id,vec![Change::Asks,Change::Agent(caller.agent_id)]);
     tokio::select! {
         biased;
@@ -178,7 +178,7 @@ mod elicitation_tests {
         "note":{"type":"string","minLength":2,"maxLength":5}},"required":["allow"]}})}
     #[tokio::test]
     async fn elicitation_accept_is_typed_correlated_once_and_cross_org_is_refused() {
-        let r=Registry::default();let (id,mut rx)=r.start(&caller(1),&form(),TIMEOUT).unwrap();
+        let r=Registry::default();let (id,mut rx,_capacity)=r.start(&caller(1),&form(),TIMEOUT).unwrap();
         assert_eq!(r.cards(1).len(),1);assert!(r.cards(2).is_empty());
         assert!(r.resolve(2,&id,&json!({"action":"accept","content":{"allow":true}})).is_err());
         assert!(r.resolve(1,&id,&json!({"action":"accept","content":{"allow":"true"}})).is_err());
@@ -193,7 +193,7 @@ mod elicitation_tests {
     async fn elicitation_decline_cancel_do_not_forward_content_or_metadata() {
         let r=Registry::default();
         for action in ["decline","cancel"] {
-            let (id,mut rx)=r.start(&caller(1),&form(),TIMEOUT).unwrap();
+            let (id,mut rx,_capacity)=r.start(&caller(1),&form(),TIMEOUT).unwrap();
             r.resolve(1,&id,&json!({"action":action,"content":{"secret":"synthetic"},"_meta":{"private":"not forwarded"}})).unwrap();
             assert_eq!(rx.recv().await.unwrap(),json!({"action":action}));
         }
@@ -209,7 +209,7 @@ mod elicitation_tests {
     #[tokio::test]
     async fn elicitation_url_is_user_open_only_and_never_forwards_content() {
         let r=Registry::default();let mut p=form();p["mode"]=json!("url");p["url"]=json!("https://example.invalid/consent");p["elicitationId"]=json!("url-request");
-        let (id,mut rx)=r.start(&caller(1),&p,TIMEOUT).unwrap();
+        let (id,mut rx,_capacity)=r.start(&caller(1),&p,TIMEOUT).unwrap();
         assert_eq!(r.cards(1)[0]["elicitation"]["url"],p["url"]);
         r.resolve(1,&id,&json!({"action":"accept","content":{"ignored":true}})).unwrap();
         assert_eq!(rx.recv().await.unwrap(),json!({"action":"accept"}));
@@ -232,12 +232,12 @@ mod elicitation_tests {
     }
     #[tokio::test]
     async fn elicitation_simultaneous_requests_remain_independent_and_stale_answers_fail() {
-        let r=Registry::default();let (a,mut ar)=r.start(&caller(1),&form(),TIMEOUT).unwrap();
-        let (b,mut br)=r.start(&caller(1),&form(),TIMEOUT).unwrap();assert_ne!(a,b);
+        let r=Registry::default();let (a,mut ar,_first_capacity)=r.start(&caller(1),&form(),TIMEOUT).unwrap();
+        let (b,mut br,_second_capacity)=r.start(&caller(1),&form(),TIMEOUT).unwrap();assert_ne!(a,b);
         r.resolve(1,&b,&json!({"action":"decline"})).unwrap();
         assert_eq!(br.recv().await.unwrap(),json!({"action":"decline"}));assert!(ar.try_recv().is_err());
         r.resolve(1,&a,&json!({"action":"cancel"})).unwrap();assert_eq!(ar.recv().await.unwrap(),json!({"action":"cancel"}));
-        let (id,_)=r.start(&caller(1),&form(),Duration::ZERO).unwrap();
+        let (id,_,_capacity)=r.start(&caller(1),&form(),Duration::ZERO).unwrap();
         assert!(r.resolve(1,&id,&json!({"action":"accept","content":{"allow":true}})).is_err());
     }
 }
