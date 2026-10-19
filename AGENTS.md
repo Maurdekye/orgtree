@@ -241,6 +241,9 @@
   logarithmic intervals through green/yellow/orange/red to black at24h, clamped;
   plain text only, without pill backgrounds (user 19:24Z). Line order has its own
   Position column, blank for holders/history (user 19:25Z). Recent holds label only unusual endings.
+  Ended ages use exported `slotEndedTimeStyle`: white through3s, logarithmic fade
+  to #3a3a3a at24h. Both exports add a thin luminance-selected black/white outline
+  (user 19:34Z); reuse these helpers for other time tables.
   [decided: user/coordinator 2026-10-19 19:16-19:24Z; verified: `canvas/listeners.ts`,
   `canvas/slotchips.tsx`, `canvas/slotsdesk.tsx`, `domain/slots.rs`,
   `projectlisteners/projectslots.test.tsx`, rig `project-slots.mjs`; 2026-10-19]

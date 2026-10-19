@@ -16,7 +16,7 @@ import { ago } from './shared'
 import type { CanvasNode, OpFn } from './shared'
 import { ConfirmModal } from './modals'
 import { ordinal } from './slots'
-import { slotTimeStyle } from './slottime'
+import { slotTimeStyle, slotEndedTimeStyle } from './slottime'
 import { AgentLink, nodeTierOf } from './identity'
 import { ageClockNow, subscribeAgeClock } from './desk'
 import type { ProjectSlotState } from './slots'
@@ -48,7 +48,7 @@ export function span(from: string, to?: string | null): string {
 
 function SlotTime({ from, to, ended = false }: { from: string; to?: string | null; ended?: boolean }) {
   const seconds = Math.max(0, ((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000)
-  return <span className="slot-time" style={slotTimeStyle(seconds)}>
+  return <span className="slot-time" style={ended ? slotEndedTimeStyle(seconds) : slotTimeStyle(seconds)}>
     {ended ? `${ago(from)} ago` : span(from, to)}</span>
 }
 

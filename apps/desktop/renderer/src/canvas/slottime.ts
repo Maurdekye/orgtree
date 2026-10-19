@@ -4,8 +4,18 @@ const start = 3, end = 24 * 60 * 60
 const logStep = Math.log(end / start) / (colours.length - 1)
 const rgb = (hex: string) => hex.slice(1).match(/../g)!.map(value => parseInt(value, 16))
 
+export interface SlotTimeTextStyle { color: string; textShadow: string }
+
+function outlinedTime(color: string): SlotTimeTextStyle {
+  const c = rgb(color).map(v => v / 255)
+    .map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
+  const luminance = c[0] * .2126 + c[1] * .7152 + c[2] * .0722
+  const outline = luminance >= .179 ? '#000000' : '#ffffff'
+  return { color, textShadow: `-0.5px 0 ${outline}, 0.5px 0 ${outline}, 0 -0.5px ${outline}, 0 0.5px ${outline}` }
+}
+
 /** Logarithmic interpolation in RGB, applied directly to text (user 19:24-19:26Z). */
-export function slotTimeStyle(seconds: number): { color: string } {
+export function slotTimeStyle(seconds: number): SlotTimeTextStyle {
   const at = Number.isNaN(seconds) ? 0 : Math.max(0, seconds)
   let color: string = colours[0]
   if (at < start) color = '#' + rgb(colours[0]).map(value =>
@@ -19,8 +29,13 @@ export function slotTimeStyle(seconds: number): { color: string } {
     color = '#' + x.map((value, i) => Math.round(value + (y[i] - value) * blend + 1e-10)
       .toString(16).padStart(2, '0')).join('')
   }
-  return { color }
+  return outlinedTime(color)
 }
 
-// Semantic red checkpoint for the new independent ended-age scale.
-export const slotEndedTimeStyle = slotTimeStyle
+/** Ended ages stay white through3s, then fade on the same log axis to dark grey. */
+export function slotEndedTimeStyle(seconds: number): SlotTimeTextStyle {
+  const at = Number.isNaN(seconds) ? 0 : Math.max(0, seconds)
+  const blend = at <= start ? 0 : at >= end ? 1 : Math.log(at / start) / Math.log(end / start)
+  const grey = Math.round(255 + (0x3a - 255) * blend + 1e-10).toString(16).padStart(2, '0')
+  return outlinedTime('#' + grey.repeat(3))
+}
