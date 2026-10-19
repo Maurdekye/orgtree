@@ -104,6 +104,25 @@ async function open(el: HTMLElement, label: string) {
   return t!
 }
 
+test('org folder holdings have a clear heading and new-hire default subtitle', async () => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  stubFetch(seen)
+  const { view } = await mountOrg({ dirs: [{ path: 'C:\\shared', mode: 'rw' }] })
+  try {
+    await open(view.el, 'Hire defaults')
+    const group = [...view.el.querySelectorAll<HTMLElement>('.set-group')]
+      .find((el) => el.querySelector('.set-group-head')?.textContent?.trim()
+        .startsWith('Org folders'))
+    assert.ok(group, 'Org folders setting group is present')
+    const subtitle = group!.querySelector('.set-group-subtitle')
+    assert.ok(subtitle, 'subtitle is shown below the Org folders heading')
+    assert.equal(subtitle!.textContent?.trim(),
+      "Folders this org's agents can use. New hires get all of them by default.")
+    assert.ok(group!.querySelector('input[aria-label="Add a folder path"]'),
+      'the existing folder list remains available')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
 test('History loads inside Settings and the Autonomy toggle saves auto-resume', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen)
