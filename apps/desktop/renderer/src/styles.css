@@ -38,6 +38,9 @@
                                the rose queue line and the amber slots */
   --listener-dim: #1899b8;  /* the darker cyan of the count-only card */
   --listener-ink: #062a33;  /* text on a filled listener card */
+  --websocket: #a78bfa;     /* websocket watchdogs: chip outlines (violet, apart
+                               from the rose queue, amber slot and cyan listener
+                               kinds; coordinator 2026-10-19 21:14Z) */
   --bearer-panel: #262628;
   --bearer-line: #3a3a3c;
   --bearer-top: #4a4a4c;
@@ -225,6 +228,7 @@
   --listener: #0e7490;
   --listener-dim: #155e75;
   --listener-ink: #ffffff;
+  --websocket: #6d28d9;
   --tip-fill: #176377;
   --tip-seat: #155e75;
   --danger-ink: #af3320;
@@ -3198,6 +3202,7 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .wd-chip.slot .wd-glyph { color: var(--slot); }
 .wd-chip.listener { border-color: var(--listener); }
 .wd-chip.listener .wd-glyph { color: var(--listener); }
+.wd-chip.websocket .wd-glyph { color: var(--websocket); }
 /* the desk's Slots tab */
 .project-slots { display: flex; flex-direction: column; gap: 4px; min-width:0; overflow: auto; }
 .project-slots h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }
@@ -6752,7 +6757,7 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
   background: color-mix(in srgb, var(--warn, #e5c07b) 13%, var(--panel));
   color: var(--warn, #e5c07b); font: 700 7px/1 var(--mono);
 }
-/* an mqtt dog's broker connection: warning colour while down or refused */
+/* an mqtt or websocket dog's connection: warning colour while down or refused */
 .wd-connection-bad { color: var(--warn, #e5c07b); }
 .wd-once-label {
   display: inline-flex; align-items: center; margin-left: 5px; padding: 1px 5px;
@@ -6788,6 +6793,7 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
 :is(.wd-chip, .desk-dog-chip).slot { border-color: var(--slot); --button-accent: var(--slot); }
 :is(.wd-chip, .desk-dog-chip).listener { border-color: var(--listener); --button-accent: var(--listener); }
 :is(.wd-chip, .desk-dog-chip).fair-queue { border-color: var(--fq-line); --button-accent: var(--fq-line); }
+:is(.wd-chip, .desk-dog-chip).websocket { border-color: var(--websocket); --button-accent: var(--websocket); }
 /* Listener-count watches are distinct from ordinary event listeners.
    Continuous: double cyan border. One-shot: dashed outer + solid inner ring. */
 :is(.wd-chip, .desk-dog-chip).listener-watch { border: 3px double var(--listener); }
@@ -6888,6 +6894,7 @@ html.mobile .ms-doglist button.oneshot {
 html.mobile .ms-doglist button.slot { border-left: 2px solid var(--slot); }
 html.mobile .ms-doglist button.listener { border-left: 2px solid var(--listener); }
 html.mobile .ms-doglist button.fair-queue { border-left: 2px solid var(--fq-line); }
+html.mobile .ms-doglist button.websocket { border-left: 2px solid var(--websocket); }
 html.mobile .ms-doglist button.oneshot { border-left-style: dashed; }
 html.mobile .ms-doglist button.listener-watch { border-left: 3px double var(--listener); }
 html.mobile .ms-doglist button.listener-watch.oneshot { border-left: 1px dashed var(--listener);

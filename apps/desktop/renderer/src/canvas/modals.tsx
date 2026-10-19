@@ -170,8 +170,9 @@ export function ConfirmModal({ title, body, confirmLabel, onConfirm, close,
     </div></ModalOverPins>
   )
 }
-// An mqtt dog's broker connection in one line (docs/rust-engine/mqtt-watchdogs.md).
-function mqttConnection(dog: Watchdog): string {
+// An mqtt dog's broker connection, or a websocket dog's server connection, in
+// one line (docs/rust-engine/mqtt-watchdogs.md, websocket-watchdogs.md).
+function feedConnection(dog: Watchdog): string {
   const c = dog.connection
   if (!c) return 'not connected yet'
   const since = c.since ? ` since ${ago(c.since)} ago` : ''
@@ -179,9 +180,12 @@ function mqttConnection(dog: Watchdog): string {
     case 'connected': return `connected${since}`
     case 'connecting': return 'connecting…'
     case 'down': return `down${since}: ${c.error ?? 'unreachable'}; it retries on its own`
-    case 'refused': return `refused by the broker${since}: ${c.error ?? ''}; fix it, then resume to retry now`
+    case 'refused': return `refused by the ${dog.kind === 'mqtt' ? 'broker' : 'server'}${since}: ${c.error ?? ''}; fix it, then resume to retry now`
   }
 }
+
+// A websocket dog's hello or heartbeat message as its text frame.
+const frameText = (m: unknown) => typeof m === 'string' ? m : JSON.stringify(m)
 
 // FR-18: the watchdog detail panel — the click-through half of the user's
 // spec ("clicking on them shows a description of the process / command /
@@ -283,11 +287,25 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
             <div className="chip mono grow wd-cmd">/{dog.payload_pattern}/</div></>}
           <div className="field-label">connection</div>
           <div className={'dim wd-connection' + (dog.connection?.state === 'down' || dog.connection?.state === 'refused' ? ' wd-connection-bad' : '')}>
-            {mqttConnection(dog)}</div>
+            {feedConnection(dog)}</div>
+        </>}
+        {dog.kind === 'websocket' && <>
+          <div className="field-label">credentials</div>
+          <div className="chip mono">{dog.credentials ?? 'none'}</div>
+          {!!dog.hello?.length && <><div className="field-label">hello (sent after every connect)</div>
+            <div className="wd-usage-filters">{dog.hello.map((m, i) => <div key={i} className="chip mono grow wd-cmd">{frameText(m)}</div>)}</div></>}
+          {!!dog.protocols?.length && <><div className="field-label">subprotocols</div>
+            <div className="chip mono">{dog.protocols.join(', ')}</div></>}
+          {dog.heartbeat && <><div className="field-label">heartbeat</div>
+            <div className="chip mono grow wd-cmd">every {dog.heartbeat.every_s}s: {frameText(dog.heartbeat.message)}</div></>}
+          <div className="field-label">connection</div>
+          <div className={'dim wd-connection' + (dog.connection?.state === 'down' || dog.connection?.state === 'refused' ? ' wd-connection-bad' : '')}>
+            {feedConnection(dog)}</div>
+          <div className="dim">{dog.sent ? `${dog.sent} message${dog.sent === 1 ? '' : 's'} sent${dog.last_sent_at ? `, the last ${ago(dog.last_sent_at)} ago` : ''}` : 'nothing sent yet'} · its owner writes with orgtree_watchdog action=send</div>
         </>}
         {dog.health && <div className="ask-warn">{dog.health}</div>}
         {dog.kind === 'event' && dog.last_output && <><div className="field-label">last event</div><div className="chip mono grow wd-cmd">{dog.last_output}</div></>}
-        {dog.kind === 'mqtt' && dog.last_output && <><div className="field-label">last message</div><div className="chip mono grow wd-cmd">{dog.last_output}</div></>}
+        {(dog.kind === 'mqtt' || dog.kind === 'websocket') && dog.last_output && <><div className="field-label">last message</div><div className="chip mono grow wd-cmd">{dog.last_output}</div></>}
         <div className="field-label">fire mode</div>
         <div className="dim">{description.fireMode}</div>
         {dog.kind === 'command' && <div className="dim">A command is stopped after 60s; that timeout also counts as a matching event. A nonzero exit alone does not.</div>}

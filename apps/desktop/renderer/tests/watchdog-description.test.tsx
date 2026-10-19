@@ -135,6 +135,40 @@ test('mqtt card names its broker, topic filter and how it authenticates, never t
   } finally { await healthy.unmount() }
 })
 
+// WebSocket watchdogs (user 2026-10-19 21:00Z/21:01:59Z; docs/rust-engine/websocket-watchdogs.md)
+test('websocket card names its server, hellos, heartbeat and connection, never the credentials', async t => {
+  const view = await panel({ kind: 'websocket', target: 'wss://ha.local/api/websocket', pattern: '"event_type":"state_changed"',
+    credentials: 'file: C:/agents/worker/ha.json', hello: [{ id: 1, type: 'subscribe_events' }], protocols: ['graphql-transport-ws'],
+    heartbeat: { message: '{"op":1,"d":null}', every_s: 40 }, sent: 2, last_sent_at: '2026-10-18T07:10:00Z',
+    connection: { state: 'refused', since: '2026-10-18T07:00:00Z', error: 'the server refused the login (HTTP 401 Unauthorized)', retry_at: '2026-10-18T08:00:00Z' },
+    last_output: '{"type":"event"}' })
+  t.after(() => view.unmount())
+  assert.equal(view.el.querySelector('.wd-type')?.textContent, 'WebSocket listener')
+  const description = view.el.querySelector('.wd-description')?.textContent ?? ''
+  assert.match(description, /Connects to wss:\/\/ha\.local\/api\/websocket, sends 1 hello message after every connect/)
+  assert.match(description, /state_changed.*heartbeat goes out every 40s.*send.*untrusted/s)
+  const text = view.el.textContent ?? ''
+  assert.match(text, /file: C:\/agents\/worker\/ha\.json/)
+  assert.match(text, /\{"id":1,"type":"subscribe_events"\}/, 'a JSON hello shows as the text frame it sends')
+  assert.match(text, /graphql-transport-ws/)
+  assert.match(text, /every 40s: \{"op":1,"d":null\}/)
+  assert.match(text, /2 messages sent/)
+  assert.match(view.el.querySelector('.wd-connection')?.textContent ?? '', /refused by the server.*HTTP 401/)
+  assert.ok(view.el.querySelector('.wd-connection-bad'), 'a refused connection is flagged')
+  const labels = Array.from(view.el.querySelectorAll('.field-label'), el => el.textContent)
+  for (const label of ['server', 'credentials', 'hello (sent after every connect)', 'subprotocols', 'heartbeat', 'connection', 'last message', 'fires on messages matching']) {
+    assert.ok(labels.includes(label), `${label} in ${labels}`)
+  }
+  assert.doesNotMatch(text, /checked every|next check/)
+  const plain = await panel({ kind: 'websocket', target: 'ws://127.0.0.1:9222/devtools/page/1', credentials: 'none',
+    connection: { state: 'connected', since: '2026-10-18T07:00:00Z' } })
+  try {
+    assert.match(plain.el.querySelector('.wd-description')?.textContent ?? '', /every message the server sends/)
+    assert.ok(!plain.el.querySelector('.wd-connection-bad'), 'a connected server is not flagged')
+    assert.match(plain.el.textContent ?? '', /nothing sent yet/)
+  } finally { await plain.unmount() }
+})
+
 test('full target and regex stay visible and existing management controls remain', async t => {
   const target = 'echo ' + 'long-command-'.repeat(50)
   const view = await panel({ kind: 'command', target, pattern: '^READY$' })

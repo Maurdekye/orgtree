@@ -19,6 +19,14 @@ const cases: Record<string, Partial<Watchdog> & { notice?: boolean }> = {
   'mqtt-down': { name: 'ci-status', kind: 'mqtt', target: 'mqtt://10.0.0.5:1883', pattern: 'ci/+/status', credentials: 'inline credentials (stored encrypted)',
     connection: { state: 'down', since: '2026-10-18T07:00:00Z', error: 'the broker host refused the TCP connection (is the broker listening on that port?)', retry_at: '2026-10-18T07:05:00Z' },
     health: '⚠ the broker is unreachable since 2026-10-18T07:00:00Z: the broker host refused the TCP connection (is the broker listening on that port?). It retries on its own (next try 2026-10-18T07:05:00Z); messages published meanwhile are missed.' },
+  websocket: { name: 'ha-doors', kind: 'websocket', target: 'wss://ha.local/api/websocket', pattern: '"event_type":"state_changed"',
+    credentials: 'file: C:\\synthetic\\creds\\ha.json', hello: [{ id: 1, type: 'subscribe_events', event_type: 'state_changed' }],
+    connection: { state: 'connected', since: '2026-10-18T07:00:00Z' }, sent: 3, last_sent_at: '2026-10-18T07:10:00Z',
+    last_output: '{"id":1,"type":"event","event":{"event_type":"state_changed"}}', fired: 4 },
+  'websocket-refused': { name: 'gateway', kind: 'websocket', target: 'wss://gateway.discord.gg/?v=10&encoding=json',
+    credentials: 'inline credentials (stored encrypted)', heartbeat: { message: '{"op":1,"d":null}', every_s: 40 }, protocols: ['json'],
+    connection: { state: 'refused', since: '2026-10-18T07:00:00Z', error: 'the server refused the login (HTTP 401 Unauthorized): check the credentials', retry_at: '2026-10-18T08:00:00Z' },
+    health: '⚠ REFUSED by the server since 2026-10-18T07:00:00Z: the server refused the login (HTTP 401 Unauthorized): check the credentials. It retries slowly (next try 2026-10-18T08:00:00Z); fix the credentials or the URL, then resume it.' },
 }
 ;(window as unknown as { setWatchdogCase: (name: string) => void }).setWatchdogCase = name => {
   if (!cases[name]) throw Error('unknown fixture')

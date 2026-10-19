@@ -743,20 +743,32 @@ export interface Watchdog {
   id: string
   owner: string
   name: string
-  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'usage' | 'fair_queue' | 'slot' | 'project_listener' | 'listener_watch' | 'mqtt'
+  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'usage' | 'fair_queue' | 'slot' | 'project_listener' | 'listener_watch' | 'mqtt' | 'websocket'
   /** a `listener_watch`: armed project listeners that fire it */
   count?: number
-  /** an `mqtt` dog: how it authenticates, never with what: `none`,
-   *  `file: <path>` or `inline credentials (stored encrypted)` */
+  /** an `mqtt` or `websocket` dog: how it authenticates, never with what:
+   *  `none`, `file: <path>` or `inline credentials (stored encrypted)` */
   credentials?: string
   /** an `mqtt` dog: the regex its payload text must match */
   payload_pattern?: string
   /** an `mqtt` dog: whether retained messages fire it too */
   retained?: boolean
-  /** an `mqtt` dog: its broker connection as the engine last saw it */
+  /** an `mqtt` or `websocket` dog: its connection as the engine last saw it */
   connection?: { state: 'connecting' | 'connected' | 'down' | 'refused'; since?: string; error?: string; retry_at?: string }
-  /** an `mqtt` dog: messages it lost because they came faster than it could take them */
+  /** an `mqtt` or `websocket` dog: messages it lost because they came faster than it could take them */
   dropped?: number
+  /** a `websocket` dog: the messages it sends after every connect (its
+   *  credentials' secret hellos are never shown) */
+  hello?: unknown[]
+  /** a `websocket` dog: the subprotocols it offers */
+  protocols?: string[]
+  /** a `websocket` dog: a fixed message it sends every `every_s` seconds while connected */
+  heartbeat?: { message: string; every_s: number }
+  /** a `websocket` dog: messages written with `orgtree_watchdog action=send`, and when the last one was */
+  sent?: number
+  last_sent_at?: string
+  /** a `websocket` dog: binary messages received (they never match a pattern) */
+  binary?: number
   /** tool calls run as the owner when the dog fires; results ride its fire mail */
   fire_actions?: { tool: string; args?: Record<string, unknown> }[]
   accounts?: string[]
