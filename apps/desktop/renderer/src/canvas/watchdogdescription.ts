@@ -1,12 +1,13 @@
 import type { Watchdog } from '../types'
-import { ordinal, slotPlace } from './slots'
+import {slotClaimDescription} from './slotclaim'
+import type {SlotClaimLeaseState} from './slotclaim'
 
 // Presentation only. Match the native runners, not the shared storage shape:
 // fair_queue is pushed mail, process ignores regex, and silence counts matches.
 // Full target/pattern remain expanded below even if the lead needs a short form.
 const short = (text: string) => text.length > 160 ? text.slice(0, 159) + '…' : text
 
-export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
+export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLease?:SlotClaimLeaseState) {
   const target = short(dog.target)
   const pattern = dog.pattern ? `matching /${short(dog.pattern)}/` : 'matching'
   const lineMatch = dog.pattern ? `matches /${short(dog.pattern)}/` : 'is nonempty'
@@ -30,7 +31,6 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
   const scope = dog.event_scope === 'org' ? 'visible organization' : 'visible subtree'
   const counted = dog.target === 'agents.active' ? 'agents in turns' : 'live agents'
   let summary: string
-  const place = dog.kind === 'slot' ? slotPlace(dog, dogs) : null
   switch (dog.kind) {
     case 'usage': summary = `Watches ${dog.accounts?.join(', ') || 'all visible accounts'} · ${dog.windows?.join(', ') || 'all windows'} and ${alert} on ${dog.usage_events?.join(', ') || 'usage edges'}${dog.threshold_percent != null ? ` at ${dog.threshold_percent}%` : ''}. Repeated readings do not fire; unknown readings never count as zero.`; break
     case 'file': summary = `Watches new ${dog.pattern ? `lines ${pattern}` : 'nonempty lines'} appended to ${target} and ${alert}.`; break
@@ -44,12 +44,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = []) {
         ? `Watches ${target} and ${alert} when the count of ${counted} changes in the ${scope}, excluding ${dog.owner}${dog.pattern ? `, with an event payload ${pattern}` : ''}.`
         : `Listens for ${target} and ${alert} when ${pattern} engine events arrive.`; break
     case 'fair_queue': summary = `Delivers mail waiting in project ${target} to ${dog.owner}, one message at a time, shared fairly with other armed listeners. Each message goes to one listener, the least recently served first.`; break
-    case 'slot': summary = dog.slot != null && dog.lease
-      ? `Granted a concurrency slot of ${target} (lease ${dog.lease})${dog.spent ? ', spent' : '; grant notification pending'}.`
-      : dog.state === 'paused' ? `Concurrency slot claim for ${target} is paused; resuming rejoins at the back of the line.`
-      : place != null
-        ? `Concurrency slot claim: ${ordinal(place)} in line for ${target}.`
-        : `Concurrency slot claim for ${target}; queue position unavailable.`; break
+    case 'slot': summary = slotClaimDescription(dog,dogs,target,slotLease); break
     case 'project_listener': summary = `Listens on project ${target} and ${alert} each time its event is fired, with the firer's message when one is carried. Every armed listener on the project receives the same fire at the same instant.`; break
     case 'listener_watch': summary = `Watches the event listeners armed on project ${target} and ${alert} when their count reaches ${dog.count ?? '?'}. Staying at or above the count does not fire again; dropping below and reaching it again does (a continuous watch).`; break
     case 'mqtt': summary = `Subscribes to ${short(dog.pattern ?? '?')} on ${target} and ${alert} with the messages that arrive${dog.payload_pattern ? `, if their payload matches /${short(dog.payload_pattern)}/` : ''}. ${dog.retained ? 'Retained messages (the broker’s stored last values) fire it too, once per value.' : 'Retained messages (the broker’s stored last values) are ignored.'} Payloads are untrusted outside input: reported, never obeyed.`; break

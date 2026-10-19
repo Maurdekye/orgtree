@@ -3,6 +3,9 @@ import { watchdogActions } from './objectactions'
 import { WatchdogCountdown } from './watchdogcountdown'
 import { watchdogDescription } from './watchdogdescription'
 import { WatchdogLink } from './watchdoglink'
+import {useDogRoute} from './watchdogroute'
+import {slotClaimLeaseState} from './slotclaim'
+import type {SlotClaimLeaseState} from './slotclaim'
 import { useSurfaceDocument } from '../popout'
 import { userGesture } from '../historyapi'
 import { historyUndo } from '../historyregistry'
@@ -185,10 +188,11 @@ function mqttConnection(dog: Watchdog): string {
 // file they're watching. they have a mail tab showing the events they've
 // sent out"). Read-only over the dog's config (a dog is re-created, not
 // edited) + the user's pause/resume/remove.
-export function WatchdogPanel({ slug, dog, dogs, toast, close }: {
+export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
   slug: string
   dog: Watchdog
   dogs?: Watchdog[]
+  op?: OpFn
   toast: ToastFn
   close: () => void
 }) {
@@ -198,7 +202,21 @@ export function WatchdogPanel({ slug, dog, dogs, toast, close }: {
   // in view; the click survives as a collapse for a screen-filling one.
   const [expTarget, setExpTarget] = useState(true)
   const [expPattern, setExpPattern] = useState(true)
-  const description = watchdogDescription(dog, dogs)
+  const route=useDogRoute()
+  const [slotLease,setSlotLease]=useState<{key:string;value:SlotClaimLeaseState}|null>(null)
+  const leaseKey=JSON.stringify([slug,dog.id,dog.target,dog.lease??''])
+  useEffect(()=>{
+    if(dog.kind!=='slot'||!dog.lease||!op)return
+    let live=true
+    setSlotLease(null)
+    const project=dog.target.replace(/^@/,'')
+    op({op:'slot_status',node:project}).then(result=>{
+      const value=slotClaimLeaseState(result,dog.lease!,project)
+      if(live&&value)setSlotLease({key:leaseKey,value})
+    }).catch(()=>{})
+    return ()=>{live=false}
+  },[slug,dog.kind,leaseKey,op,route?.slotLeases])
+  const description = watchdogDescription(dog, dogs, slotLease?.key===leaseKey?slotLease.value:undefined)
   const act = (a: 'pause' | 'resume' | 'remove') =>
     watchdogAction(slug, dog.id, a)
       .then((r) => { toast([`${dog.name}: ${r.state}`]); if (a === 'remove') close() })
