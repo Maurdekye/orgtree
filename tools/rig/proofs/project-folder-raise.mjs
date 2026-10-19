@@ -35,8 +35,11 @@ export default async function(rig) {
     const description=await rig.tool('boss','orgtree_project',{action:'describe',name})
     const settings=await rig.tool('boss','orgtree_project',{action:'settings',name})
     p.check(`${name}: describe retains the exact Summary after folder raise`,description.ok&&description.json?.description===summary,description.json??description.text)
-    p.check(`${name}: project settings retain slot and queue controls`,settings.ok&&settings.json?.description===summary&&settings.json?.slots===3&&settings.json?.peer_mail===false,settings.json??settings.text)
+    p.check(`${name}: project settings retain every slot and queue control`,settings.ok&&same(settings.json?.settings,{name,description:summary,...policy}),settings.json??settings.text)
   }
+  p.check('reading descriptions/settings changes no project row',same(rows(),saved),rows())
+  const cleared=await rig.tool('boss','orgtree_project',{action:'describe',name:'inner',description:''})
+  p.check('explicit empty description still clears only the requested Summary',cleared.ok&&rows().find(r=>r.name==='inner').charter===null&&rows().find(r=>r.name==='outer').charter===summary)
   p.keep(rig,{agents:[],grep:/retool|project|error/})
   return p.summary()
 }
