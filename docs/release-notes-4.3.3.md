@@ -10,6 +10,7 @@ Orgtree 4.3.3 fixes problems found on fresh installations: connecting to a mail 
 - Mail hub connections no longer follow redirects. Enter the hub's final address; a redirect is reported as an error instead of being followed, so a failed redirect can't cause a message to be sent twice.
 - **The installer launches Orgtree directly after a per-user install.** When setup runs without administrator rights, it starts the app itself instead of relying on Windows Explorer, which could fail on some computers.
 - **Hire options only appear for installed harnesses.** Claude, Codex and Antigravity hire tokens are hidden once Orgtree has confirmed the harness is not installed on this computer. Signed-out harnesses still appear as before.
+- **Claude Code installed with its official installer is found even when its folder is not on the system PATH.** Orgtree no longer shows a false "No agent harness was detected" message at startup in that case.
 - **The Quick chat bar sizes itself more steadily** on smaller screens and after resizing the window, so its width no longer depends on earlier window sizes. Long org names are shortened with an ellipsis instead of pushing the controls around.
 
 ## Notes
