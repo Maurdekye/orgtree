@@ -303,9 +303,12 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
             &[&org_id, &project, &ack],
         )
         .await?;
-    let mut eligible = Vec::with_capacity(rows.len());
+    let mut eligible: Vec<Watcher> = Vec::with_capacity(rows.len());
     for r in &rows {
         let owner: i64 = r.get(2);
+        // Legacy duplicate registrations must not multiply an agent's share
+        // or ACK capacity. The oldest armed dog is its canonical listener.
+        if eligible.iter().any(|w| w.owner == owner) { continue; }
         // a watcher that has since moved out of the project's line no longer reaches it
         if reaches(&*tx, owner, project).await? {
             eligible.push(Watcher {
@@ -869,7 +872,7 @@ pub async fn held_by(client: &impl GenericClient, agent: i64) -> Result<Vec<(Str
 }
 
 /// Whether anyone could take the project's next mail: an armed fair_queue dog
-/// on it, owned by a live agent that still reaches it (the set `hand_one`
+/// on it, owned by a live agent that still reaches it (the set `hand_batch`
 /// picks from).
 #[logged]
 pub async fn watched(client: &impl GenericClient, org_id: i64, project: i64) -> Result<bool> {
@@ -944,13 +947,13 @@ pub async fn queue_state(client: &impl GenericClient, org_id: i64, project: i64,
     };
     let rows = client
         .query(
-            &format!("SELECT a.id, a.halt IS NOT NULL,
+            &format!("SELECT DISTINCT ON (a.id) a.id, a.halt IS NOT NULL,
                     (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = $2
                              AND (m.extra->'claimed'->>'by_id')::bigint = a.id AND {OUTSTANDING}), w.memo
                FROM ot.agents a JOIN ot.watchdogs w ON w.owner_agent_id = a.id
               WHERE a.state = 'live' AND a.kind = 'agent' AND w.org_id = $1 AND w.kind = 'fair_queue'
                 AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $2
-              ORDER BY a.id LIMIT 64"),
+              ORDER BY a.id, w.id LIMIT 64"),
             &[&org_id, &project],
         )
         .await?;
