@@ -28,5 +28,8 @@ Object.assign(window, { teamHeaderMode(mode: string, width: number) {
   } else unpinModal('agent-team', org)
 } })
 createRoot(document.getElementById('root')!).render(<CurrentOrg.Provider value={org}><AgentNavProvider>
+  {/* A known flat pixel above the modal backdrop, independent of its alpha. */}
+  <div aria-hidden style={{ position: 'fixed', left: 0, top: 0, width: 2, height: 2,
+    zIndex: 2147483647, background: 'var(--bg)', pointerEvents: 'none' }} />
   <TeamModal map={map} nid={nid} onPick={() => {}} refs={{ world: { org }, onOpen() {} } as never} close={() => {}} />
 </AgentNavProvider></CurrentOrg.Provider>)
