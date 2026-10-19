@@ -3077,8 +3077,6 @@ textarea.ask-free-response-input { resize: vertical; }
   margin-top: 2px; font-size: 11px; color: var(--dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.mailrow.unread .l1 .mfrom { color: var(--agent-accent-text, var(--accent)); font-weight: 700; }
-.mailrow.unread .l2 { color: var(--ink); }
 /* request mails stand apart in the list (user spec 2026-08-06): the
    askcard's accent family — a solid left bar + faint tint while the ask is
    OPEN, plus a kind chip naming the request family. A resolved ask keeps
@@ -4386,7 +4384,7 @@ main.solo { width: 100%; }
    IS the mono being turned off, so `inherit` re-applies it, and `initial` is
    the UA's Times rather than this app's face. */
 .gallery-modal .mailrow .l1 .mfrom {
-  font-family: var(--sans); color: var(--ink-strong); font-weight: 600;
+  font-family: var(--sans); color: var(--ink); font-weight: 400;
 }
 .gallery-modal .doc-pane-head {
   display: flex; flex-direction: column; gap: 4px; align-items: stretch;
@@ -4426,9 +4424,9 @@ main.solo { width: 100%; }
   color: var(--agent-accent-text, var(--accent)); text-decoration: underline;
 }
 
-/* ACTIVE agents' rows: white title */
-.gallery-modal .mailrow.active .l1 .mfrom { color: var(--ink-strong); font-weight: 700; }
-.gallery-modal .mailrow.active .l2 { color: var(--ink); }
+/* Read presentations keep mail's quiet title and metadata; unread is below. */
+.gallery-modal .mailrow.active .l1 .mfrom { color: var(--ink); font-weight: 400; }
+.gallery-modal .mailrow.active .l2 { color: var(--dim); }
 
 /* RETIRED agents' rows: muted grey throughout, darker resting background */
 .gallery-modal .mailrow.past .l1 .mfrom { color: var(--dim); font-weight: 500; }
@@ -4457,6 +4455,13 @@ main.solo { width: 100%; }
    accident of specificity. */
 .gallery-modal .mailrow.evicted .l1 .mfrom { color: var(--dim); font-weight: 400; }
 .gallery-modal .mailrow.evicted .l2 { color: var(--dim); }
+/* Lists share mail's unread treatment, including in pinned/popped galleries.
+   Scoped selectors beat the gallery's active/past typography. Evicted rows
+   never receive unread: there is no content for the user to open. */
+.mailrow.unread .l1 .mfrom,
+.gallery-modal .mailrow.unread .l1 .mfrom { color: var(--agent-accent-text, var(--accent)); font-weight: 700; }
+.mailrow.unread .l2,
+.gallery-modal .mailrow.unread .l2 { color: var(--ink); }
 /* HTML rows are native links; block layout keeps their hover background
    and hit area on one complete row, just like the markdown div rows. */
 .doc-gallery-row { display: block; text-decoration: none; }

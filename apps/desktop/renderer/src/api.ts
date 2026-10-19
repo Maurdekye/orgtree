@@ -736,6 +736,7 @@ export const mockupUrl = (slug: string, did: string): string =>
 // fetch, but still findable rather than silently gone.
 export interface DocRow {
   id: string; node: string; title: string; at: string
+  viewed_at?: string | null
   format?: 'markdown' | 'html'
   bytes?: number
   evicted: boolean; node_state: 'live' | 'archived' | 'unrecoverable' | 'deleted'

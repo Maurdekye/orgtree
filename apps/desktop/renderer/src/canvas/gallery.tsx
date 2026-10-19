@@ -32,6 +32,7 @@ import type { ToastFn, TreeNode } from '../types'
 import { CloseIcon, DocIcon } from '../icons'
 import type { LoadedDoc } from './docs'
 import { dismissDoc, MockupBadge, MockupOpen, presentationMenu, useDoc } from './docs'
+import { docUnread, useDocViewedVersion } from './docviewed'
 import { useContextMenu } from './contextmenu'
 import { PinFrame } from './modalpin'
 import { CollapsibleMailer, NARROW_DOCS_WIDTH } from './narrowlist'
@@ -596,7 +597,10 @@ function GalleryEntry({ slug, row, children, ...props }: {
   className: string; title: string; onClick: () => void
   onContextMenu?: (e: ReactMouseEvent<HTMLElement>) => void
 }) {
-  return <div {...props}>{children}</div>
+  useDocViewedVersion()
+  const unread = row.evicted ? null : docUnread(slug, row.id, row.at, row.viewed_at)
+  return <div {...props} className={props.className + (unread ? ' unread' : '')}
+    data-doc-unread={unread ?? undefined}>{children}</div>
 }
 
 /** the right-hand viewer: the same fetch and the same dismiss the overlay
@@ -796,6 +800,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
       node: nid,
       title: d.title,
       at: d.at,
+      viewed_at: d.viewed_at,
       format: d.format,
       bytes: d.bytes,
       evicted: false,
