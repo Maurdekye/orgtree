@@ -141,3 +141,21 @@ test('watchdog fire keeps a truthful link and safe menu when its one-shot dog is
     assert.deepEqual(opened, [id], 'clicking a stale link never opens a fabricated watchdog')
   }
 })
+
+test('watchdog quiet cards keep the stale watchdog identity link', async t => {
+  const fixture = fixtures.find(f => f.variant === 'monitor.watchdog_quiet')!
+  const id = 'owner/w1'
+  const event = {
+    ...fixture.private,
+    object: { ...fixture.private.object, org: 'fixture', id, name: 'build-done', owner: 'owner' },
+  }
+  const view = await mountView(<ObjectNavProvider><ObjectNavHost org="fixture" dogs={[]} openDog={() => {}} toast={() => {}} />
+    <DeskDogsProvider value={{ org: 'fixture', dogs: [], open: () => {} }}>
+      <ObjectMenuBoundary><EventCard org="fixture" profile="operator" row={{ ev: event, body: fixture.body }} preview /></ObjectMenuBoundary>
+    </DeskDogsProvider></ObjectNavProvider>, h => h)
+  t.after(() => view.unmount())
+  const gone = view.el.querySelector<HTMLElement>('.event-head [data-object-nav="watchdog"]')
+  assert.ok(gone, 'quiet event retains its watchdog identity as an object link')
+  assert.equal(gone!.getAttribute('data-object-id'), id)
+  assert.match(gone!.textContent ?? '', /build-done.*no longer exists/i)
+})
