@@ -7,7 +7,7 @@ import { applyTheme } from '../src/themes'
 
 const fakeDesktop = {
   getWindowControlsState: async () => ({ maximized: false }),
-  getUpdateState: async () => null,
+  getUpdateStatus: async () => ({ state: 'idle' }),
   onEvent: () => () => {},
 }
 Object.assign(window, { orgtreeDesktop: fakeDesktop })
