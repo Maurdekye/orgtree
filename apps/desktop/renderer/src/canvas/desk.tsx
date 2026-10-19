@@ -4464,6 +4464,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <div className="cc-primary-row">
         <EffortButton value={node.scope?.effort ?? ''}
           effective={node.effort_effective ?? ''}
+          currentEffort={node.effort_current}
+          pendingEffort={node.pending_effort}
           // a Muse seat's levels are its model's row on the login it runs on
           // (an account change queued behind a turn: the next turn's), its pin's
           levels={MUSE_TIERS.includes(node.tier ?? '')
@@ -5296,8 +5298,8 @@ function SysLine({ m }: { m: ChatMessage }) {
 // not for haiku — so it worked on the agent I happened to test and nowhere
 // else. The lesson is in §7 of docs/state-architecture-review.md: read the
 // value that CAUSES the behaviour, not one that correlates with it.)
-export function EffortButton({ value, effective, levels, onSet }:
-{ value: string; effective?: string; levels?: string[]
+export function EffortButton({ value, effective, currentEffort, pendingEffort, levels, onSet }:
+{ value: string; effective?: string; currentEffort?: string | null; pendingEffort?: string | null; levels?: string[]
   onSet: (lvl: string) => Promise<unknown> | void }) {
   const [open, setOpen] = useState(false)
   // OPTIMISTIC (user report 2026-08-03: "a lag of around 3-5 seconds when i
@@ -5319,13 +5321,18 @@ export function EffortButton({ value, effective, levels, onSet }:
   // resolved write also arms a bounded settle: if the payload has not spoken
   // within a broadcast round-trip, drop the phantom and show the truth.
   const [pending, setPending] = useState<string | null>(null)
+  const queuedChange = Boolean(pendingEffort && currentEffort && pendingEffort !== currentEffort)
+  const queuedLevel = queuedChange ? pendingEffort! : ''
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => { setPending(null) }, [value, effective])
   useEffect(() => () => { if (settle.current) clearTimeout(settle.current) }, [])
   // a pending CLEAR falls back to `effective`, which is still the old level for
   // one refresh — the org default is not known here. Transient and honest: it
   // is what the control showed before this change anyway.
-  const shown = (pending || value || effective || '')
+  const shown = (pending || value || queuedLevel || effective || '')
+  const buttonTitle = queuedChange
+    ? `Effort changes to ${queuedLevel} next turn (this turn: ${currentEffort})`
+    : `Thinking effort: ${shown || 'unset'}. ${EFFORT_CHANGE_HELP}`
   const why = value ? 'set on this agent'
     : 'inherited — change it on this agent, or org-wide in ⚙ settings'
   const wrapRef = useRef<HTMLSpanElement | null>(null)
@@ -5347,8 +5354,9 @@ export function EffortButton({ value, effective, levels, onSet }:
     <span className="eff-wrap" ref={wrapRef}>
       <button type="button"
         className={'cc-eff' + ((pending ?? value) ? ' set' : shown ? ' inherited' : '')
-          + (pending !== null ? ' saving' : '')}
-        title={`Thinking effort: ${shown || 'unset'}. ${EFFORT_CHANGE_HELP}`}
+          + (pending !== null ? ' saving' : '')
+          + (queuedChange ? ' queued-change' : '')}
+        title={buttonTitle}
         onClick={() => setOpen((o) => !o)}>
         {shown || 'effort'}
       </button>
