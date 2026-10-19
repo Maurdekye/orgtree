@@ -52,7 +52,7 @@ test('missing watchdog metadata keeps a neutral shared chip without inventing it
 })
 
 test('each kind and lifetime uses the same icon and perimeter classes in links and cards',async t=>{
-  const kinds:Watchdog['kind'][]=['command','event','mqtt','slot','fair_queue','project_listener','listener_watch']
+  const kinds:Watchdog['kind'][]=['command','event','mqtt','websocket','slot','fair_queue','project_listener','listener_watch']
   for(const kind of kinds)for(const once of [false,true]){
     const w={...dog,kind,once}
     const v=await mountView(<><WatchdogSatellite dog={w} dogs={[w]} org="demo" onOpen={()=>{}}/>
@@ -60,7 +60,7 @@ test('each kind and lifetime uses the same icon and perimeter classes in links a
     try{
       const [card,link]=[v.el.querySelector('.wd-chip')!,v.el.querySelector('.watchdog-link')!]
       assert.equal(link.querySelector('.wd-glyph')!.textContent,card.querySelector('.wd-glyph')!.textContent)
-      for(const cls of ['slot','fair-queue','listener','listener-watch','oneshot'])assert.equal(link.classList.contains(cls),card.classList.contains(cls),kind+' '+cls)
+      for(const cls of ['slot','fair-queue','listener','listener-watch','websocket','oneshot'])assert.equal(link.classList.contains(cls),card.classList.contains(cls),kind+' '+cls)
       assert.match(link.getAttribute('title')??'',once?/fires once/:/continuous/)
     }finally{await v.unmount()}
   }
@@ -84,4 +84,21 @@ test('mail listener mode is conveyed by the chip and tooltip without a trailing 
   assert.ok(!!cell.querySelector('.watchdog-link.oneshot'))
   assert.equal(cell.querySelector('.dim')===null,true,'no duplicate mode word beside the chip')
   assert.match(cell.querySelector('.watchdog-link')!.getAttribute('title')??'',/fires once/)
+})
+
+// websocket watchdogs (docs/rust-engine/websocket-watchdogs.md): their own violet
+// outline class and a two-way glyph while armed (coordinator 2026-10-19 21:14Z)
+test('a websocket dog has its own outline class and a two-way glyph in links and cards',async t=>{
+  const w:Watchdog={...dog,kind:'websocket',once:false,target:'wss://ha.local/api/websocket'}
+  for(const [state,glyph] of [['armed','⇄'],['paused','◫']] as const){
+    const v=await mountView(<><WatchdogSatellite dog={{...w,state}} dogs={[w]} org="demo" onOpen={()=>{}}/>
+      <WatchdogLink dog={{...w,state}} onOpen={()=>{}}/></>,el=>el)
+    try{
+      for(const chip of [v.el.querySelector('.wd-chip')!,v.el.querySelector('.watchdog-link')!]){
+        assert.ok(chip.classList.contains('websocket'),chip.className)
+        assert.ok(!chip.classList.contains('listener'),chip.className)
+        assert.equal(chip.querySelector('.wd-glyph')!.textContent,glyph)
+      }
+    }finally{await v.unmount()}
+  }
 })
