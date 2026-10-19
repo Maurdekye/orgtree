@@ -48,7 +48,7 @@ If granted immediately, use the returned lease. If queued, end the turn; the one
 {"tool":"orgtree_project","args":{"action":"release_slot","lease":"<returned-lease>","note":"Resource update finished"}}
 ```
 
-For a counting semaphore, the supervisor configures `{"action":"configure","name":"resource-lock","settings":{"slots":3}}` instead; each worker uses the identical claim/release protocol for one permit. Three is an example capacity, not permission for three builds on any machine. Capacity 0 disables claims. Slots allocate permits in arrival order among eligible claims; they have no priority setting. Resource/RAM gates and process containment are separate agreements; [build-slots](../build-slots/SKILL.md) applies these ideas to builds.
+For a counting semaphore, the supervisor configures `{"action":"configure","name":"resource-lock","settings":{"slots":3}}` instead. A worker may add `"slots":2` to its slot watchdog claim; omitted means 1. The engine grants all requested units together as **one lease** and releasing that lease frees all of them. Requests above the project's total capacity are refused. The eligible line is strict FIFO: a head needing two slots blocks a smaller claim behind it while only one is free. Three is an example capacity, not permission for three builds on any machine. Capacity 0 disables new claims; a capacity decrease can leave an existing head waiting until capacity is raised or the claim is cancelled. There is no priority setting. Resource/RAM gates and process containment remain separate agreements; [build-slots](../build-slots/SKILL.md) applies these ideas to builds.
 
 Inspect state or recover a stuck agreement with these distinct calls:
 

@@ -1,5 +1,15 @@
 # Project nodes (4.4.0)
 
+Slot claims accept `slots=N` (1–64, default 1, at most project capacity).
+Migration 0039 adds `slot_leases.slot_count`, defaulting old leases to one.
+Admission holds the project row lock, subtracts the sum of active lease
+counts and grants each eligible FIFO head in full; an oversized head stops
+the round. One row/lease owns all N units. Release, reclaim, restart recovery,
+history and reminders retain that boundary. Public `slots` fields carry
+quantities; the legacy private `slot_no` is only a lease anchor. Held/total
+badges sum quantities, and the Slots table shows each lease/claim's count.
+[user/coordinator 2026-10-19; proof: `project-multi-slots.mjs`]
+
 Every node in the org hierarchy is an agent, so a project's shared files, mail and documents
 always belong to one particular agent. A **project node** is a non-agent node in the tree that
 stands for one project: it has its own folder, mailbox and presentations, it runs no turns, and
