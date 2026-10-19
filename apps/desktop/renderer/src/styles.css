@@ -3246,7 +3246,6 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
   border: 1px solid var(--fq-line); color: var(--fq-line); background: transparent; }
 .project-queue-card { cursor: pointer; font: inherit; font-size: 11px; }
 .project-queue-badge.bright, .project-queue-card.bright { background: var(--fq-line); color: var(--fq-ink); }
-.project-desk .project-queue-card:not(.bright) { background: transparent; color: var(--fq-line); border-color: var(--fq-line); }
 /* the merged mail badge must never cross the card edge (user 2026-10-19 18:16Z):
    the short text wraps inside the card instead of overflowing it */
 .project-queue-badge { display: inline-block; max-width: 100%; white-space: normal; overflow-wrap: break-word; }
@@ -3255,6 +3254,10 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .sq.project .project-slots-badge, .sq.project .project-listeners-badge,
 .sq.project .project-queue-badge { max-width: 100%; font-size: 9px; line-height: 12px;
   padding: 0 4px; white-space: normal; overflow-wrap: anywhere; }
+/* the project desk's ONE header card row (projectdesk.tsx, user 2026-10-19
+   19:02Z): the cards above and the ↑ superior link centred on one line; the
+   row wraps only when the desk is too narrow for them */
+.project-head-cards > * { align-self: center; }
 /* the desk's Listeners tab */
 .project-listeners { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
 .project-listeners h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }

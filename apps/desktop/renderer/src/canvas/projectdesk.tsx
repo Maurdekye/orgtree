@@ -485,6 +485,15 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const listenerHeaderCards = listenerCards(node.id, listenerState)
   const queue = mailQueueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node), tree.watchdogs ?? [])
   const hasListeners = listenerState.listeners.length + listenerState.watches.length > 0
+  // ⚠ ONE ROW of header cards on every tab (user 2026-10-19 19:02Z, and
+  // 19:15Z: "make sure they're all on the same row in the full desk header"):
+  // the cyan listener cards, the magenta mail card, the amber slots card and
+  // the ↑ superior link, as the agent desk's superior row sits under its
+  // header on every tab. The cards wear the near-zoom badge rules and NOT the
+  // generic `.chip`, whose grey (later in styles.css, same specificity)
+  // repainted every outlined card.
+  const upLink = onJump && parent ? <NavChip n={parent} dir="up" onJump={onJump} /> : null
+  const headCards = listenerHeaderCards.length > 0 || !!queue || slots.total > 0 || !!upLink
   // the Dead letters tab joins them while the project holds open dead letters
   const deadLetters = node.dead_letters ?? 0
   const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : []), ...(hasListeners ? ['listeners' as const] : [])]
@@ -536,27 +545,23 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         </>}
         pin={onPin ? { ariaLabel: `pin project ${node.id}'s desk as a window`, onPin } : null}
         settings={onConfig ? { label: node.id, onConfig } : null}
-        meta={<>
-        {(listenerHeaderCards.length > 0 || queue) && <DeskMetaRow className="project-listeners-meta">
+        meta={headCards && <DeskMetaRow className="project-head-cards">
           {listenerHeaderCards.map((c) => <button key={c.key} type="button"
-            className={'chip project-listeners-card' + (c.bright ? ' bright' : '')}
+            className={'project-listeners-card' + (c.bright ? ' bright' : '')}
             title={c.title} onClick={() => setView('listeners')}>{c.text}</button>)}
-          {queue && <button type="button" className={'chip project-queue-card' + (queue.bright ? ' bright' : '')}
+          {queue && <button type="button" className={'project-queue-card' + (queue.bright ? ' bright' : '')}
             title={queue.title} onClick={() => setView('inbox')}>{queue.text}</button>}
-        </DeskMetaRow>}
-        {slots.total > 0 && <DeskMetaRow className="project-slots-meta">
-          <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
-            title={'open the Concurrency slots tab' + (slots.held.length ? ` — held by ${slots.held.map(h => h.agent).join(', ')}` : '')} onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>
+          {slots.total > 0 && <button type="button" className={'project-slots-card' + (slotsFull(slots) ? ' full' : '')}
+            title={'open the Concurrency slots tab' + (slots.held.length ? ` — held by ${slots.held.map(h => h.agent).join(', ')}` : '')} onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>}
           {/* no holder links here (user 2026-10-19 17:12Z): the holders are on the slots tab */}
-        </DeskMetaRow>}
-        </>} />
+          {upLink}
+        </DeskMetaRow>} />
       {/* its presentations and its subtree's, on their own strip under the
           header as on an agent desk (user 2026-10-17 22:47:29Z) */}
       {onOpenDoc && subtreeDocs(node).length > 0 && (
         <DeskDocsStrip slug={slug} docs={subtreeDocs(node)} toast={toast} onOpen={onOpenDoc} onReply={replyToDoc} replyLabel="Reply" />
       )}
       {shown === 'desk' && <>
-        {onJump && parent && <div className="desk-nav"><NavChip n={parent} dir="up" onJump={onJump} /></div>}
         <DescriptionEditor node={node} op={op} toast={toast} editable={live} />
         {onJump && members.length > 0 && <div className="desk-nav">
           <DeskJumpCards ids={members.map(c => c.id)} render={id =>
