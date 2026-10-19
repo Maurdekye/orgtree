@@ -81,11 +81,15 @@ for (const focused of [false, true]) test(`switchboard shared-folder entry opens
     surface.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 40 }))
     await flush()
   })
+  const open = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    .find(b => b.textContent?.trim().replace(/\s*▸$/, '') === 'Open')
+  assert.ok(open, 'the real Open branch mounted')
+  await inAct(async () => { open.click(); await flush() })
   const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-  assert.ok(items.some(b => b.textContent?.trim() === 'Open inbox'), 'the real menu mounted')
-  const item = items.find(b => b.textContent?.trim() === 'Open shared scratch folder')
+  assert.ok(items.some(b => b.textContent?.trim() === 'Inbox'), 'the Open submenu mounted')
+  const item = items.find(b => b.textContent?.trim() === 'Shared scratch folder')
   assert.ok(item, 'shared scratch is a switchboard context entry')
-  assert.equal(item.hasAttribute('aria-haspopup'), false, 'the switchboard keeps flat Open actions')
+  assert.equal(item.hasAttribute('aria-haspopup'), false, 'a folder without AGENTS.md remains a direct action')
   await inAct(async () => { item.click(); await flush() })
   assert.deepEqual(calls, [['fixture', '', 'shared']])
 })

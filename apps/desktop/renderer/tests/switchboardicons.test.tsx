@@ -267,23 +267,26 @@ test('§1d the eye’s context menu reaches the inbox and org settings with '
   assert.equal(took, true, 'the eye must take the right-click, not leave it '
     + 'to the browser menu')
   assert.deepEqual(menuLabels(),
-    ['Focus', 'Hire an agent ▸', 'Open inbox', 'Open global docket', 'Open presentations', 'Org settings', 'Cheap-compact all agents…',
+    ['Focus', 'Hire an agent ▸', 'Open ▸', 'Org settings', 'Compact all agents…',
       'Halt all agents…', 'Retire all agents…'])
 
   const menu = document.querySelector('.ctxmenu')!
   const order = [...menu.children].map(e => e.getAttribute('role') === 'separator' ? 'sep' : e.textContent)
   assert.equal(order.filter(x => x === 'sep').length, 1)
-  assert.equal(order[order.indexOf('Cheap-compact all agents…') - 1], 'sep', 'separator precedes lifecycle actions like agent menus')
-  for (const name of ['Open inbox', 'Open global docket', 'Open presentations'])
-    assert.equal(menuItem(name)!.getAttribute('aria-haspopup'), null, 'Open entries stay flat')
+  assert.equal(order[order.indexOf('Compact all agents…') - 1], 'sep', 'separator precedes lifecycle actions like agent menus')
+  assert.equal(menuItem('Open ▸')!.getAttribute('aria-haspopup'), 'menu')
+  await inAct(async () => { menuItem('Open ▸')!.click(); await flush(2) })
+  for (const name of ['Inbox', 'Global docket', 'Presentations'])
+    assert.equal(menuItem(name)!.getAttribute('aria-haspopup'), null, 'Open children keep their existing direct actions')
 
-  await inAct(async () => { menuItem('Open inbox')!.click(); await flush(2) })
+  await inAct(async () => { menuItem('Inbox')!.click(); await flush(2) })
   assert.deepEqual(opened, ['inbox'])
   await rightClick(view.el.querySelector('.sq.user')!)
   await inAct(async () => { menuItem('Org settings')!.click(); await flush(2) })
   assert.deepEqual(opened, ['inbox', 'gear'])
-  for (const name of ['Focus', 'Open global docket', 'Open presentations']) {
+  for (const name of ['Focus', 'Global docket', 'Presentations']) {
     await rightClick(view.el.querySelector('.sq.user')!)
+    if (name !== 'Focus') await inAct(async () => { menuItem('Open ▸')!.click(); await flush(2) })
     await inAct(async () => { menuItem(name)!.click(); await flush(2) })
   }
   assert.deepEqual(opened, ['inbox', 'gear', 'focus', 'docket', 'presentations'])
@@ -315,8 +318,7 @@ test('switchboard Unhalt is non-dangerous like the agent menu, and missing optio
   assert.ok(menuItem('Unhalt all agents…'))
   assert.equal(menuItem('Unhalt all agents…')!.classList.contains('danger'), false)
   assert.equal(menuItem('Focus')!.disabled, true)
-  assert.equal(menuItem('Open global docket'), undefined)
-  assert.equal(menuItem('Open presentations'), undefined)
+  assert.equal(menuItem('Open ▸'), undefined, 'no empty Open branch when all optional routes are missing')
 })
 
 test('§1e Retire all agents asks first, and only then sends the one request '

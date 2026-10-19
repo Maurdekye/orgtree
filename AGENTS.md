@@ -3192,8 +3192,12 @@ measured disposable smoke; detail: `docs/rust-engine/account-removal.md`]
   replies; saves invalidate reads and defer refresh until completion, protecting
   full allowlist writes from pre-save snapshots. [verified: `canvas/langserver.tsx`,
   `orgaccounts.tsx`; decided: user 2026-10-11]
-  Switchboard context actions follow agent menu order/separators, but Open inbox,
-  global docket and presentations stay flat. Hire an agent uses the existing tier
+  Switchboard context actions use the shared Open submenu for Inbox, Global
+  docket, Presentations and Shared scratch folder (including its existing nested
+  folder actions). Agents list and Org settings remain top-level. This replaces
+  the 2026-10-11 flat Open layout. [decided: user 2026-10-19 17:27Z;
+  verified: `canvas/cards.tsx`]
+  Hire an agent uses the existing tier
   submenu and `spawn(USER, tier)` root draft, never an arbitrary agent parent.
   [verified: `canvas/cards.tsx`, `canvas/OrgCanvas.tsx`; decided: user 2026-10-11]
   See [switchboard menu](docs/rust-engine/switchboard-menu.md).

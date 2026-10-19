@@ -161,8 +161,8 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   // Retire-all is here and nowhere else on the canvas; its other door is the
   // Hire defaults tab in org settings.
   const menuEntries = (): MenuEntry[] => {
-    // Same action order and lifecycle separator as agentMenuEntries. The user
-    // explicitly keeps this menu's three Open actions flat (2026-10-11).
+    // USER 2026-10-19: group Open actions in the shared submenu, replacing
+    // the 2026-10-11 flat layout. Other actions keep their top-level order.
     // the menu just opened on a model choice: re-read agy's model list
     refreshAgyModels()
     const choices = hireTierChoices({ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire })
@@ -186,12 +186,14 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
       entries.push({ label: 'New project…', title: 'a project node at the top level: its agents work on it',
         onSelect: () => onNewProject() })
     }
-    if (onInbox) entries.push({ label: 'Open inbox', onSelect: () => onInbox(true) })
-    if (onDocket) entries.push({ label: 'Open global docket', onSelect: () => onDocket(true) })
-    if (onAgents) entries.push({ label: 'Agents list', onSelect: () => onAgents(true) })
-    if (onPresentations) entries.push({ label: 'Open presentations', onSelect: () => onPresentations(true) })
+    const openEntries: MenuEntry[] = []
+    if (onInbox) openEntries.push({ label: 'Inbox', onSelect: () => onInbox(true) })
+    if (onDocket) openEntries.push({ label: 'Global docket', onSelect: () => onDocket(true) })
+    if (onPresentations) openEntries.push({ label: 'Presentations', onSelect: () => onPresentations(true) })
     const sharedScratch = scratchFolderAction(slug, '', toast, 'shared')
-    if (sharedScratch) entries.push({ label: 'Open shared scratch folder', onSelect: sharedScratch })
+    if (sharedScratch) openEntries.push({ label: 'Shared scratch folder', onSelect: sharedScratch })
+    if (openEntries.length) entries.push({ label: 'Open', onSelect: () => {}, submenuOnly: true, children: openEntries })
+    if (onAgents) entries.push({ label: 'Agents list', onSelect: () => onAgents(true) })
     if (onGear) {
       entries.push({ label: 'Org settings',
         title: 'the whole settings modal — hire defaults are a tab of it',
