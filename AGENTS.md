@@ -438,7 +438,7 @@
 
 - In an agent's desk context, presentation context menus on both the desk-header
   presentation chips (`.desk-docs .doc-badge`) and rows in the Presented tab
-  (`AgentGalleryView`) offer `Reply to` when the desk accepts mail (`canMail` and
+  (`AgentGalleryView`) offer `Reply` (matching project desks; user 2026-10-19 11:46Z) when the desk accepts mail (`canMail` and
   not evicted). Choosing it stages a `kind: 'document'` reply target in the desk
   composer using the same reply-target mechanism as replying to mail. [decided:
   user 2026-10-18 08:54Z; verified: `canvas/docs.tsx`, `canvas/gallery.tsx`,
