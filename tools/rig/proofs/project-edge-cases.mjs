@@ -74,6 +74,7 @@ export default async function(rig) {
   fs.mkdirSync(folder,{recursive:true});const file=path.join(folder,'deep-proof.md');fs.writeFileSync(file,'Synthetic deepest project document.\n')
   const presented=await rig.tool('boss','orgtree_present',{title:'Deep project folder',path:file})
   p.check('project folders beyond the first 64 are readable for presentation',presented.ok,presented.text)
+  await rig.op({op:'cheap_compact',node:'boss'})
   const turns=rig.turns('boss').filter(t=>t.ended_at).length
   await rig.userMail('boss','Inspect synthetic project folder grants.');await rig.waitTurns('boss',turns+1)
   const dirs=rig.fakeLog('boss').filter(l=>l.kind==='start').at(-1)?.add_dirs??[]
