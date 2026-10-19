@@ -156,6 +156,7 @@ pub async fn chat(
         "occupancy_estimated": if live.context.is_some() {false} else {r.get::<_, bool>(1)},
         "context_window": live.context.and_then(|c|c.window),
         "tool_tokens": live.tool_tokens,
+        "shell_output": live.shell_output,
         "messages": page.messages,
         "draft_epoch": live.draft_epoch,
         "live": [],

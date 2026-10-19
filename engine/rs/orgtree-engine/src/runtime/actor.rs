@@ -50,6 +50,7 @@ pub struct LiveView {
     pub mcp_reason: Option<String>,
     pub context: Option<super::live_usage::Snapshot>,
     pub tool_tokens: Vec<Value>,
+    pub shell_output: Value,
 }
 
 const KEEP_ALIVE: Duration = Duration::from_secs(600);
@@ -398,6 +399,7 @@ struct Turn {
     usage: Value,
     context_live: super::live_usage::Coalesced,
     token_metrics: token_counts::State,
+    shell_output: super::shell_output::State,
     model: Option<String>,
     draft: String,
     thinking: String,
@@ -484,6 +486,7 @@ impl Turn {
             usage: Value::Null,
             context_live: Default::default(),
             token_metrics: Default::default(),
+            shell_output: Default::default(),
             model: None,
             draft: String::new(),
             thinking: String::new(),
@@ -1132,7 +1135,7 @@ impl Actor {
             d = d.min(k);
         }
         if let Some(t) = &self.turn {
-            for at in [t.context_live.due, t.token_metrics.due].into_iter().flatten() { d = d.min(at); }
+            for at in [t.context_live.due, t.token_metrics.due, t.shell_output.due].into_iter().flatten() { d = d.min(at); }
             let idle_limit = self.engine.settings.turn_idle_s().min(86_400 * 365);
             if idle_limit > 0 {
                 d = d.min(t.last_event + Duration::from_secs(idle_limit));
@@ -1167,6 +1170,11 @@ impl Actor {
 
     #[nolog]
     async fn on_timer(&mut self) -> Result<()> {
+        if self.turn.as_mut().is_some_and(|t| t.shell_output.flush(Instant::now())) {
+            let output=self.turn.as_ref().map(|t|t.shell_output.frame(&iso(t.admitted_at))).unwrap_or(Value::Null);
+            self.org.emit_agent(self.id,json!({"type":"node_stream","node":self.name,"kind":"shell_output","text":"","shell_output":output}));
+            self.publish();
+        }
         if self.turn.as_mut().is_some_and(|t| t.context_live.flush(Instant::now())) { self.publish(); }
         if self.turn.as_ref().is_some_and(|t| t.token_metrics.due.is_some_and(|at| at <= Instant::now())) {
             self.flush_output_counts().await;
@@ -1367,6 +1375,7 @@ impl Actor {
                 let r = if self.turn.is_some() {
                     if let Some(t) = self.turn.as_mut() {
                         t.interrupted = true;
+                        t.shell_output.clear();
                     }
                     let codex_turn = self.turn.as_ref().and_then(|t| t.codex_turn.clone());
                     let sent = self.proc.as_ref().map(|p| p.interrupt(codex_turn.as_deref())).unwrap_or(false);
@@ -2900,6 +2909,7 @@ impl Actor {
         }
         if let Some(t) = self.turn.as_mut() {
             t.interrupted = true;
+            t.shell_output.clear();
             t.restart = restart;
         }
         tracing::info!(agent = %self.name, restart, "the agent ended its own turn");
@@ -3432,6 +3442,7 @@ impl Actor {
                 if turn.acp_items.len()>=512 && !turn.acp_items.contains_key(id) {return Err(anyhow!("ACP turn tool count exceeds limit"));}
                 let item=turn.acp_items.entry(id.into()).or_insert_with(|| json!({}));
                 if let Some(fields)=update.as_object() { for (k,v) in fields {item[k]=v.clone();} }
+                let live_output=update["content"].as_array().map(|a|a.iter().filter_map(|v|v.pointer("/content/text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n"));
                 // Count the original snapshot before transcript preview clipping.
                 if update["content"].is_array() {
                     let content=item["content"].as_array().expect("array update");
@@ -3457,6 +3468,8 @@ impl Actor {
                 let display=json!({"itemId":id,"callId":id,"kind":"toolCall","tool":name,"args":item["rawInput"].to_string(),
                     "visibleOutput":output,"status":if done {status} else {"inProgress"}});
                 self.on_muse_item(&display,done).await?;
+                // Genuine ACP content is a replacement snapshot; input/status alone is not output.
+                if !done {if let Some(output)=live_output {self.observe_shell_output(id,&output,false);}}
             },
             "usage_update" => {
                 if !turn.usage.is_object() {turn.usage=json!({});}
@@ -3944,6 +3957,7 @@ impl Actor {
     }
 
     async fn kill_proc(&mut self) {
+        if let Some(t)=self.turn.as_mut() {t.shell_output.clear();}
         self.engine.credential_bridge.revoke(self.id);
         self.unpark();
         if let Some(mut p) = self.proc.take() {
@@ -4439,6 +4453,7 @@ impl Actor {
         // update, before the next phase can appear. Durable rows carry only the
         // sanitized committed body; writing previews are bounded and ephemeral.
         let mut frame = json!({ "type": "node_stream", "node": self.name, "kind": kind, "text": "" });
+        if self.turn.as_ref().is_none_or(|t|t.interrupted||t.killed) {frame["shell_output_clear"]=json!(true);}
         // One ordinal per partial, shared by token frames and HTTP snapshots.
         // Arrival through either transport must not change the display order.
         if matches!(kind, "delta" | "thinking" | "thinking_start") {
@@ -4642,7 +4657,9 @@ impl Actor {
                 }
             }
             "item/commandExecution/outputDelta" => {
-                if let (Some(id),Some(text))=(p["itemId"].as_str(),p["delta"].as_str()) { self.observe_output(id,text,true); }
+                if let Some(update)=self.turn.as_ref().and_then(|t|t.codex_turn.as_deref()).and_then(|turn|super::shell_output::codex(&v,turn)) {
+                    self.observe_output(update.id,update.text,update.append);
+                }
             }
             "account/rateLimits/updated" => {
                 if let Some(turn) = self.turn.as_mut() {
@@ -4795,7 +4812,11 @@ impl Actor {
                         }
                         self.stream("thinking", json!({ "text": text }));
                     }
-                    ("toolCall", "visibleOutput" | "output") => self.observe_output(id,text,true),
+                    ("toolCall", "visibleOutput" | "output") => {
+                        if let Some(update)=ours.as_deref().and_then(|turn|super::shell_output::muse(&v,turn)) {
+                            self.observe_output(update.id,update.text,update.append);
+                        }
+                    },
                     _ => {}
                 }
             }
@@ -6368,10 +6389,21 @@ impl Actor {
         if let Some(t)=self.turn.as_mut().filter(|t|t.tools.contains_key(id)) {
             t.token_metrics.output(id,text,append,Instant::now());
         }
+        self.observe_shell_output(id,text,append);
+    }
+
+    #[nolog]
+    fn observe_shell_output(&mut self,id:&str,text:&str,append:bool) {
+        let Some(t)=self.turn.as_mut().filter(|t|!t.interrupted&&!t.killed) else{return;};
+        let shell=t.tools.get(id).and_then(|key|t.rows.get(key)).and_then(|(_,row)|row["tools"].as_array())
+            .and_then(|tools|tools.iter().find(|tool|tool["id"].as_str()==Some(id)))
+            .is_some_and(|tool|(super::shell_output::is_shell(tool["name"].as_str().unwrap_or("")) || t.acp && t.acp_items.get(id).is_some_and(|i|i["kind"]=="execute"))&&tool["ended_at"].is_null()&&tool["result"].is_null());
+        if shell {t.shell_output.observe(id,text,append,Instant::now());}
     }
 
     #[nolog]
     async fn output_estimate(&mut self, id: &str, text: Option<&str>) -> Option<Value> {
+        if let Some(t)=self.turn.as_mut(){t.shell_output.remove(id,Instant::now());}
         let harness=self.metrics_harness();
         let observed=self.turn.as_mut().and_then(|t|t.token_metrics.finish(id));
         let sample=if self.turn.as_ref().is_some_and(|t|t.acp) { observed? }
@@ -6912,6 +6944,7 @@ impl Actor {
             tracing::info!(agent = self.id, %process, reason, "ignored exit from replaced CLI");
             return Ok(());
         }
+        if let Some(t)=self.turn.as_mut(){t.shell_output.clear();}
         // its message calls are not being written any more (typing in Hubchat)
         self.typing_probe = None;
         crate::net::typing::stop_agent(&self.engine, self.id);
@@ -7635,6 +7668,7 @@ impl Actor {
         }
         if let Some(t) = self.turn.as_mut() {
             t.interrupted = true;
+            t.shell_output.clear();
             t.killed = true;
         }
         self.kill_proc().await;
@@ -7800,6 +7834,7 @@ impl Actor {
             mcp_reason: self.mcp.reason.clone(),
             context: self.turn.as_ref().and_then(|t|t.context_live.published),
             tool_tokens: self.turn.as_ref().map(|t|t.token_metrics.counts.values().cloned().collect()).unwrap_or_default(),
+            shell_output: self.turn.as_ref().map(|t|t.shell_output.frame(&iso(t.admitted_at))).unwrap_or(Value::Null),
         }
     }
 

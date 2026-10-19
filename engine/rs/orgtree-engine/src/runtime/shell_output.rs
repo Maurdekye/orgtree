@@ -1,27 +1,72 @@
 //! Ephemeral shell previews; never part of transcript persistence.
 use std::time::{Duration, Instant};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 pub const TOOL_BYTES: usize = 32 * 1024;
 pub const ACTOR_BYTES: usize = 256 * 1024;
 pub const CADENCE: Duration = Duration::from_millis(250);
 pub struct Update<'a> { pub id: &'a str, pub text: &'a str, pub append: bool }
 #[nolog]
-pub fn codex<'a>(_event: &'a Value, _turn: &str) -> Option<Update<'a>> { None }
+pub fn codex<'a>(event: &'a Value, turn: &str) -> Option<Update<'a>> {
+    let p=&event["params"];
+    (event["method"]=="item/commandExecution/outputDelta" && p["turnId"].as_str()==Some(turn)).then_some(())?;
+    Some(Update{id:p["itemId"].as_str()?,text:p["delta"].as_str()?,append:true})
+}
 #[nolog]
-pub fn muse<'a>(_event: &'a Value, _turn: &str) -> Option<Update<'a>> { None }
+pub fn muse<'a>(event: &'a Value, turn: &str) -> Option<Update<'a>> {
+    let p=&event["params"];
+    match event["method"].as_str()? {
+        "item/delta" if matches!(p["field"].as_str(),Some("output"|"visibleOutput")) => {
+            if p.get("turnId").is_some_and(|t|t.as_str()!=Some(turn)) {return None;}
+            Some(Update{id:p["itemId"].as_str()?,text:p["delta"].as_str()?,append:true})
+        },
+        "item/started"|"item/updated" => {
+            let i=&p["item"];
+            if i["turnId"].as_str()!=Some(turn)||i["status"]!="inProgress"||!matches!(i["kind"].as_str(),Some("toolCall"|"userShell")) {return None;}
+            Some(Update{id:i["itemId"].as_str()?,text:i["visibleOutput"].as_str()?,append:false})
+        },
+        _=>None,
+    }
+}
+#[nolog]
+pub fn is_shell(name:&str)->bool {matches!(name.rsplit("__").next().unwrap_or("").to_ascii_lowercase().as_str(),"bash"|"powershell"|"exec_command"|"run_command"|"run_shell_command"|"shell")}
 #[derive(Default)]
-pub struct State { pub due: Option<Instant> }
+struct Tail {text:String,truncated:bool}
+#[derive(Default)]
+pub struct State { pub due: Option<Instant>, tails:BTreeMap<String,Tail>, revision:u64, last:Option<Instant> }
 impl State {
     #[nolog]
-    pub fn observe(&mut self, _id: &str, _text: &str, _append: bool, _now: Instant) {}
+    pub fn observe(&mut self, id: &str, text: &str, append: bool, now: Instant) {
+        if id.len()>512 || (!self.tails.contains_key(id) && (text.is_empty() || self.tails.len()>=ACTOR_BYTES/TOOL_BYTES)) {return;}
+        let tail=self.tails.entry(id.into()).or_default();
+        if !append {tail.text.clear();tail.truncated=false;}
+        // Never concatenate a provider-sized frame: select its bounded suffix first.
+        let mut start=text.len().saturating_sub(TOOL_BYTES);
+        while !text.is_char_boundary(start) {start+=1;}
+        if start>0 {tail.text.clear();tail.truncated=true;}
+        tail.text.push_str(&text[start..]);
+        let mut drop=tail.text.len().saturating_sub(TOOL_BYTES);
+        while !tail.text.is_char_boundary(drop) {drop+=1;}
+        if drop>0 {tail.text.drain(..drop);tail.truncated=true;}
+        self.changed(now);
+    }
     #[nolog]
-    pub fn remove(&mut self, _id: &str, _now: Instant) {}
+    fn changed(&mut self,now:Instant) {
+        self.revision=self.revision.saturating_add(1);
+        self.due.get_or_insert(self.last.map(|t|t+CADENCE).unwrap_or(now+CADENCE).max(now));
+    }
     #[nolog]
-    pub fn clear(&mut self) { *self=Self::default(); }
+    pub fn remove(&mut self, id: &str, now: Instant) {if self.tails.remove(id).is_some(){self.changed(now);}}
     #[nolog]
-    pub fn flush(&mut self, _now: Instant) -> bool { false }
+    pub fn clear(&mut self) {self.tails.clear();self.revision=self.revision.saturating_add(1);self.due=None;self.last=None;}
     #[nolog]
-    pub fn frame(&self, turn: &str) -> Value { json!({"turn_started_at":turn,"revision":0,"tools":[]}) }
+    pub fn flush(&mut self, now: Instant) -> bool {
+        if !self.due.is_some_and(|at|at<=now){return false;}
+        self.due=None;self.last=Some(now);true
+    }
+    #[nolog]
+    pub fn frame(&self, turn: &str) -> Value { json!({"turn_started_at":turn,"revision":self.revision,
+        "tools":self.tails.iter().map(|(id,t)|json!({"id":id,"text":t.text,"truncated":t.truncated,"kind":"execute"})).collect::<Vec<_>>()}) }
 }
 
 #[cfg(test)]
