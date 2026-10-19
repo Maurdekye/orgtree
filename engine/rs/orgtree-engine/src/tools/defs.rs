@@ -1580,6 +1580,13 @@ mod builder_stack_tests {
                 }
             }
         }
+        // User 2026-10-19 20:35Z: physical siblings alone are default mail
+        // coworkers; other project memberships need a directional audience.
+        let message=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_message").unwrap();
+        let old="Same-actual-parent peers need a directional audience when peer mail is OFF.";
+        assert!(message["description"].as_str().unwrap().contains(old));
+        message["description"]=serde_json::json!(message["description"].as_str().unwrap()
+            .replace(old,"Peers share a physical parent; OFF or other parents need audiences."));
         // Approved description-only trim; compare schemas and order unchanged.
         for (name, description) in [
             ("orgtree_work", "Manage docket items by slug; read guide before writing. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply progress lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review is agent review; ask(work_item) for user questions. Delete is permanent and restricted; prefer archive/drop.\nGuide: orgtree-tool-work."),
