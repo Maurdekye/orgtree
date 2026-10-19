@@ -10,6 +10,7 @@ import { toggleAgentHalt } from './haltcontrol'
 import { withPendingOrder, type PendingOrder, type ReorderSlot } from './pendingorder'
 import { captureDraftDeskFocus, restoreDraftDeskKeyboard, type DraftDeskFocus } from './draftfocus'
 import { useAppRead } from '../appfeed'
+import { useOrgHireProviders } from '../orghire'
 import { adoptPinLayer, canvasBox, readPinSurfaces, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredAgentGallery, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { revealDetachedDocument } from '../windowlife'
@@ -677,6 +678,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // reload or org change.
   const providerPayload = useAppRead('providers', getProviders)
   const accountPayload = useAppRead('accounts', getAccountRegistry)
+  const orgHireProviders = useOrgHireProviders(slug)
   const providerEntries = providerPayload?.providers ?? []
   const codexProvider = providerEntries.find(
     (v) => v.id === 'openai') ?? null
@@ -704,7 +706,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const museProvider = providerEntries.find(
     (v) => v.id === 'muse') ?? null
   useEffect(() => { setMuseProvider(museProvider) }, [museProvider])
-  const museHire = hireOf(museProvider)
+  const museHire = hireOf(museProvider, false, orgHireProviders?.has('muse'))
   // …and the org doc's own tier→model table, so a node still running on a
   // favorite that was since deselected is named by its model, not its slug
   useEffect(() => { noteTierModels(tree.models) }, [tree.models])
@@ -718,11 +720,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // D-202 moved `hireOf` into shared.ts when the accounts panel and the two
   // dropdown surfaces started asking the same question.
   const absenceKnown = providerPayload?.checking === false
-  const codexHire = hireOf(codexProvider, absenceKnown)
-  const antigravityHire = hireOf(antigravityProvider, absenceKnown)
-  const claudeHire = hireOf(claudeProvider, absenceKnown)
-  const openrouterHire = hireOf(openrouterProvider)
-  const langserverHire = hireOf(langserverProvider)
+  const codexHire = hireOf(codexProvider, absenceKnown, orgHireProviders?.has('openai'))
+  const antigravityHire = hireOf(antigravityProvider, absenceKnown, orgHireProviders?.has('google'))
+  const claudeHire = hireOf(claudeProvider, absenceKnown, orgHireProviders?.has('claude'))
+  const openrouterHire = hireOf(openrouterProvider, false, orgHireProviders?.has('openrouter'))
+  const langserverHire = hireOf(langserverProvider, false, orgHireProviders?.has('langserver'))
   // D-202: which families exist on this machine at all, for the surfaces that
   // are not hire strips (the model-switch dropdown, the lineage rehire
   // dropdown). Same verdict the chips use — see `providerShown`.
@@ -3270,7 +3272,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       // this file being the single menu definition
       onContinueOn: (account) => void continueFrozenOnAccount(slug, n.id, account, toast),
     }, {
-      claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire,
+      claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire,
       quickChatTier: readQuickChat(slug, tree.quick_chat).tier,
       pinned: pinnedIds.has(n.id),
       detached: desk.detached,
@@ -4068,7 +4070,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             const eyeW = eyeWorldW(eyeR)
             return <UserNode key={USER} pos={p} isDrop={dropId === USER} seats={seats}
               codexHire={codexHire} antigravityHire={antigravityHire}
-              openrouterHire={openrouterHire} langserverHire={langserverHire}
+              openrouterHire={openrouterHire} langserverHire={langserverHire} museHire={museHire}
               claudeHire={claudeHire} onNoHarness={onAccounts}
               stats={orgStats}
               pxc={pxPerCredit} zoom={view.z}
@@ -4176,7 +4178,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               dragging={nodeDrag.current?.id === n.id && nodeDrag.current!.moved}
               isDrop={dropId === n.id}
               seats={seats} codexHire={codexHire} antigravityHire={antigravityHire}
-              openrouterHire={openrouterHire} langserverHire={langserverHire}
+              openrouterHire={openrouterHire} langserverHire={langserverHire} museHire={museHire}
               claudeHire={claudeHire} onNoHarness={onAccounts}
               map={map} op={op} slug={slug} toast={toast}
               pxc={pxPerCredit} zoom={view.z}

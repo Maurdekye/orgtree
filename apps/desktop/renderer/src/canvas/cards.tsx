@@ -83,6 +83,7 @@ interface UserNodeProps {
   claudeHire?: HireState | null
   openrouterHire?: HireState | null
   langserverHire?: HireState | null
+  museHire?: HireState | null
   /** D-199: route out of the no-harness state (opens the accounts panel). */
   onNoHarness?: () => void
   pxc: number
@@ -126,7 +127,7 @@ interface UserNodeProps {
 }
 
 export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire, onNoHarness,
-  antigravityHire, openrouterHire, langserverHire,
+  antigravityHire, openrouterHire, langserverHire, museHire,
   pxc, zoom, onInbox, onDocket, onPresentations, onGear, onSpawn, onAgents,
   onMailLink, onWorkLink,
   focused, eyeW, onFocus, posX, onJump, map, op, slug, toast, quickChatDefaults,
@@ -162,7 +163,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     // explicitly keeps this menu's three Open actions flat (2026-10-11).
     // the menu just opened on a model choice: re-read agy's model list
     refreshAgyModels()
-    const choices = hireTierChoices({ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire })
+    const choices = hireTierChoices({ claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire })
     const remembered = readQuickChat(slug, quickChatDefaults).tier
     const quickTier = choices.find(c => c.tier === remembered && c.offer === 'offer')?.tier
     const entries: MenuEntry[] = [
@@ -307,7 +308,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
       <SpawnChips onSpawn={onSpawn} seats={seats}
         soleHire codexHire={codexHire}
         claudeHire={claudeHire} onNoHarness={onNoHarness}
-        antigravityHire={antigravityHire} openrouterHire={openrouterHire} langserverHire={langserverHire}
+        antigravityHire={antigravityHire} openrouterHire={openrouterHire} langserverHire={langserverHire} museHire={museHire}
         zoom={focused ? undefined : zoom} expanded={expandedHire || guideHire}
         onProject={onNewProject}
         onToggleExpanded={() => setExpandedHire((v) => !v)} />
@@ -646,6 +647,7 @@ interface SpawnChipsProps {
    *  the shared registry (`openrouterTierIds`), filled by the same payload */
   openrouterHire?: HireState | null
   langserverHire?: HireState | null
+  museHire?: HireState | null
   /** D-199: ...and Claude's, which nothing used to ask for. Same contract:
    *  absent means "not known yet", not "not installed". */
   claudeHire?: HireState | null
@@ -679,12 +681,13 @@ const costBadge = (seat: number): string => {
 }
 
 export function SpawnChips({ onSpawn, seats, side, soleHire,
-  codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, zoom,
+  codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, museHire: museHireProp, onNoHarness, zoom,
   expanded = false, onToggleExpanded, selected, allowedTiers, onProject }: SpawnChipsProps) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
   // the Muse family's state, adopted from the canvas's providers poll
-  const museHire = useMuseHire()
+  const adoptedMuseHire = useMuseHire()
+  const museHire = museHireProp ?? adoptedMuseHire
   const chip = (t: string, letter: string | undefined) => {
     const seat = seats[t] ?? anyTierSeat(t)
     // the tooltip names the tier the way the user reads it everywhere else:
@@ -1366,6 +1369,7 @@ interface NodeSquareProps {
   claudeHire?: HireState | null
   openrouterHire?: HireState | null
   langserverHire?: HireState | null
+  museHire?: HireState | null
   /** D-199: route out of the no-harness state (opens the accounts panel). */
   onNoHarness?: () => void
   map: Map<string, CanvasNode>
@@ -1566,7 +1570,7 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
   </>
 }
 
-export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, map, op, slug, quickChatDefaults,
+export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, museHire, onNoHarness, map, op, slug, quickChatDefaults,
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onTeam, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, onNewProject, onNewProjectAt, cascadeAlloc, maxTop, pile, compactAt,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
@@ -1655,7 +1659,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onContinueOn: (account) => void continueFrozenOnAccount(slug, node.id, account, toast),
     }, { pinned, piled: !!pile, detached: desk.detached,
       quickChatTier: readQuickChat(slug, quickChatDefaults).tier,
-      claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire })
+      claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire })
   }
   const trackEdge = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect()
@@ -2141,7 +2145,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         <SpawnChips onSpawn={onSpawn} seats={seats}
           codexHire={codexHire} antigravityHire={antigravityHire}
           claudeHire={claudeHire} onNoHarness={onNoHarness}
-          openrouterHire={openrouterHire} langserverHire={langserverHire}
+          openrouterHire={openrouterHire} langserverHire={langserverHire} museHire={museHire}
           zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'b'}
           onProject={onNewProjectAt ? () => onNewProjectAt('b') : undefined}
           onToggleExpanded={() => toggleCompactHire('b')} />}
@@ -2170,7 +2174,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <SpawnChips side="left" onSpawn={(t) => onSpawnSide(t, 'left')}
             seats={seats}
             codexHire={codexHire} antigravityHire={antigravityHire}
-            openrouterHire={openrouterHire} langserverHire={langserverHire}
+            openrouterHire={openrouterHire} langserverHire={langserverHire} museHire={museHire}
             claudeHire={claudeHire} onNoHarness={onNoHarness}
             zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'l'}
             onProject={onNewProjectAt ? () => onNewProjectAt('l') : undefined}
@@ -2178,7 +2182,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <SpawnChips side="right" onSpawn={(t) => onSpawnSide(t, 'right')}
             seats={seats}
             codexHire={codexHire} antigravityHire={antigravityHire}
-            openrouterHire={openrouterHire} langserverHire={langserverHire}
+            openrouterHire={openrouterHire} langserverHire={langserverHire} museHire={museHire}
             claudeHire={claudeHire} onNoHarness={onNoHarness}
             zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'r'}
             onProject={onNewProjectAt ? () => onNewProjectAt('r') : undefined}
@@ -2193,7 +2197,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         <SpawnChips side="top" onSpawn={(t) => onSpawnTop(t)}
           seats={seats}
           codexHire={codexHire} antigravityHire={antigravityHire}
-          openrouterHire={openrouterHire} langserverHire={langserverHire}
+          openrouterHire={openrouterHire} langserverHire={langserverHire} museHire={museHire}
           claudeHire={claudeHire} onNoHarness={onNoHarness}
           zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 't'}
           onProject={onNewProjectAt ? () => onNewProjectAt('t') : undefined}

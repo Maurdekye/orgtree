@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { PickerPopover as Pop } from './canvas/pickerpopover'
 import { useAgentMentions, useOrgMentionCandidates } from './canvas/agentmentions'
 import { useAppFeed, useAppRead } from './appfeed'
+import { useOrgHireProviders } from './orghire'
 import { getProviders, sendMessage, uploadFile } from './api'
 import { ActiveAgentsFilter, AgentTray, SwitchboardMark, trayRows, type TrayRow } from './canvas/agenttray'
 import { SpawnChips } from './canvas/cards'
@@ -78,13 +79,14 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const memo = useMemo(() => readQuickChat(slug, JSON.parse(defaultsKey)), [slug, defaultsKey, tick])
   const providers = useAppRead('providers', getProviders)
+  const orgHireProviders = useOrgHireProviders(slug)
   const { version: feedVersion } = useAppFeed()
   const hires = useMemo(() => {
     const of = (id: string) => hireOf(providers?.providers.find(p => p.id === id),
-      providers?.checking === false && ['claude', 'openai', 'google'].includes(id))
+      providers?.checking === false && ['claude', 'openai', 'google'].includes(id), orgHireProviders?.has(id))
     return { claudeHire: of('claude'), codexHire: of('openai'), antigravityHire: of('google'),
       openrouterHire: of('openrouter'), langserverHire: of('langserver'), museHire: of('muse') }
-  }, [providers])
+  }, [providers, orgHireProviders])
   const nodes = useMemo(() => treeNodes(tree), [tree])
   const live = useMemo(() => [...nodes.values()]
     .filter(n => n.state === 'live').map(n => n.id), [nodes])

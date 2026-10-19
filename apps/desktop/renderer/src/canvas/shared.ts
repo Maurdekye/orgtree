@@ -665,6 +665,9 @@ export interface HireState {
    *  old backend, or one that has never heard of the setting, must not read
    *  as every provider disabled. */
   userEnabled?: boolean
+  /** At least one engine-listed account is enabled for the current org.
+   * Unknown is not false; keep machine discovery/sign-in behavior while loading. */
+  orgEnabled?: boolean
   /** The reserve POOL (item 12) — what a `luna` hire spends first. Rendered
    *  for disclosure only (the accounts panel); it decides no offer. Absent
    *  on an older backend. */
@@ -725,7 +728,7 @@ export const familyOffer = (h: HireState | null | undefined): FamilyOffer =>
     // implicitly, so it takes the same answer. Checked FIRST — an explicit
     // choice outranks detection, and only `=== false` counts, so an absent
     // field changes nothing (D-203 seam).
-    : h.userEnabled === false ? 'hide'
+    : h.userEnabled === false || h.orgEnabled === false ? 'hide'
       : h.enabled ? 'offer' : h.installed ? 'disable' : 'hide')
 
 /** The `/api/providers` entry narrowed to what any presence question needs.
@@ -734,12 +737,12 @@ export const familyOffer = (h: HireState | null | undefined): FamilyOffer =>
  *  differently from the hire strips. */
 // Rust omits uninstalled harnesses. Only a completed discovery makes a missing
 // row positive absence; loading/failed/older payloads retain the unknown rule.
-export const hireOf = (p: ProviderInfo | null | undefined, absenceKnown = false): HireState | null =>
+export const hireOf = (p: ProviderInfo | null | undefined, absenceKnown = false, orgEnabled?: boolean): HireState | null =>
   (p ? { enabled: !!p.hire_enabled, installed: !!p.status?.installed,
-         reason: p.reason, userEnabled: p.user_enabled,
+         reason: p.reason, userEnabled: p.user_enabled, orgEnabled,
          reserve: p.reserve ?? null,
          offeredTiers: (p.tiers ?? []).map((t) => t.tier) }
-    : absenceKnown ? { enabled: false, installed: false, reason: null } : null)
+    : absenceKnown || orgEnabled === false ? { enabled: false, installed: false, reason: null, orgEnabled } : null)
 
 /** Offer verdict for one Codex tier. A LEGACY token (gpt-reserve) is never
  *  offered — 'hide', unconditionally, whatever the payload says: it is not a

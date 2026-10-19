@@ -233,21 +233,21 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       {node.state === 'live' && (
         <SpawnChips onSpawn={onHire} seats={seats}
           claudeHire={hire.claudeHire} codexHire={hire.codexHire} antigravityHire={hire.antigravityHire}
-          openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire}
+          openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire} museHire={hire.museHire}
           zoom={zoom} expanded={expandedHire === 'b'} onToggleExpanded={() => toggle('b')}
           onProject={onNewProject} />
       )}
       {node.state === 'live' && onSpawnSide && (['left', 'right'] as const).map((s) => (
         <SpawnChips key={s} side={s} onSpawn={(t) => onSpawnSide(t, s)} seats={seats}
           claudeHire={hire.claudeHire} codexHire={hire.codexHire} antigravityHire={hire.antigravityHire}
-          openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire}
+          openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire} museHire={hire.museHire}
           zoom={zoom} expanded={expandedHire === s[0]} onToggleExpanded={() => toggle(s[0] as 'l' | 'r')}
           onProject={onNewProjectAt ? () => onNewProjectAt(s[0] as 'l' | 'r') : undefined} />
       ))}
       {node.state === 'live' && onSpawnTop && (
         <SpawnChips side="top" onSpawn={onSpawnTop} seats={seats}
           claudeHire={hire.claudeHire} codexHire={hire.codexHire} antigravityHire={hire.antigravityHire}
-          openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire}
+          openrouterHire={hire.openrouterHire} langserverHire={hire.langserverHire} museHire={hire.museHire}
           zoom={zoom} expanded={expandedHire === 't'} onToggleExpanded={() => toggle('t')}
           onProject={onNewProjectAt ? () => onNewProjectAt('t') : undefined} />
       )}

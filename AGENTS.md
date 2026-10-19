@@ -3774,6 +3774,13 @@ rulings go here and on their ticket.
   greyed hire tokens; a disabled provider refuses new hires while live agents keep running.
   Legacy models (Terra, Gemini Pro) appear only with "Show legacy models". [decided: user
   2026-08-30, 2026-09-30]
+- Hire chips additionally require an enabled account allowed for the current org.
+  Canvas and Quick chat read the canonical `accounts-allowed` lane decisions;
+  explicit denial hides every provider family, including Muse and runtime models.
+  Unknown reads preserve discovery/sign-in behavior. Settings/account changes refresh
+  the decision, and stale replies cannot cross orgs or supersede newer reads.
+  [decided: user 2026-10-19 12:32-12:33Z; verified: `orghire.ts`,
+  `canvas/shared.ts`, `tests/orghire.test.tsx`]
 
 ### Desktop UI
 
