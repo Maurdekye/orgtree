@@ -17,6 +17,13 @@
   or saved state. See [tab window origins](docs/rust-engine/tab-window-origins.md).
   [decided: user/coordinator 2026-10-19 13:32/13:38Z; verified:
   `canvas/{panelcorner,modalpin}.tsx`, `popout.tsx`, `main/windows.ts`]
+- Runtime's default-on "Suggest agents to give feedback to Orgtree" persists
+  "suggest_agent_feedback_enabled" app-wide. It adds a short conditional
+  pointer on every instruction lane; saves reconfigure for the next turn.
+  Agents verify usable GitHub access, redact evidence and show the full draft
+  to the user, waiting for explicit OK before any issue/comment submission.
+  The canonical procedure is [feedback](docs/skills/orgtree-working/workspace/feedback/SKILL.md).
+  [decided: user 2026-10-19 13:59Z/14:00Z; verified: "settings.rs", "runtime/{identity,actor}.rs", "http/settings.rs", "canvas/accounts.tsx"]
 
 - Presentation lists share unread mail's bold/accent title and brighter metadata
   for new or replaced documents, using existing `viewed_at` plus `docviewed` marks.

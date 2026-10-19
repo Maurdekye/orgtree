@@ -31,6 +31,10 @@ Working checkups and idle-docket reminders are independent mechanisms. A working
 
 These switches change scheduling/runtime policy, not the already-sent instruction prefix. Explain any later process launch or actual wake separately; no toggle guarantees a provider cache hit.
 
+## Orgtree feedback
+
+The last Runtime control, **Suggest agents to give feedback to Orgtree**, defaults On and saves immediately via `suggest_agent_feedback_enabled` in the Runtime API. It encourages agents with a usable GitHub account to report bugs or issues you or they find to github.com/Maurdekye/orgtree under that account. They show you a complete redacted draft and wait for explicit OK before posting. Off omits the instruction pointer; reporting is up to the user. Applies from agents' next turn, with an instruction-prefix change and possible CLI replacement. The complete procedure and storage home are `orgtree-feedback` (orgtree-working > workspace).
+
 ## See also
 
 - `orgtree-checkups-and-reminders` (orgtree-working › runtime).

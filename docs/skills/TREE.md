@@ -20,9 +20,11 @@ source `de6d356`, including Muse retained usage, personal globals and shared ski
 |---|---|
 | Categories (level 1, registered) | 3 |
 | Sections (level 2) | 19 |
-| Leaves (level 3) | 176: 45 tool, 53 concept, 33 screen, 45 setting |
-| SKILL.md files in total | 198 |
+| Leaves (level 3) | 179: 47 tool, 54 concept, 31 screen, 47 setting |
+| SKILL.md files in total | 201 |
 | Bytes of registered `name` + `description` lines | 548 |
+
+The Runtime feedback suggestion and complete GitHub issue procedure live at `orgtree-working/workspace/feedback` (`orgtree-feedback`); reports require a complete redacted draft and explicit user OK before posting.
 
 ## 1. Shape and conventions
 
@@ -436,6 +438,7 @@ Your folders and working practices: scratch, notes, breadcrumbs, shared folders,
 | `scratch-folder` | concept | — | Your scratch folder and its AGENTS.md standing notes. Must cover: what the folder is and who can read it; standing notes delivered each session; identity files not to edit; native personal/team/shared folder actions and distinct creation rules. | `engine/rs/orgtree-engine/src/runtime/identity.rs l.283-292, own_notes()`<br>`docs/rust-engine/scratch-folder.md`<br>`docs/rust-engine/standing-notes.md` | breadcrumbs, shared-folders, tool-read-scratch |
 | `shared-folders` | concept | — | The org shared folder and team workspaces: what goes where and their AGENTS.md notes. Must cover: _shared and _teams/<id>; narrowest folder its readers share; no secrets; re-read before editing. | `engine/rs/orgtree-engine/src/runtime/identity.rs org_notes_rule, team_rule`<br>`docs/rust-engine/org-shared-notes.md`<br>`docs/rust-engine/team-workspaces.md`<br>`engine/rs/orgtree-engine/src/domain/teams.rs` | scratch-folder |
 | `breadcrumbs` | concept | — | breadcrumbs.md: the realtime compaction log a fresh session resumes from. Must cover: what to write and when; writing for a stranger; where it lives; record reusable commands on their first run. | `engine/rs/orgtree-engine/src/runtime/identity.rs BREADCRUMBS` | context-and-compaction, scratch-folder |
+| `feedback` | setting | `rt:suggest_agent_feedback_enabled`, `concept:orgtree-feedback` | The default-on Runtime feedback suggestion and complete, redacted GitHub issue procedure; show the full draft and wait for explicit user OK before posting. | `engine/rs/orgtree-engine/src/settings.rs`<br>`engine/rs/orgtree-engine/src/runtime/{identity,actor}.rs`<br>`engine/rs/orgtree-engine/src/http/settings.rs`<br>`apps/desktop/renderer/src/canvas/accounts.tsx` | — |
 | `suggestion-box` | concept | — | suggestion-box.md: notes on how Orgtree should better inform agents about its own functions. Must cover: the standing rule and its origin; what makes a useful note. | `team notes rule (coordinator-opus, user 2026-10-15); not in engine source` | breadcrumbs |
 | `machine-traps` | concept | `concept:machine-traps` | Windows shell escaping, CRLF, encodings, Git Bash paths and file-edit pitfalls on the development machine. Must cover: shell transport escaping and saved scripts; CRLF and byte checks; Git Bash versus WSL and watchdog shell selection; Windows and MSYS argument paths; PowerShell and Python encodings; Edit tool Unicode escapes; rerere and mojibake; legacy machine traps and current workflow boundaries. | `.gitattributes`<br>`AGENTS.md (Machine traps)`<br>`engine/rs/orgtree-engine/src/runtime/watchdogs.rs:707-762`<br>`docs/machine-traps.md (compatibility pointer)`<br>`user/coordinator 2026-10-16 machine-traps docket scope and feedback section 6` | worktrees-and-git, builds-under-the-lock, tool-watchdog |
 | `worktrees-and-git` | concept | — | Working on a git repository from an org: your own worktree, never another's, never a bare stash, commit before probing. Must cover: create and remove a worktree; shared stash hazard; branch from the right base. | `docs/worktree-operations.md`<br>`engine/rs/orgtree-engine/src/runtime/identity.rs GATE_GATED` | builds-under-the-lock, reviews-and-landing, machine-traps |

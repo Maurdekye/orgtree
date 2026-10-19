@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 177,
-  "tools": 46,
-  "concepts": 53,
-  "total": 199
+  "leaves": 179,
+  "tools": 47,
+  "concepts": 54,
+  "total": 201
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -24,7 +24,7 @@
   "skills-docs-sol": 13,
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
-  "skilltree-opus": 3,
+  "skilltree-opus": 4,
   "compaction-cmds-sol": 1,
   "epic-combo-sol": 1
  },
@@ -2595,7 +2595,8 @@
     "machine-traps",
     "worktrees-and-git",
     "builds-under-the-lock",
-    "reviews-and-landing"
+    "reviews-and-landing",
+    "feedback"
    ],
    "writer": "comms-sol",
    "status": "fixed"
@@ -7414,6 +7415,42 @@
    ],
    "writer": "uninit-model-sol",
    "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/workspace/feedback",
+   "name": "orgtree-feedback",
+   "level": 3,
+   "kind": "setting",
+   "registered": false,
+   "covers": [
+    "rt:suggest_agent_feedback_enabled",
+    "concept:orgtree-feedback"
+   ],
+   "purpose": "The Runtime feedback suggestion and complete, redacted GitHub issue procedure, with user approval before posting.",
+   "writer": "skilltree-opus",
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Suggest agents to give feedback to Orgtree"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "rt:suggest_agent_feedback_enabled",
+     "file": "engine/rs/orgtree-engine/src/settings.rs",
+     "needles": [
+      "suggest_agent_feedback_enabled",
+      "unwrap_or(true)"
+     ]
+    }
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/settings.rs",
+    "engine/rs/orgtree-engine/src/runtime/identity.rs",
+    "engine/rs/orgtree-engine/src/http/settings.rs",
+    "apps/desktop/renderer/src/canvas/accounts.tsx"
+   ]
   }
  ],
  "exempt": {
