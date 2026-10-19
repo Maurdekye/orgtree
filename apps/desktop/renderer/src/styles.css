@@ -1855,6 +1855,9 @@ html.mobile .edge-jump { display: none; }
 .cc-head-left > .cc-process-seat,
 .cc-head-left > .turn-status-banner { flex: none; }
 .cc-head-left > .tier { margin-inline-end: 2px; }
+.desk-model-button { padding: 0; cursor: pointer; font: inherit; }
+.desk-model-picker { padding: 12px; max-width: min(520px, calc(100vw - 16px)); }
+.desk-model-options { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
 .cc-head-left > .cc-name {
   flex: 0 1 auto; min-width: 6ch; max-width: none;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

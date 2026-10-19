@@ -17,6 +17,16 @@ These are per-agent settings. Agents explain and recommend choices; they do not 
 
 ## Model and version
 
+Click a live agent desk's model letter to open the same provider-grouped hire
+tokens without opening settings. Pick a tier, its eligible account and optional
+version, then Apply. Escape or clicking away cancels without saving. Busy and
+cross-provider tier changes ask for confirmation with the ordinary switch rules.
+Refusals remain visible, and queued changes appear on the next-turn model card.
+Pinned and popped-out desks share this control; retired identities stay passive.
+The same actions are available to authorized agents through `orgtree_switch_model`
+and `orgtree_retool` (account and model-version fields); the picker adds no new
+engine operation or permission.
+
 Model groups are Claude, Codex, Antigravity, Muse, OpenRouter and Language servers. Native tiers are ordered by seat cost; the last two groups retain registry order. Provider presence, enabled/sign-in state, legacy visibility and current offered models govern choices. An unavailable installed provider can leave a disabled choice with its reason; an absent provider's tiers can be hidden. The current tier remains visible as a truthful unchanged selection even when it is no longer offered for a new switch.
 
 Saving an actual change goes through engine admission checks, including provider/account compatibility, model entitlement where required and capacity for a dearer seat. Muse model and version choices are checked against the seat's own login catalog; an unknown catalog cannot authorize a version pin. Antigravity Claude tiers have a fixed version and reject a nonempty version pin.

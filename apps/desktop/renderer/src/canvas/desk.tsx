@@ -1,4 +1,5 @@
 import { Fragment } from 'react'
+import { DeskModelButton } from './deskmodel'
 import { DndBadge, UrgentAgentOptions, type UrgentAgentMail } from './dnd'
 import { AgentCompactConfirm } from './agentcompact'
 import { historyEnabled, historyUndo } from '../historyregistry'
@@ -3590,6 +3591,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               would be a quiet trap for the next caller to pass centerOn
               straight in. */}
           <AgentName id={node.id} tier={nodeTierOf(node)} atDestination={!bare}
+            modelControl={<DeskModelButton node={node} slug={slug} op={op} toast={toast}/>}
             why={bare ? undefined
               : (node.charter || '').split('\n')[0] || node.id}
             onFocus={onJump ? (id: string) => onJump(id) : undefined}

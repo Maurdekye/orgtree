@@ -24,6 +24,12 @@
   to the user, waiting for explicit OK before any issue/comment submission.
   The canonical procedure is [feedback](docs/skills/orgtree-working/workspace/feedback/SKILL.md).
   [decided: user 2026-10-19 13:59Z/14:00Z; verified: "settings.rs", "runtime/{identity,actor}.rs", "http/settings.rs", "canvas/accounts.tsx"]
+- A live desk's model letter opens the existing hire tokens with warm shared
+  staffing/account availability. Choosing account/version then Apply uses the
+  existing switch/account/scope and history paths. Busy/cross-provider tier
+  changes confirm first; Escape/click-away does not save. Retired identity chips
+  remain passive. See the [model tab](docs/skills/orgtree-app/agent-settings/agent-model-tab/SKILL.md).
+  [decided: user/coordinator 2026-10-19; verified: `canvas/{deskmodel,desk,identity}.tsx`]
 
 - Presentation lists share unread mail's bold/accent title and brighter metadata
   for new or replaced documents, using existing `viewed_at` plus `docviewed` marks.

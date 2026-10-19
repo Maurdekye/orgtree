@@ -137,6 +137,8 @@ export interface AgentNameProps {
   /** Suppress browser titles when an owning surface provides the shared
    *  identity tooltip for this name. */
   nativeTitle?: boolean
+  /** A desk may replace only its model chip with an interactive model picker. */
+  modelControl?: ReactNode
 }
 
 /**
@@ -147,14 +149,14 @@ export interface AgentNameProps {
  * already produces — so this is a consolidation, not a restyle.
  */
 export function AgentName({
-  id, tier, why, onFocus, atDestination, prefix, nameClass, nativeTitle = true,
+  id, tier, why, onFocus, atDestination, prefix, nameClass, nativeTitle = true, modelControl,
 }: AgentNameProps): ReactNode {
   const label = (prefix ?? '') + id
   const extra = nameClass ? ' ' + nameClass : ''
   if (!onFocus || atDestination) {
     return (
       <>
-        <TierChip tier={tier} agentName={id} />
+        {modelControl ?? <TierChip tier={tier} agentName={id} />}
         <span data-copy-agent-name={id} {...(nativeTitle ? agentTooltipProps(id) : {})} className={'cc-name' + extra}
           title={nativeTitle ? why ?? undefined : undefined}>{label}</span>
       </>
@@ -162,7 +164,7 @@ export function AgentName({
   }
   return (
     <>
-      <TierChip tier={tier} agentName={id} />
+      {modelControl ?? <TierChip tier={tier} agentName={id} />}
       {/* type="button": this is embedded inside forms, where the default
           submit behaviour would be wrong */}
       {/* ⚠ THE MARKER GOES ON THE NAVIGATING BRANCH ONLY. This `if` is
