@@ -20,7 +20,7 @@ export default async function(rig) {
   await project('count-outer','watcher');await project('count-inner','count-outer')
   await hire('count-child','count-inner')
   const dog=await rig.tool('watcher','orgtree_watchdog',{action:'create',name:'live-count',kind:'event',target:'agents.live',threshold:'below 2',notice:true,interval_s:5})
-  const dogRow=()=>rig.one(`SELECT run,fired FROM ot.watchdogs WHERE owner_agent_id=${id('watcher')} AND name='live-count'`)
+  const dogRow=()=>rig.one(`SELECT memo->'run' AS run,fired FROM ot.watchdogs WHERE owner_agent_id=${id('watcher')} AND name='live-count'`)
   await rig.waitFor(()=>dogRow()?.run?.counts?.['agents.live']!==undefined,{what:'count listener baseline',timeout:10000})
   p.check('count smoke excludes projects',dog.ok&&dog.json?.smoke?.current?.count===1,dog.json??dog.text)
   p.check('initial live-count baseline excludes projects',dogRow().run.counts['agents.live']===1,dogRow())
@@ -34,6 +34,9 @@ export default async function(rig) {
   await new Promise(r=>setTimeout(r,5500))
   p.check('a real downward count crossing fires exactly once',Number(dogRow().fired)===1,dogRow())
   await rig.tool('watcher','orgtree_watchdog',{action:'remove',id:'live-count'})
+  const promoted=await rig.tool('watcher','orgtree_self_subjugate',{target:'count-child'})
+  const promotion=rig.sql(`SELECT ev FROM ot.mail WHERE ev->>'variant'='lifecycle.subtree_promoted' AND ev->>'demoted'='watcher'`)
+  p.check('promotion notices count agent reports, excluding empty project wrappers',promoted.ok&&promotion.length>0&&promotion.every(m=>m.ev.subtree===0),promotion)
 
   for(const shape of ['direct','one','nested','root','empty']) {
     let parent=shape==='root'?null:'boss'
@@ -79,6 +82,10 @@ export default async function(rig) {
   p.check('CLI launch grants every project folder below its superior',missing.length===0,{missing,total:projects.length})
 
   await project('keep-root');await project('keep-nested','keep-root');await project('keep-empty')
+  const moved=await rig.op({op:'move',node:'old-report',new_parent:'deep-69'})
+  p.check('archived move warning names the nearest agent payer',moved.warnings?.some(w=>w.includes('falls on boss ')&&!w.includes('deep-69')),moved)
+  const rootMove=await rig.op({op:'move',node:'old-report',new_parent:'keep-nested'})
+  p.check('archived move under root projects names the user payer',rootMove.warnings?.some(w=>w.includes('falls on the user ')),rootMove)
   await hire('top-wrapped','keep-nested',10);await hire('top-child','top-wrapped')
   const roots=['keep-root','keep-nested','keep-empty']
   const settings=roots.map(name=>rig.one(`SELECT id,name,scope,charter FROM ot.agents WHERE id=${id(name)}`))
