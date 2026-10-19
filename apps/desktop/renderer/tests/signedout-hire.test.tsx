@@ -64,7 +64,8 @@ for(const surface of ['quick','desk'] as const)test(`${surface} picker retains s
   const oldFetch=globalThis.fetch
   globalThis.fetch=legacyAppBackend((async(input:RequestInfo|URL,init?:RequestInit)=>{
     const path=new URL(String(input),'http://localhost').pathname
-    const body=path==='/api/providers'?{providers,checking:false}:path.endsWith('/staffing-options')
+    const body=path.endsWith('/accounts-allowed')?{org:'signedout',accounts:families.map(([provider])=>({provider,allowed:true,enabled:true}))}
+      :path==='/api/providers'?{providers,checking:false}:path.endsWith('/staffing-options')
       ?{tiers:[],errors:[],loading:false}:null
     return body?new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}}):oldFetch(input,init)
   }) as typeof fetch)
