@@ -189,6 +189,11 @@
   pin/pop-out/modal controls; pinned/detached Team uses header actions. See
   [Team chrome](docs/rust-engine/team-panel-chrome.md).
   [decided: user 2026-10-18 16:44–16:45Z; verified: `canvas/agenttray.tsx`, `styles.css`]
+- Team's centered, pinned and detached panel uses one shared title/action row:
+  long titles ellipsize before Active and the window controls; the filter is
+  below it. `PinFrame.titleInModal` is opt-in and keeps the same header and
+  list DOM across pin/unpin. See [Team chrome](docs/rust-engine/team-panel-chrome.md).
+  [decided: user 2026-10-19 11:38Z; verified: `canvas/{team,modalpin}.tsx`, `styles.css`]
 - Desk Team tabs show/count live direct children from the current map, including
   child projects, with the shared tab-count badge. Zero children hides Team and
   clears its selection to agent Chat/project Desk; a later hire does not reopen

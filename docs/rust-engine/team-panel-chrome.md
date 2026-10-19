@@ -1,5 +1,22 @@
 # Team panel chrome
 
+## One title/action row (2026-10-19 11:38Z)
+
+The centered Team panel previously had a controls-only `PinFrame` bar followed
+by a separate heading, leaving Active, pop-out and pin above the title. Team
+now opts into `PinFrame.titleInModal` and omits its separate heading. The
+shared header names the surface in every mode, with the title on the left
+and Active/window controls on the right. Its title uses the existing ellipsis
+rule and yields before the controls; the filter stays on the following row.
+Other panels keep their current centered-modal behavior.
+
+The focused Electron geometry fixture measures actual Team/PinFrame instances
+at normal and narrow widths in centered and pinned modes, then adopts the
+same content into a real synthetic Electron pop-out. Native window command
+handlers are stubs; this checks DOM layout/adoption, not operating-system
+minimize/maximize behavior. The filter value survives each transition. One
+centered narrow screenshot records the user-reported layout before/after.
+
 ## Project row spacing and Active alignment (2026-10-18 16:44–16:45Z)
 
 The shared Agents/Team row omits its empty status-summary line for a project.
