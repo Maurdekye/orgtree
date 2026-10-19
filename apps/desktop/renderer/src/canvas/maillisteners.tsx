@@ -166,7 +166,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                     onClick={() => onOpenMail?.(r.held!.id)}>{r.held.body.split('\n')[0] || r.held.id}</button>)}</td>}
                 <td className="listener-handed" title="mails this listener's watchdog has been handed (engine count)">{r.dog.fired}</td>
                 <td className="listener-dog-cell">{dogName(r.dog)}
-                  {r.dog.once && <span className="dim"> one-shot</span>}{r.dog.notice && <span className="dim"> passive</span>}</td>
+                  {r.dog.notice && <span className="dim"> passive</span>}</td>
               </WatchdogRow>
             ))}
           </tbody>

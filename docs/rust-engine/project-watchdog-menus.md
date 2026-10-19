@@ -43,3 +43,7 @@ its copy-only stale menu. The detail heading keeps its menu without reopening
 its own panel. Mode is available in the tooltip, without a separate continuous
 label in the listener table. `watchdog-links.test.tsx` and the synthetic
 `watchdog-link-{visual.tsx,capture.cjs}` cover the shared link behavior.
+
+Follow-up 21:18Z: canvas and desk link perimeters use one late CSS kind-color
+rule, including hovered one-shot links; mode words are omitted from mail
+listener cells as well as event listener tables. The chip tooltip retains mode.
