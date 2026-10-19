@@ -4,6 +4,8 @@
 
 **Put a team of AI agents to work. Keep control of the job.**
 
+Companion apps: **[Hubchat](https://github.com/Maurdekye/orgtree-hubchat)**, a chat app for talking to your orgs and agents from your PC or phone, and the **[mail hub](https://github.com/Maurdekye/orgtree-mailhub)**, a small self-hosted service that lets Orgtree organizations, people and agents on different machines mail each other.
+
 ![Agents on the Orgtree canvas](docs/images/orgtree-4-canvas.png)
 
 Orgtree is a desktop power tool for running persistent teams of AI agents. Give them a project, divide the work, and follow it through to delivery. Assign roles, set limits, inspect the work and keep the decisions in one place.
