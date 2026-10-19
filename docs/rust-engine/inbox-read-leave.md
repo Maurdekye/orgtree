@@ -6,7 +6,8 @@ shared `MailList` records committed reading-pane bodies and acknowledges each
 departing real mail once, retaining its org-bound callback across prop changes.
 This covers click/keyboard selection, reference jumps, text/tag filtering,
 folder changes, refreshed data removal and host unmount (modal, tab or pin).
-Folded notices display all member bodies and acknowledge those members.
+Folded system notices already have read state; opening their member bodies
+never acknowledges unrelated unread rows.
 Scrolling the list does not mark a still-displayed reading pane read.
 
 `mailleave.ts` retains pending saves after a list unmount. Native main/pop-out

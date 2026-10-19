@@ -115,14 +115,14 @@ test('a second reference and then a keyboard move mark only the bodies left', as
   assert.deepEqual(reads, ['m0', 'm1'])
 })
 
-test('all bodies in an opened folded notice are read, unopened notices are not', async () => {
+test('opening an already-read notice pile never acknowledges unrelated unread mail', async () => {
   const reads: string[] = []
   const notices = rows.slice(0, 3).map(m => ({...m, from: '@system', kind: 'notice', tags: []}))
-  const view = await mountView(<MailList pending={notices} jumpTo="m0" onRead={m => { reads.push(m.id!) }}/>, el => el)
+  const view = await mountView(<MailList delivered={notices} pending={rows.slice(3)} jumpTo="m0" onRead={m => { reads.push(m.id!) }}/>, el => el)
   assert.equal(view.el.querySelectorAll('.notepile-row').length, 3, 'three full bodies are actually displayed')
   assert.deepEqual(reads, [])
   await view.unmount()
-  assert.deepEqual(reads.sort(), ['m0', 'm1', 'm2'])
+  assert.deepEqual(reads, [], 'folded notices are already read; unopened pending rows are untouched')
 })
 
 test('native flush also waits for a read already sent by a removed tab', async () => {
