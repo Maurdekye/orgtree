@@ -6132,7 +6132,7 @@ svg.MuiSvgIcon-root {
 }
 .cc-fast:hover, .cc-fast.on { color: var(--agent-accent-text, var(--accent)); border-color: var(--button-accent); }
 .cc-fast.on { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.cc-fast.on.queued-speed {
+:is(.cc-fast.on, .cc-eff).queued-change {
   color: color-mix(in srgb, var(--agent-accent-text, var(--accent)) 82%, black);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }

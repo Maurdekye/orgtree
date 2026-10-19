@@ -12,7 +12,7 @@ export function FastModeButton({ node, slug, toast }: { node: CanvasNode; slug: 
   const on = node.scope?.fast_mode === true
   const queued = node.busy === true && typeof node.fast_mode_current === 'boolean'
     && node.fast_mode_current !== on
-  const button = <button className={'cc-fast' + (on || queued ? ' on' : '') + (queued ? ' queued-speed' : '')} type="button" aria-label="Fast mode"
+  const button = <button className={'cc-fast' + (on || queued ? ' on' : '') + (queued ? ' queued-speed queued-change' : '')} type="button" aria-label="Fast mode"
     aria-pressed={on} title={queued ? `Fast mode turns ${on ? 'on' : 'off'} next turn (this turn: ${node.fast_mode_current ? 'on' : 'off'})` : FAST_MODE_HELP} disabled={saving} onClick={() => {
       setSaving(true)
       void saveScope(slug, node.id, { fast_mode: !on })
