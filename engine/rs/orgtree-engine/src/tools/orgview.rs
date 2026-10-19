@@ -305,6 +305,11 @@ fn inspection_visible(id: i64, caller: i64, visibility: &str, rows: &HashMap<i64
     // Match chart's superior/peer rows, including other top-level agents.
     // Reports at every depth are inspectable even with self visibility.
     if visibility != "self" {
+        // Match chart's physical project context independently of reporting.
+        if !reporting.contains_key(&id) {
+            let parent=rows.get(&caller).and_then(|r|r.0);
+            if parent==Some(id) || rows.get(&id).is_some_and(|r|r.0==parent) {return true;}
+        }
         if let (Some(parent),Some(caller_parent))=(reporting.get(&id),reporting.get(&caller)) {
             if Some(id)==*caller_parent || parent==caller_parent { return true; }
         }

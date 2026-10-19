@@ -22,6 +22,10 @@
   compatible; there is no migration. [decided: user 2026-10-19 20:56Z;
   verified: `canvas/langserver.tsx`, `providers/catalog.rs`, `org_accounts.rs`]
 
+- Team state inspection includes the caller's physical parent/sibling projects,
+  matching chart context without granting project policy authority. [verified:
+  `tools/orgview.rs`; 2026-10-19]
+
 - ORG STATE charts retain project rows and physical placement; report rosters
   use the agent frontier. Coworker rosters use physical siblings, matching the
   mail boundary. Project keys remain in semantic deltas rather than becoming
