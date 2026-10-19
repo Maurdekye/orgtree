@@ -224,6 +224,8 @@ uiTest('desk effort control shows the effective inherited default and queued nex
       'the inherited control shows the server-resolved effective default')
     assert.equal(inheritedButton.classList.contains('inherited'), true,
       'the effective default remains visually distinguished from an explicit setting')
+    assert.equal(inheritedButton.getAttribute('title'),
+      'Thinking effort: high (default). Changes apply from the next model call.')
 
     const queued = await mount(<EffortButton value="high" effective="high"
       currentEffort="medium" pendingEffort="high"
