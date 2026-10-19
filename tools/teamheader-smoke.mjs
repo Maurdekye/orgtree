@@ -22,6 +22,7 @@ if(geometry){
   fs.writeFileSync(path.join(output,'fixture.html'),`<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${css}"><style>html,body,#root{height:100%;margin:0}body{background:var(--bg);color:var(--ink);font:14px system-ui}</style></head><body><div id="root"></div><script type="module" src="fixture.js"></script></body></html>`)
   command=require('electron');args=[path.join(repo,'apps/desktop/renderer/tests/teamheader-capture.cjs')]
   delete env.ELECTRON_RUN_AS_NODE;env.TEAM_HEADER_OUTPUT=output
+  env.TEAM_HEADER_STYLES=path.join(repo,'apps/desktop/renderer/src/styles.css')
 }else{
   command=process.execPath;args=['--max-old-space-size=1024','--test','--test-reporter=tap','--test-force-exit','--test-concurrency=1',path.join(output,'test.mjs')]
 }
