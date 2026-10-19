@@ -7,8 +7,9 @@ Up: [orgtree-org-settings](../SKILL.md)
 
 # Hire-default folders and agent actions
 
-**Org settings > Hire defaults > Folders** edits `org:org_dirs`: organization
-holdings and the starting folders for future hires. Agents explain these
+**Org settings > Hire defaults > Org folders** edits `org:org_dirs`: the
+folders this org's agents can use. The subtitle says, “Folders this org's
+agents can use. New hires get all of them by default.” Agents explain these
 controls; the user changes holdings. Folder edits use the shared footer Save
 described in [orgtree-org-basic](../org-basic/SKILL.md).
 

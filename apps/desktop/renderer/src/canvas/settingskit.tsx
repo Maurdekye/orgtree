@@ -146,9 +146,10 @@ export function openAppSettings(tab: string, focus?: string): void {
     { detail: { tab, focus } }))
 }
 
-export function SetGroup({ title, note, children }: {
+export function SetGroup({ title, note, subtitle, children }: {
   title: string
   note?: ReactNode
+  subtitle?: ReactNode
   children: ReactNode
 }) {
   return (
@@ -156,6 +157,7 @@ export function SetGroup({ title, note, children }: {
       <div className="set-group-head">
         {title}{note && <span className="dim">{note}</span>}
       </div>
+      {subtitle && <div className="set-group-subtitle">{subtitle}</div>}
       {children}
     </div>
   )

@@ -7461,7 +7461,7 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
    spacing between rows, and adding a margin on top of that would open the
    list back up into the loose stack this replaced. Everything else in a
    group — account lines, provider notes, tier strips — gets one small step. */
-.set-group > * + *:not(.set-row) { margin-top: 6px; }
+.set-group > * + *:not(.set-row):not(.set-group-subtitle) { margin-top: 6px; }
 /* ONE SECTION HEAD FOR THE WHOLE SETTINGS SURFACE. The Providers tab's
    vendor heads and the Runtime/Display group heads sit at the same level of
    the same modal, so they are the same object: `.acct-provider-head` now
@@ -7474,6 +7474,7 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
   display: flex; align-items: baseline; gap: 6px;
 }
 .set-group-head .dim { font-weight: 400; font-size: 11.5px; }
+.set-group-subtitle { font-size: 11.5px; line-height: 1.45; color: var(--dim); }
 /* the head's right-hand cluster — a scope note, a preview tag, a switch.
    ⚠ ONE auto margin, on the cluster, never on its members: two members each
    claiming `margin-left: auto` split the free space between them and neither

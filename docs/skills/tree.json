@@ -5015,7 +5015,7 @@
     "org:org_dirs",
     "action:retire-all"
    ],
-   "purpose": "Hire defaults > Folders, and retire all agents.",
+   "purpose": "Hire defaults > Org folders, and retire all agents.",
    "must_cover": [
     "folder defaults"
    ],

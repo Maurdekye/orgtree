@@ -22,7 +22,7 @@ not rendered. Connections is documented in
 - [orgtree-org-basic](org-basic/SKILL.md): Basic: org logo, credit caps and grants, compaction threshold, default effort; which tabs save together.
 - [orgtree-org-charter-md](org-charter-md/SKILL.md): Basic > org.md: the org charter every agent receives; saving restarts agents.
 - [orgtree-org-templates](org-templates/SKILL.md): Basic > save as template: what a template includes.
-- [orgtree-org-hire-defaults-folders](org-hire-defaults-folders/SKILL.md): Hire defaults > Folders, and retire all agents.
+- [orgtree-org-hire-defaults-folders](org-hire-defaults-folders/SKILL.md): Hire defaults > Org folders, and retire all agents.
 - [orgtree-org-hire-defaults-scope](org-hire-defaults-scope/SKILL.md): Hire defaults > visibility, file and command access, provider and account.
 - [orgtree-org-hire-defaults-tools](org-hire-defaults-tools/SKILL.md): Hire defaults > native tools, Orgtree tool groups and MCP servers.
 - [orgtree-org-policies-compaction](org-policies-compaction/SKILL.md): Policies > reset a session before a known-cold turn.

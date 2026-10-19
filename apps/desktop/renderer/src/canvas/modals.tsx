@@ -455,8 +455,8 @@ export function HireDefaultsTab({ tree, slug, toast, close,
       </SetGroup>
 
       {/* Scope starts with folder access; tool sections follow its other fields. */}
-      <SetGroup title="Folders"
-        note="Organization holdings and defaults for future hires">
+      <SetGroup title="Org folders"
+        subtitle="Folders this org's agents can use. New hires get all of them by default.">
         <SetBlock hint={`${FOLDERS_HINT} Additions apply to future hires; removing a folder revokes it everywhere, and changing RW to RO updates existing grants.`}>
           <div className="dirlist">
             {tree.workspace && (

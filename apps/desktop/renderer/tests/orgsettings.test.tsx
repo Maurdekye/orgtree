@@ -16,6 +16,7 @@
 // and no orphaned launch flow.
 
 import { flush, inAct, mountView } from './harness'
+import { writeFileSync } from 'node:fs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { SettingsPanel } from '../src/App'
@@ -120,6 +121,13 @@ test('org folder holdings have a clear heading and new-hire default subtitle', a
       "Folders this org's agents can use. New hires get all of them by default.")
     assert.ok(group!.querySelector('input[aria-label="Add a folder path"]'),
       'the existing folder list remains available')
+    const captureHtml = process.env.ORG_FOLDERS_CAPTURE_HTML
+    const stylesheet = process.env.ORG_FOLDERS_CAPTURE_STYLESHEET
+    if (captureHtml && stylesheet) {
+      const html = view.el.ownerDocument.documentElement.outerHTML.replace(
+        '</head>', `<link rel="stylesheet" href="${stylesheet}"></head>`)
+      writeFileSync(captureHtml, html, 'utf8')
+    }
   } finally { await view.unmount(); delete g.fetch }
 })
 
