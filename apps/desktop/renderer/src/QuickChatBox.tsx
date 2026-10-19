@@ -79,7 +79,8 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   const providers = useAppRead('providers', getProviders)
   const { version: feedVersion } = useAppFeed()
   const hires = useMemo(() => {
-    const of = (id: string) => hireOf(providers?.providers.find(p => p.id === id))
+    const of = (id: string) => hireOf(providers?.providers.find(p => p.id === id),
+      providers?.checking === false && ['claude', 'openai', 'google'].includes(id))
     return { claudeHire: of('claude'), codexHire: of('openai'), antigravityHire: of('google'),
       openrouterHire: of('openrouter'), langserverHire: of('langserver'), museHire: of('muse') }
   }, [providers])
