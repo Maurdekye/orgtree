@@ -39,10 +39,10 @@ export default async function(rig) {
     const state=await inspect(who,peer)
     p.check(`${shape}: team chart includes real superior, peer and first report`,chart.ok&&chart.text.includes(peer)&&chart.text.includes(child)&&(shape==='root'||chart.text.includes('boss')),chart.text)
     p.check(`${shape}: state inspection includes the reporting peer`,state.ok,state.text)
-    const eventName=`event-peer-${shape}`,dogName=`peer-dog-${shape}`
-    const dog=await rig.tool(who,'orgtree_watchdog',{action:'create',name:dogName,kind:'event',target:'agent.hired',pattern:eventName,once:true,notice:true})
+    const eventName=`"agent_id":${id(peer)},`,dogName=`peer-dog-${shape}`
+    const dog=await rig.tool(who,'orgtree_watchdog',{action:'create',name:dogName,kind:'event',target:'agent.settings.changed',pattern:eventName,once:true,notice:true})
     p.check(`${shape}: team event watcher arms`,dog.ok,dog.text)
-    await hire(eventName,shape==='root'?null:'boss')
+    await rig.op({op:'retool',node:peer,charter:'Synthetic event visibility trigger.'})
     events.push({who,dogName,eventName})
     await rig.op({op:'retool',node:who,org_visibility:'full'})
     const full=await rig.tool(who,'orgtree_chart',{})
