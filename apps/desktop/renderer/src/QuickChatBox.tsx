@@ -15,7 +15,7 @@
 // elsewhere: the superior picker is the Agents List (canvas/agenttray.tsx),
 // the model picker is the hire tokens' tier chips (SpawnChips in cards.tsx).
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { PickerPopover as Pop } from './canvas/pickerpopover'
 import { useAgentMentions, useOrgMentionCandidates } from './canvas/agentmentions'
 import { useAppFeed, useAppRead } from './appfeed'
@@ -153,7 +153,9 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   const [text, setText] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
-  const [pop, setPop] = useState<{ kind: PopKind; anchor: HTMLElement } | null>(null)
+  // `via`: the picker was opened from the hire-options dropdown, which stays open beside it
+  const [pop, setPop] = useState<{ kind: PopKind; anchor: HTMLElement; via?: boolean } | null>(null)
+  const group = useId()
   const rootRef = useRef<HTMLDivElement | null>(null)
   const needRef = useRef(0)
   const [compact, setCompact] = useState(false)
@@ -194,7 +196,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   // where their pickers open from)
   const hireOptions = (at: HTMLElement | null) => {
     const go = (kind: PopKind) => (e: { currentTarget: HTMLElement }) =>
-      at ? setPop(p => p?.kind === kind ? null : { kind, anchor: at }) : open(kind)(e)
+      at ? setPop(p => p?.kind === kind && p.via ? { kind: 'options', anchor: at } : { kind, anchor: at, via: true }) : open(kind)(e)
     return {
       model: (
         <button key="model" type="button" className="quickchat-btn quickchat-model"
@@ -227,7 +229,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
           aria-label="attachments" aria-expanded={pop?.kind === 'files'}
           onClick={(e) => {
             if (files.length) go('files')(e)
-            else { if (at) close(); fileRef.current?.click() }
+            else { if (at) back(); fileRef.current?.click() }
           }}>
           <AttachIcon fontSize="inherit" />
           {files.length > 0 && <span className="quickchat-count">{files.length}</span>}
@@ -236,6 +238,8 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     }
   }
   const close = () => setPop(null)
+  // a picker opened from the dropdown hands back to it; any other just closes
+  const back = () => setPop(p => p?.via ? { kind: 'options', anchor: p.anchor } : null)
   // choosing the model: re-read agy's model list
   useAgyModelsRefresh(pop?.kind === 'model')
   // the model pop-out fades out like the canvas hire strip: a non-interactive
@@ -358,10 +362,10 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       </button>
       <input ref={fileRef} type="file" multiple hidden data-testid="quickchat-files"
         onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} />
-      {pop?.kind === 'options' && (() => {
+      {(pop?.kind === 'options' || pop?.via) && (() => {
         const list = hireOptions(pop.anchor)
         return (
-          <Pop anchor={pop.anchor} onClose={close} kind="options" label="hire options">
+          <Pop anchor={pop.anchor} onClose={close} kind="options" label="hire options" group={group} noEscape={!!pop.via}>
             {([['model', list.model], ['superior', list.superior], ['effort', list.effort], ['files', list.attach]] as const).map(([cap, el]) => (
               <div className="quickchat-opt" key={cap}><span className="quickchat-opt-cap">{cap}</span>{el}</div>
             ))}
@@ -369,26 +373,26 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         )
       })()}
       {pop?.kind === 'superior' && (
-        <Pop anchor={pop.anchor} onClose={close} kind="superior">
+        <Pop anchor={pop.anchor} onClose={back} kind="superior" beside={pop.via} group={group}>
         <SuperiorPicker nodes={nodes} agentList={agentList} superior={superior}
           activeOnly={quickChatActiveAgentsOnly} onActiveOnly={onQuickChatActiveAgentsOnly}
             compactAt={tree.compact_at}
-            onPick={(s) => { rememberSuperior(slug, s); close() }} />
+            onPick={(s) => { rememberSuperior(slug, s); back() }} />
         </Pop>
       )}
       {pop?.kind === 'model' && (
-        <Pop anchor={pop.anchor} onClose={close} kind="model">
-          <SpawnChips onSpawn={(t) => { rememberTier(slug, t); close() }} seats={seats}
+        <Pop anchor={pop.anchor} onClose={back} kind="model" beside={pop.via} group={group}>
+          <SpawnChips onSpawn={(t) => { rememberTier(slug, t); back() }} seats={seats}
             soleHire selected={tier} allowedTiers={offered} {...hires} />
         </Pop>
       )}
       {ghost && pop?.kind !== 'model' && (
-        <Pop anchor={ghost} onClose={() => {}} kind="model" leaving>
+        <Pop anchor={ghost} onClose={() => {}} kind="model" leaving beside={ghost.classList.contains('quickchat-options')}>
           <SpawnChips onSpawn={() => {}} seats={seats} soleHire selected={tier} allowedTiers={offered} {...hires} />
         </Pop>
       )}
       {pop?.kind === 'files' && (
-        <Pop anchor={pop.anchor} onClose={close} kind="files">
+        <Pop anchor={pop.anchor} onClose={back} kind="files" beside={pop.via} group={group}>
           <ul className="quickchat-files">
             {files.map((f, i) => (
               <li key={i}>
@@ -396,7 +400,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
                 <button type="button" className="iconbtn" title={`remove ${f.name}`}
                   onClick={() => setFiles(fs => {
                     const next = fs.filter((_, j) => j !== i)
-                    if (!next.length) close()
+                    if (!next.length) back()
                     return next
                   })}>✕</button>
               </li>
