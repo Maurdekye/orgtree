@@ -24,6 +24,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import { SlotsView } from '../src/canvas/slotsdesk'
+import { slotEndedTimeStyle } from '../src/canvas/slottime'
 import { NodeSquare } from '../src/canvas/cards'
 import { DeskChat } from '../src/canvas/desk'
 import { DeskDogsProvider } from '../src/canvas/deskdogs'
@@ -300,7 +301,9 @@ test('visible slot views share one second clock for held, waiting and ended ages
       assert.equal(panel.querySelector('.slots-line .slot-wait')?.textContent?.trim(), `${waiting}s`)
       assert.equal(panel.querySelector('.slots-history .slot-ended')?.textContent, `${ended}s ago`)
       const endedStyle = panel.querySelector<HTMLElement>('.slots-history .slot-ended .slot-time')!.style
-      assert.match(endedStyle.color, /^rgb\((\d+), \1, \1\)$/, 'ended ages use greyscale rather than the duration palette')
+      const expected = document.createElement('span')
+      expected.style.color = slotEndedTimeStyle(ended).color
+      assert.equal(endedStyle.color, expected.style.color, 'ended ages use the shared theme-aware greyscale')
       assert.equal([...panel.querySelectorAll<HTMLElement>('.slot-time')].every(time => !time.style.textShadow && !time.style.backgroundImage), true,
         'every live, waiting, finished duration and ended age is plain coloured text')
     }
