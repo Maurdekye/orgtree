@@ -10,7 +10,7 @@ function load(file){const module={exports:{}};vm.runInNewContext(buildSync({entr
 const list=load('apps/desktop/main/jumplist.ts'),policy=load('apps/desktop/main/policy.ts')
 const plain=x=>JSON.parse(JSON.stringify(x))
 const row=(kind,id,extra={})=>({kind,id,org:'alpha',title:'A title',body:'Details',agent:'helper',source_id:'source',...extra})
-const notices=[row('routine','mail:a'),row('question','ask:q'),row('work-attention','work:w:1',{item:'ticket'}),row('mention','mention:m')]
+const notices=[row('urgent-mail','mail:a'),row('question','ask:q'),row('work-attention','work:w:1',{item:'ticket'}),row('mention','mention:m')]
 const feed={allNotices:()=>[...notices,row('document','doc:d'),row('agent-frozen','frozen:f'),null,{}]}
 
 test('attention menu replaces Recent with every actionable item and restores Recent when empty',()=>{

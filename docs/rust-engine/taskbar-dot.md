@@ -1,22 +1,25 @@
 # Persistent taskbar notification dot
 
-The desktop's existing native app feed drives a persistent app-wide badge when
-there is unread user mail or a nonzero existing attention summary (questions,
-docket attention, unseen mentions). Unread routine, urgent and failure mail are
-already present in the complete notice inventory; no new counter or poll exists.
+The desktop's existing native app feed drives a persistent app-wide badge for
+urgent mail, open questions, docket attention flags and unseen mentions only
+(user 2026-10-19 16:51–16:55Z, replacing the earlier unread-mail rule). Ordinary
+unread mail and standalone terminal failures do not count. Failure mail counts
+when the engine's existing urgent-or-mention qualification is true, carried as
+the notice's `attention` boolean independently of its toast kind. Badge and
+menu share `isTaskbarAttentionNotice`; no new counter or poll exists.
 Notification preferences govern interruptions and do not hide this indicator.
 
 Windows uses a red dot with the tray indicator's light rim as an overlay icon on
 each live app window. New windows immediately receive current state. Focus does
-not clear it: the last unread/pending item must resolve. An unchanged feed avoids
+not clear it: the last qualifying item must resolve. An unchanged feed avoids
 native writes. macOS uses a dock bullet; Linux uses its available badge API with
 presence represented by one, clearing with zero. Unsupported badges are best effort.
 
 The existing `TaskbarAttention` controller owns both native effects. Its
 `updateInventory` and `applyBadge` methods delegate persistent overlay/platform
 writes to `TaskbarDot`; its original `set` and `focused` paths retain per-org
-arrival pulses and their focus/dedup policy. Ordinary unread mail adds a badge
-without inventing a pulse policy or changing the tray/toolbar counts. There is
+arrival pulses and their focus/dedup policy. Ordinary unread mail adds neither
+a badge nor a menu entry, without changing the tray/toolbar counts. There is
 one host controller, one existing app feed, no second reader or poller. The
 badge adapter caches native writes, not a second pending-attention counter.
 
@@ -32,9 +35,10 @@ an explicit synthetic before/dot/cleared comparison of the actual bitmap. It
 does not claim to capture Windows taskbar pixels or use the installed app.
 
 While the inventory contains waiting items, the Windows custom jump-list
-category is **Needs attention**, replacing **Recent**. Every unread mail,
-open question, attention flag and unseen mention supplies one entry; ordinary
-mail counts even with banners off. Home and New org remain fixed actions.
+category is **Needs attention**, replacing **Recent**. Every urgent mail,
+open question, attention flag and unseen mention supplies one entry, including
+failure mail with an urgent flag or user mention. Ordinary unread mail never
+replaces Recent; banner preferences do not hide qualifying items. Home and New org remain fixed actions.
 Windows controls how many entries it displays, and can disable custom
 categories in its privacy settings. The app supplies the complete list.
 Mail/question entries use the mail outline; flags use a ticket; mentions use @.

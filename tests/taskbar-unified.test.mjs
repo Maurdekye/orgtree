@@ -16,14 +16,14 @@ function fixture(){
  const badge=new TaskbarDot({platform:'win32',windows:()=>[w],dot:()=> 'dot'})
  return {attention:new TaskbarAttention(()=>w,badge),w,flashes,overlays}
 }
-test('one attention controller owns unread badge state while reusing the existing per-org pulse',()=>{
+test('one attention controller owns attention-only badge state while reusing the existing per-org pulse',()=>{
  const {attention,w,flashes,overlays}=fixture()
  attention.updateInventory(feed(0,[{kind:'routine'}]))
- assert.deepEqual(overlays,['dot']);assert.deepEqual(flashes,[],'routine unread mail does not add a pulse policy')
+ assert.deepEqual(overlays,[null]);assert.deepEqual(flashes,[],'routine unread mail does not add a badge or pulse')
  attention.set([{org:'alpha',id:'question'}]);assert.deepEqual(flashes,[true])
- attention.focused(w);attention.updateInventory(feed(1));assert.deepEqual(overlays,['dot'],'focus does not consume unread/attention state')
+ attention.focused(w);attention.updateInventory(feed(1));assert.deepEqual(overlays,[null,'dot'],'focus does not consume attention state')
  attention.set([{org:'alpha',id:'question'}]);assert.deepEqual(flashes,[true],'the same question never restarts the pulse')
- attention.updateInventory(feed(0));assert.deepEqual(overlays,['dot',null])
+ attention.updateInventory(feed(0));assert.deepEqual(overlays,[null,'dot',null])
 })
 test('new windows inherit the badge through the existing controller',()=>{
  const {attention,overlays}=fixture(),fresh=[]

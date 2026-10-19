@@ -1,4 +1,5 @@
 import type { AppFeedState } from '../../../packages/contracts/app-feed'
+import { isTaskbarAttentionNotice } from './taskbar-badge'
 
 export type TaskbarTarget = { kind: 'homepage' | 'create' } | { kind: 'org'; slug: string }
   | { kind: 'attention'; org: string; id: string }
@@ -29,12 +30,12 @@ export function taskbarTarget(argv: readonly string[]): TaskbarTarget | null {
   return null
 }
 
-/** The same complete, current inventory as the badge. No banner preference,
- * renderer-local dismissal or notification history may hide a waiting item. */
+/** The badge's attention-seeking inventory, excluding ordinary unread mail.
+ * Banner preferences and notification history do not hide qualifying items. */
 export function taskbarAttentionItems(state: Pick<AppFeedState, 'allNotices'>): TaskbarAttentionItem[] {
   const seen = new Set<string>(), out: TaskbarAttentionItem[] = []
   for (const raw of state.allNotices()) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    if (!isTaskbarAttentionNotice(raw)) continue
     const n = raw as Record<string, unknown>
     if (typeof n.org !== 'string' || n.org.length > 128 || !SLUG.test(n.org)
         || typeof n.id !== 'string' || !n.id || n.id.length > 200 || /[\x00-\x1f]/.test(n.id)) continue
@@ -45,7 +46,7 @@ export function taskbarAttentionItems(state: Pick<AppFeedState, 'allNotices'>): 
     } else if (n.kind === 'work-attention') {
       if (typeof n.item !== 'string' || !n.item) continue
       icon = 'ticket'
-    } else if (['routine', 'urgent-mail', 'terminal-failure'].includes(n.kind as string)) icon = 'mail'
+    } else if (n.kind === 'urgent-mail' || n.kind === 'terminal-failure') icon = 'mail'
     else continue
     const key = JSON.stringify([n.org, n.id])
     if (seen.has(key)) continue

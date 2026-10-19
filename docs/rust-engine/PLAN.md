@@ -288,8 +288,11 @@ The app drains pending read saves before graceful shutdown; it never reads
 unopened rows or consumes agent/project delivery queues. See
 [read lifecycle](inbox-read-leave.md).
 
-Taskbar notification dot (user 2026-10-19 11:26Z,4.4.0): the app's existing
-unread mail/attention state adds a persistent taskbar/dock badge, clearing on
+Taskbar notification dot (user 2026-10-19 16:51–16:55Z,4.4.0): the app's existing
+attention state adds a persistent taskbar/dock badge for urgent mail, questions,
+ticket flags and mentions only. Ordinary unread mail and standalone failures
+are excluded; urgent or user-mentioning failure mail counts. The menu follows
+the same rule. The badge clears on
 resolution and retaining state through focus. No added poll or counter; the
 existing per-org pulse remains separate. See [taskbar dot](taskbar-dot.md).
 

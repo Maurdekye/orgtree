@@ -9,9 +9,12 @@ list while its reading pane remains displayed is not deselection. Folded
 system notices are already read and do not acknowledge other rows. Agent/project delivery queues
 retain their delivery/ACK rules. See [read lifecycle](inbox-read-leave.md).
 
-**Taskbar notification dot, user 2026-10-19 11:26Z (4.4.0):** a persistent dot
-indicates unread user mail or existing attention-needing elements, clearing only
-when all are gone. Reuse app state and update on changes without polling.
+**Taskbar notification dot, user 2026-10-19 16:51–16:55Z (4.4.0):** a persistent dot
+indicates only urgent mail, questions, ticket attention flags and mentions. This
+replaces the 11:26Z unread-mail rule: ordinary unread mail and standalone failure
+notices do not count. Failure mail still counts if urgent or mentioning the user.
+The menu follows the same rule. Clear when all qualifying items are gone.
+Reuse app state and update on changes without polling.
 Windows overlay; dock/platform badge where cheaply supported. This is separate
 from existing attention pulses. See [taskbar dot](taskbar-dot.md).
 

@@ -13,7 +13,7 @@ function identity(n: { org: string; id: string }) { return JSON.stringify([n.org
 export function notification(value: unknown): DesktopNotification {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid notification')
   const v = value as Record<string, unknown>
-  for (const key of Object.keys(v)) if (!['id', 'title', 'body', 'org', 'agent', 'item', 'kind', 'source_id', 'generation', 'rev'].includes(key)) throw new Error('Unknown notification field')
+  for (const key of Object.keys(v)) if (!['id', 'title', 'body', 'org', 'agent', 'item', 'kind', 'source_id', 'generation', 'rev', 'attention'].includes(key)) throw new Error('Unknown notification field')
   const text = (key: string, max: number) => {
     if (typeof v[key] !== 'string' || !v[key] || (v[key] as string).length > max) throw new Error('Invalid notification ' + key)
     return v[key] as string
@@ -21,6 +21,10 @@ export function notification(value: unknown): DesktopNotification {
   const kind = text('kind', 30)
   if (!['question', 'urgent-mail', 'terminal-failure', 'work-attention', 'routine', 'document', 'agent-frozen', 'mention'].includes(kind)) throw new Error('Unknown notification kind')
   const result: DesktopNotification = { id: text('id', 200), title: text('title', 200), body: text('body', 2000), org: text('org', 128), kind: kind as DesktopNotification['kind'] }
+  if (v.attention !== undefined) {
+    if (typeof v.attention !== 'boolean') throw new Error('Invalid notification attention')
+    result.attention = v.attention
+  }
   for (const key of ['agent', 'item', 'source_id'] as const) if (v[key] !== undefined) result[key] = text(key, 128)
   if (v.generation !== undefined) {
     if (!Number.isSafeInteger(v.generation) || (v.generation as number) < 0) throw new Error('Invalid notification generation')

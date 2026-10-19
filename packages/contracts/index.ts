@@ -67,6 +67,9 @@ export interface DesktopNotification {
   id: string; title: string; body: string; org: string; agent?: string; item?: string
   /** The inbox row's source ID; the notification ID is an opaque dedup key. */
   source_id?: string
+  /** Mail's existing urgent-or-user-mention qualification, independent of
+   * terminal-failure toast kind. Ordinary unread mail is not taskbar attention. */
+  attention?: boolean
   generation?: number
   /** work-attention only: the raise's `manual_attention.set_rev` — one
    *  identity per raise, matched against the raises the user dismissed */

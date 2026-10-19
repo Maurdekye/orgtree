@@ -56,7 +56,7 @@ export class TaskbarAttention<Image = unknown> {
 
   /** The existing controller owns both native effects. The current app feed
    * supplies badge presence; the existing qualifying identity set still owns
-   * arrival pulses. Focus stops a pulse, never unread state. */
+   * arrival pulses. Focus stops a pulse, never pending attention state. */
   updateInventory(feed: BadgeFeed): void { this.badge?.set(needsTaskbarDot(feed)) }
   applyBadge(window: BadgeWindow<Image>): void { this.badge?.apply(window) }
 

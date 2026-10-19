@@ -15,16 +15,19 @@ export interface BadgeFeed {
   attentionTotal(): number
   allNotices(): readonly unknown[]
 }
-/** The existing attention summary includes unseen mentions too. Notice mail
- * is the complete unread user-inbox inventory, independent of toast settings. */
+/** USER 2026-10-19: taskbar dot and menu count attention-seeking items only.
+ * Failure toast kind alone says nothing about urgency or a user mention. */
+export function isTaskbarAttentionNotice(notice: unknown): boolean {
+  if (!notice || typeof notice !== 'object' || Array.isArray(notice)) return false
+  const { kind, attention } = notice as { kind?: unknown; attention?: unknown }
+  return kind === 'urgent-mail' || kind === 'question' || kind === 'work-attention'
+    || kind === 'mention' || (kind === 'terminal-failure' && attention === true)
+}
+
+/** The existing summary already counts only questions, flags, urgent mail
+ * and mentions. Notice rows cover updates before their summary arrives. */
 export function needsTaskbarDot(feed: BadgeFeed): boolean {
-  if (feed.attentionTotal() > 0) return true
-  return feed.allNotices().some(notice => {
-    if (!notice || typeof notice !== 'object' || Array.isArray(notice)) return false
-    const kind = (notice as { kind?: unknown }).kind
-    return kind === 'routine' || kind === 'urgent-mail' || kind === 'terminal-failure'
-      || kind === 'question' || kind === 'work-attention' || kind === 'mention'
-  })
+  return feed.attentionTotal() > 0 || feed.allNotices().some(isTaskbarAttentionNotice)
 }
 
 /** Crop the existing tray dot to a centered 16px Windows overlay, retaining
@@ -63,7 +66,7 @@ export class TaskbarDot<Image> {
         || this.windows.get(window) === this.active) return
     try {
       const image = this.active ? (this.image ??= this.options.dot()) : null
-      window.setOverlayIcon(image, this.active ? 'Unread messages or items need your attention' : '')
+      window.setOverlayIcon(image, this.active ? 'Items need your attention' : '')
       this.windows.set(window, this.active)
     } catch {
       // A window may close between the destroyed check and the native write.

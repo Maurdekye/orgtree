@@ -18,8 +18,10 @@ const feed=(attention=0,notices=[])=>({attentionTotal:()=>attention,allNotices:(
 function window(){return {destroyed:false,calls:[],isDestroyed(){return this.destroyed},setOverlayIcon(image,description){this.calls.push({image,description})}}}
 function windowsDot(windows){let images=0;return {controller:new TaskbarDot({platform:'win32',windows:()=>windows,dot:()=>{images++;return 'dot'}}),images:()=>images}}
 
-test('ordinary unread user mail lights the dot without a notification preference',()=>{
-  for(const kind of ['routine','urgent-mail','terminal-failure'])assert.equal(needsTaskbarDot(feed(0,[{kind}])),true,kind)
+test('only urgent or mention-qualified mail lights the dot without a notification preference',()=>{
+  assert.equal(needsTaskbarDot(feed(0,[{kind:'urgent-mail'}])),true)
+  assert.equal(needsTaskbarDot(feed(0,[{kind:'terminal-failure',attention:true}])),true)
+  for(const kind of ['routine','terminal-failure'])assert.equal(needsTaskbarDot(feed(0,[{kind}])),false,kind)
 })
 test('existing questions docket attention and mention totals light the dot',()=>{
   assert.equal(needsTaskbarDot(feed(1)),true)
@@ -32,7 +34,7 @@ test('documents frozen agents malformed entries and an empty inventory do not in
 test('shared app feed notices in another active org count and trashed orgs stop counting',()=>{
   const state=new AppFeedState(),org={org_id:2,org_uuid:'uuid2',slug:'other',state:'active'}
   const registry={type:'registry_snapshot',epoch:'e',cursor:{app_uuid:'app',incarnation:'i',rev:1},records:[{entity:'registry_org',id:'2',body:org}]}
-  state.apply({type:'app_snapshot',epoch:'e',seq:1,registry,summaries:{},notices:{2:{type:'org_notices',epoch:'e',seq:1,org_id:2,org_uuid:'uuid2',incarnation:'i',rev:1,notices:[{kind:'routine'}]}},runtime:{values:{},orgs:{}}},true)
+  state.apply({type:'app_snapshot',epoch:'e',seq:1,registry,summaries:{},notices:{2:{type:'org_notices',epoch:'e',seq:1,org_id:2,org_uuid:'uuid2',incarnation:'i',rev:1,notices:[{kind:'urgent-mail'}]}},runtime:{values:{},orgs:{}}},true)
   assert.equal(needsTaskbarDot(state),true)
   state.apply({...registry,cursor:{...registry.cursor,rev:2},records:[{entity:'registry_org',id:'2',body:{...org,state:'trashed'}}]})
   assert.equal(needsTaskbarDot(state),false)

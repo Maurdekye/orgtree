@@ -17,6 +17,10 @@ test.after(() => rmSync(temp, { recursive: true, force: true }))
 const defaults = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
 const question = { id: 'opaque', org: 'org', kind: 'question', agent: 'writer',
   source_id: 'q42', title: 'Question from writer', body: 'Choose one' }
+test('native notice validation preserves only boolean mail attention qualification',()=>{
+  for(const attention of [false,true])assert.equal(notification({...question,attention}).attention,attention)
+  for(const attention of [1,'true',null])assert.throws(()=>notification({...question,attention}))
+})
 class Alert extends EventEmitter {
   closed = false
   show() {}

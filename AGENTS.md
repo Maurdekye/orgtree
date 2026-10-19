@@ -60,8 +60,13 @@
   `canvas/mail.tsx`, `main/mail-read-close.ts`]
 
 
-- The persistent app-wide taskbar badge reads existing native app-feed unread
-  mail inventory and attention totals, independent of toast preferences/focus.
+- The persistent app-wide taskbar badge reads existing native app-feed attention
+  totals and qualifying notices: urgent mail, questions, ticket flags and mentions.
+  Ordinary unread mail and standalone failures do not count. Failure notices
+  retain the engine's existing urgent-or-mention `attention` flag; the badge
+  and menu share `isTaskbarAttentionNotice`. [decided: user 2026-10-19 16:51–16:55Z;
+  verified: `main/{taskbar-badge,jumplist}.ts`, `domain/notices.rs`]
+  These indicators are independent of toast preferences/focus.
   Windows uses an overlay, macOS a dock bullet, Linux its badge API. Update on
   feed change and attach new windows immediately; no new poll/counter. Existing
   per-org arrival pulses and tray attention count retain their policies. See
