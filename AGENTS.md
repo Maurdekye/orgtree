@@ -22,6 +22,12 @@
   compatible; there is no migration. [decided: user 2026-10-19 20:56Z;
   verified: `canvas/langserver.tsx`, `providers/catalog.rs`, `org_accounts.rs`]
 
+- Move notices dedupe recipients. Same-superior placement changes notify only
+  the moved agents; project moves aggregate their first agent frontier once per
+  recipient, with self/superior roles before peers. Placement and group names
+  stay in the existing event tail. [verified: `domain/lifecycle.rs`,
+  `runtime/event_text.rs`, rig `project-move-notices.mjs`; 2026-10-19]
+
 - Project policy (settings, Summary, name, order and queue purge) changes require
   the user or a strict agent ancestor. Members retain project reads, mail/inbox,
   queue/slot/listener use, their own lease, events, documents, folders and dead

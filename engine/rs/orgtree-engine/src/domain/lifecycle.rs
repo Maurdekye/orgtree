@@ -52,20 +52,51 @@ async fn store(tx: &Transaction<'_>, org: i64, recipient: i64, by: &str, ev: Val
     Ok((changed>0).then_some(recipient))
 }
 
+/// One passive move notice per recipient, even when a project moves many
+/// first agents. Co-moved agents keep their self role; superior roles take
+/// precedence over peer roles when the two families overlap.
+#[logged]
+async fn moved(tx: &Transaction<'_>, org: i64, by: &str, id: i64, n: &Seat, d: &Value) -> Result<Vec<i64>> {
+    let ids=if n.project { siblings(tx,org,Some(id),id).await? } else { vec![id] };
+    if ids.is_empty() { return Ok(Vec::new()); }
+    let mut seats=Vec::new();
+    for id in &ids { seats.push(seat(tx,*id).await?); }
+    let seat_index:std::collections::HashMap<_,_>=ids.iter().enumerate().map(|(i,id)|(*id,i)).collect();
+    let old=d["old_superior_id"].as_i64();
+    let old_name=match old {Some(id)=>Some(seat(tx,id).await?.name),None=>None};
+    let from=match d["old_parent_id"].as_i64() {Some(id)=>seat(tx,id).await?.name,None=>"the user".into()};
+    let to=d["to"].as_str().unwrap_or("the user");
+    let names=seats.iter().map(|s|format!("\"{}\"",s.name)).collect::<Vec<_>>().join(", ");
+    // Keep the existing event schema: tail carries structural placement and
+    // the complete frontier list, rather than adding unrecognized event keys.
+    let tail=if n.project {format!(" Project \"{}\" moved from {from} to {to}. Moved agents: {names}.",n.name)}
+        else {format!(" Placement changed from {from} to {to}.")};
+    let mut targets:Vec<(i64,String)>=ids.iter().map(|id|(*id,"self".into())).collect();
+    if old!=n.parent {
+        if let Some(id)=old {targets.push((id,"old_parent".into()));}
+        if let Some(id)=n.parent {targets.push((id,"new_parent".into()));}
+        targets.extend(siblings(tx,org,old,id).await?.into_iter().map(|id|(id,"old_peer".into())));
+        targets.extend(siblings(tx,org,n.parent,id).await?.into_iter().map(|id|(id,"new_peer".into())));
+    }
+    let slug:String=tx.query_one("SELECT slug FROM ot.orgs WHERE id=$1", &[&org]).await?.get(0);
+    let mut seen=std::collections::HashSet::new();
+    let mut changed=Vec::new();
+    for (target,role) in targets {
+        if !seen.insert(target) {continue;}
+        let seat=&seats[seat_index.get(&target).copied().unwrap_or(0)];
+        let ev=crate::events::typed("lifecycle.moved",by,crate::events::node_ref(&slug,&seat.name,seat.generation as i64),
+            json!({"node":seat.name,"from_parent":old_name,"to_parent":n.parent_name,"role":role,"by":by,"tail":tail}));
+        let body=crate::runtime::event_text::render_agent(&ev).unwrap_or_else(||tail.clone());
+        if let Some(id)=store(tx,org,target,by,ev,&body).await? {changed.push(id);}
+    }
+    Ok(changed)
+}
+
 #[logged]
 pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject: Option<i64>, d: &Value) -> Result<Vec<i64>> {
     let Some(id) = subject else { return Ok(Vec::new()) };
     let n = seat(tx,id).await?;
-    if n.project && op=="move" {
-        // Moving a wrapper changes the superior of its first agents only. Keep
-        // the structural event on the project, but notify about those agents;
-        // reports below an agent still have the same superior after the move.
-        let mut changed=Vec::new();
-        for report in siblings(tx,org,Some(id),id).await? {
-            changed.extend(Box::pin(record(tx,org,op,by,Some(report),d)).await?);
-        }
-        return Ok(changed);
-    }
+    if op=="move" {return moved(tx,org,by,id,&n,d).await;}
     let slug: String = tx.query_one("SELECT slug FROM ot.orgs WHERE id=$1", &[&org]).await?.get(0);
     let object = crate::events::node_ref(&slug,&n.name,n.generation as i64);
     let mut targets: Vec<(i64,String)> = Vec::new();
@@ -92,11 +123,6 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             targets.push((id,"self".into()));
         }
         "switch_queued" | "switch_cancelled" | "switch_dropped" | "session_rebound" | "unstick" | "rename" | "retool" => targets.push((id,"self".into())),
-        "move" => {
-            targets=family(tx,org,d["old_superior_id"].as_i64(),id,"old_parent","old_peer").await?;
-            targets.extend(family(tx,org,n.parent,id,"new_parent","new_peer").await?);
-            targets.push((id,"self".into()));
-        }
         "swap" => {
             let bname=d["b"].as_str().unwrap_or("");
             let bid: i64=tx.query_one("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2", &[&org,&bname]).await?.get(0);
@@ -125,10 +151,9 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
         _ => return Ok(Vec::new()),
     }
     let mut changed=Vec::new();
+    let mut seen=std::collections::HashSet::new();
     for (target,role) in targets {
-        let old_parent = if op=="move" {
-            match d["old_superior_id"].as_i64() { Some(p)=>Some(seat(tx,p).await?.name),None=>None }
-        } else { None };
+        if !seen.insert(target) {continue;}
         let (variant,fields)=match op {
             "compacted" => ("lifecycle.compacted",json!({"node":n.name,"relation":role,"generation":n.generation,"predecessor":d["session"],"auto":d["auto"],"lost":true,"size_note":null})),
             "switch_queued" => ("lifecycle.switch_queued",json!({"node":n.name,"old":d["old"],"new":d["new"],"by":by})),
@@ -151,7 +176,6 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             "delete" => ("lifecycle.deleted",json!({"node":n.name,"relation":role,"extra":d["nodes"].as_i64().unwrap_or(1)-1})),
             "rename" => ("lifecycle.renamed",json!({"old":d["was"],"new":n.name,"by":by})),
             "cheap_compact" => ("lifecycle.cheap_compacted",json!({"node":n.name,"relation":role,"by":by,"predecessor":d["old_session"],"team_note":null,"request_note":null})),
-            "move" => ("lifecycle.moved",json!({"node":n.name,"from_parent":old_parent,"to_parent":n.parent_name,"role":role,"by":by,"tail":null})),
             "switch_model" => {
                 let old=d["from"].as_str().unwrap_or("");
                 let old_provider=crate::providers::catalog::provider_of(old);

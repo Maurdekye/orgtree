@@ -1599,25 +1599,28 @@ and mailbox are unchanged."
 #[nolog]
 fn r_moved(ev: &Value) -> Option<String> {
     let by = f(ev, "by")?;
-    let who = who(&by);
-    let wc = who_cap(&by);
+    // These notices are addressed to agents, so @user means "the user", not "you".
+    let who = if by==USER {"the user".to_string()} else {by.clone()};
+    let wc = if by==USER {"The user".to_string()} else {by.clone()};
     let tail = or_str(opt(ev, "tail"), "");
     let frm = or_str(opt(ev, "from_parent"), "the top level");
     let to = or_str(opt(ev, "to_parent"), "the top level");
     let node = f(ev, "node")?;
     let role = req(ev, "role")?;
-    Some(if is(role, "old_parent") {
+    Some(if ev["from_parent"]==ev["to_parent"] {
+        format!("{wc} changed your placement. You still report to {to}.{tail}")
+    } else if is(role, "old_parent") {
         format!("{wc} moved your report \"{node}\" away — it now reports to {to}.{tail}")
     } else if is(role, "old_peer") {
-        format!("Your peer \"{node}\" was moved by {who} to under {to}.{tail}")
+        format!("\"{node}\" was moved by {who} and now reports to {to}.{tail}")
     } else if is(role, "new_parent") {
         format!("{wc} moved \"{node}\" (from {frm}) to report to you.{tail}")
     } else if is(role, "new_peer") {
-        format!("\"{node}\" joined your team (moved by {who} from {frm}).{tail}")
+        format!("\"{node}\" now shares your agent superior (moved by {who} from {frm}).{tail}")
     } else {
         format!(
             "{wc} moved you: you now report to {to} (you were \
-under {frm}). Your entire suborganization moved with you."
+under {frm}). Your entire suborganization moved with you.{tail}"
         )
     })
 }
