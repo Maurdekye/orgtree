@@ -19,8 +19,20 @@ app.whenReady().then(async()=>{
     for(const link of links){assert.equal(link.border,card.border);assert.equal(link.style,card.style);assert.equal(link.width,card.width);assert.equal(link.glyph,card.glyph);assert.equal(link.org,'fixture');assert.equal(link.once,s.once);if(s.kind==='listener_watch'&&s.once)assert.match(link.shadow,/inset/)}
     assert.equal(card.style,s.once?'dashed':s.kind==='listener_watch'?'double':'solid')
    },s)
+   for(let i=1;i<states.length;i+=2){
+    const hovered=[]
+    for(const selector of ['.desk-sample .watchdog-link','.tool-sample .watchdog-link']){
+     const point=await win.webContents.executeJavaScript(`(()=>{const el=document.querySelectorAll('.link-sample')[${i}].querySelector(${JSON.stringify(selector)}),r=el.getBoundingClientRect();return{x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()`)
+     win.webContents.sendInputEvent({type:'mouseMove',...point});await wait(win)
+     hovered.push(await win.webContents.executeJavaScript(`(()=>{const el=document.querySelectorAll('.link-sample')[${i}].querySelector(${JSON.stringify(selector)}),s=getComputedStyle(el);return{hover:el.matches(':hover'),border:s.borderColor,style:s.borderStyle}})()`))
+    }
+    check(theme+'-'+states[i].kind+'-once-hover',()=>{for(const h of hovered){assert.equal(h.hover,true);assert.equal(h.border,states[i].styles[0].border);assert.equal(h.style,'dashed')}},hovered)
+   }
+   win.webContents.sendInputEvent({type:'mouseMove',x:0,y:0});await wait(win)
    const mail=await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#mail-listener-sample .watchdog-link')).map(el=>({kind:el.classList.contains('fair-queue'),once:el.classList.contains('oneshot'),style:getComputedStyle(el).borderStyle}))`)
    check(theme+'-mail-listener-links',()=>{assert.equal(mail.length,2);assert.ok(mail.every(m=>m.kind));assert.deepEqual(mail.map(m=>m.style),['solid','dashed'])},mail)
+   const modeWords=await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#mail-listener-sample .listener-dog-cell > .dim')).map(el=>el.textContent)`)
+   check(theme+'-no-mail-mode-word',()=>assert.equal(modeWords.some(s=>/one-shot|continuous/.test(s)),false),modeWords)
    const unknown=await win.webContents.executeJavaScript(`(()=>{const el=document.querySelector('#unknown-link .watchdog-link');return{tag:el.tagName,cls:el.className,disabled:el.getAttribute('aria-disabled'),title:el.title}})()`)
    check(theme+'-unknown-neutral',()=>{assert.equal(unknown.tag,'SPAN');assert.equal(unknown.disabled,'true');assert.doesNotMatch(unknown.cls,/listener-watch|fair-queue|oneshot/);assert.match(unknown.title,/kind and mode unknown/)},unknown)
    const bounds=await win.webContents.executeJavaScript(`(()=>{const rects=Array.from(document.querySelectorAll('.link-sample > *, #unknown-link .watchdog-link, #mail-listener-sample table')).map(el=>el.getBoundingClientRect());return{bottom:Math.max(...rects.map(r=>r.bottom)),height:innerHeight,width:Math.max(...rects.map(r=>r.right)),viewport:innerWidth}})()`)
@@ -30,5 +42,5 @@ app.whenReady().then(async()=>{
   const action=await win.webContents.executeJavaScript(`(()=>{const el=document.querySelector('.tool-sample .watchdog-link');el.click();return{expected:el.dataset.objectId,opened:window.fixtureOpened}})()`)
   check('tool-link-opens-real-dog',()=>assert.deepEqual(action.opened,[action.expected]),action)
  }finally{win.destroy()}
- const receipt={tests:cases.length,passed:cases.filter(c=>c.passed).length,failed:cases.filter(c=>!c.passed).length,cases};fs.writeFileSync(path.join(out,'capture.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));assert.equal(receipt.tests,35);assert.equal(receipt.failed,0)
+ const receipt={tests:cases.length,passed:cases.filter(c=>c.passed).length,failed:cases.filter(c=>!c.passed).length,cases};fs.writeFileSync(path.join(out,'capture.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));assert.equal(receipt.tests,51);assert.equal(receipt.failed,0)
 }).then(()=>app.exit(0),e=>{console.error(e.stack||e);app.exit(1)})

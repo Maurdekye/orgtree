@@ -6,6 +6,9 @@ import { ToolRefs } from '../src/canvas/toolrefs'
 import type { Watchdog } from '../src/types'
 import { WatchdogLink } from '../src/canvas/watchdoglink'
 import { WatchdogSatellite } from '../src/canvas/watchdogchip'
+import { MailListenersView } from '../src/canvas/maillisteners'
+import { mailListenerState } from '../src/canvas/listeners'
+import type { CanvasNode } from '../src/canvas/shared'
 
 const dog: Watchdog = {id:'worker/watch',owner:'worker',name:'watch',kind:'listener_watch',target:'build',count:2,
   once:true,state:'armed',at:'2026-10-19T00:00:00Z',fired:0,interval_s:30}
@@ -70,4 +73,15 @@ test('at the watchdog destination the chip keeps its menu without reopening the 
   assert.equal(chip.tagName,'SPAN')
   assert.equal(chip.getAttribute('data-object-id'),dog.id)
   await inAct(async()=>chip.click())
+})
+
+test('mail listener mode is conveyed by the chip and tooltip without a trailing mode word',async t=>{
+  const w={...dog,kind:'fair_queue' as const}
+  const v=await mountView(<MailListenersView node={{id:'build',state:'live'} as CanvasNode}
+    state={mailListenerState('build',[w])} map={new Map()} rows={[]} ack={false}/>,el=>el)
+  t.after(()=>v.unmount())
+  const cell=v.el.querySelector('.listener-dog-cell')!
+  assert.ok(!!cell.querySelector('.watchdog-link.oneshot'))
+  assert.equal(cell.querySelector('.dim')===null,true,'no duplicate mode word beside the chip')
+  assert.match(cell.querySelector('.watchdog-link')!.getAttribute('title')??'',/fires once/)
 })
