@@ -27,6 +27,10 @@
   Near-card text wraps within the card, including large counts; the tooltip
   retains complete wording. [decided: user 2026-10-19 18:57Z; verified:
   `canvas/{listeners,projectcard,projectdesk}.tsx`, `styles.css`]
+- Near-card status badges use compact bounded wrapping so max-capacity slots,
+  event listeners and long mail counts fit the fixed 124px card together.
+  Inactive desk mail cards explicitly override generic button backgrounds.
+  [verified: `styles.css`, `tests/project-mail-state-capture.cjs`; 2026-10-19]
 
 - Attention list rows toggle off on a second click; Escape clears when the
   list itself has focus. A reader-cleared pane stays empty through refreshes,
