@@ -724,11 +724,14 @@ export const familyOffer = (h: HireState | null | undefined): FamilyOffer =>
  *  Lived inline in OrgCanvas until D-202 gave a second and third surface the
  *  same question; one derivation, so no caller can decide `installed`
  *  differently from the hire strips. */
-export const hireOf = (p: ProviderInfo | null | undefined): HireState | null =>
+// Rust omits uninstalled harnesses. Only a completed discovery makes a missing
+// row positive absence; loading/failed/older payloads retain the unknown rule.
+export const hireOf = (p: ProviderInfo | null | undefined, absenceKnown = false): HireState | null =>
   (p ? { enabled: !!p.hire_enabled, installed: !!p.status?.installed,
          reason: p.reason, userEnabled: p.user_enabled,
          reserve: p.reserve ?? null,
-         offeredTiers: (p.tiers ?? []).map((t) => t.tier) } : null)
+         offeredTiers: (p.tiers ?? []).map((t) => t.tier) }
+    : absenceKnown ? { enabled: false, installed: false, reason: null } : null)
 
 /** Offer verdict for one Codex tier. A LEGACY token (gpt-reserve) is never
  *  offered — 'hide', unconditionally, whatever the payload says: it is not a

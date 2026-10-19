@@ -681,9 +681,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // "signed out" — hiding is reserved for the first (see `familyOffer`).
   // D-202 moved `hireOf` into shared.ts when the accounts panel and the two
   // dropdown surfaces started asking the same question.
-  const codexHire = hireOf(codexProvider)
-  const antigravityHire = hireOf(antigravityProvider)
-  const claudeHire = hireOf(claudeProvider)
+  const absenceKnown = providerPayload?.checking === false
+  const codexHire = hireOf(codexProvider, absenceKnown)
+  const antigravityHire = hireOf(antigravityProvider, absenceKnown)
+  const claudeHire = hireOf(claudeProvider, absenceKnown)
   const openrouterHire = hireOf(openrouterProvider)
   const langserverHire = hireOf(langserverProvider)
   // D-202: which families exist on this machine at all, for the surfaces that

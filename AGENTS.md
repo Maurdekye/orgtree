@@ -2760,6 +2760,12 @@ rulings go here and on their ticket.
   2026-10-14 the port never filled `agy_models`, so none was ever offered. Rig:
   `fakecli/agy-models.txt`. [verified: `providers/agy_models.rs`,
   `tools/rig/proofs/agy-conditional-tiers.mjs`]
+- Hire tokens treat a missing Claude/Codex/Antigravity row as absent only after
+  `/api/providers` reports `checking: false`: Rust omits uninstalled harnesses.
+  Canvas strips/menus and Quick chat share `hireOf`'s absence gate; unresolved,
+  checking or older payloads stay unknown. Muse's catalog gate is unchanged.
+  [decided: user 2026-10-19 10:21-10:26Z; verified: `canvas/shared.ts`,
+  `canvas/OrgCanvas.tsx`, `QuickChatBox.tsx`, `tests/freshhire.test.tsx`]
 - A provider that is not installed is absent from the UI; installed but signed out shows
   greyed hire tokens; a disabled provider refuses new hires while live agents keep running.
   Legacy models (Terra, Gemini Pro) appear only with "Show legacy models". [decided: user
