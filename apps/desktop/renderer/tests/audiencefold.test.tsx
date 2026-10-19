@@ -102,3 +102,26 @@ uiTest('§4 CONTROL: replacing 8 with 7 makes the folded-state witness go false'
     assert.equal(chips(el).length, AUDIENCE_FOLD_LIMIT - 1,
       'and the control case proves the chip counter can be non-zero')
   })
+
+uiTest('§5 org inbox holders use the labeled audience-holder chips from Your inbox',
+  async (mount) => {
+    const map = new Map<string, CanvasNode>([['holder1', {
+      id: 'holder1', state: 'live', tier: 'sol',
+    } as CanvasNode]])
+    const { el } = await mount(<OrgInboxModal inbox={inbox(1)} map={map}
+      slug="mine" toast={noop} close={noop} />)
+    await flush()
+    const label = [...el.querySelectorAll('.field-label')]
+      .find((item) => item.textContent?.trim() === 'audience holders')
+    assert.ok(label, 'org inbox holders have the same visible label as Your inbox')
+    const row = el.querySelector('.aud-holders-row')
+    assert.ok(row, 'holders render in the shared compact row')
+    const chip = row.querySelector('.aud-badge')
+    assert.ok(chip, 'each holder uses the shared pill styling')
+    assert.equal(chip.querySelector('.tier')?.textContent, 'S',
+      'the holder pill shows its agent tier')
+    assert.equal(chip.querySelector('.cc-name')?.textContent, 'holder1',
+      'the holder name uses the same identity renderer as Your inbox')
+    assert.equal(chip.querySelector('.chip-x')?.getAttribute('title'),
+      'revoke this inbox audience', 'the existing remove affordance remains available')
+  })
