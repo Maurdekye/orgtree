@@ -24,6 +24,14 @@ export default async function(rig) {
       p.check(`${op}: ${name} sees project wording without a false reporting role`,prompt.includes(`Project "workspace" was ${word} by the user.`)&&!/(?:report|peer) "workspace"/.test(prompt),prompt.slice(-5000))
     }
   }
+  await rig.op({op:'hire',name:'funded',parent:'boss',tier:'sol',grant:20})
+  await rig.op({op:'create_project',name:'funded-project',parent:'funded'})
+  await rig.op({op:'hire',name:'funded-child',parent:'funded-project',tier:'sol',grant:3})
+  const since=rig.one('SELECT coalesce(max(id),0)::bigint AS id FROM ot.mail').id
+  await rig.op({op:'reallocate',node:'funded',delta:1})
+  const expected=rig.one("SELECT ((SELECT grant_credits FROM ot.agents WHERE name='funded')-(SELECT seat+grant_credits FROM ot.agents WHERE name='funded-child'))::float8 AS free").free
+  const notices=rig.sql(`SELECT ev FROM ot.mail WHERE id>${since} AND ev->>'variant'='access.grant_changed'`)
+  p.check('credit notices subtract report holdings through projects',notices.length===2&&notices.every(r=>r.ev.free===expected),{notices,expected})
   // Agent actions do not add user history, leaving the original hire undoable.
   const hire=await rig.op({op:'hire',name:'new-manager',parent:'boss',tier:'sol',grant:0})
   const created=await rig.tool('new-manager','orgtree_project',{action:'create',name:'empty-child',index:0})
