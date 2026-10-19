@@ -6,7 +6,7 @@ import { compatibilityWorkFixture } from './workcompat.fixture'
 export const org = 'attention-deselect'
 export const mention: MailEntry = { id:'mention-mail', from:'writer', kind:'message',
   at:'2026-10-19T18:42:00Z', body:'Please review this result, @user.', mailbox_attention:true }
-export const urgent: MailEntry = { ...mention, id:'urgent-mail', body:'Please review the urgent result.',
+export const urgent: MailEntry = { ...mention, id:'urgent-mail', at:'2026-10-19T18:42:01Z', body:'Please review the urgent result.',
   mailbox_attention:false, urgent:true, urgent_reason:'Review needed' }
 export const remaining: MailEntry = { ...urgent, id:'remaining', at:'2026-10-19T18:40:00Z', body:'Another unread request.' }
 export const question: AskInfo = { id:'question', node:'writer', kind:'question', status:'open',
