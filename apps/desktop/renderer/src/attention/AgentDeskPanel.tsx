@@ -33,7 +33,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { ChevronLeftIcon, ViewListIcon } from '../icons'
 import type { ToastFn, TreePayload } from '../types'
-import { DRAFT, providerOf, USER, useEsc } from '../canvas/shared'
+import { DRAFT, isTopLevel, providerOf, USER, useEsc } from '../canvas/shared'
 import { setButtonAgent } from '../buttoncolours'
 import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
 import { DeskSlot } from '../canvas/deskhosts'
@@ -130,8 +130,8 @@ export function agentRows(
 export function defaultAgent(
   map: Map<string, CanvasNode>, posOf?: (id: string) => Pt | undefined,
 ): string | null {
-  const rows = agentRows(map, posOf)
-  return rows.find((r) => r.depth === 0)?.node.id ?? rows[0]?.node.id ?? null
+  const rows = agentRows(map, posOf).filter((r) => r.node.kind !== 'project')
+  return rows.find((r) => isTopLevel(r.node, map))?.node.id ?? rows[0]?.node.id ?? null
 }
 
 /** How far past the drawer the pointer may go before it closes: this much of

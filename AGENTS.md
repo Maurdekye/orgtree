@@ -3,6 +3,9 @@
   project hires use top-level defaults, user lines belong to agents, and
   retire-all targets the next agents without retiring placement projects.
   Team badges and peer-mail sibling policy still use physical children.
+  Default agent selection skips project rows and finds top-level agents through
+  projects; floating coworker cards omit project siblings. [verified:
+  `attention/AgentDeskPanel.tsx`, `canvas/OrgCanvas.tsx`; 2026-10-19]
   [decided: user/coordinator 2026-10-19; verified: `canvas/{shared,creditgrant,cards,agentmenu,modals}.ts*`]
 
 - Fast-mode hire/rehire/staff/retool fields share exact-model validation;

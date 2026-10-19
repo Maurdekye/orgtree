@@ -3297,7 +3297,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const edgeJumps = useMemo(() => {
     if (!focusId || compact) return []
     const me = map.get(focusId)
-    if (!me || me.id === USER || me.isBearerOf) return []
+    if (!me || me.id === USER || me.isBearerOf || me.kind === 'project') return []
     const vp = viewportRef.current?.getBoundingClientRect()
     if (!vp || !vp.width) return []
     // ⚠ 'blocked' = pins cover the viewport and `rect` is empty; placing
@@ -3311,7 +3311,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const sibs = peerOrder((map.get(me.parent ?? '')?.children ?? [])
       .map((c) => c.id)
       .filter((k) => k !== DRAFT && map.get(k)?.state === 'live'
-        && !map.get(k)?.isBearerOf && !hidden.has(k) && target.has(k)),
+        && !map.get(k)?.isBearerOf && map.get(k)?.kind !== 'project' && !hidden.has(k) && target.has(k)),
       target, chartLayout === 'circular')
     const at = sibs.indexOf(focusId)
     if (at < 0) return []
