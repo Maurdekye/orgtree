@@ -13,6 +13,7 @@
 //! inside `#[nolog]` functions. rumqttc's own `MqttOptions` Debug prints the
 //! password, so it never reaches a logged function.
 
+pub(crate) mod backoff;
 pub mod creds;
 pub mod render;
 pub mod seal;
@@ -82,22 +83,31 @@ pub fn parse_target(raw: &str) -> Result<Broker, String> {
     if rest.contains(['/', '?', '#']) {
         return Err("the broker URL takes no path, query or fragment: mqtt://host[:port] or mqtts://host[:port]".into());
     }
+    let (host, port) = host_port(rest, if tls { 8883 } else { 1883 }, USAGE, "an IPv6 broker address goes in brackets: mqtt://[::1]:1883")?;
+    Ok(Broker { tls, host, port })
+}
+
+/// A URL's `host[:port]` or `[v6][:port]`: the host in lower case (IPv6
+/// without its brackets) and the port, `default` when none is given. Shared
+/// with websocket targets (`crate::ws::parse_target`).
+#[logged]
+pub(crate) fn host_port(rest: &str, default: u16, usage: &str, unbracketed_v6: &str) -> Result<(String, u16), String> {
     if rest.is_empty() || rest.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err(USAGE.into());
+        return Err(usage.into());
     }
     let (host, port) = if let Some(v6) = rest.strip_prefix('[') {
-        let Some((h, after)) = v6.split_once(']') else { return Err(USAGE.into()) };
+        let Some((h, after)) = v6.split_once(']') else { return Err(usage.into()) };
         if h.parse::<std::net::Ipv6Addr>().is_err() {
             return Err(format!("{h} is not an IPv6 address"));
         }
         let port = match after {
             "" => None,
-            p => Some(p.strip_prefix(':').ok_or_else(|| USAGE.to_string())?),
+            p => Some(p.strip_prefix(':').ok_or_else(|| usage.to_string())?),
         };
         (h.to_ascii_lowercase(), port)
     } else {
         match rest.split_once(':') {
-            Some((_, p)) if p.contains(':') => return Err("an IPv6 broker address goes in brackets: mqtt://[::1]:1883".into()),
+            Some((_, p)) if p.contains(':') => return Err(unbracketed_v6.into()),
             Some((h, p)) => (h.to_ascii_lowercase(), Some(p)),
             None => (rest.to_ascii_lowercase(), None),
         }
@@ -106,10 +116,10 @@ pub fn parse_target(raw: &str) -> Result<Broker, String> {
         return Err(format!("{host} is not a host name or IP address"));
     }
     let port = match port {
-        None => if tls { 8883 } else { 1883 },
+        None => default,
         Some(p) => p.parse::<u16>().ok().filter(|p| *p > 0).ok_or_else(|| format!("{p} is not a port (1-65535)"))?,
     };
-    Ok(Broker { tls, host, port })
+    Ok((host, port))
 }
 
 #[nolog]
@@ -153,18 +163,19 @@ pub enum Delivery {
     Refused { filter: String },
 }
 
-/// A connection's state as its dogs see it.
+/// A connection's state as its dogs see it (websocket dogs' too, `crate::ws`).
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum State {
     /// The first attempt is under way.
     Connecting { since: DateTime<Utc> },
     Connected { since: DateTime<Utc> },
-    /// The network or the broker's service failed; retrying with backoff.
+    /// The network or the server's service failed; retrying with backoff.
     /// `since` is when the outage began, not the last attempt.
     Down { since: DateTime<Utc>, error: String, retry_at: DateTime<Utc> },
-    /// The broker or TLS refused this client: credentials, certificates,
-    /// client id or protocol. Retried slowly; resuming a dog retries now.
+    /// The server or TLS refused this client: credentials, certificates,
+    /// client id, protocol or (websocket) URL. Retried slowly; resuming a
+    /// dog retries now.
     Refused { since: DateTime<Utc>, error: String, retry_at: DateTime<Utc> },
 }
 
@@ -227,6 +238,15 @@ impl Default for Timing {
             jitter: true,
             dedupe: Duration::from_millis(200),
         }
+    }
+}
+
+#[logged]
+impl Timing {
+    /// The backoff part of these clocks.
+    #[nolog]
+    pub(crate) fn waits(&self) -> backoff::Waits<'_> {
+        backoff::Waits { net_first: self.net_first, net_max: self.net_max, refused: &self.refused, stable: self.stable, jitter: self.jitter }
     }
 }
 

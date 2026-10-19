@@ -12,13 +12,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use rand::Rng;
 use rumqttc::{AsyncClient, ConnectReturnCode, ConnectionError, Event, EventLoop, MqttOptions, Outgoing, Packet, QoS, StateError,
               SubscribeFilter, SubscribeReasonCode, Transport};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use super::backoff::Backoff;
 use super::{creds, topic, ConnKey, Delivery, Message, Snapshot, State, Tag, Timing, MAX_PACKET};
 
 /// Claims kept per connection before they are cleared (one per owner per transition).
@@ -205,7 +205,7 @@ impl Task {
                 End::Idle | End::Failed { .. } if self.subs.is_empty() => return,
                 End::Idle => {}
                 End::Failed { refused, error } => {
-                    let wait = self.backoff.failed(refused, &self.timing);
+                    let wait = self.backoff.failed(refused, &self.timing.waits());
                     self.failed(refused, error, wait);
                     if !self.wait(wait, cancel).await {
                         return;
@@ -460,44 +460,6 @@ impl Task {
             drop(cmd);
         }
         self.subs.clear();
-    }
-}
-
-/// Network and refusal backoff: a network failure doubles the wait up to
-/// `net_max` and starts over only after a connection stayed up `stable`;
-/// a refusal walks `refused` and starts over on the next accepted connect.
-#[derive(Default)]
-struct Backoff {
-    net: u32,
-    refused: u32,
-    connected_at: Option<Instant>,
-}
-
-#[logged]
-impl Backoff {
-    #[nolog]
-    fn connected(&mut self) {
-        self.connected_at = Some(Instant::now());
-        self.refused = 0;
-    }
-
-    #[nolog]
-    fn failed(&mut self, refused: bool, t: &Timing) -> Duration {
-        if let Some(at) = self.connected_at.take() {
-            if at.elapsed() >= t.stable {
-                self.net = 0;
-            }
-        }
-        let base = if refused {
-            let d = t.refused.get(self.refused as usize).or(t.refused.last()).copied().unwrap_or(Duration::from_secs(60));
-            self.refused = self.refused.saturating_add(1);
-            d
-        } else {
-            let d = t.net_first.saturating_mul(1u32 << self.net.min(16)).min(t.net_max);
-            self.net = self.net.saturating_add(1);
-            d
-        };
-        if t.jitter { base.mul_f64(rand::thread_rng().gen_range(0.8..1.2)) } else { base }
     }
 }
 

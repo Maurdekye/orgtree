@@ -36,35 +36,46 @@ pub fn message(m: &Message, budget: &mut usize) -> String {
     let n = m.payload.len();
     let mut out = format!("{}  {}  {n} byte{}{}", iso(m.at), clean(&m.topic, true), if n == 1 { "" } else { "s" },
                           if m.retained { " · retained" } else { "" });
-    match text(&m.payload) {
-        None => push(&mut out, "(binary payload: size only)"),
-        Some(t) if t.is_empty() => push(&mut out, "(empty payload)"),
-        Some(_) if *budget < MIN_ROOM => push(&mut out, "(payload not shown: this fire's 16 KB payload budget is used up)"),
+    body(&mut out, text(&m.payload).as_deref(), n, false, "payload", budget);
+    out
+}
+
+/// A message's text behind the gutter, under the header line already in
+/// `out`: at most [`PER_MESSAGE`] of it, within what is left of the fire's
+/// `budget`. `text` is already [`text`]-clean (None: binary, size only), `n`
+/// the message's true size in bytes, `partial` says the text came cut short
+/// (a websocket connection keeps only what a fire can show), and `what`
+/// names it in the notes ("payload", "message"). Shared with websocket fires.
+#[nolog]
+pub(crate) fn body(out: &mut String, text: Option<&str>, n: usize, partial: bool, what: &str, budget: &mut usize) {
+    match text {
+        None => push(out, &format!("(binary {what}: size only)")),
+        Some(t) if t.is_empty() => push(out, &format!("(empty {what})")),
+        Some(_) if *budget < MIN_ROOM => push(out, &format!("({what} not shown: this fire's 16 KB {what} budget is used up)")),
         Some(t) => {
             let room = PER_MESSAGE.min(*budget);
             let mut used = 0;
-            let mut cut = false;
+            let mut cut = partial;
             for line in t.split('\n') {
                 let cost = 1 + GUTTER.len() + line.len();
                 if used + cost > room {
                     let part = cap(line, room.saturating_sub(used + 1 + GUTTER.len()));
                     if !part.is_empty() {
-                        push(&mut out, part);
+                        push(out, part);
                         used += 1 + GUTTER.len() + part.len();
                     }
                     cut = true;
                     break;
                 }
-                push(&mut out, line);
+                push(out, line);
                 used += cost;
             }
             *budget -= used;
             if cut {
-                push(&mut out, &format!("… (payload cut here: {n} bytes in all)"));
+                push(out, &format!("… ({what} cut here: {n} bytes in all)"));
             }
         }
     }
-    out
 }
 
 /// A short form for the dog's event ring and `last_output`: topic and payload gist.
@@ -100,7 +111,7 @@ pub fn text(p: &[u8]) -> Option<String> {
 /// bidirectional overrides as `\u{…}` escapes, so a lone CR, an ANSI
 /// sequence or a direction override cannot rewrite what is displayed.
 #[nolog]
-fn clean(s: &str, one_line: bool) -> String {
+pub(crate) fn clean(s: &str, one_line: bool) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         let kept = (c == '\n' || c == '\t') && !one_line;
@@ -116,7 +127,7 @@ fn clean(s: &str, one_line: bool) -> String {
 
 /// The longest prefix of `s` within `max` bytes that ends on a character.
 #[nolog]
-fn cap(s: &str, max: usize) -> &str {
+pub(crate) fn cap(s: &str, max: usize) -> &str {
     if s.len() <= max {
         return s;
     }

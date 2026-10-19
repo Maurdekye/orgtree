@@ -281,7 +281,7 @@ fn read_file(path: &Path) -> Result<FileCreds, String> {
 
 /// A PEM file named by a credentials file: relative to its folder, inside it.
 #[nolog]
-fn read_near(dir: &Path, rel: &str, field: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn read_near(dir: &Path, rel: &str, field: &str) -> Result<Vec<u8>, String> {
     let p = Path::new(rel);
     if rel.trim().is_empty() || p.components().any(|c| matches!(c, Component::Prefix(_) | Component::RootDir)) {
         return Err(format!("{field} must be a path relative to the credentials file's folder"));
@@ -314,7 +314,7 @@ fn client_id(v: Option<&Value>) -> Result<Option<String>, String> {
 /// Name an unknown field only when it looks like a mistyped field name, so
 /// a secret pasted in as a key is never echoed.
 #[nolog]
-fn unknown_hint(k: &str) -> String {
+pub(crate) fn unknown_hint(k: &str) -> String {
     if !k.is_empty() && k.len() <= 24 && k.bytes().all(|b| b.is_ascii_lowercase() || b == b'_') {
         format!(" ({k:?})")
     } else {
@@ -323,7 +323,7 @@ fn unknown_hint(k: &str) -> String {
 }
 
 #[nolog]
-fn io_reason(e: &std::io::Error) -> String {
+pub(crate) fn io_reason(e: &std::io::Error) -> String {
     match e.kind() {
         std::io::ErrorKind::NotFound => "not found".into(),
         std::io::ErrorKind::PermissionDenied => "permission denied".into(),
