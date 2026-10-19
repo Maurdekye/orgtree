@@ -57,7 +57,20 @@ toml = "0.8"
 flate2 = "1"
 image = { version = "=0.25.9", default-features = false, features = ["png", "jpeg", "webp"] }
 png = "0.17"
+# MQTT watchdogs (src/mqtt, docs/rust-engine/mqtt-watchdogs.md): an MQTT 3.1.1
+# client over the engine's own rustls + ring. Default features stay off: the
+# defaults of rumqttc, rustls and tokio-rustls pull in aws-lc (a C/asm build).
+rumqttc = { version = "=0.25.1", default-features = false, features = ["use-rustls-no-provider"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+ring = "0.17"
 orgtree-logged = { path = "../orgtree-logged" }
+
+[dev-dependencies]
+# test certificates for the MQTT TLS tests (src/mqtt/testbroker.rs), on ring
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+# forwards rumqttc's `log` records into a test's captured engine log
+tracing-log = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
@@ -66,6 +79,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security_Authorization",
     "Win32_Security_Authentication_Identity",
     "Win32_Security_Credentials",
+    "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
     "Win32_System_JobObjects",

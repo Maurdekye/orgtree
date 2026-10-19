@@ -49,6 +49,7 @@ mod lsproxy;
 mod launch;
 mod mailhub;
 mod migrate;
+mod mqtt;
 mod net;
 mod openrouter;
 mod org_accounts;
