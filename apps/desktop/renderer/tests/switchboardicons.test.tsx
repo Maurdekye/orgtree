@@ -328,7 +328,10 @@ test('§1e Retire all agents asks first, and only then sends the one request '
   const g = globalThis as unknown as Record<string, unknown>
   const old = g.fetch
   g.fetch = (url: string, init?: RequestInit) => {
-    seen.push({ method: init?.method ?? 'GET',
+    const method = init?.method ?? 'GET'
+    // Opening the menu refreshes hire availability through an existing GET.
+    // This confirmation control observes writes, not that unrelated read.
+    if (method !== 'GET') seen.push({ method,
       path: new URL(String(url), 'http://localhost').pathname })
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve({ nodes: 3, freed: 9 }) })
@@ -344,7 +347,7 @@ test('§1e Retire all agents asks first, and only then sends the one request '
   const dialog = [...document.querySelectorAll('h3, .modal h3, .overlay h3')]
     .find((h) => /dissolve ALL agents/i.test(h.textContent ?? ''))
   assert.ok(dialog, 'no confirmation appeared before retiring every agent')
-  assert.equal(seen.length, 0, 'nothing may be sent before the user confirms')
+  assert.equal(seen.length, 0, 'no mutation may be sent before the user confirms')
 
   const confirm = [...document.querySelectorAll('button')]
     .find((b) => b.textContent?.trim() === 'dissolve all')
