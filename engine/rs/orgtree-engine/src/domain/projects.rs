@@ -12,12 +12,12 @@
 //!
 //! Its queue has a mode (user 2026-10-18 08:01Z), the project's
 //! `scope.mail_queue`: round-robin (the default) hands each mail out as soon
-//! as it arrives; ack mode gives each watcher ONE mail at a time, and no
-//! more until it acks it with a completion record, a reply to that mail sent
+//! as it arrives; ack mode caps unacked mails at each watcher's batch size
+//! (default one). Each mail needs its own completion record, a reply sent
 //! to the project's mailbox. An un-acked mail goes back to the front of the
 //! queue when its holder is retired, halted or stops watching.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -36,6 +36,12 @@ pub const TIER: &str = "project";
 const DISPATCH_BATCH: usize = 200;
 /// Fires a fair-queue dog keeps in its `events` ring (as the other kinds).
 const EVENTS_KEEP: i64 = 50;
+/// Maximum messages per listener in one committed assignment round.
+pub const MAX_QUEUE_BATCH: u64 = 20;
+#[nolog]
+pub fn batch_size(memo: &Value) -> usize {
+    memo["batch"].as_u64().filter(|n| (1..=MAX_QUEUE_BATCH).contains(n)).unwrap_or(1) as usize
+}
 /// `scope.mail_queue` values; absent reads as round-robin.
 pub const MODE_ROUND_ROBIN: &str = "round_robin";
 pub const MODE_ACK: &str = "ack";
@@ -186,6 +192,8 @@ pub struct Watcher {
     pub created_at: DateTime<Utc>,
     pub once: bool,
     pub notice: bool,
+    /// Remaining capacity in this assignment round (also bounded by unacked mail).
+    pub remaining: usize,
 }
 
 /// The one watcher a project's next mail goes to: the least recently woken
@@ -195,7 +203,7 @@ pub struct Watcher {
 /// filtered here: they stay eligible and read the mail when they next run.
 #[logged]
 pub fn pick(watchers: &[Watcher]) -> Option<&Watcher> {
-    watchers.iter().min_by_key(|w| (w.last_fired, w.created_at, w.row))
+    watchers.iter().filter(|w| w.remaining > 0).min_by_key(|w| (w.last_fired, w.created_at, w.row))
 }
 
 /// One mail the queue handed out.
@@ -219,8 +227,9 @@ struct Step {
     spent: bool,
 }
 
-/// Hand the project's waiting mail out: oldest first, one mail per short
-/// transaction, each to the one watcher `pick` names. Stops when no mail
+/// Hand the project's waiting mail out: oldest first, bounded assignment
+/// rounds committed before one wake per recipient. `pick` still deals each
+/// message separately, so larger batches do not skip other listeners. Stops when no mail
 /// waits or nobody eligible watches; the mail then waits in the project's
 /// mailbox until a `fair_queue` dog is armed. Runs when mail lands, when a
 /// fair-queue dog is armed (create, resume, rehire, engine start).
@@ -228,8 +237,11 @@ struct Step {
 pub async fn dispatch(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Vec<Handed>> {
     release_stale(engine, org_id, project).await?;
     let mut out = Vec::new();
-    for _ in 0..DISPATCH_BATCH {
-        let Some(step) = hand_one(engine, org_id, project).await? else { break };
+    while out.len() < DISPATCH_BATCH {
+        let steps = hand_batch(engine, org_id, project, (DISPATCH_BATCH - out.len()).min(64)).await?;
+        if steps.is_empty() { break; }
+        let mut wakes: HashMap<i64, bool> = HashMap::new();
+        for step in steps {
         if step.spent {
             crate::runtime::watchdogs::disarm(engine, step.dog_row);
         }
@@ -244,19 +256,23 @@ pub async fn dispatch(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
                 json!({ "agent_id": step.watcher_id, "mail_id": step.handed.copy }),
             )),
         ]);
-        if !step.notice {
-            crate::runtime::wake(engine, org_id, step.watcher_id);
-        } else if let Some(h) = engine.agents.get(step.watcher_id) {
+        *wakes.entry(step.watcher_id).or_default() |= !step.notice;
+        out.push(step.handed);
+        }
+        for (watcher, wake) in wakes {
+        if wake {
+            crate::runtime::wake(engine, org_id, watcher);
+        } else if let Some(h) = engine.agents.get(watcher) {
             // a running agent also receives notices at its next tool boundary
             h.send(crate::runtime::AgentMsg::Wake);
         }
-        out.push(step.handed);
+        }
     }
     Ok(out)
 }
 
 #[logged]
-async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Option<Step>> {
+async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usize) -> Result<Vec<Step>> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     // one dispatcher per project at a time: a row lock on this project only
@@ -265,27 +281,25 @@ async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Opt
         .query_opt("SELECT name, state, scope FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project])
         .await?
     else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     let pname: String = p.get(0);
     let ack = ack_mode(&p.get::<_, Value>(2));
     let skip_own = exclude_sender(&p.get::<_, Value>(2));
     if p.get::<_, String>(1) != "live" {
-        return Ok(None);
+        return Ok(Vec::new());
     }
     let rows = tx
         .query(
             &format!("SELECT w.id, w.uid, w.owner_agent_id, a.name, w.last_fired, w.created_at, w.once,
-                    coalesce((w.memo->>'notice')::boolean, false)
+                    coalesce((w.memo->>'notice')::boolean, false), w.memo,
+                    (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = $2
+                       AND (m.extra->'claimed'->>'by_id')::bigint = a.id AND {OUTSTANDING})
                FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
-                -- ack mode: a halted watcher, or one still holding an un-acked
-                -- mail from this project, is handed nothing
-                AND (NOT $3 OR (a.halt IS NULL AND NOT EXISTS (
-                     SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = $2
-                        AND (m.extra->'claimed'->>'by_id')::bigint = a.id AND {OUTSTANDING})))
-              ORDER BY w.id LIMIT 64"),
+                AND (NOT $3 OR a.halt IS NULL)
+              ORDER BY w.id LIMIT 64 FOR UPDATE OF w"),
             &[&org_id, &project, &ack],
         )
         .await?;
@@ -303,11 +317,12 @@ async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Opt
                 created_at: r.get(5),
                 once: r.get(6),
                 notice: r.get(7),
+                remaining: batch_size(&r.get::<_, Value>(8)).saturating_sub(if ack { r.get::<_, i64>(9) as usize } else { 0 }),
             });
         }
     }
     if eligible.is_empty() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
     // the oldest waiting mail a watcher can take. With the project's
     // exclude-sender setting on (user 2026-10-18 08:07Z-08:08Z; off by
@@ -321,13 +336,12 @@ async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Opt
             &[&project],
         )
         .await?;
-    let Some((m, w)) = waiting.iter().find_map(|m| {
+    let mut steps = Vec::new();
+    for m in &waiting {
+        if steps.len() == limit { break; }
         let sender: Option<i64> = m.get(3);
         let others: Vec<Watcher> = eligible.iter().filter(|w| !skip_own || Some(w.owner) != sender).cloned().collect();
-        pick(&others).cloned().map(|w| (m, w))
-    }) else {
-        return Ok(None);
-    };
+        let Some(w) = pick(&others).cloned() else { continue };
     let mail_id: i64 = m.get(0);
     let mail_uid: String = m.get(1);
     let body: String = m.get(7);
@@ -362,28 +376,38 @@ async fn hand_one(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Opt
     .await?;
     let sender: String = m.get(2);
     let ring = json!([{ "at": iso(Utc::now()), "gist": gist(&format!("mail from {sender}: {body}"), 200) }]);
-    let spent: bool = tx
+    let served: DateTime<Utc> = tx
         .query_one(
-            "UPDATE ot.watchdogs SET fired = fired + 1, last_fired = now(),
+            "UPDATE ot.watchdogs SET fired = fired + 1, last_fired = clock_timestamp(),
                     events = (SELECT coalesce(jsonb_agg(x ORDER BY n), '[]'::jsonb) FROM (
                         SELECT x, n FROM jsonb_array_elements(events || $2) WITH ORDINALITY AS e(x, n)
-                         ORDER BY n DESC LIMIT $3) s),
-                    spent_at = CASE WHEN once THEN now() ELSE spent_at END,
-                    state = CASE WHEN once THEN 'spent' ELSE state END
-              WHERE id = $1 RETURNING state = 'spent'",
+                         ORDER BY n DESC LIMIT $3) s)
+              WHERE id = $1 RETURNING last_fired",
             &[&w.row, &ring, &EVENTS_KEEP],
         )
         .await?
         .get(0);
-    tx.commit().await?;
-    Ok(Some(Step {
+    if let Some(next) = eligible.iter_mut().find(|next| next.row == w.row) {
+        next.remaining -= 1;
+        next.last_fired = Some(served);
+    }
+    steps.push(Step {
         handed: Handed { mail: mail_uid, copy, watcher: w.owner_name.clone(), dog: w.uid.clone() },
-        project: pname,
+        project: pname.clone(),
         watcher_id: w.owner,
         notice,
         dog_row: w.row,
-        spent,
-    }))
+        spent: w.once,
+    });
+    }
+    // A one-shot accepts its whole available batch; becoming spent is atomic
+    // with those copies, never after the first message of the batch.
+    let once: Vec<i64> = steps.iter().filter(|s| s.spent).map(|s| s.dog_row).collect();
+    if !once.is_empty() {
+        tx.execute("UPDATE ot.watchdogs SET state='spent', spent_at=now() WHERE id=ANY($1)", &[&once]).await?;
+    }
+    tx.commit().await?;
+    Ok(steps)
 }
 
 /// The project's waiting (unread) mail, newest first, for inspection by the
@@ -768,9 +792,9 @@ pub async fn mode_changed(engine: &Arc<Engine>, org_id: i64, project: i64, name:
         .collect();
     drop(client);
     let body = if ack {
-        format!("Project {name}'s mail queue is now in ACK MODE. Its fair queue hands you ONE mail at a time. When you have \
-                 finished one, ack it: orgtree_message to={name} reply_to=<the id of that mail> with a short completion record. \
-                 Until you do, the project hands you no more mail; the ack hands you the next one at once if any is waiting.")
+        format!("Project {name}'s mail queue is now in ACK MODE. Your listener's batch setting limits how many unacked mails you hold (default 1). \
+                 Finish and ack each mail individually: orgtree_message to={name} reply_to=<the id of that mail> with a short completion record. \
+                 Each ack frees one place and hands you waiting mail at once; abandonment returns only the unacked mails.")
     } else {
         format!("Project {name}'s mail queue is now ROUND-ROBIN: each mail goes out as soon as it arrives, and no ack is \
                  needed, including for mail you still hold from ack mode.")
@@ -921,12 +945,11 @@ pub async fn queue_state(client: &impl GenericClient, org_id: i64, project: i64,
     let rows = client
         .query(
             &format!("SELECT a.id, a.halt IS NOT NULL,
-                    EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = $2
-                             AND (m.extra->'claimed'->>'by_id')::bigint = a.id AND {OUTSTANDING})
-               FROM ot.agents a
-              WHERE a.state = 'live' AND a.kind = 'agent' AND a.id IN (
-                    SELECT w.owner_agent_id FROM ot.watchdogs w WHERE w.org_id = $1 AND w.kind = 'fair_queue'
-                       AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $2)
+                    (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = $2
+                             AND (m.extra->'claimed'->>'by_id')::bigint = a.id AND {OUTSTANDING}), w.memo
+               FROM ot.agents a JOIN ot.watchdogs w ON w.owner_agent_id = a.id
+              WHERE a.state = 'live' AND a.kind = 'agent' AND w.org_id = $1 AND w.kind = 'fair_queue'
+                AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $2
               ORDER BY a.id LIMIT 64"),
             &[&org_id, &project],
         )
@@ -941,7 +964,7 @@ pub async fn queue_state(client: &impl GenericClient, org_id: i64, project: i64,
         if ack {
             if r.get::<_, bool>(1) {
                 st.halted += 1;
-            } else if r.get::<_, bool>(2) {
+            } else if r.get::<_, i64>(2) as usize >= batch_size(&r.get::<_, Value>(3)) {
                 st.holding += 1;
             }
         }
@@ -1098,7 +1121,7 @@ mod tests {
 
     fn w(row: i64, last: Option<i64>, created: i64) -> Watcher {
         Watcher { row, uid: format!("q{row}"), owner: row * 10, owner_name: format!("a{row}"), last_fired: last.map(at),
-                  created_at: at(created), once: false, notice: false }
+                  created_at: at(created), once: false, notice: false, remaining: 1 }
     }
 
     #[test]

@@ -29,6 +29,14 @@
 
 # AGENTS.md — working on Orgtree
 
+- Fair-queue listeners accept `batch: 1..20` (default 1). Each bounded
+  assignment round commits before one wake per recipient; messages still
+  go to the least recently served listener with capacity. One-shots take
+  one available batch. ACK mode caps unacked mails at the batch size,
+  acknowledges each separately, and returns only unacked mail on abandonment.
+  `fired` stays a message count. [decided: user/coordinator 2026-10-19;
+  verified: `domain/projects.rs`, `runtime/watchdogs.rs`]
+
 - Inline ticket links in transcript tool calls use a thin inset left edge from
   the shared docket status palette. Exact current references refresh on the
   existing live-change epoch; captured transition labels remain historical.

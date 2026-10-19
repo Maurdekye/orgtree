@@ -684,8 +684,8 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
             // whether it must be acked, and how (user 2026-10-18 08:02Z)
             if m.via_project_ack {
                 b.push_str(&format!(" ACK MODE: when you have finished it, ack it with orgtree_message to={p} reply_to={} \
-                                     and a short completion record; project {p} hands you no more mail until you do, and \
-                                     the ack hands you the next one if any is waiting.", m.uid));
+                                     and a short completion record. Ack each mail separately; each ack frees one place in \
+                                     your listener's batch and hands you waiting mail if available.", m.uid));
             } else {
                 b.push_str(" No ack is needed.");
             }

@@ -33,6 +33,9 @@ pub fn view(w: &Value, owner: &str) -> Value {
     o.insert("owner".into(), json!(owner));
     o.insert("name".into(), w["name"].clone());
     o.insert("kind".into(), w["kind"].clone());
+    if w["kind"] == "fair_queue" {
+        o.insert("batch".into(), json!(crate::domain::projects::batch_size(&w["memo"])));
+    }
     o.insert("fire_mode".into(), w["fire_mode"].clone());
     if let Some(q) = w.get("quiet_period_s").filter(|v| !v.is_null()) {
         o.insert("quiet_period_s".into(), q.clone());

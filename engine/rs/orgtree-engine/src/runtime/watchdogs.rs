@@ -2003,7 +2003,17 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         refuse!(BadRequest, "count is only for a listener_watch watchdog: how many armed project listeners fire it");
     }
     let mut queue_project: Option<crate::domain::projects::Project> = None;
+    if let Some(batch) = args.get("batch").filter(|b| !b.is_null()) {
+        if kind != "fair_queue" {
+            refuse!(BadRequest, "batch is only for a fair_queue watchdog");
+        }
+        let Some(n) = batch.as_u64().filter(|n| (1..=crate::domain::projects::MAX_QUEUE_BATCH).contains(n)) else {
+            refuse!(BadRequest, "batch must be an integer from 1 to 20");
+        };
+        memo["batch"] = json!(n);
+    }
     if kind == "fair_queue" {
+        if memo.get("batch").is_none() { memo["batch"] = json!(1); }
         // one project's mailbox; only agents above or below it may claim its mail
         let Some(p) = crate::domain::projects::by_name(&**client, org_id, &target).await? else {
             refuse!(NotFound, "no project named {} to watch; fair_queue takes a project's name as target", target.trim_start_matches('@'));
@@ -2013,7 +2023,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         }
         crate::domain::projects::require_reach(&**client, owner, &p, "watch its mailbox").await?;
         // one listener per agent per project: a second dog adds no share of the queue
-        // (and, in ack mode, would never let the agent hold more than one job anyway)
+        // Its batch setting controls capacity, not duplicate registrations.
         if let Some(r) = client
             .query_opt(
                 "SELECT uid, state FROM ot.watchdogs WHERE kind = 'fair_queue' AND owner_agent_id = $1
@@ -2288,9 +2298,11 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     } else if let Some(s) = &slot_said {
         format!(". {s}")
     } else if kind == "fair_queue" {
-        ". Each mail entering the project's mailbox goes to exactly ONE of its fair_queue watchers, the least recently woken \
+        format!(". Batch limit {}: up to that many waiting mails arrive together, with one wake; it never waits for a full batch. \
+         Each mail entering the project's mailbox goes to exactly ONE of its fair_queue watchers, the least recently served \
          (busy, halted or frozen watchers stay in turn). The mail you are handed arrives as ordinary mail from its sender, \
-         marked as coming via the project; reply to the sender, not the project".to_string()
+         marked as coming via the project. ACK mode caps unacked mail at your batch limit and requires an ack for each mail; \
+         halted ACK listeners take no mail. Otherwise reply to the sender", crate::domain::projects::batch_size(&memo))
     } else if kind == "project_listener" {
         format!(". Each event fired on project {target} (orgtree_project action=fire_event) arrives as mail from \"{name}\"")
     } else if fire_mode == "silence" {
@@ -2545,6 +2557,7 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
             put("pattern", json!(d.pattern));
             put("threshold",d.memo["threshold"].clone());
             put("event_scope",d.memo["event_scope"].clone());
+            if d.kind == "fair_queue" { put("batch", json!(crate::domain::projects::batch_size(&d.memo))); }
             if let Some(config)=d.memo["usage"].as_object(){for (key,value) in config {put(key,value.clone());}}
             put("last_fired", json!(d.last_fired.map(iso)));
             put("last_check", json!(last_check.map(iso)));
