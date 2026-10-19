@@ -60,7 +60,7 @@ test('Appearance offers the exact four contrast choices independently of custom 
   } finally { await view.unmount(); stop(); localStorage.clear(); document.documentElement.classList.remove('mobile'); applyContrast('charcoal') }
 })
 
-test('Language Server provider ink and Gold preset agent text stay readable on dark and light surfaces', t => {
+test('Language model server provider ink and Gold preset agent text stay readable on dark and light surfaces', t => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   const style = document.createElement('style')
   style.textContent = css

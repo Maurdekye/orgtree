@@ -1,4 +1,4 @@
-// canvas/lsmodels.ts — a language server's models as the settings read them:
+// canvas/lsmodels.ts — a language model server's models as the settings read them:
 // window sizes, the window a model starts with, the 64K version an Ollama
 // model can get, its chip letter, and the window the server really runs it
 // with against the one agents are told (user 2026-10-10: the card showed
@@ -49,7 +49,7 @@ export const wantsVariant = (m: LangServerProbeModel, all: LangServerProbeModel[
   && !all.some((x) => x.id === variantName(m.id))
 
 /** a model's chip letter: the first letter of its first word, as the
- *  engine gives a language-server tier (catalog.rs `monogram`) */
+ *  engine gives a language model server tier (catalog.rs `monogram`) */
 export const monogram = (id: string): string =>
   (id.split(/[:\-_./ ]/).find((t) => t) ?? '?').charAt(0).toUpperCase() || '?'
 

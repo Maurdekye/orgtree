@@ -481,7 +481,7 @@ const OTHER_SURFACES: {
       map={new Map()} tree={ctree([])} scope={null} onSave={noop} close={close} /> },
   { name: 'OpenRouter models', kind: 'openrouter-picker', pinnable: false,
     render: (close) => <ModelPicker doc={ORDOC} busy={false} onToggle={noop} onClose={close} /> },
-  { name: 'Language Server models', kind: 'langserver-browser', pinnable: false,
+  { name: 'Language model server models', kind: 'langserver-browser', pinnable: false,
     render: (close) => <LangServerBrowser title="Models on Ollama" models={[{ id: 'qwen3.6:latest' }]} picked={{}}
       minContext={65536} defaultContext={65536} ollama busy={false} onPick={noop} onClose={close} /> },
   { name: 'add secondary account', kind: 'add-secondary-account', pinnable: false,

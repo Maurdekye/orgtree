@@ -1651,7 +1651,7 @@ export function TurnSlotQueuedBanner({ queued, live }: {
   </div>
 }
 
-/** A language server loading this turn's model before its CLI starts: a
+/** A language model server loading this turn's model before its CLI starts: a
  *  large model read from a slow disk takes minutes, and the desk says so
  *  rather than looking stuck (coordinator ruling 2026-10-10). */
 export function ModelLoadingBanner({ loading, live }: { loading?: string | null; live: boolean }) {
@@ -4650,13 +4650,13 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   // an OpenRouter favorite runs on the Claude Code harness, but its session
   // is a different NAMESPACE (another endpoint, another key — D-196 /
   // INV-003), so for resume purposes it is its own family; so is a model on
-  // one of the user's language servers (its own config folder and home)
+  // one of the user's language model servers (its own config folder and home)
   const famOf = (t: string) => CODEX_TIERS.includes(t) ? 'codex'
     : ANTIGRAVITY_TIERS.includes(t) ? 'antigravity'
       // a Muse session resumes only under Muse (session/resume)
       : MUSE_TIERS.includes(t) ? 'muse'
       : isOpenRouterTier(t) ? 'openrouter'
-        : isLangServerTier(t) ? 'language server' : 'claude'
+        : isLangServerTier(t) ? 'language model server' : 'claude'
   const providerKey = (t: string): keyof ProviderPresence => providerOf(t)
   const providerName = (t: string): string => PROVIDER_LABEL[providerOf(t)] ?? 'Claude'
   const rehireWhy = (t: string, bearerTier: string): string | null =>

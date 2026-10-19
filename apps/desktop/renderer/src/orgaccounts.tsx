@@ -1,6 +1,6 @@
 // Org settings › Accounts (docket per-org-account-allowlist-restrict-an-org-to-a-s,
 // user 2026-10-10): one checkbox per signed-in account — the default sign-ins,
-// registered logins, OpenRouter, each language server — and the org's agents
+// registered logins, OpenRouter, each language model server — and the org's agents
 // only ever run on the ticked ones. Everything is ticked by default, and a
 // newly signed-in account starts ticked (the org stores what it switched OFF).
 // The engine enforces it everywhere it picks an account; this only edits the
@@ -16,7 +16,7 @@ type ToastFn = (lines: string[]) => void
 const PROVIDERS: [string, string][] = [
   ['claude', 'Claude'], ['openai', 'Codex'], ['google', 'Antigravity'],
   ['muse', 'Muse'],
-  ['openrouter', 'OpenRouter'], ['langserver', 'Language servers'],
+  ['openrouter', 'OpenRouter'], ['langserver', 'Language model servers'],
 ]
 
 export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }) {
@@ -52,7 +52,8 @@ export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }
       .then((r) => {
         if (request !== generation.current) return
         setLanes(next)
-        toast(r.warnings?.length ? r.warnings : [`${id} ${allowed ? 'is used by this org again' : 'is no longer used by this org'}`])
+        const name = lane.provider === 'langserver' ? lane.label : id
+        toast(r.warnings?.length ? r.warnings : [`${name} ${allowed ? 'is used by this org again' : 'is no longer used by this org'}`])
       })
       .catch((e: Error) => { if (request === generation.current) toast([`error: ${e.message}`]) })
       .finally(() => {

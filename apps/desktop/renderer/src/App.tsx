@@ -2431,8 +2431,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
   for (const srv of (langServerDoc(langservers)?.servers ?? []).filter((x) => x.enabled)) {
     const offered = Object.values(srv.models).filter((m) => m.offered).map((m) => m.label)
     cards.push({ provider: 'langserver', lane: 'langserver:' + srv.id, node: <div className="usage-acct" key={'langserver:' + srv.id}>
-      <div className="usage-acct-head"><span className="usage-acct-who"><span className="acct-label">Language Server</span>
-        <span className="dim"> · {srv.label}</span></span></div>
+      <div className="usage-acct-head"><span className="usage-acct-who"><span className="acct-label">LM server: {srv.label}</span></span></div>
       <div className="dim">local · no usage limit · {srv.max_agents} agent{srv.max_agents === 1 ? '' : 's'} at once
         {offered.length ? ` · ${offered.join(', ')}` : ' · no model offered'}</div>
     </div> })

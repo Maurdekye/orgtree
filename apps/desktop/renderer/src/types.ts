@@ -553,7 +553,7 @@ export interface TreeNode {
    *  then. null/absent otherwise. The desk shows a banner pointing at the
    *  setting. */
   queued_for_slot?: TurnSlotQueued | null
-  /** Set while a language server loads this turn's model before its CLI
+  /** Set while a language model server loads this turn's model before its CLI
    *  starts ("loading model on Ollama"; coordinator ruling 2026-10-10): a
    *  model read from a slow disk can take minutes. null/absent otherwise. */
   loading_model?: string | null
@@ -1477,7 +1477,7 @@ export interface ProviderTier {
   accent?: string | null
   /** the display name without its `Vendor: ` prefix (`Claude Sonnet 5`) */
   name?: string
-  /** local server/provider name for a language-server model. */
+  /** local server/provider name for a language model server model. */
   server?: string
   /** the DISPLAY id — the model id without its vendor namespace
    *  (`claude-sonnet-5`), what every surface prints where it used to print
@@ -1586,7 +1586,7 @@ export interface HarnessInfo {
   installed: boolean
   /** Cached CLI discovery; older engines may omit it. */
   version?: string | null
-  /** chosen per OpenRouter key, language server and hire (else it runs its
+  /** chosen per OpenRouter key, language model server and hire (else it runs its
    *  own provider's agents only) */
   selectable: boolean
   providers: { id: string; label: string }[]
@@ -1625,7 +1625,7 @@ export interface OpenRouterHarness {
   /** the sentence to show when the control is not a live choice */
   explain: string
 }
-/** the Language Server lane (App settings › Providers › Language Server):
+/** the Language model server lane (App settings › Providers › Language model server):
  *  the user's own model servers, each driven by one installed harness.
  *  GET /api/langservers — secret-free: `key_set` says a key is stored. */
 export interface LangServerDoc {

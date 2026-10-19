@@ -682,7 +682,7 @@ interface SpawnChipsProps {
 }
 
 /** a hire badge's seat cost: `(-N)`, the user's own notation, and `(free)`
- *  for a tier that seats at no cost (a language server priced 0), never
+ *  for a tier that seats at no cost (a language model server priced 0), never
  *  `(-0)` (coordinator ruling 2026-10-10) */
 const costBadge = (seat: number): string => {
   const n = fmtCredits(seat)
@@ -828,9 +828,9 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
   // were written into TIER_LETTER by the same call.
   fam('openrouter', openrouterTierIds(), TIER_LETTER, 'OpenRouter',
       openrouterHire, (t) => seats[t] ?? anyTierSeat(t))
-  // the Language Server family: the models offered on the user's own servers,
+  // the Language model server family: the models offered on the user's own servers,
   // from the registry the same payload fills
-  fam('langserver', langserverTierIds(), TIER_LETTER, 'Language servers',
+  fam('langserver', langserverTierIds(), TIER_LETTER, 'Language model servers',
       langserverHire, (t) => seats[t] ?? anyTierSeat(t))
   fams.sort((a, b) => b.tiers.length - a.tiers.length)   // inward-first
   const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire]

@@ -1,4 +1,4 @@
-// App settings → Providers → Language Server (user 2026-10-10, batch 2):
+// App settings → Providers → Language model server (user 2026-10-10, batch 2):
 // a server is one read-only line until ✎ (the OpenRouter key row's shape,
 // its offered models as chips), ✎ is a draft that Save sends and Cancel
 // drops, the models are chosen in a browser that holds hundreds, and the
@@ -209,7 +209,7 @@ test('§3 the browser holds 302 models: offered ones pinned first, 25 a page, se
   try {
     await click(view.el.querySelector('.ls-server-row button[title="edit this server"]'))
     await click(document.querySelector('.ls-edit .ls-favs'))
-    const dialog = document.querySelector('[aria-label="Language Server model selection"]')!
+    const dialog = document.querySelector('[aria-label="Language model server model selection"]')!
     assert.ok(dialog, 'the browser opens')
     assert.ok(seen.some((r) => r.path === '/api/langservers/probe' && r.body && !('only' in r.body)), 'the whole list is asked for')
     const h3 = () => dialog.querySelector('h3')?.textContent
@@ -272,7 +272,7 @@ test('§4 a click on a chip withdraws its model at once, and a second click offe
     assert.deepEqual(pressed(view.el), [[LATEST, 'false'], [V64, 'true']], 'withdrawn: dimmed, in its place')
     assert.deepEqual(toasts.at(-1), [`${LATEST} is withdrawn: no new hires on it; agents already on it keep running`])
     assert.equal(document.querySelector('.ls-edit'), null, 'no edit form')
-    assert.equal(document.querySelector('[aria-label="Language Server model selection"]'), null, 'no browser')
+    assert.equal(document.querySelector('[aria-label="Language model server model selection"]'), null, 'no browser')
     const digest = [...view.el.querySelectorAll('.acct-provenance span')].map((x) => x.textContent)
     assert.ok(digest.includes('1 model'), digest.join(' | '))
     await click(chipNamed(view.el, LATEST))
@@ -348,7 +348,7 @@ test('§8 "+" opens the browser saving at once: an offer when clicked, a window 
   const view = await mountSection(toasts)
   try {
     await click(view.el.querySelector('.ls-toggles .orr-more'))
-    const dialog = document.querySelector('[aria-label="Language Server model selection"]')!
+    const dialog = document.querySelector('[aria-label="Language model server model selection"]')!
     assert.ok(dialog, 'the browser opens')
     assert.equal(document.querySelector('.ls-edit'), null, 'without the edit form')
     const h3 = () => dialog.querySelector('h3')?.textContent
@@ -374,7 +374,7 @@ test('§8 "+" opens the browser saving at once: an offer when clicked, a window 
     await click(dialog.querySelector(`.orr-selected button[aria-label="withdraw ${LATEST}"]`))
     assert.deepEqual(patches()[3], { models: [{ id: LATEST, offered: false }] })
     await click([...dialog.querySelectorAll('.orr-pager button')].find((b) => b.textContent === 'done'))
-    assert.equal(document.querySelector('[aria-label="Language Server model selection"]'), null, 'done closes it')
+    assert.equal(document.querySelector('[aria-label="Language model server model selection"]'), null, 'done closes it')
     assert.deepEqual(pressed(view.el), [['model-000:7b', 'true'], [LATEST, 'false'], [V64, 'true']], 'the card follows')
   } finally { await view.unmount(); delete g.fetch }
 })
@@ -385,7 +385,7 @@ test('add dialog: adding a server opens a separate dialog; Cancel discards and S
   stubFetch(seen)
   const view = await mountSection([])
   const add = () => view.el.querySelector('button[title^="add a model server"]')
-  const dialog = () => document.querySelector('[role="dialog"][aria-label="Add language server"]')
+  const dialog = () => document.querySelector('[role="dialog"][aria-label="Add language model server"]')
   try {
     assert.equal(dialog(), null)
     await click(add())
@@ -417,9 +417,9 @@ test('nested dialogs: Escape closes the model picker before the edit dialog and 
     await click(view.el.querySelector('.ls-server-row button[title="edit this server"]'))
     await typeInto(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!, '7')
     await click(document.querySelector('.ls-edit .ls-favs'))
-    assert.ok(document.querySelector('[aria-label="Language Server model selection"]'))
+    assert.ok(document.querySelector('[aria-label="Language model server model selection"]'))
     await escape()
-    assert.equal(document.querySelector('[aria-label="Language Server model selection"]'), null)
+    assert.equal(document.querySelector('[aria-label="Language model server model selection"]'), null)
     assert.equal(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!.value, '7')
     await escape()
     assert.equal(document.querySelector('.provider-dialog'), null)
@@ -487,7 +487,7 @@ test('direct server switch changes only that server enabled flag and preserves c
 // user 2026-10-14: "this enabled checkbox should be inline in the panel, like
 // the other providers, and it should say active". An OpenRouter key's switch
 // (KeyActive) and an account's sit INSIDE the row's panel and read "Active";
-// a language server's sat below its card and read "Enabled".
+// a language model server's sat below its card and read "Enabled".
 test('a server\'s switch reads "Active" and sits inside its panel, like an OpenRouter key\'s', async () => {
   const seen: Seen[] = []
   stubFetch(seen, { second: true, keySet: true })
@@ -529,7 +529,7 @@ test('add dialog harness: installed first, a separator, the not-installed one gr
   const view = await mountSection([])
   try {
     await click(view.el.querySelector('button[title^="add a model server"]'))
-    const dialog = document.querySelector('[role="dialog"][aria-label="Add language server"]')!
+    const dialog = document.querySelector('[role="dialog"][aria-label="Add language model server"]')!
     const sel = dialog.querySelector<HTMLSelectElement>('select[aria-label="harness"]')!
     const opts = [...sel.querySelectorAll('option')]
     assert.deepEqual(opts.map((o) => o.value), ['codex-cli', HARNESS_SEPARATOR, 'claude-code'])

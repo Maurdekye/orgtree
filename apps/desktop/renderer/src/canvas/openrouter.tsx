@@ -16,7 +16,7 @@ import { useAppValue } from '../appfeed'
 //
 // THE ROW'S CHIPS SWITCH (user 2026-10-10, "i should be able to click to
 // change the models available without editing the entry", for OpenRouter and
-// the language servers alike): the row is no longer one button. Each
+// the language model servers alike): the row is no longer one button. Each
 // favorite is a chip (card and name) that a click deselects at once; it stays
 // in its place, dimmed, until the section closes, so a second click selects
 // it again. The last chip, "+", opens the picker. With more than eight

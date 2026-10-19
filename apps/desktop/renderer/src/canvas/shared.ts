@@ -390,15 +390,15 @@ export const byOpenrouterPriceDesc = (a: ProviderTier, b: ProviderTier): number 
     || (name(a) < name(b) ? -1 : name(a) > name(b) ? 1 : 0)
 }
 
-/* ── THE LANGUAGE SERVER FAMILY (2026-10-10) — ALSO MINTED AT RUNTIME ──────
+/* ── THE LANGUAGE MODEL SERVER FAMILY (2026-10-10) — ALSO MINTED AT RUNTIME ──────
  *
- * The user's own model servers (App settings → Providers → Language Server):
+ * The user's own model servers (App settings → Providers → Language model server):
  * every model offered on a server is a tier `ls-<server>-<model>` the
  * /api/providers entry `langserver` carries, the same way OpenRouter's
  * favorites are carried — so this family is a registry too, filled by the
  * same polls, and the surfaces that read `TIER_LETTER`, `providerOf` and the
  * `t-<tier>` / `tier-<tier>` classes keep working unchanged. Unlike
- * OpenRouter there is no per-model colour to honour: every language-server
+ * OpenRouter there is no per-model colour to honour: every language model server
  * chip wears the lane's own colour. Membership is the prefix, as on the
  * backend (`catalog::is_langserver`). */
 export const LANGSERVER_PREFIX = 'ls-'
@@ -426,7 +426,7 @@ export const langserverTierCss = (tiers: ProviderTier[]): string => tiers
       `.sq.prov-langserver.desk.tier-${id}{border-top-color:${c}}`,
     ].join('\n')
   }).join('\n')
-/** adopt the payload's language-server tiers as the live family. Idempotent
+/** adopt the payload's language model server tiers as the live family. Idempotent
  *  and cheap when nothing changed, so every surface that polls may call it. */
 export const setLangServerTiers = (tiers: ProviderTier[] | null | undefined): void => {
   const next = (tiers ?? []).filter((t) => LS_TIER_RE.test(t.tier))
@@ -638,7 +638,7 @@ export const procHaloClass = (node: { state: string; proc_live?: boolean }): str
 export const PROVIDER_LABEL: Record<string, string> = {
   openai: 'Codex', google: 'Antigravity', claude: 'Claude', openrouter: 'OpenRouter',
   muse: 'Muse',
-  langserver: 'Language servers' }
+  langserver: 'Language model servers' }
 
 /** Muse's provider color — the value styles.css `--prov-muse` holds too
  *  (keep the two equal; tests/musecolor.test.tsx compares them): the pale
@@ -865,7 +865,7 @@ export const conditionalTierHidden = (tier: string): boolean =>
   || (MUSE_TIERS.includes(tier) && !(museHireState?.offeredTiers ?? []).includes(tier))
 
 /* ---------------- the Muse provider entry, adopted from the canvas's providers poll
-   (like the OpenRouter and Language Server registries): the hire strips, the
+   (like the OpenRouter and Language model server registries): the hire strips, the
    switch lists and every surface without a HireState of its own read its offer
    from here, so a tier appears the moment the account's catalog lists it. */
 let museHireState: HireState | null = null
@@ -1256,7 +1256,7 @@ export interface CanvasNode {
   waiting?: boolean
   /** queued behind the machine-wide concurrent-turn limit (see TreeNode) */
   queued_for_slot?: TreeNode['queued_for_slot']
-  /** a language server loading this turn's model first (see TreeNode) */
+  /** a language model server loading this turn's model first (see TreeNode) */
   loading_model?: TreeNode['loading_model']
   responding?: boolean
   phase?: string | null

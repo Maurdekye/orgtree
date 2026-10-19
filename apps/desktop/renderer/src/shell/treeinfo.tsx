@@ -52,7 +52,7 @@ export function liveCounts(tree: TreePayload) {
   const nodes = [...flatNodes(tree).values()].filter((n) => n.state === 'live' && n.kind !== 'project')
   const byTier: Record<string, number> = {}
   for (const node of nodes) byTier[node.tier] = (byTier[node.tier] ?? 0) + 1
-  // the OpenRouter and language-server tiers are runtime-minted, so the
+  // the OpenRouter and language model server tiers are runtime-minted, so the
   // inventory takes them from what is actually running, not a static list
   const tiers = [...ALL_TIERS, ...Object.keys(byTier).filter((t) => isOpenRouterTier(t) || isLangServerTier(t)).sort()]
     .filter((tier) => byTier[tier])

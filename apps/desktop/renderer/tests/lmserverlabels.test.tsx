@@ -4,6 +4,7 @@ import { flush, inAct, mountView } from './harness'
 import { LanguageServerSection } from '../src/canvas/langserver'
 import { PROVIDER_LABEL } from '../src/canvas/shared'
 import { HarnessesSection } from '../src/canvas/harnesses'
+import { OrgAccountsTab } from '../src/orgaccounts'
 
 const doc = { servers: [], presets: [{ id: 'ollama', label: 'Ollama', address: 'http://127.0.0.1:11434',
   harnesses: [{ id: 'claude-code', label: 'Claude Code', available: true }], note: '' }],
@@ -38,5 +39,23 @@ test('harness compatibility names language model servers', async () => {
   try {
     await inAct(async () => { await flush(8) })
     assert.equal(view.el.querySelector('.harness-tag')?.textContent, 'Language model server')
+  } finally { await view.unmount() }
+})
+
+test('account feedback uses the LM server label while writes keep the saved lane id', async () => {
+  const writes: unknown[] = [], toasts: string[][] = []
+  globalThis.fetch = async (_url, init) => {
+    if (init?.method === 'POST') writes.push(JSON.parse(String(init.body)))
+    return new Response(JSON.stringify(init?.method === 'POST' ? { warnings: [] } : { accounts: [{
+      id: 'langserver:llamacpp', provider: 'langserver', label: 'LM server: llama.cpp', enabled: true, allowed: true,
+    }] }), { headers: { 'Content-Type': 'application/json' } })
+  }
+  const view = await mountView(<OrgAccountsTab slug="synthetic" toast={t => toasts.push(t)} />, e => e)
+  try {
+    await inAct(async () => { await flush(8) })
+    assert.equal(view.el.querySelector('.field-label')?.textContent, 'Language model servers')
+    await inAct(async () => { view.el.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); await flush(8) })
+    assert.deepEqual(writes, [{ disabled_accounts: ['langserver:llamacpp'] }])
+    assert.equal(toasts[0]?.[0], 'LM server: llama.cpp is no longer used by this org')
   } finally { await view.unmount() }
 })

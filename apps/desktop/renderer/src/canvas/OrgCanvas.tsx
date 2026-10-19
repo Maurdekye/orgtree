@@ -694,7 +694,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     (v) => v.id === 'openrouter') ?? null
   useEffect(() => { setOpenRouterTiers(openrouterProvider?.tiers) },
     [openrouterProvider])
-  // the Language Server lane: the models offered on the user's own servers
+  // the Language model server lane: the models offered on the user's own servers
   // are runtime tiers too, adopted the same way
   const langserverProvider = providerEntries.find(
     (v) => v.id === 'langserver') ?? null
@@ -4885,8 +4885,8 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
     { key: 'openrouter', label: 'OpenRouter', tiers: openrouterTierIds(),
       letters: TIER_LETTER, hire: openrouterHire,
       seatOf: (t: string) => seats[t] ?? anyTierSeat(t) },
-    // the Language Server family: models offered on the user's own servers
-    { key: 'langserver', label: 'Language servers', tiers: langserverTierIds(),
+    // the Language model server family: models offered on the user's own servers
+    { key: 'langserver', label: 'Language model servers', tiers: langserverTierIds(),
       letters: TIER_LETTER, hire: langserverHire,
       seatOf: (t: string) => seats[t] ?? anyTierSeat(t) },
   ] as const)

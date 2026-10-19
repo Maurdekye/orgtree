@@ -15,7 +15,7 @@ import type { HarnessesDoc } from '../types'
 import { SetGroup, openAppSettings } from './settingskit'
 
 /** One entry of a harness picker. `enabled`: it can be chosen here (it is
- *  installed and, for a language server, can drive that kind of server). */
+ *  installed and, for a language model server, can drive that kind of server). */
 export interface HarnessChoice {
   id: string
   label: string
@@ -83,7 +83,7 @@ export function HarnessesSection({ active }: { active: boolean }) {
           {h.selectable && (h.providers ?? []).some((p) => p.id === 'openrouter')
             && <span className="harness-tag">OpenRouter</span>}
           {h.selectable && (h.providers ?? []).some((p) => p.id === 'langserver')
-            && <span className="harness-tag">Language server</span>}
+            && <span className="harness-tag">Language model server</span>}
         </span>
         <span className="harness-detail">
           {h.installed ? <span className="dim harness-version">{h.version?.trim() || 'version unknown'}</span>

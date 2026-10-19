@@ -5,7 +5,7 @@ import { HarnessesSection } from '../src/canvas/harnesses'
 import type { HarnessInfo } from '../src/types'
 
 const g = globalThis as unknown as Record<string, unknown>
-const both = [{ id: 'openrouter', label: 'OpenRouter' }, { id: 'langserver', label: 'Language servers' }]
+const both = [{ id: 'openrouter', label: 'OpenRouter' }, { id: 'langserver', label: 'Language model servers' }]
 const row = (id: string, extra: Partial<HarnessInfo> = {}): HarnessInfo => ({
   id, name: id, installed: true, version: '1.2.3', selectable: true, providers: both,
   what: 'Technical caveat not for this tab.', install: 'Long install instructions.',
@@ -59,7 +59,7 @@ test('compatibility tags follow selectable registry provider IDs, including futu
     for (const h of rows) {
       const tags = [...view.el.querySelectorAll(`[data-harness="${h.id}"] .harness-tag`)].map((e) => e.textContent)
       assert.deepEqual(tags, ['claude-code', 'codex-cli', 'opencode'].includes(h.id)
-        ? ['OpenRouter', 'Language server'] : h.id === 'future' ? ['Language server'] : [])
+        ? ['OpenRouter', 'Language model server'] : h.id === 'future' ? ['Language model server'] : [])
     }
   } finally { await view.unmount(); delete g.fetch }
 })

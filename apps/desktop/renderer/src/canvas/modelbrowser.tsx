@@ -1,6 +1,6 @@
 // canvas/modelbrowser.tsx — the model browser's parts, shared by the
 // OpenRouter picker (openrouter.tsx: a server-side search of a large catalog)
-// and the Language Server browser (lsbrowser.tsx: a server's own model list,
+// and the Language model server browser (lsbrowser.tsx: a server's own model list,
 // searched and filtered here). One look for both (user 2026-10-10: "it needs
 // some sort of browser like openrouter"); each keeps its own data and rows.
 //   ModelCard        the monogram card: letter on colour

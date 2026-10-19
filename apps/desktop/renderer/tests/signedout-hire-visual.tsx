@@ -3,7 +3,7 @@ import {SpawnChips} from '../src/canvas/cards'
 import {hireOf,syncProviderRegistries} from '../src/canvas/shared'
 import type {ProviderInfo} from '../src/types'
 const rows=[['claude','Claude','opus'],['openai','Codex','sol'],['google','Antigravity','argon'],
- ['muse','Muse','wonder-full'],['openrouter','OpenRouter','or-synthetic'],['langserver','Language servers','ls-synthetic']]
+ ['muse','Muse','wonder-full'],['openrouter','OpenRouter','or-synthetic'],['langserver','Language model servers','ls-synthetic']]
 const providers:ProviderInfo[]=rows.map(([id,label,tier])=>({id:id!,label:label!,cli:id!,hire_enabled:false,hire_reason:'signed_out',user_enabled:true,
  reason:'Open App settings to sign in.',status:{installed:true,connected:false},tiers:id==='openrouter'||id==='langserver'
  ?[{tier:tier!,provider:id!,model:tier!,seat:1,letter:'S'}]:[]}))

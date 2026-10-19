@@ -13,7 +13,7 @@ import type { ProviderInfo, TreePayload } from '../src/types'
 const families = [
   ['claude', 'Claude', 'opus'], ['openai', 'Codex', 'sol'],
   ['google', 'Antigravity', 'argon'], ['muse', 'Muse', 'wonder-full'],
-  ['openrouter', 'OpenRouter', 'or-synthetic'], ['langserver', 'Language servers', 'ls-synthetic'],
+  ['openrouter', 'OpenRouter', 'or-synthetic'], ['langserver', 'Language model servers', 'ls-synthetic'],
 ] as const
 const providers: ProviderInfo[] = families.map(([id,label,tier]) => ({
   id,label,cli:id,hire_enabled:false,hire_reason:'signed_out',user_enabled:true,

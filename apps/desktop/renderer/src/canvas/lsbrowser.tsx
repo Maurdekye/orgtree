@@ -1,4 +1,4 @@
-// canvas/lsbrowser.tsx — the Language Server model browser (user 2026-10-10:
+// canvas/lsbrowser.tsx — the Language model server model browser (user 2026-10-10:
 // "if there are a lot of models to choose from, then the list after checking
 // will get completely overwhelmed. i think it needs some sort of browser like
 // openrouter"). The OpenRouter browser's frame and parts (modelbrowser.tsx)
@@ -116,7 +116,7 @@ export function LangServerBrowser({ title, live, models, missing, picked, minCon
   const reset = () => setOffset(0)
 
   return (
-    <PinFrame dialogLabel="Language Server model selection" kind="langserver-browser" title={title}
+    <PinFrame dialogLabel="Language model server model selection" kind="langserver-browser" title={title}
       panel="settings orr-picker ls-browser" close={onClose} pinnable={false}>
       <h3>{title}
         <span className="dim"> · {offered.length} offered{live ? ' · each change is saved at once' : ''}</span></h3>

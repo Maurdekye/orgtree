@@ -1062,7 +1062,7 @@ export const setOpenRouterFavorite = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, selected }),
   })
-// the Language Server lane: the user's own model servers (Ollama, LM Studio,
+// the Language model server lane: the user's own model servers (Ollama, LM Studio,
 // llama.cpp, vLLM, custom). A key crosses the wire once, inward.
 export const getLangServers = (): Promise<LangServerDoc> => req('/api/langservers')
 export interface LangServerModelPick {

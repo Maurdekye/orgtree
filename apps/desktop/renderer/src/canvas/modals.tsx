@@ -1041,7 +1041,7 @@ interface NodeConfigProps {
   codexProvider?: ProviderInfo | null
   antigravityProvider?: ProviderInfo | null
   openrouterProvider?: ProviderInfo | null
-  /** the Language Server lane's entry (present once a server exists) */
+  /** the Language model server lane's entry (present once a server exists) */
   langserverProvider?: ProviderInfo | null
   /** Muse Code's entry: its tiers are offered only while the account's own
    *  catalog lists them (user 2026-10-12 19:57Z) */
@@ -1527,8 +1527,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
       if (!openrouterTierIds().includes(t)) return 'not among current favorites'
     }
     if (isLangServerTier(t)) {
-      if (!langserverProvider?.hire_enabled) return langserverProvider?.reason ?? 'no language server is set up'
-      if (!langserverTierIds().includes(t)) return 'no language server offers this model now'
+      if (!langserverProvider?.hire_enabled) return langserverProvider?.reason ?? 'no language model server is set up'
+      if (!langserverTierIds().includes(t)) return 'no language model server offers this model now'
     }
     return null
   }
@@ -1663,13 +1663,13 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
              // (preserving this node's own tier if it was since deselected — w76fba70b)
              ['OpenRouter', openrouterTierIds(node.tier)],
              // the models offered on the user's own servers (same keep rule)
-             ['Language servers', langserverTierIds(node.tier)]] as const)
+             ['Language model servers', langserverTierIds(node.tier)]] as const)
             // the dearest seat first within a provider; the OpenRouter and
-            // language-server registries keep the order they arrive in
+            // language model server registries keep the order they arrive in
             .map(([label, fam]) => [label, shownTiers(
               label === 'Antigravity'
                 ? orderAntigravityTiers(fam, tierSeat, 'desc')
-                : label === 'OpenRouter' || label === 'Language servers'
+                : label === 'OpenRouter' || label === 'Language model servers'
                   ? fam : bySeatDesc(fam, tierSeat))] as const)
             .filter(([, fam]) => fam.length > 0)
             .map(([label, fam]) => (

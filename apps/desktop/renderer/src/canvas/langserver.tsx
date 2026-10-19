@@ -1,7 +1,7 @@
-// canvas/langserver.tsx — App settings › Providers › Language Server: the
+// canvas/langserver.tsx — App settings › Providers › Language model server: the
 // user's own model servers (user spec 2026-10-01).
 //
-// A language server is a model server on this machine or the network —
+// A language model server is a model server on this machine or the network —
 // Ollama, LM Studio, llama.cpp, vLLM, or anything with an Anthropic- or
 // OpenAI-compatible API — that one of the installed harnesses is pointed at:
 // Claude Code speaks Anthropic Messages, Codex speaks the OpenAI Responses
@@ -175,7 +175,7 @@ export function LanguageServerSection({ provider, headRight, toast, onChanged }:
   return (
     <div className="set-group ls-section">
       <div className={'set-group-head acct-provider-head prov-langserver' + (off ? ' provider-off' : '')}>
-        Language servers
+        Language model servers
         <span className="set-head-right">
           <button type="button" className="acct-secondary-btn" disabled={busy || adding || !doc?.presets.length}
             aria-haspopup="dialog"
@@ -184,8 +184,8 @@ export function LanguageServerSection({ provider, headRight, toast, onChanged }:
           {headRight}
         </span>
       </div>
-      {err && <div className="dim acct-prov-note">could not read the language servers: {err}</div>}
-      {!doc && !err && <div className="dim acct-prov-note">reading language servers…</div>}
+      {err && <div className="dim acct-prov-note">could not read the language model servers: {err}</div>}
+      {!doc && !err && <div className="dim acct-prov-note">reading language model servers…</div>}
       {doc && doc.servers.length === 0 && !adding && (
         <p className="dim acct-prov-note">
           Run agents on models served from this machine or your network: Ollama, LM Studio,
@@ -349,8 +349,8 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
   })
 
   return (
-    <ProviderDialog title="Add language server" busy={busy} close={onCancel}>
-    <div className="ls-add" role="group" aria-label="add a language server">
+    <ProviderDialog title="Add language model server" busy={busy} close={onCancel}>
+    <div className="ls-add" role="group" aria-label="add a language model server">
       <SetRow label="Server"
         hint={preset?.note}>
         <select aria-label="kind of server" value={presetId} disabled={busy}

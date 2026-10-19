@@ -20,7 +20,7 @@ const native = [
 ]
 const providers = () => ({ providers: [...native.map(p => ({ ...p, user_enabled: true, hire_enabled: p.id === 'claude' || p.id === 'muse' })),
   { id: 'openrouter', label: 'OpenRouter', cli: 'REST API', user_enabled: true, hire_enabled: true, status: { installed: true }, tiers: [] },
-  { id: 'langserver', label: 'Language servers', cli: 'local API', user_enabled: true, hire_enabled: true, status: { installed: true }, tiers: [] },
+  { id: 'langserver', label: 'Language model servers', cli: 'local API', user_enabled: true, hire_enabled: true, status: { installed: true }, tiers: [] },
 ], subscription_inference: { claude: true, openai: false, muse: true }, apikey_fallback: { claude: false, muse: false } })
 const accounts = [
   { id: 'claude-secondary', provider: 'claude', label: 'Research account with a long descriptive name', name: 'research', identity: { email: 'research-long-identity@example.test' },

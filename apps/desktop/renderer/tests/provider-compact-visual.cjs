@@ -21,7 +21,7 @@ module.exports = async page => {
         return { name: name.innerText, height: row.getBoundingClientRect().height,
           switchOnIdentityLine: toggle.top < main.bottom && toggle.bottom > main.top, nameClipped: name.scrollWidth > name.clientWidth }
       })
-      // each language server row (user 2026-10-14): its "Active" switch is a
+      // each language model server row (user 2026-10-14): its "Active" switch is a
       // direct child of the server panel, and on the identity line like a key's
       // when the panel is wide enough for two columns
       const serverRows = [...panel.querySelectorAll('.ls-server-row')].map(row => {
@@ -37,7 +37,7 @@ module.exports = async page => {
       return { width: rect.width, contentHeight: panel.scrollHeight, clientWidth: panel.clientWidth, scrollWidth: panel.scrollWidth, groups, keyRows, serverRows }
     })
     if (dimensions.serverRows.length !== 2 || dimensions.serverRows.some(r => r.label !== 'Active' || r.below || !r.insidePanel)) {
-      throw new Error(`language server switches: ${JSON.stringify(dimensions.serverRows)}`)
+      throw new Error(`language model server switches: ${JSON.stringify(dimensions.serverRows)}`)
     }
     const controls = await page.eval(() => [...document.querySelectorAll('#app-settings-panel-providers input[type="checkbox"], #app-settings-panel-providers button, #app-settings-panel-providers a')]
       .filter(e => e.getBoundingClientRect().width > 0).map((e, index) => ({ index, name: e.getAttribute('aria-label') || e.title || e.innerText, checked: e.checked, disabled: e.disabled })))
