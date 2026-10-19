@@ -14,7 +14,7 @@ export const seedComposer=()=>syncProviderRegistries({providers:[{id:'openai',ti
   {tier:'sol',model:'gpt-6.1-sol',fast_mode:true,effort_levels:['low','medium','high']},
 ]}]})
 export function ComposerFocusFixture({surface,busy=false}:{surface:'agent'|'project'|'quick'|'reply';busy?:boolean}){
-  const slug=`synthetic-composer-${surface}`,node={...composerAgent,busy,phase:busy?'thinking':undefined},
+  const slug=`synthetic-composer-${surface}${busy?'-busy':''}`,node={...composerAgent,busy,responding:busy,phase:busy?'thinking':undefined},
     project={...node,id:'test-project',kind:'project',tier:'project',children:[node]} as CanvasNode,
     map=new Map([[node.id,node],[project.id,project]]),tree={slug,roots:[project],max_top_grant:100} as unknown as TreePayload
   if(surface==='agent')return <DeskChat node={node} map={map} slug={slug} bare op={async()=>({})} toast={noop}/>

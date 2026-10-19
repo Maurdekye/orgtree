@@ -9,6 +9,13 @@
 
 # AGENTS.md — working on Orgtree
 
+- Empty composer padding and rows focus their text field without scrolling,
+  across agent/project desks, Quick chat and replies; nested controls and
+  portaled pickers retain focus behavior. Right-side desk controls restore
+  the original24px matching the left controls (30px introduced by6bc9325).
+  [decided: user 2026-10-19 18:31–18:32Z; verified: `composerfocus.ts`,
+  `canvas/{desk,projectdesk,mail}.tsx`, `QuickChatBox.tsx`, `styles.css`]
+
 - Project concurrency recipes compose existing slots, queues and events; an
   event has no late-subscriber replay, readiness counts registrations, and
   forced/reclaimed leases do not stop old work. See [recipes](docs/skills/orgtree-workflows/collaboration-patterns/concurrency-primitives/SKILL.md).
