@@ -4,14 +4,15 @@ import { useDndRecipients } from '../nodemetadata'
 // PROJECT-NODES.md; user 2026-10-17 19:38Z–20:10Z). A focused project card,
 // and a pinned project window, show this desk in the agent desk's frame and
 // header. A project takes no turns, so its main tab is not a chat: it holds
-// the chat desk's jump cards (up to its parent, down to its members) and a
-// large editor for its description, rendered as Markdown until it is focused
+// a large editor for its description, rendered as Markdown until it is focused
 // and edited as monospace text (user 20:06Z). Beside it are the agent desk's
 // three other tabs with the agent desk's own views, scoped to the project:
 // inbox, docket (the items attached to it) and presented (the documents
 // presented under it) (user 20:07Z). The header counts its agents, active out
 // of hired, with the spinner while any is active (20:08Z), and has halt all,
-// dissolve project (20:09Z) and the settings gear (20:09:45Z).
+// dissolve project (20:09Z) and the settings gear (20:09:45Z). The chat
+// desk's jump cards, up to its parent and down to its members, stay on every
+// tab as on the agent desk (user 2026-10-19 19:58Z).
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
@@ -575,13 +576,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {onOpenDoc && subtreeDocs(node).length > 0 && (
         <DeskDocsStrip slug={slug} docs={subtreeDocs(node)} toast={toast} onOpen={onOpenDoc} onReply={replyToDoc} replyLabel="Reply" />
       )}
-      {shown === 'desk' && <>
-        <DescriptionEditor node={node} op={op} toast={toast} editable={live} />
-        {onJump && members.length > 0 && <div className="desk-nav">
-          <DeskJumpCards ids={members.map(c => c.id)} render={id =>
-            <NavChip key={id} n={members.find(c => c.id === id)!} dir="down" onJump={onJump} />} />
-        </div>}
-      </>}
+      {shown === 'desk' && <DescriptionEditor node={node} op={op} toast={toast} editable={live} />}
       {shown === 'inbox' && <div className="desk-tabpanel">
         <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
         {/* waiting mail nobody holds yet can be purged (user 2026-10-18 08:11Z) */}
@@ -636,6 +631,14 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         actions={<PanelCorner kind="project-slots" slug={slug} nid={node.id} />} />}
       {shown === 'dead' && <DeadLettersView node={node} map={map} onJump={onJump} op={op} toast={toast} />}
       {shown === 'listeners' && <ListenersView node={node} dogs={tree.watchdogs ?? []} map={map} onJump={onJump} op={op} toast={toast} />}
+      {/* the members' jump cards under every tab, above the message box, as
+          the agent desk's reports are (user 2026-10-19 19:58Z: "superior and
+          subordinate jump cards persist across agent desk tabs, should be the
+          same for project tabs"); the superior's card is in the header row */}
+      {onJump && members.length > 0 && <div className="desk-nav">
+        <DeskJumpCards ids={members.map(c => c.id)} render={id =>
+          <NavChip key={id} n={members.find(c => c.id === id)!} dir="down" onJump={onJump} />} />
+      </div>}
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
         members={agents.length} recipients={agents} replyTarget={replyTarget} focusRequest={replyFocus}
