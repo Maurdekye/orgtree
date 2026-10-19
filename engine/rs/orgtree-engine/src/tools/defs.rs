@@ -986,6 +986,7 @@ fn build_tool_watchdog() -> Value {
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
             "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "mqtt"] },
             "batch": { "type": "integer", "minimum": 1, "maximum": 20, "description": "fair_queue only: up to this many mails per wake; ACK capacity too. Default 1." },
+            "slots": { "type": "integer", "minimum": 1, "maximum": 64, "description": "slot only: reserve this many slots together as one lease, in strict FIFO. Default 1; at most project capacity." },
             "credentials": { "anyOf": [
                 { "type": "string" },
                 { "type": "object", "properties": { "username": { "type": "string" }, "password": { "type": "string" }, "client_id": { "type": "string" } }, "required": ["username"] }
@@ -1513,6 +1514,7 @@ mod builder_stack_tests {
             .replace("Event/count/silence semantics", "usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. Event/count/silence semantics"));
         let dschema = &mut dog["inputSchema"];
         dschema["properties"]["batch"] = serde_json::json!({"type":"integer","minimum":1,"maximum":20,"description":"fair_queue only: up to this many mails per wake; ACK capacity too. Default 1."});
+        dschema["properties"]["slots"] = serde_json::json!({"type":"integer","minimum":1,"maximum":64,"description":"slot only: reserve this many slots together as one lease, in strict FIFO. Default 1; at most project capacity."});
         dschema["properties"]["kind"]["enum"] = serde_json::json!(["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch"]);
         dschema["properties"]["count"] = serde_json::json!({"type":"integer","minimum":1,"maximum":1024,"description":"listener_watch only: armed project listeners that fire it"});
         dschema["properties"]["fire_actions"] = serde_json::json!({"type":"array","maxItems":4,"items":{"type":"object","properties":{"tool":{"type":"string"},"args":{"type":"object"}},"required":["tool"]},"description":"create: orgtree_* tool calls run as you when it fires, results in the fire mail; authority rechecked at fire time; not for fair_queue"});

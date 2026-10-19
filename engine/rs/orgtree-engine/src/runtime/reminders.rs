@@ -353,7 +353,7 @@ async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime
     send(engine, org.id, a, ev, (!note.is_empty()).then_some(note)).await
 }
 
-/// What a checkup adds for an agent holding project slots: each slot and
+/// What a checkup adds for an agent holding project slots: each lease and
 /// how to release it.
 #[nolog]
 fn slot_note(slots: &[(i32, String, String)]) -> Option<String> {
@@ -361,9 +361,9 @@ fn slot_note(slots: &[(i32, String, String)]) -> Option<String> {
         return None;
     }
     let lines: Vec<String> = slots.iter()
-        .map(|(_, p, l)| format!("- concurrency slot of project {p} (lease {l}): release it if you are done with orgtree_project action=release_slot lease={l}"))
+        .map(|(n, p, l)| format!("- {} of project {p} (lease {l}): release the whole lease if you are done with orgtree_project action=release_slot lease={l}", crate::domain::slots::quantity(*n)))
         .collect();
-    Some(format!("You still hold a project concurrency slot that others may be waiting for:\n{}", lines.join("\n")))
+    Some(format!("You still hold project concurrency slots that others may be waiting for:\n{}", lines.join("\n")))
 }
 
 /// What a checkup adds for an agent holding un-acked project mail: each

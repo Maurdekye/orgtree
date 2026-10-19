@@ -29,6 +29,13 @@
 
 # AGENTS.md — working on Orgtree
 
+- Slot watchdogs accept `slots: 1..64` (default 1, at most project capacity).
+  A single lease reserves all requested units atomically. Strict FIFO blocks
+  smaller claims behind a head that cannot fit; release/reclaim frees the whole
+  lease. Counts sum units, while history, reminders and controls stay per lease.
+  Migration 0039 defaults existing leases to one. [decided: user/coordinator
+  2026-10-19; verified: `domain/slots.rs`, `runtime/watchdogs.rs`]
+
 - Fair-queue listeners accept `batch: 1..20` (default 1). Each bounded
   assignment round commits before one wake per recipient; messages still
   go to the least recently served listener with capacity. One-shots take

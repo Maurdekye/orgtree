@@ -2317,7 +2317,7 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     let lease = str_arg(req, "lease").unwrap_or("").trim().trim_start_matches('#').to_string();
     let Some(l) = tx
         .query_opt(
-            "SELECT l.id, l.project_id, l.holder_agent_id, l.slot_no, l.ended_at IS NOT NULL, coalesce(l.end_reason, ''), a.name, p.name
+            "SELECT l.id, l.project_id, l.holder_agent_id, l.slot_no, l.ended_at IS NOT NULL, coalesce(l.end_reason, ''), a.name, p.name, l.slot_count
                FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id JOIN ot.agents p ON p.id = l.project_id
               WHERE l.org_id = $1 AND l.uid = $2",
             &[&org.id, &lease],
@@ -2328,6 +2328,7 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     };
     let (id, project, holder, slot, ended, how, holder_name, pname): (i64, i64, i64, i32, bool, String, String, String) =
         (l.get(0), l.get(1), l.get(2), l.get(3), l.get(4), l.get(5), l.get(6), l.get(7));
+    let count: i32 = l.get(8);
     if ended {
         refuse!(Conflict, "lease {lease} has already ended ({how})");
     }
@@ -2342,12 +2343,12 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     tx.query_one("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&project]).await?;
     crate::domain::slots::end(tx, id, &how, &actor.label()).await?;
     event(tx, org.id, "slot_release", actor, Some(holder),
-        json!({ "project": pname, "lease": lease, "slot": slot, "how": how, "note": str_arg(req, "note") }), fx).await?;
+        json!({ "project": pname, "lease": lease, "slot": slot, "slots": count, "how": how, "note": str_arg(req, "note") }), fx).await?;
     fx.agents.insert(holder);
     fx.agents.insert(project);
     fx.slot_grants.push(project);
-    Ok(json!({ "project": pname, "lease": lease, "released": true, "how": how,
-               "next": "the concurrency slot goes to the next in line, if any" }))
+    Ok(json!({ "project": pname, "lease": lease, "released": true, "how": how, "slots": count,
+               "next": "all slots in the lease are free; the FIFO queue is checked for complete grants" }))
 }
 
 /// A project's slots: holders, the line, recent history (`orgtree_project

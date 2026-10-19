@@ -41,7 +41,7 @@ pub async fn page(client: &impl GenericClient, project: i64, before: Option<&str
     let before = Cursor::parse(before)?;
     let predicate = if before.is_some() { OLDER_PREDICATE } else { "" };
     let sql = format!("SELECT l.id, l.ended_at, l.uid, a.name, l.slot_no, l.reason, l.granted_at,
-        l.end_reason, l.ended_by, l.queued_at
+        l.end_reason, l.ended_by, l.queued_at, l.slot_count
         FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id
         WHERE l.project_id = $1 AND l.ended_at IS NOT NULL {predicate}
         ORDER BY l.ended_at DESC, l.id DESC LIMIT 31");
@@ -54,7 +54,7 @@ pub async fn page(client: &impl GenericClient, project: i64, before: Option<&str
         let row = json!({"lease":r.get::<_,String>(2),"agent":r.get::<_,String>(3),
             "reason":r.get::<_,Option<String>>(5),"since":crate::util::iso(r.get::<_,DateTime<Utc>>(6)),
             "ended":crate::util::iso(ended),"how":r.get::<_,Option<String>>(7),"by":r.get::<_,Option<String>>(8),
-            "queued":r.get::<_,Option<DateTime<Utc>>>(9).map(crate::util::iso)});
+            "queued":r.get::<_,Option<DateTime<Utc>>>(9).map(crate::util::iso),"slots":r.get::<_,i32>(10)});
         (cursor, row)
     }).collect();
     Ok(finish(rows))

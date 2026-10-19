@@ -1879,21 +1879,23 @@ async fn slot_claim_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::p
     Box::pin(crate::domain::slots::grant(engine, org_id, p.id)).await?;
     let client = engine.db.get().await?;
     if let Some(r) = client
-        .query_opt("SELECT uid FROM ot.slot_leases WHERE dog_id = $1 AND ended_at IS NULL", &[&row])
+        .query_opt("SELECT uid, slot_count FROM ot.slot_leases WHERE dog_id = $1 AND ended_at IS NULL", &[&row])
         .await?
     {
         let lease: String = r.get(0);
+        let held = crate::domain::slots::quantity(r.get(1));
         return Ok(format!(
-            "CONCURRENCY SLOT CLAIM: claimed a concurrency slot of project {} (lease {lease}). It fired at once with the grant; release the concurrency slot when \
+            "CONCURRENCY SLOT CLAIM: claimed {held} of project {} (lease {lease}). It fired at once with the grant; release the whole lease when \
              the work ends: orgtree_project action=release_slot lease={lease}", p.name));
     }
     let line = crate::domain::slots::line(&**client, p.id).await?;
-    let at = line.iter().position(|(dog, _, _, _)| *dog == row).map(|i| i + 1).unwrap_or(line.len());
-    let ahead: Vec<String> = line.iter().take(at.saturating_sub(1)).map(|(_, _, a, _)| a.clone()).collect();
+    let at = line.iter().position(|(dog, _, _, _, _)| *dog == row).map(|i| i + 1).unwrap_or(line.len());
+    let count = line.iter().find(|(dog, _, _, _, _)| *dog == row).map(|w| w.4).unwrap_or(1);
+    let ahead: Vec<String> = line.iter().take(at.saturating_sub(1)).map(|(_, _, a, _, _)| a.clone()).collect();
     let ord = match at % 100 { 11..=13 => "th", _ => match at % 10 { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" } };
     Ok(format!(
-        "CONCURRENCY SLOT CLAIM: every concurrency slot of project {} is held, so this dog is your place in line: {at}{ord} in line{}. It fires and wakes \
-         you when you are granted a concurrency slot; removing or pausing it leaves the line (resuming rejoins at the back)",
+        "CONCURRENCY SLOT CLAIM: waiting for {count} concurrency slot(s) of project {}; {at}{ord} in line{}. Strict FIFO: a head claim blocks smaller claims \
+         until all its requested slots are free together. It fires and wakes you when granted one complete lease; removing or pausing it leaves the line (resuming rejoins at the back)",
         p.name, if ahead.is_empty() { String::new() } else { format!(" behind {}", ahead.join(", ")) }))
 }
 
@@ -2047,7 +2049,15 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         queue_project = Some(p);
     }
     let mut slot_project: Option<crate::domain::projects::Project> = None;
+    if let Some(slots) = args.get("slots").filter(|s| !s.is_null()) {
+        if kind != "slot" { refuse!(BadRequest, "slots is only for a slot watchdog"); }
+        let Some(n) = slots.as_i64().filter(|n| (1..=crate::domain::slots::MAX_CAPACITY).contains(n)) else {
+            refuse!(BadRequest, "slots must be an integer from 1 to 64");
+        };
+        memo["slots"] = json!(n);
+    }
     if kind == "slot" {
+        if memo.get("slots").is_none() { memo["slots"] = json!(1); }
         // a claim on one of the project's slots (domain/slots.rs): only the
         // agents above or below it, one claim each, and only while it has slots
         let Some(p) = crate::domain::projects::by_name(&**client, org_id, &target).await? else {
@@ -2060,6 +2070,10 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         let scope: Value = client.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&p.id]).await?.get(0);
         if crate::domain::slots::capacity(&scope) == 0 {
             refuse!(Conflict, "project {} has no concurrency slots (its slot count in Project settings is 0)", p.name);
+        }
+        let count = crate::domain::slots::requested(&memo);
+        if i64::from(count) > crate::domain::slots::capacity(&scope) {
+            refuse!(BadRequest, "requested {count} slots exceeds project {}'s total capacity of {}", p.name, crate::domain::slots::capacity(&scope));
         }
         let mine = client
             .query_one(
@@ -2520,7 +2534,7 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
         let dog = dog_of(row);
         if dog.kind == "slot" && dog.state == "armed" && dog.memo.get("lease").is_none() {
             if let Some(project) = dog.memo["target_id"].as_i64().filter(|p| projects.insert(*p)) {
-                for (index, (row, _, _, _)) in crate::domain::slots::line(&**client, project).await?.into_iter().enumerate() {
+                for (index, (row, _, _, _, _)) in crate::domain::slots::line(&**client, project).await?.into_iter().enumerate() {
                     positions.insert(row, index + 1);
                 }
             }
@@ -2574,7 +2588,10 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
                 put("line_position", json!(position));
                 put("line", json!(slot_line_label(*position)));
             }
-            if d.kind == "slot" { put("lease", d.memo["lease"].clone()); }
+            if d.kind == "slot" {
+                put("lease", d.memo["lease"].clone());
+                put("slots", json!(crate::domain::slots::requested(&d.memo)));
+            }
             put("fire_actions", d.memo["fire_actions"].clone());
             if d.kind == "mqtt" {
                 // how it authenticates, never with what
