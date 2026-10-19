@@ -18,6 +18,8 @@ import type { OpRequest, TreePayload } from '../src/types'
 import { trayRows } from '../src/canvas/agenttray'
 import type { CanvasNode } from '../src/canvas/shared'
 import { resetStaffingOptionsForTests, type StaffingTier } from '../src/canvas/staffingoptions'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
+import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 
 const noop = () => {}
 const node = (id: string, state = 'live', children: unknown[] = [], tier = 'sonnet') =>
@@ -70,6 +72,14 @@ const click = async (el: Element | null) => inAct(async () => {
 })
 const pickerItems = () => [...document.querySelectorAll('.quickchat-pop .tray-name')]
   .map(b => (b.textContent || '').trim())
+
+function QuickChatAgentNavFixture() {
+  useProvideAgentNav(
+    id => [{ label: `Open ${id}`, onSelect: noop }],
+    id => ({ title: `Friendly tooltip for ${id}` }),
+  )
+  return null
+}
 
 async function mount(ops: OpRequest[], hired: string[], reply: Record<string, unknown> = {}, currentTree = tree) {
   const op = async (b: OpRequest) => { ops.push(b); return { node: b.name, ...reply } }
@@ -174,6 +184,59 @@ test('the top-level superior shares the option-list eye and agent selections ret
     await click(document.querySelector('.quickchat-top .tray-main'))
     assert.equal(shown(view.el).superior, 'top level')
     assert.ok(selected().querySelector('.quickchat-user-mark .eye'), 'choosing top level restores its eye')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
+test('Quick chat selected recipient and picker rows use the shared agent link while left-click keeps selecting', async () => {
+  localStorage.clear(); providers(['claude'])
+  const view = await mountView(
+    <AgentNavProvider>
+      <QuickChatAgentNavFixture />
+      <ObjectMenuBoundary className="quickchat-nav-test">
+        <QuickChat slug="org" tree={tree} op={(async () => ({})) as never}
+          toast={noop} onHired={noop} />
+      </ObjectMenuBoundary>
+    </AgentNavProvider>, el => el)
+  try {
+    await inAct(async () => { await flush(8) })
+    const chip = view.el.querySelector<HTMLElement>('.quickchat-superior')!
+    assert.equal(chip.getAttribute('data-agent-nav'), 'boss',
+      'the selected recipient borrows the shared agent menu')
+    assert.equal(chip.getAttribute('data-agent-tooltip'), 'boss',
+      'the selected recipient resolves its shared tooltip')
+    await inAct(() => { chip.dispatchEvent(new window.Event('pointerover', { bubbles: true })) })
+    assert.equal(chip.title, 'Friendly tooltip for boss', 'hover shows the shared tooltip')
+
+    await inAct(() => {
+      const event = new window.MouseEvent('contextmenu',
+        { bubbles: true, cancelable: true, button: 2, clientX: 20, clientY: 20 })
+      chip.dispatchEvent(event)
+    })
+    await flush(3)
+    assert.equal(view.el.querySelector('.ctxmenu [role="menuitem"]')?.textContent, 'Open boss',
+      'right-click opens the registered agent menu')
+
+    await click(chip)
+    const row = view.el.querySelector<HTMLElement>('.quickchat-pop .tray-row[data-copy-agent-name="boss"]')!
+    assert.equal(row.getAttribute('data-agent-nav'), 'boss',
+      'the picker row borrows the shared agent menu')
+    assert.equal(row.getAttribute('data-agent-tooltip'), 'boss',
+      'the picker row resolves its shared tooltip')
+    await inAct(() => { row.dispatchEvent(new window.Event('pointerover', { bubbles: true })) })
+    assert.equal(row.title, 'Friendly tooltip for boss', 'hovering a picker row shows the shared tooltip')
+
+    await inAct(() => {
+      const event = new window.MouseEvent('contextmenu',
+        { bubbles: true, cancelable: true, button: 2, clientX: 20, clientY: 20 })
+      row.dispatchEvent(event)
+    })
+    await flush(3)
+    assert.equal(view.el.querySelector('.ctxmenu [role="menuitem"]')?.textContent, 'Open boss',
+      'right-clicking a picker row opens the registered agent menu')
+
+    await click(row.querySelector('.tray-main'))
+    assert.equal(shown(view.el).superior, 'boss', 'left-click still selects the recipient')
+    assert.equal(view.el.querySelector('.quickchat-pop'), null, 'selecting closes the picker')
   } finally { await view.unmount(); localStorage.clear() }
 })
 
