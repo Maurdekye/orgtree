@@ -41,6 +41,17 @@ const STREAM_FLOOR_S: i64 = 5;
 const COMMAND_TIMEOUT_S: u64 = 60;
 const SMOKE_TIMEOUT_S: u64 = 8;
 const EVENTS_KEEP: i64 = 50;
+/// Tool calls a watchdog may carry to run when it fires (user 2026-10-19).
+pub const MAX_FIRE_ACTIONS: usize = 4;
+/// How deep a chain of firing watchdogs may run each other's fire-time
+/// tool calls before the chain stops (a fired call that fires a listener
+/// whose own calls fire another must not recurse without bound).
+pub const MAX_FIRE_ACTION_DEPTH: u32 = 4;
+const FIRE_ACTION_TIMEOUT_S: u64 = 30;
+const FIRE_ACTION_ARGS_MAX: usize = 2000;
+const FIRE_ACTION_RESULT_MAX: usize = 2000;
+
+tokio::task_local! { static FIRE_ACTION_DEPTH: u32; }
 const OUT_KEEP: usize = 400;
 const QUIET_CHECKS: i64 = 20;
 const QUIET_AGE_S: i64 = 2 * 3600;
@@ -384,6 +395,7 @@ async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken,retrying
         "activity" => run_activity(engine, dog, cancel).await,
         "fair_queue" => run_fair_queue(engine, dog, cancel).await,
         "slot" => run_slot(engine, dog, cancel).await,
+        "project_listener" | "listener_watch" => run_project_listener(engine, dog, cancel).await,
         _ => run_poll(engine, dog.row, cancel,retrying).await,
     }
 }
@@ -425,6 +437,36 @@ pub(crate) async fn fire_slot(engine: &Arc<Engine>, row: i64, line: String) -> R
     if let Some(mut dog) = load(engine, row).await? {
         if dog.state == "armed" {
             fire(engine, &mut dog, &[line], " SLOT GRANTED —").await?;
+        }
+    }
+    Ok(())
+}
+
+/// A project event listener / listener watch (domain/listeners.rs) has
+/// no loop either: arming it re-evaluates its project's watches (a new
+/// listener may complete a count; a new watch may already be satisfied,
+/// like a slot claim granted at once); event delivery itself comes from
+/// `listeners::fire`.
+#[logged]
+async fn run_project_listener(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) -> Result<()> {
+    let Some(project) = dog.memo["target_id"].as_i64() else {
+        pause(engine, &dog, "its project is unknown").await?;
+        return Ok(());
+    };
+    Box::pin(crate::domain::listeners::evaluate(engine, dog.org_id, project)).await?;
+    cancel.cancelled().await;
+    Ok(())
+}
+
+/// Fire a listener_watch whose count was reached (`listeners::evaluate`):
+/// the ordinary fire path, so its `once`, `notice` and fire-time tool
+/// calls behave as every other dog's. A dog already spent or gone is
+/// left alone.
+#[logged]
+pub(crate) async fn fire_listener_watch(engine: &Arc<Engine>, row: i64, line: String) -> Result<()> {
+    if let Some(mut dog) = load(engine, row).await? {
+        if dog.state == "armed" {
+            fire(engine, &mut dog, &[line], " LISTENERS READY —").await?;
         }
     }
     Ok(())
@@ -1253,7 +1295,13 @@ async fn fire(engine: &Arc<Engine>, dog: &mut Dog, events: &[String], prefix: &s
     let once: bool = row.get(0);
     let fired: i32 = row.get(1);
     dog.last_fired=row.get(2);dog.silence_since=row.get(3);dog.next_silence_at=row.get(4);
-    let body = fire_body(dog, events, prefix, once, fired);
+    let mut body = fire_body(dog, events, prefix, once, fired);
+    // fire-time tool calls run now, as the owner, and their results ride
+    // this same mail (the fire is already recorded above)
+    let actions: Vec<Value> = dog.memo["fire_actions"].as_array().cloned().unwrap_or_default();
+    if !actions.is_empty() {
+        body.push_str(&run_fire_actions(engine, dog.org_id, dog.owner, &dog.owner_name, &dog.uid, &dog.name, &actions).await);
+    }
     let lines: Vec<String> = events.iter().take(40).cloned().collect();
     let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, prefix.trim(), &lines, once));
     events::ALERT_DELIVERY.scope(true,deliver(engine, dog, body, ev)).await;
@@ -1279,6 +1327,118 @@ async fn fire_exited(engine: &Arc<Engine>, dog: &Dog, events: &[String]) -> Resu
     let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, "STREAM EXITED —", events, false));
     events::ALERT_DELIVERY.scope(true,deliver(engine, dog, body, ev)).await;
     Ok(())
+}
+
+/// Validate create's `fire_actions`: a list of at most MAX_FIRE_ACTIONS
+/// `{tool, args}` objects naming served `orgtree_*` tools, args a bounded
+/// JSON object. Authority is NOT decided here: it is re-read at fire time.
+#[logged]
+fn fire_actions_arg(args: &Value) -> Result<Vec<Value>> {
+    let Some(raw) = args.get("fire_actions").filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
+    let Some(list) = raw.as_array() else {
+        refuse!(BadRequest, "fire_actions must be a list of {{tool, args}} objects");
+    };
+    if list.len() > MAX_FIRE_ACTIONS {
+        refuse!(BadRequest, "a watchdog carries at most {MAX_FIRE_ACTIONS} fire_actions (got {})", list.len());
+    }
+    let mut out = Vec::new();
+    for a in list {
+        let tool = a["tool"].as_str().map(str::trim).unwrap_or("");
+        if !crate::tools::defs::implemented().contains(&tool) {
+            refuse!(BadRequest, "fire_actions tool must be one of the served orgtree_* tools (got {tool:?})");
+        }
+        let argv = a.get("args").cloned().unwrap_or_else(|| json!({}));
+        if !argv.is_object() {
+            refuse!(BadRequest, "fire_actions args for {tool} must be a JSON object");
+        }
+        if serde_json::to_string(&argv).map(|s| s.len()).unwrap_or(usize::MAX) > FIRE_ACTION_ARGS_MAX {
+            refuse!(BadRequest, "fire_actions args for {tool} are too large (at most {FIRE_ACTION_ARGS_MAX} characters)");
+        }
+        out.push(json!({ "tool": tool, "args": argv }));
+    }
+    Ok(out)
+}
+
+/// A fire-action result, capped for the fire mail but keeping its lines.
+fn capped_result(text: &str) -> String {
+    let text = text.trim();
+    if text.chars().count() <= FIRE_ACTION_RESULT_MAX {
+        return text.to_string();
+    }
+    let mut s: String = text.chars().take(FIRE_ACTION_RESULT_MAX - 1).collect();
+    s.push('…');
+    s
+}
+
+/// Run a fired dog's fire-time tool calls as its owner, with the owner's
+/// CURRENT authority (ordinary tool dispatch re-reads scope and every
+/// handler check), and render the results for the fire mail. Bounded:
+/// at most MAX_FIRE_ACTIONS calls, a timeout each, and a task-local
+/// depth limit so chains of firing dogs stop. Runs nothing under
+/// SAFE_START. Returns "" when the dog carries no actions. Args and
+/// result bodies are never logged.
+#[nolog]
+pub(crate) async fn run_fire_actions(engine: &Arc<Engine>, org_id: i64, owner: i64, owner_name: &str, uid: &str, name: &str, actions: &[Value]) -> String {
+    if actions.is_empty() {
+        return String::new();
+    }
+    let _ = name; // the dog's display name; results address the owner as "you"
+    if crate::mailhub::safe_start() && !crate::rig::recovers() {
+        return format!("Fire actions ({}): skipped — safe-start rehearsal runs no tool calls.\n", actions.len());
+    }
+    let depth = FIRE_ACTION_DEPTH.try_with(|d| *d).unwrap_or(0);
+    if depth >= MAX_FIRE_ACTION_DEPTH {
+        tracing::warn!(watchdog = %uid, depth, "watchdog fire actions skipped: depth limit");
+        return format!(
+            "Fire actions ({}): SKIPPED — fire-action depth limit ({MAX_FIRE_ACTION_DEPTH}) reached; a chain of firing watchdogs stops here so it cannot loop without bound.\n",
+            actions.len()
+        );
+    }
+    // an owner archived since the dog armed runs nothing
+    match engine.db.get().await {
+        Ok(client) => {
+            match client.query_opt("SELECT 1 FROM ot.agents WHERE id = $1 AND state = 'live' AND kind = 'agent'", &[&owner]).await {
+                Ok(Some(_)) => {}
+                _ => return format!("Fire actions ({}): skipped — this watchdog's owner is no longer live.\n", actions.len()),
+            }
+        }
+        Err(e) => {
+            tracing::warn!(watchdog = %uid, error = %format!("{e:#}"), "watchdog fire actions skipped: owner read failed");
+            return format!("Fire actions ({}): skipped — the owner's state could not be read.\n", actions.len());
+        }
+    }
+    let caller = crate::runtime::Caller {
+        org_id,
+        org_slug: engine.orgs.by_id(org_id).map(|o| o.slug.clone()).unwrap_or_default(),
+        agent_id: owner,
+        name: owner_name.to_string(),
+    };
+    let mut out = String::from("Fire actions (run as you, with your current authority):\n");
+    FIRE_ACTION_DEPTH.scope(depth + 1, async {
+        for a in actions {
+            let tool = a["tool"].as_str().unwrap_or("");
+            let argv = if a["args"].is_object() { a["args"].clone() } else { json!({}) };
+            let started = Instant::now();
+            let (ok, text) = match tokio::time::timeout(
+                Duration::from_secs(FIRE_ACTION_TIMEOUT_S),
+                crate::tools::call_tool(engine, &caller, tool, &argv, None),
+            ).await {
+                Ok(r) => r,
+                Err(_) => (false, format!("timed out after {FIRE_ACTION_TIMEOUT_S}s")),
+            };
+            tracing::info!(watchdog = %uid, tool, ok, ms = started.elapsed().as_millis(), "watchdog fire action");
+            out.push_str(&format!("  {tool}: {}\n", if ok { "ok" } else { "FAILED" }));
+            let text = capped_result(&text.replace('\0', ""));
+            if !text.is_empty() {
+                for line in text.lines() {
+                    out.push_str("    ");
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+        }
+    }).await;
+    out
 }
 
 fn fire_body(dog: &Dog, events: &[String], prefix: &str, once: bool, fired: i32) -> String {
@@ -1507,6 +1667,31 @@ async fn queue_smoke(engine: &Engine, org_id: i64, p: &crate::domain::projects::
                "note": if waiting > 0 { "the mail waiting now goes out as soon as this watchdog is armed, one mail per watcher in turn" } else { "nothing waits now" } }))
 }
 
+/// A project_listener/listener_watch dog's smoke: who listens on its
+/// project right now, read at create.
+#[logged]
+async fn listener_smoke(engine: &Engine, org_id: i64, p: &crate::domain::projects::Project, kind: &str, count: Option<i64>) -> Result<Value> {
+    let client = engine.db.get().await?;
+    let armed = crate::domain::listeners::armed_count(&**client, org_id, p.id).await?;
+    let watches: i64 = client
+        .query_one(
+            "SELECT count(*) FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+              WHERE w.org_id = $1 AND w.kind = 'listener_watch' AND w.state = 'armed'
+                AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live'",
+            &[&org_id, &p.id],
+        )
+        .await?
+        .get(0);
+    let note = match (kind, count) {
+        ("listener_watch", Some(n)) if armed >= n =>
+            "the count is already reached, so this watch fires at once".to_string(),
+        ("listener_watch", Some(n)) =>
+            format!("it fires when {n} event listeners are armed on the project"),
+        _ => "events fired on the project (orgtree_project action=fire_event) arrive as this dog's mail".to_string(),
+    };
+    Ok(json!({ "project": p.name, "listeners_armed": armed, "listener_watches_armed": watches, "note": note }))
+}
+
 /// What the target says right now, through the same spawn the runner uses.
 #[logged]
 async fn smoke(kind: &str, target: &str, pattern: Option<&Regex>, shell: Option<&str>, cwd: Option<&Path>) -> Value {
@@ -1662,12 +1847,31 @@ async fn slot_claim_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::p
         p.name, if ahead.is_empty() { String::new() } else { format!(" behind {}", ahead.join(", ")) }))
 }
 
+/// What a new listener_watch's create result says: it evaluates at once,
+/// like a slot claim, so the result can say whether it already fired.
+#[logged]
+async fn listener_watch_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domain::projects::Project, row: i64, count: i64) -> Result<String> {
+    Box::pin(crate::domain::listeners::evaluate(engine, org_id, p.id)).await?;
+    let client = engine.db.get().await?;
+    let armed = crate::domain::listeners::armed_count(&**client, org_id, p.id).await?;
+    let fired: i32 = client
+        .query_opt("SELECT fired FROM ot.watchdogs WHERE id = $1", &[&row])
+        .await?
+        .map(|r| r.get(0))
+        .unwrap_or(0);
+    Ok(if fired > 0 {
+        format!("LISTENER WATCH: project {} already has {armed} event listeners armed (this watch waits for {count}), so it FIRED at once, running its fire actions if it carries any", p.name)
+    } else {
+        format!("LISTENER WATCH: project {} has {armed} of {count} event listeners armed; it fires and wakes you when the count is reached (arming or resuming a listener re-checks at once)", p.name)
+    })
+}
+
 /// `orgtree_watchdog create`: a dog for `owner` (the caller), smoke-run once.
 #[logged]
 pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value) -> Result<Value> {
     let kind = args["kind"].as_str().unwrap_or("").to_string();
-    if !["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot"].contains(&kind.as_str()) {
-        refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event, usage, fair_queue, slot");
+    if !["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch"].contains(&kind.as_str()) {
+        refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event, usage, fair_queue, slot, project_listener, listener_watch");
     }
     let target = args["target"].as_str().map(str::trim).unwrap_or(if kind=="usage"{"usage"}else{""}).to_string();
     if target.is_empty() {
@@ -1724,6 +1928,9 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         memo["threshold"]=args["threshold"].clone();
         memo["event_scope"]=json!(args["event_scope"].as_str().unwrap_or("subtree"));
     } else if args.get("threshold").is_some() || args.get("event_scope").is_some() { refuse!(BadRequest,"threshold/event_scope require kind event"); }
+    if kind != "listener_watch" && args.get("count").is_some_and(|c| !c.is_null()) {
+        refuse!(BadRequest, "count is only for a listener_watch watchdog: how many armed project listeners fire it");
+    }
     let mut queue_project: Option<crate::domain::projects::Project> = None;
     if kind == "fair_queue" {
         // one project's mailbox; only agents above or below it may claim its mail
@@ -1798,6 +2005,48 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         target = p.name.clone();
         slot_project = Some(p);
     }
+    let mut listener_project: Option<crate::domain::projects::Project> = None;
+    if kind == "project_listener" || kind == "listener_watch" {
+        // a project's manual event (domain/listeners.rs): only the agents
+        // above or below it, one listener and one watch each per project
+        let Some(p) = crate::domain::projects::by_name(&**client, org_id, &target).await? else {
+            refuse!(NotFound, "no project named {} to listen on; a {kind} watchdog takes a project's name as target", target.trim_start_matches('@'));
+        };
+        if p.state != "live" {
+            refuse!(Conflict, "project {} is retired", p.name);
+        }
+        crate::domain::projects::require_reach(&**client, owner, &p,
+            if kind == "project_listener" { "listen for its events" } else { "watch its listener count" }).await?;
+        if let Some(r) = client
+            .query_opt(
+                "SELECT uid, state FROM ot.watchdogs WHERE kind = $3 AND owner_agent_id = $1
+                    AND state IN ('armed', 'paused') AND (memo->>'target_id')::bigint = $2 ORDER BY id LIMIT 1",
+                &[&owner, &p.id, &kind],
+            )
+            .await?
+        {
+            let (uid, state): (String, String) = (r.get(0), r.get(1));
+            let what = if kind == "project_listener" { "event listener" } else { "listener watch" };
+            refuse!(Conflict, "you already keep {what} {} ({}) on project {}; one {what} per agent per project. Keep using that one{}",
+                uid, state, p.name, if state == "paused" { " (resume it)" } else { "" });
+        }
+        if args["fire_mode"].as_str().is_some_and(|m| !m.is_empty() && m != "event") || args.get("quiet_period_s").is_some_and(|q| !q.is_null()) {
+            refuse!(BadRequest, "a {kind} watchdog is pushed by its project; it has no silence mode");
+        }
+        if args["pattern"].as_str().is_some_and(|p| !p.trim().is_empty()) {
+            refuse!(BadRequest, "a {kind} watchdog takes every event fired on its project; it has no pattern");
+        }
+        memo["target_id"] = json!(p.id);
+        if kind == "listener_watch" {
+            let Some(n) = args["count"].as_i64().filter(|n| (1..=crate::domain::listeners::MAX_COUNT).contains(n)) else {
+                refuse!(BadRequest, "a listener_watch watchdog needs count: how many armed project event listeners on {} fire it (1 to {})", p.name, crate::domain::listeners::MAX_COUNT);
+            };
+            memo["count"] = json!(n);
+            memo["run"]["above"] = json!(false);
+        }
+        target = p.name.clone();
+        listener_project = Some(p);
+    }
     if kind == "activity" {
         let t = target.trim_start_matches('@').to_string();
         let row = client
@@ -1843,12 +2092,19 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     if kind == "command" && pattern.is_none() {
         refuse!(BadRequest, "a command watchdog needs a pattern — 'ran and printed something' is not an event");
     }
-    let floor = if kind == "stream" || kind == "activity" || kind == "event" || kind == "usage" || kind == "fair_queue" || kind == "slot" { STREAM_FLOOR_S } else { FLOOR_S };
+    let floor = if kind == "stream" || kind == "activity" || kind == "event" || kind == "usage" || kind == "fair_queue" || kind == "slot" || kind == "project_listener" || kind == "listener_watch" { STREAM_FLOOR_S } else { FLOOR_S };
     let interval = args["interval_s"].as_i64().unwrap_or(60).max(floor).min(i32::MAX as i64) as i32;
     // a slot claim is one-shot: it fires once, with the grant
     let once = kind == "slot" || args["once"].as_bool().unwrap_or(false);
     let notice = args["notice"].as_bool().unwrap_or(false);
     memo["notice"] = json!(notice);
+    let fire_actions = fire_actions_arg(args)?;
+    if !fire_actions.is_empty() {
+        if kind == "fair_queue" {
+            refuse!(BadRequest, "a fair_queue watchdog's fire is the mail it hands you, so it cannot carry fire_actions; use a project_listener or another kind for fire-time tool calls");
+        }
+        memo["fire_actions"] = json!(fire_actions);
+    }
     let counts = client
         .query_one(
             "SELECT count(*) FILTER (WHERE owner_agent_id = $2), count(*) FROM ot.watchdogs
@@ -1878,6 +2134,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         else if kind=="event" { events::smoke(engine,owner,&target,args).await? }
         else if let Some(p) = &queue_project { queue_smoke(engine, org_id, p).await? }
         else if slot_project.is_some() { json!({ "ran": "a concurrency slot claim has nothing to run" }) }
+        else if let Some(p) = &listener_project { listener_smoke(engine, org_id, p, &kind, memo["count"].as_i64()).await? }
         else { smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await };
     if let Some(n)=smoked["current"]["count"].as_i64(){memo["run"]["count"]=json!(n);}
     if smoked["current"]["credits"].is_object(){memo["run"]["credits"]=smoked["current"]["credits"].clone();}
@@ -1921,21 +2178,30 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         Some(p) => Some(slot_claim_said(engine, org_id, p, row).await?),
         None => None,
     };
+    // a listener_watch evaluates now, like a slot claim, so the result can say so
+    let watch_said = match (&listener_project, kind.as_str()) {
+        (Some(p), "listener_watch") => Some(listener_watch_said(engine, org_id, p, row, memo["count"].as_i64().unwrap_or(0)).await?),
+        _ => None,
+    };
     arm(engine, row);
     changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Events]);
     let cadence = match kind.as_str() {
         "stream" => " (realtime stream)".to_string(),
         "activity" | "event" | "usage" => " (pushed events)".to_string(),
-        "fair_queue" | "slot" => format!(" on project {target}"),
+        "fair_queue" | "slot" | "project_listener" | "listener_watch" => format!(" on project {target}"),
         _ => format!(" every {interval}s"),
     };
     let mut status = format!("{}{kind} watchdog{cadence}", if once { "armed — ONE-SHOT " } else { "armed — " });
-    status.push_str(&if let Some(s) = &slot_said {
+    status.push_str(&if let Some(s) = &watch_said {
+        format!(". {s}")
+    } else if let Some(s) = &slot_said {
         format!(". {s}")
     } else if kind == "fair_queue" {
         ". Each mail entering the project's mailbox goes to exactly ONE of its fair_queue watchers, the least recently woken \
          (busy, halted or frozen watchers stay in turn). The mail you are handed arrives as ordinary mail from its sender, \
          marked as coming via the project; reply to the sender, not the project".to_string()
+    } else if kind == "project_listener" {
+        format!(". Each event fired on project {target} (orgtree_project action=fire_event) arrives as mail from \"{name}\"")
     } else if fire_mode == "silence" {
         format!(". Silence for {}s arrives as mail from \"{name}\"", quiet.unwrap_or(0))
     } else {
@@ -1948,6 +2214,10 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     });
     if once {
         status.push_str(". It then REMOVES ITSELF — one fire, then gone, so you will not see it again and `list` will not show it");
+    }
+    if !fire_actions.is_empty() {
+        let tools: Vec<&str> = fire_actions.iter().filter_map(|a| a["tool"].as_str()).collect();
+        status.push_str(&format!(" When it fires it also runs {} as you (your authority at fire time) and puts the results in its fire mail.", tools.join(", ")));
     }
     status.push_str("; it costs no credits.");
     if named.is_empty() {
@@ -2059,6 +2329,16 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
                     &[&dog.row],
                 )
                 .await?;
+            if dog.kind == "listener_watch" {
+                // a resumed watch re-evaluates from a cleared edge, like a fresh claim
+                client
+                    .execute(
+                        "UPDATE ot.watchdogs SET memo = jsonb_set(memo || jsonb_build_object('run', coalesce(memo->'run', '{}'::jsonb)),
+                                                                   '{run,above}', 'false') WHERE id = $1",
+                        &[&dog.row],
+                    )
+                    .await?;
+            }
             "armed"
         }
         "remove" => {
@@ -2090,6 +2370,14 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
         disarm(engine, dog.row);
         // a project watcher that stops watching gives back its un-acked mail
         crate::domain::projects::recheck_holder(engine, org_id, dog.owner).await;
+        // a listener that stops listening changes the count its project's watches read
+        if dog.kind == "project_listener" {
+            if let Some(p) = dog.memo["target_id"].as_i64() {
+                if let Err(e) = Box::pin(crate::domain::listeners::evaluate(engine, org_id, p)).await {
+                    tracing::warn!(watchdog = %dog.uid, error = %format!("{e:#}"), "listener watch evaluation after a listener stopped failed");
+                }
+            }
+        }
     }
     changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Events]);
     let mut out = json!({ "id": dog.uid, "name": dog.name, "state": state });
@@ -2123,6 +2411,18 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
                 for (index, (row, _, _, _)) in crate::domain::slots::line(&**client, project).await?.into_iter().enumerate() {
                     positions.insert(row, index + 1);
                 }
+            }
+        }
+    }
+    // A listener watch shows its project's current armed-listener count,
+    // resolved once per distinct project per list call.
+    let mut listener_projects = HashSet::new();
+    let mut listener_counts = HashMap::new();
+    for row in &rows {
+        let dog = dog_of(row);
+        if dog.kind == "listener_watch" {
+            if let Some(project) = dog.memo["target_id"].as_i64().filter(|p| listener_projects.insert(*p)) {
+                listener_counts.insert(project, crate::domain::listeners::armed_count(&**client, dog.org_id, project).await?);
             }
         }
     }
@@ -2161,6 +2461,11 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
                 put("line", json!(slot_line_label(*position)));
             }
             if d.kind == "slot" { put("lease", d.memo["lease"].clone()); }
+            put("fire_actions", d.memo["fire_actions"].clone());
+            if d.kind == "listener_watch" {
+                put("count", d.memo["count"].clone());
+                if let Some(n) = d.memo["target_id"].as_i64().and_then(|p| listener_counts.get(&p)) { put("listeners", json!(n)); }
+            }
             put("health", json!(engine.dogs.event_health.pin().get(&d.row).cloned().or_else(||health(&d))));
             v
         })
@@ -2199,7 +2504,7 @@ fn health(d: &Dog) -> Option<String> {
                 hours(age)
             )
         }),
-        "activity" | "event" | "usage" | "fair_queue" | "slot" => None,
+        "activity" | "event" | "usage" | "fair_queue" | "slot" | "project_listener" | "listener_watch" => None,
         _ if runs == 0 => (age >= NEVER_RAN_AGE_S)
             .then(|| format!("⚠ armed {} ago but has NEVER RUN A CHECK — the engine has not picked it up; report this.", hours(age))),
         _ => (d.fired == 0 && runs >= QUIET_CHECKS && age >= QUIET_AGE_S).then(|| {
@@ -2312,7 +2617,7 @@ mod tests {
 
     #[test]
     fn push_driven_dogs_do_not_report_missing_polls() {
-        for kind in ["slot", "fair_queue", "event"] {
+        for kind in ["slot", "fair_queue", "event", "project_listener", "listener_watch"] {
             assert_eq!(health(&quiet_dog(kind)), None, "{kind} waits for pushes, not polling checks");
         }
     }
@@ -2329,6 +2634,38 @@ mod tests {
         for (place, text) in [(1, "1st"), (2, "2nd"), (3, "3rd"), (11, "11th"), (12, "12th"), (21, "21st")] {
             assert_eq!(slot_line_label(place), format!("in line: {text}"));
         }
+    }
+
+    #[test]
+    fn fire_actions_are_validated_and_bounded() {
+        assert_eq!(fire_actions_arg(&json!({})).unwrap(), Vec::<Value>::new());
+        let ok = fire_actions_arg(&json!({"fire_actions":[{"tool":"orgtree_project","args":{"action":"fire_event","name":"p"}}]})).unwrap();
+        assert_eq!(ok.len(), 1);
+        assert_eq!(ok[0]["tool"], json!("orgtree_project"));
+        // args default to an empty object
+        let bare = fire_actions_arg(&json!({"fire_actions":[{"tool":"orgtree_chart"}]})).unwrap();
+        assert_eq!(bare[0]["args"], json!({}));
+        for bad in [
+            json!({"fire_actions":"orgtree_chart"}),
+            json!({"fire_actions":[{"tool":"orgtree_nope"}]}),
+            json!({"fire_actions":[{"tool":"orgtree_chart","args":[1]}]}),
+            json!({"fire_actions":[{"tool":"muse_powershell"}]}),
+        ] {
+            assert!(fire_actions_arg(&bad).is_err(), "{bad} must be refused");
+        }
+        let many: Vec<Value> = (0..=MAX_FIRE_ACTIONS).map(|_| json!({"tool":"orgtree_chart"})).collect();
+        assert!(fire_actions_arg(&json!({"fire_actions": many})).is_err(), "over the cap is refused");
+        let big = "x".repeat(FIRE_ACTION_ARGS_MAX + 1);
+        assert!(fire_actions_arg(&json!({"fire_actions":[{"tool":"orgtree_chart","args":{"a":big}}]})).is_err(), "oversized args are refused");
+    }
+
+    #[test]
+    fn capped_result_keeps_lines_and_caps_length() {
+        assert_eq!(capped_result("  a\nb  "), "a\nb");
+        let long = "x".repeat(FIRE_ACTION_RESULT_MAX + 50);
+        let capped = capped_result(&long);
+        assert_eq!(capped.chars().count(), FIRE_ACTION_RESULT_MAX);
+        assert!(capped.ends_with('…'));
     }
 
     fn set(ids: &[&str]) -> HashSet<String> {

@@ -8,6 +8,9 @@ tokio::task_local! { pub(super) static ALERT_DELIVERY: bool; }
 /// A job ran out of attempts in an ack queue (`domain::projects::reclaim`); scope Agent(org, project).
 pub const DEAD_LETTER: &str = "project.dead_letter";
 
+/// A project's event was fired to its listeners (`domain::listeners::fire`); scope Agent(org, project), reach-checked like DEAD_LETTER. The payload carries no message text.
+pub const PROJECT_EVENT: &str = "project.event";
+
 /// Prevent a paid alert turn from feeding any event dog owned by that agent.
 /// Other agents' watchers still observe it. No global lock or task-local lifetime.
 pub(crate) struct AlertTurn { engine: Arc<Engine>, owner: i64, name: Arc<(i64,String)> }
@@ -150,7 +153,7 @@ pub(super) struct Access {
     down: HashSet<i64>,
     docket: HashSet<String>,
     credits: Value,
-    /// projects (of the batch's `project.dead_letter` events) the owner is above or below
+    /// projects (of the batch's `project.dead_letter`/`project.event` events) the owner is above or below
     reach: HashSet<i64>,
 }
 #[logged]
@@ -176,7 +179,7 @@ impl Access {
             }
         }
         let mut reach=HashSet::new();
-        for e in events.iter().filter(|e|e.name==DEAD_LETTER) {
+        for e in events.iter().filter(|e|e.name==DEAD_LETTER || e.name==PROJECT_EVENT) {
             if let Scope::Agent(org,project)=e.scope {
                 if org==me.org_id && !reach.contains(&project) && crate::domain::projects::reaches(&**c,me.id,project).await? {reach.insert(project);}
             }
@@ -193,7 +196,7 @@ impl Access {
             Scope::Account(org)=>return org.as_ref().map(|s|s==&self.org_slug).unwrap_or(true)
                 && (!e.name.starts_with("usage.") || e.payload["account"].as_str().is_some_and(|id|crate::org_accounts::allowed(Some(&self.org_slug),id))),
             // a project's dead letters: only the agents above or below the project (not its visibility)
-            Scope::Agent(org,id) if e.name==DEAD_LETTER=>return *org==self.me.org_id && self.reach.contains(id),
+            Scope::Agent(org,id) if e.name==DEAD_LETTER || e.name==PROJECT_EVENT=>return *org==self.me.org_id && self.reach.contains(id),
             Scope::Agent(org,id)=>{if *org!=self.me.org_id{return false;}*id},
             Scope::NamedAgent(org,n)=>{if *org!=self.me.org_id{return false;}let Some(id)=self.names.get(n)else{return false;};*id},
             Scope::Docket(org,slug)=>return *org==self.me.org_id && self.docket.contains(slug),

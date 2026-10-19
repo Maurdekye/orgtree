@@ -27,6 +27,7 @@ Choose an observable completion signal and arrange a persistent watcher before y
 | A long-lived command emits live events | Stream watcher, accepting offline gaps. |
 | A descendant stops reporting turn/tool activity | Activity watcher with a matching or silence condition. |
 | The engine publishes a lifecycle or count transition | Event watcher. |
+| A superior releases the group, or everyone has arrived | `project_listener` on the shared project (sync wake), and `listener_watch count=N` for the one waiting for the group — never a poll of who has armed. |
 
 A vague signal makes a vague wake. Prefer a unique completion marker or a definite down edge over repeated broad text. A deadline/completion condition should normally be one-shot; recurring alerts should have a reason to repeat. Passive delivery is useful only when another event will eventually give you a turn to read it.
 

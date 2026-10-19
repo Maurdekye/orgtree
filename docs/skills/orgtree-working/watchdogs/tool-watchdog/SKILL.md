@@ -9,7 +9,7 @@ Up: [orgtree-watchdogs](../SKILL.md)
 
 ## Call contract
 
-Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. Event/count/silence semantics and catalog are in the guide. No added authority.
+Create/list/pause/resume/remove persistent watchers; max 8/agent. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. project_listener receives a project's fired events; listener_watch fires at a count of armed listeners. fire_actions run orgtree tool calls as you at fire time. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. Event/count/silence semantics and catalog are in the guide. No added authority.
 
 Use a watchdog to be told when an observable condition happens, instead of spending turns polling it. The watcher persists across engine restarts and costs no hiring credits. By default a fire mails and wakes its owner; `notice: true` makes that mail passive. A watchdog does not grant new filesystem or shell authority.
 
@@ -39,8 +39,10 @@ The effective tool permission is `tools.orgtree.watchdogs`. The owner is the cal
 | Parameter | Applies to | Default / meaning |
 |---|---|---|
 | `action` | All calls; required | `create`, `list`, `pause`, `resume`, or `remove`. |
-| `kind` | Create; required | `file`, `command`, `process`, `stream`, `activity`, `event`, or `fair_queue`. |
-| `target` | Create; required | Path, command, `pid:N`/`port:N`, activity agent name, event name/prefix, or a project's name for `fair_queue`. |
+| `kind` | Create; required | `file`, `command`, `process`, `stream`, `activity`, `event`, `usage`, `fair_queue`, `slot`, `project_listener` or `listener_watch`. |
+| `count` | Create, `listener_watch` (required there) | Armed project listeners that fire it, 1–1024. Refused for every other kind. |
+| `fire_actions` | Create, any kind except `fair_queue` | Up to 4 `{tool, args}` orgtree_* tool calls run as you when the dog fires; results ride the fire mail. See Fire-time tool calls. |
+| `target` | Create; required | Path, command, `pid:N`/`port:N`, activity agent name, event name/prefix, or a project's name for `fair_queue`, `slot`, `project_listener` and `listener_watch`. |
 | `name` | Create | Optional short name; its normalized slug becomes the owner-local ID. |
 | `pattern` | Create | Regex. Required for `command`; optional otherwise. Process down edges do not use it. |
 | `interval_s` | Create | Default 60 seconds; poll cadence for file/command/process, minimum fire gap for stream/activity/event. Floor 15 seconds for pollers, 5 seconds for pushed/streamed kinds; capped at 2,147,483,647 seconds. |
@@ -122,6 +124,23 @@ The self/descendant relationship is rechecked before a fire. If the subject is n
 
 Release the concurrency slot as soon as the work that needs it ends: `orgtree_project action=release_slot lease=L` ([orgtree-tool-project](../../team/tool-project/SKILL.md)). A holder that is retired or halted loses the concurrency slot at once. An idle holder gets the 20-minute working checkup, naming the concurrency slot and how to release it, up to 3 times; at the next one the concurrency slot is taken back (only while that checkup and the project's ack timeout are on). Either way the holder is told why, and the next in line is granted the concurrency slot.
 
+### project_listener
+
+`target` is a live project above or below you. The dog listens for the project's manual event: each time someone above or below the project (or the user) fires it with `orgtree_project action=fire_event name=P` (optional `body`), every armed listener that still reaches the project receives the event and its message as ordinary watchdog mail, in the same instant; a one-shot is spent by it. This is the project's **sync wake**: participants arm one-shot listeners and end their turns; the fire releases them together. `list` shows fire count and last fire. A `pattern`, silence mode and `shell` are refused. One event listener per agent per project (a second is refused, naming the first). **Removed 4.4.0:** there is no separate "round" or barrier primitive; the listener plus the watch below is the mechanism.
+
+### listener_watch
+
+`target` is a live project above or below you; `count` (required, 1–1024) is how many armed `project_listener` dogs fire it. Paused listeners do not count; your own listener does. The watch evaluates whenever it is armed and whenever a listener on its project arms, resumes, pauses, is removed or is spent: reaching the count fires it — including at create, when the count is already reached (like a slot granted at once, so arming the watch after everyone has arrived works). Staying at or above the count does not fire again; a continuous watch fires again only after the count drops below and crosses again. Resuming re-evaluates from a cleared edge. One listener watch per agent per project. `list` shows its `count` and the project's current armed `listeners`. Paired with a `fire_actions` entry that fires the project's event, a superior is both told the group is ready and releases it in the same instant:
+
+```json
+{"action":"create","name":"all-in","kind":"listener_watch","target":"sync","count":3,"once":true,
+ "fire_actions":[{"tool":"orgtree_project","args":{"action":"fire_event","name":"sync","body":"go"}}]}
+```
+
+## Fire-time tool calls
+
+Any watchdog except `fair_queue` (whose fire is the mail it hands you) may carry `fire_actions`: up to 4 `{tool, args}` calls naming served `orgtree_*` tools, with `args` a JSON object (bounded at create; unknown tools are refused). When the dog fires, after the fire is recorded, the calls run **as the dog's owner, with the authority the owner holds at fire time** — tool-group switches and every handler check are re-read then, never captured at create. They run in order, 30 seconds each, and their results (truncated) are appended to the one fire mail; a failed or refused call reports FAILED there and does not stop the rest. Chains are bounded: a fired call that fires another dog whose calls fire another stops at depth 4, and the skipped calls are named in that mail. Fire actions never run in the engine's safe-start rehearsal. A stream's terminal-exit diagnostic is not a fire and runs none. `list` and the desktop detail show the calls a dog carries.
+
 ### event
 
 `target` is an exact dotted event name or a dotted prefix ending `.*`, such as `turn.*`. The optional regex sees the safe JSON payload after access filtering; it does not match transcript text. Names are checked for syntax, not for membership in the catalog, so a well-formed typo can sit armed without firing.
@@ -145,6 +164,7 @@ Events are pushed. Creation smoke reports current exact conditions where availab
 | `hub.up`, `hub.down`, `hub.changed` | Org hub connection or network change. |
 | `credits.changed` | Visible agent grant/free-credit changes. |
 | `project.dead_letter` | An ack-queue job ran out of attempts and became a dead letter (see [orgtree-tool-project](../../team/tool-project/SKILL.md)); only agents above or below the project see it. Payload: project, mail id, sender, attempts, last holder, reason. `pattern=<project>` narrows it to one project. |
+| `project.event` | A project's event was fired to its listeners (`orgtree_project action=fire_event`); only agents above or below the project see it. Payload: project, project_id, by, delivered count, has_message — never the message text. `pattern=<project>` narrows it to one project. |
 | `documents.created`, `documents.updated`, `documents.changed` | Presentation create/update/feed change, without document body. |
 | `audience.requested`, `audience.granted`, `audience.denied`, `audience.revoked` | Committed audience changes. |
 | `cli.started`, `cli.ready`, `cli.cold`, `cli.evicted` | Another visible agent's process/warmth transitions. |
@@ -187,7 +207,7 @@ An armed result can still contain `smoke.broken: true`; arming is not proof of a
 
 ## Management, recovery and health
 
-Slot, fair-queue and event listeners are push-driven: zero polling checks does not trigger a "never run a check" warning. Queued slot claims show `line_position` and a readable `line` such as `in line: 2nd`, resolved from the project's current first-come queue. A granted claim identifies its lease. Real runner and storage errors still appear in health diagnostics.
+Slot, fair-queue, event, project-listener and listener-watch dogs are push-driven: zero polling checks does not trigger a "never run a check" warning. Queued slot claims show `line_position` and a readable `line` such as `in line: 2nd`, resolved from the project's current first-come queue. A granted claim identifies its lease. Real runner and storage errors still appear in health diagnostics.
 
 `list` returns your kept dogs and your descendants' dogs. Owner-local IDs can collide; use `owner/id` for a team member's dog. Owners and their superiors can pause/resume/remove; a peer cannot manage a dog merely because the peer is visible. Ambiguous bare IDs are refused with the qualified choices.
 

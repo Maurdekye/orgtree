@@ -443,7 +443,7 @@ fn trimmed_folder_rules(org: &str, org_dir: Option<(&str, bool)>, teams: &[&Valu
             Some(format!("{} (project {})", t["path"].as_str()?, t["team"].as_str().unwrap_or("?")))
         }).collect();
         s.push_str(&format!(
-            "PROJECTS BELOW YOU, nearest first: {}: project nodes, not agents; you pay for the agents under them,              and you may use their folders, mail them, read their waiting mail and watch them with a fair_queue              watchdog (orgtree-projects). ",
+            "PROJECTS BELOW YOU, nearest first: {}: project nodes, not agents; you pay for the agents under them,              and you may use their folders, mail them, read their waiting mail, watch them with a fair_queue              watchdog and listen for their fired events with a project_listener watchdog (orgtree-projects). ",
             list.join(", ")
         ));
     }

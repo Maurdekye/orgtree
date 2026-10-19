@@ -27,6 +27,7 @@ of identifiers and state labels, never raw change-log details or feed bodies.
 | `hub.up`, `hub.down`, `hub.changed` | An org's existing network hub connection or net feed changed; hub ID only |
 | `credits.changed` | Grant/free credit amount changed through operations and cascades; agent ID, grant and free |
 | `project.dead_letter` | An ack-queue job ran out of attempts (`projects::reclaim`); scope is the project, visible only to agents above or below it (not by org visibility); project name, mail id, sender, attempts, last holder, reason |
+| `project.event` | A project's event was fired to its listeners (`domain::listeners::fire`, user 2026-10-19); scope Agent(org, project), reach-checked like DEAD_LETTER. Payload: project, project_id, by, delivered, has_message — never the message text. |
 | `documents.created`, `documents.updated`, `documents.changed` | Presentation created/replaced, or document feed change; document/agent ID only |
 | `audience.requested`, `audience.granted`, `audience.denied`, `audience.revoked` | Existing audience transaction committed; identities only |
 | `cli.started`, `cli.ready`, `cli.cold`, `cli.evicted` | Existing process/warmth publication and eviction seams; agent ID |

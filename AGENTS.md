@@ -9,6 +9,7 @@
 
 # AGENTS.md — working on Orgtree
 
+
 - The persistent app-wide taskbar badge reads existing native app-feed unread
   mail inventory and attention totals, independent of toast preferences/focus.
   Windows uses an overlay, macOS a dock bullet, Linux its badge API. Update on
@@ -29,6 +30,23 @@
   into ResizeObserver and can alternate Quick chat widths. Only publish changed
   minima; observe nested title/control text too. See [width stability](docs/rust-engine/quickchat-width-stability.md).
   [verified: `shell/equalsides.ts`, `tests/quickwidth-capture.cjs`; 2026-10-19]
+
+
+- Project event listeners (user 2026-10-19 07:40Z): `project_listener` dogs
+  receive a project's fired events (`orgtree_project action=fire_event`, one
+  delivery transaction, in dog order) and `listener_watch` dogs fire at an
+  armed-listener `count` (edge persisted under the project row lock; fires
+  at once when already satisfied, re-fires only on a re-cross). Watchdogs
+  may carry `fire_actions` (max 4 orgtree_* calls run as the owner at fire
+  time through ordinary dispatch, 30s each, results in the fire mail,
+  task-local depth limit 4; refused on `fair_queue`, skipped under
+  SAFE_START). Cyan listener/watch lines and header cards (`x/y` per armed
+  watch), a magenta mail-queue card (feed `mail_held` = ack in-flight) and
+  a desk Listeners tab with the fire control. Engine event `project.event`.
+  A rename now also moves `slot` watchdog targets (was activity/fair_queue
+  only). [verified: `domain/listeners.rs`, `runtime/watchdogs.rs`,
+  `canvas/listeners{,desk}.{ts,tsx}`, rig `project-listeners.mjs`,
+  `projectlisteners.test.tsx`; 2026-10-19]
 
 - Startup tool descriptions retain the 12,000-byte aggregate and 900-byte/card
   caps for flat and split mail shapes. Keep concise authority/call cues on cards;

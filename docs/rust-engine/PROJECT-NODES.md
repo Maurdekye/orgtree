@@ -277,6 +277,65 @@ agents under the project".
 - `orgtree_chart` and `orgtree_state_inspect` list projects with `kind: project`. How a project
   should look in the chart and on the docket is still with the user; this is provisional.
 
+## Event listeners: the project's sync and monitor (user 2026-10-19 07:40Z, m26f5b810ab35; listeners tab 07:41Z)
+
+A project carries a manual event (replacing the "round" primitive floated
+2026-10-18). Two new push-driven watchdog kinds join `fair_queue` and
+`slot` (`domain/listeners.rs`, `runtime/watchdogs.rs`):
+
+- **`project_listener`** (target = a live project above or below the
+  owner, one per agent per project): each fire of the project event
+  arrives as watchdog mail with the firer's optional message; one-shot or
+  continuous; pattern/silence/shell refused, as the other project kinds.
+- **`listener_watch`** (same target rule, one per agent per project, new
+  arg `count` 1-1024): fires when the armed `project_listener` count
+  (live owners; paused excluded) crosses from below `count` to at least
+  `count`. It evaluates whenever it is armed and whenever a listener on
+  its project arms/pauses/resumes/removes/spends — so arming it when the
+  group is already there fires at once, like a slot granted at once. The
+  edge is persisted (`memo.run.above`, held under the project row lock);
+  a continuous watch re-fires only after a drop below and a re-cross;
+  resume clears the edge; recovery keeps it. A watch whose owner no
+  longer reaches the project never fires (fair-queue ineligibility
+  precedent).
+- **Firing**: `orgtree_project action=fire_event name=P` (optional
+  `body` ≤8000 chars; tool-side so the caller reads the true delivered
+  count; the canvas op `fire_project_event` reaches the same
+  `listeners::fire` via an `Effects` entry) and `action=listeners`
+  (op `project_listeners`). Delivery is ONE transaction per fire under
+  the project row lock: every eligible listener's mail and fire/spend
+  record together, in dog creation order, reach rechecked in-tx; wakes,
+  spent disarm and fire-time calls after commit. Zero listeners is a
+  success reporting 0. An engine event `project.event` (project-scoped,
+  reach-checked like `project.dead_letter`, payload without message
+  text) is emitted. Watchdogs-only callers may fire/list (the slot
+  actions' restricted-card precedent).
+- **Fire-time tool calls** (all kinds except `fair_queue`, refused at
+  create: its fire is a handed mail): `fire_actions: [{tool, args}]`,
+  max 4, served `orgtree_*` tools only, args a bounded object. They run
+  at fire time as the dog's OWNER through ordinary dispatch (current
+  tool-group scope and handler authority re-read then), sequentially,
+  30s each; truncated results ride the fire mail (for listeners, appended
+  to the still-pending mail before the wake; the already-read case gets
+  a follow-up mail). A task-local depth limit of 4 stops chains of
+  firing dogs; delivery is awaited in-task so the counter propagates;
+  skipped actions are named in the mail. Nothing runs under SAFE_START.
+  Logged with dog/tool/outcome only. This is the sync pattern: everyone
+  arms a one-shot listener; the superior's one-shot watch carries a
+  `fire_event` action, so it is told the group is ready and releases it
+  in the same instant.
+- **Desktop**: solid cyan listener lines, dashed cyan watch lines
+  (paused dimmed) join `projectLineLanes` after fair_queue/slot — the
+  CMY triplet (`canvas/listeners.ts`, `--listener`/`--listener-dim`).
+  Desk header and near-zoom card: a darker cyan `listeners N` card while
+  listeners are armed, or one brighter `listeners x/y` card per armed
+  watch; a magenta `mail queue` card (the `--fq-line` rose) shows waiting
+  mail and, in ack mode, the handed-but-unacked in-flight count (new
+  feed field `mail_held`, `x_mail_held` beside `x_mail_pending`). The
+  desk gains a **listeners** tab while any listener/watch targets the
+  project (badge = armed listeners) listing both with mode, count and
+  fire actions, plus the fire control (`canvas/listenersdesk.tsx`).
+
 ## Agent tools
 
 - New `orgtree_project` (team group): `action=create`, `name`, `parent` (default: yourself),

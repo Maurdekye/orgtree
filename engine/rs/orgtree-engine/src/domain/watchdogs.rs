@@ -30,6 +30,8 @@ pub fn view(w: &Value, owner: &str) -> Value {
     o.insert("target".into(), w["target"].clone());
     if let Some(config)=w["memo"]["usage"].as_object(){for (key,value) in config{o.insert(key.clone(),value.clone());}}
     for key in ["threshold","event_scope"] { if let Some(v)=w["memo"].get(key).filter(|v|!v.is_null()){o.insert(key.into(),v.clone());} }
+    // a listener_watch's threshold and any dog's fire-time tool calls (bounded at create)
+    for key in ["count","fire_actions"] { if let Some(v)=w["memo"].get(key).filter(|v|!v.is_null()){o.insert(key.into(),v.clone());} }
     if let Some(v)=w["memo"]["run"].get("last_output"){o.insert("last_output".into(),v.clone());}
     if let Some(p) = w.get("pattern").filter(|v| !v.is_null()) {
         o.insert("pattern".into(), p.clone());
@@ -104,5 +106,16 @@ mod tests {
         assert_eq!(g["lease"],json!("sab"));
         assert!(g.get("slot").is_none(), "permit indexes stay internal");
         assert!(view(&json!({"uid":"x","kind":"command","memo":{"queued_at":1}}),"b").get("queued_at").is_none());
+    }
+    /// A listener_watch shows its count; fire-time tool calls ride along for the listeners tab.
+    #[test]
+    fn a_listener_watch_view_carries_its_count_and_fire_actions() {
+        let raw=json!({"uid":"all-in","kind":"listener_watch","state":"armed","created_at":"2026-01-01T00:00:00Z",
+            "memo":{"target_id":7,"count":3,"fire_actions":[{"tool":"orgtree_project","args":{"action":"fire_event"}}]}});
+        let v=view(&raw,"boss");
+        assert_eq!(v["count"],json!(3));
+        assert_eq!(v["fire_actions"][0]["tool"],json!("orgtree_project"));
+        let plain=view(&json!({"uid":"x","kind":"project_listener","memo":{"target_id":7}}),"b");
+        assert!(plain.get("count").is_none() && plain.get("fire_actions").is_none());
     }
 }

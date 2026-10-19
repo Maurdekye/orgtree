@@ -71,6 +71,8 @@ pub(crate) struct Effects {
     slot_grants: Vec<i64>,
     /// projects whose mail queue runs after commit (a retried dead letter is waiting again)
     queue_runs: Vec<i64>,
+    /// project events to fire after commit (`listeners::fire`): (project, firer label, message)
+    project_fires: Vec<(i64, String, Option<String>)>,
 }
 
 /// A locked agent row.
@@ -754,6 +756,8 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         "slot_release" => slot_release(org, &tx, actor, req, fx).await?,
         "slot_status" => slot_status(org, &tx, actor, req).await?,
         "slot_unqueue" => slot_unqueue(org, &tx, actor, req, fx).await?,
+        "fire_project_event" => fire_project_event(org, &tx, actor, req, fx).await?,
+        "project_listeners" => project_listeners(org, &tx, actor, req).await?,
         "reallocate" => reallocate(engine, org, &tx, actor, req, fx).await?,
         "switch_model" => switch_model(engine, org, &tx, actor, req, fx).await?,
         "reorder" => reorder(org, &tx, actor, req, fx).await?,
@@ -876,6 +880,23 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     for d in &fx.dogs_off {
         crate::runtime::watchdogs::disarm(engine, *d);
     }
+    // listeners paused or removed with their owners (an archive) changed
+    // the count their projects' watches read; refresh those edges
+    if !fx.dogs_off.is_empty() {
+        if let Ok(client) = engine.db.get().await {
+            if let Ok(rows) = client.query(
+                "SELECT DISTINCT (memo->>'target_id')::bigint FROM ot.watchdogs
+                  WHERE id = ANY($1) AND kind = 'project_listener' AND memo->>'target_id' IS NOT NULL",
+                &[&fx.dogs_off]).await {
+                for r in &rows {
+                    let p: i64 = r.get(0);
+                    if let Err(e) = Box::pin(crate::domain::listeners::evaluate(engine, org.id, p)).await {
+                        tracing::warn!(project = p, error = %format!("{e:#}"), "listener watch evaluation after an archive failed");
+                    }
+                }
+            }
+        }
+    }
     for d in &fx.dogs_on {
         crate::runtime::watchdogs::arm(engine, *d);
     }
@@ -925,6 +946,11 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     for p in &fx.queue_runs {
         if let Err(e) = Box::pin(crate::domain::projects::dispatch(engine, org.id, *p)).await {
             tracing::warn!(project = p, error = %format!("{e:#}"), "running a project's queue after a dead-letter retry failed");
+        }
+    }
+    for (p, by, message) in &fx.project_fires {
+        if let Err(e) = Box::pin(crate::domain::listeners::fire(engine, org.id, *p, by, message.as_deref())).await {
+            tracing::warn!(project = p, error = %format!("{e:#}"), "firing a project's event failed");
         }
     }
     for p in &fx.slot_grants {
@@ -2000,7 +2026,7 @@ async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         &[&org.id, &n.name, &new],
     )
     .await?;
-    tx.execute("UPDATE ot.watchdogs SET target = $3 WHERE org_id = $1 AND kind IN ('activity', 'fair_queue') AND target = $2",
+    tx.execute("UPDATE ot.watchdogs SET target = $3 WHERE org_id = $1 AND kind IN ('activity', 'fair_queue', 'slot', 'project_listener', 'listener_watch') AND target = $2",
         &[&org.id, &n.name, &new])
         .await?;
     event(tx, org.id, "rename", actor, Some(n.id), json!({ "was": n.name, "node": new }), fx).await?;
@@ -2300,6 +2326,50 @@ async fn slot_status(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, 
     }
     let scope: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
     crate::domain::slots::status(tx, n.id, &n.name, &scope).await
+}
+
+/// Fire a project's event to its armed listeners (`orgtree_project
+/// action=fire_event`; the desk's Listeners tab fire button). Agents
+/// above or below the project, or the user. Delivery runs after commit
+/// (`listeners::fire`); the result reports who is listening now.
+#[logged]
+async fn fire_project_event(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project carries an event", n.name);
+    }
+    if n.state != "live" {
+        refuse!(Conflict, "project {} is retired; its event cannot be fired", n.name);
+    }
+    if let Actor::Agent { id, .. } = actor {
+        if !crate::domain::projects::reaches(tx, *id, n.id).await? {
+            refuse!(Forbidden, "only the agents above or below project {} fire its event", n.name);
+        }
+    }
+    let message = str_arg(req, "body").map(str::to_string);
+    if message.as_deref().map(|m| m.chars().count()).unwrap_or(0) > crate::domain::listeners::MAX_MESSAGE {
+        refuse!(BadRequest, "a project event message is at most {} characters", crate::domain::listeners::MAX_MESSAGE);
+    }
+    let armed = crate::domain::listeners::armed_count(tx, org.id, n.id).await?;
+    fx.agents.insert(n.id);
+    fx.project_fires.push((n.id, actor.label(), message));
+    Ok(json!({ "project": n.name, "listeners_armed": armed }))
+}
+
+/// A project's event listeners and listener watches (`orgtree_project
+/// action=listeners`). Agents above or below the project may look.
+#[logged]
+async fn project_listeners(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project has event listeners", n.name);
+    }
+    if let Actor::Agent { id, .. } = actor {
+        if !crate::domain::projects::reaches(tx, *id, n.id).await? {
+            refuse!(Forbidden, "only the agents above or below project {} see its listeners", n.name);
+        }
+    }
+    crate::domain::listeners::status(tx, org.id, n.id, &n.name).await
 }
 
 /// Remove an agent from a project's slot line (the project's superior or the

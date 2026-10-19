@@ -106,9 +106,9 @@ pub fn scoped(tools: &Value) -> Vec<Value> {
     }).map(|mut card| {
         if card["name"] == "orgtree_project" && !crate::domain::tool_groups::enabled(tools,"team") {
             card["inputSchema"]["properties"].as_object_mut().unwrap()
-                .retain(|key,_| ["action","name","lease","note","id","reason","include_dropped","limit","offset"].contains(&key.as_str()));
-            card["inputSchema"]["properties"]["action"]["enum"] = json!(["slots","release_slot","dead_letters","retry_dead_letter","drop_dead_letter"]);
-            card["description"] = json!("Release your own concurrency slot: release_slot with lease and optional note. slots with project name shows holders, reasons, ages and the whole line; other agents' lease IDs are hidden. dead_letters (name; id reads one) lists a project's failed ack-queue jobs; retry_dead_letter (name, id) requeues one, drop_dead_letter (name, id, reason) closes it. Available with watchdogs or team; other project actions and force release require team. Normal project reach and lease ownership checks apply. Guide: orgtree-tool-project.");
+                .retain(|key,_| ["action","name","lease","note","id","reason","include_dropped","limit","offset","body"].contains(&key.as_str()));
+            card["inputSchema"]["properties"]["action"]["enum"] = json!(["slots","release_slot","dead_letters","retry_dead_letter","drop_dead_letter","fire_event","listeners"]);
+            card["description"] = json!("Release your own concurrency slot: release_slot with lease and optional note. slots with project name shows holders, reasons, ages and the whole line; other agents' lease IDs are hidden. dead_letters (name; id reads one) lists a project's failed ack-queue jobs; retry_dead_letter (name, id) requeues one, drop_dead_letter (name, id, reason) closes it. fire_event (name, body?) fires its event; listeners lists them. Available with watchdogs or team; other project actions and force release require team. Normal project reach and lease ownership checks apply. Guide: orgtree-tool-project.");
         }
         card
     }).collect()
@@ -786,9 +786,9 @@ fn build_tool_hire() -> Value {
 fn build_tool_project() -> Value {
     let mut project = tool(
         "orgtree_project",
-        "Control projects above/below you; no turns/credits. create needs name/index (parent defaults you); above wraps a node atomically instead. settings/configure read/patch atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunked reads. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Ancestors may force/unqueue. Dead-letter list/read/retry/drop; project.dead_letter alerts. See guide for action fields.",
+        "Control projects above/below you; no turns/credits. create needs name/index (parent defaults you); above wraps a node atomically instead. settings/configure read/patch atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunked reads. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Ancestors may force/unqueue. Dead-letter list/read/retry/drop; project.dead_letter alerts. fire_event fires its event; listeners lists listeners/watches. See guide for action fields.",
         json!({
-            "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","presentations","read_presentation"] },
+            "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","fire_event","listeners","presentations","read_presentation"] },
             "id": {"type":"string","description":"dead_letters: read this dead letter in full; retry_dead_letter/drop_dead_letter: its mail id"},
             "reason": {"type":"string","description":"drop_dead_letter: why the job is dropped"},
             "include_dropped": {"type":"boolean","description":"dead_letters: list dropped letters too"},
@@ -803,7 +803,7 @@ fn build_tool_project() -> Value {
             "body_revision": {"type":"string","description":"read_presentation: required after chunk0; return its body_revision unchanged, restart at0 if replaced"},
             "limit": {"type":"integer","minimum":1,"maximum":100},
             "offset": {"type":"integer","minimum":0},
-            "body": {"type":"string","description":"broadcast: message to every live agent under the project"},
+            "body": {"type":"string","description":"broadcast: message to every live agent under the project; fire_event: optional message carried to its event listeners"},
             "attachments": {"type":"array","items":{"type":"string"},"maxItems":10},
             "notice": {"type":"boolean"},
             "urgent": {"type":"boolean","description":"broadcast: requires urgent_reason; each agent recipient must currently be in DND"},
@@ -980,11 +980,13 @@ fn build_tool_audience() -> Value {
 fn build_tool_watchdog() -> Value {
     tool(
         "orgtree_watchdog",
-        "Manage persistent watchers; max8/agent. create needs kind/target (usage defaults target=usage); command needs regex. command/stream use your authority and smoke-run; Windows cmd.exe or shell=bash. Read smoke output. Use once for deadlines. fair_queue routes mail; slot claims a concurrency permit. usage watches cached allowance edges, not provider polling. Kind/filter/event/count/silence rules: read guide. No added authority.",
+        "Manage persistent watchers; max8/agent. create needs kind/target (usage defaults target=usage); command needs regex. command/stream use your authority and smoke-run; Windows cmd.exe or shell=bash. Read smoke output. Use once for deadlines. fair_queue routes mail; slot claims a concurrency permit. project_listener hears project events; listener_watch fires at a listener count; fire_actions run tools then. usage watches cached allowance edges, not provider polling. Kind/filter/event/count/silence rules: read guide. No added authority.",
         json!({
             "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
-            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot"] },
+            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch"] },
+            "count": {"type":"integer","minimum":1,"maximum":1024,"description":"listener_watch only: armed project listeners that fire it"},
+            "fire_actions": {"type":"array","maxItems":4,"items":{"type":"object","properties":{"tool":{"type":"string"},"args":{"type":"object"}},"required":["tool"]},"description":"create: orgtree_* tool calls run as you when it fires, results in the fire mail; authority rechecked at fire time; not for fair_queue"},
             "accounts": {"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact visible account ids; omitted = any"},
             "windows": {"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact kind, group or display label; omitted = any"},
             "usage_events": {"type":"array","items":{"type":"string","enum":["above","below","reset","limit","stale","unreadable","recovered","account_added","account_removed","refused","frozen"]},"minItems":1,"maxItems":32,"description":"usage only: omitted = all detectable edges (above/below need threshold_percent)"},
@@ -993,7 +995,7 @@ fn build_tool_watchdog() -> Value {
             "threshold": {"type":"string","description":"event counts only: below N or at least N; fires only on false-to-true crossing, never repeatedly while satisfied"},
             "event_scope": {"type":"string","enum":["subtree","org"],"description":"count targets only: visible descendants (default), or org (requires full visibility); excludes the watcher"},
             "quiet_period_s": { "type": "integer", "minimum": 1, "description": "create, silence only: seconds without a matching event" },
-            "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, (fair_queue, slot) project name, or (event) dotted event name/prefix ending in .*" },
+            "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, (fair_queue, slot, project_listener, listener_watch) project name, or (event) dotted event name/prefix ending in .*" },
             "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line)" },
             "interval_s": { "type": "integer", "minimum": 5, "description": "poll cadence (floor 15s); stream/activity: the minimum gap between fires (floor 5s)" },
             "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },
@@ -1193,7 +1195,7 @@ mod slot_release_scope_tests {
     fn check(team: bool, watchdogs: bool) {
         let scope=json!({"orgtree":{"team":team,"watchdogs":watchdogs}});
         let card=scoped(&scope).into_iter().find(|c| c["name"]=="orgtree_project");
-        for action in ["release_slot","slots","dead_letters","retry_dead_letter","drop_dead_letter"] {
+        for action in ["release_slot","slots","dead_letters","retry_dead_letter","drop_dead_letter","fire_event","listeners"] {
             assert_eq!(crate::domain::tool_groups::allows_call(&scope,"orgtree_project",&json!({"action":action})),
                 team||watchdogs,"{action} needs either team or watchdogs");
         }
@@ -1207,9 +1209,9 @@ mod slot_release_scope_tests {
             assert!(actions.contains(&json!("release_slot")) && actions.contains(&json!("slots")));
             if team { assert!(actions.contains(&json!("configure"))); }
             else {
-                assert_eq!(actions,&vec![json!("slots"),json!("release_slot"),json!("dead_letters"),json!("retry_dead_letter"),json!("drop_dead_letter")]);
+                assert_eq!(actions,&vec![json!("slots"),json!("release_slot"),json!("dead_letters"),json!("retry_dead_letter"),json!("drop_dead_letter"),json!("fire_event"),json!("listeners")]);
                 let keys=card["inputSchema"]["properties"].as_object().unwrap();
-                assert!(keys.keys().all(|k| ["action","name","lease","note","id","reason","include_dropped","limit","offset"].contains(&k.as_str())));
+                assert!(keys.keys().all(|k| ["action","name","lease","note","id","reason","include_dropped","limit","offset","body"].contains(&k.as_str())));
                 assert!(card["description"].as_str().unwrap().contains("orgtree-tool-project"));
             }
         }
@@ -1479,7 +1481,7 @@ mod builder_stack_tests {
         assert!(actual_project["description"].as_str().unwrap().contains("Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours."));
         project["description"] = actual_project["description"].clone();
         let schema = &mut project["inputSchema"];
-        schema["properties"]["action"]["enum"] = serde_json::json!(["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","presentations","read_presentation"]);
+        schema["properties"]["action"]["enum"] = serde_json::json!(["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","fire_event","listeners","presentations","read_presentation"]);
         schema["properties"]["id"] = serde_json::json!({"type":"string","description":"dead_letters: read this dead letter in full; retry_dead_letter/drop_dead_letter: its mail id"});
         schema["properties"]["reason"] = serde_json::json!({"type":"string","description":"drop_dead_letter: why the job is dropped"});
         schema["properties"]["include_dropped"] = serde_json::json!({"type":"boolean","description":"dead_letters: list dropped letters too"});
@@ -1490,7 +1492,7 @@ mod builder_stack_tests {
         schema["properties"]["document"] = serde_json::json!({"type":"string","description":"read_presentation: document id"});
         schema["properties"]["limit"] = serde_json::json!({"type":"integer","minimum":1,"maximum":100});
         schema["properties"]["offset"] = serde_json::json!({"type":"integer","minimum":0});
-        schema["properties"]["body"] = serde_json::json!({"type":"string","description":"broadcast: message to every live agent under the project"});
+        schema["properties"]["body"] = serde_json::json!({"type":"string","description":"broadcast: message to every live agent under the project; fire_event: optional message carried to its event listeners"});
         schema["properties"]["attachments"] = serde_json::json!({"type":"array","items":{"type":"string"},"maxItems":10});
         schema["properties"]["notice"] = serde_json::json!({"type":"boolean"});
         schema["properties"]["lease"] = serde_json::json!({ "type": "string", "description": "release_slot: the lease your concurrency slot grant named" });
@@ -1503,13 +1505,15 @@ mod builder_stack_tests {
             .replace("Create requires kind/target;", "Create requires kind/target (usage defaults target=usage);")
             .replace("Event/count/silence semantics", "usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. Event/count/silence semantics"));
         let dschema = &mut dog["inputSchema"];
-        dschema["properties"]["kind"]["enum"] = serde_json::json!(["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot"]);
+        dschema["properties"]["kind"]["enum"] = serde_json::json!(["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch"]);
+        dschema["properties"]["count"] = serde_json::json!({"type":"integer","minimum":1,"maximum":1024,"description":"listener_watch only: armed project listeners that fire it"});
+        dschema["properties"]["fire_actions"] = serde_json::json!({"type":"array","maxItems":4,"items":{"type":"object","properties":{"tool":{"type":"string"},"args":{"type":"object"}},"required":["tool"]},"description":"create: orgtree_* tool calls run as you when it fires, results in the fire mail; authority rechecked at fire time; not for fair_queue"});
         dschema["properties"]["accounts"] = serde_json::json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact visible account ids; omitted = any"});
         dschema["properties"]["windows"] = serde_json::json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"usage only: exact kind, group or display label; omitted = any"});
         dschema["properties"]["usage_events"] = serde_json::json!({"type":"array","items":{"type":"string","enum":["above","below","reset","limit","stale","unreadable","recovered","account_added","account_removed","refused","frozen"]},"minItems":1,"maxItems":32,"description":"usage only: omitted = all detectable edges (above/below need threshold_percent)"});
         dschema["properties"]["threshold_percent"] = serde_json::json!({"type":"number","minimum":0,"maximum":100,"description":"usage only: percentage for above/below crossings; above means >=, below means <. Spend caps use the same percentage."});
         dschema["properties"]["target"]["description"] = serde_json::json!(dschema["properties"]["target"]["description"].as_str().unwrap()
-            .replace("(fair_queue) project name", "(fair_queue, slot) project name"));
+            .replace("(fair_queue) project name", "(fair_queue, slot, project_listener, listener_watch) project name"));
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();
         card["description"] = serde_json::json!("Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to live direct members as their own; no nested relay. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail/broadcast grants only the project; members inherit without personal grants. Direct contact adds no user grant while effective access exists; manual Acquire audience can. Project decisions belong to their nearest agent superior (user if none). External/org-inbox access remains agent-only. Requests do not grant access.\nGuide: orgtree-tool-audience.");
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_chart").unwrap();
@@ -1558,8 +1562,8 @@ mod builder_stack_tests {
         // Approved description-only trim; compare schemas and order unchanged.
         for (name, description) in [
             ("orgtree_work", "Manage docket items by slug; read guide before writing. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply progress lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review is agent review; ask(work_item) for user questions. Delete is permanent and restricted; prefer archive/drop.\nGuide: orgtree-tool-work."),
-            ("orgtree_project", "Control projects above/below you; no turns/credits. create needs name/index (parent defaults you); above wraps a node atomically instead. settings/configure read/patch atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunked reads. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Ancestors may force/unqueue. Dead-letter list/read/retry/drop; project.dead_letter alerts. See guide for action fields.\nGuide: orgtree-tool-project."),
-            ("orgtree_watchdog", "Manage persistent watchers; max8/agent. create needs kind/target (usage defaults target=usage); command needs regex. command/stream use your authority and smoke-run; Windows cmd.exe or shell=bash. Read smoke output. Use once for deadlines. fair_queue routes mail; slot claims a concurrency permit. usage watches cached allowance edges, not provider polling. Kind/filter/event/count/silence rules: read guide. No added authority.\nGuide: orgtree-tool-watchdog."),
+            ("orgtree_project", "Control projects above/below you; no turns/credits. create needs name/index (parent defaults you); above wraps a node atomically instead. settings/configure read/patch atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunked reads. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Ancestors may force/unqueue. Dead-letter list/read/retry/drop; project.dead_letter alerts. fire_event fires its event; listeners lists listeners/watches. See guide for action fields.\nGuide: orgtree-tool-project."),
+            ("orgtree_watchdog", "Manage persistent watchers; max8/agent. create needs kind/target (usage defaults target=usage); command needs regex. command/stream use your authority and smoke-run; Windows cmd.exe or shell=bash. Read smoke output. Use once for deadlines. fair_queue routes mail; slot claims a concurrency permit. project_listener hears project events; listener_watch fires at a listener count; fire_actions run tools then. usage watches cached allowance edges, not provider polling. Kind/filter/event/count/silence rules: read guide. No added authority.\nGuide: orgtree-tool-watchdog."),
             ("orgtree_inbox", "Read own mail: list previews; fetch<=20 IDs; chunk long bodies. Recall conversation after fresh session/compaction before replying. Returned pending received content is consumed, even outside DND; previews are not. Received/project opens enter transcript once; sent history does not. Project reads never claim/ack. folder selects full history; omitted list waits only. Keep project/folder/status with cursors. See guide for handles and filters.\nGuide: orgtree-tool-inbox."),
             ("orgtree_audience", "Manage directional audiences; requests grant nothing. request target/from managed project; grant from; deny requester; revoke grantee. Project grants reach direct live members, never nested; reverse needs its own grant. User contact does not add personal access while inherited; manual Acquire can. Project decisions go to nearest agent superior (user if none). External/org-inbox remains agent-only. Read guide for grant authority.\nGuide: orgtree-tool-audience."),
             ("orgtree_status", "Report working/done/blocked/idle; done does not end the turn. dnd=true holds this turn's non-urgent mail on every harness; only urgent bypasses. Turn end clears DND and delivers an ordered budgeted batch; false releases early. Inbox fetch/chunk consumes returned mail; previews do not.\nGuide: orgtree-tool-status."),

@@ -57,6 +57,11 @@ const AGENT_SQL: &str = r#"
 SELECT a.id, (to_jsonb(a) - 'extra') || jsonb_build_object(
   'x_mail_pending', (SELECT count(*) FROM ot.mail m
                       WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.recipient_agent_id = a.id AND m.state IN __UNREAD_STATES__),
+  'x_mail_held', CASE WHEN a.kind = 'project' THEN (SELECT count(*) FROM ot.mail m
+                      WHERE m.recipient_agent_id = a.id AND m.state = 'read'
+                        AND coalesce((m.extra->'claimed'->>'ack')::boolean, false)
+                        AND m.extra->'claimed'->>'acked_at' IS NULL
+                        AND NOT (m.extra ? 'dead_letter')) ELSE 0 END,
   'x_dead_letters', CASE WHEN a.kind = 'project' THEN (SELECT count(*) FROM ot.mail m
                       WHERE m.recipient_agent_id = a.id AND m.state = 'read' AND m.extra ? 'dead_letter'
                         AND NOT (m.extra ? 'dead_letter_dropped')) ELSE 0 END,

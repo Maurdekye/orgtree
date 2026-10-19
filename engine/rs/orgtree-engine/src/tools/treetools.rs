@@ -72,7 +72,15 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
                 req["node"] = args.get("name").cloned().unwrap_or(Value::Null);
             }
             Some("broadcast") => return project_broadcast(engine, caller, args).await,
-            _ => crate::refuse!(BadRequest, "orgtree_project takes create, describe, settings, configure, slots, release_slot, unqueue_slot, purge_waiting, dead_letters, retry_dead_letter, drop_dead_letter, broadcast, presentations or read_presentation. If these actions/tools are missing in your CLI, start a fresh CLI; running clients retain their startup tool schemas."),
+            // firing a project's event runs tool-side, like broadcast, so
+            // the caller gets the true delivered count (the canvas op
+            // fire_project_event reaches the same listeners::fire)
+            Some("fire_event") => return project_fire_event(engine, caller, args).await,
+            Some("listeners") => {
+                req["op"] = json!("project_listeners");
+                req["node"] = args.get("name").cloned().unwrap_or(Value::Null);
+            }
+            _ => crate::refuse!(BadRequest, "orgtree_project takes create, describe, settings, configure, slots, release_slot, unqueue_slot, purge_waiting, dead_letters, retry_dead_letter, drop_dead_letter, broadcast, fire_event, listeners, presentations or read_presentation. If these actions/tools are missing in your CLI, start a fresh CLI; running clients retain their startup tool schemas."),
         },
         _ => {}
     }
@@ -130,6 +138,26 @@ mod slot_release_projection_tests {
         assert_eq!(out["held"],1);
         assert_eq!(out["own_only"],false);
     }
+}
+
+/// Fire a project's event to its armed `project_listener` watchdogs
+/// (`orgtree_project action=fire_event`): project reach, then the one
+/// delivery path; the result names who received it.
+#[logged]
+async fn project_fire_event(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
+    let client = engine.db.get().await?;
+    let name = super::need_str(args, "name")?;
+    let Some(project) = crate::domain::projects::by_name(&**client, caller.org_id, name).await? else {
+        crate::refuse!(NotFound, "no project named {} whose event you could fire", name.trim_start_matches('@'));
+    };
+    crate::domain::projects::require_reach(&**client, caller.agent_id, &project, "fire its event").await?;
+    if project.state != "live" {
+        crate::refuse!(Conflict, "project {} is retired; its event cannot be fired", project.name);
+    }
+    drop(client);
+    let fired = Box::pin(crate::domain::listeners::fire(engine, caller.org_id, project.id, &caller.name, arg_str(args, "body"))).await?;
+    Done::json(&json!({ "project": fired.project, "delivered": fired.delivered.len(),
+                         "delivered_to": fired.delivered, "dogs": fired.dogs }))
 }
 
 /// Megaphone convenience; ordinary message scope, reach and attachment rules apply to EVERY send.
