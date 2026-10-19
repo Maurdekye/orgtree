@@ -2126,7 +2126,7 @@
     "orgtree_watchdog"
    ],
    "tool_group": "watchdogs",
-   "purpose": "Persistent watchers (file/command/process/stream/activity/event/mqtt) that mail you.",
+   "purpose": "Persistent watchers (file/command/process/stream/activity/event/mqtt/websocket) that mail you, and send on a websocket watcher.",
    "must_cover": [
     "when to use it and when not",
     "every parameter/action with defaults and limits from the definition",
@@ -2138,7 +2138,8 @@
     "engine/rs/orgtree-engine/src/tools/defs.rs:573",
     "engine/rs/orgtree-engine/src/tools/mod.rs dog_tool -> domain/watchdogs.rs",
     "engine/rs/orgtree-engine/src/domain/tool_groups.rs required()",
-    "docs/rust-engine/mqtt-watchdogs.md"
+    "docs/rust-engine/mqtt-watchdogs.md",
+    "docs/rust-engine/websocket-watchdogs.md"
    ],
    "writer": "runtime-sol",
    "status": "fixed",

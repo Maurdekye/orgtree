@@ -1,3 +1,30 @@
+- WebSocket watchdogs (`kind=websocket`, `orgtree_watchdog action=send`) keep a
+  connection per dog (`src/ws`). Their credentials (headers, bearer, Basic,
+  query, secret hellos) never reach a list, card, mail, transcript or log: the
+  URL a connection dials (with its credential query) and the upgrade request
+  live only in `#[nolog]` code in `ws/conn.rs` (an `http::Request` argument
+  would log its URI); tungstenite traces whole upgrade requests, so its
+  `log` records are dropped by `EngineLayer` (`trace.rs` `silenced`, matched by
+  the `log.target` field, since tracing-log's own target is `log`); and
+  `util::mask_url_secrets` masks secret-named query values of ws URLs in logged
+  strings and transcripts. A target with such a parameter is refused at create.
+  A send's text is the agent's own and stays in transcripts. Messages are
+  untrusted: fires and `list` label them. See
+  [websocket watchdogs](docs/rust-engine/websocket-watchdogs.md).
+  [decided: user 2026-10-19 21:00Z/21:01:59Z, coordinator 21:14Z; verified:
+  `src/ws/*`, `runtime/watchdogs/websocket.rs`, `trace.rs`, `util.rs`]
+
+- Log canary tests use `crate::trace::LogCapture` (start, then `finish()` for
+  the text), never a hand-made `test_sink` + `set_default`. tracing-core trap:
+  while exactly one dispatcher is registered, a callsite first hit on another
+  thread (a parallel test with no subscriber) caches `never` for every thread,
+  so a scoped capture loses lines in parallel runs. LogCapture keeps a no-op
+  peer dispatcher registered, serializes captures (they share the verbose
+  switch) and returns only once its own last line has been written
+  (tracing-appender's WorkerGuard waits about a second). [verified: tracing-core
+  0.1.36 `callsite.rs` `dispatchers::rebuilder`; 1 of 3 runs at 8 test threads
+  failed before, 10 of 10 passed after; coordinator 2026-10-19 22:04Z]
+
 - The actor's large futures on its turn path are awaited through `boxed(|| …)`
   (`runtime/actor.rs`), which builds each one in a frame of its own: a debug
   poll frame keeps two or three copies of every future awaited inline, and

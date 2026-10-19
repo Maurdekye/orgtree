@@ -1516,3 +1516,30 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - Crate: rumqttc =0.25.1 (Apache-2.0), default features off, rustls on ring; license check in
       THIRD_PARTY_NOTICES.md.
     Details: [`mqtt-watchdogs.md`](mqtt-watchdogs.md).
+
+90. **WebSocket watchdogs and send** (user 2026-10-19 21:00Z "agents can't wait on WebSocket
+    feeds"; 21:01:59Z "add an auxiliary tool for sending a message back manually to an active ws
+    connection via a connected ws watchdog"; design approved by the coordinator 21:14Z; docket
+    `native-websocket-watchdog-plus-a-tool-to-send-on`).
+    - `kind=websocket`: target `ws://`/`wss://` (no user info, fragment or secret-named query
+      parameter), optional regex `pattern` on text messages, `hello` (sent after every connect),
+      `protocols`, `heartbeat {message, every_s}`, credentials as for mqtt (89): headers, bearer,
+      Basic, query and secret hellos, in a file (with CA/client certificate) or sealed inline in
+      `ot.watchdog_secrets` with mqtt's key. No migration: the kind column has no CHECK and the
+      secrets table works for any kind.
+    - One connection per dog, never shared: a WebSocket session is stateful (subscribe ids, sends).
+    - `orgtree_watchdog action=send id message` is the send tool, an action rather than a new tool
+      (the card changes once): one text frame of at most 64 KB, after the hellos, only on a
+      connected dog, for its owner or a superior holding the web tool. Its text is kept in the
+      transcript and call log like any tool argument; its own log line names only the dog, the
+      URL without query and the byte count.
+    - Messages are capped at 1 MiB (mqtt's cap); binary messages never match a pattern and fire
+      as their size only when the dog has none. Fires and `list` label messages UNTRUSTED.
+    - Backoff is mqtt's (`mqtt/backoff.rs`); a server that drops the client within 60 s does not
+      end the outage, and "recovered" is told only after a minute connected.
+    - Crate: tokio-tungstenite/tungstenite 0.29.0, already built for axum's `ws` feature, with
+      default features off (`handshake` only); TLS is the engine's tokio-rustls over rustls +
+      ring with mqtt's trust rules. Cargo.lock gained no package.
+    - tungstenite traces whole upgrade requests: its (and rumqttc's) `log` records are dropped by
+      the engine's log layer under any ORGTREE_LOG, matched by the record's own `log.target`.
+    Details: [`websocket-watchdogs.md`](websocket-watchdogs.md).
