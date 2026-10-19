@@ -96,7 +96,7 @@ impl AttachmentLimit {
 #[logged]
 async fn attachment_limit_at(address: &str) -> AttachmentLimit {
     let health = async {
-        HTTP.get(format!("{address}/healthz")).timeout(Duration::from_secs(5)).send().await?
+        transport::send(HTTP.get(format!("{address}/healthz")).timeout(Duration::from_secs(5))).await?
             .error_for_status()?.json::<Value>().await
     }.await.unwrap_or(Value::Null);
     AttachmentLimit::from_health(&health)
@@ -125,8 +125,8 @@ pub async fn attachment_limit(engine: &Engine, org_id: i64, peer: &str) -> Resul
 static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
-        // Hub tests are direct too. A per-PC proxy must not make a successful
-        // health check disagree with registration, polling or file delivery.
+        // Direct first; transport retries only a failed initial connection
+        // through the system/env proxy, as the read-only health Test does.
         .no_proxy()
         .user_agent(concat!("orgtree-engine/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -587,7 +587,7 @@ async fn register_pending(engine: &Arc<Engine>, parts: &[Part]) {
 
 #[nolog]
 async fn request(engine: &Engine, orgs: &[i64], req: reqwest::RequestBuilder) -> Result<reqwest::Response> {
-    isolation::run(engine, orgs, async { Ok(req.send().await?) }).await
+    isolation::run(engine, orgs, async { Ok(transport::send(req).await?) }).await
 }
 
 #[nolog]
@@ -1446,7 +1446,7 @@ pub fn unregister(engine: &Engine, net: Value) {
     }
     tokio::spawn(async move {
         for addr in addrs {
-            let _ = HTTP.post(format!("{addr}/api/unregister")).timeout(Duration::from_secs(4)).header("X-Org-Auth", auth.clone()).json(&json!({})).send().await;
+            let _ = transport::send(HTTP.post(format!("{addr}/api/unregister")).timeout(Duration::from_secs(4)).header("X-Org-Auth", auth.clone()).json(&json!({}))).await;
         }
     });
 }

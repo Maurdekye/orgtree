@@ -8,7 +8,10 @@ An uncertain dispatch is never retried with elevated rights. Exact coworker
 Windows/plugin cause remains unconfirmed. See [Finish launch](installer-finish-launch.md).
 
 **Mail hub connection consistency, user 2026-10-19 10:22–10:24Z (4.3.3 and
-4.4.0):** Test and real mail transport use the same direct proxy policy. Bare
+4.4.0):** Test and real mail transport try direct first, then the system/env
+proxy only after an initial connect failure (coordinator 11:09Z compatibility
+correction). HTTP responses, read errors and failures after redirects never
+replay a write. Streaming uploads reopen their body for a connection retry. Bare
 host discovery follows Hubchat: try HTTP ports 7370, 7378 and 7371 plus HTTPS
 together, preferring an earlier candidate if it answers within the 750ms grace.
 Explicit URLs/ports retain their destination. Test returns the chosen endpoint;

@@ -333,8 +333,8 @@ fn hub_binary() -> Result<PathBuf, String> {
 
 #[logged]
 pub async fn healthz(address: &str, timeout: Duration) -> Option<Value> {
-    let client = reqwest::Client::builder().timeout(timeout).no_proxy().build().ok()?;
-    let r = client.get(format!("{address}/healthz")).send().await.ok()?;
+    let client = reqwest::Client::builder().connect_timeout(timeout).no_proxy().build().ok()?;
+    let r = crate::net::transport::send(client.get(format!("{address}/healthz")).timeout(timeout)).await.ok()?;
     if !r.status().is_success() {
         return None;
     }

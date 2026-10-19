@@ -284,8 +284,10 @@ still resume, so the agents themselves remember).
 
 Mail hubs (user 2026-10-19, 4.3.3/4.4.0): bare hosts discover the Hubchat
 candidate ports and HTTPS concurrently; explicit destinations remain explicit.
-Test saves its selected endpoint for Add and uses the same direct proxy policy
-as real mail connections. The test remains a read-only health check.
+Test saves its selected endpoint for Add. Test and real mail connections try
+direct first, then the system/env proxy only on initial connect failure; HTTP
+responses and read errors never replay a write. The test remains a read-only
+health check.
 
 Everything not listed here is meant to behave as it does today. "Inert" means the setting has no
 effect; per the user (2026-10-06) such controls are removed from the settings menus rather than

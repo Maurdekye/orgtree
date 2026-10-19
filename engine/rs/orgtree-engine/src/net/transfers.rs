@@ -372,7 +372,7 @@ async fn upload(e: &Arc<Engine>, p: &Part, job: &Job) -> Result<String> {
     drop(file);
     e.db.get().await?.execute("UPDATE ot.net_transfers SET sha256=$2 WHERE id=$1", &[&job.id, &digest]).await?;
     let health =
-        HTTP.get(format!("{}/healthz", job.address)).timeout(Duration::from_secs(5)).send().await?.error_for_status()?.json::<Value>().await?;
+        transport::send(HTTP.get(format!("{}/healthz", job.address)).timeout(Duration::from_secs(5))).await?.error_for_status()?.json::<Value>().await?;
     let limit = AttachmentLimit::from_health(&health);
     if job.total as u64 > limit.bytes {
         return Err(permanent(&limit.message()));
@@ -381,13 +381,12 @@ async fn upload(e: &Arc<Engine>, p: &Part, job: &Job) -> Result<String> {
     if !resumable {
         progress(e, &job.id, "uploading", 0, 0).await?;
         let result = json_response(
-            HTTP.post(format!("{}/api/attachments", job.address))
+            transport::stream(|http| async move {Ok(http.post(format!("{}/api/attachments", job.address))
                 .timeout(FILE_TIMEOUT)
                 .header("X-Org-Auth", p.auth())
                 .query(&[("name", job.source["name"].as_str().unwrap_or("file"))])
                 .header(reqwest::header::CONTENT_LENGTH, job.total)
-                .body(body(e, job, 0, job.total as u64).await?)
-                .send()
+                .body(body(e, job, 0, job.total as u64).await?))})
                 .await?,
         )
         .await?;
@@ -395,7 +394,7 @@ async fn upload(e: &Arc<Engine>, p: &Part, job: &Job) -> Result<String> {
     }
     let mut status = Value::Null;
     if let Some(id) = &job.session {
-        let r = HTTP.get(format!("{}/api/uploads/{id}", job.address)).timeout(Duration::from_secs(10)).header("X-Org-Auth", p.auth()).send().await?;
+        let r = transport::send(HTTP.get(format!("{}/api/uploads/{id}", job.address)).timeout(Duration::from_secs(10)).header("X-Org-Auth", p.auth())).await?;
         if !matches!(r.status().as_u16(), 404 | 410) {
             status = json_response(r).await?;
         }
@@ -403,11 +402,10 @@ async fn upload(e: &Arc<Engine>, p: &Part, job: &Job) -> Result<String> {
     }
     if status.is_null() {
         status = json_response(
-            HTTP.post(format!("{}/api/uploads", job.address))
+            transport::send(HTTP.post(format!("{}/api/uploads", job.address))
                 .timeout(Duration::from_secs(10))
                 .header("X-Org-Auth", p.auth())
-                .json(&json!({"bytes":job.total,"name":job.source["name"],"sha256":digest}))
-                .send()
+                .json(&json!({"bytes":job.total,"name":job.source["name"],"sha256":digest})))
                 .await?,
         )
         .await?;
@@ -431,14 +429,14 @@ async fn upload(e: &Arc<Engine>, p: &Part, job: &Job) -> Result<String> {
             return Err(anyhow::anyhow!("hub has all bytes but has not confirmed completion"));
         }
         progress(e, &job.id, "uploading", offset as i64, offset as i64).await?;
-        let r = HTTP
-            .patch(format!("{}/api/uploads/{id}", job.address))
+        let upload_id=&id;
+        let r = transport::stream(|http| async move {Ok(http
+            .patch(format!("{}/api/uploads/{upload_id}", job.address))
             .query(&[("offset", offset)])
             .timeout(FILE_TIMEOUT)
             .header("X-Org-Auth", p.auth())
             .header(reqwest::header::CONTENT_LENGTH, length)
-            .body(body(e, job, offset, length).await?)
-            .send()
+            .body(body(e, job, offset, length).await?))})
             .await?;
         progress(e, &job.id, "confirming", (offset + length) as i64, offset as i64).await?;
         status = json_response(r).await?;
