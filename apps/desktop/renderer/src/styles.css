@@ -6150,9 +6150,9 @@ svg.MuiSvgIcon-root {
 .cc-fast-row:empty { display: none; }
 .cc-controls .cc-fast,
 .cc-controls .cc-eff, .cc-controls .cc-send {
-  height: 30px; box-sizing: border-box; flex: none;
+  height: 24px; box-sizing: border-box; flex: none;
 }
-.cc-controls .cc-fast, .cc-controls .cc-send { width: 30px; }
+.cc-controls .cc-fast, .cc-controls .cc-send { width: 24px; }
 .cc-fast {
   width: 24px; height: 24px; padding: 0; flex: none; border-radius: 50%;
   background: none; border: 1px solid var(--line); color: var(--dim);

@@ -1,3 +1,4 @@
+import { focusComposerBackground } from './composerfocus'
 // QuickChatBox.tsx — the footer's Quick chat box (docket
 // `quick-prompt-hire-kick-off-and-focus-an-agent-fr`): type a message, press
 // Enter, and a new agent is hired under the chosen superior with the chosen
@@ -328,6 +329,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
 
   return (
     <div ref={rootRef} className={'quickchat' + (busy ? ' busy' : '')} data-testid="quickchat"
+      onClick={focusComposerBackground}
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault() }}
       onDrop={(e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); addFiles(e.dataTransfer.files) } }}>
       <input ref={inputRef} className="quickchat-input" value={text} disabled={busy}

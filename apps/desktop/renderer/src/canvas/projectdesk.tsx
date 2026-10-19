@@ -38,6 +38,7 @@ import { ageClockNow, LastTurnAge, NavChip, subscribeAgeClock } from './desk'
 import { PresentationCard, recentDocumentChips } from './docs'
 import { DocIcon } from '../icons'
 import { subtreeAgents } from './bulkcompact'
+import { focusComposerBackground } from '../composerfocus'
 import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 import { agentNavProps } from './agentnav'
 import { useAgentMentions, useDeskMentionScope, useOrgMentionCandidates } from './agentmentions'
@@ -370,7 +371,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, re
       </span>)}
     </div>}
     <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')
-      + (megaphone ? ' broadcast-armed' : '') + (urgentMail ? ' urgent-armed' : '')}>
+      + (megaphone ? ' broadcast-armed' : '') + (urgentMail ? ' urgent-armed' : '')} onClick={focusComposerBackground}>
       {mentions.menu}
       <div className="cc-btnstack">
         <button className={'cc-notice-toggle' + (notice ? ' armed' : '')} type="button" disabled={!can}

@@ -1,4 +1,5 @@
 import { hasMailAttention } from '../mailattention'
+import { focusComposerBackground } from '../composerfocus'
 import { useReadOnLeave } from '../mailleave'
 import { useSurfaceDocument } from '../popout'
 import { beginOpen, useOpenCommit } from '../opentiming'
@@ -1165,6 +1166,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
       )}
       <StagingRows staging={staging} />
       <div className={'mail-reply' + (noticeArmed ? ' notice-armed' : '') + (broadcastArmed ? ' broadcast-armed' : '')}
+        onClick={focusComposerBackground}
         data-panel-draft={draft.length > 0 || attached.length > 0 || staging.rows.length > 0
           || sendState?.state === 'sending' || undefined}>
         {/* the composer's left column, exactly as the desk composer builds it

@@ -1,4 +1,5 @@
 import { Fragment } from 'react'
+import { focusComposerBackground } from '../composerfocus'
 import { ShellOutputContext, LiveShellOutput } from '../shelloutput'
 import { DeskModelButton } from './deskmodel'
 import { creditSegments } from './creditsegments'
@@ -4374,7 +4375,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         cheapCompactOn={node.cheap_compact_on}
         cheapCompactOcc={node.cheap_compact_occ} contextRatio={contextRatio} />
       <div className={'cc-composer' + (canMail ? '' : ' off') + (noticeArmed ? ' notice-armed' : '')
-        + (urgentMail ? ' urgent-armed' : '')}>
+        + (urgentMail ? ' urgent-armed' : '')} onClick={focusComposerBackground}>
         {/* the notice toggle sits ABOVE the attach button, not beside it
             (user 2026-09-17). One column, bottom-aligned by the composer's
             align-items:flex-end, so the attach button stays exactly where it
