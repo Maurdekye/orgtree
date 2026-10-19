@@ -68,6 +68,7 @@ mod usage;
 mod usage_history;
 mod util;
 mod winproc;
+mod ws;
 
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;

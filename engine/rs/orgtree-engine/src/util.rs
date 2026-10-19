@@ -136,6 +136,61 @@ pub fn mask_userinfo(s: &str) -> Option<String> {
     changed.then_some(out)
 }
 
+/// [`mask_userinfo`], and in ws:// and wss:// URLs the values of query
+/// parameters named like secrets ([`crate::ws::secret_param`]) as `*****`,
+/// or None when there is nothing to mask: what the log and transcripts keep
+/// of a websocket dog's refused target (docs/rust-engine/websocket-watchdogs.md).
+#[nolog]
+pub fn mask_url_secrets(s: &str) -> Option<String> {
+    let base = mask_userinfo(s);
+    mask_ws_query(base.as_deref().unwrap_or(s)).or(base)
+}
+
+#[nolog]
+fn mask_ws_query(s: &str) -> Option<String> {
+    // ASCII lower-casing keeps every byte offset of `s`
+    let lower = s.to_ascii_lowercase();
+    let next = |from: usize| [lower[from..].find("ws://"), lower[from..].find("wss://")].into_iter().flatten().min().map(|i| from + i);
+    let mut out = String::with_capacity(s.len());
+    let mut changed = false;
+    let mut at = 0;
+    while let Some(start) = next(at) {
+        let len = s[start..].find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '`')).unwrap_or(s.len() - start);
+        let end = start + len;
+        out.push_str(&s[at..start]);
+        let url = &s[start..end];
+        match url.split_once('?') {
+            Some((head, rest)) => {
+                let (query, fragment) = match rest.split_once('#') {
+                    Some((q, f)) => (q, Some(f)),
+                    None => (rest, None),
+                };
+                out.push_str(head);
+                out.push('?');
+                let parts: Vec<String> = query
+                    .split('&')
+                    .map(|p| match p.split_once('=') {
+                        Some((k, v)) if !v.is_empty() && crate::ws::secret_param(k) => {
+                            changed = true;
+                            format!("{k}=*****")
+                        }
+                        _ => p.to_string(),
+                    })
+                    .collect();
+                out.push_str(&parts.join("&"));
+                if let Some(f) = fragment {
+                    out.push('#');
+                    out.push_str(f);
+                }
+            }
+            None => out.push_str(url),
+        }
+        at = end;
+    }
+    out.push_str(&s[at..]);
+    changed.then_some(out)
+}
+
 /// Collapse whitespace and cap a one-line gist.
 pub fn gist(text: &str, max: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");

@@ -1441,6 +1441,8 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-postgres",
+ "tokio-rustls",
+ "tokio-tungstenite",
  "tokio-util",
  "toml",
  "tower",

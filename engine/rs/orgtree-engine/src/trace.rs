@@ -492,7 +492,7 @@ fn masked(key: &str) -> bool {
         "oldpassword", "old_password", "pass", "passwd", "token", "apikey", "api_key", "kiosktoken", "admintoken", "desktop_token",
         "access_token", "refresh_token", "id_token", "auth_token", "oauth_token", "authorization", "cookie",
         "set-cookie", "x-orgtree-desktop-token", "key", "secret_key", "client_secret", "private_key", "credentials",
-        "anthropic_api_key", "openai_api_key", "openrouter_key",
+        "anthropic_api_key", "openai_api_key", "openrouter_key", "bearer", "x-api-key",
     ];
     let k = key.to_ascii_lowercase();
     KEYS.contains(&k.as_str())
@@ -537,8 +537,9 @@ fn render(v: &Value, out: &mut Capture) {
             }
             out.push_str("]");
         }
-        // a URL's user:password@ never reaches the log, whatever the field
-        Value::String(s) => match crate::util::mask_userinfo(s) {
+        // a URL's user:password@ (and a ws:// URL's secret-named query
+        // values) never reach the log, whatever the field
+        Value::String(s) => match crate::util::mask_url_secrets(s) {
             Some(masked) => out.push_str(&Value::String(masked).to_string()),
             None => out.push_str(&v.to_string()),
         },
@@ -814,6 +815,17 @@ pub struct EngineLayer {
     console: Option<tracing_appender::non_blocking::NonBlocking>,
 }
 
+/// Crates whose own log lines can carry secrets, never written whatever
+/// ORGTREE_LOG says: tungstenite traces a websocket dog's whole upgrade
+/// request (its credential headers and query), and rumqttc's errors can
+/// carry a broker's packet (docs/rust-engine/websocket-watchdogs.md,
+/// mqtt-watchdogs.md). The watchdogs log their connections' states instead.
+fn silenced(target: &str) -> bool {
+    ["tungstenite", "tokio_tungstenite", "rumqttc"]
+        .iter()
+        .any(|c| target.strip_prefix(c).is_some_and(|rest| rest.is_empty() || rest.starts_with("::")))
+}
+
 /// Exercise the real engine formatter without installing a global subscriber
 /// or opening any application diagnostics directory.
 #[cfg(test)]
@@ -868,6 +880,9 @@ where
     }
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
+        if silenced(event.metadata().target()) {
+            return;
+        }
         let mut rq: Option<(u32, String)> = None;
         let mut frame: Option<(u32, Option<(u32, String)>)> = None;
         if let Some(scope) = ctx.event_scope(event) {
@@ -1071,9 +1086,11 @@ pub fn init(cfg: &crate::config::Config) -> (Vec<tracing_appender::non_blocking:
         .thread_name("orgtree-log")
         .finish(file);
     let filter = tracing_subscriber::EnvFilter::try_from_env("ORGTREE_LOG").unwrap_or_else(|_| {
-        // rumqttc logs through `log`; its error lines can carry a broker's
-        // packet (payload bytes): the mqtt hub logs its own states instead
-        tracing_subscriber::EnvFilter::new("info,tokio_postgres=warn,hyper=warn,hyper_util=warn,h2=warn,reqwest=warn,tower_http=warn,rustls=warn,rumqttc=off")
+        // rumqttc and tungstenite log through `log`, and their lines can
+        // carry a broker's packet or a websocket upgrade's credentials: the
+        // watchdogs log their own states instead (EngineLayer also drops
+        // these targets under any ORGTREE_LOG, `silenced`)
+        tracing_subscriber::EnvFilter::new("info,tokio_postgres=warn,hyper=warn,hyper_util=warn,h2=warn,reqwest=warn,tower_http=warn,rustls=warn,rumqttc=off,tungstenite=off,tokio_tungstenite=off")
     });
     let (console, console_guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .lossy(true)
