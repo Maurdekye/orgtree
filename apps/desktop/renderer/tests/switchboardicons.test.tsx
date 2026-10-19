@@ -329,10 +329,10 @@ test('§1e Retire all agents asks first, and only then sends the one request '
   const old = g.fetch
   g.fetch = (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
-    // Opening the menu refreshes hire availability through an existing GET.
-    // This confirmation control observes writes, not that unrelated read.
-    if (method !== 'GET') seen.push({ method,
-      path: new URL(String(url), 'http://localhost').pathname })
+    const path = new URL(String(url), 'http://localhost').pathname
+    // Opening the menu already refreshes hire availability through this POST.
+    // Keep that independent request out of the retirement confirmation control.
+    if (!(method === 'POST' && path === '/api/providers/agy-models/refresh')) seen.push({ method, path })
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve({ nodes: 3, freed: 9 }) })
   }
