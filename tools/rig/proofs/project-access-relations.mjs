@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 export async function setup() {
-  return { fixture:{org:{name:'Project access relations'},agents:[{name:'boss',tier:'sol',grant:1000}]} }
+  return { recover:true, fixture:{org:{name:'Project access relations'},agents:[{name:'boss',tier:'sol',grant:1000}]} }
 }
 export default async function(rig) {
   const p=new Proof('project-access-relations')
@@ -88,12 +88,12 @@ export default async function(rig) {
   // Revoked org-folder grants must not reappear on a top-level project agent.
   const dir=path.join(rig.data,'revoked-folder');fs.mkdirSync(dir,{recursive:true})
   const settings=s=>rig.api('POST',`/api/orgs/${rig.org}/settings`,s)
-  await settings({dirs:[{path:dir,mode:'rw'}]})
+  await settings({org_dirs:[{path:dir,mode:'rw'}]})
   await rig.op({op:'retool',node:'owner-root',add_dirs:[{path:dir,mode:'rw'}]})
-  await settings({dirs:[{path:dir,mode:'ro'}]})
+  await settings({org_dirs:[{path:dir,mode:'ro'}]})
   const ownDir=()=>rig.one(`SELECT scope FROM ot.agents WHERE id=${id('owner-root')}`).scope.add_dirs?.find(d=>d.path.replaceAll('\\','/').toLowerCase()===dir.replaceAll('\\','/').toLowerCase())
   p.check('root: org folder downgrade persists on the top agent',ownDir()?.mode==='ro',ownDir())
-  await settings({dirs:[]});await settings({dirs:[{path:dir,mode:'rw'}]})
+  await settings({org_dirs:[]});await settings({org_dirs:[{path:dir,mode:'rw'}]})
   p.check('root: removed org folder stays revoked when the org re-adds it',!ownDir(),ownDir())
 
   // Local synthetic org only: no real outside party or network traffic.
