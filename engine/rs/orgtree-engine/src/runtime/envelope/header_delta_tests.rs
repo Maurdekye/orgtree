@@ -109,6 +109,7 @@ fn header_org_relationship_credits_freeze_and_visibility_changes() {
     let live = HashMap::new();
     f.prior = render(&f, &live, now).record;
     f.rows[1].parent = Some(3);
+    f.rows[1].superior = Some(3);
     f.rows[1].halted = true;
     f.rows[1].frozen = true;
     f.grant = 50.0;

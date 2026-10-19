@@ -366,10 +366,13 @@ export default async function (rig) {
   // pick it up
   const dev5Before = mailTo(node('dev5').id).length
   const toUi = await rig.userMail('ui', 'Who takes the UI work?').then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
-  const nudge = mailTo(node('dev5').id).slice(dev5Before)
+  const arrivals = mailTo(node('dev5').id).slice(dev5Before)
+  // A project user-audience grant may also send a passive inheritance notice.
+  // Count the wake request separately; there must still be exactly one.
+  const nudge = arrivals.filter(m => !m.notice)
   p.check('a user send to an unwatched project asks its first direct member to arm a fair_queue dog', toUi.ok
     && nudge.length === 1 && nudge[0].sender !== '@user' && nudge[0].notice === false
-    && /fair_queue/.test(nudge[0].body) && /\bui\b/.test(nudge[0].body), { said: toUi.ok ? toUi.v : toUi.error, nudge })
+    && /fair_queue/.test(nudge[0].body) && /\bui\b/.test(nudge[0].body), { said: toUi.ok ? toUi.v : toUi.error, nudge, arrivals })
   p.check('the send says so, and the mail itself waits in the project', toUi.ok && /dev5/.test(toUi.v.delivery ?? '')
     && rig.one(`SELECT state FROM ot.mail WHERE uid = '${toUi.v?.id}'`)?.state === 'pending', toUi.ok ? toUi.v : toUi.error)
   const empty = await opTry({ op: 'create_project', name: 'empty', parent: 'boss', description: 'Nobody here yet.' })
