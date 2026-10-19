@@ -112,8 +112,10 @@ test('Quick chat root-project hires omit redundant personal user audience', () =
 test('Quick chat applies top-level default cap even through root projects', () => {
   const row = {tier:'sol',seat:2,efforts:['high'],accounts:[],default_ok:true}
   const map = index([project('root', [project('nested')])])
+  map.get('root')!.parent = null // Quick chat uses payload roots, not the canvas USER sentinel.
   const tree = {...settings, default_top_grant:110}
   const options = {tiers:[row]} as StaffingOptions
+  assert.equal(quickChatChoices(options, settings, map, 'nested').length, 1, 'valid control really offers the model')
   assert.equal(quickChatChoices(options, tree, map, null).length, 0)
   assert.equal(quickChatChoices(options, tree, map, 'nested').length, 0)
 })
