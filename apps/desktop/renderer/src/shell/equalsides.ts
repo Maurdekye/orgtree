@@ -19,6 +19,14 @@ export function useEqualSides(on: boolean) {
     const h = head.current, a = start.current, b = end.current
     if (!on || !h || !a || !b || typeof ResizeObserver === 'undefined') return
     const need = (el: HTMLElement) => {
+      // Measure without the previous minimum constraining the flex children.
+      // Otherwise a clipped title becomes the next minimum, which changes its
+      // clipping again on the next ResizeObserver delivery. Restore before
+      // paint; ResizeObserver sees only the final, settled allocation.
+      const min = el.style.getPropertyValue('min-width')
+      const priority = el.style.getPropertyPriority('min-width')
+      el.style.setProperty('min-width', 'max-content')
+      try {
       const cs = getComputedStyle(el)
       const kids = [...el.children] as HTMLElement[]
       const gap = parseFloat(cs.columnGap) || 0
@@ -30,10 +38,18 @@ export function useEqualSides(on: boolean) {
       return kids.reduce((w, k) => w + width(k), 0)
         + gap * Math.max(0, kids.length - 1)
         + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+      } finally {
+        if (min) el.style.setProperty('min-width', min, priority)
+        else el.style.removeProperty('min-width')
+      }
     }
     const sync = () => {
-      h.style.setProperty('--shell-start-min', `${Math.ceil(need(a))}px`)
-      h.style.setProperty('--shell-end-min', `${Math.ceil(need(b))}px`)
+      const set = (key: string, width: number) => {
+        const value = `${Math.ceil(width)}px`
+        if (h.style.getPropertyValue(key) !== value) h.style.setProperty(key, value)
+      }
+      set('--shell-start-min', need(a))
+      set('--shell-end-min', need(b))
     }
     const sizes = new ResizeObserver(sync)
     const watch = () => {
