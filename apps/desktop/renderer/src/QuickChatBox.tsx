@@ -229,7 +229,9 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
           aria-label="attachments" aria-expanded={pop?.kind === 'files'}
           onClick={(e) => {
             if (files.length) go('files')(e)
-            else { if (at) back(); fileRef.current?.click() }
+            // The native picker is not a nested pop-over: keep the options
+            // mounted while it is open, whether the user selects or cancels.
+            else fileRef.current?.click()
           }}>
           <AttachIcon fontSize="inherit" />
           {files.length > 0 && <span className="quickchat-count">{files.length}</span>}
