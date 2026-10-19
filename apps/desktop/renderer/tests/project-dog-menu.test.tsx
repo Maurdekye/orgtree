@@ -27,7 +27,7 @@ for(const kind of ['slot','fair_queue','project_listener','listener_watch','acti
   const chip=view.el.querySelector('button')!
   await right(chip);assert.ok(projectRow(),'Project submenu exists');assert.ok(labels().includes('Pause'));assert.ok(labels().includes('Remove'));assert.equal(opened,0)
   await inAct(()=>{projectRow()!.focus();projectRow()!.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))});await flush()
-  assert.deepEqual(labels().slice(-4),['Copy mention','Focus','Open ▸','first']);assert.equal(focus,0)
+  assert.deepEqual(Array.from(document.querySelectorAll('.ctxmenu-submenu [role="menuitem"]')).map(e=>e.textContent),['Copy mention','Focus','Open ▸','first']);assert.equal(focus,0)
   await right(chip);await inAct(()=>projectRow()!.click());assert.equal(focus,1);assert.equal(opened,0)
   version='fresh';await right(chip);await inAct(()=>{projectRow()!.focus();projectRow()!.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))});await flush();assert.ok(labels().includes('fresh'),'builder read on open, not mount')
   await inAct(()=>{chip.click()});assert.equal(opened,1,'normal click still opens dog')
