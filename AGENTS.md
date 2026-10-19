@@ -9,6 +9,15 @@
 
 # AGENTS.md — working on Orgtree
 
+- Expanded shell rows can show ephemeral Codex/Muse output and genuine ACP
+  execution-content snapshots. Keep 32 KiB UTF-8 tails/256 KiB per actor, 4 Hz max,
+  turn/tool identity and clear-on-final/interrupt/exit. Never persist interim
+  bytes or change final output; byte handlers remain `#[nolog]`. Claude/agy have
+  no new file polling. Installed OpenCode2.0.28 omits ACP progress output.
+  See [shell output](docs/rust-engine/shell-output-stream.md).
+  [decided: user/coordinator2026-10-19; verified: `runtime/shell_output.rs`,
+  `runtime/actor.rs`, `renderer/src/shelloutput.tsx`, `renderer/src/convo.ts`]
+
 - Credit-bar segments and org pixel-per-credit scale flatten projects recursively
   to the next agents; projects never get a slab, while each agent's grant keeps
   its subtree grouped. Canvas, settings, desk and inbox request bars share the
