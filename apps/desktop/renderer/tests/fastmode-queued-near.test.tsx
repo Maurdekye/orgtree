@@ -12,7 +12,7 @@ for(const saved of [true,false]) test(`near queued fast ${saved?'on':'off'} is s
  try{
   const mark=badge(view.el)
   assert.equal(!!mark,true,'queued fast card is visible near zoom')
-  assert.equal(mark!.textContent,`next turn \u2192 fast ${saved?'on':'off'}`)
+  assert.equal(mark!.textContent,`next turn: fast ${saved?'on':'off'}`)
   assert.equal(mark!.title,`worker's fast will change from fast ${saved?'off':'on'} to fast ${saved?'on':'off'} next turn`)
   assert.equal(mark!.getAttribute('aria-label'),mark!.title)
   assert.equal(mark!.closest('.sq-badges')!==null,true)

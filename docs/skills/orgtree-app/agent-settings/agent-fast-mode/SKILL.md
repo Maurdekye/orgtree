@@ -21,8 +21,8 @@ separate from thinking effort. The user or an authorized superior can change it.
 - The choice applies to the next turn in the same conversation. A speed-only save
   does not switch model, account or session and does not restart the CLI. A running
   turn keeps its existing speed. There is no promise of a prompt-cache hit.
-- While a turn is running, a badge in the desk header says **next turn →
-  fast on** or **next turn → fast off** when the saved choice differs from the
+- While a turn is running, a badge in the desk header says **next turn:
+  fast on** or **next turn: fast off** when the saved choice differs from the
   speed request sent to that turn. Its tooltip gives both values. It clears on
   next admission, turn completion or reverting the choice. Unknown serving state
   shows no badge; saving alone does not prove a change is pending.
@@ -31,8 +31,8 @@ separate from thinking effort. The user or an authorized superior can change it.
   Its speed toggle keeps the top row: either queued direction uses a slightly
   darker highlight until admission. Steady on has the ordinary active highlight;
   steady off has none.
-  Hovering a pending speed toggle says **Fast mode turns on next turn** or
-  **Fast mode turns off next turn**. After admission or reverting, the ordinary
+  The toggle shows the queued choice. Hovering it says **Fast mode turns on next
+  turn (this turn: off)** or the reverse. After admission or reverting, the ordinary
   speed help returns.
   Effort and Send/Stop remain on a separate lower row, right
   aligned beneath them. The text field retains a 10ch minimum on narrow desks.

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { DeskChat } from '../src/canvas/desk'
 import { NodeSquare } from '../src/canvas/cards'
 import { FastModeButton } from '../src/canvas/fastmodebutton'
+import { FAST_MODE_HELP } from '../src/canvas/fastmode'
 import { syncProviderRegistries } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import { resetConvos } from '../src/convo'
@@ -42,6 +43,8 @@ for (const surface of ['desk','near card'] as const) test(`${surface}: all four 
     const badges=[...row.querySelectorAll<HTMLElement>('[data-next-turn]')]
     assert.deepEqual(badges.map(b=>b.dataset.nextTurn),['account','model','effort','fast'])
     assert.equal(badges.every(b=>b.parentElement===row&&b.classList.contains('queued')),true)
+    assert.equal(badges.every(b=>b.textContent?.startsWith('next turn: ')),true)
+    assert.equal(badges.every(b=>b.textContent?.startsWith('next turn: ')),true)
     assert.equal(v.el.querySelectorAll('[data-next-turn]').length,4,'one copy of each pending card')
     assert.equal(!!v.el.querySelector('.cc-controls [data-next-turn]'),false,'no pending card in the composer')
     assert.equal(row.querySelector('[data-next-turn="effort"]')?.getAttribute('title'),"worker's effort will change from medium to high next turn")
@@ -64,11 +67,11 @@ for (const next of [true,false]) test('pending speed '+next+' is highlighted dis
   const v=await mountView(control(n),el=>el)
   try {
     assert.equal(!!v.el.querySelector('.cc-fast.on.queued-speed'),true)
-    assert.equal(v.el.querySelector('.cc-fast')?.getAttribute('title'),`Fast mode turns ${next ? 'on' : 'off'} next turn`)
+    assert.equal(v.el.querySelector('.cc-fast')?.getAttribute('title'),`Fast mode turns ${next ? 'on' : 'off'} next turn (this turn: ${next ? 'off' : 'on'})`)
     await v.render(control({...n,fast_mode_current:next}))
     assert.equal(!!v.el.querySelector('.cc-fast.on'),next)
     assert.equal(!!v.el.querySelector('.queued-speed'),false)
-    assert.equal(v.el.querySelector('.cc-fast')?.getAttribute('title')?.includes('next turn'),false)
+    assert.equal(v.el.querySelector('.cc-fast')?.getAttribute('title'),FAST_MODE_HELP)
     await v.render(control({...n,scope:{...n.scope,fast_mode:false},fast_mode_current:false}))
     assert.equal(!!v.el.querySelector('.cc-fast.on'),false)
   } finally {await v.unmount()}

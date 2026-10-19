@@ -24,7 +24,7 @@ for (const requested of [true, false]) test(`serving evidence shows next turn fa
   try {
     const pending = badge(view.el)
     assert.equal(!!pending, true, 'the running turn still uses the opposite speed')
-    assert.equal(pending!.textContent, `next turn \u2192 fast ${requested ? 'on' : 'off'}`)
+    assert.equal(pending!.textContent, `next turn: fast ${requested ? 'on' : 'off'}`)
     assert.equal(pending!.title, `worker's fast will change from fast ${requested ? 'off' : 'on'} to fast ${requested ? 'on' : 'off'} next turn`)
     assert.equal(pending!.getAttribute('aria-label'), pending!.title)
     assert.equal(pending!.parentElement?.querySelector('[aria-label="Fast mode"]') !== null, true)

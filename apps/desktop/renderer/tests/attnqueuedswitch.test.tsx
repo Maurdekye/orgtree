@@ -60,7 +60,7 @@ test('the agents list marks a queued model switch, and only that row', async () 
     // §1
     const mark = row('alpha')!.querySelector('[data-next-turn="model"]')
     assert.ok(mark, 'the switching agent wears the queued mark')
-    assert.equal(mark!.textContent, 'next turn \u2192 sonnet')
+    assert.equal(mark!.textContent, 'next turn: sonnet')
     assert.equal(mark!.getAttribute('title'), "alpha's model will change from opus to sonnet next turn")
     assert.ok(row('alpha')!.querySelector('.tier.t-opus'), 'and still shows the model it is on now')
     // §2

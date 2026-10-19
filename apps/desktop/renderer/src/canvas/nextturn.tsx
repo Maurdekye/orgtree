@@ -8,7 +8,7 @@ export function NextTurnBadge({ agent, kind, current, next }: {
 }) {
   const detail = `${agent}'s ${kind} will change from ${current} to ${next} next turn`
   return <span className="badge queued next-turn" data-next-turn={kind}
-    title={detail} aria-label={detail}>{`next turn \u2192 ${next}`}</span>
+    title={detail} aria-label={detail}>{`next turn: ${next}`}</span>
 }
 
 const accountName = (id?: string | null): string =>
