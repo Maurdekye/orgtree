@@ -352,6 +352,11 @@ impl Shown {
 
     /// `v` inside `pre`/`post` (e.g. `Ok(` … `)`), members kept apart.
     pub fn json_wrapped(v: &Value, pre: &str, post: &str) -> Shown {
+        // MCP schemas/defaults and messages can carry private values under
+        // arbitrary field names; key-name masking alone cannot protect them.
+        if v.get("kind").and_then(Value::as_str) == Some("elicitation") {
+            return Shown::text(format!("{pre}[MCP elicitation omitted]{post}"));
+        }
         let (open, close, items): (String, String, Vec<(String, String, usize)>) = match v {
             Value::Object(m) if !m.is_empty() => (
                 format!("{pre}{{"),
@@ -495,6 +500,10 @@ fn masked(key: &str) -> bool {
 
 /// Compact JSON with sensitive fields masked.
 fn render(v: &Value, out: &mut Capture) {
+    if v.get("kind").and_then(Value::as_str) == Some("elicitation") {
+        out.push_str("\"[MCP elicitation omitted]\"");
+        return;
+    }
     match v {
         Value::Object(m) => {
             out.push_str("{");
@@ -1086,4 +1095,21 @@ where
     F::Output: Send + 'static,
 {
     tokio::spawn(tracing::Instrument::in_current_span(fut))
+}
+
+#[cfg(test)]
+mod elicitation_log_tests {
+    use super::*;
+    #[test]
+    fn elicitation_cards_mask_arbitrary_private_fields_in_direct_and_nested_logs() {
+        let card=serde_json::json!({"kind":"elicitation","id":"synthetic",
+            "question":"CANARY-PRIVATE-MESSAGE","elicitation":{"url":"https://example.invalid/CANARY-PRIVATE-URL",
+            "schema":{"properties":{"arbitrary":{"default":"CANARY-PRIVATE-DEFAULT"}}}}});
+        for value in [card.clone(),serde_json::json!({"asks":[card.clone()]}),
+            serde_json::json!({"node":{"elicitations":[card]}})] {
+            let shown=fit_value("test | ",Shown::json(&value));
+            assert!(!shown.contains("CANARY"));assert!(shown.contains("MCP elicitation omitted"));
+        }
+        assert!(fit_value("test | ",Shown::json(&serde_json::json!({"kind":"question","question":"ordinary-visible"}))).contains("ordinary-visible"));
+    }
 }

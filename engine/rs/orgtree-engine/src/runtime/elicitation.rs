@@ -115,15 +115,51 @@ fn choices(schema:&Value)->Option<Vec<&Value>> {
 fn check_schema(schema:&Value)->Result<()> {
     let fields=schema["properties"].as_object().filter(|p|p.len()<=32).ok_or_else(||anyhow::anyhow!("expected bounded form properties"))?;
     if schema["type"]!="object" {bail!("expected object form")}
+    if schema.as_object().is_some_and(|o|o.keys().any(|k|!["$schema","type","properties","required","additionalProperties","title","description"].contains(&k.as_str())))
+        || schema.get("additionalProperties").is_some_and(|v|v!=&Value::Bool(false)) {bail!("unsupported form schema constraint")}
     if schema.get("required").is_some_and(|r|!r.is_null() && !r.as_array().is_some_and(|a|a.iter().all(|n|n.as_str().is_some_and(|n|fields.contains_key(n))))) {bail!("invalid required fields")}
     for field in fields.values() {
+        if field.as_object().is_none() {bail!("invalid form field")}
+        for key in ["title","description"] {
+            if field.get(key).is_some_and(|v|!v.is_null() && !v.is_string()) {bail!("invalid form label")}
+        }
+        let allowed: &[&str]=match field["type"].as_str() {
+            Some("boolean")=>&["type","title","description","default"],
+            Some("number"|"integer")=>&["type","title","description","default","minimum","maximum"],
+            Some("string")=>&["type","title","description","default","enum","enumNames","oneOf","anyOf","format","minLength","maxLength"],
+            Some("array")=>&["type","title","description","default","items","minItems","maxItems"],
+            _=>bail!("unsupported MCP form field"),
+        };
+        if field.as_object().unwrap().keys().any(|k|!allowed.contains(&k.as_str())) {bail!("unsupported form field constraint")}
+        for key in ["minimum","maximum"] {
+            if field.get(key).is_some_and(|v|!v.is_null() && !v.as_f64().is_some_and(|n|n.is_finite())) {bail!("invalid numeric bound")}
+        }
+        for key in ["minLength","maxLength","minItems","maxItems"] {
+            if field.get(key).is_some_and(|v|!v.is_null() && v.as_u64().is_none()) {bail!("invalid form bound")}
+        }
+        if field.get("format").is_some_and(|v|!v.is_null() && !v.as_str().is_some_and(|s|["email","uri","date","date-time"].contains(&s))) {bail!("unsupported string format")}
         match field["type"].as_str() {
             Some("string"|"boolean"|"number"|"integer")=>{},
             Some("array") if choices(&field["items"]).is_some()=>{},
             _=>bail!("unsupported MCP form field"),
         }
-        if let Some(options)=choices(if field["type"]=="array" {&field["items"]} else {field}) {
+        let choice_schema=if field["type"]=="array" {&field["items"]} else {field};
+        if field["type"]=="array" && (choice_schema.as_object().is_none()
+            || choice_schema.as_object().unwrap().keys().any(|k|!["type","enum","enumNames","oneOf","anyOf"].contains(&k.as_str()))
+            || choice_schema.get("type").is_some_and(|v|v!="string")) {bail!("unsupported multi-select schema")}
+        for key in ["enum","enumNames","oneOf","anyOf"] {
+            if choice_schema.get(key).is_some_and(|v|!v.is_null() && !v.is_array()) {bail!("invalid form choices")}
+        }
+        if choice_schema["enumNames"].as_array().is_some_and(|a|a.iter().any(|v|!v.is_string())) {bail!("invalid choice labels")}
+        for key in ["oneOf","anyOf"] {
+            if choice_schema[key].as_array().is_some_and(|a|a.iter().any(|v|
+                !v["const"].is_string() || v.get("title").is_some_and(|t|!t.is_null() && !t.is_string()))) {bail!("invalid titled choice")}
+        }
+        if let Some(options)=choices(choice_schema) {
             if options.is_empty() || options.len()>128 || options.iter().any(|v|!v.is_string()) {bail!("invalid form choices")}
+        }
+        if let Some(default)=field.get("default").filter(|v|!v.is_null()) {
+            validate_content(&json!({"properties":{"field":field}}),&json!({"field":default}))?;
         }
     }
     Ok(())
@@ -143,7 +179,7 @@ fn validate_content(schema:&Value,content:&Value)->Result<()> {
                 !field["minLength"].as_u64().is_some_and(|m|n<m) && !field["maxLength"].as_u64().is_some_and(|m|n>m)
                 && match field["format"].as_str() {
                     Some("uri")=>reqwest::Url::parse(s).is_ok(),
-                    Some("email")=>s.split_once('@').is_some_and(|(a,b)|!a.is_empty() && b.contains('.') && !s.chars().any(char::is_whitespace)),
+                    Some("email")=>s.split_once('@').is_some_and(|(a,b)|!a.is_empty() && !b.is_empty() && !b.contains('@') && !s.chars().any(char::is_whitespace)),
                     Some("date")=>chrono::NaiveDate::parse_from_str(s,"%Y-%m-%d").is_ok(),
                     Some("date-time")=>chrono::DateTime::parse_from_rfc3339(s).is_ok(),
                     _=>true,
@@ -205,6 +241,26 @@ mod elicitation_tests {
             json!({"allow":true,"count":1.5}),json!({"allow":true,"choice":"other"}),
             json!({"allow":true,"many":["a","a"]}),json!({"allow":true,"many":[]}),
             json!({"allow":true,"note":"x"})] {assert!(validate_content(&schema,&bad).is_err());}
+    }
+    #[test]
+    fn elicitation_rejects_malformed_or_unsupported_schema_without_rendering_untyped_fields() {
+        for field in [json!({"type":"string","title":{"not":"text"}}),
+            json!({"type":"string","enum":"not-an-array"}),
+            json!({"type":"string","oneOf":[{"const":"a","title":{"not":"text"}}]}),
+            json!({"type":"boolean","default":"not-a-boolean"}),
+            json!({"type":"string","pattern":"unsupported-constraint"}),
+            json!({"type":"array","items":{"type":"string","enum":["a"],"pattern":"ignored"}})] {
+            let schema=json!({"type":"object","properties":{"test":field}});
+            assert!(check_schema(&schema).is_err());
+        }
+    }
+    #[test]
+    fn elicitation_capacity_is_bounded_and_not_tied_to_deferred_map_reclamation() {
+        let r=Registry::default();
+        let pending:Vec<_>=(0..128).map(|_|r.start(&caller(1),&form(),TIMEOUT).unwrap()).collect();
+        assert!(r.start(&caller(1),&form(),TIMEOUT).is_err());
+        drop(pending);
+        assert_eq!(r.capacity.available_permits(),128);
     }
     #[tokio::test]
     async fn elicitation_url_is_user_open_only_and_never_forwards_content() {

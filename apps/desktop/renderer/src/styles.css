@@ -9599,7 +9599,7 @@ button.node-link.node-link:focus-visible {
 .dnd-urgent-options { display: flex; align-items: center; gap: 6px; font-size: 11px; }
 .dnd-urgent-options label { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .dnd-urgent-options input[type="text"], .dnd-urgent-options input:not([type]) { min-width: 120px; flex: 1; }
-.elicitation-card { padding: 16px; }
+.elicitation-card { padding: 16px; overflow-wrap: anywhere; }
 .elicitation-field { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
 .elicitation-field small { opacity: .7; }
 

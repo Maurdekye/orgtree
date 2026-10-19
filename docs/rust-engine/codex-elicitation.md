@@ -24,11 +24,15 @@ expired and duplicate answers are refused. No mutable ordinary ask is replaced,
 no question limit is consumed, and no answer is sent as agent mail. The engine
 keeps at most 128 pending requests; inputs/answers are bounded to 64 KiB and
 forms to 32 properties/128 choices per field. Unknown modes, unsupported
-nonprimitive schemas and unsafe URL schemes fail closed. No new setting/menu.
+nonprimitive schemas/constraints, malformed labels/defaults and unsafe URL
+schemes fail closed. No new setting/menu.
 
 Pending requests and answers live only in memory and are not persisted across
 an engine restart. Request handlers and answer processing do not log submitted
-fields. The new path does not write saved provider/browser permission settings.
+fields. The HTTP wire logger omits answer bodies before authentication, including
+rejected child routes; the common value formatter masks whole elicitation cards
+in direct and nested feed logs, since arbitrary field names defeat key masking.
+The new path does not write saved provider/browser permission settings.
 
 ## Protocol evidence and reported saved permissions
 

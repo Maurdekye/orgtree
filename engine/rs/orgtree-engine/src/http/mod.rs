@@ -318,6 +318,9 @@ async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> R
 /// Bodies the log never holds: uploads, downloads, the UI bundle, sockets.
 fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
     !path.starts_with("/api/")
+        // Arbitrarily named MCP fields can contain private user input. Omit
+        // before authentication too, including rejected/unrecognized children.
+        || path.contains("/asks/elicitation-")
         || path == "/api/markdown-image"
         || path.ends_with("/upload")
         || path.ends_with("/file")
@@ -553,5 +556,17 @@ mod tests {
             request_target_for_log("/api/orgs/demo", &uri),
             "/api/orgs/demo?view=delta"
         );
+    }
+}
+
+#[cfg(test)]
+mod elicitation_wire_tests {
+    use super::*;
+    #[test]
+    fn elicitation_answer_wire_bodies_are_quiet_before_auth_and_on_unknown_routes() {
+        let headers=axum::http::HeaderMap::new();
+        assert!(quiet_body("/api/orgs/fixture/asks/elicitation-id/answer",&headers));
+        assert!(quiet_body("/api/orgs/fixture/asks/elicitation-id/unknown-child",&headers));
+        assert!(!quiet_body("/api/orgs/fixture/asks/ordinary-id/answer",&headers));
     }
 }
