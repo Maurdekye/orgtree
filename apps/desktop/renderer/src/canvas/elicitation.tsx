@@ -40,7 +40,7 @@ export function ElicitationAsk({ ask, slug, toast }: { ask: AskInfo; slug: strin
       setResolved(true)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      setError(message); toast(message)
+      setError(message); toast([message])
     } finally { setSending(false) }
   }
   if (resolved) return null
