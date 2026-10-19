@@ -14,7 +14,7 @@ pub(crate) mod skills;
 pub use mcp::McpRegistry;
 pub(crate) use mcp::jsonc;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -177,17 +177,25 @@ pub fn locate_claude() -> Option<(PathBuf, String)> {
             return Some((p, "env".into()));
         }
     }
-    if let Some(appdata) = dirs::data_dir() {
+    known_claude(&home(), dirs::data_dir().as_deref())
+        .or_else(|| which("claude"))
+        .map(|p| (p, "path".into()))
+}
+
+/// Known installs independent of the launching process's PATH.
+#[nolog]
+fn known_claude(profile: &Path, appdata: Option<&Path>) -> Option<PathBuf> {
+    if let Some(appdata) = appdata {
         let exe = appdata.join("npm").join("node_modules").join("@anthropic-ai").join("claude-code").join("bin").join("claude.exe");
         if exe.is_file() {
-            return Some((exe, "path".into()));
+            return Some(exe);
         }
     }
-    let local = home().join(".local").join("bin").join(crate::util::exe_name("claude"));
+    let local = profile.join(".local").join("bin").join(crate::util::exe_name("claude"));
     if local.is_file() {
-        return Some((local, "path".into()));
+        return Some(local);
     }
-    which("claude").map(|p| (p, "path".into()))
+    None
 }
 
 #[logged]
