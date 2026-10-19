@@ -44,7 +44,7 @@ export function ElicitationAsk({ ask, slug, toast }: { ask: AskInfo; slug: strin
     } finally { setSending(false) }
   }
   if (resolved) return null
-  return <form ref={visibility} className="ask-card elicitation-card" data-elicitation-id={ask.id}
+  return <form ref={visibility} className="askcard elicitation-card" data-elicitation-id={ask.id}
     onSubmit={ev => { ev.preventDefault(); void submit('accept') }}>
     <div className="ask-head"><strong>MCP permission · {e.server}</strong></div>
     <p>{e.message}</p>
