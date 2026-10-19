@@ -63,6 +63,9 @@ mod tests {
     }
     #[test] fn user_urgency_and_ordinary_agent_mail_keep_their_rules() {
         assert!(validate_urgent(true,Some("deadline"),true,false).is_ok());
+        assert!(validate_urgent(true,None,true,false).is_ok());
+        assert!(validate_urgent(true,Some(" "),true,false).is_ok());
+        assert!(validate_urgent(true,None,false,true).is_err());
         assert!(validate_urgent(false,None,false,false).is_ok());
     }
     #[test] fn durable_release_only_marks_unread_mail_and_auto_clears() {
