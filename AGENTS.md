@@ -1,3 +1,10 @@
+- Renderer supervisory controls use `agentSuperior`, `effectiveReports` and
+  `isTopLevel` to cross project containers: credits follow agent funding, root
+  project hires use top-level defaults, user lines belong to agents, and
+  retire-all targets the next agents without retiring placement projects.
+  Team badges and peer-mail sibling policy still use physical children.
+  [decided: user/coordinator 2026-10-19; verified: `canvas/{shared,creditgrant,cards,agentmenu,modals}.ts*`]
+
 - Fast-mode hire/rehire/staff/retool fields share exact-model validation;
   speed-only retool keeps the CLI and descendants untouched. New hires and
   Quick chat use per-tier org `default_fast_mode` (OFF, explicit false wins);

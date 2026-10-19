@@ -1,3 +1,10 @@
+**Renderer project transparency, user/coordinator 2026-10-19:** supervisory
+controls cross projects to the nearest agent and next agent reports. Projects
+remain placement containers, not payers or user-contact lines. Root-project
+hires inherit top-level defaults; scope controls follow the agent superior.
+Retire-all keeps intervening projects. Team badge counts and peer-mail neighbour
+policy remain physical, per the user's explicit exceptions.
+
 # Orgtree 4 rewrite — the user's standing decisions
 
 **Open/folder default actions, user 2026-10-19 18:34–18:37Z (4.4.0):**

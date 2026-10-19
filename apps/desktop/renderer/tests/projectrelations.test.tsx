@@ -1,8 +1,8 @@
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { grantLimits } from '../src/canvas/creditgrant'
-import { draftOpeningGrant, USER } from '../src/canvas/shared'
+import { grantLimits, hireGrantMax } from '../src/canvas/creditgrant'
+import { agentSuperior, effectiveReports, isTopLevel, draftOpeningGrant, USER } from '../src/canvas/shared'
 import type { CanvasNode, DraftScope } from '../src/canvas/shared'
 import { retireAllSubordinates, agentMenuEntries } from '../src/canvas/agentmenu'
 import { cascadePreview, DraftScopeModal } from '../src/canvas/modals'
@@ -24,6 +24,28 @@ function index(roots: CanvasNode[]) {
 }
 const wrapped = (n: CanvasNode) => project('outer', [project('inner', [n]), project('empty')])
 const settings = { max_top_grant: 100, default_top_grant: 37, cascade_alloc: true } as TreePayload
+
+test('structural helpers cross projects but retain archived agent superiors', () => {
+  const child=agent('child'), boss=agent('boss',[wrapped(child)],{state:'archived'})
+  const map=index([boss])
+  assert.equal(agentSuperior(child,map)?.id,'boss')
+  assert.equal(isTopLevel(child,map),false)
+  assert.deepEqual(effectiveReports(boss.children).map(n=>n.id),['child'])
+  assert.equal(isTopLevel(boss,map),true)
+  assert.equal(isTopLevel({parent:'missing'},map),false)
+  const cycle=project('cycle');cycle.parent='cycle';map.set(cycle.id,cycle)
+  assert.equal(isTopLevel({parent:'cycle'},map),false)
+  assert.equal(agentSuperior({parent:'cycle'},map),undefined)
+})
+for(const cascade of [false,true]) test(`hire ceiling reserves seat through nested projects, cascade=${cascade}`,()=>{
+  const map=index([agent('boss',[project('team',[project('nested')])],{grant:80,free:7})])
+  const tree={max_top_grant:100,cascade_hire:cascade}
+  assert.equal(hireGrantMax('nested',2,map,tree),cascade?25:5)
+  assert.equal(hireGrantMax('boss',2,map,tree),hireGrantMax('nested',2,map,tree))
+  const root=index([project('root',[project('nested')])])
+  assert.equal(hireGrantMax('nested',2,root,tree),100)
+  assert.equal(hireGrantMax('nested',2,root,tree,12),88,'inserted superior carries the anchor stake')
+})
 
 for (const cascade of [false, true]) test(`grant ceiling ignores nested project holdings, cascade=${cascade}`, () => {
   const direct = agent('report'), indirect = agent('report')

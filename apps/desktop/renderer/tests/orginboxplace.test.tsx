@@ -308,8 +308,8 @@ test('the furniture numbers are the stylesheet\'s and the components\' own', () 
   assert.match(canvas, /const inboxPxc = useMemo\(\(\) => orgPxc\(tree\), \[tree\]\)/, 'and the inbox is placed at the same scale')
   assert.match(canvas, /onGrant=\{setDraftGrant\}/, 'the canvas hears the draft grant')
   assert.match(canvas, /credits: id === DRAFT \? draftCredits/, 'and sizes the draft bar from it')
-  assert.match(cards, /draftOpeningGrant\(draft, defaultTop\)/, 'DraftNode opens at the same grant')
-  assert.match(canvas, /draftOpeningGrant\(draft, tree\.default_top_grant \?\? 50\)/, 'as the canvas assumes')
+  assert.match(cards, /draftOpeningGrant\(draft, defaultTop, map\)/, 'DraftNode opens at the same grant')
+  assert.match(canvas, /draftOpeningGrant\(draft, tree\.default_top_grant \?\? 50, map\)/, 'as the canvas assumes')
 })
 
 test('OrgCanvas places the inbox through placeOrgInbox, after every other card', () => {
