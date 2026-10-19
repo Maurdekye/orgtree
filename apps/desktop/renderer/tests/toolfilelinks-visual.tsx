@@ -5,7 +5,7 @@ import '../src/styles.css'
 const tool = {
   id: 'read-config',
   name: 'Read',
-  arg: 'Read settings',
+  arg: 'C:\\workspace\\settings.json',
   file_paths: [{ path: 'C:\\workspace\\settings.json', link: true }],
 }
 
