@@ -74,6 +74,21 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
             "body": gist(att.get("reason").and_then(Value::as_str).unwrap_or(""), 300),
         }));
     }
+    // Match the existing count's duplicate-mail exclusion: expose the same
+    // pending marker, rather than inventing a second counter or poller.
+    let mentions = all_rows(client,
+        &format!("SELECT a.name, a.generation, a.extra->'user_mention', a.id FROM ot.agents a
+          WHERE a.org_id = $1 AND a.state = 'live' AND a.id > $2
+            AND a.extra->'user_mention' IS NOT NULL AND a.extra->>'user_mention' <> 'null'
+            AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE m.org_id=$1 AND m.recipient_kind='user'
+              AND m.state='pending' AND {}) ORDER BY a.id LIMIT 200", super::mail_attention::DUPLICATE_MENTION_SQL),
+        org_id, 0).await?;
+    for r in &mentions {
+        let agent: String = r.get(0);
+        let generation: i32 = r.get(1);
+        let marker: Value = r.get(2);
+        out.push(mention_notice(slug, &agent, generation, &marker));
+    }
     let frozen = all_rows(client,
             "SELECT name, generation, frozen, id FROM ot.agents WHERE org_id = $1 AND state = 'live' AND frozen IS NOT NULL AND id > $2 ORDER BY id LIMIT 200",
             org_id, 0,
@@ -107,6 +122,33 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
         }));
     }
     Ok(out)
+}
+
+#[nolog]
+fn mention_notice(slug: &str, agent: &str, generation: i32, marker: &Value) -> Value {
+    json!({
+        "id": format!("mention:{agent}:{generation}:{}", marker["id"].as_str().unwrap_or("unknown")),
+        "kind": "mention", "org": slug, "agent": agent, "generation": generation,
+        "title": format!("{agent} mentioned you"),
+        "body": gist(marker["blurb"].as_str().unwrap_or("Mentioned you"), 300),
+    })
+}
+
+#[cfg(test)]
+mod taskbar_notice_tests {
+    use super::*;
+    #[test]
+    fn mention_identity_tracks_marker_not_streaming_prose() {
+        let first = mention_notice("org", "agent", 3, &json!({"id":"um-1-2","blurb":"Hello @user"}));
+        let refined = mention_notice("org", "agent", 3, &json!({"id":"um-1-2","blurb":"Hello @user again"}));
+        assert_eq!(first["id"], refined["id"]);
+        assert_ne!(first["body"], refined["body"]);
+        assert_eq!(first["agent"], "agent");
+        assert_eq!(first["generation"], 3);
+        assert_eq!(first["kind"], "mention");
+        assert_ne!(first["id"], mention_notice("org", "agent", 4, &json!({"id":"um-1-2"}))["id"]);
+        assert_ne!(first["id"], mention_notice("org", "agent", 3, &json!({"id":"um-2-4"}))["id"]);
+    }
 }
 
 /// How many things in this org need the user: open question cards on live
