@@ -42,6 +42,32 @@ It changes the recipient, preserving the existing card payloads, subject copies,
 and once-per-episode gates. Structural authority continues to use `ot.superior_of(id)`; an
 inactive ancestor does not confer top-level authority on its reports.
 
+Agent-facing lifecycle notices, question/scope routing, upward docket handoffs,
+mail relationship labels, turn rosters and fresh-session superior recall use the
+same contracted graph. `ot.agent_reporting` exposes agent rows with `superior_id`;
+`ot.reports_of(org, superior)` returns the first agents reached through projects,
+with NULL selecting the user-level frontier. Callers retain their lifecycle-state
+filters. Moves, swaps and promotion snapshot the former **agent** superior before
+changing placement, since a project parent can itself move with a seat. Docket
+deployment reminders and `next_action` use identical agent-only relations.
+
+The user's 2026-10-19 exceptions remain: peer-mail OFF and its delegation gate
+apply only to siblings sharing a physical parent; the Team badge counts physical
+children, including each project as one. The turn's peer-policy line therefore
+names its physical parent separately from its agent superior.
+
+`orgtree_project action=describe` without `description` reads the Summary. An
+explicit string changes it; an explicit empty string clears it. Previously omission
+was treated as empty and erased the Summary while appearing to read it. `settings`
+also reads it without changing any row. The upward-folder regression checks stored
+charter/scope/version before and after retool, then the public describe/settings
+reads, so a reader-side wipe cannot be mistaken for a scope-cascade bug.
+
+Stage B proofs: `project-transparency-b.mjs` (request routing, real turn contexts,
+lifecycle, idle deployment reminders), `project-lifecycle-relations.mjs` (insertion,
+swap, promotion, native compaction and retired/deleted notices), and
+`project-folder-raise.mjs` (exact upward folder grant plus Summary read/clear).
+
 Stage A regression proof: `tools/rig/proofs/project-transparency-a.mjs` drives the real engine
 with fake CLIs and a scratch database across direct, project, nested, root-project and empty
 project cases. It also checks single/batch moves and whole-project moves preserve settings and

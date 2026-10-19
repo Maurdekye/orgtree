@@ -1957,6 +1957,7 @@ async fn move_planned(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     }
     let stake = if live { n.seat + n.grant + credits.deltas.get(&n.id).copied().unwrap_or(0.0) } else { 0.0 };
     let old_chain = match n.parent { Some(id) => chain(tx, id).await?, None => Vec::new() };
+    let old_superior: Option<i64> = tx.query_one("SELECT ot.superior_of($1)", &[&n.id]).await?.get(0);
     let new_chain = match &target { Some(t) => chain(tx, t.id).await?, None => Vec::new() };
     let shared = old_chain.iter().zip(&new_chain).take_while(|(a,b)| a.id == b.id).count();
     // The LCA keeps exactly the same hold/free. Both sides carry the same
@@ -1985,7 +1986,7 @@ async fn move_planned(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     )
     .await?;
     event(tx, org.id, "move", actor, Some(n.id), json!({ "node": n.name, "to": target.as_ref().map(|t| t.name.clone()), "old_parent_id": n.parent,
-          "cascaded": raised }), fx)
+          "old_superior_id": old_superior, "cascaded": raised }), fx)
     .await?;
     fx.agents.insert(n.id);
     if let Some(p) = n.parent {
@@ -2051,7 +2052,14 @@ async fn set_description(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Act
         refuse!(BadRequest, "{} is an agent: set_description edits a project's description (an agent's charter changes with retool)", n.name);
     }
     authorize(tx, actor, &n, "describe").await?;
-    let text = str_arg(req, "description").unwrap_or("").trim().to_string();
+    // Omission reads. Only an explicit string may change or clear a Summary;
+    // treating an absent optional argument as "" silently destroyed it.
+    let Some(description) = req.get("description").filter(|v| !v.is_null()) else {
+        let text: Option<String> = tx.query_one("SELECT charter FROM ot.agents WHERE id=$1", &[&n.id]).await?.get(0);
+        return Ok(json!({"node":n.name,"description":text.unwrap_or_default()}));
+    };
+    let Some(text) = description.as_str() else { refuse!(BadRequest,"description must be a string"); };
+    let text = text.trim().to_string();
     tx.execute("UPDATE ot.agents SET charter = $2, row_version = row_version + 1 WHERE id = $1",
         &[&n.id, &(!text.is_empty()).then_some(text.clone())]).await?;
     event(tx, org.id, "set_description", actor, Some(n.id), json!({ "node": n.name }), fx).await?;
@@ -2956,6 +2964,10 @@ async fn swap(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
     }
     let a_parent = if b.parent == Some(a.id) { Some(b.id) } else { b.parent };
     let b_parent = if a.parent == Some(b.id) { Some(a.id) } else { a.parent };
+    // Snapshot before projects move with their seats. Resolving an old raw
+    // project parent afterwards can name the OTHER agent as former superior.
+    let old_superior_a: Option<i64> = tx.query_one("SELECT ot.superior_of($1)", &[&a.id]).await?.get(0);
+    let old_superior_b: Option<i64> = tx.query_one("SELECT ot.superior_of($1)", &[&b.id]).await?.get(0);
     // reports follow the seat
     tx.execute(
         "UPDATE ot.agents SET parent_id = CASE WHEN parent_id = $1 THEN $2 ELSE $1 END, row_version = row_version + 1
@@ -2981,7 +2993,8 @@ async fn swap(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
         )
         .await?;
     }
-    event(tx, org.id, "swap", actor, Some(a.id), json!({ "a": a.name, "b": b.name, "old_parent_a": a.parent, "old_parent_b": b.parent, "cascaded": raised }), fx).await?;
+    event(tx, org.id, "swap", actor, Some(a.id), json!({ "a": a.name, "b": b.name, "old_parent_a": a.parent, "old_parent_b": b.parent,
+        "old_superior_a":old_superior_a,"old_superior_b":old_superior_b,"cascaded": raised }), fx).await?;
     for id in [Some(a.id), Some(b.id), a.parent, b.parent].into_iter().flatten() {
         fx.agents.insert(id);
     }
@@ -3028,6 +3041,7 @@ async fn self_subjugate(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transa
         Vec::<String>::new()
     };
     let old_parent = d.parent;
+    let old_superior: Option<i64> = tx.query_one("SELECT ot.superior_of($1)", &[&d.id]).await?.get(0);
     tx.execute(
         "UPDATE ot.agents SET parent_id = $2, sibling_order = (SELECT sibling_order FROM ot.agents WHERE id = $3),
                 grant_credits = $4::float8::numeric, scope = $5, row_version = row_version + 1 WHERE id = $1",
@@ -3039,7 +3053,8 @@ async fn self_subjugate(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transa
         &[&me.id, &d.id, &me_grant],
     )
     .await?;
-    event(tx, org.id, "self_subjugate", actor, Some(me.id), json!({ "node": me.name, "promoted": d.name, "old_parent_id": old_parent, "cascaded": raised }), fx).await?;
+    event(tx, org.id, "self_subjugate", actor, Some(me.id), json!({ "node": me.name, "promoted": d.name, "old_parent_id": old_parent,
+        "old_superior_id":old_superior,"cascaded": raised }), fx).await?;
     for id in [Some(me.id), Some(d.id), me.parent, old_parent].into_iter().flatten() {
         fx.agents.insert(id);
     }

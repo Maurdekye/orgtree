@@ -211,7 +211,7 @@ impl Item {
 
 // ------------------------------------------------------------ reading
 
-/// The org's agents (not deleted) by name: (id, state, parent).
+/// The org's agents (not deleted) by name: (id, state, agent superior).
 pub(crate) type Agents = HashMap<String, (i64, String, Option<i64>)>;
 
 /// What a view needs beyond the row itself.
@@ -232,7 +232,7 @@ pub struct Ctx {
 pub async fn ctx(client: &impl GenericClient, org: &OrgHandle) -> Result<Ctx> {
     let mut c = Ctx { org: org.slug.clone(), now: Utc::now(), ..Default::default() };
     for r in client
-        .query("SELECT name, id, state, parent_id FROM ot.agents WHERE org_id = $1 AND state <> 'deleted'", &[&org.id])
+        .query("SELECT name, id, state, superior_id FROM ot.agent_reporting WHERE org_id = $1 AND state <> 'deleted'", &[&org.id])
         .await?
     {
         c.agents.insert(r.get(0), (r.get(1), r.get(2), r.get(3)));
@@ -1847,7 +1847,7 @@ pub async fn handoff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug
         refuse!(Conflict, "a closed item cannot request an upward handoff");
     }
     let superior: Option<String> = client
-        .query_one("SELECT p.name FROM ot.agents a LEFT JOIN ot.agents p ON p.id = a.parent_id WHERE a.id = $1", &[id])
+        .query_one("SELECT p.name FROM ot.agents a LEFT JOIN ot.agents p ON p.id = ot.superior_of(a.id) WHERE a.id = $1", &[id])
         .await?
         .get(0);
     let to = match target.map(|t| t.trim().trim_start_matches('@')).filter(|t| !t.is_empty()) {

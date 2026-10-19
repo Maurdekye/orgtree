@@ -26,7 +26,7 @@ Use `action=settings` with no `settings` argument to read a project. The Summary
 
 ## Create or edit a project
 
-Project administration requires `team`. `action=describe` with `name` and `description` replaces a project's Summary (you must be above or below the project; its agents carry the new text from their next start). `action=create` makes a **project node** (what one is and who reaches it: [orgtree-projects](../projects/SKILL.md)).
+Project administration requires `team`. `action=describe` with `name` alone reads its Summary; with an explicit `description` string it replaces the Summary, and an explicit empty string clears it (you must be above or below the project; its agents carry changed text from their next start). `action=settings` reads all values without changing them. `action=create` makes a **project node** (what one is and who reaches it: [orgtree-projects](../projects/SKILL.md)).
 
 - `name` (required): a new name in the organization, 1–64 letters, digits, `-`, `_` or `.`, unique among agents and projects.
 - `index` (required unless `above` is supplied): the zero-based final position among the live siblings under the parent, as for [orgtree-tool-hire](../tool-hire/SKILL.md).

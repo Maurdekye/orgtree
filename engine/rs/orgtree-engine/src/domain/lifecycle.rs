@@ -1,5 +1,6 @@
 //! Typed, passive notices committed with their tree operation. Recipients are
-//! the affected seat, parents and peers, never an org-wide broadcast.
+//! the affected seat, agent superiors and reporting peers, never an org-wide
+//! broadcast. Structural parents are only placement, not recipients.
 use anyhow::Result;
 use serde_json::{json, Value};
 use tokio_postgres::Transaction;
@@ -12,8 +13,8 @@ struct Seat {
 
 #[logged]
 async fn seat(tx: &Transaction<'_>, id: i64) -> Result<Seat> {
-    let r = tx.query_one("SELECT a.id,a.name,a.parent_id,p.name,a.generation,a.tier,a.seat::float8,a.grant_credits::float8
-        FROM ot.agents a LEFT JOIN ot.agents p ON p.id=a.parent_id WHERE a.id=$1", &[&id]).await?;
+    let r = tx.query_one("SELECT a.id,a.name,p.id,p.name,a.generation,a.tier,a.seat::float8,a.grant_credits::float8
+        FROM ot.agents a LEFT JOIN ot.agents p ON p.id=ot.superior_of(a.id) WHERE a.id=$1", &[&id]).await?;
     Ok(Seat { name:r.get(1), parent:r.get(2), parent_name:r.get(3),
               generation:r.get(4), tier:r.get(5), seat:r.get(6), grant:r.get(7) })
 }
@@ -24,7 +25,7 @@ async fn siblings(tx: &Transaction<'_>, org: i64, parent: Option<i64>, except: i
     let mut out = Vec::new();
     let mut after = 0_i64;
     loop {
-        let rows = tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND parent_id IS NOT DISTINCT FROM $2
+        let rows = tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND id IN (SELECT ot.reports_of($1,$2))
             AND state='live' AND id<>$3 AND id>$4 ORDER BY id LIMIT 200", &[&org,&parent,&except,&after]).await?;
         if rows.is_empty() { break; }
         for r in rows { after=r.get(0); out.push(after); }
@@ -82,18 +83,18 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
         }
         "switch_queued" | "switch_cancelled" | "switch_dropped" | "session_rebound" | "unstick" | "rename" | "retool" => targets.push((id,"self".into())),
         "move" => {
-            targets=family(tx,org,d["old_parent_id"].as_i64(),id,"old_parent","old_peer").await?;
+            targets=family(tx,org,d["old_superior_id"].as_i64(),id,"old_parent","old_peer").await?;
             targets.extend(family(tx,org,n.parent,id,"new_parent","new_peer").await?);
             targets.push((id,"self".into()));
         }
         "swap" => {
             let bname=d["b"].as_str().unwrap_or("");
             let bid: i64=tx.query_one("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2", &[&org,&bname]).await?.get(0);
-            targets=family(tx,org,d["old_parent_a"].as_i64(),id,"parent_of_a","peer_of_a").await?;
-            let same_parent=d["old_parent_a"]==d["old_parent_b"];
-            let direct=d["old_parent_a"].as_i64()==Some(bid) || d["old_parent_b"].as_i64()==Some(id);
+            targets=family(tx,org,d["old_superior_a"].as_i64(),id,"parent_of_a","peer_of_a").await?;
+            let same_parent=d["old_superior_a"]==d["old_superior_b"];
+            let direct=d["old_superior_a"].as_i64()==Some(bid) || d["old_superior_b"].as_i64()==Some(id);
             if !same_parent && !direct {
-                targets.extend(family(tx,org,d["old_parent_b"].as_i64(),bid,"parent_of_b","peer_of_b").await?);
+                targets.extend(family(tx,org,d["old_superior_b"].as_i64(),bid,"parent_of_b","peer_of_b").await?);
             }
             targets.retain(|(x,_)|*x!=id && *x!=bid);
             // Children follow the seat, so their former parent is the opposite current one.
@@ -106,7 +107,7 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             let bid:i64=tx.query_one("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2", &[&org,&name]).await?.get(0);
             let b=seat(tx,bid).await?;
             targets=family(tx,org,b.parent,bid,"new_parent","peer").await?;
-            if let Some(old)=d["old_parent_id"].as_i64() { targets.push((old,"former_parent".into())); }
+            if let Some(old)=d["old_superior_id"].as_i64() { targets.push((old,"former_parent".into())); }
             targets.extend(siblings(tx,org,Some(id),bid).await?.into_iter().map(|x|(x,"caller_child".into())));
             targets.extend(siblings(tx,org,Some(bid),id).await?.into_iter().map(|x|(x,"target_child".into())));
             targets.push((id,"demoted".into()));targets.push((bid,"promoted".into()));
@@ -116,7 +117,7 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
     let mut changed=Vec::new();
     for (target,role) in targets {
         let old_parent = if op=="move" {
-            match d["old_parent_id"].as_i64() { Some(p)=>Some(seat(tx,p).await?.name),None=>None }
+            match d["old_superior_id"].as_i64() { Some(p)=>Some(seat(tx,p).await?.name),None=>None }
         } else { None };
         let (variant,fields)=match op {
             "compacted" => ("lifecycle.compacted",json!({"node":n.name,"relation":role,"generation":n.generation,"predecessor":d["session"],"auto":d["auto"],"lost":true,"size_note":null})),
@@ -161,7 +162,7 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             }
             "swap" => {
                 let t=seat(tx,target).await?;
-                ("lifecycle.seat_swapped",json!({"a":d["a"],"b":d["b"],"role":role,"nested":d["old_parent_a"]==d["old_parent_b"],"by":by,"reports_to_after":t.parent_name,"grant_after":t.grant.to_string(),"audience_note":null}))
+                ("lifecycle.seat_swapped",json!({"a":d["a"],"b":d["b"],"role":role,"nested":d["old_superior_a"]==d["old_superior_b"],"by":by,"reports_to_after":t.parent_name,"grant_after":t.grant.to_string(),"audience_note":null}))
             }
             "self_subjugate" => {
                 let t=seat(tx,target).await?;

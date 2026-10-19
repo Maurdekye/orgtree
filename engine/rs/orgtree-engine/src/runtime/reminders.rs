@@ -194,7 +194,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
     }
     // every agent but the deleted, for the reviewer's liveness and the owner's superior chain
     let everyone: Agents = client
-        .query("SELECT name, id, state, parent_id FROM ot.agents WHERE org_id = $1 AND state <> 'deleted' LIMIT $2", &[&org.id, &MAX_AGENTS])
+        .query("SELECT name, id, state, superior_id FROM ot.agent_reporting WHERE org_id = $1 AND state <> 'deleted' LIMIT $2", &[&org.id, &MAX_AGENTS])
         .await?
         .iter()
         .map(|r| (r.get(0), (r.get(1), r.get(2), r.get(3))))

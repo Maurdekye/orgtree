@@ -254,14 +254,15 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
     let client = engine.db.get().await?;
     let me = client
         .query_one(
-            "SELECT a.org_id, a.name, a.parent_id, coalesce(a.scope->>'org_visibility', 'subtree'), a.seat::float8,
+            "SELECT a.org_id, a.name, ot.superior_of(a.id), coalesce(a.scope->>'org_visibility', 'subtree'), a.seat::float8,
                     a.grant_credits::float8,
                     (SELECT coalesce(sum(c.seat + c.grant_credits), 0)::float8 FROM ot.agents c WHERE c.parent_id = a.id AND c.state = 'live'),
                     a.session_id, coalesce(a.occupancy, 0), a.extra->'envelope'->'org_state',
-                    (SELECT p.name FROM ot.agents p WHERE p.id = a.parent_id),
+                    (SELECT p.name FROM ot.agents p WHERE p.id = ot.superior_of(a.id)),
                     EXISTS (SELECT 1 FROM ot.effective_audiences u WHERE u.org_id = a.org_id AND u.grantee = a.name AND u.grantor = '@user'
                              AND u.revoked_at IS NULL AND NOT u.paused),
-                    (SELECT p.scope FROM ot.agents p WHERE p.id=a.parent_id), a.extra->'envelope'->'usage'
+                    (SELECT p.scope FROM ot.agents p WHERE p.id=a.parent_id), a.extra->'envelope'->'usage',
+                    (SELECT p.name FROM ot.agents p WHERE p.id=a.parent_id)
                FROM ot.agents a WHERE a.id = $1",
             &[&agent_id],
         )
@@ -279,16 +280,19 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
     let user_audience: bool = me.get(11);
     let parent_scope: Option<Value> = me.get(12);
     let prior_usage: Option<Value> = me.get(13);
+    // Signed exception: peer-mail OFF is local to the physical parent, even
+    // though the roster and supervisory guidance use the agent graph.
+    let policy_parent: Option<String> = me.get(14);
     // An agent's own routes are visible independently of inspection/tool grants.
     let audiences = crate::domain::audience_notices::self_audiences(
         &crate::domain::audience_notices::self_held(&**client,org_id,&my_name).await?);
-    let peer_policy = crate::domain::peer_mail::describe(superior.as_deref(),
+    let peer_policy = crate::domain::peer_mail::describe(policy_parent.as_deref(),
         crate::domain::peer_mail::enabled(parent_scope.as_ref().unwrap_or(&Value::Null)));
     let rows: Vec<Row> = client
         .query(
-            "SELECT a.id, a.name, a.parent_id, a.tier, a.state, a.halt IS NOT NULL, a.last_status, a.inflight_at,
+            "SELECT a.id, a.name, r.superior_id, a.tier, a.state, a.halt IS NOT NULL, a.last_status, a.inflight_at,
                     (SELECT t.started_at FROM ot.turns t WHERE t.agent_id = a.id ORDER BY t.id DESC LIMIT 1), a.frozen IS NOT NULL
-               FROM ot.agents a
+               FROM ot.agent_reporting r JOIN ot.agents a ON a.id=r.id
               WHERE a.org_id = $1 AND a.state IN ('live', 'archived', 'unrecoverable')
               ORDER BY a.sibling_order, a.id LIMIT $2",
             &[&org_id, &MAX_AGENTS],
@@ -500,7 +504,7 @@ pub async fn relationships(engine: &Engine, agent_id: i64, senders: &[String]) -
         return Ok(out);
     }
     let client = engine.db.get().await?;
-    let me = client.query_one("SELECT org_id, name, parent_id FROM ot.agents WHERE id = $1", &[&agent_id]).await?;
+    let me = client.query_one("SELECT org_id, name, superior_id FROM ot.agent_reporting WHERE id = $1", &[&agent_id]).await?;
     let org_id: i64 = me.get(0);
     let my_name: String = me.get(1);
     let my_parent: Option<i64> = me.get(2);
@@ -509,7 +513,7 @@ pub async fn relationships(engine: &Engine, agent_id: i64, senders: &[String]) -
             "WITH RECURSIVE up(id, parent_id, depth) AS (
                 SELECT id, parent_id, 0 FROM ot.agents WHERE id = $1
                 UNION ALL SELECT a.id, a.parent_id, up.depth + 1 FROM ot.agents a JOIN up ON a.id = up.parent_id WHERE up.depth < 1024)
-             SELECT a.name FROM up JOIN ot.agents a ON a.id = up.id WHERE up.depth > 1",
+             SELECT a.name FROM up JOIN ot.agents a ON a.id = up.id WHERE up.depth > 0 AND a.kind='agent'",
             &[&agent_id],
         )
         .await?
@@ -518,7 +522,7 @@ pub async fn relationships(engine: &Engine, agent_id: i64, senders: &[String]) -
         .collect();
     let rows = client
         .query(
-            "SELECT name, id, parent_id FROM ot.agents WHERE org_id = $1 AND name = ANY ($2) AND state <> 'deleted' LIMIT 64",
+            "SELECT name, id, superior_id FROM ot.agent_reporting WHERE org_id = $1 AND name = ANY ($2) AND state <> 'deleted' LIMIT 64",
             &[&org_id, &agents],
         )
         .await?;

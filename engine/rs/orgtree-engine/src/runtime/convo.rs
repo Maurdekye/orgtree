@@ -1257,8 +1257,8 @@ async fn superior_hint(client: &Client, agent_id: i64) -> Result<String> {
         "SELECT m.uid, m.sender, m.created_at::text, left(m.body, 2000) FROM ot.mail m
          JOIN ot.agents a ON a.id = $1
          WHERE m.recipient_agent_id = a.id AND m.org_id = a.org_id AND m.state <> 'retracted'
-           AND ((a.parent_id IS NOT NULL AND m.sender_agent_id = a.parent_id)
-             OR (a.parent_id IS NULL AND m.sender = '@user'))
+           AND ((ot.superior_of(a.id) IS NOT NULL AND m.sender_agent_id = ot.superior_of(a.id))
+             OR (ot.superior_of(a.id) IS NULL AND m.sender = '@user'))
          ORDER BY m.id DESC LIMIT 3", &[&agent_id],
     ).await?;
     let mut out = String::from("Last messages from your current superior (newest first; excerpts, fetch by id for full context):\n");

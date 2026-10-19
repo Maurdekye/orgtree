@@ -39,6 +39,14 @@
   [decided: user/coordinator 2026-10-19; verified: `canvas/mail.tsx`,
   `tests/mail-tag-order.test.tsx`]
 
+- Agent lifecycle recipients, requests, turn rosters/labels, fresh-session recall
+  and docket deployers use `ot.superior_of` / `ot.agent_reporting` / `ot.reports_of`.
+  Snapshot former agent superiors before moves/swaps; physical parent links remain
+  for placement and the signed peer-mail exception. Project `describe` without a
+  description reads; only an explicit empty string clears its Summary. See
+  [project reporting](docs/rust-engine/PROJECT-NODES.md).
+  [verified: `domain/{lifecycle,asks,docket,ops}.rs`, `runtime/{envelope,convo,reminders}.rs`; 2026-10-19]
+
 - Attention list rows toggle off on a second click; Escape clears when the
   list itself has focus. A reader-cleared pane stays empty through refreshes,
   without reading another mail. Initial/empty-queue arrivals and resolved-row
