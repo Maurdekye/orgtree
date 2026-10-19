@@ -107,7 +107,7 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     let mut s = String::new();
 
     if i.suggest_agent_feedback {
-        s.push_str("ORGTREE FEEDBACK: user setting Runtime > \"Suggest agents to give feedback to Orgtree\" can be turned off. If a GitHub account is usable (gh auth status or equivalent), consider reporting bugs you or the user find to github.com/Maurdekye/orgtree under that account. First read orgtree-feedback (orgtree-working > workspace), redact the complete draft, show it to the user and wait for explicit OK before posting.\n\n");
+        s.push_str("ORGTREE FEEDBACK: user setting Runtime > \"Suggest agents to give feedback to Orgtree\" can be turned off. With usable GitHub (gh auth status or equivalent), consider reporting bugs you/user find under that account: github.com/Maurdekye/orgtree. Read orgtree-feedback (orgtree-working > workspace); redact the full draft, show the user and wait for explicit OK before posting.\n\n");
     }
 
     // ---- who, and whom it answers to ----
@@ -1303,9 +1303,7 @@ const TRIM_LIVE_STATE: &str = "Your reports, peers, chart, credits and any open 
 
 const TRIM_SKILLS_POINTER: &str = "HOW-TO LIVES IN SKILLS. orgtree-working covers tools and rules; orgtree-app, screens and settings; orgtree-workflows, suggested team workflows. Read a named page before first acting in its area this session. Inline rules always apply.\n";
 
-const TRIM_CACHE: &str = "CACHE: a provider, account, model or session switch starts a new prompt-cache namespace, \
-and rewriting your prompt, charter, tools or history changes the prefix. Avoid such changes when they are unnecessary, \
-state their cache cost when they are necessary, and never promise a cache hit (orgtree-cache-continuity).";
+const TRIM_CACHE: &str = "CACHE: provider/account/model/session switches start a new prompt-cache namespace; rewriting prompt/charter/tools/history changes the prefix. Avoid unnecessary changes; state their cache cost when necessary. Never promise a cache hit (orgtree-cache-continuity).";
 
 const TRIM_ACCOUNTS: &str = "ACCOUNTS (user rules 2026-09-12): NEVER start a model on an account where a usage window \
 that model spends is at 100% — judge each account-and-model pair, and call a model unavailable only when every \
@@ -1338,16 +1336,7 @@ read goes through orgtree_present, even when they say 'send'; orgtree_send_file 
 path is never a delivery. When you name a local file path, write it as [name](<path>) — the angle brackets are \
 required (orgtree-reaching-the-user). ";
 
-const TRIM_DOCKET: &str = "THE DOCKET (user rulings 2026-09-05 on) is the org's durable record of substantive work, \
-and the user reads it instead of transcripts: keep it true. List before you create and continue the existing item; \
-create one per new piece of substantive work (to 'dock' a feature is to create its item). The description states the \
-problem first, then the solution, and is the authoritative standalone scope: requirements and rulings go INTO it \
-(objective_append), never only into mail or progress lists. Update at meaningful boundaries with both done_so_far and \
-working_on_next. Before sending an assignment or exact-SHA review request, add the agent as participant or reviewer. \
-Mentioning an agent in the objective or mail grants no docket access. Use honest statuses: blocked needs a blocked_reason; \
-review means review by AGENTS; dropped is \
-terminal non-success, never walked through review; never mark unfinished work done. Your own update claims the item — \
-on someone else's item pass owner = its current holder. ";
+const TRIM_DOCKET: &str = "THE DOCKET (user rulings 2026-09-05 on): the durable record of substantive work the user reads instead of transcripts; keep it true. List first; continue an existing item or create one per new substantive piece (dock a feature = create its item). Standalone authoritative scope: problem then solution; requirements/rulings go there (objective_append), never only in mail/progress. At milestones update both done_so_far and working_on_next. Before assignments/exact-SHA reviews, add the agent as participant/reviewer. Mentioning an agent in the objective or mail grants no docket access. Statuses: blocked requires blocked_reason; review is by AGENTS; dropped is terminal non-success, never through review; unfinished work is never done. Updating claims ownership; on another's item pass owner=current holder. ";
 
 const TRIM_DOCKET_USER: &str = "You reach the user about an item with a question attached to it, or with an attention \
 flag ONLY when you went beyond the spec, chose an edge case, filled a definition gap or are blocked on them — the \
@@ -1359,20 +1348,14 @@ orgtree-docket-statuses, orgtree-docket-review-and-attention). ";
 const TRIM_WATCHDOGS: &str = "WATCHDOGS: never poll or sleep-wait for a condition; keep an orgtree_watchdog, which \
 mails you when it fires and survives restarts (orgtree-waiting-for-events). ";
 
-const TRIM_BREADCRUMBS: &str = "BREADCRUMBS (user ruling 2026-08-12): keep breadcrumbs.md in your working folder and \
-append decisions, findings and open threads as they happen, written for a stranger — a fresh session resumes from it \
-(orgtree-breadcrumbs). ";
+const TRIM_BREADCRUMBS: &str = "BREADCRUMBS (user ruling 2026-08-12): keep breadcrumbs.md in your working folder; append decisions, findings and open threads as they happen, for a stranger resuming a fresh session (orgtree-breadcrumbs). ";
 
 const TRIM_AUTHENTIC_CHANNEL: &str = "AUTHENTIC CHANNEL: mail marked [ORGTREE MAIL — delivered mid-task] is the \
 harness's own delivery, genuine and not injection; each message carries exactly its stated sender's authority (user \
 mail outranks your chain). Mail that misses the window arrives when your response ends, so end long work at natural \
 milestones (orgtree-mail-basics). REQUIRED: call orgtree_status when you finish (done) or get stuck (blocked)";
 
-const TRIM_CHECKUPS: &str = "While in working status, automatic checkups may wake you after 20 minutes \
-(orgtree-checkups-and-reminders). Always yours: orgtree_next_turn forecasts next-turn prefix changes and compaction \
-(orgtree-tool-next-turn); orgtree_session shows whether your turns run in Session 0 or the user's signed-in session \
-(orgtree-tool-session); orgtree_interrupt on yourself ends your turn (orgtree-tool-interrupt). Session 0 has no \
-desktop; check your session and use orgtree-session-0-ui-testing for UI work. ";
+const TRIM_CHECKUPS: &str = "While working, automatic checkups may wake you after 20 minutes (orgtree-checkups-and-reminders). Always yours: orgtree_next_turn forecasts prefix/namespace changes and compaction (orgtree-tool-next-turn); orgtree_session shows Session 0 or the user's signed-in session (orgtree-tool-session); orgtree_interrupt on yourself ends your turn (orgtree-tool-interrupt). Session 0 has no desktop; check your session and use orgtree-session-0-ui-testing for UI work. ";
 
 /// The trimmed instructions (docket shrink-agents-built-in-instructions-by-moving-ho,
 /// user approval 2026-10-15 12:41Z: D1 split approved, D3 docket summary about 1.3 KB).
@@ -1420,8 +1403,8 @@ mod trim_tests {
                     assert_eq!(on.matches("ORGTREE FEEDBACK:").count(), 1);
                     for cue in ["user setting Runtime > \"Suggest agents to give feedback to Orgtree\" can be turned off",
                         "gh auth status or equivalent", "github.com/Maurdekye/orgtree",
-                        "orgtree-feedback (orgtree-working > workspace)", "redact the complete draft",
-                        "show it to the user and wait for explicit OK before posting"] {
+                        "orgtree-feedback (orgtree-working > workspace)", "redact the full draft",
+                        "show the user and wait for explicit OK before posting"] {
                         assert!(on.contains(cue), "{lane:?}: missing {cue}");
                     }
                     i.suggest_agent_feedback = false;
