@@ -15,7 +15,7 @@ import { useSyncExternalStore } from 'react'
 import type { Watchdog } from '../types'
 import type { CanvasNode, MailRow } from './shared'
 import { AgentLink, nodeTierOf } from './identity'
-import { useDogRoute } from './deskdogs'
+import { useDogRoute, WatchdogRow } from './deskdogs'
 import { ageClockNow, subscribeAgeClock } from './desk'
 import type { MailListenerState } from './listeners'
 import { ordinal } from './slots'
@@ -151,7 +151,10 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
               with <code>orgtree_watchdog action=create kind=fair_queue target={node.id}</code>; each waiting mail then
               goes to one listener, the least recently woken first.</td></tr>}
             {list.map((r) => (
-              <tr key={r.dog.id} className={'slot-row listener-row' + (r.out === 'holding' ? ' holding' : r.out ? ' out' : '')}>
+              // a watchdog row: away from its links it opens the dog's menu, as the
+              // listeners and slots rows do; the agent link keeps its own
+              <WatchdogRow as="tr" key={r.dog.id} id={r.dog.id}
+                className={'slot-row listener-row' + (r.out === 'holding' ? ' holding' : r.out ? ' out' : '')}>
                 <td className="slot-position" title={r.out ? OUT_TITLE[r.out] || undefined : undefined}>
                   {r.position ? <span className="slot-no">{ordinal(r.position)}</span>
                     : r.out ? <span className="dim">{OUT_LABEL[r.out]}</span> : null}</td>
@@ -166,7 +169,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                 <td className="listener-handed" title="mails this listener's watchdog has been handed (engine count)">{r.dog.fired}</td>
                 <td className="listener-dog-cell">{dogName(r.dog)}
                   {r.dog.once && <span className="dim"> one-shot</span>}{r.dog.notice && <span className="dim"> passive</span>}</td>
-              </tr>
+              </WatchdogRow>
             ))}
           </tbody>
         </table>
