@@ -3771,7 +3771,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         const up = upJumpTargets(node, map).filter((n) => !(bare && n.id === USER))
         return up.length > 0 && (
           <div className="desk-nav">
-            {up.map((n) => <NavChip key={n.id} n={n} dir="up" onJump={onJump} />)}
+            <DeskJumpCards ids={up.map((n) => n.id)} render={(id) =>
+              <NavChip key={id} n={up.find((n) => n.id === id)!} dir="up" onJump={onJump} />} />
           </div>
         )
       })()}
