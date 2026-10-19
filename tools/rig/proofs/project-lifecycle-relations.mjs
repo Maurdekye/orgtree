@@ -68,6 +68,18 @@ export default async function(rig) {
     rows=mails(since,'lifecycle.deleted')
     p.check(`${shape}: delete reaches real superior and peers`,has(rows,peer,'peer')&&(!boss||has(rows,boss,'report')),rows)
   }
+  // Moving a project wrapper changes its agent frontier's superior too.
+  // Notify that frontier as agents; do not call the project an agent report.
+  await proj('moving-outer','boss');await proj('moving-inner','moving-outer')
+  await hire('moving-agent','moving-inner',6)
+  await hire('moving-report','moving-agent')
+  await proj('moving-empty','moving-outer');await proj('root-destination')
+  const cursor=mark()
+  await rig.op({op:'move',node:'moving-outer',new_parent:'root-destination'})
+  const moved=mails(cursor,'lifecycle.moved')
+  p.check('project subtree move tells each first agent its actual new superior',moved.some(r=>r.name==='moving-agent'&&r.ev.node==='moving-agent'&&r.ev.role==='self'&&r.ev.from_parent==='boss'&&r.ev.to_parent===null),moved)
+  p.check('project subtree move tells former superior about the agent report',moved.some(r=>r.name==='boss'&&r.ev.node==='moving-agent'&&r.ev.role==='old_parent'),moved)
+  p.check('project subtree move stops at agents, never claims their unchanged reports moved',!moved.some(r=>r.ev.node==='moving-report'||r.ev.node==='moving-outer'||r.ev.node==='moving-inner'),moved)
   p.keep(rig,{agents:[],grep:/swap|subjugate|compact|error/})
   return p.summary()
 }
