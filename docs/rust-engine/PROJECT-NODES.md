@@ -93,9 +93,13 @@ Credit requests skip project mirrors, rescind debits the real payer, and swap
 affordability compares real payers. Structural mirrors still settle normally.
 The org audit includes these top-level agents' stakes.
 
-An agent can grant a report an audience with its own reporting peer or superior.
-The signed sibling-delegation exception still requires the grantee and grantor to
-share a physical parent; this does not extend the peer-mail OFF gate across projects.
+An agent can grant a report an audience with its physical coworker or actual
+superior. Coworker mail is explicitly structural (user 2026-10-19 20:35Z): sharing
+an agent superior does not grant cross-project mail. Directional project audiences
+connect direct live members while both projects' peer-mail switches are ON;
+nested members do not inherit this route. Ordinary agent audiences still override
+OFF. Sibling delegation requires the grantee and grantor to share a physical parent.
+See [peer mail](peer-mail.md).
 Stage C proofs: `project-access-relations.mjs` and `project-credit-relations.mjs`.
 
 Credit mirrors sum the first live agents through live project-only edges in one

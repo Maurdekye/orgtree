@@ -6,7 +6,7 @@ use serde_json::Value;
 pub struct Relation {
     pub from: i64, pub to: i64,
     pub from_parent: Option<i64>, pub to_parent: Option<i64>,
-    pub from_superior: Option<i64>, pub to_superior: Option<i64>,
+    pub from_superior: Option<i64>,
     pub ancestor: bool, pub enabled: bool,
 }
 
@@ -30,8 +30,26 @@ pub fn check(r: Relation, audience: bool, parent_name: &str) -> Result<()> {
     if restricted && !audience {
         crate::refuse!(Forbidden, "{} has turned OFF \"Subordinates may message each other\"; direct siblings need an audience to send mail. Ask with orgtree_audience; your superior may grant one", parent_name);
     }
-    if r.from_superior == r.to_superior || audience { return Ok(()); }
+    // USER 2026-10-19: projects are full nodes for coworker mail. Reporting
+    // peers in different projects need a directional audience, even at root.
+    if r.from_parent == r.to_parent || audience { return Ok(()); }
     crate::refuse!(Forbidden, "you may write to your superior, your reports and their reports, reachable peers, and agents that granted you an audience; ask for an audience with orgtree_audience")
+}
+
+/// Project-to-project grants expand through effective_audiences, but that
+/// coworker route obeys BOTH projects' switches. Other audience grants retain
+/// their ordinary override. Inspect the base grant, not just source_project:
+/// an agent-to-project or project-to-agent grant is not a project peer bridge.
+#[logged]
+pub async fn audience_allows(client: &impl tokio_postgres::GenericClient, org: i64, from: &str, to: &str) -> Result<bool> {
+    Ok(client.query_one("SELECT EXISTS (
+        SELECT 1 FROM ot.effective_audiences e JOIN ot.audiences a ON a.id=e.id
+        LEFT JOIN ot.agents fp ON fp.org_id=a.org_id AND fp.name=a.grantee AND fp.kind='project'
+        LEFT JOIN ot.agents tp ON tp.org_id=a.org_id AND tp.name=a.grantor AND tp.kind='project'
+        WHERE e.org_id=$1 AND e.grantee=$2 AND e.grantor=$3 AND e.revoked_at IS NULL AND NOT e.paused
+          AND (fp.id IS NULL OR tp.id IS NULL OR
+            (fp.scope->'peer_mail' IS DISTINCT FROM 'false'::jsonb AND tp.scope->'peer_mail' IS DISTINCT FROM 'false'::jsonb)))",
+        &[&org,&from,&to]).await?.get(0))
 }
 
 /// A manager may connect two direct tree siblings that both report to it,
@@ -49,8 +67,8 @@ pub fn delegate(actor: i64, from_parent: Option<i64>, to_parent: Option<i64>,
 pub fn describe(parent: Option<&str>, on: bool) -> String {
     match parent {
         Some(parent) if !on => format!("Peer mail under {parent}: OFF (Subordinates may message each other). You need a directional audience to mail another direct child of {parent}. You may still request one; your nearest agent superior may grant it. Superior and subordinate reach is unchanged."),
-        Some(parent) => format!("Peer mail under {parent}: ON (Subordinates may message each other)."),
-        None => "Peer mail at the top level: ON (no parent setting).".into(),
+        Some(parent) => format!("Peer mail under {parent}: ON (Subordinates may message each other). Coworkers under other parents need an audience; project-to-project audiences connect direct members only while both projects are ON."),
+        None => "Peer mail at the top level: ON (no parent setting). Coworkers inside projects need an audience.".into(),
     }
 }
 
@@ -59,7 +77,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     fn siblings() -> Relation { Relation {from:2,to:3,from_parent:Some(1),to_parent:Some(1),
-        from_superior:Some(1),to_superior:Some(1),ancestor:false,enabled:false} }
+        from_superior:Some(1),ancestor:false,enabled:false} }
 
     #[test]
     fn off_refuses_sibling_mail_and_names_setting() {
@@ -77,8 +95,8 @@ mod tests {
     #[test]
     fn superior_and_descendants_are_unaffected() {
         let r=siblings();
-        assert!(check(Relation {to:1,to_parent:None,to_superior:None,..r},false,"committee").is_ok());
-        assert!(check(Relation {ancestor:true,to:4,to_parent:Some(3),to_superior:Some(3),..r},false,"committee").is_ok());
+        assert!(check(Relation {to:1,to_parent:None,..r},false,"committee").is_ok());
+        assert!(check(Relation {ancestor:true,to:4,to_parent:Some(3),..r},false,"committee").is_ok());
     }
     #[test]
     fn project_children_are_restricted_by_actual_project_parent() {
@@ -88,8 +106,8 @@ mod tests {
     fn peer_mail_requires_the_same_physical_parent_even_with_the_same_superior() {
         assert!(check(Relation {from_parent:Some(100),to_parent:Some(200),..siblings()},false,"project-p").is_err());
         assert!(check(Relation {from_parent:Some(100),to_parent:Some(200),..siblings()},true,"project-p").is_ok());
-        assert!(check(Relation {from_parent:None,to_parent:None,from_superior:None,to_superior:None,..siblings()},false,"user").is_ok());
-        assert!(check(Relation {from_parent:Some(100),to_parent:Some(200),from_superior:None,to_superior:None,..siblings()},false,"root-project").is_err());
+        assert!(check(Relation {from_parent:None,to_parent:None,from_superior:None,..siblings()},false,"user").is_ok());
+        assert!(check(Relation {from_parent:Some(100),to_parent:Some(200),from_superior:None,..siblings()},false,"root-project").is_err());
     }
     #[test]
     fn unset_is_on_and_new_parent_setting_is_used() {

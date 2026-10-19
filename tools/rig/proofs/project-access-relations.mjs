@@ -51,7 +51,7 @@ export default async function(rig) {
     if(count.ok) await rig.tool(who,'orgtree_watchdog',{action:'remove',id:'org-count'})
     const peerGrant=await aud(who,{action:'grant',from:child,target:peer})
     const superiorGrant=shape==='root'?{ok:true}:await aud(who,{action:'grant',from:child,target:'boss'})
-    p.check(`${shape}: an agent grants its report an audience with its own peer/superior`,peerGrant.ok&&superiorGrant.ok,{peer:peerGrant.text,superior:superiorGrant.text})
+    p.check(`${shape}: coworker delegation uses physical siblings while superior skips projects`,peerGrant.ok===(shape==='direct')&&superiorGrant.ok,{peer:peerGrant.text,superior:superiorGrant.text})
     if(shape==='root') {
       const grant=await aud(who,{action:'grant',from:child,target:'user'})
       const revoke=await aud(who,{action:'revoke',grantee:child,target:'user'})

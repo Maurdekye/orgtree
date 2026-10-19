@@ -7,6 +7,13 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Coworker mail, user 2026-10-19 20:35–20:38Z:** projects are full nodes for
+messaging peers. Default peer mail requires a shared physical parent; command
+chain mail still skips projects. Directional project audiences connect direct
+live members only, subject to both projects' OFF switches; ordinary agent
+audiences remain overrides. This replaces cross-project default peer reach,
+including the self-wrap escape. See [peer mail](peer-mail.md).
+
 **Project policy authority, user 2026-10-19 18:27Z:** only the user and agents
 strictly above a project may change peer mail, slot capacity, Summary, queue
 settings, name, order or purge waiting mail. Members retain operational reach,

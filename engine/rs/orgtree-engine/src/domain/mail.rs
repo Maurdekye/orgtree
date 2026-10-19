@@ -687,13 +687,11 @@ pub(crate) async fn authorize(
     let parent_name: Option<String> = rel.get(5);
     let parent_scope: Option<Value> = rel.get(6);
     let relation = super::peer_mail::Relation { from:from_id,to:to_id,from_parent:rel.get(3),to_parent:rel.get(4),
-        from_superior,to_superior,ancestor:false,
+        from_superior,ancestor:false,
         enabled:super::peer_mail::enabled(parent_scope.as_ref().unwrap_or(&Value::Null)) };
     let parent_name = parent_name.as_deref().unwrap_or("your parent");
     if super::peer_mail::check(relation,false,parent_name).is_ok() { return Ok(()); }
-    let audience = client.query_opt(
-        "SELECT 1 FROM ot.effective_audiences WHERE org_id=$1 AND grantee=$2 AND grantor=$3 AND revoked_at IS NULL AND NOT paused",
-        &[&org_id,&from_name,&to_name]).await?.is_some();
+    let audience = super::peer_mail::audience_allows(client,org_id,from_name,to_name).await?;
     super::peer_mail::check(relation,audience,parent_name)
 }
 

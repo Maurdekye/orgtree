@@ -33,6 +33,10 @@ export default async function(rig) {
     await rig.op({op:'configure_project',node,settings:{peer_mail:false}})
     const off=await send('a','c')
     p.check(`${node} OFF blocks the project coworker route`,!off.ok,off.text)
+    await userAudience('grant','a','c')
+    const explicit=await send('a','c')
+    p.check(`${node} OFF still permits an ordinary agent audience`,explicit.ok,explicit.text)
+    await userAudience('revoke','a','c')
     await rig.op({op:'configure_project',node,settings:{peer_mail:true}})
   }
   await userAudience('grant','other','inner')

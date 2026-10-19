@@ -333,11 +333,15 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
                         // The actual caller remains the audited actor; no project impersonation.
                     } else {
                     // with a live peer or my own superior, for my report
-                    let (oid, oparent) = live(client, org.id, other).await?;
-                    let peer = oparent == my_parent && oid != *id;
+                    let (oid, _) = live(client, org.id, other).await?;
+                    // Coworker delegation follows the physical peer relation,
+                    // not the agent reporting graph (USER 2026-10-19 20:35Z).
+                    let peer: bool = client.query_one("SELECT a.parent_id IS NOT DISTINCT FROM b.parent_id
+                        FROM ot.agents a JOIN ot.agents b ON b.id=$2 WHERE a.id=$1", &[id,&oid]).await?.get(0);
+                    let peer = peer && oid != *id;
                     let superior = my_parent == Some(oid);
-                    // Signed exception: sibling delegation still requires the
-                    // same physical parent, even though peer/superior use the agent graph.
+                    // Sibling delegation also requires the physical parent;
+                    // only the superior relation skips project wrappers.
                     let relation=client.query_one("SELECT a.parent_id,b.parent_id,ot.superior_of(a.id),ot.superior_of(b.id)
                         FROM ot.agents a JOIN ot.agents b ON b.id=$2 WHERE a.id=$1", &[&gid,&oid]).await?;
                     let delegated=super::peer_mail::delegate(*id,relation.get(0),relation.get(1),relation.get(2),relation.get(3));
