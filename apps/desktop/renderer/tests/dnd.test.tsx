@@ -61,8 +61,14 @@ test('urgent options appear and disappear live with target DND', async t => {
 
 test('armed urgency marks the icon and message box with orange-red', () => {
   const css=readFileSync(path.join(__SRC_DIR__,'styles.css'),'utf8')
+  const agentComposer=readFileSync(path.join(__SRC_DIR__,'canvas/desk.tsx'),'utf8')
+  const projectComposer=readFileSync(path.join(__SRC_DIR__,'canvas/projectdesk.tsx'),'utf8')
   const icon=css.match(/\.cc-notice-toggle\.cc-urgent-toggle\.armed\s*\{([^}]*)\}/)?.[1] ?? ''
   const outline=css.match(/\.cc-composer\.urgent-armed(?::focus-within)?\s*\{([^}]*)\}/)?.[1] ?? ''
+  assert.match(agentComposer,/urgentMail\s*\?\s*' urgent-armed'/,
+    'the shared desk composer applies the armed outline in canvas, pinned and popped-out hosts')
+  assert.match(projectComposer,/urgentMail\s*\?\s*' urgent-armed'/,
+    'project broadcasts use the same active urgency treatment')
   assert.match(icon,/color:\s*#ff4500/i)
   assert.match(icon,/border-color:\s*#ff4500/i)
   assert.match(outline,/border-color:\s*#ff4500/i)
@@ -100,7 +106,7 @@ test('armed user urgency can be sent without an urgent reason', async t => {
   }) as typeof fetch
   t.after(()=>{globalThis.fetch=original})
   await sendMessage('dnd','focused-agent','Now',undefined,undefined,undefined,false,undefined,undefined,
-    {urgent:true} as {urgent:true;urgent_reason:string})
+    {urgent:true})
   assert.equal(sent.urgent,true)
   assert.equal('urgent_reason' in sent,false)
 })
