@@ -57,3 +57,17 @@ test('Attention retains simultaneous MCP requests alongside the ordinary agent a
   const requests = [elicitationFixture('elicitation-a'), elicitationFixture('elicitation-b')]
   assert.deepEqual(openAsks({ asks: [ordinary, ...requests] }, [{ id: 'synthetic-agent', ask: ordinary } as TreeNode]).map(a => a.id).sort(), ['elicitation-a', 'elicitation-b', 'ordinary'])
 })
+
+test('a failed elicitation submit keeps the card answerable and reports its error', async () => {
+  globalThis.fetch = (async () => new Response(JSON.stringify({ detail: 'synthetic invalid field' }),
+    { status: 400, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+  const toasts: string[][] = []
+  const view = await mountView(<AskCard ask={elicitationFixture()} slug="fixture" toast={lines => { if (lines) toasts.push(lines) }} />, el => el)
+  try {
+    await inAct(async () => { document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush(3) })
+    assert.equal(document.querySelectorAll('[data-elicitation-id]').length, 1)
+    assert.equal([...document.querySelectorAll('button')].every(b => !b.disabled), true)
+    assert.deepEqual(toasts, [['synthetic invalid field']])
+    assert.match(document.querySelector('[role="alert"]')?.textContent ?? '', /synthetic invalid field/)
+  } finally { await view.unmount() }
+})
