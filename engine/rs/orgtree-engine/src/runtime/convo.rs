@@ -1377,13 +1377,14 @@ pub fn redact_tool_input(name: &str, input: &mut Value) {
             *c = json!(CREDENTIALS_HIDDEN);
         }
     }
-    for k in ["username", "password", "user", "pass", "passwd", "token"] {
+    // misplaced credentials of an mqtt or a websocket dog (refused at create)
+    for k in ["username", "password", "user", "pass", "passwd", "token", "headers", "bearer", "authorization", "cookie"] {
         if let Some(v) = o.get_mut(k) {
             *v = json!("[redacted]");
         }
     }
     for v in o.values_mut() {
-        if let Some(clean) = v.as_str().and_then(crate::util::mask_userinfo) {
+        if let Some(clean) = v.as_str().and_then(crate::util::mask_url_secrets) {
             *v = json!(clean);
         }
     }
@@ -1956,5 +1957,33 @@ mod mqtt_credential_tests {
         // other tools keep their arguments as they were
         let mut other = json!({ "tools": [{ "id": "t4", "name": "Bash", "input": { "command": "echo password" } }] });
         assert_eq!(take_tool_inputs(&mut other, 8)["t4"]["input"]["command"], json!("echo password"));
+    }
+
+    /// A websocket watchdog's inline credentials (headers, bearer, query,
+    /// secret hellos), credentials passed at the top level by mistake, and a
+    /// target's secret query value never reach the saved transcript; what a
+    /// send writes stays readable, as any tool argument does
+    /// (docs/rust-engine/websocket-watchdogs.md, coordinator 2026-10-19 21:14Z).
+    #[test]
+    fn a_websocket_watchdogs_credentials_never_reach_the_saved_transcript() {
+        let name = "mcp__orgtree__orgtree_watchdog";
+        let inline = json!({ "action": "create", "kind": "websocket", "target": format!("wss://ha.local/api/websocket?access_token={CANARY}"),
+                             "hello": [{"type": "subscribe_events"}],
+                             "credentials": { "bearer": CANARY, "headers": {"X-Api-Key": CANARY}, "query": {"t": CANARY},
+                                              "hello": [{"type": "auth", "access_token": CANARY}] } });
+        let stray = json!({ "kind": "websocket", "headers": {"Authorization": format!("Bearer {CANARY}")}, "bearer": CANARY,
+                            "cookie": CANARY, "authorization": CANARY });
+        let send = json!({ "action": "send", "id": "ha", "message": {"id": 2, "type": "call_service"} });
+        let mut body = json!({ "tools": [
+            { "id": "w1", "name": name, "arg": tool_arg(name, &inline), "input": inline },
+            { "id": "w2", "name": name, "arg": tool_arg(name, &stray), "input": stray },
+            { "id": "w3", "name": name, "arg": tool_arg(name, &send), "input": send },
+        ] });
+        let inputs = take_tool_inputs(&mut body, 9);
+        let saved = format!("{body}{inputs}");
+        assert!(!saved.contains(CANARY), "a secret reached the saved transcript: {saved}");
+        assert_eq!(inputs["w1"]["input"]["target"], json!("wss://ha.local/api/websocket?access_token=*****"));
+        assert_eq!(inputs["w1"]["input"]["hello"], json!([{"type": "subscribe_events"}]), "the dog's own hellos are no secret");
+        assert_eq!(inputs["w3"]["input"]["message"], json!({"id": 2, "type": "call_service"}), "what a send writes stays readable");
     }
 }

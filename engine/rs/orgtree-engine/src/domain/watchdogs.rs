@@ -18,7 +18,8 @@ pub fn handle(owner: &str, uid: &str) -> String {
 /// never the credentials (docs/rust-engine/mqtt-watchdogs.md).
 #[nolog]
 pub fn credentials_label(memo: &Value) -> String {
-    let c = &memo["mqtt"]["credentials"];
+    // an mqtt dog's or a websocket dog's (docs/rust-engine/websocket-watchdogs.md)
+    let c = if memo.get("websocket").is_some_and(Value::is_object) { &memo["websocket"]["credentials"] } else { &memo["mqtt"]["credentials"] };
     match c["kind"].as_str() {
         Some("file") => format!("file: {}", c["path"].as_str().unwrap_or("")),
         Some("inline") => "inline credentials (stored encrypted)".into(),
@@ -60,6 +61,18 @@ pub fn view(w: &Value, owner: &str) -> Value {
         }
         if let Some(v) = w["memo"]["run"].get("mqtt").filter(|v| v.is_object()) { o.insert("connection".into(), v.clone()); }
         if let Some(v) = w["memo"]["run"].get("dropped").filter(|v| !v.is_null()) { o.insert("dropped".into(), v.clone()); }
+    }
+    // a websocket dog: how it authenticates (never with what), what it says
+    // on each connect, its connection and what it has sent
+    if w["kind"] == "websocket" {
+        o.insert("credentials".into(), json!(credentials_label(&w["memo"])));
+        for key in ["hello", "protocols", "heartbeat"] {
+            if let Some(v) = w["memo"]["websocket"].get(key).filter(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty())) { o.insert(key.into(), v.clone()); }
+        }
+        if let Some(v) = w["memo"]["run"].get("websocket").filter(|v| v.is_object()) { o.insert("connection".into(), v.clone()); }
+        for key in ["dropped", "sent", "last_sent_at", "binary"] {
+            if let Some(v) = w["memo"]["run"].get(key).filter(|v| !v.is_null()) { o.insert(key.into(), v.clone()); }
+        }
     }
     if let Some(p) = w.get("pattern").filter(|v| !v.is_null()) {
         o.insert("pattern".into(), p.clone());

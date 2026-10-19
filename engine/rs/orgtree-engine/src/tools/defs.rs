@@ -980,17 +980,25 @@ fn build_tool_audience() -> Value {
 fn build_tool_watchdog() -> Value {
     tool(
         "orgtree_watchdog",
-        "Manage persistent watchers; max8/agent. create needs kind/target (usage defaults target=usage); command needs regex. command/stream use your authority and smoke-run; Windows cmd.exe or shell=bash. Read smoke output. Use once for deadlines. fair_queue routes mail; slot claims a concurrency permit. project_listener hears project events; listener_watch fires at a listener count; fire_actions run tools then. usage watches cached allowance edges, not provider polling. mqtt hears broker topics. Kind/filter/event/count/silence rules: read guide. No added authority.",
+        "Manage persistent watchers; max8/agent. create needs kind/target (usage defaults target=usage); command needs regex. command/stream use your authority and smoke-run; Windows cmd.exe or shell=bash. Read smoke output. Use once for deadlines. fair_queue routes mail; slot claims a concurrency permit. project_listener hears project events; listener_watch fires at a listener count; fire_actions run tools then. usage watches cached allowance edges, not provider polling. mqtt hears broker topics; websocket hears a ws/wss feed, and send writes on its live connection. Kind/filter/event/count/silence rules: read guide. No added authority.",
         json!({
-            "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
+            "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove", "send"] },
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
-            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "mqtt"] },
+            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "mqtt", "websocket"] },
             "batch": { "type": "integer", "minimum": 1, "maximum": 20, "description": "fair_queue only: up to this many mails per wake; ACK capacity too. Default 1." },
             "slots": { "type": "integer", "minimum": 1, "maximum": 64, "description": "slot only: reserve this many slots together as one lease, in strict FIFO. Default 1; at most project capacity." },
             "credentials": { "anyOf": [
                 { "type": "string" },
-                { "type": "object", "properties": { "username": { "type": "string" }, "password": { "type": "string" }, "client_id": { "type": "string" } }, "required": ["username"] }
-              ], "description": "mqtt only: a credentials file path in your folders (re-read on each connect), or {username, password, client_id}; stored encrypted, never shown" },
+                { "type": "object", "properties": { "username": { "type": "string" }, "password": { "type": "string" }, "client_id": { "type": "string" },
+                                                    "headers": { "type": "object" }, "bearer": { "type": "string" }, "query": { "type": "object" }, "hello": { "type": "array" } } }
+              ], "description": "mqtt/websocket: a credentials file path in your folders (re-read on each connect), or inline: mqtt {username, password, client_id}; websocket {headers, bearer, username, password, query, hello}. Stored encrypted, never shown" },
+            "hello": { "type": "array", "maxItems": 16, "items": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }] },
+                       "description": "websocket: messages sent in order after every (re)connect; a JSON value goes as compact JSON" },
+            "protocols": { "type": "array", "maxItems": 8, "items": { "type": "string" }, "description": "websocket: Sec-WebSocket-Protocol subprotocols to offer" },
+            "heartbeat": { "type": "object", "properties": { "message": { "anyOf": [{ "type": "string" }, { "type": "object" }] }, "every_s": { "type": "integer", "minimum": 5 } },
+                           "required": ["message", "every_s"], "description": "websocket: a fixed message sent every every_s seconds while connected" },
+            "message": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }],
+                         "description": "send: the text to write on the websocket dog's connection (a JSON value goes as compact JSON); at most 64 KB" },
             "payload_pattern": { "type": "string", "description": "mqtt only: regex the payload text must match" },
             "retained": { "type": "boolean", "description": "mqtt only: also fire on retained messages (default false)" },
             "count": {"type":"integer","minimum":1,"maximum":1024,"description":"listener_watch only: armed project listeners that fire it"},
@@ -1003,13 +1011,13 @@ fn build_tool_watchdog() -> Value {
             "threshold": {"type":"string","description":"event counts only: below N or at least N; fires only on false-to-true crossing, never repeatedly while satisfied"},
             "event_scope": {"type":"string","enum":["subtree","org"],"description":"count targets only: visible descendants (default), or org (requires full visibility); excludes the watcher"},
             "quiet_period_s": { "type": "integer", "minimum": 1, "description": "create, silence only: seconds without a matching event" },
-            "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, (fair_queue, slot, project_listener, listener_watch) project name, (event) dotted event name/prefix ending in .*, or (mqtt, needs your web tool) mqtt://host[:port] / mqtts://host[:port]" },
-            "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line); (mqtt, required) the topic filter, + and # wildcards" },
-            "interval_s": { "type": "integer", "minimum": 5, "description": "poll cadence (floor 15s); stream/activity: the minimum gap between fires (floor 5s)" },
+            "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, (fair_queue, slot, project_listener, listener_watch) project name, (event) dotted event name/prefix ending in .*, (mqtt, needs your web tool) mqtt://host[:port] / mqtts://host[:port], or (websocket, needs your web tool) ws:// or wss:// URL" },
+            "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line); (mqtt, required) the topic filter, + and # wildcards; (websocket) regex on text messages, optional = every message" },
+            "interval_s": { "type": "integer", "minimum": 5, "description": "poll cadence (floor 15s); stream/activity/mqtt/websocket: the minimum gap between fires (floor 5s)" },
             "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },
             "once": { "type": "boolean", "description": "create: ONE-SHOT — fires once and removes itself" },
             "shell": { "type": "string", "enum": ["native", "bash"], "description": "create, command/stream only" },
-            "id": { "type": "string", "description": "pause/resume/remove: the watchdog's id as `list` shows it (owner/id for a team member's dog)" },
+            "id": { "type": "string", "description": "pause/resume/remove/send: the watchdog's id as `list` shows it (owner/id for a team member's dog)" },
             "reason": { "type": "string", "description": "remove: why (optional)" },
         }),
         &["action"],
@@ -1539,6 +1547,23 @@ mod builder_stack_tests {
                      ", (event) dotted event name/prefix ending in .*, or (mqtt, needs your web tool) mqtt://host[:port] / mqtts://host[:port]"));
         dschema["properties"]["pattern"]["description"] = serde_json::json!(format!("{}; (mqtt, required) the topic filter, + and # wildcards",
             dschema["properties"]["pattern"]["description"].as_str().unwrap()));
+        // websocket watchdogs (user 2026-10-19 21:00Z/21:01:59Z; docket
+        // native-websocket-watchdog-plus-a-tool-to-send-on): the kind, the send
+        // action, their fields, and the target/pattern/interval/id wording
+        dschema["properties"]["kind"]["enum"].as_array_mut().unwrap().push(serde_json::json!("websocket"));
+        dschema["properties"]["action"]["enum"].as_array_mut().unwrap().push(serde_json::json!("send"));
+        for key in ["hello", "protocols", "heartbeat", "message"] {
+            dschema["properties"][key] = actual_dog["inputSchema"]["properties"][key].clone();
+        }
+        dschema["properties"]["target"]["description"] = serde_json::json!(dschema["properties"]["target"]["description"].as_str().unwrap()
+            .replace(", or (mqtt, needs your web tool) mqtt://host[:port] / mqtts://host[:port]",
+                     ", (mqtt, needs your web tool) mqtt://host[:port] / mqtts://host[:port], or (websocket, needs your web tool) ws:// or wss:// URL"));
+        dschema["properties"]["pattern"]["description"] = serde_json::json!(format!("{}; (websocket) regex on text messages, optional = every message",
+            dschema["properties"]["pattern"]["description"].as_str().unwrap()));
+        dschema["properties"]["interval_s"]["description"] = serde_json::json!(dschema["properties"]["interval_s"]["description"].as_str().unwrap()
+            .replace("stream/activity:", "stream/activity/mqtt/websocket:"));
+        dschema["properties"]["id"]["description"] = serde_json::json!(dschema["properties"]["id"]["description"].as_str().unwrap()
+            .replace("pause/resume/remove:", "pause/resume/remove/send:"));
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();
         card["description"] = serde_json::json!("Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to live direct members as their own; no nested relay. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail/broadcast grants only the project; members inherit without personal grants. Direct contact adds no user grant while effective access exists; manual Acquire audience can. Project decisions belong to their nearest agent superior (user if none). External/org-inbox access remains agent-only. Requests do not grant access.\nGuide: orgtree-tool-audience.");
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_chart").unwrap();
@@ -1595,7 +1620,7 @@ mod builder_stack_tests {
         for (name, description) in [
             ("orgtree_work", "Manage docket items by slug; read guide before writing. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply progress lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review is agent review; ask(work_item) for user questions. Delete is permanent and restricted; prefer archive/drop.\nGuide: orgtree-tool-work."),
             ("orgtree_project", "Read/use projects above/below you; only ancestors/user change settings, name, order or purge mail. create needs name/index (parent defaults you); above wraps a node. settings reads; configure patches atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunks. Claim via slot watchdog; slots lists holders/line; release_slot releases yours. Ancestors may force/unqueue. Dead letters: list/read/retry/drop; project.dead_letter alerts. fire_event fires; listeners lists listeners/watches. See guide for fields.\nGuide: orgtree-tool-project."),
-            ("orgtree_watchdog", "Manage persistent watchers; max8/agent. create needs kind/target (usage defaults target=usage); command needs regex. command/stream use your authority and smoke-run; Windows cmd.exe or shell=bash. Read smoke output. Use once for deadlines. fair_queue routes mail; slot claims a concurrency permit. project_listener hears project events; listener_watch fires at a listener count; fire_actions run tools then. usage watches cached allowance edges, not provider polling. mqtt hears broker topics. Kind/filter/event/count/silence rules: read guide. No added authority.\nGuide: orgtree-tool-watchdog."),
+            ("orgtree_watchdog", "Manage persistent watchers; max8/agent. create needs kind/target (usage defaults target=usage); command needs regex. command/stream use your authority and smoke-run; Windows cmd.exe or shell=bash. Read smoke output. Use once for deadlines. fair_queue routes mail; slot claims a concurrency permit. project_listener hears project events; listener_watch fires at a listener count; fire_actions run tools then. usage watches cached allowance edges, not provider polling. mqtt hears broker topics; websocket hears a ws/wss feed, and send writes on its live connection. Kind/filter/event/count/silence rules: read guide. No added authority.\nGuide: orgtree-tool-watchdog."),
             ("orgtree_inbox", "Read own mail: list previews; fetch<=20 IDs; chunk long bodies. Recall conversation after fresh session/compaction before replying. Returned pending received content is consumed, even outside DND; previews are not. Received/project opens enter transcript once; sent history does not. Project reads never claim/ack. folder selects full history; omitted list waits only. Keep project/folder/status with cursors. See guide for handles and filters.\nGuide: orgtree-tool-inbox."),
             ("orgtree_audience", "Manage directional audiences; requests grant nothing. request target/from managed project; grant from; deny requester; revoke grantee. Project grants reach direct live members, never nested; reverse needs its own grant. User contact does not add personal access while inherited; manual Acquire can. Project decisions go to nearest agent superior (user if none). External/org-inbox remains agent-only. Read guide for grant authority.\nGuide: orgtree-tool-audience."),
             ("orgtree_status", "Report working/done/blocked/idle; done does not end the turn. dnd=true holds this turn's non-urgent mail on every harness; only urgent bypasses. Turn end clears DND and delivers an ordered budgeted batch; false releases early. Inbox fetch/chunk consumes returned mail; previews do not.\nGuide: orgtree-tool-status."),
@@ -1693,5 +1718,22 @@ mod mqtt_card_tests {
         assert!(creds.contains("\"string\"") && creds.contains("\"object\""), "a file path or an inline object: {creds}");
         let d = dog["description"].as_str().unwrap();
         assert!(d.contains("mqtt") && d.len() <= 900, "{} bytes: {d}", d.len());
+    }
+
+    /// The websocket kind, its fields and the send action
+    /// (docs/rust-engine/websocket-watchdogs.md).
+    #[test]
+    fn the_watchdog_card_offers_the_websocket_kind_and_send() {
+        let cards = super::all();
+        let dog = cards.iter().find(|c| c["name"] == "orgtree_watchdog").unwrap();
+        let props = &dog["inputSchema"]["properties"];
+        assert!(props["kind"]["enum"].as_array().unwrap().iter().any(|k| k == "websocket"), "{}", props["kind"]);
+        assert!(props["action"]["enum"].as_array().unwrap().iter().any(|k| k == "send"), "{}", props["action"]);
+        for field in ["hello", "protocols", "heartbeat", "message", "credentials"] {
+            assert!(props.get(field).is_some(), "{field} is missing");
+        }
+        assert!(props["credentials"]["anyOf"][1]["required"].is_null(), "an inline websocket object needs no username");
+        let d = dog["description"].as_str().unwrap();
+        assert!(d.contains("websocket") && d.contains("send") && d.len() <= 900, "{} bytes: {d}", d.len());
     }
 }

@@ -15,7 +15,7 @@ use crate::mqtt::{creds, render, seal, Attachment, Delivery, Parked, State, Tag}
 
 pub(super) const NO_WEB: &str = "its owner no longer holds the web tool — an mqtt watchdog reaches the network with its owner's hands";
 /// The arguments only an mqtt dog takes.
-const FIELDS: &[&str] = &["payload_pattern", "retained", "credentials"];
+const FIELDS: &[&str] = &["payload_pattern", "retained"];
 /// An outage is reported once it has lasted this long; a blip is not.
 const DOWN_ALERT_S: i64 = 60;
 /// The owner's authority is checked again this often while the dog listens.
@@ -32,7 +32,11 @@ const SECRETS_DIR: &str = "secrets";
 #[logged]
 pub(super) fn foreign_fields(kind: &str, args: &Value) -> Result<()> {
     if kind != "mqtt" && FIELDS.iter().any(|k| args.get(*k).is_some_and(|v| !v.is_null())) {
-        refuse!(BadRequest, "payload_pattern, retained and credentials are for kind mqtt only");
+        refuse!(BadRequest, "payload_pattern and retained are for kind mqtt only");
+    }
+    // a websocket dog takes credentials too (websocket.rs)
+    if kind != "mqtt" && kind != "websocket" && args.get("credentials").is_some_and(|v| !v.is_null()) {
+        refuse!(BadRequest, "credentials are for kinds mqtt and websocket only");
     }
     Ok(())
 }
@@ -329,8 +333,9 @@ impl Config {
     }
 }
 
+/// Shared with websocket dogs: one key seals both kinds' inline credentials.
 #[nolog]
-fn secrets_dir(engine: &Engine) -> PathBuf {
+pub(super) fn secrets_dir(engine: &Engine) -> PathBuf {
     engine.cfg.data_root.join(SECRETS_DIR)
 }
 
@@ -368,9 +373,9 @@ fn conn_key(engine: &Engine, org_id: i64, cfg: &Config, source: &creds::Source) 
     crate::mqtt::ConnKey { org_id, broker: cfg.broker.clone(), identity: engine.dogs.mqtt.identity(source), client_id }
 }
 
-/// One line about a connection's state for an alert.
+/// One line about a connection's state for an alert (websocket dogs' too).
 #[nolog]
-fn connection_line(s: &State) -> String {
+pub(super) fn connection_line(s: &State) -> String {
     match s {
         State::Connecting { since } => format!("connecting since {}", iso(*since)),
         State::Connected { since } => format!("connected since {}", iso(*since)),
