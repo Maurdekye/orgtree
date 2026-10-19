@@ -15,6 +15,14 @@
   projection and retain their existing live/held filters and totals.
   [decided: user 2026-10-19 17:07Z; verified: `canvas/creditsegments.ts`,
   `canvas/{cards,creditgrant,desk,asks,shared}.ts*`]
+- Enabled, installed harnesses explicitly classified `hire_reason=signed_out`
+  retain dashed disabled hire tokens on card edges, Quick chat, desk model
+  pickers and the hire sheet. Conditional catalog absence and staffing filters
+  cannot hide these previews; they grant no entitlement. Sign-in advice uses
+  the structured reason, never parsed error text. Antigravity previews retain
+  model switches/legacy hiding. Local language servers do not require the host
+  CLI's native subscription login. See [signed-out hire tokens](docs/rust-engine/signed-out-hire-tokens.md).
+  [decided: user/coordinator 2026-10-19; verified: `providers/mod.rs`, `canvas/{shared,cards,OrgCanvas}.tsx`]
 
 - Desk-tab pin/pop-out requests snapshot the owning `.desk-tabpanel` before
   the modal mounts. Shared one-shot origin metadata carries its client box
