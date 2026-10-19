@@ -53,6 +53,7 @@ import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
 import { listenerCards, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { DeskJumpCards } from './deskjumpcards'
+import { DeskDocsStrip, DeskMetaRow, DeskTabs } from './deskshell'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
 /** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
@@ -526,16 +527,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               {!live && node.state === 'archived' && <button data-action="restore"
                 onClick={() => { void op({ op: 'rehire', node: node.id }).catch(() => {}) }}>restore</button>}
             </span>
-            <span className="cc-tabs">
-              {tabs.map((v) => (
-                <button key={v} data-tab={v} className={shown === v ? 'on' : ''}
-                  onClick={() => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v) }}>
-                  {/* Presentation labels only: existing tab routes stay stable. */}
-                  {v === 'desk' ? 'summary' : v === 'dead' ? 'dead letters' : v}{v !== 'slots' && count(v) > 0
-                    ? <>{' '}<span className="tab-count">{count(v)}</span></> : ''}
-                </button>
-              ))}
-            </span>
+            <DeskTabs shown={shown} tabs={tabs.map((v) => ({ id: v, label: v === 'desk' ? 'summary' : v === 'dead' ? 'dead letters' : v, count: count(v), showCount: v !== 'slots' }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as Tab) }} />
             {/* in its own window frame (the modal, pinned or popped out) the
                 frame's pop-out, beside the tabs as on the agent desk (user 11:14Z) */}
             {surface && <PopoutButton />}
@@ -560,30 +552,23 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
               agent desk (user 2026-10-18 11:47Z); rendered only popped out */}
           <PopoutWindowControls />
         </div>
-        {(listenerHeaderCards.length > 0 || queue) && <div className="cc-head-meta project-listeners-meta">
+        {(listenerHeaderCards.length > 0 || queue) && <DeskMetaRow className="project-listeners-meta">
           {listenerHeaderCards.map((c) => <button key={c.key} type="button"
             className={'chip project-listeners-card' + (c.bright ? ' bright' : '')}
             title={c.title} onClick={() => setView('listeners')}>{c.text}</button>)}
           {queue && <button type="button" className="chip project-queue-card"
             title={queue.title} onClick={() => setView('inbox')}>{queue.text}</button>}
-        </div>}
-        {slots.total > 0 && <div className="cc-head-meta project-slots-meta">
+        </DeskMetaRow>}
+        {slots.total > 0 && <DeskMetaRow className="project-slots-meta">
           <button type="button" className={'chip project-slots-card' + (slotsFull(slots) ? ' full' : '')}
             title={'open the Concurrency slots tab' + (slots.held.length ? ` — held by ${slots.held.map(h => h.agent).join(', ')}` : '')} onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>
           {/* no holder links here (user 2026-10-19 17:12Z): the holders are on the slots tab */}
-        </div>}
+        </DeskMetaRow>}
       </div>
       {/* its presentations and its subtree's, on their own strip under the
           header as on an agent desk (user 2026-10-17 22:47:29Z) */}
       {onOpenDoc && subtreeDocs(node).length > 0 && (
-        <div className="desk-docs">
-          {recentDocumentChips(subtreeDocs(node)).map((d) => (
-            <PresentationCard key={d.id} slug={slug} doc={d} toast={toast}
-              className="doc-badge" direct onOpen={onOpenDoc} onReply={() => replyToDoc(d)} replyLabel="Reply">
-              <DocIcon fontSize="inherit" /><span>{d.title}</span>
-            </PresentationCard>
-          ))}
-        </div>
+        <DeskDocsStrip slug={slug} docs={subtreeDocs(node)} toast={toast} onOpen={onOpenDoc} onReply={replyToDoc} replyLabel="Reply" />
       )}
       {shown === 'desk' && <>
         {onJump && parent && <div className="desk-nav"><NavChip n={parent} dir="up" onJump={onJump} /></div>}

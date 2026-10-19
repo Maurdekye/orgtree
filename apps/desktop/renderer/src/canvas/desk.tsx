@@ -108,6 +108,7 @@ import type {
 import { ConfirmModal, PilePicker } from './modals'
 import { InboxView, RetiredFold } from './mail'
 import { DeskJumpCards } from './deskjumpcards'
+import { DeskDocsStrip, DeskMetaRow, DeskTabs } from './deskshell'
 import { AskCard } from './asks'
 import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems, teamItems } from './docket'
@@ -3648,18 +3649,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               </button>
             )}
           </span>
-          <span className="cc-tabs">
-            {(['chat', 'inbox', 'docket', 'presented', 'team'] as const).filter(v => v !== 'team' || teamCount > 0).map((v) => (
-              <button key={v} data-tab={v} className={view === v ? 'on' : ''}
-                onClick={() => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v) }}>
-                {v}{tabCount(v) > 0
-                  ? <>{' '}<span className={'tab-count prov-'
-                      + providerOf(node.tier ?? '')}>
-                      {tabCount(v)}</span></>
-                  : ''}
-              </button>
-            ))}
-          </span>
+          <DeskTabs shown={view} tabs={(['chat', 'inbox', 'docket', 'presented', 'team'] as const).filter(v => v !== 'team' || teamCount > 0).map((v) => ({ id: v, label: v, count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />
           {/* FR-3: pin this desk to screenspace as a draggable window */}
           {!(hidePopout && !surface?.detached) && <PopoutButton />}
           {onPin && !surface?.detached &&
@@ -3677,7 +3667,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             widths and the window controls must not wrap with it. */}
         <PopoutWindowControls />
         </div>
-        <div className="cc-head-meta">
+        <DeskMetaRow>
         {mcpConfigured && <McpToolCountMark count={node.mcp_tool_count}
           last={node.last_turn_mcp_tool_count}
           provider={node.mcp_tool_count_provider}
@@ -3791,7 +3781,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               node.pending_account?.account ?? node.account ?? null)
             : tierEffortLevels(slug, node.tier)} />}
         <DndBadge active={node.dnd} />
-        </div>
+        </DeskMetaRow>
       </div>
       {/* F-01: superior chip at the TOP. For a top-level agent the superior is
           the user, so the chip targets the switchboard (map carries the eye
@@ -3818,15 +3808,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           restricts presenting to direct-user-audience agents, which is
           exactly who the switchboard shows. */}
       {onOpenDoc && (node.documents?.length ?? 0) > 0 && (
-        <div className="desk-docs">
-          {recentDocumentChips(node.documents!).map((d) => (
-            <PresentationCard key={d.id} slug={slug} doc={d} toast={toast}
-              className="doc-badge" direct onOpen={onOpenDoc}
-              onReply={canMail ? () => replyToPresentation(d) : undefined}>
-              <DocIcon fontSize="inherit" /><span>{d.title}</span>
-            </PresentationCard>
-          ))}
-        </div>
+        <DeskDocsStrip slug={slug} docs={node.documents!} toast={toast} onOpen={onOpenDoc}
+          onReply={canMail ? replyToPresentation : undefined} />
       )}
       {asking === 'dissolve' && (
         <ConfirmModal title={`dissolve ${node.id}?`}
