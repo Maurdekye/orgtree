@@ -16,7 +16,7 @@ export default async function(rig) {
     if(shape!=='direct'){await project(`outer-${shape}`,parent);parent=`outer-${shape}`}
     if(shape==='nested'){await project(`inner-${shape}`,parent);parent=`inner-${shape}`}
     const child=`claw-${shape}`;await hire(child,parent,6)
-    const before=grant(payer),stake=rig.agentRow(child).seat+grant(child)
+    const before=grant(payer),stake=rig.one(`SELECT (seat+grant_credits)::float8 AS stake FROM ot.agents WHERE id=${id(child)}`).stake
     await rig.op({op:'rescind',node:child})
     p.check(`${shape}: rescind removes the freed stake from the real payer`,Math.abs(grant(payer)-(before-stake))<1e-6,{before,after:grant(payer),stake})
     await hire(`ask-${shape}`,parent,1)

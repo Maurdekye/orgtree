@@ -91,7 +91,7 @@ export default async function(rig) {
   await settings({dirs:[{path:dir,mode:'rw'}]})
   await rig.op({op:'retool',node:'owner-root',add_dirs:[{path:dir,mode:'rw'}]})
   await settings({dirs:[{path:dir,mode:'ro'}]})
-  const ownDir=()=>rig.agentRow('owner-root').scope.add_dirs?.find(d=>d.path.replaceAll('\\','/').toLowerCase()===dir.replaceAll('\\','/').toLowerCase())
+  const ownDir=()=>rig.one(`SELECT scope FROM ot.agents WHERE id=${id('owner-root')}`).scope.add_dirs?.find(d=>d.path.replaceAll('\\','/').toLowerCase()===dir.replaceAll('\\','/').toLowerCase())
   p.check('root: org folder downgrade persists on the top agent',ownDir()?.mode==='ro',ownDir())
   await settings({dirs:[]});await settings({dirs:[{path:dir,mode:'rw'}]})
   p.check('root: removed org folder stays revoked when the org re-adds it',!ownDir(),ownDir())
