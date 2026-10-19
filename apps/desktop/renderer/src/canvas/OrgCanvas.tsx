@@ -1991,8 +1991,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   /** `onCanvas` is the ONE caller that means the canvas literally: the
    *  pinned window's own "Show on canvas" (user bug 2026-09-11). Every other
    *  jump stays generic and keeps preferring the open window. */
-  const centerOn = useCallback((id: string, z: number | null = null,
-    onCanvas = false) => {
+  const centerOn = useCallback((id: string, zoom: number | null = null,
+    canvas = false) => {
+    // ⚠ ONLY A NUMBER IS A ZOOM, AND ONLY `true` MEANS THE CANVAS. An agent
+    // link calls its handler as `onFocus(id, event)` (pins.tsx tells a pointer
+    // from a keyboard activation), and a surface that hands centerOn over
+    // whole as that handler delivers the CLICK EVENT as `z`: a NaN camera, the
+    // desk closes, the camera never moves, and the sticky focus intent below
+    // then fights every later drag. The project desk's Slots, Listeners, Dead
+    // letters and inbox Listeners tables all did (user bug 2026-10-19
+    // 21:17:25Z; projectlinkjump.test.tsx); mail.tsx's sender links met it
+    // first and wrap their handler. TypeScript cannot see it (see mail.tsx),
+    // so the one focus path takes nothing else on trust.
+    const z = typeof zoom === 'number' && Number.isFinite(zoom) ? zoom : null
+    const onCanvas = canvas === true
     // ⚠ THE ONE FOCUS PATH, WHILE THE ATTENTION VIEW IS PRESENTED (user
     // 2026-09-29: "clicking any agent link or any action that focuses an agent
     // while attention view is open should open that agent's desk in the right
