@@ -339,7 +339,9 @@ function HeadDesk({ set, top, height, id, route = false, answer, width = 980 }: 
     op={(b) => Promise.resolve((answer ? answer(b) : b.op === 'slot_status' ? headSlotStatus(set) : {}) as unknown as OpResult)}
     toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} />
   return (
-    <div id={id} className="head-desk" style={{ position: 'absolute', left: 10, top, width, height, border: '1px solid var(--line)', overflow: 'hidden' }}>
+    // on the panel colour, as the desk modal's frame (.tempdesk-panel), so the sticky Action cells match the app
+    <div id={id} className="head-desk" style={{ position: 'absolute', left: 10, top, width, height, border: '1px solid var(--line)', overflow: 'hidden',
+      background: 'var(--panel)' }}>
       {/* the canvas's dog route, so watchdog chips are the buttons the app shows */}
       {route ? <DeskDogsProvider value={{ org: 'org', dogs: set.dogs as never, open: noop }}>{desk}</DeskDogsProvider> : desk}
     </div>
