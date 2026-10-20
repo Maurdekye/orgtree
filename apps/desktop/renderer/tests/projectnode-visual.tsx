@@ -57,6 +57,16 @@
 //             &mode=historyrr the Mail listeners in round-robin; &w=740 a
 //             desk that wide, &long=1 the long agent and dog names of the
 //             user's narrow-desk screenshot (2026-10-20 09:00Z).
+//   unwired — the REAL canvas: project site under boss, dev1 and dev2
+//             listening on it and boss watching it, its event listeners on
+//             (dev2 paused itself: a dim line); &off=1 the same after a
+//             superior switched them off: every dog disabled, so no line
+//             (user 2026-10-20 10:50Z: switching off unwires them);
+//   deskinbox &mode=lsoff — a desk whose event listeners are off: no
+//             Listeners tab, no cyan card; under it a disabled, an
+//             owner-paused and an armed listener chip, as the canvas and the
+//             desks draw them; &mode=lson the same desk switched on, its
+//             Listeners tab open;
 //   jumpscroll — a desk on the canvas with many jump cards (user 2026-10-20
 //             09:41Z-09:50Z): stack16-agent-a under &up=N nested projects
 //             under boss, with &down=N reports named and badged like the
@@ -78,6 +88,8 @@ import { AgentDeskPanel } from '../src/attention/AgentDeskPanel'
 import { setAttentionLayout } from '../src/attention/mode'
 import { InboxView } from '../src/canvas/mail'
 import { AgentSurfaceRoutesProvider, PanelCorner } from '../src/canvas/panelcorner'
+import { WatchdogSatellite } from '../src/canvas/watchdogchip'
+import { WatchdogLink } from '../src/canvas/watchdoglink'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -261,10 +273,10 @@ const mailDogs = [
 ]
 const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
 const headSets: Record<'outlined' | 'filled' | 'roundrobin' | 'listeners' | 'empty', HeadSet> = {
-  outlined: { node: relay({ slots_capacity: 3 }, { mail_pending: 3 }),
+  outlined: { node: relay({ slots_capacity: 3, event_listeners: true }, { mail_pending: 3 }),
     dogs: [headDog('project_listener', 'dev1', 'ready-a'), headDog('project_listener', 'dev2', 'ready-b')],
     leases: [relayLease('dev1', 1), relayLease('dev2', 2)] },
-  filled: { node: relay({ slots_capacity: 3, mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 }),
+  filled: { node: relay({ slots_capacity: 3, mail_queue: 'ack', event_listeners: true }, { mail_pending: 3, mail_held: 1 }),
     dogs: [headDog('project_listener', 'dev1', 'ready-a'), headDog('project_listener', 'dev2', 'ready-b'),
       headDog('listener_watch', 'lead', 'all-ready', { count: 3 }),
       ...mailDogs,
@@ -272,7 +284,7 @@ const headSets: Record<'outlined' | 'filled' | 'roundrobin' | 'listeners' | 'emp
       headDog('slot', 'boss', 'wait-b', { once: true, queued_at: new Date(Date.now() - 2 * 60_000).toISOString() })],
     leases: [relayLease('dev1', 1), relayLease('dev2', 2), relayLease('lead', 3)] },
   roundrobin: { node: relay({ slots_capacity: 3 }, { mail_pending: 2 }), dogs: mailDogs, leases: [] },
-  listeners: { node: relay({ slots_capacity: 3 }, { mail_pending: 2 }),
+  listeners: { node: relay({ slots_capacity: 3, event_listeners: true }, { mail_pending: 2 }),
     dogs: [headDog('project_listener', 'dev1', 'ready-a', { once: true }),
       headDog('project_listener', 'dev2', 'build-done', { fired: 3, last_fired: ago(180) }),
       headDog('project_listener', 'lead', 'deploy-watch'),
@@ -282,7 +294,7 @@ const headSets: Record<'outlined' | 'filled' | 'roundrobin' | 'listeners' | 'emp
       headDog('listener_watch', 'boss', 'quorum', { count: 2, state: 'paused', notice: true, fired: 1, last_fired: ago(7200) }),
       ...mailDogs],
     leases: [relayLease('dev1', 1), relayLease('dev2', 2)] },
-  empty: { node: relay({}), dogs: [], leases: [] },
+  empty: { node: relay({ event_listeners: true }), dogs: [], leases: [] },
 }
 /** history: the desk's three tables with the engine's history reads */
 const historyDogs = [
@@ -292,9 +304,9 @@ const historyDogs = [
   headDog('slot', 'lead', 'wait-a', { once: true, queued_at: ago(300) }),
 ]
 const historySets = {
-  ack: { node: relay({ slots_capacity: 3, mail_queue: 'ack' }, { mail_pending: 1, mail_held: 1, dead_letters: 1, listeners_seen: true }),
+  ack: { node: relay({ slots_capacity: 3, mail_queue: 'ack', event_listeners: true }, { mail_pending: 1, mail_held: 1, dead_letters: 1 }),
     dogs: historyDogs, leases: [relayLease('dev1', 1), relayLease('dev2', 2)] } as HeadSet,
-  rr: { node: relay({ slots_capacity: 3 }, { mail_pending: 0, listeners_seen: true }), dogs: historyDogs, leases: [] } as HeadSet,
+  rr: { node: relay({ slots_capacity: 3, event_listeners: true }, { mail_pending: 0 }), dogs: historyDogs, leases: [] } as HeadSet,
 }
 /** &long=1: names as long as the user's 09:00Z screenshot's, so a narrow desk
  *  shortens them (the fixture's data with each name swapped) */
@@ -386,6 +398,40 @@ function HeadDesk({ set, top, height, id, route = false, answer, width = 980 }: 
       {route ? <DeskDogsProvider value={{ org: 'org', dogs: set.dogs as never, open: noop }}>{desk}</DeskDogsProvider> : desk}
     </div>
   )
+}
+/** deskinbox &mode=lsoff / lson: relay's event listeners off (its dogs
+ *  disabled) or on (the same dogs armed) */
+const RELAY_OFF = "project relay's event listeners were turned off by boss"
+const lsSet = (on: boolean): HeadSet => ({
+  node: relay({ slots_capacity: 3, ...(on ? { event_listeners: true } : {}) }, { mail_pending: 2 }),
+  dogs: [headDog('project_listener', 'dev1', 'ready-a', on ? {} : { state: 'paused', disabled: RELAY_OFF }),
+    headDog('project_listener', 'dev2', 'build-done', { fired: 3, last_fired: ago(180), ...(on ? {} : { state: 'paused', disabled: RELAY_OFF }) }),
+    headDog('project_listener', 'lead', 'deploy-watch', { state: 'paused' }),
+    headDog('listener_watch', 'boss', 'quorum', { count: 2, ...(on ? {} : { state: 'paused', disabled: RELAY_OFF }) }),
+    ...mailDogs],
+  leases: [relayLease('dev1', 1)],
+})
+function ListenerSetting({ on }: { on: boolean }) {
+  const set = lsSet(on)
+  const chips = [
+    headDog('project_listener', 'dev1', 'ready-a', { state: 'paused', disabled: RELAY_OFF }),
+    headDog('project_listener', 'lead', 'deploy-watch', { state: 'paused' }),
+    headDog('project_listener', 'dev2', 'build-done'),
+  ] as never[]
+  return <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+    <HeadDesk set={set} top={10} height={on ? 680 : 470} id="desk-inbox" route />
+    {!on && <div id="ls-chips" style={{ position: 'absolute', left: 10, top: 500, width: 980, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+        <span style={{ width: 150, color: 'var(--dim)' }}>canvas satellites</span>
+        {chips.map((w: { id: string }) => <span key={w.id} style={{ position: 'relative', display: 'inline-block', width: 150, height: 24 }}>
+          <WatchdogSatellite dog={w as never} dogs={chips as never} org="org" onOpen={noop} style={{ position: 'absolute', left: 0, top: 0 }} /></span>)}
+      </div>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+        <span style={{ width: 150, color: 'var(--dim)' }}>desk chips</span>
+        {chips.map((w: { id: string }) => <WatchdogLink key={w.id} dog={w as never} org="org" onOpen={noop} />)}
+      </div>
+    </div>}
+  </main>
 }
 function DeskHead() {
   const near = (set: HeadSet, x: number, id: string) => <div id={id} style={{ position: 'absolute', left: x, top: 0 }}>
@@ -521,7 +567,17 @@ function CardFix() {
 if (new URLSearchParams(location.search).get('theme') === 'light') document.documentElement.classList.add('contrast-light')
 const fqDog = (id: string, owner: string, state: string) => ({ id, owner, name: id, kind: 'fair_queue', target: 'site',
   interval_s: 5, state, at: new Date().toISOString(), fired: 0, once: false })
+/** unwired: project site's listeners, its event listeners on or (&off=1) switched off */
+const lsOff = new URLSearchParams(location.search).get('off') === '1'
+const OFF_WHY = "project site's event listeners were turned off by the user"
+const lsDog = (name: string, owner: string, state: string, extra: Record<string, unknown> = {}) => ({ id: owner + '/' + name, owner, name,
+  kind: 'project_listener', target: 'site', interval_s: 5, state, at: new Date().toISOString(), fired: 0, once: false, spent: false, ...extra })
+const lsDogs = lsOff
+  ? [lsDog('ready-a', 'dev1', 'paused', { disabled: OFF_WHY }), lsDog('ready-b', 'dev2', 'paused', { disabled: OFF_WHY }),
+    lsDog('quorum', 'boss', 'paused', { kind: 'listener_watch', count: 2, disabled: OFF_WHY })]
+  : [lsDog('ready-a', 'dev1', 'armed'), lsDog('ready-b', 'dev2', 'paused'), lsDog('quorum', 'boss', 'armed', { kind: 'listener_watch', count: 2 })]
 const dogs: Record<string, unknown[]> = {
+  unwired: lsDogs,
   fairqueue: [fqDog('q1', 'dev1', 'armed'), fqDog('q2', 'boss', 'paused')],
   slotlines: [{ ...fqDog('q1', 'sa', 'armed'), target: 'build' }, slotDog('sc', 'tests-ui', 4), slotDog('sb', 'cargo-test', 1)],
 }
@@ -544,6 +600,8 @@ const rows: Record<string, unknown[]> = {
   'row-end': [agent('a1', 'boss'), agent('a2', 'boss'), projectNode('site', 'boss')],
   between: [agent('a1', 'boss'), projectNode('site', 'boss'), agent('a2', 'boss')],
   fairqueue: [agent('lead', 'boss'), projectNode('site', 'boss', [agent('dev1', 'site'), agent('dev2', 'site')])],
+  unwired: [agent('lead', 'boss'), { ...projectNode('site', 'boss', [agent('dev1', 'site'), agent('dev2', 'site')]),
+    configured_scope: { tools: {}, add_dirs: [], event_listeners: !lsOff } }],
   slotlines: [agent('sa', 'boss'), agent('sb', 'boss'), buildProject([agent('sc', 'build')], 1)],
 }
 createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps />
@@ -572,6 +630,7 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
   : scene === 'deskhead' ? <DeskHead />
   : scene === 'deskinbox' ? (() => {
     const mode = new URLSearchParams(location.search).get('mode')
+    if (mode === 'lsoff' || mode === 'lson') return <ListenerSetting on={mode === 'lson'} />
     if (mode === 'history' || mode === 'historyrr') {
       const rr = mode === 'historyrr'
       const q = new URLSearchParams(location.search)

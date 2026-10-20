@@ -587,6 +587,65 @@ module.exports = async (page) => {
     screenshots.push(await page.screenshot(`${prefix}-listenerstable-empty-maillisteners-dark-1000x700`))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=listensetting: a project's event-listeners setting
+  // (user 2026-10-20 10:50Z): the canvas lines on and switched off (every dog
+  // disabled: no line), the desk off (no Listeners tab, the disabled chips)
+  // and on (the tab), and the gear's Event listeners switch off, then on
+  if (only === 'listensetting') {
+    const lines = () => page.eval(() => [...document.querySelectorAll('.listener-line, .listener-watch-line')]
+      .map((l) => (l.getAttribute('class') || '').replace(/\s+/g, ' ').trim()))
+    for (const off of ['', '&off=1']) {
+      const name = off ? 'off' : 'on'
+      await page.goto('/?scene=unwired' + off)
+      await page.waitFor('.sq.project', { timeout: 15000 })
+      await page.eval(async () => { await new Promise((r) => setTimeout(r, 800)) })
+      await settle()
+      details['lines-' + name] = await lines()
+      details['satellites-' + name] = await page.eval(() => [...document.querySelectorAll('.wd-chip.listener')]
+        .map((c) => ({ cls: c.className, title: c.getAttribute('title') })))
+      screenshots.push(await page.screenshot(`${prefix}-listensetting-canvas-${name}-1000x700`))
+    }
+    for (const mode of ['lsoff', 'lson']) {
+      await page.goto('/?scene=deskinbox&mode=' + mode)
+      await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+      details['tabs-' + mode] = await page.eval(() => [...document.querySelectorAll('#desk-inbox .cc-tabs button[data-tab]')].map((b) => b.getAttribute('data-tab')))
+      details['cyan-' + mode] = await page.eval(() => [...document.querySelectorAll('#desk-inbox .project-listeners-card')].map((c) => c.textContent))
+      if (mode === 'lson') {
+        await page.eval(async () => {
+          document.querySelector('#desk-inbox .cc-tabs button[data-tab="listeners"]').click()
+          await new Promise((r) => setTimeout(r, 700))
+        })
+      } else {
+        details.chips = await page.eval(() => [...document.querySelectorAll('#ls-chips .wd-chip, #ls-chips .watchdog-link')]
+          .map((c) => ({ cls: c.className, title: c.getAttribute('title'), glyph: c.querySelector('.wd-glyph')?.textContent,
+            opacity: getComputedStyle(c).opacity })))
+      }
+      await settle()
+      screenshots.push(await page.screenshot(`${prefix}-listensetting-desk-${mode.slice(2)}-1000x700`))
+    }
+    await page.goto('/?scene=settings')
+    await page.waitFor('input[aria-label="Event listeners"]', { timeout: 15000 })
+    const gear = () => page.eval(() => {
+      const sw = document.querySelector('input[aria-label="Event listeners"]')
+      const row = sw.closest('.set-row')
+      return { checked: sw.checked, state: row.querySelector('.set-state')?.textContent, hint: row.querySelector('.set-hint')?.textContent }
+    })
+    await page.eval(async () => {
+      document.querySelector('input[aria-label="Event listeners"]').closest('.set-row').scrollIntoView({ block: 'center' })
+      await new Promise((r) => setTimeout(r, 300))
+    })
+    await settle()
+    details['gear-off'] = await gear()
+    screenshots.push(await page.screenshot(`${prefix}-listensetting-gear-off-1000x700`))
+    await page.eval(async () => {
+      document.querySelector('input[aria-label="Event listeners"]').click()
+      await new Promise((r) => setTimeout(r, 300))
+    })
+    await settle()
+    details['gear-on'] = await gear()
+    screenshots.push(await page.screenshot(`${prefix}-listensetting-gear-on-1000x700`))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=deskhead: the project desk's header cards in one
   // row at full desk width, outlined and filled, dark and light, each card's
   // computed colours beside its near-zoom badge's; then the inbox's
