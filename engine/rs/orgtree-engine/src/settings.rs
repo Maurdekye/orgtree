@@ -159,6 +159,18 @@ impl AppSettings {
 /// the agent, the org nor the app defaults name an occupancy.
 pub const CHEAP_COMPACT_OCC: f64 = 0.25;
 
+/// Imports happen after schema migrations. Preserve the policy of a legacy
+/// org using the old OFF fallback; a null legacy column was omitted by the
+/// importer, so it inherits the app value. Org objects replace that value.
+#[logged]
+pub(crate) fn legacy_cheap_compact(org: &Value, app: &Value) -> Value {
+    let policy = if org.is_null() { app } else { org };
+    json!({
+        "enabled": policy.get("enabled").and_then(Value::as_bool).unwrap_or(false),
+        "occ": policy.get("occ").and_then(Value::as_f64).unwrap_or(CHEAP_COMPACT_OCC).clamp(0.05, 0.95),
+    })
+}
+
 /// 3.x's cheap-compaction setting: only `enabled` (true or false) and `occ`
 /// (a fraction of the context window, kept within 5–95%). An org or app
 /// write fills what a partial write leaves out from `old` (`merge`); an
@@ -248,6 +260,21 @@ mod cheap_default_tests {
     fn cheap_default_partial_write_and_raw_fallback_agree() {
         assert_eq!(cheap_compact(&json!({"occ":0.4}), &Value::Null, true).unwrap(), Some(json!({"enabled":true,"occ":0.4})));
         assert_eq!(crate::domain::tree::cheap_compact(&json!({}), &json!({})), (true, Some(0.25)));
+    }
+
+    #[test]
+    fn cheap_default_legacy_import_preserves_old_effective_choices() {
+        for (org, app, want) in [
+            (Value::Null, Value::Null, json!({"enabled":false,"occ":0.25})),
+            (Value::Null, json!({"enabled":true,"occ":0.55}), json!({"enabled":true,"occ":0.55})),
+            (Value::Null, json!({"enabled":false,"occ":0.35}), json!({"enabled":false,"occ":0.35})),
+            (json!({"enabled":false,"occ":0.7}), json!({"enabled":true}), json!({"enabled":false,"occ":0.7})),
+            (json!({"enabled":true,"occ":0.6}), json!({"enabled":false}), json!({"enabled":true,"occ":0.6})),
+            (json!({"occ":0.4}), json!({"enabled":true,"occ":0.8}), json!({"enabled":false,"occ":0.4})),
+            (json!({"occ":1.2}), Value::Null, json!({"enabled":false,"occ":0.95})),
+        ] {
+            assert_eq!(legacy_cheap_compact(&org, &app), want);
+        }
     }
 }
 

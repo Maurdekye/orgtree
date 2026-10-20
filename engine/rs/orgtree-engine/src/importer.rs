@@ -25,6 +25,20 @@ use crate::util::{iso, uid};
 
 const MARKER: &str = "import_v1";
 
+/// Resolve app policy even on the first import, before import_app_settings
+/// has populated ot.kv. A previously imported app document remains authoritative.
+#[nolog]
+pub(crate) async fn imported_cheap_compact(
+    cfg: &Config, tx: &Transaction<'_>, org: &Value,
+) -> Result<Value> {
+    let app = match tx.query_opt("SELECT value FROM ot.kv WHERE key = 'app_settings'", &[]).await? {
+        Some(row) => row.get::<_, Value>(0),
+        None => std::fs::read_to_string(cfg.path("app-settings.json")).ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok()).unwrap_or(Value::Null),
+    };
+    Ok(crate::settings::legacy_cheap_compact(org, &app["defaults"]["auto_cheap_compact"]))
+}
+
 #[logged]
 pub async fn run_if_needed(cfg: &Config, cluster: &Cluster, pool: &Pool, progress: &dyn Fn(&str)) -> Result<()> {
     let mut dst = pool.get().await?;
@@ -327,7 +341,7 @@ async fn copy_sections(
     put("cascade_alloc", json!(opt_b(&s, "cascade_alloc")));
     put("auto_resume", json!(opt_b(&s, "auto_resume")));
     put("auto_resume_compact", json!(opt_b(&s, "auto_resume_compact")));
-    put("auto_cheap_compact", opt_j(&s, "auto_cheap_compact"));
+    put("auto_cheap_compact", imported_cheap_compact(cfg, tx, &opt_j(&s, "auto_cheap_compact")).await?);
     put("default_tools", opt_j(&s, "default_tools"));
     put("default_account", json!(kept(opt_s(&s, "default_account"))));
     let afd = opt_j(&s, "account_fallback_default");

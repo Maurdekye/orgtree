@@ -406,7 +406,7 @@ async fn copy_org(cfg: &Config, src: &Source, tx: &Transaction<'_>, uuid: &str) 
     let slug = src.slug.as_str();
     let doc = Value::Object(src.doc.clone());
     let removed = crate::importer::removed_accounts(tx).await?;
-    let org_id = insert_org(src, tx, uuid, &removed).await?;
+    let org_id = insert_org(cfg, src, tx, uuid, &removed).await?;
     let ids = insert_agents(cfg, src, tx, org_id, &removed).await?;
     let n = ids.len();
     insert_mail_all(src, tx, org_id, &ids).await?;
@@ -418,7 +418,7 @@ async fn copy_org(cfg: &Config, src: &Source, tx: &Transaction<'_>, uuid: &str) 
 }
 
 /// The org row. Not logged: it reads the network identity secret.
-async fn insert_org(src: &Source, tx: &Transaction<'_>, uuid: &str, removed: &HashSet<String>) -> Result<i64> {
+async fn insert_org(cfg: &Config, src: &Source, tx: &Transaction<'_>, uuid: &str, removed: &HashSet<String>) -> Result<i64> {
     let d = Value::Object(src.doc.clone());
     let mut settings = Map::new();
     let mut put = |k: &str, v: Value| {
@@ -451,7 +451,8 @@ async fn insert_org(src: &Source, tx: &Transaction<'_>, uuid: &str, removed: &Ha
     }
     let afd = d.get("account_fallback_default").cloned().unwrap_or(Value::Null);
     put("account_fallback_default", if afd.is_boolean() { afd } else { Value::Null });
-    put("auto_cheap_compact", d.get("auto_cheap_compact").cloned().unwrap_or(Value::Null));
+    put("auto_cheap_compact", crate::importer::imported_cheap_compact(
+        cfg, tx, d.get("auto_cheap_compact").unwrap_or(&Value::Null)).await?);
     put("default_tools", d.get("default_tools").cloned().unwrap_or(Value::Null));
     let name = s(&d, "name").unwrap_or_else(|| src.slug.clone());
     let created = t(&d, "created").unwrap_or_else(Utc::now);
