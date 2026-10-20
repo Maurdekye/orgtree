@@ -300,6 +300,9 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
       .then(() => { toast?.([`left project ${node.id}'s mail queue; a job already held stays held until it is acknowledged`]); setBump((b) => b + 1) })
       .catch(() => {})
   }
+  const leaveButton = () => <button type="button" data-action="leave-queue"
+    title="leave this queue: no more jobs are handed to you; a job already held stays held until it is acknowledged"
+    onClick={leave}>leave queue</button>
   // the user's copy of a held job is in THEIR inbox (not the project's mailbox): open it there
   const openJob = (copy: string) => {
     if (refs) {
@@ -322,13 +325,6 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const maxAttempts = hist?.max_attempts ?? 3
   return (
     <div className="project-mail-listeners" onScroll={onScroll}>
-      {/* the user's place: joined from the desk header (mailqueuejoin.tsx), left from here (a user holding as many
-          jobs as their batch is in Working, not the Line, so their row there cannot always carry the leave) */}
-      {node.state === 'live' && myDog && <div className="user-reg-tools">
-        <button type="button" data-action="leave-queue"
-          title="leave this queue: no more jobs are handed to you; a job already held stays held until it is acknowledged"
-          onClick={leave}>Leave mail queue</button>
-      </div>}
       <div className="slots-table-scroll" role="region" aria-label={`Mail listeners of project ${node.id}`} tabIndex={0} onScroll={onScroll}>
         <table className={'slots-table mail-listeners-table' + (ack ? ' ack' : ' round-robin')}>
           <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/>
@@ -356,9 +352,11 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                   <td className="listener-dog-cell">{w ? listenerDog(w) : <HistoryDog dog={j.dog} className="listener-dog" />}</td>
                   <td className="slot-action">{isUserName(j.agent)
                     // the user's own job: they acknowledge it from their inbox; nobody takes it back
-                    ? <button type="button" data-action="open-job" disabled={!j.copy}
+                    ? <><button type="button" data-action="open-job" disabled={!j.copy}
                         title="read this job in your inbox and acknowledge it there; reading does not acknowledge it"
                         onClick={() => j.copy && openJob(j.copy)}>open mail</button>
+                        {/* Full batches have no Line row: leave stays on the user's Working rows while joined. */}
+                        {myDog && leaveButton()}</>
                     : <button type="button" className="danger" data-action="take-back"
                         title={`take this job back from ${j.agent}: it goes to the front of the queue, for another listener first`}
                         onClick={() => setAsking(j)}>take back</button>}</td>
@@ -388,9 +386,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                 <td className="listener-batch" title="maximum messages per batch and unacked mails in ACK mode">{r.dog.batch ?? 1}</td>
                 <td className="listener-handed" title="mails this listener's watchdog has been handed (engine count)">{r.dog.fired}</td>
                 <td className="listener-dog-cell">{listenerDog(r.dog)}{r.dog.notice && <span className="dim"> passive</span>}</td>
-                {actions && <td className="slot-action">{mine && <button type="button" data-action="leave-queue"
-                  title="leave this queue: no more jobs are handed to you; a job already held stays held until it is acknowledged"
-                  onClick={leave}>leave queue</button>}</td>}
+                {actions && <td className="slot-action">{mine && leaveButton()}</td>}
               </>)
               // a watchdog row: away from its links it opens the dog's menu, as the
               // listeners and slots rows do; the user's dog has none (its owner is no agent)
