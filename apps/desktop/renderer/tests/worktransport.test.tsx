@@ -130,7 +130,7 @@ test('hidden deep link reveals group and Attention retains its manual flag witho
   assert.equal(row.querySelector('.docket-rowname')?.textContent, 'hidden')
   assert.equal(row.getAttribute('title'), 'Hidden item')
   assert.ok(row.classList.contains('attention'), 'with its manual flag')
-  await inAct(() => row.click())
+  await selectDocketRow(row)
   await settle()
   assert.match(attention.el.querySelector('[data-attn-detail="ticket"]')?.textContent ?? '',
     /Hidden item/, 'and its full title in the docket pane')
