@@ -19,10 +19,10 @@ export const inboxListened = (project: string, dogs: Watchdog[]) =>
 
 /** The note, for a box whose project's inbox has no listener (`inboxListened`). */
 export function InboxNoListeners({ project }: { project: string }) {
-  return <div className="inbox-no-listeners" role="note"
+  return <div className="inbox-no-listeners cache-send-warning compact" role="note"
     title={`No agent listens on project ${project}'s inbox with a fair_queue watchdog. Mail sent here waits in its mailbox `
       + 'until an agent above or below the project arms one. The megaphone (Alt+B) sends to every agent under the project instead.'}>
     <WarnIcon fontSize="inherit" />
-    <span>{`Project ${project}'s inbox has no listeners: mail sent here may not be read by anyone or delivered anywhere until one attaches.`}</span>
+    <span>No mail listeners: mail sent here may not be received by anyone. Turn on broadcast (megaphone) to send to all project participants.</span>
   </div>
 }

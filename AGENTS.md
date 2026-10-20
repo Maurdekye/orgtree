@@ -990,7 +990,11 @@
   send). The project composer shows `canvas/inboxwarning.tsx` above the box
   while the tree has no fair_queue dog (armed or paused) on the project and the
   megaphone is off, and its placeholder then drops "one agent under it takes
-  it"; `styles.css` keeps the note in the box's foot group.
+  it"; `styles.css` keeps the note in the box's foot group. The note reuses
+  `.cache-send-warning.compact` and WarnIcon, says mail may not be received,
+  and suggests broadcast (megaphone) to reach all project participants.
+  [decided: user 2026-10-20 12:23Z/12:23:59Z; verified:
+  `canvas/inboxwarning.tsx`, `tests/projectinboxwarning.test.tsx`]
   [decided: user 2026-10-20 11:04Z; paused counts as attached: mqtt-watchdog-opus,
   delegated by the coordinator; verified: `domain/{projects,mail}.rs`,
   `canvas/{projectdesk,inboxwarning}.tsx`, `tools/rig/proofs/project-inbox-warning.mjs`]

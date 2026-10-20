@@ -31,7 +31,7 @@ import type { OpRequest, OpResult, ToastFn, TreePayload, Watchdog } from '../src
 
 const noop = () => {}
 const refs = { world: { org: 'org' }, onOpen: noop } as never
-const UNREAD = /website's inbox has no listeners: mail sent here may not be read by anyone or delivered anywhere until one attaches/
+const UNREAD = /No mail listeners: mail sent here may not be received by anyone/
 
 function project(extra: Partial<CanvasNode> = {}): CanvasNode {
   return {

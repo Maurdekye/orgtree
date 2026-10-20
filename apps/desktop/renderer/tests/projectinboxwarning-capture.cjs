@@ -27,7 +27,9 @@ fs.writeFileSync(path.join(root, 'fixture.html'),
 // what each case must show: the note, and the staged attachment row
 const expect = { none: { note: true, attach: false }, attached: { note: true, attach: true }, listened: { note: false, attach: false } }
 const settle = 'new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,180))))'
-app.setPath('userData', path.join(root, 'user-data'))
+for (const key of ['userData', 'sessionData', 'logs', 'crashDumps']) {
+  const dir = path.join(root, key); fs.mkdirSync(dir, { recursive: true }); app.setPath(key, dir)
+}
 app.disableHardwareAcceleration()
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ width: 1000, height: 700, show: false, useContentSize: true,
@@ -35,6 +37,7 @@ app.whenReady().then(async () => {
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false } })
   const receipts = []
   try {
+    win.webContents.session.webRequest.onBeforeRequest((d, done) => done({ cancel: !/^(file:|data:)/.test(d.url) }))
     for (const theme of ['dark', 'light']) for (const [name, want] of Object.entries(expect)) {
       await win.loadFile(path.join(root, 'fixture.html'), { query: { case: name, theme } })
       const seen = await win.webContents.executeJavaScript(`(async()=>{
@@ -50,6 +53,9 @@ app.whenReady().then(async () => {
           attach:box(document.querySelector('.project-desk .attach-row')),desk:box(body),
           gap:body?parseFloat(getComputedStyle(body).rowGap)||0:null,
           noteText:note?note.innerText:null,noteColor:style?style.color:null,
+          sharedWarning:note?note.matches('.cache-send-warning.compact'):null,
+          lineHeight:style?parseFloat(style.lineHeight):null,
+          padding:style?parseFloat(style.paddingTop)+parseFloat(style.paddingBottom):null,
           light:document.documentElement.classList.contains('contrast-light')}
       })()`)
       const problems = []
@@ -60,6 +66,9 @@ app.whenReady().then(async () => {
       if (!seen.desk || seen.desk.bottom - seen.desk.top < 600) problems.push('the desk body does not fill its frame')
       if (!seen.composer || !seen.desk || seen.desk.bottom - seen.composer.bottom > 4) problems.push('the box is not at the desk\'s foot')
       if (seen.note && !apart(seen.note, seen.composer)) problems.push('the note is not right above the box')
+      if (seen.note && (!seen.sharedWarning || !seen.noteText.includes('No mail listeners:')
+          || !seen.noteText.includes('Turn on broadcast (megaphone) to send to all project participants.'))) problems.push('missing shared style or guidance')
+      if (seen.note && seen.note.bottom-seen.note.top > seen.lineHeight*2+seen.padding+3) problems.push('warning exceeds two text lines')
       if (seen.note && seen.attach && !apart(seen.attach, seen.note)) problems.push('the attachment row is not right above the note')
       if (problems.length) throw new Error(`${name}/${theme}: ${problems.join('; ')} ${JSON.stringify(seen)}`)
       await win.webContents.executeJavaScript(settle)
