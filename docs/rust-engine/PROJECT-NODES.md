@@ -605,6 +605,17 @@ coordinator 06:36Z with A1-A6, user additions 06:41Z-06:42Z).
   **Recently Held** (A5). The claim dog is the desk's alone:
   `orgtree_project action=slots` strips it, so the tool's output is as
   before.
+- **One look, at any normal width** (user 2026-10-20 08:59Z, 09:00Z, on
+  4.4.0-alpha.16): the three tables' column header row and section
+  headings take one style, set on the shared `.slots-table` and by no host
+  (the Mail tab's listeners had fallen back to the browser's own `h4`).
+  Each table fits the desk at its normal widths: its pane is a size
+  container, the small columns fit their content, Agent narrows with the
+  pane (168, 152, then 124px), and Watchdog shares the rest with the
+  detail columns. A name, chip, gist or ending word that must shorten
+  ends in an ellipsis on one line and keeps its whole text in a tooltip.
+  Only below a table's floor (640px; 660 for the eleven-column ack table)
+  does it scroll sideways, its Action column kept in view.
 
 ## Agent tools
 

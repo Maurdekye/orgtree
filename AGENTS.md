@@ -577,11 +577,17 @@
   watchdog preview. The slot claim dog on holders and history rows is
   for the desk only: `orgtree_project action=slots` strips it. CSS trap:
   the global `.working` rule is a flex layout, so a table row with class
-  `working` stops being a row (held jobs use `held-job`). [decided: user
-  2026-10-20 06:22Z-06:42Z, coordinator A1-A9 06:36Z-06:42Z; verified:
+  `working` stops being a row (held jobs use `held-job`). The three tables'
+  header row and section headings take ONE style on `.slots-table`; no
+  host rule may style them. The tables fit the desk at normal widths
+  (size-container column widths; a shortened cell ends in an ellipsis and
+  keeps its whole text in a tooltip; sideways scroll only below a table's
+  floor). [decided: user 2026-10-20 06:22Z-06:42Z, 08:59Z, 09:00Z,
+  coordinator A1-A9 06:36Z-06:42Z; verified:
   `migrations/0040_project_history.sql`, `domain/{listeners,projects,ops}.rs`,
   `tools/treetools.rs`, `canvas/{maillisteners,listenersdesk,slotsdesk}.tsx`,
-  rig `project-history.mjs`, `projecthistory.test.tsx`; 2026-10-20]
+  rig `project-history.mjs`, `projecthistory.test.tsx`,
+  `desktablelayout.test.tsx`; 2026-10-20]
 
 - Startup tool descriptions retain the 12,000-byte aggregate and 900-byte/card
   caps for flat and split mail shapes. Keep concise authority/call cues on cards;
