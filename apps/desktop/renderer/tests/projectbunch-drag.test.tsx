@@ -10,7 +10,7 @@ import { withPendingOrder } from '../src/canvas/pendingorder'
 import { setProjectBunchesOn } from '../src/canvas/projectbunchprefs'
 import { projectBunchRotation, withProjectBunchRotation } from '../src/canvas/projectbunchmove'
 import { projectDraftSteps } from '../src/canvas/newproject'
-import { agent, chain, bunchTree, project } from './projectbunch-fixture'
+import { agent, chain, bunchTree, project, retired } from './projectbunch-fixture'
 import type { TreePayload } from '../src/types'
 
 const W = window as unknown as Window & typeof globalThis
@@ -166,6 +166,33 @@ test('dragging outside a bunch retains the existing whole-subtree move', async t
   await drag(view.el, 'project-2', { x: point.x + 62, y: point.y + 62 })
   assert.equal(view.gestures.length, 0)
   assert.deepEqual(view.ops, [{ op: 'demote', node: 'project-2', new_parent: 'outside' }])
+})
+
+test('retired project cards keep their own order links and respond to the live Display preference', async t => {
+  const view = await canvas(t, bunchTree([retired(chain(5, [agent('worker')]))]))
+  assert.equal(view.el.querySelectorAll('.sq.project.archived').length, 5)
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 4)
+  const bunched = at(view.el, 'project-5')
+  await inAct(() => setProjectBunchesOn(false))
+  await advance(1500, 50)
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 0)
+  assert.ok(at(view.el, 'project-5').y > bunched.y + 200)
+  await inAct(() => setProjectBunchesOn(true))
+  await advance(1500, 50)
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 4)
+})
+
+for (const partlyRestored of [false, true]) test(`${partlyRestored ? 'partly restored' : 'retired'} bunch dragging cannot offer a rotation into an archived parent`, async t => {
+  const head = retired(chain(3))
+  if (partlyRestored) head.state = 'live'
+  const view = await canvas(t, bunchTree([head]), 'row', true)
+  await drag(view.el, 'project-1', endPoint(view.el, 'project-3', 'project-2'), false, async () => {
+    await advance(50, 50)
+    assert.equal(!!view.el.querySelector('[data-project-bunch-insert]'), false)
+  })
+  assert.equal(view.gestures.length, 0)
+  assert.equal(view.ops.length, 0)
+  assert.deepEqual(view.errors, [])
 })
 test('fresh profiles drag the entire subtree inside a bunch without an insertion point or rotation', async t => {
   const view = await canvas(t, bunchTree([chain(3)]), 'row', false)

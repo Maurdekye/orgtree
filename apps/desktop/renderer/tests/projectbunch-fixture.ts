@@ -20,6 +20,9 @@ export function chain(count: number, children = [agent('worker-a'), agent('worke
   for (let i = count; i > 0; i--) next = [project(`${prefix}-${i}`, next)]
   return next[0]!
 }
+export const retired = (node: TreeNode): TreeNode =>
+  ({ ...node, state: 'archived', children: node.children.map(retired) })
+
 export function bunchTree(roots: TreeNode[]): TreePayload {
   return {
     slug: 'bunch-fixture', name: 'Project bunches', workspace: null, dirs: [],
