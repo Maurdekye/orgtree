@@ -249,19 +249,20 @@ async fn load(engine: &Engine, row: i64) -> Result<Option<Dog>> {
 /// Arm every armed watchdog whose owner is live (engine start).
 #[logged]
 pub async fn start(engine: &Arc<Engine>) {
-    let Ok(client) = engine.db.get().await else { return };
-    let ids: Vec<i64> = client
-        .query(
-            "SELECT w.id FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id JOIN ot.orgs o ON o.id = w.org_id
-              WHERE w.state = 'armed' AND a.state = 'live' AND a.kind = 'agent' AND o.state <> 'trashed' AND (NOT $1 OR w.kind='event')",
-            &[&(crate::mailhub::safe_start() && !crate::rig::recovers())],
-        )
-        .await
-        .map(|rows| rows.iter().map(|r| r.get(0)).collect())
-        .unwrap_or_default();
-    drop(client);
-    for id in ids {
-        arm(engine, id);
+    let safe=crate::mailhub::safe_start() && !crate::rig::recovers();
+    let mut after=0i64;
+    loop {
+        let Ok(client)=engine.db.get().await else{return};
+        let rows=client.query(
+            "SELECT w.id FROM ot.watchdogs w JOIN ot.agents a ON a.id=w.owner_agent_id JOIN ot.orgs o ON o.id=w.org_id
+              WHERE w.state='armed' AND a.state='live' AND a.kind='agent' AND o.state<>'trashed'
+                AND (NOT $1 OR w.kind='event') AND w.id>$2 ORDER BY w.id LIMIT 256",&[&safe,&after]).await;
+        drop(client);
+        let Ok(rows)=rows else{return};
+        let more=rows.len()==256;
+        for row in rows {after=row.get(0);arm(engine,after);}
+        if !more{break}
+        tokio::task::yield_now().await;
     }
 }
 
