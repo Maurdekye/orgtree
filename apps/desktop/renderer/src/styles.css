@@ -3664,6 +3664,7 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .pile-rows { display: flex; flex-direction: column; gap: 6px; max-height: min(50vh, 400px); overflow-y: auto; min-height: 0; }
 .pile-rows .pile-row { flex-shrink: 0; }
 .pile-search { width: 100%; }
+.pile-local-rows { display: contents; }
 .pile-row {
   display: flex; align-items: center; gap: 10px; text-align: left;
   padding: 7px 10px; border: 1px solid var(--line-soft); border-radius: 6px;

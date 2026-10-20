@@ -2135,7 +2135,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, 
             untouched: this is the list, not the deck. */}
         {paged && <input type="search" className="pile-search" aria-label="Search retired agents" placeholder="Search by name…"
           maxLength={128} value={pages.query} disabled={wiping} onChange={e => pages.setQuery(e.target.value)} />}
-        <div className="pile-rows" key={paged ? pages.query : 'local'} onScroll={e => {
+        <div className={paged ? 'pile-rows' : 'pile-local-rows'} key={paged ? pages.query : 'local'} onScroll={e => {
           const el = e.currentTarget
           if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) pages.loadMore()
         }}>
