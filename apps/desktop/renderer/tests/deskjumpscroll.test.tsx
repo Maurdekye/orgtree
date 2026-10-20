@@ -34,6 +34,18 @@ declare const __SRC_DIR__: string
 /* ─── §1 the scroll cap ─────────────────────────────────────────────────── */
 
 const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+/** a selector list split at its top-level commas, not those inside `:is(...)` */
+function selectorList(prelude: string): string[] {
+  const out: string[] = []
+  let depth = 0, start = 0
+  for (let i = 0; i < prelude.length; i++) {
+    if (prelude[i] === '(') depth++
+    else if (prelude[i] === ')') depth--
+    else if (prelude[i] === ',' && depth === 0) { out.push(prelude.slice(start, i)); start = i + 1 }
+  }
+  out.push(prelude.slice(start))
+  return out.map((s) => s.trim().replace(/\s+/g, ' '))
+}
 /** the top-level rules: [selectors, body] (at-rules are not walked) */
 function rules(src: string): [string[], string][] {
   const out: [string[], string][] = []
@@ -44,7 +56,7 @@ function rules(src: string): [string[], string][] {
     const prelude = src.slice(i, open).split(';').pop()!.trim()
     let depth = 1, j = open + 1
     for (; j < src.length && depth > 0; j++) { if (src[j] === '{') depth++; else if (src[j] === '}') depth-- }
-    if (!prelude.startsWith('@')) out.push([prelude.split(',').map((s) => s.trim().replace(/\s+/g, ' ')), src.slice(open + 1, j - 1)])
+    if (!prelude.startsWith('@')) out.push([selectorList(prelude), src.slice(open + 1, j - 1)])
     i = j
   }
   return out
