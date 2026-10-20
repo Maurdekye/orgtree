@@ -74,8 +74,10 @@
 //             user's screenshot and &dogs=N watchdogs; the canvas focuses it,
 //             so its desk opens there and a wheel over a jump row meets the
 //             canvas's own handler.
+import { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
+import { ProjectListenersModal } from '../src/canvas/listenerspanel'
 import { SpawnChips } from '../src/canvas/cards'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { DeskChat } from '../src/canvas/desk'
@@ -435,6 +437,64 @@ function ListenerSetting({ on, inbox }: { on: boolean; inbox: boolean }) {
     </div>}
   </main>
 }
+/** headercontrols — the project desk's header controls (docket
+ *  slots-tab-header-hold-n-slots-button-with-number, USER 2026-10-20 16:35Z-16:58Z):
+ *  relay with slots, mail waiting and its event listeners on, the corner's
+ *  pin / pop-out / modal live (the shell's routes); &user=1 the user already
+ *  holds a slot, is in the mail queue with a batch of 2, has a one-time event
+ *  listener and a watch for 2 */
+const hcSet = (user: boolean): HeadSet => {
+  const base = lsSet(true, true)
+  return {
+    node: relay({ slots_capacity: 3, mail_queue: 'ack', event_listeners: true }, { mail_pending: 2 }),
+    dogs: [...base.dogs, ...(user ? [
+      headDog('project_listener', 'user', 'user-listener', { once: true }),
+      headDog('listener_watch', 'user', 'user-watch', { count: 2 }),
+      headDog('fair_queue', 'user', 'user-queue', { batch: 2 }),
+    ] : [])],
+    leases: user ? [relayLease('dev1', 1), { ...relayLease('user', 2), slots: 1 }] : base.leases,
+  }
+}
+function HeaderControls({ user }: { user: boolean }) {
+  return <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+    <AgentSurfaceRoutesProvider value={{ open: noop, show: noop }}>
+      <HeadDesk set={hcSet(user)} top={10} height={680} id="desk-inbox" route />
+    </AgentSurfaceRoutesProvider>
+  </main>
+}
+/** hclmodal — the listeners window (the Listeners tab's modal button) */
+function ListenersWindow() {
+  const set = hcSet(true)
+  return <CurrentOrg.Provider value="org">
+    <ProjectListenersModal slug="org" nid="relay" map={headMap(set)} tree={headTree(set)}
+      op={(b) => Promise.resolve((b.op === 'listener_history' ? { history: [], history_next: null } : {}) as unknown as OpResult)}
+      toast={noop} close={noop} onJump={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} />
+  </CurrentOrg.Provider>
+}
+/** hire — a hire on the real canvas (docket canvas-hire-keep-the-uninitialized-node-greyed-u,
+ *  USER 2026-10-20 16:45Z): the capture opens a draft under the user, names it
+ *  and presses Hire; the hire's answer waits for window.__hcHire(), which
+ *  answers it and brings the new card in the next tree, so the capture shows
+ *  the greyed placeholder and then the card in its exact place */
+function HireScene() {
+  const base = tree([agent('lead', 'boss'), agent('dev', 'boss')])
+  const [data, setData] = useState(base)
+  const answerHire = useRef<((r: OpResult) => void) | null>(null)
+  useEffect(() => {
+    (window as unknown as { __hcHire: () => void }).__hcHire = () => {
+      answerHire.current?.({ node: 'scout' } as unknown as OpResult)
+      setData({ ...base, roots: [...base.roots,
+        agent('scout', '', { parent: null, tier: 'sonnet', model_id: 'sonnet', seat: 3, grant: 50 })] } as unknown as TreePayload)
+    }
+  }, [])
+  return <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
+    <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
+    <CurrentOrg.Provider value="org">
+      <OrgCanvas tree={data} slug="org" toast={noop} mailEvt={null} onOpenAgentGallery={noop}
+        op={() => new Promise<OpResult>((resolve) => { answerHire.current = resolve })} />
+    </CurrentOrg.Provider>
+  </div>
+}
 function DeskHead() {
   const near = (set: HeadSet, x: number, id: string) => <div id={id} style={{ position: 'absolute', left: x, top: 0 }}>
     <ProjectSquare node={set.node} pos={{ x: 0, y: 0 }} lod="norm" tree={headTree(set)} map={headMap(set)}
@@ -624,6 +684,9 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
       </AgentSurfaceRoutesProvider>
     </main>)
   : scene === 'activity' ? <Activity />
+  : scene === 'headercontrols' ? <HeaderControls user={new URLSearchParams(location.search).get('user') === '1'} />
+  : scene === 'hclmodal' ? <ListenersWindow />
+  : scene === 'hire' ? <HireScene />
   : scene === 'jumpscroll' ? <JumpScroll />
   : scene === 'slots' ? <Slots />
   : scene === 'multi-slots' ? <Slots multi />

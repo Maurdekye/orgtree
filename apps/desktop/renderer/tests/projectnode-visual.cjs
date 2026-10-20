@@ -681,6 +681,117 @@ module.exports = async (page) => {
     screenshots.push(await page.screenshot(`${prefix}-listensetting-gear-on-1000x700`))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=headercontrols: the project desk's header controls
+  // (docket slots-tab-header-hold-n-slots-button-with-number, USER 2026-10-20
+  // 16:35Z-16:58Z) on the Slots, Mail and Listeners tabs and the Register…
+  // panel, without and with the user's own registrations, and the listeners
+  // window; then a canvas hire's greyed placeholder and its in-place swap
+  // (canvas-hire-keep-the-uninitialized-node-greyed-u, 16:45Z). Dark and light.
+  // Each desk shot measures its header row: the controls end left of the
+  // corner's buttons, in the same row, overlapping nothing.
+  if (only === 'headercontrols') {
+    const tab = (name) => page.eval(async (t) => {
+      document.querySelector(`#desk-inbox .cc-tabs button[data-tab="${t}"]`).click()
+      await new Promise((r) => setTimeout(r, 600))
+    }, name)
+    const type = (sel, value) => page.eval(async (s, v) => {
+      const el = document.querySelector(s)
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      await new Promise((r) => setTimeout(r, 250))
+    }, sel, value)
+    const headerRow = () => page.eval(() => {
+      const panel = document.querySelector('#desk-inbox .desk-tabpanel')
+      const box = (e) => { if (!e) return null; const r = e.getBoundingClientRect()
+        return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom) } }
+      const corner = box(panel?.querySelector('.panel-corner'))
+      const items = [...(panel?.querySelectorAll('.desk-count, .register-trigger, .project-queue-purge') ?? [])]
+        .filter((e) => !e.closest('.register-panel'))
+        .map((e) => ({ cls: e.className, text: e.textContent, title: (e.matches('button') ? e : e.querySelector('button'))?.getAttribute('title'),
+          disabled: e.matches('button') ? e.disabled : !!e.querySelector('button:disabled'),
+          value: e.querySelector?.('input')?.value ?? null, max: e.querySelector?.('input')?.max ?? null, box: box(e) }))
+      const mid = (b) => (b.top + b.bottom) / 2
+      return { corner, items,
+        leftOfCorner: !!corner && items.length > 0 && items.every((i) => i.box.right <= corner.left + 1),
+        oneRow: !!corner && items.every((i) => Math.abs(mid(i.box) - mid(corner)) <= 8),
+        overlap: items.some((a, i) => items.some((b, j) => i < j && a.box.left < b.box.right && b.box.left < a.box.right
+          && a.box.top < b.box.bottom && b.box.top < a.box.bottom)) }
+    })
+    const registerPanel = () => page.eval(() => {
+      const p = document.querySelector('.register-panel')
+      if (!p) return null
+      const r = p.getBoundingClientRect()
+      return { box: { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom) },
+        inWindow: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+        rows: [...p.querySelectorAll('button')].map((b) => ({ action: b.dataset.action, text: b.textContent, disabled: b.disabled })),
+        count: p.querySelector('input')?.value }
+    })
+    for (const theme of ['', '&theme=light']) {
+      const name = theme ? 'light' : 'dark'
+      for (const user of ['0', '1']) {
+        const who = user === '1' ? 'registered' : 'fresh'
+        await page.goto(`/?scene=headercontrols&user=${user}${theme}`)
+        await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+        for (const [t, shot] of [['slots', 'slots'], ['inbox', 'mail'], ['listeners', 'listeners']]) {
+          await tab(t)
+          await settle()
+          details[`row-${shot}-${who}-${name}`] = await headerRow()
+          if (user === '0' || shot === 'listeners') screenshots.push(await page.screenshot(`${prefix}-hc-${shot}-${who}-${name}-1000x700`))
+        }
+        await page.eval(async () => {
+          document.querySelector('#desk-inbox [data-action="register-menu"]').click()
+          await new Promise((r) => setTimeout(r, 300))
+        })
+        await settle()
+        details[`register-${who}-${name}`] = await registerPanel()
+        screenshots.push(await page.screenshot(`${prefix}-hc-register-${who}-${name}-1000x700`))
+        if (user === '1') {
+          await type('.register-panel input[type="number"]', '3')
+          await settle()
+          details[`register-${who}-changed-${name}`] = await registerPanel()
+          screenshots.push(await page.screenshot(`${prefix}-hc-register-${who}-changed-${name}-1000x700`))
+        }
+      }
+      await page.goto('/?scene=hclmodal' + theme)
+      await page.waitFor('[data-action="register-menu"]', { timeout: 15000 })
+      await settle()
+      details['window-' + name] = await page.eval(() => ({
+        title: document.querySelector('h3')?.textContent,
+        toolbar: [...document.querySelectorAll('[role="toolbar"] > *')].map((e) => e.className || e.tagName) }))
+      screenshots.push(await page.screenshot(`${prefix}-hc-listeners-window-${name}-1000x700`))
+      // the canvas hire: draft, name, Hire; the answer waits for __hcHire
+      await page.goto('/?scene=hire' + theme)
+      await page.waitFor('.sq.user', { timeout: 15000 })
+      await page.eval(async () => {
+        await new Promise((r) => setTimeout(r, 900))
+        document.querySelector('.sq.user button.t-sonnet').click()
+        await new Promise((r) => setTimeout(r, 1500))
+        const input = document.querySelector('.df-name')
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'scout')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await new Promise((r) => setTimeout(r, 250))
+        document.querySelector('.df-foot button.primary').click()
+        await new Promise((r) => setTimeout(r, 900))
+      })
+      await settle()
+      details['hire-pending-' + name] = await page.eval(() => {
+        const d = document.querySelector('.sq.draft')
+        return d && { cls: d.className, inert: d.hasAttribute('inert'), busy: d.getAttribute('aria-busy'),
+          tag: d.querySelector('.draft-tag')?.textContent, transform: d.style.transform,
+          filter: getComputedStyle(d).filter, opacity: getComputedStyle(d).opacity }
+      })
+      screenshots.push(await page.screenshot(`${prefix}-hc-hire-pending-${name}-1000x700`))
+      details['hire-swapped-' + name] = await page.eval(async () => {
+        window.__hcHire()
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 60))))
+        const card = [...document.querySelectorAll('.sq')].find((e) => e.querySelector('.name')?.textContent === 'scout')
+        return { draft: !!document.querySelector('.sq.draft'), card: card ? card.style.transform : null }
+      })
+      screenshots.push(await page.screenshot(`${prefix}-hc-hire-swapped-${name}-1000x700`))
+      details['hire-inplace-' + name] = details['hire-pending-' + name]?.transform === details['hire-swapped-' + name]?.card
+    }
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=deskhead: the project desk's header cards in one
   // row at full desk width, outlined and filled, dark and light, each card's
   // computed colours beside its near-zoom badge's; then the inbox's
