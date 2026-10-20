@@ -82,6 +82,13 @@
 
 # AGENTS.md — working on Orgtree
 
+- Agent and project desk composers share `resizeComposer`: their base rows
+  plus up to 30 rendered text lines (32 rows at the current two-row base),
+  measured from CSS line height. Longer drafts scroll inside; deleting/sending
+  and width changes remeasure and shrink them. Quick chat's separate single-line
+  input is unchanged. [decided: user 2026-10-20 06:22Z; verified:
+  `composerautosize.ts`, `canvas/{desk,projectdesk}.tsx`]
+
 - Docket palette tests read the shared `--docket-status-color` mapping. The
   ticket-edge Chromium capture checks computed Waiting equals `--warn` and
   differs from Open in both themes. [verified: `tests/{docket.test.tsx,ticketedge-capture.cjs}`;

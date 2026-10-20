@@ -13,6 +13,12 @@ sits immediately left of speed where speed is available.
 
 Clicking empty space anywhere in the message box, including beside its lower controls, focuses the text field. Buttons and pickers keep their own behavior. The same focus rule applies to project desks, Quick chat and reply boxes. Speed, effort and send/interrupt controls use the same 24px height as the bell and attachment controls.
 
+The agent and project desk message boxes grow as text wraps or new lines are
+added, up to 30 lines beyond their two-row base (32 visible text rows). Longer
+drafts scroll inside the field. Deleting or sending text shrinks the box again;
+changing the panel width also recalculates its height. Quick chat uses its own
+single-line input.
+
 File-reading/writing tool calls show a local-file link immediately after the tool chip, labelled with only the filename; hovering shows the full path. A path already shown by the link is omitted from the tool argument so it appears once. Skill reads link when the event includes the resolved `SKILL.md` path or when a name-only call resolves to exactly one file in the selected, materialized skill registry; missing or ambiguous names stay unlinked.
 
 Chat is the conversation surface. It includes messages, thoughts when supplied, tools, typed events, attachments and pending delivery rows. Opening another tab does not stop the agent. Earlier messages load on demand; failure offers retry rather than claiming the transcript ends there.
