@@ -245,7 +245,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
           {shortcuts && <div className="sq-actions project-actions">
             {/* the agent card's hover row, for what a project holds (user
                 2026-10-17 22:21Z): its docket, its mailbox with the waiting
-                mail, and its presented documents (its own and its subtree's);
+                mail, and its own presented documents;
                 then its team, slots and listeners (2026-10-20 09:24Z; no
                 Summary, 09:24:35Z), each opening what its desk tab shows */}
             {onDocket && <button className="mailbtn docketbtn" aria-label={`Docket for project ${node.id}`}

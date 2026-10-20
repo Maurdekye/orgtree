@@ -27,7 +27,7 @@ When broadcast is off and no mail listener is attached, a compact warning above 
 | summary | Project Summary: Markdown when unfocused, editable text when clicked. Leaving the editor saves a change; Escape discards the edit. Retired projects show it read-only. |
 | mail | Project inbox, sent and listeners folders. Reading a project message does not claim or acknowledge its queue job. The separate project Mail window uses the same view. |
 | docket | Items owned by agents under this project, through nested projects. A project owns no items itself. |
-| presented | The project-scoped gallery, including its subtree's documents. Unlike an agent gallery, there is no Team checkbox. |
+| presented | Only documents attributed to this project. The canvas card's document chips and desk-header chips show the same own-only scope (up to four recent documents). Descendant documents are available through Open → Presentations → Team presentations; unlike an agent gallery, the project tab has no Team checkbox. |
 | team | The descendant Agents List. Appears while the node has live direct subordinates; its badge counts those direct nodes, including projects. |
 | slots | Appears while configured concurrency-slot capacity is greater than zero. |
 | dead letters | Appears while the project has open dead letters. |

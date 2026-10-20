@@ -353,14 +353,17 @@ agents under the project".
   button and `Open → Presentations` show them. Its TEAM presentations (`team=1`, menu
   `Open → Presentations → Team presentations`) add every document by the agents in its subtree;
   both menu options are offered whenever their handlers are supplied. The presentation chips on
-  the card and desk header keep showing own + subtree (the 22:47:29Z ruling).
+  the card and desk header also show own-only documents (user 2026-10-20 18:58:05Z,
+  superseding the 2026-10-17 22:47:29Z own + subtree chip rule).
 - **Presenter on every row** [user 2026-10-17 22:47:51Z]: list rows carry `presented_by` (the
   agent that presented it, the node for older rows) and `presenter_tier`; the gallery rows and the
   reader show that agent, so a document presented under a project names its author. In the list
   rows the presenter is an agent link (`AgentName`): a click focuses that agent and leaves the row
   selection alone (review of a590555).
-- **Project presentation chips** [user 2026-10-17 22:47:29Z]: the project card and the desk header
-  carry chips for the project's own documents and its subtree's, newest first (`subtreeDocs`).
+- **Project presentation chips** [user 2026-10-20 18:58:05Z, "Both own-only", replacing
+  2026-10-17 22:47:29Z]: the project card and desk header carry only the project's own
+  documents (`node.documents`), newest first, matching its Presented tab. Descendant projects'
+  and agents' documents appear through Team presentations, not these chips. Agent cards are unchanged.
 - **Fair-queue watcher lines** [user 2026-10-17 22:48Z]: every armed or paused `fair_queue` dog
   draws a line from its owner to the project it serves (`fairQueueLinks` in `canvas/shared.ts`,
   matched by the dog's target name, which a rename moves). The line has its own colour token

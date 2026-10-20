@@ -1,3 +1,10 @@
+- Project canvas cards and desk-header chips show only their own documents,
+  matching the Presented tab. Team presentations still includes descendants;
+  agent cards are unchanged. This replaces the 2026-10-17 subtree-chip rule.
+  See [project presentation scope](docs/rust-engine/PROJECT-NODES.md).
+  [decided: user 2026-10-20 18:58:05Z; verified: `canvas/{projectcard,projectdesk}.tsx`,
+  `tests/teampresent.test.tsx`]
+
 - Project desk reopening uses the agent desk's camera/pin/window reveal routes.
   Its inline canvas desk needs stationary-release arbitration because viewport
   pointer capture retargets the click; drags/cancels/controls/selections stay
