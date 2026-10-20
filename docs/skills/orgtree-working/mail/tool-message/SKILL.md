@@ -60,6 +60,8 @@ A recipient list makes independent deliveries. Inspect every result: some can be
 
 Mail to an archived recipient waits for rehire; nothing schedules that rehire. Mail to a halted agent waits for unhalt. A frozen agent can remain unable to run even though its mailbox holds the mail. An unrecoverable session refuses delivery. Read the result's explanation before treating a handoff as actionable.
 
+Mail to a [project](../../team/projects/SKILL.md) waits in its mailbox until a listener takes it: an agent's `fair_queue` watchdog on it. If the project's inbox has no listener at all, the mail is still queued, but that recipient's result starts with a warning: the mail may not be read by anyone or delivered anywhere until one attaches. The warning names the watchdog call that attaches one and `orgtree_inbox project=<name>`, which reads the waiting mail. A paused listener counts as attached; the result then says the mail waits for it to resume.
+
 ## User-mail tags
 
 For example, send `{"metadata":{"to":"user","tags":["alpha build"]},"body":"The alpha is ready."}`.

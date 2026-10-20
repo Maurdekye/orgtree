@@ -955,6 +955,21 @@
   `runtime/{actor,watchdogs}.rs`, `tools/defs.rs`, `canvas/modals.tsx`,
   `tools/rig/proofs/project-queue-busy.mjs`]
 
+- Project inbox with no listener (user 2026-10-20 11:04Z): mail to it is still
+  queued, but the send's note leads with `projects::no_listener_warning` ("may
+  not be read by anyone or delivered anywhere until one attaches"), per
+  recipient: an agent's via `sent_note` (+ how to attach one, where to read it),
+  the user's via `unwatched_note` (+ what the listener wake did, no tool
+  syntax). "No listener" = `queue_state` listeners 0 AND paused 0: a paused
+  fair_queue dog is attached and keeps `wait_note`'s paused note.
+  `orgtree_inbox project`'s `queue` line stays `wait_note` (the warning is per
+  send). The project composer shows `canvas/inboxwarning.tsx` above the box
+  while the tree has no fair_queue dog (armed or paused) on the project and the
+  megaphone is off; `styles.css` keeps it in the box's foot group.
+  [decided: user 2026-10-20 11:04Z; paused counts as attached: mqtt-watchdog-opus,
+  delegated by the coordinator; verified: `domain/{projects,mail}.rs`,
+  `canvas/{projectdesk,inboxwarning}.tsx`, `tools/rig/proofs/project-inbox-warning.mjs`]
+
 - Project dead-letter queue (user 2026-10-18 19:38Z-19:40Z): a job that runs out
   of `max_attempts` (`projects::reclaim`) stays in the project's own mail row
   (`state='read'`, `extra.dead_letter` {by,by_id,why,how,attempts,at}) with

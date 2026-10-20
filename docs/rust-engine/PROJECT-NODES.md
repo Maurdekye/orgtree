@@ -256,6 +256,16 @@ start. With no eligible watcher the mail waits in the project mailbox (shown on 
 inspection) until one arms; the backlog goes to the first watcher that arms [decided: user
 2026-10-16 20:40Z].
 
+When the inbox has no listener at all (no `fair_queue` dog on it, armed or paused, whose live
+owner reaches it), the mail is still queued, but its sender's note leads with a warning: "Warning:
+project P's inbox has no listeners, so this mail may not be read by anyone or delivered anywhere
+until one attaches." An agent's note adds how to attach one and where to read the mail; the user's
+note adds what the listener wake did; a list send warns per recipient; the project desk's
+message box shows a note while nobody listens and the megaphone is off. A paused listener counts
+as attached (its sender is told the mail waits for it to resume). `orgtree_inbox project` keeps
+its own queue line [decided: user 2026-10-20 11:04Z, docket
+warn-senders-when-they-mail-a-project-whose-inbo].
+
 ## Folder and AGENTS.md
 
 A project's folder is its team workspace, `<data>\scratch\<org>\_teams\<project id>` (also its

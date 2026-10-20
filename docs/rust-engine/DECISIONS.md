@@ -7,6 +7,16 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Senders warned about an unlistened project inbox, user 2026-10-20 11:04Z:**
+"when agents send mail to a project with no listeners, make sure they're
+warned that their mail may not be read by anyone or delivered anywhere unless
+the inbox has any listeners attached". The mail is still queued; the send's
+note leads with the warning, per recipient, for agents and for the user's
+desk send, and the project desk's message box shows it before sending. A
+paused fair_queue listener counts as attached (mqtt-watchdog-opus's choice,
+delegated by the coordinator): its sender keeps the note that the mail waits
+for it to resume. See [project nodes](PROJECT-NODES.md).
+
 **Node placement, user 2026-10-20 07:20Z, narrowed 07:23Z:** movement and
 manipulation apply generically where meaningful. `self_subjugate` accepts
 project descendants; project restoration honours placement. Containers retain
