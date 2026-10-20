@@ -759,7 +759,7 @@ module.exports = async (page) => {
         title: document.querySelector('h3')?.textContent,
         toolbar: [...document.querySelectorAll('[role="toolbar"] > *')].map((e) => e.className || e.tagName) }))
       screenshots.push(await page.screenshot(`${prefix}-hc-listeners-window-${name}-1000x700`))
-      // the canvas hire: draft, name, Hire; the answer waits for __hcHire
+      // the canvas hire: draft, name, Hire; the feed and the answer wait for __hcFeed and __hcAnswer
       await page.goto('/?scene=hire' + theme)
       await page.waitFor('.sq.user', { timeout: 15000 })
       await page.eval(async () => {
@@ -781,14 +781,24 @@ module.exports = async (page) => {
           filter: getComputedStyle(d).filter, opacity: getComputedStyle(d).opacity }
       })
       screenshots.push(await page.screenshot(`${prefix}-hc-hire-pending-${name}-1000x700`))
+      // the feed brings the card: it takes the placeholder's place (the answer,
+      // which walks the camera to the new desk, comes after the shot)
       details['hire-swapped-' + name] = await page.eval(async () => {
-        window.__hcHire()
-        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 60))))
+        window.__hcFeed()
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 400))))
+        const card = [...document.querySelectorAll('.sq')].find((e) => e.querySelector('.name')?.textContent === 'scout')
+        return { draft: !!document.querySelector('.sq.draft'), card: card ? card.style.transform : null,
+          cls: card ? card.className : null }
+      })
+      await settle()
+      screenshots.push(await page.screenshot(`${prefix}-hc-hire-swapped-${name}-1000x700`))
+      details['hire-inplace-' + name] = details['hire-pending-' + name]?.transform === details['hire-swapped-' + name]?.card
+      details['hire-after-answer-' + name] = await page.eval(async () => {
+        window.__hcAnswer()
+        await new Promise((r) => setTimeout(r, 300))
         const card = [...document.querySelectorAll('.sq')].find((e) => e.querySelector('.name')?.textContent === 'scout')
         return { draft: !!document.querySelector('.sq.draft'), card: card ? card.style.transform : null }
       })
-      screenshots.push(await page.screenshot(`${prefix}-hc-hire-swapped-${name}-1000x700`))
-      details['hire-inplace-' + name] = details['hire-pending-' + name]?.transform === details['hire-swapped-' + name]?.card
     }
     return { details, screenshots }
   }

@@ -103,6 +103,11 @@ const relayInboxNow = Date.now()
 window.fetch = ((input: RequestInfo | URL) => {
   const p = new URL(String(input), location.href).pathname
   if (p.endsWith('/api/providers')) return answer({ providers: [] })
+  // the header controls' desk: a project mailbox with no transfers, as most are,
+  // so the folder strip is the Mail tab's top row (the Transfers box would be)
+  if (p.endsWith('/transfers') && new URLSearchParams(location.search).get('scene') === 'headercontrols') {
+    return answer({ next_cursor: null, transfers: [] })
+  }
   if (p.endsWith('/transfers')) return answer({ next_cursor: null, transfers: [
     { id: 't1', direction: 'upload', message_id: 'm1', peer: '@net:phone', state: 'done', attempt: 1 }] })
   if (p.endsWith('/api/accounts')) return answer({ version: 2, primary: null, keys: [], assignments: {}, accounts: [] })
@@ -473,19 +478,20 @@ function ListenersWindow() {
 }
 /** hire — a hire on the real canvas (docket canvas-hire-keep-the-uninitialized-node-greyed-u,
  *  USER 2026-10-20 16:45Z): the capture opens a draft under the user, names it
- *  and presses Hire; the hire's answer waits for window.__hcHire(), which
- *  answers it and brings the new card in the next tree, so the capture shows
- *  the greyed placeholder and then the card in its exact place */
+ *  and presses Hire; nothing comes back until window.__hcFeed() brings the new
+ *  card in the next tree (the placeholder swaps for it in place) and
+ *  window.__hcAnswer() answers the hire (which then walks to its desk, the
+ *  2026-08-26 feature), so the capture shows the greyed placeholder, then the
+ *  card in its exact place */
 function HireScene() {
   const base = tree([agent('lead', 'boss'), agent('dev', 'boss')])
   const [data, setData] = useState(base)
   const answerHire = useRef<((r: OpResult) => void) | null>(null)
   useEffect(() => {
-    (window as unknown as { __hcHire: () => void }).__hcHire = () => {
-      answerHire.current?.({ node: 'scout' } as unknown as OpResult)
-      setData({ ...base, roots: [...base.roots,
-        agent('scout', '', { parent: null, tier: 'sonnet', model_id: 'sonnet', seat: 3, grant: 50 })] } as unknown as TreePayload)
-    }
+    const w = window as unknown as { __hcFeed: () => void; __hcAnswer: () => void }
+    w.__hcFeed = () => setData({ ...base, roots: [...base.roots,
+      agent('scout', '', { parent: null, tier: 'sonnet', model_id: 'sonnet', seat: 3, grant: 50 })] } as unknown as TreePayload)
+    w.__hcAnswer = () => answerHire.current?.({ node: 'scout' } as unknown as OpResult)
   }, [])
   return <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
     <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
