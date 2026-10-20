@@ -10,8 +10,8 @@
 //      like any listener: never "not live", never "halted"; in ack mode it
 //      holds its batch of jobs, which puts it behind the others
 //   §2 joining moved to the desk header (usermailheader.test.tsx), so the
-//      folder body offers none; the user's own row and the folder's toolbar have
-//      "leave queue", which sends user_queue_leave, and a held job stays in
+//      folder body offers none; only the user's own rows have "leave queue",
+//      including Working when their batch is full. It sends user_queue_leave, and a held job stays in
 //      Working after leaving
 //   §3 the user's rows (Line, Working, Recently Finished, Recently Delivered)
 //      wear the @user chip; the user's held job has no take back (they
@@ -115,6 +115,36 @@ test('§2 the user leaves with leave queue; a job they hold stays in Working', a
   assert.equal(working.length, 1, 'the held job stays in Working after leaving')
   assert.ok(!after.el.querySelector('[data-action="leave-queue"]'), 'and nothing here says leave any more')
 })
+
+for (const mode of ['waiting', 'paused', 'round-robin', 'full-batch'] as const) {
+  test(`§2 ${mode}: leave is on a user row, never a redundant top button`, async (t) => {
+    const requests: OpRequest[] = []
+    const ack = mode !== 'round-robin'
+    const held = { mail: 'jm1', copy: 'c1', agent: 'user', held_at: '2026-10-20T09:00:00Z' }
+    const mine = { ...mineDog, state: mode === 'paused' ? 'paused' : 'armed' } as Watchdog
+    const dogs = [devDog, mine]
+    const v = await mountView(<MailListenersView node={node()} state={mailListenerState('jobs', dogs)} map={agents}
+      rows={[]} ack={ack} refs={refs} dogs={dogs}
+      op={ops(requests, history({ ack, working: mode === 'full-batch' ? [held] : [] }))} />, (el) => el)
+    t.after(() => v.unmount())
+    await inAct(async () => { await flush(6) })
+    const leaves = [...v.el.querySelectorAll<HTMLButtonElement>('[data-action="leave-queue"]')]
+    assert.equal(leaves.length, 1, 'one row-local leave action, without the extra top button')
+    const leave = leaves[0]!
+    const row = leave.closest('tr.listener-row')
+    assert.ok(row, 'leave is part of a listener row')
+    assert.equal(row.querySelector('.slot-agent .ref-chip.ref-mail')?.textContent, '@user')
+    assert.equal(leave.textContent, 'leave queue')
+    assert.match(leave.title, /a job already held stays held until it is acknowledged/)
+    assert.ok(!v.el.querySelector('.user-reg-tools'), 'no redundant toolbar')
+    if (mode === 'full-batch') {
+      assert.ok(row.closest('.mail-working'), 'a full ACK batch is in Working, outside Line')
+      assert.ok(row.querySelector('[data-action="open-job"]'), 'open mail remains beside leave')
+    }
+    await inAct(async () => { leave.click(); await flush(4) })
+    assert.deepEqual(requests.filter((r) => r.op === 'user_queue_leave'), [{ op: 'user_queue_leave', node: 'jobs' }])
+  })
+}
 
 /* ─── §3 the rows ───────────────────────────────────────────────────────── */
 
