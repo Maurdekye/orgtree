@@ -343,3 +343,36 @@ pub async fn download(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Str
     )
         .into_response())
 }
+
+#[cfg(test)]
+mod opening_tests {
+    #[tokio::test]
+    async fn oldest_unread_read_is_scoped_and_uses_modified_fallback() {
+        // Supplied only by the synthetic proof runner, never a live/default DB.
+        let url = std::env::var("ORGTREE_OPENING_TEST_PG").expect("fresh synthetic PostgreSQL URL required");
+        let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls).await.unwrap();
+        let task = tokio::spawn(async move { connection.await.unwrap() });
+        client.batch_execute("CREATE SCHEMA ot;
+          CREATE TABLE ot.agents(id bigint PRIMARY KEY, state text);
+          INSERT INTO ot.agents VALUES(1,'live'),(2,'archived');
+          CREATE TABLE ot.documents(id bigint PRIMARY KEY,uid text,org_id bigint,agent_id bigint,node_name text,
+            at timestamptz,viewed_at timestamptz,dismissed boolean DEFAULT false);
+          INSERT INTO ot.documents VALUES
+            (1,'changed',1,1,'old-name','2026-10-18','2026-10-17',false),
+            (2,'new',1,1,'old-name','2026-10-19',NULL,false),
+            (3,'retired',1,2,'retired','2026-01-01',NULL,false),
+            (4,'other-org',2,1,'old-name','2026-01-01',NULL,false),
+            (5,'dismissed',1,1,'old-name','2026-01-01',NULL,true);
+          CREATE INDEX documents_org ON ot.documents(org_id,id DESC);").await.unwrap();
+        client.batch_execute(include_str!("../../migrations/0041_document_opening.sql")).await.unwrap();
+        assert_eq!(super::opening_target(&client,1,"",&None,true).await.unwrap(),Some(("changed".into(),3)));
+        assert_eq!(super::opening_target(&client,1,"renamed",&Some(vec![1]),false).await.unwrap(),Some(("changed".into(),2)));
+        assert_eq!(super::opening_target(&client,1,"retired",&Some(vec![2]),false).await.unwrap(),Some(("retired".into(),0)));
+        assert_eq!(super::opening_target(&client,99,"",&None,true).await.unwrap(),None);
+        client.batch_execute("UPDATE ot.documents SET viewed_at=at;UPDATE ot.documents SET at='2026-10-20' WHERE uid='changed'").await.unwrap();
+        assert_eq!(super::opening_target(&client,1,"",&None,true).await.unwrap(),Some(("changed".into(),3)));
+        client.batch_execute("UPDATE ot.documents SET viewed_at=at").await.unwrap();
+        assert_eq!(super::opening_target(&client,1,"",&None,true).await.unwrap(),Some(("changed".into(),3)));
+        drop(client); task.await.unwrap();
+    }
+}
