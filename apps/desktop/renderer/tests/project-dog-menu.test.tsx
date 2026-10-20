@@ -73,16 +73,17 @@ test('project listener rows expose dog menus even away from their name buttons',
  for(const row of view.el.querySelectorAll('.listener-row')){await right(row.querySelector('.listener-fired')!);assert.ok(projectRow());assert.ok(labels().includes('Open details'))}
 })
 
-test('semantic slot line keeps its seven table cells, coloured time and nested agent menu',async t=>{
- const w=dog('slot'),node={id:'build',kind:'project',state:'live',children:[]} as unknown as CanvasNode
+test('semantic slot line keeps its eight table cells, quantity, coloured time and nested agent menu',async t=>{
+ const w=dog('slot',{slots:3}),node={id:'build',kind:'project',state:'live',children:[]} as unknown as CanvasNode
  const focused:string[]=[]
  function Register(){useProvideAgentNav(id=>[{label:'Focus',onSelect:()=>focused.push(id)}]);return null}
- const view=await mountView(<AgentNavProvider><ObjectNavProvider><Register/><ObjectNavHost {...{isProject:(id:string)=>id==='build'}} org="org" dogs={[w]} openDog={()=>{}} toast={()=>{}}/><DeskDogsProvider value={{org:'org',dogs:[w],open:()=>{}}}><ObjectMenuBoundary><SlotsView node={node} state={projectSlotState('build',1,[],[w])} map={new Map()} onJump={()=>{}} op={async()=>({holders:[],line:[{position:1,agent:'worker',dog:'slot',since:w.at}],history:[]} as never)} toast={()=>{}}/></ObjectMenuBoundary></DeskDogsProvider></ObjectNavProvider></AgentNavProvider>,el=>el)
+ const view=await mountView(<AgentNavProvider><ObjectNavProvider><Register/><ObjectNavHost {...{isProject:(id:string)=>id==='build'}} org="org" dogs={[w]} openDog={()=>{}} toast={()=>{}}/><DeskDogsProvider value={{org:'org',dogs:[w],open:()=>{}}}><ObjectMenuBoundary><SlotsView node={node} state={projectSlotState('build',3,[],[w])} map={new Map()} onJump={()=>{}} op={async()=>({holders:[],line:[{position:1,agent:'worker',dog:'slot',slots:3,since:w.at}],history:[]} as never)} toast={()=>{}}/></ObjectMenuBoundary></DeskDogsProvider></ObjectNavProvider></AgentNavProvider>,el=>el)
  t.after(view.unmount);await flush()
  const row=view.el.querySelector('.slots-line .slot-row')!
- assert.equal(row.tagName,'TR');assert.equal(row.children.length,7);assert.equal(row.firstElementChild!.textContent,'1st')
+ assert.equal(row.tagName,'TR');assert.equal(row.children.length,8);assert.equal(row.firstElementChild!.textContent,'1st')
+ assert.equal(row.children[6].classList.contains('slot-quantity'),true);assert.equal(row.children[6].textContent,'3')
  assert.ok(row.querySelector('.slot-wait .slot-time')?.getAttribute('style'),'SlotTime colour preserved')
- assert.deepEqual(Array.from(view.el.querySelectorAll('thead th')).map(e=>e.textContent),['Position','Agent','Waited','Held','Ended','Claim / lease','Action'])
+ assert.deepEqual(Array.from(view.el.querySelectorAll('thead th')).map(e=>e.textContent),['Position','Agent','Waited','Held','Ended','Claim / lease','Slots','Action'])
  await right(row.querySelector('.slot-rest')!);assert.ok(projectRow());await inAct(()=>projectRow()!.click());assert.deepEqual(focused,['build'])
  await right(row.querySelector('[data-agent-nav="worker"]')!);assert.equal(projectRow()===undefined,true,'inner agent link keeps its menu')
  await inAct(()=>Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(e=>e.textContent==='Focus')!.click());assert.deepEqual(focused,['build','worker'])

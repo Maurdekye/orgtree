@@ -81,6 +81,9 @@
   lease. Counts sum units, while history, reminders and controls stay per lease.
   Migration 0039 defaults existing leases to one. [decided: user/coordinator
   2026-10-19; verified: `domain/slots.rs`, `runtime/watchdogs.rs`]
+  Slot-table tests retain eight columns, with the requested quantity under
+  `Slots` before `Action`, alongside the row's menu and time checks. [verified:
+  `tests/project-dog-menu.test.tsx`; 2026-10-20]
 
 - Fair-queue listeners accept `batch: 1..20` (default 1). Each bounded
   assignment round commits before one wake per recipient; messages still
