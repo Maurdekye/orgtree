@@ -505,16 +505,102 @@ A project carries a manual event (replacing the "round" primitive floated
   listeners are armed, or one brighter `listeners x/y` card per armed
   watch; a magenta `mail queue` card (the `--fq-line` rose) shows waiting
   mail and, in ack mode, the handed-but-unacked in-flight count (new
-  feed field `mail_held`, `x_mail_held` beside `x_mail_pending`). Every
-  project desk has a **listeners** tab, empty or not (badge = armed
-  listeners; user 2026-10-19 21:19Z, as the inbox's listeners folder):
-  the fire control, then one table in the Slots table's style with both
-  kinds as sections (user 21:08Z-21:11Z): Agent, the shared watchdog chip
-  (its outline tells one-shot from continuous; no mode words), Armed (a
-  watch's armed listeners over its count), Fired and Last fired (empty
-  for one-shot dogs, a dash before a first fire) and On fire (the tool
-  calls); Armed and On fire show only while some row has data for them
-  (`canvas/listenersdesk.tsx`).
+  feed field `mail_held`, `x_mail_held` beside `x_mail_pending`). A
+  project desk shows a **listeners** tab (badge = armed listeners) from
+  the first time any listener or watch registers on the project, and
+  keeps it for good, also once they all unregister (user 2026-10-20
+  06:22Z, replacing "every desk, empty or not" of 2026-10-19 21:19Z):
+  the dog's create transaction stamps the project's
+  `extra.listeners_seen_at` (feed `x_listeners_seen`, tree
+  `listeners_seen`). The tab holds the fire control, then one table in
+  the Slots table's style with the sections Event listeners, Listener
+  watches and Recently Fired (user 21:08Z-21:11Z; the next section).
+  Columns in the order every project desk table shares (coordinator A2
+  2026-10-20 06:36Z): Position ("paused" for a paused dog), Agent,
+  Waited (live, since the dog armed or last fired; A1), Last fired, Mail
+  (Recently Fired's fire mails), Armed (a watch's armed listeners over
+  its count), Fired, On fire (the tool calls) and the shared watchdog
+  chip last (user 06:22Z; its outline tells one-shot from continuous; no
+  mode words). Last fired and Fired stay empty for one-shot dogs (a dash
+  before a first fire); Mail, Armed and On fire show only while some row
+  has data for them (`canvas/listenersdesk.tsx`).
+
+## The project desk's history (user 2026-10-20 06:22Z-06:42Z; migration 0040)
+
+The Mail tab's listeners folder, the Listeners tab and the Slots tab show
+what happened as well as what is armed now (docket
+`project-desk-mail-event-listeners-and-slots-tabs`; design approved by the
+coordinator 06:36Z with A1-A6, user additions 06:41Z-06:42Z).
+
+- **Storage** (`migrations/0040_project_history.sql`). `ot.project_fires`
+  keeps each fired event (the firer, the whole message) and each listener
+  watch reaching its count (`watch`: owner, dog, count, armed, since), with
+  `listeners`: who listened then, their dog, since when (arming or the
+  previous fire) and, for an event, the fire mail. `ot.project_mail_endings`
+  keeps each handed project mail that ended: `acked` (with the ack mail),
+  `failed` (released from a holder that stopped listening, was halted or
+  retired, or did not ack in time), `taken_back` or `dead_letter`, with the
+  holder, its dog, the attempt, `waited_from`, `held_at` and `ended_at`.
+  Each row is written in the transaction of the fire or ending it records
+  (`listeners::fire`/`evaluate`, `projects::reclaim_in`, the ack branch of
+  mail delivery), so id order is event order. Partial indexes
+  `mail_project_copies` (a project's hand-outs, newest first) and
+  `mail_project_held` (ack jobs held now) serve the live tables; each
+  history table's `(project_id, id DESC)` index serves its pages.
+- **Backfill**: the migration copies what existed before it: fires from the
+  `ot.events` `project_event_fire` rows (the 200-character message and the
+  listeners' names; no dogs or times), endings from the ack records and each
+  job's attempt log, and `listeners_seen_at` for projects that had a listener.
+  It is idempotent (the rig proof runs it twice).
+- **Reads** are bounded: 30 rows and one lookahead, the cursor the last row's
+  id (`history_before`, a positive integer, else refused). Ops
+  `listener_history` and `mail_queue_history` (`node`, `history_before`);
+  agents need project reach. A fire mail since deleted or archived comes back
+  as `mail_gone`.
+- **Wait starts** (A1): a listener waits from the latest of its dog's arming,
+  its last hand-out or fire, and the end of its last job
+  (`memo.run.freed_at`, written when the job is acked, fails or is taken
+  back). Each hand-out records `waited_from` in `via_project`, `claimed` and
+  the attempt log.
+- **Mail tab, listeners folder.** Ack mode: **Working** (the jobs held now,
+  rose), **Line** (the free listeners in delivery order; Held stays empty),
+  **Dead Letter Line** (only while an event listener for
+  `project.dead_letter` above or below takes this project) and **Recently
+  Finished** (newest first: acked plain; failed and taken back amber; dead
+  letter sepia-maroon; the ending's word in the Ack column). Round-robin:
+  Line and **Recently Delivered** (each hand-out, "Delivered … ago", A3).
+  Columns in the order every project desk table shares (A2): Position,
+  Agent, Waited, Held, Acked, Mail (the job), Ack (the ack mail), Batch,
+  Handed, Watchdog, Action; round-robin has Delivered for Held and Acked,
+  and no Ack or Action. Mail and Ack open in the project's mailbox. Older
+  rows load as a table's last row comes into view (`canvas/loadmore.ts`),
+  as Recently Held does.
+- **Take back** (A9, user 06:42Z): op `mail_take_back` (`node`, `mail`: the
+  job's id in the project's mailbox) is the user's or a project ancestor's
+  act, as Slots' force release, confirmed on the desk and logged as event
+  `mail_take_back`. The job ends `taken_back` and returns to the front of
+  the queue, its next hand-out preferring another listener
+  (`extra.taken_from`) and falling back to the same one; at the project's
+  last attempt (checkups on) it goes to the dead letters instead, as a
+  failed one does. The holder is told by a system mail, and its later ack
+  of the job is refused.
+- **Recently Fired** (A4, A8): an event row names the firer (Agent), how
+  long ago (Last fired) and its message on one line until clicked; a
+  sub-row per listener reached says how long it had listened and links its
+  fire mail, which opens in THAT agent's desk Mail tab, never the
+  project's, and reads "unavailable" once deleted or archived (user
+  06:42Z). A listener watch row is tinted and names the watch's owner, its
+  wait and the armed count, with a sub-row per listener armed then. Dogs
+  gone since keep their names (`canvas/historydog.tsx`).
+- **Dead-letter listeners** (user 06:41Z): an event dog that hears
+  `project.dead_letter` for a project wears the sepia-maroon `--dead-letter`
+  wherever its chip or card is drawn, and its description says so
+  (`isDeadLetterListener`, `canvas/listeners.ts`).
+- **Slots**: a Watchdog column before Action naming each lease's claim dog
+  (kept after the grant spends it), "Lease" for the claim column (A6) and
+  **Recently Held** (A5). The claim dog is the desk's alone:
+  `orgtree_project action=slots` strips it, so the tool's output is as
+  before.
 
 ## Agent tools
 
@@ -548,3 +634,7 @@ sheets; chart/docket visuals pending the user's answer.
   - wrapping a node with `above`.
 - Renderer: `tests/projecttoken.test.tsx` (the hire token) and `tests/projectnode.test.tsx`
   (the form, the card, the menus). Both are red at base 88e029a.
+- The desk's history: rig proof `tools/rig/proofs/project-history.mjs` (32 checks: fires,
+  watches, endings, deliveries, take back, wait starts, slot claim dogs, paging, the
+  backfill) and `tests/projecthistory.test.tsx`; captures with
+  `PROJECTNODE_VISUAL_ONLY=history` (`tests/projectnode-visual.{mjs,cjs,tsx}`).

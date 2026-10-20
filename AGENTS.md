@@ -492,20 +492,21 @@
   "held since HH:MM from project X" / "waiting since … for project X"; the
   project card's active count is plain bold text (no chip box) beside
   "Active …". Slot leases record `queued_at` (migration 0034) so Holding /
-  Line / Recent holds share one semantic table (Agent | Waited | Held | Ended |
-  Claim / lease | Action), with value-only time cells and blank inapplicable
-  cells. Narrow surfaces scroll horizontally with the action column pinned.
+  Line / Recently Held share one semantic table (Position | Agent | Waited |
+  Held | Ended | Lease | Slots | Watchdog | Action; "Recent holds", "Claim /
+  lease" and no Watchdog column until user 2026-10-20 06:22Z, coordinator
+  06:36Z), with value-only time cells and blank inapplicable cells. Narrow surfaces scroll horizontally with the action column pinned.
   Time text shares exported `slottime.ts` helper: linear white-to-#e6ffe0 at 0-3s, then five equal
   logarithmic intervals through green/yellow/orange/red to bright red #ff4040 at24h, clamped;
   a mirrored dark-green-to-red light palette ends #d60000; `light-dark()` switches
   with the surface color scheme (optional explicit theme is available in tests).
   plain text only, without pill backgrounds (user 19:24Z). Line order has its own
-  Position column, blank for holders/history (user 19:25Z). Recent holds label only unusual endings.
+  Position column, blank for holders/history (user 19:25Z). Recently Held labels only unusual endings.
   Ended ages use exported `slotEndedTimeStyle`: white through3s, logarithmic fade
   to readable mid grey #999999 at24h (light: #1a1a1a to #717171). Both exports return plain coloured text;
   no glow, dot, underline or outline (user 2026-10-19 20:13Z, replacing the
   comparison treatments). Reuse these helpers for other time tables.
-  Recent holds use30-row `(ended_at,id)` keyset pages (one lookahead row), backed
+  Recently Held uses 30-row `(ended_at,id)` keyset pages (one lookahead row), backed
   by partial index `slot_leases_ended_page`; `slot_status` includes the first page
   and `history_next`, while `slot_history` seeks older rows with the same project
   reach check. Shared SlotsView loads near the scroll bottom, keeps rows during
@@ -524,11 +525,35 @@
   task-local depth limit 4; refused on `fair_queue`, skipped under
   SAFE_START). Cyan listener/watch lines and header cards (`x/y` per armed
   watch), a magenta mail-queue card (feed `mail_held` = ack in-flight) and
-  a desk Listeners tab with the fire control. Engine event `project.event`.
+  a desk Listeners tab with the fire control (shown from the first
+  registered listener on, for good: `extra.listeners_seen_at`; user
+  2026-10-20 06:22Z replaced "always"). Engine event `project.event`.
   A rename now also moves `slot` watchdog targets (was activity/fair_queue
   only). [verified: `domain/listeners.rs`, `runtime/watchdogs.rs`,
   `canvas/listeners{,desk}.{ts,tsx}`, rig `project-listeners.mjs`,
   `projectlisteners.test.tsx`; 2026-10-19]
+- Project desk history (migration 0040, see
+  [PROJECT-NODES](docs/rust-engine/PROJECT-NODES.md)): `ot.project_fires`
+  (fired events and listener watches reaching their count, with who
+  listened, since when and their fire mail) and `ot.project_mail_endings`
+  (acked / failed / taken_back / dead_letter) are written INSIDE the
+  transaction of the fire or ending they record, never after commit. A new
+  job-ending path must call `projects::record_ending` and `free_listener`
+  (`memo.run.freed_at`, a listener's wait start) in its own transaction.
+  Reads are 30-row pages keyed by id (`history_before`; ops
+  `listener_history`, `mail_queue_history`), never scans of `ot.events` or
+  mail. Op `mail_take_back` (the user or a project ancestor, confirmed on
+  the desk, event `mail_take_back`) ends a held job `taken_back` and
+  re-queues it for another listener first (`extra.taken_from`), or
+  dead-letters it at the last counted attempt; the holder is told and its
+  later ack is refused. The slot claim dog on holders and history rows is
+  for the desk only: `orgtree_project action=slots` strips it. CSS trap:
+  the global `.working` rule is a flex layout, so a table row with class
+  `working` stops being a row (held jobs use `held-job`). [decided: user
+  2026-10-20 06:22Z-06:42Z, coordinator A1-A9 06:36Z-06:42Z; verified:
+  `migrations/0040_project_history.sql`, `domain/{listeners,projects,ops}.rs`,
+  `tools/treetools.rs`, `canvas/{maillisteners,listenersdesk,slotsdesk}.tsx`,
+  rig `project-history.mjs`, `projecthistory.test.tsx`; 2026-10-20]
 
 - Startup tool descriptions retain the 12,000-byte aggregate and 900-byte/card
   caps for flat and split mail shapes. Keep concise authority/call cues on cards;
@@ -654,7 +679,7 @@
   remain, leases identify holds. Project header row two contains the yellow
   count card and shared model-icon holder links, without a redundant spelled-out
   held count (user 2026-10-19 08:23Z); Holding, Line and
-  Recent holds use those links too. Visible slot ages subscribe to the shared
+  Recently Held use those links too. Visible slot ages subscribe to the shared
   one-second age clock without status refetches. [decided: user
   2026-10-18 17:02–17:21Z;
   verified: `canvas/{projectdesk,slotsdesk,slotchips}.tsx`,
