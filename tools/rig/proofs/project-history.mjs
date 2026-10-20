@@ -15,7 +15,8 @@
 //   op mail_queue_history lists, in ack mode, the jobs held now and the
 //   finished ones newest ack first with their ack, and in round-robin the
 //   deliveries newest first; 30 a time
-//   slot holders and recent holds carry their claim dog
+//   slot holders and recent holds carry their claim dog, for the desk only:
+//   the agent tool's slots action keeps its output
 //   the migration's backfill copies earlier fires from ot.events and marks
 //   projects that had listeners; running it again adds nothing
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-history.mjs
@@ -286,11 +287,22 @@ export default async function (rig) {
   p.check('a slot holder carries its claim dog (spent by the grant)',
     madeS && capacity.ok && claim.ok && holderDog?.name === 'hs-build' && holderDog?.kind === 'slot' && holderDog?.owner === 'sa'
     && holderDog?.id === 'sa/hs-build', { said: said(claim), holders: s1.v?.holders ?? s1.error })
+  // the claim dog is the desk's Watchdog column: an agent's
+  // `orgtree_project action=slots` keeps the output it had, with or without team
+  const toolSlots = async who => (await rig.tool(who, 'orgtree_project', { action: 'slots', name: 'hs' })).json
+  const t1 = await toolSlots('boss'), t1own = await toolSlots('sa')
+  p.check('the agent tool\'s slots output names no claim dog for a holder',
+    t1?.holders?.length === 1 && !('dog' in (t1.holders[0] ?? {})) && t1own?.holders?.length === 1 && !('dog' in (t1own.holders[0] ?? {})),
+    { boss: t1?.holders ?? t1, sa: t1own?.holders ?? t1own })
   const lease = s1.v?.holders?.[0]?.lease
   const released = await rig.tool('sa', 'orgtree_project', { action: 'release_slot', lease })
   const s2 = await opTry({ op: 'slot_status', node: 'hs' })
   p.check('and so does its recent hold', released.ok && s2.v?.history?.[0]?.lease === lease && s2.v?.history?.[0]?.dog?.name === 'hs-build',
     { said: said(released), history: s2.v?.history ?? s2.error })
+  const t2 = await toolSlots('boss'), t2own = await toolSlots('sa')
+  p.check('nor for a recent hold',
+    t2?.history?.[0]?.agent === 'sa' && !('dog' in t2.history[0]) && t2own?.history?.[0]?.agent === 'sa' && !('dog' in t2own.history[0]),
+    { boss: t2?.history?.slice(0, 1) ?? t2, sa: t2own?.history?.slice(0, 1) ?? t2own })
 
   // ------------------------------------------------------------ the migration's backfill
   const sqlText = fs.readFileSync(path.join(REPO, 'engine', 'rs', 'orgtree-engine', 'migrations', '0040_project_history.sql'), 'utf8')
