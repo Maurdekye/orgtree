@@ -5,7 +5,7 @@ import { liveRevision, onLiveBump } from '../livebus'
 
 /** An exact handle outside the eight-row preview is still a real destination. */
 export function useWatchdogDetail(org:string,id:string|null,dogs:Watchdog[]) {
-  const known=dogs.find(w=>w.id===id)
+  const known=dogs.find(w=>w.id===id&&!w.metadata_only)
   const epoch=useSyncExternalStore(onLiveBump,liveRevision)
   const [loaded,setLoaded]=useState<{key:string;dog?:Watchdog;error?:string}|null>(null)
   const key=org+'\n'+id

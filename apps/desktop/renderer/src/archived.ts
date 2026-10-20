@@ -50,8 +50,8 @@ export const isSummary = (n: Summarisable): boolean => n.detail === false
 
 export function hydrateTree(tree: TreePayload): TreePayload {
   if (tree.watchdog_project_links?.length) {
-    const dogs=new Map((tree.watchdogs??[]).map(w=>[w.id,w]))
-    for(const dog of tree.watchdog_project_links) dogs.set(dog.id,dog)
+    const dogs=new Map(tree.watchdog_project_links.map(w=>[w.id,w]))
+    for(const dog of tree.watchdogs??[]) dogs.set(dog.id,dog)
     tree={...tree,watchdogs:[...dogs.values()]}
   }
   const defaults = (tree as { archived_defaults?: Partial<TreeNode> })

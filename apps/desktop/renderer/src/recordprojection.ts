@@ -35,7 +35,7 @@ function header(records: RecordTable): Omit<TreePayload, 'roots'> {
   // inventory remains the feed's eight-row preview and authoritative counts.
   if (Array.isArray(top.watchdog_project_links)) {
     const dogs = new Map<string, import('./types').Watchdog>()
-    for (const w of [...(top.watchdogs as import('./types').Watchdog[] ?? []), ...top.watchdog_project_links as import('./types').Watchdog[]]) dogs.set(w.id,w)
+    for (const w of [...top.watchdog_project_links as import('./types').Watchdog[], ...(top.watchdogs as import('./types').Watchdog[] ?? [])]) dogs.set(w.id,w)
     top.watchdogs = [...dogs.values()]
   }
   return top as unknown as Omit<TreePayload, 'roots'>
