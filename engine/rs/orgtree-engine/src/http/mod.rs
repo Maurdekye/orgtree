@@ -11,6 +11,7 @@ pub mod history;
 pub mod langserver;
 pub mod orginbox;
 pub mod reports;
+pub mod retired;
 pub mod error;
 pub mod mailbox;
 pub mod markdown_image;
@@ -77,6 +78,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs", get(orgs::list).post(orgops::create))
         .route("/api/orgs/{slug}", get(orgs::tree).delete(orgops::delete))
         .route("/api/orgs/{slug}/retry", post(orgops::retry))
+        .route("/api/orgs/{slug}/retired", get(retired::page))
         .route("/api/orgs/{slug}/settings", post(settings::save_org))
         .route("/api/orgs/{slug}/profile-picture", get(pictures::get).post(pictures::set).layer(axum::extract::DefaultBodyLimit::max(7*1024*1024)))
         .route("/api/orgs/{slug}/profile-picture/preview", post(pictures::preview).layer(axum::extract::DefaultBodyLimit::max(7*1024*1024)))
