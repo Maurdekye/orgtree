@@ -70,6 +70,7 @@ struct Args {
     max_turns: Option<u32>,
     effort: Option<String>,
     add_dirs: Vec<String>,
+    append_system_prompt_file: Option<String>,
     /// `--disallowed-tools`: left out of the tool list, as the CLI does
     disallowed: Vec<String>,
     unknown: Vec<String>,
@@ -90,11 +91,12 @@ fn parse_args(raw: &[String]) -> Args {
             "--max-turns" => { a.max_turns = val(i).parse().ok(); i += 1; }
             "--effort" => { a.effort = Some(val(i)); i += 1; }
             "--add-dir" => { a.add_dirs.push(val(i)); i += 1; }
+            "--append-system-prompt-file" => { a.append_system_prompt_file = Some(val(i)); i += 1; }
             "--disallowed-tools" => {
                 a.disallowed.extend(val(i).split(',').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string));
                 i += 1;
             }
-            "--input-format" | "--output-format" | "--append-system-prompt-file" | "--settings" | "--mcp-config"
+            "--input-format" | "--output-format" | "--settings" | "--mcp-config"
             | "--allowedTools" => { i += 1; }
             "-p" | "--print" | "--include-partial-messages" | "--verbose" | "--strict-mcp-config" => {}
             other => a.unknown.push(other.to_string()),
@@ -960,6 +962,8 @@ fn claude(raw: &[String]) -> i32 {
                               "tools": native,
                               // like the real CLI, the cwd's CLAUDE.md is read once, at process start
                               "claude_md": std::fs::read_to_string(cwd.join("CLAUDE.md")).ok(),
+                              // Current engine identity uses this file, not CLAUDE.md.
+                              "append_system_prompt": args.append_system_prompt_file.as_ref().and_then(|p|std::fs::read_to_string(p).ok()),
                               "env": { "CLAUDE_CODE_USE_POWERSHELL_TOOL": env_of("CLAUDE_CODE_USE_POWERSHELL_TOOL"),
                                        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": env_of("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
                                        "CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF": env_of("CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF"),

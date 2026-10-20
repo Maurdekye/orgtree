@@ -48,8 +48,11 @@ export default async function(rig) {
   await finish('ann',n); await finish('ann',n+1)
   const prompts=rig.fakeLog('ann').filter(l=>l.kind==='turn').map(l=>l.prompt??'')
   const after=prompts.at(-1)
-  const startup=rig.fakeLog('ann').filter(l=>l.kind==='start').at(-1)
-  p.check('pending retool applies through normal restart placement',retool.ok && q.ok && JSON.stringify(startup).includes('PENDING-CHARTER-CANARY'),{retool,q,hasCharter:JSON.stringify(startup).includes('PENDING-CHARTER-CANARY')})
+  const startups=rig.fakeLog('ann').filter(l=>l.kind==='start')
+  const hasCharter=startups.at(-1)?.append_system_prompt?.includes('PENDING-CHARTER-CANARY')
+  p.check('pending retool applies through normal restart placement',retool.ok && q.ok
+    && startups.length===2 && !startups[0]?.append_system_prompt?.includes('PENDING-CHARTER-CANARY') && hasCharter,
+    {retool,q,starts:startups.length,hasCharter})
   p.check('waiting mail survives once and in order',prompts.filter(x=>x.includes('WAITING-MAIL-ONE')).length===1
     && prompts.filter(x=>x.includes('WAITING-MAIL-TWO')).length===1
     && after.indexOf('WAITING-MAIL-ONE')>=0 && after.indexOf('WAITING-MAIL-TWO')>after.indexOf('WAITING-MAIL-ONE'))
