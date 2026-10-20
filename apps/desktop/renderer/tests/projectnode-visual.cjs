@@ -624,7 +624,11 @@ module.exports = async (page) => {
       screenshots.push(await page.screenshot(`${prefix}-listensetting-desk-${mode.slice(2)}-1000x700`))
     }
     await page.goto('/?scene=settings')
-    await page.waitFor('input[aria-label="Event listeners"]', { timeout: 15000 })
+    // a base build has no switch: say so and keep the captures so far
+    if (!(await page.waitFor('input[aria-label="Event listeners"]', { timeout: 15000 }).then(() => true, () => false))) {
+      details.gear = 'no Event listeners switch'
+      return { details, screenshots }
+    }
     const gear = () => page.eval(() => {
       const sw = document.querySelector('input[aria-label="Event listeners"]')
       const row = sw.closest('.set-row')
