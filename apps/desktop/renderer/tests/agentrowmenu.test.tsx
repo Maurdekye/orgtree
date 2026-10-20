@@ -228,7 +228,7 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
       // USER 2026-10-18 07:19Z–07:28Z: "Copy mention", no "Open" inside Open, Presentations always offered
       'Copy mention', 'Focus', 'Hire a subordinate ▸', 'New project…',
       'Open ▸', '· Desk', '· Desk as a pinned window', '· Desk in a separate window',
-      '· Inbox', '· Team', '· Docket', '· Team docket', '· Presentations', '· Team presentations',
+      '· Mail', '· Team', '· Docket', '· Team docket', '· Presentations', '· Team presentations',
       'Settings', 'Acquire audience', 'Compact…', 'Halt', 'Retire…',
     ], 'the agent menu, in order')
   })
@@ -303,7 +303,7 @@ uiTest('§2b an ARCHIVED row keeps the menu and loses exactly what the archived 
     await inAct(() => { arch!.click() })
     await flush(2)
     const have = await assertParity(c, 'gone', 'a retired agent')
-    assert.ok(have.includes('· Inbox') && have.includes('Settings'),
+    assert.ok(have.includes('· Mail') && have.includes('Settings'),
       `a retired seat is still readable — have ${JSON.stringify(have)}`)
     for (const gone of ['Retire…', 'Dissolve… ▸', 'Hire a subordinate ▸']) {
       assert.ok(!have.includes(gone), `a retired seat cannot ${gone}`)
@@ -401,10 +401,10 @@ uiTest('§3 a right-click on a row does not navigate, and the list survives its 
     // the menu portals to the document body — OUTSIDE the list's click-away
     // boundary. Choosing an entry must not dismiss the list out from under the
     // press, or the entry's own click would never arrive.
-    await pick('Inbox')
+    await pick('Mail')
     assert.ok(c.el.querySelector('.tray'),
       'the Agents List closed when its own menu was used')
-    assert.ok([...document.querySelectorAll('h3')].some((h) => /· inbox/.test(h.textContent ?? '')),
+    assert.ok([...document.querySelectorAll('h3')].some((h) => /· mail/.test(h.textContent ?? '')),
       'and the entry ran: the node inbox opened')
   })
 

@@ -1249,8 +1249,8 @@ async function deskInbox(t: TestContext, opts: { onJump?: (id: string) => void }
     resetConvos(); realClock()
   })
   await flush()
-  const tab = q(v.el, '.cc-tabs button').find((b) => txt(b).trim().startsWith('inbox'))
-  assert.ok(tab, 'positive control: the desk has an inbox tab to open')
+  const tab = q(v.el, '.cc-tabs button').find((b) => b.getAttribute('data-tab') === 'inbox')
+  assert.ok(tab, 'positive control: the desk has its mail tab to open')
   await inAct(() => { tab!.click() })
   await flush(); await flush()
   assert.ok(q(v.el, '.mailer-list .mailrow').length >= 3,

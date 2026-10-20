@@ -253,8 +253,8 @@ uiTest('§1 the DESK INBOX: clicking a sender takes you to that agent\'s desk, '
   + 'with a camera that is still a camera', async ({ host }) => {
   await openHome(host)
   const tab = q(host, '.sq.desk .cc-tabs button')
-    .find((b) => txt(b).trim().startsWith('inbox'))
-  assert.ok(tab, 'positive control: the focused desk has an inbox tab')
+    .find((b) => b.getAttribute('data-tab') === 'inbox')
+  assert.ok(tab, 'positive control: the focused desk has its mail tab')
   await realClick(tab!)
   await flush()
   const row = q(host, '.sq.desk .mailrow').find((r) => txt(r).includes(PEER))
@@ -298,8 +298,8 @@ uiTest('§3 the READING PANE\'s sender navigates too, and selecting a row does '
   + 'not navigate by itself', async ({ host }) => {
   await openHome(host)
   const tab = q(host, '.sq.desk .cc-tabs button')
-    .find((b) => txt(b).trim().startsWith('inbox'))
-  assert.ok(tab, 'positive control: the focused desk has an inbox tab')
+    .find((b) => b.getAttribute('data-tab') === 'inbox')
+  assert.ok(tab, 'positive control: the focused desk has its mail tab')
   await realClick(tab!)
   await flush()
   const row = q(host, '.sq.desk .mailrow').find((r) => txt(r).includes(PEER))

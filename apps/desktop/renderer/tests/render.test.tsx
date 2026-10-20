@@ -206,7 +206,7 @@ domTest('§6.7 rapid tab switching keeps the conversation',
     const { el } = await mount(deskEl(node(ND), SL, { bare: false }))
     await flush()
     const tab = (name: string) => rows(el, '.cc-tabs button')
-      .find((b) => txt(b as HTMLElement).startsWith(name)) as HTMLElement | undefined
+      .find((b) => b.getAttribute('data-tab') === name) as HTMLElement | undefined
     for (let i = 0; i < 12; i++) {
       for (const name of ['inbox', 'docket', 'chat']) {
         const b = tab(name)
@@ -227,7 +227,7 @@ domTest('§6.8 unmounting while a panel fetch is in flight is not an error',
     const m = await mount(deskEl(node(ND), SL, { bare: false }))
     await flush()
     const inbox = rows(m.el, '.cc-tabs button')
-      .find((b) => txt(b as HTMLElement).startsWith('inbox')) as HTMLElement
+      .find((b) => b.getAttribute('data-tab') === 'inbox') as HTMLElement
     await inAct(() => { inbox.click() })
     await advance(100)
     await m.unmount()
@@ -447,7 +447,7 @@ domTest('§9.7 the watcher follows the scroller back from another tab',
     const first = el.querySelector('.msgs')!
     assert.ok(resizeWatchers(first) > 0, 'watched at first')
     const tab = (label: string) => [...el.querySelectorAll('.cc-tabs button')]
-      .find((b) => (b.textContent ?? '').trim() === label) as HTMLElement
+      .find((b) => b.getAttribute('data-tab') === label) as HTMLElement
     await inAct(() => { tab('inbox').click() })
     await flush()
     assert.equal(resizeWatchers(first), 0, 'released when the chat tab left')

@@ -109,7 +109,7 @@ test('shared node menu routes reveal existing inbox, docket and Team windows', a
   function Probe() { registry = useAgentNavRegistry(); return null }
   const view = await mountView(<AgentNavProvider><OrgCanvas tree={f.tree} slug={org} op={op} toast={noop} mailEvt={null} /><Probe /></AgentNavProvider>, el => el)
   t.after(() => view.unmount()); await flush(2)
-  for (const [label, kind] of [['Inbox', 'node-inbox'], ['Docket', 'agent-docket'], ['Team', 'agent-team']] as const) {
+  for (const [label, kind] of [['Mail', 'node-inbox'], ['Docket', 'agent-docket'], ['Team', 'agent-team']] as const) {
     const raised = detached(t, kind, f.root.id)
     const entry = flatten(registry!.current!(f.root.id)).find(e => e.label === label)
     assert.equal(!!entry, true, `${label}: canonical entry exists`)

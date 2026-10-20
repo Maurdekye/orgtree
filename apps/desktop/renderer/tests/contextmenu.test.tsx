@@ -392,7 +392,7 @@ uiTest('§B1 agent card: right-click opens the card menu and does NOT move the c
   await advance(400, 50)
   assert.equal(camera(v.el), before, 'a right-click is not a click: the camera did not move')
   const have = labels()
-  for (const l of ['Focus', '· Inbox', '· Docket', '· Presentations',
+  for (const l of ['Focus', '· Mail', '· Docket', '· Presentations',
     'Settings', '· Desk as a pinned window', 'Hire a subordinate ▸', 'Retire…']) {
     assert.ok(have.includes(l), `entry "${l}" — have ${JSON.stringify(have)}`)
   }
@@ -420,7 +420,7 @@ uiTest('§B1b agent card: a card with live reports offers Dissolve; a retired ca
   assert.ok(gone, 'positive control: the archived card rendered')
   await rightClick(gone)
   const have = labels()
-  assert.ok(have.includes('· Inbox'), 'an archived card still has a menu')
+  assert.ok(have.includes('· Mail'), 'an archived card still has a menu')
   assert.ok(!have.includes('Retire…') && !have.includes('Dissolve… ▸') && !have.includes('Hire a subordinate ▸'))
 })
 
