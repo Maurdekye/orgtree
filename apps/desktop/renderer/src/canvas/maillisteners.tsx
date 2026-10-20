@@ -15,6 +15,9 @@
 // The columns keep the desk tables' one order (Position · Agent · Waited ·
 // Held · Acked/Delivered · Mail · Ack · Batch · Handed · Watchdog · Action)
 // and the slots table's widths; times wear the shared slot time colours.
+// The table fits the desk at its normal widths, and a name, gist or ending
+// word it shortens keeps its whole text in a tooltip (user 2026-10-20
+// 09:00Z; styles.css, desktablelayout.test.tsx).
 // Working and the history are the engine's `mail_queue_history` (older
 // pages load as you scroll, as the Slots tab's Recently Held); the Line is
 // the tree's fair_queue dogs in the engine's pick order, each waiting since
@@ -137,6 +140,10 @@ const OUT_TITLE: Record<NonNullable<MailListenerRow['out']>, string> = {
 /** How a Recently Finished job ended, in a word (none for an ack) and in
  *  its highlight class. */
 export const ENDING_WORD: Record<string, string> = { acked: '', failed: 'failed', taken_back: 'taken back', dead_letter: 'dead letter' }
+/** an ending's tooltip: its word first, so a word a narrow desk shortens
+ *  stays readable (user 2026-10-20 09:00Z) */
+const endingTitle = (h: FinishedJob, maxAttempts: number) => `${ENDING_WORD[h.how] ?? h.how}: `
+  + `${h.agent} ${h.why ?? ''}${h.attempt ? ` (attempt ${h.attempt} of ${maxAttempts})` : ''}`.trim()
 const endingClass = (how: string) => how === 'dead_letter' ? ' ending-dead' : how === 'acked' ? '' : ' ending-failed'
 
 /** a stretch, coloured by its length on the shared slot time scale; an open
@@ -365,8 +372,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                 <td className="listener-mail">{mailLink(h.mail, h.gist, `the job ${h.agent} was handed; click to read it in the inbox`)}</td>
                 <td className="listener-ack">{h.how === 'acked'
                   ? mailLink(h.ack, h.ack_gist, `${h.agent}'s ack of it; click to read it in the inbox`)
-                  : <span className={'ending-word ending-' + h.how}
-                      title={`${h.agent} ${h.why ?? ''}${h.attempt ? ` (attempt ${h.attempt} of ${maxAttempts})` : ''}`.trim()}>
+                  : <span className={'ending-word ending-' + h.how} title={endingTitle(h, maxAttempts)}>
                       {ENDING_WORD[h.how] ?? h.how}</span>}</td>
                 <td className="listener-batch"/>
                 <td className="listener-handed"/>

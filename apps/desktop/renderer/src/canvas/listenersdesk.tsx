@@ -166,7 +166,7 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
   const agentLink = (id: string) => <AgentLink id={id} tier={nodeTierOf(map.get(id))} onFocus={onJump} />
   // who fired an event: an agent of the tree, else the label as kept ("@user")
   const firer = (by?: string | null) => !by ? null : map.has(by.replace(/^@/, '')) ? agentLink(by.replace(/^@/, ''))
-    : <span className="dim fired-by">{by}</span>
+    : <span className="dim fired-by" title={by}>{by}</span>
   const row = (w: Watchdog, watch: boolean) => {
     const tools = fireActionTools(w)
     return (

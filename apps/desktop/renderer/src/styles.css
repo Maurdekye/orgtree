@@ -3216,40 +3216,58 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 :is(.wd-chip, .desk-dog-chip).dead-letter .wd-glyph { color: var(--dead-letter); }
 /* the desk's Slots tab */
 .project-slots { display: flex; flex-direction: column; gap: 4px; min-width:0; overflow: auto; }
-.project-slots h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }
 .project-slots .slots-lead { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .project-slots .slots-lead .slot-holder { background: var(--slot); color: var(--slot-ink); font-weight: normal; }
-/* One table computes widths for every section. Narrow hosts scroll the data,
-   keeping the action column visible instead of clipping its buttons. */
-.slots-table-scroll { width:100%; max-width:100%; min-width:0; overflow:auto; }
-.slots-table { width:100%; min-width:860px; table-layout:fixed; border-collapse:separate; border-spacing:0; font-variant-numeric:tabular-nums; }
-/* the desk tables' ONE set of column widths (Slots, the Mail tab's listeners,
-   Listeners; user 2026-10-20 06:36Z): fixed for every column the tables
-   share, so a column sits alike in each; the detail columns share the rest */
-.slots-table .slot-col-position { width:56px; }
-.slots-table .slot-col-agent { width:140px; }
-.slots-table .slot-col-time { width:72px; }
-.slots-table .slot-col-ended { width:88px; }
-.slots-table .slot-col-action { width:124px; }
-.slots-table .slot-col-quantity { width:46px; }
-.slots-table .listener-col-count, .slots-table .listener-col-fired { width:58px; }
-.slots-table .listener-col-dog { width:136px; }
-.slots-table .listener-dog-cell { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
-.slots-table .slot-dog, .slots-table .listener-dog { font-family:monospace; font-size:11px; max-width:100%; }
+/* THE DESK TABLES (Slots, the Mail tab's listeners, Listeners). One table
+   computes widths for every section, and it fits the desk at its normal
+   widths (user 2026-10-20 09:00Z: nothing cut off, no action hidden): the
+   pane is a size container, the small columns fit their content, Agent
+   narrows with the pane, and Watchdog shares the rest with the detail
+   columns. Below the table's floor the data scrolls, keeping the action
+   column visible instead of clipping its buttons. */
+.slots-table-scroll { width:100%; max-width:100%; min-width:0; overflow:auto; container-type:inline-size; }
+.slots-table { width:100%; min-width:640px; table-layout:fixed; border-collapse:separate; border-spacing:0; font-variant-numeric:tabular-nums; }
+/* the desk tables' ONE set of column widths (user 2026-10-20 06:36Z): fixed
+   for every column the tables share, so a column sits alike in each */
+.slots-table .slot-col-position { width:52px; }
+.slots-table .slot-col-agent { width:168px; }
+.slots-table .slot-col-time { width:58px; }
+.slots-table .slot-col-ended { width:62px; }
+.slots-table .slot-col-action { width:116px; }
+.slots-table .slot-col-quantity { width:42px; }
+.slots-table .listener-col-count, .slots-table .listener-col-fired { width:50px; }
+@container (max-width: 899px) { .slots-table .slot-col-agent { width:152px; } }
+@container (max-width: 759px) { .slots-table .slot-col-agent { width:124px; } }
 .slots-table th,.slots-table td { padding:4px; text-align:left; vertical-align:middle; }
-.slots-table thead th { color:var(--dim); font-size:11px; font-weight:600; border-bottom:1px solid var(--line); }
-.slots-table .slot-row > * { border-bottom:1px solid var(--line); }
+/* THE HEADERS (user 2026-10-20 08:59Z: one style for every desk table): the
+   column header row and each section's heading are styled here, on the
+   shared table, and by no host; the Mail tab's listeners once fell back to
+   the browser's own h4 (desktablelayout.test.tsx) */
+.slots-table thead th { color:var(--dim); font-size:11px; font-weight:600; border-bottom:1px solid var(--line);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .slots-table .slot-section th { padding:0 4px; }
+.slots-table .slot-section h4 { margin:10px 0 2px; font-size:12px; font-weight:700; line-height:normal; color:var(--dim); }
+.slots-table .slot-row > * { border-bottom:1px solid var(--line); }
 .slots-table .slot-empty { padding:4px; white-space:normal; }
 .slots-table .slot-action { position:sticky; right:0; z-index:1; background:var(--panel); }
-.project-slots .slot-action > button { box-sizing:border-box; min-width:0; min-height:26px; margin:0; padding:3px 8px; font-size:11px; white-space:nowrap; }
+.slots-table .slot-action > button { box-sizing:border-box; min-width:0; min-height:26px; margin:0; padding:3px 8px; font-size:11px; white-space:nowrap; }
 .slots-table .slot-rest { overflow-wrap:anywhere; font-size:11px; }
 .slots-table .slot-reason,.slots-table .slot-lease { display:block; }
 .slot-time { white-space:nowrap; }
-.project-slots .slot-how { color: var(--slot); white-space: nowrap; }
+/* a cell that must shorten ends in an ellipsis on one line and keeps its
+   whole text in a tooltip (user 2026-10-20 09:00Z): an agent's name (its
+   link's tooltip names it), who fired an event, a watchdog's name inside
+   its chip; the mail tab's gists and ending words below */
+.slots-table .slot-agent { font-weight:600; overflow:hidden; }
+.slots-table .slot-agent .ref-agent { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.slots-table .slot-agent .ref-agent > :is(.tier, .project-mark) { margin-right:4px; }
+.slots-table .slot-agent .fired-by { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.slots-table .listener-dog-cell { font-size:11px; }
+.slots-table .slot-dog, .slots-table .listener-dog { font-family:monospace; font-size:11px; }
+.slots-table .listener-dog-cell .watchdog-link { max-width:100%; box-sizing:border-box; vertical-align:middle; }
+.slots-table .listener-dog-cell .watchdog-link-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.project-slots .slot-how { color: var(--slot); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .project-slots .slot-no { display: inline-block; min-width: 30px; color: var(--slot); font-variant-numeric: tabular-nums; }
-.project-slots .slot-agent { font-weight: 600; overflow:hidden; }
-.project-slots .slot-agent .ref-agent { max-width:100%; }
 .project-slots code { font-size: 11px; }
 .project-queue-tools button { font-size: 11px; padding: 2px 8px; }
 /* project event listeners: the cyan header/near-zoom cards (dark for the
@@ -3284,13 +3302,9 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
    in the slots table's style, as the inbox's mail listeners (user 2026-10-19
    21:08Z-21:11Z); a watch's armed count in the listener cyan */
 .project-listeners { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
-.project-listeners h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }
 .project-listeners .listener-fire { display: flex; gap: 6px; align-items: center; }
 .project-listeners .listener-fire input { flex: 1; min-width: 0; }
-.slots-table.listeners-table { min-width: 760px; }
 .listeners-table .listener-col-actions { width: 18%; }
-.listeners-table .slot-agent { font-weight: 600; overflow: hidden; }
-.listeners-table .slot-agent .ref-agent { max-width: 100%; }
 .listeners-table .listener-count { color: var(--listener); }
 .listeners-table .listener-actions { overflow-wrap: anywhere; font-family: monospace; font-size: 11px; }
 /* a paused dog's row dims as the mail listeners' do; its chip already dims
@@ -3301,25 +3315,29 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
    table's layout and time colours, in the queue's rose for the order and for
    a listener holding a job (ack mode), as the filled mail card */
 .project-mail-listeners { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 4px 10px 8px; }
-.slots-table.mail-listeners-table { min-width: 760px; }
-.slots-table.mail-listeners-table.ack { min-width: 900px; }
+/* the ack table's eleven columns: its own floor, and an Action column as
+   wide as its one button, take back */
+.slots-table.mail-listeners-table.ack { min-width: 660px; }
+.mail-listeners-table .slot-col-action { width: 82px; }
 .mail-listeners-table .slot-no { display: inline-block; min-width: 30px; color: var(--fq-line); font-variant-numeric: tabular-nums; }
-.mail-listeners-table .slot-agent { font-weight: 600; overflow: hidden; }
-.mail-listeners-table .slot-agent .ref-agent { max-width: 100%; }
 .mail-listeners-table .listener-handed { font-variant-numeric: tabular-nums; }
 .mail-listeners-table .listener-row.out > * { opacity: .6; }
 /* Working: a held job, in the queue's rose as the filled mail card (not
    `.working`: a global rule of that name lays its element out as a flex row) */
-.mail-listeners-table .listener-row.held-job > * { background: color-mix(in srgb, var(--fq-line) 14%, transparent); }
+.mail-listeners-table .listener-row.held-job { --row-tint: color-mix(in srgb, var(--fq-line) 14%, transparent); }
 .mail-listeners-table .listener-row.held-job > :first-child { box-shadow: inset 3px 0 0 var(--fq-line); }
 /* Recently Finished: a job that failed without an ack (taken back too) in
    amber, a dead-lettered one in the dead-letter sepia-maroon (user
    2026-10-20 06:41Z: each kind highlighted differently) */
-.mail-listeners-table .listener-row.ending-failed > * { background: color-mix(in srgb, var(--warn, #e5c07b) 13%, transparent); }
+.mail-listeners-table .listener-row.ending-failed { --row-tint: color-mix(in srgb, var(--warn, #e5c07b) 13%, transparent); }
 .mail-listeners-table .listener-row.ending-failed > :first-child { box-shadow: inset 3px 0 0 var(--warn, #e5c07b); }
-.mail-listeners-table .listener-row.ending-dead > * { background: color-mix(in srgb, var(--dead-letter) 24%, transparent); }
+.mail-listeners-table .listener-row.ending-dead { --row-tint: color-mix(in srgb, var(--dead-letter) 24%, transparent); }
 .mail-listeners-table .listener-row.ending-dead > :first-child { box-shadow: inset 3px 0 0 var(--dead-letter); }
-.mail-listeners-table .ending-word { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.mail-listeners-table .listener-row:is(.held-job, .ending-failed, .ending-dead) > * { background: var(--row-tint); }
+/* a tinted row's sticky Action cell stays opaque over data scrolled beneath it */
+.mail-listeners-table .listener-row:is(.held-job, .ending-failed, .ending-dead) > .slot-action {
+  background: linear-gradient(var(--row-tint), var(--row-tint)), var(--panel); }
+.mail-listeners-table .ending-word { display: block; font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mail-listeners-table .ending-word.ending-failed, .mail-listeners-table .ending-word.ending-taken_back { color: var(--warn, #e5c07b); }
 .mail-listeners-table .ending-word.ending-dead_letter { color: color-mix(in srgb, var(--dead-letter) 70%, var(--ink)); }
 /* the Dead Letter Line: the dead-letter listeners, marked in their colour */
