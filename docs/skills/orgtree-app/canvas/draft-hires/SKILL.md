@@ -17,7 +17,7 @@ The dashed draft says uninitialized because no live seat exists yet. It shows th
 | Charter presets | Named source files shown as removable cards; their text is prepended to manual charter text only when finalized. Loading errors have Retry; a bounded preset warns how much was omitted. |
 | Grant bar | The draft's allocation editor. Opening grant comes from draft/org defaults, not a universal fixed number. It is bounded by the org cap or available parent room when hire cascade is off. |
 | Permission gear | Opens Draft permissions; Apply stores choices in the draft, Cancel leaves them unapplied. Neither creates a seat. |
-| Hire / Cancel | Submit the proposed seat, or abandon the draft. Escape cancels; submission can still fail the engine's current checks. |
+| Hire / Cancel | Submit the proposed seat, or abandon the draft. Escape cancels; submission can still fail the engine's current checks. After Hire the draft stays where it is, greyed, its tag reading HIRING…, and takes no input until the new card arrives; the card then takes its exact place without moving, and the camera walks to its desk as before. A refused hire returns the draft to normal with its fields kept, and says why. |
 
 ## Draft permissions
 

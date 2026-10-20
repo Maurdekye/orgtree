@@ -757,6 +757,19 @@ desk shows the user as the @user mention chip, user 13:50Z). The full list of ru
   `user_watch_register`, `user_registration_remove`, `user_queue_join`, `user_queue_leave`,
   `user_job_ack`. `slot_release`, `slot_unqueue agent=user`, `set_event_listeners` and
   `fire_project_event` accept the user's rows.
+- **One of each, changed in place.** The user keeps one listener, one watch and one queue place per
+  project. Registering again changes that dog rather than refusing (docket
+  `slots-tab-header-hold-n-slots-button-with-number`, user 16:39Z-16:43Z): `user_listener_register`
+  with the other `once` switches the listener (the same dog, its place and fire count kept);
+  `user_watch_register` with another count updates the watch (`run.above` reset, so it fires at once
+  if that many are already armed); `user_queue_join` with another batch updates `memo.batch` (its place
+  in the round-robin and any job held kept; a raised batch hands a waiting job at once, a lowered one
+  reclaims nothing). The same value changes nothing (`updated: false`).
+- **The desk's controls** sit in each tab's header row, left of the pin / pop-out / modal buttons, and
+  act at once (user 16:35Z-16:58Z): Slots "Hold N slots" (N from 1 to the total less what the user
+  holds or waits for), Mail "Join mail queue / twice / N times" on every folder, Listeners one
+  "Register…" panel. The Listeners tab has its own pin / pop-out / modal (panel kind
+  `project-listeners`), which "Open › Listeners" opens too while the event listeners are on.
 - **Fail closed, and count.** Inner joins on `ot.agents` hide user rows from the runtime (arm,
   pause, halt, reclaim, idle checkup: a user hold lasts until released, across a restart). Every
   query that counts or orders reads them with a LEFT JOIN: slot capacity and grant, the FIFO line,
@@ -768,4 +781,5 @@ desk shows the user as the @user mention chip, user 13:50Z). The full list of ru
   the completion record; the ending is recorded with a null `agent_id`).
 - **Tests.** Rig proofs `project-user-slots.mjs`, `project-user-listeners.mjs`,
   `project-user-queue.mjs`; renderer `usermention`, `userslots`, `userlisteners`, `usermailqueue`,
-  `userjobs`, `userlinks`.
+  `userjobs`, `userlinks`, `usermailheader`, `registermenu`, `listenerspanel`; captures with
+  `PROJECTNODE_VISUAL_ONLY=headercontrols`.

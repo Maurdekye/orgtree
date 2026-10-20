@@ -7,6 +7,23 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Desk header controls, user 2026-10-20 16:35Z-16:58Z:** "put it in the header to the left of
+the pin / pop / modal buttons, and add a number input next to it default at 1. make the button
+say "Hold 1 slot" or "Hold 2 slots" ... clicking the button holds the slots immediately"
+(waiting requests count as held, 16:36Z "yes, thats fine"); the mail queue's button "in the same
+way": "Join mail queue", "Join mail queue twice", "Join mail queue 3 times" ..., "it can be
+changed after and pressed again to update the batch size"; the Listeners screen gets pin / pop /
+modal and "one menu button in the same row as those buttons: "Register..."" with a one-time row,
+a continuous row and "Register watcher for N listeners", greyed as registered, reading "Watch for
+N listeners" or "Switch to …"; the old help text in tooltips; "Open > Listeners" in a project's
+menu when enabled (16:58Z; a window like Slots, coordinator 17:03Z); "restyle it to its liking"
+(16:51Z). Registering again changes the user's registration in place. See
+[project nodes](PROJECT-NODES.md).
+
+**A canvas hire keeps its draft, user 2026-10-20 16:45Z:** "after clicking hire, dont remove the
+unintiialized node: grey it out slightly until the new hire appears, and then replace it on the
+canvas in-place, without animating its movement". A refused hire restores the draft as it was.
+
 **Automatic cheap compaction default, user 2026-10-20 12:24Z; coordinator
 precedence clarification:** new organizations and fresh installations default
 to On at the existing 25% occupancy. An explicitly saved app default still

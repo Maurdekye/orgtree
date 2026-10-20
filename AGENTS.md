@@ -705,9 +705,47 @@
   toggle. [decided: user 2026-10-20 13:03Z-13:22Z + 13:50Z, coordinator
   13:30Z; verified: `domain/{user_regs,slots,listeners,projects}.rs`,
   `domain/ops/user_regs.rs`, `migrations/0046_user_primitives.sql`,
-  `canvas/{usermention,userdialogs,slotsdesk,listenersdesk,maillisteners,mail,
-  jobackpane,jobacks}.tsx`, rig `project-user-{slots,listeners,queue}.mjs`,
+  `canvas/{usermention,deskcount,registermenu,mailqueuejoin,listenerspanel,
+  slotsdesk,listenersdesk,maillisteners,mail,jobackpane,jobacks}.tsx`, rig
+  `project-user-{slots,listeners,queue}.mjs`,
   `user{mention,slots,listeners,mailqueue,jobs,links}.test.tsx`; 2026-10-20]
+- Desk header controls (USER 2026-10-20 16:35Z-16:58Z; "restyle it to its
+  liking" 16:51Z): each project desk tab's header row ends with its controls,
+  left of the pin / pop-out / modal corner, and they act at once (no dialog;
+  the old dialogs' help text is in the tooltips). Slots: "Hold 1 slot / Hold N
+  slots", N from 1 to the total less what the user holds or waits for. Mail,
+  on every folder: "Join mail queue / twice / N times", N the batch, 1 to
+  `MAX_QUEUE_BATCH` (20). Listeners: one "Register…" panel (one-time,
+  continuous, watcher for N). Registering again CHANGES the user's dog in place
+  (`domain/ops/user_regs.rs` `existing_dog`): the other `once` switches the
+  listener, another watch count resets `run.above` and re-evaluates, another
+  batch updates `memo.batch` and re-runs the queue; the same value changes
+  nothing (`updated: false`). Number and button are one `DeskCount`
+  (`canvas/deskcount.tsx`). The Mail folder strip ends with host controls
+  (`InboxView` `folderTools`): the folders are `.mail-folders > button`, so a
+  test or style meaning the folders needs the child selector. The Register
+  panel portals into the surface's overlay root (`useOverlayRoot`,
+  `useSurfaceDocument`, as the context menu does), so it works in pinned and
+  popped-out windows. Listeners has its own panel kind `project-listeners`
+  (`canvas/listenerspanel.tsx`, OrgCanvas `projectListenersId`); "Open ›
+  Listeners" (while the setting is on) and the card's Listeners shortcut open
+  it, like Slots (coordinator 17:03Z). [decided: user 2026-10-20
+  16:35Z-16:58Z, coordinator 16:36Z-17:03Z; verified:
+  `canvas/{deskcount,registermenu,mailqueuejoin,listenerspanel,slotsdesk,
+  listenersdesk,panelcorner,projectdesk,agentmenu,projectcard}.tsx`,
+  `domain/ops/user_regs.rs`, rig `project-user-{listeners,queue}.mjs`,
+  `{userslots,usermailheader,registermenu,listenerspanel}.test.tsx`; 2026-10-20]
+- A canvas hire keeps its draft until the card arrives (USER 2026-10-20
+  16:45Z): after Hire the draft stays, greyed (`draft-pending`, tag "hiring…")
+  and inert, and the new card takes its exact position with no movement
+  (`OrgCanvas` `pendingHire`; the swap is a layout effect, so no frame shows
+  both). The feed can beat the hire's response: the hired name stands for the
+  card unless a card had that name at Hire, and a response that comes after
+  its card still records the hire (toast with undo, the walk to its desk).
+  React 18 has no boolean `inert` prop (it warns and drops it): set the
+  attribute with `toggleAttribute('inert', …)` in a layout effect, as
+  `AgentDeskPanel` does. [decided: user 2026-10-20 16:45Z; verified:
+  `canvas/{OrgCanvas,cards}.tsx`, `tests/pendinghire.test.tsx`; 2026-10-20]
 - Project desk history (migration 0040, see
   [PROJECT-NODES](docs/rust-engine/PROJECT-NODES.md)): `ot.project_fires`
   (fired events and listener watches reaching their count, with who
