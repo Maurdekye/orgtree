@@ -9,7 +9,7 @@ export default async function(rig){
  const agent=rig.one(`SELECT id FROM ot.agents WHERE org_id=${org} AND name='boss'`).id
  rig.exec(`INSERT INTO ot.documents(uid,org_id,agent_id,node_name,title,body,at,viewed_at)
    SELECT 'opening-'||n,${org},${agent},'boss','Synthetic presentation '||n,'body '||n,
-     '2026-10-01'::timestamptz+n*interval '1 minute','2026-10-01'::timestamptz+n*interval '1 minute'
+     '2026-10-01T00:00:00Z'::timestamptz+n*interval '1 minute','2026-10-01T00:00:00Z'::timestamptz+n*interval '1 minute'
    FROM generate_series(1,130) n;
    UPDATE ot.documents SET viewed_at=NULL WHERE uid='opening-3';
    UPDATE ot.documents SET at='2026-10-20' WHERE uid='opening-4';`)
