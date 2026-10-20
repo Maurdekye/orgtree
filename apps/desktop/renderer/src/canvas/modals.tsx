@@ -237,7 +237,7 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
     }).catch(()=>{})
     return ()=>{live=false}
   },[slug,dog.kind,leaseKey,op,route?.slotLeases])
-  const description = watchdogDescription(dog, dogs, slotLease?.key===leaseKey?slotLease.value:undefined)
+  const description = watchdogDescription(dog.kind === 'websocket' ? {...dog,notify_on_connect:connectNotify} : dog, dogs, slotLease?.key===leaseKey?slotLease.value:undefined)
   const act = (a: 'pause' | 'resume' | 'remove') =>
     watchdogAction(slug, dog.id, a)
       .then((r) => { toast([`${dog.name}: ${r.state}`]); if (a === 'remove') close() })

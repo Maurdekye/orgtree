@@ -24,6 +24,7 @@ app.whenReady().then(async()=>{
      return {checked:toggle.checked,request:window.lastConnectRequest??null,visible:r.top>=0&&r.bottom<=innerHeight,text:document.body.innerText}
     })()`)
     assert.equal(seen.checked,enabled);assert.equal(seen.visible,true);assert.match(seen.text,/server messages still follow the pattern/)
+    assert.match(seen.text,new RegExp(`Orgtree connection events: ${enabled?'on':'off'}`))
     if(enabled)assert.equal(seen.request.notify_on_connect,true)
     await win.webContents.executeJavaScript(settle)
     const file=`notify-${enabled?'on':'off'}-${theme}.png`,frame=await win.webContents.capturePage();assert.equal(frame.isEmpty(),false)
