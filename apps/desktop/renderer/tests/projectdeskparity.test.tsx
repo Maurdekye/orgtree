@@ -449,15 +449,29 @@ test('G17 using a project desk makes it the last desk, and its chrome stays neut
   assert.equal(buttonAccent('opus'), 'var(--prov-claude)', 'positive control: an agent wears its provider')
 })
 
-test('G8 the message box grows with the draft up to about eight rows, as the agent composer does', async (t) => {
+test('G8 the message box grows thirty lines beyond its base, scrolls at the cap and shrinks with the draft', async (t) => {
   serve(t); forgetDrafts(t)
   const { el } = await deskView(t, project('website', [agent('dev1')]), { bare: true })
   const box = composerBox(el)
-  Object.defineProperty(box, 'scrollHeight', { configurable: true, get: () => box.value.length > 40 ? 300 : 44 })
-  await typeInto(box, 'a long message '.repeat(10))
-  assert.equal(box.style.height, '160px', 'capped at 160px')
-  await typeInto(box, 'short')
-  assert.equal(box.style.height, '44px', 'and back down with the text')
+  assert.equal(box.rows, 2, 'the composer starts with two rows')
+  box.style.padding = '0px'; box.style.border = '0px'; box.style.boxSizing = 'content-box'
+  const lines = (n: number) => Array.from({ length: n }, (_, i) => `Draft line ${i + 1}`).join('\n')
+  for (const lineHeight of [20, 24]) {
+    box.style.lineHeight = `${lineHeight}px`
+    Object.defineProperty(box, 'scrollHeight', { configurable: true, get: () =>
+      Math.max(Math.max(box.rows, box.value.split('\n').length) * lineHeight, parseFloat(box.style.height) || 0) })
+    await typeInto(box, lines(10))
+    assert.equal(parseFloat(box.style.height) / lineHeight, 10, 'draft grows by rendered lines at either font scale')
+    assert.equal(box.style.overflowY, 'hidden')
+    await typeInto(box, lines(box.rows + 30))
+    assert.equal(parseFloat(box.style.height) / lineHeight - box.rows, 30, 'thirty extra lines fit')
+    await typeInto(box, lines(box.rows + 45))
+    assert.equal(parseFloat(box.style.height) / lineHeight - box.rows, 30, 'longer drafts stop at the line cap')
+    assert.equal(box.style.overflowY, 'auto', 'text beyond the cap scrolls inside')
+    await typeInto(box, 'short')
+    assert.equal(parseFloat(box.style.height) / lineHeight, box.rows, 'deleting restores the base height')
+    assert.equal(box.style.overflowY, 'hidden')
+  }
 })
 
 test('G13 the canvas desk\'s message box takes the caret when it opens; a window does not', async (t) => {
