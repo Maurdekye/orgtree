@@ -37,6 +37,18 @@ There is **no `index` parameter**: passing index is refused. Ordinary restoratio
 
 ## Lifecycle and refusals
 
+Projects can also be restored. `target` chooses a live destination, and
+`hire_type: "superior"` inserts the project above the live target at that
+target's old position. Authority and cycle checks apply to either kind.
+Without explicit placement, a project retains its original live parent;
+if that parent is retired, choose a live destination explicitly. The user
+may restore at the root; an agent cannot create a root peer.
+Project identity and saved policy remain, its seat costs zero, and its
+retired members stay retired. Model, account, grant and agent scope fields
+are refused on projects. A live project with placement/name overrides is
+refused with directions to use move/reorder/rename; a plain live restore
+remains a no-op.
+
 Rehire makes the selected identity live, clears its halt and reserves its current seat/grant. It resumes watchdogs paused by archival and requests a runtime wake; pending mail, assignment or kickoff supplies the work. It does not resurrect the entire former subtree. A recoverable conversation is retained; an unrecoverable session starts fresh with a handoff and saved history. Do not promise a provider cache hit or miss from restoration alone.
 
 Invalid authority, destination inside the archived subtree, insufficient credits, unknown/incompatible account, unavailable provider/tier and scope above the caller are refused. A top-level caller may restore descendants under its team, not create a top-level peer with `target: "user"`. Superior restoration above a top-level target remains user-only.

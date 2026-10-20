@@ -5,6 +5,14 @@
   cache receipts from provider-expiry promises. [verified: `src/harnesses.rs`,
   `src/runtime/{actor,claude,codex,agy,muse,opencode}.rs`; 2026-10-20]
 
+- Node placement accepts projects for descendant promotion and explicit restore
+  placement; project policy/resources stay bound to identity and seat cost stays
+  zero. Runtime/turn controls refuse containers before actor/state changes.
+  `swap` remains agent-only by user ruling 2026-10-20 07:23Z. See
+  [project placement](docs/rust-engine/PROJECT-NODES.md#placement-and-runtime-capabilities).
+  [decided: user 2026-10-20; verified: `domain/{ops,node_kind}.rs`,
+  `http/nodes.rs`, `tools/{control,compaction}.rs`]
+
 - WebSocket watchdogs (`kind=websocket`, `orgtree_watchdog action=send`) keep a
   connection per dog (`src/ws`). Their credentials (headers, bearer, Basic,
   query, secret hellos) never reach a list, card, mail, transcript or log: the

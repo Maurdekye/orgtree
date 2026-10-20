@@ -7,6 +7,10 @@ Up: [orgtree-runtime](../SKILL.md)
 
 # orgtree_cheap_compact
 
+Projects and other nodes without an agent runtime are refused before state changes.
+Name the actual agent members to control a project's team. A mixed halt/unhalt
+batch is validated in full before any target changes.
+
 Use this to replace a descendant's current conversation context with a fresh session when a handoff summary is enough. Prepare durable breadcrumbs and docket progress first. This operation loses the old session's full conversational context; it cannot transfer an in-flight external process by summarizing it.
 
 ## Parameter and authority

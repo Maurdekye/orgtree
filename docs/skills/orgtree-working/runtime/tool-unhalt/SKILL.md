@@ -7,6 +7,10 @@ Up: [orgtree-runtime](../SKILL.md)
 
 # orgtree_unhalt
 
+Projects and other nodes without an agent runtime are refused before state changes.
+Name the actual agent members to control a project's team. A mixed halt/unhalt
+batch is validated in full before any target changes.
+
 Release an agent's [persistent halt](../tool-halt/SKILL.md) when it may run again. The runtime clears its halt and checks for waiting waking mail. Unhalting alone does not supply a task.
 
 ## Parameters

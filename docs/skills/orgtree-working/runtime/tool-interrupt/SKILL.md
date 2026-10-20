@@ -7,6 +7,10 @@ Up: [orgtree-runtime](../SKILL.md)
 
 # orgtree_interrupt
 
+Projects and other nodes without an agent runtime are refused before state changes.
+Name the actual agent members to control a project's team. A mixed halt/unhalt
+batch is validated in full before any target changes.
+
 Use this to ask a descendant's running provider process to interrupt its current turn. The agent remains hired. Waiting waking mail may start a later turn through normal admission. For a continuing stop, use [halt](../tool-halt/SKILL.md). You can also point it at yourself (below).
 
 ## Parameter and authority

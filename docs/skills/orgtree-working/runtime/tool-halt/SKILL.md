@@ -7,6 +7,10 @@ Up: [orgtree-runtime](../SKILL.md)
 
 # orgtree_halt
 
+Projects and other nodes without an agent runtime are refused before state changes.
+Name the actual agent members to control a project's team. A mixed halt/unhalt
+batch is validated in full before any target changes.
+
 Halt an agent when it must stay stopped until explicitly released. The runtime cancels its slot wait, ends its process and active turn, and persists the halt. Its mail waits. Halting retains the agent's record, session and seat; it does not retire it or free its hiring credits.
 
 ## Parameters

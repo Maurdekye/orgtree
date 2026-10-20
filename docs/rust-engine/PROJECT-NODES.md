@@ -1,5 +1,28 @@
 # Project nodes (4.4.0)
 
+## Placement and runtime capabilities
+
+Movement, sibling reorder, rename, superior insertion and retirement operate on
+node identities. `self_subjugate` can promote a live descendant project into the
+caller's structural position: the project keeps its policy and resources, its
+own member branches stay put, and the caller moves beneath it. Project seats
+remain zero; grants remain settled member-stake mirrors. Actual agent grants
+along the old extraction path release the extracted stake, preserving free
+credits and the external allocation. Reporting still skips projects.
+
+Project `rehire` honours explicit target/parent and superior placement with the
+same live-destination, authority and cycle admission as agent restoration. It
+keeps identity/policy and leaves retired members retired. Agent-only model,
+account, grant and scope overrides refuse. A live project refuses placement
+overrides instead of silently ignoring them; use move/reorder/rename.
+
+Direct interrupt, halt/unhalt, compaction, process start/stop, unstick and
+continue-on refuse nodes without an agent runtime before actor creation or
+state mutation. Batch halt validates every target before acting. To stop a
+project's team, address its actual agents. `swap` deliberately remains an
+agent-only seat operation (user 2026-10-20 07:23Z); reorder bunched projects
+with move/reorder, not swap. Proof: `tools/rig/proofs/node-placement.mjs`.
+
 Slot claims accept `slots=N` (1–64, default 1, at most project capacity).
 Migration 0039 adds `slot_leases.slot_count`, defaulting old leases to one.
 Admission holds the project row lock, subtracts the sum of active lease

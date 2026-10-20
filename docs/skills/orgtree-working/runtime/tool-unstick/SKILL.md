@@ -7,6 +7,10 @@ Up: [orgtree-runtime](../SKILL.md)
 
 # orgtree_unstick
 
+Projects and other nodes without an agent runtime are refused before state changes.
+Name the actual agent members to control a project's team. A mixed halt/unhalt
+batch is validated in full before any target changes.
+
 Use this when a descendant's stored freeze should be released, such as after its usage reset or after establishing that the hold no longer applies. This is a manual release and does not wait for the freeze's recorded reset horizon.
 
 ## Parameter and permission

@@ -282,6 +282,11 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Node placement (user 2026-10-20 07:20Z/07:23Z): descendant promotion accepts
+projects, project restore honours explicit placement, and direct runtime
+controls clearly refuse containers. Seat swap remains agent-only. See
+[project nodes](PROJECT-NODES.md#placement-and-runtime-capabilities).
+
 Tray list (user 2026-10-19 18:04Z,4.4.0): at most ten org rows visible,
 most recently opened first, scrolling for the complete inventory and fresh-open
 position at the top. Recency persists independently of startup window membership.

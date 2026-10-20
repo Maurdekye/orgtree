@@ -631,7 +631,7 @@ fn build_tool_read_scratch() -> Value {
 fn build_tool_interrupt() -> Value {
     tool(
         "orgtree_interrupt",
-        "Stop a descendant's turn with runtime permission, or your own turn without it. Self restart=true starts exactly one new turn using placement rules. Self-interrupt is refused while your CLI runs background work. Waiting mail can start a later turn; this does not retire anyone.",
+        "Agents only; projects have no runtime. Stop a descendant's turn with runtime permission, or your own turn without it. Self restart=true starts exactly one new turn using placement rules. Self-interrupt is refused while your CLI runs background work. Waiting mail can start a later turn; this does not retire anyone.",
         json!({
             "node": { "type": "string" },
             "restart": { "type": "boolean", "description": "yourself only: start one new turn at once" },
@@ -645,7 +645,7 @@ fn build_tool_interrupt() -> Value {
 fn build_tool_halt() -> Value {
     tool(
         "orgtree_halt",
-        "Halt agents below you until unhalt: stop their processes, preserve waiting mail and suppress wakes.",
+        "Agents only; projects have no runtime. Halt agents below you until unhalt: stop their processes, preserve waiting mail and suppress wakes.",
         json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
         &[],
     )
@@ -656,7 +656,7 @@ fn build_tool_halt() -> Value {
 fn build_tool_unhalt() -> Value {
     tool(
         "orgtree_unhalt",
-        "Unhalt agents below you; waiting mail starts their next turn.",
+        "Agents only; projects have no runtime. Unhalt agents below you; waiting mail starts their next turn.",
         json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
         &[],
     )
@@ -667,7 +667,7 @@ fn build_tool_unhalt() -> Value {
 fn build_tool_unstick() -> Value {
     tool(
         "orgtree_unstick",
-        "Release a usage-limit freeze on an agent below you and let it continue.",
+        "Agents only; projects have no runtime. Release a usage-limit freeze on an agent below you and let it continue.",
         json!({ "node": { "type": "string" } }),
         &["node"],
     )
@@ -678,7 +678,7 @@ fn build_tool_unstick() -> Value {
 fn build_tool_continue_on() -> Value {
     tool(
         "orgtree_continue_on",
-        "Move a frozen agent below you to another account of the same provider and release its freeze.",
+        "Agents only; projects have no runtime. Move a frozen agent below you to another account of the same provider and release its freeze.",
         json!({ "node": { "type": "string" }, "account": { "type": "string" } }),
         &["node", "account"],
     )
@@ -827,7 +827,7 @@ fn build_tool_project() -> Value {
 fn build_tool_rehire() -> Value {
     tool(
         "orgtree_rehire",
-        "Restore a retired agent with its context. Supplied folder list replaces the old list; omitted fields retain saved values. kickoff sends first mail. Credit and placement limits still apply.",
+        "Restore a retired agent or project. target/hire_type place either kind; projects retain policy, cost no seat and refuse model/scope/grant fields. For agents, supplied folders replace the old list; omitted fields retain saved values. kickoff sends first mail. Credit and authority limits still apply.",
         merge(
             json!({ "node": { "type": "string" }, "grant": { "type": "integer" }, "target": { "type": "string" },
                     "hire_type": { "type": "string", "enum": ["subordinate", "superior"] }, "name": { "type": "string" },
@@ -920,13 +920,13 @@ fn build_tool_reallocate() -> Value {
 #[inline(never)]
 #[nolog]
 fn build_tool_cheap_compact() -> Value {
-    tool("orgtree_cheap_compact", "Restart an agent below you on a fresh session with a summary of the old one.", json!({ "node": { "type": "string" } }), &["node"])
+    tool("orgtree_cheap_compact", "Agents only; projects have no runtime. Restart an agent below you on a fresh session with a summary of the old one.", json!({ "node": { "type": "string" } }), &["node"])
 }
 
 #[inline(never)]
 #[nolog]
 fn build_tool_compact() -> Value {
-    tool("orgtree_compact", "Check native normal-compaction capability or request compaction for one agent below you. Team scope required; no self, bulk or cheap fallback. Returns node, supported, started and reason. started:true means admitted, never finished. Capability has no side effects; agent calls do not establish user contact.", json!({
+    tool("orgtree_compact", "Agents only; projects have no runtime. Check native normal-compaction capability or request compaction for one agent below you. Team scope required; no self, bulk or cheap fallback. Returns node, supported, started and reason. started:true means admitted, never finished. Capability has no side effects; agent calls do not establish user contact.", json!({
         "node": { "type": "string" },
         "action": { "type": "string", "enum": ["capability", "compact"], "default": "compact" }
     }), &["node"])
@@ -1119,7 +1119,7 @@ fn build_tool_swap() -> Value {
 fn build_tool_self_subjugate() -> Value {
     tool(
         "orgtree_self_subjugate",
-        "Step down under one live descendant: target takes your seat under your superior, keeps its team, and you become its report with the rest of yours.",
+        "Step down under a live descendant node: target takes your structural position and keeps its team; you move beneath it with the rest of yours. Projects retain policy and zero seat cost; the nearest agent remains the reporting superior. External allocation does not increase.",
         json!({ "target": { "type": "string" } }),
         &["target"],
     )

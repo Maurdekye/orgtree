@@ -7,6 +7,10 @@ Up: [orgtree-runtime](../SKILL.md)
 
 # orgtree_compact
 
+Projects and other nodes without an agent runtime are refused before state changes.
+Name the actual agent members to control a project's team. A mixed halt/unhalt
+batch is validated in full before any target changes.
+
 Ask the target's harness to compact its existing conversation. Use capability first
 when support is uncertain. This is separate from [cheap compact](../tool-cheap-compact/SKILL.md),
 which replaces the session with a summary handoff. There is no automatic fallback.

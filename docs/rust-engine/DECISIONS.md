@@ -7,6 +7,13 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Node placement, user 2026-10-20 07:20Z, narrowed 07:23Z:** movement and
+manipulation apply generically where meaningful. `self_subjugate` accepts
+project descendants; project restoration honours placement. Containers retain
+policy/resources and have no runtime controls or seat cost. The earlier
+agent-only `swap` decision remains: no project swap or new swap UI. Project
+bunch ordering uses existing move/reorder. See [project nodes](PROJECT-NODES.md).
+
 **Immediate desk model tokens, user 2026-10-19 21:34Z:** clicking a model chip
 switches at once with the default account and latest version; remove the desk's
 Account/Version/Apply row. Detailed account/version choices remain in agent

@@ -6,7 +6,9 @@ Up: [orgtree-team](../SKILL.md)
 
 # orgtree_self_subjugate
 
-Requires `team`. Its sole required parameter, `target`, names **one of your live descendants**, not necessarily a direct report. It is the caller's own act: the descendant takes the caller's former place under its superior, keeps its own team, and the caller becomes its report with the rest of the caller's subtree. Self, peers, superiors, unrelated and non-live targets are refused.
+Requires `team`. Its sole required parameter, `target`, names **one of your live descendant nodes**, agent or project, not necessarily a direct report. It is the caller's own act: the descendant takes the caller's former structural position, keeps its own team, and the caller moves beneath it with the rest of the caller's subtree. Self, peers, superiors, unrelated and non-live targets are refused.
+
+A project remains a container: its identity, Summary, settings, listeners, queues, slot leases and audiences stay with it. Its seat costs zero and its grant mirrors its members rather than allocating a new budget. It does not become an agent manager; reports still go to the nearest agent ancestor. Every agent along the old funding path releases the extracted stake, preserving its free credits. Agent targets retain the existing seat and scope rules below.
 
 This also works for a top-level caller: the promoted descendant becomes top-level. It is not permission to promote arbitrary peers, create credits or grant broader scope. The promoted agent receives the caller's configured scope; effective rights are still ancestor-clamped. Its own identity, tier and team remain. Unlike [swap](../tool-swap/SKILL.md), this does not exchange two descendants' seats/grants/teams symmetrically.
 
