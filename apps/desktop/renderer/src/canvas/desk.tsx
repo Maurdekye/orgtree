@@ -110,6 +110,7 @@ import { ConfirmModal, PilePicker } from './modals'
 import { InboxView, RetiredFold } from './mail'
 import { DeskJumpCards } from './deskjumpcards'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs } from './deskshell'
+import { useDeskMemory } from './desktabs'
 import { AskCard } from './asks'
 import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems, teamItems } from './docket'
@@ -2009,6 +2010,9 @@ export function SpendBadge({ node }: { node: SpendNode }) {
 // that has already been answered
 const SENDMODE_MS = 6000
 
+/** the agent desk's tabs, in strip order; Team shows only with live reports */
+const AGENT_DESK_TABS = ['chat', 'inbox', 'docket', 'presented', 'team'] as const
+
 /** Where the event a context menu was raised on is RIGHT NOW.
  *
  *  The transcript re-projects itself constantly, and a row that is re-keyed by
@@ -2506,7 +2510,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // remains authoritative if another desk wins the race.
   const [processToggleBusy, setProcessToggleBusy] = useState(false)
   const teamCount = liveTeamCount(map, node.id)
-  const [selectedView, setView] = useState<'chat' | 'inbox' | 'docket' | 'presented' | 'team'>('chat')
+  // the tab last picked on this desk (desktabs.ts, user 2026-10-20 06:22Z)
+  const [selectedView, setView] = useDeskMemory(slug, node.id, 'tab', 'chat', AGENT_DESK_TABS)
   const view = selectedView === 'team' && teamCount === 0 ? 'chat' : selectedView
   useEffect(() => {
     if (selectedView === 'team' && teamCount === 0) setView('chat')

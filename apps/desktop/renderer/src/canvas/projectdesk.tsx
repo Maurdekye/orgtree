@@ -62,10 +62,14 @@ import { listenerCards, mailListenerState, mailQueueCard, projectListenerState, 
 import { MailListenersView } from './maillisteners'
 import { DeskJumpCards } from './deskjumpcards'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs } from './deskshell'
+import { useDeskMemory } from './desktabs'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
 /** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
 type Tab = typeof PROJECT_DESK_TABS[number] | 'slots' | 'dead' | 'listeners'
+const ALL_TABS: readonly Tab[] = [...PROJECT_DESK_TABS, 'slots', 'dead', 'listeners']
+/** the Mail tab's folders (ProjectInbox) */
+const MAIL_FOLDERS = ['inbox', 'sent', 'listeners'] as const
 
 export interface ProjectDeskProps {
   node: CanvasNode
@@ -554,13 +558,15 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
  *  user's own waiting mail back, as the agent desk's inbox tab does (the
  *  engine's retract takes a project's queued mail the same way). */
 export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, retract = false, collapsible,
-  folderAsk, jumpTo, jumpSeq, onOpenMail }: {
+  folderAsk, onPickFolder, jumpTo, jumpSeq, onOpenMail }: {
   node: CanvasNode; slug: string; tree: TreePayload; map: Map<string, CanvasNode>; op: OpFn; toast: ToastFn
   refs?: RefRoutes
   onJump?: (id: string) => void
   retract?: boolean
   collapsible?: boolean
   folderAsk?: { folder: string; seq: number } | null
+  /** a folder picked in the folder strip (the desk remembers it) */
+  onPickFolder?: (folder: string) => void
   jumpTo?: string | null
   jumpSeq?: number | null
   /** the listeners folder's link to a held job */
@@ -586,6 +592,7 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
         // rethrow: InboxView's optimistic hide rolls back on rejection
         .catch((e: Error) => { toast([`error: ${e.message}`]); throw e }) : undefined}
       jumpTo={jumpTo ?? null} jumpSeq={jumpSeq ?? null}
+      onFolderPick={onPickFolder}
       extraFolders={[{ id: 'listeners', count: mailListeners.armed.length,
         render: (rows) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
           rows={rows} ack={queueAckMode(node)} onOpenMail={onOpenMail} /> }]}
@@ -610,11 +617,11 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const surfaceRoutes = useAgentSurfaceRoutes()
   const onConfig = configProp
     ?? (surfaceRoutes?.settings ? () => surfaceRoutes.settings?.(node.id) : undefined)
-  const [view, setView] = useState<Tab>('desk')
+  // the tab last picked on this desk, and the Mail folder last picked in its
+  // folder strip (desktabs.ts, user 2026-10-20 06:22Z)
+  const [view, setView] = useDeskMemory<Tab>(slug, node.id, 'tab', 'desk', ALL_TABS)
+  const [mailFolder, setMailFolder] = useDeskMemory<string>(slug, node.id, 'mail', 'inbox', MAIL_FOLDERS)
   const teamCount = liveTeamCount(map, node.id)
-  useEffect(() => {
-    if (view === 'team' && teamCount === 0) setView('desk')
-  }, [view, teamCount])
   // the presentations the next message replies to: the agent composer's reply
   // targets (G11), kept with the composer's draft, so closing the desk or a
   // host switching projects (the Attention panel) never mixes them up
@@ -629,7 +636,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   // the desk's drop zone hands files to the composer's upload (G10)
   const dropAttach = useRef<((file: File) => void) | null>(null)
   // the inbox folder the mail card asks for (user 2026-10-19 19:05Z): a new
-  // seq is a new click; opening the inbox from its tab forgets it
+  // seq is a new click; opening the inbox from its tab forgets it, and the
+  // tab opens the folder last picked in its strip instead (user 2026-10-20)
   const [inboxAsk, setInboxAsk] = useState<{ folder: string; seq: number } | null>(null)
   // a mail the listeners folder links to (a held job, user 2026-10-19 19:30Z)
   const [inboxJump, setInboxJump] = useState<{ id: string; seq: number } | null>(null)
@@ -700,6 +708,13 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : []), 'listeners' as const]
     .filter(v => v !== 'team' || teamCount > 0)
   const shown: Tab = tabs.includes(view) ? view : 'desk'
+  // A TAB THE DESK DOES NOT OFFER (no team, slots, dead letters or listeners
+  // any more, or remembered from an earlier visit) gives way to Summary, and
+  // the desk keeps Summary when the tab comes back: an open desk never
+  // changes tab by itself. The agent desk's Team rule, for every tab.
+  useEffect(() => {
+    if (shown !== view) setView('desk')
+  }, [shown, view])
   const count = (tab: Tab) => tab === 'team' ? teamCount : tab === 'inbox' ? node.mail_pending ?? 0
     // the agent badge's rule: actionable tickets owned, here by its agents
     : tab === 'docket' ? actionableTeamCount(mine)
@@ -784,7 +799,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {shown === 'inbox' && <div className="desk-tabpanel">
         <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
         <ProjectInbox node={node} slug={slug} tree={tree} map={map} op={op} toast={toast} refs={refs} onJump={onJump}
-          retract jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq ?? null} folderAsk={inboxAsk}
+          retract jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq ?? null}
+          // a card's folder, else the one last picked (seq 0 is never a click)
+          folderAsk={inboxAsk ?? { folder: mailFolder, seq: 0 }} onPickFolder={setMailFolder}
           onOpenMail={(id) => { setInboxJump((j) => ({ id, seq: (j?.seq ?? 0) + 1 })); openInbox('inbox') }} />
       </div>}
       {shown === 'docket' && <div className="desk-tabpanel">

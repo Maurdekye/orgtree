@@ -16,6 +16,7 @@ import { closeSavedWindow, restoredAgent, restoredAgentGallery, restoredWindows,
 import { revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
+import { moveDeskMemory } from './desktabs'
 import { treePresence, sweepAbsentDrafts, sweepAbsentPreferences } from '../treepresence'
 import { treeSelections } from '../treeselection'
 import { buttonAgentOf, onButtonAgent, setButtonAgent } from '../buttoncolours'
@@ -1164,6 +1165,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     renameConvo(slug, from, to)
     migrateClientNodeState(slug, from, to)
     renameDrafts(slug, from, to)
+    moveDeskMemory(slug, from, to)
     window.dispatchEvent(new window.CustomEvent('orgtree:desk-rename', { detail: { slug, from, to } }))
     setConfigId((v) => v === from ? to : v)
     setLineageId((v) => v === from ? to : v)

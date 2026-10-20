@@ -1429,6 +1429,10 @@ interface InboxViewProps {
   /** the host asking for a folder (the project's mail card opening its
    *  listeners): a new `seq` is a new request; the same one again is not */
   folderAsk?: { folder: string; seq: number } | null
+  /** a folder the reader picked in the folder strip, for a host that
+   *  remembers it (the project desk's Mail tab, user 2026-10-20 06:22Z); a
+   *  folder a jump or a host request opened is not a pick */
+  onFolderPick?: (folder: string) => void
 }
 
 /** A folder the host draws in the mail pane: `id` is its name on the folder
@@ -1504,7 +1508,7 @@ export function QueueChip({ q, onFocusAgent, hasAgent, tierOf }: {
 }
 
 export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, tier, onFocusAgent, toast,
-  tierOf, hasAgent, refs, collapsible, projectMail, extraFolders, folderAsk }: InboxViewProps) {
+  tierOf, hasAgent, refs, collapsible, projectMail, extraFolders, folderAsk, onFolderPick }: InboxViewProps) {
   const [chosen, setFolder] = useState(() => folderAsk?.folder ?? 'inbox')
   // a new request from the host opens its folder (a repoll is the same request)
   useEffect(() => { if (folderAsk) setFolder(folderAsk.folder) }, [folderAsk?.folder, folderAsk?.seq])
@@ -1601,7 +1605,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
   return (
     <div className="mailwrap" ref={mailbox.ref} onFocusCapture={mailbox.onFocus}>
       <TransferPanel slug={slug} agent={nid} />
-      <MailFolders folder={folder} setFolder={setFolder}
+      <MailFolders folder={folder} setFolder={(f) => { setFolder(f); onFolderPick?.(f) }}
         unread={unreadCount === undefined ? pending.length : Math.max(0, unreadCount
           - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier}
         folders={extraFolders?.length ? ['inbox', 'sent', ...extraFolders.map((f) => f.id)] : undefined}
