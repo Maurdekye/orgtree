@@ -96,6 +96,18 @@ const setText = (box: HTMLTextAreaElement, text: string) => {
 
 /* ─── §1 no listener: the note, and the engine's note after a send ──────── */
 
+test('project mail warning shares the cheap-compact warning shape and suggests broadcast', async t => {
+  const el = await desk(t)
+  const n = note(el)!
+  assert.ok(n, 'the existing note is present')
+  assert.equal(n.classList.contains('cache-send-warning') && n.classList.contains('compact'), true,
+    'same compact warning style as CacheForecastWarning')
+  assert.equal(el.querySelectorAll('.inbox-no-listeners').length, 1, 'one note above the composer')
+  assert.ok(n.querySelector('svg'), 'same warning icon')
+  assert.match(n.textContent ?? '', /No mail listeners: mail sent here may not be received by anyone/)
+  assert.match(n.textContent ?? '', /Turn on broadcast \(megaphone\) to send to all project participants/)
+})
+
 test('§1a no fair_queue dog on the project: a note right above the message box warns that nobody may read the mail', async (t) => {
   const el = await desk(t)
   const composer = el.querySelector('.project-composer')
