@@ -23,6 +23,7 @@ export default async function(rig) {
   let first
   try { first = await rig.api('GET', route) } catch(e) { p.check('retired list has a dedicated paged HTTP route',false,String(e)); return p.summary() }
   p.check('first page is 50 with a cursor, no full cohort', first.agents.length===50 && !!first.next_cursor, first.agents.length)
+  p.check('equal or missing last turns retain reverse sibling order',first.agents[0].id==='old-1400' && first.agents[49].id==='old-1351',first.agents.map(a=>a.id))
   const seen = new Set(first.agents.map(a=>a.id)); let cursor=first.next_cursor, pages=1
   while(cursor && pages<35) { const page=await rig.api('GET',route+'&cursor='+encodeURIComponent(cursor)); for(const a of page.agents){if(seen.has(a.id))p.check('no repeated identity',false,a.id);seen.add(a.id)} cursor=page.next_cursor;pages++ }
   p.check('all 1401 appear exactly once over bounded pages',seen.size===1401 && !cursor,{size:seen.size,pages})
@@ -41,6 +42,19 @@ export default async function(rig) {
   p.check('retirement restores the latest turn ordering',(await rig.api('GET',route)).agents[0].id==='old-0001')
   const roots=await rig.api('GET',`/api/orgs/${slug}/retired?parent=`)
   p.check('parent scope excludes another pile',roots.agents.length===0)
+  await rig.op({op:'create_project',name:'project',parent:'boss'})
+  await rig.op({op:'hire',name:'project-old',parent:'project',tier:'sol',grant:0})
+  await rig.op({op:'retire',node:'project-old'})
+  p.check('ordinary pile stays direct-parent scoped',(await rig.api('GET',route+'&q=project-old')).agents.length===0)
+  p.check('desk reports include retired members through live projects',(await rig.api('GET',route+'&reports=true&q=project-old')).agents[0]?.id==='project-old')
+  rig.exec(`UPDATE ot.agents SET name='renamed-retiree' WHERE id=${id}`)
+  p.check('renaming refreshes name search',(await rig.api('GET',route+'&q=renamed-retiree')).agents[0]?.id==='renamed-retiree')
+  rig.exec(`UPDATE ot.agents SET parent_id=NULL WHERE id=${id}`)
+  p.check('moving a retiree removes it from its old pile',(await rig.api('GET',route+'&q=renamed-retiree')).agents.length===0)
+  p.check('moving a retiree puts it in the root pile',(await rig.api('GET',`/api/orgs/${slug}/retired?parent=&q=renamed-retiree`)).agents[0]?.id==='renamed-retiree')
+  let bad=false
+  try{await rig.api('GET',route+'&q=other&cursor='+encodeURIComponent(first.next_cursor))}catch(e){bad=/400/.test(String(e))}
+  p.check('a cursor from a different search is refused',bad)
   rig.exec('ANALYZE ot.retired_picker')
   const plan=explain(`SELECT agent_id FROM ot.retired_picker WHERE org_id=${org} AND parent_key=${boss} ORDER BY touched DESC,sibling_order DESC,agent_id DESC LIMIT 51`)
   p.file('plan.json',plan)

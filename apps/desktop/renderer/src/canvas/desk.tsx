@@ -1900,7 +1900,7 @@ export function HeldAudienceChips({ node, map, slug, toast }: {
  *  only the dogs show. */
 export function DeskReportRow({ node, map, onJump, dogs: deskDogs, org }: {
   org?: string
-  node: Pick<CanvasNode, 'id' | 'children'>
+  node: Pick<CanvasNode, 'id' | 'children' | 'hidden_retired_children'>
   map: Map<string, CanvasNode>
   onJump?: (id: string) => void
   dogs?: { dogs: Watchdog[]; total?: number; org?: string; open: (id: string) => void } | null
@@ -1912,7 +1912,10 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs, org }: {
   const reports = onJump ? downJumpTargets(node.children) : []
   const alive = reports.filter((c) => c.state === 'live')
   const retired = reports.filter((c) => c.state !== 'live')
-  if (!reports.length && !deskDogs) return null
+  const hiddenRetired = (n: Pick<CanvasNode, 'children' | 'hidden_retired_children'>): number =>
+    (n.hidden_retired_children ?? 0) + n.children.filter(c => c.kind === 'project' && c.state === 'live').reduce((sum, c) => sum + hiddenRetired(c), 0)
+  const retiredTotal = retired.length + hiddenRetired(node)
+  if (!reports.length && !retiredTotal && !deskDogs) return null
   const dogs = deskDogs?.dogs ?? []
   const dogTotal = deskDogs?.total ?? dogs.length
   const groupedDogs = dogTotal > WATCHDOG_CARD_LIMIT
@@ -1929,12 +1932,12 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs, org }: {
     <div className="desk-nav">
       <DeskJumpCards ids={cardIds} render={renderCard}>{folded => <>
         {!folded && alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
-        {hideRetired && retired.length > 0 && <>
+        {hideRetired && retiredTotal > 0 && <>
           <button className="desk-nav-chip desk-retired-token" onClick={() => setRetiredMenuOpen(true)}>
-            {retired.length} retired
+            {retiredTotal} retired
           </button>
-          {retiredMenuOpen && <ModalOverPins><PilePicker org={org}
-            pile={{ key: `desk-retired:${node.id}`, parent: node.id, kind: 'a', list: retired.map(c => c.id), front: retired[0]!.id }}
+          {retiredMenuOpen && <ModalOverPins><PilePicker org={org} reports
+            pile={{ key: `desk-retired:${node.id}`, parent: node.id, kind: 'a', list: retired.map(c => c.id), front: retired[0]?.id ?? '', total: retiredTotal }}
             map={map} close={() => setRetiredMenuOpen(false)}
             onPick={id => { setRetiredMenuOpen(false); jump(id) }} /></ModalOverPins>}
         </>}

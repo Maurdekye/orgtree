@@ -3,17 +3,18 @@ import { req } from '../api'
 import type { CanvasNode } from './shared'
 
 export interface RetiredPage { agents: CanvasNode[]; next_cursor: string | null }
-export function getRetiredPage(org: string, parent: string, q = '', cursor = ''): Promise<RetiredPage> {
+export function getRetiredPage(org: string, parent: string, q = '', cursor = '', reports = false): Promise<RetiredPage> {
   const params = new URLSearchParams({ parent, q })
   if (cursor) params.set('cursor', cursor)
+  if (reports) params.set('reports', 'true')
   return req(`/api/orgs/${encodeURIComponent(org)}/retired?${params}`)
 }
 
 /** Modal-local rows, never a tree selection. One request per scroll boundary;
  * changing the search/parent/org invalidates every older reply immediately. */
-export function useRetiredPages(org: string | undefined, parent: string, enabled: boolean) {
+export function useRetiredPages(org: string | undefined, parent: string, enabled: boolean, reports = false) {
   const [query, setQuery] = useState('')
-  const scope = JSON.stringify([org, parent, query.trim(), enabled])
+  const scope = JSON.stringify([org, parent, query.trim(), enabled, reports])
   const current = useRef(scope); current.current = scope
   const pending = useRef<{ scope: string } | null>(null)
   const [page, setPage] = useState({ scope: '', rows: [] as CanvasNode[], next: null as string | null, busy: false, error: '' })
@@ -21,7 +22,7 @@ export function useRetiredPages(org: string | undefined, parent: string, enabled
     if (!org || !enabled || pending.current?.scope === scope) return
     const ticket = { scope }; pending.current = ticket
     setPage(p => ({ scope, rows: cursor && p.scope === scope ? p.rows : [], next: cursor || null, busy: true, error: '' }))
-    getRetiredPage(org, parent, query.trim(), cursor).then(result => {
+    getRetiredPage(org, parent, query.trim(), cursor, reports).then(result => {
       if (current.current !== scope || pending.current !== ticket) return
       setPage(p => ({ scope, rows: cursor ? [...p.rows, ...result.agents.filter(a => !p.rows.some(old => old.id === a.id))] : result.agents,
         next: result.next_cursor, busy: false, error: '' }))

@@ -2061,6 +2061,7 @@ function descendantCount(node: DescendantTree): number {
 // rest wait stacked beneath it. The current front is highlighted.
 interface PilePickerProps {
   org?: string
+  reports?: boolean
   pile: Pile
   map: Map<string, CanvasNode>
   onPick: (nid: string) => void
@@ -2072,11 +2073,11 @@ interface PilePickerProps {
   ready?: boolean
 }
 
-export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, org }: PilePickerProps) {
+export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, org, reports = false }: PilePickerProps) {
   useEsc(close)
   const crowd = pile.kind === 'c'
   const paged = !crowd && !!org
-  const pages = useRetiredPages(org, pile.parent === USER ? '' : pile.parent, paged)
+  const pages = useRetiredPages(org, pile.parent === USER ? '' : pile.parent, paged, reports)
   const rowMap = paged ? new Map(pages.rows.map(n => [n.id, n])) : map
   const rowIds = paged ? pages.rows.map(n => n.id) : ready ? pileOrder(pile.list, map) : []
   const total = pile.total ?? pile.list.length
@@ -2102,7 +2103,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, 
         // ignoring the search. Never silently delete just the loaded matches.
         let cursor = ''
         do {
-          const page = await getRetiredPage(org!, pile.parent === USER ? '' : pile.parent, '', cursor)
+          const page = await getRetiredPage(org!, pile.parent === USER ? '' : pile.parent, '', cursor, reports)
           for (const n of page.agents) await remove(n.id)
           cursor = page.next_cursor ?? ''
         } while (cursor)
