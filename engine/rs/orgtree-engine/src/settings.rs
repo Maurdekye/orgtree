@@ -186,7 +186,7 @@ pub fn cheap_compact(acc: &Value, old: &Value, merge: bool) -> std::result::Resu
     }
     let mut out = Map::new();
     if merge {
-        out.insert("enabled".into(), json!(enabled.or_else(|| old.get("enabled").and_then(Value::as_bool)).unwrap_or(false)));
+        out.insert("enabled".into(), json!(enabled.or_else(|| old.get("enabled").and_then(Value::as_bool)).unwrap_or(true)));
         let occ = occ.or_else(|| old.get("occ").and_then(Value::as_f64)).unwrap_or(CHEAP_COMPACT_OCC).clamp(0.05, 0.95);
         out.insert("occ".into(), json!(occ));
     } else {
