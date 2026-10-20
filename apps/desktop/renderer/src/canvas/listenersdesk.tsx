@@ -81,8 +81,9 @@ function FireMail({ agent, mail, gone, refs }: { agent: string; mail?: string; g
       title={`open the fire mail ${agent} got, in ${agent}'s Mail tab`}
       onClick={(e) => { e.stopPropagation(); refs.onOpen(r) }}>fire mail</button>
   }
+  // its words lead the tooltip, since a narrow desk may shorten them (user 2026-10-20 09:00Z)
   return <span className="listener-mail-link fire-mail unavailable" data-mail={mail} aria-disabled="true"
-    title={gone ? `this fire mail is no longer in ${agent}'s mailbox` : r ? r.why : 'mail is not opened from here'}>fire mail · unavailable</span>
+    title={`fire mail · unavailable: ${gone ? `it is no longer in ${agent}'s mailbox` : r ? r.why : 'mail is not opened from here'}`}>fire mail · unavailable</span>
 }
 
 export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
