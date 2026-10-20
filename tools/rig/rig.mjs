@@ -56,6 +56,7 @@ async function up(flags) {
     reminderPauseMs: flags.reminderPauseMs && Number(flags.reminderPauseMs), hub: flags.hub, hubMaxBytes: flags.hubMaxBytes && Number(flags.hubMaxBytes),
     realCli: !!flags['real-cli'], bootIsolated: !!flags['boot-isolated'],
     realMuse: typeof flags['real-muse'] === 'string' ? flags['real-muse'] : null,
+    realOpenCode: typeof flags['real-opencode'] === 'string' ? flags['real-opencode'] : null,
     quietLog: !!flags['quiet-log'],
     session0: flags.session0 == null ? null : String(flags.session0),
     steerLateS: flags.steerLateS && Number(flags.steerLateS),
