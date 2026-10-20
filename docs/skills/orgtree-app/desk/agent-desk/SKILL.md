@@ -12,14 +12,7 @@ itself includes all descendants. Hiring or retiring updates the tab live. If
 the last direct subordinate leaves while Team is open, an agent desk returns
 to Chat and a project desk returns to Summary. A later hire does not reopen Team.
 
-Every agent and project desk reopens on the tab last picked on it, also after
-a restart; the memory is per organization and node, in this app's local
-storage. A project desk's Mail tab likewise reopens the folder last picked in
-its folder strip (inbox, sent or listeners); a folder the mail card opens is
-not a pick. An open desk keeps its own tab: a pick in a pinned or popped-out
-copy does not move another. A tab the desk does not offer when it opens, or
-that goes away while it is open (Team, Slots, Dead letters, Listeners), gives
-way to Chat or Summary, and the desk stays there when the tab comes back.
+Desk tab selections are remembered per organization and node across restarts. An unavailable tab falls back to Chat. The shared memory rules and project Mail-folder behavior are documented in [orgtree-project-desk](../project-desk/SKILL.md).
 
 Open an agent's desk from its name/card or desk navigation. A focused desk, a pinned canvas window and a detached window show the same agent identity and work tabs. Pinning fixes it in screen space; pop-out opens its window surface. These view choices are not agent lifecycle changes.
 
@@ -69,5 +62,6 @@ Counts appear for Mail, Docket and Presented when nonzero. For configuration fie
 
 ## See also
 
+- [orgtree-project-desk](../project-desk/SKILL.md)
 - [orgtree-desk-chat](../desk-chat/SKILL.md)
 - [orgtree-agent-config](../../agent-settings/agent-config/SKILL.md)

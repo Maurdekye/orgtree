@@ -14,6 +14,11 @@
   description-budget tests; the aggregate cap stays 12,000 UTF-8 bytes.
   [verified: `http/docs.rs`, `tools/defs.rs`; 2026-10-20]
 
+- The project desk glossary reference owns its tabs, queue/event/slot history
+  and navigation memory; keep screen/settings coverage in `docs/skills/tree.json`
+  aligned with source when these change. See [project desk](docs/skills/orgtree-app/desk/project-desk/SKILL.md).
+  [verified: `canvas/{projectdesk,maillisteners,slotsdesk,listenersdesk,deaddesk,desktabs}.ts*`; 2026-10-20]
+
 - The [harness parity reference](docs/harness-parity.md) inventories all five
   adapters and custom-provider routes, with source anchors and explicit unknowns.
   Keep its glossary summary current when adapters change; distinguish native

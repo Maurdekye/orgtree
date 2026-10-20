@@ -1,14 +1,14 @@
 {
  "schema": 1,
- "source_commit": "6f5bb1a6835ce40423ca4eb37bc5af9e3cb246bd",
+ "source_commit": "ccc9c27c0c4321f0f85fb98b06ad3635851b9cec",
  "registered_description_bytes": 548,
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 180,
+  "leaves": 181,
   "tools": 47,
   "concepts": 55,
-  "total": 202
+  "total": 203
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -24,7 +24,7 @@
   "skills-docs-sol": 13,
   "orgsettings-sol": 13,
   "agentsettings-sol": 9,
-  "skilltree-opus": 5,
+  "skilltree-opus": 6,
   "compaction-cmds-sol": 1,
   "epic-combo-sol": 1
  },
@@ -816,13 +816,7 @@
    ],
    "writer": "project-nodes-opus",
    "status": "fixed",
-   "components": [
-    "apps/desktop/renderer/src/canvas/deaddesk.tsx#DeadLettersView",
-    "apps/desktop/renderer/src/canvas/listenersdesk.tsx#ListenersView",
-    "apps/desktop/renderer/src/canvas/maillisteners.tsx#MailListenersView",
-    "apps/desktop/renderer/src/canvas/projectdesk.tsx#ProjectDeskModal",
-    "apps/desktop/renderer/src/canvas/slotsdesk.tsx#SlotsView"
-   ],
+   "components": [],
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
@@ -3371,8 +3365,7 @@
    "status": "fixed",
    "components": [
     "apps/desktop/renderer/src/canvas/modals.tsx#DraftScopeModal",
-    "apps/desktop/renderer/src/canvas/OrgCanvas.tsx#HireSheet",
-    "apps/desktop/renderer/src/canvas/projectdesk.tsx#ProjectDesk"
+    "apps/desktop/renderer/src/canvas/OrgCanvas.tsx#HireSheet"
    ],
    "ui_dynamic_labels": [
     {
@@ -3525,9 +3518,10 @@
    "level": 2,
    "kind": "section",
    "registered": false,
-   "purpose": "An agent's desk and the work panels: chat, inboxes, ask cards, dockets, presentations and watchdogs. Agent event history is in agent settings; scratch folders open in the OS file explorer.",
+   "purpose": "Agent and project desks, mail, questions, dockets, presentations and watchdogs. Agent event history is in settings; scratch folders open in the OS file explorer.",
    "children": [
     "agent-desk",
+    "project-desk",
     "desk-chat",
     "inbox-screens",
     "ask-cards",
@@ -3561,12 +3555,79 @@
    ],
    "see_also": [
     "desk-chat",
-    "agent-config"
+    "agent-config",
+    "project-desk"
    ],
    "writer": "providers-sol",
    "status": "fixed",
    "components": [
     "apps/desktop/renderer/src/canvas/team.tsx#TeamModal"
+   ]
+  },
+  {
+   "path": "orgtree-app/desk/project-desk",
+   "name": "orgtree-project-desk",
+   "level": 3,
+   "kind": "screen",
+   "registered": false,
+   "covers": [
+    "screen:project-desk",
+    "screen:project-mail",
+    "screen:project-slots",
+    "screen:project-listeners",
+    "screen:project-dead-letters",
+    "ls:orgtree-desk-tabs:<org>"
+   ],
+   "purpose": "Project desk tabs, queue workers and history, slots, event listeners, dead letters and remembered navigation.",
+   "must_cover": [
+    "Summary/Mail/Docket/Presented/Team and conditional tab visibility",
+    "Mail listeners: Working/take back, Line, Dead Letter Line, Recently Finished/Delivered",
+    "Slots: Watchdog, Lease, quantities and Recently Held",
+    "event listeners and Recently Fired with receiving-agent fire mail",
+    "dead-letter details, retry/drop and show dropped",
+    "per-org/node tab and mail-folder memory, independent open surfaces and fallback"
+   ],
+   "sources": [
+    "docs/rust-engine/PROJECT-NODES.md",
+    "apps/desktop/renderer/src/canvas/projectdesk.tsx",
+    "apps/desktop/renderer/src/canvas/maillisteners.tsx",
+    "apps/desktop/renderer/src/canvas/slotsdesk.tsx",
+    "apps/desktop/renderer/src/canvas/listenersdesk.tsx",
+    "apps/desktop/renderer/src/canvas/deaddesk.tsx",
+    "apps/desktop/renderer/src/canvas/desktabs.ts"
+   ],
+   "see_also": [
+    "agent-desk",
+    "inbox-screens",
+    "docket-screens",
+    "presentations",
+    "agents-list",
+    "projects",
+    "tool-project",
+    "tool-watchdog",
+    "concurrency-primitives"
+   ],
+   "writer": "skilltree-opus",
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/projectdesk.tsx#ProjectDesk",
+    "apps/desktop/renderer/src/canvas/deaddesk.tsx#DeadLettersView",
+    "apps/desktop/renderer/src/canvas/listenersdesk.tsx#ListenersView",
+    "apps/desktop/renderer/src/canvas/maillisteners.tsx#MailListenersView",
+    "apps/desktop/renderer/src/canvas/projectdesk.tsx#ProjectDeskModal",
+    "apps/desktop/renderer/src/canvas/slotsdesk.tsx#SlotsView",
+    "apps/desktop/renderer/src/canvas/projectdesk.tsx#ProjectInboxModal"
+   ],
+   "key_sources": [
+    {
+     "key": "ls:orgtree-desk-tabs:<org>",
+     "file": "apps/desktop/renderer/src/canvas/desktabs.ts",
+     "needles": [
+      "orgtree-desk-tabs:",
+      "rememberDesk",
+      "useDeskMemory"
+     ]
+    }
    ]
   },
   {
@@ -3905,7 +3966,8 @@
     "np:notifyAllMail",
     "np:notifyDocuments",
     "np:notifyFrozen",
-    "np:notifyWhileFocused"
+    "np:notifyWhileFocused",
+    "np:questionTarget"
    ],
    "purpose": "Runtime > Notifications: the master switch and each notification kind.",
    "must_cover": [
@@ -3956,6 +4018,10 @@
     {
      "file": "packages/contracts/notifications.ts",
      "label": "Notify while Orgtree is focused"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "label": "open questions"
     }
    ],
    "key_sources": [
@@ -4020,6 +4086,15 @@
      "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
      "needles": [
       "notifyWhileFocused"
+     ]
+    },
+    {
+     "key": "np:questionTarget",
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "needles": [
+      "questionTarget",
+      "focus the agent desk",
+      "open questions as mail"
      ]
     }
    ],
@@ -4374,7 +4449,8 @@
     "ls:orgtree-modal-overlap-fade",
     "ls:orgtree-pin-snap",
     "ls:orgtree-jump-fold",
-    "ls:orgtree-canvas-anchor-bounded"
+    "ls:orgtree-canvas-anchor-bounded",
+    "ls:orgtree-project-bunches"
    ],
    "purpose": "Display > Desk: chart layout, desk text size, piles, retired agents, card shortcuts, pinned-panel behavior.",
    "must_cover": [
@@ -4432,6 +4508,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/pinoverlap.tsx",
      "label": "overlap opacity"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "bunch consecutive projects"
     }
    ],
    "key_sources": [
@@ -4496,6 +4576,14 @@
      "file": "apps/desktop/renderer/src/canvas/canvasanchor.tsx",
      "needles": [
       "orgtree-canvas-anchor-bounded"
+     ]
+    },
+    {
+     "key": "ls:orgtree-project-bunches",
+     "file": "apps/desktop/renderer/src/canvas/projectbunchprefs.ts",
+     "needles": [
+      "orgtree-project-bunches",
+      "projectBunchesOn"
      ]
     }
    ]
@@ -5534,7 +5622,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "label": "Description"
+     "label": "Summary"
     }
    ],
    "key_sources": [

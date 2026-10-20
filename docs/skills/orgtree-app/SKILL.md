@@ -15,7 +15,7 @@ Open a section below, then the screen or setting leaf it lists. Settings leaves 
 | --- | --- |
 | [orgtree-app-shell](app-shell/SKILL.md) | The app's frame: windows, homepage, header and menus, status bar, quick chat, tray, onboarding and shared dialogs. |
 | [orgtree-canvas](canvas/SKILL.md) | The org canvas: the agent tree, cards, the user node, piles, the agents list, menus and pinned windows. |
-| [orgtree-desk](desk/SKILL.md) | An agent's desk and the work panels: chat, inboxes, ask cards, dockets, presentations and watchdogs. |
+| [orgtree-desk](desk/SKILL.md) | Agent and project desks and the work panels: chat, mail, questions, dockets, presentations and watchdogs. |
 | [orgtree-app-settings](app-settings/SKILL.md) | App settings (Orgtree menu > App settings…): Runtime, Display, Default org settings, Developer, Shortcuts and About. |
 | [orgtree-org-settings](org-settings/SKILL.md) | Org settings (header > Org settings): Basic, Hire defaults, Policies, Connections, Autonomy, Accounts, History. |
 | [orgtree-agent-settings](agent-settings/SKILL.md) | Agent settings (desk gear or agent menu > Settings): Charter, Model, Scope, Tools and conditional History tabs. |
@@ -36,6 +36,7 @@ Open a section below, then the screen or setting leaf it lists. Settings leaves 
 | Pin, move or reopen a panel | [orgtree-canvas](canvas/SKILL.md) |
 | Understand the user node or outside inbox tile | [orgtree-canvas](canvas/SKILL.md) |
 | Read the desk Chat tab or an agent's event history | [orgtree-desk](desk/SKILL.md) and [orgtree-agent-settings](agent-settings/SKILL.md) |
+| Find project tabs, queue workers, slots or event history | [orgtree-desk](desk/SKILL.md) |
 | Open Mail, Docket or Presented windows | [orgtree-desk](desk/SKILL.md) |
 | Answer a question card or inspect a watchdog | [orgtree-desk](desk/SKILL.md) |
 | Choose desktop startup or notification behavior | [orgtree-app-settings](app-settings/SKILL.md) |
