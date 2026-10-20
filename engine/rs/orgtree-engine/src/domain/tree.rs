@@ -219,10 +219,8 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     // a project's handed-but-unacked queue jobs (ack mode in flight); 0 for an agent
     o.insert("mail_held".into(), json!(raw["x_mail_held"].as_i64().unwrap_or(0)));
     if raw["kind"].as_str() == Some(crate::domain::projects::KIND) {
-        // its event Listeners tab shows once any listener has registered on
-        // it, for good (user 2026-10-20 06:22Z), and its Recently Fired
-        // re-reads when the newest kept fire changes
-        o.insert("listeners_seen".into(), json!(raw["x_listeners_seen"].as_bool().unwrap_or(false)));
+        // its Recently Fired re-reads when the newest kept fire changes (its
+        // Listeners tab follows `configured_scope.event_listeners`)
         o.insert("last_fire".into(), raw["x_last_fire"].as_i64().map(|n| json!(n)).unwrap_or(Value::Null));
     }
     o.insert("limit_locked".into(), json!(raw["limit_locked"].as_bool().unwrap_or(false)));

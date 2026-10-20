@@ -108,6 +108,11 @@ pub fn view(w: &Value, owner: &str) -> Value {
     o.insert("interval_s".into(), w["interval_s"].clone());
     let spent = w.get("spent_at").map(|v| !v.is_null()).unwrap_or(false);
     o.insert("state".into(), if spent { json!("spent") } else { w["state"].clone() });
+    // a listener or watch its project's event-listeners switch-off disabled
+    // (domain/listeners.rs): drawn unwired and dimmed, with the reason
+    if w["state"] == "paused" && w["memo"][crate::domain::listeners::OFF_MARK].as_bool() == Some(true) {
+        o.insert("disabled".into(), json!(w["memo"]["paused_why"].as_str().unwrap_or("its project's event listeners are off")));
+    }
     o.insert("at".into(), ts(&w["created_at"]));
     o.insert("fired".into(), w["fired"].clone());
     o.insert("once".into(), json!(w["once"].as_bool().unwrap_or(false)));

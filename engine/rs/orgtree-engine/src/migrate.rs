@@ -48,6 +48,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0040_project_history", include_str!("../migrations/0040_project_history.sql")),
     ("0041_document_opening", include_str!("../migrations/0041_document_opening.sql")),
     ("0042_opencode_mail", include_str!("../migrations/0042_opencode_mail.sql")),
+    ("0043_event_listeners_setting", include_str!("../migrations/0043_event_listeners_setting.sql")),
 ];
 
 #[cfg(test)]

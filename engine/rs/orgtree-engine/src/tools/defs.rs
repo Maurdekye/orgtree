@@ -794,7 +794,7 @@ fn build_tool_project() -> Value {
             "include_dropped": {"type":"boolean","description":"dead_letters: list dropped letters too"},
             "lease": { "type": "string", "description": "release_slot: the lease your concurrency slot grant named" },
             "note": { "type": "string", "description": "release_slot: optional, e.g. build ok 265s" },
-            "settings": {"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"turn_end_reminder":{"type":"boolean"},"slots":{"type":"integer","minimum":0,"maximum":64}}},
+            "settings": {"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"turn_end_reminder":{"type":"boolean"},"slots":{"type":"integer","minimum":0,"maximum":64},"event_listeners":{"type":"boolean"}}},
             "force": {"type":"boolean","description":"release_slot: any project ancestor may force release"},
             "agent": {"type":"string","description":"unqueue_slot: agent to remove from line"},
             "team": {"type":"boolean","description":"presentations/read_presentation: include the project subtree"},
@@ -1150,7 +1150,8 @@ mod project_settings_contract_tests {
         assert_eq!(settings["type"],json!("object"),"settings patch must be an object");
         for (name,kind) in [("name","string"),("description","string"),("peer_mail","boolean"),
             ("mail_queue","string"),("exclude_sender","boolean"),("ack_timeout","boolean"),
-            ("max_attempts","integer"),("ack_reminders","integer"),("turn_end_reminder","boolean"),("slots","integer")] {
+            ("max_attempts","integer"),("ack_reminders","integer"),("turn_end_reminder","boolean"),("slots","integer"),
+            ("event_listeners","boolean")] {
             assert_eq!(settings["properties"][name]["type"],json!(kind),"setting {name}");
         }
         assert_eq!(settings["additionalProperties"],json!(false));
@@ -1503,7 +1504,7 @@ mod builder_stack_tests {
         schema["properties"]["id"] = serde_json::json!({"type":"string","description":"dead_letters: read this dead letter in full; retry_dead_letter/drop_dead_letter: its mail id"});
         schema["properties"]["reason"] = serde_json::json!({"type":"string","description":"drop_dead_letter: why the job is dropped"});
         schema["properties"]["include_dropped"] = serde_json::json!({"type":"boolean","description":"dead_letters: list dropped letters too"});
-        schema["properties"]["settings"] = serde_json::json!({"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"turn_end_reminder":{"type":"boolean"},"slots":{"type":"integer","minimum":0,"maximum":64}}});
+        schema["properties"]["settings"] = serde_json::json!({"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"turn_end_reminder":{"type":"boolean"},"slots":{"type":"integer","minimum":0,"maximum":64},"event_listeners":{"type":"boolean"}}});
         schema["properties"]["force"] = serde_json::json!({"type":"boolean","description":"release_slot: any project ancestor may force release"});
         schema["properties"]["agent"] = serde_json::json!({"type":"string","description":"unqueue_slot: agent to remove from line"});
         schema["properties"]["team"] = serde_json::json!({"type":"boolean","description":"presentations/read_presentation: include the project subtree"});

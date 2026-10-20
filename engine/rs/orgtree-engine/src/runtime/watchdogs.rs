@@ -497,6 +497,11 @@ async fn run_project_listener(engine: &Arc<Engine>, dog: Dog, cancel: &Cancellat
         pause(engine, &dog, "its project is unknown").await?;
         return Ok(());
     };
+    // a listener armed on a project whose event listeners are off (a rehire,
+    // an engine start) disables itself as a switch-off would have
+    if !crate::domain::listeners::guard(engine, dog.org_id, dog.row, project).await? {
+        return Ok(());
+    }
     Box::pin(crate::domain::listeners::evaluate(engine, dog.org_id, project)).await?;
     cancel.cancelled().await;
     Ok(())
@@ -2340,6 +2345,9 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     if smoked["current"]["credits"].is_object(){memo["run"]["credits"]=smoked["current"]["credits"].clone();}
     let mut client = engine.db.get().await?;
     let mut clashes = 0;
+    // a listener or watch arming on a project whose event listeners were off
+    // switched them on, restoring the dogs a switch-off disabled
+    let mut switched = crate::domain::listeners::Switched::default();
     // the id is also the dog's name, so its mail, chip and `list` all show it
     let (row, id) = loop {
         let id = crate::domain::watchdog_inventory::available_id(&**client, owner, &base).await?;
@@ -2366,10 +2374,18 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
                     tx.execute("INSERT INTO ot.watchdog_secrets (watchdog_id, sealed) VALUES ($1, $2)", &[&row, &sealed]).await?;
                 }
                 if let Some(p) = &listener_project {
-                    // the project's event Listeners tab shows from now on, for
-                    // good (user 2026-10-20 06:22Z): set once, never cleared
-                    tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('listeners_seen_at', now())
-                                 WHERE id = $1 AND kind = 'project' AND NOT (extra ? 'listeners_seen_at')", &[&p.id]).await?;
+                    // arming a listener or watch switches the project's event
+                    // listeners on (user 2026-10-20 10:50Z): in this
+                    // transaction, so a refused or failed create changes nothing
+                    switched = crate::domain::listeners::switch_on(&tx, p.id).await?;
+                    if switched.changed {
+                        tx.execute(
+                            "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'set_event_listeners', $2, $3, $4)",
+                            &[&org_id, &owner_name, &p.id, &json!({ "node": p.name, "enabled": true, "by_listener": id.clone(),
+                                "restored": switched.dogs.iter().map(|d| crate::domain::watchdogs::handle(&d.owner_name, &d.uid)).collect::<Vec<_>>() })],
+                        )
+                        .await?;
+                    }
                 }
                 tx.commit().await?;
                 break (row, id);
@@ -2407,6 +2423,10 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     let mut ch = vec![Change::Watchdogs, Change::Events];
     if let Some(p) = &listener_project {
         ch.push(Change::Agent(p.id));
+        if switched.changed {
+            let how = format!("{owner_name} registered a listener");
+            crate::domain::listeners::after_switch_on(engine, org_id, p.id, &p.name, &how, &switched).await;
+        }
     }
     changes::notify_id(engine, org_id, ch);
     let cadence = match kind.as_str() {
@@ -2455,6 +2475,12 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         status.push_str(&format!(" When it fires it also runs {} as you (your authority at fire time) and puts the results in its fire mail.", tools.join(", ")));
     }
     status.push_str("; it costs no credits.");
+    if switched.changed {
+        status.push_str(&format!(" Project {target}'s event listeners were off; registering this {} turned them on{}.",
+            if kind == "listener_watch" { "watch" } else { "listener" },
+            match switched.dogs.len() { 0 => String::new(), 1 => ", re-arming 1 dog the switch-off had disabled".into(),
+                                        n => format!(", re-arming {n} dogs the switch-off had disabled") }));
+    }
     if named.is_empty() {
         status.push_str(&format!(" Its id \"{id}\" comes from its kind and target, as it has no name."));
     } else if id != named {
@@ -2557,6 +2583,10 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
             if !dog.owner_live {
                 refuse!(Conflict, "its owner {} is not live; rehire it first", dog.owner_name);
             }
+            if dog.kind == "project_listener" || dog.kind == "listener_watch" {
+                drop(client);
+                return Box::pin(resume_listener(engine, org_id, actor, &dog, reason)).await;
+            }
             client
                 .execute(
                     "UPDATE ot.watchdogs SET state = 'armed', exit = NULL,
@@ -2627,6 +2657,82 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
     if let Some(r) = reason {
         out["reason"] = json!(r);
     }
+    Ok(out)
+}
+
+/// Resume a project_listener or listener_watch (`act`): it arms, so, as a
+/// create does, it switches its project's event listeners on when they were
+/// off (user 2026-10-20 10:50Z), in one transaction that takes the project
+/// row before the dogs; the other dogs a switch-off disabled come back with
+/// it. Its owner must still reach the project, as at create.
+#[logged]
+async fn resume_listener(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, dog: &Dog, reason: Option<&str>) -> Result<Value> {
+    let Some(project) = dog.memo["target_id"].as_i64() else {
+        refuse!(Conflict, "this watchdog's project is unknown; create a new one");
+    };
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let pname: String = match tx.query_opt("SELECT name FROM ot.agents WHERE id = $1 AND kind = 'project'", &[&project]).await? {
+        Some(r) => r.get(0),
+        None => refuse!(NotFound, "this watchdog's project no longer exists; remove it"),
+    };
+    if !crate::domain::projects::reaches(&*tx, dog.owner, project).await? {
+        refuse!(Forbidden, "{} is no longer above or below project {pname}, so its {} cannot listen there again; remove it",
+            dog.owner_name, dog.kind);
+    }
+    let sw = crate::domain::listeners::switch_on(&tx, project).await?;
+    tx.execute(
+        &format!("UPDATE ot.watchdogs SET state = 'armed', exit = NULL,
+                memo = memo - 'paused_why' - 'paused_by' - '{}' WHERE id = $1", crate::domain::listeners::OFF_MARK),
+        &[&dog.row],
+    )
+    .await?;
+    if dog.kind == "listener_watch" {
+        // a resumed watch re-evaluates from a cleared edge, like a fresh claim
+        tx.execute(
+            "UPDATE ot.watchdogs SET memo = jsonb_set(memo || jsonb_build_object('run', coalesce(memo->'run', '{}'::jsonb)),
+                                                       '{run,above}', 'false') WHERE id = $1",
+            &[&dog.row],
+        )
+        .await?;
+    }
+    let by = match actor {
+        Some(a) => tx.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&a]).await?.get::<_, String>(0),
+        None => "@user".to_string(),
+    };
+    tx.execute(
+        "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'watchdog_resume', $2, $3, $4)",
+        &[&org_id, &by, &dog.owner, &json!({ "id": dog.uid, "name": dog.name, "reason": reason })],
+    )
+    .await?;
+    let others: Vec<crate::domain::listeners::SwitchedDog> = sw.dogs.iter().filter(|d| d.row != dog.row).cloned().collect();
+    if sw.changed {
+        tx.execute(
+            "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'set_event_listeners', $2, $3, $4)",
+            &[&org_id, &by, &project, &json!({ "node": pname, "enabled": true, "by_listener": dog.uid,
+                "restored": others.iter().map(|d| crate::domain::watchdogs::handle(&d.owner_name, &d.uid)).collect::<Vec<_>>() })],
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    drop(client);
+    disarm(engine, dog.row);
+    arm(engine, dog.row);
+    let mut out = json!({ "id": dog.uid, "name": dog.name, "state": "armed" });
+    if let Some(r) = reason {
+        out["reason"] = json!(r);
+    }
+    if sw.changed {
+        let how = format!("{} resumed {}'s {}", if by == "@user" { "the user" } else { by.as_str() }, dog.owner_name,
+            if dog.kind == "listener_watch" { "watch" } else { "listener" });
+        let rest = crate::domain::listeners::Switched { changed: true, dogs: others.clone() };
+        crate::domain::listeners::after_switch_on(engine, org_id, project, &pname, &how, &rest).await;
+        out["note"] = json!(format!("project {pname}'s event listeners were off; resuming this {} turned them on{}",
+            if dog.kind == "listener_watch" { "watch" } else { "listener" },
+            match others.len() { 0 => String::new(), 1 => ", re-arming 1 other dog the switch-off had disabled".into(),
+                                 n => format!(", re-arming {n} other dogs the switch-off had disabled") }));
+    }
+    changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Events, Change::Agent(project)]);
     Ok(out)
 }
 

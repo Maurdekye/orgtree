@@ -8,6 +8,15 @@
 //! `fire_actions` entry firing the event, a superior releases the whole
 //! group in the same instant: the project's sync/monitor primitive.
 //!
+//! The whole feature is a project setting (`scope.event_listeners`; docket
+//! `project-event-listeners-an-enable-setting-off-by`, user 2026-10-20
+//! 10:50Z, design approved 10:58Z): OFF by default. Arming a listener or a
+//! watch switches it on (agents never switch it off); a superior switches
+//! it either way in the project's settings. While it is off no listener or
+//! watch on the project is armed and its event cannot be fired; switching
+//! it off disables the armed ones with a mark, switching it on re-arms
+//! exactly the marked ones.
+//!
 //! Delivery is one transaction per fire, serialized by a `FOR NO KEY
 //! UPDATE` on the project row (as the mail queue's hand-out and the slot
 //! grant): every eligible listener's mail and fire record lands together,
@@ -20,7 +29,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
-use tokio_postgres::GenericClient;
+use tokio_postgres::{GenericClient, Transaction};
 
 use crate::changes::{self, Change};
 use crate::engine::Engine;
@@ -42,6 +51,213 @@ pub const MAX_COUNT: i64 = 1024;
 pub const MAX_MESSAGE: usize = 8000;
 /// Kept fires one page of the project's Recently Fired history shows.
 const HISTORY_PAGE: usize = 30;
+
+/// The memo key a switch-off writes on each dog it disables; a switch-on
+/// re-arms exactly the dogs carrying it. A dog its owner paused never
+/// carries it, so it stays as its owner left it.
+pub const OFF_MARK: &str = "listeners_off";
+
+/// A project's event-listeners setting (`scope.event_listeners`): OFF, the
+/// default, until an agent arms a listener or watch on the project or a
+/// superior switches it on. It decides the desk's Listeners tab, whether
+/// the project's event can be fired and whether its listener dogs work.
+#[nolog]
+pub fn enabled(scope: &Value) -> bool {
+    scope["event_listeners"].as_bool().unwrap_or(false)
+}
+
+/// Why a dog a switch-off disabled is paused: its `paused_why`, and the
+/// desktop's `disabled`.
+#[nolog]
+pub fn off_reason(project: &str, by: &str) -> String {
+    format!("project {project}'s event listeners were turned off by {by}")
+}
+
+/// The refusal of a fire on a project whose event listeners are off.
+#[nolog]
+pub fn off_refusal(project: &str) -> String {
+    format!("project {project}'s event listeners are off, so nothing listens for its event. A superior turns them on in \
+             the project's settings (orgtree_project action=configure settings={{\"event_listeners\":true}}), or registering \
+             a listener on it turns them on")
+}
+
+/// One listener or watch dog a switch disabled or re-armed.
+#[derive(Debug, Clone)]
+pub struct SwitchedDog {
+    pub row: i64,
+    pub uid: String,
+    pub name: String,
+    pub owner: i64,
+    pub owner_name: String,
+    pub owner_live: bool,
+}
+
+/// What a switch did: whether the setting changed, and the dogs it
+/// disabled (off) or re-armed (on), in dog order.
+#[derive(Debug, Clone, Default)]
+pub struct Switched {
+    pub changed: bool,
+    pub dogs: Vec<SwitchedDog>,
+}
+
+#[nolog]
+fn switched_dogs(rows: &[tokio_postgres::Row]) -> Vec<SwitchedDog> {
+    let mut dogs: Vec<SwitchedDog> = rows.iter().map(|r| SwitchedDog {
+        row: r.get(0), owner: r.get(1), owner_name: r.get(2), name: r.get(3), uid: r.get(4), owner_live: r.get(5),
+    }).collect();
+    dogs.sort_by_key(|d| d.row);
+    dogs
+}
+
+/// Switch the project's event listeners ON inside `tx`. The project row is
+/// taken first, as a fire, a watch evaluation and a switch-off take it, so
+/// the setting and its dogs change together. Already on: nothing. Else the
+/// setting is written and every dog a switch-off disabled is armed again; a
+/// watch keeps its edge, so a restore alone does not fire it. The caller
+/// arms the returned dogs and tells their owners after commit.
+#[logged]
+pub async fn switch_on(tx: &Transaction<'_>, project: i64) -> Result<Switched> {
+    let Some(r) = tx
+        .query_opt("SELECT scope FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project])
+        .await?
+    else {
+        return Ok(Switched::default());
+    };
+    if enabled(&r.get::<_, Value>(0)) {
+        return Ok(Switched::default());
+    }
+    tx.execute(
+        "UPDATE ot.agents SET scope = jsonb_set(coalesce(scope, '{}'::jsonb), '{event_listeners}', 'true'::jsonb),
+                row_version = row_version + 1 WHERE id = $1",
+        &[&project],
+    )
+    .await?;
+    let rows = tx
+        .query(
+            &format!("UPDATE ot.watchdogs w SET state = 'armed', memo = w.memo - 'paused_why' - '{OFF_MARK}'
+                FROM ot.agents a WHERE a.id = w.owner_agent_id AND w.kind IN ('project_listener', 'listener_watch')
+                 AND w.state = 'paused' AND w.memo ? '{OFF_MARK}' AND (w.memo->>'target_id')::bigint = $1
+              RETURNING w.id, w.owner_agent_id, a.name, w.name, w.uid, a.state = 'live'"),
+            &[&project],
+        )
+        .await?;
+    Ok(Switched { changed: true, dogs: switched_dogs(&rows) })
+}
+
+/// Switch the project's event listeners OFF inside `tx` (a superior's
+/// settings; agents never can): the project row first, then every armed
+/// project_listener and listener_watch on the project is paused with the
+/// mark and the reason. Dogs their owners paused stay unmarked, so a later
+/// switch-on leaves them as they are. The caller disarms the returned dogs
+/// and tells their owners after commit.
+#[logged]
+pub async fn switch_off(tx: &Transaction<'_>, project: i64, by: &str) -> Result<Switched> {
+    let Some(r) = tx
+        .query_opt("SELECT scope, name FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project])
+        .await?
+    else {
+        return Ok(Switched::default());
+    };
+    let scope: Value = r.get(0);
+    let name: String = r.get(1);
+    let was_on = enabled(&scope);
+    // written even while absent (off by default): an explicit off is a setting
+    if scope.get("event_listeners") != Some(&Value::Bool(false)) {
+        tx.execute(
+            "UPDATE ot.agents SET scope = jsonb_set(coalesce(scope, '{}'::jsonb), '{event_listeners}', 'false'::jsonb),
+                    row_version = row_version + 1 WHERE id = $1",
+            &[&project],
+        )
+        .await?;
+    }
+    let rows = tx
+        .query(
+            &format!("UPDATE ot.watchdogs w SET state = 'paused',
+                     memo = w.memo || jsonb_build_object('paused_why', $2::text, '{OFF_MARK}', true)
+                FROM ot.agents a WHERE a.id = w.owner_agent_id AND w.kind IN ('project_listener', 'listener_watch')
+                 AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $1
+              RETURNING w.id, w.owner_agent_id, a.name, w.name, w.uid, a.state = 'live'"),
+            &[&project, &off_reason(&name, by)],
+        )
+        .await?;
+    Ok(Switched { changed: was_on || !rows.is_empty(), dogs: switched_dogs(&rows) })
+}
+
+/// A listener or watch arming on a project whose event listeners are off
+/// (a rehire re-arming an archived owner's dogs, an engine start after the
+/// setting changed underneath) disables itself as a switch-off would have,
+/// under the project row, so a switch racing it decides. Returns whether
+/// the dog stays armed.
+#[logged]
+pub async fn guard(engine: &Arc<Engine>, org_id: i64, row: i64, project: i64) -> Result<bool> {
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let Some(r) = tx
+        .query_opt("SELECT scope, name FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project])
+        .await?
+    else {
+        return Ok(true);
+    };
+    if enabled(&r.get::<_, Value>(0)) {
+        return Ok(true);
+    }
+    let name: String = r.get(1);
+    let n = tx
+        .execute(
+            &format!("UPDATE ot.watchdogs SET state = 'paused',
+                     memo = memo || jsonb_build_object('paused_why', $2::text, '{OFF_MARK}', true)
+               WHERE id = $1 AND state = 'armed'"),
+            &[&row, &format!("project {name}'s event listeners are off")],
+        )
+        .await?;
+    tx.commit().await?;
+    if n > 0 {
+        changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Agent(project)]);
+    }
+    Ok(false)
+}
+
+/// Tell each live owner of the dogs a switch disabled or re-armed, once and
+/// passively, as a mail-queue mode change is told: which of its dogs, and
+/// how they come back. `how` says who switched (and, on, how).
+#[logged]
+pub async fn tell_owners(engine: &Arc<Engine>, org_id: i64, project: &str, on: bool, how: &str, dogs: &[SwitchedDog]) {
+    let mut owners: Vec<(String, Vec<String>)> = Vec::new();
+    for d in dogs.iter().filter(|d| d.owner_live) {
+        match owners.iter_mut().find(|(o, _)| *o == d.owner_name) {
+            Some((_, names)) => names.push(d.name.clone()),
+            None => owners.push((d.owner_name.clone(), vec![d.name.clone()])),
+        }
+    }
+    for (to, names) in owners {
+        let (s, are) = if names.len() == 1 { ("", "is") } else { ("s", "are") };
+        let list = names.join(", ");
+        let body = if on {
+            format!("Project {project}'s event listeners are ON again ({how}). Your watchdog{s} on it {are} re-armed: {list}.")
+        } else {
+            format!("Project {project}'s event listeners were turned OFF by {how}. Your watchdog{s} on it {are} disabled: {list}. \
+                     A disabled dog listens for nothing and fires nothing; when the project's event listeners are on again it \
+                     re-arms by itself.")
+        };
+        let mut out = crate::domain::mail::Outgoing::new(crate::domain::mail::From::System, &to, &body);
+        out.notice = true;
+        out.grant_reply_audience = false;
+        if let Err(e) = Box::pin(crate::domain::mail::send(engine, org_id, out)).await {
+            tracing::warn!(project = %project, to = %to, error = %format!("{e:#}"), "telling a listener's owner of the event-listeners switch failed");
+        }
+    }
+}
+
+/// After a switch-on outside an op (an agent's create or resume): arm the
+/// re-armed dogs, tell their owners and refresh the project.
+#[logged]
+pub async fn after_switch_on(engine: &Arc<Engine>, org_id: i64, project: i64, name: &str, how: &str, sw: &Switched) {
+    for d in &sw.dogs {
+        crate::runtime::watchdogs::arm(engine, d.row);
+    }
+    tell_owners(engine, org_id, name, true, how, &sw.dogs).await;
+    changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Agent(project)]);
+}
 
 /// SQL (alias `w`, a listener or watch dog): since when it has listened —
 /// its arming, or its previous fire (the desk's Waited, user 2026-10-20).
@@ -225,7 +441,7 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let Some(p) = tx
-        .query_opt("SELECT name, state FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project])
+        .query_opt("SELECT name, state, scope FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project])
         .await?
     else {
         crate::refuse!(NotFound, "no such project");
@@ -233,6 +449,9 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     let pname: String = p.get(0);
     if p.get::<_, String>(1) != "live" {
         crate::refuse!(Conflict, "project {} is retired; its event cannot be fired", pname);
+    }
+    if !enabled(&p.get::<_, Value>(2)) {
+        crate::refuse!(Conflict, "{}", off_refusal(&pname));
     }
     let rows = tx
         .query(
@@ -427,7 +646,8 @@ pub async fn status(client: &impl GenericClient, org_id: i64, project: i64, name
             listeners.push(v);
         }
     }
-    Ok(json!({ "project": name, "listeners_armed": armed_count(client, org_id, project).await?,
+    let scope: Value = client.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&project]).await?.get(0);
+    Ok(json!({ "project": name, "event_listeners": enabled(&scope), "listeners_armed": armed_count(client, org_id, project).await?,
                "listeners": listeners, "watches": watches }))
 }
 
@@ -508,6 +728,23 @@ mod tests {
         assert_eq!(ev["since"], json!("2026-10-20T06:00:00.123Z"));
         assert_eq!(ev["mail"], json!("m1"));
         assert!(heard_entry("ha", "ear", "ear", true, since, None).get("mail").is_none(), "a watch's listeners got no mail");
+    }
+
+    #[test]
+    fn the_setting_is_off_unless_written_on() {
+        assert!(!enabled(&json!({})), "absent is off: the default");
+        assert!(!enabled(&json!({ "event_listeners": false })));
+        assert!(!enabled(&json!({ "event_listeners": "true" })), "only a boolean switches it on");
+        assert!(!enabled(&Value::Null));
+        assert!(enabled(&json!({ "event_listeners": true, "slots_capacity": 2 })));
+    }
+
+    #[test]
+    fn the_off_words_name_the_project_and_how_to_switch_back() {
+        assert_eq!(off_reason("sync", "boss"), "project sync's event listeners were turned off by boss");
+        let r = off_refusal("sync");
+        assert!(r.starts_with("project sync's event listeners are off"), "{r}");
+        assert!(r.contains(r#"settings={"event_listeners":true}"#) && r.contains("registering a listener"), "{r}");
     }
 
     #[test]

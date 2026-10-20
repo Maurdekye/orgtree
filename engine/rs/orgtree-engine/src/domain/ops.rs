@@ -74,6 +74,9 @@ pub(crate) struct Effects {
     queue_runs: Vec<i64>,
     /// project events to fire after commit (`listeners::fire`): (project, firer label, message)
     project_fires: Vec<(i64, String, Option<String>)>,
+    /// event-listeners switches whose dogs' owners are told after commit
+    /// (`listeners::tell_owners`): (project name, on, who/how, the dogs)
+    listener_switches: Vec<(String, bool, String, Vec<crate::domain::listeners::SwitchedDog>)>,
     /// jobs the user took back from their holders (`mail_take_back`): told
     /// and re-dealt after commit (`projects::after_take_back`)
     take_backs: Vec<(i64, crate::domain::projects::Reclaimed)>,
@@ -774,6 +777,7 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         "dead_letter_retry" => boxed(|| dead_letter_retry(org, &tx, actor, req, fx)).await?,
         "dead_letter_drop" => boxed(|| dead_letter_drop(org, &tx, actor, req, fx)).await?,
         "set_slots" => boxed(|| set_slots(org, &tx, actor, req, fx)).await?,
+        "set_event_listeners" => boxed(|| set_event_listeners(org, &tx, actor, req, fx)).await?,
         "project_settings" => boxed(|| project_settings(org, &tx, actor, req)).await?,
         "configure_project" => boxed(|| configure_project(org, &tx, actor, req, fx)).await?,
         "project_presentations" => boxed(|| project_presentations(org, &tx, actor, req)).await?,
@@ -977,6 +981,9 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     }
     for (p, taken) in &fx.take_backs {
         crate::domain::projects::after_take_back(engine, org.id, *p, taken).await;
+    }
+    for (project, on, how, dogs) in &fx.listener_switches {
+        crate::domain::listeners::tell_owners(engine, org.id, project, *on, how, dogs).await;
     }
     for (p, by, message) in &fx.project_fires {
         if let Err(e) = Box::pin(crate::domain::listeners::fire(engine, org.id, *p, by, message.as_deref())).await {
@@ -1776,12 +1783,24 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
             "{name} was unrecoverable (its earlier session is lost): it starts on a fresh session with a handoff note"
         ));
     }
-    if !woke.is_empty() {
-        warnings.push(format!(
-            "{} watchdog(s) paused by the archive are armed again: {}",
-            woke.len(),
-            woke.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>().join(", ")
-        ));
+    // a listener or watch on a project whose event listeners are off comes
+    // back disabled (its runner's guard), not listening
+    let ids: Vec<i64> = woke.iter().map(|(id, _)| *id).collect();
+    let off: Vec<(i64, String)> = if ids.is_empty() { Vec::new() } else {
+        tx.query("SELECT w.id, p.name FROM ot.watchdogs w JOIN ot.agents p ON p.id = (w.memo->>'target_id')::bigint
+                   WHERE w.id = ANY($1) AND w.kind IN ('project_listener', 'listener_watch')
+                     AND NOT coalesce(p.scope->'event_listeners' = 'true'::jsonb, false)", &[&ids])
+            .await?.iter().map(|r| (r.get(0), r.get(1))).collect()
+    };
+    let armed: Vec<&str> = woke.iter().filter(|(id, _)| !off.iter().any(|(o, _)| o == id)).map(|(_, name)| name.as_str()).collect();
+    if !armed.is_empty() {
+        warnings.push(format!("{} watchdog(s) paused by the archive are armed again: {}", armed.len(), armed.join(", ")));
+    }
+    if !off.is_empty() {
+        let names: Vec<&str> = woke.iter().filter(|(id, _)| off.iter().any(|(o, _)| o == id)).map(|(_, name)| name.as_str()).collect();
+        let projects: std::collections::BTreeSet<&str> = off.iter().map(|(_, p)| p.as_str()).collect();
+        warnings.push(format!("{} listener watchdog(s) stay disabled, as the event listeners of {} are off: {}",
+            names.len(), projects.into_iter().collect::<Vec<_>>().join(", "), names.join(", ")));
     }
     fx.dogs_on.extend(woke.into_iter().map(|(id, _)| id));
     Ok(json!({ "node": name, "cascaded": raised, "warnings": warnings }))
@@ -2241,7 +2260,8 @@ async fn project_settings(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Ac
         "mail_queue":if super::projects::ack_mode(&n.scope) {super::projects::MODE_ACK} else {super::projects::MODE_ROUND_ROBIN},
         "exclude_sender":super::projects::exclude_sender(&n.scope),"ack_timeout":super::projects::ack_timeout(&n.scope),
         "max_attempts":super::projects::max_attempts(&n.scope),"ack_reminders":super::projects::ack_reminders(&n.scope),
-        "turn_end_reminder":super::projects::turn_end_reminder(&n.scope),"slots":super::slots::capacity(&n.scope)
+        "turn_end_reminder":super::projects::turn_end_reminder(&n.scope),"slots":super::slots::capacity(&n.scope),
+        "event_listeners":super::listeners::enabled(&n.scope)
     }}))
 }
 
@@ -2253,7 +2273,7 @@ fn project_setting_ops(node:&str, settings:&Value) -> Result<Vec<Value>> {
     for (k,v) in fields {
         let valid=match k.as_str() {
             "name"|"description"=>v.is_string(),
-            "peer_mail"|"exclude_sender"|"ack_timeout"|"turn_end_reminder"=>v.is_boolean(),
+            "peer_mail"|"exclude_sender"|"ack_timeout"|"turn_end_reminder"|"event_listeners"=>v.is_boolean(),
             "mail_queue"=>matches!(v.as_str(),Some("ack"|"round_robin")),
             "slots"=>v.as_i64().is_some_and(|n|(0..=super::slots::MAX_CAPACITY).contains(&n)),
             "max_attempts"=>v.as_i64().is_some_and(|n|(1..=100).contains(&n)),
@@ -2271,6 +2291,7 @@ fn project_setting_ops(node:&str, settings:&Value) -> Result<Vec<Value>> {
     if queue.as_object().unwrap().len()>2 { out.push(queue); }
     if let Some(v)=settings.get("slots") { out.push(json!({"op":"set_slots","node":node,"capacity":v})); }
     if let Some(v)=settings.get("peer_mail") { out.push(json!({"op":"project_peer_mail","node":node,"peer_mail":v})); }
+    if let Some(v)=settings.get("event_listeners") { out.push(json!({"op":"set_event_listeners","node":node,"enabled":v})); }
     // Rename last: every earlier operation addresses the original identity.
     if let Some(v)=settings.get("name") { valid_name(v.as_str().unwrap())?; out.push(json!({"op":"rename","node":node,"name":v})); }
     Ok(out)
@@ -2287,6 +2308,7 @@ async fn configure_project(org:&Arc<OrgHandle>,tx:&Transaction<'_>,actor:&Actor,
             "set_description"=>{set_description(org,tx,actor,&step,fx).await?;},
             "set_mail_queue"=>{set_mail_queue(org,tx,actor,&step,fx).await?;},
             "set_slots"=>{set_slots(org,tx,actor,&step,fx).await?;},
+            "set_event_listeners"=>{set_event_listeners(org,tx,actor,&step,fx).await?;},
             "rename"=>{rename(org,tx,actor,&step,fx,false).await?;},
             "project_peer_mail"=>{
                 let current:Value=tx.query_one("SELECT scope FROM ot.agents WHERE id=$1",&[&n.id]).await?.get(0);
@@ -2355,6 +2377,49 @@ async fn set_slots(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, re
     fx.agents.insert(n.id);
     fx.slot_grants.push(n.id);
     Ok(json!({ "node": n.name, "slots": count }))
+}
+
+/// Switch a project's event listeners on or off (user 2026-10-20 10:50Z;
+/// design approved 10:58Z): its settings (the desk gear, `orgtree_project
+/// configure`), so the user or an agent above the project. Agents below it
+/// only ever switch it on, by arming a listener or watch. Off disables
+/// every armed listener and watch on the project with the mark; on re-arms
+/// the marked ones. Their owners are told after commit, passively.
+#[logged]
+async fn set_event_listeners(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project has event listeners", n.name);
+    }
+    authorize_project_policy(tx, actor, &n, "switch its event listeners").await?;
+    let Some(on) = req.get("enabled").and_then(Value::as_bool) else {
+        refuse!(BadRequest, "enabled is true (event listeners on) or false (off)");
+    };
+    let who = match actor { Actor::User => "the user".to_string(), Actor::Agent { name, .. } => name.clone() };
+    let sw = if on {
+        crate::domain::listeners::switch_on(tx, n.id).await?
+    } else {
+        crate::domain::listeners::switch_off(tx, n.id, &who).await?
+    };
+    let handles: Vec<String> = sw.dogs.iter().map(|d| crate::domain::watchdogs::handle(&d.owner_name, &d.uid)).collect();
+    let dogs_key = if on { "restored" } else { "disabled" };
+    if sw.changed {
+        let mut detail = json!({ "node": n.name, "enabled": on });
+        detail[dogs_key] = json!(handles);
+        event(tx, org.id, "set_event_listeners", actor, Some(n.id), detail, fx).await?;
+    }
+    fx.agents.insert(n.id);
+    if on {
+        fx.dogs_on.extend(sw.dogs.iter().map(|d| d.row));
+    } else {
+        fx.dogs_off.extend(sw.dogs.iter().map(|d| d.row));
+    }
+    if !sw.dogs.is_empty() {
+        fx.listener_switches.push((n.name.clone(), on, if on { format!("{who} turned them on") } else { who.clone() }, sw.dogs.clone()));
+    }
+    let mut out = json!({ "node": n.name, "event_listeners": on, "changed": sw.changed });
+    out[dogs_key] = json!(handles);
+    Ok(out)
 }
 
 /// Release a held slot (`orgtree_project action=release_slot`). Its holder
@@ -2436,6 +2501,9 @@ async fn fire_project_event(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &
         if !crate::domain::projects::reaches(tx, *id, n.id).await? {
             refuse!(Forbidden, "only the agents above or below project {} fire its event", n.name);
         }
+    }
+    if !crate::domain::listeners::enabled(&n.scope) {
+        refuse!(Conflict, "{}", crate::domain::listeners::off_refusal(&n.name));
     }
     let message = str_arg(req, "body").map(str::to_string);
     if message.as_deref().map(|m| m.chars().count()).unwrap_or(0) > crate::domain::listeners::MAX_MESSAGE {
@@ -3065,6 +3133,18 @@ mod project_settings_tests {
         assert_eq!(ops[1]["exclude_sender"],false);
         assert_eq!(ops[2]["capacity"],0);
         assert_eq!(ops[3]["peer_mail"],false);
+    }
+    #[test]
+    fn the_event_listeners_patch_is_one_switch_and_only_a_boolean() {
+        for on in [true, false] {
+            assert_eq!(project_setting_ops("alpha",&json!({"event_listeners":on})).unwrap(),
+                vec![json!({"op":"set_event_listeners","node":"alpha","enabled":on})]);
+        }
+        for bad in [json!("true"),json!(1),json!(null)] {
+            assert!(project_setting_ops("alpha",&json!({"event_listeners":bad})).is_err(),"accepted {bad}");
+        }
+        let ops=project_setting_ops("alpha",&json!({"name":"beta","event_listeners":true})).unwrap();
+        assert_eq!(ops.last().unwrap(),&json!({"op":"rename","node":"alpha","name":"beta"}),"the rename stays last");
     }
     #[test]
     fn partial_patch_never_resets_untouched_values() {
