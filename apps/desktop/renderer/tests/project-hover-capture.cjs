@@ -12,7 +12,8 @@ app.whenReady().then(async () => {
   try {
     win.webContents.session.webRequest.onBeforeRequest((d, done) => done({ cancel: !/^(file:|data:)/.test(d.url) }))
     await win.loadFile(path.join(out, 'index.html'))
-    await win.webContents.executeJavaScript(`document.querySelector('.sq.project').focus()`)
+    await win.webContents.executeJavaScript('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))')
+    await win.webContents.executeJavaScript(`document.querySelector('.sq.project').dispatchEvent(new FocusEvent('focusin', { bubbles: true }))`)
     await win.webContents.executeJavaScript('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 350))))')
     const state = await win.webContents.executeJavaScript(`(() => {
       const el = document.querySelector('.sq-far-ghost.on .sq-far-name'), style = getComputedStyle(el);
