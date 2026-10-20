@@ -1,3 +1,10 @@
+- The [harness parity reference](docs/harness-parity.md) inventories all five
+  adapters and custom-provider routes, with source anchors and explicit unknowns.
+  Keep its glossary summary current when adapters change; distinguish native
+  message steering from effort controls, account quota from turn tokens, and
+  cache receipts from provider-expiry promises. [verified: `src/harnesses.rs`,
+  `src/runtime/{actor,claude,codex,agy,muse,opencode}.rs`; 2026-10-20]
+
 - WebSocket watchdogs (`kind=websocket`, `orgtree_watchdog action=send`) keep a
   connection per dog (`src/ws`). Their credentials (headers, bearer, Basic,
   query, secret hellos) never reach a list, card, mail, transcript or log: the

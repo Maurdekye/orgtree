@@ -6520,10 +6520,10 @@
    "covers": [
     "concept:harness-comparison"
    ],
-   "purpose": "Side-by-side table of every harness and route across the seven topics; each cell links to the harness page that is its home.",
+   "purpose": "Source-backed summary of docs/harness-parity.md: all five harnesses, provider routes, controls, usage, accounts, tools, caching and limits.",
    "must_cover": [
     "one row per topic, one column per harness/route",
-    "cells summarize and link; facts live on the harness pages",
+    "cells summarize and cite source; developer reference is docs/harness-parity.md",
     "n/a and unknown stated explicitly",
     "gotchas and workarounds: what silently goes wrong on this harness and how to avoid it",
     "a gotchas column/row per harness, linking each gotcha's home"

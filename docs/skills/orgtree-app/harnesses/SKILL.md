@@ -10,7 +10,7 @@ Every harness Orgtree runs agents on, and the routes through them: how each runs
 
 ## Pages
 
-- [orgtree-harness-comparison](harness-comparison/SKILL.md): Side-by-side table of every harness and route across the seven topics; each cell links to the harness page that is its home.
+- [orgtree-harness-comparison](harness-comparison/SKILL.md): Source-backed summary of docs/harness-parity.md: all five harnesses, provider routes, controls, usage, accounts, tools, caching and limits.
 - [orgtree-harness-claude-code](harness-claude-code/SKILL.md): Claude Code seats: tiers, auth lanes, skills, sandbox and quirks.
 - [orgtree-harness-codex](harness-codex/SKILL.md): Codex seats: sandbox modes, read-only seats, limits.
 - [orgtree-harness-opencode](harness-opencode/SKILL.md): OpenCode seats over ACP.

@@ -1,76 +1,161 @@
 ---
 name: orgtree-harness-comparison
-description: Compare harness lifecycle, reported evidence, caching, compaction, instruction loading and gotchas.
+description: Compare all five harnesses: steering, effort, usage, fast mode, tool readiness and writing, accounts, caching, compaction, permissions and continuity.
 ---
 Up: [orgtree-harnesses](../SKILL.md)
 
 # Harness comparison
 
-The runtime registry has five harnesses. OpenRouter and local language model servers are routes through Claude Code, Codex or OpenCode, not extra agent protocols. The tables retain the source `72ea305` protocol review, reconciled with landed Muse retention at `4447424`, personal globals at `7f5f27f`, native skill delivery at `de6d356` and Antigravity native notes/identity parts at `0f41fc3`. Each cell links to its detailed fact home. Native rule evidence and remaining measurement limits have their own dated/source status in those pages. Unknown means no verified contract here, not zero or unsupported everywhere.
+This is the operational summary of the developer harness parity reference, `docs/harness-parity.md`,
+audited **2026-10-20 at `32bb4144e0337a3c425e71515863a3412bf77987`**.
+Its matrices cite the implementation, recorded decisions and dated native
+observations. The links below pin evidence to that source revision; the developer document contains the full file:line index and limitations.
+Update both pages when behavior changes.
 
-Account-window observation is separate from turn-token reporting. Model/window applicability, metadata-reader cadence and freshness are defined in `orgtree-usage-windows` (orgtree-working › accounts); an active stream does not imply a freshly polled account allowance.
+There are **five harnesses**: Claude Code, Codex CLI, Antigravity, Muse Code and
+OpenCode. Gemini models run through Antigravity here. OpenRouter and language
+model servers are routes through Claude Code, Codex or OpenCode, not extra
+harnesses. A provider's cache, quota and authentication are separate from its
+driver's transport features. [Roster and routes][REG].
 
-## Claude, Codex and Antigravity
+“Unknown” means the integration has no verified contract, not zero or proof that
+the upstream CLI cannot do it. “Delivered” means accepted input, not obedience.
 
-| Topic | Claude Code | Codex | Antigravity |
-| --- | --- | --- | --- |
-| How it runs | [Persistent stream-JSON; user/result turns; hook mail; control interrupt.](../harness-claude-code/SKILL.md#how-it-runs) | [JSON-RPC app-server/thread; native exact-turn steer/interrupt.](../harness-codex/SKILL.md#how-it-runs) | [Stream-JSON/conversation; invocation-hook mail; interrupt ends process tree.](../harness-antigravity/SKILL.md#how-it-runs) |
-| Information and timing | [Text/thinking/argument deltas; observed writing and tool execution intervals; result usage.](../harness-claude-code/SKILL.md#information-and-timing) | [Text/reasoning deltas, item starts/completions; writing time unknown; thread-token differences.](../harness-codex/SKILL.md#information-and-timing) | [Text/trajectory tools and step usage; no separate thought-text stream; writing time unknown.](../harness-antigravity/SKILL.md#information-and-timing) |
-| Caching | [Subscription hour/key five-minute guidance with receipts; no hit guarantee.](../harness-claude-code/SKILL.md#caching) | [Native subscription thirty-minute estimate; custom routes differ.](../harness-codex/SKILL.md#caching) | [Engine 300-second value; published provider TTL unknown.](../harness-antigravity/SKILL.md#caching) |
-| Compaction | [Launch percent; native boundary event; /compact; separate fresh handoff.](../harness-claude-code/SKILL.md#compaction) | [Known-window token threshold/event; UI slash compact unsupported.](../harness-codex/SKILL.md#compaction) | [Native threshold/event contract unknown; fresh-handoff workflow separate.](../harness-antigravity/SKILL.md#compaction) |
-| Instructions and skills | [Claude notes/fallback/imports; deduplicated personal globals; immutable shared .claude/skills via --add-dir.](../harness-claude-code/SKILL.md#instructions-and-skills) | [AGENTS project chain/overrides; personal globals in developerInstructions; native skills/extraRoots/set.](../harness-codex/SKILL.md#instructions-and-skills) | [Personal-global snapshot; owned workspace skills; native notes plus numbered identity rules; expanded 24,000-byte cap and 20k-token rules budget.](../harness-antigravity/SKILL.md#instructions-and-skills) |
-| Tools, permissions and sandbox | [Control-channel MCP, scoped allow/deny/CLI gates; no extra OS-sandbox claim.](../harness-claude-code/SKILL.md#tools-permissions-and-sandbox) | [Dynamic tools/approvals; hosted Windows sandbox or explicit Session 0 fallback.](../harness-codex/SKILL.md#tools-permissions-and-sandbox) | [MCP bridge plus capability-denial hooks; read-only shell closed.](../harness-antigravity/SKILL.md#tools-permissions-and-sandbox) |
-| Models and effort | [Claude tier/model pins and five native levels; eligible live change.](../harness-claude-code/SKILL.md#models-and-effort) | [Discovered model efforts; per-turn application and reported reroutes.](../harness-codex/SKILL.md#models-and-effort) | [Google pools/catalog; mapped levels; optional Claude model IDs encode effort.](../harness-antigravity/SKILL.md#models-and-effort) |
+## Controls and observable output
 
-## Muse and OpenCode
+| Feature | Claude Code | Codex CLI | Antigravity | Muse Code | OpenCode |
+| --- | --- | --- | --- | --- | --- |
+| Mid-turn **message** steering | Hook mail at PostToolUse; another user message is a follow-up. [WAKE] | Native exact-turn `turn/steer`. [X-CONTROL] | Invocation hooks with receipt-backed pending mail. [A-STEER] | Native exact-turn `turn/steer`. [M-CONTROL] | Queued until a later turn; no native steer integration. [O-RUN] |
+| Mid-turn **effort** change | Eligible native Claude tiers only; next model call, “sent” is not measured effect. [EFFORT] | Next turn; process replacement/resume. [EFFORT] | Next launch/turn. [EFFORT] | Next turn, host may remain. [EFFORT] | Generic effort negotiation unknown. [O-EFFORT] |
+| Fast mode | Exact native supported Opus models and acknowledged control. [FAST] | Native OpenAI model must advertise fast/priority service. [FAST] | No mapping. [FAST] | No mapping. [FAST] | No mapping. [FAST] |
+| MCP readiness | Bounded status gate before first prompt; no-pending can include failed servers, so “ready” is not all-tools-success. [C-MCP] | Dynamic tools supplied at setup; no universal external-MCP ready barrier. [X-RUN] | Bridge configured; no all-tools-ready acknowledgment. [A-MCP] | Session MCP capability/config acceptance; not catalog readiness proof. [M-RUN] | Bounded bridge handshake observation; tools may still appear late. [O-RUN] |
+| Tool-call writing time | Partial JSON deltas and observed writing interval. [WRITING] | Unknown; item execution timing is different. [X-TOOLS] | Unknown; step/parameter updates are different. [A-EVENT] | Unknown; item lifecycle is different. [M-TOOLS] | Unknown; tool updates are different. [O-EVENT] |
+| Thinking in transcript | Exposed deltas/blocks; redacted material stays redacted. [C-STREAM] | Reasoning/summary deltas and items. [X-EVENT] | After DONE: exact session/step native history recovery before response; can safely skip. [A-THOUGHT] | MSP reasoning events/items. [M-EVENT] | Thought chunks if emitted. [O-EVENT] |
+| Inline images | Validated image blocks. [IMAGES] | Local-image blocks. [IMAGES] | Text/path envelope only in this adapter. [SEND] | MSP image content. [M-IMAGES] | Text/path envelope only in this adapter. [SEND] |
+| Live shell tail | No live-tail delta mapping here. [C-STREAM] [SHELL] | Native command-output deltas. [SHELL] | Settled step output; no live-tail mapping here. [A-EVENT] | Output deltas/in-progress snapshots. [SHELL] | In-progress content snapshots. [O-EVENT] |
+| Interrupt | Control interrupt. [C-CONTROL] | Exact-turn interrupt. [X-CONTROL] | Stops process tree. [A-STOP] | Turn interrupt; separate background-task controls. [M-CONTROL] | Session cancel. [O-RUN] |
 
-| Topic | Muse Code | OpenCode |
-| --- | --- | --- |
-| How it runs | [MSP host/session, native steer/interrupt, held background results.](../harness-muse/SKILL.md#how-it-runs) | [ACP session/prompt, queued mid-turn mail, explicit load failure, session/cancel.](../harness-opencode/SKILL.md#how-it-runs) |
-| Information and timing | [Text/reasoning deltas, item events, completion/aggregate usage; writing time unknown.](../harness-muse/SKILL.md#information-and-timing) | [Text/thought chunks, merged tool updates, per-prompt tokens; writing time unknown.](../harness-opencode/SKILL.md#information-and-timing) |
-| Caching | [Cache receipts possible; price and TTL unknown.](../harness-muse/SKILL.md#caching) | [Custom-provider TTL/cost unknown; unsupported forecast.](../harness-opencode/SKILL.md#caching) |
-| Compaction | [session/compact admission, success item required; automatic threshold unknown.](../harness-muse/SKILL.md#compaction) | [No configured threshold/RPC; native policy unknown; separate fresh handoff.](../harness-opencode/SKILL.md#compaction) |
-| Instructions and skills | [Native workspace/account rules, deduplicated personal globals; foreign-rule fallback off; owned workspace skills.](../harness-muse/SKILL.md#instructions-and-skills) | [Private system identity/personal globals, explicit shared skills roots and exact skill-ID allow rules.](../harness-opencode/SKILL.md#instructions-and-skills) |
-| Tools, permissions and sandbox | [MSP/MCP approvals; current writable roots each turn; Session 0 write seats unsandboxed.](../harness-muse/SKILL.md#tools-permissions-and-sandbox) | [ACP path callbacks/direct MCP; shell capability, no OS sandbox; Code Mode policy differs.](../harness-opencode/SKILL.md#tools-permissions-and-sandbox) |
-| Models and effort | [Exact login catalog/variants; next-turn effort; proactive ultra excluded.](../harness-muse/SKILL.md#models-and-effort) | [Custom model/context config; reasoning effort unnegotiated/unknown at base.](../harness-opencode/SKILL.md#models-and-effort) |
+No automatic interrupt-on-mail feature is implied by the hook workaround.
+DND is checked before delivery. Live shell tails are bounded and ephemeral, not a complete terminal recording. [SHELL] A manual interrupt does not undo external tool
+effects. Thinking-token counts alone do not imply visible thinking text.
+Control and transcript contracts [WAKE], thinking limits [A-THOUGHT] [A-HISTORY].
 
-## Provider routes
+## Usage, accounts, cache and compaction
 
-| Topic | OpenRouter | Local language model server |
-| --- | --- | --- |
-| How it runs | [Key-selected/pinned Claude, Codex or OpenCode; cross-harness fresh handoff.](../route-openrouter/SKILL.md#how-it-runs) | [All three harnesses; Messages/Responses/Chat Completions respectively; concurrency admission.](../route-local-server/SKILL.md#how-it-runs) |
-| Information and timing | [Driver telemetry plus key cap/account balance; native subscription windows n/a.](../route-openrouter/SKILL.md#information-and-timing) | [Driver telemetry; provider quota n/a; hardware cap not exhaustion.](../route-local-server/SKILL.md#information-and-timing) |
-| Caching | [Backend-dependent, universal TTL unknown; never inherit native subscription TTL.](../route-openrouter/SKILL.md#caching) | [Server KV/cache retention unknown; no expiry promise.](../route-local-server/SKILL.md#caching) |
-| Compaction | [Driver threshold where supported; backend summary retention unknown.](../route-openrouter/SKILL.md#compaction) | [Configured real window/driver threshold; bounded overflow handoff recovery.](../route-local-server/SKILL.md#compaction) |
-| Instructions and skills | [Driver-native shared skills and deduplicated personal globals across route homes.](../route-openrouter/SKILL.md#instructions-and-skills) | [Driver-native shared skills/personal globals; server-specific instruction ceiling unknown.](../route-local-server/SKILL.md#instructions-and-skills) |
-| Tools, permissions and sandbox | [Inherits driver, not a separate sandbox; mail path also inherited.](../route-openrouter/SKILL.md#tools-permissions-and-sandbox) | [Inherits driver; Codex hosted web search disabled locally.](../route-local-server/SKILL.md#tools-permissions-and-sandbox) |
-| Models and effort | [Catalog flags/rates can be unknown; saved effort not backend proof.](../route-openrouter/SKILL.md#models-and-effort) | [Server model/context catalog, version compatibility observations, backend effort unknown.](../route-local-server/SKILL.md#models-and-effort) |
+| Feature | Claude Code / Claude | Codex CLI / OpenAI | Antigravity / Google | Muse Code / Muse | OpenCode / custom provider |
+| --- | --- | --- | --- | --- | --- |
+| Queryable allowance | OAuth metadata; session/weekly/model limits. [C-USAGE] | HTTP metadata plus app-server rate-limit fallback/events. [X-USAGE] | Guarded zero-token probe, distinct model pools/profile readings. [G-USAGE] | `usage/read` returns last observed quota; cannot force a new reading. [M-USAGE] | OpenRouter key cap/balance or server capacity, not native subscription quota. [OR-USAGE] |
+| Usage timing | Cached normally; pressure/activity cadence and manual floor. [U-CADENCE] | Same distinction between cached quota and stream tokens. [U-CADENCE] | Five-minute manual floor; successful zero-token protocol required. [U-QUERY] | Metadata usually every five minutes; same timestamp remains stale. [M-USAGE] | Route-specific metadata/capacity. [OR-USAGE] |
+| Turn tokens / cost | Result usage and differenced CLI dollar counter. [TOKENS] | Thread-total differences; model-price estimate. [TOKENS] | DONE-step usage; model-dependent cost estimate/unknown. [TOKENS] | Session usage; children separate; price unknown. [TOKENS] | ACP prompt usage if supplied; custom cost unknown/local. [TOKENS] |
+| Multiple accounts | Managed/imported profiles and API keys. [ADD-ACCOUNT] | Selected Codex homes and API keys. [ADD-ACCOUNT] | Profile guards exist, but measured Windows CLI shares one keyring login; independent concurrent sign-ins not verified. [A-ACCOUNTS] | Managed config/data roots and keys; imported-folder sign-in refused. [ADD-ACCOUNT] | Custom keys/servers, not native OpenCode subscription profiles. [REG] |
+| Prompt-cache expiry | Engine guidance/receipts: subscription ~1h, key ~5m; no guarantee. [CACHE-GUIDE] | Native 30-minute engine estimate; no guarantee. [CACHE-GUIDE] | Engine 300-second value; actual provider expiry unknown. [TOKENS] | Cache read may be known; TTL unknown. [FORECAST] | Custom-provider TTL unknown. [FORECAST] |
+| Normal compaction | Yes; Claude-driven custom routes too. [COMPACT] | Not offered by Orgtree. [COMPACT] | Not offered by Orgtree. [COMPACT] | Yes; native completion required, not just request admission. [M-COMPACT-EVENT] | Not offered by Orgtree. [COMPACT] |
+| Cheap compaction | Shared fresh session + bounded handoff; preserve history. [CHEAP] | Same; different from normal compact. [CHEAP] | Same engine operation. [CHEAP] | Same; unknown TTL cannot itself trigger cold reset. [CHEAP] | Same; unknown forecast cannot trigger cold reset. [CHEAP] |
 
-## Gotchas and workarounds
+Allowance freshness, turn tokens, occupancy and prompt-cache receipts are four
+different facts. A fresh account label does not freshen old quota. After a Muse
+reset passes, an old percentage becomes unknown until a new reading arrives.
+Fallback respects org-enabled account lanes and eligibility; it is not a promise
+that a different account will be chosen. Usage [U-TOOL] [M-USAGE] [U-FRESH], accounts [FALLBACK] [ORG-ACCOUNTS].
 
-| Harness or route | Gotchas |
+**Custom-route caveat:** OpenRouter through Claude/Codex can still display
+driver-derived TTL values at this source version. They do not establish the
+backend's expiry. Language model server and ACP forecasts explicitly report
+unknown. Never promise a cache hit from a warm process or compatible prefix.
+Cache evidence and implementation discrepancy [FORECAST].
+
+## Continuity, instructions and safety boundaries
+
+| Topic | Gotchas and source evidence |
 | --- | --- |
-| Claude Code | [Mail waits for PostToolUse; explicit tool-boundary interruption/follow-up is a workflow, not automatic. Generated argument timing requires actual deltas.](../harness-claude-code/SKILL.md#gotchas-and-workarounds) |
-| Codex | [Windows runner can fail before shell start; eligible approval-based retry only. Graceful shutdown and durable forced-stop records matter.](../harness-codex/SKILL.md#gotchas-and-workarounds) |
-| Antigravity | [Expanded-file truncation/aggregate rules budget; numbered parts do not raise total budget. Old generated envelopes migrate to recoverable backups, including interior edits. Interrupt stops process tree.](../harness-antigravity/SKILL.md#gotchas-and-workarounds) |
-| Muse | [Session 0 callbacks do not contain all writes; staged approvals/background custody matter. No fresh usage query; retained dated readings survive restarts, with passed-reset values unknown.](../harness-muse/SKILL.md#gotchas-and-workarounds) |
-| OpenCode | [Imported skill roots apply at launch boundaries; loader contract checked at 2.0.28, older versions unknown. No mid-turn steer; interruption/follow-up is manual. Tools may appear late; Code Mode denial is deliberate.](../harness-opencode/SKILL.md#gotchas-and-workarounds) |
-| OpenRouter | [CLI brand is not billing, keys can share balance, and harness changes replace context.](../route-openrouter/SKILL.md#gotchas-and-workarounds) |
-| Local server | [Match the actual protocol; separate model loading/overflow from quotas; cache retention remains unknown.](../route-local-server/SKILL.md#gotchas-and-workarounds) |
+| Model/account/harness changes | Reconciled at boundaries; process restart and native session reset are different. Cross-harness changes need a fresh handoff; OpenCode load failure is explicit. [RECONFIGURE] [O-RUN] |
+| Startup files and skills | Per-harness native manifests plus deduplicated read-only personal globals. Claude shared root, Codex extra-roots RPC, AGY/Muse owned workspace entries, OpenCode configured roots. Startup changes apply at permitted boundaries. [STARTUP] [GLOBALS] [SKILLS] [X-RUN] [O-LAUNCH] |
+| AGY instruction limits | Dated CLI 1.3.5 evidence: expanded 24,000-byte file cap and aggregate 20k-token rules budget. Numbered identity parts do not raise the total budget. [A-RULES-DOC] |
+| Windows placement | All five harnesses, including Codex bypass seats, can use the selected signed-in session. Placement changes at boundaries; Session 0 has no user's desktop. [HOST] |
+| Sandbox limits | Codex hosted/fallback posture differs; Muse has a documented Session 0 writable sandbox limitation; AGY hooks and ACP callbacks are not OS sandboxes. [X-PERM] [M-PERM] [A-PERM] [O-PERM] |
+| Shutdown | EOF/cancel and bounded grace precede force where implemented. Explicit AGY interrupt is process termination. Durable forced-stop accounting is adapter-specific. [C-STOP] [X-STOP] [A-STOP] [M-STOP] [O-STOP] |
+| Background work | Claude/Muse have explicit held-result handling; native subagent scope does not imply equal background protocols across every harness. [BACKGROUND] |
+| Native MCP elicitation | Codex has the explicit human-only form/URL bridge. Equivalent integration on the other adapters is unknown; their approval callbacks are separate. [X-ELICIT] [ELICIT] |
+| Refusals | Auth, quota, transport, permission denial and model refusal are different. A universal cross-provider content-filter taxonomy is unknown. [RECOVERY] |
 
-A human can deliberately interrupt a non-steering session at a tool-call boundary and continue with new input when waiting is unacceptable. That does not imply an automatic interrupt-on-mail feature: source dispatch uses native steering for Codex/Muse, hooks for Claude/AGY, and a queue for OpenCode. Completion receipts establish delivery or tool settlement, not instruction obedience or rolled-back side effects.
+## Detailed pages
 
-One shared tooling gotcha is distinct from a provider limit: the team's 2026-10-14 offscreen Electron visual checks in Windows Session 0 observed a 1024×768 display and clamped larger windows. Those fixtures should fit roughly 1000×700, or use an appropriately hosted interactive capture. Source: coordinator-team visual-capture notes, dated 2026-10-14. This test-environment observation does not establish every harness's or browser tool's display size. Read [desktop behavior](../../app-settings/app-runtime-desktop/SKILL.md) for where agents run now (Session 0, or the signed-in session while the user is signed in) rather than inferring it from these older fixtures.
-
-## See also
-
-- [orgtree-harness-claude-code](../harness-claude-code/SKILL.md)
-- [orgtree-harness-codex](../harness-codex/SKILL.md)
-- [orgtree-harness-antigravity](../harness-antigravity/SKILL.md)
-- [orgtree-harness-muse](../harness-muse/SKILL.md)
-- [orgtree-harness-opencode](../harness-opencode/SKILL.md)
-- [orgtree-route-openrouter](../route-openrouter/SKILL.md)
-- [orgtree-route-local-server](../route-local-server/SKILL.md)
+- [Claude Code](../harness-claude-code/SKILL.md)
+- [Codex](../harness-codex/SKILL.md)
+- [Antigravity](../harness-antigravity/SKILL.md)
+- [Muse](../harness-muse/SKILL.md)
+- [OpenCode](../harness-opencode/SKILL.md)
+- [OpenRouter](../route-openrouter/SKILL.md)
+- [Language model servers](../route-local-server/SKILL.md)
+- [Skills and instructions](../../providers/skills-and-instructions/SKILL.md)
+- Full source index and unknowns: `docs/harness-parity.md` in the development checkout.
 - See `orgtree-cache-continuity` (orgtree-working › accounts).
 - See `orgtree-context-and-compaction` (orgtree-working › runtime).
-- [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)
+
+[A-ACCOUNTS]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/docs/rust-engine/antigravity-accounts.md#L3
+[A-EVENT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L5660
+[A-HISTORY]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/agy_thinking.rs#L17
+[A-MCP]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/agy.rs#L153
+[A-PERM]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/agy.rs#L318
+[A-RULES-DOC]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/docs/agy-standing-notes.md#L1
+[A-STEER]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L3777
+[A-STOP]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/agy.rs#L221
+[A-THOUGHT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L5685
+[ADD-ACCOUNT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/http/accounts.rs#L104
+[BACKGROUND]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L5261
+[C-CONTROL]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/claude.rs#L294
+[C-MCP]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L58
+[C-STOP]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/claude.rs#L332
+[C-STREAM]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L6228
+[C-USAGE]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/usage.rs#L748
+[CACHE-GUIDE]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/identity.rs#L956
+[CHEAP]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L2482
+[COMPACT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/domain/compaction.rs#L47
+[EFFORT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L1547
+[ELICIT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/elicitation.rs#L1
+[FALLBACK]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/freeze.rs#L282
+[FAST]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/providers/fast_mode.rs#L7
+[FORECAST]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L8113
+[G-USAGE]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/usage.rs#L1181
+[GLOBALS]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/global_instructions.rs#L67
+[HOST]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/session_host.rs#L1
+[IMAGES]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L8248
+[M-COMPACT-EVENT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L5138
+[M-CONTROL]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/muse.rs#L708
+[M-EVENT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L4752
+[M-IMAGES]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/muse.rs#L1068
+[M-PERM]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/muse.rs#L82
+[M-RUN]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/muse.rs#L550
+[M-STOP]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/muse.rs#L782
+[M-TOOLS]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L4950
+[M-USAGE]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/usage.rs#L1433
+[O-EFFORT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L3380
+[O-EVENT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L3401
+[O-LAUNCH]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/opencode.rs#L163
+[O-PERM]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/acp_scope.rs#L1
+[O-RUN]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/opencode.rs#L42
+[O-STOP]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/acp.rs#L169
+[OR-USAGE]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/usage.rs#L1582
+[ORG-ACCOUNTS]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/org_accounts.rs#L73
+[RECONFIGURE]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L1610
+[RECOVERY]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L7252
+[REG]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/harnesses.rs#L32
+[SEND]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L4234
+[SHELL]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/shell_output.rs#L1
+[SKILLS]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/providers/skills.rs#L28
+[STARTUP]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/startup.rs#L1
+[TOKENS]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L7104
+[U-CADENCE]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/usage.rs#L1884
+[U-FRESH]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/usage/query.rs#L74
+[U-QUERY]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/usage.rs#L432
+[U-TOOL]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/tools/usage.rs#L260
+[WAKE]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L1655
+[WRITING]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/toolwriting.rs#L23
+[X-CONTROL]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/codex.rs#L420
+[X-ELICIT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/codex.rs#L620
+[X-EVENT]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L4614
+[X-PERM]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/codex.rs#L95
+[X-RUN]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/codex.rs#L330
+[X-STOP]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/codex.rs#L456
+[X-TOOLS]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L5993
+[X-USAGE]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/usage.rs#L904
