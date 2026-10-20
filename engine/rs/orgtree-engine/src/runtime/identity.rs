@@ -137,6 +137,7 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     }
     s.push_str(&org_charter(i.org_md));
     if trim { s.push_str(TRIM_SKILLS_POINTER); }
+    s.push_str(CONCURRENCY_PRIMITIVES_POINTER);
     // Also applies to replayed mail and recipients whose messaging tools or
     // extern audience have since changed. Delegation stays in this org's notes.
     s.push_str(EXTERNAL_AUTHORITY);
@@ -1311,6 +1312,9 @@ const MENTIONS: &str = "MENTIONS: whenever you name an agent, project or docket 
 const TRIM_LIVE_STATE: &str = "Your reports, peers, chart, credits and any open question are LIVE STATE in the \
 [ORG STATE] block at the top of each turn; read them there, not here.\n";
 
+// Every lane/profile receives this pointer, even without project ancestry or tools.
+const CONCURRENCY_PRIMITIVES_POINTER: &str = "Use projects for concurrent work primitives such as build slots or shared resource locks, work queues, events/listeners and group readiness alerts or barriers; read orgtree-concurrency-primitives (orgtree-workflows > collaboration-patterns > concurrency-primitives).\n";
+
 const TRIM_SKILLS_POINTER: &str = "HOW-TO LIVES IN SKILLS. orgtree-working covers tools and rules; orgtree-app, screens and settings; orgtree-workflows, suggested team workflows. Read a named page before first acting in its area this session. Inline rules always apply.\n";
 
 const TRIM_CACHE: &str = "CACHE: provider/account/model/session switches start a new prompt-cache namespace; rewriting prompt/charter/tools/history changes the prefix. Avoid unnecessary changes; state their cache cost when necessary. Never promise a cache hit (orgtree-cache-continuity).";
@@ -1396,6 +1400,34 @@ mod trim_tests {
     }
 
     #[test]
+    fn concurrency_pointer_reaches_every_lane_and_profile_without_projects() {
+        let expected = "Use projects for concurrent work primitives such as build slots or shared resource locks, work queues, events/listeners and group readiness alerts or barriers; read orgtree-concurrency-primitives (orgtree-workflows > collaboration-patterns > concurrency-primitives).";
+        let disabled = json!({"tools":{"bash":false,"edit":false,"web":false,"subagents":false,
+            "orgtree":GROUPS.iter().map(|g| (g.to_string(), Value::Bool(false))).collect::<Map<String, Value>>()}});
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            for builtin_skills in [false, true] {
+                for top in [false, true] {
+                    for suggest_agent_feedback in [false, true] {
+                        for scope in [&all_on(), &disabled] {
+                            let i = Identity {
+                                name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
+                                charter: None, team_charter: None, cascade: &[],
+                                superior: if top { None } else { Some("lead") }, org_md: None, lane, scope,
+                                codex_sandbox: None, mcp_servers: &[], extern_holder: false,
+                                folder_notes: &[], own_notes: &[], skills_dir: "D:/skills", builtin_skills,
+                                suggest_agent_feedback,
+                            };
+                            let (rules, _) = identity_parts(&i);
+                            assert_eq!(rules.matches(expected).count(), 1,
+                                "{lane:?} top={top} skills={builtin_skills} feedback={suggest_agent_feedback}: shared pointer");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn feedback_pointer_obeys_runtime_choice_on_all_lanes_and_profiles() {
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
             for builtin_skills in [false, true] {
@@ -1464,10 +1496,14 @@ mod trim_tests {
     /// (coordinator rebase ruling 2026-10-20 11:00Z).
     const OPENCODE_HOOK_MAIL: usize = 400;
 
+    /// USER 2026-10-20 10:51Z: exactly the always-sent concurrency pointer, including its newline.
+    const CONCURRENCY_POINTER_GROWTH: usize = 267;
+
     /// The approved budget: well under Antigravity's 24 KB per file, measured on the
     /// largest engine-written profile (top-level, every group, org-inbox holder).
     #[test]
     fn trimmed_engine_text_fits_the_budget_on_every_lane() {
+        assert_eq!(CONCURRENCY_PRIMITIVES_POINTER.len(), CONCURRENCY_POINTER_GROWTH);
         assert!(EXTERNAL_AUTHORITY.len() <= 913 + EXTERNAL_TAGS, "the passage outgrew its approved allowance: {}", EXTERNAL_AUTHORITY.len());
         assert!(OPENCODE_MAIL_DELIVERY.len() + TRIM_AUTHENTIC_CHANNEL.len() <= 157 + OPENCODE_HOOK_MAIL);
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
@@ -1476,10 +1512,10 @@ mod trim_tests {
                 let trimmed = render(&all_on(), lane, top, true);
                 // Retain the existing text budget, plus only the newly approved
                 // unconditional mention paragraph and its four newline bytes,
-                // EXTERNAL tags and OpenCode's hook-mail contract each retain
-                // their own bounded allowance.
+                // EXTERNAL tags, the unconditional concurrency pointer and
+                // OpenCode's hook-mail contract each retain their bounded allowance.
                 let hook_mail = if lane == Lane::OpenCode { OPENCODE_HOOK_MAIL } else { 0 };
-                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
+                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + CONCURRENCY_POINTER_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
                 assert!(trimmed.len() * 2 < full.len(), "{lane:?} top={top}: {} vs {}", trimmed.len(), full.len());
             }
         }

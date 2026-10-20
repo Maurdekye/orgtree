@@ -7,6 +7,8 @@ Up: [orgtree-collaboration-patterns](../SKILL.md)
 
 # Coordinate work through projects
 
+Every agent receives a standing-instruction pointer to this page, across all harnesses, even without project ancestry or enabled project tools; the pointer does not grant those tools or project reach.
+
 Choose the agreement first, then its primitive. These are cooperative protocols: Orgtree records grants, queues and events, but does not prevent unclaimed work, stop a process on lease loss, or verify that an acknowledgement means success. Reading a recipe grants no authority to create projects, move a team, change settings or start work.
 
 | Need | Use | Important limit |

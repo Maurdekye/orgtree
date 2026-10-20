@@ -1,3 +1,9 @@
+- Every instruction lane, full and trimmed, always names the concurrency
+  recipes and exact glossary breadcrumb, independent of project ancestry and
+  tool switches. Its byte-budget allowance is exactly the new sentence plus
+  newline; do not cut other rules. See [instruction template](docs/skills/INSTRUCTIONS-TRIM.md).
+  [decided: user 2026-10-20 10:51Z; verified: `runtime/identity.rs`]
+
 - Transcript live tool and thought clocks use whole seconds below 60s, then
   the shared duration minute/hour style (`2m 05s`, `1h 02m`); recorded thoughts
   and helper task durations share that longer form. Exact-second hover titles

@@ -158,6 +158,8 @@ today. Within a block:
 You are "{name}", an agent in the organization "{org}" (orgtree). Your superior: {superior}. Your reports, peers, chart, credits and any open question are LIVE STATE in the [ORG STATE] block at the top of each turn; read them there, not here.
 @@ SKILLS_POINTER [every lane that receives built-in skills]
 HOW-TO LIVES IN SKILLS. orgtree-working covers tools and rules; orgtree-app, screens and settings; orgtree-workflows, suggested team workflows. Read a named page before first acting in its area this session. Inline rules always apply.
+@@ CONCURRENCY_POINTER [always: every lane, full or trimmed, with or without projects]
+Use projects for concurrent work primitives such as build slots or shared resource locks, work queues, events/listeners and group readiness alerts or barriers; read orgtree-concurrency-primitives (orgtree-workflows > collaboration-patterns > concurrency-primitives).
 @@ (charters, team charter, cascade, org.md: unchanged)
 @@ EXTERNAL_AUTHORITY [always] — verbatim, unchanged
 @@ CACHE_CONTINUITY [always]
@@ -349,8 +351,10 @@ written and source-checked before phase 2 removes the inline text:
 1. Writers finish and source-check the pages in section 7.
 2. In the engine, replace the constants and function texts with the text in section 5.
    Keep the group and lane scoping, and update the pinned tests deliberately. Add a
-   size-budget test: under 10 KB of engine text for the largest profile, and the skills
-   pointer present only on lanes that receive built-in skills.
+   size-budget test: retain the base 10 KB plus the named approved mention,
+   external-tag and exact concurrency-pointer growth allowances for the largest
+   profile. The HOW-TO entry remains limited to lanes receiving built-in skills;
+   the concurrency pointer is unconditional on every lane and profile.
 3. Land it in the same release as the skill library and the shared-skills pipeline.
 4. Measure the real `.orgtree-identity.md` sizes per lane after rollout, and record them
    on the docket item.
