@@ -641,7 +641,20 @@ function ContextMenu({ state, anchorRef, close }:
 
 function MenuEntries({ entries, close, within }: { entries: MenuEntry[]; close: () => void; within: Document }) {
   const [expanded, setExpanded] = useState<number | null>(null)
-  return <>{entries.map((entry, i) => entry === 'sep'
+  // USER 2026-10-20: Open is the second action in every menu that offers
+  // that submenu. Apply after copy/mention prefixes and async replacements,
+  // at every nested level too. Keep caller arrays, other actions and separators.
+  const open = entries.findIndex(entry => entry !== 'sep' && entry.label === 'Open' && entry.children)
+  let ordered = entries
+  if (open >= 0) {
+    const rest = entries.filter((_, i) => i !== open)
+    const first = rest.findIndex(entry => entry !== 'sep')
+    if (first >= 0 && open !== first + 1) {
+      rest.splice(first + 1, 0, entries[open]!)
+      ordered = rest
+    }
+  }
+  return <>{ordered.map((entry, i) => entry === 'sep'
     ? <div key={'sep' + i} className="ctxmenu-sep" role="separator" />
     : <NestedMenuItem key={i} entry={entry} close={close} within={within} expanded={expanded === i}
         expand={() => setExpanded(i)} collapse={() => setExpanded(null)} />)}</>

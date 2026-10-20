@@ -26,7 +26,10 @@ for (const kind of ['agent', 'project', 'mention', 'owner', 'sender', 'async', '
     const got = labels(menu)
     assert.equal(got.indexOf('Open'), 1, JSON.stringify(got))
     assert.equal(got[0], kind === 'mention' ? 'Mention' : kind === 'async' || kind === 'switchboard' ? 'Focus' : 'Copy mention')
-    assert.equal(got.indexOf('Focus') < got.indexOf('Settings') || kind === 'switchboard', true)
+    assert.deepEqual(got.filter(label => label !== 'Open'), kind === 'switchboard'
+      ? ['Focus', 'Hire an agent', 'New project…', 'Agents list', 'Compact all agents…', 'Halt all agents…', 'Retire all agents…']
+      : [...(kind === 'mention' ? ['Mention', 'Copy mention'] : kind === 'async' ? [] : ['Copy mention']),
+        'Focus', ...(kind === 'project' ? ['Hire under this project', 'New project…'] : ['Hire a subordinate', 'New project…']), 'Settings'])
     const parent = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(b => b.textContent?.trim() === 'Open ▸')!
     await inAct(() => parent.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
     assert.equal(parent.getAttribute('aria-expanded'), 'true', 'submenu behavior retained')
