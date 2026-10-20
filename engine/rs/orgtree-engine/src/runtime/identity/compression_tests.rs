@@ -82,15 +82,25 @@ fn approved_examples_match_exact_wording() {
 }
 
 #[test]
-fn legacy_profiles_keep_their_baseline_bytes() {
+fn legacy_profiles_change_only_approved_mentions() {
     use sha2::{Digest, Sha256};
     let expected: Value = serde_json::from_str(include_str!(
         "../../../testdata/standing-compression/legacy-3dc7095.json")).unwrap();
     let mut checked = 0;
     for (key,text) in profiles().into_iter().filter(|(key,_)| key.ends_with("trimfalse")) {
+        // The 21:44Z follow-up changes the two mention passages on legacy
+        // profiles too. Undo only those approved replacements before checking
+        // the original fingerprint; unrelated wording remains byte-pinned.
+        let text = text.replace(
+            "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong.",
+            "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write it as a mention: `@name`, or `@item:<org>/<slug>`. A bare name is wrong. Don't put mentions inside code spans.",
+        ).replace(
+            "Write @user (plain text, never in backticks) in replies, mail, presented documents or docket updates to notify the user: 'I need you to see this'. Anything needing an answer still goes by mail or question.",
+            "Write `@user` in your reply for 'I need you to see this'; anything needing an answer still goes by mail or question.",
+        );
         assert_eq!(json!(text.len()), expected[&key]["bytes"], "{key}: byte length");
         assert_eq!(json!(format!("{:x}", Sha256::digest(text.as_bytes()))),
-            expected[&key]["sha256"], "{key}: unchanged legacy text");
+            expected[&key]["sha256"], "{key}: unchanged legacy text outside approved mentions");
         checked += 1;
     }
     assert_eq!(checked, 20);

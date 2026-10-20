@@ -1448,7 +1448,7 @@ mod trim_tests {
 
     #[test]
     fn mentions_rule_is_exact_and_unconditional_on_every_profile() {
-        let expected = "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write it as a mention: `@name`, or `@item:<org>/<slug>`. A bare name is wrong. Don't put mentions inside code spans.";
+        let expected = "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong.";
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
             for top in [false, true] {
                 for trim in [false, true] {
@@ -1457,6 +1457,22 @@ mod trim_tests {
                         assert_eq!(text.matches(expected).count(), 1, "{lane:?} top={top} trim={trim}");
                         assert!(text.contains(&format!("\n\n{expected}\n\n")), "the rule must be its own paragraph");
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn user_mentions_explain_notifications_and_plain_text_on_every_lane() {
+        let expected = "Write @user (plain text, never in backticks) in replies, mail, presented documents or docket updates to notify the user: 'I need you to see this'. Anything needing an answer still goes by mail or question.";
+        for lane in SKILL_LANES {
+            for top in [false, true] {
+                for trim in [false, true] {
+                    let text = render(&all_on(), *lane, top, trim);
+                    assert_eq!(text.matches(expected).count(), 1, "{lane:?} top={top} trim={trim}");
+                    assert!(!text.contains("`@user`"), "{lane:?}: examples must notify when copied");
+                    assert!(!text.contains("`@name`") && !text.contains("`@item:<org>/<slug>`"),
+                        "{lane:?}: examples must render as mentions when copied");
                 }
             }
         }
@@ -1589,7 +1605,7 @@ mod trim_tests {
         assert!(s.contains("Mentioning an agent in the objective or mail grants no docket access"));
         assert!(s.contains("BREADCRUMBS (user ruling 2026-08-12)") && s.contains("orgtree_watchdog"));
         assert!(s.contains("[ORGTREE MAIL — delivered mid-task]") && s.contains("REQUIRED: call orgtree_status"));
-        assert!(s.contains("`@user` in your reply is for 'I need you to see this'"));
+        assert!(s.contains("Write @user (plain text, never in backticks)"));
         assert!(s.contains("it does NOT message the user"));
         assert!(s.contains("orgtree_next_turn") && s.contains("orgtree_session") && s.contains("Session 0"));
         assert!(s.contains("orgtree-session-0-ui-testing"));
