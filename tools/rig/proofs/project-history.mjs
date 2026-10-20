@@ -1,9 +1,10 @@
 // Proof: the project desk's history (docket
 // project-desk-mail-event-listeners-and-slots-tabs; user 2026-10-20 06:22Z,
 // design approved by coordinator-opus 06:36Z), through the real engine.
-//   a project's event Listeners tab follows `listeners_seen` in the tree:
-//   false on a fresh project, true from its first project_listener or
-//   listener_watch, and still true once that is removed
+//   a project's event-listeners setting (which decides its Listeners tab;
+//   user 2026-10-20 10:50Z) is off on a fresh project, switched on by its
+//   first project_listener or listener_watch, and still on once that is
+//   removed (project-listener-setting.mjs proves the rest of the setting)
 //   every fired event is kept (op listener_history), newest first: who
 //   fired it, its whole message, and every listener it reached with when
 //   that listener began listening (its arming, or its previous event); a
@@ -69,23 +70,23 @@ export default async function (rig) {
   const history = (name, before) => opTry({ op: 'listener_history', node: name, ...(before ? { history_before: before } : {}) })
   const queue = (name, before) => opTry({ op: 'mail_queue_history', node: name, ...(before ? { history_before: before } : {}) })
 
-  // ------------------------------------------------------------ listeners_seen
+  // ------------------------------------------------------------ the event-listeners setting
+  const listening = async name => (await treeNode(name))?.configured_scope?.event_listeners === true
   const madeX = await project('hx', ['ha', 'hb'])
   const fresh = await treeNode('hx')
-  p.check('a fresh project has never had a listener: its tree node says so', madeX && !!fresh && fresh.listeners_seen === false,
-    { made: madeX, listeners_seen: fresh?.listeners_seen })
+  p.check('a fresh project\'s event listeners are off: its tree node says so', madeX && !!fresh && !(await listening('hx')),
+    { made: madeX, scope: fresh?.configured_scope })
   const firstEar = await listen('ha', 'ha-ear', 'hx')
-  await rig.waitFor(async () => (await treeNode('hx'))?.listeners_seen === true, { what: 'listeners_seen', timeout: 15000 }).catch(() => {})
-  p.check('its first event listener marks it for good (agents.extra.listeners_seen_at)',
-    firstEar.ok && (await treeNode('hx'))?.listeners_seen === true && !!node('hx').extra?.listeners_seen_at,
-    { said: said(firstEar), extra: node('hx').extra })
+  await rig.waitFor(() => listening('hx'), { what: 'the setting on', timeout: 15000 }).catch(() => {})
+  p.check('its first event listener switches them on (scope.event_listeners)',
+    firstEar.ok && (await listening('hx')), { said: said(firstEar), scope: (await treeNode('hx'))?.configured_scope })
   const removed = await rig.tool('ha', 'orgtree_watchdog', { action: 'remove', id: 'ha-ear' })
   await settle('listener removed')
-  p.check('removing the listener leaves the mark', removed.ok && (await treeNode('hx'))?.listeners_seen === true, said(removed))
+  p.check('removing the listener leaves them on', removed.ok && (await listening('hx')), said(removed))
   const madeW = await project('hw', ['hw1'])
   const watchOnly = await rig.tool('boss', 'orgtree_watchdog', { action: 'create', name: 'hw-watch', kind: 'listener_watch', target: 'hw', count: 3, notice: true })
-  await rig.waitFor(async () => (await treeNode('hw'))?.listeners_seen === true, { what: 'hw listeners_seen', timeout: 15000 }).catch(() => {})
-  p.check('a listener watch alone marks its project too', madeW && watchOnly.ok && (await treeNode('hw'))?.listeners_seen === true, said(watchOnly))
+  await rig.waitFor(() => listening('hw'), { what: 'hw on', timeout: 15000 }).catch(() => {})
+  p.check('a listener watch alone switches its project on too', madeW && watchOnly.ok && (await listening('hw')), said(watchOnly))
 
   // ------------------------------------------------------------ fired events
   const la = await listen('ha', 'ha-ear2', 'hx')
@@ -136,6 +137,8 @@ export default async function (rig) {
 
   // ------------------------------------------------------------ paging fires
   const madeP = await project('hp', [])
+  // a project with nobody listening fires only while its event listeners are on
+  const hpOn = await opTry({ op: 'set_event_listeners', node: 'hp', enabled: true })
   const fires = []
   for (let i = 0; i < 32; i++) fires.push(await fire('boss', 'hp', `n${i}`))
   const page1 = await history('hp')
@@ -143,7 +146,7 @@ export default async function (rig) {
   const names = rows => (rows ?? []).map(r => r.message).join()
   const want1 = Array.from({ length: 30 }, (_, i) => `n${31 - i}`).join()
   p.check('fires to nobody are kept too, and page 30 at a time, newest first, with a cursor to the rest',
-    madeP && fires.every(f => f.ok) && page1.ok && names(page1.v?.history) === want1 && typeof page1.v?.history_next === 'string'
+    madeP && hpOn.ok && fires.every(f => f.ok) && page1.ok && names(page1.v?.history) === want1 && typeof page1.v?.history_next === 'string'
     && page2.ok && names(page2.v?.history) === 'n1,n0' && page2.v?.history_next == null
     && (page1.v?.history ?? []).every(r => (r.listeners ?? []).length === 0),
     { page1: names(page1.v?.history), next: page1.v?.history_next, page2: names(page2.v?.history), next2: page2.v?.history_next, err: page1.error ?? page2.error })
