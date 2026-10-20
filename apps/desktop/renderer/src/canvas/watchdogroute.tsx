@@ -5,6 +5,7 @@ import type { SlotLease } from './slots'
 export interface DeskDogs {
   org?: string
   dogs: Watchdog[]
+  counts?: Record<string, import('./watchdoggroup').WatchdogCount>
   slotLeases?: SlotLease[]
   open: (id: string) => void
 }

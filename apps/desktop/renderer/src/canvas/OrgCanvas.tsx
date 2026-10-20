@@ -105,7 +105,8 @@ import type { AgentTooltipInfo } from './agentnav'
 import { TierChip, nodeTierOf } from './identity'
 import { ObjectNavProvider } from './objectnav'
 import { ObjectNavHost } from './objectnavhost'
-import { WatchdogSatellite } from './watchdogchip'
+import { WatchdogCanvasCards, WatchdogGroup, WATCHDOG_CARD_LIMIT, WATCHDOG_GROUP_W } from './watchdoggroup'
+import { useWatchdogDetail } from './watchdogdetail'
 import { WatchdogLink } from './watchdoglink'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
@@ -588,6 +589,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // click on the same row is a second request (`jumpKey`)
   const [oiJump, setOiJump] = useState<{ id: string; seq: number } | null>(null)
   const [dogView, setDogView] = useState<string | null>(null)  // FR-18 panel
+  const dogDetail = useWatchdogDetail(slug, dogView, tree.watchdogs ?? [])
 
   const toggleDog = useCallback((id: string, keepOpen = false) => {
     toggleNodePanel('watchdog', dogView, id, setDogView, slug, keepOpen)
@@ -3670,8 +3672,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       if (w.once) own.oneShot += 1
       out[w.owner] = own
     }
+    for (const [owner,count] of Object.entries(tree.watchdog_counts ?? {})) out[owner] = {total:count.total,oneShot:count.one_shot}
     return out
-  }, [tree.watchdogs])
+  }, [tree.watchdogs,tree.watchdog_counts])
   // the slots each agent holds: its card's slot chips
   const slotsByHolder = useMemo(() => {
     const out: Record<string, SlotLease[]> = {}
@@ -3722,8 +3725,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }), [onOpenAgentGallery, openAgentDocket, openProjectSlots, toggleNodeSurface, showNodeSurface, toggleConfig])
   // every desk's watchdog cards open the SAME modal the satellite chip does
   // (canvas/deskdogs.tsx)
-  const deskDogs = useMemo((): DeskDogs => ({ org: slug, dogs: tree.watchdogs ?? [], slotLeases: tree.slot_leases ?? [], open: toggleDog }),
-    [slug, tree.watchdogs, tree.slot_leases, toggleDog])
+  const deskDogs = useMemo((): DeskDogs => ({ org: slug, dogs: tree.watchdogs ?? [], counts: tree.watchdog_counts, slotLeases: tree.slot_leases ?? [], open: toggleDog }),
+    [slug, tree.watchdogs, tree.watchdog_counts, tree.slot_leases, toggleDog])
 
   // ------------------------------------------------------ wires, one list
   // Every wire the org view draws, in paint order, built from exactly the
@@ -3818,11 +3821,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // owner with a wire"); the spark rides it on each fire. Hidden at compact
   // with the chips (D-125 ②). A SPENT wire fades on a CSS keyframe clock of
   // its own, which a style probe cannot reproduce, so it stays in SVG.
+  const wiredDogOwners = new Set<string>()
   if (!compact && lod !== 'mini') for (const w of tree.watchdogs ?? []) {
     const a = posOf('dog:' + w.id), b = posOf(w.owner)
     if (!a || !b) continue
+    const grouped = (dogsByOwner[w.owner]?.total ?? 0) > WATCHDOG_CARD_LIMIT
+    if (grouped && wiredDogOwners.has(w.owner)) continue
+    wiredDogOwners.add(w.owner)
     wires.push({ key: 'w' + w.id, svgOnly: !!w.spent, seg: { kind: 'l', pts: [
-      { x: a.x + DOG_W / 2, y: a.y + 4 }, { x: b.x + NODE_W / 2, y: b.y + NODE_H - 8 }] },
+      { x: a.x + (grouped ? WATCHDOG_GROUP_W : DOG_W) / 2, y: a.y + 4 }, { x: b.x + NODE_W / 2, y: b.y + NODE_H - 8 }] },
       cls: 'edge tether wd'
         + (w.state !== 'armed' && !w.spent ? ' off' : '')
         + (w.once ? ' oneshot' : '')
@@ -4283,16 +4290,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             D-125 ②: HIDDEN at compact — 7px names are illegible and 50×26
             untappable at any phone-fitting zoom; the owner card carries a
             count-dot and the sheet header carries the list. */}
-        {!compact && lod !== 'mini' && (tree.watchdogs ?? []).map((w) => {
-          const p = posOf('dog:' + w.id)
-          if (!p || hidden.has(w.owner) || !intersectsViewport({ ...p, w: DOG_W, h: DOG_H }, visibleRect)) return null
-          return (
-            <WatchdogSatellite key={'dog' + w.id} dog={w} dogs={tree.watchdogs ?? []} org={slug}
-              style={{ transform: `translate(${p.x}px, ${p.y}px)`,
-                       width: DOG_W, height: DOG_H }}
-              onOpen={id=>toggleDog(id)} />
-          )
-        })}
+        {!compact && lod !== 'mini' && <WatchdogCanvasCards dogs={tree.watchdogs ?? []} counts={tree.watchdog_counts} org={slug}
+          position={id=>posOf('dog:'+id)} visible={(owner,p)=>!hidden.has(owner)&&intersectsViewport(p,visibleRect)} onOpen={id=>toggleDog(id)}/>}
         {(tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX) && (
           <div className={'sq orginbox' + (lod === 'mini' ? ' orginbox-far' : '') + (dropId === INBOX ? ' drop' : '')}
             style={{
@@ -4553,13 +4552,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         </NodeDetailGate></MaybePortal>
       )}
       {/* no lineage panel: Orgtree 4 keeps no prior generations (ledger B1) */}
-      {dogView && (tree.watchdogs ?? []).some((w) => w.id === dogView) && (
+      {dogView && dogDetail.dog && (
         <MaybePortal><WatchdogPanel slug={slug} toast={toast}
           op={op}
           dogs={tree.watchdogs}
-          dog={(tree.watchdogs ?? []).find((w) => w.id === dogView)!}
+          dog={dogDetail.dog}
           close={() => setDogView(null)} /></MaybePortal>
       )}
+      {dogView && !dogDetail.dog && <ModalOverPins><div className="overlay" onClick={()=>setDogView(null)}>
+        <div className="settings content-height" role="dialog" aria-label="watchdog" onClick={e=>e.stopPropagation()}>
+          <p role="status">{dogDetail.error??'Loading watchdog…'}</p><button onClick={()=>setDogView(null)}>close</button>
+        </div></div></ModalOverPins>}
       {restoredDocs.map(row => <DocReader key={row.key} slug={slug} docId={row.restore!.document!}
         pinKind={row.kind} toast={toast} refs={docRefs} close={() => {
           closeSavedWindow(row.key); setRestoredDocs(old => old.filter(r => r.key !== row.key))
@@ -4642,6 +4645,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       {sheetId && map.get(sheetId) && (() => {
         const n = map.get(sheetId)!
         const myDogs = (tree.watchdogs ?? []).filter((w) => w.owner === sheetId)
+        const myDogTotal = tree.watchdog_counts?.[sheetId]?.total ?? myDogs.length
         const sheetLastTurn = n.turns?.[n.turns.length - 1]
         return (
           <MaybePortal>
@@ -4653,7 +4657,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                 <span className="spacer" />
                 {myDogs.length > 0 &&
                   <button className="ms-btn" onClick={() => setSheetDogs((v) => !v)}>
-                    ◉ {myDogs.length}</button>}
+                    ◉ {myDogTotal}</button>}
                 {n.state === 'live' &&
                   <button className="ms-btn" title="hire a report"
                     onClick={() => setHireOpen(true)}>＋</button>}
@@ -4665,7 +4669,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               </header>
               {sheetDogs && myDogs.length > 0 && (
                 <div className="ms-doglist">
-                  {myDogs.map((w) => (
+                  {myDogTotal > WATCHDOG_CARD_LIMIT ? <WatchdogGroup owner={sheetId} dogs={myDogs} total={myDogTotal} org={slug}
+                    onOpen={id=>{toggleDog(id);setSheetDogs(false)}}/> : myDogs.map((w) => (
                     <WatchdogLink key={w.id} dog={w} org={slug} countdown
                       onOpen={() => { toggleDog(w.id); setSheetDogs(false) }}>
                       {w.name} · {w.once ? 'one-shot dog · ' : ''}

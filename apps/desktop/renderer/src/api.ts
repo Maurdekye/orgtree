@@ -683,6 +683,11 @@ export const answerAsk = (
     body: JSON.stringify(body),
   })
 /** FR-18: the user manages a watchdog from its detail panel */
+export const getWatchdogPage = (slug:string, owner:string, cursor='0'):
+  Promise<{watchdogs:import('./types').Watchdog[];next_cursor:string|null;total:number}> =>
+  req(`/api/orgs/${slug}/watchdogs?${new URLSearchParams({owner,cursor,limit:'50'})}`)
+export const getWatchdog = (slug:string,id:string): Promise<{watchdogs:import('./types').Watchdog[]}> =>
+  req(`/api/orgs/${slug}/watchdogs?${new URLSearchParams({id})}`)
 export const watchdogAction = (
   slug: string, id: string, action: 'pause' | 'resume' | 'remove',
   reason?: string,

@@ -2,6 +2,7 @@
 import type { TreePayload } from '../types'
 import { DRAFT, DOG_W, DOG_H, NODE_W, NODE_H, INBOX, USER, layout, placeOrgInbox, cardFurniture } from './shared'
 import type { CanvasNode, Pile, ChartLayout } from './shared'
+import { WATCHDOG_CARD_LIMIT, WATCHDOG_GROUP_W } from './watchdoggroup'
 
 /** hide-retired's DISPLAY prune of the layout tree (pure — the canvas memos
  *  it; tests call it directly). Removes archived subtrees from the children
@@ -144,8 +145,9 @@ export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, Canvas
     // by 14px). Rows of 3 centered on the owner: a full row is 162px
     // against the 186px sibling pitch, so it never reaches a neighboring
     // card and clears even a maxed-out sibling's own chips by 24px. Only
-    // dogs 7–8 open a third row, which can brush the children's row 200px
-    // down — the 8-per-agent cap keeps that the rare case. Having a target
+    // dogs 7–8 open a third row. More than eight use one shared group card.
+    // Every preview dog retains a target at that group so sparks still land.
+    // Having a target
     // position is ALL a spark needs, so launchSpark(dog → owner) works
     // with zero animation code.
     {
@@ -157,6 +159,10 @@ export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, Canvas
       for (const w of tree.watchdogs ?? []) {
         if (!t.has(w.owner)) continue
         const p = t.get(w.owner)!
+        if ((tree.watchdog_counts?.[w.owner]?.total ?? byOwner[w.owner]!) > WATCHDOG_CARD_LIMIT) {
+          t.set('dog:' + w.id, { x:p.x+NODE_W/2-WATCHDOG_GROUP_W/2, y:p.y+NODE_H+8 })
+          continue
+        }
         const i = seen[w.owner] ?? 0
         seen[w.owner] = i + 1
         const row = Math.floor(i / PER_ROW), col = i % PER_ROW

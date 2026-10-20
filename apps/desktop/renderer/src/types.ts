@@ -942,6 +942,9 @@ export interface TreePayload {
   killswitch?: { at: string; by: string } | null
   /** FR-18: the org's watchdogs (canvas satellites + detail panels) */
   watchdogs?: Watchdog[]
+  /** Bounded operational project metadata; generic dogs are only previews. */
+  watchdog_project_links?: Watchdog[]
+  watchdog_counts?: Record<string, import('./canvas/watchdoggroup').WatchdogCount>
   /** the org's held project slots (canvas/slots.ts) */
   slot_leases?: import('./canvas/slots').SlotLease[]
   /** cache-protective compaction; provider/auth expiry is derived server-side */

@@ -118,6 +118,7 @@ import { AgentGalleryView } from './gallery'
 import { PanelCorner, useAgentSurfaceRoutes, revealAgentPanelTab } from './panelcorner'
 import { AgentTeamView, liveTeamCount } from './team'
 import { DogChip, useDeskDogs, useDogRoute } from './deskdogs'
+import { WatchdogGroup, WATCHDOG_CARD_LIMIT } from './watchdoggroup'
 import { AgentSlotChips } from './slotchips'
 import { PresentationCard, recentDocumentChips } from './docs'
 import { buildNodeFacts } from './docket'
@@ -1887,7 +1888,7 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs }: {
   node: Pick<CanvasNode, 'id' | 'children'>
   map: Map<string, CanvasNode>
   onJump?: (id: string) => void
-  dogs?: { dogs: Watchdog[]; open: (id: string) => void } | null
+  dogs?: { dogs: Watchdog[]; total?: number; org?: string; open: (id: string) => void } | null
 }) {
   const [showRetired, setShowRetired] = useState(false)
   const hideRetired = useHideRetired()
@@ -1898,8 +1899,12 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs }: {
   const retired = reports.filter((c) => c.state !== 'live')
   if (!reports.length && !deskDogs) return null
   const dogs = deskDogs?.dogs ?? []
-  const cardIds = [...alive.map((c) => 'n:' + c.id), ...dogs.map((w) => 'd:' + w.id)]
+  const dogTotal = deskDogs?.total ?? dogs.length
+  const groupedDogs = dogTotal > WATCHDOG_CARD_LIMIT
+  const groupCard = () => <WatchdogGroup owner={node.id} dogs={dogs} total={dogTotal} org={deskDogs?.org} onOpen={deskDogs!.open}/>
+  const cardIds = [...alive.map((c) => 'n:' + c.id), ...(groupedDogs ? ['dogs'] : dogs.map((w) => 'd:' + w.id))]
   const renderCard = (k: string) => {
+    if (k === 'dogs') return <span key={k}>{groupCard()}</span>
     if (k.startsWith('n:')) {
       return <NavChip key={k} n={alive.find((x) => x.id === k.slice(2))!} dir="down" onJump={jump} />
     }
@@ -1929,7 +1934,7 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs }: {
         )}
         {!hideRetired && showRetired && retired.map((c) =>
             <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
-        {!folded && dogs.map((w) => <DogChip key={'dog:' + w.id} dog={w} onOpen={deskDogs!.open} />)}
+        {!folded && (groupedDogs ? groupCard() : dogs.map((w) => <DogChip key={'dog:' + w.id} dog={w} onOpen={deskDogs!.open} />))}
         </>}</DeskJumpCards>
     </div>
   )

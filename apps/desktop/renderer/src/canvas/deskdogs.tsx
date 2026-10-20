@@ -29,11 +29,12 @@ export function WatchdogRow({id,org,children,className,as:Tag='div'}:{id:string;
 /** The watchdogs owned by `agentId`, in the tree's order. A one-shot dog that
  *  has already fired (`spent`) is a departing tombstone with nothing to open
  *  that means anything, so it gets no card. */
-export function useDeskDogs(agentId: string): { dogs: Watchdog[]; open: (id: string) => void } | null {
+export function useDeskDogs(agentId: string): { dogs: Watchdog[]; total: number; org?: string; open: (id: string) => void } | null {
   const ctx = useDogRoute()
   if (!ctx) return null
   const dogs = ctx.dogs.filter((w) => w.owner === agentId && !w.spent)
-  return dogs.length ? { dogs, open: ctx.open } : null
+  const total = ctx.counts?.[agentId]?.kept ?? dogs.length
+  return total ? { dogs, total, org:ctx.org, open: ctx.open } : null
 }
 
 /** One watchdog's card: the canvas chip's glyph and name, in the desk's chip

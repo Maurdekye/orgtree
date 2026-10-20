@@ -391,6 +391,11 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   cursor: pointer; white-space: nowrap;
 }
 .retired-token:hover { color: var(--ink-strong); border-color: var(--dim); }
+.watchdog-group { white-space: nowrap; }
+.watchdog-list { position: relative; width: 460px; max-width: calc(100vw - 32px); }
+.watchdog-list-close { position: absolute; right: 16px; top: 12px; }
+.watchdog-list-rows { display: flex; flex-wrap: wrap; gap: 8px; max-height: 55vh; overflow-y: auto; padding: 4px; }
+.watchdog-list-pages { justify-content: space-between; margin-top: 12px; }
 
 /* F-06: hub connectivity dot on the mailbox node — grey connecting,
    green all-up, amber partial */
