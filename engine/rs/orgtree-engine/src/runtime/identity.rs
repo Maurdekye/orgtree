@@ -673,15 +673,18 @@ mod group_tests {
     }
 
     #[test]
-    fn acp_identity_states_queued_mail_and_permission_boundary() {
+    fn acp_identity_states_hook_mail_and_permission_boundary() {
         for mode in ["default", "acceptEdits", "bypassPermissions"] {
             let scope = json!({"permission_mode":mode,"tools":{"edit":true,"bash":true}});
             let text = render(&scope, Lane::OpenCode, false, None);
             assert!(text.contains("orgtree_orgtree_status"));
-            assert!(text.contains("queued for your next turn; it is not injected mid-turn"));
+            assert!(text.contains("OpenCode 2.0.28"));
+            assert!(text.contains("between tool calls"));
+            assert!(text.contains("otherwise mail waits for your next turn"));
+            assert!(text.contains(AUTHENTIC_CHANNEL));
             assert!(text.contains("not an OS sandbox"));
             assert!(text.contains("bypassPermissions approves it including nested tools and fetch"));
-            assert!(!text.contains(".claude/skills") && !text.contains(AUTHENTIC_CHANNEL));
+            assert!(!text.contains(".claude/skills"));
             assert!(text.contains(EXTERNAL_AUTHORITY));
         }
     }
