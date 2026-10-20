@@ -572,6 +572,7 @@ for (const s of OTHER_SURFACES.filter((x) => x.pinnable)) {
 // -------------------------------------------------------- B. a row's Close
 
 test('§8 a mail row: Close closes the OPEN message only', async (t) => {
+  const stop = quietServer(); t.after(stop)
   const ROW = (id: string) => ({ id, from: 'peer', to: 'me', at: '2026-09-05T09:00:00.000Z',
     kind: 'message', body: `body of ${id}`, read: true })
   const v = await mountView(
@@ -620,8 +621,8 @@ test('§9 both document galleries: Close closes the OPEN document only', async (
   await flush(6)
   const orgRows = () => [...org.el.querySelectorAll('.doc-gallery-row')] as HTMLElement[]
   assert.equal(orgRows().length, 2, 'POSITIVE CONTROL: the org gallery listed both')
-  assert.ok(orgRows()[0]!.classList.contains('on'), 'the newest document opened automatically')
-  await rightClick(orgRows()[0]!)
+  assert.ok(orgRows()[1]!.classList.contains('on'), 'the oldest unread document opened automatically')
+  await rightClick(orgRows()[1]!)
   assert.equal(labels()[0], 'Close', 'the automatically opened document offers Close')
   await pick('Close')
   assert.ok(!orgRows()[0]!.classList.contains('on'), 'the automatic selection stays closed')

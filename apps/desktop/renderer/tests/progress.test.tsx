@@ -1061,9 +1061,12 @@ test('Presented desk tab lists the selected agent documents and opens markdown',
   assert.ok(view.el.querySelector('.desk-presented .mailer'))
   assert.ok(view.el.querySelector('.desk-presented .mailer-list'))
   assert.ok(view.el.querySelector('.desk-presented .mailer-read'))
-  // Opening the list selects the newest presentation (2330467): the HTML
-  // preview at 09:01, not the 09:00 markdown report.
-  assert.ok(html!.classList.contains('on'), 'the newest presentation is not selected on open')
+  // Opening selects the oldest unread (2026-10-20), the 09:00 report.
+  const opening = view.el.querySelector<HTMLElement>('.desk-presented-card.on')
+  assert.ok(opening?.textContent?.includes('Agent report'), 'the oldest unread is selected on open')
+  assert.match(view.el.querySelector('.mailer-read')?.textContent ?? '', /Agent report/)
+  await act(async () => { html!.click() })
+  assert.ok(html!.classList.contains('on'), 'the newer HTML row is still actionable')
   assert.match(view.el.querySelector('.mailer-read')?.textContent ?? '', /Agent preview/)
   assert.doesNotMatch(view.el.querySelector('.mailer-read')?.textContent ?? '', /select a document to read it/)
   const markdown = view.el.querySelector<HTMLElement>('.desk-presented-card')

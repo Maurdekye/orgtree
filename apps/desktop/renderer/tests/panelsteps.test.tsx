@@ -83,7 +83,7 @@ async function fixture(t: TestContext, surface: Surface, options: {
     scrolled.push({ name: this.querySelector('.mfrom')?.textContent ?? '',
       block: typeof options === 'object' ? options.block : undefined })
   }
-  const blank = options.blank ? 'absent-selection' : undefined
+  const blank = options.blank && surface.endsWith('work') ? 'absent-selection' : undefined
   const body = surface === 'org-docs'
     ? <DocGalleryModal slug={slug} close={noop} toast={noop}
         jumpTo={blank ? { id: blank, seq: 1 } : undefined} />
@@ -120,6 +120,23 @@ async function fixture(t: TestContext, surface: Surface, options: {
     const row = rows().find(row => name(row) === id)
     assert.ok(row, `click target ${id} exists`)
     if (selected() !== id) await inAct(async () => { row.click(); await flush(6) })
+  }
+  // A nonexistent document reference is a rejected locate request, not an
+  // empty selection. Clear the real opening selection to exercise that state.
+  if (options.blank && surface.endsWith('docs')) {
+    const current = rows().find(row => row.classList.contains('on'))
+    assert.ok(current, 'document opening selected its default row')
+    if (surface === 'org-docs') {
+      await inAct(() => { current.dispatchEvent(new window.MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, button: 2, clientX: 5, clientY: 5,
+      })) })
+      await flush(2)
+      const close = [...current.ownerDocument.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+        .find(button => button.textContent === 'Close')
+      assert.ok(close, 'the selected global document offers Close')
+      await inAct(() => close.click())
+    } else await inAct(() => current.click())
+    await flush(6)
   }
   if (!options.blank && !options.opening) await pick(name(rows()[0]!))
   scrolled.length = 0

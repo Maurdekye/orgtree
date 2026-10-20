@@ -253,10 +253,10 @@ async function popOut(el: HTMLElement, child: Child, panelSelector: string): Pro
 // panel written the same obvious way, does. A fixture whose hook sat inside the
 // surface would pass on the broken build and prove nothing.
 
-function OwnerAboveSurface({ kind, name }: { kind: string; name: string }) {
+function OwnerAboveSurface({ kind, name, onClose = noop }: { kind: string; name: string; onClose?: () => void }) {
   const menu = useContextMenu()
   return <>
-    <PinFrame kind={kind} title={name} panel="settings" close={noop}>
+    <PinFrame kind={kind} title={name} panel="settings" close={onClose}>
       <div className={`probe ${kind}`} data-name={name}
         onContextMenu={(e) => menu.open(e, [{ label: `Act on ${name}`, onSelect: noop }])}>
         {name}
@@ -296,11 +296,12 @@ uiTest('§1 the org gallery popped out: a row menu opens in THAT window, never o
   await flush(); await advance(200, 16); await flush()
   assert.equal(v.el.querySelectorAll('.doc-gallery-row').length, 2,
     'POSITIVE CONTROL: the gallery listed both cards in the main window first')
+  await inAct(() => { v.el.querySelector<HTMLElement>('.doc-gallery-row')!.click() })
 
   await popOut(v.el, child, '.gallery-modal')
-  const row = child.doc.querySelector('.doc-gallery-row') as HTMLElement
+  const row = child.doc.querySelector('.doc-gallery-row.on') as HTMLElement
   assert.ok(row, 'POSITIVE CONTROL: the rows came with the panel')
-  assert.ok(row.classList.contains('on'), 'the automatic selection remains open in the popped-out gallery')
+  assert.ok(row.classList.contains('on'), 'the chosen selection remains open in the popped-out gallery')
   t.after(spanning(row))
 
   const took = await rightClick(row, { x: 260, y: 180 })
@@ -311,7 +312,7 @@ uiTest('§1 the org gallery popped out: a row menu opens in THAT window, never o
   assert.equal(menu!.parentElement, child.doc.body, "in that window's own body")
   assert.deepEqual(at(menu), ['260px', '180px'], 'at the pointer, in that window')
   assert.deepEqual(labelsIn(child.doc),
-    ['Close', 'Copy title', 'Copy reference', 'Download as Markdown', 'Dismiss'],
+    ['Close', 'Presenter… ▸', 'Copy title', 'Copy reference', 'Download as Markdown', 'Dismiss'],
     'and it is the row\'s real menu, not a stub')
   // the reported symptom, stated as an assertion
   assert.equal(menuIn(document), null,
@@ -510,7 +511,8 @@ uiTest('§7a a right-click in a window that has already gone opens no menu, anyw
 
 uiTest('§7b a popout that closes while its menu is up takes the menu with it', async (t) => {
   const child = stubPopoutWindows(t)[0]!
-  const v = await mountView(inOrg(<OwnerAboveSurface kind="probe-e" name="Epsilon" />), (h) => h)
+  let closed = 0
+  const v = await mountView(inOrg(<OwnerAboveSurface kind="probe-e" name="Epsilon" onClose={() => { closed++ }} />), (h) => h)
   tidy(t, v, child)
   await popOut(v.el, child, '.probe')
   const probe = child.doc.querySelector('.probe') as HTMLElement
@@ -530,6 +532,6 @@ uiTest('§7b a popout that closes while its menu is up takes the menu with it', 
   assert.equal(menuIn(document), null,
     'the menu did not follow the surface home and reopen on the main canvas')
   assert.equal(menuIn(child.doc), null, 'and it is not left behind in the departed window')
-  assert.ok(v.el.querySelector('.probe') ?? document.querySelector('.probe'),
-    'POSITIVE CONTROL: the surface itself did come back — only the menu went')
+  assert.equal(closed, 1, 'native Close dismisses the committed modal exactly once (5ef4cae)')
+  assert.equal(document.querySelector('.probe') === null, true, 'Close never redocks the dismissed surface')
 })
