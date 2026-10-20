@@ -11,11 +11,11 @@ export default async function(rig) {
  const fail=(codex,message)=>codex?{error:{message}}:{result:{is_error:true,result:message}}
  for(const [suffix,tier] of [['c','sonnet'],['x','sol']]) {
   const codex=suffix==='x'
-  for(const mode of ['retry','terminal','length']) {
+  for(const mode of ['retry','silent','terminal','length']) {
    const name=mode+suffix,token='PROOF-'+name;names.push(name)
    const message=mode==='length'?'Input exceeds maximum length':'Prompt is too long'
-   agents[name]={turns:[{name:'overflow',match:token,once:mode==='retry',steps:[
-    {text:'Attempting the synthetic request.'},fail(codex,message)]},
+   agents[name]={turns:[{name:'overflow',match:token,once:mode==='retry'||mode==='silent',steps:[
+    ...mode==='silent'?[]:[{text:'Attempting the synthetic request.'}],fail(codex,message)]},
     {name:'recovered',steps:[{text:'Recovered the synthetic request.'}]}]}
   }
   agents['after'+suffix]={turns:[{name:'large',match:'PROOF-AFTER',once:true,steps:[
@@ -45,25 +45,27 @@ export default async function(rig) {
  // A private audit counts real delivery transitions, including a duplicate ack.
  rig.exec(`CREATE TABLE ot.context_proof_acks(uid text); CREATE FUNCTION ot.context_proof_ack() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.state='delivered' AND OLD.state<>'delivered' THEN INSERT INTO ot.context_proof_acks VALUES(NEW.uid); END IF; RETURN NEW; END $$; CREATE TRIGGER context_proof_ack AFTER UPDATE ON ot.mail FOR EACH ROW EXECUTE FUNCTION ot.context_proof_ack()`)
  for(const suffix of ['c','x']) {
-  for(const mode of ['retry','terminal','length']) {
+  for(const mode of ['retry','silent','terminal','length']) {
    const n=mode+suffix,token='PROOF-'+n
    await rig.userMail(n,token+': retain this exact original request.')
    const expected=mode==='length'?1:2
    const turns=await rig.waitTurns(n,expected,{timeout:15000}).catch(()=>rig.turns(n))
    const done=turns.filter(t=>t.ended_at)
    p.check(n+': bounded number of attempts',done.length===expected,done)
-   p.check(n+': retry outcome',mode==='retry'?done.length===2&&!done[1].error:done.at(-1)?.error!=null,done.at(-1))
+   p.check(n+': retry outcome',mode==='retry'||mode==='silent'?done.length===2&&!done[1].error:done.at(-1)?.error!=null,done.at(-1))
    const original=mail(n).filter(m=>m.body.startsWith(token+':'))
    const ack=original.length?rig.one(`SELECT count(*)::int AS n FROM ot.context_proof_acks WHERE uid='${original[0].uid}'`).n:0
    p.check(n+': original row has exactly one delivery receipt',original.length===1&&original[0].state==='delivered'&&ack===1,{original,ack})
-   p.check(n+': original transcript identity appears once',original.length===1&&rig.one(`SELECT count(*)::int AS n FROM ot.convo WHERE agent_id=${id(n)} AND body->'mail_ids' ? '${original[0].uid}'`).n===1)
+   const authored=original.length?rig.one(`SELECT count(*)::int AS n FROM ot.convo c WHERE c.agent_id=${id(n)} AND EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(c.body->'segments','[]'::jsonb)) s CROSS JOIN LATERAL jsonb_array_elements(coalesce(s->'rows','[]'::jsonb)) r WHERE s->>'kind'='mail' AND r->>'id'='${original[0].uid}')`).n:0
+   p.check(n+': original authored transcript segment appears once',authored===1,authored)
+   if(mode==='silent') p.check(n+': retry references its original segment',original.length===1&&rig.one(`SELECT count(*)::int AS n FROM ot.convo WHERE agent_id=${id(n)} AND body->'context_retry_refs' @> '[{"id":"${original[0].uid}"}]'::jsonb`).n===1)
    if(mode!=='length') {
     const wakes=mail(n).filter(m=>m.extra?.context_retry_turn!=null)
     p.check(n+': exactly one durable recovery wake',wakes.length===1,wakes)
     const prompts=rig.fakeLog(n).filter(l=>l.kind==='turn')
     p.check(n+': fresh retry gets the original request',prompts.length===2&&(prompts[1].prompt??'').includes(token),prompts.map(t=>t.prompt?.slice(-300)))
     p.check(n+': old session ended once',rig.one(`SELECT count(*)::int AS n FROM ot.agent_sessions WHERE agent_id=${id(n)} AND end_reason='context full (retry)'`).n===1)
-    p.check(n+': completed turn clears retry count; terminal failure retains it',mode==='retry'?rig.agentRow(n).extra?.native_ctx_retry_run==null:rig.agentRow(n).extra?.native_ctx_retry_run===1,rig.agentRow(n).extra?.native_ctx_retry_run)
+    p.check(n+': completed turn clears retry count; terminal failure retains it',mode==='retry'||mode==='silent'?rig.agentRow(n).extra?.native_ctx_retry_run==null:rig.agentRow(n).extra?.native_ctx_retry_run===1,rig.agentRow(n).extra?.native_ctx_retry_run)
    }
   }
   const a='after'+suffix
