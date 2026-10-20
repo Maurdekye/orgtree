@@ -19,7 +19,7 @@ import { useDogRoute } from '../canvas/deskdogs'
 import { WatchdogLink } from '../canvas/watchdoglink'
 import { AnsweredAsk, AnsweredCard, ResolvedSections, batchAskQuestions, resolvedSectionKinds } from './answered'
 import { StructuredJson } from '../canvas/structuredjson'
-import { UNTRUSTED, fireActionParts, fireLineParts } from './firelines'
+import { EXTERNAL_NOTE, EXTERNAL_TAG, fireActionParts, fireLineParts } from './firelines'
 import type { FirePart } from './firelines'
 
 const FAMILY_MARK: Record<Family, string> = {
@@ -67,9 +67,9 @@ function FireParts({ parts, ...props }: ContentProps & { parts: FirePart[] }) {
     : <Text key={i} text={p.text} {...props} />)}</>
 }
 type DogFire = Extract<KnownEvent, { variant: 'monitor.watchdog_fired' }>
-/** A watchdog fire's body: the caution an mqtt or websocket fire carries,
- *  then its lines and fire-action results with JSON in them drawn as in tool
- *  calls (events/firelines.ts); text stays text. */
+/** A watchdog fire's body: its lines and fire-action results, with JSON in
+ *  them drawn as in tool calls (events/firelines.ts); text stays text. An
+ *  mqtt or websocket fire's source is the header's tag, not a body line. */
 function FireBody({ event, fields, ...props }: ValueProps & { event: DogFire; fields: EventField[] }) {
   const content = { world: props.world, onOpen: props.onOpen, imgBase: props.imgBase }
   const lines = useMemo(() => event.lines.map(line => fireLineParts(line, event.source)), [event.lines, event.source])
@@ -78,8 +78,7 @@ function FireBody({ event, fields, ...props }: ValueProps & { event: DogFire; fi
   return <>{fields.map(f => {
     const label = labelled && <span className="event-field-label">{f.label}</span>
     switch (f.key) {
-      case 'source': return event.source
-        ? <div className="event-untrusted" key={f.key} data-event-field={f.key}>{UNTRUSTED[event.source]}</div> : null
+      case 'source': return null
       case 'lines': return <div className="event-field" key={f.key} data-event-field={f.key}>{label}
         <ul className="event-values">{lines.map((parts, i) => <li key={i}><FireParts parts={parts} {...content} /></li>)}</ul></div>
       case 'fire_actions': return <div className="event-field" key={f.key} data-event-field={f.key}>{label}
@@ -208,6 +207,8 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
       {header.map(f => <div className="event-head-field" key={f.key} data-event-field={f.key}>
         <span className="dim">{f.label}: </span><Value value={humanValue(f.value, f.type, profile)} {...content} profile={profile} org={org} actor={actor} />
       </div>)}
+      {dogFire?.source && <span className="event-external" data-event-field="source"
+        title={EXTERNAL_NOTE[dogFire.source]}>{EXTERNAL_TAG}</span>}
     </>
   if (part === 'header') return heading
   const contents = <>

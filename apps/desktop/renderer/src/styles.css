@@ -8446,7 +8446,10 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-values > li + li { margin-top: 5px; }
 .event-unsupported { display: block; color: var(--dim); font-size: 11px; }
 /* an mqtt or websocket fire's caution: its lines are outside input */
-.event-untrusted { color: var(--warn, #e5c07b); font-size: 12px; margin: 0 0 6px; }
+/* an mqtt or websocket fire's outside-source tag: small and muted in the
+   card header, its meaning in the tooltip (user 2026-10-20 09:17Z) */
+.event-external { color: var(--dim); font-size: 11px; line-height: 16px; padding: 0 5px; border: 1px solid var(--line);
+  border-radius: 3px; white-space: nowrap; cursor: help; }
 .event-fallback { overflow-wrap: anywhere; }
 .event-surface .turn-mail-preview { margin: 0; }
 

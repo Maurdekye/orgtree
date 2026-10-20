@@ -25,7 +25,7 @@ fs.writeFileSync(path.join(root, 'fixture.html'),
   '<body><div id="root"></div><script type="module" src="fixture.js"></script></body></html>')
 
 // what each case must show before its frame is kept: fire cards, JSON
-// viewers, untrusted cautions
+// viewers, outside-source header tags
 const expect = { sources: [2, 2, 2], json: [3, 3, 0], actions: [1, 1, 0] }
 const settle = 'new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,180))))'
 app.setPath('userData', path.join(root, 'user-data'))
@@ -43,14 +43,14 @@ app.whenReady().then(async () => {
         while(document.body.dataset.ready!=='true'){if(performance.now()>end)throw Error('fixture never rendered');await new Promise(r=>setTimeout(r,20))}
         await ${settle}
         return {cards:document.querySelectorAll('[data-event-variant="monitor.watchdog_fired"]').length,
-          viewers:document.querySelectorAll('.sj').length,cautions:document.querySelectorAll('.event-untrusted').length,
+          viewers:document.querySelectorAll('.sj').length,tags:document.querySelectorAll('.event-head .event-external').length,
           light:document.documentElement.classList.contains('contrast-light'),
           folded:document.querySelectorAll('.turn-mail-preview.folded').length,
           height:document.documentElement.scrollHeight,text:document.body.innerText}
       })()`)
-      const got = [seen.cards, seen.viewers, seen.cautions]
+      const got = [seen.cards, seen.viewers, seen.tags]
       if (got.join() !== want.join() || seen.light !== (theme === 'light')) {
-        throw new Error(`${name}/${theme}: expected cards, viewers, cautions ${want}, saw ${got} (light ${seen.light})`)
+        throw new Error(`${name}/${theme}: expected cards, viewers, tags ${want}, saw ${got} (light ${seen.light})`)
       }
       await win.webContents.executeJavaScript(settle)
       const image = await win.webContents.capturePage()
