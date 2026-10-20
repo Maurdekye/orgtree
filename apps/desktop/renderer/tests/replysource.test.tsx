@@ -71,10 +71,20 @@ test('composing, pending and sent replies retain the same structured source, met
     assert.equal(view.el.querySelectorAll('[data-mail-id="status-mail"]').length, 1)
     assert.equal(view.el.querySelectorAll('[data-reply-event="structured-source"]').length, 1)
     const original = view.el.querySelector<HTMLElement>('[data-reply-event="structured-source"]')!
-    let scrolled = false
-    original.scrollIntoView = () => { scrolled = true }
+    // Reply navigation now scrolls only the transcript (5c87b74), never the
+    // desk's overflow ancestors. jsdom needs explicit scrollable geometry.
+    const list = view.el.querySelector<HTMLElement>('.msgs')!
+    assert.ok(list.contains(original))
+    Object.defineProperties(list, { clientHeight: { configurable: true, value: 200 },
+      offsetHeight: { configurable: true, value: 200 }, scrollHeight: { configurable: true, value: 1000 } })
+    list.getBoundingClientRect = () => ({ top: 100, height: 200 } as DOMRect)
+    original.getBoundingClientRect = () => ({ top: 500, height: 40 } as DOMRect)
+    list.scrollTop = 0
+    let escaped = false
+    original.scrollIntoView = () => { escaped = true }
     await inAct(() => view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-head button')!.click())
-    assert.equal(scrolled, true)
+    assert.equal(list.scrollTop, 320, 'the original source is centered in its transcript')
+    assert.equal(escaped, false, 'navigation never scrolls the desk ancestors')
   } finally { await view.unmount(); resetConvos() }
 })
 
@@ -236,7 +246,15 @@ test('nested preview names and titles keep copy menus while text selection and l
     assert.equal(await context(name), false, 'selected text keeps the browser menu')
     window.getSelection()!.removeAllRanges()
     assert.equal(await context(view.el.querySelector('a[href="https://example.invalid"]')!), false)
-    assert.equal(await context(view.el.querySelector('.reply-preview-content')!), false)
+    // Reply-link menus gained Copy contents / Sender in 98959de. The quote
+    // body uses that menu, while selected text and ordinary links stay native.
+    assert.equal(await context(view.el.querySelector('.reply-preview-content')!), true)
+    const choices = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')]
+    const copy = choices.find(choice => choice.textContent === 'Copy contents')!
+    assert.ok(copy)
+    assert.equal(choices.some(choice => choice.textContent === 'Reply'), false)
+    await inAct(() => { copy.click() }); await flush(2)
+    assert.equal(writes.at(-1), sources.get('source')!.text)
     assert.equal(document.querySelectorAll('.ctxmenu').length, 0)
     assert.equal(parentMenus, 0, 'a quoted source never opens the containing message menu')
   } finally {
