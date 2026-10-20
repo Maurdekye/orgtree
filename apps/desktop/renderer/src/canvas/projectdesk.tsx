@@ -61,7 +61,7 @@ import { ListenersView } from './listenersdesk'
 import { listenerCards, mailListenerState, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { MailListenersView } from './maillisteners'
 import { DeskJumpCards } from './deskjumpcards'
-import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs } from './deskshell'
+import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
@@ -762,7 +762,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
                 </button>
               )}
         </>}
-        tabs={<DeskTabs shown={shown} tabs={tabs.map((v) => ({ id: v, label: v === 'desk' ? 'summary' : v === 'dead' ? 'dead letters' : v, count: count(v), showCount: v !== 'slots' }))} onShow={(v) => {
+        tabs={<DeskTabs shown={shown} tabs={tabs.map((v) => ({ id: v, label: deskTabLabel(v), count: count(v), showCount: v !== 'slots' }))} onShow={(v) => {
           if (v === 'inbox') { setInboxAsk(null); setInboxJump(null) }
           if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as Tab)
         }} />}
@@ -954,9 +954,9 @@ export function ProjectInboxModal({ node, slug, tree, map, op, toast, refs, clos
     onOpen: (r: Parameters<RefRoutes['onOpen']>[0]) => { closeIfCentred('node-inbox', close, slug); refs.onOpen(r) },
   }, [refs, close, slug])
   return (
-    <PinFrame kind="node-inbox" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · inbox`}
+    <PinFrame kind="node-inbox" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · mail`}
       panel="settings wide" close={close}>
-      <h3 data-copy-agent-name={node.id}><MailIcon fontSize="inherit" /> {node.id} <span className="dim">· inbox</span></h3>
+      <h3 data-copy-agent-name={node.id}><MailIcon fontSize="inherit" /> {node.id} <span className="dim">· mail</span></h3>
       <ProjectInbox node={node} slug={slug} tree={tree} map={map} op={op} toast={toast} refs={leaving} collapsible
         onJump={onFocusAgent ? (id) => { closeIfCentred('node-inbox', close, slug); onFocusAgent(id) } : undefined}
         jumpTo={held?.id ?? jumpTo} jumpSeq={held?.seq ?? jumpSeq} folderAsk={ask}

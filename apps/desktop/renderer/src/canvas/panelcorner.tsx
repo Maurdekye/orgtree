@@ -69,7 +69,7 @@ export const useAgentSurfaceRoutes = (): AgentSurfaceRoutes | null => useContext
  *  invented here: the card's `presentedbtn` opens the presentations modal with
  *  DocIcon (canvas/cards.tsx), and every one of these three modals already
  *  heads itself with the same glyph — `<DocIcon/> Presented documents`,
- *  `<DocketIcon/> … · Docket`, `<MailIcon/> … · inbox`. So the button shows the
+ *  `<DocketIcon/> … · Docket`, `<MailIcon/> … · mail`. So the button shows the
  *  reader the thing it is about to open. Pin and pop out, being the same action
  *  on every surface, keep the one glyph each already has elsewhere. */
 const PANELS: Record<AgentPanelKind, { noun: string; icon: ReactNode }> = {
@@ -77,7 +77,7 @@ const PANELS: Record<AgentPanelKind, { noun: string; icon: ReactNode }> = {
   'agent-team': { noun: 'team', icon: <ViewListIcon fontSize="inherit" /> },
   'agent-gallery': { noun: 'presented documents', icon: <DocIcon fontSize="inherit" /> },
   'agent-docket': { noun: 'docket', icon: <DocketIcon fontSize="inherit" /> },
-  'node-inbox': { noun: 'inbox', icon: <MailIcon fontSize="inherit" /> },
+  'node-inbox': { noun: 'mail', icon: <MailIcon fontSize="inherit" /> },
 }
 
 /** the popped-out window this surface is in, if it is in one */

@@ -163,7 +163,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     onSelect: () => temporary(),
   })
   openEntries.push(
-    { label: 'Inbox', onSelect: () => h.onInbox() },
+    { label: 'Mail', onSelect: () => h.onInbox() },
   )
   if (h.onTeam) openEntries.push({ label: 'Team', onSelect: h.onTeam })
   const canScratch = live || node.state === 'archived'

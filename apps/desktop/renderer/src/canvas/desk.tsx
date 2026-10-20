@@ -109,7 +109,7 @@ import type {
 import { ConfirmModal, PilePicker } from './modals'
 import { InboxView, RetiredFold } from './mail'
 import { DeskJumpCards } from './deskjumpcards'
-import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs } from './deskshell'
+import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
 import { AskCard } from './asks'
 import { useWorkItems } from './useworkitems'
@@ -3715,7 +3715,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               </button>
             )}
           </>}
-        tabs={<DeskTabs shown={view} tabs={(['chat', 'inbox', 'docket', 'presented', 'team'] as const).filter(v => v !== 'team' || teamCount > 0).map((v) => ({ id: v, label: v, count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
+        tabs={<DeskTabs shown={view} tabs={AGENT_DESK_TABS.filter(v => v !== 'team' || teamCount > 0).map((v) => ({ id: v, label: deskTabLabel(v), count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
         rightExtras={<>
           {/* FR-3: pin this desk to screenspace as a draggable window */}
           {!(hidePopout && !surface?.detached) && <PopoutButton />}

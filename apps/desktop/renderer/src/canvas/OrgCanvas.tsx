@@ -4657,7 +4657,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                 {n.state === 'live' &&
                   <button className="ms-btn" title="hire a report"
                     onClick={() => setHireOpen(true)}>＋</button>}
-                <button className="ms-btn" title="inbox"
+                <button className="ms-btn" title="mail"
                   onClick={() => toggleNodeSurface('node-inbox', sheetId, setInboxId)}>✉</button>
                 <button className="ms-btn" title="permissions & settings"
                   onClick={() => toggleConfig(sheetId)}>⚙</button>
