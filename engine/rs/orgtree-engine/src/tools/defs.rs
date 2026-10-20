@@ -1562,6 +1562,7 @@ mod builder_stack_tests {
         for key in ["hello", "protocols", "heartbeat", "message"] {
             dschema["properties"][key] = actual_dog["inputSchema"]["properties"][key].clone();
         }
+        dschema["properties"]["notify_on_connect"] = serde_json::json!({"type":"boolean","description":"websocket: Orgtree (re)connect fires, default false; server messages still follow pattern"});
         dschema["properties"]["target"]["description"] = serde_json::json!(dschema["properties"]["target"]["description"].as_str().unwrap()
             .replace(", or (mqtt, needs your web tool) mqtt://host[:port] / mqtts://host[:port]",
                      ", (mqtt, needs your web tool) mqtt://host[:port] / mqtts://host[:port], or (websocket, needs your web tool) ws:// or wss:// URL"));
