@@ -21,7 +21,7 @@ test('a partial retired pile exposes loading feedback but no pick or delete acti
   const props = { pile, map, close: () => {}, onPick: () => { picked++ }, op: async () => { deleted++; return {} } }
   const view = await mountView(<PilePicker {...props} ready={false} />, () => document.body)
   try {
-    assert.match(view.last().textContent!, /200 agents/)
+    assert.match(view.last().textContent!, /200 retirees/)
     assert.match(view.last().textContent!, /Loading retired agents/)
     assert.equal(view.last().querySelectorAll('.pile-row').length, 0)
     assert.equal(buttons(view.last()).some(b => b.textContent?.includes('delete all')), false)
