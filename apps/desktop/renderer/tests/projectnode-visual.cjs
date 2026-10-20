@@ -233,6 +233,84 @@ module.exports = async (page) => {
     }
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=history: the desk's three tables with their
+  // history (user 2026-10-20 06:22Z-06:42Z): the Mail tab's listeners in
+  // ack mode (Working, Line, Dead Letter Line, Recently Finished) and in
+  // round-robin (Line, Recently Delivered), the Listeners tab's Recently
+  // Fired (an event's message folded, then opened), the Slots tab's
+  // Watchdog column; dark and light
+  if (only === 'history') {
+    const table = (sel) => page.eval((q) => {
+      const t = document.querySelector(q)
+      if (!t) return null
+      const x = (el) => Math.round(el.getBoundingClientRect().left)
+      const heads = [...t.querySelectorAll('thead th')]
+      const rows = [...t.querySelectorAll('tbody tr.slot-row')]
+      return {
+        headers: heads.map((h) => h.textContent),
+        cols: heads.map((h) => Math.round(h.getBoundingClientRect().width)),
+        sections: [...t.querySelectorAll('tr.slot-section h4')].map((h) => h.textContent),
+        rows: rows.map((r) => ({ cls: r.className, cells: [...r.children].map((c) => c.textContent),
+          bg: getComputedStyle(r.children[1] ?? r.children[0]).backgroundColor,
+          chip: r.querySelector('.watchdog-link')?.className ?? null,
+          chipBorder: r.querySelector('.watchdog-link') ? getComputedStyle(r.querySelector('.watchdog-link')).borderTopColor : null })),
+        // cells sit under their headers (a spanning message cell starts under its first column)
+        aligned: rows.every((r) => { let i = 0; return [...r.children].every((c) => { const ok = !heads[i] || Math.abs(x(c) - x(heads[i])) < 1; i += c.colSpan || 1; return ok }) }),
+        width: Math.round(t.getBoundingClientRect().width),
+      }
+    }, sel)
+    const openTab = (tab) => page.eval(async (t) => {
+      document.querySelector(`#desk-inbox .cc-tabs button[data-tab="${t}"]`).click()
+      await new Promise((r) => setTimeout(r, 700))
+    }, tab)
+    const openMailListeners = () => page.eval(async () => {
+      document.querySelector('#desk-inbox .cc-tabs button[data-tab="inbox"]').click()
+      await new Promise((r) => setTimeout(r, 500));
+      [...document.querySelectorAll('#desk-inbox .mail-folders button')].find((b) => b.textContent.startsWith('listeners')).click()
+      await new Promise((r) => setTimeout(r, 900))
+    })
+    for (const theme of ['', '&theme=light']) {
+      const name = theme ? 'light' : 'dark'
+      await page.goto('/?scene=deskinbox&mode=history' + theme)
+      await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+      await openMailListeners()
+      await settle()
+      details['mail-ack-' + name] = await table('#desk-inbox .mail-listeners-table')
+      screenshots.push(await page.screenshot(`${prefix}-history-mail-ack-${name}-1000x700`))
+      // its last rows: the taken-back and dead-lettered endings
+      await page.eval(async () => {
+        // whichever ancestor scrolls in this host (a base build has no history rows)
+        const last = document.querySelector('#desk-inbox .mail-listeners-table tbody:last-child tr:last-child')
+        if (last) last.scrollIntoView({ block: 'end' })
+        await new Promise((r) => setTimeout(r, 300))
+      })
+      await settle()
+      screenshots.push(await page.screenshot(`${prefix}-history-mail-ack-end-${name}-1000x700`))
+      await openTab('listeners')
+      await settle()
+      details['fired-' + name] = await table('#desk-inbox .listeners-table')
+      screenshots.push(await page.screenshot(`${prefix}-history-fired-${name}-1000x700`))
+      if (theme) continue
+      await page.eval(async () => {
+        document.querySelector('#desk-inbox .listeners-table tr.fired-row.event .fired-message-text').click()
+        await new Promise((r) => setTimeout(r, 400))
+      })
+      await settle()
+      details['fired-open-' + name] = await table('#desk-inbox .listeners-table')
+      screenshots.push(await page.screenshot(`${prefix}-history-fired-open-${name}-1000x700`))
+      await openTab('slots')
+      await settle()
+      details['slots-' + name] = await table('#desk-inbox .project-slots .slots-table')
+      screenshots.push(await page.screenshot(`${prefix}-history-slots-${name}-1000x700`))
+    }
+    await page.goto('/?scene=deskinbox&mode=historyrr')
+    await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+    await openMailListeners()
+    await settle()
+    details['mail-rr-dark'] = await table('#desk-inbox .mail-listeners-table')
+    screenshots.push(await page.screenshot(`${prefix}-history-mail-rr-dark-1000x700`))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=listenerstable: the desk's event Listeners tab
   // as one slots-style table (user 2026-10-19 21:08Z-21:11Z), dark and
   // light, beside the Slots tab and the inbox's listeners folder it should

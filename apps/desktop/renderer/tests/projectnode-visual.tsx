@@ -50,7 +50,11 @@
 //             jump cards stay on every one (19:58Z); &mode=lt its event
 //             listeners table (one-shot, continuous, fired, never fired,
 //             paused; two watches, one with a fire action, user 21:08Z-
-//             21:11Z), &mode=empty a project nobody listens to (21:19Z).
+//             21:11Z), &mode=empty a project nobody listens to (21:19Z);
+//             &mode=history the three tables with their history (user
+//             2026-10-20 06:22Z-06:42Z: Working, Line, Dead Letter Line and
+//             Recently Finished; Recently Fired; the Slots Watchdog column),
+//             &mode=historyrr the Mail listeners in round-robin.
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
@@ -66,7 +70,7 @@ import { AgentDeskPanel } from '../src/attention/AgentDeskPanel'
 import { setAttentionLayout } from '../src/attention/mode'
 import { InboxView } from '../src/canvas/mail'
 import { AgentSurfaceRoutesProvider, PanelCorner } from '../src/canvas/panelcorner'
-import type { CanvasNode, OpResult } from '../src/canvas/shared'
+import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
 const noop = () => {}
@@ -238,6 +242,70 @@ const headSets: Record<'outlined' | 'filled' | 'roundrobin' | 'listeners' | 'emp
     leases: [relayLease('dev1', 1), relayLease('dev2', 2)] },
   empty: { node: relay({}), dogs: [], leases: [] },
 }
+/** history: the desk's three tables with the engine's history reads */
+const historyDogs = [
+  ...headSets.listeners.dogs.filter((w) => (w as { kind: string }).kind !== 'fair_queue'),
+  ...mailDogs,
+  headDog('event', 'boss', 'dead-watch', { target: 'project.dead_letter', fired: 1, last_fired: ago(1500) }),
+  headDog('slot', 'lead', 'wait-a', { once: true, queued_at: ago(300) }),
+]
+const historySets = {
+  ack: { node: relay({ slots_capacity: 3, mail_queue: 'ack' }, { mail_pending: 1, mail_held: 1, dead_letters: 1, listeners_seen: true }),
+    dogs: historyDogs, leases: [relayLease('dev1', 1), relayLease('dev2', 2)] } as HeadSet,
+  rr: { node: relay({ slots_capacity: 3 }, { mail_pending: 0, listeners_seen: true }), dogs: historyDogs, leases: [] } as HeadSet,
+}
+const kept = (owner: string, name: string, kind: string, gone = false) => ({ id: `${owner}/${name}`, owner, name, kind, once: kind === 'slot', state: gone ? 'spent' : 'armed', gone })
+function historyAnswer(b: OpRequest, rr: boolean): unknown {
+  if (b.op === 'mail_queue_history') {
+    if (rr) {
+      const d = (id: number, agent: string, name: string, gist: string, held: number, waited: number) =>
+        ({ id, copy: `c${id}`, agent, mail: `m${id}`, gist, dog: kept(agent, name, 'fair_queue'), held_at: ago(held), waited_from: ago(waited) })
+      return { project: 'relay', ack: false, history: [d(9, 'dev1', 'mail-a', 'Ship the release notes', 48, 300),
+        d(8, 'boss', 'mail-d', 'Tag the build', 400, 425), d(7, 'dev2', 'mail-b', 'Rebuild the docs', 1200, 2600),
+        d(6, 'dev1', 'mail-a', 'Update the changelog', 2400, 2500)], history_next: 'c6' }
+    }
+    const end = (id: number, agent: string, name: string, how: string, gist: string, waited: number, held: number, ended: number,
+      extra: Record<string, unknown> = {}) => ({ id, mail: `m${id}`, gist, copy: `c${id}`, agent, dog: kept(agent, name, 'fair_queue'), how,
+      attempt: 1, waited_from: ago(waited), held_at: ago(held), ended_at: ago(ended), ...extra })
+    return { project: 'relay', ack: true, max_attempts: 3, dead_letters: true,
+      working: [{ mail: 'm1', gist: 'Ship the release notes', copy: 'c1', agent: 'dev1', dog: kept('dev1', 'mail-a', 'fair_queue'),
+        attempts: 1, waited_from: ago(300), held_at: ago(48) }],
+      history: [
+        end(5, 'dev2', 'mail-b', 'acked', 'Rebuild the docs', 2600, 1200, 720, { ack: 'a5', ack_gist: 'Docs rebuilt and pushed' }),
+        end(4, 'lead', 'mail-c', 'failed', 'Fix the flaky test', 3400, 3300, 1800, { why: 'was halted' }),
+        end(3, 'dev1', 'mail-a', 'taken_back', 'Update the changelog', 4000, 3900, 2400, { why: 'had it taken back by @user' }),
+        end(2, 'dev2', 'mail-b', 'dead_letter', 'Migrate the old wiki', 9000, 8800, 6000, { why: 'did not ack it after 2 reminders', attempt: 3 }),
+        end(1, 'dev1', 'mail-a', 'acked', 'Write the release plan', 12000, 11000, 9500, { ack: 'a1', ack_gist: 'Plan written: docs/release.md' }),
+      ], history_next: 'c1' }
+  }
+  if (b.op === 'listener_history') {
+    return { project: 'relay', history: [
+      { id: 12, at: ago(180), kind: 'event', by: 'lead', message: 'go: start build 7\nThen run the full test round and report the results to lead before 18:00.',
+        listeners: [
+          { agent: 'dev1', dog: 'ready-a', name: 'ready-a', once: true, since: ago(480), mail: 'mf1' },
+          { agent: 'dev2', dog: 'build-done', name: 'build-done', once: false, since: ago(240), mail: 'mf2' },
+          { agent: 'lead', dog: 'deploy-watch', name: 'deploy-watch', once: false, since: ago(2400), mail: 'mf3', mail_gone: true },
+        ] },
+      { id: 11, at: ago(181), kind: 'watch', by: 'lead', message: null,
+        watch: { agent: 'lead', dog: 'all-ready', name: 'all-ready', count: 3, armed: 3, since: ago(900) },
+        listeners: [
+          { agent: 'dev1', dog: 'ready-a', name: 'ready-a', once: true, since: ago(480) },
+          { agent: 'dev2', dog: 'build-done', name: 'build-done', once: false, since: ago(240) },
+          { agent: 'lead', dog: 'deploy-watch', name: 'deploy-watch', once: false, since: ago(2400) },
+        ] },
+      { id: 10, at: ago(5400), kind: 'event', by: '@user', message: null, listeners: [] },
+    ], history_next: 'c10' }
+  }
+  if (b.op === 'slot_status') {
+    return { project: 'relay', slots: 3, held: 2,
+      holders: [{ lease: 'r1', agent: 'dev1', slots: 1, reason: 'build-slot', since: ago(660), queued: ago(700), reminders: 0, dog: kept('dev1', 'build-slot', 'slot', true) },
+        { lease: 'r2', agent: 'dev2', slots: 1, reason: 'test-slot', since: ago(720), reminders: 1, dog: kept('dev2', 'test-slot', 'slot', true) }],
+      line: [{ position: 1, agent: 'lead', dog: 'lead/wait-a', slots: 1, since: ago(300) }],
+      history: [{ lease: 'r0', agent: 'lead', slots: 1, reason: 'first-build', since: ago(4000), queued: ago(4100), ended: ago(3000), how: 'released',
+        dog: kept('lead', 'first-build', 'slot', true) }], history_next: null }
+  }
+  return {}
+}
 const headTree = (set: HeadSet) => ({ ...tree([set.node]), watchdogs: set.dogs, slot_leases: set.leases }) as unknown as TreePayload
 const headMap = (set: HeadSet) => {
   const boss = agent('boss', '', { parent: null, tier: 'opus', model_id: 'opus', seat: 5, grant: 20 }) as unknown as CanvasNode
@@ -251,9 +319,10 @@ const headSlotStatus = (set: HeadSet) => {
   const slots = (set.node as unknown as { configured_scope: { slots_capacity?: number } }).configured_scope.slots_capacity ?? 0
   return { project: set.node.id, slots, held: set.leases.length, holders: set.leases, line, history: [], history_next: null }
 }
-function HeadDesk({ set, top, height, id, route = false }: { set: HeadSet; top: number; height: number; id: string; route?: boolean }) {
+function HeadDesk({ set, top, height, id, route = false, answer }: { set: HeadSet; top: number; height: number; id: string; route?: boolean
+  answer?: (b: OpRequest) => unknown }) {
   const desk = <ProjectDesk bare node={set.node} slug="org" tree={headTree(set)} map={headMap(set)}
-    op={(b) => Promise.resolve((b.op === 'slot_status' ? headSlotStatus(set) : {}) as unknown as OpResult)}
+    op={(b) => Promise.resolve((answer ? answer(b) : b.op === 'slot_status' ? headSlotStatus(set) : {}) as unknown as OpResult)}
     toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} />
   return (
     <div id={id} className="head-desk" style={{ position: 'absolute', left: 10, top, width: 980, height, border: '1px solid var(--line)', overflow: 'hidden' }}>
@@ -446,6 +515,12 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
   : scene === 'deskhead' ? <DeskHead />
   : scene === 'deskinbox' ? (() => {
     const mode = new URLSearchParams(location.search).get('mode')
+    if (mode === 'history' || mode === 'historyrr') {
+      const rr = mode === 'historyrr'
+      return <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+        <HeadDesk set={rr ? historySets.rr : historySets.ack} top={10} height={680} id="desk-inbox" route answer={(b) => historyAnswer(b, rr)} />
+      </main>
+    }
     return <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
       <HeadDesk set={mode === 'rr' ? headSets.roundrobin : mode === 'lt' ? headSets.listeners : mode === 'empty' ? headSets.empty : headSets.filled}
         top={10} height={680} id="desk-inbox" route={mode === 'lt' || mode === 'empty'} />
