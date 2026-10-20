@@ -171,16 +171,17 @@ export function ConfirmModal({ title, body, confirmLabel, onConfirm, close,
   )
 }
 // An mqtt dog's broker connection, or a websocket dog's server connection, in
-// one line (docs/rust-engine/mqtt-watchdogs.md, websocket-watchdogs.md).
+// one line (docs/rust-engine/mqtt-watchdogs.md, websocket-watchdogs.md): how
+// long it has been so, "connected for 41h" (coordinator 2026-10-19 23:57Z).
 function feedConnection(dog: Watchdog): string {
   const c = dog.connection
   if (!c) return 'not connected yet'
-  const since = c.since ? ` since ${ago(c.since)} ago` : ''
+  const lasted = c.since ? ` for ${ago(c.since)}` : ''
   switch (c.state) {
-    case 'connected': return `connected${since}`
+    case 'connected': return `connected${lasted}`
     case 'connecting': return 'connecting…'
-    case 'down': return `down${since}: ${c.error ?? 'unreachable'}; it retries on its own`
-    case 'refused': return `refused by the ${dog.kind === 'mqtt' ? 'broker' : 'server'}${since}: ${c.error ?? ''}; fix it, then resume to retry now`
+    case 'down': return `down${lasted}: ${c.error ?? 'unreachable'}; it retries on its own`
+    case 'refused': return `refused by the ${dog.kind === 'mqtt' ? 'broker' : 'server'}${lasted}: ${c.error ?? ''}; fix it, then resume to retry now`
   }
 }
 

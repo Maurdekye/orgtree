@@ -118,7 +118,8 @@ test('mqtt card names its broker, topic filter and how it authenticates, never t
   const text = view.el.textContent ?? ''
   assert.match(text, /untrusted/i)
   assert.match(text, /inline credentials \(stored encrypted\)/)
-  assert.match(view.el.querySelector('.wd-connection')?.textContent ?? '', /down.*the broker closed the connection/)
+  // how long, not "since 41h ago" (coordinator 2026-10-19 23:57Z)
+  assert.match(view.el.querySelector('.wd-connection')?.textContent ?? '', /^down for \d+[smh]: the broker closed the connection/)
   assert.match(text, /"state":"open"/)
   assert.match(text, /home\/kitchen\/temperature: 21\.5/)
   const labels = Array.from(view.el.querySelectorAll('.field-label'), el => el.textContent)
@@ -129,7 +130,7 @@ test('mqtt card names its broker, topic filter and how it authenticates, never t
   const healthy = await panel({ kind: 'mqtt', target: 'mqtt://localhost:1883', pattern: 'ci/#', credentials: 'none',
     connection: { state: 'connected', since: '2026-10-18T07:00:00Z' } })
   try {
-    assert.match(healthy.el.querySelector('.wd-connection')?.textContent ?? '', /connected/)
+    assert.match(healthy.el.querySelector('.wd-connection')?.textContent ?? '', /^connected for \d+[smh]$/)
     assert.ok(!healthy.el.querySelector('.wd-connection-bad'), 'a connected broker is not flagged')
     assert.match(healthy.el.querySelector('.wd-description')?.textContent ?? '', /retained messages.*ignored/i)
   } finally { await healthy.unmount() }
@@ -153,7 +154,7 @@ test('websocket card names its server, hellos, heartbeat and connection, never t
   assert.match(text, /graphql-transport-ws/)
   assert.match(text, /every 40s: \{"op":1,"d":null\}/)
   assert.match(text, /2 messages sent/)
-  assert.match(view.el.querySelector('.wd-connection')?.textContent ?? '', /refused by the server.*HTTP 401/)
+  assert.match(view.el.querySelector('.wd-connection')?.textContent ?? '', /^refused by the server for \d+[smh]: the server refused the login \(HTTP 401/)
   assert.ok(view.el.querySelector('.wd-connection-bad'), 'a refused connection is flagged')
   const labels = Array.from(view.el.querySelectorAll('.field-label'), el => el.textContent)
   for (const label of ['server', 'credentials', 'hello (sent after every connect)', 'subprotocols', 'heartbeat', 'connection', 'last message', 'fires on messages matching']) {
@@ -165,6 +166,7 @@ test('websocket card names its server, hellos, heartbeat and connection, never t
   try {
     assert.match(plain.el.querySelector('.wd-description')?.textContent ?? '', /every message the server sends/)
     assert.ok(!plain.el.querySelector('.wd-connection-bad'), 'a connected server is not flagged')
+    assert.match(plain.el.querySelector('.wd-connection')?.textContent ?? '', /^connected for \d+[smh]$/)
     assert.match(plain.el.textContent ?? '', /nothing sent yet/)
   } finally { await plain.unmount() }
 })
