@@ -151,6 +151,9 @@
 
 - Project bunches are a display projection of maximal direct project-only runs:
   splits/agents end a run, hidden branches still count, and siblings never bunch.
+  The 08:05 sketch refinement packs staggered circle-chord rows with 8px gaps;
+  short curves share ordinary hierarchy-edge styling and insertion follows the
+  serpentine order, including reversed rows.
   The default-on Display switch restores ordinary columns when off. In-bunch
   drag uses one atomic move/reorder gesture, preserving project identities and
   the bottom member group; swap stays agent-only. See

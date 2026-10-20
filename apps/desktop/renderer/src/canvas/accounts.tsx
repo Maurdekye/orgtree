@@ -336,7 +336,7 @@ export function ProjectBunchSetting() {
   const on = useProjectBunches()
   return <SetToggle label="bunch consecutive projects" checked={on}
     onChange={setProjectBunchesOn}
-    hint="pack direct project columns into an ordered spring; splits and agents start separate bunches" />
+    hint="pack direct project columns into a round, ordered bunch; splits and agents start separate bunches" />
 }
 
 function CrowdStackToggle() {

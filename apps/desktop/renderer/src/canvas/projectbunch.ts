@@ -1,4 +1,5 @@
-import type { CanvasNode, Pt } from './shared'
+import type { CanvasNode, Pt, Seg } from './shared'
+import type { RingReorderSlot } from './ringreorder'
 
 export type ProjectBunch = {
   members: CanvasNode[]
@@ -7,20 +8,89 @@ export type ProjectBunch = {
   height: number
 }
 
-/** A compressed spring: advancing x, alternating upper/lower arcs. Same-side
- * cards have a 28px gap; adjacent opposite-side cards clear in y.
- * Keep whole hit boxes, names and badges rather than hiding overlapping cards. */
+/** Pack rows of a circle, then traverse alternate rows in opposite directions.
+ * Chord weights decide each row's population; largest remainders keep the exact
+ * count. A small brick stagger avoids aligned columns while all touching rows
+ * and neighbours keep the same 8px clearance. This is deterministic O(n). */
 export function bunchShape(count: number, card = 124): Pick<ProjectBunch, 'offsets' | 'width' | 'height'> {
-  const step = (card + 28) / 2, radius = (count - 1) * step / 2
-  const offsets = Array.from({ length: count }, (_, i) => {
-    const t = (2 * i - count + 1) / count
-    const y = Math.max((card + 20) / 2, radius * Math.sqrt(1 - t * t))
-    return { x: i * step, y: (i % 2 ? 1 : -1) * y }
-  })
-  const top = Math.min(...offsets.map(p => p.y))
-  const bottom = Math.max(...offsets.map(p => p.y))
-  return { offsets: offsets.map(p => ({ x: p.x, y: p.y - top })),
-    width: (count - 1) * step + card, height: bottom - top + card }
+  const rows = Math.ceil(Math.sqrt(count)), pitch = card + 8
+  const weights = Array.from({ length: rows }, (_, r) => Math.sqrt(1 - ((2 * r + 1 - rows) / rows) ** 2))
+  const total = weights.reduce((a, b) => a + b, 0)
+  const ideal = weights.map(w => count * w / total), lengths = ideal.map(x => Math.max(1, Math.floor(x)))
+  const priority = ideal.map((x, r) => ({ r, fraction: x - Math.floor(x) }))
+    .sort((a, b) => b.fraction - a.fraction || a.r - b.r)
+  const remaining = count - lengths.reduce((a, b) => a + b, 0)
+  for (let i = 0; i < remaining; i++) lengths[priority[i]!.r]!++
+  const offsets: Pt[] = []
+  let previousStart = Infinity
+  for (let r = 0; r < rows; r++) {
+    const length = lengths[r]!
+    let start = -(length - 1) * pitch / 2
+    // Different odd/even row widths already supply a half-card stagger.
+    // Otherwise stagger toward the previous row's exit, keeping turns local.
+    const delta = (start - previousStart) / pitch
+    if (r && Math.abs(delta - Math.round(delta)) < .1) {
+      const entry = start + (r % 2 ? (length - 1) * pitch : 0)
+      const toward = Math.sign(offsets[offsets.length - 1]!.x - entry) || (r % 2 ? 1 : -1)
+      start += toward * pitch / 3
+    }
+    previousStart = start
+    for (let i = 0; i < length; i++) offsets.push({
+      x: start + (r % 2 ? length - 1 - i : i) * pitch, y: r * pitch,
+    })
+  }
+  const left = Math.min(...offsets.map(p => p.x)), right = Math.max(...offsets.map(p => p.x))
+  return { offsets: offsets.map(p => ({ x: p.x - left, y: p.y })),
+    width: right - left + card, height: (rows - 1) * pitch + card }
+}
+
+/** Closest points on two card rectangles. Links stay in the small local gap,
+ * including row turns; centre-to-centre trimming would draw across the blob. */
+function nearestEdges(a: Pt, b: Pt, card: number): [Pt, Pt] {
+  const axis = (x: number, y: number): [number, number] => {
+    if (x + card <= y) return [x + card, y]
+    if (y + card <= x) return [x, y + card]
+    const midpoint = (Math.max(x, y) + Math.min(x + card, y + card)) / 2
+    return [midpoint, midpoint]
+  }
+  const [ax, bx] = axis(a.x, b.x), [ay, by] = axis(a.y, b.y)
+  return [{ x: ax, y: ay }, { x: bx, y: by }]
+}
+
+export function projectBunchLink(a: Pt, b: Pt, card = 124): Seg {
+  const [start, end] = nearestEdges(a, b, card)
+  const dx = end.x - start.x, dy = end.y - start.y, length = Math.hypot(dx, dy) || 1
+  const bend = Math.min(4, length / 3), px = -dy / length * bend, py = dx / length * bend
+  return { kind: 'c', pts: [start,
+    { x: start.x + dx / 3 + px, y: start.y + dy / 3 + py },
+    { x: end.x - dx / 3 - px, y: end.y - dy / 3 - py }, end] }
+}
+
+/** Pick the nearest insertion gap along the actual snake, never by screen x.
+ * Card positions and returned marker points are top-left coordinates. */
+export function projectBunchInsertion(ids: string[], positions: ReadonlyMap<string, Pt>,
+  drop: Pt, card = 124): RingReorderSlot | undefined {
+  const placed = ids.flatMap(id => { const p = positions.get(id); return p ? [{ id, p }] : [] })
+  if (!placed.length) return undefined
+  const candidates: RingReorderSlot[] = []
+  for (let i = 1; i < placed.length; i++) {
+    const previous = placed[i - 1]!, current = placed[i]!
+    const [a, b] = nearestEdges(previous.p, current.p, card)
+    candidates.push({ request: { before: current.id },
+      point: { x: (a.x + b.x) / 2 - card / 2, y: (a.y + b.y) / 2 - card / 2 } })
+  }
+  const first = placed[0]!, last = placed[placed.length - 1]!
+  const end = (row: typeof first, neighbour: typeof first | undefined, before: boolean) => {
+    const dx = neighbour ? row.p.x - neighbour.p.x : (before ? -1 : 1)
+    const dy = neighbour ? row.p.y - neighbour.p.y : 0
+    const scale = (card / 2 + 8) / (Math.max(Math.abs(dx), Math.abs(dy)) || 1)
+    candidates.push({ request: before ? { before: row.id } : { after: row.id },
+      point: { x: row.p.x + dx * scale, y: row.p.y + dy * scale } })
+  }
+  end(first, placed[1], true); end(last, placed[placed.length - 2], false)
+  return candidates.reduce((best, candidate) =>
+    Math.hypot(candidate.point.x - drop.x, candidate.point.y - drop.y)
+      < Math.hypot(best.point.x - drop.x, best.point.y - drop.y) ? candidate : best)
 }
 
 /** Only physical, unbroken project runs qualify. The unpruned source map

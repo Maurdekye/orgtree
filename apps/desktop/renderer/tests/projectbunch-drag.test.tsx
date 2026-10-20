@@ -76,6 +76,11 @@ async function drag(el: HTMLElement, id: string, world: { x: number; y: number }
     await inAct(() => c.dispatchEvent(new W.PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, ...point })))
   await flush()
 }
+function endPoint(el: HTMLElement, id: string, neighbour: string) {
+  const p = at(el, id), q = at(el, neighbour), dx = p.x - q.x, dy = p.y - q.y
+  const scale = 40 / Math.max(Math.abs(dx), Math.abs(dy))
+  return { x: p.x + 62 + dx * scale, y: p.y + 62 + dy * scale }
+}
 function apply(tree: TreePayload, steps: Record<string, unknown>[]) {
   let current = tree
   for (const step of steps) {
@@ -92,12 +97,24 @@ function apply(tree: TreePayload, steps: Record<string, unknown>[]) {
   }
   return current
 }
+test('bunch links are short curves between nearby card edges, using the ordinary edge class', async t => {
+  const view = await canvas(t, bunchTree([chain(8)]))
+  const edges = [...view.el.querySelectorAll<SVGPathElement>('.project-bunch-edge')]
+  assert.equal(edges.length, 7)
+  for (const edge of edges) {
+    assert.equal(edge.classList.contains('edge'), true)
+    const d = edge.getAttribute('d') ?? ''
+    assert.ok(d.includes('C'), 'each local connector is a curve')
+    const p = numbers(d), gap = Math.hypot(p[6]! - p[0]!, p[7]! - p[1]!)
+    assert.ok(gap <= 20, 'links never cross the blob')
+  }
+})
 for (const mode of ['row', 'circular'] as const) {
   test(`${mode}: dragging the head to the end is one atomic rotation; members stay below the new bottom`, async t => {
     const tree = bunchTree([agent('boss', [agent('left'), chain(3), agent('right')])])
-    const view = await canvas(t, tree, mode), end = at(view.el, 'project-3')
+    const view = await canvas(t, tree, mode)
     assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 2, 'real order line rendered')
-    await drag(view.el, 'project-1', { x: end.x + 100, y: end.y + 62 })
+    await drag(view.el, 'project-1', endPoint(view.el, 'project-3', 'project-2'))
     assert.equal(view.gestures.length, 1, 'one atomic gesture')
     assert.equal(view.ops.length, 0)
     const next = apply(tree, view.gestures[0]!.steps), parents = treeParents(next)
@@ -115,15 +132,28 @@ for (const mode of ['row', 'circular'] as const) {
   })
 }
 test('refused in-bunch reorder restores all cards; cancellation sends nothing', async t => {
-  const view = await canvas(t), original = at(view.el, 'project-3'), first = at(view.el, 'project-1')
-  await drag(view.el, 'project-3', { x: first.x + 25, y: first.y + 62 })
+  const view = await canvas(t), original = at(view.el, 'project-3')
+  await drag(view.el, 'project-3', endPoint(view.el, 'project-1', 'project-2'))
   assert.equal(view.gestures.length, 1)
   await inAct(() => view.reject(new Error('permission refused')))
   await advance(1500, 50); await flush()
   assert.ok(Math.abs(at(view.el, 'project-3').x - original.x) < 2)
   assert.ok(view.errors.some(line => line.includes('permission refused')))
-  await drag(view.el, 'project-3', { x: first.x + 25, y: first.y + 62 }, true)
+  await drag(view.el, 'project-3', endPoint(view.el, 'project-1', 'project-2'), true)
   assert.equal(view.gestures.length, 1)
+})
+test('drag insertion follows a middle row running right to left', async t => {
+  const tree = bunchTree([chain(7)]), view = await canvas(t, tree)
+  const a = at(view.el, 'project-4'), b = at(view.el, 'project-5')
+  assert.ok(a.x > b.x && Math.abs(a.y - b.y) < 1, 'the fixture reaches a reversed row')
+  await drag(view.el, 'project-1', { x: (a.x + b.x + 124) / 2, y: a.y + 62 })
+  assert.equal(view.gestures.length, 1)
+  const next = apply(tree, view.gestures[0]!.steps), parents = treeParents(next)
+  assert.equal(parents.get('project-1'), 'project-4')
+  assert.equal(parents.get('project-5'), 'project-1')
+  assert.equal(parents.get('worker-a'), 'project-7')
+  await inAct(() => view.resolve({ results: [] }))
+  await view.show(next)
 })
 test('dragging outside a bunch retains the existing whole-subtree move', async t => {
   const view = await canvas(t, bunchTree([chain(3), agent('outside')])), point = at(view.el, 'outside')

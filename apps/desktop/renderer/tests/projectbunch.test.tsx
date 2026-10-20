@@ -18,22 +18,30 @@ const extent = (p: Pt[]) => ({
 })
 function separated(points: Pt[]) {
   for (let i = 0; i < points.length; i++) for (let j = i + 1; j < points.length; j++)
-    assert.ok(Math.abs(points[i]!.x - points[j]!.x) >= NODE_W + 12
-      || Math.abs(points[i]!.y - points[j]!.y) >= NODE_H + 12, `cards ${i},${j} have separate hit areas`)
+    assert.ok(Math.abs(points[i]!.x - points[j]!.x) >= NODE_W + 7.9
+      || Math.abs(points[i]!.y - points[j]!.y) >= NODE_H + 7.9, `cards ${i},${j} have separate hit areas`)
 }
 
-for (const mode of ['row', 'circular'] as const) for (const n of [2, 3, 5, 8]) {
-  test(`${mode}: ${n} direct projects form an ordered round zigzag with separate cards`, () => {
+for (const mode of ['row', 'circular'] as const) for (const n of [2, 3, 5, 7, 8, 12, 20]) {
+  test(`${mode}: ${n} direct projects form a tightly packed round serpentine with separate cards`, () => {
     const root = rootOf(chain(n)), snapshot = JSON.stringify(root)
     const out = place(root, new Map(), mode, true)
     const points = Array.from({ length: n }, (_, i) => out.get(`project-${i + 1}`)!)
     const shape = extent(points)
-    assert.ok(shape.w > NODE_W * 1.5, 'bunch uses width rather than a vertical column')
+    assert.ok(shape.w > NODE_W * 1.3, 'bunch uses width rather than a vertical column')
     assert.ok(Math.max(shape.w / shape.h, shape.h / shape.w) < 1.6, 'roughly round outline')
+    assert.ok(shape.w * shape.h < n * (NODE_W + 8) ** 2 * 1.5, 'no large empty gaps inside the blob')
     for (let i = 1; i < points.length; i++) {
-      assert.ok(points[i]!.x > points[i - 1]!.x, 'real order advances along the spring')
-      assert.ok((points[i]!.y - points[i - 1]!.y) * (i % 2 ? 1 : -1) > 0, 'order zigzags down, up')
+      const a = points[i - 1]!, b = points[i]!
+      const gap = Math.hypot(Math.max(0, Math.abs(a.x - b.x) - NODE_W),
+        Math.max(0, Math.abs(a.y - b.y) - NODE_H))
+      assert.ok(gap >= 7.9 && gap <= 16, 'each chain link joins adjacent cards across a small even gap')
+      assert.ok(b.y >= a.y, 'the snake progresses down through the blob')
     }
+    if (n >= 3) assert.ok(points.some((p, i) => i && p.x < points[i - 1]!.x), 'the order doubles back')
+    const rows = new Set(points.map(p => Math.round(p.y)))
+    assert.ok(rows.size >= Math.floor(Math.sqrt(n)) && rows.size <= Math.ceil(Math.sqrt(n)) + 1,
+      'larger bunches gain turns instead of stretching one zigzag')
     separated([...out.values()])
     assert.equal(out.size, n + 3, 'eye, every project and both members retained')
     assert.equal(JSON.stringify(root), snapshot, 'layout never reparents input')

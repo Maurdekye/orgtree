@@ -12,7 +12,7 @@ Display > Desk saves immediately to renderer localStorage for this profile, shar
 | Control | Storage | Default | Effect |
 | --- | --- | --- | --- |
 | org chart layout | `ls:orgtree-chart-layout` | row | Row places teams in rows by depth; circular places the top-level node centrally and teams behind parents in rings. |
-| bunch consecutive projects | `ls:orgtree-project-bunches` | On | Each uninterrupted column of two or more projects forms a compact, round zigzag, connected in parent-to-child order. An agent or split ends that bunch; another direct project run can bunch below it. Sibling projects stay separate. Off restores ordinary columns. |
+| bunch consecutive projects | `ls:orgtree-project-bunches` | On | Each uninterrupted column of two or more projects forms a tightly packed round bunch, with a snaking order and short curves in the normal hierarchy-edge style. An agent or split ends that bunch; another direct project run can bunch below it. Sibling projects stay separate. Off restores ordinary columns. |
 | desk text size | `ls:orgtree-desk-dpi` | 100% | Minus/plus changes by 25 percentage points, bounded 75–250%; reset restores 100%. Scales desks, cards and canvas text, while settings panels keep their own sizing. |
 | collapse crowded teams into one stack | `ls:orgtree-crowd-piles` | Off | Teams with more than eight active agents can draw as a counted stack. See the piles screen for opening one. |
 | hide retired agents | `ls:orgtree-hide-retired` | Off | Removes retired agents from ordinary canvas/lists; retired tokens and archived switchboard rows remain routes to them. It does not delete their records. |

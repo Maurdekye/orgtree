@@ -1,10 +1,12 @@
 # Consecutive project bunches
 
-User decisions, 2026-10-20 07:12–07:25 UTC: each maximal direct project-only run
-becomes a roughly round, compressed-spring zigzag. A split or intervening agent
+User decisions, 2026-10-20 07:12–08:07 UTC: each maximal direct project-only run
+becomes a tightly packed, roughly round serpentine. The 08:05 sketch feedback
+replaces the initial tall spring links with short curves and an even small gap.
+A split or intervening agent
 ends a run; independent runs above and below it bunch separately. Singletons and
 side-by-side projects retain the ordinary layout. Parent-to-child lines connect
-the projects in actual order.
+the projects in actual order, using the ordinary superior/subordinate edge style.
 
 Display > Desk > **bunch consecutive projects** defaults on. Its profile-local
 `orgtree-project-bunches` preference updates existing windows through the same-tab
@@ -17,6 +19,21 @@ break. Layout contracts each run to a block, reserves its complete footprint,
 and expands it into separate full-size card positions. Row and circular layouts,
 fit, and the reparent landing ghost use the same projection. Card/desk identity,
 menus, badges, colors, and far-zoom hit targets remain the existing components.
+
+Packing starts with `ceil(sqrt(count))` rows. Circle-chord weights allocate the
+exact number of cards using largest remainders, with stable row-index tie breaks.
+Rows are centred, then staggered by one third of the card pitch when they would
+otherwise align. The stagger goes toward the previous row's exit so the turn
+stays short. Every horizontal neighbour and overlapping neighbouring row has
+8 world pixels of clearance. Alternate rows run in opposite directions; the
+last project is always in the bottom row. This fills the blob instead of drawing
+long links across an empty middle. Row count grows with the bunch, preserving
+its round outline. Work is linear in the number of cards plus sorting the small
+row list, and identical inputs give identical positions.
+
+Links join the nearest rectangle edges with a small cubic bend, sharing `.edge`
+colour, width and opacity. Drag insertion chooses the nearest gap along this
+ordered path, including reversed rows, rather than sorting by horizontal position.
 
 Inside a bunch, dragging shows an insertion point and rotates the project
 identities while retaining their settings and the bottom member group.
@@ -38,5 +55,5 @@ Display persistence), `projectbunch-drag.test.tsx` (real canvas pointer gestures
 all insertion positions for 2–8 projects, atomic steps, rollback, cancel,
 cross-window preference updates, both insertion cases and split control).
 `projectbunch-visual.mjs` captures the real renderer with synthetic data in
-Session 0, including 2/3/5/8 projects, opt-out, breaks, far zoom, insertions and
+Session 0, including 2/3/5/7/8/12/20 projects, opt-out, breaks, far zoom, insertions and
 reorder. It never opens or modifies live organization data.

@@ -1,5 +1,5 @@
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
-import { projectBunches, type ProjectBunch } from './projectbunch'
+import { projectBunches, projectBunchLink, projectBunchInsertion, type ProjectBunch } from './projectbunch'
 import { projectBunchesOn, useProjectBunches } from './projectbunchprefs'
 import { projectBunchRotation, withProjectBunchRotation, type BunchRotation } from './projectbunchmove'
 import { CanvasBackground } from './canvasbackground'
@@ -1277,7 +1277,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       { x: ca.x + dx * ta, y: ca.y + dy * ta }, { x: cb.x - dx * tb, y: cb.y - dy * tb }] }
   }
   const treeSeg = (parentId: string, childId: string): Seg => {
-    if (chartLayout === 'circular' || inSameBunch(parentId, childId)) return radialSeg(parentId, childId)
+    if (inSameBunch(parentId, childId)) return projectBunchLink(posOf(parentId)!, posOf(childId)!)
+    if (chartLayout === 'circular') return radialSeg(parentId, childId)
     const a = posOf(parentId)!, b = posOf(childId)!
     const ps = sizeOf(parentId)
     return { kind: 'c', pts: [
@@ -2851,7 +2852,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     }
     if (d.inBunch && bunch) {
       setDropId(null)
-      d.reorder = rowReorderSlot(bunch.ids.filter(k => k !== id), bunch.positions,
+      d.reorder = projectBunchInsertion(bunch.ids.filter(k => k !== id), bunch.positions,
         { x: world.x - NODE_W / 2, y: world.y - NODE_H / 2 })
       setFrame(f => f + 1)
       return

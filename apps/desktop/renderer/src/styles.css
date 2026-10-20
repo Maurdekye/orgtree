@@ -701,7 +701,6 @@ main {
      frame; a CSS ease on top made wires trail ~.5s behind a dropped node */
 }
 .edge.faded { opacity: .3; stroke-dasharray: 4 4; }
-.edge.project-bunch-edge { stroke: var(--org-accent, var(--accent)); stroke-width: 2px; opacity: .72; }
 .edge.draftedge { stroke: var(--accent); stroke-dasharray: 5 4; opacity: .6; }
 /* coworkers: the lateral peer channel between adjacent siblings */
 .edge.peer { stroke: var(--peer-edge); stroke-dasharray: 2 6; stroke-width: 1.2px; opacity: .65; }
