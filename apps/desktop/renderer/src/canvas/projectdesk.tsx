@@ -99,6 +99,8 @@ export interface ProjectDeskProps {
   refs: RefRoutes
   /** a pinned window's body: the desk unscaled, as DeskChat's `bare` */
   bare?: boolean
+  /** Refocus this existing modal without remounting its tab or draft. */
+  focusRequest?: number
   onJump?: (id: string) => void
   /** the gear: the project's settings (ProjectConfig) */
   onConfig?: () => void
@@ -637,8 +639,12 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
   </>
 }
 
-export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJump, onConfig: configProp, onPin, onPopout, onOpenDoc, onDismiss }: ProjectDeskProps) {
+export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focusRequest, onJump, onConfig: configProp, onPin, onPopout, onOpenDoc, onDismiss }: ProjectDeskProps) {
   const surface = useSurface()
+  const deskRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (focusRequest) deskRef.current?.querySelector<HTMLTextAreaElement>('.project-composer textarea')?.focus({ preventScroll: true })
+  }, [focusRequest])
   // a host that passes no settings handler gets the shell's own opener, so
   // the gear is never missing or dead, as on the agent desk (AgentSurfaceRoutes)
   const surfaceRoutes = useAgentSurfaceRoutes()
@@ -881,7 +887,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
     </>
   )
   return (
-    <div className={bare ? 'desk-bare project-desk' : 'desk-over project-desk'} onWheel={(e) => e.stopPropagation()}
+    <div ref={deskRef} className={bare ? 'desk-bare project-desk' : 'desk-over project-desk'} onWheel={(e) => e.stopPropagation()}
       // the desk a click or keystroke was in is the last desk ("Focus last
       // desk") and the active chat (Alt+N outside every desk), as an agent
       // desk's is in each of its hosts (G17)

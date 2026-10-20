@@ -90,7 +90,7 @@ import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
 import { useSettingsAsk } from './settingskit'
 import type { SettingsTarget } from './settingskit'
-import { isModalPinned, ModalOverPins, PinFrame, toggleNodePanel, toggleOrRaiseModal, readModalOpen, requestSurfaceAction, usePersistedModalOpen } from './modalpin'
+import { isModalPinned, ModalOverPins, PinFrame, toggleNodePanel, toggleOrRaiseModal, readModalOpen, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
@@ -541,7 +541,21 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // a PROJECT's desk as a modal: "Open desk", or popped out to its own window
   // (point 27, user 2026-10-17 23:28Z, 23:29:47Z)
   const [projectDeskId, setProjectDeskId] = useState<string | null>(null)
+  const [projectDeskFocus, setProjectDeskFocus] = useState(0)
+  const revealProjectDesk = useCallback((id: string) => {
+    if (revealOpenPanel('project-desk', slug, { agent: id })) return true
+    if (projectDeskId !== id) return false
+    setProjectDeskFocus(seq => seq + 1)
+    return true
+  }, [projectDeskId, slug])
   const openProjectDesk = (id: string, popout = false) => {
+    if (pinnedIdsRef.current.has(id)) { showPin(slug, id, vpSizeNow()); return }
+    if (revealExistingDesk(slug, mapRef.current.get(id))) return
+    if (revealProjectDesk(id)) {
+      if (popout) requestSurfaceAction('project-desk', slug, 'popout')
+      return
+    }
+    if (!popout && focusRef.current === id) { centerRef.current?.(id); return }
     setProjectDeskId(id)
     if (popout) requestSurfaceAction('project-desk', slug, 'popout')
   }
@@ -1314,6 +1328,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // world position at release: a stationary press either started on the eye
   // or it didn't, and that fact needs no camera geometry to state.
   const eyePressRef = useRef(false)
+  const projectPressRef = useRef<{ id: string; doc: Document } | null>(null)
 
   const posOf = (id: string): Pt | undefined =>
     pendingHire && (id === DRAFT || id === hireId) ? pendingHire.pos
@@ -2137,6 +2152,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // that window instead of moving the canvas to its placeholder or mounting
     // another copy. `onCanvas` remains the explicit canvas-only route.
     if (!onCanvas && revealExistingDesk(slug, mapRef.current.get(id))) return
+    if (!onCanvas && mapRef.current.get(id)?.kind === 'project' && revealProjectDesk(id)) return
     const view = foregroundRef.current
     if (view && !mapRef.current.has(id) && id !== USER && id !== DRAFT && id !== INBOX
         && id !== EXTERN && !id.startsWith('dog:')) {
@@ -2194,7 +2210,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // the focus STICKS: claim the camera back from `animateTo`, as `fitAll`
     // does for the whole org. After the glide starts, never before.
     camIntent.current = { kind: 'focus', id, z, onCanvas }
-  }, [animateTo, focusView, regionOf, setFront, toast])
+  }, [animateTo, focusView, regionOf, setFront, toast, revealProjectDesk])
 
   /** the pinned window's "Show on canvas": navigate the CANVAS to the agent
    *  and leave the window open (user bug 2026-09-11 - it used to raise the
@@ -2634,6 +2650,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         target: e.target as Element }
     }
     eyePressRef.current = e.button === 0 && !isMobile && !!(e.target as Element).closest('.sq.user')
+    // Unlike the portaled agent desk, a project desk lives under this
+    // viewport. Pointer capture retargets its release/click here, so remember
+    // the press target and send a stationary release through the same focus
+    // route. A drag, selection, control or cancel must remain its own gesture.
+    const target = e.target as Element
+    const project = target.closest('.sq.project.desk')
+    const projectId = project?.getAttribute('data-copy-agent-name')
+    projectPressRef.current = e.button === 0 && !isMobile && projectId
+      && !target.closest('button, input, textarea, select, a, label, [role="button"], [contenteditable="true"], .mailrow, .project-description-md')
+      ? { id: projectId, doc: target.ownerDocument } : null
     panRef.current = { sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY,
       ox: viewRef.current.x, oy: viewRef.current.y, moved: false }
     captureTarget.setPointerCapture(e.pointerId)
@@ -2712,6 +2738,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           else centerOn(hit)
         }
       }
+    } else if (e && projectPressRef.current && panRef.current && !panRef.current.moved
+        && Math.abs(e.clientX - panRef.current.sx) + Math.abs(e.clientY - panRef.current.sy) <= 3
+        && e.type !== 'pointercancel' && !projectPressRef.current.doc.getSelection()?.toString()) {
+      centerOn(projectPressRef.current.id)
     } else if (e && !isMobile && eyePressRef.current && !panRef.current?.moved
         && e.type !== 'pointercancel' && focusId !== USER) {
       // desktop click-to-focus on the eye. UserNode's own onPointerDown no
@@ -2746,6 +2776,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // 11:23Z: "clicking any agent focuses the switchboard; dragging the canvas
     // fixes it". eyepressleak.test.tsx.
     eyePressRef.current = false
+    projectPressRef.current = null
     panRef.current = null
   }
 
@@ -4325,7 +4356,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           if (isProject(n)) {
             return <ProjectSquare key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
               zoom={view.z}
-              focused={n.id === focusId && !worldHidden}
+              focused={n.id === focusId && !worldHidden && projectDeskId !== n.id}
               pinnedFocus={n.id === pinnedFocusId}
               pinned={pinnedIds.has(n.id)}
               onFocus={() => centerOn(n.id)}
@@ -4927,6 +4958,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         transform, and it must survive the canvas being hidden. */}
     {projectDeskId && map.get(projectDeskId)?.kind === 'project' && (
       <ProjectDeskModal node={map.get(projectDeskId)!} slug={slug} tree={tree} map={map} op={op} toast={toast}
+        focusRequest={projectDeskFocus}
         refs={canvasRefs} close={() => setProjectDeskId(null)}
         // its pin makes the agent pin layer's window, as TempDeskModal's below
         pinAsWindow={!isMobile && !pinnedIds.has(projectDeskId)

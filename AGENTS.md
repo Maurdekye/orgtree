@@ -1,3 +1,10 @@
+- Project desk reopening uses the agent desk's camera/pin/window reveal routes.
+  Its inline canvas desk needs stationary-release arbitration because viewport
+  pointer capture retargets the click; drags/cancels/controls/selections stay
+  untouched. Match project popouts by org and node; keep modal tabs and drafts.
+  [decided: user 2026-10-20 18:35Z; verified: `canvas/OrgCanvas.tsx`,
+  `canvas/deskhosts.tsx`, `tests/project-refocus.test.tsx`]
+
 - Project Mail queue leave actions live on the user's rows, never a separate
   top toolbar. Full ACK batches leave from Working rows while still joined;
   leaving keeps held jobs. The header's join/count control stays unchanged.

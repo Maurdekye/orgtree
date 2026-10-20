@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { MovableSurface, useSurface } from '../popout'
-import { openSurfaces, revealSurface } from '../windowlife'
+import { openSurfaces, revealSurface, revealDetachedPanel } from '../windowlife'
 import type { BorrowedSurface } from '../windowlife'
 import { isMobile } from '../mobile'
 import { OwnedDeskChat } from './desk'
@@ -21,7 +21,8 @@ export const deskIdentity = (slug: string, node: Pick<CanvasNode, 'id' | 'genera
 /** Raise an already detached desk instead of moving to its canvas placeholder.
  * Every generic focus route (cards, the Agents list, and links) funnels here. */
 export function revealExistingDesk(slug: string,
-  node: Pick<CanvasNode, 'id' | 'generation'> | undefined): boolean {
+  node: Pick<CanvasNode, 'id' | 'generation'> & Partial<Pick<CanvasNode, 'kind'>> | undefined): boolean {
+  if (node?.kind === 'project') return revealDetachedPanel('project-desk', slug, { agent: node.id })
   if (!node || typeof node.generation !== 'number'
     || !Number.isSafeInteger(node.generation) || node.generation < 0) return false
   const surface = openSurfaces().find((s) => s.kind === `desk:${deskIdentity(slug, node)}`)
