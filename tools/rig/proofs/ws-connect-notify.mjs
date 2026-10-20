@@ -44,6 +44,7 @@ export default async function(rig){
   await rig.restart()
   p.check('enabled flag persists and sends reconnected on engine restart',await until(()=>signals('connect-off').some(r=>r.body.includes('WebSocket reconnected'))))
   p.check('disabled and legacy-absent flags remain silent after restart',signals('connect-default').length===0&&signals('connect-on').length===1)
+  await rig.waitFor(()=>['connect-default','connect-off','connect-on'].every(name=>(counts.get('/'+name)??0)>=2),{timeout:10000,every:20,what:'all synthetic sessions reconnect'})
   for(const socket of sockets)socket.write(frame(1,'payload: still delivered'))
   p.check('server messages still fire with switch off',await until(()=>fires('connect-on')>=2&&fires('connect-default')>=1))
   p.check('matching server messages retain EXTERNAL tag',rig.sql("SELECT body FROM ot.mail WHERE body LIKE '%payload: still delivered%'").some(r=>r.body.includes('untrusted')))
