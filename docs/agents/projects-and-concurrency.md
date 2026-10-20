@@ -6,6 +6,26 @@ Project folders, policy, slots, listeners, watchdogs, queues and coordination.
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## User queue ACKs, compact actions and event mentions (2026-10-20)
+
+- Self-sent ACK jobs (`@user`, or retained data name `user`) acknowledge without
+  sending a self-reply. The pane says **Acknowledge job**, explains that no mail
+  is sent, and offers no reply text or attachment input. `user_job_ack` can keep
+  a sent reply's ID, not a free-text completion note. Agent/external jobs retain
+  reply-first behavior and failed sends still acknowledge nothing.
+  [decided: user/coordinator 2026-10-20 21:35Z; verified:
+  `canvas/{jobacks.ts,jobackpane.tsx}`, `domain/ops/user_regs.rs`]
+- User queue rows keep **open mail** and **leave queue** as accessible names and
+  help tooltips on icon buttons. The Working row groups them without wrapping;
+  opening the user's mail copy and leaving while retaining held jobs are unchanged.
+  [decided: user 2026-10-20 21:35:49Z; verified:
+  `canvas/maillisteners.tsx`, `styles.css`, `tests/usermailqueue.test.tsx`]
+- Project-event listener fire mail and event lines mention the project and firer
+  as `@<name>`, retaining an existing `@user` or agent mention without doubling
+  the prefix. The supplied payload, fire count, one-shot wording and delivery
+  rules stay unchanged. [decided: user 2026-10-20 21:37:38Z; verified:
+  `domain/listeners.rs`]
+
 <a id="e-b19f3263632f4d67"></a>
 
 ## Per-target modals are one window per target: Mail, Docket, Team, Slots,
