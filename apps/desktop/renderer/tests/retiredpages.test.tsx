@@ -14,7 +14,7 @@ async function fixture(t: test.TestContext, answer: (url: URL) => Promise<Respon
   const view = await mountView(<PilePicker {...props} />, el => el.textContent)
   t.after(async () => { await view.unmount(); globalThis.fetch = old })
   await inAct(() => flush())
-  return { ...view, urls }
+  return { ...view, el: document.body, urls }
 }
 const json = (rows: string[], next: string | null = null) => new Response(JSON.stringify({ agents: rows.map(node), next_cursor: next }), { headers: { 'content-type': 'application/json' } })
 const names = (el: HTMLElement) => [...el.querySelectorAll('.pile-name')].map(e => e.textContent)
