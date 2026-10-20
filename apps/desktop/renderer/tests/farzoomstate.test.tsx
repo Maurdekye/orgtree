@@ -765,7 +765,8 @@ test('§4 Preserves outer bounds, geometry, selection, and edge controls at far 
 
     // Exterior edge controls: hire chips and document chips
     assert.ok(card.querySelectorAll('.hsof').length > 0, 'exterior hire tokens remain mounted')
-    assert.ok(card.querySelectorAll('.doc-chips').length > 0, 'exterior doc chips remain mounted')
+    assert.equal(card.querySelectorAll('.doc-chips').length, 0,
+      'user 2026-10-13: exterior document chips unmount at mini; hire tokens stay')
 
     // Interaction / selection: pointerdown on card triggers drag start / selection
     const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 })
