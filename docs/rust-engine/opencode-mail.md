@@ -1,9 +1,9 @@
 # OpenCode owned mail plugin
 
-This first slice contains an **inactive plugin asset and its contract tests**.
-`runtime/opencode.rs` still configures `plugins: []`. Mail still waits for the
-normal turn boundary. Do not enable the asset until durable engine custody and
-restart reconciliation are implemented.
+The plugin, private transport and durable engine custody are implemented, but
+**production activation remains disabled** until the offline lifecycle proof
+lands. Only the synthetic rig can enable the pinned 2.0.28 path in this slice.
+Ordinary production launches still use `plugins: []` and next-turn delivery.
 
 The dependency-free asset is `runtime/opencode_mail_plugin.mjs`. When explicitly
 installed by the engine, it registers `execute.after` through OpenCode's 2.x
@@ -50,11 +50,29 @@ Retrying the same ID in the same retained session therefore has a durable
 deduplication mechanism. This is provider admission, not a model-read receipt.
 Other versions need a verified compatible contract.
 
-Engine wiring must preserve uncertain batches across generic turn cleanup and
-restart. Replaying their text through an ordinary next-turn prompt would bypass
-this ID contract. Unsupported-plugin fallback is safe for **unclaimed** mail;
-mail with uncertain provider admission needs reconciliation first. Deleting or
-replacing provider history cannot be silently treated as proof of non-admission.
+The engine stores one outstanding batch per agent in `ot.opencode_mail_batches`.
+The actor previews eligible mail in ID order and formats a bounded prefix.
+It then rechecks eligibility/DND under row locks (urgent mail bypasses DND) and
+atomically claims that prefix with its provider ID, session, generation, turn
+and transcript, before exposing it to the plugin.
+Retries return that stored identity and text. A matching acknowledgement commits
+the transcript, delivery states and removal of custody in one SQL statement.
+Generic turn completion cannot acknowledge an outstanding batch.
+
+Before closing a turn with outstanding custody, the engine stops the owned
+OpenCode process and reads only ID/session/type from the isolated profile's
+`session_inbox` and `session_message`. It uses read-only SQLite with WAL visible.
+An exact user-message match proves admission; intact session/schema with neither
+row proves absence. Missing, locked, changed or corrupt evidence is unknown.
+After an unclean engine restart, absent proof that the old hosted writer stopped
+is also unknown; this does not authorize reading an unrelated profile.
+
+**Bounded uncertainty** (coordinator ruling 2026-10-20): unknown admission returns
+the batch to ordinary delivery at the next turn, once, labelled **"may already
+have been delivered mid-turn"**. One content-free diagnostic accompanies that
+transition. It cannot remain silently held or re-enter the hook loop. Confirmed
+admission deduplicates exactly; an irrecoverable evidence gap is explicitly
+at-least-once recovery, not an unconditional exactly-once promise.
 
 `node --test tools/rig/tests/opencode-mail-plugin.test.mjs` tests the shipped
 asset, real local pipe framing and handshake, bounded failure, ordered batches,

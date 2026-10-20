@@ -6,7 +6,7 @@ use std::collections::HashMap;
 fn message(i: usize, bytes: usize) -> Mail {
     Mail { uid: format!("fixture-{i}"), sender: "sender".into(), kind: "message".into(), body: "x".repeat(bytes),
         at: chrono::DateTime::from_timestamp(0,0).unwrap(), attachments: json!([]), notice: i>0, urgent:false,
-        reply_to: Value::Null, replies: json!([]), ev: Value::Null, via_project:None, via_project_ack:false }
+        reply_to: Value::Null, replies: json!([]), ev: Value::Null, via_project:None, via_project_ack:false, uncertain_mid_turn:false }
 }
 
 /// Exercise the actor's actual claiming SQL, not a second row-cap model.

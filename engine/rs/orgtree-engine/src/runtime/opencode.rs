@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use anyhow::{anyhow, ensure, Result};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use super::{acp, acp_scope};
+use super::{acp, acp_scope, opencode_mail};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
@@ -29,6 +29,9 @@ pub struct OpenCodeProc {
     pub session_id: String,
     pub model: String,
     pub mcp_observed: bool,
+    pub mail_owner: uuid::Uuid,
+    mail_supported: bool,
+    mail_ready: Arc<AtomicBool>,
     inner: acp::Process,
     launch: Option<Launch>,
     pipe: CancellationToken,
@@ -49,19 +52,33 @@ impl OpenCodeProc {
         // the split mail tools: opencode's MCP path passes the nested shape
         // through (no-spend pre-check, docs/rust-engine/agent-typing.md)
         let host = spec.host.map(|session| (engine.clone(), caller.agent_id, session));
+        let mail_owner=uuid::Uuid::new_v4();
+        let eligible=(opencode_mail::ENABLED || crate::rig::active())
+            && opencode_mail::supported(engine.providers.state.load().opencode.version.as_deref());
+        let (mail_endpoint,mail_ready)=if eligible {
+            match opencode_mail::serve(engine.clone(),caller.clone(),mail_owner,pipe.clone()) {
+                Ok((name,ready))=>(Some(name),ready),
+                Err(_)=>{
+                    tracing::info!("OpenCode private mail bridge unavailable; mail remains queued");
+                    (None,Arc::new(AtomicBool::new(false)))
+                },
+            }
+        } else {(None,Arc::new(AtomicBool::new(false)))};
         let name = crate::bridge::serve_observed(engine, caller, pipe.clone(), Some(ready_tx), crate::tools::defs::MailShape::Split)?;
         spec.servers = servers(&name, &spec.servers)?;
         let cwd = spec.cwd.to_string_lossy().to_string();
-        let prepared = Launch::prepare(spec);
+        let prepared = Launch::prepare_with_mail(spec,mail_endpoint.as_deref());
         let mut launch = match prepared { Ok(v) => v, Err(e) => { pipe.cancel(); return Err(e); } };
         let mut acp_spec = launch.take_spec()?;
         acp_spec.host = host;
         let spawned = acp::Process::spawn(acp_spec).await;
         let (mut inner, mut events) = match spawned { Ok(v) => v, Err(e) => { pipe.cancel(); return Err(e); } };
+        let mut mail_supported=false;
         let opened: Result<String> = async {
             let init = inner.client.request("initialize", json!({"protocolVersion":1,
                 "clientCapabilities":{},"clientInfo":{"name":"Orgtree","version":env!("CARGO_PKG_VERSION")}}), Duration::from_secs(30)).await?;
             compatible(&init)?;
+            mail_supported=eligible && opencode_mail::supported(init["agentInfo"]["version"].as_str());
             let session = if let Some(session) = resume {
                 // Failure is explicit, not a silently fresh session. The actor
                 // can retain mail and offer a deliberate fresh-session action.
@@ -124,7 +141,7 @@ impl OpenCodeProc {
         });
         startup_pipe.disarm();
         Ok(Self { process:inner.process,pid:inner.pid,session_id,model:launch.model.clone(),mcp_observed,
-            inner,launch:Some(launch),pipe,active,commands,worker:Some(worker) })
+            mail_owner,mail_supported,mail_ready,inner,launch:Some(launch),pipe,active,commands,worker:Some(worker) })
     }
 
     pub fn start_turn(&self, text: &str) -> Result<String> {
@@ -142,6 +159,7 @@ impl OpenCodeProc {
     pub fn interrupt(&self) -> bool {
         self.inner.client.notify("session/cancel",json!({"sessionId":self.session_id})).is_ok()
     }
+    pub fn mail_available(&self) -> bool { self.mail_supported && self.mail_ready.load(Ordering::Acquire) }
     pub fn alive(&mut self) -> bool { self.inner.alive() && self.worker.as_ref().is_some_and(|w| !w.is_finished()) }
     /// Started by the sign-in helper in the user's session.
     pub fn hosted(&self) -> bool { self.inner.hosted() }
@@ -205,6 +223,9 @@ pub struct Launch {
 #[nolog]
 impl Launch {
     pub fn prepare(spec: Spec) -> Result<Self> {
+        Self::prepare_with_mail(spec,None)
+    }
+    fn prepare_with_mail(spec: Spec, mail_endpoint: Option<&str>) -> Result<Self> {
         ensure!(!spec.model.trim().is_empty(), "OpenCode requires a model id");
         let url = reqwest::Url::parse(&spec.base_url).map_err(|_| anyhow!("invalid ACP provider URL"))?;
         ensure!(matches!(url.scheme(), "http" | "https") && url.username().is_empty() && url.password().is_none(),
@@ -232,6 +253,17 @@ impl Launch {
             }
             let models = root.join("models.json");
             std::fs::write(&models, b"{}")?;
+            let mut config=configuration(&spec);
+            if let Some(endpoint)=mail_endpoint {
+                // Only this bundled asset is installed, in the disposable owned
+                // launch root. No npm resolution or ambient plugin discovery.
+                let plugin=root.join("orgtree-mail");
+                std::fs::create_dir(&plugin)?;
+                std::fs::write(plugin.join("package.json"),br#"{"type":"module","main":"index.js"}"#)?;
+                std::fs::write(plugin.join("index.js"),include_bytes!("opencode_mail_plugin.mjs"))?;
+                config["plugins"]=json!([plugin.to_string_lossy()]);
+                env.push(("ORGTREE_OPENCODE_MAIL_PIPE".into(),endpoint.into()));
+            }
             env.extend([
                 ("OPENCODE_MODELS_PATH".into(), models.to_string_lossy().into_owned()),
                 ("OPENCODE_DISABLE_MODELS_FETCH".into(), "true".into()),
@@ -239,7 +271,7 @@ impl Launch {
                 ("OPENCODE_FILEWATCHER_DISABLE".into(), "true".into()),
                 ("OPENCODE_DISABLE_FFF".into(), "true".into()),
                 (KEY_ENV.into(), spec.key.clone()),
-                ("OPENCODE_CONFIG_CONTENT".into(), configuration(&spec).to_string()),
+                ("OPENCODE_CONFIG_CONTENT".into(), config.to_string()),
             ]);
             let policy = spec.policy.clone();
             Ok(acp::Spec { exe: spec.exe.clone(), args: vec!["acp".into(), "--log-level".into(), "none".into()],

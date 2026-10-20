@@ -1,10 +1,15 @@
 //! Synthetic native-history and PostgreSQL custody tests. No ambient database,
 //! provider configuration, credentials or installed user history is consulted.
-use super::opencode_mail::*;
+use super::*;
 use serde_json::json;
 
-fn native_fixture() -> (tempfile::TempDir, std::path::PathBuf, rusqlite::Connection) {
-    let dir = tempfile::tempdir().unwrap();
+struct Temp(std::path::PathBuf);
+impl Temp { fn path(&self) -> &std::path::Path { &self.0 } }
+impl Drop for Temp { fn drop(&mut self) { let _=std::fs::remove_dir_all(&self.0); } }
+
+fn native_fixture() -> (Temp, std::path::PathBuf, rusqlite::Connection) {
+    let dir = Temp(std::env::temp_dir().join(format!("opencode-mail-fixture-{}",uuid::Uuid::new_v4())));
+    std::fs::create_dir(&dir.0).unwrap();
     let path = dir.path().join("opencode.db");
     let db = rusqlite::Connection::open(&path).unwrap();
     db.execute_batch("CREATE TABLE session_v2(id TEXT PRIMARY KEY);
@@ -83,6 +88,19 @@ fn opencode_mail_version_and_request_bounds_fail_closed() {
     ] { assert!(request(&value).is_none()); }
 }
 
+#[test]
+fn opencode_mail_uncertain_warning_survives_typed_events_and_reference_budget() {
+    let mail = super::super::prompt::Mail {
+        uid:"m_fixture".into(),sender:"@system".into(),kind:"message".into(),body:"x".repeat(200_000),
+        at:chrono::DateTime::from_timestamp(0,0).unwrap(),attachments:json!([]),notice:false,urgent:false,
+        reply_to:json!(null),replies:json!([]),ev:json!({"variant":"runtime.restarted"}),
+        via_project:None,via_project_ack:false,uncertain_mid_turn:true,
+    };
+    let result=super::super::prompt::batch(&[mail],"",&Default::default(),None,4096,false).unwrap();
+    assert!(result.text.contains(WARNING));
+    assert_eq!(result.text.matches(WARNING).count(),1);
+}
+
 /// Deliberately ignored in ordinary workspace runs; the author rig creates a
 /// fresh cluster with this exact role and database and runs --ignored explicitly.
 #[tokio::test]
@@ -116,6 +134,8 @@ async fn opencode_mail_pg_custody_dnd_order_restart_duplicates_and_atomic_failur
     client.batch_execute(include_str!("../../migrations/0042_opencode_mail.sql")).await.unwrap();
     let raw = claim(&client, 1, 10).await.unwrap();
     assert_eq!(raw.iter().map(|r| r["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![2]);
+    let preview:i64=client.query_one("SELECT count(*) FROM ot.mail WHERE state='delivering'",&[]).await.unwrap().get(0);
+    assert_eq!(preview,0,"formatting does not take custody");
     let body = json!({"role":"user","text":"PRIVATE_CANARY","mail_ids":["m2"]});
     let batch = persist(&client, 1, 10, "ses_fixture", "PRIVATE_CANARY", &raw, &body).await.unwrap();
     let loaded = load(&client, 1).await.unwrap().unwrap();
@@ -147,5 +167,22 @@ async fn opencode_mail_pg_custody_dnd_order_restart_duplicates_and_atomic_failur
     assert_eq!(fallback, 2);
     let normal: i64 = client.query_one("SELECT count(*) FROM ot.mail WHERE recipient_agent_id=2 AND state='pending'", &[]).await.unwrap().get(0);
     assert_eq!(normal, 1);
+    // A DND change/manual read between preview and persistence must reject the
+    // whole prefix without claiming its remaining members.
+    client.batch_execute("UPDATE ot.mail SET extra='{}' WHERE id IN(1,3)").await.unwrap();
+    let raw=claim(&client,1,10).await.unwrap();
+    client.batch_execute("UPDATE ot.agents SET dnd=true WHERE id=1").await.unwrap();
+    assert!(persist(&client,1,10,"ses_fixture","text",&raw,&body).await.is_err());
+    client.batch_execute("UPDATE ot.agents SET dnd=false WHERE id=1; UPDATE ot.mail SET state='read' WHERE id=1").await.unwrap();
+    assert!(persist(&client,1,10,"ses_fixture","text",&raw,&body).await.is_err());
+    let left:String=client.query_one("SELECT state FROM ot.mail WHERE id=3",&[]).await.unwrap().get(0);
+    assert_eq!(left,"pending");
+    let raw=claim(&client,1,10).await.unwrap();
+    let batch=persist(&client,1,10,"ses_fixture","text",&raw,&body).await.unwrap();
+    let (second,connection2)=cfg.connect(tokio_postgres::NoTls).await.unwrap();
+    let connection2=tokio::spawn(async move{connection2.await.unwrap()});
+    let (a,b)=tokio::join!(acknowledge(&client,1,"ses_fixture",&batch.id),acknowledge(&second,1,"ses_fixture",&batch.id));
+    assert_eq!(a.unwrap().len()+b.unwrap().len(),1,"concurrent duplicate ack commits one receipt");
+    drop(second);connection2.await.unwrap();
     drop(client); connection.await.unwrap();
 }

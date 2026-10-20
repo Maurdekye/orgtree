@@ -2540,11 +2540,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   launch directories are removed at teardown. See [ACP contract and evidence
   limits](docs/rust-engine/opencode-acp.md). [decided: user/coordinator 2026-10-13;
   verified from source: `runtime/{acp,acp_scope,opencode}.rs`, `bridge.rs`]
-- OpenCode's owned mail plugin asset is staged but **not enabled**. Before wiring
-  it into launch config, preserve uncertain batch IDs through engine restart;
-  ordinary next-turn replay bypasses OpenCode's durable ID deduplication. See
+- OpenCode's owned mail bridge has durable batch custody, atomic transcript/mail
+  acknowledgement and a bounded uncertain-recovery warning. Production remains
+  **disabled** pending the offline lifecycle proof; only the rig enables it. See
   [plugin contract and limits](docs/rust-engine/opencode-mail.md).
-  [verified: `runtime/opencode_mail_plugin.mjs`, `runtime/opencode.rs`, 2026-10-20]
+  [verified: `runtime/opencode_mail.rs`, `runtime/opencode.rs`, 2026-10-20]
 - Far overview (`z < Z_MINI`) hides watchdog satellites/wires, presentation
   side chips, the switchboard's infinite credit bar, and hidden-retired list
   tokens when Hide Retired is on. The org-inbox mailbox becomes one globe

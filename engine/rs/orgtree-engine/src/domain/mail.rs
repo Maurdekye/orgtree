@@ -49,14 +49,16 @@ pub async fn acknowledge(engine: &Engine, client: &tokio_postgres::Client, agent
 pub async fn acknowledge_turn(engine: &Engine, client: &tokio_postgres::Client, turn: i64) -> Result<Vec<(String,String)>> {
     let rows = client.query(
         "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now()), extra = extra - 'context_retry_original'
-          WHERE turn_id = $1 AND state = 'delivering' RETURNING uid,kind,org_id,net_id,net_hub", &[&turn],
+          WHERE turn_id = $1 AND state = 'delivering'
+            AND NOT EXISTS(SELECT 1 FROM ot.opencode_mail_batches b WHERE ot.mail.id=ANY(b.mail_ids))
+          RETURNING uid,kind,org_id,net_id,net_hub", &[&turn],
     ).await?;
     Ok(consumed(engine, &rows))
 }
 
 /// Only rows returned by a committed positive delivery transition get receipts.
 #[logged]
-fn consumed(engine: &Engine, rows: &[tokio_postgres::Row]) -> Vec<(String,String)> {
+pub(crate) fn consumed(engine: &Engine, rows: &[tokio_postgres::Row]) -> Vec<(String,String)> {
     for row in rows {
         if let (Some(mid), Some(hub)) = (row.get::<_, Option<String>>(3), row.get::<_, Option<String>>(4)) {
             crate::net::note_read(engine, row.get(2), &[(mid, hub)]);
@@ -70,6 +72,7 @@ fn consumed(engine: &Engine, rows: &[tokio_postgres::Row]) -> Vec<(String,String
 /// durable conversation receipt from that turn. Unproven rows go back to mail.
 #[logged]
 pub async fn recover_deliveries(engine: &Engine, client: &tokio_postgres::Client) -> Result<()> {
+    crate::runtime::opencode_mail::recover_all(engine,client,None,false).await?;
     loop {
         let ids: Vec<i64> = client.query(
             "SELECT id FROM ot.mail WHERE state = 'delivering' ORDER BY id LIMIT 256", &[],
@@ -85,6 +88,7 @@ pub async fn recover_deliveries(engine: &Engine, client: &tokio_postgres::Client
 #[logged]
 pub async fn recover_turns(engine: &Engine, client: &tokio_postgres::Client, turns: &[i64]) -> Result<()> {
     if turns.is_empty() { return Ok(()) }
+    crate::runtime::opencode_mail::recover_all(engine,client,Some(turns),true).await?;
     loop {
         let ids: Vec<i64> = client.query(
             "SELECT id FROM ot.mail WHERE turn_id = ANY($1) AND state = 'delivering' ORDER BY id LIMIT 256", &[&turns],

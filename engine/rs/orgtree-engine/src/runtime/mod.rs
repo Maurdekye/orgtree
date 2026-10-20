@@ -27,6 +27,7 @@ pub mod manual_mail;
 pub mod muse;
 pub mod next_turn;
 pub mod opencode;
+pub mod opencode_mail;
 pub mod prompt;
 #[cfg(test)]
 mod mail_overflow_tests;
@@ -116,6 +117,8 @@ pub enum AgentMsg {
     Acp(uuid::Uuid, Value),
     /// the PostToolUse hook: return waiting mail as additional context
     Hook { input: Value, reply: oneshot::Sender<Value> },
+    /// Private owned-plugin channel. Identity-only request; no text in Debug.
+    OpenCodeMail { owner: uuid::Uuid, input: opencode_mail::Request, reply: oneshot::Sender<Value> },
     ProcExited { process: uuid::Uuid, reason: String },
     /// the live tail and runtime for a chat read
     Live(oneshot::Sender<actor::LiveView>),

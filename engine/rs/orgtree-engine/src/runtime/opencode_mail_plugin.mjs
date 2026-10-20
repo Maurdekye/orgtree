@@ -1,6 +1,6 @@
 // Bundled, dependency-free OpenCode 2.0.28 plugin. The engine owns mail selection,
 // DND, durable custody and session authorization. Never log requests or errors:
-// both can contain private mail. This asset is not enabled by the launcher yet.
+// both can contain private mail. Only the pinned owned launcher enables it.
 import net from 'node:net';
 
 const PROTOCOL = 1;

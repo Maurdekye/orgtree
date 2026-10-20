@@ -1361,6 +1361,13 @@ impl Actor {
                 };
                 let _ = reply.send(out);
             }
+            AgentMsg::OpenCodeMail {owner,input,reply} => {
+                let out=boxed(|| self.on_opencode_mail(owner,input)).await.unwrap_or_else(|_| {
+                    tracing::warn!(agent=self.id,"OpenCode mail hook unavailable; custody retained");
+                    json!({"protocol":1,"batch":null,"acknowledged":false})
+                });
+                let _=reply.send(out);
+            }
             AgentMsg::ProcExited { process, reason } => boxed(|| self.on_exit(process, &reason)).await?,
             AgentMsg::Session { pref, use_id, reply } => {
                 if let Some(p) = pref {
@@ -3428,7 +3435,8 @@ impl Actor {
             if let Err(e)=recorded { proc.close().await;return Err(e); }
         }
         self.init=json!({"model":ctx.model,"session":proc.session_id,"harness":"opencode","protocol":"ACP1",
-            "mcp_handshake_observed":proc.mcp_observed,"mid_turn_mail":"queued","effort":"not configured","cost":"unknown; provider usage authoritative"});
+            "mcp_handshake_observed":proc.mcp_observed,"mid_turn_mail":if proc.mail_available() {"tool_boundary"} else {"queued"},
+            "effort":"not configured","cost":"unknown; provider usage authoritative"});
         self.mcp=McpState { state:Some(if proc.mcp_observed {"handshake_observed"} else {"unobserved"}.into()),
             reason:Some("OpenCode registers tools asynchronously; handshake plus catalog settle is not a catalog acknowledgement".into()),
             last_turn_count:self.mcp.last_turn_count,..McpState::default() };
@@ -3759,6 +3767,76 @@ impl Actor {
         Ok((raw, result?))
     }
 
+    /// Actor-scoped private requests cannot name an agent or change their owner,
+    /// turn or native session. Formatting uses the same envelope/budget rules as
+    /// ordinary delivery, bounded below the plugin transport's byte ceiling.
+    #[nolog]
+    async fn on_opencode_mail(&mut self, owner: uuid::Uuid, input: super::opencode_mail::Request) -> Result<Value> {
+        use super::opencode_mail::{self as mail, Request};
+        let empty=||json!({"protocol":1,"batch":null,"acknowledged":false});
+        let Some(turn)=self.turn.as_ref() else {return Ok(empty())};
+        if turn.interrupted || turn.killed || self.stopping {return Ok(empty())}
+        let turn_id=turn.id;
+        let Some(Proc::Acp(proc))=self.proc.as_ref() else {return Ok(empty())};
+        if proc.mail_owner!=owner || !proc.mail_available() {return Ok(empty())}
+        let session=match &input {Request::Claim{session}|Request::Ack{session,..}=>session};
+        if session!=&proc.session_id {return Ok(empty())}
+        let client=self.engine.db.get().await?;
+        match input {
+            Request::Ack{session,id}=>{
+                let receipts=mail::acknowledge(&client,self.id,&session,&id).await?;
+                self.opencode_receipts(&receipts);
+                // A repeated ack need not create another receipt. The provider
+                // already admitted this identity; the next claim is authoritative.
+                Ok(json!({"protocol":1,"acknowledged":true}))
+            },
+            Request::Claim{session}=>{
+                if let Some(batch)=mail::load(&client,self.id).await? {
+                    if batch.turn!=turn_id || batch.session!=session {return Ok(empty())}
+                    return Ok(json!({"protocol":1,"batch":{"id":batch.id,"sessionID":batch.session,"text":batch.text}}));
+                }
+                let mut raw=mail::claim(&client,self.id,turn_id).await?;
+                if raw.is_empty() {return Ok(empty())}
+                let mails:Vec<Mail>=raw.iter().map(mail_of).collect();
+                let rels=self.rels_of(&mails).await;
+                let result=prompt::batch(&mails,"",&rels,None,128_000,true);
+                let take=result.as_ref().map(|b|b.mail.len()).unwrap_or(0);
+                let deferred:Vec<i64>=raw[take..].iter().filter_map(|m|m["id"].as_i64()).collect();
+                if !deferred.is_empty() {
+                    client.execute("UPDATE ot.mail SET extra=extra || '{\"input_budget_deferred\":true}'::jsonb
+                        WHERE recipient_agent_id=$1 AND id=ANY($2) AND state='pending'",
+                        &[&self.id,&deferred]).await?;
+                }
+                raw.truncate(take);
+                let formatted=result?;
+                let row=mail_row(&raw,Some("Admitted through the OpenCode tool-boundary mail hook."));
+                let batch=mail::persist(&client,self.id,turn_id,&session,&formatted.text,&raw,&row).await?;
+                Ok(json!({"protocol":1,"batch":{"id":batch.id,"sessionID":batch.session,"text":batch.text}}))
+            },
+        }
+    }
+
+    #[nolog]
+    fn opencode_receipts(&mut self, rows: &[tokio_postgres::Row]) {
+        if let Some(row)=rows.first() {
+            let committed=self.convo.mail_committed(row);
+            if let Some(t)=self.turn.as_mut(){t.activity=true;}
+            let delivered=crate::domain::mail::consumed(&self.engine,rows);
+            super::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
+            self.changed(vec![Change::Mailbox(self.id)]);
+            self.stream("steered",json!({"committed_row":committed}));
+        }
+    }
+
+    /// The owning process has been joined before native history is inspected.
+    #[nolog]
+    async fn settle_opencode_mail(&mut self) -> Result<()> {
+        let client=self.engine.db.get().await?;
+        let rows=super::opencode_mail::recover_agent(&self.engine,&client,self.id,true).await?;
+        self.opencode_receipts(&rows);
+        Ok(())
+    }
+
     /// Mail that arrived during a Codex or Muse turn goes straight in
     /// (`turn/steer`, naming the exact running turn); if the turn does not
     /// take it, it waits for the next turn.
@@ -3985,7 +4063,11 @@ impl Actor {
         self.engine.credential_bridge.revoke(self.id);
         self.unpark();
         if let Some(mut p) = self.proc.take() {
+            let opencode=p.is_acp();
             p.close().await;
+            if opencode && self.settle_opencode_mail().await.is_err() {
+                tracing::warn!(agent=self.id,"OpenCode mail recovery pending; custody retained");
+            }
         }
         self.proc_skills = None;
         self.proc_print = None;
@@ -4002,7 +4084,11 @@ impl Actor {
         self.engine.credential_bridge.revoke(self.id);
         self.unpark();
         if let Some(mut p) = self.proc.take() {
+            let opencode=p.is_acp();
             p.kill().await;
+            if opencode && self.settle_opencode_mail().await.is_err() {
+                tracing::warn!(agent=self.id,"OpenCode mail recovery pending; custody retained");
+            }
         }
         self.proc_skills = None;
         self.proc_print = None;
@@ -7006,6 +7092,10 @@ impl Actor {
         let status = self.proc.as_mut().unwrap().exit_status(reason).await;
         let host = self.proc.as_ref().and_then(|p| p.host());
         let pid = self.proc.as_ref().map(|p| p.pid()).unwrap_or(0);
+        if self.proc.as_ref().is_some_and(Proc::is_acp) {
+            // ACP EOF alone is not proof that its native server has stopped.
+            self.close_proc().await;
+        }
         self.proc = None;
         self.proc_skills = None;
         self.proc_print = None;
@@ -7111,6 +7201,13 @@ impl Actor {
     /// Close the turn: mail settled, ledger written, slot freed.
     async fn end_turn(&mut self, mut error: Option<String>, res: Value) -> Result<()> {
         let refusal_at = Utc::now();
+        if self.proc.as_ref().is_some_and(Proc::is_acp) {
+            let client=self.engine.db.get().await?;
+            if super::opencode_mail::load(&client,self.id).await?.is_some() {
+                // Stop the writer before treating native absence as evidence.
+                self.close_proc().await;
+            }
+        }
         self.flush_helpers().await;
         self.helpers.retain(|_, helper| helper.dirty);
         // Process exits and interrupts do not necessarily carry an `agy`
@@ -7405,7 +7502,8 @@ impl Actor {
         if requeue {
             client
                 .execute(
-                    "UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE turn_id = $1 AND state = 'delivering'",
+                    "UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE turn_id = $1 AND state = 'delivering'
+                      AND NOT EXISTS(SELECT 1 FROM ot.opencode_mail_batches b WHERE ot.mail.id=ANY(b.mail_ids))",
                     &[&turn.id],
                 )
                 .await?;
@@ -7669,6 +7767,7 @@ impl Actor {
             .iter()
             .map(|r| r.get(0))
             .collect();
+        if !open.is_empty() && self.proc.as_ref().is_some_and(Proc::is_acp) {self.close_proc().await;}
         crate::domain::mail::recover_turns(&self.engine, &client, &open).await?;
         let ended = client
             .execute(
@@ -8289,6 +8388,7 @@ pub(super) fn mail_of(m: &Value) -> Mail {
         ev: m.get("ev").cloned().unwrap_or(Value::Null),
         via_project: m["extra"]["via_project"]["name"].as_str().map(str::to_string),
         via_project_ack: m["extra"]["via_project"]["ack"].as_bool() == Some(true),
+        uncertain_mid_turn: m["extra"]["opencode_ambiguous"].as_bool() == Some(true),
     }
 }
 

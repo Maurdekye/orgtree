@@ -232,6 +232,15 @@ impl ConvoWriter {
         std::mem::take(&mut self.pending).into_values().collect()
     }
 
+    /// The mail custody statement has already committed this transcript row.
+    #[nolog]
+    pub(super) fn mail_committed(&mut self, row: &tokio_postgres::Row) -> Value {
+        self.seq=row.get(5); self.ver=row.get(6);
+        let body:Value=row.get(7);
+        self.remember(self.seq,body.clone());
+        body
+    }
+
     /// Detect the first `@user` mention in pending assistant rows for this turn,
     /// or a refined blurb for the same `seq` row as streaming text arrives.
     #[nolog]

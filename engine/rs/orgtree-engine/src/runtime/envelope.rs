@@ -610,6 +610,14 @@ fn variant(m: &Mail) -> &str {
 /// the stored body.
 #[nolog]
 fn text_of(m: &Mail) -> String {
+    let text = event_text_of(m);
+    if m.uncertain_mid_turn {
+        format!("[Orgtree delivery recovery: this message {}.]\n{text}", super::opencode_mail::WARNING)
+    } else { text }
+}
+
+#[nolog]
+fn event_text_of(m: &Mail) -> String {
     let v = variant(m);
     // a cross-provider switch's 3.x text also offers the predecessor for rehire
     let crossed = v == "lifecycle.model_switched" && m.ev.get("crossed").and_then(Value::as_bool).unwrap_or(false);

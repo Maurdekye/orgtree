@@ -173,7 +173,7 @@ const SUN_PATH: usize = if cfg!(any(target_os = "linux", target_os = "android"))
 /// folder, so engines with different data folders never share one).
 #[cfg(unix)]
 #[logged]
-fn socket_dirs(data_root: &std::path::Path) -> Vec<std::path::PathBuf> {
+pub(crate) fn socket_dirs(data_root: &std::path::Path) -> Vec<std::path::PathBuf> {
     use sha2::{Digest, Sha256};
     use std::os::unix::ffi::OsStrExt;
     use std::path::PathBuf;
@@ -228,7 +228,7 @@ fn private_dir(dir: &std::path::Path) -> Result<()> {
 /// returns the listener and the path as the text the CLI is given.
 #[cfg(unix)]
 #[logged]
-fn listen(dir: &std::path::Path, path: &std::path::Path) -> Result<(tokio::net::UnixListener, String)> {
+pub(crate) fn listen(dir: &std::path::Path, path: &std::path::Path) -> Result<(tokio::net::UnixListener, String)> {
     use std::os::unix::fs::PermissionsExt;
     let text = path.to_str().ok_or_else(|| anyhow::anyhow!("the path is not UTF-8"))?.to_string();
     anyhow::ensure!(text.len() < SUN_PATH, "the path is {} bytes; a socket address holds {}", text.len(), SUN_PATH - 1);
@@ -289,7 +289,7 @@ pub fn clear_stale(data_root: &std::path::Path) {
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with("orgtree-mcp-") || name.starts_with("orgtree-hook-") {
+            if name.starts_with("orgtree-mcp-") || name.starts_with("orgtree-hook-") || name.starts_with("orgtree-mail-") {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
