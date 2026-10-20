@@ -1,4 +1,5 @@
 import './harness'
+import { clearDocketSelection, selectDocketRow } from './docketselection.fixture'
 import { fireResize, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
@@ -79,6 +80,8 @@ test('large docket mounts a bounded viewport and can reach its last item', async
 test('selecting a row does not render its unchanged neighbours', async t => {
   const { view, renderReads } = await fixture(t)
   const first = rows(view.el)[0]
+  assert.equal(first.classList.contains('on'), true, 'opening selected the first row')
+  await clearDocketSelection(view.el)
   assert.ok((renderReads.get('ticket-0') ?? 0) > 0, 'read counter observed a real row mount')
   renderReads.clear()
   await inAct(() => first.click())
@@ -90,7 +93,7 @@ test('selecting a row does not render its unchanged neighbours', async t => {
 
 test('scrolling and resizing variable-height rows keeps the selection mounted in the detail pane', async t => {
   const { view, scroll, resize } = await fixture(t)
-  await inAct(() => rows(view.el)[0].click())
+  await selectDocketRow(rows(view.el)[0])
   await scroll(12000)
   assert.ok(!names(view.el).includes('ticket-0'), 'old rows were unmounted')
   assert.equal(view.el.querySelector('.docket-slug-text')?.textContent, 'ticket-0', 'detail selection survives')
