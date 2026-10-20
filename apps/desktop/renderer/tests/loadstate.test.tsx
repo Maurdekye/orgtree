@@ -55,6 +55,7 @@ test('org.md distinguishes pending, failed, empty success, and success, with ret
       const path = new URL(url, 'http://localhost').pathname
       seen.push({ path, method: 'GET' })
       if (path === '/api/providers') return Promise.resolve(response({ providers: [] }))
+      if (path === '/api/orgs/acme/profile-picture') return Promise.resolve(response({ owner: 1, picture: null }))
       if (path === '/api/orgs/acme/orgmd') {
         reads += 1
         return (reads === 1 ? first.promise : second.promise)
