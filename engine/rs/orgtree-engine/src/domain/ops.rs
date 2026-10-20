@@ -1760,6 +1760,11 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     if let Some(p) = &parent {
         fx.agents.insert(p.id);
     }
+    // its old superior's retired count drops too: a retired superior is
+    // passed over above, and may front a retired pile on the canvas
+    if let Some(old) = n.parent {
+        fx.agents.insert(old);
+    }
     fx.events = true;
     fx.wake.push(n.id);
     fx.warm.push(n.id);
