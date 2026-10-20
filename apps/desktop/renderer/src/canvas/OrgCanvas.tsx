@@ -3192,11 +3192,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // their contribution on unmount/org change, never on omission.
   const treeSelectionOwner = useRef({})
   const savedSelection = useMemo(() => savedTreeSelection(slug), [slug])
-  const browse: TreeBrowse | null = retiredOpen
-    ? { kind: 'children', parent: retiredOpen === USER ? '' : retiredOpen }
-    : pileOpen?.endsWith('|a')
-      ? { kind: 'children', parent: pileOpen.slice(0, -2) === USER ? '' : pileOpen.slice(0, -2) }
-      : trayOpen && trayArch
+  const browse: TreeBrowse | null = trayOpen && trayArch
         ? trayQ.trim() ? { kind: 'search', query: trayQ.trim() } : { kind: 'all' }
         : null
   const selectedTreeState = JSON.stringify({
@@ -4697,7 +4693,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           close={() => setTeamId(null)} /></MaybePortal>
       )}
       {pileOpen && piles.get(pileOpen) && (
-        <MaybePortal><PilePicker pile={piles.get(pileOpen)!} map={map} op={op} toast={toast}
+        <MaybePortal><PilePicker org={slug} pile={piles.get(pileOpen)!} map={map} op={op} toast={toast}
           ready={piles.get(pileOpen)!.kind !== 'a' || !(map.get(piles.get(pileOpen)!.parent)?.hidden_retired_children ?? 0)}
           onPick={(nid) => { setFront(pileOpen, nid); setPileOpen(null) }}
           close={() => setPileOpen(null)} /></MaybePortal>
@@ -4708,7 +4704,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           one routes through centerOn, whose reveal hook shows the card and
           glides to it. */}
       {retiredOpen && retiredCounts.has(retiredOpen) && (
-        <MaybePortal><PilePicker map={map} op={op} toast={toast}
+        <MaybePortal><PilePicker org={slug} map={map} op={op} toast={toast}
           ready={!(map.get(retiredOpen)?.hidden_retired_children ?? 0)}
           pile={{ key: retiredOpen + '|h', parent: retiredOpen, kind: 'a',
             list: (prunedView.retiredByParent.get(retiredOpen) ?? []).map((c) => c.id),

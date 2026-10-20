@@ -59,6 +59,7 @@ import type { RefRoutes } from './reflinks'
 import { useRecordHistory } from '../recordpanelhooks'
 import { MAX_SLOTS, slotCount } from './slots'
 import { eventListenersOn } from './listeners'
+import { getRetiredPage, useRetiredPages } from './retiredpages'
 
 export interface ConfirmModalProps {
   title: ReactNode
@@ -2059,6 +2060,7 @@ function descendantCount(node: DescendantTree): number {
 // front card is the one you zoom in on, message, read and can rehire; the
 // rest wait stacked beneath it. The current front is highlighted.
 interface PilePickerProps {
+  org?: string
   pile: Pile
   map: Map<string, CanvasNode>
   onPick: (nid: string) => void
@@ -2070,25 +2072,46 @@ interface PilePickerProps {
   ready?: boolean
 }
 
-export function PilePicker({ pile, map, onPick, close, op, toast, ready = true }: PilePickerProps) {
+export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, org }: PilePickerProps) {
   useEsc(close)
   const crowd = pile.kind === 'c'
+  const paged = !crowd && !!org
+  const pages = useRetiredPages(org, pile.parent === USER ? '' : pile.parent, paged)
+  const rowMap = paged ? new Map(pages.rows.map(n => [n.id, n])) : map
+  const rowIds = paged ? pages.rows.map(n => n.id) : ready ? pileOrder(pile.list, map) : []
+  const total = pile.total ?? pile.list.length
   const [asking, setAsking] = useState(false)
+  const [wiping, setWiping] = useState(false)
   useEffect(() => { if (!ready) setAsking(false) }, [ready])
   // "delete all" (user spec 2026-07-31): clear the whole retired pile at
   // once — permanent, so it sits behind the same confirm as any delete.
   // Sequential ops; each failure is already toasted by op(), the summary
   // counts what actually went through.
   const wipeAll = async () => {
-    if (!ready) return
+    if ((!paged && !ready) || wiping) return
+    setWiping(true)
     let ok = 0
-    for (const id of pile.list) {
-      try {
-        await op!({ op: 'delete', node: id })   // reachable only via the op-gated row
-        ok++
-      } catch { /* op() toasted it */ }
+    let attempted = 0
+    const remove = async (id: string) => {
+      attempted++
+      try { await op!({ op: 'delete', node: id }); ok++ } catch { /* op toasted it */ }
     }
-    toast?.([`${ok} of ${pile.list.length} archived agent(s) permanently deleted`])
+    try {
+      if (paged) {
+        // Explicit delete-all visits bounded pages only after confirmation,
+        // ignoring the search. Never silently delete just the loaded matches.
+        let cursor = ''
+        do {
+          const page = await getRetiredPage(org!, pile.parent === USER ? '' : pile.parent, '', cursor)
+          for (const n of page.agents) await remove(n.id)
+          cursor = page.next_cursor ?? ''
+        } while (cursor)
+      } else for (const id of pile.list) await remove(id)
+    } catch (e) {
+      toast?.([`error: ${(e as Error).message}; ${ok} agents deleted before the list read failed`])
+      setWiping(false); setAsking(false); return
+    }
+    toast?.([`${ok} of ${attempted} archived agent(s) permanently deleted`])
     close()
   }
   return (
@@ -2109,9 +2132,15 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true }
             `pileOrder`, which also carries why "touched" means the last turn
             rather than the retire time. The pile's own stack order is
             untouched: this is the list, not the deck. */}
-        {!ready && <div role="status" className="hint">Loading retired agents…</div>}
-        {ready && pileOrder(pile.list, map).map((id) => {
-          const n = map.get(id)
+        {paged && <input type="search" className="pile-search" aria-label="Search retired agents" placeholder="Search by name…"
+          maxLength={128} value={pages.query} disabled={wiping} onChange={e => pages.setQuery(e.target.value)} />}
+        <div className="pile-rows" key={paged ? pages.query : 'local'} onScroll={e => {
+          const el = e.currentTarget
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) pages.loadMore()
+        }}>
+        {(!paged && !ready) && <div role="status" className="hint">Loading retired agents…</div>}
+        {rowIds.map((id) => {
+          const n = rowMap.get(id)
           if (!n) return null
           // the same TurnStat the card badge reads. Absent when the agent
           // never took a turn, and then the row says nothing at all rather
@@ -2119,7 +2148,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true }
           const lastTurn = n.turns?.[n.turns.length - 1]
           return (
             <button key={id} data-copy-agent-name={id} {...agentNavProps(id)} className={'pile-row' + (id === pile.front ? ' on' : '')}
-              onClick={() => onPick(id)}>
+              disabled={wiping} onClick={() => onPick(id)}>
               <span className={'tier t-' + n.tier} {...agentTooltipProps(n.id, true)}>{TIER_LETTER[n.tier!] ?? '?'}</span>
               <span className="pile-name">{id}</span>
               {n.bearer_state && <span className="badge dim">{n.bearer_state}</span>}
@@ -2139,17 +2168,22 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true }
             </button>
           )
         })}
-        {ready && !crowd && op && (
+        {paged && pages.busy && <div role="status" className="hint">Loading retired agents…</div>}
+        {paged && pages.error && <div role="alert" className="hint">{pages.error} <button onClick={pages.retry}>retry</button></div>}
+        {paged && !pages.busy && !pages.error && !rowIds.length && <div className="hint">{pages.query.trim() ? 'No retired agents match this name.' : 'No retired agents here.'}</div>}
+        {paged && pages.next && !pages.busy && !pages.error && <button className="pile-more" onClick={pages.loadMore}>load more</button>}
+        </div>
+        {(ready || paged) && !crowd && op && (
           <div className="row">
             <span className="spacer" />
-            <button className="danger" onClick={() => setAsking(true)}>
-              <DeleteIcon fontSize="inherit" /> delete all {pile.list.length}
+            <button className="danger" disabled={wiping} onClick={() => setAsking(true)}>
+              <DeleteIcon fontSize="inherit" /> {wiping ? 'deleting…' : `delete all ${total}`}
             </button>
           </div>
         )}
-        {ready && asking && (
+        {(ready || paged) && asking && (
           <ConfirmModal
-            title={`permanently delete all ${pile.list.length} archived agents?`}
+            title={`permanently delete all ${total} archived agents?`}
             body="Every agent in this pile is removed for good, along with each one's knowledge-bearer lineage — no rehire, no consulting, records erased from the org. Transcript files on disk are kept. This cannot be undone."
             confirmLabel="delete all"
             onConfirm={wipeAll}

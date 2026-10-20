@@ -1898,7 +1898,8 @@ export function HeldAudienceChips({ node, map, slug, toast }: {
  *  hidden. A project desk passes no dogs: a project owns none (its listeners
  *  are header cards). Reports need somewhere to jump to: without `onJump`
  *  only the dogs show. */
-export function DeskReportRow({ node, map, onJump, dogs: deskDogs }: {
+export function DeskReportRow({ node, map, onJump, dogs: deskDogs, org }: {
+  org?: string
   node: Pick<CanvasNode, 'id' | 'children'>
   map: Map<string, CanvasNode>
   onJump?: (id: string) => void
@@ -1932,7 +1933,7 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs }: {
           <button className="desk-nav-chip desk-retired-token" onClick={() => setRetiredMenuOpen(true)}>
             {retired.length} retired
           </button>
-          {retiredMenuOpen && <ModalOverPins><PilePicker
+          {retiredMenuOpen && <ModalOverPins><PilePicker org={org}
             pile={{ key: `desk-retired:${node.id}`, parent: node.id, kind: 'a', list: retired.map(c => c.id), front: retired[0]!.id }}
             map={map} close={() => setRetiredMenuOpen(false)}
             onPick={id => { setRetiredMenuOpen(false); jump(id) }} /></ModalOverPins>}
@@ -4371,7 +4372,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       )}
       {/* F-01: subordinate chips at the BOTTOM, then this agent's own
           watchdogs (DeskReportRow) */}
-      <DeskReportRow node={node} map={map} onJump={onJump} dogs={deskDogs} />
+      <DeskReportRow node={node} map={map} onJump={onJump} dogs={deskDogs} org={slug} />
       {/* №13: the composer is present under EVERY tab — finding a wrong number
           on the inbox or docket tab shouldn't cost your place to say so */}
       {replyMenu.node}

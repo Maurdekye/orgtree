@@ -861,7 +861,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
           same for project tabs"), in the agent desk's own row: nested
           projects' members too, retired ones behind its retired controls; the
           superior's cards are the up row under the header */}
-      <DeskReportRow node={node} map={map} onJump={onJump} />
+      <DeskReportRow node={node} map={map} onJump={onJump} org={slug} />
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
         members={agents.length} recipients={agents} bare={bare} focusRequest={replyFocus}
