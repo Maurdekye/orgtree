@@ -315,11 +315,18 @@ agents under the project".
 - **Last activity** [user 2026-10-17 22:21Z]: "active now" while any live agent under the project
   runs a turn, else "quiet for <age>" of the newest turn end under it (nested included), on the
   desk header and on the middle-zoom card beside the activity chip; none if nobody ever ran one.
-- **Hover row** [user 2026-10-17 22:21Z]: with Show agent card shortcuts on, the card shows the
-  agent card's docket, mailbox (waiting count) and presented (the project's own document count)
-  buttons. Like an agent card's, the buttons show while the card is hovered; a waiting count keeps
-  the mailbox showing. The quiet age shares the state word's font; an idle activity chip keeps no
-  spinner slot (coordinator visual review 2026-10-17 23:25Z).
+- **Hover row** [user 2026-10-17 22:21Z; 2026-10-20 09:23Z–09:24:35Z]: with Show agent card
+  shortcuts on, the card shows the agent card's docket, mailbox (waiting count) and presented
+  buttons, then Team, Slots and Listeners (no Summary). Presented is always there, as its desk tab
+  is: shown with the project's own document count while it has some, else revealed on hover.
+  Team, Slots and Listeners show exactly while the desk offers those tabs: `projectDeskTabs` in
+  `projectdesk.tsx` is the one rule for both. Docket, mailbox, presented, team and slots open the
+  windows their menu entries open; Listeners has no window, so it opens the temporary desk (the
+  menu's Desk) on its Listeners tab, or walks to the desk where no temporary desk is offered.
+  Like an agent card's, the buttons show while the card is hovered; a waiting count keeps the
+  mailbox showing; and none is drawn over the open desk or the pinned desk's placeholder, while
+  the hire strips stay, as on an agent desk. The quiet age shares the state word's font; an idle
+  activity chip keeps no spinner slot (coordinator visual review 2026-10-17 23:25Z).
 - **Team presentations** [user 2026-10-17 22:47Z; 2026-10-18 07:19Z–07:22Z]: the agent menu's
   `Open → Presentations → Team presentations` (offered unconditionally alongside `Presentations`
   whenever handlers are supplied; inline as `Team presentations` if `onPresentations` is omitted)

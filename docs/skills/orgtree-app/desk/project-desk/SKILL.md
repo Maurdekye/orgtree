@@ -8,6 +8,8 @@ Up: [orgtree-desk](../SKILL.md)
 
 Select a project on the canvas to focus its desk. **Open > Desk** opens its modal; the desk can also be pinned or popped out. These surfaces share the same project views. A project has a mailbox and team but runs no conversation or turns itself.
 
+With **show agent card shortcuts** on, the project card's hover row opens its docket, mail, presented, team and slots windows, and its desk on the listeners tab. Team, slots and listeners appear only while the desk offers those tabs (see the table below). The row hides while the desk is open on the canvas or its pinned placeholder holds the card.
+
 The header shows active/hired agents through nested projects, activity age, settings and the available team lifecycle controls. Header cards open the mail queue, event listeners or slots; held audiences appear alongside them. Superior jump cards stay below the header, and member jump cards above the composer, on every tab. The composer sends to the project mailbox by default; its megaphone broadcasts to live agents under the project. Notice, attachments and reply previews work as on an agent desk. Projects have no model, effort, account or credit controls.
 
 ## Tabs

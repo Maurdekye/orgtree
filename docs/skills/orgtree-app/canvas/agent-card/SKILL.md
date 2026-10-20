@@ -31,7 +31,7 @@ Process readiness and provider-cache indicators on the opened desk are separate 
 
 The credit bar beside the card distinguishes seat, allocated grant, held segments and free room. Its tooltip/readout gives the values. On desktop an editable bar can stage and commit a grant change on release, with a lower bound covering held reports; cancellation abandons it. Touch uses a read-only gauge rather than precision reallocation dragging. For staffing arithmetic see `orgtree-credits` (orgtree-working › team).
 
-Hover shortcuts can open docket, mail, pinned desk, settings and presented documents. The retirement shortcut becomes a whole-team dissolution confirmation for a manager. Use [context menus](../context-menus/SKILL.md) for the complete state-gated action list. Unread mail count is mail state, not a request to acknowledge every notice.
+Hover shortcuts can open docket, mail, pinned desk, settings, presented documents and, while the agent has a live report, its Team. The retirement shortcut becomes a whole-team dissolution confirmation for a manager. Use [context menus](../context-menus/SKILL.md) for the complete state-gated action list. Unread mail count is mail state, not a request to acknowledge every notice.
 
 At far zoom the card becomes a tier/state locator; shortcut hit targets are removed. Selecting it navigates to the agent. At desk zoom the desk's own header replaces the overview chrome, and a desk already hosted elsewhere can show a placeholder. See [pinned windows](../pinned-windows/SKILL.md) and [agent desk](../../desk/agent-desk/SKILL.md) for those surfaces.
 

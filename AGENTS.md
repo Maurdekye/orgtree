@@ -119,6 +119,17 @@
   coordinator 06:33Z; verified: `canvas/{desktabs.ts,desk,projectdesk,mail,
   deskshell,panelcorner,agentmenu}.tsx`, `tests/desktabmemory.test.tsx`]
 
+- Card shortcuts (Show agent card shortcuts) are never drawn over a desk: a
+  project card drops its row while its desk is open or its pinned placeholder
+  shows, as an agent card does. The hire strips stay on both desks (user spec:
+  the desk keeps its hire chips). The project row is docket, mail, presented
+  (always, as its tab), team, slots, listeners; the last three follow
+  `projectDeskTabs()`, the desk's own tab rule, so card and desk cannot
+  disagree. Listeners has no window: it opens the temporary desk on that tab
+  (`rememberDesk` first). An agent card adds Team, last, while
+  `liveTeamCount > 0`. [decided: user 2026-10-20 09:23Z–09:25Z; verified:
+  `canvas/{projectcard,projectdesk,cards}.tsx`, `tests/cardshortcuts.test.tsx`]
+
 - Renderer supervisory controls use `agentSuperior`, `effectiveReports` and
   `isTopLevel` to cross project containers: credits follow agent funding, root
   project hires use top-level defaults, user lines belong to agents, and
