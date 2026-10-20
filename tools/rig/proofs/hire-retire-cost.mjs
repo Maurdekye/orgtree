@@ -17,6 +17,12 @@ export default async function(rig){
  rig.exec(`INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,notice,body,state) SELECT 'history-'||g,${org},'@system','agent',${boss},'boss','notice',true,'Synthetic retained history','read' FROM generate_series(1,100000) g`)
  rig.exec('ANALYZE ot.agents; ANALYZE ot.mail')
  await rig.restart()
+ const logDir=path.join(rig.data,'diagnostics','logs')
+ const logPath=fs.readdirSync(logDir).filter(n=>n.endsWith('.log')).map(n=>path.join(logDir,n)).find(file=>{
+  const fd=fs.openSync(file,'r'),b=Buffer.alloc(1024);const n=fs.readSync(fd,b,0,b.length,0);fs.closeSync(fd);return b.subarray(0,n).toString().includes(`engine starting pid=${rig.run.enginePid} `)
+ })
+ if(!logPath)throw Error('No exact engine PID log')
+ const logOffset=fs.statSync(logPath).size
  const snapshot=()=>rig.api('GET',`/api/orgs/${rig.org}/records`)
  const has=(s,name)=>s.records.some(r=>r.entity==='agent'&&r.body?.id===name&&r.body.state==='live')
  const samples=[]
@@ -41,7 +47,8 @@ export default async function(rig){
  const plan=JSON.parse(child.stdout.trim());p.file('holder-plan.json',plan)
  p.check('holder lookup seeks only active claims, not retained mail history',JSON.stringify(plan).includes('mail_active_claim_holder'),plan)
  p.check('every measured operation reached the live record set',samples.length===10)
- const logs=rig.engineLog();const hot=['rebuild_agents','tool_groups.normalize','tree.stored_forecast','continuation.resolve','catalog.antigravity_pool','usage.at_limit','tree.cold_turn_action']
+ const logs=fs.readFileSync(logPath).subarray(logOffset).toString();const hot=['rebuild_agents','tool_groups.normalize','tree.stored_forecast','continuation.resolve','catalog.antigravity_pool','usage.at_limit','tree.cold_turn_action']
+ if(process.env.HIRE_COST_QUIET!=='1')p.check('closed mailbox windows are never materialized',!logs.includes('feed.compute.agent_mailbox('))
  p.file('log-volume.json',{bytes:Buffer.byteLength(logs),lines:logs.split(/\r?\n/).length,hot:Object.fromEntries(hot.map(k=>[k,logs.split(/\r?\n/).filter(l=>l.includes(k+'(')).length]))})
  return p.summary()
 }
