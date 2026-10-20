@@ -565,7 +565,7 @@ test('§4 the toast Undo is shown at once as well', async (t) => {
     (b) => b.op === 'move' ? new Promise(() => {}) : Promise.resolve({}))
   await drag(m.el, 'x', 'b')
   await advance(200, 50)
-  const n = m.notices.find((x) => x.lines[0] === 'x now reports to b')
+  const n = m.notices.find((x) => x.lines[0] === 'x moved under b')
   assert.ok(n?.undo, `the move toast carries an undo: ${JSON.stringify(m.notices)}`)
   await inAct(() => { void n!.undo!() })
   assert.deepEqual(m.ops.at(-1), { op: 'move', node: 'x', new_parent: 'a' })
@@ -582,7 +582,7 @@ async function movedThenAnswered(t: TestContext) {
   return m
 }
 const undo = async (m: Awaited<ReturnType<typeof movedThenAnswered>>) => {
-  const n = m.notices.find((x) => x.lines[0] === 'x now reports to b')
+  const n = m.notices.find((x) => x.lines[0] === 'x moved under b')
   assert.ok(n?.undo, `the move toast carries an undo: ${JSON.stringify(m.notices)}`)
   await inAct(() => { void n!.undo!() })
 }
