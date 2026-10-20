@@ -17,6 +17,7 @@ for (const enabled of [false,true]) test(`websocket notify on reconnect is edita
   await inAct(()=>toggle.click());await flush()
   assert.equal(toggle.checked,!enabled)
   assert.deepEqual(posted,[{id:'worker/watch',action:'configure',notify_on_connect:!enabled}])
+  assert.match(view.el.querySelector('.wd-description')?.textContent ?? '', new RegExp(`Orgtree connection events: ${!enabled?'on':'off'}`))
 })
 
 test('legacy websocket switch defaults off and a failed save preserves it',async t=>{
