@@ -1,3 +1,11 @@
+- Selected team/project dockets retain requested retired-owner selections after
+  found/missing answers, until those owners leave the loaded groups or the
+  org/root/team scope changes. Releasing a fulfilled selection removes its
+  answer and causes a request/render loop. Selection updates are atomic, not
+  release-then-add; membership still follows fresh tree ancestry. The pending
+  hint is outside list flow. [verified: `canvas/agentdocket.tsx`,
+  `tests/docketmembership.test.tsx`; user report 2026-10-20]
+
 - The [harness parity reference](docs/harness-parity.md) inventories all five
   adapters and custom-provider routes, with source anchors and explicit unknowns.
   Keep its glossary summary current when adapters change; distinguish native
