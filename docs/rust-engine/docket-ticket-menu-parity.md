@@ -55,37 +55,16 @@ including Staff; list-local folds remain on their actual rows.
 
 ## Focused verification
 
-Source/whitespace inspection is complete; runtime verification is pending rig-sol.
-No renderer jobs, app builds, installs, live-data operations or pushes were run.
+`ticketstaffmenu.test.tsx` compares complete row menus with real React,
+Markdown and bare ticket references for backlogged/open/done and archived items.
+It covers request submission, direct model/effort gates, denied previews, a
+standalone link with no docket mounted, current versus historical status, and
+canonical owner Open ordering. `docketmenuparity.test.tsx` retains the broader
+owner/attention/archived matrix, copy behavior and real fold controls.
 
-New docketmenuparity.test.tsx has22 tests. Sixteen compare real DocketRow menus
-against a real transcript WorkRefText/ObjectNavHost menu for open/backlogged,
-archived/unarchived, flagged/unflagged and owner/no-owner combinations. Comparison
-includes labels, order, separators and owner submenu contents, followed only by
-expected extras. Each proves no duplicate title, old Close details, flat owner or
-Dismiss entry; no right-click staffing mutation; and warm-up before interaction.
-Six action/edge tests cover idempotent Open details with unchanged primary click,
-copy values/success bubble and fold toggles, canonical owner Focus/children,
-missing Focus with accessible copy-only submenu, search-locked/ineligible extras,
-and unscoped rows. New absence checks compare booleans, never serialize DOM nodes.
-The existing contextmenu sectionB4 is aligned with the new approved order/owner
-registry and checks copied reference bytes instead of an obsolete tooltip.
-
-Focused batch files:
-
-    docketmenuparity.test.tsx
-    objectnav.test.tsx
-    contextmenu.test.tsx
-    copytitles.test.tsx
-    staffingmenu.test.tsx
-
-Run root typecheck and these renderer filters in rig-sol's existing contained
-shared-lock phase using its normal C output/dependency setup. For a red control,
-run only the new docketmenuparity test file against a47bb16 product sources, with
-that test added; it imports no new production symbol. Expect menu parity, selected
-Open details, Owner and locked-fold assertions to fail. The exact red count is
-unmeasured; copy/fold and unscoped cases are controls that may already pass.
-No historical file replacement is needed in the combined verification branch.
-
-Read existing real dependencies in place; do not install, copy or junction
-node_modules into this source worktree. No installed-app or rendered-pixel claim.
+The author measured the new regression red first: ten tests, five passes and
+five intended failures. The focused ticket/parity/Open tests pass. The broader
+objectnav suite retains one independently reproduced base failure for its
+removed-watchdog fallback expectation; that watchdog path is outside this item.
+Raw evidence is retained by the author. Renderer proof uses synthetic data and
+one inspected offscreen 1000x700 capture, with no installed-app/live-data claim.
