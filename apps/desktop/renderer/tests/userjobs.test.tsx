@@ -197,3 +197,52 @@ test('§4 a reply that fails acknowledges nothing', async () => {
   }), /offline/)
   assert.deepEqual(log, [])
 })
+
+for (const sender of ['@user', 'user']) {
+  test(`§5 a job sent by ${sender} offers honest acknowledgement without a reply composer`, async (t) => {
+    const calls: unknown[][] = []
+    const v = await mount([row(JOB, { from: sender })], { onAckJob: async (m, reply) => { calls.push([m.id, reply]) } })
+    t.after(() => v.unmount())
+    const pane = v.el.querySelector('.job-ack')!
+    assert.ok(!v.el.querySelector('.mail-reply'), 'no text or attachment entry that cannot be sent or saved')
+    assert.match(pane.textContent ?? '', /sent by you/i)
+    assert.match(pane.textContent ?? '', /no reply/i)
+    const ack = pane.querySelector<HTMLButtonElement>('[data-action="ack"]')!
+    assert.equal(ack.textContent, 'Acknowledge job')
+    await inAct(async () => { ack.click(); await flush(4) })
+    assert.deepEqual(calls, [['c1', undefined]])
+  })
+
+  test(`§5 legacy typed self-reply to ${sender} never sends mail and still acknowledges`, async () => {
+    const calls: unknown[][] = []
+    await acknowledgeJob({ row: row(JOB, { from: sender }), reply: 'Done.', attachments: ['note.txt'], notice: true,
+      sendReply: async () => { throw new Error('no agent named @user') },
+      ack: async (copy, replyId) => { calls.push([copy, replyId]) },
+    })
+    assert.deepEqual(calls, [['c1', undefined]])
+  })
+}
+
+test('§5 self-job acknowledgement failure is visible and can be retried', async (t) => {
+  let attempts = 0
+  const v = await mount([row(JOB, { from: '@user' })], { onAckJob: async () => {
+    if (++attempts === 1) throw new Error('job no longer available')
+  } })
+  t.after(() => v.unmount())
+  const ack = v.el.querySelector<HTMLButtonElement>('.job-ack [data-action="ack"]')!
+  await inAct(async () => { ack.click(); await flush(4) })
+  assert.match(v.el.querySelector('.job-ack [role="alert"]')?.textContent ?? '', /job no longer available/)
+  assert.equal(ack.disabled, false)
+  await inAct(async () => { ack.click(); await flush(4) })
+  assert.equal(attempts, 2)
+  assert.ok(!v.el.querySelector('.job-ack [role="alert"]'))
+})
+
+test('§5 external jobs still send their reply with its options before acknowledging', async () => {
+  const calls: unknown[][] = [], m = row(JOB, { from: '@net:outside' })
+  await acknowledgeJob({ row: m, reply: 'Reviewed.', attachments: ['note.txt'], notice: true,
+    sendReply: async (source, text, opts) => { calls.push(['reply', source.from, text, opts]); return { id: 'external-reply' } },
+    ack: async (copy, replyId) => { calls.push(['ack', copy, replyId]) },
+  })
+  assert.deepEqual(calls, [['reply', '@net:outside', 'Reviewed.', { attachments: ['note.txt'], notice: true }], ['ack', 'c1', 'external-reply']])
+})

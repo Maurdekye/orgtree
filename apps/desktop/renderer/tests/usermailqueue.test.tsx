@@ -134,7 +134,9 @@ for (const mode of ['waiting', 'paused', 'round-robin', 'full-batch'] as const) 
     const row = leave.closest('tr.listener-row')
     assert.ok(row, 'leave is part of a listener row')
     assert.equal(row.querySelector('.slot-agent .ref-chip.ref-mail')?.textContent, '@user')
-    assert.equal(leave.textContent, 'leave queue')
+    assert.equal(leave.getAttribute('aria-label'), 'leave queue')
+    assert.equal(leave.textContent, '', 'icon-only, with its words in the accessible name and tooltip')
+    assert.ok(leave.querySelector('svg'))
     assert.match(leave.title, /a job already held stays held until it is acknowledged/)
     assert.ok(!v.el.querySelector('.user-reg-tools'), 'no redundant toolbar')
     if (mode === 'full-batch') {
@@ -184,6 +186,28 @@ test('§3 round-robin deliveries to the user wear the chip too', async (t) => {
   t.after(() => v.unmount())
   await inAct(async () => { await flush(6) })
   assert.equal(v.el.querySelector('.mail-history tr.delivered .slot-agent .ref-chip.ref-mail')?.textContent, '@user')
+})
+
+test('§3 Working actions are compact named icons in one group and keep open/leave routing', async (t) => {
+  const requests: OpRequest[] = [], opened: string[] = []
+  const held = { mail: 'jm1', gist: 'Review', copy: 'c1', agent: 'user', held_at: '2026-10-20T09:00:00Z' }
+  const routes = { world: { org: 'org' }, onOpen: (r: { ref: { id: string; box?: string } }) => opened.push(`${r.ref.box}:${r.ref.id}`) }
+  const v = await mount([mineDog], requests, history({ working: [held] }), {}, () => {}, [], routes)
+  t.after(() => v.unmount())
+  const group = v.el.querySelector('.held-job .listener-user-actions')
+  assert.ok(group, 'the two actions share a no-wrap icon group')
+  const open = group.querySelector<HTMLButtonElement>('[data-action="open-job"]')!
+  const leave = group.querySelector<HTMLButtonElement>('[data-action="leave-queue"]')!
+  for (const [action, label] of [[open, 'open mail'], [leave, 'leave queue']] as const) {
+    assert.equal(action.getAttribute('aria-label'), label)
+    assert.ok(action.title.includes(label))
+    assert.ok(action.classList.contains('iconbtn'))
+    assert.ok(action.querySelector('svg'))
+    assert.equal(action.textContent, '')
+  }
+  await inAct(async () => { open.click(); leave.click(); await flush(4) })
+  assert.deepEqual(opened, ['user:c1'])
+  assert.deepEqual(requests.filter((r) => r.op === 'user_queue_leave'), [{ op: 'user_queue_leave', node: 'jobs' }])
 })
 
 test('§4 nothing on the tab says "you"', async (t) => {
