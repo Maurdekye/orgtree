@@ -7,11 +7,12 @@ const ok=(value:unknown)=>({ok:true,status:200,headers:new Headers(),json:async(
 const noop=()=>{}
 for(const surface of ['global','agent','project'] as const) for(const distant of [false,true]) {
  test(`${surface}: opening unread row is visible once (${distant?'distant gap':'contiguous'})`,async t=>{
-  useFakeClock();const saved=fetch,proto=HTMLElement.prototype,box=proto.getBoundingClientRect,height=Object.getOwnPropertyDescriptor(proto,'clientHeight')
+  useFakeClock();const saved=fetch,proto=HTMLElement.prototype,box=proto.getBoundingClientRect,height=Object.getOwnPropertyDescriptor(proto,'clientHeight'),scrollHeight=Object.getOwnPropertyDescriptor(proto,'scrollHeight')
   const target=distant?299:99,slug=`scroll-${surface}-${distant}`
   const rows=Array.from({length:400},(_,i)=>({id:'scroll-'+i,node:'writer',title:'Document '+i,at:new Date(Date.UTC(2026,9,20)-i*60000).toISOString(),viewed_at:i===target?null:new Date(Date.UTC(2026,9,20)-i*60000).toISOString(),node_state:'live',evicted:false,format:'markdown'}))
   const rect=(top:number,height:number)=>({top,bottom:top+height,left:0,right:300,width:300,height,x:0,y:top,toJSON(){}}) as DOMRect
   Object.defineProperty(proto,'clientHeight',{configurable:true,get(){return this.classList.contains('mailer-list')?180:0}})
+  Object.defineProperty(proto,'scrollHeight',{configurable:true,get(){return this.classList.contains('mailer-list')?100000:0}})
   proto.getBoundingClientRect=function(){
    if(this.classList.contains('mailer-list'))return rect(100,180)
    if(this.classList.contains('doc-gallery-row')){
@@ -31,7 +32,7 @@ for(const surface of ['global','agent','project'] as const) for(const distant of
   }) as typeof fetch
   const panel=()=>surface==='global'?<DocGalleryModal slug={slug} toast={noop} close={noop}/>:<AgentGalleryView slug={slug} nid="writer" node={{id:'writer',kind:surface==='project'?'project':'agent',documents:[]} as any} toast={noop}/>
   const v=await mountView(panel(),h=>h)
-  t.after(async()=>{await v.unmount();globalThis.fetch=saved;proto.getBoundingClientRect=box;if(height)Object.defineProperty(proto,'clientHeight',height);else delete (proto as any).clientHeight;realClock()})
+  t.after(async()=>{await v.unmount();globalThis.fetch=saved;proto.getBoundingClientRect=box;if(height)Object.defineProperty(proto,'clientHeight',height);else delete (proto as any).clientHeight;if(scrollHeight)Object.defineProperty(proto,'scrollHeight',scrollHeight);else delete (proto as any).scrollHeight;realClock()})
   await flush(15)
   const list=v.el.querySelector<HTMLElement>('.mailer-list')!,selected=v.el.querySelector<HTMLElement>('.doc-gallery-row.on')!
   assert.match(selected.textContent??'',new RegExp('Document '+target))
@@ -45,8 +46,8 @@ for(const surface of ['global','agent','project'] as const) for(const distant of
   assert.equal(list.scrollTop,0,'poll/read-state refresh does not fight later user scrolling')
   await inAct(()=>v.el.querySelector<HTMLElement>('.doc-gallery-row')!.click());await flush()
   assert.equal(list.scrollTop,0,'manual selection does not re-run the opening reveal')
-  rows[target]!.viewed_at=null // server still chooses the opening unread target
-  localStorage.removeItem('orgtree-docs-viewed-'+slug)
+  rows[target]!.at=new Date(Date.parse(rows[target]!.at)+1000).toISOString() // a changed version is unread again
+  rows[target]!.viewed_at=null
   await v.render(null);await v.render(panel());await flush(15)
   assert.ok(v.el.querySelector<HTMLElement>('.mailer-list')!.scrollTop>0,'fresh open gets a fresh reveal')
  })
