@@ -10,7 +10,8 @@ async function fixture(t: test.TestContext, answer: (url: URL) => Promise<Respon
   const old = globalThis.fetch
   const urls: URL[] = []
   globalThis.fetch = (async input => { const url = new URL(String(input), 'http://fixture.invalid'); urls.push(url); return answer(url) }) as typeof fetch
-  const view = await mountView(PilePicker, { pile, map: new Map([['preview', node('preview')]]), close() {}, onPick() {}, ...extra, ...{ org: 'org' } })
+  const props = { pile, map: new Map([['preview', node('preview')]]), close() {}, onPick() {}, ...extra, ...{ org: 'org' } }
+  const view = await mountView(<PilePicker {...props} />, el => el.textContent)
   t.after(async () => { await view.unmount(); globalThis.fetch = old })
   await inAct(() => flush())
   return { ...view, urls }
