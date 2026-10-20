@@ -11,7 +11,7 @@ import { setProjectBunchesOn } from '../src/canvas/projectbunchprefs'
 import { projectBunchRotation, withProjectBunchRotation } from '../src/canvas/projectbunchmove'
 import { projectDraftSteps } from '../src/canvas/newproject'
 import { agent, chain, bunchTree, project, retired } from './projectbunch-fixture'
-import type { TreePayload } from '../src/types'
+import type { TreeNode, TreePayload } from '../src/types'
 
 const W = window as unknown as Window & typeof globalThis
 const numbers = (s: string) => (s.match(/-?\d+(\.\d+)?(e-?\d+)?/g) ?? []).map(Number)
@@ -27,7 +27,8 @@ function client(el: HTMLElement, p: { x: number; y: number }) {
   const [x, y, z] = numbers(el.querySelector<HTMLElement>('.space')!.style.transform)
   return { clientX: x! + p.x * z!, clientY: y! + p.y * z! }
 }
-async function canvas(t: TestContext, tree = bunchTree([chain(3)]), mode: 'row' | 'circular' = 'row', rearrange = true) {
+async function canvas(t: TestContext, tree = bunchTree([chain(3)]), mode: 'row' | 'circular' = 'row', rearrange = true,
+  retiredRows: TreeNode[] = []) {
   useFakeClock(); t.after(realClock)
   resetConvos()
   localStorage.clear()
@@ -54,9 +55,17 @@ async function canvas(t: TestContext, tree = bunchTree([chain(3)]), mode: 'row' 
   installFetch(new FakeServer())
   const fallback = globalThis.fetch
   const gestures: { steps: Record<string, unknown>[] }[] = [], ops: unknown[] = [], errors: string[] = []
+  const archiveReads: URL[] = []
   let resolve!: (value: unknown) => void, reject!: (error: Error) => void
   const answer = new Promise((yes, no) => { resolve = yes; reject = no })
   globalThis.fetch = ((url, init) => {
+    const path = new URL(String(url), 'http://fixture.invalid')
+    if (path.pathname.endsWith('/retired') && retiredRows.length) {
+      archiveReads.push(path)
+      return Promise.resolve(new Response(JSON.stringify({
+        agents: retiredRows.map(n => ({ ...n, children: [] })), next_cursor: null,
+      }), { status: 200 }))
+    }
     if (String(url).endsWith('/gesture')) {
       gestures.push(JSON.parse(String(init?.body)))
       return answer.then(value => new Response(JSON.stringify(value), { status: 200 }))
@@ -69,7 +78,7 @@ async function canvas(t: TestContext, tree = bunchTree([chain(3)]), mode: 'row' 
   const view = await mountView(render(tree), el => el)
   t.after(() => view.unmount())
   await flush(); await advance(3000, 50); await flush()
-  return { ...view, gestures, ops, errors, resolve, reject,
+  return { ...view, gestures, ops, errors, resolve, reject, archiveReads,
     show: async (next: TreePayload) => { await view.render(render(next)); await advance(1500, 50); await flush() } }
 }
 async function drag(el: HTMLElement, id: string, world: { x: number; y: number }, cancel = false,
@@ -180,6 +189,30 @@ test('retired project cards keep their own order links and respond to the live D
   await inAct(() => setProjectBunchesOn(true))
   await advance(1500, 50)
   assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 4)
+})
+
+test('a retired project front opens the lazy sibling picker and selecting another stack displays its bunch', async t => {
+  const older = retired(chain(3, [agent('older-worker')], 'older'))
+  const newer = retired(chain(5, [agent('newer-worker')], 'newer'))
+  const view = await canvas(t, bunchTree([agent('boss', [older, newer])]), 'row', false, [older, newer])
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 4)
+  assert.equal(view.archiveReads.length, 0, 'no picker/history read during layout')
+  const count = view.el.querySelector<HTMLButtonElement>('.pile-count')
+  assert.ok(!!count, 'a project front has the same pile selector as an agent front')
+  assert.equal(count!.textContent, '2')
+  await inAct(() => count!.click()); await flush()
+  assert.equal(view.archiveReads.length, 1, 'opening requests exactly one bounded page')
+  assert.equal(view.archiveReads[0]!.searchParams.get('parent'), 'boss')
+  assert.ok(!!document.querySelector('.pile-picker input[type="search"]'), 'server-side search remains available')
+  const row = [...document.querySelectorAll<HTMLButtonElement>('.pile-row')]
+    .find(el => el.querySelector('.pile-name')?.textContent === 'older-1')
+  assert.ok(!!row, 'the picker names the other archived root individually')
+  await inAct(() => row!.click()); await advance(1500, 50); await flush()
+  assert.equal(view.archiveReads.length, 1, 'selection does not drain the archive')
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 2)
+  assert.ok(!!card(view.el, 'older-1') && !!card(view.el, 'older-3'))
+  assert.equal(!!card(view.el, 'newer-1'), false)
+  assert.equal(view.ops.length, 0, 'changing a pile front does not restore or mutate any project')
 })
 
 for (const partlyRestored of [false, true]) test(`${partlyRestored ? 'partly restored' : 'retired'} bunch dragging cannot offer a rotation into an archived parent`, async t => {
