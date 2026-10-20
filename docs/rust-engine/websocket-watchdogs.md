@@ -98,7 +98,9 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
     engine's log layer under any `ORGTREE_LOG` (`trace.rs` `silenced`), and turned off
     in the default filter.
   - Key masking covers `credentials`, `authorization`, `cookie`, `token`, `bearer` and
-    `x-api-key` at any depth.
+    `x-api-key` at any depth, and a `query` or `headers` object whole (credentials passed
+    outside `credentials` by mistake: the refused call is logged on entry). A string under
+    those names (a search or GraphQL query) is logged as usual (`trace.rs` `hidden`).
   - Logged strings and transcripts mask the values of secret-named query parameters in
     `ws://`/`wss://` URLs (`util::mask_url_secrets`), as they mask `user:password@`.
 - **Transcripts:** `redact_tool_input` replaces every `credentials` value that is no

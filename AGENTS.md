@@ -11,7 +11,8 @@
   A fire action takes credentials (mqtt's too) only as a file path, since a dog
   stores and lists its fire actions as written: create refuses inline ones, a
   key from `domain::watchdogs::CREDENTIAL_KEYS` or a URL carrying them, and
-  `convo::redact_tool_input` blanks them at any depth of fire actions.
+  `convo::redact_tool_input` blanks them at any depth of fire actions. Logged
+  arguments mask a `query` or `headers` object whole (`trace.rs` `hidden`).
   A send's text is the agent's own and stays in transcripts. Messages are
   untrusted: fires and `list` label them. See
   [websocket watchdogs](docs/rust-engine/websocket-watchdogs.md).

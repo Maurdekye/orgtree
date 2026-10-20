@@ -365,7 +365,7 @@ impl Shown {
                     .map(|(k, val)| {
                         let lead = format!("{}:", Value::String(k.clone()));
                         let mut c = Capture::new();
-                        if masked(k) {
+                        if hidden(k, val) {
                             c.push_str("\"*****\"");
                         } else {
                             render(val, &mut c);
@@ -498,6 +498,15 @@ fn masked(key: &str) -> bool {
     KEYS.contains(&k.as_str())
 }
 
+/// A field whose value never reaches the log: a masked name, or a `query` or
+/// `headers` OBJECT (a websocket dog's query parameters or headers passed
+/// outside credentials, a refused call that is logged on entry; an HTTP
+/// request's headers). A string under those names (a search query, a GraphQL
+/// query) is logged as usual.
+fn hidden(key: &str, val: &Value) -> bool {
+    masked(key) || (val.is_object() && (key.eq_ignore_ascii_case("query") || key.eq_ignore_ascii_case("headers")))
+}
+
 /// Compact JSON with sensitive fields masked.
 fn render(v: &Value, out: &mut Capture) {
     if v.get("kind").and_then(Value::as_str) == Some("elicitation") {
@@ -513,7 +522,7 @@ fn render(v: &Value, out: &mut Capture) {
                 }
                 out.push_str(&Value::String(k.clone()).to_string());
                 out.push_str(":");
-                if masked(k) {
+                if hidden(k, val) {
                     out.push_str("\"*****\"");
                 } else {
                     render(val, out);
@@ -1260,5 +1269,19 @@ mod url_credential_log_tests {
         let shown = fit_value("test | ", Shown::json(&args));
         assert!(!shown.contains("ARG-CANARY"), "{shown}");
         assert!(shown.contains("\"kind\":\"mqtt\""), "{shown}");
+    }
+
+    /// A websocket dog's `query` or `headers` passed outside credentials (a
+    /// refused call, logged on entry like any call), nested in a fire action
+    /// too: the object is masked whole, whatever its keys; a string under
+    /// those names (a search query, a GraphQL query) stays.
+    #[test]
+    fn query_and_headers_objects_are_masked_in_logged_arguments() {
+        let args = serde_json::json!({"kind": "websocket", "query": {"sig": "ARG-CANARY-5"}, "headers": {"X-Auth": "ARG-CANARY-6"},
+                                      "fire_actions": [{"tool": "orgtree_watchdog", "args": {"query": {"t": "ARG-CANARY-7"}}}],
+                                      "message": {"payload": {"query": "subscription { doors }"}}});
+        let shown = fit_value("test | ", Shown::json(&args));
+        assert!(!shown.contains("ARG-CANARY"), "{shown}");
+        assert!(shown.contains("subscription { doors }"), "a query string stays: {shown}");
     }
 }
