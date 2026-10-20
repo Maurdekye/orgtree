@@ -37,7 +37,7 @@ pub async fn page(State(e):State<Arc<Engine>>,Path(slug):Path<String>,Query(read
     if c.is_some(){sql.push_str(" AND (touched,sibling_order,agent_id)<($4,$5,$6)");}
     sql.push_str(" ORDER BY touched DESC,sibling_order DESC,agent_id DESC LIMIT 51) SELECT p.agent_id,p.touched,p.sibling_order,a.name,a.state,a.tier, t.ended_at,t.started_at,t.killed FROM page p JOIN ot.agents a ON a.id=p.agent_id LEFT JOIN ot.turns t ON t.id=p.turn_id ORDER BY p.touched DESC,p.sibling_order DESC,p.agent_id DESC");
     let mut params:Vec<&(dyn tokio_postgres::types::ToSql+Sync)>=vec![&o.id,&parent,&q];
-    if let Some(c)=&c {params.extend([&c.touched as _,&c.order as _,&c.id as _]);}
+    if let Some(c)=&c {params.push(&c.touched);params.push(&c.order);params.push(&c.id);}
     let rows=client.query(&sql,&params).await?;
     let next=if rows.len()>50 {let r=&rows[49];Some(hex::encode(serde_json::to_vec(&Cursor{org:o.id,parent,q:q.clone(),touched:r.get(1),order:r.get(2),id:r.get(0)}).map_err(anyhow::Error::from)?))}else{None};
     let agents:Vec<Value>=rows.iter().take(50).map(|r| {
