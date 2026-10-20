@@ -14,7 +14,7 @@ const lookup=async()=>null
 const view=(row:MailRow,outgoing=false)=><MailList org="synthetic" delivered={[row]} outgoing={outgoing} lookup={lookup}
  rowSender={id=><span>{id}</span>} sender={id=><b>{id}</b>}/>
 async function search(el:HTMLElement,value:string){
- const input=el.querySelector<HTMLInputElement>('.mailer input[type="search"],.mailer input[placeholder*="filter" i],input[placeholder*="search" i]')!
+ const input=el.querySelector<HTMLInputElement>('.mail-filter')!
  assert.ok(input,'mail search exists')
  await inAct(()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}))})
 }
