@@ -631,7 +631,7 @@ fn build_tool_read_scratch() -> Value {
 fn build_tool_interrupt() -> Value {
     tool(
         "orgtree_interrupt",
-        "Agents only; projects have no runtime. Stop a descendant's turn with runtime permission, or your own turn without it. Self restart=true starts exactly one new turn using placement rules. Self-interrupt is refused while your CLI runs background work. Waiting mail can start a later turn; this does not retire anyone.",
+        "Interrupt a descendant agent with runtime permission, or yourself without it. Self restart=true starts one new turn by placement rules. Self-interrupt refuses while your CLI has background work. Waiting mail may wake later; no retirement.",
         json!({
             "node": { "type": "string" },
             "restart": { "type": "boolean", "description": "yourself only: start one new turn at once" },
@@ -645,7 +645,7 @@ fn build_tool_interrupt() -> Value {
 fn build_tool_halt() -> Value {
     tool(
         "orgtree_halt",
-        "Agents only; projects have no runtime. Halt agents below you until unhalt: stop their processes, preserve waiting mail and suppress wakes.",
+        "Halt descendant agents until unhalt: stop processes, keep waiting mail and suppress wakes.",
         json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
         &[],
     )
@@ -656,7 +656,7 @@ fn build_tool_halt() -> Value {
 fn build_tool_unhalt() -> Value {
     tool(
         "orgtree_unhalt",
-        "Agents only; projects have no runtime. Unhalt agents below you; waiting mail starts their next turn.",
+        "Unhalt descendant agents; waiting mail may start their next turn.",
         json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
         &[],
     )
@@ -667,7 +667,7 @@ fn build_tool_unhalt() -> Value {
 fn build_tool_unstick() -> Value {
     tool(
         "orgtree_unstick",
-        "Agents only; projects have no runtime. Release a usage-limit freeze on an agent below you and let it continue.",
+        "Release a descendant agent's usage freeze and let it continue.",
         json!({ "node": { "type": "string" } }),
         &["node"],
     )
@@ -678,7 +678,7 @@ fn build_tool_unstick() -> Value {
 fn build_tool_continue_on() -> Value {
     tool(
         "orgtree_continue_on",
-        "Agents only; projects have no runtime. Move a frozen agent below you to another account of the same provider and release its freeze.",
+        "Switch a frozen descendant agent to a same-provider account and release its freeze.",
         json!({ "node": { "type": "string" }, "account": { "type": "string" } }),
         &["node", "account"],
     )
@@ -827,7 +827,7 @@ fn build_tool_project() -> Value {
 fn build_tool_rehire() -> Value {
     tool(
         "orgtree_rehire",
-        "Restore a retired agent or project. target/hire_type place either kind; projects retain policy, cost no seat and refuse model/scope/grant fields. For agents, supplied folders replace the old list; omitted fields retain saved values. kickoff sends first mail. Credit and authority limits still apply.",
+        "Restore a retired agent/project; target/hire_type set placement. Projects keep policy, cost no seat and reject model/scope/grant overrides. Agents retain omitted values; folders replace. kickoff sends first mail. Credit/authority limits apply.",
         merge(
             json!({ "node": { "type": "string" }, "grant": { "type": "integer" }, "target": { "type": "string" },
                     "hire_type": { "type": "string", "enum": ["subordinate", "superior"] }, "name": { "type": "string" },
@@ -920,13 +920,13 @@ fn build_tool_reallocate() -> Value {
 #[inline(never)]
 #[nolog]
 fn build_tool_cheap_compact() -> Value {
-    tool("orgtree_cheap_compact", "Agents only; projects have no runtime. Restart an agent below you on a fresh session with a summary of the old one.", json!({ "node": { "type": "string" } }), &["node"])
+    tool("orgtree_cheap_compact", "Restart a descendant agent on a fresh session with a summary handoff.", json!({ "node": { "type": "string" } }), &["node"])
 }
 
 #[inline(never)]
 #[nolog]
 fn build_tool_compact() -> Value {
-    tool("orgtree_compact", "Agents only; projects have no runtime. Check native normal-compaction capability or request compaction for one agent below you. Team scope required; no self, bulk or cheap fallback. Returns node, supported, started and reason. started:true means admitted, never finished. Capability has no side effects; agent calls do not establish user contact.", json!({
+    tool("orgtree_compact", "Check native compaction or request it for one agent below you. Team required; no self/bulk/cheap fallback. Returns node/supported/started/reason; started means admitted, never finished. Capability is read-only; agent calls grant no user contact.", json!({
         "node": { "type": "string" },
         "action": { "type": "string", "enum": ["capability", "compact"], "default": "compact" }
     }), &["node"])
@@ -1119,7 +1119,7 @@ fn build_tool_swap() -> Value {
 fn build_tool_self_subjugate() -> Value {
     tool(
         "orgtree_self_subjugate",
-        "Step down under a live descendant node: target takes your structural position and keeps its team; you move beneath it with the rest of yours. Projects retain policy and zero seat cost; the nearest agent remains the reporting superior. External allocation does not increase.",
+        "Promote a live descendant node into your position; it keeps its team, you move beneath with yours. Projects keep policy, cost no seat and preserve agent reporting. External allocation stays fixed.",
         json!({ "target": { "type": "string" } }),
         &["target"],
     )
@@ -1630,6 +1630,22 @@ mod builder_stack_tests {
             ("orgtree_status", "Report working/done/blocked/idle; done does not end the turn. dnd=true holds this turn's non-urgent mail on every harness; only urgent bypasses. Turn end clears DND and delivers an ordered budgeted batch; false releases early. Inbox fetch/chunk consumes returned mail; previews do not.\nGuide: orgtree-tool-status."),
         ] {
             expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == name).unwrap()["description"] = serde_json::json!(description);
+        }
+        // Approved node-placement contracts (bfa9369) and their concise wording.
+        // Keep the captured required-field text and guide; schemas/order stay guarded.
+        for (name, description) in [
+            ("orgtree_interrupt", "Interrupt a descendant agent with runtime permission, or yourself without it. Self restart=true starts one new turn by placement rules. Self-interrupt refuses while your CLI has background work. Waiting mail may wake later; no retirement."),
+            ("orgtree_halt", "Halt descendant agents until unhalt: stop processes, keep waiting mail and suppress wakes."),
+            ("orgtree_unhalt", "Unhalt descendant agents; waiting mail may start their next turn."),
+            ("orgtree_unstick", "Release a descendant agent's usage freeze and let it continue."),
+            ("orgtree_continue_on", "Switch a frozen descendant agent to a same-provider account and release its freeze."),
+            ("orgtree_cheap_compact", "Restart a descendant agent on a fresh session with a summary handoff."),
+            ("orgtree_rehire", "Restore a retired agent/project; target/hire_type set placement. Projects keep policy, cost no seat and reject model/scope/grant overrides. Agents retain omitted values; folders replace. kickoff sends first mail. Credit/authority limits apply."),
+            ("orgtree_self_subjugate", "Promote a live descendant node into your position; it keeps its team, you move beneath with yours. Projects keep policy, cost no seat and preserve agent reporting. External allocation stays fixed."),
+        ] {
+            let card=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
+            let suffix=card["description"].as_str().unwrap().split_once('\n').unwrap().1;
+            card["description"]=serde_json::json!(format!("{description}\n{suffix}"));
         }
         // the edited cards must match in content (keys in any order); their
         // key order is the builder's

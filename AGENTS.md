@@ -6,6 +6,14 @@
   hint is outside list flow. [verified: `canvas/agentdocket.tsx`,
   `tests/docketmembership.test.tsx`; user report 2026-10-20]
 
+- Engine tests that require a synthetic PostgreSQL cluster are explicitly
+  ignored in ordinary `cargo test --bin orgtree-engine`. The docs-opening test
+  requires `ORGTREE_OPENING_TEST_PG` and an explicit `--ignored --exact` run
+  against a fresh disposable database; it never falls back to an ambient URL.
+  Tool-description changes must pass both the pre-split snapshot and startup
+  description-budget tests; the aggregate cap stays 12,000 UTF-8 bytes.
+  [verified: `http/docs.rs`, `tools/defs.rs`; 2026-10-20]
+
 - The [harness parity reference](docs/harness-parity.md) inventories all five
   adapters and custom-provider routes, with source anchors and explicit unknowns.
   Keep its glossary summary current when adapters change; distinguish native

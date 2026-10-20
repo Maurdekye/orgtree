@@ -347,6 +347,7 @@ pub async fn download(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Str
 #[cfg(test)]
 mod opening_tests {
     #[tokio::test]
+    #[ignore = "requires an isolated ORGTREE_OPENING_TEST_PG fixture; never an ambient DB"]
     async fn oldest_unread_read_is_scoped_and_uses_modified_fallback() {
         // Supplied only by the synthetic proof runner, never a live/default DB.
         let url = std::env::var("ORGTREE_OPENING_TEST_PG").expect("fresh synthetic PostgreSQL URL required");

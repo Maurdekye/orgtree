@@ -52,6 +52,12 @@ required fields, names and ordering too. Token figures use inferred `ceil(bytes/
 for the requested comparison; they are not provider-token measurements. The
 separate live startup audit showed that this estimate overstates that sample.
 
+Node-placement descriptions retain agent-only runtime targets and project
+restore/promotion semantics within that same 12,000-byte cap. Their approved
+description changes are explicit snapshot deltas; schemas and field order remain
+guarded. When a description changes, run both the snapshot and startup-budget
+tests together. [verified: `tools/defs.rs`; 2026-10-20]
+
 ## Stack safety
 
 The original monolithic `all()` constructor overflowed the default debug engine
