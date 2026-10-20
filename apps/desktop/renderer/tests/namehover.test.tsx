@@ -14,6 +14,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mountView, inAct } from './harness'
 import { NodeSquare } from '../src/canvas/cards'
+import { ProjectSquare } from '../src/canvas/projectcard'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -38,6 +39,10 @@ function makeNode(id: string): CanvasNode {
 }
 
 function card(n: CanvasNode, lod: 'mini' | 'norm') {
+  if (n.kind === 'project') return <ProjectSquare node={n} pos={{ x: 100, y: 200 }} lod={lod}
+    dragging={false} isDrop={false} zoom={lod === 'mini' ? .35 : 1} op={op} slug="test-org" toast={noop}
+    hire={{}} seats={seats} onHire={noop} onNewProject={noop} onInbox={noop}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
   return (
     <NodeSquare key={n.id} node={n} pos={{ x: 100, y: 200 }} lod={lod}
       focused={false} dragging={false} isDrop={false} seats={seats}
@@ -88,6 +93,46 @@ const move = (el: Element) => inAct(() => {
 })
 
 const LONG = 'a-very-long-agent-name-that-cannot-fit-the-card'
+
+test('project truncated name uses the agent overlay in place and retracts on leave', async t => {
+  const restore = fakeNameLayout(240, 80)
+  t.after(restore)
+  const n = { ...makeNode('project-transparency-complete-reporting'), kind: 'project' } as CanvasNode
+  const v = await mountView(card(n, 'norm'), el => el); t.after(() => v.unmount())
+  const sq = v.el.querySelector('.sq.project')!
+  assert.equal(!!sq.querySelector('.name-full'), false)
+  await enter(sq)
+  const full = sq.querySelector<HTMLElement>('.name-full')
+  assert.ok(!!full, 'hovering the clipped project name reveals the shared backdrop overlay')
+  assert.equal(full!.textContent, n.id)
+  assert.equal(full!.parentElement === sq.querySelector('.sq-title'), true)
+  assert.equal(full!.style.left, '23px'); assert.equal(full!.style.top, '4px')
+  assert.equal(full!.getAttribute('aria-hidden'), 'true')
+  await leave(sq)
+  assert.equal(!!sq.querySelector('.name-full'), false)
+})
+
+test('fitting project name stays plain on hover', async t => {
+  const restore = fakeNameLayout(80, 80); t.after(restore)
+  const n = { ...makeNode('short'), kind: 'project' } as CanvasNode
+  const v = await mountView(card(n, 'norm'), el => el); t.after(() => v.unmount())
+  await enter(v.el.querySelector('.sq.project')!)
+  assert.equal(!!v.el.querySelector('.name-full'), false)
+})
+
+test('project keeps far-zoom reveal and switches overlay under a still pointer', async t => {
+  const restore = fakeNameLayout(240, 80); t.after(restore)
+  const n = { ...makeNode('project-transparency-complete-reporting'), kind: 'project' } as CanvasNode
+  const v = await mountView(card(n, 'mini'), el => el); t.after(() => v.unmount())
+  await enter(v.el.querySelector('.sq.project')!)
+  assert.equal(!!v.el.querySelector('.name-full'), false)
+  assert.equal(!!v.el.querySelector('.sq-far-ghost.on'), true)
+  await v.render(card(n, 'norm'))
+  assert.equal(!!v.el.querySelector('.name-full'), true, 'stationary hover reveals clipped project name at normal zoom')
+  assert.equal(!!v.el.querySelector('.sq-far-ghost'), false)
+  await v.render(card(n, 'mini'))
+  assert.equal(!!v.el.querySelector('.name-full'), false)
+})
 
 test('medium zoom: a truncated name expands in place on hover and collapses on leave', async () => {
   const restore = fakeNameLayout(240, 80)
