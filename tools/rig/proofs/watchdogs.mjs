@@ -6,7 +6,7 @@
 //   stream:   a persistent command's matching lines fire; removing the dog
 //             ends its process (no stray process left)
 //   activity: a report's turn_done fires
-//   the owner is woken by the mail; an agent keeps at most 8 dogs; a file dog
+//   the owner is woken by the mail; an agent can keep more than 8 dogs; a file dog
 //   survives an engine restart and fires again.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/watchdogs.mjs
 
@@ -80,12 +80,12 @@ export default async function (rig) {
     const gone = await rig.waitFor(() => pings().length === 0, { what: 'the ping to end', timeout: 15000 }).then(() => true, () => false)
     p.check('stream: removing the dog ends its process', rm.ok && gone, { removed: rm.ok ? 'ok' : rm.text, left: pings().map(x => x.ProcessId) })
 
-    // ------------------------------------------------------------ the cap
+    // ------------------------------------------------------------ the former cap
     const kept = rig.one(`SELECT count(*)::int AS n FROM ot.watchdogs WHERE owner_agent_id = ${wes} AND state IN ('armed', 'paused', 'exited')`).n
     const extra = []
     for (let i = 0; i < 8 - kept; i++) extra.push(await dog({ action: 'create', name: `cap-${i}`, kind: 'file', target: `cap-${i}.log`, interval_s: 600 }))
     const ninth = await dog({ action: 'create', name: 'cap-over', kind: 'file', target: 'cap-over.log', interval_s: 600 })
-    p.check('an agent keeps at most 8 dogs: the ninth is refused', extra.every(r => r.ok) && !ninth.ok && /8 watchdogs/.test(ninth.text ?? ''),
+    p.check('an agent keeps more than 8 dogs: the ninth succeeds', extra.every(r => r.ok) && ninth.ok,
       { kept, made: extra.length, ninth: String(ninth.text).slice(0, 160) })
 
     // ------------------------------------------------------------ a restart
