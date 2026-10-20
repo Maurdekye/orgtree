@@ -408,6 +408,8 @@ struct Turn {
     thinking_order: Option<u64>,
     tool_writing: super::toolwriting::ToolWriting,
     compact: bool,
+    /// A successful native compaction this turn invalidates its earlier peak.
+    cli_compacted: bool,
     /// the request this turn's CLI stream is logged under
     span: tracing::Span,
     /// cards `orgtree_*` tools attached to their chips, by tool_use_id
@@ -495,6 +497,7 @@ impl Turn {
             thinking_order: None,
             tool_writing: super::toolwriting::ToolWriting::default(),
             compact,
+            cli_compacted: false,
             cards: HashMap::new(),
             manual_reads: HashMap::new(),
             span: tracing::Span::none(),
@@ -2543,6 +2546,44 @@ impl Actor {
         Ok(Some(note))
     }
 
+    /// The 3.x after-turn threshold split, plus an admission backstop. All
+    /// decisions read current facts under the agent row lock. Clearing both
+    /// the session and its measurement prevents a second cut at admission.
+    async fn size_reset(&mut self, stage: &str, cli_compacted: bool) -> Result<bool> {
+        let mut client=self.engine.db.get().await?;
+        let tx=client.transaction().await?;
+        let r=tx.query_one("SELECT a.session_id,a.occupancy,a.context_window,a.occupancy_est OR a.compacted_unrun,a.state,a.extra->>'bearer_state',a.last_status->>'status',o.settings->'compact_at',a.halt IS NOT NULL OR a.frozen IS NOT NULL OR o.killswitch IS NOT NULL FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE a.id=$1 FOR UPDATE OF a", &[&self.id]).await?;
+        let session:Option<String>=r.get(0);
+        let used:Option<i32>=r.get(1);
+        let window:Option<i32>=r.get(2);
+        let threshold=crate::feed::groups::compact_frac(&r.get::<_,Option<Value>>(7).unwrap_or(Value::Null));
+        let state:String=r.get(4);
+        let status:Option<String>=r.get(6);
+        let skip=super::context_reset::size_gate(used,window,!r.get::<_,bool>(3),threshold,
+            session.is_some(),state=="live"&&!r.get::<_,bool>(8),r.get::<_,Option<String>>(5).is_some(),
+            stage=="after_turn"&&status.as_deref()==Some("working"),cli_compacted);
+        if let Some(reason)=skip {
+            tracing::info!(agent=self.id,stage,reason,?used,?window,threshold,?status,"context size compaction skipped");
+            tx.rollback().await?; return Ok(false);
+        }
+        let why=if stage=="admission" {"your measured context reached the compaction threshold before this turn"}
+            else {"your measured context reached the compaction threshold after the previous turn"};
+        let reason=if stage=="admission" {"context size (admission)"} else {"context size (after turn)"};
+        tx.execute("UPDATE ot.agents SET session_id=NULL,occupancy=NULL,occupancy_est=true,compacted_unrun=true,extra=jsonb_set(extra-'cache_receipt','{handoff_due}',to_jsonb($2::text)),row_version=row_version+1 WHERE id=$1", &[&self.id,&why]).await?;
+        tx.execute("UPDATE ot.agent_sessions SET ended_at=now(),end_reason=$3 WHERE agent_id=$1 AND session_id=$2 AND ended_at IS NULL", &[&self.id,&session,&reason]).await?;
+        tx.commit().await?;
+        let row=json!({"role":"system","kind":"compact","ts":now_iso(),"text":format!("Context compacted: {why}; continuing in a fresh session with a summary.")});
+        self.convo.append(&client,row).await?;
+        drop(client);
+        self.receipt=None;
+        self.sent_print=None;
+        self.close_proc().await;
+        self.reconfigured=true;
+        self.changed(vec![Change::Agent(self.id),Change::History(self.id)]);
+        tracing::info!(agent=self.id,stage,?used,?window,threshold,"context size compaction completed");
+        Ok(true)
+    }
+
     /// The language model server's window filled and the CLI could not compact the
     /// conversation: as a cheap compact does, the agent goes on in a fresh
     /// session that starts with a handoff note (the whole conversation saved
@@ -4179,6 +4220,16 @@ impl Actor {
         tx.commit().await?;
         drop(client);
         let mut raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        let size_reset=match boxed(|| self.size_reset("admission", false)).await {
+            Ok(reset)=>reset,
+            Err(error)=>{self.return_mail(turn_id,true).await;return Err(error);}
+        };
+        if size_reset {
+            ctx.session_id=None;
+            ctx.occupancy=None;
+            ctx.context_measured=false;
+            ctx.handoff_due=Some("your measured context reached the compaction threshold before this turn".into());
+        }
         let reset_note = match boxed(|| self.cold_reset(&mut ctx)).await {
             Ok(note) => note,
             Err(e) => {
@@ -5170,6 +5221,9 @@ impl Actor {
     /// the open row becomes the finished record. With no reported start there
     /// is no row to close, so a finished one is added without a duration.
     async fn compact_close(&mut self, state: &str, pre_tokens: Value) -> Result<()> {
+        if state == "done" {
+            if let Some(turn)=self.turn.as_mut() { turn.cli_compacted=true; }
+        }
         let text = match state {
             "done" => "Context compacted",
             "failed" => "Context compaction failed",
@@ -7312,6 +7366,15 @@ impl Actor {
                 }
             }
         }
+        let native_retry=if let (Some(e),true)=(error.as_deref(),
+            !langserver && matches!(turn.serving_provider.as_str(),catalog::CLAUDE|catalog::OPENAI)
+            && !classified && freeze_rec.is_none() && !turn.interrupted && !turn.killed && !turn.session_ended
+            && !turn.compact && !self.stopping) {
+            if !prompt::input_length_refusal(e) && recovery::context_full(e) {
+                boxed(|| super::context_reset::retry(&self.engine,self.org_id,self.id,turn.id,e)).await?
+            } else {false}
+        } else {false};
+        if native_retry { classified=true; self.receipt=None; self.sent_print=None; self.reconfigured=true; }
         // the CLI holds the prompt once it produced anything: settle the mail
         // as delivered; a turn that never started gives its mail back. A Codex
         // thread holds it once turn/start was accepted (3.x), so a provider
@@ -7373,7 +7436,8 @@ impl Actor {
                 .flatten()
                 .map(|(_, m)| crate::langserver::context_of(&m) as i32)
         });
-        let measured = occupancy > 0 && !turn.compact;
+        let measured = occupancy > 0 && !turn.compact && !turn.cli_compacted && !native_retry;
+        let session=session.filter(|_|!native_retry);
         client
             .execute(
                 "UPDATE ot.agents SET cost_usd = cost_usd + $2::float8::numeric,
@@ -7389,7 +7453,7 @@ impl Actor {
                         row_version = row_version + 1
                   WHERE id = $1",
                 &[
-                    &self.id, &cost, &measured, &occupancy, &window, &session, &json!(denials), &error, &turn.compact,
+                    &self.id, &cost, &measured, &occupancy, &window, &session, &json!(denials), &error, &(turn.compact || turn.cli_compacted),
                     &freeze_rec, &self.cost_seen,
                     &(turn.acp && !langserver || (agy && catalog::antigravity_claude(&turn.serving_tier) || muse) && input + cache_read + output > 0),
                     &langserver,
@@ -7426,6 +7490,9 @@ impl Actor {
         if turn.session_ended {
             let row = json!({ "role": "system", "text": SESSION_ENDED_ROW, "ts": now_iso(), "kind": "session" });
             let _ = self.convo.append(&client, row).await;
+        } else if native_retry {
+            let row=json!({"role":"system","kind":"error","ts":now_iso(),"text":format!("Turn {} exceeded its context; one recovery attempt is queued.",turn.id)});
+            let _=self.convo.append(&client,row).await;
         } else if let Some(e) = &error {
             let ev = crate::events::typed("runtime.turn_failed_terminal", "@system",
                 json!({"kind":"session","org":self.org.slug,"node":self.name,"session_id":session.clone().unwrap_or_default()}),
@@ -7439,7 +7506,7 @@ impl Actor {
                 tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "no fresh session after the context filled");
             }
         }
-        if cache_read > 0 || cache_write > 0 {
+        if !native_retry && (cache_read > 0 || cache_write > 0) {
             self.receipt = Some((Utc::now(), ttl as i64));
             self.save_receipt().await;
         }
@@ -7502,6 +7569,8 @@ impl Actor {
             self.close_proc().await;
             let _ = self.engine.accounts.reload(&self.engine).await;
             crate::accounts::publish(&self.engine);
+        } else if native_retry {
+            self.close_proc().await;
         } else if self.reconfigured {
             self.replace_idle_process().await;
         } else if self.engine.settings.keep_warm() && self.proc.is_some() {
@@ -7511,6 +7580,13 @@ impl Actor {
             self.hold();
         } else {
             self.close_proc().await;
+        }
+        if succeeded {
+            if let Err(error)=boxed(|| self.size_reset("after_turn",turn.cli_compacted)).await {
+                tracing::warn!(agent=self.id,stage="after_turn",reason="reset_failed",%error,"context size compaction skipped");
+            }
+        } else {
+            tracing::info!(agent=self.id,stage="after_turn",reason="turn_not_completed",native_retry,"context size compaction skipped");
         }
         self.update_forecast().await;
         self.publish();
@@ -8196,7 +8272,7 @@ impl Actor {
 
 /// A claimed mail row (`to_jsonb(ot.mail)`) as the agent reads it.
 #[nolog]
-fn mail_of(m: &Value) -> Mail {
+pub(super) fn mail_of(m: &Value) -> Mail {
     Mail {
         uid: m["uid"].as_str().unwrap_or("").to_string(),
         sender: m["sender"].as_str().unwrap_or("").to_string(),

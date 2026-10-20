@@ -228,9 +228,9 @@ pub async fn clear_runs(engine: &Engine, agent_id: i64) -> Result<()> {
     client
         .execute(
             "UPDATE ot.agents SET extra = extra - 'net_fail_run' - 'balance_probe_run' - 'parked_run' - 'hard_fail_run' - 'last_wall'
-                    - 'ctx_reset_run'
+                    - 'ctx_reset_run' - 'native_ctx_retry_run'
               WHERE id = $1 AND (extra ? 'net_fail_run' OR extra ? 'balance_probe_run' OR extra ? 'parked_run'
-                                 OR extra ? 'hard_fail_run' OR extra ? 'last_wall' OR extra ? 'ctx_reset_run')",
+                                 OR extra ? 'hard_fail_run' OR extra ? 'last_wall' OR extra ? 'ctx_reset_run' OR extra ? 'native_ctx_retry_run')",
             &[&agent_id],
         )
         .await?;

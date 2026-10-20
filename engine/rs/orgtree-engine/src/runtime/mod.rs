@@ -11,6 +11,7 @@ pub mod agy;
 pub mod agy_thinking;
 pub mod claude;
 pub mod codex;
+pub mod context_reset;
 pub mod elicitation;
 pub mod convo;
 pub mod envelope;
