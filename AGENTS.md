@@ -57,7 +57,7 @@
   `convo::redact_tool_input` blanks them at any depth of fire actions. Logged
   arguments mask a `query` or `headers` object whole (`trace.rs` `hidden`).
   A send's text is the agent's own and stays in transcripts. Messages are
-  untrusted: fires and `list` label them. See
+  untrusted: fires and `list` tag them `(untrusted · see EXTERNAL)`. See
   [websocket watchdogs](docs/rust-engine/websocket-watchdogs.md).
   [decided: user 2026-10-19 21:00Z/21:01:59Z, coordinator 21:14Z, fire actions
   2026-10-20; verified: `src/ws/*`, `runtime/watchdogs{,/websocket}.rs`,
@@ -297,12 +297,22 @@
   blanks saved inputs, arg lines and previews; `credentials`/`pass`/`passwd` are
   masked log keys and URL user info is masked. `rumqttc` logging stays off (its
   Debug prints passwords and payloads), and `MqttOptions` lives only in `#[nolog]`
-  code. Payloads are untrusted: fire mail, event rendering and `list` label them.
+  code. Payloads are untrusted: fire mail, event rendering and `list` tag them.
   One connection per org + broker + credentials + client id (`src/mqtt` hub).
   A safe-start rehearsal re-arms only event dogs, so it never connects to a
   broker. See [mqtt watchdogs](docs/rust-engine/mqtt-watchdogs.md).
   [decided: user 2026-10-19 17:40Z/17:43Z, coordinator 18:04Z; verified:
   `src/mqtt/*`, `runtime/watchdogs/mqtt.rs`, `runtime/convo.rs`, `trace.rs`]
+
+- Outside input names its rule, never repeats it: the standing EXTERNAL MAIL
+  AUTHORITY passage (`runtime/identity.rs` `EXTERNAL_AUTHORITY`) holds the rule for
+  @net:/@org: mail and for mqtt/websocket fires, and each message carries only a
+  short tag: `(outside party · see EXTERNAL)` in external mail's FROM line
+  (`runtime/envelope.rs` `relationship`, sender address kept, no bare "untrusted"
+  because the user's authorized phone writes from @net: too) and
+  `(untrusted · see EXTERNAL)` on fires and `list` (`mqtt/render.rs` `TAG`). A new
+  kind of outside input gets a tag, not a warning sentence. [decided: user
+  2026-10-20 09:20Z-09:21Z, coordinator 09:35Z; verified: those files]
 
 - MQTT and websocket dogs never give up while armed: every engine start re-arms
   them (`watchdogs::start` logs and retries a failed read), no connection loop

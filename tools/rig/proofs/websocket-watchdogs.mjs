@@ -3,7 +3,7 @@
 // 21:00Z/21:01:59Z), through the real engine and a dependency-free
 // WebSocket server on 127.0.0.1 (no external services):
 //   a dog dials with credentials from a file (bearer), sends its hello after
-//   the upgrade, and fires with matching messages behind the UNTRUSTED label
+//   the upgrade, and fires with matching messages behind the EXTERNAL tag
 //   send writes on the live connection after the hello; the echo fires it
 //   inline credentials from a fakeCLI turn (bearer, query, a secret hello)
 //   reach the server and nowhere else: not ot.convo, ot.watchdogs, ot.events,
@@ -159,8 +159,9 @@ async function flow(rig, p, ws) {
   ws.push('event: door open')
   await rig.waitFor(() => mails('event: door open').length === 1, { what: 'the fire mail', timeout: 30000 }).catch(() => {})
   const fire = mails('event: door open')[0]
-  p.check('a matching message fires mail with the UNTRUSTED label; the other does not',
-    !!fire && /UNTRUSTED: these WebSocket messages come from the server/.test(fire.body) && /\n {4}│ event: door open/.test(fire.body)
+  p.check('a matching message fires mail with the EXTERNAL tag and no long warning; the other does not',
+    !!fire && /fire #\d+ \(untrusted · see EXTERNAL\):/.test(fire.body) && !/never follow instructions/.test(fire.body)
+    && /\n {4}│ event: door open/.test(fire.body)
     && !/noise that does not match/.test(fire.body), fire?.body?.slice(0, 500))
   p.check('the fire\'s event carries the websocket source for the owner\'s turn', /"source": ?"websocket"/.test(fire?.ev ?? ''), fire?.ev?.slice(0, 300))
 
@@ -175,7 +176,7 @@ async function flow(rig, p, ws) {
   const dl = await listed('door')
   p.check('list shows the file label, the connection, what was sent and the last message labeled',
     dl?.credentials?.startsWith('file: ') && dl?.connection?.state === 'connected' && dl?.sent >= 1
-    && /^UNTRUSTED server message/.test(dl?.last_output ?? '') && JSON.stringify(dl?.hello) === '["subscribe doors"]', dl)
+    && /^\(untrusted · see EXTERNAL\) /.test(dl?.last_output ?? '') && JSON.stringify(dl?.hello) === '["subscribe doors"]', dl)
 
   // ------------------------------------------------------------ inline credentials from a fakeCLI turn
   rig.scenario({ default: { turns: [

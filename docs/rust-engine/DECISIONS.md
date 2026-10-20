@@ -1530,7 +1530,9 @@ All entries are dated 2026-10-06 unless stated otherwise.
       09:13Z). The connection state is visible, and the owner is told about a refusal, an outage
       longer than a minute, and the recovery.
     - Payloads are untrusted outside input: every fire (mail and event rendering) and `list`'s last
-      message carry the UNTRUSTED label; payload lines are guttered and escaped.
+      message carry the tag `(untrusted · see EXTERNAL)`, which names the agents' standing EXTERNAL
+      MAIL AUTHORITY passage holding the rule (user 2026-10-20 09:20Z-09:21Z; it was a long
+      UNTRUSTED line in every fire); payload lines are guttered and escaped.
     - Crate: rumqttc =0.25.1 (Apache-2.0), default features off, rustls on ring; license check in
       THIRD_PARTY_NOTICES.md.
     Details: [`mqtt-watchdogs.md`](mqtt-watchdogs.md).
@@ -1552,7 +1554,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
       transcript and call log like any tool argument; its own log line names only the dog, the
       URL without query and the byte count.
     - Messages are capped at 1 MiB (mqtt's cap); binary messages never match a pattern and fire
-      as their size only when the dog has none. Fires and `list` label messages UNTRUSTED.
+      as their size only when the dog has none. Fires and `list` tag messages `(untrusted · see
+      EXTERNAL)`, as mqtt's.
     - Backoff is mqtt's (`mqtt/backoff.rs`); a server that drops the client within 60 s does not
       end the outage, and "recovered" is told only after a minute connected.
     - Crate: tokio-tungstenite/tungstenite 0.29.0, already built for axum's `ws` feature, with

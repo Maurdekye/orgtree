@@ -198,16 +198,17 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
 ## Fires
 
 - **Mail:** a fire's mail and the rendering the owner's turn reads (`r_wd_fired`, with
-  `source: "websocket"`) carry the label "⚠ UNTRUSTED: these WebSocket messages come
-  from the server, outside Orgtree…".
+  `source: "websocket"`) end their header line with mqtt's tag `(untrusted · see
+  EXTERNAL)`, which names the agents' standing EXTERNAL MAIL AUTHORITY passage, where
+  the rule lives (user 2026-10-20 09:20Z-09:21Z; it was a long "⚠ UNTRUSTED: …" line).
 - **Each message:** a header line `<time>  <N bytes>[ · binary]`, then the text behind
   mqtt's gutter (`    │ `), so no line of it starts at column 0 and none can pose as
   mail framing. Control characters and direction overrides are escaped.
 - **Caps:** 4 KB per message and 16 KB or 20 messages per fire, with the true count; a
   cut message says how many bytes it had.
-- **Lists:** `last_output` is labelled "UNTRUSTED server message".
-- **Desktop:** the transcript draws a fire as the watchdog fire card: the label as a
-  caution, then each message, its text drawn with the tool-call JSON viewer when all of
+- **Lists:** `last_output` carries the same tag.
+- **Desktop:** the transcript draws a fire as the watchdog fire card: the tag as a small
+  muted chip in its header, then each message, its text drawn with the tool-call JSON viewer when all of
   it is a JSON object or array (`renderer/src/events/firelines.ts`).
 - **Counters:** `checks_run` counts every message received (matching or not), `binary`
   the binary ones, `dropped` what the buffer lost.
@@ -273,7 +274,7 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
   - a verbose log canary covering every credential kind and a refused secret target.
 - **Unit tests:** `ws/creds.rs`, `ws/render.rs`, `ws/conn.rs` (dial URL, close text),
   `runtime/watchdogs.rs` (health, fire mail, fields), `runtime/convo.rs` (transcript
-  redaction), `runtime/event_text.rs` (the label) and `tools/defs.rs` (the card).
+  redaction), `runtime/event_text.rs` (the tag) and `tools/defs.rs` (the card).
 - **Renderer:** `watchdog-description.test.tsx`, and captures of the card
   (`watchdog-card-visual.tsx`); `watchdogfirecard.test.tsx` and captures of fire cards
   (`watchdogfire-visual.tsx`, `watchdogfire-capture.cjs`).
