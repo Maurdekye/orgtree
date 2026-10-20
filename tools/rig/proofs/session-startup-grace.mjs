@@ -60,7 +60,7 @@ export default async function(rig) {
     for(const name of ['resume','fixed','late']) await turn(name,`WARM-${name}`)
     p.check('fixture: all three last turns really ran signed in',
       ['resume','fixed','late'].every(n=>rig.agentRow(n)?.extra?.session==='signed-in'))
-    rig.sql(`UPDATE ot.agents SET scope=jsonb_set(scope,'{session}','"session0"') WHERE name='fixed'`)
+    await rig.api('POST',`/api/orgs/${rig.org}/nodes/fixed/scope`,{session:'session0'})
     const mark = mailMax()
     await stop(helper)
     await rig.restart()
