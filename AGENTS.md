@@ -4,6 +4,12 @@
   [decided: user 2026-10-20 18:22Z; verified: `canvas/maillisteners.tsx`,
   `tests/usermailqueue.test.tsx`]
 
+- Mail-list monitor senders use the matching typed watchdog reference's name,
+  as the opened event card does, with the full handle in the hover title.
+  Sender search includes both name and stable ID; raw mail routing is unchanged.
+  Keep recorded names for spent monitors; missing names fall back to IDs.
+  [verified: `canvas/mail.tsx`, `tests/monitor-sender.test.tsx`; 2026-10-20]
+
 - Docket rows and every ticket-link menu use `canvas/ticketmenu.ts` for all
   item actions, including Staff on eligible backlogged items. Only real list
   folds stay row-specific. Link menus read current item state and share the

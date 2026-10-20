@@ -345,14 +345,29 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // Routing still uses the stored sender/recipient. Canonical authorship is a
   // display fact: engine-authored rows may be routed from USER.
   const partyOf = (m: MailRow) => (outgoing ? m.to : m.from)
+  const monitorOf = (m: MailRow) => {
+    const event = !outgoing && typedView(m)?.event
+    return event && event.actor.kind === 'watchdog' && event.object?.kind === 'watchdog'
+      && event.object.id === event.actor.id ? event.object : null
+  }
   const displayParty = (m: MailRow) => {
+    const monitor = monitorOf(m)
+    if (monitor) return monitor.name.trim() || monitor.id
     const actor = !outgoing && typedView(m)?.event.actor
     return actor ? actor.kind === 'user' ? USER : actor.kind === 'system' ? SYSTEM : actor.id : partyOf(m)
+  }
+  const rowParty = (m: MailRow) => {
+    const monitor = monitorOf(m)
+    const identity = R(displayParty(m)!, m)
+    return monitor ? <span className="mail-monitor-sender"
+      title={`monitor ${monitor.name || monitor.id} · ${monitor.id.includes('/') ? monitor.id : `${monitor.owner}/${monitor.id}`}`}>{identity}</span> : identity
   }
   const qn = q.trim().toLowerCase()
   const tagged = tagFilter?.selected.length ? all.filter(m => mailMatchesTags(m.tags,tagFilter.selected)) : all
   const shown = qn
     ? tagged.filter((m) => String(partyOf(m) ?? '').toLowerCase().includes(qn)
+      || String(displayParty(m) ?? '').toLowerCase().includes(qn)
+      || String(monitorOf(m)?.id ?? '').toLowerCase().includes(qn)
       || String(m.body ?? '').toLowerCase().includes(qn))
     : tagged
   const filterKey=JSON.stringify([org??'',tagFilter?.selected.map(mailTagKey).sort()??[],qn])
@@ -665,7 +680,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
-            party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>filterByRowTag(m,tag):undefined}
+            party={rowParty(m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>filterByRowTag(m,tag):undefined}
             rowRef={(el) => {
               // a jump aimed at a folded member lands on the row that now
               // carries it, not on nothing
