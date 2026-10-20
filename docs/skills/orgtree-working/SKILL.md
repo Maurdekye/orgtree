@@ -48,6 +48,7 @@ Open a section below, then the specific tool or workflow leaf it lists. The tool
 | Understand what another agent is allowed to see | [orgtree-inspection](inspection/SKILL.md) |
 | Read account capacity, freezes or cache evidence | [orgtree-accounts](accounts/SKILL.md) |
 | Maintain scratch notes and shared workspaces | [orgtree-workspace](workspace/SKILL.md) |
+| Understand hierarchical shared memory and which AGENTS.md notes you inherit | [orgtree-shared-folders](workspace/shared-folders/SKILL.md) |
 | Find the assigned worktree, build and landing practices | [orgtree-workspace](workspace/SKILL.md) |
 
 For screens, panels, providers and settings, open `orgtree-app`. Its section list leads to the relevant UI reference.

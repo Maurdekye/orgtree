@@ -16,7 +16,7 @@ Choose the child page for the task; tool pages hold call mechanics, workflow pag
 - [orgtree-machine-traps](machine-traps/SKILL.md): Windows shell escaping, CRLF, encodings, Git Bash paths and file-edit pitfalls on the development machine.
 
 - [orgtree-scratch-folder](scratch-folder/SKILL.md): Your scratch folder and its AGENTS.md standing notes.
-- [orgtree-shared-folders](shared-folders/SKILL.md): The org shared folder and team workspaces: what goes where and their AGENTS.md notes.
+- [orgtree-shared-folders](shared-folders/SKILL.md): Hierarchical shared memory: personal, team, project and org folders, inherited AGENTS.md notes and safe shared edits.
 - [orgtree-breadcrumbs](breadcrumbs/SKILL.md): breadcrumbs.md: the realtime compaction log a fresh session resumes from.
 - [orgtree-feedback](feedback/SKILL.md): The Runtime feedback suggestion and complete, redacted GitHub issue procedure; show the user the draft and wait for OK before posting.
 - [orgtree-suggestion-box](suggestion-box/SKILL.md): suggestion-box.md: notes on how Orgtree should better inform agents about its own functions.

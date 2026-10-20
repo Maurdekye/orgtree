@@ -410,6 +410,8 @@ fn trimmed_tool_instructions(tools: &Value, top: bool) -> String {
     text
 }
 
+const HIERARCHICAL_MEMORY_POINTER: &str = "While working, write findings and decisions to the team, project or org shared scratch above you that matches their scope, within your write access. For hierarchical shared memory, read orgtree-shared-folders (orgtree-working > workspace). ";
+
 /// The trimmed folder paragraph: where the scratch, org and team folders are,
 /// what their AGENTS.md copies are, and the etiquette for shared files.
 #[logged]
@@ -418,6 +420,7 @@ fn trimmed_folder_rules(org: &str, org_dir: Option<(&str, bool)>, teams: &[&Valu
         "Your scratch folder is your own; keep standing notes in its AGENTS.md (CLAUDE.md still applies), \
          delivered each session start. ",
     );
+    s.push_str(HIERARCHICAL_MEMORY_POINTER);
     if let Some((dir, _)) = org_dir {
         s.push_str(&format!(
             "ORG SHARED FOLDER: {dir} is shared by every agent of {org}; its AGENTS.md holds org-wide notes, copied at \
@@ -1486,6 +1489,26 @@ mod trim_tests {
         }
     }
 
+    #[test]
+    fn hierarchical_memory_pointer_reaches_every_trimmed_lane_and_scope() {
+        let expected = "While working, write findings and decisions to the team, project or org shared scratch above you that matches their scope, within your write access. For hierarchical shared memory, read orgtree-shared-folders (orgtree-working > workspace).";
+        let mut missing = Vec::new();
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            for top in [false, true] {
+                for (profile, scope) in [all_on(), json!({"tools":{"edit":false,"orgtree":{"team":false,"inspection":false}}})].into_iter().enumerate() {
+                    for trimmed in [false, true] {
+                        let text = render(&scope, lane, top, trimmed);
+                        println!("MEMORY_BYTES lane={lane:?} top={top} profile={profile} trimmed={trimmed} bytes={}", text.len());
+                        if trimmed && text.matches(expected).count() != 1 {
+                            missing.push(format!("{lane:?} top={top} profile={profile}"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "missing hierarchical memory pointer: {missing:?}");
+    }
+
     /// What naming the EXTERNAL tags added to EXTERNAL MAIL AUTHORITY (913 to
     /// 1023 bytes: the mail tag, the watchdog-feed sentence, two clauses
     /// merged), approved by coordinator-opus 2026-10-20 09:57Z (docket
@@ -1504,11 +1527,15 @@ mod trim_tests {
     /// USER 2026-10-20 10:51Z: exactly the always-sent concurrency pointer, including its newline.
     const CONCURRENCY_POINTER_GROWTH: usize = 267;
 
+    // User 2026-10-20: exactly the hierarchical shared-memory pointer.
+    const HIERARCHICAL_MEMORY_POINTER_GROWTH: usize = 240;
+
     /// The approved budget: well under Antigravity's 24 KB per file, measured on the
     /// largest engine-written profile (top-level, every group, org-inbox holder).
     #[test]
     fn trimmed_engine_text_fits_the_budget_on_every_lane() {
         assert_eq!(CONCURRENCY_PRIMITIVES_POINTER.len(), CONCURRENCY_POINTER_GROWTH);
+        assert_eq!(HIERARCHICAL_MEMORY_POINTER.len(), HIERARCHICAL_MEMORY_POINTER_GROWTH);
         assert_eq!(QUEUED_RESTART.len(), QUEUED_RESTART_GROWTH);
         assert!(EXTERNAL_AUTHORITY.len() <= 913 + EXTERNAL_TAGS, "the passage outgrew its approved allowance: {}", EXTERNAL_AUTHORITY.len());
         assert!(OPENCODE_MAIL_DELIVERY.len() + TRIM_AUTHENTIC_CHANNEL.len() <= 157 + OPENCODE_HOOK_MAIL);
@@ -1521,7 +1548,7 @@ mod trim_tests {
                 // EXTERNAL tags, the unconditional concurrency pointer and
                 // OpenCode's hook-mail contract each retain their bounded allowance.
                 let hook_mail = if lane == Lane::OpenCode { OPENCODE_HOOK_MAIL } else { 0 };
-                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + CONCURRENCY_POINTER_GROWTH + QUEUED_RESTART_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
+                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + CONCURRENCY_POINTER_GROWTH + QUEUED_RESTART_GROWTH + HIERARCHICAL_MEMORY_POINTER_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
                 assert!(trimmed.len() * 2 < full.len(), "{lane:?} top={top}: {} vs {}", trimmed.len(), full.len());
             }
         }

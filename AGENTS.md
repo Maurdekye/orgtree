@@ -5219,3 +5219,8 @@ Cold archived docket projections covered by the existing policy spec use its typ
   [tool guide](docs/skills/orgtree-working/runtime/tool-interrupt/SKILL.md) and
   [parity](docs/harness-parity.md). [decided: user 2026-10-20;
   verified: `runtime/actor/interrupt_control.rs`, `runtime/interrupt.rs`]
+- Hierarchical shared memory is documented in `orgtree-shared-folders`
+  (orgtree-working > workspace): own scratch, ancestor team/project workspaces,
+  org shared notes, and session-start inheritance. The trimmed folder paragraph
+  points there; supervisors reach project folders below without inheriting their
+  notes. [verified: `runtime/identity.rs`, `runtime/actor.rs`, `domain/teams.rs`; 2026-10-20]

@@ -2636,22 +2636,31 @@
    "level": 3,
    "kind": "concept",
    "registered": false,
-   "covers": [],
-   "purpose": "The org shared folder and team workspaces: what goes where and their AGENTS.md notes.",
+   "covers": [
+    "concept:hierarchical-shared-memory"
+   ],
+   "purpose": "Hierarchical shared memory: personal, team, project and org folders, inherited AGENTS.md notes and safe shared edits.",
    "must_cover": [
-    "_shared and _teams/<id>",
+    "own scratch, _shared, _teams/<agent-id> and _teams/<project-id>",
+    "who holds and may write each folder",
+    "own notes then nearest ancestor team/project notes then org notes at session start",
+    "supervisors reach project folders below without inheriting their notes",
+    "session-start snapshots and truncation",
     "narrowest folder its readers share",
     "no secrets",
-    "re-read before editing"
+    "re-read before relying on recent entries or editing"
    ],
    "sources": [
-    "engine/rs/orgtree-engine/src/runtime/identity.rs org_notes_rule, team_rule",
+    "engine/rs/orgtree-engine/src/runtime/identity.rs trimmed_folder_rules, org_notes_rule, team_rule, projects_rule, own_notes, team_notes, org_notes",
+    "engine/rs/orgtree-engine/src/runtime/actor.rs load_ctx and plan notes assembly",
+    "engine/rs/orgtree-engine/src/domain/teams.rs held and projects_below",
+    "engine/rs/orgtree-engine/src/config.rs scratch_root, teams_dir, org_notes_dir",
     "docs/rust-engine/org-shared-notes.md",
-    "docs/rust-engine/team-workspaces.md",
-    "engine/rs/orgtree-engine/src/domain/teams.rs"
+    "docs/rust-engine/team-workspaces.md"
    ],
    "see_also": [
-    "scratch-folder"
+    "scratch-folder",
+    "projects"
    ],
    "writer": "comms-sol",
    "status": "fixed"

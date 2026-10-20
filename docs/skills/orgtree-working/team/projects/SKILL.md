@@ -6,6 +6,8 @@ Up: [orgtree-team](../SKILL.md)
 
 # Project nodes
 
+For the project folder and inherited `AGENTS.md` notes, see [orgtree-shared-folders](../../workspace/shared-folders/SKILL.md), the hierarchical shared memory reference.
+
 A **project node** stands for one project in the tree and is not an agent. It runs no turns, acts for nobody and costs nothing. It sits in the tree like any node: agents and other projects hang under it (projects nest), it can be moved, renamed, reordered, retired and restored. The canvas draws it as a dashed card with a folder mark, and the user creates one with the hire strips' project token (a square in the card's theme colours) (`orgtree-draft-hires`, orgtree-app › canvas). `orgtree_chart` and `orgtree_state_inspect` mark it `project`.
 
 For the project desk, tabs, worker and event history, slots and remembered navigation, open `orgtree-project-desk` (orgtree-app › desk).
