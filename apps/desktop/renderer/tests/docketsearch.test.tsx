@@ -380,6 +380,10 @@ rig('§12 a query NEVER reaches a category whose box is unticked', async (k) => 
 rig('§13 an empty result SAYS it is the query, not that the org is empty', async (k) => {
   mock([mkItem({ slug: 'something', title: 'Something' })])
   const el = await k.mount()
+  const initial = rows(el)[0]!
+  assert.ok(initial.classList.contains('on'), 'fixture: the first ticket is selected on open')
+  await inAct(() => initial.click())
+  assert.equal(initial.classList.contains('on'), false, 'exercise the no-selection empty-result message')
   await type(el, 'zzzznothing')
   assert.equal(rows(el).length, 0)
   const text = el.textContent ?? ''

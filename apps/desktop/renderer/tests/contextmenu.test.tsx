@@ -665,8 +665,9 @@ uiTest('§B3d agent desk presentations: header chips and Presented tab rows offe
   await flush(); await advance(200, 16); await flush()
   const rows = [...v.el.querySelectorAll('.desk-presented-card')] as HTMLElement[]
   assert.equal(rows.length, 2, 'positive control: Presented tab rows rendered')
+  assert.ok(rows[1]!.classList.contains('on'), 'the oldest unread presentation is selected on open')
   await rightClick(rows[1]!)
-  assert.deepEqual(labels(), ['Open', 'Open HTML mockup in a new tab', 'Reply', 'Presenter… ▸', '· Copy mention', 'Copy title', 'Copy reference', 'Download HTML prototype', 'Dismiss'])
+  assert.deepEqual(labels(), ['Close', 'Open HTML mockup in a new tab', 'Reply', 'Presenter… ▸', '· Copy mention', 'Copy title', 'Copy reference', 'Download HTML prototype', 'Dismiss'])
   await pick('Reply')
   await advance(50, 16); await flush(2)
   assert.equal(previews().length, 2, 'Reply in Presented tab appends to the desk message box reply targets')
@@ -834,6 +835,8 @@ uiTest('§B4 ticket row: canonical copies, bottom fold and Owner registry action
     .find((r) => r.querySelector('.docket-rowname')?.textContent === s) as HTMLElement
   const parent = rowNamed('parent-item'); const flagged = rowNamed('flagged-item')
   assert.ok(parent && flagged, 'positive control: rows rendered')
+  if (parent.classList.contains('on')) await inAct(() => parent.click())
+  assert.equal(parent.classList.contains('on'), false, 'fixture: deliberately clear the default selection')
   assert.equal(await rightClick(parent), true)
   assert.ok(!parent.classList.contains('on'), 'not selected by the right-click')
   const have = labels()
@@ -894,6 +897,8 @@ uiTest('§B4b ticket row: the slug-copy double-click leaves no selection behind,
   await flush(); await advance(200, 16); await flush()
   const row = v.el.querySelector('.docket-row') as HTMLElement
   assert.ok(row, 'positive control: the ticket row rendered')
+  if (row.classList.contains('on')) await inAct(() => row.click())
+  assert.equal(row.classList.contains('on'), false, 'fixture: the copy target starts unselected')
   const name = row.querySelector('.docket-rowname') as HTMLElement
   assert.ok(name, 'positive control: the row prints its slug')
 
