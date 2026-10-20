@@ -10,12 +10,15 @@ import { WarnIcon } from '../icons'
 import { mailListenerState } from './listeners'
 import type { Watchdog } from '../types'
 
-/** The note, or nothing while a listener is attached: a fair_queue dog on the
- *  project, armed or paused, as the inbox's listeners folder lists them. A
- *  paused listener is attached; the engine's send note says the mail waits
+/** Whether a listener is attached to the project's inbox: a fair_queue dog on
+ *  the project, armed or paused, as the inbox's listeners folder lists them.
+ *  A paused listener is attached; the engine's send note says the mail waits
  *  for it to resume. */
-export function InboxNoListeners({ project, dogs }: { project: string; dogs: Watchdog[] }) {
-  if (mailListenerState(project, dogs).listeners.length > 0) return null
+export const inboxListened = (project: string, dogs: Watchdog[]) =>
+  mailListenerState(project, dogs).listeners.length > 0
+
+/** The note, for a box whose project's inbox has no listener (`inboxListened`). */
+export function InboxNoListeners({ project }: { project: string }) {
   return <div className="inbox-no-listeners" role="note"
     title={`No agent listens on project ${project}'s inbox with a fair_queue watchdog. Mail sent here waits in its mailbox `
       + 'until an agent above or below the project arms one. The megaphone (Alt+B) sends to every agent under the project instead.'}>

@@ -60,7 +60,7 @@ import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
 import { listenerCards, mailListenerState, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { MailListenersView } from './maillisteners'
-import { InboxNoListeners } from './inboxwarning'
+import { InboxNoListeners, inboxListened } from './inboxwarning'
 import { DeskJumpCards, superiorKept } from './deskjumpcards'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
@@ -351,6 +351,8 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
   const fileRef = useRef<HTMLInputElement | null>(null)
   const enterKey = useComposerEnter()
   const can = node.state === 'live' && (!megaphone || members > 0)
+  // nobody listens on the inbox: say so before the user sends (user 2026-10-20 11:04Z)
+  const unheard = node.state === 'live' && !megaphone && !inboxListened(node.id, tree.watchdogs ?? [])
   const mentionCandidates = useOrgMentionCandidates(slug, tree, map)
   const mentions = useAgentMentions({
     value: text,
@@ -499,8 +501,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
               onClick={() => setAttached((x) => x.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
           </span>))}
     </div>}
-    {/* nobody listens on the inbox: say so before the user sends (user 2026-10-20 11:04Z) */}
-    {node.state === 'live' && !megaphone && <InboxNoListeners project={node.id} dogs={tree.watchdogs ?? []} />}
+    {unheard && <InboxNoListeners project={node.id} />}
     <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')
       + (megaphone ? ' broadcast-armed' : '') + (urgentMail ? ' urgent-armed' : '')} onClick={focusComposerBackground}>
       {mentions.menu}
@@ -521,6 +522,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
       <textarea ref={attachComposer} rows={2} value={text} disabled={!can} title={enterKey.hint}
         aria-label={`message every agent under project ${node.id}`}
         placeholder={node.state !== 'live' ? `project ${node.id} is ${node.state}`
+          : unheard ? `message project ${node.id}…`
           : !megaphone ? `message project ${node.id}: one agent under it takes it…`
             : `message all ${members} agent${members === 1 ? '' : 's'} under ${node.id}…`}
         onChange={(e) => { setText(e.target.value); grow(); mentions.syncCaret() }}

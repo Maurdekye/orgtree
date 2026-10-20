@@ -965,7 +965,8 @@
   `orgtree_inbox project`'s `queue` line stays `wait_note` (the warning is per
   send). The project composer shows `canvas/inboxwarning.tsx` above the box
   while the tree has no fair_queue dog (armed or paused) on the project and the
-  megaphone is off; `styles.css` keeps it in the box's foot group.
+  megaphone is off, and its placeholder then drops "one agent under it takes
+  it"; `styles.css` keeps the note in the box's foot group.
   [decided: user 2026-10-20 11:04Z; paused counts as attached: mqtt-watchdog-opus,
   delegated by the coordinator; verified: `domain/{projects,mail}.rs`,
   `canvas/{projectdesk,inboxwarning}.tsx`, `tools/rig/proofs/project-inbox-warning.mjs`]
