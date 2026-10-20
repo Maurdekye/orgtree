@@ -758,10 +758,11 @@ export interface DocRow {
  *  the gallery reads from offset 0 and grows the window as the reader scrolls,
  *  so every response is a complete newest-first prefix (canvas/gallery.tsx).
  *  Omitted, the server's own default applies. */
-export const getDocuments = (slug: string, offset = 0, node = '', locate = '', limit = 0, team = false): Promise<{ documents: DocRow[]; total: number; next_offset: number | null; offset?: number; located?: string }> =>
+export const getDocuments = (slug: string, offset = 0, node = '', locate = '', limit = 0, team = false, opening = false, hired = false): Promise<{ documents: DocRow[]; total: number; next_offset: number | null; offset?: number; located?: string; opening_id?: string | null; opening_position?: number | null }> =>
   req(`/api/orgs/${slug}/documents?offset=${offset}&node=${encodeURIComponent(node)}`
     + (limit > 0 ? `&limit=${limit}` : '')
     + (team ? '&team=1' : '')
+    + (opening ? '&opening=1' : '') + (hired ? '&hired=1' : '')
     + (locate ? `&locate=${encodeURIComponent(locate)}` : ''))
 export const dismissDocument = (slug: string, did: string):
   Promise<{ ok: boolean; node: string }> =>

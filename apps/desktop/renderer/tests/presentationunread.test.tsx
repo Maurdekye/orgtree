@@ -38,8 +38,8 @@ for (const surface of ['modal', 'agent', 'project'] as const) {
     const row = (title:string) => list().find(r=>r.querySelector('.mfrom')?.textContent===title)!
     assert.equal(list().length,4,'real list loaded')
     assert.equal(row('Already read').classList.contains('unread'),false,'engine viewed_at wins without a local mark')
-    assert.equal(row('Never opened').classList.contains('unread'),true,'new presentation wears unread mail styling')
-    assert.equal(row('Never opened').dataset.docUnread,'new')
+    assert.equal(row('Never opened').classList.contains('on'),true,'first unread is automatically opened')
+    assert.equal(row('Never opened').classList.contains('unread'),false,'automatic opening clears its new highlight')
     assert.equal(row('Changed since opened').classList.contains('unread'),true,'replacement wears unread mail styling')
     assert.equal(row('Changed since opened').dataset.docUnread,'updated')
     await inAct(()=>row('Never opened').click());await flush()

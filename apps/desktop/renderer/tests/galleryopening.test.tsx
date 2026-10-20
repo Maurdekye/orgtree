@@ -6,9 +6,9 @@ import type { CanvasNode } from '../src/canvas/shared'
 
 const noop = () => {}
 const docs = [
-  {id:'retired',node:'retired-agent',title:'Hidden retired document',at:'2026-09-30T13:00:00Z',node_state:'archived',evicted:false},
-  {id:'new',node:'alice',title:'Newest visible document',at:'2026-09-30T12:00:00Z',node_state:'live',evicted:false},
-  {id:'old',node:'alice',title:'Older document',at:'2026-09-29T12:00:00Z',node_state:'live',evicted:false},
+  {id:'retired',node:'retired-agent',title:'Hidden retired document',at:'2026-09-30T13:00:00Z',viewed_at:'2026-09-30T13:00:00Z',node_state:'archived',evicted:false},
+  {id:'new',node:'alice',title:'Newest visible document',at:'2026-09-30T12:00:00Z',viewed_at:'2026-09-30T12:00:00Z',node_state:'live',evicted:false},
+  {id:'old',node:'alice',title:'Older document',at:'2026-09-29T12:00:00Z',viewed_at:'2026-09-29T12:00:00Z',node_state:'live',evicted:false},
 ]
 
 test('fresh gallery opens newest visible content, preserves choices on refresh, and resets on reopen', async t => {

@@ -64,6 +64,7 @@ const many = (n: number, o: (i: number) => Partial<DocRow> = () => ({})): DocRow
   Array.from({ length: n }, (_, i) => row({
     id: `d${i}`, title: `document ${i}`,
     at: new Date(Date.UTC(2026, 8, 13) - i * 60_000).toISOString(),
+    viewed_at: new Date(Date.UTC(2026, 8, 13) - i * 60_000).toISOString(),
     ...o(i),
   }))
 

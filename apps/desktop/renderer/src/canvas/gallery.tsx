@@ -12,7 +12,7 @@ import { DocumentDownload } from './download'
 // the scrollable document viewer on the right"). It wears mail's own
 // classes — `.mailer` / `.mailer-list` / `.mailrow` / `.mailer-read` — and
 // selection BY IDENTITY (the list repolls under you), the newest visible
-// document selected on open, the filter box only once a list is worth filtering.
+// oldest unread/changed document selected on open (newest when all read).
 // It does NOT reuse MailList itself: that component is built on MailRow
 // (sender, kind, an inline body, replies, notice piles) and a document row
 // is a title + agent + time whose body is fetched on click. Sharing the
@@ -125,6 +125,18 @@ const PANE_STATE_WHY: Record<DocRow['node_state'], string | null> =
 
 const isHired = (r: DocRow) => r.node_state === 'live'
 
+/** Same rule for bootstrap/older-server rows and the engine's opening query. */
+function openingPresentation(slug: string, rows: DocRow[]): string | null {
+  const visible = rows.filter(r => !r.evicted)
+  const unread = visible.filter(r => docUnread(slug, r.id, r.at, r.viewed_at))
+  const candidates = unread.length ? unread : visible
+  let chosen = candidates[0]
+  for (const row of candidates) {
+    if (chosen && (unread.length ? Date.parse(row.at) < Date.parse(chosen.at) : Date.parse(row.at) > Date.parse(chosen.at))) chosen = row
+  }
+  return chosen?.id ?? null
+}
+
 // ── CONTINUOUS LOADING ───────────────────────────────────────────────────
 //
 // This panel used to carry "Newer" and "Older" buttons over a fixed page.
@@ -133,14 +145,16 @@ const isHired = (r: DocRow) => r.node_state === 'live'
 // pages history in at the boundary (convo.ts) — and the user asked for the
 // same here.
 //
-// ⚠ THE WINDOW IS READ FROM ZERO, NOT ACCUMULATED PAGE BY PAGE. `documents` is
+// ⚠ THE WINDOW IS REPLACED, NOT ACCUMULATED PAGE BY PAGE. `documents` is
 // newest-first and moves underneath a reader: a card is presented, another is
 // dismissed, and an offset that addressed row 100 one poll ago addresses a
-// different row the next. Asking for rows [0, win) makes every response a
-// complete PREFIX of the list, so duplicates and gaps are not handled, they
+// different row the next. Asking for one contiguous range makes every response a
+// complete window of the list, so duplicates and gaps are not handled, they
 // are impossible — and the rows already on screen come back identical, which
 // is what keeps a growth from moving the reader. It is the transcript's own
-// rule (its poll carries the whole loaded window in `last`), not a new one.
+// rule (its poll carries the whole loaded window in `last`). An opening can
+// start around an older unread card: the engine returns its position and one
+// bounded page. Scrolling either edge expands that same contiguous window.
 
 /** the first window, and what each growth adds. Bounded so opening the panel
  *  is one small request however long the history is. */
@@ -169,11 +183,16 @@ export interface DocWindow {
   /** ask for the next older page. A no-op while busy, exhausted or failed, so
    *  it is safe to call from a scroll handler and from a render effect. */
   grow: () => void
+  /** Opening can land in an older page; the top edge grows toward newer rows. */
+  newer: boolean
+  growNewer: () => void
+  openingId?: string | null
   /** ask again after a failure */
   retry: () => void
 }
 
 interface DocWindowState {
+  ident?: string
   rows: DocRow[] | null
   total: number
   more: boolean
@@ -183,10 +202,12 @@ interface DocWindowState {
   located: string
   seq: unknown
   error: string
+  offset: number
+  openingId?: string | null
 }
 
 const EMPTY_WINDOW: DocWindowState = {
-  rows: null, total: 0, more: false, win: 0, located: '', seq: undefined, error: '',
+  rows: null, total: 0, more: false, win: 0, located: '', seq: undefined, error: '', offset: 0,
 }
 
 /** The gallery's list half: a growing newest-first window over `documents`,
@@ -198,9 +219,11 @@ const EMPTY_WINDOW: DocWindowState = {
  *  one page more" — it would unmount every row and drop the reader back to the
  *  top. So this hook keeps its own state and resets only on `slug`/`node`. */
 function useDocWindow(slug: string, node: string, locate = '',
-  seq: unknown = 0, team = false): DocWindow {
+  seq: unknown = 0, team = false, autoOpen = true, hired = false): DocWindow {
   const ident = `${slug}/${node}${team ? '/team' : ''}`
   const [want, setWant] = useState(DOC_PAGE)
+  const [start, setStart] = useState(0)
+  const openingRead = useRef(true)
   const [attempt, setAttempt] = useState(0)
   const [last, setLast] = useState<DocWindowState>(EMPTY_WINDOW)
   /** ⚠ ONE RE-AIM PER JUMP, AND NO MORE. See the `locate` branch below. */
@@ -209,13 +232,18 @@ function useDocWindow(slug: string, node: string, locate = '',
   // its rows must not stay on screen under the new identity, and its window
   // size must not carry over either
   useEffect(() => {
-    setWant(DOC_PAGE); setAttempt(0); setLast(EMPTY_WINDOW); aimed.current = ''
+    setWant(DOC_PAGE); setStart(0); setAttempt(0); setLast(EMPTY_WINDOW); aimed.current = ''; openingRead.current = true
   }, [ident])
   useEffect(() => {
     let dead = false
     const tick = () => {
-      getDocuments(slug, 0, node, locate, want, team).then((d) => {
+      const opening = autoOpen && !locate && openingRead.current
+      getDocuments(slug, start, node, locate, want, team, opening, hired).then((d) => {
         if (dead) return
+        if (opening) {
+          openingRead.current = false
+          setStart(d.offset ?? 0)
+        }
         // A `locate` for a row BELOW the window answers with that row's own
         // page rather than a prefix from zero (api.py snaps the offset to
         // `index // limit * limit`). Adopt a window that reaches it and ask
@@ -245,13 +273,16 @@ function useDocWindow(slug: string, node: string, locate = '',
           return
         }
         const rows = d.documents ?? []
-        setLast({
+        setLast(p => ({
+          ident,
           rows, total: d.total ?? rows.length, win: want,
           // a short answer means the server gave everything it was willing to
           // in one window, so asking for a wider one would only repeat it
           more: d.next_offset != null && rows.length >= want && want < DOC_MAX_WINDOW,
           located: d.located ?? '', seq, error: '',
-        })
+          offset: d.offset ?? start,
+          openingId: opening ? d.opening_id : p.openingId,
+        }))
       }, (e: Error) => {
         // the rows already read stay on screen — a dropped poll is not a
         // reason to empty a list the reader is using
@@ -262,7 +293,7 @@ function useDocWindow(slug: string, node: string, locate = '',
     const t = setInterval(tick, 5000)
     const off = onLiveBump(tick)
     return () => { dead = true; clearInterval(t); off() }
-  }, [ident, slug, node, locate, seq, want, attempt, team])
+  }, [ident, slug, node, locate, seq, want, start, attempt, team, autoOpen, hired])
   const settled = last.win >= want
   const grow = useCallback(() => {
     setWant((w) => (last.rows != null && last.win >= w && last.more && !last.error)
@@ -272,10 +303,16 @@ function useDocWindow(slug: string, node: string, locate = '',
     setLast((p) => ({ ...p, error: '' }))
     setAttempt((a) => a + 1)
   }, [])
+  const growNewer = useCallback(() => {
+    if (last.rows == null || last.win < want || last.error || start === 0) return
+    const extra = Math.min(DOC_PAGE, start)
+    setStart(start - extra); setWant(w => w + extra)
+  }, [last, start, want])
   return {
-    rows: last.rows, total: last.total, more: last.more, error: last.error,
-    busy: !last.error && (last.rows == null || !settled),
+    rows: last.ident === ident ? last.rows : null, total: last.total, more: last.more, error: last.error,
+    busy: !last.error && (last.ident !== ident || last.rows == null || !settled),
     located: last.located, seq: last.seq, grow, retry,
+    newer: start > 0, growNewer, openingId: last.ident === ident ? last.openingId : undefined,
   }
 }
 
@@ -319,7 +356,11 @@ function LazyDocList({ w, label, children }: {
     // contract, and it evaporates the moment a row gains a focusable child.
     // Stating it here is what makes the keyboard path OURS to keep.
     <div className="mailer-list" ref={ref} tabIndex={0} aria-label={label}
-      onScroll={() => { if (nearEnd()) w.grow() }}>
+      onScroll={() => {
+        if (ref.current && ref.current.clientHeight > 0 && ref.current.scrollTop < DOC_EDGE && w.newer) w.growNewer()
+        else if (nearEnd()) w.grow()
+      }}>
+      {w.newer && <button className="doc-list-newer" onClick={w.growNewer}>Load newer documents</button>}
       {children}
       <DocListEnd w={w} />
     </div>
@@ -387,7 +428,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
    *  what it does not supply reads as "not opened from here". */
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
 }) {
-  const w = useDocWindow(slug, '', jumpTo?.id ?? '', jumpTo?.seq ?? 0)
+  const w = useDocWindow(slug, '', jumpTo?.id ?? '', jumpTo?.seq ?? 0, false, true, true)
   const all = useMemo(() => w.rows?.filter(r => !r.evicted), [w.rows])
   const [showRetired, setShowRetired] = useState(false)
   // ONE list, grouped — not two views (user, 2026-09-03: "one tab with a
@@ -427,10 +468,10 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
     // An explicit document reference owns selection, even if its lookup is
     // still loading. Clearing the handled jump must not select the newest.
     if (jumpTo) { opening.current.pending = false; return }
-    if (!rows?.length) return
+    if (w.rows == null) return
     opening.current.pending = false
-    setSelId(rows[0].id)
-  }, [slug, rows, jumpTo])
+    setSelId(w.openingId !== undefined ? w.openingId : openingPresentation(slug, rows ?? []))
+  }, [slug, rows, jumpTo, w.rows, w.openingId])
   // A JUMP IS ANSWERED BY THE RESPONSE THAT CARRIED IT, which is why the latch
   // compares the request's own `seq` (shared.ts JumpReq) and not the id: a
   // repeat click on the same reference is a new request, an unrelated poll is
@@ -787,7 +828,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   const isProject = (node as { kind?: string } | undefined)?.kind === 'project'
   const effectiveTeam = onTeam ? !!team : localTeam
   const setTeam = (next: boolean) => { setLocalTeam(next); onTeam?.(next) }
-  const w = useDocWindow(slug, nid, '', 0, effectiveTeam)
+  const w = useDocWindow(slug, nid, '', 0, effectiveTeam, !initialDocument)
   // a team list holds other nodes' cards, and a project's own list may hold
   // cards presented under its old name (the engine reads a project by id,
   // point 27): the engine scoped both, so their rows are not narrowed to `nid`
@@ -824,26 +865,28 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
 
   const [selId, setSelId] = useState<string | null>(initialDocument ?? null)
   useEffect(() => {setSelId(initialDocument ?? null); setDismissed([])}, [slug, nid, initialDocument])
-  // Opening the list selects the newest presentation once, like the org
-  // gallery does. A document the surface was opened to keeps selection, and a
+  // Opening selects the oldest unread/changed card, otherwise the newest.
+  // A document the surface was opened to keeps selection, and a
   // later deselect or dismissal is never undone.
   const opening = useRef({ key: '', pending: true })
   useEffect(() => {
     const key = JSON.stringify([slug, nid, initialDocument ?? null])
     if (opening.current.key !== key) opening.current = { key, pending: !initialDocument }
-    if (!opening.current.pending || !rows.length) return
+    if (!opening.current.pending || w.rows == null) return
     opening.current.pending = false
-    let newest = rows[0]!
-    for (const r of rows) if (Date.parse(r.at) > Date.parse(newest.at)) newest = r
-    setSelId(newest.id)
-  }, [slug, nid, initialDocument, rows])
+    setSelId(w.openingId !== undefined ? w.openingId : openingPresentation(slug, rows))
+  }, [slug, nid, initialDocument, rows, w.rows, w.openingId])
+  const chooseDocument: typeof setSelId = choice => {
+    opening.current.pending = false
+    setSelId(choice)
+  }
   // Tell an owning window WHAT IS ON SCREEN, every time it changes — a row
   // picked from the list, a document opened by reference from the pane, a
   // dismissal that clears the selection. Whoever holds the window publishes
   // this as the surface's identity; see AgentGalleryModal.
   useEffect(() => { onShown?.(selId) }, [selId, onShown])
   const cur = rows.find((r) => r.id === selId)
-  const steps = usePanelSteps(rows.map(row => row.id), selId, setSelId, '.doc-gallery-row')
+  const steps = usePanelSteps(rows.map(row => row.id), selId, chooseDocument, '.doc-gallery-row')
   // the row's context menu — the same entries as the org gallery's rows, with
   // this view's own dismiss bookkeeping (the optimistic `dismissed` list)
   const menu = useContextMenu()
@@ -851,7 +894,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   const rowMenu = (e: ReactMouseEvent<HTMLElement>, r: DocRow) =>
     presentationMenu(e.currentTarget, slug, r, {
       nodeMenu: (id, el) => nodeNav?.current?.(id, el) ?? [],
-      open: () => setSelId(r.id === selId ? null : r.id),
+      open: () => chooseDocument(r.id === selId ? null : r.id),
       openLabel: r.id === selId ? 'Close' : 'Open',
       reply: onReplyToDoc && !r.evicted ? () => onReplyToDoc(r) : undefined,
       toast,
@@ -866,7 +909,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
     world: refs.world,
     onOpen: (r: ResolvedRef) => {
       if (r.ref.kind === 'doc' && rows.some((d) => d.id === r.ref.id)) {
-        setSelId(r.ref.id)
+        chooseDocument(r.ref.id)
         return
       }
       refs.onOpen?.(r)
@@ -912,7 +955,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                     : `read “${r.title}”`,
                   STATE_WHY[r.node_state],
                 ].filter(Boolean).join(' · ')}
-                onClick={() => setSelId(r.id === selId ? null : r.id)}
+                onClick={() => chooseDocument(r.id === selId ? null : r.id)}
                 onContextMenu={(e) => menu.open(e, () => rowMenu(e, r))}>
                 <div className="l1">
                   <span className="mfrom">{r.title || '(untitled)'}</span>
