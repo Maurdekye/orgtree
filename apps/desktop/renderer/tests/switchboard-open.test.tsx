@@ -46,7 +46,7 @@ for (const focused of [false, true]) {
   test(`switchboard ${surface} groups Open routes while retaining top-level actions`, async t => {
     const { calls, open } = await setup(t, focused)
     assert.ok(named('Open'), 'the Open submenu exists')
-    assert.deepEqual(top().map(bare), ['Focus', 'Hire an agent', 'New project…', 'Open', 'Agents list', 'Org settings', 'Compact all agents…', 'Halt all agents…', 'Retire all agents…'])
+    assert.deepEqual(top().map(bare), ['Focus', 'Open', 'Hire an agent', 'New project…', 'Agents list', 'Org settings', 'Compact all agents…', 'Halt all agents…', 'Retire all agents…'])
     assert.equal(named('Open')!.getAttribute('aria-haspopup'), 'menu')
     await key(named('Open')!, 'ArrowRight')
     const submenu = document.querySelector('.ctxmenu-submenu[aria-label="Open"]')

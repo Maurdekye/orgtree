@@ -267,7 +267,7 @@ test('§1d the eye’s context menu reaches the inbox and org settings with '
   assert.equal(took, true, 'the eye must take the right-click, not leave it '
     + 'to the browser menu')
   assert.deepEqual(menuLabels(),
-    ['Focus', 'Hire an agent ▸', 'Open ▸', 'Org settings', 'Compact all agents…',
+    ['Focus', 'Open ▸', 'Hire an agent ▸', 'Org settings', 'Compact all agents…',
       'Halt all agents…', 'Retire all agents…'])
 
   const menu = document.querySelector('.ctxmenu')!
@@ -275,7 +275,7 @@ test('§1d the eye’s context menu reaches the inbox and org settings with '
   assert.equal(order.filter(x => x === 'sep').length, 1)
   assert.equal(order[order.indexOf('Compact all agents…') - 1], 'sep', 'separator precedes lifecycle actions like agent menus')
   assert.equal(menuItem('Open ▸')!.getAttribute('aria-haspopup'), 'menu')
-  await inAct(async () => { menuItem('Open ▸')!.click(); await flush(2) })
+  await inAct(async () => { menuItem('Open ▸')!.dispatchEvent(new WIN.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); await flush(2) })
   for (const name of ['Inbox', 'Global docket', 'Presentations'])
     assert.equal(menuItem(name)!.getAttribute('aria-haspopup'), null, 'Open children keep their existing direct actions')
 
@@ -286,7 +286,7 @@ test('§1d the eye’s context menu reaches the inbox and org settings with '
   assert.deepEqual(opened, ['inbox', 'gear'])
   for (const name of ['Focus', 'Global docket', 'Presentations']) {
     await rightClick(view.el.querySelector('.sq.user')!)
-    if (name !== 'Focus') await inAct(async () => { menuItem('Open ▸')!.click(); await flush(2) })
+    if (name !== 'Focus') await inAct(async () => { menuItem('Open ▸')!.dispatchEvent(new WIN.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); await flush(2) })
     await inAct(async () => { menuItem(name)!.click(); await flush(2) })
   }
   assert.deepEqual(opened, ['inbox', 'gear', 'focus', 'docket', 'presentations'])

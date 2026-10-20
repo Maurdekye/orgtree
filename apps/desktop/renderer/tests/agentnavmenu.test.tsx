@@ -231,8 +231,10 @@ uiTest('§2 the desk header name offers the agent whole menu, not just Copy ment
     const have = await menuOf(head!, 'the desk header name')
     assert.equal(have[0], 'Mention',
       `inside an open desk, Mention is first — have ${JSON.stringify(have)}`)
-    assert.equal(have[1], 'Copy mention',
-      `Copy mention stays right below Mention — have ${JSON.stringify(have)}`)
+    assert.equal(have[1], 'Open ▸',
+      `Open is second after Mention — have ${JSON.stringify(have)}`)
+    assert.ok(have.indexOf('Copy mention') > have.indexOf('· Team presentations'),
+      'Copy mention remains after the Open branch when Mention is prepended')
     assert.ok(have.length > 2,
       `and the agent menu entries follow — have ${JSON.stringify(have)}`)
     for (const entry of ['· Desk', '· Mail', '· Docket', 'Settings', 'Acquire audience']) {
@@ -296,7 +298,14 @@ uiTest('§3 every navigation target on screen offers the SAME menu as that agent
       const want = reference.get(target.id)
       if (!want) continue            // a target for an agent with no row here
       const have = await menuOf(target.el, `${target.where} -> ${target.id}`)
-      const expected = target.el.closest('[data-desk-mention-scope]') ? ['Mention', ...want] : want
+      // USER 2026-10-20: the shared renderer keeps Open second even
+      // after a desk adds Mention. Keep the whole canonical menu comparison.
+      const open = want.indexOf('Open ▸')
+      const end = want.findIndex((label, i) => i > open && !label.startsWith('· '))
+      const branch = want.slice(open, end < 0 ? want.length : end)
+      const rest = want.filter((_, i) => i < open || (end >= 0 && i >= end))
+      const expected = target.el.closest('[data-desk-mention-scope]')
+        ? ['Mention', ...branch, ...rest] : want
       assert.deepEqual(have, expected,
         `${target.where} -> ${target.id} must offer the agent canonical menu, `
         + 'not a surface-specific subset')

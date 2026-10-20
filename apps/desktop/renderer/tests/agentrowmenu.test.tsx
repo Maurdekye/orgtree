@@ -222,14 +222,13 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
     // ...and the order itself, written down once. The equality above cannot
     // catch a change made to both surfaces at once; this can.
     assert.deepEqual(have, [
-      // User 2026-09-30: only Focus and Open desk swap; all other slots stay.
+      // USER 2026-10-20: Open is second; other actions retain their order.
       // 4.2: the entries group under branches (Open ▸, Hire a subordinate ▸); '· ' marks a branch's entry
       // USER 2026-10-17 21:18Z: "New project…" directly under "Hire a subordinate"
       // USER 2026-10-18 07:19Z–07:28Z: "Copy mention", no "Open" inside Open, Presentations always offered
-      'Copy mention', 'Focus', 'Hire a subordinate ▸', 'New project…',
-      'Open ▸', '· Desk', '· Desk as a pinned window', '· Desk in a separate window',
+      'Copy mention', 'Open ▸', '· Desk', '· Desk as a pinned window', '· Desk in a separate window',
       '· Mail', '· Team', '· Docket', '· Team docket', '· Presentations', '· Team presentations',
-      'Settings', 'Acquire audience', 'Compact…', 'Halt', 'Retire…',
+      'Focus', 'Hire a subordinate ▸', 'New project…', 'Settings', 'Acquire audience', 'Compact…', 'Halt', 'Retire…',
     ], 'the agent menu, in order')
   })
 
