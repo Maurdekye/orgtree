@@ -133,6 +133,15 @@
   [decided: user/coordinator 2026-10-20; verified: `http/docs.rs`,
   `canvas/gallery.tsx`, `tests/presentationopening.test.tsx`]
 
+- Project bunches are a display projection of maximal direct project-only runs:
+  splits/agents end a run, hidden branches still count, and siblings never bunch.
+  The default-on Display switch restores ordinary columns when off. In-bunch
+  drag uses one atomic move/reorder gesture, preserving project identities and
+  the bottom member group; swap stays agent-only. See
+  [project bunches](docs/rust-engine/project-bunches.md).
+  [decided: user 2026-10-20; verified: `canvas/projectbunch.ts`,
+  `canvas/projectbunchmove.ts`, `canvas/OrgCanvas.tsx`]
+
 - Agent and project desk composers share `resizeComposer`: their base rows
   plus up to 30 rendered text lines (32 rows at the current two-row base),
   measured from CSS line height. Longer drafts scroll inside; deleting/sending

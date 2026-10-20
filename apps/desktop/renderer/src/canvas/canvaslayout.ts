@@ -127,8 +127,8 @@ export function viewHidden(vroot: CanvasNode, piles: ReadonlyMap<string, Pile>) 
     return out
 }
 
-export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, CanvasNode>, hidden: Map<string, string>, chartLayout: ChartLayout, tree: TreePayload, inboxPxc: number, draftCredits?: number) {
-    const t = layout(vroot, hidden, chartLayout)
+export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, CanvasNode>, hidden: Map<string, string>, chartLayout: ChartLayout, tree: TreePayload, inboxPxc: number, draftCredits?: number, bunch = true) {
+    const t = layout(vroot, hidden, chartLayout, bunch, map)
     for (const n of map.values()) {           // live bearers float ABOVE the successor
       // (clear of its card — overlap made both unclickable)
       if (n.isBearerOf && t.has(n.isBearerOf)) {

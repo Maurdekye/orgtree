@@ -1,0 +1,187 @@
+import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
+import test from 'node:test'
+import type { TestContext } from 'node:test'
+import assert from 'node:assert/strict'
+import { OrgCanvas } from '../src/canvas/OrgCanvas'
+import { resetConvos } from '../src/convo'
+import { USER, setChartLayout, treeParents, withPendingMoves } from '../src/canvas/shared'
+import { withPendingOrder } from '../src/canvas/pendingorder'
+import { setProjectBunchesOn } from '../src/canvas/projectbunchprefs'
+import { projectBunchRotation, withProjectBunchRotation } from '../src/canvas/projectbunchmove'
+import { projectDraftSteps } from '../src/canvas/newproject'
+import { agent, chain, bunchTree, project } from './projectbunch-fixture'
+import type { TreePayload } from '../src/types'
+
+const W = window as unknown as Window & typeof globalThis
+const numbers = (s: string) => (s.match(/-?\d+(\.\d+)?(e-?\d+)?/g) ?? []).map(Number)
+const card = (el: HTMLElement, id: string) => el.querySelector<HTMLElement>(
+  id === USER ? '.sq.user' : `.sq[data-copy-agent-name="${id}"]`)
+function at(el: HTMLElement, id: string) {
+  const c = card(el, id)
+  assert.ok(!!c, `card ${id} present`)
+  const [x, y] = numbers(c!.style.transform)
+  return { x: x!, y: y! }
+}
+function client(el: HTMLElement, p: { x: number; y: number }) {
+  const [x, y, z] = numbers(el.querySelector<HTMLElement>('.space')!.style.transform)
+  return { clientX: x! + p.x * z!, clientY: y! + p.y * z! }
+}
+async function canvas(t: TestContext, tree = bunchTree([chain(3)]), mode: 'row' | 'circular' = 'row') {
+  useFakeClock(); t.after(realClock)
+  resetConvos()
+  localStorage.clear()
+  setChartLayout(mode)
+  setProjectBunchesOn(true)
+  const proto = W.HTMLElement.prototype
+  const old = { rect: proto.getBoundingClientRect, w: Object.getOwnPropertyDescriptor(proto, 'clientWidth'),
+    h: Object.getOwnPropertyDescriptor(proto, 'clientHeight'), capture: proto.setPointerCapture }
+  proto.setPointerCapture = () => {}
+  proto.getBoundingClientRect = function () {
+    return this.classList.contains('viewport') ? { left: 0, top: 0, right: 1600, bottom: 1000, width: 1600, height: 1000 } as DOMRect
+      : old.rect.call(this)
+  }
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get() { return this.classList.contains('viewport') ? 1600 : 0 } })
+  Object.defineProperty(proto, 'clientHeight', { configurable: true, get() { return this.classList.contains('viewport') ? 1000 : 0 } })
+  t.after(() => {
+    proto.getBoundingClientRect = old.rect; proto.setPointerCapture = old.capture
+    if (old.w) Object.defineProperty(proto, 'clientWidth', old.w)
+    if (old.h) Object.defineProperty(proto, 'clientHeight', old.h)
+  })
+  const previous = globalThis.fetch
+  installFetch(new FakeServer())
+  const fallback = globalThis.fetch
+  const gestures: { steps: Record<string, unknown>[] }[] = [], ops: unknown[] = [], errors: string[] = []
+  let resolve!: (value: unknown) => void, reject!: (error: Error) => void
+  const answer = new Promise((yes, no) => { resolve = yes; reject = no })
+  globalThis.fetch = ((url, init) => {
+    if (String(url).endsWith('/gesture')) {
+      gestures.push(JSON.parse(String(init?.body)))
+      return answer.then(value => new Response(JSON.stringify(value), { status: 200 }))
+    }
+    return fallback(url, init)
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = previous })
+  const render = (tree: TreePayload) => <OrgCanvas tree={tree} slug={tree.slug} mailEvt={null}
+    op={async b => { ops.push(b); return {} as never }} toast={lines => errors.push(...(lines ?? []))} />
+  const view = await mountView(render(tree), el => el)
+  t.after(() => view.unmount())
+  await flush(); await advance(3000, 50); await flush()
+  return { ...view, gestures, ops, errors, resolve, reject,
+    show: async (next: TreePayload) => { await view.render(render(next)); await advance(1500, 50); await flush() } }
+}
+async function drag(el: HTMLElement, id: string, world: { x: number; y: number }, cancel = false) {
+  const p = at(el, id), c = card(el, id)!
+  const start = client(el, { x: p.x + 62, y: p.y + 62 }), finish = client(el, world)
+  for (const [type, point] of [['pointerdown', start], ['pointermove', finish], [cancel ? 'pointercancel' : 'pointerup', finish]] as const)
+    await inAct(() => c.dispatchEvent(new W.PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, ...point })))
+  await flush()
+}
+function apply(tree: TreePayload, steps: Record<string, unknown>[]) {
+  let current = tree
+  for (const step of steps) {
+    if (step.op === 'moves') {
+      for (const move of step.moves as { node: string; new_parent: string | null }[]) {
+        const next = withPendingMoves(current, new Map([[move.node, move.new_parent]]))
+        assert.notEqual(next, current, 'each step is a valid non-cyclic move')
+        current = next
+      }
+    } else if (step.op === 'reorder') {
+      current = withPendingOrder(current, { parent: treeParents(current).get(step.node as string)!,
+        block: [step.node as string], slot: { before: step.before as string | undefined, after: step.after as string | undefined }, settled: false })
+    } else assert.fail('only existing moves/reorder operations are allowed')
+  }
+  return current
+}
+for (const mode of ['row', 'circular'] as const) {
+  test(`${mode}: dragging the head to the end is one atomic rotation; members stay below the new bottom`, async t => {
+    const tree = bunchTree([agent('boss', [agent('left'), chain(3), agent('right')])])
+    const view = await canvas(t, tree, mode), end = at(view.el, 'project-3')
+    assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 2, 'real order line rendered')
+    await drag(view.el, 'project-1', { x: end.x + 100, y: end.y + 62 })
+    assert.equal(view.gestures.length, 1, 'one atomic gesture')
+    assert.equal(view.ops.length, 0)
+    const next = apply(tree, view.gestures[0]!.steps), parents = treeParents(next)
+    assert.equal(parents.get('project-2'), 'boss')
+    assert.equal(parents.get('project-3'), 'project-2')
+    assert.equal(parents.get('project-1'), 'project-3')
+    assert.equal(parents.get('worker-a'), 'project-1')
+    assert.equal(parents.get('worker-b'), 'project-1')
+    assert.deepEqual(next.roots[0]!.children.map(n => n.id), ['left', 'project-2', 'right'])
+    await advance(1200, 50)
+    assert.ok(at(view.el, 'project-2').x < at(view.el, 'project-1').x, 'shown before server reply')
+    await inAct(() => view.resolve({ results: [] }))
+    await view.show(next)
+    assert.ok(at(view.el, 'project-2').x < at(view.el, 'project-1').x, 'feed agrees with preview')
+  })
+}
+test('refused in-bunch reorder restores all cards; cancellation sends nothing', async t => {
+  const view = await canvas(t), original = at(view.el, 'project-3'), first = at(view.el, 'project-1')
+  await drag(view.el, 'project-3', { x: first.x + 25, y: first.y + 62 })
+  assert.equal(view.gestures.length, 1)
+  await inAct(() => view.reject(new Error('permission refused')))
+  await advance(1500, 50); await flush()
+  assert.ok(Math.abs(at(view.el, 'project-3').x - original.x) < 2)
+  assert.ok(view.errors.some(line => line.includes('permission refused')))
+  await drag(view.el, 'project-3', { x: first.x + 25, y: first.y + 62 }, true)
+  assert.equal(view.gestures.length, 1)
+})
+test('dragging outside a bunch retains the existing whole-subtree move', async t => {
+  const view = await canvas(t, bunchTree([chain(3), agent('outside')])), point = at(view.el, 'outside')
+  await drag(view.el, 'project-2', { x: point.x + 62, y: point.y + 62 })
+  assert.equal(view.gestures.length, 0)
+  assert.deepEqual(view.ops, [{ op: 'demote', node: 'project-2', new_parent: 'outside' }])
+})
+test('existing above placement joins above a project or a sole bottom agent; a split stays separate', async t => {
+  for (const anchor of ['project-2', 'worker']) assert.deepEqual(
+    projectDraftSteps({ parent: anchor === 'worker' ? 'project-2' : 'project-1',
+      tier: 'project', project: true, above: { anchor } }, 'inserted', ''),
+    [{ op: 'create_project', name: 'inserted', above: anchor }])
+  const initial = bunchTree([chain(2, [agent('worker')])]), view = await canvas(t, initial)
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 1)
+  await view.show(bunchTree([project('project-1', [project('inserted', [project('project-2', [agent('worker')])])])]))
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 2)
+  await view.show(bunchTree([project('project-1', [project('project-2', [project('inserted', [agent('worker')])])])]))
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 2)
+  await view.show(bunchTree([project('project-1', [project('project-2', [project('inserted', [agent('worker')]), agent('sibling')])])]))
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 1, 'branch prevents joining')
+})
+test('every rotation of 2 through 8 projects preserves the exact ordered member group and outer slot', () => {
+  for (let n = 2; n <= 8; n++) for (let from = 0; from < n; from++) for (let to = 0; to < n; to++) {
+    const tree = bunchTree([agent('left'), chain(n), agent('right')])
+    const before = Array.from({ length: n }, (_, i) => `project-${i + 1}`)
+    const id = before[from]!, rest = before.filter(k => k !== id)
+    const slot = to === n - 1 ? { after: rest[rest.length - 1]! } : { before: rest[to]! }
+    const rotation = projectBunchRotation(tree, before, id, slot)
+    if (from === to) { assert.equal(rotation, null); continue }
+    assert.ok(rotation)
+    const next = apply(tree, rotation.steps), parents = treeParents(next)
+    const order = [...rest.slice(0, to), id, ...rest.slice(to)]
+    assert.deepEqual(next.roots.map(n => n.id), ['left', order[0], 'right'])
+    order.forEach((k, i) => assert.equal(parents.get(k), i ? order[i - 1] : null))
+    for (const member of ['worker-a', 'worker-b']) assert.equal(parents.get(member), order[order.length - 1])
+    assert.equal(parents.size, n + 4)
+    assert.deepEqual([...treeParents(withProjectBunchRotation(tree, rotation))].sort(), [...parents].sort())
+    assert.equal(withProjectBunchRotation(next, rotation), next, 'confirmed read ends override')
+    assert.equal(treeParents(tree).get('project-1'), null, 'source unchanged')
+  }
+})
+test('a concurrent split or unloaded children refuses the rotation before any writes', () => {
+  const ids = ['project-1', 'project-2']
+  const split = bunchTree([project('project-1', [project('project-2'), agent('branch')])])
+  assert.throws(() => projectBunchRotation(split, ids, ids[0]!, { after: ids[1] }), /changed or has unloaded/)
+  const hidden = bunchTree([project('project-1', [{ ...project('project-2'), hidden_retired_children: 10 } as never])])
+  assert.throws(() => projectBunchRotation(hidden, ids, ids[0]!, { after: ids[1] }), /changed or has unloaded/)
+})
+test('Display opt-out updates an already-mounted canvas and storage events restore bunching', async t => {
+  const view = await canvas(t)
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 2)
+  await inAct(() => setProjectBunchesOn(false))
+  await advance(1000, 50)
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 0)
+  assert.ok(Math.abs(at(view.el, 'project-1').x - at(view.el, 'project-3').x) < 2)
+  await inAct(() => {
+    localStorage.setItem('orgtree-project-bunches', '1')
+    window.dispatchEvent(new W.StorageEvent('storage', { key: 'orgtree-project-bunches', newValue: '1' }))
+  })
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 2)
+})

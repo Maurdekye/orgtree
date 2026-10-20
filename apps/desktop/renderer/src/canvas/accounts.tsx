@@ -2,6 +2,7 @@ import { AccountRegistrySection, AddAccountDialog, useAccountRegistry } from './
 import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { CanvasBackgroundSetting } from './canvasbgsetting'
+import { setProjectBunchesOn, useProjectBunches } from './projectbunchprefs'
 import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
 import { TurnLimitsSetting } from './turnlimitssetting'
@@ -329,6 +330,13 @@ function DeskTextSize() {
       <button onClick={() => apply(1)} disabled={dpi === 1}>reset</button>
     </SetRow>
   )
+}
+
+export function ProjectBunchSetting() {
+  const on = useProjectBunches()
+  return <SetToggle label="bunch consecutive projects" checked={on}
+    onChange={setProjectBunchesOn}
+    hint="pack direct project columns into an ordered spring; splits and agents start separate bunches" />
 }
 
 function CrowdStackToggle() {
@@ -914,7 +922,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
       <CanvasBackgroundSetting />
-      <SetGroup title="Desk"><ChartLayoutSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
+      <SetGroup title="Desk"><ChartLayoutSetting /><ProjectBunchSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
       <SetGroup title="Quick chat"><QuickChatPositionSetting /></SetGroup>
       <SetGroup title="Typing">
         <SetRow label="Enter key" hint={composerKeyHint(enterKey ?? runtime?.enter_key_behavior ?? 'send')}>

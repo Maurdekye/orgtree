@@ -1,4 +1,7 @@
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
+import { projectBunches, type ProjectBunch } from './projectbunch'
+import { projectBunchesOn, useProjectBunches } from './projectbunchprefs'
+import { projectBunchRotation, withProjectBunchRotation, type BunchRotation } from './projectbunchmove'
 import { CanvasBackground } from './canvasbackground'
 import { publishEpicCanvas } from '../epic/tap'
 import { fastModeSupported } from './fastmode'
@@ -813,11 +816,21 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     for (const [id, entry] of pendingOrders)
       if (entry.settled && withPendingOrder(tree, entry) === tree) dropPendingOrder(id, entry)
   }, [tree]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [pendingBunch, setPendingBunch] = useState<(BunchRotation & { settled: boolean }) | null>(null)
+  const bunchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    setPendingBunch(null)
+    return () => { if (bunchTimer.current !== null) clearTimeout(bunchTimer.current) }
+  }, [slug])
+  useEffect(() => {
+    if (pendingBunch?.settled && withProjectBunchRotation(tree, pendingBunch) === tree) setPendingBunch(null)
+  }, [tree, pendingBunch])
   const shownTree = useMemo(() => {
-    let shown = withPendingMoves(tree, pendingTargets)
+    let shown = pendingBunch ? withProjectBunchRotation(tree, pendingBunch) : tree
+    shown = withPendingMoves(shown, pendingTargets)
     for (const entry of pendingOrders.values()) shown = withPendingOrder(shown, entry)
     return shown
-  }, [tree, pendingTargets, pendingOrders])
+  }, [tree, pendingTargets, pendingOrders, pendingBunch])
   const vrootFull = useMemo(() => canonPiles(withDraftTree(shownTree, draft)),
     [shownTree, draft])   // eslint-disable-line react-hooks/exhaustive-deps
   // hide-retired (user resumed 2026-09-10 13:25): a DISPLAY prune of the
@@ -991,6 +1004,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const hiddenMemo = useMemo(() => viewHidden(vroot, piles), [vroot, piles])
   const hidden = hiddenMemo
   const chartLayout = useChartLayout()
+  const bunchProjects = useProjectBunches()
+  const bunches = useMemo(() => bunchProjects ? projectBunches(vroot, hidden, map) : new Map<string, ProjectBunch>(),
+    [vroot, hidden, map, bunchProjects])
+  const inSameBunch = (a: string, b: string) => !!bunches.get(a) && bunches.get(a) === bunches.get(b)
   // the credit bars' scale, for the org inbox's clearance (= pxPerCredit below)
   const inboxPxc = useMemo(() => orgPxc(tree), [tree])
   // the open hire draft's bar is drawn as tall as its tier seat + pending grant:
@@ -1002,12 +1019,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     ? (seats[draft.tier] ?? 0) + (draftGrant
       ?? draftOpeningGrant(draft, tree.default_top_grant ?? 50, map))
     : undefined
-  const target = useMemo(() => canvasTargets(vroot, map, hidden, chartLayout, tree, inboxPxc, draftCredits),
-    [vroot, map, tree, hidden, chartLayout, inboxPxc, draftCredits])
+  const target = useMemo(() => canvasTargets(vroot, map, hidden, chartLayout, tree, inboxPxc, draftCredits, bunchProjects),
+    [vroot, map, tree, hidden, chartLayout, inboxPxc, draftCredits, bunchProjects])
   const [view, setView] = useState<View>(() => {
     // fit-on-load: center the initial tree in a typical viewport (re-fit against
     // the REAL viewport once mounted — see the mount effect below)
-    const t = layout(withDraftTree(tree, null), new Map(), chartLayoutOf())
+    const t = layout(withDraftTree(tree, null), new Map(), chartLayoutOf(), projectBunchesOn())
     let maxX = 0, maxY = 0
     for (const p of t.values()) { maxX = Math.max(maxX, p.x + 300); maxY = Math.max(maxY, p.y + 260) }
     const z = Math.min(1.3, Math.max(0.35, Math.min(1300 / maxX, 780 / maxY)))
@@ -1180,13 +1197,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     id: string; sx: number; sy: number
     bases: Map<string, Pt>; moved: boolean
     reorder?: RingReorderSlot
+    bunch?: { ids: string[]; positions: Map<string, Pt>; left: number; right: number; top: number; bottom: number }
+    inBunch?: boolean
   } | null>(null)     // {id, sx, sy, ox, oy, moved}
   const draggingId = nodeDrag.current?.moved ? nodeDrag.current.id : undefined
-  const moveGhost = useMemo(() => draggingId ? moveGhostPosition(tree, pendingTargets,
+  const draggingInBunch = !!nodeDrag.current?.inBunch
+  const moveGhost = useMemo(() => draggingId && !draggingInBunch ? moveGhostPosition(
+    pendingBunch ? withProjectBunchRotation(tree, pendingBunch) : tree, pendingTargets,
     pendingOrders, draggingId, dropId, { draft, seats, pileFront, crowdPiles,
-      hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits }) : undefined,
-  [draggingId, dropId, tree, pendingTargets, pendingOrders, draft, seats, pileFront,
-    crowdPiles, hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits])
+      hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits, bunchProjects }) : undefined,
+  [draggingId, draggingInBunch, dropId, tree, pendingTargets, pendingOrders, draft, seats, pileFront,
+    crowdPiles, hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits, bunchProjects, pendingBunch])
   // Escape cancels the captured drag before any release can commit it.
   useEffect(() => {
     const cancel = (event: KeyboardEvent) => {
@@ -1256,7 +1277,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       { x: ca.x + dx * ta, y: ca.y + dy * ta }, { x: cb.x - dx * tb, y: cb.y - dy * tb }] }
   }
   const treeSeg = (parentId: string, childId: string): Seg => {
-    if (chartLayout === 'circular') return radialSeg(parentId, childId)
+    if (chartLayout === 'circular' || inSameBunch(parentId, childId)) return radialSeg(parentId, childId)
     const a = posOf(parentId)!, b = posOf(childId)!
     const ps = sizeOf(parentId)
     return { kind: 'c', pts: [
@@ -2780,7 +2801,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       const key = 'dog:' + w.id, p = posOf(key)
       if (p) bases.set(key, { x: p.x, y: p.y })
     }
-    nodeDrag.current = { id, sx: e.clientX, sy: e.clientY, bases, moved: false }
+    const group = bunches.get(id)
+    const positions = new Map<string, Pt>(group?.members.flatMap(n => {
+      const p = targetRef.current.get(n.id)
+      return p ? [[n.id, { ...p }] as [string, Pt]] : []
+    }) ?? [])
+    const points = [...positions.values()]
+    nodeDrag.current = { id, sx: e.clientX, sy: e.clientY, bases, moved: false,
+      bunch: group && points.length === group.members.length ? {
+        ids: group.members.map(n => n.id), positions,
+        left: Math.min(...points.map(p => p.x)) - 32,
+        right: Math.max(...points.map(p => p.x)) + NODE_W + 32,
+        top: Math.min(...points.map(p => p.y)) - 32,
+        bottom: Math.max(...points.map(p => p.y)) + NODE_H + 32,
+      } : undefined }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
   const moveNodeDrag = (e: React.PointerEvent<HTMLDivElement>, id: string) => {
@@ -2807,9 +2841,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const dx = (e.clientX - d.sx) / z, dy = (e.clientY - d.sy) / z
     if (Math.abs(dx) + Math.abs(dy) > 5 / z) d.moved = true
     if (!d.moved) return
+    const world = toWorld(e), bunch = d.bunch
+    d.inBunch = !!bunch && world.x >= bunch.left && world.x <= bunch.right
+      && world.y >= bunch.top && world.y <= bunch.bottom
     for (const [k, b] of d.bases) {
       const s = springs.current.get(k)
-      if (s) { s.x = b.x + dx; s.y = b.y + dy; s.vx = 0; s.vy = 0 }
+      const travels = !d.inBunch || k === id || (tree.watchdogs ?? []).some(w => k === 'dog:' + w.id && w.owner === id)
+      if (s) { s.x = b.x + (travels ? dx : 0); s.y = b.y + (travels ? dy : 0); s.vx = 0; s.vy = 0 }
+    }
+    if (d.inBunch && bunch) {
+      setDropId(null)
+      d.reorder = rowReorderSlot(bunch.ids.filter(k => k !== id), bunch.positions,
+        { x: world.x - NODE_W / 2, y: world.y - NODE_H / 2 })
+      setFrame(f => f + 1)
+      return
     }
     const drop = dropTargetAt(toWorld(e), id)
     setDropId(drop)
@@ -2862,6 +2907,28 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     while (cur != null) { ancestors.push(cur); cur = mapRef.current.get(cur)?.parent }
 
     const finish = () => setFrame((f) => f + 1)   // springs glide back/onward
+    if (d.inBunch && d.bunch && d.reorder) {
+      try {
+        if (pendingBunch) throw new Error('Wait for the current project reorder to finish.')
+        const rotation = projectBunchRotation(shownTree, d.bunch.ids, id, d.reorder.request)
+        if (!rotation) { finish(); return }
+        const entry = { ...rotation, settled: false }
+        setPendingBunch(entry)
+        userGesture(slug, rotation.steps, `Reorder project ${id}`)
+          .then(r => {
+            setPendingBunch(current => current === entry ? { ...entry, settled: true } : current)
+            if (bunchTimer.current !== null) clearTimeout(bunchTimer.current)
+            bunchTimer.current = setTimeout(() => setPendingBunch(current =>
+              current?.steps === entry.steps ? null : current), PENDING_MOVE_MS)
+            toast([`${id} reordered in its project bunch`], historyUndo(slug, r))
+          })
+          .catch((error: Error) => {
+            setPendingBunch(current => current === entry ? null : current)
+            toast([`error: ${error.message}`])
+          }).finally(finish)
+      } catch (error) { toast([`error: ${(error as Error).message}`]); finish() }
+      return
+    }
     if (drop === INBOX) {
       if (!targetRef.current.has(INBOX)) { finish(); return }
       // dropping on the mailbox grants the org-inbox audience, never reparents
@@ -3756,8 +3823,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   for (const n of map.values()) {
     if (!n.parent || n.isBearerOf || hidden.has(n.id)) continue
     if (!posOf(n.parent) || !posOf(n.id)) continue
-    wires.push({ key: n.id, seg: treeSeg(n.parent, n.id),
+    wires.push({ key: n.id, seg: treeSeg(n.parent, n.id), svgOnly: inSameBunch(n.parent, n.id),
       cls: 'edge' + (n.state === 'archived' ? ' faded' : '')
+        + (inSameBunch(n.parent, n.id) ? ' project-bunch-edge' : '')
         // dashed on BOTH sides of a draft: its own parent edge, and — for an
         // insert-superior draft, which wraps its anchor — the edge down to the
         // anchor it would adopt
@@ -4018,8 +4086,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       }}>
         <svg className="edges" ref={edgesSvgRef} width={bounds.w} height={bounds.h}>
           {moveGhost && <MoveGhost point={moveGhost} zoom={view.z} />}
-          {nodeDrag.current?.reorder && <ReorderMarker slot={nodeDrag.current.reorder}
-            eye={chartLayout === 'circular' ? targetRef.current.get(USER) : undefined} zoom={view.z} />}
+          {nodeDrag.current?.reorder && (nodeDrag.current.inBunch
+            ? <circle data-project-bunch-insert=""
+              data-reorder-before={'before' in nodeDrag.current.reorder.request ? nodeDrag.current.reorder.request.before : undefined}
+              data-reorder-after={'after' in nodeDrag.current.reorder.request ? nodeDrag.current.reorder.request.after : undefined}
+              cx={nodeDrag.current.reorder.point.x + NODE_W / 2}
+              cy={nodeDrag.current.reorder.point.y + NODE_H / 2}
+              r={4 / view.z} fill="var(--accent)" pointerEvents="none" />
+            : <ReorderMarker slot={nodeDrag.current.reorder}
+              eye={chartLayout === 'circular' ? targetRef.current.get(USER) : undefined} zoom={view.z} />)}
           {/* the wire list (built above). Under WebGL2 only `svgOnly` wires
               stay here; otherwise this is the whole layer, as it always was */}
           {wires.map((w) => (glWires.active && !w.svgOnly) ? null

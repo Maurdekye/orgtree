@@ -1,4 +1,5 @@
 import { useSurfaceDocument } from '../popout'
+import { projectBunches, contractBunches, expandBunches, layoutBunchRows } from './projectbunch'
 import { creditSegments } from './creditsegments'
 import { syncFastModes } from './fastmode'
 import { isNoticeRow } from '../events/decode'
@@ -2209,7 +2210,8 @@ export function ringInsertSide(side: 'left' | 'right', anchorId: string, sibs: s
 /** One ring per depth, with capacity-based radii and ordered collision-safe
  * spring relaxation. Linear work per bounded relaxation step. Returns card
  * top-lefts like row layout, with the eye anchored at its usual world x. */
-export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = new Map()): Map<string, Pt> {
+export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = new Map(),
+  footprints?: ReadonlyMap<string, { width: number; height: number }>): Map<string, Pt> {
   // Drawn MIRRORED (x = cx − r·cos): the ring runs counter-clockwise from the
   // top on screen, so the arc and the bottom of a full ring read left to right
   // in sibling order, like the row layout (user 2026-10-01: switching between
@@ -2222,18 +2224,25 @@ export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = n
   // relax every depth together: crowded child arcs can push their parents
   // apart too, instead of permanently drifting away from them.
   const rings: (SpringRing & { nodes: CanvasNode[]; radius: number })[] = []
-  let level = [{ node: root, angle: Math.PI / 2 }], radius = 0
+  let level = [{ node: root, angle: Math.PI / 2 }], radius = 0, previousDiameter = NODE_W
   while (level.length) {
     const groups = level.map((p, parent) => ({ parent, angle: p.angle, kids: p.node.children.filter(c => !hidden.has(c.id)) }))
       .filter(g => g.kids.length > 0)
     const count = groups.reduce((sum, g) => sum + g.kids.length, 0)
     if (!count) break
-    radius = radius === 0 ? RING_FIRST : radius + RING_STEP
-    let step = 2 * Math.asin(Math.min(1, RING_PITCH / (2 * radius)))
+    const diameter = footprints ? Math.max(NODE_W, ...groups.flatMap(g => g.kids.map(n => {
+      const f = footprints.get(n.id)
+      return f ? Math.hypot(f.width, f.height) : NODE_W
+    }))) : NODE_W
+    const pitch = Math.max(RING_PITCH, diameter + 60)
+    const spacing = Math.max(RING_STEP, (diameter + previousDiameter) / 2 + 76)
+    radius = radius === 0 ? Math.max(RING_FIRST, spacing) : radius + spacing
+    previousDiameter = diameter
+    let step = 2 * Math.asin(Math.min(1, pitch / (2 * radius)))
     // A full level uses equal spacing, increasing the radius only as needed.
     if (count * step >= 2 * Math.PI) {
       step = 2 * Math.PI / count
-      radius = Math.max(radius, RING_PITCH / (2 * Math.sin(step / 2)))
+      radius = Math.max(radius, pitch / (2 * Math.sin(step / 2)))
     }
     const centres = ringArcCentres(groups.map(g => g.angle), groups.map(g => g.kids.length), step)
     level = []
@@ -2257,7 +2266,20 @@ export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = n
   return out
 }
 
-export function layout(root: CanvasNode, hidden: Map<string, string> = new Map(), mode: ChartLayout = 'row'): Map<string, Pt> {
+export function layout(root: CanvasNode, hidden: Map<string, string> = new Map(), mode: ChartLayout = 'row',
+  bunch = true, source?: ReadonlyMap<string, CanvasNode>): Map<string, Pt> {
+  const groups = bunch ? projectBunches(root, hidden, source) : new Map()
+  if (groups.size) {
+    const contracted = contractBunches(root, groups)
+    const positions = mode === 'circular' ? layoutCircular(contracted, hidden, groups)
+      : layoutBunchRows(contracted, hidden, groups)
+    const eye = positions.get(USER)
+    if (eye && mode === 'row') {
+      const dx = EYE_ANCHOR_X - eye.x, dy = PAD - eye.y
+      for (const p of positions.values()) { p.x += dx; p.y += dy }
+    }
+    return expandBunches(positions, groups)
+  }
   if (mode === 'circular') return layoutCircular(root, hidden)
   // `hidden`: piled-away retirees (and their subtrees) — they take NO layout
   // space; their positions are assigned afterwards onto their pile's front

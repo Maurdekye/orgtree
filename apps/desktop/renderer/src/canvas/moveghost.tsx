@@ -14,6 +14,7 @@ export type MoveGhostOptions = {
   chartLayout: ChartLayout
   inboxPxc: number
   draftCredits?: number
+  bunchProjects?: boolean
 }
 
 /** Apply the exact pending-state transition made by moveShown, then run the
@@ -37,7 +38,7 @@ export function moveGhostPosition(tree: TreePayload, moves: PendingMoves,
   const map = flatten(full, options.seats)
   const piles = viewPiles(root, options.pileFront, options.crowdPiles, options.hideRetired, options.shownRetired)
   const hidden = viewHidden(root, piles)
-  return canvasTargets(root, map, hidden, options.chartLayout, tree, options.inboxPxc, options.draftCredits).get(id)
+  return canvasTargets(root, map, hidden, options.chartLayout, tree, options.inboxPxc, options.draftCredits, options.bunchProjects).get(id)
 }
 
 export function MoveGhost({ point, zoom }: { point: Pt; zoom: number }) {
