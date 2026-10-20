@@ -15,7 +15,7 @@ for (const firstEmpty of [false, true]) test('app notices preserve all categorie
   const shown: DesktopNotice[] = [], attempts: string[] = [], closed: string[] = []
   let preferenceReads = 0
   const prefs = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true,
-    notifyTerminalFailures: true, notifyDocketAttention: true, notifyAllMail: true,
+    notifyTerminalFailures: true, notifyDocketAttention: true, notifyMentions: true, notifyAllMail: true,
     notifyDocuments: true, notifyFrozen: true, notifyWhileFocused: true }
   const native = new NativeNotifications(data => {
     const events = new Map<string, () => void>()
@@ -61,7 +61,7 @@ for (const firstEmpty of [false, true]) test('app notices preserve all categorie
   })
   const prior = notice('already-shown', 'urgent-mail'), oldDoc = notice('old-document', 'document')
   const rows: DesktopNotice[] = firstEmpty ? [] : [prior, oldDoc,
-    ...(['question', 'urgent-mail', 'terminal-failure', 'work-attention', 'routine', 'agent-frozen'] as const).map(kind => notice(`new-${kind}`, kind))]
+    ...(['question', 'urgent-mail', 'terminal-failure', 'work-attention', 'mention', 'routine', 'agent-frozen'] as const).map(kind => notice(`new-${kind}`, kind))]
   function Probe() { useNativeNotifications(() => {}); return <div>notifications</div> }
   let view: Awaited<ReturnType<typeof mountView>> | undefined
   const publish = async (seq: number) => {

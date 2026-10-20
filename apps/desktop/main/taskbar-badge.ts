@@ -21,7 +21,7 @@ export function isTaskbarAttentionNotice(notice: unknown): boolean {
   if (!notice || typeof notice !== 'object' || Array.isArray(notice)) return false
   const { kind, attention } = notice as { kind?: unknown; attention?: unknown }
   return kind === 'urgent-mail' || kind === 'question' || kind === 'work-attention'
-    || kind === 'mention' || (kind === 'terminal-failure' && attention === true)
+    || (kind === 'mention' && attention !== false) || (kind === 'terminal-failure' && attention === true)
 }
 
 /** The existing summary already counts only questions, flags, urgent mail

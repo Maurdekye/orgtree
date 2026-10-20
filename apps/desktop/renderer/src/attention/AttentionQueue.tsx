@@ -317,11 +317,11 @@ export function AttentionQueue({
     if (!onNotificationFocus) return
     onNotificationFocus((notice) => {
       if (notice.org !== slug) return false
-      const row = rows.find((r) => notice.kind === 'work-attention'
+      const row = rows.find((r) => (notice.kind === 'work-attention' || (notice.kind === 'mention' && Boolean(notice.item)))
         ? r.kind === 'ticket' && r.item?.slug === notice.item
         : notice.kind === 'question'
           ? r.kind === 'question' && 'ask:' + r.ask?.id === notificationInboxTarget(notice)
-          : notice.kind === 'urgent-mail'
+          : (notice.kind === 'urgent-mail' || (notice.kind === 'mention' && notice.id.startsWith('mail:')))
             && r.kind === 'mail' && r.mail?.id === notificationInboxTarget(notice))
       if (!row) return false
       openRow(row)

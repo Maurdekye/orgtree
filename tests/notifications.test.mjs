@@ -14,7 +14,7 @@ await build({ entryPoints: ['apps/desktop/main/notifications.ts'], outfile: file
 const { NativeNotifications, anyOrgtreeWindowFocused, notification } = createRequire(import.meta.url)(file)
 test.after(() => rmSync(temp, { recursive: true, force: true }))
 
-const defaults = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
+const defaults = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true, notifyTerminalFailures: true, notifyDocketAttention: true, notifyMentions: true, notifyAllMail: false, notifyDocuments: false, notifyFrozen: false, notifyWhileFocused: false }
 const question = { id: 'opaque', org: 'org', kind: 'question', agent: 'writer',
   source_id: 'q42', title: 'Question from writer', body: 'Choose one' }
 test('native notice validation preserves only boolean mail attention qualification',()=>{
@@ -208,4 +208,21 @@ test('turning a pending category off and on retries without reviving the cancell
   native[1].emit('show'); assert.equal(await second, true)
   manager.configure({ ...defaults, notifyQuestions: false })
   assert.equal(await manager.notify(question, defaults), false, 'completed delivery stays deduplicated')
+})
+
+test('mention notifications default to on, respect notifyMentions toggle independently, and route clicks', async () => {
+  const { manager, native, opened } = fixture()
+  const mention = { id: 'mention:writer:2:um-1', org: 'org', kind: 'mention', agent: 'writer',
+    generation: 2, source_id: 'e1', title: 'writer mentioned you', body: 'Heads up @user' }
+  manager.sync([{ org: mention.org, id: mention.id }])
+  assert.equal(await manager.notify(mention, { ...defaults, notifyMentions: false }), false, 'turning Mentions off suppresses @user notifications')
+  assert.equal(native.length, 0)
+  const pending = manager.notify(mention, defaults)
+  assert.equal(native.length, 1)
+  native[0].emit('show')
+  assert.equal(await pending, true, 'Mentions category is on by default and delivers once')
+  assert.equal(await manager.notify(mention, defaults), false, 'duplicate mention notice is suppressed')
+  native[0].emit('click')
+  assert.deepEqual(opened, [mention])
+  manager.sync([])
 })

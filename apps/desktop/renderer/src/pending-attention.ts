@@ -96,7 +96,8 @@ export function summarizePending(rows: readonly DesktopNotification[]): PendingA
   const waiting: WaitingRow[] = []
   const flagged: FlaggedRow[] = []
   for (const row of rows) {
-    if (!PENDING_KINDS.includes(row.kind as PendingKind)) continue
+    const isMailMention = row.kind === 'mention' && row.id.startsWith('mail:')
+    if (!PENDING_KINDS.includes(row.kind as PendingKind) && !isMailMention) continue
     items.push({ org: row.org, id: row.id })
     if (row.kind === 'work-attention') {
       docket++
@@ -105,7 +106,7 @@ export function summarizePending(rows: readonly DesktopNotification[]): PendingA
         ...(typeof row.rev === 'number' ? { rev: row.rev } : {}) })
     } else {
       mail++
-      waiting.push({ org: row.org, id: row.id, kind: row.kind as WaitingRow['kind'],
+      waiting.push({ org: row.org, id: row.id, kind: (isMailMention ? 'urgent-mail' : row.kind) as WaitingRow['kind'],
         source: row.source_id ?? null })
     }
   }

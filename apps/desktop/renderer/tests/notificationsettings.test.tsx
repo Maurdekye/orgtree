@@ -15,8 +15,8 @@ import type { NativeNotice } from '../src/desktop'
 import type { AskInfo } from '../src/types'
 import { DEFAULT_NOTIFICATIONS, notificationEnabled, notificationPreferences } from '../../../../packages/contracts/notifications'
 
-const labels = ['Questions', 'Urgent mail', 'Terminal failures', 'Docket attention', 'All mail', 'New presented document', 'Agent frozen', 'Notify while Orgtree is focused']
-const keys = ['notifyQuestions', 'notifyUrgentMail', 'notifyTerminalFailures', 'notifyDocketAttention', 'notifyAllMail', 'notifyDocuments', 'notifyFrozen', 'notifyWhileFocused'] as const
+const labels = ['Questions', 'Urgent mail', 'Terminal failures', 'Docket attention', 'Mentions', 'All mail', 'New presented document', 'Agent frozen', 'Notify while Orgtree is focused']
+const keys = ['notifyQuestions', 'notifyUrgentMail', 'notifyTerminalFailures', 'notifyDocketAttention', 'notifyMentions', 'notifyAllMail', 'notifyDocuments', 'notifyFrozen', 'notifyWhileFocused'] as const
 const response = (data: unknown) => ({ ok: true, headers: new Headers(), json: async () => data } as Response)
 // ⚠ `notification-click` is a HELD type and is consumed through
 // events/heldbus.ts, so a document has TWO listeners now — the bus and the
@@ -54,13 +54,13 @@ test('eight native settings use exact defaults, save separately and accept broad
     assert.equal(masterSwitch.disabled, false)
     const switches = labels.map(label => [...v.el.querySelectorAll<HTMLInputElement>('input')].find(e => e.getAttribute('aria-label') === label)!)
     assert.ok(switches.every(Boolean))
-    assert.deepEqual(switches.map(e => e.checked), [true, true, true, true, false, false, false, false])
+    assert.deepEqual(switches.map(e => e.checked), [true, true, true, true, true, false, false, false, false])
     for (let i = 0; i < keys.length; i++) {
       await inAct(async () => { switches[i]!.click(); await flush(6) })
       assert.deepEqual(writes.at(-1), { [keys[i]!]: !DEFAULT_NOTIFICATIONS[keys[i]!] })
     }
     await inAct(async () => { resolve(DEFAULT_NOTIFICATIONS); await flush(6) })
-    assert.deepEqual(switches.map(e => e.checked), [false, false, false, false, true, true, true, true])
+    assert.deepEqual(switches.map(e => e.checked), [false, false, false, false, false, true, true, true, true])
   } finally { await v.unmount(); native() }
 })
 
@@ -126,13 +126,13 @@ test('category switches, visible questions, new documents and stale clicks share
   try {
     geometry(v.el.querySelector<HTMLElement>('.askcard')!)
     await settle()
-    notices = ['question', 'urgent-mail', 'work-attention', 'routine', 'document', 'agent-frozen'].map(k => row(k as NativeNotice['kind']))
+    notices = ['question', 'urgent-mail', 'work-attention', 'mention', 'routine', 'document', 'agent-frozen'].map(k => row(k as NativeNotice['kind']))
     await inAct(async () => { event({ type: 'notification-poll', data: null }); await flush(30) })
-    assert.deepEqual(delivered.map(n => n.kind), ['urgent-mail', 'work-attention'])
+    assert.deepEqual(delivered.map(n => n.kind), ['urgent-mail', 'work-attention', 'mention'])
     await v.render(<View card={false} />)
     prefs = { ...prefs, notifyAllMail: true, notifyDocuments: true, notifyFrozen: true }
     await inAct(async () => { event({ type: 'preferences', data: prefs }); await flush(30) })
-    assert.deepEqual(delivered.map(n => n.kind), ['urgent-mail', 'work-attention', 'routine', 'agent-frozen'])
+    assert.deepEqual(delivered.map(n => n.kind), ['urgent-mail', 'work-attention', 'mention', 'routine', 'agent-frozen'])
     assert.equal(delivered.some(n => n.kind === 'question'), false, 'closing a seen card does not alert late')
     notices.push(row('document', 'new-document'), { ...row('question', 'other-org-question'), org: 'two' })
     await inAct(async () => { event({ type: 'notification-poll', data: null }); await flush(30) })
@@ -299,7 +299,7 @@ test('global Notifications switch defaults on, gates specific toggles in UI, pre
     const categorySwitches = labels.map(label => [...v.el.querySelectorAll<HTMLInputElement>('input')].find(e => e.getAttribute('aria-label') === label)!)
     assert.ok(categorySwitches.every(Boolean))
     assert.ok(categorySwitches.every(s => !s.disabled), 'all category toggles are enabled while master is on')
-    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, true, false, true, true, false, false])
+    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, true, false, true, true, true, false, false])
 
     // Click master switch to turn it off
     await inAct(async () => { masterSwitch.click(); await flush(6) })
@@ -315,7 +315,7 @@ test('global Notifications switch defaults on, gates specific toggles in UI, pre
     // While master switch is off, all individual category toggles remain visible but disabled
     assert.ok(categorySwitches.every(s => s.disabled), 'all specific category toggles are disabled while master is off')
     // Stored values are preserved and still reflected in the toggles
-    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, true, false, true, true, false, false], 'category values preserved while disabled')
+    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, true, false, true, true, true, false, false], 'category values preserved while disabled')
 
     // Click master switch to turn it back on
     await inAct(async () => { masterSwitch.click(); await flush(6) })
@@ -327,7 +327,7 @@ test('global Notifications switch defaults on, gates specific toggles in UI, pre
 
     assert.equal(masterSwitch.checked, true)
     assert.ok(categorySwitches.every(s => !s.disabled), 'all specific category toggles re-enabled when master is on')
-    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, true, false, true, true, false, false], 'exact prior configuration restored')
+    assert.deepEqual(categorySwitches.map(s => s.checked), [false, true, true, false, true, true, true, false, false], 'exact prior configuration restored')
   } finally { await v.unmount(); native() }
 })
 
@@ -340,6 +340,7 @@ test('notificationPreferences and notificationEnabled enforce safe defaults, pre
   assert.equal(fresh.notifyUrgentMail, true)
   assert.equal(fresh.notifyTerminalFailures, true)
   assert.equal(fresh.notifyDocketAttention, true)
+  assert.equal(fresh.notifyMentions, true)
   assert.equal(fresh.notifyDocuments, false)
   assert.equal(fresh.notifyFrozen, false)
   assert.equal(fresh.notifyWhileFocused, false)
@@ -361,8 +362,8 @@ test('notificationPreferences and notificationEnabled enforce safe defaults, pre
   assert.equal(legacyExplicit.notifyAllMail, false)
 
   // 4. notificationEnabled authoritatively returns false for all kinds when notificationsEnabled is false
-  const kinds = ['question', 'urgent-mail', 'terminal-failure', 'work-attention', 'routine', 'document', 'agent-frozen'] as const
-  const enabledPrefs = notificationPreferences({ notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyAllMail: true, notifyDocuments: true, notifyFrozen: true })
+  const kinds = ['question', 'urgent-mail', 'terminal-failure', 'work-attention', 'mention', 'routine', 'document', 'agent-frozen'] as const
+  const enabledPrefs = notificationPreferences({ notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true, notifyMentions: true, notifyAllMail: true, notifyDocuments: true, notifyFrozen: true })
   for (const kind of kinds) assert.equal(notificationEnabled(kind, enabledPrefs), true, `${kind} enabled when master is on`)
 
   const disabledPrefs = { ...enabledPrefs, notificationsEnabled: false }
@@ -414,5 +415,57 @@ test('master notifications switch off suppresses native polling dispatch and cli
     await v.unmount(); native(); globalThis.fetch = oldFetch
     if (visibility) Object.defineProperty(document, 'visibilityState', visibility)
     else delete (document as unknown as Record<string, unknown>).visibilityState
+  }
+})
+
+test('clicking a mention notification opens the transcript, docket item or presentation where @user was mentioned', async () => {
+  localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
+  const oldFetch = globalThis.fetch
+  const g = globalThis as unknown as Record<string, unknown>
+  g.history ??= window.history; g.location ??= window.location
+  window.history.replaceState(null, '', '/')
+  const fan = eventFanout()
+  const transcriptNotice: NativeNotice = { id: 'mention:agent:2:um-7-9', source_id: 'e7', org: 'other', kind: 'mention', agent: 'agent', generation: 2, title: 'agent mentioned you', body: 'Hey @user check this' }
+  const docNotice: NativeNotice = { id: 'mention:doc:exact', source_id: 'exact', org: 'other', kind: 'mention', agent: 'agent', title: 'agent mentioned you in Exact document', body: 'Hey @user in doc' }
+  const doc = { id: 'exact', node: 'agent', title: 'Exact document', at: '2026-09-12', node_state: 'live', evicted: false }
+  const root = { id: 'agent', title: 'agent', tier: 'haiku', model_id: 'haiku', generation: 2, state: 'live', seat: 1,
+    grant: 0, free: 0, mail_pending: 0, documents: [], children: [], lineage: [], turns: [], audiences_held: [],
+    user_mention: { id: 'um-7-9', event_id: 'e7', blurb: 'Hey @user check this', at: '2026-10-20T19:00:00Z' },
+    scope: { tools: {}, add_dirs: [], permission_mode: 'default', org_visibility: 'team' } }
+  const seenCalls: string[] = []
+  native({ getPreferences: async () => ({ ...DEFAULT_NOTIFICATIONS }), notify: async () => false,
+    syncNotifications: async () => {}, onEvent: fan.onEvent })
+  const stopBus = startBus()
+  globalThis.fetch = legacyAppBackend(async (url, init) => {
+    const path = String(url).split('?')[0]
+    if (path === '/api/desktop/notifications') return response({ notices: [transcriptNotice, docNotice], total: 2, truncated: false, active: [transcriptNotice, docNotice].map(({ org, id }) => ({ org, id })) })
+    if (path === '/api/orgs') return response([{ slug: 'other', name: 'Other', live: 1, seats: 1 }])
+    if (path === '/api/orgs/other') return response({ slug: 'other', name: 'Other', roots: [root], max_top_grant: 1000,
+      default_top_grant: 50, compact_at: 0, tiers: { haiku: 1 }, audience_requests: [], credit_requests: [],
+      cost_usd_total: 0, audit: { live_nodes: 1, top_level_holds: 0, no_overdraft: true, problems: [] },
+      epoch: 1, rev: 1, work_items_summary: { attention: 0, active: 0 }, asks: [], asks_open: 0, watchdogs: [], dirs: [] })
+    if (path === '/api/orgs/other/nodes/agent/mention-seen' && init?.method === 'POST') {
+      seenCalls.push(String(init.body ?? ''))
+      return response({ ok: true })
+    }
+    if (path === '/api/providers') return response({ providers: [] })
+    if (path === '/api/orgs/other/documents/exact') return response({ ...doc, body: 'Presentation mentioning @user.' })
+    if (path === '/api/orgs/other/documents') return response({ documents: [doc], total: 1, offset: 0, located: String(url).includes('locate=exact') ? 'exact' : '', next_offset: null })
+    if (/inbox|mailbox|\/mail/.test(path!)) return response({ pending: [], delivered: [], history: [], messages: [], items: [], unread: 0 })
+    if (/\/(work|items|asks|watchdogs|events|audiences)$/.test(path!)) return response([])
+    return response({})
+  })
+  const v = await mountView(<App />, el => el)
+  try {
+    await settle()
+    await inAct(async () => { fan.emit({ type: 'notification-click', data: transcriptNotice }); await flush(60) })
+    assert.equal(window.location.pathname, '/o/other')
+    assert.ok(seenCalls.some(b => b.includes('um-7-9')), 'clicking transcript mention notification marks mention seen and jumps to transcript')
+    await inAct(async () => { fan.emit({ type: 'notification-click', data: docNotice }); await flush(60) })
+    const pane = v.el.querySelector('.gallery-modal .mailer-read')
+    assert.match(pane?.textContent ?? '', /Presentation mentioning @user/)
+  } finally {
+    stopBus(); await v.unmount(); native(); globalThis.fetch = oldFetch
+    forgetModalPins(); forgetModalOpenCache(); window.history.replaceState(null, '', '/')
   }
 })

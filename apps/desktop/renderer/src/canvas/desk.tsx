@@ -2553,15 +2553,35 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   useEffect(() => {
     if (!historyVisible || view !== 'chat') return
     if (orgView === 'attention') return
-    if (node.user_mention && hasUnseenUserMention(node, slug)) {
+    if (!node.user_mention || !hasUnseenUserMention(node, slug)) return
+    const mentionId = node.user_mention.id
+    const eventId = node.user_mention.event_id
+    const focusedNow = () => !desktop()?.notify || typeof surfaceDocument.hasFocus !== 'function' || surfaceDocument.hasFocus()
+    const acknowledge = () => {
+      if (!focusedNow() || !hasUnseenUserMention(node, slug)) return
       // ⚠ highlight: false. Seeing the mention here (this chat is open) only acknowledges it. A
       // highlight is the EXPLICIT jump (the header "@" button, an attention row): its layout
       // effect below calls leaveBottom() and centers the line, which turned follow off and showed
       // "jump to bottom" for a reader already at the tail (user 2026-10-18, alpha.9). The reply's
       // own glow comes from its text, not from this.
-      void dismissUserMention(slug, node.id, node.user_mention.id, node.user_mention.event_id, { highlight: false })
+      void dismissUserMention(slug, node.id, mentionId, eventId, { highlight: false })
     }
-  }, [historyVisible, view, orgView, slug, node.id, node.user_mention?.id, node.user_mention?.event_id])
+    if (focusedNow()) {
+      acknowledge()
+      return
+    }
+    const win = surfaceDocument.defaultView ?? window
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const onFocus = () => {
+      clearTimeout(timer)
+      timer = setTimeout(acknowledge, 250)
+    }
+    win.addEventListener('focus', onFocus)
+    return () => {
+      clearTimeout(timer)
+      win.removeEventListener('focus', onFocus)
+    }
+  }, [historyVisible, view, orgView, slug, node.id, node.user_mention?.id, node.user_mention?.event_id, surfaceDocument])
   // THE AGENT'S OWN DOCKET (user ruling 2026-09-05 21:07). It replaced the
   // derived task-progress model that used to live in this tab — the user
   // called that content irrelevant, and what an agent is answerable for is

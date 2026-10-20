@@ -53,6 +53,7 @@ export { AdvancedOrgModal, OrgRows }
 import { ShellAction, ShellHeader } from './shell/header'
 import { OrgHeaderLogo } from './shell/orgheaderlogo'
 import { TranscriptMentionButton } from './shell/mentionbutton'
+import { dismissUserMention } from './canvas/agentmentions'
 import { OrgtreeMenu } from './shell/menu'
 import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
@@ -709,7 +710,13 @@ export default function App() {
     if (nativeTarget.focusDesk && nativeTarget.agent) {
       const agent = flatNodes(tree).get(nativeTarget.agent)
       if (!agent || nativeTarget.generation === undefined || (agent.generation ?? 0) === nativeTarget.generation) {
-        setFocusAgentDesk(true); setFocusAgent(agent?.id ?? nativeTarget.agent)
+        const agentId = agent?.id ?? nativeTarget.agent
+        if (nativeTarget.kind === 'mention') {
+          const mentionId = agent?.user_mention?.id ?? (nativeTarget.id.startsWith('mention:') ? nativeTarget.id.split(':').slice(3).join(':') : '')
+          const eventId = agent?.user_mention?.event_id ?? nativeTarget.source_id
+          if (mentionId) void dismissUserMention(slug, agentId, mentionId, eventId, { highlight: true })
+        }
+        setFocusAgentDesk(true); setFocusAgent(agentId)
       }
       setNativeTarget(null)
       return
@@ -718,13 +725,28 @@ export default function App() {
       setNativeTarget(null)
       return
     }
-    if (nativeTarget.kind === 'document' && nativeTarget.source_id) {
+    if ((nativeTarget.kind === 'document' || (nativeTarget.kind === 'mention' && nativeTarget.id.startsWith('mention:doc:'))) && nativeTarget.source_id) {
       setGalleryJump(jumpTo(nativeTarget.source_id)); setShowGallery(true); raisePinnedModal('gallery', slug)
     } else if (nativeTarget.kind === 'agent-frozen') {
       const agent = nativeTarget.agent && flatNodes(tree).get(nativeTarget.agent)
       if (agent && (agent.generation ?? 0) === nativeTarget.generation) setFocusAgent(agent.id)
-    } else if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug) }
-    else { setShowInbox(true); setInboxJump(jumpTo(notificationInboxTarget(nativeTarget))); raisePinnedModal('inbox', slug) }
+    } else if (nativeTarget.item) {
+      setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug)
+    } else if (nativeTarget.kind === 'mention' && nativeTarget.agent && !nativeTarget.id.startsWith('mail:')) {
+      const agent = flatNodes(tree).get(nativeTarget.agent)
+      if (!agent || nativeTarget.generation === undefined || (agent.generation ?? 0) === nativeTarget.generation) {
+        const agentId = agent?.id ?? nativeTarget.agent
+        const mentionId = agent?.user_mention?.id ?? (nativeTarget.id.startsWith('mention:') ? nativeTarget.id.split(':').slice(3).join(':') : '')
+        const eventId = agent?.user_mention?.event_id ?? nativeTarget.source_id
+        if (mentionId) void dismissUserMention(slug, agentId, mentionId, eventId, { highlight: true })
+        if (v3 && viewMode === 'attention' && !nativeTarget.fromTaskbar) {
+        // AttentionView reads focusAgent directly.
+        }
+        setFocusAgentDesk(true); setFocusAgent(agentId)
+      }
+    } else {
+      setShowInbox(true); setInboxJump(jumpTo(notificationInboxTarget(nativeTarget))); raisePinnedModal('inbox', slug)
+    }
     setNativeTarget(null)
   }, [nativeTarget, tree, slug, v3, viewMode])
   useEffect(() => { bootHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])

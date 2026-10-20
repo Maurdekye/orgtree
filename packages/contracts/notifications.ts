@@ -5,6 +5,7 @@ export const NOTIFICATION_OPTIONS = [
   { key: 'notifyUrgentMail', label: 'Urgent mail', default: true },
   { key: 'notifyTerminalFailures', label: 'Terminal failures', default: true },
   { key: 'notifyDocketAttention', label: 'Docket attention', default: true },
+  { key: 'notifyMentions', label: 'Mentions', default: true },
   { key: 'notifyAllMail', label: 'All mail', default: false },
   { key: 'notifyDocuments', label: 'New presented document', default: false },
   { key: 'notifyFrozen', label: 'Agent frozen', default: false },
@@ -35,6 +36,7 @@ export function notificationEnabled(kind: DesktopNotification['kind'], prefs: No
     case 'urgent-mail': return prefs.notifyUrgentMail || prefs.notifyAllMail
     case 'terminal-failure': return prefs.notifyTerminalFailures !== false
     case 'work-attention': return prefs.notifyDocketAttention
+    case 'mention': return prefs.notifyMentions !== false
     case 'routine': return prefs.notifyAllMail
     case 'document': return prefs.notifyDocuments
     case 'agent-frozen': return prefs.notifyFrozen

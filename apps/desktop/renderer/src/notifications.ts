@@ -215,7 +215,8 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
           const visible = new Set(candidates.filter(n => n.kind === 'question'
             && questionVisible(n.org, n.source_id ?? n.id)).map(identity))
           for (const n of candidates) if (visible.has(identity(n)) ||
-            (n.kind === 'document' && ((!documentsObserved && !observedOrgs.has(n.org)) || !prefs.notifyDocuments))) seen.add(identity(n))
+            ((n.kind === 'document' || n.id.startsWith('mention:doc:')) && !documentsObserved && !observedOrgs.has(n.org)) ||
+            (n.kind === 'document' && !prefs.notifyDocuments)) seen.add(identity(n))
           // Startup app copies may precede an org's first notice read. A
           // partial inventory must not turn its existing documents into new
           // arrivals when that read completes. Each loaded org earns its own
@@ -303,7 +304,7 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
       void readNotices(true).then(({ notices }) => {
         if (!alive || click !== request) return
         const current = notices.get(key)
-        if (current) target.current({ ...current, fromTaskbar: true, focusDesk: current.kind === 'mention'
+        if (current) target.current({ ...current, fromTaskbar: true, focusDesk: (current.kind === 'mention' && !current.id.startsWith('mail:'))
           || (current.kind === 'question' && n.questionTarget !== 'mail') })
       }).catch(() => { /* the org window remains available during reconnect */ })
     })

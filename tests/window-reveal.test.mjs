@@ -26,7 +26,7 @@ const { NativeNotifications } = req(path.join(temp, 'notifications.cjs'))
 test.after(() => rmSync(temp, { recursive: true, force: true }))
 
 const prefs = { notificationsEnabled: true, notifyQuestions: true, notifyUrgentMail: true, notifyDocketAttention: true,
-  notifyAllMail: true, notifyDocuments: true, notifyFrozen: true, notifyTerminalFailures: true, notifyWhileFocused: true }
+  notifyMentions: true, notifyAllMail: true, notifyDocuments: true, notifyFrozen: true, notifyTerminalFailures: true, notifyWhileFocused: true }
 
 // Anything but these is recorded as a call: a future mutator (setSkipTaskbar,
 // setOpacity, …) is caught without being listed here.

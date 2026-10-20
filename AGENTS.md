@@ -1,3 +1,14 @@
+- `@user` mentions in agent transcripts, mail, presentations and docket items
+  (outside markdown code spans/blocks via `strip_markdown_code`) raise desktop
+  notifications under the `Mentions` (`notifyMentions`) category (default on in
+  Runtime > Notifications and tray). Clicking opens the transcript, inbox mail,
+  presentation or docket item. Document (`mention:doc:<uid>`) and docket
+  (`mention:work:<slug>:<rev>`) notices set `attention: false` so one-time OS
+  banners fire without holding the taskbar badge; unfocused open desks defer
+  auto-acknowledging `user_mention` until window focus. [decided: user
+  2026-10-20 19:18Z; verified: `domain/{notices,mail_attention}.rs`,
+  `runtime/convo.rs`, `notifications.ts`, `tests/notificationsettings.test.tsx`]
+
 - Skill-enabled standing instructions use the user-approved 26 wording cuts;
   full/no-skills prompts remain byte-identical, with lane/tool scoping intact.
   Credit requests define TOTAL grant in their card. Description budgets remain
