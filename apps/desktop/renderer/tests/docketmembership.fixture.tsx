@@ -22,7 +22,9 @@ export function tree(included: string[] = [], project = false, missing = false):
 }
 export function transport(count = { reads: 0 }, archivedOwner = 'retired-owner') {
   return compatibilityWorkFixture((async (url: RequestInfo | URL) => {
-    if (String(url).includes('/work-items')) ++count.reads
+    // Count page requests after the compatibility adapter's route projection,
+    // separately from its first-use full reference-catalog read.
+    if (String(url).includes('_page=')) ++count.reads
     return new Response(JSON.stringify(String(url).includes('/work-items') ? {
       items: [item('Active team work', 'lead')], archived: [item('Archived repair', archivedOwner, { archived: true, status: 'done' })],
       backlogged: [item('Planned work', 'lead', { status: 'backlogged' })],
