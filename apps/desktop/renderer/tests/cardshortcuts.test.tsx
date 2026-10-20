@@ -28,8 +28,8 @@ import { NodeSquare } from '../src/canvas/cards'
 import { AgentSurfaceRoutesProvider } from '../src/canvas/panelcorner'
 import { deskMemory, forgetDeskMemory } from '../src/canvas/desktabs'
 import { setAgentShortcutsOn } from '../src/canvas/shared'
-import type { CanvasNode, OpResult } from '../src/canvas/shared'
-import type { TreePayload } from '../src/types'
+import type { CanvasNode } from '../src/canvas/shared'
+import type { OpResult, TreePayload } from '../src/types'
 
 const noop = () => {}
 const refs = { world: { org: 'org' }, onOpen: noop } as never
@@ -300,7 +300,7 @@ function agentCard(nd: CanvasNode, o: { reports?: CanvasNode[]; focused?: boolea
     pxc={1} zoom={o.focused ? 8 : 2} compactAt={0.8} maxTop={100} cascadeAlloc
     onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
     onInbox={() => { log.push('mail') }} onTeam={() => { log.push('team') }} onDocket={() => { log.push('docket') }}
-    onLineage={noop} onOpenDoc={noop} onRecenter={noop} onJump={noop} onMailLink={noop}
+    onLineage={noop} onOpenDoc={noop} onRecenter={noop} onJump={noop} onMailLink={noop} onWorkLink={noop}
     onShowPin={() => { log.push('show-pin') }}
     onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
 }

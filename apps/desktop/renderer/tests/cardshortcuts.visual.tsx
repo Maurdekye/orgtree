@@ -91,7 +91,7 @@ function World({ scene }: { scene: Scene }) {
       pxc={1} zoom={z} compactAt={0.8} maxTop={100} cascadeAlloc
       onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop} onInbox={noop} onTeam={noop} onDocket={noop}
       onPin={noop} onOpenAgentGallery={noop} onLineage={noop} onOpenDoc={noop} onRecenter={noop} onJump={noop}
-      onMailLink={noop} onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />}
+      onMailLink={noop} onWorkLink={noop} onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />}
   </div>
 }
 
