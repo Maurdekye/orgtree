@@ -46,13 +46,16 @@ fn assert_asset_error(source: &Path, raw: &str, resolved: &Path, referring: &Pat
         error.contains(raw),
         "missing reference as written {raw:?}: {error}"
     );
+    // Canonical parents use native separators; an expected join can retain
+    // '/' on Windows. Both spellings identify the same resolved file.
+    let paths = error.replace('\\', "/");
     assert!(
-        error.contains(&resolved.display().to_string()),
+        paths.contains(&resolved.display().to_string().replace('\\', "/")),
         "missing resolved path {}: {error}",
         resolved.display()
     );
     assert!(
-        error.contains(&referring.display().to_string()),
+        paths.contains(&referring.display().to_string().replace('\\', "/")),
         "missing referring file {}: {error}",
         referring.display()
     );
