@@ -6,7 +6,7 @@ const writes: string[] = []
 Object.assign(window, { syntheticWrites: writes })
 window.fetch = async (input, init) => {
   const url = String(input)
-  if (init?.method === 'POST') writes.push(url)
+  if (init?.method === 'POST' && url.endsWith('/quick-staff')) writes.push(url)
   return new Response(JSON.stringify(url.endsWith('/quick-staff') ? preview(value)
     : url.includes('/work-items/') ? { item: value } : { providers: [] }))
 }
