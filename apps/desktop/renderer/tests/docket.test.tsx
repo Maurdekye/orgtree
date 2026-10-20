@@ -1,3 +1,4 @@
+import { clearDocketSelection, selectDocketRow } from './docketselection.fixture'
 // docket.test.tsx — test suite for the native work docket and inbox navigation.
 import './harness'
 import { compatibilityWorkFixture } from './workcompat.fixture'
@@ -340,7 +341,7 @@ uiTest('§6 right pane displays done so far and working on / next lists, with No
   })])
   const { el } = await mount(docketModal())
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const p = pane(el)!
@@ -372,7 +373,7 @@ uiTest('§7 right pane assignment name is a clickable agent jump that closes mod
     onFocusAgent: (id) => { focused = id },
   }))
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const sub = el.querySelector('.docket-pane-sub')!
@@ -405,7 +406,7 @@ uiTest('§8 manual attention box renders reason and clickable author', async (mo
     onFocusAgent: (id) => { focused = id },
   }))
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const attnBox = el.querySelector('.docket-attention-box')
@@ -480,7 +481,7 @@ uiTest('§9 question box renders attached AskCard and clickable asker', async (m
     onFocusAgent: (id) => { focused = id },
   }))
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const qBox = el.querySelector('.docket-question-box')
@@ -520,7 +521,7 @@ uiTest('§10 batch note appears when ask covers other items too', async (mount) 
   })])
   const { el } = await mount(docketModal({ tree }))
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const note = el.querySelector('.docket-question-note')
@@ -578,7 +579,7 @@ uiTest('§11 dismiss manual attention button calls endpoint with set_rev and upd
   assert.ok(row.classList.contains('attention'), 'row starts with attention class')
   assert.match(row.querySelector('.l2')?.textContent ?? '', /Needs attention/)
 
-  await inAct(() => row.click())
+  await selectDocketRow(row)
   await flush()
   const dismissBtn = el.querySelector('.docket-attention-box .docket-dismiss') as HTMLButtonElement
   assert.ok(dismissBtn, 'dismiss button beside attention block')
@@ -654,7 +655,7 @@ uiTest('§11b question+manual item: after the manual dismiss it shows "question 
   assert.ok(row.classList.contains('attention'))
   assert.match(row.querySelector('.l2')?.textContent ?? '', /Needs attention/)
 
-  await inAct(() => row.click())
+  await selectDocketRow(row)
   await flush()
   const dismissBtn = el.querySelector('.docket-attention-box .docket-dismiss') as HTMLButtonElement
   assert.ok(dismissBtn, 'dismiss button beside attention block')
@@ -698,7 +699,7 @@ uiTest('§13 general reply box targets the ASSIGNMENT and handles deferred (arch
   })])
   const { el } = await mount(docketModal({ toast: (t) => { toasted = t } }))
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const replyLabel = el.querySelector('.docket-reply-label')
@@ -774,7 +775,7 @@ uiTest('§13c the reply box attaches a real staged file and sends its path with 
     owner: { node: 'owner-agent', generation: 1 } })])
   const { el } = await mount(docketModal())
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const attachBtn = el.querySelector('.mail-reply .cc-attach') as HTMLButtonElement
@@ -835,7 +836,7 @@ uiTest('§13e the ticket reply sends `notice: true` when the toggle is armed, '
     owner: { node: 'owner-agent', generation: 1 } })])
   const { el } = await mount(docketModal({ toast: (t) => { toasted = t } }))
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const toggle = el.querySelector('.mail-reply .cc-notice-toggle') as HTMLButtonElement
@@ -908,7 +909,7 @@ uiTest('§13f the ticket reply toast says ORDINARY when the server refuses the '
 
   const { el } = await mount(docketModal({ toast: (t) => { toasted = t } }))
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
   const textarea = el.querySelector('.mail-reply textarea') as HTMLTextAreaElement
   await inAct(() => {
@@ -944,7 +945,7 @@ uiTest('§13d CONTROL: an owner whose state is `missing` disables the attach '
     owner: { node: 'ghost-agent', generation: 1 }, owner_state: 'missing' })])
   const { el } = await mount(docketModal())
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
   const sendBtn = el.querySelector('.mail-reply-send') as HTMLButtonElement
   assert.ok(sendBtn, 'positive control: the reply box renders at all')
@@ -994,7 +995,7 @@ uiTest('§13b reply box preserves draft on HTTP failure and clears on successful
 
   const { el } = await mount(docketModal({ toast: (t) => { toasted = t } }))
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const textarea = el.querySelector('.mail-reply textarea') as HTMLTextAreaElement
@@ -1291,7 +1292,7 @@ uiTest('§19 multiple questions on an item render separate question boxes with r
   })])
   const { el } = await mount(docketModal({ tree }))
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const qBoxes = el.querySelectorAll('.docket-question-box')
@@ -1366,7 +1367,7 @@ uiTest('§21 show archived toggle preserves detail selection and in-flight draft
   await flush()
 
   // Select active item w1
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 
   const textarea = el.querySelector('.mailer-read textarea') as HTMLTextAreaElement
@@ -1565,7 +1566,7 @@ uiTest('§24 active successors stay normal while retired actors stay historical'
   assert.equal(rGone!.querySelector('.docket-actor')?.classList.contains('fit-gone'), true)
 
   // the detail pane obeys the same rule
-  await inAct(() => (rCur as HTMLElement).click())
+  await selectDocketRow(rCur)
   await flush()
   assert.ok(el.querySelector('.docket-pane-sub .tier')?.classList.contains('t-sonnet'))
   await inAct(() => (rSuccessor as HTMLElement).click())
@@ -1654,6 +1655,7 @@ uiTest('§27 the name is TEXT in both places, and there is no copy control', asy
   assert.ok(rNamed!.querySelector('.l1 button') === null,
     'the row name became a control again')
 
+  await clearDocketSelection(el)
   // clicking the NAME selects the item, because the name is just the row now
   await inAct(() => (rNamed!.querySelector('.l1 .mfrom') as HTMLElement).click())
   await flush()
@@ -1692,7 +1694,7 @@ uiTest('§28 the detail pane leads with the description, and says so when there 
   ])
   const { el } = await mount(docketModal())
   await flush()
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
   const desc = pane(el)?.querySelector('.docket-desc')
   assert.match(desc?.textContent ?? '', /DESCRIPTION/)
@@ -1717,7 +1719,7 @@ uiTest('acceptance conditions and verification start closed on every ticket visi
   const { el } = await mount(docketModal())
   await flush()
   const row = rows(el)[0]!
-  await inAct(() => row.click())
+  await selectDocketRow(row)
   await flush()
 
   const section = (title: string) => [...(pane(el)?.querySelectorAll<HTMLElement>('.docket-detail-section') ?? [])]
@@ -1752,7 +1754,7 @@ uiTest('the integration review is a plain section that starts closed and opens o
   const { el } = await mount(docketModal())
   await flush()
   const row = rows(el)[0]!
-  await inAct(() => row.click())
+  await selectDocketRow(row)
   await flush()
 
   const section = [...(pane(el)?.querySelectorAll<HTMLElement>('.docket-detail-section') ?? [])]
@@ -1849,7 +1851,7 @@ uiTest('the compact owner keeps its identity but is not a navigation control', a
   assert.equal(owner.querySelector('.docket-actor-name')?.tagName, 'SPAN',
     'the compact owner identity is not plain text')
 
-  await inAct(() => row.click())
+  await selectDocketRow(row)
   await flush()
   const detailOwner = el.querySelector('.docket-pane-sub .docket-actor') as HTMLElement
   assert.ok(detailOwner?.querySelector('button.cc-name-jump'),
@@ -1939,11 +1941,12 @@ uiTest('§32 switching org drops the previous org rows and selection', async (mo
   assert.deepEqual(titles(el), ['Org two item'],
     "the previous org's cached archived row must not survive the switch")
   assert.doesNotMatch(el.textContent ?? '', /Org one item/)
-  assert.ok(pane(el)?.querySelector('.mailer-none'),
-    'and no detail from the previous org may stay open under the new org URL')
+  assert.equal(pane(el)?.querySelector('.docket-slug-text')?.textContent, b.slug,
+    'the new org opens its own first item, not the previous org selection')
+  assert.match(pane(el)?.textContent ?? '', /Org two item/)
 })
 
-uiTest('§32b switching org never auto-opens an item the user did not click', async (mount) => {
+uiTest('§32b switching org selects its own first row instead of inheriting a same-name selection', async (mount) => {
   // the sharp case for scoping the SELECTION rather than only the cached rows:
   // when the new org happens to hold the same id, an unscoped selection silently
   // opens a different org's item under the same id — a detail pane the user
@@ -1953,6 +1956,7 @@ uiTest('§32b switching org never auto-opens an item the user did not click', as
   const one = mkItem({ slug: 'same-name', title: 'Org one item',
     status: 'done', archived: true })
   const two = mkItem({ slug: 'same-name', title: 'Org two item', status: 'open' })
+  const firstTwo = mkItem({ slug: 'org-two-default', title: 'Org two default', status: 'open' })
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
     compatibilityWorkFixture(((url: string) => {
       const path = String(url)
@@ -1960,9 +1964,9 @@ uiTest('§32b switching org never auto-opens an item the user did not click', as
       return Promise.resolve({
         ok: true, status: 200, headers: new Headers(),
         json: () => Promise.resolve({
-          items: isTwo ? [two] : [],
+          items: isTwo ? [firstTwo, two] : [],
           ...(path.includes('archived=1') ? { archived: isTwo ? [] : [one] } : {}),
-          counts: { attention: 0, active: isTwo ? 1 : 0, archived: isTwo ? 0 : 1, backlogged: 0 },
+          counts: { attention: 0, active: isTwo ? 2 : 0, archived: isTwo ? 0 : 1, backlogged: 0 },
           now: '2026-09-05T10:00:00.000Z',
         }),
       })
@@ -1981,14 +1985,14 @@ uiTest('§32b switching org never auto-opens an item the user did not click', as
   await flush()
   // the row is named by its slug, and BOTH orgs use the same one — which is
   // exactly the collision this test exists for
-  assert.deepEqual(titles(el), ['same-name'])
-  assert.ok(pane(el)?.querySelector('.mailer-none'),
-    'the identical NAME must NOT carry the selection across into the new org')
+  assert.deepEqual(titles(el), ['org-two-default', 'same-name'])
+  assert.equal(pane(el)?.querySelector('.docket-slug-text')?.textContent, firstTwo.slug,
+    'the identical NAME must NOT replace the new org default selection')
   assert.doesNotMatch(pane(el)?.textContent ?? '', /Org two item/)
 
   // POSITIVE CONTROL: clicking in the new org still opens the new org's item,
   // so the check above is not passing because selection stopped working
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await inAct(() => (rows(el)[1] as HTMLElement).click())
   await flush()
   assert.match(pane(el)?.textContent ?? '', /Org two item/)
 })
@@ -2016,7 +2020,7 @@ uiTest('§33 `review` reads as Agent review in the row, the pane and the group h
     assert.equal(status(rows(el)[1]!)?.getAttribute('title'), null)
     assert.doesNotMatch(el.textContent ?? '', /Under review/, 'the old wording is gone')
 
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     assert.equal(pane(el)?.querySelector('.docket-status')?.textContent, 'Agent review')
 
@@ -2048,7 +2052,7 @@ uiTest('§34 the attention reason keeps every line the user is asked to read',
     forgetGroupChoice()
     const { el } = await mount(docketModal())
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     const body = pane(el)?.querySelector('.docket-attention-box .docket-attention-body')
     assert.ok(body, 'the reason has a body element of its own to style')
@@ -2164,7 +2168,7 @@ uiTest('§36 the pane explains the state the item is IN, never a leftover one', 
     .find((d) => /BLOCKED BECAUSE|WAITING FOR|ENDED WITHOUT COMPLETING/
       .test(d.textContent ?? ''))
 
-  await inAct(() => rowFor('Waiting Both').click())
+  await selectDocketRow(rowFor('Waiting Both'))
   await flush()
   assert.match(stateBox()?.textContent ?? '', /WAITING FOR/)
   assert.match(stateBox()?.textContent ?? '', /build watchdog mails me/)
@@ -3053,6 +3057,7 @@ uiTest('§E1 a jump into a PINNED docket with nothing selected renders the '
       mockWorkItems([ITEM_FOR_JUMP(), mkItem({ title: 'other-item' })])
       const { el, render: re } = await mount(pinnedDocket())
       await flush()
+      await clearDocketSelection(pinnedWindow(el))
       // POSITIVE CONTROL: the scene really is the reported one — a pinned
       // window whose detail pane has nothing in it yet.
       assert.match(paneText(el), /select an item to view it/,
@@ -3080,6 +3085,7 @@ uiTest('§E2 the jump and a row click render the SAME pane', async (mount) => {
     mockWorkItems([ITEM_FOR_JUMP(), mkItem({ title: 'other-item' })])
     const { el, render: re } = await mount(pinnedDocket())
     await flush()
+    await clearDocketSelection(pinnedWindow(el))
     const row = rows(pinnedWindow(el))
       .find((r) => (r.textContent ?? '').includes('ship-the-thing'))
     assert.ok(row, 'the item has no row to click')
@@ -3111,6 +3117,7 @@ uiTest('§E3 CONTROL — a name that is not an item says so, and renders no deta
       mockWorkItems([ITEM_FOR_JUMP()])
       const { el, render: re } = await mount(pinnedDocket())
       await flush()
+      await clearDocketSelection(pinnedWindow(el))
       // the shape the broken button used to send: a whole record, stringified
       const repr = "{'slug': 'ship-the-thing', 'rev': 2, 'title': 'Ship the thing'}"
       await re(pinnedDocket({ jumpTo: repr, jumpSeq: 1 }))
