@@ -44,20 +44,23 @@ app.whenReady().then(async () => {
         const box=(el)=>{if(!el)return null;const r=el.getBoundingClientRect();return {top:Math.round(r.top),bottom:Math.round(r.bottom),left:Math.round(r.left),right:Math.round(r.right)}}
         const note=document.querySelector('.inbox-no-listeners')
         const style=note&&getComputedStyle(note)
+        // the bare desk is display: contents; its body is the flex column the box sits in
+        const body=document.querySelector('.project-desk .desk-body')
         return {note:box(note),composer:box(document.querySelector('.project-composer')),
-          attach:box(document.querySelector('.project-desk .attach-row')),desk:box(document.querySelector('.project-desk')),
+          attach:box(document.querySelector('.project-desk .attach-row')),desk:box(body),
+          gap:body?parseFloat(getComputedStyle(body).rowGap)||0:null,
           noteText:note?note.innerText:null,noteColor:style?style.color:null,
           light:document.documentElement.classList.contains('contrast-light')}
       })()`)
       const problems = []
+      const apart = (upper, lower) => Math.abs(lower.top - upper.bottom - seen.gap) <= 1
       if (!!seen.note !== want.note) problems.push(`note ${!!seen.note}, expected ${want.note}`)
       if (!!seen.attach !== want.attach) problems.push(`attachment row ${!!seen.attach}, expected ${want.attach}`)
       if (seen.light !== (theme === 'light')) problems.push('wrong theme')
-      if (!seen.composer || seen.desk.bottom - seen.composer.bottom > 24) problems.push('the box is not at the desk\'s foot')
-      if (seen.note && Math.abs(seen.composer.top - seen.note.bottom - 4) > 1) problems.push('the note is not right above the box')
-      if (seen.note && seen.attach && (seen.note.top - seen.attach.bottom < 0 || seen.note.top - seen.attach.bottom > 8)) {
-        problems.push('the attachment row is not right above the note')
-      }
+      if (!seen.desk || seen.desk.bottom - seen.desk.top < 600) problems.push('the desk body does not fill its frame')
+      if (!seen.composer || !seen.desk || seen.desk.bottom - seen.composer.bottom > 4) problems.push('the box is not at the desk\'s foot')
+      if (seen.note && !apart(seen.note, seen.composer)) problems.push('the note is not right above the box')
+      if (seen.note && seen.attach && !apart(seen.attach, seen.note)) problems.push('the attachment row is not right above the note')
       if (problems.length) throw new Error(`${name}/${theme}: ${problems.join('; ')} ${JSON.stringify(seen)}`)
       await win.webContents.executeJavaScript(settle)
       const image = await win.webContents.capturePage()

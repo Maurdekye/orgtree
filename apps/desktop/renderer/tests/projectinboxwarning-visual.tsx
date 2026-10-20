@@ -2,8 +2,8 @@ import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import { draftKey } from '../src/draftstore'
-import type { CanvasNode, OpResult } from '../src/canvas/shared'
-import type { TreePayload } from '../src/types'
+import type { CanvasNode } from '../src/canvas/shared'
+import type { OpResult, TreePayload } from '../src/types'
 
 // The project desk's message box with and without the inbox note
 // (tests/projectinboxwarning-capture.cjs): `?case=none|attached|listened&theme=dark|light`.
@@ -44,7 +44,9 @@ const map = new Map<string, CanvasNode>([[website.id, website], ...(website.chil
 const root = createRoot(document.getElementById('root')!)
 flushSync(() => root.render(
   <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }} data-case={which}>
-    <div id="desk" style={{ position: 'absolute', left: 20, top: 20, width: 620, height: 660, border: '1px solid var(--line)' }}>
+    {/* a pinned window's body: the frame a bare project desk fills */}
+    <div id="desk" className="pinwin-body"
+      style={{ position: 'absolute', left: 20, top: 20, width: 620, height: 660, border: '1px solid var(--line)', boxSizing: 'border-box' }}>
       <ProjectDesk bare node={website} slug="org" tree={tree} map={map} op={() => Promise.resolve({} as OpResult)}
         toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} onConfig={noop} />
     </div>

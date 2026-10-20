@@ -24,8 +24,8 @@ import assert from 'node:assert/strict'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import { forgetDeskMemory } from '../src/canvas/desktabs'
-import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
-import type { TreePayload, Watchdog } from '../src/types'
+import type { CanvasNode } from '../src/canvas/shared'
+import type { OpRequest, OpResult, ToastFn, TreePayload, Watchdog } from '../src/types'
 
 const noop = () => {}
 const refs = { world: { org: 'org' }, onOpen: noop } as never
@@ -58,7 +58,7 @@ const treeOf = (watchdogs: Watchdog[]) => ({ slug: 'org', roots: [], watchdogs, 
 
 /** The desk with these dogs in the tree; `sent` collects the user's posts to
  *  the project's inbox and answers them with `delivery`. */
-async function desk(t: TestContext, h: { dogs?: Watchdog[]; node?: CanvasNode; toast?: (lines: string[]) => void;
+async function desk(t: TestContext, h: { dogs?: Watchdog[]; node?: CanvasNode; toast?: ToastFn;
   delivery?: string; sent?: string[] } = {}) {
   const had = (globalThis as { fetch?: typeof fetch }).fetch
   installFetch(new FakeServer())
@@ -112,7 +112,7 @@ test('§1b the toast after a send carries the engine\'s note, warning and all', 
   const delivery = 'Warning: project website\'s inbox has no listeners, so this mail may not be read by anyone or delivered anywhere '
     + 'until one attaches. It waits in the mailbox; dev1 was woken and asked to attach one (a fair_queue watchdog), '
     + 'and the mail goes to whoever attaches first.'
-  const el = await desk(t, { toast: (lines) => toasts.push(lines), delivery, sent })
+  const el = await desk(t, { toast: (lines) => { if (lines) toasts.push(lines) }, delivery, sent })
   const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
   await inAct(() => { setText(box, 'Who takes this?') })
   await inAct(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
