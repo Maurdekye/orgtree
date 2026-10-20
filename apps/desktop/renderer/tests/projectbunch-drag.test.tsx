@@ -235,7 +235,7 @@ test('hidden retired branch bunches while its owning project keeps a reachable l
 // The bunched owner's token sits INSIDE its card (so it cannot cover the next row); once the camera is on
 // that card its desk fills the card, and the desk carries its own "1 retired" chip, so the canvas token
 // must not draw over the desk.
-test('the owner's inset retired token is not drawn over its own open desk', async t => {
+test('the owning project inset retired token is not drawn over its own open desk', async t => {
   const side = retired(agent('retired-side')), head = chain(3, [agent('worker')])
   head.children.push(side)
   const tree = bunchTree([head])
