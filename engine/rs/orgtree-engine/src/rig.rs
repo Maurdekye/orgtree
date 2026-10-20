@@ -244,6 +244,20 @@ pub fn usage(lane: &str, profile: Option<&str>) -> Option<serde_json::Value> {
 
 const NO_PROBE: &str = "rig mode: no usage probe";
 
+/// Rig mode: the least time between two Claude usage attempts of one login,
+/// in milliseconds, from the bare integer in
+/// `<root>\rig-home\rig-usage\claude-attempt-floor-ms`. Production holds a
+/// login to one attempt a minute (usage.rs `CLAUDE_ATTEMPT_EVERY`), so a proof
+/// that plays several canned readings of one login in a row (a success, a
+/// rejection, a success again) sets it to 0 and the engine reads each one.
+/// None outside rig mode or without the file: the production floor.
+#[nolog]
+pub fn claude_attempt_floor() -> Option<std::time::Duration> {
+    let home = RIG.get().cloned().flatten()?;
+    let text = std::fs::read_to_string(home.join("rig-usage").join("claude-attempt-floor-ms")).ok()?;
+    text.trim().parse::<u64>().ok().map(std::time::Duration::from_millis)
+}
+
 /// Whether a rig reading is a canned one (usage history records it) rather
 /// than the stand-in for a lane the rig run gave no reading.
 #[nolog]

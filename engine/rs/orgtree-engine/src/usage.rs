@@ -31,6 +31,13 @@ pub(crate) mod agy_reading_tests;
 
 const TTL: Duration = Duration::from_secs(30);
 const CLAUDE_ATTEMPT_EVERY: Duration = Duration::from_secs(60);
+
+/// The floor between two attempts at one Claude login: a minute, except where
+/// a rig proof lowered it (`crate::rig::claude_attempt_floor`).
+#[nolog]
+fn claude_attempt_every() -> Duration {
+    crate::rig::claude_attempt_floor().unwrap_or(CLAUDE_ATTEMPT_EVERY)
+}
 /// a peek older than this is no claim about now
 const PEEK_MAX: Duration = Duration::from_secs(900);
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
@@ -450,11 +457,11 @@ impl Usage {
             self.cooldown.pin().remove(key);
         } else {
             if self.claude_attempts.pin().get(key).is_some_and(|at|
-                now.saturating_duration_since(*at) < CLAUDE_ATTEMPT_EVERY) {
+                now.saturating_duration_since(*at) < claude_attempt_every()) {
                 return false;
             }
             if self.cache.pin().get(key).is_some_and(|c|
-                c.data["available"] == true && now.saturating_duration_since(c.at) < CLAUDE_ATTEMPT_EVERY) {
+                c.data["available"] == true && now.saturating_duration_since(c.at) < claude_attempt_every()) {
                 return false;
             }
         }
@@ -611,7 +618,7 @@ impl Usage {
         let recent = self.cache.pin().get(key).is_some_and(|c|
             c.at.elapsed() < PEEK_MAX && c.data["available"] == true);
         let mut v = self.cached(key).unwrap_or_else(|| json!({ "available": false }));
-        if recent && remaining <= CLAUDE_ATTEMPT_EVERY {
+        if recent && remaining <= claude_attempt_every() {
             // Successful cached bars contain no refresh error. Do not write
             // them back: neither their age nor auth freshness has changed.
             return v;
