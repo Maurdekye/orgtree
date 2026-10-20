@@ -2547,6 +2547,8 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Other versions or an unavailable hook retain next-turn delivery. This replaces
   the next-turn-only rule, not ACP itself; no tool boundary means no live delivery. See
   [plugin contract and limits](docs/rust-engine/opencode-mail.md).
+  Generic turn acknowledgement and context-full claim return exclude outstanding
+  bridge custody; reconciliation runs before actor turn boundaries.
   [decided: user/coordinator 2026-10-20; verified: `runtime/opencode_mail.rs`,
   `runtime/opencode.rs`, `tools/rig/proofs/opencode-mail.mjs`, 2026-10-20]
 - Far overview (`z < Z_MINI`) hides watchdog satellites/wires, presentation

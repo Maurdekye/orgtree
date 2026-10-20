@@ -397,3 +397,12 @@ Historical two-category delivery receipts above remain evidence of those runs;
 they are not three-category runtime receipts. The synthetic fixture now expects
 all three categories, including the smaller workflows resource tree. This docs
 assignment runs source and documentation validators, not native harness probes.
+
+## 13. OpenCode hook-mail instruction allowance (2026-10-20)
+
+The OpenCode queue-only sentence (157 UTF-8 bytes) is replaced by its pinned
+version/fallback sentence plus the shared authentic-channel rules (557 bytes).
+The identity budget test names this 400-byte increase `OPENCODE_HOOK_MAIL` and
+applies it only to OpenCode. The separate `EXTERNAL_TAGS = 110` allowance and
+external-authority text are preserved. This changes generated instructions on
+the next launch; it does not change account bindings or promise cache reuse.

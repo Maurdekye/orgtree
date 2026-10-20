@@ -58,7 +58,10 @@ atomically claims that prefix with its provider ID, session, generation, turn
 and transcript, before exposing it to the plugin.
 Retries return that stored identity and text. A matching acknowledgement commits
 the transcript, delivery states and removal of custody in one SQL statement.
-Generic turn completion cannot acknowledge an outstanding batch.
+Generic turn completion cannot acknowledge an outstanding batch. Context-full
+recovery's claim-return query also excludes it, preserving the provider identity
+instead of replaying its text as ordinary input. Actor reconciliation precedes
+turn-boundary recovery; a failed reconciliation prevents crossing that boundary.
 
 Before closing a turn with outstanding custody, the engine stops the owned
 OpenCode process and reads only ID/session/type from the isolated profile's
