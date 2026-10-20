@@ -7366,6 +7366,8 @@ impl Actor {
                 }
             }
         }
+        let native_full=error.as_deref().is_some_and(|e| !prompt::input_length_refusal(e) && recovery::context_full(e))
+            && matches!(turn.serving_provider.as_str(),catalog::CLAUDE|catalog::OPENAI);
         let native_retry=if let (Some(e),true)=(error.as_deref(),
             !langserver && matches!(turn.serving_provider.as_str(),catalog::CLAUDE|catalog::OPENAI)
             && !classified && freeze_rec.is_none() && !turn.interrupted && !turn.killed && !turn.session_ended
@@ -7633,7 +7635,7 @@ impl Actor {
             }
             return Ok(());
         }
-        if error.is_none() || (!self.followup_mail.is_empty() && !error.as_deref().is_some_and(prompt::input_length_refusal)) {
+        if native_retry || error.is_none() || (!native_full && !self.followup_mail.is_empty() && !error.as_deref().is_some_and(prompt::input_length_refusal)) {
             // All lanes share normal halt/freeze/killswitch and slot admission.
             // Confirmed boundary mail is no longer pending, so is not replayed.
             self.on_wake().await?;

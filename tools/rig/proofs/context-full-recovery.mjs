@@ -4,7 +4,7 @@ import path from 'node:path'
 import {seed} from '../fixture.mjs'
 import {Proof} from '../proof.mjs'
 
-export async function setup() { return {name:'context-full-recovery',fixture:'none'} }
+export async function setup() { return {name:'context-full-recovery',fixture:'none',recover:true} }
 export default async function(rig) {
  const p=new Proof('context-full-recovery')
  const agents={}, names=[]
@@ -33,8 +33,13 @@ export default async function(rig) {
   {text:'Before native compaction.'},
   {system:{subtype:'compact_boundary',compact_metadata:{trigger:'auto',pre_tokens:900000}}},
   {text:'Native compact done.'}]}]};names.push('compactedc')
+ agents.crashc={turns:[{name:'overflow',match:'PROOF-CRASH',once:true,steps:[{text:'Before crash.'},{sleep_ms:1500},fail(false,'Prompt is too long')]},{name:'recovered',steps:[{text:'Recovered after restart.'}]}]}
+ agents.blockerc={turns:[{name:'hold',once:true,steps:[{text:'Holding the synthetic scheduler slot.'},{sleep_ms:15000}]},{name:'done',steps:[{text:'Done.'}]}]}
+ names.push('crashc','blockerc')
  rig.scenario({agents,default:{turns:[{name:'default',steps:[{text:'OK.'}]}]}})
  await seed(rig,{org:{name:'Context Recovery Synthetic',settings:{compact_at:80}},agents:names.map(name=>({name,tier:name.endsWith('x')?'sol':'sonnet',grant:0}))})
+ // A known synthetic denominator, independent of catalog fallback windows.
+ rig.exec("UPDATE ot.agents SET context_window=272000 WHERE name='afterx'")
  const id=n=>rig.agentRow(n).id
  const mail=n=>rig.sql(`SELECT uid,state,turn_id,delivered_at,body,extra FROM ot.mail WHERE recipient_agent_id=${id(n)} ORDER BY id`)
  // A private audit counts real delivery transitions, including a duplicate ack.
@@ -51,12 +56,14 @@ export default async function(rig) {
    const original=mail(n).filter(m=>m.body.startsWith(token+':'))
    const ack=original.length?rig.one(`SELECT count(*)::int AS n FROM ot.context_proof_acks WHERE uid='${original[0].uid}'`).n:0
    p.check(n+': original row has exactly one delivery receipt',original.length===1&&original[0].state==='delivered'&&ack===1,{original,ack})
+   p.check(n+': original transcript identity appears once',original.length===1&&rig.one(`SELECT count(*)::int AS n FROM ot.convo WHERE agent_id=${id(n)} AND body->'mail_ids' ? '${original[0].uid}'`).n===1)
    if(mode!=='length') {
     const wakes=mail(n).filter(m=>m.extra?.context_retry_turn!=null)
     p.check(n+': exactly one durable recovery wake',wakes.length===1,wakes)
     const prompts=rig.fakeLog(n).filter(l=>l.kind==='turn')
     p.check(n+': fresh retry gets the original request',prompts.length===2&&(prompts[1].prompt??'').includes(token),prompts.map(t=>t.prompt?.slice(-300)))
     p.check(n+': old session ended once',rig.one(`SELECT count(*)::int AS n FROM ot.agent_sessions WHERE agent_id=${id(n)} AND end_reason='context full (retry)'`).n===1)
+    p.check(n+': completed turn clears retry count; terminal failure retains it',mode==='retry'?rig.agentRow(n).extra?.native_ctx_retry_run==null:rig.agentRow(n).extra?.native_ctx_retry_run===1,rig.agentRow(n).extra?.native_ctx_retry_run)
    }
   }
   const a='after'+suffix
@@ -84,9 +91,20 @@ export default async function(rig) {
  }
  const log=rig.engineLog()
  for(const reason of ['below_threshold','status_working','cli_compaction']) p.check('after-turn skip is diagnosed: '+reason,log.includes(reason))
- // Stop/start must not enqueue a second recovery event or redeliver old mail.
+ // Hold the only scheduler slot after failure, then crash with the committed
+ // recovery wake still pending. Restart must resume exactly that wake.
+ await rig.api('PUT','/api/app-settings/runtime',{max_concurrent_turns:1})
+ await rig.userMail('crashc','PROOF-CRASH: keep this request through the crash.')
+ await rig.waitFor(()=>rig.fakeLog('crashc').some(l=>l.kind==='turn'),{what:'crash subject to start'})
+ await rig.userMail('blockerc','Hold the slot before the recovery attempt.')
+ const pending=await rig.waitFor(()=>mail('crashc').find(m=>m.extra?.context_retry_turn!=null&&m.state==='pending'),{what:'committed recovery before admission',timeout:10000}).catch(()=>null)
+ p.check('crash: a committed recovery wake is pending before restart',!!pending,pending)
  const wakeCount=rig.one("SELECT count(*)::int AS n FROM ot.mail WHERE extra ? 'context_retry_turn'").n
+ await rig.crash()
  await rig.restart()
+ const resumed=await rig.waitTurns('crashc',2,{timeout:45000}).catch(()=>rig.turns('crashc'))
+ p.check('crash: the fresh retry completes once',resumed.length===2&&resumed.every(t=>t.ended_at)&&!resumed[1].error,resumed)
+ p.check('crash: the original request is present after restart',rig.fakeLog('crashc').filter(l=>l.kind==='turn').at(-1)?.prompt?.includes('PROOF-CRASH'))
  p.check('restart preserves the same recovery events',rig.one("SELECT count(*)::int AS n FROM ot.mail WHERE extra ? 'context_retry_turn'").n===wakeCount)
  p.check('all original receipts remain singular',rig.one('SELECT count(*)::int AS n FROM (SELECT uid FROM ot.context_proof_acks GROUP BY uid HAVING count(*)>1) repeated').n===0)
  p.keep(rig,{agents:names,grep:/context.*(size|full|split|retry)|after-turn compaction/})

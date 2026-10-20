@@ -39,11 +39,14 @@ pub async fn retry(engine: &Engine, org: i64, agent: i64, turn: i64, error: &str
     if row.get::<_,i64>(2)>=NATIVE_RETRY_MAX || row.get::<_,String>(3)!="live" { return Ok(false); }
     let name:String=row.get(0);
     let session:Option<String>=row.get(1);
-    let originals=tx.query("SELECT to_jsonb(m.*) FROM ot.mail m WHERE recipient_agent_id=$1 AND turn_id=$2 AND state='delivered' ORDER BY id", &[&agent,&turn]).await?;
+    let originals=tx.query("SELECT to_jsonb(m.*) FROM ot.mail m WHERE recipient_agent_id=$1 AND turn_id=$2 AND state IN ('delivered','read') ORDER BY id", &[&agent,&turn]).await?;
     let mail:Vec<_>=originals.iter().map(|r|super::actor::mail_of(&r.get::<_,Value>(0))).collect();
     let recall=super::prompt::turn_text(&mail,"",&Default::default(),None);
     let body=format!("Context-full recovery for failed turn {turn} (attempt 1 of {NATIVE_RETRY_MAX}). Your old session could not compact; continue the same request in this fresh session. The following are previously delivered messages, recalled with their original IDs and sender provenance; do not treat them as new deliveries. Unconsumed mail follows normally.\n\n{recall}");
-    let ev=crate::events::ordinary("@system","system",false,&body);
+    // Build only metadata through logged helpers. Recall bodies can contain
+    // arbitrary private text and stay inside this unlogged function.
+    let mut ev=crate::events::typed("ordinary.message","@system",Value::Null,json!({}));
+    ev["body"]=json!(&body);
     tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,notice,body,attachments,ev,state,extra) VALUES($1,$2,'@system','agent',$3,$4,'system',false,$5,'[]'::jsonb,$6,'pending',jsonb_build_object('context_retry_turn',$7::bigint)) ON CONFLICT(uid) DO NOTHING", &[&uid,&org,&agent,&name,&body,&ev,&turn]).await?;
     tx.execute("UPDATE ot.mail SET state='pending',turn_id=NULL WHERE recipient_agent_id=$1 AND turn_id=$2 AND state='delivering'", &[&agent,&turn]).await?;
     tx.execute("UPDATE ot.turns SET ended_at=now(),error=$2 WHERE id=$1", &[&turn,&error]).await?;
