@@ -42,6 +42,14 @@ the boot race: its lock belongs to another engine, so it is neither terminated
 nor awaited. Missing or held lock evidence is reported as unverified; the
 desktop will not start another managed child over unverified cleanup.
 
+The desktop classifies an exited child only after its stdout closes. Process
+exit can arrive before the final `root-owned` line; discarding that buffered
+line skips the attachment retry and mistakes the existing owner's lock for
+failed cleanup. Buffered refusals remain actionable after exit, but a buffered
+`ready` line cannot make an already-dead child ready. The silence deadline
+still bounds a pipe that never closes. Regression:
+`tests/engine-refusal-order.test.mjs`. [verified: 2026-10-20]
+
 ## Regression budgets
 
 `fleet_walk_budget` counts synchronous work on the current thread. Its decorators

@@ -3445,6 +3445,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   restart still authenticates its transition, and Quit cancels both paths.
   [verified: 2026-10-12 `engine.ts`, `core-lifecycle.ts`; regression
   `tests/core-recovery-review.test.mjs`]
+- Desktop startup waits for stdio closure before classifying child exit: a
+  buffered root-owned refusal must reach attach retry; a dead child's buffered
+  ready line is rejected. The silence timer still bounds an unclosed pipe.
+  [verified: 2026-10-20 `apps/desktop/main/engine.ts`;
+  `tests/engine-refusal-order.test.mjs`; `docs/startup-budget.md`]
 - Anything running from the installation folder blocks an upgrade, including
   the desktop's core-recovery observer (`resources\engine\orgtree-engine.exe
   core-recovery watch`, started outside every job). A desktop closed for an

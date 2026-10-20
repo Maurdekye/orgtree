@@ -120,6 +120,18 @@ test('an exited child whose stdout never closes still has a bounded startup wait
   assert.match(await outcome, /did not become ready in time|exited before readiness/)
 })
 
+test('a ready line drained after exit cannot adopt the dead child', async t => {
+  const f = fixture(t)
+  const outcome = f.engine.start(f.options).then(() => '', e => e.message)
+  f.exit(0)
+  f.child.stdout.write(JSON.stringify({type: 'ready', protocol: 1, port: 21350,
+    pid: f.child.pid, dataRootId: fs.realpathSync.native(f.root)}) + '\n')
+  f.close()
+  assert.match(await outcome, /exited before readiness/)
+  assert.equal(f.engine.origin, '')
+  assert.notEqual(f.engine.status.state, 'ready')
+})
+
 test('Quit cancels a delayed-owner attachment without spawning again', async t => {
   const f = fixture(t)
   f.engine.cancelLaunches()

@@ -401,6 +401,11 @@ export class Engine extends EventEmitter {
           try {
             const ready = parseReady(line, realRoot, child.pid ?? -1)
             if (ready) {
+              // A final buffered line may arrive AFTER process exit. Refusals
+              // still describe the failed start; readiness cannot revive it.
+              if (child.exitCode !== null || child.signalCode !== null) {
+                void finish(new Error('Python engine exited before readiness')); return
+              }
               this.endpoint = `http://127.0.0.1:${ready.port}`
               this.watchLiveness(child, realRoot)
               this.state({ state: 'ready' }); finish(); return
@@ -411,7 +416,11 @@ export class Engine extends EventEmitter {
       resetDeadline()
       child.stdout.on('data', onData)
       child.once('error', () => finish(new Error('Python engine could not start')))
-      child.once('exit', () => finish(new Error('Python engine exited before readiness')))
+      // `exit` can precede the last stdout data. Rejecting there removes
+      // onData and loses a root-owned refusal, so the caller never enters
+      // attachWithRetry. `close` follows stdio drainage. The silence timer
+      // still bounds a pipe held open by a descendant.
+      child.once('close', () => finish(new Error('Python engine exited before readiness')))
     })
   }
 
