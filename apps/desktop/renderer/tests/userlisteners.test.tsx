@@ -3,16 +3,15 @@
 // let-the-user-manually-hold-a-number-of-a-project; USER 2026-10-20
 // 13:03Z "allow them to register an event listener or listen watcher
 // manually", 13:04Z "they both arrive as normal mail in your inbox", 13:22Z
-// layout B: focused Add dialogs; 13:50Z: the @user mention, never "you").
+// layout B: focused Add dialogs; 13:50Z: the @user mention, never "you"; 16:43Z:
+// the two buttons became one Register… menu in the header, registermenu.test.tsx).
 // The tab itself exists only while the project's event listeners are on
 // (user 2026-10-20 10:50Z; coordinator 14:11Z): registering starts from the
 // settings toggle, so these controls live on the existing tab.
 //
 // WHAT THIS FILE HOLDS THE CODE TO:
-//   §1 "Register event listener…" and "Register listener watch…" open
-//      focused dialogs and send user_listener_register (every event, or the
-//      next only) and user_watch_register (a count); each is offered only
-//      while the user has none, and the hint names the inbox
+//   §1 registering lives in the header's Register… menu (registermenu.test.tsx):
+//      the tab body carries no register button, strip or dialog
 //   §2 the user's rows (their listener and watch in the tree's dogs, owner
 //      "user") wear the @user chip, each with its own remove, which sends
 //      user_registration_remove; an agent's rows keep their agent link and
@@ -63,75 +62,22 @@ const setInput = (el: HTMLInputElement | HTMLSelectElement, value: string) => {
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')
 const button = (root: ParentNode, label: RegExp) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => label.test(b.textContent ?? ''))
 
-test('§1 Register event listener opens a dialog and sends user_listener_register', async (t) => {
-  const requests: OpRequest[] = []
-  const toasts: string[][] = []
-  const v = await mount([agentListener], requests, {}, toasts)
-  t.after(() => v.unmount())
-  const open = v.el.querySelector<HTMLButtonElement>('[data-action="register-listener"]')
-  assert.ok(open, 'offered while the user has no listener')
-  assert.match(open.textContent ?? '', /Register event listener/)
-  await inAct(async () => { open.click() })
-  const box = dialog()!
-  assert.ok(box, 'a focused dialog')
-  assert.match(box.textContent ?? '', /inbox/, 'the hint says where fires arrive')
-  assert.ok(!/\byou\b/i.test(box.textContent ?? ''), 'the dialog does not say "you" either')
-  assert.ok(button(box, /^Register event listener$/)!.classList.contains('primary'), 'a form dialog: its main button is the primary action, not a red confirmation')
-  const mode = box.querySelector<HTMLSelectElement>('select')!
-  assert.deepEqual([...mode.options].map((o) => o.textContent), ['Every event', 'Next event only'])
-  await inAct(async () => { button(box, /^Register event listener$/)!.click(); await flush(4) })
-  assert.deepEqual(requests.find((r) => r.op === 'user_listener_register'), { op: 'user_listener_register', node: 'sync', once: false })
-  assert.ok(toasts.length > 0)
-  await inAct(async () => { open.click() })
-  const second = dialog()!
-  await inAct(async () => { setInput(second.querySelector<HTMLSelectElement>('select')!, 'once') })
-  await inAct(async () => { button(second, /^Register event listener$/)!.click(); await flush(4) })
-  const sends = requests.filter((r) => r.op === 'user_listener_register')
-  assert.deepEqual(sends.at(-1), { op: 'user_listener_register', node: 'sync', once: true }, 'next event only is a one-shot')
-})
-
-test('§1 Register listener watch sends user_watch_register with its count', async (t) => {
+test('§1 registering is the header\'s Register… menu now: no inline buttons and no dialog in the tab', async (t) => {
   const requests: OpRequest[] = []
   const v = await mount([agentListener], requests)
   t.after(() => v.unmount())
-  const open = v.el.querySelector<HTMLButtonElement>('[data-action="register-watch"]')!
-  assert.ok(open)
-  await inAct(async () => { open.click() })
-  const box = dialog()!
-  const count = box.querySelector<HTMLInputElement>('input[type="number"]')!
-  assert.equal(count.min, '1')
-  for (const bad of ['0', '', '1.5']) {
-    await inAct(async () => { setInput(count, bad) })
-    assert.equal(button(box, /^Register listener watch$/)!.disabled, true, `"${bad}" cannot be sent`)
-  }
-  await inAct(async () => { setInput(count, '3') })
-  await inAct(async () => { button(box, /^Register listener watch$/)!.click(); await flush(4) })
-  assert.deepEqual(requests.find((r) => r.op === 'user_watch_register'), { op: 'user_watch_register', node: 'sync', count: 3 })
-  assert.match(box.textContent ?? '', /one-time notification/i)
-})
-
-test('§1 each registration is offered only while the user has none', async (t) => {
-  const none = await mount([agentListener], [])
-  t.after(() => none.unmount())
-  assert.ok(none.el.querySelector('[data-action="register-listener"]'))
-  assert.ok(none.el.querySelector('[data-action="register-watch"]'))
-  const both = await mount([agentListener, mine, myWatch], [])
-  t.after(() => both.unmount())
-  assert.ok(!both.el.querySelector('[data-action="register-listener"]'), 'the user\'s listener is already registered')
-  assert.ok(!both.el.querySelector('[data-action="register-watch"]'), 'the user\'s watch is already registered')
-  const listenerOnly = await mount([mine], [])
-  t.after(() => listenerOnly.unmount())
-  assert.ok(!listenerOnly.el.querySelector('[data-action="register-listener"]'))
-  assert.ok(listenerOnly.el.querySelector('[data-action="register-watch"]'))
+  for (const old of ['register-listener', 'register-watch']) assert.ok(!v.el.querySelector(`[data-action="${old}"]`), `no ${old} button in the body`)
+  assert.ok(!v.el.querySelector('.user-reg-tools'), 'no strip above the table')
+  assert.ok(!dialog(), 'no dialog')
+  const bar = v.el.querySelector('[role="toolbar"]')
+  assert.ok(bar?.querySelector('[data-action="register-menu"]'), 'one Register… menu button in the header row (registermenu.test.tsx holds its panel)')
+  assert.ok(!requests.some((r) => r.op.startsWith('user_')), 'nothing was sent')
 })
 
 test('§1 a retired project takes no registration', async (t) => {
   const v = await mount([], [], { state: 'archived' })
   t.after(() => v.unmount())
-  for (const a of ['register-listener', 'register-watch']) {
-    const b = v.el.querySelector<HTMLButtonElement>(`[data-action="${a}"]`)
-    assert.ok(!b || b.disabled, a)
-  }
+  assert.ok(!v.el.querySelector('[data-action="register-menu"]'))
 })
 
 test('§2 the user\'s rows wear the @user chip and remove only their own', async (t) => {
@@ -170,5 +116,4 @@ test('§4 nothing on the tab says "you"', async (t) => {
   const v = await mount([agentListener, mine, myWatch], [])
   t.after(() => v.unmount())
   assert.ok(!/\byou\b/i.test(v.el.textContent ?? ''), v.el.textContent?.match(/.{20}\byou\b.{20}/i)?.[0])
-  await inAct(async () => { v.el.querySelector<HTMLButtonElement>('[data-action="register-listener"]')?.click() })
 })

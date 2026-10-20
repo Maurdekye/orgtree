@@ -18,7 +18,7 @@ async function setup(t:TestContext){
   t.after(()=>{globalThis.fetch=fetch;localStorage.clear();forgetModalPins();forgetModalOpenCache();forgetSurfaceRequests()})
 }
 
-for(const kind of ['node-inbox','agent-docket','agent-gallery','agent-team','project-slots'] as AgentPanelKind[])
+for(const kind of ['node-inbox','agent-docket','agent-gallery','agent-team','project-slots','project-listeners'] as AgentPanelKind[])
  for(const action of ['pin','popout'] as const)test(`${kind} ${action} snapshots the inline tab before showing its modal`,async t=>{
   await setup(t)
   let host:HTMLElement|null=null

@@ -13,7 +13,11 @@
 //   the event-listeners OFF switch disables the user's dogs too, and ON
 //   restores them; a restart keeps them
 //   only the user ends them: user_registration_remove; one of each per project
-//   refusals: a count out of range, an agent as target, a second of a kind
+//   registering again CHANGES the registration in place (the desk header's
+//   Register... menu, user 2026-10-20 16:43Z): a listener of the other kind
+//   switches (the same dog), a watch with another count updates (the same
+//   dog, evaluated at once); the same kind or count changes nothing
+//   refusals: a count out of range, an agent as target
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-user-listeners.mjs
 
 import { Proof } from '../proof.mjs'
@@ -61,8 +65,18 @@ export default async function (rig) {
   p.check('the user registers an event listener: a dog with no agent owner, armed', reg.ok && ud?.state === 'armed' && ud?.owner_agent_id === null
     && ud?.owner_kind === 'user' && ud?.once === false, { reg: reg.ok ? reg.v : reg.error, dogs: userDogs() })
   p.check('registering switched the project\'s event listeners on, as an agent\'s listener does', enabled(), node('sync')?.scope)
-  const again = await opTry({ op: 'user_listener_register', node: 'sync' })
-  p.check('the user keeps one event listener per project', !again.ok && /already keep/.test(again.error ?? ''), again)
+  const same = await opTry({ op: 'user_listener_register', node: 'sync', once: false })
+  p.check('registering the same kind again changes nothing: one listener, the same dog', same.ok && same.v?.updated === false
+    && userDogs('project_listener').length === 1 && userDogs('project_listener')[0].uid === ud?.uid, same)
+  const toOnce = await opTry({ op: 'user_listener_register', node: 'sync', once: true })
+  const sw = userDogs('project_listener')
+  p.check('registering the other kind switches the listener in place: the same dog, now one-time, still armed',
+    toOnce.ok && toOnce.v?.updated === true && sw.length === 1 && sw[0].uid === ud?.uid && sw[0].once === true && sw[0].state === 'armed' && sw[0].fired === ud?.fired,
+    { toOnce: toOnce.ok ? toOnce.v : toOnce.error, dogs: sw })
+  const toCont = await opTry({ op: 'user_listener_register', node: 'sync', once: false })
+  const back = userDogs('project_listener')
+  p.check('and back to continuous: still the same dog', toCont.ok && toCont.v?.updated === true && back.length === 1 && back[0].uid === ud?.uid
+    && back[0].once === false && back[0].state === 'armed', back)
 
   // ------------------------------------------------------------ the user's listener counts toward an agent's watch
   const watch = await rig.tool('boss', 'orgtree_watchdog', { action: 'create', name: 'pair', kind: 'listener_watch', target: 'sync', count: 2, once: true, notice: true })
@@ -112,6 +126,15 @@ export default async function (rig) {
   const wdog = userDogs('listener_watch')[0]
   p.check('the user registers a listener watch (3): armed, one-shot, no notification yet', reg3.ok && w3.ok && wdog?.state === 'armed' && wdog?.once === true
     && userMail('LISTENERS READY').length === 0, { w3: w3.ok ? w3.v : w3.error, dogs: userDogs() })
+  const sameCount = await opTry({ op: 'user_watch_register', node: 'sync', count: 3 })
+  const raised = await opTry({ op: 'user_watch_register', node: 'sync', count: 4 })
+  const wRaised = userDogs('listener_watch')
+  p.check('registering a watch with another count updates it in place: the same dog, the new count, still waiting; the same count changes nothing',
+    sameCount.ok && sameCount.v?.updated === false && raised.ok && raised.v?.updated === true && wRaised.length === 1 && wRaised[0].uid === wdog?.uid
+    && Number(wRaised[0].memo?.count) === 4 && wRaised[0].state === 'armed' && userMail('LISTENERS READY').length === 0,
+    { sameCount: sameCount.ok ? sameCount.v : sameCount.error, raised: raised.ok ? raised.v : raised.error, dogs: wRaised })
+  const lowered = await opTry({ op: 'user_watch_register', node: 'sync', count: 3 })
+  p.check('and back to 3: still the same dog', lowered.ok && Number(userDogs('listener_watch')[0].memo?.count) === 3 && userDogs('listener_watch')[0].uid === wdog?.uid, userDogs('listener_watch'))
   const lb = await listen('sb', 'ready-b', 'sync')
   await rig.waitFor(() => userMail('LISTENERS READY').length === 1, { what: 'the user\'s watch fires at three listeners', timeout: 30000 }).catch(() => {})
   const wm = userMail('LISTENERS READY')[0]
@@ -144,12 +167,18 @@ export default async function (rig) {
   const badCount = await opTry({ op: 'user_watch_register', node: 'sync', count: 0 })
   const bigCount = await opTry({ op: 'user_watch_register', node: 'sync', count: 5000 })
   const onAgent = await opTry({ op: 'user_listener_register', node: 'sa' })
-  const dupWatch = await opTry({ op: 'user_watch_register', node: 'sync', count: 2 })
   const noSuch = await opTry({ op: 'user_registration_remove', node: 'sync', dog: 'nosuchdog' })
-  p.check('refused: a count out of range, an agent as the target, a second watch, an unknown registration',
+  p.check('refused: a count out of range, an agent as the target, an unknown registration',
     !badCount.ok && /count is how many/.test(badCount.error ?? '') && !bigCount.ok && !onAgent.ok && /agent/.test(onAgent.error ?? '')
-    && !dupWatch.ok && /already keep/.test(dupWatch.error ?? '') && !noSuch.ok && /no event listener or listener watch/.test(noSuch.error ?? ''),
-    { keep: keep.ok, badCount, bigCount, onAgent, dupWatch, noSuch })
+    && !noSuch.ok && /no event listener or listener watch/.test(noSuch.error ?? ''),
+    { keep: keep.ok, badCount, bigCount, onAgent, noSuch })
+  // the watch the user registered above (50) is changed to a count already reached: it fires at once
+  const watch50 = userDogs('listener_watch').find(d => d.state === 'armed')
+  const reached = await opTry({ op: 'user_watch_register', node: 'sync', count: 2 })
+  await rig.waitFor(() => userMail('LISTENERS READY').length === 3, { what: 'a watch changed to a reached count fires at once', timeout: 30000 }).catch(() => {})
+  const afterReach = userDogs('listener_watch').find(d => d.uid === watch50?.uid)
+  p.check('changing a watch to a count already reached fires it at once, in place (the same dog, now spent)', keep.ok && !!watch50 && reached.ok && reached.v?.updated === true
+    && userMail('LISTENERS READY').length === 3 && afterReach?.state === 'spent', { reached: reached.ok ? reached.v : reached.error, dog: afterReach })
 
   await settle('the last turns')
   p.file('user-dogs.json', userDogs())
