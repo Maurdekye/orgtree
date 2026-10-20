@@ -51,7 +51,8 @@ pub struct State {
     pub codex_fast_modes: std::collections::BTreeMap<String, String>,
     pub codex_efforts_error: Option<String>,
     pub muse: CliStatus,
-    /// OpenCode is offered only after its installed ACP entrypoint negotiates.
+    /// Completed OpenCode discovery requires ACP negotiation. Before that first
+    /// result, admission may locate the binary; launch still negotiates ACP.
     pub opencode: CliStatus,
     /// what the last Muse metadata host reported (schema, sign-in, catalog)
     pub muse_probe: Option<MuseDiscovery>,

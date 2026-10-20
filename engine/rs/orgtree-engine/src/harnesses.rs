@@ -101,7 +101,7 @@ pub fn installed(engine: &Engine, id: &str) -> bool {
         "codex-cli" => found(p.codex_path()) || crate::providers::locate_codex().is_some(),
         "antigravity" => found(p.agy_path()) || crate::providers::locate_agy().is_some(),
         "muse" => found(p.muse_path()) || crate::providers::locate_muse().is_some(),
-        "opencode" => p.state.load().opencode.installed && found(p.state.load().opencode.path.clone()),
+        "opencode" => crate::runtime::opencode::located(&p.state.load()).is_some(),
         _ => false,
     }
 }

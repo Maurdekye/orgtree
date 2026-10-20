@@ -3377,8 +3377,8 @@ impl Actor {
         self.close_proc().await;
         self.reconfigured = false;
         let skill_use = self.skill_use(ctx, &plan).await?;
-        let exe = self.engine.providers.state.load().opencode.path.clone()
-            .filter(|p| p.is_file()).ok_or_else(|| anyhow!("OpenCode with ACP is not installed or its discovery has not completed"))?;
+        let exe = opencodert::located(&self.engine.providers.state.load())
+            .ok_or_else(|| anyhow!("OpenCode with compatible ACP is not installed"))?;
         std::fs::create_dir_all(&ctx.scratch)?;
         let tools = &ctx.effective["tools"];
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);

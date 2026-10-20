@@ -2535,6 +2535,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 - OpenCode is an optional OpenRouter/language model server harness over the reusable
   ACP1 transport. Discovery must negotiate an installed OpenCode 2.x entrypoint;
+  before its first result, admission and launch share a filesystem-locator
+  fallback so restart recovery can resume immediately. A completed negative
+  discovery stays refused, and every launch still negotiates ACP before loading
+  a session. [verified: `runtime/opencode.rs`, `harnesses.rs`,
+  `tools/rig/proofs/opencode-startup.mjs`, 2026-10-20]
   the per-seat OpenRouter pin still wins. Default/acceptEdits deny Code Mode
   execute; bypass permits nested calls and fetch. Direct file approvals check
   folder grants, shell follows the bash switch, and neither claims an OS sandbox.

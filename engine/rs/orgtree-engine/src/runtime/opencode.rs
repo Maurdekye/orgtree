@@ -389,9 +389,77 @@ pub fn locate() -> Option<PathBuf> {
         .map(|p| p.join(if cfg!(windows) { "opencode.exe" } else { "opencode" })).find(|p| p.is_file())
 }
 
+/// Admission and process startup use the same snapshot. Before the first
+/// discovery completes, a filesystem candidate may launch and negotiate ACP
+/// itself. Once discovery has answered, its failed negotiation is authoritative.
+#[nolog]
+pub fn located(state: &crate::providers::State) -> Option<PathBuf> {
+    located_with(state, locate)
+}
+
+#[nolog]
+fn located_with(state: &crate::providers::State, fallback: impl FnOnce() -> Option<PathBuf>) -> Option<PathBuf> {
+    if state.opencode.installed {
+        if let Some(path) = state.opencode.path.as_ref().filter(|p| p.is_file()) {
+            return Some(path.clone());
+        }
+    }
+    if state.probed { return None; }
+    fallback().filter(|p| p.is_file())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn startup_uses_file_candidate_before_discovery() {
+        let state = crate::providers::State::default();
+        let file = std::env::current_exe().unwrap();
+        assert_eq!(located_with(&state, || Some(file.clone())), Some(file));
+    }
+    #[test]
+    fn startup_missing_binary_remains_unavailable() {
+        let state = crate::providers::State::default();
+        assert_eq!(located_with(&state, || None), None);
+        let missing = std::env::temp_dir().join(format!("missing-opencode-{}", uuid::Uuid::new_v4()));
+        assert_eq!(located_with(&state, || Some(missing)), None);
+    }
+    #[test]
+    fn startup_does_not_accept_a_directory() {
+        assert_eq!(located_with(&crate::providers::State::default(), || Some(std::env::temp_dir())), None);
+    }
+    #[test]
+    fn startup_completed_incompatibility_is_not_overridden() {
+        let state = crate::providers::State { probed: true, ..Default::default() };
+        assert_eq!(located_with(&state, || panic!("completed negative result must not fall back")), None);
+    }
+    #[test]
+    fn startup_negotiated_cache_wins_before_and_after_discovery() {
+        let file = std::env::current_exe().unwrap();
+        let mut state = crate::providers::State::default();
+        state.opencode.installed = true;
+        state.opencode.path = Some(file.clone());
+        for probed in [false, true] {
+            state.probed = probed;
+            assert_eq!(located_with(&state, || panic!("cache must win")), Some(file.clone()));
+        }
+    }
+    #[test]
+    fn startup_removed_cached_binary_is_not_still_installed() {
+        let mut state = crate::providers::State { probed: true, ..Default::default() };
+        state.opencode.installed = true;
+        state.opencode.path = Some(std::env::temp_dir().join(format!("missing-opencode-{}", uuid::Uuid::new_v4())));
+        assert_eq!(located_with(&state, || panic!("completed result must not fall back")), None);
+        state.probed = false;
+        let file = std::env::current_exe().unwrap();
+        assert_eq!(located_with(&state, || Some(file.clone())), Some(file));
+    }
+    #[test]
+    fn startup_failed_negotiation_does_not_trust_a_leftover_path() {
+        let mut state = crate::providers::State { probed: true, ..Default::default() };
+        state.opencode.path = Some(std::env::current_exe().unwrap());
+        assert_eq!(located_with(&state, || panic!("failed negotiation must remain refused")), None);
+    }
     #[tokio::test]
     async fn acp_opencode_readiness_observed_and_timeout_are_distinct() {
         let (tx, rx) = watch::channel(false);

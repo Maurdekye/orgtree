@@ -35,6 +35,15 @@ selects an always-allow option or saves an approval rule.
 
 ## Sessions and accounting
 
+Startup recovery does not wait for the first asynchronous provider discovery.
+Admission and launch share `runtime/opencode.rs::located`: before the first
+discovery result they may use the existing filesystem locator, but a completed
+negative result is not overridden. A missing file still refuses admission.
+Every process, including a pre-discovery launch, must negotiate the existing
+OpenCode 2.x / ACP 1 / session-load contract before a session or prompt is opened.
+The exact-version mail plugin still requires its separately verified version;
+a launch before that cache is populated uses normal queued-mail delivery.
+
 The process has isolated configuration, home, cache and state roots. Configuration
 and the selected provider key are passed in its environment, not command-line
 arguments or diagnostics. Project OpenCode configuration is disabled; the engine
