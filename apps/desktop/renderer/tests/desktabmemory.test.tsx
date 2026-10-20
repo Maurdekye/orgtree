@@ -117,11 +117,11 @@ const pick = (el: Element, tab: string) => inAct(async () => {
   assert.ok(button, `fixture: the desk offers the ${tab} tab`)
   button!.click(); await flush(4)
 })
-const openFolder = (el: Element) => (el.querySelector('.mail-folders button.on')?.textContent ?? '').replace(/\s+\d+$/, '').trim()
-const folders = (el: Element) => [...el.querySelectorAll('.mail-folders button')]
+const openFolder = (el: Element) => (el.querySelector('.mail-folders > button.on')?.textContent ?? '').replace(/\s+\d+$/, '').trim()
+const folders = (el: Element) => [...el.querySelectorAll('.mail-folders > button')]
   .map((b) => (b.textContent ?? '').replace(/\s+\d+$/, '').trim())
 const pickFolder = (el: Element, name: string) => inAct(async () => {
-  const button = [...el.querySelectorAll<HTMLButtonElement>('.mail-folders button')]
+  const button = [...el.querySelectorAll<HTMLButtonElement>('.mail-folders > button')]
     .find((b) => (b.textContent ?? '').trim().startsWith(name))
   assert.ok(button, `fixture: the Mail tab offers the ${name} folder`)
   button!.click(); await flush(4)
