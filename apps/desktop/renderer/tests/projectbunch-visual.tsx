@@ -4,7 +4,7 @@ import { CurrentOrg } from '../src/popout'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { AccountsPanel } from '../src/canvas/accounts'
 import { withDraftTree, withPendingMoves, treeParents, layout, flatten } from '../src/canvas/shared'
-import { canonPiles, viewHidden, viewPiles } from '../src/canvas/canvaslayout'
+import { canonPiles, pruneRetiredView, viewHidden, viewPiles } from '../src/canvas/canvaslayout'
 import { withPendingOrder } from '../src/canvas/pendingorder'
 import { projectDraftSteps } from '../src/canvas/newproject'
 import type { TreeNode, TreePayload } from '../src/types'
@@ -47,10 +47,12 @@ localStorage.clear()
 localStorage.setItem('orgtree-canvas-gl-wires', 'off')
 localStorage.setItem('orgtree-start-zoom', '0')
 localStorage.setItem('orgtree-project-bunches', scene.endsWith('-off') ? '0' : '1')
+if (scene.startsWith('hidden-retired'))
+  localStorage.setItem('orgtree-hide-retired', scene.endsWith('-shown') ? '0' : '1')
 if (scene === 'reorder' || scene === 'rearrange-on')
   localStorage.setItem('orgtree-project-bunch-rearrange', '1')
 if (scene === 'rearrange-off') localStorage.setItem('orgtree-project-bunches', '1')
-localStorage.setItem('orgtree-chart-layout', scene === 'circular' || scene === 'retired-circular' || scene.startsWith('ring-') ? 'circular' : 'row')
+localStorage.setItem('orgtree-chart-layout', scene === 'circular' || scene === 'retired-circular' || scene === 'hidden-retired-circular' || scene.startsWith('ring-') ? 'circular' : 'row')
 const labels: Record<string, string> = {
   two: 'Two projects', three: 'Three projects', five: 'Five projects', seven: 'Seven projects',
   eight: 'Eight projects', twelve: 'Twelve projects', twenty: 'Twenty projects',
@@ -73,10 +75,17 @@ const labels: Record<string, string> = {
   'retired-pile': 'Retired pile: the selected project column stays bunched',
   'retired-off': 'Retired pile: Display bunching off keeps the original column',
   'retired-circular': 'Retired pile: circular chart keeps the same project bunch',
+  'hidden-retired': 'Hidden retired branch: projects bunch; the owning project keeps its retired pill',
+  'hidden-retired-circular': 'Circular chart: hidden retired branch does not break the project bunch',
+  'hidden-retired-shown': 'Retired nodes shown: the visible branch breaks the upper project away',
 }
 const retiredStacks = () => [agent('archive-owner', [
   retired(chain(3, [agent('older-worker')], 'older')),
   retired(chain(5, [agent('retired-worker')], 'project')),
+])]
+const hiddenRetiredStack = () => [project('project-transparency-committee', [
+  project('listener-smoke', [project('test-project', [agent('worker')])]),
+  retired(agent('retired-member')),
 ])]
 const trees: Record<string, TreeNode[]> = {
   two: [chain(2)], three: [chain(3)], five: [chain(5)], seven: [chain(7)],
@@ -94,6 +103,8 @@ const trees: Record<string, TreeNode[]> = {
     chain(5, [agent('member')], 'run'), ...Array.from({ length: 12 }, (_, i) => agent(`right-${i}`))])])],
   'ring-team-ends': teamEnds(),
   'retired-pile': retiredStacks(), 'retired-off': retiredStacks(), 'retired-circular': retiredStacks(),
+  'hidden-retired': hiddenRetiredStack(), 'hidden-retired-circular': hiddenRetiredStack(),
+  'hidden-retired-shown': hiddenRetiredStack(),
 }
 let current = bunchTree(trees[scene] ?? [chain(3)])
 let publish = (_tree: TreePayload) => {}
@@ -122,6 +133,9 @@ window.fetch = ((url, init) => {
   const path = new URL(String(url), location.href).pathname
   if (scene.startsWith('retired-') && path.endsWith('/retired')) return answer({
     agents: current.roots[0]!.children.map(n => ({ ...n, children: [] })), next_cursor: null,
+  })
+  if (scene.startsWith('hidden-retired') && path.endsWith('/retired')) return answer({
+    agents: [retired(agent('retired-member'))], next_cursor: null,
   })
   if (path.endsWith('/gesture')) {
     execute(JSON.parse(String(init?.body)).steps)
@@ -154,11 +168,13 @@ if (scene.startsWith('ring-')) {
     y: 326 - (Math.min(...ys) + Math.max(...ys) + 2 * lift + 124) * z / 2, z,
   }))
 }
-if (scene.startsWith('retired-')) {
-  const root = canonPiles(withDraftTree(current, null))
-  const hidden = viewHidden(root, viewPiles(root, {}, false, false, new Set()))
-  const mode = scene === 'retired-circular' ? 'circular' : 'row'
-  const positions = [...layout(root, hidden, mode, !scene.endsWith('-off'), flatten(root, {})).values()]
+if (scene.startsWith('retired-') || scene.startsWith('hidden-retired')) {
+  const full = canonPiles(withDraftTree(current, null))
+  const hide = scene.startsWith('hidden-retired') && !scene.endsWith('-shown')
+  const root = pruneRetiredView(full, hide, new Set()).root
+  const hidden = viewHidden(root, viewPiles(root, {}, false, hide, new Set()))
+  const mode = scene.endsWith('-circular') ? 'circular' : 'row'
+  const positions = [...layout(root, hidden, mode, !scene.endsWith('-off'), flatten(full, {}), hide).values()]
   const xs = positions.map(p => p.x), ys = positions.map(p => p.y)
   const lift = Math.max(0, 140 - Math.min(...ys))
   const w = Math.max(...xs) - Math.min(...xs) + 124, h = Math.max(...ys) - Math.min(...ys) + 124
