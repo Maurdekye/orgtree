@@ -45,6 +45,12 @@ Waited measures the listener's wait before assignment; Held measures its time ho
 
 **take back** is available to the user and project ancestors. It puts a held job at the front of the queue, preferring a different listener for its next assignment and falling back to the same one. If the job has exhausted its attempts with timeout/checkups enabled, it goes to dead letters instead. The former holder is told to stop and cannot acknowledge that reclaimed assignment. This does not terminate its process: coordinate any work already in progress before another worker repeats it.
 
+## Project settings: Acknowledgement
+
+This section appears in ACK mail-queue mode or when the project has concurrency slots. **Ack timeout** and **Ack reminders** apply to both un-acked mail jobs and idle slot leases. With Runtime working checkups and Ack timeout on, the holder gets the configured number of 20-minute checkup reminders (1–10, default 3); the next checkup reclaims the mail or releases the whole slot lease, including every slot in it, and checks the waiting line.
+
+**Max attempts** is mail-only: a reclaimed job that has exhausted its hand-outs goes to dead letters. It does not limit slot claims. The immediate **turn-end reminder** is also mail-only; slot leases use the working-checkup reminders. Turning off working checkups makes the checkup-based controls inactive.
+
 ## Slots
 
 One table separates **Holding**, **Line** and **Recently Held**. Columns include Position, Agent, Waited, Held, Ended, **Lease**, Slots, **Watchdog** and Action. Lease identifies the reservation; Slots is its quantity, which may exceed one. A grant reserves the whole quantity together. The Watchdog column names the claim dog, including its retained identity after a one-shot claim has been spent.
