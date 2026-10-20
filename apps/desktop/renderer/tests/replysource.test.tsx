@@ -254,7 +254,7 @@ test('nested preview names and titles keep copy menus while text selection and l
     assert.ok(copy)
     assert.equal(choices.some(choice => choice.textContent === 'Reply'), false)
     await inAct(() => { copy.click() }); await flush(2)
-    assert.equal(writes.at(-1), sources.get('source')!.text)
+    assert.equal(writes.at(-1), '@agent:org/writer and @item:org/fix-title\n\n[External link](https://example.invalid)')
     assert.equal(document.querySelectorAll('.ctxmenu').length, 0)
     assert.equal(parentMenus, 0, 'a quoted source never opens the containing message menu')
   } finally {
