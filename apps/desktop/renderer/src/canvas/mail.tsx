@@ -38,6 +38,8 @@ import { AgentLink, AgentName } from './identity'
 import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
 import { RefMdBody } from './refmd'
 import { refToken } from './reflinks'
+import { JobAckPane, needsAck } from './jobackpane'
+import { UserMention, isUserName } from './usermention'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { useComposerEnter } from '../enterkey'
 import { isMobile } from '../mobile'
@@ -104,6 +106,11 @@ export interface MailListProps {
   /** Which rows may be answered from here. Default: incoming mail from a
    *  plain agent id (the @-sentinels route elsewhere). */
   canReply?: (m: MailRow) => boolean
+  /** The user's inbox only (docket let-the-user-manually-hold-a-number-of-a-project):
+   *  acknowledge a job the project's mail queue handed the user, with the reply
+   *  to its sender when there is one. Present, a job of an ACK-mode queue shows
+   *  the acknowledge pane in place of the reply box (`JobAckPane`). */
+  onAckJob?: (m: MailRow, reply?: string) => Promise<unknown>
   onRetract?: (m: MailRow) => void
   /** User-inbox-only permanent deletion. Other MailList surfaces omit it. */
   onDeleteUserMail?: (m: MailRow) => void
@@ -190,7 +197,7 @@ const MAIL_WINDOW = 40
 
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
   compoundHeader,
-  outgoing, onRead, onReply, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
+  outgoing, onRead, onReply, onAckJob, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind,selectionRequest,hiddenUnread,
   projectMail }: MailListProps) {
@@ -712,6 +719,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
                 setReplyTargets(current => current.filter(m => !targets.some(t => t.id === m.id)))
               }
               : undefined}
+            onAckJob={onAckJob && !outgoing && cur.queue?.job ? (reply) => onAckJob(cur, reply) : undefined}
             toast={toast} onTag={tagFilter ? tag=>tagFilter.onChange(toggleMailTag(tagFilter.selected,tag)):undefined} />
         )}
         {!cur && (
@@ -930,7 +938,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
  *  `.mailer-read`; `MailList` itself draws its pane through it. `onReply` is
  *  passed only when this message may be replied to from here. */
 export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender, party,
-  outgoing, customSender, waitLabel, custom, onReply, toast, onTag, hideMailReplyKind, onFocusAgent, hasAgent, tierOf, compoundHeader }: {
+  outgoing, customSender, waitLabel, custom, onReply, onAckJob, toast, onTag, hideMailReplyKind, onFocusAgent, hasAgent, tierOf, compoundHeader }: {
   compoundHeader?: boolean
   onFocusAgent?: (id: string) => void
   hasAgent?: (id: string) => boolean
@@ -956,6 +964,8 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
    *  (asks: the response form IS the body) */
   custom?: ReactNode | null
   onReply?: (text: string, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  /** acknowledge this mail as a job the project's queue handed the user (the user's inbox) */
+  onAckJob?: (reply?: string) => Promise<unknown>
   toast?: ToastFn
 }) {
   const profile = 'operator'
@@ -983,6 +993,8 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
     <TagChips tags={cur.tags} onTag={onTag}/>
     {cur.relationship && <span className="dim">{cur.relationship}</span>}
     {!cur._ask && cur.queue && <QueueChip q={cur.queue} onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf} />}
+    {!cur._ask && cur.queue?.job && <span className="queuekind job-kind"
+      title={`a job project ${cur.queue.job.name}'s mail queue handed to this mailbox`}>project job · {cur.queue.job.name}</span>}
     <span className="dim">{fmtFull(cur.at)}</span>
     {cur._wait && <span className="wait">{waitLabel}</span>}
   </>
@@ -1051,7 +1063,10 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
           })}
         </div>
       )}
-      {onReply && (
+      {/* a job the project's queue handed the user (ACK mode): acknowledged here, in place of the
+          reply box until it is; once acknowledged it says so and the reply box returns */}
+      {onAckJob && needsAck(cur.queue?.job) && <JobAckPane job={cur.queue!.job!} onAck={onAckJob} />}
+      {onReply && !(onAckJob && needsAck(cur.queue?.job) && !cur.queue!.job!.acked_at) && (
         /* ⚠ `org ?? refs?.world.org` — THE SAME RESOLUTION THE HEAD USES
            (above, and the body's `imgBase`). `org` is an OPTIONAL prop, and
            the user's own inbox — the one MailList in the app that supplies
@@ -1488,8 +1503,10 @@ export function QueueChip({ q, onFocusAgent, hasAgent, tierOf }: {
   tierOf?: (id: string) => string | null | undefined
 }) {
   const focus = onFocusAgent
-  const agent = (id: string, why: string, prefix?: string) => <AgentName id={id} prefix={prefix} why={why}
-    tier={tierOf?.(id)} onFocus={focus && hasAgent?.(id) ? (aid: string) => focus(aid) : undefined} />
+  // the user (the engine's "user") is the standard @user mention, not a name nobody has
+  const agent = (id: string, why: string, prefix?: string) => isUserName(id) ? <UserMention />
+    : <AgentName id={id} prefix={prefix} why={why}
+      tier={tierOf?.(id)} onFocus={focus && hasAgent?.(id) ? (aid: string) => focus(aid) : undefined} />
   if (plainDelivery(q) && q.held_by) {
     const title = `delivered to ${q.held_by}`
       + (q.held_at ? ` at ${fmtFull(q.held_at)}` : ' — delivery time not recorded')

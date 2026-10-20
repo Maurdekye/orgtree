@@ -229,6 +229,11 @@ export interface MailQueueState {
   dead_letter?: { by?: string; why?: string; attempts?: number }
   purged?: { by?: string }
   attempts?: number
+  /** this mail IS a job the project's queue handed this mailbox (the user's
+   *  inbox; engine `compute.rs`): `id` the project's node id, `ack` whether
+   *  its queue was in ACK mode, `mail` the project's copy, `acked_at` set
+   *  once the user acknowledged it */
+  job?: { id: number; name: string; mail?: string; ack?: boolean; acked_at?: string }
 }
 
 // schema.py OrgInboxEntry — the inter-org bridge log
@@ -2458,6 +2463,19 @@ export interface OpRequest {
   force?: boolean
   /** slot_unqueue — the agent removed from the line */
   agent?: string
+  /** user_slot_hold — how many concurrency slots to hold (1 to the project's count) */
+  slots?: number
+  /** user_slot_cancel, user_registration_remove — the user's own dog (its id, without the "user/") */
+  dog?: string
+  /** user_listener_register — a one-shot (the next event only) */
+  once?: boolean
+  /** user_watch_register — the armed event listeners that fire the watch */
+  count?: number
+  /** user_queue_join — jobs held at once (1 to 20) */
+  batch?: number
+  /** user_job_ack — the job's mail in the user's inbox; `reply` the id of the reply mail they sent */
+  copy?: string
+  reply?: string
 }
 
 // api.py Scope (POST .../nodes/{nid}/scope)

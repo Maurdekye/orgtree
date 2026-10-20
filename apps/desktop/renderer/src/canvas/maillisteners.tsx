@@ -23,6 +23,17 @@
 // the tree's fair_queue dogs in the engine's pick order, each waiting since
 // its arming, last hand-out or freed job. Not the desk's Listeners tab
 // (listenersdesk.tsx), which lists the EVENT listeners.
+//
+// The user joins the queue themselves (docket
+// let-the-user-manually-hold-a-number-of-a-project; USER 2026-10-20 13:04:56Z,
+// 13:22Z "B": a focused dialog; jobs arrive as normal mail in their inbox and
+// are acknowledged there; leaving keeps a held job until it is acknowledged):
+// "Join mail queue…", then "leave queue" on their own row. They take their
+// turn in the Line like any listener (the engine's "user" is no tree node, so
+// never "not live" or "halted"), their rows name them as the standard @user
+// mention (13:50Z, never "you"), and a job they hold shows in Working with an
+// open mail control where an agent's has the take back (the user acknowledges
+// their own job; nobody takes it from them).
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode, UIEvent } from 'react'
@@ -43,6 +54,10 @@ import { HistoryDog } from './historydog'
 import { useLoadWhenSeen } from './loadmore'
 import type { DogIdentity } from './historydog'
 import { fmtFull } from '../timefmt'
+import { UserMention, isUserName } from './usermention'
+import { JoinQueueDialog } from './userdialogs'
+import { resolveRef } from './reflinks'
+import type { RefRoutes } from './reflinks'
 
 /** A stretch of time: open (`to` absent) while it is still going on. */
 export interface Stretch { from: string; to?: string }
@@ -107,11 +122,13 @@ export function mailListenerRows(state: MailListenerState, map: Map<string, Canv
   rows: MailRow[] = []): MailListenerRow[] {
   const listed = state.listeners.map((w): MailListenerRow => {
     const owner = map.get(w.owner)
+    // the user's listener (owner "user") has no agent in the tree: it is always live and never halted
+    const user = isUserName(w.owner)
     const holding = ack ? working.filter((j) => j.agent === w.owner).length : 0
     const out = w.state === 'paused' ? 'paused' as const
-      : !owner || owner.state !== 'live' ? 'gone' as const
+      : !user && (!owner || owner.state !== 'live') ? 'gone' as const
         : ack && holding >= (w.batch ?? 1) ? 'holding' as const
-          : ack && owner.halt ? 'halted' as const : null
+          : ack && !user && owner?.halt ? 'halted' as const : null
     const since = latest(w.at, w.last_fired, w.freed_at, ack ? lastAck(rows, w.owner) : undefined) ?? w.at
     const waited = out === null || out === 'halted' ? { from: since } : null
     return { dog: w, position: null, out, holding, waited }
@@ -164,7 +181,7 @@ function uniqueRows<T extends { id: number }>(rows: T[]): T[] {
   return rows.filter((r) => !seen.has(r.id) && !!seen.add(r.id))
 }
 
-export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenMail, op, toast, dogs }: {
+export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenMail, op, toast, dogs, refs }: {
   node: CanvasNode
   state: MailListenerState
   map: Map<string, CanvasNode>
@@ -180,6 +197,8 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   toast?: ToastFn
   /** the tree's watchdogs, for the Dead Letter Line (else the desk's dogs) */
   dogs?: Watchdog[]
+  /** the surface's references: the user's chip opens their inbox */
+  refs?: RefRoutes
 }) {
   useSyncExternalStore(subscribeAgeClock, ageClockNow, ageClockNow)
   const route = useDogRoute()
@@ -188,6 +207,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
   const [asking, setAsking] = useState<WorkingJob | null>(null)
+  const [joining, setJoining] = useState(false)
   const generation = useRef(0), busy = useRef(false)
   // the host may hand a new `op` each render: read through a ref, so only
   // the queue's own moves re-read
@@ -254,16 +274,21 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
     ? hist.dead_letter_listeners.map((w) => treeDogs.find((d) => d.id === w.id && !d.metadata_only) ?? w)
     : treeDead
   const history = hist && hist.ack === ack ? hist.history : []
+  // the user's own place in the queue, with its leave: an Action column (always there in ack mode, for take back)
+  const myDog = state.listeners.find((w) => isUserName(w.owner))
+  const actions = ack || !!myDog
   const cols = ['Position', 'Agent', 'Waited', ...(ack ? ['Held', 'Acked'] : ['Delivered']), 'Mail', ...(ack ? ['Ack'] : []),
-    'Batch', 'Handed', 'Watchdog', ...(ack ? ['Action'] : [])]
+    'Batch', 'Handed', 'Watchdog', ...(actions ? ['Action'] : [])]
   const n = cols.length
   const dogOf = (agent: string) => state.listeners.find((w) => w.owner === agent)
-  const agentLink = (id: string) => <AgentLink id={id} tier={nodeTierOf(map.get(id))} onFocus={onJump} />
+  const agentLink = (id: string) => isUserName(id) ? <UserMention refs={refs} /> : <AgentLink id={id} tier={nodeTierOf(map.get(id))} onFocus={onJump} />
   const mailLink = (id: string | null | undefined, text: string | null | undefined, title: string) => id
     ? <button type="button" className="listener-mail-link" data-mail={id} title={text ? `“${text}” — ${title}` : title}
         onClick={() => onOpenMail?.(id)}>{text || id}</button>
     : null
-  const listenerDog = (w: Watchdog) => <WatchdogLink dog={w} className="listener-dog" onOpen={route?.open} />
+  // the user's own dog has no detail panel or menu to open: its chip only says what it is
+  const listenerDog = (w: Watchdog) => <WatchdogLink dog={w} className="listener-dog" onOpen={isUserName(w.owner) ? undefined : route?.open}
+    atDestination={isUserName(w.owner)} />
   const section = (title: string, cls: string, body: ReactNode) => (
     <tbody className={cls}>
       <tr className="slot-section"><th colSpan={n} scope="rowgroup"><h4>{title}</h4></th></tr>
@@ -271,6 +296,25 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
     </tbody>
   )
   const empty = (text: ReactNode) => <tr><td colSpan={n} className="dim slot-empty">{text}</td></tr>
+  // the user's queue place: joined from a dialog, left from their own row
+  const join = (batch: number) => {
+    op?.({ op: 'user_queue_join', node: node.id, batch })
+      .then(() => { toast?.([`joined project ${node.id}'s mail queue (batch ${batch})`]); setBump((b) => b + 1) })
+      .catch(() => {})
+  }
+  const leave = () => {
+    op?.({ op: 'user_queue_leave', node: node.id })
+      .then(() => { toast?.([`left project ${node.id}'s mail queue; a job already held stays held until it is acknowledged`]); setBump((b) => b + 1) })
+      .catch(() => {})
+  }
+  // the user's copy of a held job is in THEIR inbox (not the project's mailbox): open it there
+  const openJob = (copy: string) => {
+    if (refs) {
+      const r = resolveRef({ kind: 'mail', org: refs.world.org, box: 'user', id: copy }, refs.world)
+      if (r.outcome === 'ready') { refs.onOpen(r); return }
+    }
+    onOpenMail?.(copy)
+  }
   const takeBack = (job: WorkingJob) => {
     if (!op) return
     op({ op: 'mail_take_back', node: node.id, mail: job.mail })
@@ -285,13 +329,18 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const maxAttempts = hist?.max_attempts ?? 3
   return (
     <div className="project-mail-listeners" onScroll={onScroll}>
+      {node.state === 'live' && !myDog && <div className="user-reg-tools">
+        <button type="button" data-action="join-queue"
+          title={`take a share of ${node.id}'s mail: the jobs handed to you arrive as normal mail in your inbox`}
+          onClick={() => setJoining(true)}>Join mail queue…</button>
+      </div>}
       <div className="slots-table-scroll" role="region" aria-label={`Mail listeners of project ${node.id}`} tabIndex={0} onScroll={onScroll}>
         <table className={'slots-table mail-listeners-table' + (ack ? ' ack' : ' round-robin')}>
           <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/>
             {ack && <col className="slot-col-time"/>}<col className="slot-col-ended"/>
             <col className="listener-col-mail"/>{ack && <col className="listener-col-mail"/>}
             <col className="slot-col-quantity"/><col className="listener-col-fired"/><col className="listener-col-dog"/>
-            {ack && <col className="slot-col-action"/>}</colgroup>
+            {actions && <col className="slot-col-action"/>}</colgroup>
           <thead><tr>{cols.map((label) => <th key={label} scope="col" className={label === 'Action' ? 'slot-action' : undefined}>{label}</th>)}</tr></thead>
           {ack && section('Working', 'mail-working', <>
             {working.length === 0 && empty('Nobody is working on a mail of this project.')}
@@ -310,9 +359,14 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                   <td className="listener-batch" title="maximum messages per batch and unacked mails in ACK mode">{w ? w.batch ?? 1 : ''}</td>
                   <td className="listener-handed" title="mails this listener's watchdog has been handed (engine count)">{w?.fired ?? ''}</td>
                   <td className="listener-dog-cell">{w ? listenerDog(w) : <HistoryDog dog={j.dog} className="listener-dog" />}</td>
-                  <td className="slot-action"><button type="button" className="danger" data-action="take-back"
-                    title={`take this job back from ${j.agent}: it goes to the front of the queue, for another listener first`}
-                    onClick={() => setAsking(j)}>take back</button></td>
+                  <td className="slot-action">{isUserName(j.agent)
+                    // the user's own job: they acknowledge it from their inbox; nobody takes it back
+                    ? <button type="button" data-action="open-job" disabled={!j.copy}
+                        title="read this job in your inbox and acknowledge it there; reading does not acknowledge it"
+                        onClick={() => j.copy && openJob(j.copy)}>open mail</button>
+                    : <button type="button" className="danger" data-action="take-back"
+                        title={`take this job back from ${j.agent}: it goes to the front of the queue, for another listener first`}
+                        onClick={() => setAsking(j)}>take back</button>}</td>
                 </tr>
               )
             })}
@@ -323,10 +377,10 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
               with <code>orgtree_watchdog action=create kind=fair_queue target={node.id}</code>; each waiting mail then
               goes to one listener, the least recently woken first.</>)}
             {state.listeners.length > 0 && line.length === 0 && empty('Every listener is working on its batch.')}
-            {line.map((r) => (
-              // a watchdog row: away from its links it opens the dog's menu, as the
-              // listeners and slots rows do; the agent link keeps its own
-              <WatchdogRow as="tr" key={r.dog.id} id={r.dog.id} className={'slot-row listener-row' + (r.out ? ' out' : '')}>
+            {line.map((r) => {
+              const mine = isUserName(r.dog.owner)
+              const rowClass = 'slot-row listener-row' + (r.out ? ' out' : '')
+              const cells = (<>
                 <td className="slot-position" title={r.out ? OUT_TITLE[r.out] || undefined : undefined}>
                   {r.position ? <span className="slot-no">{ordinal(r.position)}</span>
                     : r.out ? <span className="dim">{OUT_LABEL[r.out]}</span> : null}</td>
@@ -339,9 +393,15 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                 <td className="listener-batch" title="maximum messages per batch and unacked mails in ACK mode">{r.dog.batch ?? 1}</td>
                 <td className="listener-handed" title="mails this listener's watchdog has been handed (engine count)">{r.dog.fired}</td>
                 <td className="listener-dog-cell">{listenerDog(r.dog)}{r.dog.notice && <span className="dim"> passive</span>}</td>
-                {ack && <td className="slot-action"/>}
-              </WatchdogRow>
-            ))}
+                {actions && <td className="slot-action">{mine && <button type="button" data-action="leave-queue"
+                  title="leave this queue: no more jobs are handed to you; a job already held stays held until it is acknowledged"
+                  onClick={leave}>leave queue</button>}</td>}
+              </>)
+              // a watchdog row: away from its links it opens the dog's menu, as the
+              // listeners and slots rows do; the user's dog has none (its owner is no agent)
+              return mine ? <tr key={r.dog.id} className={rowClass}>{cells}</tr>
+                : <WatchdogRow as="tr" key={r.dog.id} id={r.dog.id} className={rowClass}>{cells}</WatchdogRow>
+            })}
           </>)}
           {deadListeners.length > 0 && section('Dead Letter Line', 'mail-dead-line', deadListeners.map((w) => (
             <WatchdogRow as="tr" key={w.id} id={w.id} className={'slot-row listener-row dead-listener' + (w.state === 'paused' ? ' out' : '')}>
@@ -357,7 +417,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
               <td className="listener-batch"/>
               <td className="listener-handed" title="times this dead-letter watchdog has fired">{w.once ? null : w.fired}</td>
               <td className="listener-dog-cell">{listenerDog(w)}{w.notice && <span className="dim"> passive</span>}</td>
-              {ack && <td className="slot-action"/>}
+              {actions && <td className="slot-action"/>}
             </WatchdogRow>
           )))}
           {section(ack ? 'Recently Finished' : 'Recently Delivered', 'mail-history', <>
@@ -389,6 +449,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                 <td className="listener-batch"/>
                 <td className="listener-handed"/>
                 <td className="listener-dog-cell"><HistoryDog dog={h.dog} className="listener-dog" /></td>
+                {actions && <td className="slot-action"/>}
               </tr>
             ))}
             {(loading || failed || hist?.history_next) && <tr ref={moreRef}><td colSpan={n} className="slot-history-more" role="status">
@@ -399,6 +460,8 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
           </>)}
         </table>
       </div>
+      {joining && createPortal(
+        <JoinQueueDialog project={node.id} ack={ack} onJoin={join} close={() => setJoining(false)} />, document.body)}
       {asking && createPortal(
         <ConfirmModal title={`take this job back from ${asking.agent}?`}
           body={`${asking.agent} has held it for ${asking.held_at ? span(asking.held_at) : 'a while'}${asking.gist ? ` (“${asking.gist}”)` : ''}. `

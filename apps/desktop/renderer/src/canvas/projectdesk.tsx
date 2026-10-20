@@ -616,7 +616,7 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
       onFolderPick={onPickFolder}
       extraFolders={[{ id: 'listeners', count: mailListeners.armed.length,
         render: (rows) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
-          rows={rows} ack={queueAckMode(node)} onOpenMail={onOpenMail} op={op} toast={toast} dogs={tree.watchdogs ?? []} /> }]}
+          rows={rows} ack={queueAckMode(node)} onOpenMail={onOpenMail} op={op} toast={toast} dogs={tree.watchdogs ?? []} refs={refs} /> }]}
       folderAsk={folderAsk} />
     {purging && createPortal(
       <ConfirmModal title={`purge project ${node.id}'s waiting mail?`}
@@ -851,7 +851,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
         <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={refs} compactAt={tree.compact_at}
           actions={<PanelCorner kind="agent-team" slug={slug} nid={node.id} />} />
       </div>}
-      {shown === 'slots' && <SlotsView node={node} state={slots} map={map} onJump={onJump} op={op} toast={toast}
+      {shown === 'slots' && <SlotsView node={node} state={slots} map={map} onJump={onJump} op={op} toast={toast} refs={refs}
         actions={<PanelCorner kind="project-slots" slug={slug} nid={node.id} />} />}
       {shown === 'dead' && <DeadLettersView node={node} map={map} onJump={onJump} op={op} toast={toast} />}
       {shown === 'listeners' && <ListenersView node={node} dogs={tree.watchdogs ?? []} map={map} onJump={onJump} op={op} toast={toast} refs={refs} />}

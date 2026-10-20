@@ -10,11 +10,20 @@
 // `slot_status` op, re-read whenever the tree's slots change; the buttons
 // are the user's (the desktop's viewer), as the project's superior's
 // through the tool.
+//
+// The user holds slots themselves too (docket
+// let-the-user-manually-hold-a-number-of-a-project; USER 2026-10-20 13:03Z,
+// 13:22Z "B": a focused dialog, FIFO whole grants, holds that last until
+// released): "Hold slots…" asks for a count and a reason (`user_slot_hold`);
+// their hold is a Holding row and their wait a Line row, both naming the
+// engine's "user" as the standard @user mention (13:50Z, never "you"), with
+// the user's own release (plain, unconfirmed: it is their hold) and cancel
+// request, where an agent's rows keep force release and remove from line.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode, UIEvent } from 'react'
 import { createPortal } from 'react-dom'
-import type { ToastFn } from '../types'
+import type { ToastFn, Watchdog } from '../types'
 import { ago } from './shared'
 import type { CanvasNode, OpFn } from './shared'
 import { ConfirmModal } from './modals'
@@ -27,6 +36,9 @@ import { WatchdogRow } from './deskdogs'
 import { WatchdogLink } from './watchdoglink'
 import { HistoryDog } from './historydog'
 import type { DogIdentity } from './historydog'
+import { UserMention, isUserName } from './usermention'
+import { HoldSlotsDialog } from './userdialogs'
+import type { RefRoutes } from './reflinks'
 
 interface Holder { lease: string; agent: string; slot?: number; slots?: number; reason?: string | null; queued?: string | null; since: string; reminders?: number; dog?: DogIdentity | null }
 interface Waiter { position: number; agent: string; dog: string; slots?: number; since?: string | null }
@@ -65,13 +77,16 @@ export function SlotTime({ from, to, ended = false }: { from: string; to?: strin
     {ended ? `${ago(from)} ago` : span(from, to)}</span>
 }
 
-export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
+export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }: {
   node: CanvasNode; state: ProjectSlotState; map: Map<string, CanvasNode>; onJump?: (id: string) => void; op: OpFn; toast: ToastFn
   actions?: ReactNode
+  /** the surface's references: the user's chip opens their inbox */
+  refs?: RefRoutes
 }) {
   useSyncExternalStore(subscribeAgeClock, ageClockNow, ageClockNow)
   const [status, setStatus] = useState<SlotStatus | null>(null)
   const [asking, setAsking] = useState<Holder | null>(null)
+  const [holding, setHolding] = useState(false)
   const [bump, setBump] = useState(0)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState(false)
@@ -121,12 +136,37 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
     const el = event.target as HTMLElement
     if (el.scrollHeight > el.clientHeight && el.scrollHeight-el.clientHeight-el.scrollTop < 160) loadOlder()
   }
-  // the claim's name is its reason (the line lists its dog; the tree has its name)
-  const nameOf = (w: Waiter) => state.line.find((x) => x.agent === w.agent)?.name
-  const agentLink = (id: string) => <AgentLink id={id} tier={nodeTierOf(map.get(id))} onFocus={onJump} />
+  // the claim's name is its reason (the line lists its dog; the tree has its name); a claim is
+  // told by its own id, since the user may wait with several requests at once
+  const treeDog = (w: Waiter) => state.line.find((x) => x.dog === `${w.agent}/${w.dog}`) ?? state.line.find((x) => x.agent === w.agent)
+  const nameOf = (w: Waiter) => treeDog(w)?.name
+  const userDogOf = (w: Waiter): Watchdog => ({ id: treeDog(w)?.dog ?? `${w.agent}/${w.dog}`, owner: w.agent, name: nameOf(w) ?? w.dog,
+    kind: 'slot', target: node.id, interval_s: 0, state: 'armed', at: w.since ?? '', fired: 0, once: true, spent: false } as Watchdog)
+  const agentLink = (id: string) => isUserName(id) ? <UserMention refs={refs} /> : <AgentLink id={id} tier={nodeTierOf(map.get(id))} onFocus={onJump} />
+  // the user's own hold or wait: ended by them, plainly
+  const releaseOwn = (h: Holder) => {
+    op({ op: 'slot_release', lease: h.lease })
+      .then(() => { toast([`${slotUnits(h.slots)} concurrency slot(s) of ${node.id} released`]); reread() })
+      .catch(() => {})
+  }
+  const cancelOwn = (w: Waiter) => {
+    op({ op: 'user_slot_cancel', node: node.id, dog: w.dog })
+      .then(() => { toast([`slot request for project ${node.id} cancelled`]); reread() })
+      .catch(() => {})
+  }
+  const hold = (slots: number, reason: string) => {
+    op({ op: 'user_slot_hold', node: node.id, slots, ...(reason ? { reason } : {}) })
+      .then(() => { toast([`asked for ${slotUnits(slots)} concurrency slot(s) of ${node.id}: held when all are free`]); reread() })
+      .catch(() => {})
+  }
   return (
     <div className="desk-tabpanel project-slots" onScroll={scrollHistory}>
       {actions && <div className="team-tab-toolbar" role="toolbar" aria-label="Slots view controls">{actions}</div>}
+      {node.state === 'live' && <div className="user-reg-tools">
+        <button type="button" data-action="hold-slots"
+          title={`ask for concurrency slots of ${node.id}: the request waits first come first served and is granted when all are free`}
+          onClick={() => setHolding(true)}>Hold slots…</button>
+      </div>}
       <div className="slots-table-scroll" role="region" aria-label="Concurrency slot records" tabIndex={0} onScroll={scrollHistory}>
       <table className="slots-table">
         <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/><col className="slot-col-time"/>
@@ -150,17 +190,22 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
               {(h.reminders ?? 0) > 0 && <span className="dim"> {h.reminders} reminder{h.reminders === 1 ? '' : 's'}</span>}</td>
             <td className="slot-quantity">{slotUnits(h.slots)}</td>
             <td className="listener-dog-cell"><HistoryDog dog={h.dog} className="slot-dog" /></td>
-            <td className="slot-action"><button type="button" className="danger" data-action="force-release"
-              title={`take all ${slotUnits(h.slots)} reserved slot(s) back from ${h.agent}; check the FIFO queue`}
-              onClick={() => setAsking(h)}>force release</button></td>
+            <td className="slot-action">{isUserName(h.agent)
+              ? <button type="button" data-action="release"
+                  title={`release all ${slotUnits(h.slots)} slot(s) held: the next in line is granted when all it asks for are free`}
+                  onClick={() => releaseOwn(h)}>release</button>
+              : <button type="button" className="danger" data-action="force-release"
+                  title={`take all ${slotUnits(h.slots)} reserved slot(s) back from ${h.agent}; check the FIFO queue`}
+                  onClick={() => setAsking(h)}>force release</button>}</td>
           </tr>
         ))}
       </tbody>
       <tbody className="slots-line">
         <tr className="slot-section"><th colSpan={9} scope="rowgroup"><h4>Line</h4></th></tr>
         {line.length === 0 && <tr><td colSpan={9} className="dim slot-empty">Nobody is waiting.</td></tr>}
-        {line.map((w) => (
-          <WatchdogRow as="tr" key={w.agent + w.dog} id={state.line.find(x=>x.agent===w.agent)?.dog??w.dog} className="slot-row">
+        {line.map((w) => {
+          const mine = isUserName(w.agent)
+          const cells = <>
             <td className="slot-position"><span className="slot-no">{ordinal(w.position)}</span></td>
             <th scope="row" className="slot-agent">{agentLink(w.agent)}</th>
             <td className="slot-wait" title={w.since ? 'in line since ' + w.since : undefined}>
@@ -169,16 +214,26 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
             <td className="slot-ended" />
             <td className="slot-rest"/>
             <td className="slot-quantity">{slotUnits(w.slots)}</td>
-            <td className="listener-dog-cell"><WatchdogLink id={state.line.find(x=>x.agent===w.agent)?.dog??w.dog}
-              owner={w.agent} name={nameOf(w)??w.dog} className="slot-dog"/></td>
-            <td className="slot-action"><button type="button" data-action="unqueue" title={`remove ${w.agent}'s claim: it leaves the line and is not granted`}
-              onClick={() => {
-                op({ op: 'slot_unqueue', node: node.id, agent: w.agent })
-                  .then(() => { toast([`${w.agent} removed from project ${node.id}'s concurrency slot line`]); reread() })
-                  .catch(() => {})
-              }}>remove from line</button></td>
-          </WatchdogRow>
-        ))}
+            <td className="listener-dog-cell">{mine
+              // the user's own dog has no detail panel or menu to open: its chip only says what it is
+              ? <WatchdogLink dog={userDogOf(w)} className="slot-dog" atDestination />
+              : <WatchdogLink id={treeDog(w)?.dog ?? w.dog} owner={w.agent} name={nameOf(w) ?? w.dog} className="slot-dog"/>}</td>
+            <td className="slot-action">{mine
+              ? <button type="button" data-action="cancel-request" title="cancel this request: it leaves the line and is not granted"
+                  onClick={() => cancelOwn(w)}>cancel request</button>
+              : <button type="button" data-action="unqueue" title={`remove ${w.agent}'s claim: it leaves the line and is not granted`}
+                  onClick={() => {
+                    op({ op: 'slot_unqueue', node: node.id, agent: w.agent })
+                      .then(() => { toast([`${w.agent} removed from project ${node.id}'s concurrency slot line`]); reread() })
+                      .catch(() => {})
+                  }}>remove from line</button>}</td>
+          </>
+          // a watchdog row: away from its links it opens the dog's menu; the
+          // user's request has none (its owner is no agent)
+          return mine
+            ? <tr key={w.agent + w.dog} className="slot-row">{cells}</tr>
+            : <WatchdogRow as="tr" key={w.agent + w.dog} id={treeDog(w)?.dog ?? w.dog} className="slot-row">{cells}</WatchdogRow>
+        })}
       </tbody>
       <tbody className="slots-history">
         <tr className="slot-section"><th colSpan={9} scope="rowgroup"><h4>Recently Held</h4></th></tr>
@@ -205,6 +260,8 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
       </tbody>
       </table>
       </div>
+      {holding && createPortal(
+        <HoldSlotsDialog project={node.id} slots={state.total} onHold={hold} close={() => setHolding(false)} />, document.body)}
       {asking && createPortal(
         <ConfirmModal title={`take ${slotUnits(asking.slots) === 1 ? 'the concurrency slot' : `${slotUnits(asking.slots)} concurrency slots`} of ${node.id} back from ${asking.agent}?`}
           body={`${asking.agent} has held this lease for ${span(asking.since)}${asking.reason ? ` (${asking.reason})` : ''}. `

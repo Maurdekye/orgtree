@@ -75,6 +75,8 @@ test('§1 Register event listener opens a dialog and sends user_listener_registe
   const box = dialog()!
   assert.ok(box, 'a focused dialog')
   assert.match(box.textContent ?? '', /inbox/, 'the hint says where fires arrive')
+  assert.ok(!/\byou\b/i.test(box.textContent ?? ''), 'the dialog does not say "you" either')
+  assert.ok(button(box, /^Register event listener$/)!.classList.contains('primary'), 'a form dialog: its main button is the primary action, not a red confirmation')
   const mode = box.querySelector<HTMLSelectElement>('select')!
   assert.deepEqual([...mode.options].map((o) => o.textContent), ['Every event', 'Next event only'])
   await inAct(async () => { button(box, /^Register event listener$/)!.click(); await flush(4) })

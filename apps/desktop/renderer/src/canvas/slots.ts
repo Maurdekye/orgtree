@@ -12,6 +12,7 @@
 // the `slot_status` op.
 
 import type { Watchdog } from '../types'
+import { isUserName } from './username'
 
 /** One held lease, as the tree feed's watchdogs group carries it. */
 export interface SlotLease {
@@ -122,11 +123,12 @@ export interface SlotLink { key: string; owner: string; project: string; holding
  *  claims draw nothing: a holder draws through its lease). */
 export function slotLinks(dogs: Watchdog[], leases: SlotLease[], isProject: (name: string) => boolean): SlotLink[] {
   const out: SlotLink[] = []
+  // the user draws no line: they are no node of the tree (their holds and waits are still counted)
   for (const l of leases) {
-    if (isProject(l.project)) out.push({ key: 'sl:' + l.lease, owner: l.agent, project: l.project, holding: true })
+    if (isProject(l.project) && !isUserName(l.agent)) out.push({ key: 'sl:' + l.lease, owner: l.agent, project: l.project, holding: true })
   }
   for (const w of dogs) {
-    if (waiting(w) && isProject(target(w))) out.push({ key: 'sw:' + w.id, owner: w.owner, project: target(w), holding: false })
+    if (waiting(w) && isProject(target(w)) && !isUserName(w.owner)) out.push({ key: 'sw:' + w.id, owner: w.owner, project: target(w), holding: false })
   }
   return out
 }

@@ -124,6 +124,7 @@ import { activeDocCount, ago, ALL_TIERS, attentionPip, deskDpi, fmtCredits, form
 import { InboxAskCard } from './canvas/asks'
 import { askMailRow, openAsks, submittedCards, submittedOpenCount } from './canvas/openasks'
 import { SenderChip } from './canvas/senderchip'
+import { acknowledgeJob } from './canvas/jobacks'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
 import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
 import { langServerDoc } from './canvas/langserver'
@@ -2759,6 +2760,14 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // dep restarts the effect, which ticks immediately. No optimistic local
   // state: the server answer still decides, it is just asked for now.
   const [readBump, setReadBump] = useState(0)
+  // jobs the user acknowledged from this inbox (docket
+  // let-the-user-manually-hold-a-number-of-a-project): shown acknowledged at
+  // once; the engine's own mark follows with the feed
+  const [ackedJobs, setAckedJobs] = useState<Record<string, string>>({})
+  const withAcks = (rows: MailEntry[]) => rows.map((m) => {
+    const job = m.queue?.job
+    return job && !job.acked_at && ackedJobs[m.id] ? { ...m, queue: { ...m.queue, job: { ...job, acked_at: ackedJobs[m.id] } } } : m
+  })
   // Snapshot the prior choice during the parent's render, before MailList's
   // child effects can persist its automatic unread selection on this mount.
   const rememberedAtOpen = useRef<{ slug: string; id: string | null }>({ slug: '', id: null })
@@ -2962,13 +2971,13 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
             : box == null
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
-              ? <MailList hideMailReplyKind pending={[...unreadMail, ...askPending]}
+              ? <MailList hideMailReplyKind pending={withAcks([...unreadMail, ...askPending] as MailEntry[])}
                   tagFilter={{selected:mailTag,choices:tagChoices.labels,onChange:setMailTag,onSearch:setTagQuery,
                     onLoadMore:tagChoices.loadMore,hasMore:!!tagChoices.cursor,loading:tagChoices.loading,error:tagChoices.error,onRetry:tagChoices.retry}}
                   hasMore={mailTag.length?!!taggedMail.box.next_cursor:history.hasMore} loadingMore={mailTag.length?taggedMail.loading:history.loading}
                   onLoadMore={mailTag.length?taggedMail.loadMore:history.loadMore}
                   collapsible
-                  delivered={[...box.delivered, ...readHere, ...askDone, ...askAnswered]}
+                  delivered={withAcks([...box.delivered, ...readHere, ...askDone, ...askAnswered] as MailEntry[])}
                   renderBody={renderAskBody}
                   // FR-21: this was the ONE MailList call site without
                   // fileHref, which is why the node inbox's attachments were
@@ -3017,6 +3026,17 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                         throw e
                       })
                   }}
+                  /* a job the project's queue handed the user: reply to its sender, then
+                     acknowledge it (the reply's id is kept as the completion record) */
+                  onAckJob={(m: MailEntry, reply?: string) => acknowledgeJob({
+                    row: m, reply,
+                    sendReply: (row, text) => sendLinkedReply(slug, row.from, text, { kind: 'mail', org: slug, box: 'user', id: row.id! }),
+                    ack: (copy, replyId) => runOp(slug, { op: 'user_job_ack', copy, ...(replyId ? { reply: replyId } : {}) }),
+                  }).then(() => {
+                    setAckedJobs((old) => ({ ...old, [m.id]: new Date().toISOString() }))
+                    toast(['job acknowledged'])
+                    setReadBump((n) => n + 1); refresh?.()
+                  }).catch((e: Error) => { toast([`error: ${e.message}`]); throw e })}
                   replyConversation={(m) => m.from}
                   onFocusAgent={onFocusAgent ? (agentId) => { close(); onFocusAgent(agentId) } : undefined}
                   rowSender={(id: string) => <span>{id}</span>}

@@ -69,6 +69,10 @@ export interface ConfirmModalProps {
   confirmDisabled?: boolean
   confirmTitle?: string
   altDisabled?: boolean
+  /** a FORM dialog, not a destructive confirmation (the user's own slot hold,
+   *  listener, watch and queue place; canvas/userdialogs.tsx): its main button
+   *  is the primary action, and focus opens on its first field */
+  form?: boolean
   close: () => void
   /** FR-24: an optional SECOND way through — same confirmation gate, a
    *  different action (the compact dialog offers cheap compact beside the
@@ -103,7 +107,7 @@ function tabbablesIn(root: HTMLElement): HTMLElement[] {
 // destructive (delete, retire, dissolve, rescind, dissolve-all, cross-provider
 // reset, compaction), so Enter must not fire it by accident.
 export function ConfirmModal({ title, body, confirmLabel, onConfirm, close,
-  altLabel, onAlt, confirmDisabled, confirmTitle, altDisabled }: ConfirmModalProps) {
+  altLabel, onAlt, confirmDisabled, confirmTitle, altDisabled, form }: ConfirmModalProps) {
   const ownerDocument = useSurfaceDocument()
   useEsc(close)
   const boxRef = useRef<HTMLDivElement>(null)
@@ -118,7 +122,7 @@ export function ConfirmModal({ title, body, confirmLabel, onConfirm, close,
     // focus target
     const opener = ownerDocument.activeElement instanceof (ownerDocument.defaultView!.HTMLElement)
       ? ownerDocument.activeElement : null
-    ;(cancelRef.current ?? box).focus()
+    ;((form ? box.querySelector<HTMLElement>('input, select, textarea') : null) ?? cancelRef.current ?? box).focus()
     if (!box.contains(ownerDocument.activeElement)) box.focus()
     // Tab containment lives on the DOCUMENT rather than the box so that a
     // Tab pressed while focus is on <body> (the opener was removed, or a
@@ -162,7 +166,7 @@ export function ConfirmModal({ title, body, confirmLabel, onConfirm, close,
         <h3 id={titleId}>{title}</h3>
         {body && <div className="confirm-body" id={bodyId}>{body}</div>}
         <div className="row">
-          <button className="danger solid" disabled={confirmDisabled} title={confirmTitle}
+          <button className={form ? 'primary' : 'danger solid'} disabled={confirmDisabled} title={confirmTitle}
             onClick={() => { close(); onConfirm() }}>{confirmLabel}</button>
           {altLabel && onAlt &&
             <button className="danger" disabled={altDisabled}

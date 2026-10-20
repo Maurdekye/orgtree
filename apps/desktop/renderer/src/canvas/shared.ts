@@ -1,4 +1,5 @@
 import { useSurfaceDocument } from '../popout'
+import { isUserName } from './username'
 import { projectBunches, contractBunches, expandBunches, layoutBunchRows } from './projectbunch'
 import { creditSegments } from './creditsegments'
 import { syncFastModes } from './fastmode'
@@ -2170,7 +2171,8 @@ export interface FairQueueLink { key: string; owner: string; project: string; pa
 export function fairQueueLinks(dogs: Watchdog[], isProject: (name: string) => boolean): FairQueueLink[] {
   const out: FairQueueLink[] = []
   for (const w of dogs) {
-    if (w.kind !== 'fair_queue' || w.spent || (w.state !== 'armed' && w.state !== 'paused')) continue
+    // the user draws no line: they are no node of the tree (their place in the queue still counts)
+    if (w.kind !== 'fair_queue' || w.spent || isUserName(w.owner) || (w.state !== 'armed' && w.state !== 'paused')) continue
     const project = w.target.replace(/^@/, '')
     if (!isProject(project)) continue
     out.push({ key: 'fq:' + w.id, owner: w.owner, project, paused: w.state === 'paused' })

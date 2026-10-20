@@ -9,6 +9,7 @@
 import type { Watchdog } from '../types'
 import { useDogRoute } from './watchdogroute'
 import { WatchdogLink } from './watchdoglink'
+import { isUserName } from './usermention'
 
 /** A dog as a history row names it (engine `watchdogs::identity`). */
 export interface DogIdentity {
@@ -28,6 +29,8 @@ export function HistoryDog({ dog, className }: { dog: DogIdentity | null | undef
   const route = useDogRoute()
   if (!dog) return null
   const live = route?.dogs.find((w) => w.id === dog.id && !w.spent)
+  // the user's own dog (owner "user") has no detail panel or menu to open: its chip only says what it is
+  if (live && !dog.gone && isUserName(dog.owner)) return <WatchdogLink dog={live} className={className} atDestination />
   if (live && !dog.gone) return <WatchdogLink dog={live} className={className} onOpen={route?.open} />
   const kept = { id: dog.id, owner: dog.owner, name: dog.name, kind: dog.kind, once: !!dog.once, state: 'spent', spent: true,
     target: '', interval_s: 0, at: '', fired: 0 } as Watchdog

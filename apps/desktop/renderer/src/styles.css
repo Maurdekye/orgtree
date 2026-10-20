@@ -9845,3 +9845,27 @@ button.node-link.node-link:focus-visible {
 .elicitation-fields { min-height: 0; max-height: 45vh; overflow-y: auto; }
 .elicitation-card > .row, .elicitation-card > .ask-head { flex-shrink: 0; }
 .elicitation-card > .ask-q { max-height: 120px; overflow-y: auto; }
+
+/* the user's own registrations on a project desk (docket
+   let-the-user-manually-hold-a-number-of-a-project; USER 2026-10-20 13:22Z
+   layout B): the controls above a tab's table, the focused dialogs and the
+   inbox's acknowledge pane. The user's rows wear the standard @user mention
+   chip (.ref-chip), so they need no style of their own. */
+.user-reg-tools { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin: 0 0 6px; }
+.user-reg-tools button { font-size: 12px; padding: 2px 10px; }
+.user-reg-form { display: flex; flex-direction: column; gap: 10px; }
+.user-reg-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--dim); }
+.user-reg-field input, .user-reg-field select { font-size: 13px; padding: 3px 6px; color: var(--ink-strong); }
+.user-reg-field input[type="number"] { width: 6em; }
+.user-reg-hint { margin: 0; font-size: 12px; line-height: 1.45; }
+.job-ack { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.job-ack textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; font: inherit; font-size: 13px; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--input); color: var(--ink-strong);
+}
+.job-ack textarea:focus { outline: none; border-color: var(--accent); }
+.job-ack-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.job-ack-error { font-size: 12px; color: var(--danger-ink); }
+.job-ack.acked { flex-direction: row; flex-wrap: wrap; gap: 4px; font-size: 12px; }
+.job-ack-done { color: var(--accent); font-weight: 600; }
+.queuekind.job-kind { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }

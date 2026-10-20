@@ -73,10 +73,10 @@ function ops(requests: OpRequest[], hist: Record<string, unknown>) {
   }
 }
 const mount = async (dogs: Watchdog[], requests: OpRequest[], hist = history(), extra: Record<string, unknown> = {},
-  onOpenMail: (id: string) => void = () => {}, toasts: string[][] = []) => {
+  onOpenMail: (id: string) => void = () => {}, toasts: string[][] = [], routes: unknown = refs) => {
   const v = await mountView(<MailListenersView node={node(extra)} state={mailListenerState('jobs', dogs)} map={agents}
     rows={[]} ack={true} onOpenMail={onOpenMail} op={ops(requests, hist)} toast={(m) => { toasts.push(m as string[]) }}
-    refs={refs} dogs={dogs} />, (el) => el)
+    refs={routes as never} dogs={dogs} />, (el) => el)
   await inAct(async () => { await flush(6) })
   return v
 }
@@ -139,7 +139,8 @@ test('§3 the user\'s rows wear the @user chip; their held job opens its mail, w
   const theirs = { mail: 'jm2', gist: 'Compile', copy: 'c2', agent: 'dev', held_at: '2026-10-20T09:05:00Z', attempts: 1 }
   const finished = [{ id: 5, mail: 'jm0', copy: 'c0', agent: 'user', how: 'acked', held_at: '2026-10-20T08:00:00Z', ended_at: '2026-10-20T08:30:00Z',
     ack: 'a1', ack_gist: 'Done', gist: 'Earlier job', dog: held.dog }]
-  const v = await mount([devDog, mineDog], [], history({ working: [held, theirs], history: finished }), {}, (id) => opened.push(id))
+  const routes = { world: { org: 'org' }, onOpen: (r: { ref: { id: string; box?: string } }) => { opened.push(`${r.ref.box}:${r.ref.id}`) } }
+  const v = await mount([devDog, mineDog], [], history({ working: [held, theirs], history: finished }), {}, () => {}, [], routes)
   t.after(() => v.unmount())
   const working = [...v.el.querySelectorAll('.mail-working tr.held-job')]
   assert.equal(working.length, 2)
@@ -149,7 +150,7 @@ test('§3 the user\'s rows wear the @user chip; their held job opens its mail, w
   const open = mine.querySelector<HTMLButtonElement>('[data-action="open-job"]')!
   assert.ok(open, 'an open mail control instead')
   await inAct(async () => { open.click() })
-  assert.deepEqual(opened, ['c1'], 'it opens the user\'s copy of the job in their inbox')
+  assert.deepEqual(opened, ['user:c1'], 'it opens the user\'s copy of the job in the user\'s inbox, not the project\'s mailbox')
   const other = working.find((r) => r !== mine)!
   assert.ok(other.querySelector('[data-action="take-back"]'), 'an agent\'s job keeps its take back')
   const line = [...v.el.querySelectorAll('.mail-line tr.listener-row')]
