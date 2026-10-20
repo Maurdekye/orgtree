@@ -1,10 +1,23 @@
-import { mountView } from './harness'
+import { mountView, inAct, flush } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { WatchdogPanel } from '../src/canvas/modals'
 import type { Watchdog } from '../src/types'
 
 const noop = () => {}
+
+for (const enabled of [false,true]) test(`websocket notify on reconnect is editable and persists (${enabled})`,async t=>{
+  const saved=fetch,posted:unknown[]=[]
+  globalThis.fetch=(async (_url,init)=>{posted.push(JSON.parse(String(init?.body)));return {ok:true,status:200,headers:new Headers(),json:async()=>({notify_on_connect:!enabled})} as Response}) as typeof fetch
+  const view=await panel({kind:'websocket',target:'ws://localhost/feed',notify_on_connect:enabled} as Partial<Watchdog>)
+  t.after(async()=>{await view.unmount();globalThis.fetch=saved})
+  const toggle=view.el.querySelector<HTMLInputElement>('input[aria-label="Notify on (re)connect"]')
+  assert.ok(toggle,'a WebSocket dog has its persistent connection notification switch')
+  assert.equal(toggle.checked,enabled)
+  await inAct(()=>toggle.click());await flush()
+  assert.equal(toggle.checked,!enabled)
+  assert.deepEqual(posted,[{id:'worker/watch',action:'configure',notify_on_connect:!enabled}])
+})
 const base: Watchdog = { id: 'worker/watch', owner: 'worker', name: 'watch', kind: 'file',
   target: 'build.log', state: 'armed', interval_s: 60, fired: 0, once: false, spent: false,
   at: '2026-10-18T07:00:00Z', events: [] }
