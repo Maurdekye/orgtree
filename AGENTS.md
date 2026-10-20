@@ -1,3 +1,10 @@
+- Transcript live tool and thought clocks use whole seconds below 60s, then
+  the shared duration minute/hour style (`2m 05s`, `1h 02m`); recorded thoughts
+  and helper task durations share that longer form. Exact-second hover titles
+  and elapsed-second-aligned tick scheduling are unchanged. [decided: user
+  2026-10-20 09:45:58Z; verified: `canvas/{toolclock,desk}.tsx`,
+  `tests/clockminutes.test.tsx`]
+
 - Selected team/project dockets retain requested retired-owner selections after
   found/missing answers, until those owners leave the loaded groups or the
   org/root/team scope changes. Releasing a fulfilled selection removes its
