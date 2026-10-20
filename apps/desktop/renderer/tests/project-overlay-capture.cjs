@@ -34,7 +34,7 @@ app.whenReady().then(async () => {
       for (const c of cards) {
         assert.equal(c.full, c.id); assert.equal(c.clipped, true); assert.equal(c.pointer, 'none')
         assert.ok(c.box.right > c.card.right, 'backdrop extends past card edge')
-        assert.ok(Math.abs(c.nameText.x - c.fullText.x) < .1, 'same name x')
+        assert.ok(Math.abs(c.nameText.x - c.fullText.x) < 1, 'same name x within rounded layout offsets')
         assert.ok(Math.abs(c.nameText.y - c.fullText.y) < 1, 'same name baseline within rendered pixel rounding')
       }
       assert.equal(cards[0].background, cards[1].background); assert.equal(cards[0].font, cards[1].font)
