@@ -3186,6 +3186,28 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   behavior changes. [recorded-decision / verified-from-source: 2026-10-07;
   `docs/rust-engine/agent-settings-refresh.md`, DECISIONS 52 addition]
 
+- Opening a settings panel AT a control (docket cheap-compact-warning-turn-off-in-settings-link-o,
+  user 2026-10-20 12:24Z): a link anywhere (the desk's cheap-compact warning, docked or popped
+  out) calls `openSettingsAt({ scope, org, agentId?, target: { tab, field } })` from
+  `canvas/settingskit.tsx`, the window event `orgtree:open-settings-at` (the pattern of
+  `openAppSettings`; the popped-out desk's code runs in this renderer, so the event reaches it).
+  App.tsx answers `scope: 'org'` (org settings) and OrgCanvas `scope: 'agent'` (the agent's gear)
+  through `useSettingsAsk`: each opens or raises the panel, ensuring it is open and never toggling it
+  shut (a pinned or popped-out panel is revealed), and hands it a `SettingsTarget { tab, field, seq }`;
+  the receiver bumps `seq`, so the same control asked twice is two requests and a rerender with the
+  same seq moves nobody. The panel switches to `tab` and calls `useSettingsTarget` with its tab
+  strip's ref (`SettingsTabs stripRef`): it finds the row tagged `field="..."` on a `SetRow`/`SetToggle`
+  (`data-settings-field`) among the strip's own siblings, in the strip's own document, so two panels
+  with a `cheap-compact` row, or a popped-out panel, never get each other's landing; scrolls it into
+  view, focuses its control and marks it `set-target-hl` for `SETTINGS_TARGET_MS` (1.8 s; the
+  `set-target-fade` keyframes in the theme's `--accent`/`--accent-soft`, no layout shift). The ruling
+  on WHICH panel: the org's Policies switch normally, the agent's gear (Model tab) when its
+  `configured_scope.auto_cheap_compact.enabled` is true (the org switch would not stop it); the link
+  is drawn only where the warning says a cheap-compact WILL happen. Tests: `cachewarninglink`,
+  `settingstarget` (incl. a second document), `settingsask`. The app-settings panel can adopt the
+  same mechanism (its `SettingsTabs` takes the same `stripRef`). [decided: user 2026-10-20 12:24Z,
+  coordinator ruling 12:28Z; verified: the real App in Electron, docked and popped out, both themes]
+
 - Event watchdogs (`kind:event`) receive pushed, allow-listed post-commit events.
   Catalog: credentials.bridge.available/unavailable, credentials.isolated/ready,
   engine.started; agent lifecycle/settings/changed, turn started/finished/failed/

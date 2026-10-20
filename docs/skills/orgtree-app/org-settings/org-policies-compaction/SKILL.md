@@ -29,6 +29,8 @@ the session. Agent-level overrides merge key by key over the org policy;
 otherwise the effective org policy applies. A partial org save preserves the
 other current policy value. An object naming neither value makes no change.
 
+The desk's cheap-compact warning links here (**Turn off in settings**): the panel opens on Policies with the first switch focused and highlighted for about two seconds. An agent with its own explicit On override is sent to its own gear instead (see [orgtree-agent-fresh-start](../../agent-settings/agent-fresh-start/SKILL.md)).
+
 The switch does not reset a session when clicked: it changes eligibility for
 later turn admission. It is distinct from the CLI's ordinary compaction
 threshold in Basic. Cache expiry is not an editable timer here. Exact forecast,

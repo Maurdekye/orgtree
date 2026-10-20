@@ -16,6 +16,8 @@ The Model tab's **Start fresh when needed** setting is `node:auto_cheap_compact`
 | Off | Disable it explicitly for this agent. |
 | Conversation size | Context occupancy percentage; displayed only for explicit On. Starts from the agent's saved occupancy, else the org's, else 25%. UI range 5–95%, step 5. |
 
+The desk's cheap-compact warning (**Turn off in settings**) opens this row, on the Model tab, focused and highlighted for about two seconds, when this agent has an explicit On override; otherwise it opens the organization's switch (see `orgtree-org-policies-compaction`).
+
 Save sends an empty object for inheritance, which removes the override. Explicit On/Off sends `enabled` and `occ`; percentage is converted to a fraction. A blank or zero form value falls back to 25%. The engine keeps numeric occupancy within 5–95% and refuses the wrong value types. The effective policy merges agent keys over org keys, so a partial stored override can inherit the other key.
 
 The policy resets before a turn only when the cache forecast calls for compaction and measured conversation occupancy is at least the threshold, with an existing session and valid context size. Turning it on does not immediately reset the session. Unknown cache readiness and estimated context do not establish a reset condition. It is separate from the organization's ordinary context-compaction threshold.

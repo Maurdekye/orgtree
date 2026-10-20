@@ -42,7 +42,7 @@ The row above the conversation jumps up to the agent's superior; the row below j
 
 ## Composer banners
 
-Halted/organization-stop banners identify the durable hold; waiting-for-turn-slot points to concurrency limits; model-loading reports startup work. Cache warnings describe send-time risk or configured compaction, not guaranteed provider behavior. A queued/compacting agent has no running steering window merely because it has pending work.
+Halted/organization-stop banners identify the durable hold; waiting-for-turn-slot points to concurrency limits; model-loading reports startup work. Cache warnings describe send-time risk or configured compaction, not guaranteed provider behavior. Where the warning says a cheap-compact **will** happen ("sending will cheap-compact this session first", and the mid-turn "it will trigger a cheap-compact before delivery"), it ends in a **Turn off in settings** link; the "automatic cheap compaction is off" and "does not report" variants have none. The link opens the control that governs this agent, scrolled into view, focused and briefly highlighted: Org settings > Policies (see `orgtree-org-policies-compaction`), or, for an agent with its own explicit On override, that agent's Model tab (see `orgtree-agent-fresh-start`), since the org switch would not stop it. It works from a docked, pinned or popped-out desk, and lands in a settings panel that is itself pinned or popped out. A queued/compacting agent has no running steering window merely because it has pending work.
 
 The separate Halt and Stop controls are consequential: Stop interrupts a response; Halt also blocks later wakes until explicitly released. View navigation itself does neither.
 
