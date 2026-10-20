@@ -14,7 +14,7 @@ for (const surface of ['modal','agent','project'] as const) {
   const panel=(slug:string,explicit=false) => surface==='modal'
     ? <DocGalleryModal slug={slug} toast={noop} close={noop} jumpTo={explicit?{id:'new-unread',seq:1}:undefined}/>
     : <AgentGalleryView slug={slug} nid="synthetic" node={{id:'synthetic',kind:surface==='project'?'project':'agent',documents:[]} as any} toast={noop} initialDocument={explicit?'new-unread':undefined}/>
-  test(`${surface}: newest opens once despite older unread cards, explicit target, empty and reopen`, async t=>{
+  test(`${surface}: oldest unread/changed opens once, newest fallback, explicit target, empty and reopen`, async t=>{
     useFakeClock();const saved=fetch,slug='opening-'+surface;let rows=data();let delay:((r:Response)=>void)|undefined,first=true
     globalThis.fetch=(async url=>{
       const path=String(url),id=path.match(/\/documents\/([^/?]+)$/)?.[1]
@@ -28,19 +28,19 @@ for (const surface of ['modal','agent','project'] as const) {
     await flush();assert.equal(v.el.querySelectorAll('.doc-gallery-row').length,0,'wait for initial response')
     await inAct(()=>delay!(ok({documents:rows})));await flush()
     const selected=()=>v.el.querySelector('.doc-gallery-row.on .mfrom')?.textContent
-    assert.equal(selected(),'newest-read','older unread cards must not pull a fresh open into history')
+    assert.equal(selected(),'old-changed','oldest unread uses modification time and saved viewed_at')
     assert.equal(v.el.querySelector('.doc-gallery-row.on')?.classList.contains('unread'),false,'automatic read uses existing viewed marker')
-    await inAct(()=>([...v.el.querySelectorAll<HTMLElement>('.doc-gallery-row')].find(e=>e.textContent?.includes('oldest-read'))!).click());await flush()
-    rows=[row('new-arrival','2026-10-21T12:00:00Z'),...rows]
-    await advance(5001);await flush();assert.equal(selected(),'oldest-read','poll and viewed updates preserve manual choice')
-    await v.render(null);await v.render(panel(slug));await flush();assert.equal(selected(),'new-arrival','fresh open chooses the newest again')
+    await inAct(()=>([...v.el.querySelectorAll<HTMLElement>('.doc-gallery-row')].find(e=>e.textContent?.includes('newest-read'))!).click());await flush()
+    rows=[row('earlier-arrival','2026-10-15T12:00:00Z'),...rows]
+    await advance(5001);await flush();assert.equal(selected(),'newest-read','poll and viewed updates preserve manual choice')
+    await v.render(null);await v.render(panel(slug));await flush();assert.equal(selected(),'earlier-arrival','fresh open chooses current oldest unread')
     rows=data().map(r=>({...r,viewed_at:r.at}))
     await v.render(null);await v.render(panel(slug));await flush();assert.equal(selected(),'newest-read','all read falls back to most recently modified')
     await v.render(null);await v.render(panel(slug,true));await flush();assert.equal(selected(),'new-unread','explicit document target wins')
     rows=[];await v.render(null);await v.render(panel(slug));await flush();assert.equal(v.el.querySelectorAll('.doc-gallery-row.on').length,0)
     rows=data();await advance(5001);await flush();assert.equal(v.el.querySelectorAll('.doc-gallery-row.on').length,0,'empty opening consumes its decision; arrivals do not steal focus')
   })
-  test(`${surface}: old unread beyond first page cannot request a middle window on fresh open`, async t=>{
+  test(`${surface}: oldest unread stays selected while newest page is included on every fresh open`, async t=>{
     useFakeClock();const saved=fetch,slug='remote-opening-'+surface;const rows=Array.from({length:150},(_,i)=>row('doc-'+i,new Date(Date.UTC(2026,9,20,0,0,150-i)).toISOString()))
     let requests:string[]=[]
     globalThis.fetch=(async url=>{
@@ -49,21 +49,19 @@ for (const surface of ['modal','agent','project'] as const) {
       if(id)return ok({...rows.find(r=>r.id===id),body:'Body '+id})
       if(!path.includes('/documents?'))return ok({})
       requests.push(path)
-      // Faithfully reproduce the existing server's oldest-unread contract:
-      // normal offset-zero paging returns the newest, opening=1 seeks history.
-      const offset=path.includes('opening=1')?80:Number(new URL(path,'http://fixture').searchParams.get('offset')??0)
-      return ok({documents:rows.slice(offset,offset+40),total:150,next_offset:offset+40,offset,
-        ...(path.includes('opening=1')?{opening_id:'doc-99',opening_position:99}:{})})
+      const q=new URL(path,'http://fixture').searchParams,offset=q.has('opening')?80:Number(q.get('offset')??0),limit=Number(q.get('limit')??40)
+      return ok({documents:rows.slice(offset,offset+limit),total:150,next_offset:offset+limit<150?offset+limit:null,offset,...(q.has('opening')?{opening_id:'doc-99',opening_position:99}:{})})
     }) as typeof fetch
     const v=await mountView(panel(slug),h=>h);t.after(async()=>{await v.unmount();globalThis.fetch=saved;realClock()})
     await flush(15)
-    assert.equal(v.el.querySelector('.doc-gallery-row.on .mfrom')?.textContent,'doc-0','fresh open selects the newest page')
-    assert.equal(v.el.querySelector('.doc-list-newer')===null,true,'no newer documents are hidden on a fresh open')
-    assert.equal(requests.some(p=>p.includes('opening=1')),false,'do not request the older-unread seek')
-    assert.equal(requests.every(p=>Number(new URL(p,'http://fixture').searchParams.get('limit'))===40),true,'no history-wide prefix fetch: '+JSON.stringify(requests))
+    assert.equal(v.el.querySelector('.doc-gallery-row.on .mfrom')?.textContent,'doc-99','honor engine target in its page')
+    assert.equal(requests[0]?.includes('opening=1'),true,'request engine opening decision')
+    assert.equal(v.el.querySelector('.doc-gallery-row .mfrom')?.textContent,'doc-0','newest document is included')
+    assert.equal(v.el.querySelector('.doc-list-newer')===null,true,'fresh open never hides newer documents')
+    assert.equal(requests.every(p=>Number(new URL(p,'http://fixture').searchParams.get('limit'))<=200),true,'bounded prefix/page reads: '+JSON.stringify(requests))
     assert.ok(requests.length<=2,'one selection request and at most one aligned refresh')
-    await inAct(()=>(v.el.querySelectorAll<HTMLElement>('.doc-gallery-row')[3]!).click());await flush()
-    await advance(5001);await flush();assert.equal(v.el.querySelector('.doc-gallery-row.on .mfrom')?.textContent,'doc-3')
-    assert.equal(requests.every(p=>Number(new URL(p,'http://fixture').searchParams.get('offset'))===0),true,'refresh keeps the newest edge included')
+    await inAct(()=>(v.el.querySelector<HTMLElement>('.doc-gallery-row')!).click());await flush()
+    await advance(5001);await flush();assert.equal(v.el.querySelector('.doc-gallery-row.on .mfrom')?.textContent,'doc-0')
+    assert.equal(requests.filter(p=>p.includes('opening=1')).length,1,'target lookup runs once per open')
   })
 }
