@@ -4513,6 +4513,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "bunch consecutive projects"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "rearrange projects in a bunch"
     }
    ],
    "key_sources": [
