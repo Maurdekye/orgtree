@@ -605,23 +605,54 @@ module.exports = async (page) => {
         .map((c) => ({ cls: c.className, title: c.getAttribute('title') })))
       screenshots.push(await page.screenshot(`${prefix}-listensetting-canvas-${name}-1000x700`))
     }
-    for (const mode of ['lsoff', 'lson']) {
-      await page.goto('/?scene=deskinbox&mode=' + mode)
+    // &inbox=0: no listener on the inbox either, so the message box's yellow
+    // note (rust-engine 5c44f2c) shows beside this setting's desk
+    for (const [mode, inbox] of [['lsoff', ''], ['lson', ''], ['lsoff', '&inbox=0'], ['lson', '&inbox=0']]) {
+      const key = mode + (inbox ? '-noinbox' : '')
+      await page.goto('/?scene=deskinbox&mode=' + mode + inbox)
       await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
-      details['tabs-' + mode] = await page.eval(() => [...document.querySelectorAll('#desk-inbox .cc-tabs button[data-tab]')].map((b) => b.getAttribute('data-tab')))
-      details['cyan-' + mode] = await page.eval(() => [...document.querySelectorAll('#desk-inbox .project-listeners-card')].map((c) => c.textContent))
+      details['tabs-' + key] = await page.eval(() => [...document.querySelectorAll('#desk-inbox .cc-tabs button[data-tab]')].map((b) => b.getAttribute('data-tab')))
+      details['cyan-' + key] = await page.eval(() => [...document.querySelectorAll('#desk-inbox .project-listeners-card')].map((c) => c.textContent))
       if (mode === 'lson') {
         await page.eval(async () => {
           document.querySelector('#desk-inbox .cc-tabs button[data-tab="listeners"]').click()
           await new Promise((r) => setTimeout(r, 700))
         })
-      } else {
+      } else if (!inbox) {
         details.chips = await page.eval(() => [...document.querySelectorAll('#ls-chips .wd-chip, #ls-chips .watchdog-link')]
           .map((c) => ({ cls: c.className, title: c.getAttribute('title'), glyph: c.querySelector('.wd-glyph')?.textContent,
             opacity: getComputedStyle(c).opacity })))
       }
       await settle()
-      screenshots.push(await page.screenshot(`${prefix}-listensetting-desk-${mode.slice(2)}-1000x700`))
+      // where the note, the members' row, the box, the tabs and the table sit,
+      // and whether any two of them overlap
+      details['layout-' + key] = await page.eval(() => {
+        const box = (e) => {
+          if (!e) return null
+          const r = e.getBoundingClientRect()
+          return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right) }
+        }
+        const desk = document.querySelector('#desk-inbox .project-desk')
+        const navs = [...desk.querySelectorAll('.desk-nav')]
+        const parts = {
+          tabs: box(desk.querySelector('.cc-tabs')),
+          table: box(desk.querySelector('.listeners-table')),
+          members: box(navs[navs.length - 1]),
+          note: box(desk.querySelector('.inbox-no-listeners')),
+          composer: box(desk.querySelector('.project-composer')),
+        }
+        const names = Object.keys(parts).filter((k) => parts[k])
+        const overlaps = []
+        for (let i = 0; i < names.length; i++) {
+          for (let j = i + 1; j < names.length; j++) {
+            const a = parts[names[i]], b = parts[names[j]]
+            if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) overlaps.push(names[i] + '/' + names[j])
+          }
+        }
+        return { parts, overlaps, note: desk.querySelector('.inbox-no-listeners')?.textContent ?? null,
+          placeholder: desk.querySelector('.project-composer textarea')?.getAttribute('placeholder') ?? null }
+      })
+      screenshots.push(await page.screenshot(`${prefix}-listensetting-desk-${mode.slice(2)}${inbox ? '-noinbox' : ''}-1000x700`))
     }
     await page.goto('/?scene=settings')
     // a base build has no switch: say so and keep the captures so far

@@ -66,7 +66,8 @@
 //             Listeners tab, no cyan card; under it a disabled, an
 //             owner-paused and an armed listener chip, as the canvas and the
 //             desks draw them; &mode=lson the same desk switched on, its
-//             Listeners tab open;
+//             Listeners tab open; &inbox=0 either one with no listener on
+//             the inbox, so the message box's yellow note shows as well;
 //   jumpscroll — a desk on the canvas with many jump cards (user 2026-10-20
 //             09:41Z-09:50Z): stack16-agent-a under &up=N nested projects
 //             under boss, with &down=N reports named and badged like the
@@ -400,19 +401,20 @@ function HeadDesk({ set, top, height, id, route = false, answer, width = 980 }: 
   )
 }
 /** deskinbox &mode=lsoff / lson: relay's event listeners off (its dogs
- *  disabled) or on (the same dogs armed) */
+ *  disabled) or on (the same dogs armed); &inbox=0 without its inbox's
+ *  fair_queue listeners, so the message box's no-listener note shows too */
 const RELAY_OFF = "project relay's event listeners were turned off by boss"
-const lsSet = (on: boolean): HeadSet => ({
+const lsSet = (on: boolean, inbox: boolean): HeadSet => ({
   node: relay({ slots_capacity: 3, ...(on ? { event_listeners: true } : {}) }, { mail_pending: 2 }),
   dogs: [headDog('project_listener', 'dev1', 'ready-a', on ? {} : { state: 'paused', disabled: RELAY_OFF }),
     headDog('project_listener', 'dev2', 'build-done', { fired: 3, last_fired: ago(180), ...(on ? {} : { state: 'paused', disabled: RELAY_OFF }) }),
     headDog('project_listener', 'lead', 'deploy-watch', { state: 'paused' }),
     headDog('listener_watch', 'boss', 'quorum', { count: 2, ...(on ? {} : { state: 'paused', disabled: RELAY_OFF }) }),
-    ...mailDogs],
+    ...(inbox ? mailDogs : [])],
   leases: [relayLease('dev1', 1)],
 })
-function ListenerSetting({ on }: { on: boolean }) {
-  const set = lsSet(on)
+function ListenerSetting({ on, inbox }: { on: boolean; inbox: boolean }) {
+  const set = lsSet(on, inbox)
   const chips = [
     headDog('project_listener', 'dev1', 'ready-a', { state: 'paused', disabled: RELAY_OFF }),
     headDog('project_listener', 'lead', 'deploy-watch', { state: 'paused' }),
@@ -630,7 +632,9 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
   : scene === 'deskhead' ? <DeskHead />
   : scene === 'deskinbox' ? (() => {
     const mode = new URLSearchParams(location.search).get('mode')
-    if (mode === 'lsoff' || mode === 'lson') return <ListenerSetting on={mode === 'lson'} />
+    if (mode === 'lsoff' || mode === 'lson') {
+      return <ListenerSetting on={mode === 'lson'} inbox={new URLSearchParams(location.search).get('inbox') !== '0'} />
+    }
     if (mode === 'history' || mode === 'historyrr') {
       const rr = mode === 'historyrr'
       const q = new URLSearchParams(location.search)
