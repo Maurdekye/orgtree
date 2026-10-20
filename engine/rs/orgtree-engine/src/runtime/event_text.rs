@@ -1878,13 +1878,8 @@ fn r_wd_fired(ev: &Value) -> Option<String> {
     let count = py_str(count_v);
     // an mqtt or websocket fire (docs/rust-engine/mqtt-watchdogs.md,
     // websocket-watchdogs.md): whole messages (the dog bounds them), the
-    // UNTRUSTED label, and the true message count
-    let untrusted = match opt(ev, "source").as_str() {
-        Some("mqtt") => Some(crate::mqtt::render::UNTRUSTED),
-        Some("websocket") => Some(crate::ws::render::UNTRUSTED),
-        _ => None,
-    };
-    let mqtt = untrusted.is_some();
+    // EXTERNAL tag (mqtt/render.rs TAG), and the true message count
+    let mqtt = matches!(opt(ev, "source").as_str(), Some("mqtt" | "websocket"));
     let cap = if mqtt { crate::mqtt::render::PER_MESSAGE + 1024 } else { 500 };
     let lines: Vec<String> = match lines_v {
         Value::Array(a) => a.iter().take(20).map(|x| x.as_str().map(|s| take(s, cap))).collect::<Option<_>>()?,
@@ -1898,8 +1893,8 @@ fn r_wd_fired(ev: &Value) -> Option<String> {
             Some(t) if !t.is_empty() => format!("\n{}", take(t, 4000)),
             _ => String::new(),
         };
-        let body = format!("[WATCHDOG {name}]{prefix} {count} message(s):\n{}\n{}{more}{actions}",
-                           untrusted.unwrap_or_default(), lines.join("\n"));
+        let body = format!("[WATCHDOG {name}]{prefix} {count} message(s) {}:\n{}{more}{actions}",
+                           crate::mqtt::render::TAG, lines.join("\n"));
         return Some(if truthy(req(ev, "once")?) { watchdog_once_note(&body) } else { body });
     }
     let more = if c > 20.0 {
@@ -2524,7 +2519,7 @@ mod tests {
     }
 
     /// An MQTT fire (docs/rust-engine/mqtt-watchdogs.md): the owner's turn
-    /// reads its payloads behind the UNTRUSTED label, each up to 4 KB, and
+    /// reads its payloads behind the EXTERNAL tag, each up to 4 KB, and
     /// the true count of the messages the fire gathered.
     #[test]
     fn an_mqtt_fire_renders_its_untrusted_label_and_whole_payloads() {
