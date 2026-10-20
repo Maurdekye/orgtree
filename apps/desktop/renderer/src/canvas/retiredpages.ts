@@ -38,7 +38,8 @@ export function useRetiredPages(org: string | undefined, parent: string, enabled
     if (!org || !enabled) return
     setPage({ scope, rows: [], next: null, busy: true, error: '' })
     // Coalesce typing, but opening the list has no delay.
-    const timer = setTimeout(() => load(), query.trim() ? 180 : 0)
+    const timer = query.trim() ? setTimeout(() => load(), 180) : undefined
+    if (!query.trim()) load()
     return () => { clearTimeout(timer); pending.current = null; current.current = '' }
   }, [scope])
   const shown = page.scope === scope ? page : { rows: [], next: null, busy: true, error: '' }
