@@ -20,6 +20,7 @@ for (const surface of ['modal','agent','project'] as const) {
       const path=String(url),id=path.match(/\/documents\/([^/?]+)$/)?.[1]
       if(id==='viewed')return ok({ok:true})
       if(id)return ok({...rows.find(r=>r.id===id),body:'Body '+id})
+      if(!path.includes('/documents?'))return ok({})
       if(first){first=false;return new Promise<Response>(resolve=>{delay=resolve})}
       return ok({documents:rows,located:'new-unread'})
     }) as typeof fetch
@@ -46,6 +47,7 @@ for (const surface of ['modal','agent','project'] as const) {
       const path=String(url),id=path.match(/\/documents\/([^/?]+)$/)?.[1]
       if(id==='viewed')return ok({ok:true})
       if(id)return ok({...rows.find(r=>r.id===id),body:'Body '+id})
+      if(!path.includes('/documents?'))return ok({})
       requests.push(path)
       return ok(path.includes('opening=1')?{documents:rows,total:150,next_offset:120,offset:80,opening_id:'doc-99',opening_position:99}
         :{documents:rows,total:150,next_offset:120,offset:80})
@@ -54,7 +56,7 @@ for (const surface of ['modal','agent','project'] as const) {
     await flush(15)
     assert.equal(v.el.querySelector('.doc-gallery-row.on .mfrom')?.textContent,'doc-99','honor engine target in its page')
     assert.equal(requests[0]?.includes('opening=1'),true,'request engine opening decision')
-    assert.equal(requests.every(p=>Number(new URL(p,'http://fixture').searchParams.get('limit'))===40),true,'no history-wide prefix fetch')
+    assert.equal(requests.every(p=>Number(new URL(p,'http://fixture').searchParams.get('limit'))===40),true,'no history-wide prefix fetch: '+JSON.stringify(requests))
     assert.ok(requests.length<=2,'one selection request and at most one aligned refresh')
     await inAct(()=>(v.el.querySelector<HTMLElement>('.doc-gallery-row')!).click());await flush()
     await advance(5001);await flush();assert.equal(v.el.querySelector('.doc-gallery-row.on .mfrom')?.textContent,'doc-80')
