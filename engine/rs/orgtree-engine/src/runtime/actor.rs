@@ -3007,7 +3007,7 @@ impl Actor {
         if std::mem::replace(&mut self.settled, true) || !codexrt::session0()
             || self.use_session == Some(0)
             || (self.use_session.is_none() && *pref == crate::runtime::session_host::Pref::Session0)
-            || self.engine.credential_bridge.can_host() || self.engine.credential_bridge.placement_initialized() {
+            || self.engine.credential_bridge.can_host() || self.engine.credential_bridge.placement_host_seen() {
             return;
         }
         if self.last_session().await.as_deref() != Some(SIGNED_IN) {
@@ -3016,7 +3016,7 @@ impl Actor {
         let elapsed = (Utc::now() - self.engine.boot.started_at).to_std().unwrap_or_default();
         let until = Instant::now() + SESSION_SETTLE.saturating_sub(elapsed);
         while Instant::now() < until {
-            if self.engine.credential_bridge.can_host() || self.engine.credential_bridge.placement_initialized() {
+            if self.engine.credential_bridge.can_host() || self.engine.credential_bridge.placement_host_seen() {
                 return;
             }
             tokio::select! {
