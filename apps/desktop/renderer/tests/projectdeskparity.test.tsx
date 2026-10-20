@@ -344,7 +344,7 @@ test('G21 the project\'s inbox window is its desk tab\'s mailbox: project rows, 
   // the window is portaled out of the mount
   const win = document
   assert.ok(win.querySelector('.mailrow.project-mail'), 'the project mail row')
-  assert.deepEqual([...win.querySelectorAll('.mail-folders button')].map((b) => b.textContent?.replace(/\d+$/, '').trim()),
+  assert.deepEqual([...win.querySelectorAll('.mail-folders > button')].map((b) => b.textContent?.replace(/\d+$/, '').trim()),
     ['inbox', 'sent', 'listeners'], 'the listeners folder')
   const purge = win.querySelector<HTMLButtonElement>('button[data-action="purge-queue"]')
   assert.ok(purge, 'the purge button')

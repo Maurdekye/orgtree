@@ -232,7 +232,7 @@ test('§4 while the event listeners are off (the default): no cards and no Liste
   assert.equal(view.el.querySelector('.cc-tabs button[data-tab="listeners"]') === null, true,
     'hidden by default: no Listeners tab while the event listeners are off')
   await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="inbox"]')!.click(); await flush(4) })
-  const folder = [...view.el.querySelectorAll<HTMLButtonElement>('.mail-folders button')].find((b) => b.textContent?.startsWith('listeners'))
+  const folder = [...view.el.querySelectorAll<HTMLButtonElement>('.mail-folders > button')].find((b) => b.textContent?.startsWith('listeners'))
   assert.ok(folder, "the inbox's Listeners folder is always there too")
   await inAct(async () => { folder!.click(); await flush(3) })
   assert.match(view.el.querySelector('.mail-listeners-table .mail-line td.slot-empty')?.textContent ?? '', /Nobody listens for sync's mail/,
@@ -471,15 +471,16 @@ function serveInbox(t: TestContext) {
   }) as typeof fetch
   t.after(() => { globalThis.fetch = inner })
 }
-const folders = (el: Element) => [...el.querySelectorAll('.mail-folders button')]
+// the strip's own folder buttons: the project's controls end the same row (Purge, Join mail queue)
+const folders = (el: Element) => [...el.querySelectorAll('.mail-folders > button')]
   .map((b) => (b.textContent ?? '').replace(/\s+/g, ' ').trim())
-const openFolder = (el: Element) => (el.querySelector('.mail-folders button.on')?.textContent ?? '').replace(/\s+\d+$/, '').trim()
+const openFolder = (el: Element) => (el.querySelector('.mail-folders > button.on')?.textContent ?? '').replace(/\s+\d+$/, '').trim()
 const tabOn = (el: Element, tab: string) => el.querySelector(`.cc-tabs button[data-tab="${tab}"]`)?.classList.contains('on')
 const showTab = (el: Element, tab: string) => inAct(async () => {
   el.querySelector<HTMLButtonElement>(`.cc-tabs button[data-tab="${tab}"]`)!.click(); await flush(4)
 })
 const clickFolder = (el: Element, name: string) => inAct(async () => {
-  [...el.querySelectorAll<HTMLButtonElement>('.mail-folders button')].find((b) => b.textContent?.startsWith(name))!.click()
+  [...el.querySelectorAll<HTMLButtonElement>('.mail-folders > button')].find((b) => b.textContent?.startsWith(name))!.click()
   await flush(3)
 })
 const clickCard = (el: Element) => inAct(async () => {

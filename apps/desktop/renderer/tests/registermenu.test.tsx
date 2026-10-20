@@ -204,6 +204,8 @@ test('§7 the help text lives in tooltips on the trigger, the input and the thre
   const all = [trigger(v.el)!, ...panel()!.querySelectorAll('*')].flatMap((el) =>
     [el.textContent ?? '', el.getAttribute('title') ?? '', el.getAttribute('aria-label') ?? ''])
   assert.ok(!all.some((x) => /\byou\b/i.test(x)), 'none of the words say "you"')
+  // close this panel first: the next one is found by its class
+  await inAct(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
   const switched = await mount([agentListener, mineOnce, myWatch(2)], [])
   t.after(() => switched.unmount())
   await openPanel(switched)
