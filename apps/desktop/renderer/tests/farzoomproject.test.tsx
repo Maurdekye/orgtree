@@ -1,23 +1,38 @@
 import { inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
 const noop = () => {}
+declare const __SRC_DIR__: string
 const project = { id: 'release-project', title: 'release-project', kind: 'project', state: 'live',
   tier: 'project', children: [], scope: { tools: {}, add_dirs: [] }, turns: [] } as unknown as CanvasNode
-function Card({ lod = 'mini' }: { lod?: 'mini' | 'norm' }) {
+function Card({ lod = 'mini', node = project }: { lod?: 'mini' | 'norm'; node?: CanvasNode }) {
   useProvideAgentNav(() => [], () => ({ title: 'Project · Summary: a synthetic release' }))
-  return <ProjectSquare node={project} lod={lod} pos={{ x: 100, y: 150 }} zoom={.24}
+  return <ProjectSquare node={node} lod={lod} pos={{ x: 100, y: 150 }} zoom={.24}
     dragging={false} isDrop={false} op={async () => ({} as OpResult)} slug="test-org" toast={noop}
     hire={{}} seats={{}} onHire={noop} onNewProject={noop} onInbox={noop}
     onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
 }
 const element = (lod: 'mini' | 'norm' = 'mini') => <AgentNavProvider><Card lod={lod} /></AgentNavProvider>
 const hover = (el: Element) => inAct(() => el.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+
+test('shared floating project name uses the full 600px agent ceiling', async t => {
+  const id = 'project-transparency-complete-reporting-and-placement'
+  const v = await mountView(<AgentNavProvider><Card node={{ ...project, id, title: id }} /></AgentNavProvider>, el => el)
+  t.after(() => v.unmount())
+  await hover(v.el.querySelector('.sq.project')!)
+  assert.equal(v.el.querySelector('.sq-far-ghost.on .sq-far-name')?.textContent, id)
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  const body = css.match(/\.sq-far-ghost\.on \.sq-far-name\s*\{([^}]+)\}/)?.[1]
+  assert.ok(body, 'shared project/agent floating label rule exists')
+  assert.match(body, /max-width:\s*600px/, 'floating labels retain the full name up to the shared ceiling')
+})
 
 test('far-zoom project tooltip keeps details without repeating its floating name', async t => {
   const v = await mountView(element(), el => el); t.after(() => v.unmount())
