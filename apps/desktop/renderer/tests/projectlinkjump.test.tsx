@@ -52,7 +52,7 @@ function tree(): TreePayload {
   const worker = mk('worker', 'build')
   const helper = mk('helper', 'build')
   const build = mk('build', 'boss', { kind: 'project', tier: 'project', model_id: '',
-    configured_scope: { tools: {}, add_dirs: [], slots_capacity: 1 }, children: [worker, helper] })
+    configured_scope: { tools: {}, add_dirs: [], slots_capacity: 1, event_listeners: true }, children: [worker, helper] })
   const boss = mk('boss', null, { children: [build] })
   return {
     slug: 'mine', name: 'mine', workspace: null, dirs: [], max_top_grant: 1000,

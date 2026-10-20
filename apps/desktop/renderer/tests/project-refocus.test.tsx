@@ -108,6 +108,21 @@ test('generic opening raises a project popout without creating an embedded copy'
  await c.jump();assert.deepEqual(raised,['build']);assert.equal(camera(c.host),before)
  assert.equal(document.querySelectorAll('.project-desk').length,0)
 })
+test('canvas Focus and Agents List clicks reveal the same project popout',async t=>{
+ const c=await mounted(t),raised:string[]=[];const before=camera(c.host)
+ t.after(registerWindow({id:'entry-route',kind:'project-desk',org:'refocus',editable:true,window:window as unknown as Window,
+  identity:()=>({agent:'build'}),redock:noop,reveal:()=>raised.push('build')}))
+ await press(card(c.host));assert.equal(raised.length,1,'canvas click revealed the popout')
+ await inAct(()=>card(c.host).dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:40,clientY:40})))
+ const focus=[...document.querySelectorAll<HTMLElement>('.ctxmenu [role="menuitem"]')].find(el=>el.textContent==='Focus')
+ assert.ok(focus,'Focus menu rendered');await inAct(()=>focus!.click());await flush()
+ assert.equal(raised.length,2,'menu uses the same reveal')
+ await inAct(()=>c.host.querySelector<HTMLButtonElement>('.tray-toggle')!.click());await flush()
+ const row=[...c.host.querySelectorAll<HTMLButtonElement>('.tray-main')].find(el=>el.textContent?.includes('build'))
+ assert.ok(row,'project row in Agents List');await inAct(()=>row!.click());await flush()
+ assert.equal(raised.length,3,'Agents List uses the same reveal');assert.equal(camera(c.host),before)
+ assert.equal(document.querySelectorAll('.project-desk').length,0)
+})
 test('generic opening refocuses the existing project modal and preserves its selected tab and draft',async t=>{
  const c=await mounted(t);await modalFromMenu(c.host);await tab('presented')
  const input=desk().querySelector<HTMLTextAreaElement>('textarea')!;assert.ok(input,'project composer')

@@ -549,7 +549,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     return true
   }, [projectDeskId, slug])
   const openProjectDesk = (id: string, popout = false) => {
-    if (pinnedIdsRef.current.has(id)) { showPin(slug, id, vpSizeNow()); return }
+    if (pinnedIdsRef.current.has(id)) {
+      if (!popout) { showPin(slug, id, vpSizeNow()); return }
+      // An explicit placement action moves the existing project desk; a
+      // plain reopening above only reveals it, as on the agent desk.
+      removePin(slug, id)
+    }
     if (revealExistingDesk(slug, mapRef.current.get(id))) return
     if (revealProjectDesk(id)) {
       if (popout) requestSurfaceAction('project-desk', slug, 'popout')
