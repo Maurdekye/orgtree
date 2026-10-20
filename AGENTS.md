@@ -1749,7 +1749,7 @@
   unchanged. [decided: user 2026-10-14 23:05UTC; verified from source:
   `App.tsx`, `accountusage.tsx`; see [Muse Refresh](docs/rust-engine/muse-usage-refresh.md)]
 
-- Appearance presets are LS Gold, Muse Eggshell and Antigravity Navy. Shared
+- Appearance presets are LMS Gold, Muse Eggshell and Antigravity Navy. Shared
   provider/preset order keeps Orgtree first, then Claude/Codex/Antigravity/Muse/
   OpenRouter/LS, with Custom last; preset IDs, accent colours and saved values
   are unchanged. [decided: user 2026-10-14 23:01–23:02UTC; verified:
@@ -1763,7 +1763,7 @@
   grey and the selected/urgent row washes read 4.6:1 or more; hover at three
   quarters of that lightness; white ink. Orgtree Grey #4c5565, Claude #89391f,
   Codex #035b46 (turned towards green to clear `--backlog`), Antigravity
-  #0045c7, OpenRouter #5f0bdf, LS Gold #4d3a02, Muse #005680. The provider
+  #0045c7, OpenRouter #5f0bdf, LMS Gold #4d3a02, Muse #005680. The provider
   colours (`--prov-*`) take the same partners there, so desks match the app,
   and stay 31+ apart (CIE76). Charcoal and obsidian keep every original.
   Pop-outs mirror `data-visual-theme` with the root classes and style, or

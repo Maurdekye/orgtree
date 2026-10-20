@@ -112,7 +112,7 @@ test('Muse tier colours read on the chip backgrounds and stay apart from every o
 
 test('the Muse Eggshell app theme is the provider cyan, apart from every other preset and readable on light surfaces', () => {
   // the existing provider-theme requirement (docs/v2-visual-themes.md; the
-  // LS Gold precedent's floor of 18 between presets)
+  // LMS Gold precedent's floor of 18 between presets)
   assert.equal(THEMES.muse.label, 'Muse Eggshell')
   assert.equal(THEMES.muse.accent, MUSE_COLOR)
   for (const [id, theme] of Object.entries(THEMES)) {

@@ -9258,9 +9258,9 @@ main:has(> .orgbar.native-header) > .error {
    - OpenRouter Lavender and --prov-openrouter #5f0bdf (4.69:1): the provider
      violet deepened, as it read 3.8:1 on the washes. Its dark value, a known
      defect kept by decision, is untouched.
-   - LS Gold takes --prov-langserver's partner #4d3a02 (6.47:1).
+   - LMS Gold takes --prov-langserver's partner #4d3a02 (6.47:1).
    The six provider colours stay 31 or more apart on the light surfaces
-   (Claude and LS Gold the nearest pair, 8.7 simulated). lightaccent.test.tsx */
+   (Claude and LMS Gold the nearest pair, 8.7 simulated). lightaccent.test.tsx */
 :root:is(.contrast-light, .contrast-solarized-light) {
   --prov-claude: #89391f;
   --prov-openai: #035b46;

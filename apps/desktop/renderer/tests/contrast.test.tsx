@@ -47,7 +47,7 @@ test('Appearance offers the exact four contrast choices independently of custom 
       assert.ok(document.documentElement.classList.contains('mobile'), 'unrelated root classes survive')
     }
     await change(contrast, 'charcoal')
-    assert.ok([...accent.options].some(o => o.value === 'langserver' && o.textContent === 'LS Gold'))
+    assert.ok([...accent.options].some(o => o.value === 'langserver' && o.textContent === 'LMS Gold'))
     await change(accent, 'langserver')
     assert.equal(localStorage.getItem('orgtree-visual-theme'), 'langserver')
     assert.equal(document.documentElement.style.getPropertyValue('--accent'), THEMES.langserver.accent)

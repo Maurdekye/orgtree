@@ -32,7 +32,7 @@ test('theme menu follows rendered Providers order with Orgtree first and Custom 
   assert.deepEqual(providers, ids)
   const options = [...view.el.querySelector<HTMLSelectElement>('[aria-label="Visual theme"]')!.options]
   assert.deepEqual(options.map(o => o.textContent), ['Orgtree Grey', 'Claude Terracotta', 'Codex Teal',
-    'Antigravity Navy', 'Muse Eggshell', 'OpenRouter Lavender', 'LS Gold', 'Custom'])
+    'Antigravity Navy', 'Muse Eggshell', 'OpenRouter Lavender', 'LMS Gold', 'Custom'])
   assert.deepEqual(options.slice(1, -1).map(o => o.value), providers.map(id =>
     PROVIDER_THEME_PRESETS.find(([provider]) => provider === id)![1]))
   assert.equal(options[0]!.value, 'orgtree')

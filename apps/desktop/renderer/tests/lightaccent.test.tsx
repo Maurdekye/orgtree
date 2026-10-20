@@ -24,7 +24,7 @@
 //      3:1 or more apart from it for every preset and provider.
 //   §4 every preset theme meets §1's bar on the light surfaces, not only
 //      Orgtree Grey: Claude Terracotta, Codex Teal, Antigravity Navy,
-//      OpenRouter Lavender, LS Gold and Muse Eggshell painted accent text at
+//      OpenRouter Lavender, LMS Gold and Muse Eggshell painted accent text at
 //      1.6-3.1:1 there. No theme-keyed rule reaches a dark surface.
 //   §5 every provider colour reads on the light surfaces where a desk paints
 //      text with it (inside a desk the provider is the accent), its fills keep

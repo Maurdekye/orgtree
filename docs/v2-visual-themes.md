@@ -1,7 +1,7 @@
 # Visual themes
 
 App settings > Display > Visual theme offers Orgtree Grey, Claude Terracotta,
-Codex Teal, Antigravity Navy, Muse Eggshell, OpenRouter Lavender, LS Gold, then
+Codex Teal, Antigravity Navy, Muse Eggshell, OpenRouter Lavender, LMS Gold, then
 Custom. The provider order is shared with Settings > Providers through
 `PROVIDER_THEME_PRESETS`; the same preset order reaches onboarding. The three
 renames and order follow the user's 2026-10-14 23:01–23:02UTC ruling. They do not

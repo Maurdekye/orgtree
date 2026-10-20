@@ -1,12 +1,12 @@
 # Theme preset labels and order
 
-User 2026-10-14 23:01–23:02UTC renamed three presets to **LS Gold**,
+User 2026-10-14 23:01–23:02UTC renamed three presets to **LMS Gold**,
 **Muse Eggshell** and **Antigravity Navy**. Preset IDs, palettes and saved
 settings values remain unchanged, including accents `#cda206`, `#afe5ff`
 and `#75a5ff` respectively.
 
 The menu order is Orgtree Grey, Claude Terracotta, Codex Teal, Antigravity Navy,
-Muse Eggshell, OpenRouter Lavender, LS Gold, Custom. Shared
+Muse Eggshell, OpenRouter Lavender, LMS Gold, Custom. Shared
 `PROVIDER_THEME_PRESETS` maps the existing provider IDs to preset IDs;
 `VISUAL_THEMES` derives its order from that table for Display and onboarding.
 Providers CLI sections sort a filtered copy using the same table; the existing

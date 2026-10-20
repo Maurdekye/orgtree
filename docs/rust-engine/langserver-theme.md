@@ -1,8 +1,8 @@
-# LS Gold
+# LMS Gold
 
 The Language model server provider already used gold in its chats and tier badges, but
 Appearance had no matching preset. The new `langserver` preset is labelled
-**LS Gold** and reuses that existing `#cda206` accent. The user's
+**LMS Gold** and reuses that existing `#cda206` accent. The user's
 2026-10-11 10:49Z ruling was to keep the existing colour, not choose a new hue.
 
 `THEME_ACCENTS.langserver` in `packages/contracts/visual-theme.ts` is the single

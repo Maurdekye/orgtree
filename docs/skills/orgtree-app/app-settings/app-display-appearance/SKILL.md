@@ -11,7 +11,7 @@ Display > Appearance and Display > Canvas background control presentation across
 
 | Control | Storage | Choices and initial behavior |
 | --- | --- | --- |
-| visual theme | `np:visualTheme`, with provenance visualThemeExplicit | Orgtree Grey, Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggshell, OpenRouter Lavender, LS Gold, Custom. |
+| visual theme | `np:visualTheme`, with provenance visualThemeExplicit | Orgtree Grey, Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggshell, OpenRouter Lavender, LMS Gold, Custom. |
 | custom color | Same visualTheme field, encoded as custom plus a six-digit hex color | Visible only for Custom. The picker displays the selected hex value; its initial draft color is Orgtree grey. Settled changes save after a short debounce or on blur. |
 | contrast color | `np:contrastTheme` | Charcoal default, Light, Solarized Light, Obsidian Black. Controls background/text brightness independently of the accent. |
 | organization theme color for agents | `np:agentColorSource` | Off/provider by default; On uses organization instead of provider colors for agent surfaces. |

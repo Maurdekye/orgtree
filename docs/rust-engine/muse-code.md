@@ -534,7 +534,7 @@ or label (rendered proof below).
 **App theme.** Settings › Display offers **Muse Eggshell**, the provider cyan, as
 Claude Terracotta and Codex Teal are their providers' colours: the existing
 provider-theme rule ([`v2-visual-themes.md`](../v2-visual-themes.md), with
-LS Gold as the precedent in
+LMS Gold as the precedent in
 [`langserver-theme.md`](langserver-theme.md)). `THEME_ACCENTS.muse` is the one
 source for `#afe5ff`; the tray and window eye has a Muse variant
 (`orgtree-eye-tray-muse.ico`). It is CIE76 20.0 from Orgtree Grey, its nearest

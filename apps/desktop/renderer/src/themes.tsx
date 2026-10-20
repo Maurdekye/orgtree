@@ -19,7 +19,7 @@ export const THEMES = {
   codex: { label: 'Codex Teal', accent: '#22c4bd', hover: '#64ddd7', soft: 'rgba(34,196,189,.16)' },
   antigravity: { label: 'Antigravity Navy', accent: '#75a5ff', hover: '#a3c3ff', soft: 'rgba(117,165,255,.16)' },
   openrouter: { label: 'OpenRouter Lavender', accent: '#b69afa', hover: '#d0baff', soft: 'rgba(182,154,250,.16)' },
-  langserver: { label: 'LS Gold', ...customTheme(THEME_ACCENTS.langserver) },
+  langserver: { label: 'LMS Gold', ...customTheme(THEME_ACCENTS.langserver) },
   muse: { label: 'Muse Eggshell', ...customTheme(THEME_ACCENTS.muse) },
 } satisfies Record<PresetVisualTheme, { label: string; accent: string; hover: string; soft: string }>
 
