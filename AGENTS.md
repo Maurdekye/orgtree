@@ -110,6 +110,8 @@
   is a preview (first eight per owner): its owner counts are authoritative.
   Project operational metadata remains complete under the existing unique
   owner/project/kind rules; never use generic preview length as a count.
+  Bare handles still prefer the caller's own dog before the bounded
+  ambiguity lookup, even when hundreds of other owners reuse that slug.
   See [watchdog grouping](docs/rust-engine/project-watchdog-menus.md).
   [decided: user/coordinator 2026-10-20; verified: `runtime/watchdogs.rs`,
   `feed/groups.rs`, renderer `canvas/watchdoggroup.tsx`]
