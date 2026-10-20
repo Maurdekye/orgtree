@@ -88,7 +88,9 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
           openingId: opening ? first?.opening_id : p.ident === ident ? p.openingId : undefined,
           plan: keyOf(ranges), gapBefore }))
       } catch (e) {
-        if (!dead) setLast(p => ({ ...p, ident, seq, error: String((e as Error)?.message ?? e) }))
+        if (!dead) setLast(p => ({ ...(p.ident === ident ? p : {
+          rows: null, total: 0, more: false, located: '', plan: '', gapBefore: [], openingId: undefined,
+        }), ident, seq, error: String((e as Error)?.message ?? e) }))
       } finally {
         active = false
         if (pending && !dead) { pending = false; void tick() }
