@@ -13,7 +13,7 @@ export async function setup(flags) {
   } }
 }
 
-export default async function (rig, { lifecycle = false } = {}) {
+export default async function (rig, { flags = {}, lifecycle = !!flags.lifecycle } = {}) {
   const p = new Proof('opencode-mail')
   const model = await startOpenCodeSynthetic()
   try {
@@ -167,6 +167,17 @@ export default async function (rig, { lifecycle = false } = {}) {
       crash.releaseSecond()
       const afterCrashRequest = model.requests.length
       await rig.restart()
+      // Recovery runs before asynchronous harness discovery. A resumed turn can
+      // therefore be refused by the existing startup installation guard. Check
+      // custody immediately, then explicitly wake after discovery so this proof
+      // measures mail recovery rather than that independent startup race.
+      p.check('startup releases uncertain custody with the warning before the next turn',
+        held() === null && row('MAIL_CANARY_CRASH')?.extra?.opencode_ambiguous === true)
+      await rig.waitFor(async () =>
+        (await rig.api('GET', '/api/harnesses')).harnesses?.some(h =>
+          h.id === 'opencode' && h.installed && h.version === '2.0.28'),
+      { what: 'OpenCode discovery after restart' })
+      await rig.userMail('mailprobe', 'MAIL_CASE_POST_RESTART')
       await awaitSettled()
       const recoveryRequests = JSON.stringify(model.requests.slice(afterCrashRequest))
       p.check('uncertain crash custody returns once on the next turn with its warning',
