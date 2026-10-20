@@ -51,6 +51,20 @@ CREATE TRIGGER retired_picker_turn_time AFTER UPDATE OF started_at,ended_at ON o
   FOR EACH ROW WHEN ((OLD.started_at,OLD.ended_at) IS DISTINCT FROM (NEW.started_at,NEW.ended_at))
   EXECUTE FUNCTION ot.retired_picker_turn();
 
+-- Admission can remove an unsent last turn after a retirement raced it.
+-- Restore the previous last turn only if the deleted one is still selected.
+CREATE FUNCTION ot.retired_picker_turn_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  UPDATE ot.retired_picker p SET (turn_id,touched) = (
+    SELECT coalesce(t.id,0),coalesce((extract(epoch FROM coalesce(t.ended_at,t.started_at))*1000000)::bigint,0)
+    FROM (SELECT 1) seed LEFT JOIN LATERAL
+      (SELECT id,ended_at,started_at FROM ot.turns WHERE agent_id=OLD.agent_id ORDER BY id DESC LIMIT 1) t ON true
+  ) WHERE p.agent_id=OLD.agent_id AND p.turn_id=OLD.id;
+  RETURN OLD;
+END $$;
+CREATE TRIGGER retired_picker_turn_delete AFTER DELETE ON ot.turns
+  FOR EACH ROW EXECUTE FUNCTION ot.retired_picker_turn_delete();
+
 -- One-time backfill. Each last-turn lookup is an indexed LIMIT 1.
 INSERT INTO ot.retired_picker(agent_id,org_id,parent_key,name,sibling_order,turn_id,touched)
 SELECT a.id,a.org_id,coalesce(a.parent_id,0),a.name,a.sibling_order,coalesce(t.id,0),
