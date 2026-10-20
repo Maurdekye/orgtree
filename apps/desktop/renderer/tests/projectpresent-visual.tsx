@@ -11,10 +11,10 @@ Object.assign(window, { expectedProjectDocuments: expected })
 createRoot(document.getElementById('root')!).render(<CurrentOrg.Provider value="project-doc-fixture">
   <style>{`
     .project-doc-proof {padding:24px;font-family:Segoe UI,sans-serif}
-    .project-doc-proof .cards {display:flex;gap:70px;margin:18px 25px 0;height:165px}
+    .project-doc-proof .cards {display:flex;gap:70px;margin:18px 25px 0;height:195px}
     .project-card-case {position:relative;width:230px;flex-shrink:0}
     .project-doc-proof .headers {display:flex;gap:16px}
-    .project-header-case {width:306px;height:340px;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex-shrink:0}
+    .project-header-case {width:306px;height:300px;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex-shrink:0}
     .project-header-case .desk {position:relative!important;inset:auto!important;transform:none!important;width:100%!important;box-sizing:border-box}
     .project-doc-proof h3 {margin:12px 0}
   `}</style>
