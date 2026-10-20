@@ -343,7 +343,8 @@ test('§2a jump cards up to the parent and down to its members', async (t) => {
 // message box, on every tab
 test('§2g the jump cards stay on every tab, the members\' row above the message box', async (t) => {
   const jumped: string[] = []
-  const nd = project({ dead_letters: 1, configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2 } } as Partial<CanvasNode>)
+  // its listener registered, so its event listeners are on (user 2026-10-20 10:50Z)
+  const nd = project({ dead_letters: 1, configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2, event_listeners: true } } as Partial<CanvasNode>)
   const dogs = [{ id: 'dev1/ready', owner: 'dev1', name: 'ready', kind: 'project_listener', target: 'website', interval_s: 5,
     state: 'armed', at: '2026-10-19T07:00:00.000Z', fired: 0, once: true, spent: false }]
   const el = await desk(t, { jump: (id) => jumped.push(id), node: nd,

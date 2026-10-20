@@ -490,7 +490,8 @@ const tableRows = (el: Element) => [...el.querySelectorAll<HTMLTableRowElement>(
 const cells = (row: Element) => [...row.children].map((c) => (c.textContent ?? '').replace(/\s+/g, ' ').trim())
 
 test('§7 the mail card opens the inbox on a new listeners folder after inbox and sent', async (t) => {
-  const nd = project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 })
+  // its event listeners are on too, so the desk-level Listeners tab is there to stay off
+  const nd = project({ mail_queue: 'ack', event_listeners: true }, { mail_pending: 3, mail_held: 1 })
   const { view } = await desk(t, nd)
   serveInbox(t)
   await clickCard(view.el)
