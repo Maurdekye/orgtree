@@ -388,8 +388,10 @@ nav { display: flex; flex-direction: column; gap: 2px; }
      after them; `.space > .sq` is a numbered layer since 2026-09-11 (see the
      far-map hire-token rule), so without a number of its own this would have
      dropped under the cards. `.wd-chip`, the other satellite, has carried an
-     explicit 2 all along — this is the same statement. */
-  position: absolute; left: 0; top: 0; z-index: 2;
+     explicit 2 all along — this is the same statement. Now 7, above `.sq:hover { z-index: 6 }`: a bunched
+     owner's token sits INSIDE its card, and hovering the card raised it over the token, so it could not
+     be clicked (user 2026-10-20 21:39Z "not clickable anywhere"). */
+  position: absolute; left: 0; top: 0; z-index: 7;
   background: var(--panel-2); color: var(--dim);
   border: 1px solid var(--line-soft); border-radius: 9px;
   padding: 1px 8px; font-size: 10px; line-height: 1.5;

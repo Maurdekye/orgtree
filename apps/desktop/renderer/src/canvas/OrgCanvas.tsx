@@ -4593,6 +4593,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           // Bunch rows have only an 8px gap: an external token would cover
           // the next project's header. Keep it inside its owning card.
           const inset = bunches.has(pid) && size.w === NODE_W && size.h === NODE_H
+          // ...which is where the card's OPEN DESK fills it (zoomed in), and the desk carries its own
+          // "N retired" chip: drawn over the desk the token covers its composer (user 2026-10-20 21:39Z)
+          if (inset && pid === focusId && !worldHidden && !projectDesks.ids.includes(pid)) return null
           return (
             <button key={'rt' + pid} className="retired-token" data-retired-parent={pid}
               style={{ transform: `translate(${p.x + 6}px, ${p.y + size.h + (inset ? -24 : 4)}px)` }}
