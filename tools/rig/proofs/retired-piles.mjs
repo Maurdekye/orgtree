@@ -14,7 +14,9 @@
 // top-level retire each move the representatives through the live feed
 // (snapshot and catch-up), the top level's retired count follows (it went
 // stale before: the `foreground` group was re-read only on org changes),
-// and an engine restart rebuilds the same set.
+// a rehire out of a pile front's nested pile drops the front's count (the
+// rehire marked only its new parent before), and an engine restart rebuilds
+// the same set.
 //
 // Red at 689e41f: the shared set holds no retired agent at all, and the
 // top-level count stays where it was after a retire.
@@ -196,6 +198,28 @@ export default async function (rig) {
     same(held(snap), o.reps) && held(snap).get('top-d') === '' && foreground(snap)?.retired_roots_total === t2.roots,
     { held: show(held(snap)), want: show(o.reps), feed: foreground(snap), db: t2 })
   p.check('the counts still cover what is held', countsCover(snap).length === 0, countsCover(snap))
+
+  // a rehire out of a pile front's own nested pile: the representatives stay
+  // and the front's count drops (a rehire marked only its new, live parent)
+  await hire('front-2', 'lead')
+  for (const n of ['fn-1', 'fn-2', 'fn-3']) { await hire(n, 'front-2'); await retire(n) }
+  await retire('front-2')
+  o = oracle()
+  snap = await settle('front-2 fronting lead\'s pile', s => same(held(s), oracle().reps))
+  p.check('control: front-2 fronts lead\'s pile and its nested pile holds fn-1 and fn-3, not fn-2',
+    same(held(snap), o.reps) && held(snap).get('front-2') === 'lead' && held(snap).get('fn-1') === 'front-2'
+      && held(snap).get('fn-3') === 'front-2' && !held(snap).has('fn-2') && agentsOf(snap).get('front-2')?.total === 3,
+    { held: show(held(snap)), front: agentsOf(snap).get('front-2') })
+  await rig.op({ op: 'rehire', node: 'fn-2' })
+  o = oracle()
+  const frontTotal = s => agentsOf(s).get('front-2')?.total
+  snap = await settle('front-2\'s count after fn-2\'s rehire', s => same(held(s), oracle().reps) && frontTotal(s) === 2)
+  p.check('a rehire out of a front\'s nested pile drops the front\'s count; the representatives stay',
+    same(held(snap), o.reps) && frontTotal(snap) === 2 && agentsOf(snap).get('fn-2')?.state === 'live',
+    { held: show(held(snap)), want: show(o.reps), front_total: frontTotal(snap), fn2: agentsOf(snap).get('fn-2') })
+  const after = await rig.api('GET', `/api/orgs/${slug}`)
+  p.check('the HTTP tree\'s hidden count under the front follows the rehire', find(after.roots, 'front-2')?.hidden_retired_children === 0,
+    { front: find(after.roots, 'front-2')?.hidden_retired_children })
 
   // a fresh engine builds the same set on its first load
   const kept = held(snap)
