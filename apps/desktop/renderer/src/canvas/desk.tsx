@@ -47,7 +47,7 @@ import { useAgyModelsRefresh } from './shared'
 import { downJumpTargets, upJumpTargets } from './shared'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
-import { fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, messageCopyText, resolveFullMailCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
+import { fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, messageCopyText, resolveFullMailCopyText, segmentsCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import type { CopyableMailRow } from './copytext'
 import { firstUseSent } from './firstuse'
 import { FastModeButton } from './fastmodebutton'
@@ -3496,12 +3496,46 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     if (el) el.selectionStart = el.selectionEnd = el.value.length
   }, [text])
   const mentionCandidates = useOrgMentionCandidates(slug, null, map)
+  const transcriptTexts = useCallback((): string[] => {
+    const out: string[] = []
+    for (const m of viewMessages) {
+      if (m.role === 'system') continue
+      const t = messageCopyText(m, 'operator')
+      if (t) out.push(t)
+    }
+    for (const m of viewPendNow) {
+      const t = mailRowCopyText(m, 'operator')
+      if (t) out.push(t)
+    }
+    for (const r of viewLive) {
+      if (r.kind === 'steered') {
+        const t = isSegments(r.segments, 'operator') ? segmentsCopyText(r.segments, 'operator') : r.text
+        if (t) out.push(t)
+      } else if (r.kind !== 'thought' && r.kind !== 'tool' && !r.cmd_output && r.text) {
+        out.push(r.text)
+      }
+    }
+    for (const r of viewTransient) {
+      if ((r.kind === 'draft' || r.kind === 'delta') && r.text) {
+        out.push(r.text)
+      }
+    }
+    for (const m of viewPendLater) {
+      const t = mailRowCopyText(m, 'operator')
+      if (t) out.push(t)
+    }
+    for (const p of pending) {
+      if (p.text) out.push(p.text)
+    }
+    return out
+  }, [viewMessages, viewPendNow, viewLive, viewTransient, viewPendLater, pending])
   const mentions = useAgentMentions({
     value: text,
     onChange: (next) => { flashMode(''); setText(next) },
     inputRef: taRef,
     candidates: mentionCandidates,
     disabled: !canMail,
+    transcriptTexts,
   })
   const mentionScope = useDeskMentionScope(canMail ? mentions.captureMention : null, mentions.noteRightClickDown)
   // №6: dropping a file anywhere on the desk uploads it (and prevents the

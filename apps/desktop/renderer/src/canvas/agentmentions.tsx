@@ -4,6 +4,7 @@ import type { ReactNode, RefObject } from 'react'
 import type { TreeNode, TreePayload, UserMentionInfo } from '../types'
 import { markMentionSeen, req } from '../api'
 import { TierChip } from './identity'
+import { stripMarkdownCode } from './shared'
 import { requestOpenOrg } from '../shell/openorg'
 
 export interface MentionCandidate {
@@ -103,16 +104,86 @@ export function matchMentionQuery(value: string, caret: number): MentionQueryMat
   return { query, start, end: pos }
 }
 
-export function filterMentionCandidates(candidates: MentionCandidate[], query: string): MentionCandidate[] {
+const TRANSCRIPT_MENTION_RE = /@(?:(agent|item):([a-z0-9-]+)\/([a-z0-9-]+(?:@[0-9]+)?)|([a-z0-9][a-z0-9_-]*(?:@[0-9]+)?))/gi
+
+function isLeftBoundary(s: string, atIndex: number, lastEnd: number): boolean {
+  if (atIndex <= 0 || atIndex === lastEnd) return true
+  return !/[0-9A-Za-z._%+-]/.test(s[atIndex - 1]!)
+}
+
+function isRightBoundary(s: string, endIndex: number): boolean {
+  if (endIndex >= s.length) return true
+  const next = s[endIndex]!
+  if (/[0-9A-Za-z_/-]/.test(next)) return false
+  if (next === '@' && !/^@(?:item|doc|agent|mail):/i.test(s.slice(endIndex))) return false
+  if (next === '.' && endIndex + 1 < s.length && /[0-9A-Za-z]/.test(s[endIndex + 1]!)) return false
+  return true
+}
+
+/** Extract mention recency (candidate id -> monotonic sequence number, higher = more recent)
+ *  from loaded transcript message texts in chronological order (oldest to newest). */
+export function extractMentionRecency(texts: Iterable<string>): ReadonlyMap<string, number> {
+  const recency = new Map<string, number>()
+  let seq = 0
+  for (const raw of texts) {
+    if (!raw || !raw.includes('@')) continue
+    const s = stripMarkdownCode(raw)
+    if (!s.includes('@')) continue
+    TRANSCRIPT_MENTION_RE.lastIndex = 0
+    let lastEnd = -1
+    let m: RegExpExecArray | null
+    while ((m = TRANSCRIPT_MENTION_RE.exec(s)) !== null) {
+      const idx = m.index
+      const end = idx + m[0].length
+      if (!isLeftBoundary(s, idx, lastEnd) || !isRightBoundary(s, end)) {
+        TRANSCRIPT_MENTION_RE.lastIndex = idx + 1
+        continue
+      }
+      lastEnd = end
+      if (m[1]) {
+        const kind = m[1].toLowerCase()
+        const org = m[2]!.toLowerCase()
+        const id = m[3]!.toLowerCase()
+        seq += 1
+        recency.set(id, seq)
+        recency.set(`${kind}:${org}/${id}`, seq)
+      } else if (m[4]) {
+        const id = m[4].toLowerCase()
+        if (id !== 'user') {
+          seq += 1
+          recency.set(id, seq)
+        }
+      }
+    }
+  }
+  return recency
+}
+
+export function filterMentionCandidates(
+  candidates: MentionCandidate[],
+  query: string,
+  recency?: ReadonlyMap<string, number> | null,
+): MentionCandidate[] {
   const q = query.toLowerCase()
+  const mentioned: Array<{ c: MentionCandidate; seq: number }> = []
   const prefix: MentionCandidate[] = []
   const substring: MentionCandidate[] = []
   for (const c of candidates) {
     const id = c.id.toLowerCase()
-    if (!q || id.startsWith(q)) prefix.push(c)
-    else if (id.includes(q)) substring.push(c)
+    const isPrefix = !q || id.startsWith(q)
+    const isMatch = isPrefix || id.includes(q)
+    if (!isMatch) continue
+    const seq = recency?.get(id)
+    if (seq !== undefined) {
+      mentioned.push({ c, seq })
+    } else if (isPrefix) {
+      prefix.push(c)
+    } else {
+      substring.push(c)
+    }
   }
-  return [...prefix, ...substring]
+  mentioned.sort((a, b) => b.seq - a.seq)
+  return [...mentioned.map(m => m.c), ...prefix, ...substring]
 }
 
 export function useAgentMentions({
@@ -122,6 +193,7 @@ export function useAgentMentions({
   inputRef,
   candidates,
   disabled,
+  transcriptTexts,
 }: {
   value: string
   onChange?: (next: string) => void
@@ -129,6 +201,7 @@ export function useAgentMentions({
   inputRef: RefObject<HTMLInputElement | HTMLTextAreaElement | null>
   candidates: MentionCandidate[]
   disabled?: boolean
+  transcriptTexts?: () => Iterable<string>
 }): {
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => boolean
   syncCaret: () => void
@@ -143,9 +216,12 @@ export function useAgentMentions({
   emitRef.current = emit
   const disabledRef = useRef(disabled)
   disabledRef.current = disabled
+  const transcriptTextsRef = useRef(transcriptTexts)
+  transcriptTextsRef.current = transcriptTexts
+  const recencySessionRef = useRef<{ start: number; recency: ReadonlyMap<string, number> } | null>(null)
   const preRightClickSnapRef = useRef<{ focused: boolean; start: number; end: number; ts: number } | null>(null)
   const [caret, setCaret] = useState(value.length)
-  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [selection, setSelection] = useState<{ key: string | null; index: number }>({ key: null, index: -1 })
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
   const [rect, setRect] = useState<{ left: number; bottom: number; width: number } | null>(null)
 
@@ -236,19 +312,40 @@ export function useAgentMentions({
 
   const activeQuery = useMemo(() => matchMentionQuery(value, caret), [value, caret])
   const queryKey = activeQuery ? `${activeQuery.start}:${activeQuery.query}` : null
+  const canShow = !disabled && activeQuery !== null && dismissedKey !== queryKey
+
+  if (!canShow) {
+    recencySessionRef.current = null
+  } else if (recencySessionRef.current === null || recencySessionRef.current.start !== activeQuery.start) {
+    const texts = transcriptTextsRef.current ? transcriptTextsRef.current() : []
+    recencySessionRef.current = {
+      start: activeQuery.start,
+      recency: extractMentionRecency(texts),
+    }
+  }
+  const activeRecency = recencySessionRef.current?.recency ?? null
 
   useEffect(() => {
-    setSelectedIndex(0)
+    if (selection.key !== null && selection.key !== queryKey) {
+      setSelection({ key: null, index: -1 })
+    }
     if (dismissedKey && dismissedKey !== queryKey) setDismissedKey(null)
-  }, [queryKey, dismissedKey])
+  }, [queryKey, dismissedKey, selection.key])
 
   const matches = useMemo(
-    () => (!disabled && activeQuery && dismissedKey !== queryKey ? filterMentionCandidates(candidates, activeQuery.query) : []),
-    [disabled, activeQuery, candidates, dismissedKey, queryKey],
+    () => (canShow && activeQuery ? filterMentionCandidates(candidates, activeQuery.query, activeRecency).reverse() : []),
+    [canShow, activeQuery, candidates, activeRecency],
   )
+  if (!matches.length) {
+    recencySessionRef.current = null
+  }
 
   const open = !disabled && matches.length > 0 && activeQuery !== null
-  const clampedIndex = matches.length ? Math.min(selectedIndex, matches.length - 1) : 0
+  const clampedIndex = matches.length === 0
+    ? 0
+    : selection.key === queryKey && selection.index >= 0 && selection.index < matches.length
+      ? selection.index
+      : matches.length - 1
 
   useLayoutEffect(() => {
     if (!open) return
@@ -305,18 +402,19 @@ export function useAgentMentions({
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       e.stopPropagation()
-      setSelectedIndex(i => (i + 1) % matches.length)
+      setSelection({ key: queryKey, index: (clampedIndex + 1) % matches.length })
       return true
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault()
       e.stopPropagation()
-      setSelectedIndex(i => (i - 1 + matches.length) % matches.length)
+      setSelection({ key: queryKey, index: (clampedIndex - 1 + matches.length) % matches.length })
       return true
     }
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
+      setSelection({ key: null, index: -1 })
       if (queryKey) setDismissedKey(queryKey)
       return true
     }
@@ -328,7 +426,7 @@ export function useAgentMentions({
     if (!open || !menuRef.current) return
     const active = menuRef.current.querySelector('.agent-mention-item.active') as HTMLElement | null
     active?.scrollIntoView?.({ block: 'nearest' })
-  }, [open, clampedIndex])
+  }, [open, clampedIndex, queryKey])
 
   const portalBody = inputRef.current?.ownerDocument?.body ?? (typeof document !== 'undefined' ? document.body : null)
   const menu = open && portalBody

@@ -1132,7 +1132,13 @@
 - Agent, project and hub contact mentions (4.4.0): typing `@` in Quick chat, the
   desk composer and `MailReplyBox` offers live agents and projects (`state ===
   'live'`), with projects wearing the `.project-mark` folder icon; `Tab`/`Enter`
-  completes `@<name> ` without sending. Inline `@<name>` tokens matching
+  completes `@<name> ` without sending. When the menu opens, loaded rows of the
+  open transcript are scanned once (skipping Markdown code spans/blocks and
+  `[ORG STATE]` envelopes) so entries mentioned in the transcript come first
+  (newest first) ahead of never-mentioned entries, and the menu draws in
+  reverse order (bottom-to-top) with the bottom entry highlighted by default
+  and on filter changes (`ArrowUp` moves to older mentions and then the rest).
+  Inline `@<name>` tokens matching
   `world.agents` link in Markdown (`refmd.tsx`) and plain text (`reflinks.tsx`)
   and carry project folder icons/context menus; `runtime/convo.rs` `tool_refs`
   emits project chips for project tool calls. `@net:<address>` and
@@ -1152,8 +1158,8 @@
   placed desk. Team and the other entries follow below. Offer only
   `Hire under this project` and `New project…` in
   the project context menu (hiring above/beside uses the card's hire tokens).
-  [decided: user 2026-10-17, 2026-10-18 07:10Z–07:28Z, 11:16Z (replaces differing desk labels/order); verified: `canvas/agentmentions.tsx`,
-  `canvas/agentmenu.tsx`, `canvas/contextmenu.tsx`, `canvas/projectdesk.tsx`,
+  [decided: user 2026-10-17, 2026-10-18 07:10Z–07:28Z, 11:16Z, 2026-10-20 10:47Z–10:48Z (replaces differing desk labels/order and top-down mentions menu order); verified: `canvas/agentmentions.tsx`,
+  `canvas/agentmenu.tsx`, `canvas/contextmenu.tsx`, `canvas/desk.tsx`, `canvas/projectdesk.tsx`,
   `canvas/reflinks.tsx`, `canvas/refmd.tsx`, `runtime/convo.rs`,
   `runtime/identity.rs`, `tests/agentmentions.test.tsx`, `tests/projectnode.test.tsx`]
 

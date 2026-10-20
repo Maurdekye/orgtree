@@ -400,20 +400,23 @@ test('@ suggestion list supports Up/Down highlight + scrollIntoView, Enter/Tab c
   await type(box,'Hi @worker-')
   let items=[...document.querySelectorAll<HTMLElement>('.agent-mention-item')]
   assert.equal(items.length,3)
-  assert.equal(items[0]!.getAttribute('aria-selected'),'true')
-
-  const downEv=new window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true})
-  await inAct(async()=>{box.dispatchEvent(downEv);await flush(3)})
-  assert.equal(downEv.defaultPrevented,true,'ArrowDown prevents default cursor movement')
-  items=[...document.querySelectorAll<HTMLElement>('.agent-mention-item')]
-  assert.equal(items[1]!.getAttribute('aria-selected'),'true','ArrowDown moves highlight to second item')
-  assert.ok(scrolled.includes(items[1]!), 'ArrowDown scrolls active suggestion into view')
+  assert.deepEqual(items.map(i=>i.querySelector('.agent-mention-name')?.textContent),
+    ['@worker-project','@worker-beta','@worker-alpha'],
+    'suggestion list draws in reverse order so the top priority match sits at the bottom')
+  assert.equal(items[2]!.getAttribute('aria-selected'),'true','bottom entry is highlighted by default when the menu opens')
 
   const upEv=new window.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true})
   await inAct(async()=>{box.dispatchEvent(upEv);await flush(3)})
   assert.equal(upEv.defaultPrevented,true,'ArrowUp prevents default cursor movement')
   items=[...document.querySelectorAll<HTMLElement>('.agent-mention-item')]
-  assert.equal(items[0]!.getAttribute('aria-selected'),'true','ArrowUp moves highlight back to first item')
+  assert.equal(items[1]!.getAttribute('aria-selected'),'true','ArrowUp moves highlight up from the bottom item')
+  assert.ok(scrolled.includes(items[1]!), 'ArrowUp scrolls active suggestion into view')
+
+  const downEv=new window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true})
+  await inAct(async()=>{box.dispatchEvent(downEv);await flush(3)})
+  assert.equal(downEv.defaultPrevented,true,'ArrowDown prevents default cursor movement')
+  items=[...document.querySelectorAll<HTMLElement>('.agent-mention-item')]
+  assert.equal(items[2]!.getAttribute('aria-selected'),'true','ArrowDown moves highlight back to bottom item')
 
   const escEv=new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})
   await inAct(async()=>{box.dispatchEvent(escEv);await flush(3)})
@@ -823,5 +826,107 @@ test('right-clicking an agent or project link inside an agent or project desk pu
   assert.equal(sentCalls.length,0,'project composer Mention does not send')
 })
 
+test('mentions menu sorts by most recently mentioned in the open transcript, draws bottom-up with bottom highlighted by default, resets highlight on filter, and computes recency once per open',async t=>{
+  localStorage.clear(); resetConvos()
+  const mkCNode=(id:string,tier='sol',kind?:string):CanvasNode=>({
+    id,title:id,generation:1,state:'live',tier,kind,children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]},
+  } as unknown as CanvasNode)
+  const alphaNode=mkCNode('worker-alpha','sol')
+  const betaNode=mkCNode('worker-beta','haiku')
+  const gammaNode=mkCNode('worker-gamma','astra')
+  const deltaNode=mkCNode('worker-delta','argon')
+  const projNode=mkCNode('worker-project','project','project')
 
+  const server=new FakeServer()
+  server.messages=[
+    {role:'assistant',text:'Earlier we talked to @worker-project and @worker-gamma (`@worker-delta` is in code).',seq:0,event_id:'m-0'},
+    {role:'user',text:'Got it, pinging @worker-project now.',seq:1,event_id:'m-1'},
+  ]
+  server.pending_mail=[
+    {id:'pm-1',event_id:'pm-ev-1',from:'worker-gamma',body:'Latest update after @worker-project from @worker-beta.',at:'2026-10-20T10:48:00Z'},
+  ]
+  const prevFetch=globalThis.fetch
+  installFetch(server)
+  t.after(()=>{globalThis.fetch=prevFetch;resetConvos()})
 
+  const nodeMap=new Map<string,CanvasNode>([
+    [alphaNode.id,alphaNode],
+    [betaNode.id,betaNode],
+    [gammaNode.id,gammaNode],
+    [deltaNode.id,deltaNode],
+    [projNode.id,projNode],
+  ])
+  const v=await mountView(
+    <AgentNavProvider>
+      <ObjectMenuBoundary>
+        <ProvideNav>
+          <DeskChat node={alphaNode} map={nodeMap} slug="org" op={async()=>({})} toast={()=>{}} bare onJump={()=>{}} />
+        </ProvideNav>
+      </ObjectMenuBoundary>
+    </AgentNavProvider>,
+    h=>h,
+  )
+  t.after(async()=>{await v.unmount()})
+  await inAct(async()=>{await refreshConvo('org','worker-alpha');await flush(6)})
+
+  const ta=v.el.querySelector<HTMLTextAreaElement>('fieldset.desk-control-scope textarea')!
+  assert.ok(ta,'desk composer textarea rendered')
+  const typeTa=async(val:string)=>inAct(async()=>{
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(ta,val)
+    ta.dispatchEvent(new window.Event('input',{bubbles:true}))
+    ta.setSelectionRange(val.length,val.length)
+    ta.dispatchEvent(new window.Event('select',{bubbles:true}))
+    await flush(4)
+  })
+  const menuNames=()=>[...document.querySelectorAll<HTMLElement>('.agent-mention-item .agent-mention-name')].map(el=>el.textContent)
+  const selectedIdx=()=>[...document.querySelectorAll<HTMLElement>('.agent-mention-item')].findIndex(el=>el.getAttribute('aria-selected')==='true')
+
+  // 1. Open @ menu: recency order (newest first) is worker-beta, worker-project, worker-gamma;
+  //    never-mentioned keep today's order after them: worker-alpha, worker-delta.
+  //    Drawn in reverse order (bottom-to-top) so @worker-beta sits at the bottom and is highlighted by default.
+  await typeTa('Hello @')
+  assert.deepEqual(menuNames(),['@worker-delta','@worker-alpha','@worker-gamma','@worker-project','@worker-beta'],
+    'menu draws bottom-up: most recently mentioned at the bottom, older mentions above, then never-mentioned in reverse at the top')
+  assert.equal(selectedIdx(),4,'bottom entry (@worker-beta) is highlighted by default on open')
+
+  // 2. ArrowUp walks backwards from bottom (most recent) through older mentions and then never-mentioned entries
+  const pressKey=async(key:string)=>inAct(async()=>{
+    ta.dispatchEvent(new window.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}))
+    await flush(3)
+  })
+  await pressKey('ArrowUp')
+  assert.equal(selectedIdx(),3,'first ArrowUp selects second-most-recent (@worker-project)')
+  await pressKey('ArrowUp')
+  assert.equal(selectedIdx(),2,'second ArrowUp selects older mention (@worker-gamma)')
+  await pressKey('ArrowUp')
+  assert.equal(selectedIdx(),1,'third ArrowUp selects first never-mentioned (@worker-alpha)')
+  await pressKey('ArrowUp')
+  assert.equal(selectedIdx(),0,'fourth ArrowUp selects second never-mentioned (@worker-delta)')
+
+  // 3. Typing a filter does NOT rescan the transcript on keystrokes while the menu stays open,
+  //    keeps recency order within matches, and resets highlight to the bottom match.
+  server.messages.push({role:'assistant',text:'New arrival mentioning @worker-delta while menu is already open',seq:2,event_id:'m-2'})
+  await inAct(async()=>{await refreshConvo('org','worker-alpha');await flush(4)})
+  await typeTa('Hello @worker-')
+  assert.deepEqual(menuNames(),['@worker-delta','@worker-alpha','@worker-gamma','@worker-project','@worker-beta'],
+    'typing filter while menu is open reuses open-time recency snapshot without rescanning transcript')
+  assert.equal(selectedIdx(),4,'typing filter resets highlight to the bottom match')
+
+  // Narrow filter to subset matching substring 'a' (gamma, alpha, delta, beta)
+  await pressKey('ArrowUp')
+  assert.equal(selectedIdx(),3)
+  await typeTa('Hello @a')
+  assert.deepEqual(menuNames(),['@worker-delta','@worker-alpha','@worker-gamma','@worker-beta'],
+    'filtered matches keep recency order bottom-up (worker-beta at bottom, then worker-gamma, then unmentioned worker-alpha, worker-delta)')
+  assert.equal(selectedIdx(),3,'highlight resets to the bottom match (@worker-beta) on filter change')
+
+  // 4. Tab/Enter picks the highlighted bottom entry; reopening on a new @ computes fresh recency including m-2 (@worker-delta)
+  await pressKey('Tab')
+  assert.equal(ta.value,'Hello @worker-beta ')
+  assert.equal(document.querySelector('.agent-mentions')===null,true,'menu closes on completion')
+
+  await typeTa('Hello @worker-beta and @')
+  assert.deepEqual(menuNames(),['@worker-alpha','@worker-gamma','@worker-delta','@worker-project','@worker-beta'],
+    'reopening the menu computes fresh recency from the loaded transcript rows (m-2 moved @worker-delta ahead of @worker-gamma, while pending_mail at the tail keeps @worker-beta/@worker-project newest)')
+  assert.equal(selectedIdx(),4,'bottom entry is highlighted on reopen')
+})
