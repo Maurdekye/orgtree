@@ -10,6 +10,10 @@
 
 use serde_json::Value;
 
+#[cfg(test)]
+#[path = "identity/compression_tests.rs"]
+mod compression_tests;
+
 /// Which CLI the agent runs: decides tool naming, the sandbox text and
 /// which standing-note files the CLI reads itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

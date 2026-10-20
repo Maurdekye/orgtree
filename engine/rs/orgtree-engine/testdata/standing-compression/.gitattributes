@@ -1,0 +1,2 @@
+# Exact generated prompt bytes, including LF separators, on every checkout.
+*.txt text eol=lf

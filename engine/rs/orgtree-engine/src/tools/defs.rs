@@ -1249,6 +1249,12 @@ mod startup_card_tests {
     use super::*;
 
     #[test]
+    fn credit_request_card_defines_total_grant_and_reason() {
+        assert_eq!(build_tool_request_credits()["description"],
+            "Ask the user for a larger TOTAL grant with a reason.\nGuide: orgtree-tool-request-credits.");
+    }
+
+    #[test]
     fn startup_card_measurements() {
         if let Some(file) = std::env::var_os("ORGTREE_TOOL_CARDS_FILE") {
             std::fs::write(file,serde_json::to_vec(&json!({
