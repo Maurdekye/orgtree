@@ -420,3 +420,9 @@ test('§6 who fired an event, when it is no agent of the tree: the label keeps i
   assert.equal(by.textContent, '@user')
   assert.equal(by.title, '@user')
 })
+
+test("§6 a fire mail no longer there: its tooltip leads with the words a narrow desk may shorten", async (t) => {
+  const { view } = await firedTab(t)
+  const gone = subRows(fireRow(view.el, 12))[1]!.querySelector<HTMLElement>('.fire-mail.unavailable')!
+  assert.ok(gone.title.startsWith(`${gone.textContent}: `), gone.title)
+})
