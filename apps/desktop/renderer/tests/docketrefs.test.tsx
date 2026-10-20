@@ -724,32 +724,6 @@ uiTest('§28 a @doc token opens the reader, on the id the token named',
     assert.deepEqual(served.docUrls.map((u) => u.split('/').pop()).filter((id) => id !== 'viewed'), ['d1'])
   })
 
-// ONE CLASS OF READER (docket several-instances-of-the-same-modal-team-slots-i,
-// USER 2026-10-20 19:03:28Z): with the shell's route the docket mounts no
-// reader of its own; the document goes to the reader it belongs to.
-uiTest("§28b with the shell's document route, a @doc token goes there and the docket opens no reader",
-  async (mount) => {
-    mockServer({
-      items: [mkItem({ slug: 'the-source-item',
-        objective: 'the contract is @doc:org1/d1' })],
-      archived: [], backlogged: [],
-      docs: { d1: { title: 'The contract', node: 'agent1',
-        body: 'body of the contract', at: '2026-09-05T09:00:00.000Z' } },
-    })
-    const opened: string[] = []
-    const el = await mount(<DocketModal slug="org1" toast={() => {}} close={() => {}} tree={mkTree()}
-      onOpenDoc={(id) => opened.push(id)} />)
-    await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
-    await flush()
-    const chip = el.querySelector('.docket-desc button.ref-chip.ref-doc')
-    assert.ok(chip, 'the document token is a live control')
-    await inAct(() => (chip as HTMLElement).click())
-    await flush()
-    assert.deepEqual(opened, ['d1'], 'the shell was asked for THAT document')
-    assert.equal(el.querySelector('.gallery-modal'), null, 'and the docket opened no reader of its own')
-  })
-
 uiTest('§29 CONTROL — a document this org does not have is reported BY THE '
   + 'READER, and the docket still never calls it absent', async (mount) => {
     const served = mockServer({

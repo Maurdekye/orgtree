@@ -135,6 +135,8 @@ test('§2 an agent\'s reader and its team\'s reader are two readers', async t =>
   const c = await canvas(t)
   await c.select('worker', 'Team presentations')
   assert.deepEqual(readers().map(r => r[0]), ['team:worker', 'worker'])
+  // one class of reader: the team reader steps past the agent reader's window
+  assert.deepEqual(pinOf('team-gallery:worker'), { ...R, x: R.x + 28, y: R.y + 28 })
   await c.select('worker', 'Team presentations'); await c.select('worker', 'Presentations')
   assert.deepEqual(readers().map(r => r[0]), ['team:worker', 'worker'], 'one of each, never two')
 })
