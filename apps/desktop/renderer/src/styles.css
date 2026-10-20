@@ -9869,3 +9869,4 @@ button.node-link.node-link:focus-visible {
 .job-ack.acked { flex-direction: row; flex-wrap: wrap; gap: 4px; font-size: 12px; }
 .job-ack-done { color: var(--accent); font-weight: 600; }
 .queuekind.job-kind { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.sq.draft.draft-pending { filter: grayscale(.65); opacity: .72; pointer-events: none; }

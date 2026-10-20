@@ -1047,6 +1047,7 @@ export function CreditBar({ seat = 0, grant, committed, segments = [], draftMode
 }
 
 export interface DraftNodeProps {
+  pending?: boolean
   pos: Pt
   draft: DraftState
   map: Map<string, CanvasNode>
@@ -1105,7 +1106,7 @@ export function presetLabels(presets: CharterPreset[]): Map<string, string> {
 
 export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   tree, zoom, pxc, onConfirm, onCancel, onGrant, onTierChange, hires = {},
-  form, onFormChange, attentionFill = false }: DraftNodeProps) {
+  form, onFormChange, attentionFill = false, pending = false }: DraftNodeProps) {
   const [localName, setLocalName] = useState('')
   const name = form?.name ?? localName
   const setName = (next: string | ((current: string) => string)) => {
@@ -1221,11 +1222,11 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
     {max_top_grant: maxTop, cascade_hire: tree?.cascade_hire},
     draft.above ? (map.get(draft.above.anchor)?.seat ?? 0) + (map.get(draft.above.anchor)?.grant ?? 0) : 0)
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) onCancel() }
+    const onKey = (e: KeyboardEvent) => { if (!pending && e.key === 'Escape' && !e.defaultPrevented) onCancel() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onCancel])
-  const ok = name.trim().length > 0
+  }, [onCancel, pending])
+  const ok = !pending && name.trim().length > 0
   const hire = () => { if (ok) onConfirm(normalizeUserEnteredName(name), grant, finalCharter(), scope) }
   // A draft already knows its tier, so it also knows its provider. Do not wait
   // for the hire to become a persisted TreeNode before applying provider
@@ -1233,7 +1234,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   // Claude terracotta and flips to teal only after creation.
   const providerClass = ' prov-' + providerOf(draft.tier)
   return (
-    <div className={'sq draft' + providerClass + (attentionFill ? ' draft-attention-fill' : '')} style={attentionFill ? {
+    <div aria-busy={pending} inert={pending} className={'sq draft' + providerClass + (pending ? ' draft-pending' : '') + (attentionFill ? ' draft-attention-fill' : '')} style={attentionFill ? {
       transform: 'none', width: '100%', height: '100%', boxSizing: 'border-box', padding: 0,
     } : {
       transform: `translate(${pos.x}px, ${pos.y}px)`, width: NODE_W, height: NODE_H,
@@ -1255,9 +1256,9 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
           <div className="df-head">
             <button ref={modelButton} type="button" className={'tier df-model t-' + draft.tier}
               aria-label={`Change model (${tierLabel(draft.tier)})`} aria-haspopup="dialog" aria-expanded={!!modelAnchor}
-              title={`${tierLabel(draft.tier)} — change the model to hire`} disabled={!onTierChange}
+              title={`${tierLabel(draft.tier)} — change the model to hire`} disabled={pending || !onTierChange}
               onClick={e => modelAnchor ? closeModelPicker() : setModelAnchor(e.currentTarget)}>{TIER_LETTER[draft.tier]}</button>
-            <input className="df-name" placeholder="name…" value={name}
+            <input className="df-name" placeholder="name…" value={name} disabled={pending}
               // focus WITHOUT scroll: autoFocus on an element inside the
               // world transform made the browser scroll the overflow:hidden
               // viewport when the draft spawned off-screen (from a desk)
@@ -1269,7 +1270,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
               }}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && ok) hire() }} />
-            <button className="df-gear"
+            <button className="df-gear" disabled={pending}
               title="permissions — folders, tools, MCP, visibility (applied with the hire)"
               onClick={() => setPermsOpen(true)}>
               <SettingsIcon fontSize="inherit" /></button>
@@ -1344,7 +1345,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
           )}
           <div className="df-foot">
             <span className="spacer" />
-            <button onClick={onCancel}><CloseIcon fontSize="inherit" /> cancel</button>
+            <button onClick={onCancel} disabled={pending}><CloseIcon fontSize="inherit" /> cancel</button>
             <button className="primary" disabled={!ok} onClick={hire}
               title={ok ? undefined : 'give the agent a name first'}>
               <CheckIcon fontSize="inherit" /> hire</button>
