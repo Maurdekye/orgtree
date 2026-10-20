@@ -1,6 +1,6 @@
 //! Bounded immutable HTML downloads and offline previews. No network fetches.
 use crate::refuse;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use base64::Engine as _;
 use regex::Regex;
 use std::collections::{BTreeMap, VecDeque};
@@ -77,7 +77,16 @@ fn entities(text: &str) -> String {
 }
 
 #[logged]
-fn resolve(base: &Path, raw: &str, root: &Path) -> Result<Option<PathBuf>> {
+fn asset_context(written: &str, resolved: &Path, referring: &Path) -> String {
+    format!(
+        "HTML asset reference {written:?}, resolved path {}, referenced by {}",
+        resolved.display(),
+        referring.display()
+    )
+}
+
+#[logged]
+fn resolve(base: &Path, raw: &str, root: &Path, written: &str) -> Result<Option<PathBuf>> {
     let raw = entities(raw);
     let raw = raw.trim();
     if raw.is_empty()
@@ -94,7 +103,9 @@ fn resolve(base: &Path, raw: &str, root: &Path) -> Result<Option<PathBuf>> {
     if decoded.starts_with(['/', '\\']) || decoded.contains('\0') || decoded.contains(':') {
         refuse!(Forbidden, "HTML asset names an unsafe path");
     }
-    let candidate = std::fs::canonicalize(base.parent().unwrap().join(decoded.replace('\\', "/")))?;
+    let resolved = base.parent().unwrap().join(decoded.replace('\\', "/"));
+    let candidate = std::fs::canonicalize(&resolved)
+        .with_context(|| asset_context(written, &resolved, base))?;
     let candidate = crate::config::strip_verbatim(&candidate);
     if !crate::domain::scope::path_within(&candidate.to_string_lossy(), &root.to_string_lossy()) {
         refuse!(Forbidden, "HTML asset escapes its source directory");
@@ -107,14 +118,25 @@ fn resolve(base: &Path, raw: &str, root: &Path) -> Result<Option<PathBuf>> {
     Ok(Some(candidate))
 }
 
+#[derive(Debug)]
+struct AssetRef {
+    value: String,
+    // Preserve source spelling independently of the parser's entity decoding.
+    written: String,
+}
+
 #[logged]
-fn css_refs(text: &str) -> Vec<String> {
+fn css_refs(text: &str) -> Vec<AssetRef> {
     let re = Regex::new(
         r#"(?is)url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)|@import\s+(?:"([^"]*)"|'([^']*)')"#,
     )
     .unwrap();
     re.captures_iter(text)
         .filter_map(|c| (1..=5).find_map(|i| c.get(i).map(|m| m.as_str().trim().to_string())))
+        .map(|value| AssetRef {
+            written: value.clone(),
+            value,
+        })
         .collect()
 }
 
@@ -193,7 +215,7 @@ fn resource_attr(tag: &Tag, key: &str) -> bool {
 }
 
 #[logged]
-fn refs(path: &Path, data: &[u8]) -> Vec<String> {
+fn refs(path: &Path, data: &[u8]) -> Vec<AssetRef> {
     let text = String::from_utf8_lossy(data);
     if path
         .extension()
@@ -204,15 +226,26 @@ fn refs(path: &Path, data: &[u8]) -> Vec<String> {
     }
     let mut out = Vec::new();
     for tag in tags(&text) {
-        for (key, val, _, _) in &tag.attrs {
+        for (key, val, start, end) in &tag.attrs {
             if resource_attr(&tag, key) {
                 if key == "srcset" {
-                    out.extend(
-                        val.split(',')
-                            .filter_map(|v| v.split_whitespace().next().map(str::to_string)),
-                    );
+                    out.extend(val.split(',').enumerate().filter_map(|(index, v)| {
+                        let value = v.split_whitespace().next()?;
+                        let written = text[*start..*end]
+                            .split(',')
+                            .nth(index)
+                            .and_then(|v| v.split_whitespace().next())
+                            .unwrap_or(value);
+                        Some(AssetRef {
+                            value: value.to_string(),
+                            written: written.to_string(),
+                        })
+                    }));
                 } else {
-                    out.push(val.clone());
+                    out.push(AssetRef {
+                        value: val.clone(),
+                        written: text[*start..*end].to_string(),
+                    });
                 }
             }
         }
@@ -294,7 +327,7 @@ fn rewrite_css(
     let mut edits = Vec::new();
     for c in re.captures_iter(text) {
         if let Some(m) = (1..=5).find_map(|i| c.get(i)) {
-            if let Some(p) = resolve(path, m.as_str(), root)? {
+            if let Some(p) = resolve(path, m.as_str(), root, m.as_str())? {
                 edits.push((m.start(), m.end(), uri(&p, files, root, stack)?));
             }
         }
@@ -322,15 +355,30 @@ pub fn capture(source: &Path) -> Result<Bundle> {
     files.insert(source.clone(), body.clone());
     let mut pending = VecDeque::from([source.clone()]);
     while let Some(current) = pending.pop_front() {
-        for raw in refs(&current, &files[&current]) {
-            if let Some(p) = resolve(&current, &raw, root)? {
+        for reference in refs(&current, &files[&current]) {
+            if let Some(p) = resolve(&current, &reference.value, root, &reference.written)? {
                 if files.contains_key(&p) {
                     continue;
                 }
                 if files.len() >= FILES {
                     refuse!(BadRequest, "HTML bundle has too many assets");
                 }
-                let data = read_bounded(&p, MAX - total)?;
+                let data = read_bounded(&p, MAX - total).map_err(|error| {
+                    let context = asset_context(&reference.written, &p, &current);
+                    if matches!(
+                        error.downcast_ref(),
+                        Some(crate::domain::UserError::NotFound(_))
+                    ) {
+                        // Tool dispatch displays UserError directly, discarding
+                        // outer anyhow context. Retain the existing refusal kind.
+                        crate::domain::user_err(
+                            crate::domain::UserError::NotFound,
+                            format!("{context}: {error}"),
+                        )
+                    } else {
+                        error.context(context)
+                    }
+                })?;
                 total += data.len();
                 if p.extension()
                     .map(|x| x.eq_ignore_ascii_case("css"))
@@ -349,10 +397,15 @@ pub fn capture(source: &Path) -> Result<Bundle> {
             if resource_attr(&tag, key) {
                 let value = if key == "srcset" {
                     let mut parts = Vec::new();
-                    for chunk in val.split(',') {
+                    for (index, chunk) in val.split(',').enumerate() {
                         let mut bits = chunk.split_whitespace();
                         if let Some(raw) = bits.next() {
-                            let replacement = match resolve(&source, raw, root)? {
+                            let written = body[*start..*end]
+                                .split(',')
+                                .nth(index)
+                                .and_then(|v| v.split_whitespace().next())
+                                .unwrap_or(raw);
+                            let replacement = match resolve(&source, raw, root, written)? {
                                 Some(p) => uri(&p, &files, root, &mut Vec::new())?,
                                 None => raw.to_string(),
                             };
@@ -365,7 +418,7 @@ pub fn capture(source: &Path) -> Result<Bundle> {
                     }
                     parts.join(", ")
                 } else {
-                    match resolve(&source, val, root)? {
+                    match resolve(&source, val, root, &body[*start..*end])? {
                         Some(p) => uri(&p, &files, root, &mut Vec::new())?,
                         None => continue,
                     }
