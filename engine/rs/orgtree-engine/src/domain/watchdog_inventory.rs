@@ -6,6 +6,24 @@ use crate::engine::Engine;
 
 pub const PREVIEW: i64 = 8;
 pub const PAGE_MAX: i64 = 100;
+
+/// The first free slug (base, base-2, base-3, ...), without transferring
+/// every kept identity into Rust. The insert's unique constraint still
+/// resolves concurrent creates, which retry this read as before.
+#[logged]
+pub async fn available_id(client:&Client,owner:i64,base:&str)->Result<String>{
+    let row=client.query_one("WITH taken AS MATERIALIZED (
+        SELECT uid FROM ot.watchdogs WHERE owner_agent_id=$1 AND state IN ('armed','paused','exited')
+          AND (uid=$2 OR uid LIKE $2||'-%')),
+      candidates AS (
+        SELECT $2::text AS id,1::numeric AS n UNION ALL SELECT $2||'-2',2::numeric
+        UNION ALL SELECT $2||'-'||(substring(uid from char_length($2)+2)::numeric+1)::text,
+          substring(uid from char_length($2)+2)::numeric+1 FROM taken
+          WHERE uid ~ ('^'||$2||'-[0-9]+$') AND char_length(uid)<char_length($2)+20)
+      SELECT c.id FROM candidates c WHERE NOT EXISTS (SELECT 1 FROM taken t WHERE t.uid=c.id)
+      ORDER BY c.n LIMIT 1",&[&owner,&base]).await?;
+    Ok(row.get(0))
+}
 // Only current identity holders and their short-lived departing tombstones.
 const CURRENT: &str = "(w.state IN ('armed','paused','exited') OR
     (w.state='spent' AND w.spent_at > now()-interval '15 seconds'
