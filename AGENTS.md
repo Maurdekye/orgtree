@@ -10,6 +10,13 @@
   results never imply the kind of the whole pile or trigger extra history reads.
   [verified: `canvas/modals.tsx`, `tests/retiredpages.test.tsx`; 2026-10-20]
 
+- Presentations reveal the opening unread selection once inside their list,
+  including a distant target page. Capture unread before the reading pane
+  marks it read; defer hidden lists until measurable, using their owner window.
+  Polls and later user selection/scrolling never re-arm the opening request.
+  [decided: user 2026-10-20 18:53Z; verified: `canvas/gallery.tsx`,
+  `tests/presentationscroll.test.tsx`]
+
 - Project desk reopening uses the agent desk's camera/pin/window reveal routes.
   Its inline canvas desk needs stationary-release arbitration because viewport
   pointer capture retargets the click; drags/cancels/controls/selections stay

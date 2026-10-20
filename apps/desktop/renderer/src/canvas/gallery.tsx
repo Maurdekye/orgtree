@@ -22,7 +22,7 @@ import { DocumentDownload } from './download'
 // The BODY half is shared for real: `useDoc` + `dismissDoc` from docs.tsx
 // are the same fetch and the same dismiss the overlay reader uses.
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { DocRow } from '../api'
 import { fileBase, mockupUrl } from '../api'
@@ -159,13 +159,20 @@ export { DOC_PAGE } from './docwindow'
 import { useDocWindow } from './docwindow'
 import type { DocWindow } from './docwindow'
 const DOC_EDGE = 240
+type OpeningReveal = { id: string; done: boolean }
+
+function unreadReveal(slug: string, rows: DocRow[] | null, id: string | null): OpeningReveal | null {
+  const row = rows?.find(r => r.id === id)
+  return row && docUnread(slug, row.id, row.at, row.viewed_at) ? {id:row.id,done:false} : null
+}
 
 /** The list column both galleries render: the scroller that asks for the next
  *  older page as the reader nears the bottom, and the end marker that says
  *  what the list is doing. Rows are the caller's — the two galleries filter
  *  and decorate their own. */
-function LazyDocList({ w, label, children }: {
+function LazyDocList({ w, label, children, reveal }: {
   w: DocWindow
+  reveal?: OpeningReveal | null
   /** what this scroller IS, announced when it takes focus. It is a tab stop
    *  (see below) and a tab stop with nothing to say is a dead end for anyone
    *  not looking at the screen. */
@@ -173,6 +180,33 @@ function LazyDocList({ w, label, children }: {
   children: ReactNode
 }) {
   const ref = useRef<HTMLDivElement | null>(null)
+  // Opening selection is independent of the newest end we always load. Keep
+  // the request outside this list so a remount/poll cannot re-arm it. Capture
+  // unread at selection time: the reading pane immediately marks it read.
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || !reveal || reveal.done) return
+    const row = [...el.querySelectorAll<HTMLElement>('.doc-gallery-row.on')]
+      .find(r => r.dataset.docId === reveal.id)
+    if (!row) return
+    const show = () => {
+      if (reveal.done || el.clientHeight <= 0) return
+      const box = row.getBoundingClientRect()
+      if (box.height <= 0) return // hidden/collapsed surfaces wait for layout
+      const top = el.getBoundingClientRect().top + el.clientTop
+      if (box.top < top) el.scrollTop += box.top - top
+      else if (box.bottom > top + el.clientHeight) el.scrollTop += box.bottom - top - el.clientHeight
+      reveal.done = true
+    }
+    show()
+    if (reveal.done) return
+    const Observer = (el.ownerDocument.defaultView as (Window & typeof globalThis) | null)?.ResizeObserver
+      ?? globalThis.ResizeObserver
+    if (!Observer) return
+    const observer = new Observer(show)
+    observer.observe(el); observer.observe(row)
+    return () => observer.disconnect()
+  })
   /** ⚠ AN UNMEASURED SCROLLER REPORTS THREE ZEROES, which subtract to "at the
    *  bottom" — and would page the entire history in without a gesture, in
    *  jsdom and in any panel rendered before layout. No measurable box, no
@@ -327,10 +361,12 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   // selection is BY ID, not index — the list repolls, and the filter above
   // narrows it, so an index would silently address a different document
   const [selId, setSelId] = useState<string | null>(null)
+  const openingReveal = useRef<OpeningReveal | null>(null)
   const opening = useRef({ slug, pending: true })
   useEffect(() => {
     if (opening.current.slug !== slug) {
       opening.current = { slug, pending: true }
+      openingReveal.current = null
       setSelId(null)
       return // useDocWindow clears the previous organization's rows too
     }
@@ -340,7 +376,9 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
     if (jumpTo) { opening.current.pending = false; return }
     if (w.rows == null) return
     opening.current.pending = false
-    setSelId(w.openingId !== undefined ? w.openingId : openingPresentation(slug, rows ?? []))
+    const id = w.openingId !== undefined ? w.openingId : openingPresentation(slug, rows ?? [])
+    openingReveal.current = unreadReveal(slug, w.rows, id)
+    setSelId(id)
   }, [slug, rows, jumpTo, w.rows, w.openingId])
   // A JUMP IS ANSWERED BY THE RESPONSE THAT CARRIED IT, which is why the latch
   // compares the request's own `seq` (shared.ts JumpReq) and not the id: a
@@ -448,7 +486,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                 <CollapsibleMailer collapsible threshold={NARROW_DOCS_WIDTH} listLabel="document list"
                   tabIndex={-1} rootRef={steps.rootRef} onKeyDown={steps.onKeyDown}
                   list={
-                  <LazyDocList w={w} label="Presented documents">
+                  <LazyDocList w={w} label="Presented documents" reveal={openingReveal.current}>
                     {menu.node}
                     {rows!.map((r) => (
                       <Fragment key={r.id}><DocRangeGap w={w} id={rowGaps.get(r.id)} /><GalleryEntry slug={slug} row={r}
@@ -511,7 +549,7 @@ function GalleryEntry({ slug, row, children, ...props }: {
   useDocViewedVersion()
   const unread = row.evicted ? null : docUnread(slug, row.id, row.at, row.viewed_at)
   return <div {...props} className={props.className + (unread ? ' unread' : '')}
-    data-doc-unread={unread ?? undefined}>{children}</div>
+    data-doc-id={row.id} data-doc-unread={unread ?? undefined}>{children}</div>
 }
 
 /** the right-hand viewer: the same fetch and the same dismiss the overlay
@@ -735,6 +773,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   const rowGaps = visibleGaps(w, rows)
 
   const [selId, setSelId] = useState<string | null>(initialDocument ?? null)
+  const openingReveal = useRef<OpeningReveal | null>(null)
   useEffect(() => {setSelId(initialDocument ?? null); setDismissed([])}, [slug, nid, initialDocument])
   // Opening selects the oldest unread/changed card, otherwise the newest.
   // A document the surface was opened to keeps selection, and a
@@ -742,10 +781,15 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   const opening = useRef({ key: '', pending: true })
   useEffect(() => {
     const key = JSON.stringify([slug, nid, initialDocument ?? null])
-    if (opening.current.key !== key) opening.current = { key, pending: !initialDocument }
+    if (opening.current.key !== key) {
+      opening.current = { key, pending: !initialDocument }
+      openingReveal.current = null
+    }
     if (!opening.current.pending || w.rows == null) return
     opening.current.pending = false
-    setSelId(w.openingId !== undefined ? w.openingId : openingPresentation(slug, rows))
+    const id = w.openingId !== undefined ? w.openingId : openingPresentation(slug, rows)
+    openingReveal.current = unreadReveal(slug, w.rows, id)
+    setSelId(id)
   }, [slug, nid, initialDocument, rows, w.rows, w.openingId])
   const chooseDocument: typeof setSelId = choice => {
     opening.current.pending = false
@@ -811,7 +855,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
         <CollapsibleMailer collapsible={collapsible} threshold={NARROW_DOCS_WIDTH} listLabel="document list"
           tabIndex={-1} rootRef={steps.rootRef} onKeyDown={steps.onKeyDown}
           list={
-          <LazyDocList w={w} label={`Presented documents from ${nid}`}>
+          <LazyDocList w={w} label={`Presented documents from ${nid}`} reveal={openingReveal.current}>
             {menu.node}
             {rows.map((r) => (
               <Fragment key={r.id}><DocRangeGap w={w} id={rowGaps.get(r.id)} /><GalleryEntry slug={slug} row={r}
