@@ -222,6 +222,36 @@ pub fn deep_merge(target: &mut Value, patch: &Value) {
 }
 
 #[cfg(test)]
+mod cheap_default_tests {
+    use super::*;
+    use crate::feed::groups::effective_settings;
+
+    #[test]
+    fn cheap_default_fresh_install_and_new_org_are_on() {
+        let app = AppSettings::new(json!({}));
+        let fresh = effective_settings(&Value::Null, &app.defaults());
+        assert_eq!(fresh["auto_cheap_compact"], json!({"enabled":true,"occ":0.25}));
+        assert_eq!(crate::domain::tree::cheap_compact(&json!({}), &fresh), (true, Some(0.25)));
+    }
+
+    #[test]
+    fn cheap_default_explicit_app_org_and_agent_choices_win() {
+        let app = AppSettings::new(json!({"defaults":{"auto_cheap_compact":{"enabled":false,"occ":0.4}}}));
+        let org = effective_settings(&json!({}), &app.defaults());
+        assert_eq!(crate::domain::tree::cheap_compact(&json!({}), &org), (false, None));
+        let template = effective_settings(&json!({"auto_cheap_compact":{"enabled":true,"occ":0.6}}), &app.defaults());
+        assert_eq!(crate::domain::tree::cheap_compact(&json!({}), &template), (true, Some(0.6)));
+        assert_eq!(crate::domain::tree::cheap_compact(&json!({"auto_cheap_compact":{"enabled":false}}), &template), (false, None));
+    }
+
+    #[test]
+    fn cheap_default_partial_write_and_raw_fallback_agree() {
+        assert_eq!(cheap_compact(&json!({"occ":0.4}), &Value::Null, true).unwrap(), Some(json!({"enabled":true,"occ":0.4})));
+        assert_eq!(crate::domain::tree::cheap_compact(&json!({}), &json!({})), (true, Some(0.25)));
+    }
+}
+
+#[cfg(test)]
 mod feedback_tests {
     use super::*;
 
