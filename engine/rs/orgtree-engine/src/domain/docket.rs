@@ -945,6 +945,16 @@ fn text_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args[key].as_str().map(str::trim).filter(|s| !s.is_empty())
 }
 
+#[nolog]
+fn docket_mention_blurb(parts: &[Option<&str>]) -> Option<String> {
+    for part in parts.iter().flatten() {
+        if let Some(blurb) = crate::runtime::convo::user_mention_blurb(part) {
+            return Some(blurb);
+        }
+    }
+    None
+}
+
 fn bounded(field: &str, v: &str, max: usize) -> Result<String> {
     let n = v.chars().count();
     if n > max {
@@ -1239,19 +1249,35 @@ pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         n += 1;
     }
     let now = Utc::now();
+    let mut init_extra = json!({});
+    if let Who::Agent { name, generation, .. } = who {
+        let done_joined = done.as_ref().map(|d| d.join("\n"));
+        let next_joined = next.as_ref().map(|n| n.join("\n"));
+        if let Some(blurb) = docket_mention_blurb(&[
+            Some(&title),
+            Some(&objective),
+            blocked_reason.as_deref(),
+            done_joined.as_deref(),
+            next_joined.as_deref(),
+        ]) {
+            init_extra["user_mention"] = json!({
+                "rev": 1, "agent": name, "generation": generation, "blurb": blurb, "at": iso(now)
+            });
+        }
+    }
     let row = tx
         .query_one(
             &format!(
                 "INSERT INTO ot.work_items (org_id, slug, rev, kind, title, objective, status, blocked_reason, owner, owner_agent_id,
                                             created_by, last_updater, participants, parent, dependencies, done_so_far, working_on_next,
-                                            created_at, updated_at, docket_at, status_at)
-                 VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17, $17, $17)
+                                            created_at, updated_at, docket_at, status_at, extra)
+                 VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17, $17, $17, $18)
                  RETURNING {COLS}"
             ),
             &[
                 &org.id, &slug, &kind, &title, &objective, &status, &blocked_reason, &owner, &owner_id, &who.actor(),
                 &(if matches!(who, Who::User) { None } else { Some(who.actor()) }), &participants, &parent, &deps,
-                &json!(done.clone().unwrap_or_default()), &json!(next.clone().unwrap_or_default()), &now,
+                &json!(done.clone().unwrap_or_default()), &json!(next.clone().unwrap_or_default()), &now, &init_extra,
             ],
         )
         .await?;
@@ -1647,6 +1673,30 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
     if !matches!(who, Who::User) {
         it.last_updater = Some(who.actor());
     }
+    if let Who::Agent { name, generation, .. } = who {
+        let mut written_progress = Vec::new();
+        for key in ["done_so_far", "done_append", "working_on_next", "next_append"] {
+            if let Ok(Some(list)) = entries(key, &args[key]) {
+                written_progress.extend(list);
+            }
+        }
+        let progress_joined = (!written_progress.is_empty()).then(|| written_progress.join("\n"));
+        if let Some(blurb) = docket_mention_blurb(&[
+            text_arg(args, "title"),
+            args["objective"].as_str(),
+            text_arg(args, "objective_append"),
+            blocked_reason.as_deref(),
+            dropped_reason.as_deref(),
+            reason.as_deref(),
+            progress_joined.as_deref(),
+        ]) {
+            if it.extra["user_mention"]["blurb"].as_str() != Some(blurb.as_str()) {
+                it.extra["user_mention"] = json!({
+                    "rev": it.rev, "agent": name, "generation": generation, "blurb": blurb, "at": iso(now)
+                });
+            }
+        }
+    }
     save(tx, &it).await?;
     if attention==Some(true) {post.events.push(crate::runtime::watchdogs::events::event("docket.attention",crate::runtime::watchdogs::events::Scope::Docket(org.id,it.slug.clone()),json!({"slug":it.slug})));}
     if let Some(detail) = amendment {
@@ -1964,6 +2014,16 @@ pub async fn evidence(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slu
     it.evidence = json!(ev);
     it.rev += 1;
     it.updated_at = Utc::now();
+    if let Who::Agent { name, generation, .. } = who {
+        let notes: Vec<Option<&str>> = adds.iter().map(|a| a["note"].as_str()).collect();
+        if let Some(blurb) = docket_mention_blurb(&notes) {
+            if it.extra["user_mention"]["blurb"].as_str() != Some(blurb.as_str()) {
+                it.extra["user_mention"] = json!({
+                    "rev": it.rev, "agent": name, "generation": generation, "blurb": blurb, "at": now
+                });
+            }
+        }
+    }
     save(&*tx, &it).await?;
     history(&*tx, &it, who, "evidence", json!({ "count": adds.len() })).await?;
     tx.commit().await?;

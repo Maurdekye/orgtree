@@ -69,4 +69,9 @@ mod tests {
         assert!(covers_mention(&mail,&json!({"blurb":"A complete reply for @user. More detail."})));
         assert!(!covers_mention(&mail,&json!({"blurb":"A different request for @user."})));
     }
+    #[test] fn code_spans_and_fenced_blocks_do_not_qualify_mail_mentions(){
+        assert!(!qualifies(&json!({"body":"Do not alert on `@user` in code."})));
+        assert!(!qualifies(&json!({"body":"```\n@user\n```"})));
+        assert!(qualifies(&json!({"body":"Ignore `@user` in code, but alert @user here."})));
+    }
 }

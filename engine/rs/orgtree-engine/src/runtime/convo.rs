@@ -280,30 +280,159 @@ impl ConvoWriter {
     }
 }
 
+/// Strip Markdown fenced/indented/HTML code blocks and inline backtick code spans
+/// so `@user` inside code never triggers a mention marker or notification.
+#[nolog]
+pub fn strip_markdown_code(src: &str) -> String {
+    if src.is_empty() {
+        return String::new();
+    }
+    // 1. Line-based pass: fenced code blocks (``` or ~~~) and 4-space/tab indented blocks after a blank line.
+    let mut lines_out = String::with_capacity(src.len());
+    let mut in_fence: Option<(char, usize)> = None;
+    let mut prev_blank = true;
+    let mut in_indented_code = false;
+    for raw_line in src.split('\n') {
+        let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+        let trimmed_start = line.trim_start_matches(' ');
+        let leading_spaces = line.len() - trimmed_start.len();
+        if let Some((fch, flen)) = in_fence {
+            if leading_spaces <= 3 {
+                let run = trimmed_start.chars().take_while(|&c| c == fch).count();
+                if run >= flen && trimmed_start[run..].trim().is_empty() {
+                    in_fence = None;
+                }
+            }
+            lines_out.push('\n');
+            continue;
+        }
+        if leading_spaces <= 3 {
+            let first = trimmed_start.chars().next();
+            if matches!(first, Some('`') | Some('~')) {
+                let fch = first.unwrap();
+                let run = trimmed_start.chars().take_while(|&c| c == fch).count();
+                if run >= 3 && (fch != '`' || !trimmed_start[run..].contains('`')) {
+                    in_fence = Some((fch, run));
+                    prev_blank = false;
+                    in_indented_code = false;
+                    lines_out.push('\n');
+                    continue;
+                }
+            }
+        }
+        let is_blank = line.trim().is_empty();
+        let is_indented = line.starts_with("    ") || line.starts_with('\t');
+        if is_indented && (prev_blank || in_indented_code) {
+            in_indented_code = true;
+            lines_out.push('\n');
+            continue;
+        }
+        if is_blank {
+            prev_blank = true;
+        } else {
+            prev_blank = false;
+            in_indented_code = false;
+        }
+        lines_out.push_str(line);
+        lines_out.push('\n');
+    }
+    // 2. Strip <pre>...</pre> and <code>...</code> blocks (case-insensitive).
+    let mut html_stripped = lines_out;
+    for tag in ["pre", "code"] {
+        let open_pat = format!("<{tag}");
+        let close_pat = format!("</{tag}>");
+        loop {
+            let lower = html_stripped.to_ascii_lowercase();
+            let Some(start) = lower.find(&open_pat) else { break };
+            let after_open = start + open_pat.len();
+            let valid_tag = lower[after_open..].chars().next().is_some_and(|c| c == '>' || c.is_ascii_whitespace());
+            if !valid_tag {
+                html_stripped.replace_range(start..after_open, " ");
+                continue;
+            }
+            if let Some(rel_end) = lower[after_open..].find(&close_pat) {
+                let end = after_open + rel_end + close_pat.len();
+                html_stripped.replace_range(start..end, " ");
+            } else {
+                break;
+            }
+        }
+    }
+    // 3. Strip inline backtick code spans of any backtick run length.
+    let bytes = html_stripped.as_bytes();
+    let mut out = String::with_capacity(html_stripped.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'`' {
+            let mut run = 1;
+            while i + run < bytes.len() && bytes[i + run] == b'`' {
+                run += 1;
+            }
+            let mut j = i + run;
+            let mut closed = None;
+            while j < bytes.len() {
+                if bytes[j] == b'`' {
+                    let mut k = 1;
+                    while j + k < bytes.len() && bytes[j + k] == b'`' {
+                        k += 1;
+                    }
+                    if k == run {
+                        closed = Some(j + k);
+                        break;
+                    }
+                    j += k;
+                } else {
+                    j += 1;
+                }
+            }
+            if let Some(next_i) = closed {
+                out.push(' ');
+                i = next_i;
+                continue;
+            }
+            for _ in 0..run {
+                out.push('`');
+            }
+            i += run;
+            continue;
+        }
+        let ch = html_stripped[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
 /// Extract a centered cut-out blurb around the first standalone `@user` token.
 #[nolog]
 pub fn user_mention_blurb(text: &str) -> Option<String> {
-    let clean: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let stripped = strip_markdown_code(text);
+    let clean: String = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
     if clean.is_empty() {
         return None;
     }
     let token = "@user";
+    let lower = clean.to_ascii_lowercase();
     let mut search_from = 0;
     let mut found_idx = None;
-    while let Some(rel) = clean[search_from..].find(token) {
+    while let Some(rel) = lower[search_from..].find(token) {
         let idx = search_from + rel;
         let prev_ok = if idx == 0 {
             true
         } else {
             let prev = clean[..idx].chars().next_back().unwrap_or(' ');
-            !prev.is_ascii_alphanumeric() && !matches!(prev, '_' | '@' | '.' | '/' | ':' | '-')
+            !prev.is_ascii_alphanumeric() && !matches!(prev, '_' | '@' | '.' | '/' | ':' | '-' | '%' | '+')
         };
         let after_idx = idx + token.len();
         let next_ok = if after_idx >= clean.len() {
             true
         } else {
-            let next = clean[after_idx..].chars().next().unwrap_or(' ');
-            !next.is_ascii_alphanumeric() && !matches!(next, '_' | '-')
+            let mut after_iter = clean[after_idx..].chars();
+            let next = after_iter.next().unwrap_or(' ');
+            let next2 = after_iter.next().unwrap_or(' ');
+            !next.is_ascii_alphanumeric()
+                && !matches!(next, '_' | '-' | '@' | '/')
+                && !(next == '.' && next2.is_ascii_alphanumeric())
         };
         if prev_ok && next_ok {
             found_idx = Some(idx);
@@ -375,6 +504,21 @@ mod user_mention_tests {
         w.remember(2, json!({"role": "assistant", "text": "Hello @user, build is green."}));
         let updated = w.pending_user_mention(Some(&first)).unwrap();
         assert_eq!(updated, (2, "Hello @user, build is green.".to_string()));
+    }
+
+    #[test]
+    fn ignores_code_spans_and_code_blocks_and_matches_exact_boundaries() {
+        assert_eq!(user_mention_blurb("Use `@user` in a code span."), None);
+        assert_eq!(user_mention_blurb("Use `` @user `` in double backticks."), None);
+        assert_eq!(user_mention_blurb("```ts\nconst x = '@user'\n```"), None);
+        assert_eq!(user_mention_blurb("~~~\n@user\n~~~"), None);
+        assert_eq!(user_mention_blurb("Paragraph\n\n    @user in indented block\n"), None);
+        assert_eq!(user_mention_blurb("<code>@user</code> and <pre>@user</pre>"), None);
+        assert_eq!(user_mention_blurb("%@user +@user @user@org @user/path @user.txt"), None);
+        assert_eq!(
+            user_mention_blurb("Skip `@user` in code, then ping @USER."),
+            Some("Skip in code, then ping @user.".to_string())
+        );
     }
 }
 
