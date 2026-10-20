@@ -282,6 +282,13 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Context recovery (user/coordinator 2026-10-20, 4.4.0): native Claude/Codex
+conversation overflow gets one cheap fresh-session retry with the same request
+and single original mail receipts. Restore the 3.x after-turn size threshold
+split and add an admission backstop, with diagnostic stand-down reasons and no
+duplicate cut. Input-length refusals and language model server recovery retain
+their existing policies. See [context recovery](context-full-recovery.md).
+
 Node placement (user 2026-10-20 07:20Z/07:23Z): descendant promotion accepts
 projects, project restore honours explicit placement, and direct runtime
 controls clearly refuse containers. Seat swap remains agent-only. See

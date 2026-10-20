@@ -2456,6 +2456,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- Native Claude/Codex context overflow gets one durable cheap-reset retry;
+  delivered original mail is recalled, never re-acknowledged. Size compaction
+  checks the latest threshold after completed idle turns and before admission;
+  resets clear session/measurement and native compaction invalidates old peaks.
+  Keep retry wake/session/turn/counter settlement atomic. See
+  [context recovery](docs/rust-engine/context-full-recovery.md).
+  [decided: user/coordinator 2026-10-20; verified: `runtime/context_reset.rs`,
+  `runtime/actor.rs`, `tools/rig/proofs/context-full-recovery.mjs`]
 - New-org presets with no offered slot (including fallbacks) are dimmed and
   collapsed after the first sign-in check, but remain selectable. Selection
   opens model choices and warns; edits follow the current plan, partial layouts

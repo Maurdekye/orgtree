@@ -19,6 +19,24 @@ The agent menu Compact… and the desk context wheel open the same Normal compac
 
 ## Automatic fresh starts
 
+After a completed turn, measured context at or above the org's `compact_at`
+threshold can trigger a cheap fresh-session handoff. Reported working status
+or a native CLI compaction during that turn suppresses this after-turn reset.
+Before the next turn, the threshold is checked again as a backstop, independently
+of cache temperature and reported status. Unknown/estimated context or an
+already-cleared session cannot trigger a second reset. Engine diagnostics name
+each skipped size-compaction gate.
+
+If Claude or Codex fails because the conversation window is full, Orgtree
+creates one durable recovery wake and retries in a fresh session. Previously
+delivered messages are recalled with their original IDs; their inbox rows and
+delivery receipts are not duplicated. Unconsumed messages remain ordinary
+waiting mail. Input-length refusals are not automatically retried; a second
+context-full failure is terminal. A completed turn resets this failure count.
+Read the recovery wake and original mail before acting; a reset does not prove
+that a command in the failed attempt completed. Language model server seats
+retain their separate fresh-session recovery policy.
+
 The optional known-cold policy can choose a cheap compact before a normal turn. It requires an existing eligible session, measured nonzero context at or above the configured occupancy, and a forecast that calls for compaction. Estimated/unknown context, an already reset context or an unknown cache forecast does not justify a reset just because enough time passed.
 
 The policy merges an agent override key by key over effective org policy. Its user-facing controls and numerical defaults belong to `orgtree-org-policies-compaction` (orgtree-app › org-settings) and `orgtree-agent-fresh-start` (orgtree-app › agent-settings).
