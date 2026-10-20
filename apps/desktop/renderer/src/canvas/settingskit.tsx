@@ -112,7 +112,8 @@ const FOCUSABLE = 'input:not([disabled]), select:not([disabled]), textarea:not([
 
 /** Lands `target` once `ready` (its tab is shown and its body mounted). The
  *  row may appear a frame or two after the tab does (a lazily mounted body),
- *  so it is looked for a little while. The mark is a class added to the row
+ *  so it is looked for a little while (about four seconds: a row that waits for
+ *  a fetch, like App settings' turn limit, is there once the answer is). The mark is a class added to the row
  *  outside React, which leaves a row's own className alone (no row sets one). */
 export function useSettingsTarget(strip: RefObject<HTMLElement | null>,
   target: SettingsTarget | null | undefined, ready: boolean): void {
@@ -127,7 +128,7 @@ export function useSettingsTarget(strip: RefObject<HTMLElement | null>,
       const scope = strip.current?.parentElement
       const row = [...scope?.querySelectorAll<HTMLElement>('[role="tabpanel"]:not([hidden]) [data-settings-field]') ?? []]
         .find((el) => el.getAttribute('data-settings-field') === target.field)
-      if (!row) { if (tries++ < 25) retry = setTimeout(land, 40); return }
+      if (!row) { if (tries++ < 100) retry = setTimeout(land, 40); return }
       handled.current = target.seq
       scope?.querySelectorAll('.' + TARGET_MARK).forEach((el) => el.classList.remove(TARGET_MARK))
       row.scrollIntoView?.({ block: 'center' })

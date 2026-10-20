@@ -32,9 +32,9 @@ import { fmtStamp } from '../timefmt'
 import type { LoginProvider, ProviderLoginStatus } from '../../../../../packages/contracts'
 import {
   OPEN_APP_SETTINGS_EVENT, SetGroup, SetRow, SettingsTabPanel, SettingsTabs,
-  SetToggle,
+  SetToggle, useSettingsTarget,
 } from './settingskit'
-import type { SettingsTab } from './settingskit'
+import type { SettingsTab, SettingsTarget } from './settingskit'
 import { OpenRouterSection } from './openrouter'
 import { HarnessesSection } from './harnesses'
 import { LanguageServerSection } from './langserver'
@@ -650,7 +650,7 @@ export function TurnLimitSetting({ runtime, busy, onSave }: {
   const valid = Number.isInteger(n) && n >= 1 && n <= 512
   const slots = runtime?.turn_slots
   const commit = () => { if (valid && n !== live) onSave(n) }
-  return <SetRow label="most agent turns running at once"
+  return <SetRow label="most agent turns running at once" field="max_concurrent_turns"
     hint={'Default 16, shared by every organization on this machine. Extra '
       + 'turns wait their turn: first come, first served within an '
       + 'organization, and taking turns across organizations. A change applies '
@@ -664,10 +664,17 @@ export function TurnLimitSetting({ runtime, busy, onSave }: {
   </SetRow>
 }
 
-export function AccountsPanel({ toast, close, initialTab }: {
+export function AccountsPanel({ toast, close, initialTab, target }: {
   toast: ToastFn; close: () => void; initialTab?: AppSettingsTab
+  /** open AT a control (the turn-slot banner's "Open settings"): the tab, the
+   *  row (`field`) and a `seq` that makes the next ask a new one
+   *  (canvas/settingskit.tsx) */
+  target?: SettingsTarget | null
 }) {
-  const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'providers')
+  const [tab, setTab] = useState<AppSettingsTab>((target?.tab as AppSettingsTab | undefined) ?? initialTab ?? 'providers')
+  const stripRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => { if (target) setTab(target.tab as AppSettingsTab) }, [target?.seq])  // eslint-disable-line react-hooks/exhaustive-deps
+  useSettingsTarget(stripRef, target, !!target && tab === target.tab)
   // the providers page lists each provider's tiers: re-read agy's model list
   useAgyModelsRefresh(tab === 'providers')
   const [openingLogs, setOpeningLogs] = useState(false)
@@ -781,7 +788,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
   return <><PinFrame kind="app-settings" title="App settings" panel="settings acct-panel"
     close={close} onEsc={() => addAccount ? undefined : pickerOpen ? setPickerOpen(false) : close()}>
     <h3>App settings</h3>
-    <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} idBase="app-settings" label="Application settings sections" />
+    <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} stripRef={stripRef} idBase="app-settings" label="Application settings sections" />
     {error && <div className="ask-warn" role="alert">{error}</div>}
     <SettingsTabPanel id="about" idBase="app-settings" active={tab === 'about'}>
       <AboutSection appVersion={appVersion} />

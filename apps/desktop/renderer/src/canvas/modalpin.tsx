@@ -588,7 +588,10 @@ export function PinFrame(props: PinFrameProps) {
   // 2026-09-10 14:19): it is the same modal everywhere, but with an org open
   // it pins/pops out like any org surface — saved independently per org —
   // and only at home (no org) does the null scope below disable pin/popout.
-  const scope = ['defaults', 'app-settings', 'advanced-org'].includes(props.kind) ? null : org
+  // `app-settings` left the list on 2026-10-20 (user: "i want app settings to
+  // be pinnable and popoutable like every other modal"): it is the same panel
+  // in every place and follows Usage exactly (App.tsx scopes its open state).
+  const scope = ['defaults', 'advanced-org'].includes(props.kind) ? null : org
   // THE PANEL, not the overlay around it, is this surface's size - centred it
   // is the modal's own laid-out default, pinned it is the box the user
   // dragged it to. The ref is owned HERE so the same measurement can be

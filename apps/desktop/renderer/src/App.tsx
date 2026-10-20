@@ -470,21 +470,34 @@ export default function App() {
   const [drawer, setDrawer] = useState(false)
   const [doomedOrg, setDoomedOrg] = useState<OrgListEntry | null>(null)   // org row pending deletion
   const [showDefaults, setShowDefaults] = useState(false)   // global new-org defaults
-  const [showAccounts, setShowAccounts] = useState(false)   // D-144 account registry
+  // D-144 account registry / App settings. SCOPED like Usage: home and each
+  // organization are separate places to have it open, so it pins and pops
+  // out in an organization like any org surface (user 2026-10-20)
+  const appSettingsOpen = useScopedOpen(slug)
+  const showAccounts = appSettingsOpen.open
+  const setShowAccounts = appSettingsOpen.set
   // the section a banner asked Application settings to open at (the queued-
   // for-a-turn-slot banner points at Runtime); the panel follows later asks
   // itself while it is open
   const [appSettingsTab, setAppSettingsTab] = useState<'runtime' | 'display' | 'harnesses' | undefined>(undefined)
+  // …and the row it asked for (the turn-slot banner's "Open settings" names
+  // `max_concurrent_turns`): the panel lands on it, `seq` making each ask new
+  const [appSettingsTarget, setAppSettingsTarget] = useState<SettingsTarget | null>(null)
   useEffect(() => {
     const open = (e: Event) => {
-      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
-      setAppSettingsTab(tab === 'general' || tab === 'display' ? 'display'
-        : tab === 'runtime' ? 'runtime' : tab === 'harnesses' ? 'harnesses' : undefined)
-      setShowAccounts(true)
+      const detail = (e as CustomEvent<{ tab?: string; focus?: string }>).detail
+      const tab = detail?.tab
+      const to = tab === 'general' || tab === 'display' ? 'display'
+        : tab === 'runtime' ? 'runtime' : tab === 'harnesses' ? 'harnesses' : undefined
+      setAppSettingsTab(to)
+      if (to && detail?.focus) setAppSettingsTarget((t) => ({ tab: to, field: detail.focus!, seq: (t?.seq ?? 0) + 1 }))
+      // opens it, or raises it where it is pinned (behind another window) or
+      // popped out into a window of its own: never toggles it shut
+      toggleOrRaiseModal('app-settings', false, setShowAccounts, slug, true)
     }
     window.addEventListener(OPEN_APP_SETTINGS_EVENT, open)
     return () => window.removeEventListener(OPEN_APP_SETTINGS_EVENT, open)
-  }, [])
+  }, [slug, setShowAccounts])
   // host subscription usage bars. SCOPED, not one boolean: home and each
   // organization are separate places to have this open (user 2026-09-12) -
   // see useScopedOpen in canvas/modalpin.tsx for what went wrong without it.
@@ -534,7 +547,7 @@ export default function App() {
   const toggleUsageHistory = useCallback(() =>
     toggleSurface('usage-history', showUsageHistory, setShowUsageHistory), [toggleSurface, showUsageHistory])
   usePersistedModalOpen('defaults', null, showDefaults)
-  usePersistedModalOpen('app-settings', null, showAccounts)
+  usePersistedModalOpen('app-settings', slug, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
   usePersistedModalOpen('inbox', slug, showInbox)
   usePersistedModalOpen('gallery', slug, showGallery)
@@ -658,7 +671,7 @@ export default function App() {
   useEffect(() => {
     usageOpen.setIn(null, (isModalPinned('usage') && readModalOpen(null).some(r => r.kind === 'usage')) || restoreWindowKind('usage', null))
     usageHistoryOpen.setIn(null, (isModalPinned('usage-history') && readModalOpen(null).some(r => r.kind === 'usage-history')) || restoreWindowKind('usage-history', null))
-    setShowAccounts((isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))
+    appSettingsOpen.setIn(null, (isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))
     setShowDefaults((isModalPinned('defaults') && readModalOpen(null).some(r => r.kind === 'defaults')) || restoreWindowKind('defaults', null))
   }, [])
   // NATIVE'S HALF of the restoration notice: the saved organization windows
@@ -682,6 +695,7 @@ export default function App() {
     const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind, slug))
     usageOpen.setIn(slug, pinnedKind('usage') || restoreWindowKind('usage', slug))
     usageHistoryOpen.setIn(slug, pinnedKind('usage-history') || restoreWindowKind('usage-history', slug))
+    appSettingsOpen.setIn(slug, pinnedKind('app-settings') || restoreWindowKind('app-settings', slug))
     settingsOpen.setIn(slug, pinnedKind('org-settings') || restoreWindowKind('org-settings', slug))
     setShowInbox(pinnedKind('inbox') || restoreWindowKind('inbox', slug))
     setShowGallery(pinnedKind('gallery') || restoreWindowKind('gallery', slug))
@@ -1358,11 +1372,11 @@ export default function App() {
       show()
     }
   }
-  const closeAccounts = () => { setShowAccounts(false); setAppSettingsTab(undefined) }
+  const closeAccounts = () => { setShowAccounts(false); setAppSettingsTab(undefined); setAppSettingsTarget(null) }
   const closeInbox = () => { setShowInbox(false); setInboxJump(null); refreshTree(slug) }
   const closeDocket = () => { setDocketJump(null); setShowDocket(false) }
   const closeOrgSettings = () => { setShowSettings(false); setSettingsInitialTab(undefined); setSettingsTarget(null); refreshTree(slug) }
-  const openAccounts = () => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)
+  const openAccounts = () => toggleSurface('app-settings', showAccounts, setShowAccounts)
   const openInbox = () => {
     setInboxJump(null)
     toggleSurface('inbox', showInbox, setShowInbox)
@@ -1386,7 +1400,7 @@ export default function App() {
         // Centred app/org panels are another view; return to the canvas.
         // Existing pinned/detached surfaces keep their placement and content.
         const panels = [
-          { kind: 'app-settings', open: showAccounts, close: () => { setShowAccounts(false); setAppSettingsTab(undefined) }, org: null },
+          { kind: 'app-settings', open: showAccounts, close: closeAccounts, org: slug },
           { kind: 'defaults', open: showDefaults, close: () => setShowDefaults(false), org: null },
           { kind: 'usage', open: showUsage, close: () => setShowUsage(false), org: slug },
           { kind: 'usage-history', open: showUsageHistory, close: () => setShowUsageHistory(false), org: slug },
@@ -1449,7 +1463,7 @@ export default function App() {
       onUsageHistory={() => toggleSurface('usage-history', showUsageHistory, setShowUsageHistory, true)}
       isOpenElsewhere={openElsewhere}
       onOrgListOpen={setMenuOrgsOpen}
-      onAppSettings={() => toggleOrRaiseModal('app-settings', showAccounts, setShowAccounts, null, true)} shortcutRef={mainMenu} />
+      onAppSettings={() => toggleSurface('app-settings', showAccounts, setShowAccounts, true)} shortcutRef={mainMenu} />
   )
 
   const pick = (s: string) => { setSlug(s); setDrawer(false) }
@@ -1474,7 +1488,7 @@ export default function App() {
             ("which account is paying, and how close is it to a wall?") and
             are read together. */}
         <button className="h1-usage" title="App settings"
-          onClick={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}>
+          onClick={openAccounts}>
           <SettingsIcon fontSize="inherit" />
         </button>
         {showControls && <UpdateNotice />}
@@ -1894,7 +1908,7 @@ export default function App() {
                   toggleNodePanel('agent-gallery', sameScope ? agentGalleryId : null, id,
                     setAgentGalleryId, slug, opts?.keepOpen)
                 }}
-                onAccounts={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}
+                onAccounts={openAccounts}
                 /* the eye's ⚙ and its context menu open the WHOLE settings
                    modal (user ruling 2026-09-11), not the Hire defaults tab
                    directly — so it is the same call the chrome's gear makes,
@@ -2046,7 +2060,7 @@ export default function App() {
           close={closeDocket} />
       )}
       {showAccounts && (
-        <AccountsPanel toast={toast} initialTab={appSettingsTab}
+        <AccountsPanel toast={toast} initialTab={appSettingsTab} target={appSettingsTarget}
           close={closeAccounts} />
       )}
       {doomedOrg && (
