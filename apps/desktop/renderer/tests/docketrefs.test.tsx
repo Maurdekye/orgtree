@@ -619,7 +619,7 @@ uiTest('§25 a canonical @item token in the description is a working link',
     // open the item whose prose carries the token
     const src = rows(el).find((r) =>
       r.querySelector('.l1 .mfrom')?.textContent === 'the-source-item')
-    await inAct(() => (src as HTMLElement).click())
+    await selectDocketRow(src)
     await flush()
 
     const chip = el.querySelector('.docket-desc button.ref-chip')
