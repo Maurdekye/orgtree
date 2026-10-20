@@ -237,7 +237,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             let mut snapshot=crate::domain::watchdog_inventory::snapshot(client,engine,org_id).await?;
             // the held project slots (domain/slots.rs): a granted claim is
             // spent, so its holder is known only from the lease
-            snapshot["slot_leases"]=crate::domain::slots::held_in_org(client, org_id).await?;
+            snapshot["slot_leases"]=json!(crate::domain::slots::held_in_org(client, org_id).await?);
             snapshot
         }
         "inbox_summary" => {
