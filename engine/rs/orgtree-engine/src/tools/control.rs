@@ -270,12 +270,13 @@ mod interrupt_rule_tests {
     /// restart it; interrupting another agent still needs the runtime tool
     /// group, and `restart` is for your own turn only.
     #[test]
-    fn an_agent_may_always_interrupt_itself_and_restart_only_itself() {
+    fn an_agent_may_restart_itself_or_a_report_with_runtime_permission() {
         assert_eq!(interrupt_rule(true, false, false), Ok(()));
         assert_eq!(interrupt_rule(true, false, true), Ok(()));
         assert_eq!(interrupt_rule(true, true, true), Ok(()));
         assert!(interrupt_rule(false, false, false).is_err(), "another agent needs the runtime group");
         assert_eq!(interrupt_rule(false, true, false), Ok(()));
-        assert!(interrupt_rule(false, true, true).is_err(), "restart is for your own turn");
+        assert_eq!(interrupt_rule(false, true, true), Ok(()), "a runtime-authorized superior may restart its report");
+        assert!(interrupt_rule(false, false, true).is_err(), "restart never bypasses runtime permission");
     }
 }
