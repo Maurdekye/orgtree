@@ -12,8 +12,8 @@
 //      <agent>" line naming the agent (user 2026-10-18 07:30Z, replacing the
 //      22:47:51Z rule that named the agent alone); the viewer's header says
 //      the same (§3d);
-//   §4 a project's card and its desk header carry presentation chips for the
-//      project's own documents and its subtree's.
+//   §4 a project's card and its desk header carry only its own documents
+//      (user 2026-10-20 18:58Z, superseding the subtree-chip rule).
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs teampresent
 
@@ -26,6 +26,8 @@ import type { AgentMenuHandlers } from '../src/canvas/agentmenu'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { ProjectDesk } from '../src/canvas/projectdesk'
+import { NodeSquare } from '../src/canvas/cards'
+import { presentationChain, ProjectPresentationCards, ProjectPresentationHeaders } from './projectpresent.fixture'
 import type { CanvasNode, OpResult } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -190,14 +192,14 @@ const withDocs = () => ({
   lineage: [], turns: [], audiences_held: [], mail_pending: 0,
 } as unknown as CanvasNode)
 
-test('§4a the project card carries chips for its own and its subtree\'s presentations', async (t) => {
+test('§4a the project card carries only its own presentations', async (t) => {
   stubDocuments(t, [])
   const view = await mountView(<ProjectSquare node={withDocs()} pos={{ x: 0, y: 0 }} lod="norm" dragging={false}
     isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={1.2} hire={{}} seats={{}}
     onHire={noop} onNewProject={noop} onInbox={noop} onOpenDoc={noop}
     onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
   t.after(() => view.unmount())
-  assert.equal(view.el.querySelectorAll('.sq.project .doc-chips .doc-chip').length, 2)
+  assert.deepEqual([...view.el.querySelectorAll('.sq.project .doc-chip')].map((e) => e.getAttribute('data-doc-id')), ['p1'])
 })
 
 test('§4b the project desk header carries the same presentations strip', async (t) => {
@@ -208,5 +210,42 @@ test('§4b the project desk header carries the same presentations strip', async 
     refs={{ world: { org: 'org' }, onOpen: noop } as never} onOpenDoc={noop} />, (el) => el)
   t.after(() => view.unmount())
   await inAct(async () => { await flush(2) })
-  assert.equal(view.el.querySelectorAll('.desk-docs .doc-badge').length, 2)
+  assert.deepEqual([...view.el.querySelectorAll('.desk-docs .doc-badge')].map((e) => e.getAttribute('data-doc-id')), ['p1'])
+})
+
+for (const surface of ['canvas', 'header'] as const) {
+  test(`§4c three-level project chain: ${surface} chips match own documents; empty ancestors have none`, async (t) => {
+    stubDocuments(t, [])
+    localStorage.clear()
+    const chain = presentationChain(), opened: string[] = []
+    const view = await mountView(surface === 'canvas'
+      ? <ProjectPresentationCards chain={chain} onOpen={(id) => opened.push(id)} />
+      : <ProjectPresentationHeaders chain={chain} onOpen={(id) => opened.push(id)} />, (el) => el)
+    t.after(() => view.unmount())
+    await inAct(async () => { await flush(4) })
+    for (const node of chain.projects) {
+      const wrapper = view.el.querySelector(`[data-project="${node.id}"]`)!
+      const chips = [...wrapper.querySelectorAll<HTMLButtonElement>(surface === 'canvas' ? '.doc-chip' : '.desk-docs .doc-badge')]
+      assert.deepEqual(chips.map((e) => e.dataset.docId), (node.documents ?? []).map((d) => d.id), node.id)
+      for (const chip of chips) await inAct(() => chip.click())
+    }
+    assert.deepEqual(opened, chain.projects.flatMap((n) => (n.documents ?? []).map((d) => d.id)), 'each chip still opens its exact document')
+  })
+}
+
+test('§4d agent canvas cards still show their own documents and ignore descendant project documents', async (t) => {
+  stubDocuments(t, [])
+  const chain = presentationChain(), opened: string[] = []
+  const agent = { ...chain.author, children: [chain.projects[2]!] }
+  const view = await mountView(<NodeSquare node={agent} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
+    dragging={false} isDrop={false} seats={{ sol: 2 }} map={chain.map} op={async () => ({} as OpResult)}
+    slug="org" toast={noop} pxc={1} zoom={1} compactAt={0.8} maxTop={0} cascadeAlloc
+    onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop} onInbox={noop} onLineage={noop}
+    onOpenDoc={(id) => opened.push(id)} onRecenter={noop} onJump={noop} onMailLink={noop}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => view.unmount())
+  const chips = [...view.el.querySelectorAll<HTMLButtonElement>('.doc-chip')]
+  assert.deepEqual(chips.map((e) => e.dataset.docId), ['author-note'])
+  await inAct(() => chips[0]!.click())
+  assert.deepEqual(opened, ['author-note'])
 })
