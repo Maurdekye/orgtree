@@ -3914,7 +3914,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .sq-far-ghost:not(.on) .sq-far-tier .tier { width: 33px; height: 33px; font-size: 16.5px; }
 .sq-far-ghost.on .sq-far-tier { top: -26px; left: 50%; transform: translateX(-50%); z-index: 4; }
 .sq-far-ghost.on .sq-far-scaler { transform: scale(max(1, var(--invzf, 1))); gap: 5px; }
-.sq-far-ghost.on .sq-far-name { opacity: 1; max-width: 180px; padding: 3px 8px; border-color: var(--line); }
+.sq-far-ghost.on .sq-far-name { opacity: 1; max-width: 600px; padding: 3px 8px; border-color: var(--line); }
 /* ...EXCEPT while the token's menu is open, which is a different intent. The
    compact token is one arrow; clicking it fans out the tier buttons, and those
    rows are taller than the gap they stand in — measured at z=.24, two of the

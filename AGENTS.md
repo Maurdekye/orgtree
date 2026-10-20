@@ -1483,6 +1483,9 @@
 
 - Far-zoom agent and project cards share a floating hover/focus name above the
   card layer; their native tooltips contain details without a repeated name.
+  The shared floating name reveals its full text up to the same 600px ceiling
+  as the in-card agent reveal. [decided: user/coordinator 2026-10-20;
+  verified: `styles.css`, `tests/farzoomproject.test.tsx`]
   Other zoom levels and identity-less links keep their existing name rules.
   [decided: user 2026-10-19 17:21Z; verified: `canvas/farzoomname.tsx`,
   `canvas/cards.tsx`, `canvas/projectcard.tsx`]
