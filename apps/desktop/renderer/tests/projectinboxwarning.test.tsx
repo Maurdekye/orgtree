@@ -31,7 +31,7 @@ import type { OpRequest, OpResult, ToastFn, TreePayload, Watchdog } from '../src
 
 const noop = () => {}
 const refs = { world: { org: 'org' }, onOpen: noop } as never
-const UNREAD = /No mail listeners: mail sent here may not be received by anyone/
+const UNREAD = /Messages sent here may not be read by anyone/
 
 function project(extra: Partial<CanvasNode> = {}): CanvasNode {
   return {
@@ -104,7 +104,7 @@ test('project mail warning shares the cheap-compact warning shape and suggests b
     'same compact warning style as CacheForecastWarning')
   assert.equal(el.querySelectorAll('.inbox-no-listeners').length, 1, 'one note above the composer')
   assert.ok(n.querySelector('svg'), 'same warning icon')
-  assert.match(n.textContent ?? '', /No mail listeners: mail sent here may not be received by anyone/)
+  assert.match(n.textContent ?? '', /Messages sent here may not be read by anyone/)
   assert.match(n.textContent ?? '', /Turn on broadcast \(megaphone\) to send to all project participants/)
 })
 

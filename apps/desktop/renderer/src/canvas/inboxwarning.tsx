@@ -23,6 +23,6 @@ export function InboxNoListeners({ project }: { project: string }) {
     title={`No agent listens on project ${project}'s inbox with a fair_queue watchdog. Mail sent here waits in its mailbox `
       + 'until an agent above or below the project arms one. The megaphone (Alt+B) sends to every agent under the project instead.'}>
     <WarnIcon fontSize="inherit" />
-    <span>No mail listeners: mail sent here may not be received by anyone. Turn on broadcast (megaphone) to send to all project participants.</span>
+    <span>Messages sent here may not be read by anyone. Turn on broadcast (megaphone) to send to all project participants.</span>
   </div>
 }

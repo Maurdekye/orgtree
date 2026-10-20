@@ -66,7 +66,7 @@ app.whenReady().then(async () => {
       if (!seen.desk || seen.desk.bottom - seen.desk.top < 600) problems.push('the desk body does not fill its frame')
       if (!seen.composer || !seen.desk || seen.desk.bottom - seen.composer.bottom > 4) problems.push('the box is not at the desk\'s foot')
       if (seen.note && !apart(seen.note, seen.composer)) problems.push('the note is not right above the box')
-      if (seen.note && (!seen.sharedWarning || !seen.noteText.includes('No mail listeners:')
+      if (seen.note && (!seen.sharedWarning || !seen.noteText.includes('Messages sent here may not be read by anyone.')
           || !seen.noteText.includes('Turn on broadcast (megaphone) to send to all project participants.'))) problems.push('missing shared style or guidance')
       if (seen.note && seen.note.bottom-seen.note.top > seen.lineHeight*2+seen.padding+3) problems.push('warning exceeds two text lines')
       if (seen.note && seen.attach && !apart(seen.attach, seen.note)) problems.push('the attachment row is not right above the note')

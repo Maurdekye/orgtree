@@ -12,7 +12,7 @@ With **show agent card shortcuts** on, the project card's hover row opens its do
 
 The header shows active/hired agents through nested projects, activity age, settings and the available team lifecycle controls. Header cards open the mail queue, event listeners or slots; held audiences appear alongside them. Superior jump cards stay below the header, and member jump cards above the composer, on every tab. The composer sends to the project mailbox by default; its megaphone broadcasts to live agents under the project. Notice, attachments and reply previews work as on an agent desk. Projects have no model, effort, account or credit controls.
 
-When broadcast is off and no mail listener is attached, a compact warning above the message box says mail may not be received by anyone. Turn on **broadcast** with the megaphone (Alt+B) to send to all project participants. The warning disappears while broadcast is on or an armed or paused `fair_queue` mail listener is attached. Event listeners do not receive inbox mail and do not dismiss this warning. It uses the same warning line as the agent desk's cheap-compaction warning.
+When broadcast is off and no mail listener is attached, a compact warning above the message box says "Messages sent here may not be read by anyone". Turn on **broadcast** with the megaphone (Alt+B) to send to all project participants. The warning disappears while broadcast is on or an armed or paused `fair_queue` mail listener is attached. Event listeners do not receive inbox mail and do not dismiss this warning. It uses the same warning line as the agent desk's cheap-compaction warning.
 
 ## Tabs
 
