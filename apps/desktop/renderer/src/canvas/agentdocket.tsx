@@ -78,11 +78,10 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
   return <PinFrame kind={pinKind}
     restore={{ agent: nid, generation: flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.generation, ...(isTeam ? { team: true } : {}) }}
     title={titleText} panel="settings wide" close={close}>
-    <div className="docket-membership-head">
-      <h3 data-copy-agent-name={nid}><DocketIcon fontSize="inherit" /> {nid} <span className="dim">· {isTeam ? 'Team docket' : 'Docket'}</span></h3>
-      {unplaced.length > 0 && <div role="status" className="hint docket-membership-pending">
-        Checking team membership for {unplaced.length} retired {unplaced.length === 1 ? 'owner' : 'owners'}…</div>}
-    </div>
+    <h3 className="docket-membership-head" data-copy-agent-name={nid}><DocketIcon fontSize="inherit" /> {nid} <span className="dim">· {isTeam ? 'Team docket' : 'Docket'}</span>
+      {unplaced.length > 0 && <span role="status" className="hint docket-membership-pending">
+        Checking team membership for {unplaced.length} retired {unplaced.length === 1 ? 'owner' : 'owners'}…</span>}
+    </h3>
     <AgentDocketView slug={slug} nid={nid} mine={mine} facts={facts} toast={toast}
       team={!isProject ? isTeam : undefined}
       onTeam={!isProject ? setTeam : undefined}
