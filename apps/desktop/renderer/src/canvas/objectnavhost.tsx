@@ -1,6 +1,7 @@
 import { getWorkItem, getWatchdog, watchdogAction } from '../api'
 import type { ToastFn, Watchdog } from '../types'
 import { copyToClipboard } from './contextmenu'
+import type { MenuEntry } from './contextmenu'
 import { nodeMenuAction, ticketOwnerAction, ticketReferenceActions, watchdogActions } from './objectactions'
 import { useAgentNavRegistry } from './agentnav'
 import { useProvideObjectNav } from './objectnav'
@@ -16,7 +17,7 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, focusAgent, toas
     const copy = (text: string) => { void copyToClipboard(anchor, text).then(ok => toast([ok ? 'Copied!' : 'Clipboard unavailable'])) }
     if (kind === 'watchdog') {
       const dog = dogs.find(d => d.id === id)
-      const menu = (dog:Watchdog|undefined) => {
+      const menu = (dog:Watchdog|undefined): MenuEntry[] => {
       if (!dog || dog.spent || dog.state === 'spent') {
         if (anchor.getAttribute('data-object-stale') !== 'true') return []
         const name = anchor.getAttribute('data-object-name') || dog?.name || id.split('/').pop() || id

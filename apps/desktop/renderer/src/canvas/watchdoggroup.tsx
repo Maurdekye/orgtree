@@ -58,6 +58,7 @@ export function WatchdogGroup({ owner, dogs, total, org, onOpen, className = 'de
   const [open, setOpen] = useState(false)
   return <>
     <button type="button" data-watchdog-group={owner} className={className+' watchdog-group'} style={style}
+      title={`${total} watchdogs owned by ${owner}; click to list`}
       aria-haspopup="dialog" aria-expanded={open} onPointerDown={e=>e.stopPropagation()}
       onClick={e=>{e.stopPropagation();setOpen(true)}}>{total} watchdogs</button>
     {open && <WatchdogList key={(org??'')+':'+owner} owner={owner} dogs={dogs} total={total} org={org} kept={kept}
