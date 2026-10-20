@@ -2488,7 +2488,12 @@ async fn mail_queue_history(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Tra
     let n = history_project(org, tx, actor, req, "mail history").await?;
     let scope: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
     let counted = crate::runtime::reminders::switches(engine).checkups;
-    crate::domain::projects::queue_history(tx, n.id, &n.name, &scope, str_arg(req, "history_before"), counted).await
+    let mut out = crate::domain::projects::queue_history(tx, n.id, &n.name, &scope, str_arg(req, "history_before"), counted).await?;
+    // the Dead Letter Line comes with the first page, as Working does
+    if str_arg(req, "history_before").is_none() {
+        out["dead_letter_listeners"] = json!(crate::domain::projects::dead_letter_listeners(tx, org.id, n.id, &n.name).await?);
+    }
+    Ok(out)
 }
 
 /// Take a held job back from its holder (the desk's Working table, user

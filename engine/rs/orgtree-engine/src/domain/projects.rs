@@ -1273,6 +1273,48 @@ fn json_time(v: &Value) -> Option<DateTime<Utc>> {
     v.as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&Utc))
 }
 
+/// The line a dead-letter listener's pattern is tried on for `project`:
+/// the event as its dog would see it, the job's details left empty.
+#[nolog]
+pub fn dead_letter_line(project: &str) -> String {
+    format!("{} {} (1 matches)", crate::runtime::watchdogs::events::DEAD_LETTER,
+        json!({ "project": project, "mail": "", "from": "", "attempts": 0, "by": "", "why": "" }))
+}
+
+/// A project's dead-letter listeners, its Dead Letter Line (user 2026-10-20
+/// 06:41Z): the armed or paused `event` dogs on `project.dead_letter` or
+/// `project.*` whose owner is above or below the project and whose pattern
+/// takes its dead letters, in delivery (dog) order, at most 200. Read here,
+/// not from the tree, whose generic watchdogs are an eight-per-owner
+/// preview (watchdog uncap 2026-10-20).
+#[logged]
+pub async fn dead_letter_listeners(client: &impl GenericClient, org_id: i64, project: i64, name: &str) -> Result<Vec<Value>> {
+    let rows = client
+        .query(
+            "WITH RECURSIVE
+               up(id, depth) AS (
+                 SELECT parent_id, 1 FROM ot.agents WHERE id = $2 AND parent_id IS NOT NULL
+                 UNION ALL SELECT x.parent_id, up.depth + 1 FROM ot.agents x JOIN up ON x.id = up.id
+                  WHERE x.parent_id IS NOT NULL AND up.depth < 1024),
+               down(id, depth) AS (
+                 SELECT id, 1 FROM ot.agents WHERE parent_id = $2
+                 UNION ALL SELECT x.id, down.depth + 1 FROM ot.agents x JOIN down ON x.parent_id = down.id WHERE down.depth < 1024)
+             SELECT to_jsonb(w), a.name, w.pattern FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+              WHERE w.org_id = $1 AND w.kind = 'event' AND w.state IN ('armed', 'paused') AND w.spent_at IS NULL
+                AND w.target IN ('project.dead_letter', 'project.*')
+                AND (w.owner_agent_id IN (SELECT id FROM up) OR w.owner_agent_id IN (SELECT id FROM down))
+              ORDER BY w.id LIMIT 200",
+            &[&org_id, &project],
+        )
+        .await?;
+    let line = dead_letter_line(name);
+    Ok(rows
+        .iter()
+        .filter(|r| crate::runtime::watchdogs::pattern_takes(r.get::<_, Option<&str>>(2), &line))
+        .map(|r| crate::domain::watchdogs::view(&r.get::<_, Value>(0), &r.get::<_, String>(1)))
+        .collect())
+}
+
 /// A project's mail listener history for the desk's Mail › listeners
 /// folder (user 2026-10-20 06:22Z-06:42Z). Ack mode: the jobs held now
 /// (Working, with the first page) and the endings, newest first (Recently
@@ -1384,6 +1426,17 @@ pub async fn after_take_back(engine: &Arc<Engine>, org_id: i64, project: i64, r:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dead_letter_listener_is_tried_on_its_projects_event_line() {
+        let line = dead_letter_line("hd");
+        assert_eq!(line, r#"project.dead_letter {"project":"hd","mail":"","from":"","attempts":0,"by":"","why":""} (1 matches)"#);
+        let takes = crate::runtime::watchdogs::pattern_takes;
+        assert!(takes(None, &line), "no pattern takes every project's");
+        assert!(takes(Some(r#""project":"hd""#), &line));
+        assert!(!takes(Some(r#""project":"other""#), &line));
+        assert!(!takes(Some("(unclosed"), &line), "a pattern that does not compile takes nothing, as its dog");
+    }
 
     fn at(s: i64) -> DateTime<Utc> {
         DateTime::<Utc>::from_timestamp(1_760_000_000 + s, 0).unwrap()

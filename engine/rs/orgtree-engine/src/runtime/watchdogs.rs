@@ -198,6 +198,12 @@ fn matches(re: &Result<Option<Regex>, String>, line: &str) -> bool {
     }
 }
 
+/// Would a dog with this pattern take this line, as the dog itself matches.
+#[nolog]
+pub(crate) fn pattern_takes(pattern: Option<&str>, line: &str) -> bool {
+    matches(&pattern.map(compile).transpose(), line)
+}
+
 const DOG_COLS: &str = "w.uid, w.org_id, w.owner_agent_id, a.name, a.state = 'live', a.scratch_dir, w.name, w.kind, w.target,
     w.pattern, w.shell, w.interval_s, w.fire_mode, w.quiet_period_s, w.once, w.state, w.fired, w.created_at, w.last_fired,
     w.silence_since, w.exit, w.memo, w.id, w.last_check, w.next_check_at, w.next_silence_at";
