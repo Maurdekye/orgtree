@@ -8365,6 +8365,8 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-values { margin: 3px 0; padding-left: 20px; }
 .event-values > li + li { margin-top: 5px; }
 .event-unsupported { display: block; color: var(--dim); font-size: 11px; }
+/* an mqtt or websocket fire's caution: its lines are outside input */
+.event-untrusted { color: var(--warn, #e5c07b); font-size: 12px; margin: 0 0 6px; }
 .event-fallback { overflow-wrap: anywhere; }
 .event-surface .turn-mail-preview { margin: 0; }
 

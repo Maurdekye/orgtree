@@ -4278,6 +4278,15 @@
         },
         "once": {
           "type": "boolean"
+        },
+        "source": {
+          "enum": [
+            "mqtt",
+            "websocket"
+          ]
+        },
+        "fire_actions": {
+          "type": "string"
         }
       },
       "required": [

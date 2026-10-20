@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import type { ReactNode } from 'react'
 import type { Event, Family } from '../generated/events'
 import { decodeEventRow, isNoticeRow, record } from './decode'
@@ -17,6 +18,9 @@ import { md } from '../canvas/shared'
 import { useDogRoute } from '../canvas/deskdogs'
 import { WatchdogLink } from '../canvas/watchdoglink'
 import { AnsweredAsk, AnsweredCard, ResolvedSections, batchAskQuestions, resolvedSectionKinds } from './answered'
+import { StructuredJson } from '../canvas/structuredjson'
+import { UNTRUSTED, fireActionParts, fireLineParts } from './firelines'
+import type { FirePart } from './firelines'
 
 const FAMILY_MARK: Record<Family, string> = {
   ordinary: 'Message', linked_reply: 'Reply', assignment: 'Assignment', review: 'Review',
@@ -56,6 +60,34 @@ function Fields({ fields, ...props }: ValueProps & { fields: EventField[] }) {
     {fields.length > 1 && <span className="event-field-label">{f.label}</span>}
     <Value value={humanValue(f.value, f.type, props.profile)} {...props} />
   </div>)}</>
+}
+function FireParts({ parts, ...props }: ContentProps & { parts: FirePart[] }) {
+  return <>{parts.map((p, i) => p.kind === 'json'
+    ? <StructuredJson key={i} value={p.value} raw={p.raw} />
+    : <Text key={i} text={p.text} {...props} />)}</>
+}
+type DogFire = Extract<KnownEvent, { variant: 'monitor.watchdog_fired' }>
+/** A watchdog fire's body: the caution an mqtt or websocket fire carries,
+ *  then its lines and fire-action results with JSON in them drawn as in tool
+ *  calls (events/firelines.ts); text stays text. */
+function FireBody({ event, fields, ...props }: ValueProps & { event: DogFire; fields: EventField[] }) {
+  const content = { world: props.world, onOpen: props.onOpen, imgBase: props.imgBase }
+  const lines = useMemo(() => event.lines.map(line => fireLineParts(line, event.source)), [event.lines, event.source])
+  const actions = useMemo(() => event.fire_actions ? fireActionParts(event.fire_actions) : [], [event.fire_actions])
+  const labelled = fields.filter(f => f.key !== 'source').length > 1
+  return <>{fields.map(f => {
+    const label = labelled && <span className="event-field-label">{f.label}</span>
+    switch (f.key) {
+      case 'source': return event.source
+        ? <div className="event-untrusted" key={f.key} data-event-field={f.key}>{UNTRUSTED[event.source]}</div> : null
+      case 'lines': return <div className="event-field" key={f.key} data-event-field={f.key}>{label}
+        <ul className="event-values">{lines.map((parts, i) => <li key={i}><FireParts parts={parts} {...content} /></li>)}</ul></div>
+      case 'fire_actions': return <div className="event-field" key={f.key} data-event-field={f.key}>{label}
+        <FireParts parts={actions} {...content} /></div>
+      default: return <div className="event-field" key={f.key} data-event-field={f.key}>{label}
+        <Value value={humanValue(f.value, f.type, props.profile)} {...props} /></div>
+    }
+  })}</>
 }
 function WatchdogObjectLabel({ object }: { object: Extract<NonNullable<Event['object']>, { kind: 'watchdog' }> }) {
   const route = useDogRoute()
@@ -143,7 +175,10 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
   const answeredAsk = event.variant === 'answer.ask'
   const resolvedBatch = event.variant === 'answer.batch'
   const askQuestions = event.variant === 'answer.batch' ? batchAskQuestions(event) : []
-  const body = view.fields.filter(f => f.placement === 'body'
+  // a watchdog fire draws its whole body itself (FireBody)
+  const dogFire = event.variant === 'monitor.watchdog_fired' ? event : null
+  const fireFields = dogFire ? view.fields.filter(f => f.placement === 'body') : []
+  const body = view.fields.filter(f => f.placement === 'body' && !dogFire
     && !(answeredAsk && ['questions', 'text'].includes(f.key)))
     .map(f => f.key === 'sections' && Array.isArray(f.value)
       ? { ...f, value: f.value.filter(sec => !(record(sec) && typeof sec.kind === 'string' && resolvedSectionKinds.includes(sec.kind))) } : f)
@@ -159,6 +194,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     {event.variant === 'answer.ask' && <AnsweredAsk event={event} />}
     {askQuestions.length > 0 && <AnsweredCard questions={askQuestions} dismissed={false} />}
     {event.variant === 'answer.batch' && <ResolvedSections event={event} />}
+    {dogFire && <FireBody event={dogFire} fields={fireFields} {...content} profile={profile} org={org} actor={actor} />}
     <Fields fields={body} {...content} profile={profile} org={org} actor={actor} /></div>
   const heading = <>
       {!hideKind && <><span className="event-family" aria-label={FAMILY_MARK[view.family]} title={FAMILY_MARK[view.family]}>{FAMILY_ICON[view.family]}</span>
@@ -175,7 +211,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     </>
   if (part === 'header') return heading
   const contents = <>
-    {(body.length > 0 || answeredAsk || resolvedBatch) && (preview && !answeredAsk && !resolvedBatch
+    {(body.length > 0 || fireFields.length > 0 || answeredAsk || resolvedBatch) && (preview && !answeredAsk && !resolvedBatch
       ? <ReceivedMailBody foldKey={keys}>{bodyContent}</ReceivedMailBody> : bodyContent)}
     {(context.length > 0 || Boolean(objectDetails?.fields.length)) && <details className="event-context">
       <summary>Context</summary>

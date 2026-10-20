@@ -93,7 +93,7 @@ export function projectEvent(event: KnownEvent): EventView {
     case "policy.unstuck": return layout(event, "Agent released", [])
     case "policy.unlocked": return layout(event, "Agent unlocked", [["node", "Node", "context"], ["relation", "Relation", "context"]])
     case "policy.limit_reset": return layout(event, "Capacity reset", [["relation", "Relation", "context"], ["node", "Node", "context"], ["released", "Released", "context"]])
-    case "monitor.watchdog_fired": return layout(event, "Monitor event", [["once", "One-shot", "header"], ["prefix", "Prefix", "context"], ["lines", "Observations", "body"], ["count", "Count", "context"]])
+    case "monitor.watchdog_fired": return layout(event, "Monitor event", [["once", "One-shot", "header"], ["prefix", "Prefix", "context"], ["source", "Source", "body"], ["lines", "Observations", "body"], ["fire_actions", "Fire actions", "body"], ["count", "Count", "context"]])
     case "monitor.watchdog_quiet": return layout(event, "Monitor quiet", [["headline", "Headline", "header"], ["facts", "Observations", "body"], ["advice", "Advice", "body"]])
     case "runtime.turn_failed_terminal": return layout(event, "Turn failed", [["door", "Door", "context"], ["err", "Error", "body"]])
     case "runtime.turn_failed_repeated": return layout(event, "Repeated turn failure", [["attempts", "Attempts", "context"], ["classified", "Classified", "context"], ["err", "Error", "body"]])
