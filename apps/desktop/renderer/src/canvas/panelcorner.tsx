@@ -28,6 +28,7 @@ import type { SurfaceOrigin } from '../popout'
 import { DocIcon, DocketIcon, ListenersIcon, MailIcon, PinIcon, ViewListIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { detachedPanel, revealSurface, subscribeWindows, windowRevision } from '../windowlife'
+import { instanceKind } from '../modalkinds'
 import {
   forgetModalOpen, modalPinsAvailable, requestSurfaceAction, unpinModal,
   useModalPin, revealOpenPanel,
@@ -83,9 +84,11 @@ const PANELS: Record<AgentPanelKind, { noun: string; icon: ReactNode }> = {
   'node-inbox': { noun: 'mail', icon: <MailIcon fontSize="inherit" /> },
 }
 
-/** the popped-out window this surface is in, if it is in one */
+/** the popped-out window this target's surface is in, if it is in one. Each
+ *  target's surface is its own instance (docket
+ *  several-instances-of-the-same-modal-team-slots-i), so the kind names it. */
 const windowFor = (kind: AgentPanelKind, org: string | null, nid: string) =>
-  detachedPanel(kind, org, { agent: nid })
+  detachedPanel(instanceKind(kind, nid), org)
 
 /** Snapshot BEFORE show() can replace the tab. Invalid/pre-layout hosts keep
  * the existing modal measurement; the source is one gesture, not stored state. */
@@ -106,7 +109,8 @@ const PANEL_TABS: Readonly<Record<string, AgentPanelKind | undefined>> = {
  * panel leaves normal inline tab selection intact. */
 export function revealAgentPanelTab(tab: string, org: string, agent: string, generation?: number): boolean {
   const kind = PANEL_TABS[tab]
-  return !!kind && revealOpenPanel(kind, org, { agent, ...(generation === undefined ? {} : { generation }) })
+  return !!kind && revealOpenPanel(instanceKind(kind, agent), org,
+    { agent, ...(generation === undefined ? {} : { generation }) })
 }
 
 /**
@@ -125,11 +129,14 @@ export function PanelCorner({ kind, slug, nid }: {
   nid: string
 }) {
   const routes = useAgentSurfaceRoutes()
+  // THIS TARGET'S instance: another agent's window of the same kind is not
+  // this tab's (docket several-instances-of-the-same-modal-team-slots-i)
+  const own = instanceKind(kind, nid)
   // LIVE state, not a snapshot: both of these change from the surface itself
   // (its title bar, its window's close box) while this button is on screen, and
   // a push-pin that says "pin" over a pinned window is the exact dead-click the
   // 2026-09-10 raise-instead-of-close ruling was about.
-  const pinned = useModalPin(kind, slug) !== null
+  const pinned = useModalPin(own, slug) !== null
   useSyncExternalStore(subscribeWindows, windowRevision)
   const detached = !!windowFor(kind, slug, nid)
   if (!routes || isMobile) return null
@@ -143,13 +150,13 @@ export function PanelCorner({ kind, slug, nid }: {
     // channel because it needs no measurement and no mounted panel — a pin
     // outlives a closed surface, and this is the one press that must still
     // work when the window it describes is not on screen.
-    if (pinned) { unpinModal(kind, slug); forgetModalOpen(kind, slug); return }
+    if (pinned) { unpinModal(own, slug); forgetModalOpen(own, slug); return }
     // PINNING does need the panel: the rect a fresh pin takes is the panel's
     // own box, so the surface has to exist and measure itself. Open it, then
     // ask it to pin itself.
     const origin = tabOrigin(e.currentTarget)
     routes.show(kind, nid)
-    requestSurfaceAction(kind, slug, 'pin', origin)
+    requestSurfaceAction(own, slug, 'pin', origin)
   }
 
   const popout = (e: ReactMouseEvent<HTMLButtonElement>) => {
@@ -161,7 +168,7 @@ export function PanelCorner({ kind, slug, nid }: {
     if (open) { revealSurface(open); return }
     const origin = tabOrigin(e.currentTarget)
     routes.show(kind, nid)
-    requestSurfaceAction(kind, slug, 'popout', origin)
+    requestSurfaceAction(own, slug, 'popout', origin)
   }
 
   return (

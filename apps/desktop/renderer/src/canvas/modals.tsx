@@ -41,6 +41,7 @@ import { ago, ALL_PRESENT, antigravityTierOffer, bySeatDesc, anyTierSeat, codexT
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
+import { instanceKind } from '../modalkinds'
 import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel, useSettingsTarget } from './settingskit'
 import type { SettingsTarget } from './settingskit'
 import { fmtStamp } from '../timefmt'
@@ -244,7 +245,7 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
       .catch((e: Error) => toast([`error: ${e.message}`]))
   const actions = watchdogActions(dog, act).filter((entry): entry is import('./contextmenu').MenuItem => entry !== 'sep')
   return (
-    <PinFrame kind="watchdog" restore={{ watchdog: dog.id }} title={`${dog.name} · watchdog`} panel="settings content-height watchdog-detail"
+    <PinFrame kind={instanceKind('watchdog', dog.id)} restore={{ watchdog: dog.id }} title={`${dog.name} · watchdog`} panel="settings content-height watchdog-detail"
       close={close}>
         <h3><WatchdogLink dog={dog} org={slug} atDestination/></h3>
         {/* THE DOG'S LIVE STATE IS NOT ITS NAME. It used to sit inside the h3,
@@ -1208,7 +1209,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
       close()
     } catch (e) { toast([`error: ${(e as Error).message}`]) } finally { setBusy(false) }
   }
-  return <PinFrame kind="node-config" restore={{agent:node.id,generation:node.generation}}
+  return <PinFrame kind={instanceKind('node-config', node.id)} restore={{agent:node.id,generation:node.generation}}
     title={`${node.id}: project settings`} panel="settings cfg" close={close}>
     <h3 className="agent-settings-header" data-copy-agent-name={node.id}>
       <span className="agent-config-title"><FolderIcon fontSize="inherit" /> {node.id}: project settings</span>
@@ -1643,7 +1644,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   return (
     // pointerdown must not reach the viewport: its pan pointer-CAPTURE retargets
     // the click, so backdrop-close and every button in here silently broke
-    <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={<span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[model] ?? '?'}</span>{node.id} · configuration</span>}
+    <PinFrame kind={instanceKind('node-config', node.id)} restore={{ agent: node.id, generation: node.generation }} title={<span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[model] ?? '?'}</span>{node.id} · configuration</span>}
       panel={'settings cfg prov-' + providerOf(node.tier ?? '')} close={close}>
         <h3 className="agent-settings-header" data-copy-agent-name={node.id}>
           <span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[model] ?? '?'}</span>{node.id}</span>

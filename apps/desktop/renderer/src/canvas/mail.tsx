@@ -44,6 +44,7 @@ import type { RefWorld, ResolvedRef } from './reflinks'
 import { useComposerEnter } from '../enterkey'
 import { isMobile } from '../mobile'
 import { closeIfCentred, PinFrame } from './modalpin'
+import { instanceKind } from '../modalkinds'
 import { CollapsibleMailer } from './narrowlist'
 import { CopyFeedback, copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
@@ -1811,7 +1812,7 @@ interface NodeInboxModalProps {
 export function NodeInboxModal({ node, slug, close, jumpTo, jumpSeq, onFocusAgent,
   tierOf, hasAgent, refs, toast }: NodeInboxModalProps) {
   return (
-    <PinFrame kind="node-inbox" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · mail`} panel="settings wide"
+    <PinFrame kind={instanceKind('node-inbox', node.id)} restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · mail`} panel="settings wide"
       close={close}>
         <h3 data-copy-agent-name={node.id}><MailIcon fontSize="inherit" /> {node.id} <span className="dim">· mail</span></h3>
         {/* ⚠ A REFERENCE CLOSES THIS MODAL ON THE WAY OUT, as the name beside
@@ -1825,10 +1826,10 @@ export function NodeInboxModal({ node, slug, close, jumpTo, jumpSeq, onFocusAgen
           refs={refs && {
             world: refs.world,
             onOpen: refs.onOpen && ((r: ResolvedRef) => {
-              closeIfCentred('node-inbox', close, slug); refs.onOpen!(r) }),
+              closeIfCentred(instanceKind('node-inbox', node.id), close, slug); refs.onOpen!(r) }),
           }}
           onFocusAgent={onFocusAgent
-            ? (id) => { closeIfCentred('node-inbox', close, slug); onFocusAgent(id) }
+            ? (id) => { closeIfCentred(instanceKind('node-inbox', node.id), close, slug); onFocusAgent(id) }
             : undefined} />
         {/* no footer `close` button (user 2026-09-28), as in the user's own
             inbox: Escape, a backdrop click, the title bar's menu and — when

@@ -1,5 +1,6 @@
 import { desktop } from './desktop'
 import { useEffect, useState } from 'react'
+import { baseKind, instanceKind, instanceTarget, isInstanceKind, migratedKind } from './modalkinds'
 
 export const WINDOW_LAYOUT_KEY = 'orgtree-desktop-windows-v1'
 export interface WindowRect { x: number; y: number; width: number; height: number }
@@ -66,8 +67,42 @@ const valid = (v: unknown): v is SavedWindow => {
 export function savedWindows(): SavedWindow[] {
   try {
     const rows: unknown = JSON.parse(localStorage.getItem(WINDOW_LAYOUT_KEY) ?? '[]')
-    return Array.isArray(rows) ? rows.filter(valid).slice(-100) : []
+    const kept = Array.isArray(rows) ? rows.filter(valid).slice(-100) : []
+    // ONE-OFF (docket several-instances-of-the-same-modal-team-slots-i,
+    // approved migration): a per-target surface's single window row becomes
+    // the row of the target its restore names, so each target keeps its own
+    // window. Written back once; a row with no target to give it stays as it
+    // was, and nothing restores it.
+    let converted = false
+    const out = kept.map((r) => {
+      const kind = migratedKind(r.kind, r.restore)
+      if (kind === r.kind) return r
+      converted = true
+      return { ...r, kind, key: windowLayoutKey(kind, r.org),
+        ...(r.kind === 'team-docket' ? { restore: { ...r.restore, team: true } } : {}) }
+    })
+    if (converted) {
+      const unique = out.filter((r, i) => out.findIndex(o => o.key === r.key) === i)
+      localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify(unique))
+      return unique
+    }
+    return out
   } catch { return [] }
+}
+/** A rename carries each per-target window row of `from` to `to`. */
+export function renameWindowRows(org: string, from: string, to: string): void {
+  if (!from || !to || from === to) return
+  const rows = savedWindows()
+  let moved = false
+  const next = rows.map((r) => {
+    if (r.org !== org || !isInstanceKind(r.kind) || baseKind(r.kind) === 'watchdog' || instanceTarget(r.kind) !== from) return r
+    moved = true
+    const kind = instanceKind(baseKind(r.kind), to)
+    return { ...r, kind, key: windowLayoutKey(kind, org), ...(r.restore ? { restore: { ...r.restore, agent: to } } : {}) }
+  })
+  if (!moved) return
+  try { localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify(next)) } catch { /* storage full */ }
+  layoutChanged()
 }
 // ------------------------------------------- the saved layout CHANGES event
 //
@@ -294,6 +329,9 @@ export function modalMinDimensions(kind?: string | null): ModalDimensions | null
       }
     } catch { /* use kind */ }
   }
+  // one target's instance has its surface's minimum (`node-inbox:cora` is a
+  // node-inbox), and a target's name never reads as a rule about its kind
+  if (cleanKind && isInstanceKind(cleanKind)) cleanKind = baseKind(cleanKind)
   if (!cleanKind || isModalKindExcluded(cleanKind)) return null
   if (cleanKind in MODAL_MIN_OVERRIDES) return MODAL_MIN_OVERRIDES[cleanKind]!
   return DEFAULT_MODAL_MIN

@@ -1,9 +1,10 @@
 import { beginOpen } from '../opentiming'
-import { pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap, onViewportGeometry } from './pinspace'
+import { canvasBox, pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap, onViewportGeometry } from './pinspace'
 import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, PopoutWindowControls, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
 import type { SurfaceOrigin } from '../popout'
 import { detachedKind, revealDetachedPanel } from '../windowlife'
+import { baseKind, instanceKind, instanceTarget, isInstanceKind, legacyBase, migratedKind, PER_TARGET_KINDS } from '../modalkinds'
 // canvas/modalpin.tsx — PINNING A MODAL TO THE WINDOW (user spec 2026-09-06):
 // "most openable modals in the app should be able to be pinned to the window
 // and dragged around, like pinned agent windows. this goes for inboxes,
@@ -117,11 +118,15 @@ export const readModalPins = (): PinMap => {
         const opens = readModalOpen()
         const lastOrg = localStorage.getItem('orgtree-desktop-last-org')
         for (const [kind, pin] of Object.entries(next)) if (!kind.startsWith('[')) {
-          const owners = opens.filter(o => o.kind === kind && o.org).map(o => o.org!)
+          // the markers below are already per target (readModalOpen), so a
+          // per-target kind finds its owners by the kind they are instances of
+          const owners = opens.filter(o => (o.kind === kind || legacyBase(baseKind(o.kind)) === legacyBase(kind)) && o.org)
+            .map(o => o.org!)
           if (!owners.length && lastOrg) owners.push(lastOrg)
           for (const org of owners) next[modalPinKey(kind, org)] ??= pin
           if (owners.length) delete next[kind]
         }
+        migrateInstancePins(next, opens)
         out = next
         if (JSON.stringify(next) !== raw) localStorage.setItem(MODAL_PINS_KEY, JSON.stringify(next))
       }
@@ -154,7 +159,169 @@ const write = (next: PinMap): void => {
 
 /** drop the cached copy so the next read comes from storage again — for a
  *  `storage` event from another tab, and for tests that clear localStorage */
-export const forgetModalPins = (): void => { cache = null; notify() }
+export const forgetModalPins = (): void => { cache = null; templateCache = null; notify() }
+
+// ------------------------------------------- several instances of one kind
+// Docket several-instances-of-the-same-modal-team-slots-i (USER 2026-10-20
+// 17:24:20Z; defaults approved by the coordinator 18:58:51Z, m5083ac2a0b30).
+// A per-target surface (an agent's Mail, Team, Docket, a project's Slots…)
+// pins as `kind:target` (modalkinds.ts), so every target keeps its own place.
+
+/** where a target that was never placed opens: the kind's last explicit
+ *  placement. A pin or a drag sets it, an unpin clears it (the kind is back to
+ *  opening centred), and the automatic placement below never moves it — the
+ *  cascade starts from the place the user chose, not from the last copy. */
+export const MODAL_TEMPLATES_KEY = 'orgtree-modal-templates'
+/** each new window steps this far right and down past an open sibling */
+export const CASCADE_STEP = 28
+/** placements kept for CLOSED instances of one kind in one org, newest first;
+ *  open ones are never dropped (approved default 2) */
+export const KEPT_PLACEMENTS = 20
+type TemplateMap = Record<string, PinRect>
+let templateCache: TemplateMap | null = null
+const templateKey = (kind: string, org: string) => JSON.stringify([org, kind])
+const readTemplates = (): TemplateMap => {
+  if (templateCache) return templateCache
+  let out: TemplateMap = {}
+  try {
+    const obj = JSON.parse(localStorage.getItem(MODAL_TEMPLATES_KEY) || '{}') as unknown
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      out = Object.fromEntries(Object.entries(obj as Record<string, unknown>)
+        .filter((e): e is [string, PinRect] => isRect(e[1])).map(([k, r]) => [k, { ...r }]))
+    }
+  } catch { /* private mode, or garbage: no templates */ }
+  templateCache = out
+  return out
+}
+const writeTemplates = (next: TemplateMap): void => {
+  templateCache = next
+  try {
+    if (Object.keys(next).length) localStorage.setItem(MODAL_TEMPLATES_KEY, JSON.stringify(next))
+    else localStorage.removeItem(MODAL_TEMPLATES_KEY)
+  } catch { /* private mode */ }
+}
+/** the kind's template in this org, or null: a new target then opens centred */
+export const modalTemplate = (kind: string, org: string | null): PinRect | null =>
+  org ? readTemplates()[templateKey(baseKind(kind), org)] ?? null : null
+/** an explicit placement of one instance becomes its kind's template */
+const noteTemplate = (stored: string, org: string | null, rect: PinRect | null): void => {
+  if (!org || !isInstanceKind(stored)) return
+  const key = templateKey(baseKind(stored), org)
+  const all = readTemplates()
+  if (rect ? JSON.stringify(all[key]) === JSON.stringify(rect) : !(key in all)) return
+  const next = { ...all }
+  if (rect) next[key] = { ...rect }; else delete next[key]
+  writeTemplates(next)
+}
+
+/** ONE-OFF, ON FIRST READ (approved migration). Until 2026-10-20 each of
+ *  these kinds had ONE pin per org, `[org, kind]`, showing whichever target
+ *  its open marker named. That pin becomes the kind's template, so the next
+ *  target opened pins exactly where the old window was; and when a marker
+ *  names the target it showed, it is that target's own pin too. The markers
+ *  are already per target here (`readModalOpen` converts them as it reads). */
+function migrateInstancePins(pins: PinMap, opens: ModalOpenState[]): void {
+  const legacy = Object.entries(pins).flatMap(([key, pin]) => {
+    try {
+      const k = JSON.parse(key) as unknown
+      return Array.isArray(k) && k.length === 2 && typeof k[0] === 'string' && typeof k[1] === 'string'
+        && PER_TARGET_KINDS.has(k[1]) ? [{ key, org: k[0], kind: legacyBase(k[1]), pin }] : []
+    } catch { return [] }
+  })
+  if (!legacy.length) return
+  const templates = { ...readTemplates() }
+  // the newest placement wins where an agent docket and a team docket both had one
+  for (const { key, org, kind, pin } of legacy.sort((a, b) => b.pin.z - a.pin.z)) {
+    templates[templateKey(kind, org)] ??= { ...pin.rect }
+    const shown = opens.filter(o => o.org === org && isInstanceKind(o.kind) && baseKind(o.kind) === kind)
+    if (shown.length === 1) pins[modalPinKey(shown[0]!.kind, org)] ??= pin
+    delete pins[key]
+  }
+  writeTemplates(templates)
+}
+
+/** The instance kinds of `kind` pinned in `org`, newest first. */
+const instancePins = (pins: PinMap, kind: string, org: string): [string, ModalPin][] =>
+  Object.entries(pins).filter(([key]) => {
+    try {
+      const k = JSON.parse(key) as unknown
+      return Array.isArray(k) && k[0] === org && typeof k[1] === 'string'
+        && isInstanceKind(k[1]) && baseKind(k[1]) === kind
+    } catch { return false }
+  }).sort((a, b) => b[1].z - a[1].z)
+
+/** Keep the newest KEPT_PLACEMENTS placements of closed instances of this
+ *  kind; an open one (it has an open marker, or it is `keep`) is never
+ *  dropped. Returns the map with the rest removed. */
+const pruneClosed = (pins: PinMap, kind: string, org: string, keep: string): PinMap => {
+  const open = new Set(readModalOpen(org).filter(o => o.org === org).map(o => modalPinKey(o.kind, org)))
+  open.add(modalPinKey(keep, org))
+  const closed = instancePins(pins, kind, org).filter(([key]) => !open.has(key))
+  if (closed.length <= KEPT_PLACEMENTS) return pins
+  const next = { ...pins }
+  for (const [key] of closed.slice(KEPT_PLACEMENTS)) delete next[key]
+  return next
+}
+
+/** Where `rect` lands past every open sibling sitting exactly there: 28 px
+ *  right and down, back to the canvas's top left when the next step would
+ *  leave it. Bounded, so a canvas full of windows still answers. */
+export function cascadeRect(start: PinRect, taken: readonly PinRect[],
+  bounds: { w: number; h: number } | null): PinRect {
+  const at = (a: PinRect, b: PinRect) => Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1
+  let r = { ...start }
+  for (let n = 0; n < 64 && taken.some(t => at(t, r)); n++) {
+    let x = r.x + CASCADE_STEP, y = r.y + CASCADE_STEP
+    if (bounds && (x + r.w > bounds.w || y + r.h > bounds.h)) { x = 0; y = 0 }
+    r = { ...r, x, y }
+  }
+  return r
+}
+
+/** A target with no placement of its own opens the way its kind last did
+ *  (approved default 1): pinned at the template's size, cascaded past the
+ *  `open` siblings (instance kinds), or — with no template — centred, which
+ *  is `false`. A target that has a placement keeps it. Never moves the
+ *  template, and never runs where pinning is not offered (mobile, Home). */
+export function placeNewInstance(kind: string, target: string, org: string | null,
+  open: readonly string[]): boolean {
+  if (!org || !modalPinsAvailable()) return false
+  const own = instanceKind(kind, target)
+  const pins = readModalPins()
+  if (pins[modalPinKey(own, org)]) return true
+  const template = modalTemplate(kind, org)
+  if (!template) return false
+  const taken = open.map(k => pins[modalPinKey(k, org)]?.rect).filter((r): r is PinRect => !!r)
+  const bounds = canvasBox(document, org) ?? winSize()
+  const rect = clampRect(cascadeRect(template, taken, bounds), bounds, modalMinDimensions(own))
+  write(renorm(pruneClosed({ ...pins, [modalPinKey(own, org)]: { rect, z: Object.keys(pins).length } }, kind, org, own),
+    modalPinKey(own, org)))
+  return true
+}
+
+/** A rename carries every per-target record of `from` to `to`: its pins and
+ *  its open markers (the window rows move in windowlayout.ts). A watchdog is
+ *  not a node and is never renamed. */
+export function renameModalInstances(org: string, from: string, to: string): void {
+  if (!from || !to || from === to) return
+  const pins = readModalPins()
+  let next: PinMap | null = null
+  for (const kind of PER_TARGET_KINDS) {
+    if (kind === 'watchdog' || kind === 'team-docket') continue
+    const old = modalPinKey(instanceKind(kind, from), org)
+    if (!pins[old]) continue
+    next ??= { ...pins }
+    next[modalPinKey(instanceKind(kind, to), org)] ??= next[old]!
+    delete next[old]
+  }
+  if (next) write(next)
+  const opens = readModalOpen()
+  const moved = opens.map(o => o.org === org && isInstanceKind(o.kind) && baseKind(o.kind) !== 'watchdog'
+    && instanceTarget(o.kind) === from
+    ? { ...o, kind: instanceKind(baseKind(o.kind), to), ...(o.restore ? { restore: { ...o.restore, agent: to } } : {}) }
+    : o)
+  if (moved.some((o, i) => o !== opens[i])) writeOpen(moved)
+}
 
 const validRestore = (v: unknown): v is WindowRestore => {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false
@@ -181,6 +348,17 @@ export const readModalOpen = (org?: string | null): ModalOpenState[] => {
       openCache = Array.isArray(parsed) ? parsed.filter(validOpen).map((o) => ({
         kind: o.kind, org: o.org, ...(o.restore ? { restore: { ...o.restore } } : {}),
       })) : []
+      // ONE-OFF (approved migration): a single-instance marker names the
+      // target it showed, and becomes that target's instance's marker. The
+      // team docket's joins the agent docket's, with its Team box ticked.
+      let converted = false
+      openCache = openCache.map((o) => {
+        const kind = migratedKind(o.kind, o.restore)
+        if (kind === o.kind) return o
+        converted = true
+        return { ...o, kind, ...(o.kind === 'team-docket' ? { restore: { ...o.restore, team: true } } : {}) }
+      }).filter((o, i, all) => all.findIndex(p => openKey(p.kind, p.org) === openKey(o.kind, o.org)) === i)
+      if (converted) writeOpen(openCache)
     } catch { openCache = [] }
   }
   return openCache.filter((o) => org === undefined || o.org === null || o.org === org)
@@ -281,6 +459,7 @@ export const usePersistedModalOpen = (kind: string, org: string | null, open: bo
 const subscribe = (fn: () => void): (() => void) => {
   subs.add(fn)
   const onStorage = (e: StorageEvent) => {
+    if (e.key == null || e.key === MODAL_TEMPLATES_KEY) templateCache = null
     if (e.key == null || e.key === MODAL_PINS_KEY) { cache = null; fn() }
   }
   window.addEventListener('storage', onStorage)
@@ -311,12 +490,21 @@ export const closeIfCentred = (kind: string, close: () => void, org: string | nu
 
 export const pinModal = (kind: string, rect: PinRect, org: string | null = null): void => {
   const min = modalMinDimensions(kind)
+  const stored = kind
   kind = modalPinKey(kind, org)
   const pins = readModalPins()
   if (pins[kind]) return
-  write(renorm({ ...pins, [kind]: { rect: clampRect(rect, winSize(), min), z: Object.keys(pins).length } }, kind))
+  const placed = clampRect(rect, winSize(), min)
+  // pinning one target is the user placing its KIND: the next new target
+  // opens here too, cascaded (approved default 1)
+  noteTemplate(stored, org, placed)
+  const next = { ...pins, [kind]: { rect: placed, z: Object.keys(pins).length } }
+  write(renorm(org && isInstanceKind(stored) ? pruneClosed(next, baseKind(stored), org, stored) : next, kind))
 }
 export const unpinModal = (kind: string, org: string | null = null): void => {
+  // unpinning puts the KIND back in the middle of the screen: a new target
+  // opens centred again, as the single window did after its unpin
+  noteTemplate(kind, org, null)
   kind = modalPinKey(kind, org)
   const pins = readModalPins()
   if (!pins[kind]) return
@@ -455,10 +643,14 @@ export const forgetSurfaceRequests = (): void => {
 /** geometry commits ONCE per gesture, at pointer-up, like an agent window */
 export const commitModalRect = (kind: string, rect: PinRect, org: string | null = null): void => {
   const min = modalMinDimensions(kind)
+  const stored = kind
   kind = modalPinKey(kind, org)
   const pins = readModalPins()
   if (!pins[kind]) return
-  write({ ...pins, [kind]: { ...pins[kind]!, rect: clampRect(rect, winSize(), min) } })
+  const placed = clampRect(rect, winSize(), min)
+  // a drag or a resize is an explicit placement as well
+  noteTemplate(stored, org, placed)
+  write({ ...pins, [kind]: { ...pins[kind]!, rect: placed } })
 }
 
 /** the window box a pinned modal is clamped to. `.overlay` is `fixed; inset:0`,

@@ -15,7 +15,10 @@ import { captureDraftDeskFocus, restoreDraftDeskKeyboard, type DraftDeskFocus } 
 import { useAppRead } from '../appfeed'
 import { useOrgHireProviders } from '../orghire'
 import { adoptPinLayer, canvasBox, readPinSurfaces, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
-import { closeSavedWindow, restoredAgent, restoredAgentGallery, restoredWindows, savedDeskIdentities } from '../windowlayout'
+import { closeSavedWindow, renameWindowRows, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
+import type { WindowRestore } from '../windowlayout'
+import { baseKind, instanceKind, instanceTarget, isInstanceKind } from '../modalkinds'
+import { useModalInstances } from './modalinstances'
 import { revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
@@ -37,7 +40,7 @@ import { tierEffortLevels } from './staffingoptions'
 import { Fragment, useCallback, useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AccountRegistryPayload, AudienceGrant, OpResult, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
+import type { AccountRegistryPayload, AudienceGrant, OpResult, ProviderInfo, ToastFn, TreeNode, TreePayload, Watchdog } from '../types'
 import { audienceAction, getAccountRegistry, getProviders, orgInboxRead, reorderNode } from '../api'
 import { useAgyModelsRefresh, museEffortLevels } from './shared'
 import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
@@ -76,7 +79,7 @@ import { ProjectListenersModal } from './listenerspanel'
 import { AgentSurfaceRoutesProvider } from './panelcorner'
 import { DeskDogsProvider } from './deskdogs'
 import type { DeskDogs } from './deskdogs'
-import type { AgentSurfaceRoutes } from './panelcorner'
+import type { AgentPanelKind, AgentSurfaceRoutes } from './panelcorner'
 import { TeamListNavigation, TeamListOrder, TeamModal } from './team'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
 import { museHireAccount } from './musehire'
@@ -90,7 +93,7 @@ import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
 import { useSettingsAsk } from './settingskit'
 import type { SettingsTarget } from './settingskit'
-import { isModalPinned, ModalOverPins, PinFrame, toggleNodePanel, toggleOrRaiseModal, readModalOpen, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
+import { isModalPinned, ModalOverPins, PinFrame, toggleNodePanel, toggleOrRaiseModal, readModalOpen, renameModalInstances, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
@@ -495,6 +498,21 @@ export const HUD_FIT = 'fit the whole org'
 export const HUD_SWITCHBOARD = 'jump to the switchboard'
 const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
+/** One watchdog's detail window (FR-18), as many as are open: each loads its
+ *  own dog when the tree holds only its metadata (docket
+ *  several-instances-of-the-same-modal-team-slots-i). */
+function WatchdogInstance({ slug, id, dogs, op, toast, close }: {
+  slug: string; id: string; dogs?: Watchdog[]; op: OpFn; toast: ToastFn; close: () => void
+}) {
+  const detail = useWatchdogDetail(slug, id, dogs ?? [])
+  return detail.dog
+    ? <MaybePortal><WatchdogPanel slug={slug} toast={toast} op={op} dogs={dogs} dog={detail.dog} close={close} /></MaybePortal>
+    : <ModalOverPins><div className="overlay" onClick={close}>
+      <div className="settings content-height" role="dialog" aria-label="watchdog" onClick={e => e.stopPropagation()}>
+        <p role="status">{detail.error ?? 'Loading watchdog…'}</p><button onClick={close}>close</button>
+      </div></div></ModalOverPins>
+}
+
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, onPresentations, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, focusAgentDesk, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery, canvasShortcuts,
@@ -538,47 +556,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // focused node — which is what makes "closing puts the view back" true by
   // construction rather than by restoring anything.
   const [tempDeskId, setTempDeskId] = useState<string | null>(null)
-  // a PROJECT's desk as a modal: "Open desk", or popped out to its own window
-  // (point 27, user 2026-10-17 23:28Z, 23:29:47Z)
-  const [projectDeskId, setProjectDeskId] = useState<string | null>(null)
-  const [projectDeskFocus, setProjectDeskFocus] = useState(0)
-  const revealProjectDesk = useCallback((id: string) => {
-    if (revealOpenPanel('project-desk', slug, { agent: id })) return true
-    if (projectDeskId !== id) return false
-    setProjectDeskFocus(seq => seq + 1)
-    return true
-  }, [projectDeskId, slug])
-  const openProjectDesk = (id: string, popout = false) => {
-    if (pinnedIdsRef.current.has(id)) {
-      if (!popout) { showPin(slug, id, vpSizeNow()); return }
-      // An explicit placement action moves the existing project desk; a
-      // plain reopening above only reveals it, as on the agent desk.
-      removePin(slug, id)
-    }
-    if (revealExistingDesk(slug, mapRef.current.get(id))) return
-    if (revealProjectDesk(id)) {
-      if (popout) requestSurfaceAction('project-desk', slug, 'popout')
-      return
-    }
-    if (!popout && focusRef.current === id) { centerRef.current?.(id); return }
-    setProjectDeskId(id)
-    if (popout) requestSurfaceAction('project-desk', slug, 'popout')
-  }
-  const [configId, setConfigId] = useState<string | null>(null)
-  // a link into one control of an agent's gear (the desk's cheap-compact
-  // warning, "Turn off in settings", when the agent carries its own ON
-  // override): opens or raises the panel and hands it the tab and the row
-  const [configTarget, setConfigTarget] = useState<{ id: string } & SettingsTarget | null>(null)
-  // Same-panel buttons hide pins, including behind another panel (user
-  // 2026-10-18 16:42Z); a different node keeps retargeting the same window.
-  const toggleConfig = useCallback((id: string, keepOpen = false) => {
-    toggleNodePanel('node-config', configId, id, setConfigId, slug, keepOpen)
-  }, [configId, slug])
-  useSettingsAsk('agent', slug, (ask) => {
-    if (!ask.agentId) return
-    setConfigTarget((t) => ({ id: ask.agentId!, tab: ask.target.tab, field: ask.target.field, seq: (t?.seq ?? 0) + 1 }))
-    toggleConfig(ask.agentId, true)
-  })
   const [lineageId, setLineageId] = useState<string | null>(null)
   const [restoreDesks, setRestoreDesks] = useState(() => savedDeskIdentities(slug))
   useEffect(() => { setRestoreDesks(savedDeskIdentities(slug)) }, [slug])
@@ -615,51 +592,23 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const [trayQ, setTrayQ] = useState('')            // №26: tray name filter
   const [trayArch, setTrayArch] = useState(false)   // archived rows shown (user
                                                     // spec: hidden by default)
-  const [inboxId, setInboxId] = useState<string | null>(null)
-  const [agentDocketId, setAgentDocketId] = useState<string | null>(null)
-  const [projectSlotsId, setProjectSlotsId] = useState<string | null>(null)
-  const openProjectSlots = useCallback((id: string) => {
-    toggleNodePanel('project-slots', projectSlotsId, id, setProjectSlotsId, slug, true)
-  }, [projectSlotsId, slug])
-  // a project's event listeners in their own window (docket
-  // slots-tab-header-hold-n-slots-button-with-number, USER 2026-10-20 16:43Z)
-  const [projectListenersId, setProjectListenersId] = useState<string | null>(null)
-  const openProjectListeners = useCallback((id: string) => {
-    toggleNodePanel('project-listeners', projectListenersId, id, setProjectListenersId, slug, true)
-  }, [projectListenersId, slug])
-  const [agentDocketTeam, setAgentDocketTeam] = useState(false)
-  const openAgentDocket = useCallback((id: string, opts?: { team?: boolean; keepOpen?: boolean }) => {
-    const sameScope = agentDocketTeam === !!opts?.team
-    setAgentDocketTeam(!!opts?.team)
-    toggleNodePanel('agent-docket', sameScope ? agentDocketId : null, id, setAgentDocketId, slug, opts?.keepOpen)
-  }, [agentDocketId, agentDocketTeam, slug])
-  const [teamId, setTeamId] = useState<string | null>(null)
   const [oiOpen, setOiOpen] = useState(false)       // the ORG-inbox viewer
   // inline mail links (user spec 2026-07-31): a chat's send chip opens the
   // box that HOLDS the mail, selected on it — user inbox, a node's inbox, or
   // the org inbox for outbound. Jump ids clear when the modal closes.
   // the REQUEST, not the target: two clicks on the same message are two
-  // requests, and the panel's latch compares the request (`jumpKey`)
+  // requests, and the panel's latch compares the request (`jumpKey`).
+  // `agent` is the mailbox it is for: each agent's Mail is its own window.
   const [nodeInboxJump, setNodeInboxJump] =
-    useState<{ id: string; seq: number } | null>(null)
+    useState<{ agent: string; id: string; seq: number } | null>(null)
   // the org-mail a link or a reference targets — a REQUEST, so a repeat
   // click on the same row is a second request (`jumpKey`)
   const [oiJump, setOiJump] = useState<{ id: string; seq: number } | null>(null)
-  const [dogView, setDogView] = useState<string | null>(null)  // FR-18 panel
-  const dogDetail = useWatchdogDetail(slug, dogView, tree.watchdogs ?? [])
-
-  const toggleDog = useCallback((id: string, keepOpen = false) => {
-    toggleNodePanel('watchdog', dogView, id, setDogView, slug, keepOpen)
-  }, [dogView, slug])
-  const toggleNodeSurface = useCallback((kind: string, id: string,
-    set: (v: string | null) => void, keepOpen = false) => {
-    const current = kind === 'node-inbox' ? inboxId : kind === 'agent-team' ? teamId : lineageId
-    toggleNodePanel(kind, current, id, set, slug, keepOpen)
-  }, [inboxId, teamId, lineageId, slug])
-  const showNodeSurface = useCallback((kind: string, id: string,
-    set: (v: string | null) => void) => {
-    toggleNodePanel(kind, null, id, set, slug, true)
-  }, [slug])
+  // the lineage panel is not rendered in Orgtree 4 (ledger B1), so its one
+  // id stays the single-target toggle it always was
+  const toggleLineage = useCallback((id: string, keepOpen = false) => {
+    toggleNodePanel('lineage', lineageId, id, setLineageId, slug, keepOpen)
+  }, [lineageId, slug])
 
   // ---- mobile wave (D-123/D-125) ----
   // the desk SHEET: explicit state, mobile-only. This deliberately does NOT
@@ -926,17 +875,99 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     noteKnownOrg(slug)
     setOrgMentionCandidates(slug, liveMentionCandidatesFromTree(tree))
   }, [slug, tree])
-  usePersistedModalOpen('node-config', slug, configId !== null, configId ? { agent: configId, generation: map.get(configId)?.generation } : undefined)
   usePersistedModalOpen('lineage', slug, lineageId !== null, lineageId ? { agent: lineageId, generation: map.get(lineageId)?.generation } : undefined)
-  usePersistedModalOpen('node-inbox', slug, inboxId !== null, inboxId ? { agent: inboxId, generation: map.get(inboxId)?.generation } : undefined)
-  usePersistedModalOpen('agent-docket', slug, agentDocketId !== null, agentDocketId ? {
-    agent: agentDocketId, generation: map.get(agentDocketId)?.generation,
-    ...(agentDocketTeam ? { team: true } : {}),
-  } : undefined)
-  usePersistedModalOpen('agent-team', slug, teamId !== null, teamId ? { agent: teamId, generation: map.get(teamId)?.generation } : undefined)
-  usePersistedModalOpen('project-slots', slug, projectSlotsId !== null, projectSlotsId ? { agent: projectSlotsId, generation: map.get(projectSlotsId)?.generation } : undefined)
-  usePersistedModalOpen('project-listeners', slug, projectListenersId !== null, projectListenersId ? { agent: projectListenersId, generation: map.get(projectListenersId)?.generation } : undefined)
-  usePersistedModalOpen('watchdog', slug, dogView !== null, dogView ? { watchdog: dogView } : undefined)
+  // ---- THE PER-TARGET MODALS, several at once (docket
+  // several-instances-of-the-same-modal-team-slots-i, USER 2026-10-20
+  // 17:24:20Z: "different versions of the same modal ... should be able to
+  // coexist"). Each list holds the targets its kind shows; the opening rules
+  // and the durable open markers are canvas/modalinstances.ts. These sit
+  // after `map` because each instance's marker carries its generation.
+  const agentRestore = (id: string): WindowRestore => ({ agent: id, generation: map.get(id)?.generation })
+  const configs = useModalInstances('node-config', slug, agentRestore)
+  const inboxes = useModalInstances('node-inbox', slug, agentRestore)
+  const teams = useModalInstances('agent-team', slug, agentRestore)
+  const slotsPanels = useModalInstances('project-slots', slug, agentRestore)
+  const listenersPanels = useModalInstances('project-listeners', slug, agentRestore)
+  // the agent docket and its team docket are ONE modal, the Team box
+  // unticked or ticked (user 2026-10-18 10:57Z): one instance per target,
+  // its scope part of the instance
+  const [docketTeam, setDocketTeam] = useState<Readonly<Record<string, boolean>>>({})
+  const dockets = useModalInstances('agent-docket', slug,
+    (id) => ({ ...agentRestore(id), ...(docketTeam[id] ? { team: true } : {}) }))
+  const dogViews = useModalInstances('watchdog', slug, (id) => ({ watchdog: id }))   // FR-18 panels
+  // a PROJECT's desk as a modal: "Open desk", or popped out to its own window
+  // (point 27, user 2026-10-17 23:28Z, 23:29:47Z); one per project
+  const projectDesks = useModalInstances('project-desk', slug, (id) => ({ agent: id }))
+  const [projectDeskFocus, setProjectDeskFocus] = useState<Readonly<Record<string, number>>>({})
+  const hasProjectDesk = projectDesks.has
+  const revealProjectDesk = useCallback((id: string) => {
+    if (revealOpenPanel(instanceKind('project-desk', id), slug, { agent: id })) return true
+    if (!hasProjectDesk(id)) return false
+    setProjectDeskFocus(seq => ({ ...seq, [id]: (seq[id] ?? 0) + 1 }))
+    return true
+  }, [hasProjectDesk, slug])
+  const openProjectDesk = (id: string, popout = false) => {
+    if (pinnedIdsRef.current.has(id)) {
+      if (!popout) { showPin(slug, id, vpSizeNow()); return }
+      // An explicit placement action moves the existing project desk; a
+      // plain reopening above only reveals it, as on the agent desk.
+      removePin(slug, id)
+    }
+    if (revealExistingDesk(slug, mapRef.current.get(id))) return
+    if (revealProjectDesk(id)) {
+      if (popout) requestSurfaceAction(instanceKind('project-desk', id), slug, 'popout')
+      return
+    }
+    if (!popout && focusRef.current === id) { centerRef.current?.(id); return }
+    // its pin is an agent-pin-layer window (pinAsWindow below), never a
+    // modal pin, so there is no modal placement for it to follow
+    projectDesks.open(id, { ensureOpen: true, place: false })
+    if (popout) requestSurfaceAction(instanceKind('project-desk', id), slug, 'popout')
+  }
+  // a link into one control of an agent's gear (the desk's cheap-compact
+  // warning, "Turn off in settings", when the agent carries its own ON
+  // override): opens or raises the panel and hands it the tab and the row
+  const [configTarget, setConfigTarget] = useState<{ id: string } & SettingsTarget | null>(null)
+  // Same-panel buttons hide pins, including behind another panel (user
+  // 2026-10-18 16:42Z); another node's settings open beside them.
+  const openConfig = configs.open
+  const toggleConfig = useCallback((id: string, keepOpen = false) => {
+    openConfig(id, { ensureOpen: keepOpen })
+  }, [openConfig])
+  useSettingsAsk('agent', slug, (ask) => {
+    if (!ask.agentId) return
+    setConfigTarget((t) => ({ id: ask.agentId!, tab: ask.target.tab, field: ask.target.field, seq: (t?.seq ?? 0) + 1 }))
+    toggleConfig(ask.agentId, true)
+  })
+  const openSlots = slotsPanels.open, openListeners = listenersPanels.open
+  const openProjectSlots = useCallback((id: string, place = true) => {
+    openSlots(id, { ensureOpen: true, place })
+  }, [openSlots])
+  // a project's event listeners in their own window (docket
+  // slots-tab-header-hold-n-slots-button-with-number, USER 2026-10-20 16:43Z)
+  const openProjectListeners = useCallback((id: string, place = true) => {
+    openListeners(id, { ensureOpen: true, place })
+  }, [openListeners])
+  const openDocketInstance = dockets.open
+  const openAgentDocket = useCallback((id: string, opts?: { team?: boolean; keepOpen?: boolean; place?: boolean }) => {
+    const team = !!opts?.team
+    // a switch of scope is an open, never a toggle-closed (as before)
+    const sameScope = (docketTeam[id] ?? false) === team
+    setDocketTeam(t => (t[id] ?? false) === team ? t : { ...t, [id]: team })
+    openDocketInstance(id, { ensureOpen: !!opts?.keepOpen || !sameScope, place: opts?.place })
+  }, [docketTeam, openDocketInstance])
+  const openInbox = inboxes.open, openTeam = teams.open, openDogView = dogViews.open
+  const toggleDog = useCallback((id: string, keepOpen = false) => {
+    openDogView(id, { ensureOpen: keepOpen })
+  }, [openDogView])
+  // every list at once: a dismissed retiree closes its windows in all of
+  // them, a rename moves its instances in all of them, and the tree
+  // selection keeps every open instance's node
+  // (watchdog windows are keyed by dog, not by node: they are not in it)
+  const instanceLists = useMemo(() => [configs, inboxes, teams, slotsPanels, listenersPanels, dockets, projectDesks],
+    [configs, inboxes, teams, slotsPanels, listenersPanels, dockets, projectDesks])
+  const renameLists = useRef<((from: string, to: string) => void)[]>([])
+  renameLists.current = instanceLists.map(list => list.rename)
   useEffect(() => { if (tree.org_inbox?.enabled === false) setOiOpen(false) }, [tree.org_inbox?.enabled])
   usePersistedModalOpen('org-inbox', slug, oiOpen)
   usePersistedModalOpen('doc', slug, docView !== null, docView ? { document: docView } : undefined)
@@ -960,26 +991,32 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         rect: { x: 0, y: 0, width: 200, height: 150 }, restore: row.restore,
       }, map) : null
     }
-    setConfigId(pinnedKind('node-config') ? (agent('node-config') ?? pinnedAgent('node-config')) : agent('node-config'))
     setLineageId(pinnedKind('lineage') ? (agent('lineage') ?? pinnedAgent('lineage')) : agent('lineage'))
-    setInboxId(pinnedKind('node-inbox') ? (agent('node-inbox') ?? pinnedAgent('node-inbox')) : agent('node-inbox'))
-    const pinnedDocket = pinnedKind('agent-docket') ? pinned.find(r => r.kind === 'agent-docket' && r.org === slug)?.restore
-      : pinnedKind('team-docket') ? { ...pinned.find(r => r.kind === 'team-docket' && r.org === slug)?.restore, team: true } : undefined
-    const docketRow = rows.find(r => r.kind === 'agent-docket')
-      ?? (rows.find(r => r.kind === 'team-docket') ? { ...rows.find(r => r.kind === 'team-docket')!, restore: { ...rows.find(r => r.kind === 'team-docket')!.restore, team: true } } : undefined)
-    const docket = restoredAgentGallery(pinnedDocket, docketRow, map)
-    setAgentDocketId(docket?.id ?? null)
-    setAgentDocketTeam(docket?.team ?? false)
-    setTeamId(pinnedKind('agent-team') ? (agent('agent-team') ?? pinnedAgent('agent-team')) : agent('agent-team'))
-    setProjectSlotsId(pinnedKind('project-slots') ? (agent('project-slots') ?? pinnedAgent('project-slots')) : agent('project-slots'))
-    setProjectListenersId(pinnedKind('project-listeners') ? (agent('project-listeners') ?? pinnedAgent('project-listeners')) : agent('project-listeners'))
+    // EVERY TARGET'S INSTANCE of each per-target surface comes back (docket
+    // several-instances-of-the-same-modal-team-slots-i): a popped-out one from
+    // its window row, a pinned one from its open marker. Same generation
+    // check as before; the window rows first, as before.
+    const instances = (kind: string) => [...rows.filter(r => isInstanceKind(r.kind) && baseKind(r.kind) === kind),
+      ...pinned.filter(r => isInstanceKind(r.kind) && baseKind(r.kind) === kind && isModalPinned(r.kind, slug))
+        .map(r => ({ key: `pinned:${slug}:${r.kind}`, kind: r.kind, org: slug, open: true,
+          rect: { x: 0, y: 0, width: 200, height: 150 }, restore: r.restore }))]
+    const targets = (kind: string) => [...new Set(instances(kind).map(r => restoredAgent(r, map))
+      .filter((id): id is string => !!id))]
+    configs.restore(targets('node-config'))
+    inboxes.restore(targets('node-inbox'))
+    // the docket's scope comes back with it: a Team docket stays one
+    const docketRows = instances('agent-docket').filter(r => restoredAgent(r, map))
+    setDocketTeam(Object.fromEntries(docketRows.map(r => [restoredAgent(r, map)!, r.restore?.team === true])))
+    dockets.restore(targets('agent-docket'))
+    teams.restore(targets('agent-team'))
+    slotsPanels.restore(targets('project-slots'))
+    listenersPanels.restore(targets('project-listeners'))
     setOiOpen(pinnedKind('org-inbox') || rows.some(r => r.kind === 'org-inbox'))
     setTrayOpen(pinnedKind('agent-list') || rows.some(r => r.kind === 'agent-list'))
-    const watchdogRow = pinned.find(r => r.kind === 'watchdog') || rows.find(r => r.kind === 'watchdog')
-    const watchdog = watchdogRow?.restore?.watchdog
     // Keep a pinned restore target even when watchdog data arrives later; the
     // panel render below already waits for the matching tree entry.
-    setDogView(watchdog && (pinnedKind('watchdog') || !!rows.find(r => r.kind === 'watchdog')) ? watchdog : null)
+    dogViews.restore(instances('watchdog').map(r => r.restore?.watchdog ?? instanceTarget(r.kind))
+      .filter((id): id is string => !!id))
     const pinnedDoc = pinned.find(r => r.kind === 'doc' && r.restore?.document)
     setDocView(pinnedDoc?.restore?.document ?? rows.find(r => r.kind === 'doc')?.restore?.document ?? null)
     setRestoredDocs(rows.filter(r => r.kind !== 'doc' && r.restore?.document))
@@ -1002,8 +1039,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       setOiJump({ id: String(m.id), seq: jumpTo(String(m.id)).seq })
       setOiOpen(true)
     } else if (map.has(m.to)) {
-      setNodeInboxJump({ id: String(m.id), seq: jumpTo(String(m.id)).seq })
-      setInboxId(m.to)
+      setNodeInboxJump({ agent: m.to, id: String(m.id), seq: jumpTo(String(m.id)).seq })
+      openInbox(m.to, { ensureOpen: true })
     }
   }
   const openMail = useCallback<MailLinkFn>((m) => openMailRef.current?.(m), [])
@@ -1278,11 +1315,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     renameDrafts(slug, from, to)
     moveDeskMemory(slug, from, to)
     window.dispatchEvent(new window.CustomEvent('orgtree:desk-rename', { detail: { slug, from, to } }))
-    setConfigId((v) => v === from ? to : v)
     setLineageId((v) => v === from ? to : v)
-    setInboxId((v) => v === from ? to : v)
-    setAgentDocketId((v) => v === from ? to : v)
-    setProjectSlotsId((v) => v === from ? to : v)
+    // each per-target instance and its pin, marker and window row follow the
+    // name (the Team and Listeners windows used to be lost on a rename)
+    renameModalInstances(slug, from, to)
+    renameWindowRows(slug, from, to)
+    for (const list of renameLists.current) list(from, to)
+    setDocketTeam((t) => from in t ? Object.fromEntries(Object.entries(t).map(([k, v]) => [k === from ? to : k, v])) : t)
+    setProjectDeskFocus((f) => from in f ? Object.fromEntries(Object.entries(f).map(([k, v]) => [k === from ? to : k, v])) : f)
     setSheetId((v) => v === from ? to : v)
   }, [slug])
   const nodeDrag = useRef<{
@@ -3305,7 +3345,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const selectedTreeState = JSON.stringify({
     include: [...new Set([...(restoredModalOrg.current === slug ? [] : savedSelection.include),
       ...restoreDesks.map(([, id]) => id), ...pins.map(pin => pin.id), ...shownRetired,
-      configId, lineageId, inboxId, agentDocketId, projectSlotsId, projectListenersId, teamId, tempDeskId, sheetId,
+      lineageId, ...instanceLists.flatMap(list => list.ids), tempDeskId, sheetId,
       draftOrigin.current?.target?.id, draftReturn.current?.target?.id,
       focusId, draft?.parent, draft?.beside?.anchor, draft?.above?.anchor, pendingJump?.id,
     ].filter((id): id is string => !!id && id !== USER && id !== DRAFT))].sort(),
@@ -3352,19 +3392,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (pinnedIdsRef.current.has(id)) {
       removePin(slug, id)
     }
-    setConfigId((cur) => (cur === id ? null : cur))
     setLineageId((cur) => (cur === id ? null : cur))
-    setInboxId((cur) => (cur === id ? null : cur))
-    setAgentDocketId((cur) => (cur === id ? null : cur))
-    setProjectSlotsId((cur) => (cur === id ? null : cur))
-    setProjectListenersId((cur) => (cur === id ? null : cur))
-    setTeamId((cur) => (cur === id ? null : cur))
+    const hadSurface = instanceLists.some(list => list.has(id))
+    for (const list of instanceLists) list.close(id)
     setSheetId((cur) => (cur === id ? null : cur))
 
     const wasFocused = focusRef.current === id || nearestId === id
       || (camIntent.current?.kind === 'focus' && camIntent.current.id === id)
-    const hasActiveSurface = configId === id || lineageId === id || inboxId === id
-      || agentDocketId === id || projectSlotsId === id || projectListenersId === id || teamId === id || sheetId === id
+    const hasActiveSurface = hadSurface || lineageId === id || sheetId === id
       || pinnedIdsRef.current.has(id)
     const parentId = mapRef.current.get(id)?.parent
     const validParent = parentId && mapRef.current.has(parentId) && !prunedRef.current.has(parentId)
@@ -3390,8 +3425,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // leave the camera over an empty layout, with neither the parent nor its
     // retired-list token reachable.
     if (wasFocused || hasActiveSurface) centerOn(fallbackId)
-  }, [slug, nearestId, shownRetired, configId, lineageId, inboxId,
-    agentDocketId, projectSlotsId, projectListenersId, teamId, sheetId, centerOn])
+  }, [slug, nearestId, shownRetired, lineageId, instanceLists, sheetId, centerOn])
 
   // THE AGENTS LIST ROW'S CONTEXT MENU (user request 2026-09-12: a row must
   // offer exactly what the agent's own card offers, "with the same ordering,
@@ -3428,8 +3462,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const desk = deskNow(n)
     return agentMenuEntries(n, {
       onOpenDesk: go,
-      onInbox: () => showNodeSurface('node-inbox', n.id, setInboxId),
-      onTeam: () => showNodeSurface('agent-team', n.id, setTeamId),
+      onInbox: () => openInbox(n.id, { ensureOpen: true }),
+      onTeam: () => openTeam(n.id, { ensureOpen: true }),
       onScratchFolder: scratchFolderAction(slug, n.id, toast, n.kind === 'project' ? 'team' : undefined),
       onTeamScratchFolder: scratchFolderAction(slug, n.id, toast, 'team'),
       onDocket: () => openAgentDocket(n.id, { keepOpen: true }),
@@ -3440,7 +3474,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         ? () => onOpenAgentGallery(n.id, { keepOpen: true }) : undefined,
       onTeamPresentations: onOpenAgentGallery
         ? () => onOpenAgentGallery(n.id, { team: true, keepOpen: true }) : undefined,
-      onLineage: () => showNodeSurface('lineage', n.id, setLineageId),
+      onLineage: () => toggleLineage(n.id, true),
       onSettings: () => toggleConfig(n.id, true),
       onToggleUserAudience: () => audienceAction(slug,
         (n.audiences_explicit ?? n.audiences_held)?.includes(USER) ? 'revoke' : 'grant', n.id, USER)
@@ -3906,26 +3940,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // hundred lines above (`trayRowMenu`, and the card's own props below), so
   // The modal button and canonical menu share one activation route. Pin and
   // pop-out use its ensure-open form — see canvas/panelcorner.tsx.
-  const agentSurfaceRoutes = useMemo((): AgentSurfaceRoutes => ({
-    open: (kind, id) => {
+  // `open` follows the kind's placement for a target never placed; `show`
+  // is the corner's pin / pop-out, which places the window at the tab itself
+  const agentSurfaceRoutes = useMemo((): AgentSurfaceRoutes => {
+    const route = (place: boolean) => (kind: AgentPanelKind, id: string) => {
       if (kind === 'agent-gallery') onOpenAgentGallery?.(id, { keepOpen: true })
-      else if (kind === 'agent-docket') openAgentDocket(id, { keepOpen: true })
-      else if (kind === 'project-slots') openProjectSlots(id)
-      else if (kind === 'project-listeners') openProjectListeners(id)
-      else showNodeSurface(kind, id,
-        kind === 'agent-team' ? setTeamId : setInboxId)
-    },
-    show: (kind, id) => {
-      if (kind === 'agent-gallery') onOpenAgentGallery?.(id, { keepOpen: true })
-      else if (kind === 'agent-docket') openAgentDocket(id, { keepOpen: true })
-      else if (kind === 'project-slots') openProjectSlots(id)
-      else if (kind === 'project-listeners') openProjectListeners(id)
-      else showNodeSurface(kind, id,
-        kind === 'agent-team' ? setTeamId : setInboxId)
-    },
-    settings: toggleConfig,
-    lineage: (id) => toggleNodeSurface('lineage', id, setLineageId),
-  }), [onOpenAgentGallery, openAgentDocket, openProjectSlots, openProjectListeners, toggleNodeSurface, showNodeSurface, toggleConfig])
+      else if (kind === 'agent-docket') openAgentDocket(id, { keepOpen: true, place })
+      else if (kind === 'project-slots') openProjectSlots(id, place)
+      else if (kind === 'project-listeners') openProjectListeners(id, place)
+      else (kind === 'agent-team' ? openTeam : openInbox)(id, { ensureOpen: true, place })
+    }
+    return { open: route(true), show: route(false), settings: toggleConfig,
+      lineage: (id) => toggleLineage(id) }
+  }, [onOpenAgentGallery, openAgentDocket, openProjectSlots, openProjectListeners, openTeam, openInbox, toggleLineage, toggleConfig])
   // every desk's watchdog cards open the SAME modal the satellite chip does
   // (canvas/deskdogs.tsx)
   const deskDogs = useMemo((): DeskDogs => ({ org: slug, dogs: tree.watchdogs ?? [], counts: tree.watchdog_counts, slotLeases: tree.slot_leases ?? [], open: toggleDog }),
@@ -4150,7 +4177,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       maxTop: tree.max_top_grant ?? 1000, pxc: pxPerCredit,
       onMailLink: openMail, onWorkLink: openWork, onOpenDoc: openDocView,
       onJump: centerOn, onConfig: () => toggleConfig(node.id),
-      onLineage: () => toggleNodeSurface('lineage', node.id, setLineageId),
+      onLineage: () => toggleLineage(node.id),
     })}><AgentNavHost
       map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu}
       providers={providerEntries} accounts={accountPayload}
@@ -4345,7 +4372,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               /* switchboard panel headers mirror the desk header identically
                  (user spec 2026-08-19): the gen badge and gear in each panel
                  open the same canvas-level lineage/config surfaces */
-              onNodeLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onNodeConfig={toggleConfig}
+              onNodeLineage={(id) => toggleLineage(id)} onNodeConfig={toggleConfig}
               onNewProject={() => spawnProject(USER)}
               quickChatDefaults={tree.quick_chat}
               onSpawn={(t) => spawn(USER, t)} />
@@ -4371,7 +4398,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           const square = isProject(n)
             ? <ProjectSquare key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
               zoom={view.z}
-              focused={n.id === focusId && !worldHidden && projectDeskId !== n.id}
+              focused={n.id === focusId && !worldHidden && !projectDesks.ids.includes(n.id)}
               pinnedFocus={n.id === pinnedFocusId}
               pinned={pinnedIds.has(n.id)}
               onFocus={() => centerOn(n.id)}
@@ -4388,8 +4415,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onSpawnTop={(t) => spawnAbove(n, t)}
               onNewProjectAt={(edge) => spawnProjectAt(n, edge)}
               onSettings={(keepOpen) => toggleConfig(n.id, keepOpen)}
-              onInbox={(keepOpen) => toggleNodeSurface('node-inbox', n.id, setInboxId, keepOpen)}
-              onTeam={(keepOpen) => toggleNodeSurface('agent-team', n.id, setTeamId, keepOpen)}
+              onInbox={(keepOpen) => openInbox(n.id, { ensureOpen: keepOpen })}
+              onTeam={(keepOpen) => openTeam(n.id, { ensureOpen: keepOpen })}
               onDocket={(keepOpen) => openAgentDocket(n.id, { keepOpen })}
               onOpenDoc={openDocView}
               onOpenGallery={onOpenAgentGallery}
@@ -4420,8 +4447,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onSpawnSide={(t, side) => spawnBeside(n, t, side)}
               onSpawnTop={(t) => spawnAbove(n, t)}
               onConfig={(keepOpen) => toggleConfig(n.id, keepOpen)}
-              onInbox={(keepOpen) => toggleNodeSurface('node-inbox', n.id, setInboxId, keepOpen)} onLineage={(keepOpen) => toggleNodeSurface('lineage', n.id, setLineageId, keepOpen)}
-              onTeam={(keepOpen) => toggleNodeSurface('agent-team', n.id, setTeamId, keepOpen)}
+              onInbox={(keepOpen) => openInbox(n.id, { ensureOpen: keepOpen })} onLineage={(keepOpen) => toggleLineage(n.id, keepOpen)}
+              onTeam={(keepOpen) => openTeam(n.id, { ensureOpen: keepOpen })}
               onDocket={(keepOpen) => openAgentDocket(n.id, { keepOpen })}
               onTeamDocket={(keepOpen) => openAgentDocket(n.id, { team: true, keepOpen })}
               onOpenDoc={openDocView}
@@ -4569,7 +4596,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           targetOf={cardRectOf} op={op} toast={toast}
           compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000}
           pxc={pxPerCredit} onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
-          onLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onConfig={toggleConfig} onJump={centerOn}
+          onLineage={(id) => toggleLineage(id)} onConfig={toggleConfig} onJump={centerOn}
           onShowOnCanvas={showOnCanvas}
           projectDesk={projectDeskOf}
           onDismiss={(id) => hideRetired && mapRef.current.get(id)?.state === 'archived'
@@ -4747,10 +4774,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           on desktop; use the same document-aware portal as desk confirmations.
           Keep it mounted so dialog drafts survive canvas/desk changes. */}
       <ModalOverPins>
-      {configId && map.get(configId) && (
+      {configs.ids.map(configId => map.get(configId) && (
         /* §4.8: an archived seat arrives summarised and this panel needs its
            `scope`, so it waits for the detail fetch rather than throwing */
-        <MaybePortal><NodeDetailGate slug={slug} node={map.get(configId)!}>
+        <MaybePortal key={`${slug}/${configId}`}><NodeDetailGate slug={slug} node={map.get(configId)!}>
           {(n) => (
         <NodeConfig node={n} map={map} tree={tree} slug={slug}
           op={op} toast={toast} claudeProvider={claudeProvider} codexProvider={codexProvider}
@@ -4761,21 +4788,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onTeamScratchFolder={scratchFolderAction(slug, n.id, toast, 'team')}
           refs={canvasRefs} onFocusAgent={centerOn}
           target={configTarget?.id === n.id ? configTarget : null}
-          close={() => { setConfigId(null); setConfigTarget(null) }} />)}
+          close={() => { configs.close(configId); setConfigTarget((t) => t?.id === configId ? null : t) }} />)}
         </NodeDetailGate></MaybePortal>
-      )}
+      ))}
       {/* no lineage panel: Orgtree 4 keeps no prior generations (ledger B1) */}
-      {dogView && dogDetail.dog && (
-        <MaybePortal><WatchdogPanel slug={slug} toast={toast}
-          op={op}
-          dogs={tree.watchdogs}
-          dog={dogDetail.dog}
-          close={() => setDogView(null)} /></MaybePortal>
-      )}
-      {dogView && !dogDetail.dog && <ModalOverPins><div className="overlay" onClick={()=>setDogView(null)}>
-        <div className="settings content-height" role="dialog" aria-label="watchdog" onClick={e=>e.stopPropagation()}>
-          <p role="status">{dogDetail.error??'Loading watchdog…'}</p><button onClick={()=>setDogView(null)}>close</button>
-        </div></div></ModalOverPins>}
+      {dogViews.ids.map(id => <WatchdogInstance key={`${slug}/${id}`} slug={slug} id={id} toast={toast}
+        op={op} dogs={tree.watchdogs} close={() => dogViews.close(id)} />)}
       {restoredDocs.map(row => <DocReader key={row.key} slug={slug} docId={row.restore!.document!}
         pinKind={row.kind} toast={toast} refs={docRefs} close={() => {
           closeSavedWindow(row.key); setRestoredDocs(old => old.filter(r => r.key !== row.key))
@@ -4785,45 +4803,48 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           refs={docRefs}
           close={() => setDocView(null)} /></MaybePortal>
       )}
-      {inboxId && map.get(inboxId)?.kind === 'project' && (
-        // a project's own mailbox, as its desk's inbox tab shows it
-        <MaybePortal><ProjectInboxModal node={map.get(inboxId)!} slug={slug} tree={tree} map={map} op={op}
-          toast={toast} refs={canvasRefs}
-          jumpTo={nodeInboxJump?.id ?? null} jumpSeq={nodeInboxJump?.seq}
-          onFocusAgent={centerOn}
-          close={() => { setInboxId(null); setNodeInboxJump(null) }} /></MaybePortal>
-      )}
-      {inboxId && map.get(inboxId) && map.get(inboxId)!.kind !== 'project' && (
-        <MaybePortal><NodeInboxModal node={map.get(inboxId)!} slug={slug}
-          toast={toast}
-          tierOf={(id) => nodeTierOf(map.get(id))}
-          hasAgent={(id) => map.has(id)}
-          refs={canvasRefs}
-          jumpTo={nodeInboxJump?.id ?? null} jumpSeq={nodeInboxJump?.seq}
-          onFocusAgent={centerOn}
-          close={() => { setInboxId(null); setNodeInboxJump(null) }} /></MaybePortal>
-      )}
-      {agentDocketId && map.has(agentDocketId) && (
-        <MaybePortal><AgentDocketModal key={`${slug}/${agentDocketId}`} slug={slug}
-          nid={agentDocketId} team={agentDocketTeam} onTeamChange={setAgentDocketTeam}
+      {inboxes.ids.map(inboxId => {
+        const node = map.get(inboxId)
+        if (!node) return null
+        // this agent's own jump: another mailbox's request is not its own
+        const jump = nodeInboxJump?.agent === inboxId ? nodeInboxJump : null
+        const close = () => { inboxes.close(inboxId); setNodeInboxJump((j) => j?.agent === inboxId ? null : j) }
+        return node.kind === 'project'
+          // a project's own mailbox, as its desk's inbox tab shows it
+          ? <MaybePortal key={`${slug}/${inboxId}`}><ProjectInboxModal node={node} slug={slug} tree={tree} map={map} op={op}
+            toast={toast} refs={canvasRefs}
+            jumpTo={jump?.id ?? null} jumpSeq={jump?.seq}
+            onFocusAgent={centerOn} close={close} /></MaybePortal>
+          : <MaybePortal key={`${slug}/${inboxId}`}><NodeInboxModal node={node} slug={slug}
+            toast={toast}
+            tierOf={(id) => nodeTierOf(map.get(id))}
+            hasAgent={(id) => map.has(id)}
+            refs={canvasRefs}
+            jumpTo={jump?.id ?? null} jumpSeq={jump?.seq}
+            onFocusAgent={centerOn} close={close} /></MaybePortal>
+      })}
+      {dockets.ids.map(agentDocketId => map.has(agentDocketId) && (
+        <MaybePortal key={`${slug}/${agentDocketId}`}><AgentDocketModal key={`${slug}/${agentDocketId}`} slug={slug}
+          nid={agentDocketId} team={docketTeam[agentDocketId] ?? false}
+          onTeamChange={(team) => setDocketTeam((t) => ({ ...t, [agentDocketId]: team }))}
           tree={tree} toast={toast} refs={canvasRefs}
-          close={() => setAgentDocketId(null)} /></MaybePortal>
-      )}
-      {projectSlotsId && (
-        <MaybePortal><ProjectSlotsModal key={`${slug}/${projectSlotsId}`} slug={slug} nid={projectSlotsId}
+          close={() => dockets.close(agentDocketId)} /></MaybePortal>
+      ))}
+      {slotsPanels.ids.map(projectSlotsId => (
+        <MaybePortal key={`${slug}/${projectSlotsId}`}><ProjectSlotsModal key={`${slug}/${projectSlotsId}`} slug={slug} nid={projectSlotsId}
           tree={tree} map={map} op={op} toast={toast} onJump={goToAgent}
-          close={() => setProjectSlotsId(null)} /></MaybePortal>
-      )}
-      {projectListenersId && (
-        <MaybePortal><ProjectListenersModal key={`${slug}/${projectListenersId}`} slug={slug} nid={projectListenersId}
+          close={() => slotsPanels.close(projectSlotsId)} /></MaybePortal>
+      ))}
+      {listenersPanels.ids.map(projectListenersId => (
+        <MaybePortal key={`${slug}/${projectListenersId}`}><ProjectListenersModal key={`${slug}/${projectListenersId}`} slug={slug} nid={projectListenersId}
           tree={tree} map={map} op={op} toast={toast} onJump={goToAgent} refs={canvasRefs}
-          close={() => setProjectListenersId(null)} /></MaybePortal>
-      )}
-      {teamId && map.has(teamId) && (
-        <MaybePortal><TeamModal key={`${slug}/${teamId}`} map={map} nid={teamId}
+          close={() => listenersPanels.close(projectListenersId)} /></MaybePortal>
+      ))}
+      {teams.ids.map(teamId => map.has(teamId) && (
+        <MaybePortal key={`${slug}/${teamId}`}><TeamModal key={`${slug}/${teamId}`} map={map} nid={teamId}
           refs={canvasRefs} onPick={goToAgent} compactAt={tree.compact_at}
-          close={() => setTeamId(null)} /></MaybePortal>
-      )}
+          close={() => teams.close(teamId)} /></MaybePortal>
+      ))}
       {pileOpen && piles.get(pileOpen) && (
         <MaybePortal><PilePicker org={slug} pile={piles.get(pileOpen)!} map={map} op={op} toast={toast}
           ready={piles.get(pileOpen)!.kind !== 'a' || !(map.get(piles.get(pileOpen)!.parent)?.hidden_retired_children ?? 0)}
@@ -4880,7 +4901,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                   <button className="ms-btn" title="hire a report"
                     onClick={() => setHireOpen(true)}>＋</button>}
                 <button className="ms-btn" title="mail"
-                  onClick={() => toggleNodeSurface('node-inbox', sheetId, setInboxId)}>✉</button>
+                  onClick={() => openInbox(sheetId)}>✉</button>
                 <button className="ms-btn" title="permissions & settings"
                   onClick={() => toggleConfig(sheetId)}>⚙</button>
                 <button className="ms-btn ms-close" onClick={() => setSheetId(null)}>✕</button>
@@ -4902,7 +4923,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                   toast={toast} compactAt={tree.compact_at}
                   maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
                   onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
-                  onLineage={() => toggleNodeSurface('lineage', sheetId, setLineageId)}
+                  onLineage={() => toggleLineage(sheetId)}
                   onConfig={() => toggleConfig(sheetId)}
                   onJump={(id) => {
                     if (id !== USER && mapRef.current.has(id)) setSheetId(id)
@@ -4971,22 +4992,22 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         canonical desk and have the registry give it back. Outside the viewport
         for the same reason as the org slot: it must not inherit the pan/zoom
         transform, and it must survive the canvas being hidden. */}
-    {projectDeskId && map.get(projectDeskId)?.kind === 'project' && (
-      <ProjectDeskModal node={map.get(projectDeskId)!} slug={slug} tree={tree} map={map} op={op} toast={toast}
-        focusRequest={projectDeskFocus}
-        refs={canvasRefs} close={() => setProjectDeskId(null)}
+    {projectDesks.ids.map(projectDeskId => map.get(projectDeskId)?.kind === 'project' && (
+      <ProjectDeskModal key={`${slug}/${projectDeskId}`} node={map.get(projectDeskId)!} slug={slug} tree={tree} map={map} op={op} toast={toast}
+        focusRequest={projectDeskFocus[projectDeskId] ?? 0}
+        refs={canvasRefs} close={() => projectDesks.close(projectDeskId)}
         // its pin makes the agent pin layer's window, as TempDeskModal's below
         pinAsWindow={!isMobile && !pinnedIds.has(projectDeskId)
           ? (client) => {
             const box = canvasBox(viewportRef.current?.ownerDocument ?? document, slug)
             const rect = { ...client, x: client.x - (box?.x ?? 0), y: client.y - (box?.y ?? 0) }
             const result = addPin(slug, projectDeskId, rect, { client, viewport: box ? {w: box.w, h: box.h} : null })
-            if (result.ok) setProjectDeskId(null)
+            if (result.ok) projectDesks.close(projectDeskId)
             else toast([result.reason])
           } : undefined}
-        onJump={(id) => { setProjectDeskId(null); centerOn(id) }}
+        onJump={(id) => { projectDesks.close(projectDeskId); centerOn(id) }}
         onConfig={() => toggleConfig(projectDeskId)} onOpenDoc={openDocView} />
-    )}
+    ))}
     {tempDeskId && map.get(tempDeskId) && (
       <TempDeskModal node={map.get(tempDeskId)!} close={() => setTempDeskId(null)}
         // Measure the modal before ending its borrow. Pins store canvas-local
@@ -5011,7 +5032,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           // the normal desk navigation and dismisses the glance so the target
           // is visible, including hidden retired reports revealed by centerOn.
           onJump: (id) => { setTempDeskId(null); centerOn(id) },
-          onLineage: () => toggleNodeSurface('lineage', tempDeskId, setLineageId),
+          onLineage: () => toggleLineage(tempDeskId),
           onConfig: () => toggleConfig(tempDeskId),
         }} />
     )}

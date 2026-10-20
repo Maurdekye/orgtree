@@ -8,6 +8,7 @@ import { ActiveAgentsFilter, AgentTray, trayRows } from './agenttray'
 import { useAgentNavRegistry } from './agentnav'
 import { useContextMenu } from './contextmenu'
 import { PinFrame } from './modalpin'
+import { instanceKind } from '../modalkinds'
 
 export const TeamListOrder = createContext<((a: CanvasNode, b: CanvasNode) => number) | null>(null)
 export const TeamListNavigation = createContext<((id: string) => void) | null>(null)
@@ -82,7 +83,7 @@ export function TeamModal({ map, nid, onPick, refs, compactAt, close }: {
   refs: RefRoutes; compactAt?: number; close: () => void
 }) {
   const { list, activeControl } = useTeamList({ map, nid, onPick, refs, compactAt })
-  return <PinFrame kind="agent-team" title={`${nid} · Team`} panel="tray-panel team-panel"
+  return <PinFrame kind={instanceKind('agent-team', nid)} title={`${nid} · Team`} panel="tray-panel team-panel"
     restore={{ agent: nid, generation: map.get(nid)?.generation }} close={close}
     dialogLabel={`${nid} · Team`} titleInModal headerActions={activeControl}>
     {list}

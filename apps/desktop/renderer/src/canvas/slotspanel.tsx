@@ -1,4 +1,5 @@
 import { PinFrame } from './modalpin'
+import { instanceKind } from '../modalkinds'
 import { SlotsView } from './slotsdesk'
 import { projectSlotState, slotCount, slotLeadText } from './slots'
 import { ViewListIcon } from '../icons'
@@ -13,7 +14,7 @@ export function ProjectSlotsModal({slug,nid,map,tree,op,toast,close,onJump}:{
   const node=map.get(nid)
   const count=node?.kind==='project'?slotCount(node):0
   const state=projectSlotState(nid,count,tree.slot_leases??[],tree.watchdogs??[])
-  return <PinFrame kind="project-slots" title={`${nid} · slots`} panel="settings wide" close={close}
+  return <PinFrame kind={instanceKind('project-slots', nid)} title={`${nid} · slots`} panel="settings wide" close={close}
     restore={{agent:nid,generation:node?.generation}} dialogLabel={`${nid} · slots`}>
     <h3 data-copy-agent-name={nid}><ViewListIcon fontSize="inherit" /> {nid} <span className="dim">· slots</span></h3>
     {node&&count>0?<><div className="dim">{slotLeadText(state)}</div>

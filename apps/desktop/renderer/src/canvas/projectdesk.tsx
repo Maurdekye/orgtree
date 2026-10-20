@@ -51,6 +51,7 @@ import { agentNavProps } from './agentnav'
 import { useAgentMentions, useDeskMentionScope, useOrgMentionCandidates } from './agentmentions'
 import { openFallbackObjectMenu, useContextMenu } from './contextmenu'
 import { closeIfCentred, PinFrame } from './modalpin'
+import { instanceKind } from '../modalkinds'
 import { AgentLink, AgentName, nodeTierOf } from './identity'
 import type { PinRect } from './pins'
 import { ConfirmModal } from './modals'
@@ -937,8 +938,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
 /** The project desk as a MODAL (user 2026-10-17 23:28Z, 23:29:47Z): the menu's
  *  "Open desk" glances at it without moving the camera, as the agent menu's
  *  temporary desk does, and "Desk in a separate window" asks this same surface to
- *  pop itself out (`requestSurfaceAction('project-desk', …, 'popout')`). One
- *  surface per org: a second project's desk replaces the first. */
+ *  pop itself out (`requestSurfaceAction('project-desk:<id>', …, 'popout')`).
+ *  One surface per PROJECT (docket several-instances-of-the-same-modal-team-slots-i):
+ *  a second project's desk opens beside the first's window. */
 export function ProjectDeskModal({ close, pinAsWindow, ...props }: ProjectDeskProps & {
   close: () => void
   /** pin it as the agent pin layer's window (window px), as an agent's
@@ -951,7 +953,7 @@ export function ProjectDeskModal({ close, pinAsWindow, ...props }: ProjectDeskPr
     // pin-project: the org theme, as a pinned project window; one title
     // bar, as the agent desk's: folder and name, pin and close — the desk
     // below does not repeat the name (styles.css, user 11:14Z)
-    <DeskModalShell kind="project-desk" title={`Project ${props.node.id}`}
+    <DeskModalShell kind={instanceKind('project-desk', props.node.id)} title={`Project ${props.node.id}`}
       nodeId={props.node.id} tier="project"
       panel="tempdesk-panel pin-project project-desk-modal" close={close}
       pinElsewhere={pinAsWindow}>
@@ -981,14 +983,14 @@ export function ProjectInboxModal({ node, slug, tree, map, op, toast, refs, clos
   // everything a token can open is under this overlay
   const leaving = useMemo(() => refs && {
     world: refs.world,
-    onOpen: (r: Parameters<RefRoutes['onOpen']>[0]) => { closeIfCentred('node-inbox', close, slug); refs.onOpen(r) },
-  }, [refs, close, slug])
+    onOpen: (r: Parameters<RefRoutes['onOpen']>[0]) => { closeIfCentred(instanceKind('node-inbox', node.id), close, slug); refs.onOpen(r) },
+  }, [refs, close, slug, node.id])
   return (
-    <PinFrame kind="node-inbox" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · mail`}
+    <PinFrame kind={instanceKind('node-inbox', node.id)} restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · mail`}
       panel="settings wide" close={close}>
       <h3 data-copy-agent-name={node.id}><MailIcon fontSize="inherit" /> {node.id} <span className="dim">· mail</span></h3>
       <ProjectInbox node={node} slug={slug} tree={tree} map={map} op={op} toast={toast} refs={leaving} collapsible
-        onJump={onFocusAgent ? (id) => { closeIfCentred('node-inbox', close, slug); onFocusAgent(id) } : undefined}
+        onJump={onFocusAgent ? (id) => { closeIfCentred(instanceKind('node-inbox', node.id), close, slug); onFocusAgent(id) } : undefined}
         jumpTo={held?.id ?? jumpTo} jumpSeq={held?.seq ?? jumpSeq} folderAsk={ask}
         onOpenMail={(id) => {
           setHeld((h) => ({ id, seq: Math.min(h?.seq ?? 0, 0) - 1 }))

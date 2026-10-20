@@ -33,5 +33,5 @@ export function TeamDocketModal(props: {
   slug: string; nid: string; tree: TreePayload; toast: ToastFn
   close: () => void; refs: RefRoutes
 }) {
-  return <AgentDocketModal {...props} team pinKind="team-docket" />
+  return <AgentDocketModal {...props} team />
 }

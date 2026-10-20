@@ -5,6 +5,7 @@ import type { ToastFn, TreePayload } from '../types'
 import { DocketIcon } from '../icons'
 import { AgentDocketView, agentItems, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { PinFrame, closeIfCentred } from './modalpin'
+import { instanceKind } from '../modalkinds'
 import { flatten, withDraftTree } from './shared'
 import type { RefRoutes } from './reflinks'
 import { resolveRef } from './reflinks'
@@ -13,10 +14,13 @@ import { resolveRef } from './reflinks'
  *  and team dockets are the SAME modal with the "Team" checkbox unchecked or
  *  checked). */
 export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
-  team, onTeamChange, pinKind = 'agent-docket' }: {
+  team, onTeamChange, pinKind = instanceKind('agent-docket', nid) }: {
   slug: string; nid: string; tree: TreePayload; toast: ToastFn
   close: () => void; refs: RefRoutes
   team?: boolean; onTeamChange?: (team: boolean) => void
+  /** the window's identity; by default this agent's docket instance (docket
+   *  several-instances-of-the-same-modal-team-slots-i), its own and its team
+   *  docket being the one modal with the Team box unticked or ticked */
   pinKind?: string
 }) {
   const [localTeam, setLocalTeam] = useState(!!team)

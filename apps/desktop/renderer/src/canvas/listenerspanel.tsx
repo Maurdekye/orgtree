@@ -7,6 +7,7 @@
 // are off there is no tab, and the panel says so instead of a table.
 
 import { PinFrame } from './modalpin'
+import { instanceKind } from '../modalkinds'
 import { ListenersView } from './listenersdesk'
 import { eventListenersOn } from './listeners'
 import { ListenersIcon } from '../icons'
@@ -20,7 +21,7 @@ export function ProjectListenersModal({ slug, nid, map, tree, op, toast, close, 
 }) {
   const node = map.get(nid)
   const on = node?.kind === 'project' && eventListenersOn(node)
-  return <PinFrame kind="project-listeners" title={`${nid} · listeners`} panel="settings wide" close={close}
+  return <PinFrame kind={instanceKind('project-listeners', nid)} title={`${nid} · listeners`} panel="settings wide" close={close}
     restore={{ agent: nid, generation: node?.generation }} dialogLabel={`${nid} · listeners`}>
     <h3 data-copy-agent-name={nid}><ListenersIcon fontSize="inherit" /> {nid} <span className="dim">· listeners</span></h3>
     {node && on
