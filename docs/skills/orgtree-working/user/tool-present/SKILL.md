@@ -39,6 +39,19 @@ Paths are canonicalized and checked inside your scratch or effectively held fold
 
 The HTML entry is limited to 4 MiB. Capture collects supported local HTML/CSS dependency references under its source directory, including nested CSS resources, with a 25 MiB total resource bound and 4,096-file cap. Absolute/escaping/protected/missing local asset paths refuse. A resource in another granted folder still cannot escape the mockup root. Dynamically discovered assets are not guaranteed captured.
 
+The mockup must be self-contained for offline use: inline its resources or keep
+every referenced local asset under the source directory. Local references are
+resolved relative to the HTML or CSS file containing them; package imports are
+not looked up in an installed dependency tree. For example, CSS containing
+`@import 'katex/dist/katex.min.css'` needs that file beneath the referring CSS
+file's directory, or must be bundled/inlined before presenting.
+
+If a local stylesheet, CSS import/URL, image, script or other captured asset is
+missing or unreadable, present refuses instead of skipping it. The error names
+the asset reference as written, the path it resolved to, and the HTML or CSS file
+that referenced it. For a nested CSS dependency, that last file is the CSS file,
+not just the entry HTML. Correct the reference or supply the asset, then retry.
+
 The preview embeds captured resources in an isolated sandbox with scripts allowed, but no network connections, form submission or app access. Prefer inline scripts/styles and local resources; a remote CDN/API dependency is not a working offline preview. The captured preview is separately size-bounded to 25 MiB. The download is HTML for a single file, or a ZIP with original relative layout for an asset bundle. Later source edits do not change either stored capture.
 
 ## What reaches the user

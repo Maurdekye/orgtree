@@ -1,3 +1,9 @@
+- HTML capture failures for missing/unreadable local assets name the source
+  reference as written, its resolved path and the referring HTML/CSS file.
+  Preserve typed refusal context at the tool boundary; outer anyhow context
+  alone is discarded for UserError. Capture bounds/containment stay unchanged.
+  [verified: `domain/html_bundle.rs`, `domain/html_bundle_tests.rs`; 2026-10-20]
+
 - The shared context-menu renderer puts an Open submenu second at every menu
   level, after copy/mention prefixes and async updates. Other action order,
   callbacks and gates stay unchanged; plain Open actions keep their position.
