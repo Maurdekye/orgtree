@@ -631,7 +631,7 @@ fn build_tool_read_scratch() -> Value {
 fn build_tool_interrupt() -> Value {
     tool(
         "orgtree_interrupt",
-        "Interrupt a descendant with runtime permission, or yourself without it. restart starts one next turn by placement rules. queued waits for Claude post-tool/AGY post-invocation hooks, or Codex/Muse/ACP completion notices (the next step may be cut off early). Background work refuses queued/restart. Inspect interrupt status; no retirement.",
+        "Interrupt yourself, or a descendant with runtime permission. restart wakes one turn by placement rules. queued: Claude/AGY held hooks; Codex/Muse/ACP completion notices may cut the next step off early. Background work blocks queued/restart. Inspect interrupt status.",
         json!({
             "node": { "type": "string" },
             "restart": { "type": "boolean", "description": "start one next turn after this turn settles" },
@@ -1636,7 +1636,7 @@ mod builder_stack_tests {
         // Approved node-placement contracts (bfa9369) and their concise wording.
         // Keep the captured required-field text and guide; schemas/order stay guarded.
         for (name, description) in [
-            ("orgtree_interrupt", "Interrupt a descendant with runtime permission, or yourself without it. restart starts one next turn by placement rules. queued waits for Claude post-tool/AGY post-invocation hooks, or Codex/Muse/ACP completion notices (the next step may be cut off early). Background work refuses queued/restart. Inspect interrupt status; no retirement."),
+            ("orgtree_interrupt", "Interrupt yourself, or a descendant with runtime permission. restart wakes one turn by placement rules. queued: Claude/AGY held hooks; Codex/Muse/ACP completion notices may cut the next step off early. Background work blocks queued/restart. Inspect interrupt status."),
             ("orgtree_halt", "Halt descendant agents until unhalt: stop processes, keep waiting mail and suppress wakes."),
             ("orgtree_unhalt", "Unhalt descendant agents; waiting mail may start their next turn."),
             ("orgtree_unstick", "Release a descendant agent's usage freeze and let it continue."),
