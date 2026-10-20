@@ -10,7 +10,9 @@
 //      message box says its inbox has no listeners and that mail sent there
 //      may not be read by anyone or delivered anywhere until one attaches;
 //      after a send, the toast carries the engine's own note, warning and all;
-//   §2 an attached listener, armed or paused, takes the note away; a
+//      the box's placeholder promises no agent that takes the mail;
+//   §2 an attached listener, armed or paused, takes the note away (and the
+//      placeholder says one agent under the project takes the mail); a
 //      fair_queue dog on another project, a spent one-shot or an event dog
 //      on this project does not;
 //   §3 the megaphone (every agent under the project, not its inbox) takes the
@@ -121,17 +123,28 @@ test('§1b the toast after a send carries the engine\'s note, warning and all', 
   assert.deepEqual(toasts.at(-1), [`to project website: ${delivery}`])
 })
 
+test('§1c with nobody listening, the box\'s placeholder promises no agent that takes the mail', async (t) => {
+  const el = await desk(t)
+  assert.ok(note(el), 'the note is up (positive control)')
+  const box = el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
+  assert.equal(box.placeholder, 'message project website…', 'not "one agent under it takes it…" right under the note')
+})
+
 /* ─── §2 what counts as a listener ─────────────────────────────────────── */
 
 test('§2a an armed listener on the project takes the note away', async (t) => {
   const el = await desk(t, { dogs: [dog({})] })
   assert.ok(el.querySelector('.project-composer'), 'the message box (positive control)')
   assert.equal(note(el) === null, true, 'no warning while a listener is attached')
+  assert.equal(el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!.placeholder,
+    'message project website: one agent under it takes it…')
 })
 
 test('§2b a paused listener is still attached: no note', async (t) => {
   const el = await desk(t, { dogs: [dog({ state: 'paused' })] })
   assert.equal(note(el) === null, true, 'a paused fair_queue dog is attached to the inbox')
+  assert.equal(el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!.placeholder,
+    'message project website: one agent under it takes it…', 'the mail waits for the listener to resume')
 })
 
 test('§2c dogs that are not this inbox\'s listeners leave the note up', async (t) => {

@@ -456,7 +456,11 @@ test('§2f the description has no border or background while not edited; the edi
 /* ─── §10 the message box ─────────────────────────────────────────────────── */
 
 test("§10 the desk's message box: by default one mail to the project's own inbox; with the megaphone on, one broadcast to every agent under it (user 2026-10-18 07:33Z, 07:43Z)", async (t) => {
-  const el = await desk(t)
+  // a listener on the inbox, so one agent under it takes the mail (with none,
+  // the box says so instead: projectinboxwarning.test.tsx)
+  const listener = { id: 'dev1/inbox', owner: 'dev1', name: 'inbox', kind: 'fair_queue', target: 'website', interval_s: 5,
+    state: 'armed', at: '2026-10-20T11:00:00.000Z', fired: 0, once: false, spent: false }
+  const el = await desk(t, { tree: { slug: 'org', roots: [], watchdogs: [listener], slot_leases: [] } as unknown as TreePayload })
   const sent: { path: string; body: unknown }[] = []
   const inner = globalThis.fetch
   globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {
