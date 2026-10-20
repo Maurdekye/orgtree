@@ -3160,7 +3160,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   // Known-cold pre-turn cheap compaction — per-node overrides
   // live in each agent's own gear panel
   const acc = tree.auto_cheap_compact ?? null
-  const accOn = val('accOn', !!acc?.enabled)
+  const accOn = val('accOn', acc?.enabled ?? true)
   const setAccOn = set('accOn', accOn)
   // the engine reports the effective value; 25% is its default (user
   // 2026-10-08), the fallback for an engine that reports none
@@ -3362,7 +3362,8 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
             <SetGroup title="Cache-protective cheap compaction">
               <SetToggle label="reset a session before a known-cold turn"
                 checked={accOn} onChange={setAccOn}
-                hint={'org default — agents can override in their own ⚙. '
+                hint={'On by default for new organizations; existing organizations keep their setting. '
+                  + 'Agents can override in their own ⚙. '
                   + 'The agent continues on a fresh session with a summary of '
                   + 'the old one. Cache expiry is fixed by '
                   + 'lane and never editable: Claude uses 60 min after a '
