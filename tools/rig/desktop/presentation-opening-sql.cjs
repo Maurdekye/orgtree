@@ -4,7 +4,15 @@ const fs=require('node:fs'),path=require('node:path'),{spawnSync}=require('node:
 const [repo,out,bin]=process.argv.slice(2);if(!repo||!out||!bin)throw Error('repo output pg-bin required');
 const root='D:/orgtree-work/rig/uninit-model-sol/runs/presentation-opening-'+Date.now();fs.mkdirSync(root,{recursive:true});fs.mkdirSync(out,{recursive:true});
 const data=path.join(root,'pg'),port=58463,exe=name=>path.join(bin,name+'.exe');
-function run(name,args){const r=spawnSync(exe(name),args,{windowsHide:true,encoding:'utf8',maxBuffer:8*1024*1024});fs.appendFileSync(out+'/pg-processes.log',JSON.stringify({name,status:r.status,signal:r.signal,error:r.error?.message})+'\n'+(r.stdout||'')+(r.stderr||''));if(r.status!==0||r.signal||r.error)throw Error(name+' failed');return r.stdout.trim()}
+let command=0;
+function run(name,args){
+ // postgres inherits startup handles: a pipe would keep spawnSync waiting
+ // until the server exits even after pg_ctl returned. File handles stay safe.
+ const logFile=out+'/command-'+(++command)+'-'+name+'.log',fd=fs.openSync(logFile,'w');let r;
+ try{r=spawnSync(exe(name),args,{windowsHide:true,stdio:['ignore',fd,fd],timeout:60000})}finally{fs.closeSync(fd)}
+ const log=fs.readFileSync(logFile,'utf8');fs.appendFileSync(out+'/pg-processes.log',JSON.stringify({name,status:r.status,signal:r.signal,error:r.error?.message})+'\n'+log);
+ if(r.status!==0||r.signal||r.error)throw Error(name+' failed');return log.trim();
+}
 function sql(text){const file=out+'/query.sql';fs.writeFileSync(file,text);return run('psql',['-X','-q','-A','-t','-v','ON_ERROR_STOP=1','-h','127.0.0.1','-p',String(port),'-U','postgres','-d','postgres','-f',file]);}
 const source=fs.readFileSync(repo+'/engine/rs/orgtree-engine/src/http/docs.rs','utf8');
 const query=name=>{const q=source.match(new RegExp('const '+name+': &str = "([\\s\\S]*?)";'));if(!q)throw Error('missing production SQL '+name);return q[1]};
