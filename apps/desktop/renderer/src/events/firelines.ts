@@ -61,14 +61,20 @@ function embedded(line: string): FirePart[] | undefined {
  *  object inside it. */
 export function fireLineParts(line: string, source?: FireSource): FirePart[] {
   if (source) {
-    const [head, ...rest] = line.split('\n')
+    const rest = line.split('\n')
+    const head = rest.shift() ?? ''
     if (rest.length && rest.every(l => l.startsWith(GUTTER))) {
       const body = rest.map(l => l.slice(GUTTER.length))
-      const cut = body.length > 1 && CUT.test(body[body.length - 1]) ? body.pop() : undefined
+      const last = body[body.length - 1]
+      const cut = body.length > 1 && last !== undefined && CUT.test(last) ? last : undefined
+      if (cut !== undefined) body.pop()
       const raw = body.join('\n')
       const value = json(raw, cut !== undefined)
-      if (value !== undefined)
-        return [{ kind: 'text', text: head }, { kind: 'json', value, raw }, ...(cut ? [{ kind: 'text' as const, text: cut }] : [])]
+      if (value !== undefined) {
+        const parts: FirePart[] = [{ kind: 'text', text: head }, { kind: 'json', value, raw }]
+        if (cut !== undefined) parts.push({ kind: 'text', text: cut })
+        return parts
+      }
     }
     return [{ kind: 'text', text: line }]
   }
@@ -85,18 +91,23 @@ export function fireActionParts(text: string): FirePart[] {
   const parts: FirePart[] = []
   const prose: string[] = []
   const flush = () => { if (prose.length) parts.push({ kind: 'text', text: prose.splice(0).join('\n') }) }
-  const lines = text.replace(/\n$/, '').split('\n')
-  for (let i = 0; i < lines.length;) {
-    if (!lines[i].startsWith('    ')) { prose.push(lines[i++]); continue }
-    const block: string[] = []
-    while (i < lines.length && lines[i].startsWith('    ')) block.push(lines[i++])
+  // one tool's result: the indented lines under its `tool: ok|FAILED`
+  const block: string[] = []
+  const result = () => {
+    if (!block.length) return
     const raw = block.map(l => l.slice(4)).join('\n')
     const cut = raw.endsWith('…')
     const value = json(cut ? raw.slice(0, -1) : raw, cut)
-    if (value === undefined) { prose.push(...block); continue }
-    flush()
-    parts.push({ kind: 'json', value, raw })
+    if (value === undefined) prose.push(...block)
+    else { flush(); parts.push({ kind: 'json', value, raw }) }
+    block.length = 0
   }
+  for (const line of text.replace(/\n$/, '').split('\n')) {
+    if (line.startsWith('    ')) { block.push(line); continue }
+    result()
+    prose.push(line)
+  }
+  result()
   flush()
   return parts
 }
