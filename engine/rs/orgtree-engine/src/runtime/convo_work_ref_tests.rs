@@ -1,4 +1,7 @@
-use super::{apply_tool_card, restore_result_refs, tool_arg, tool_refs, tool_result_text};
+use super::{
+    apply_tool_card, redact_tool_input, restore_result_refs, take_tool_inputs,
+    tool_arg, tool_file_paths, tool_refs, tool_result_text, CREDENTIALS_HIDDEN,
+};
 use serde_json::{json, Value};
 
 fn recorded_result(body: Value) -> Value {
@@ -161,4 +164,216 @@ fn saved_ref_repair_preserves_recorded_changes_and_does_not_repair_failed_calls(
     restore_result_refs(&mut rows);
     assert_eq!(rows[0]["tools"][0]["refs"],json!([original]));
     assert_eq!(rows[0]["tools"][1]["refs"],json!([]));
+}
+
+#[test]
+fn agy_call_mcp_tool_unwraps_into_canonical_orgtree_tool_refs_and_args() {
+    let work_call = json!({
+        "ServerName": "orgtree_orgtree",
+        "ToolName": "orgtree_work",
+        "Arguments": {
+            "action": "update",
+            "slug": "antigravity-transcripts-lack-inline-tool-call-an",
+            "owner": "mentions-argon",
+            "status": "in_progress"
+        }
+    });
+    let envelope = json!({
+        "content": recorded_result(json!({
+            "updated": "antigravity-transcripts-lack-inline-tool-call-an",
+            "previous_status": "open",
+            "status": "in_progress",
+            "rev": 6
+        }))
+    }).to_string();
+    assert_eq!(
+        tool_refs("default_api:call_mcp_tool", &work_call, Some(&envelope)),
+        json!([
+            {"kind": "agent", "id": "mentions-argon"},
+            {
+                "kind": "ticket",
+                "id": "antigravity-transcripts-lack-inline-tool-call-an",
+                "status_change": {"from": "open", "to": "in_progress"}
+            }
+        ])
+    );
+
+    let wd_call = json!({
+        "ServerName": "orgtree_orgtree",
+        "ToolName": "orgtree_watchdog",
+        "Arguments": {
+            "action": "create",
+            "kind": "slot",
+            "target": "build-slot",
+            "name": "agy-ref-test"
+        }
+    });
+    let wd_envelope = json!({
+        "content": recorded_result(json!({"id": "mentions-argon-agy-ref-test", "status": "armed"}))
+    }).to_string();
+    assert_eq!(
+        tool_refs("default_api:call_mcp_tool", &wd_call, Some(&wd_envelope)),
+        json!([{"kind": "watchdog", "id": "mentions-argon-agy-ref-test"}])
+    );
+    assert_eq!(tool_arg("default_api:call_mcp_tool", &wd_call), "agy-ref-test");
+
+    let msg_call = json!({
+        "ServerName": "orgtree_orgtree",
+        "ToolName": "orgtree_message",
+        "Arguments": {
+            "metadata": {"to": ["coordinator-opus", "@net:maurdekye.77ded7"]},
+            "body": "Completed AGY tool chip annotations"
+        }
+    });
+    assert_eq!(
+        tool_refs("default_api:call_mcp_tool", &msg_call, None),
+        json!([
+            {"kind": "agent", "id": "coordinator-opus"},
+            {"kind": "hub", "id": "@net:maurdekye.77ded7"}
+        ])
+    );
+    assert_eq!(tool_arg("default_api:call_mcp_tool", &msg_call), "Completed AGY tool chip annotations");
+}
+
+#[test]
+fn agy_native_tools_extract_file_paths_and_command_args() {
+    for tool in ["default_api:read_file", "default_api:write_file", "default_api:edit_file", "read_file", "write_file", "edit_file"] {
+        let input = json!({
+            "Path": "D:/orgtree-work/worktrees/mentions-argon-mentions/engine/rs/orgtree-engine/src/runtime/convo.rs",
+            "StartLine": 1,
+            "EndLine": 80
+        });
+        let paths = tool_file_paths(tool, &input).expect(tool);
+        assert_eq!(
+            paths,
+            json!([{
+                "path": "D:\\orgtree-work\\worktrees\\mentions-argon-mentions\\engine\\rs\\orgtree-engine\\src\\runtime\\convo.rs",
+                "link": true
+            }])
+        );
+        assert_eq!(
+            tool_arg(tool, &input),
+            "D:/orgtree-work/worktrees/mentions-argon-mentions/engine/rs/orgtree-engine/src/runtime/con"
+        );
+    }
+
+    let cmd_input = json!({
+        "CommandLine": "git status --short",
+        "toolSummary": "Git status check",
+        "WaitMsBeforeAsync": 5000
+    });
+    assert_eq!(tool_arg("default_api:run_command", &cmd_input), "Git status check");
+    assert_eq!(
+        tool_arg("default_api:run_command", &json!({"CommandLine": "cargo test -j1"})),
+        "cargo test -j1"
+    );
+    assert!(tool_file_paths("default_api:run_command", &json!({"CommandLine": "cat C:/secret.txt"})).is_none());
+}
+
+#[test]
+fn agy_watchdog_credentials_redact_inside_call_mcp_tool_and_take_tool_inputs_unwraps() {
+    let mut wrapped = json!({
+        "ServerName": "orgtree_orgtree",
+        "ToolName": "orgtree_watchdog",
+        "Arguments": {
+            "action": "create",
+            "kind": "mqtt",
+            "target": "mqtts://alice:topsecret@broker.example.com/topic",
+            "credentials": {"username": "alice", "password": "topsecret"},
+            "password": "topsecret"
+        }
+    });
+    redact_tool_input("default_api:call_mcp_tool", &mut wrapped);
+    assert_eq!(wrapped["Arguments"]["password"], "[redacted]");
+    assert_eq!(wrapped["Arguments"]["credentials"], CREDENTIALS_HIDDEN);
+    assert!(!wrapped.to_string().contains("topsecret"));
+
+    let mut row = json!({
+        "tools": [
+            {
+                "id": "agy-step-1",
+                "name": "default_api:read_file",
+                "arg": "",
+                "input": {"Path": "D:/orgtree-work/src/convo.rs", "StartLine": 1}
+            },
+            {
+                "id": "agy-step-2",
+                "name": "default_api:call_mcp_tool",
+                "arg": "orgtree_orgtree",
+                "input": {
+                    "ServerName": "orgtree_orgtree",
+                    "ToolName": "orgtree_work",
+                    "Arguments": {"action": "get", "slug": "antigravity-transcripts-lack-inline-tool-call-an"}
+                },
+                "refs": []
+            }
+        ]
+    });
+    let retained = take_tool_inputs(&mut row, 42);
+    assert_eq!(row["tools"][0]["name"], "read_file");
+    assert_eq!(row["tools"][0]["arg"], "D:/orgtree-work/src/convo.rs");
+    assert_eq!(row["tools"][0]["file_paths"], json!([{"path": "D:\\orgtree-work\\src\\convo.rs", "link": true}]));
+    assert!(row["tools"][0].get("input").is_none());
+
+    assert_eq!(row["tools"][1]["name"], "mcp__orgtree__orgtree_work");
+    assert_eq!(row["tools"][1]["arg"], "get");
+    assert_eq!(
+        row["tools"][1]["refs"],
+        json!([{"kind": "ticket", "id": "antigravity-transcripts-lack-inline-tool-call-an"}])
+    );
+    assert_eq!(
+        retained["agy-step-2"]["input"],
+        json!({"action": "get", "slug": "antigravity-transcripts-lack-inline-tool-call-an"})
+    );
+}
+
+#[test]
+fn restore_result_refs_repairs_agy_wrapped_chips_and_preserves_non_agy_inputs() {
+    let mut rows = vec![json!({
+        "role": "assistant",
+        "tools": [
+            {
+                "id": "agy-step-3",
+                "name": "default_api:read_file",
+                "arg": "",
+                "input": {"Path": "D:/orgtree-work/src/main.rs"},
+                "result": "1: fn main() {}",
+                "refs": []
+            },
+            {
+                "id": "agy-step-4",
+                "name": "default_api:call_mcp_tool",
+                "arg": "orgtree_orgtree",
+                "input": {
+                    "ServerName": "orgtree_orgtree",
+                    "ToolName": "orgtree_watchdog",
+                    "Arguments": {"action": "create", "kind": "slot", "target": "build-slot", "name": "slot-dog"}
+                },
+                "result": json!({"content": recorded_result(json!({"id": "mentions-argon-slot"}))}).to_string(),
+                "refs": []
+            }
+        ]
+    })];
+    restore_result_refs(&mut rows);
+    let file_chip = &rows[0]["tools"][0];
+    assert_eq!(file_chip["name"], "read_file");
+    assert_eq!(file_chip["arg"], "D:/orgtree-work/src/main.rs");
+    assert_eq!(file_chip["file_paths"], json!([{"path": "D:\\orgtree-work\\src\\main.rs", "link": true}]));
+
+    let mcp_chip = &rows[0]["tools"][1];
+    assert_eq!(mcp_chip["name"], "mcp__orgtree__orgtree_watchdog");
+    assert_eq!(mcp_chip["arg"], "slot-dog");
+    assert_eq!(mcp_chip["refs"], json!([{"kind": "watchdog", "id": "mentions-argon-slot"}]));
+
+    // Non-AGY tool inputs containing a `tool` key stay byte-identical through take_tool_inputs.
+    let mut ordinary_row = json!({
+        "tools": [{
+            "id": "call-ordinary",
+            "name": "mcp__search__query",
+            "arg": "keep me",
+            "input": {"tool": "search", "query": "keep me"}
+        }]
+    });
+    let retained = take_tool_inputs(&mut ordinary_row, 99);
+    assert_eq!(retained["call-ordinary"]["input"], json!({"tool": "search", "query": "keep me"}));
 }

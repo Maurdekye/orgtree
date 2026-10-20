@@ -103,6 +103,7 @@ async fn call_inner(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Va
             return json!({ "content": [{ "type": "text", "text": format!("{name}: the arguments must be a JSON object") }], "isError": true });
         }
     };
+    let raw_args = args.clone();
     if name == "orgtree_send_file" && args["delivery_id"].as_str().filter(|s| !s.is_empty()).is_none() {
         use sha2::{Digest, Sha256};
         let id = match params.pointer("/_meta/claudecode~1toolUseId").and_then(Value::as_str) {
@@ -127,7 +128,18 @@ async fn call_inner(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Va
     }
     match out {
         Ok(Done { text, card }) => {
-            if let (Some(card), Some(tid)) = (card, tool_use) {
+            if let Some(mut card) = card {
+                let tid = match tool_use {
+                    Some(tid) => tid,
+                    None => {
+                        if let Some(obj) = card.as_object_mut() {
+                            obj.insert("_mcp_tool".into(), json!(name));
+                            obj.insert("_mcp_text".into(), json!(text));
+                            obj.insert("_mcp_args".into(), raw_args);
+                        }
+                        format!("mcp-card:{name}:{}", crate::util::uid("c"))
+                    }
+                };
                 if let Some(h) = engine.agents.get(caller.agent_id) {
                     h.send(AgentMsg::ToolCard(tid, card));
                 }

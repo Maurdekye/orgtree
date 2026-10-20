@@ -978,3 +978,27 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
   [parity](../../docs/harness-parity.md). [decided: user 2026-10-20;
   verified: `runtime/actor/interrupt_control.rs`, `runtime/interrupt.rs`]
 <!-- /preserved:e-9f38bed72023c79e -->
+
+## Antigravity (AGY) tool-call annotations and historical chip healing (2026-10-20)
+
+- `runtime/convo.rs` `unwrap_tool_call` normalizes Antigravity tool names and
+  arguments onto the shared chip/annotation pipeline: strips the `default_api:`
+  prefix, maps eager `mcp_orgtree_orgtree_<tool>` calls and lazy `call_mcp_tool`
+  wrappers (`{ServerName, ToolName, Arguments}`) to `mcp__orgtree__<tool>` (or
+  `mcp__<server>__<tool>`) with unwrapped `Arguments`, extracts PascalCase file
+  paths (`Path`, `FilePath`, `AbsolutePath`, `TargetFile`, `NotebookPath`) in
+  `tool_file_paths` and command/search/message summaries (`toolSummary`,
+  `CommandLine`, `Description`, `Path`, `Pattern`, `Query`, `DirectoryPath`,
+  `SearchPath`, `Url`, `Uri`, `Prompt`, `Name`, `Role`, `Recipient`, `Message`)
+  in `tool_arg`, redacts watchdog credentials inside `call_mcp_tool` in
+  `redact_tool_input`, and correlates fallback MCP `ToolCard` payloads (`mail`,
+  `mails`, `presentation`, `file`) by verified response text/object ID or call
+  arguments when `claudecode/toolUseId` is absent, omitting ambiguous matches
+  (`tools/mod.rs`, `runtime/actor.rs`, `runtime/convo.rs`). `convo::read`
+  (`restore_stored_tool_inputs` and `restore_result_refs`) and `http/nodes.rs`
+  (`toolinput`, gated on the chip's `call_mcp_tool` name via
+  `unwrap_stored_tool_input`) heal historical AGY transcript rows on read
+  without leaking private inputs or altering other tools' retained inputs.
+  [decided: user/coordinator 2026-10-20; verified: `runtime/convo.rs`,
+  `runtime/actor.rs`, `runtime/manual_mail.rs`, `tools/mod.rs`, `http/nodes.rs`,
+  `runtime/convo_work_ref_tests.rs`]

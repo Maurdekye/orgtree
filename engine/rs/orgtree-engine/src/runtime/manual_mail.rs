@@ -45,6 +45,8 @@ pub async fn unseen(client:&tokio_postgres::Client, agent:i64, org:i64, opened:&
 /// built-in content-read result, parsed before preview clipping.
 #[nolog]
 pub fn output(name:&str,args:&Value,text:&str) -> Option<Value> {
+    let (unwrapped_name, unwrapped_args) = crate::runtime::convo::unwrap_tool_call(name, args);
+    let (name, args) = (unwrapped_name.as_str(), &unwrapped_args);
     if name.rsplit("__").next()!=Some("orgtree_inbox") || !matches!(args["action"].as_str(),Some("fetch"|"chunk")) {return None;}
     let body=serde_json::Deserializer::from_str(text).into_iter::<Value>().next()?.ok()?;
     if body["isError"]==true {return None;}
@@ -69,6 +71,14 @@ mod tests {
         assert_eq!(output("mcp__orgtree__orgtree_inbox",&json!({"action":"chunk"}),"{\"id\":\"received\",\"direction\":\"received\"}\nexecution time: 1ms").unwrap()["id"],"received");
         let envelope=json!({"content":[{"type":"text","text":"{\"id\":\"received\",\"direction\":\"received\"}"},{"type":"text","text":"execution time: 1ms"}]});
         assert_eq!(output("orgtree_inbox",&json!({"action":"fetch"}),&envelope.to_string()).unwrap()["id"],"received");
+        assert_eq!(
+            output(
+                "default_api:call_mcp_tool",
+                &json!({"ServerName":"orgtree_orgtree","ToolName":"orgtree_inbox","Arguments":{"action":"fetch","id":"received"}}),
+                &envelope.to_string()
+            ).unwrap()["id"],
+            "received"
+        );
         assert!(output("orgtree_inbox",&json!({"action":"fetch"}),"{\"isError\":true,\"content\":[]}").is_none());
         assert_eq!(crate::feed::compute::mail_entry(&json!({"state":"read","extra":{"manual_read":true}}))["dnd_read"],true);
     }

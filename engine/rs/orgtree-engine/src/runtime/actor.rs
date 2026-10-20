@@ -1524,12 +1524,9 @@ impl Actor {
                 self.publish_idle();
                 let _ = reply.send(());
             }
-            AgentMsg::ToolCard(tool_use_id, mut card) => {
+            AgentMsg::ToolCard(tool_use_id, card) => {
                 if let Some(t) = self.turn.as_mut() {
-                    if let Some(reads)=card.as_object_mut().and_then(|c|c.remove("_manual_mail_reads")).and_then(|v|v.as_array().cloned()) {
-                        t.manual_reads.entry(tool_use_id.clone()).or_default().extend(reads);
-                    }
-                    if card.as_object().is_some_and(|c|!c.is_empty()) {t.cards.insert(tool_use_id, card);}
+                    convo::record_tool_card(&mut t.cards, &mut t.manual_reads, tool_use_id, card);
                 }
             }
             AgentMsg::Warm(reply) => {
@@ -5286,7 +5283,9 @@ impl Actor {
                         c["runs"] = json!(c["runs"].as_i64().unwrap_or(0) + 1);
                     }
                     let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
-                    let card = t.cards.remove(item["callId"].as_str().unwrap_or(&id)).or_else(|| t.cards.remove(&id));
+                    let base_tool = name.rsplit("__").next().unwrap_or(&name);
+                    let call_id = item["callId"].as_str().unwrap_or(&id);
+                    let card = convo::take_matching_tool_card(&mut t.cards, &[call_id, &id], base_tool, &input, &text, !failed);
                     let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
                     if let Some(chips) = row["tools"].as_array_mut() {
                         for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(id.as_str())) {
@@ -5966,8 +5965,10 @@ impl Actor {
             }
             "tool" => {
                 let id = format!("agy-step-{idx}");
-                let name = step["tool_name"].as_str().unwrap_or("tool").to_string();
+                let raw_name = step["tool_name"].as_str().unwrap_or("tool");
                 let info = &step["tool_info"];
+                let raw_params = info.get("parameters").cloned().unwrap_or_else(|| json!({}));
+                let (name, input) = convo::unwrap_tool_call(raw_name, &raw_params);
                 let client = self.engine.db.get().await?;
                 let known = self.turn.as_ref().map(|t| t.tools.contains_key(&id)).unwrap_or(false);
                 if !known {
@@ -5976,7 +5977,6 @@ impl Actor {
                     let update = {
                         let Some(t) = self.turn.as_mut() else { return Ok(()) };
                         let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
-                        let input = info.get("parameters").cloned().unwrap_or_else(|| json!({}));
                         if let Some(tools) = row["tools"].as_array_mut() {
                             tools.push(json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input, "started_at": now_iso(), "refs": convo::tool_refs(&name, &input, None) }));
                         }
@@ -5988,7 +5988,7 @@ impl Actor {
                     self.stream("tool", json!({ "id": id }));
                 }
                 if known && state != "DONE" && state != "ERROR" {
-                    self.update_active_input(&client, &id, &name, &info["parameters"]).await?;
+                    self.update_active_input(&client, &id, &name, &input).await?;
                 }
                 if state == "DONE" || state == "ERROR" {
                     let err = info.pointer("/error/message").and_then(Value::as_str).map(str::to_string);
@@ -6004,15 +6004,19 @@ impl Actor {
                         let Some(t) = self.turn.as_mut() else { return Ok(()) };
                         if let Some(e) = &err {
                             if e.starts_with(agyrt::HOOK_DENIED) {
-                                t.denials.push(json!({ "tool": name, "arg": convo::tool_arg(&name, &info["parameters"]) }));
+                                t.denials.push(json!({ "tool": name, "arg": convo::tool_arg(&name, &input) }));
                             }
                         }
                         let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
+                        let base_tool = name.rsplit("__").next().unwrap_or(&name);
+                        let card = convo::take_matching_tool_card(&mut t.cards, &[&id], base_tool, &input, &result, state == "DONE");
                         let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
                         let (clipped, truncated) = convo::clip(&result, 4000);
                         if let Some(chips) = row["tools"].as_array_mut() {
                             for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(id.as_str())) {
-                                if let Some(input) = info.get("parameters") {
+                                if info.get("parameters").is_some_and(|p| !p.is_null() && !p.as_object().is_some_and(|o| o.is_empty())) {
+                                    chip["name"] = json!(name);
+                                    chip["arg"] = json!(convo::tool_arg(&name, &input));
                                     chip["input"] = input.clone();
                                 }
                                 chip["result"] = json!(clipped);
@@ -6028,12 +6032,15 @@ impl Actor {
                                     chip["error"] = json!(gist(&result, 500));
                                 }
                                 convo::retain_failed_shell_output(chip, &result, state == "ERROR", false);
+                                if let Some(extra) = card.as_ref() {
+                                    convo::apply_tool_card(chip, extra);
+                                }
                             }
                         }
                         (*seq, row.clone())
                     };
                     self.convo.update(&client, update.0, update.1).await?;
-                    self.settle_manual_mail(&[&id],(state=="DONE").then_some((name.as_str(),&info["parameters"],result.as_str()))).await?;
+                    self.settle_manual_mail(&[&id],(state=="DONE").then_some((name.as_str(),&input,result.as_str()))).await?;
                     self.set_activity("thinking", None);
                     self.stream("tool", json!({}));
                 }
@@ -6048,6 +6055,8 @@ impl Actor {
     #[nolog]
     async fn update_active_input(&mut self, client: &tokio_postgres::Client, id: &str, name: &str, input: &Value) -> Result<()> {
         if input.is_null() || input.as_object().is_some_and(|o| o.is_empty()) { return Ok(()); }
+        let (unwrapped_name, unwrapped_input) = convo::unwrap_tool_call(name, input);
+        let (name, input) = (unwrapped_name.as_str(), &unwrapped_input);
         let update = {
             let Some(t) = self.turn.as_mut() else { return Ok(()) };
             let Some(key) = t.tools.get(id) else { return Ok(()) };
@@ -6210,7 +6219,8 @@ impl Actor {
                 let update = {
                     let Some(t) = self.turn.as_mut() else { return Ok(()) };
                     let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
-                    let card = t.cards.remove(&id);
+                    let base_tool = name.rsplit("__").next().unwrap_or(&name);
+                    let card = convo::take_matching_tool_card(&mut t.cards, &[&id], base_tool, &input, &text, !failed);
                     let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
                     let (clipped, truncated) = convo::clip(&text, 4000);
                     if let Some(chips) = row["tools"].as_array_mut() {

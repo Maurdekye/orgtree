@@ -540,6 +540,26 @@ fn take_tool_inputs_with_skill_files(
         for chip in tools {
             let Some(id) = chip["id"].as_str().map(str::to_string) else { continue };
             let Some(chip) = chip.as_object_mut() else { continue };
+            if let Some(raw_input) = chip.get("input").cloned() {
+                let raw_name = chip.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                let (unwrapped_name, unwrapped_input) = unwrap_tool_call(&raw_name, &raw_input);
+                if unwrapped_name != raw_name {
+                    let arg = tool_arg(&unwrapped_name, &unwrapped_input);
+                    let recompute_refs = chip.get("error").is_none_or(Value::is_null);
+                    let result_str = chip.get("result").and_then(Value::as_str).map(str::to_string);
+                    chip.insert("name".into(), json!(unwrapped_name.clone()));
+                    chip.insert("arg".into(), json!(arg));
+                    chip.insert("input".into(), unwrapped_input.clone());
+                    if recompute_refs {
+                        chip.insert("refs".into(), tool_refs(&unwrapped_name, &unwrapped_input, result_str.as_deref()));
+                    }
+                } else if chip.get("arg").and_then(Value::as_str).unwrap_or("").is_empty() {
+                    let arg = tool_arg(&unwrapped_name, &unwrapped_input);
+                    if !arg.is_empty() {
+                        chip.insert("arg".into(), json!(arg));
+                    }
+                }
+            }
             let mut kept = serde_json::Map::new();
             let paths = chip.get("input").and_then(|input| {
                 tool_file_paths_with_skill_files(chip.get("name").and_then(Value::as_str).unwrap_or(""), input, skill_files)
@@ -562,22 +582,126 @@ fn take_tool_inputs_with_skill_files(
     Value::Object(inputs)
 }
 
+/// Normalize a tool call's name and argument object across harnesses.
+/// Antigravity (AGY) prefixes native tools with `default_api:`, names eager
+/// Orgtree MCP tools `mcp_orgtree_orgtree_<tool>`, and dispatches lazy MCP
+/// tools through `call_mcp_tool` with `{ServerName, ToolName, Arguments}`.
+const MCP_WRAPPER_KEYS: &[&str] = &[
+    "ToolName", "tool_name", "toolName", "tool",
+    "ServerName", "server_name", "serverName", "server",
+    "Arguments", "arguments", "args",
+];
+
+#[nolog]
+pub fn unwrap_tool_call(name: &str, input: &Value) -> (String, Value) {
+    let stripped = name.strip_prefix("default_api:").unwrap_or(name);
+    if let Some(rest) = stripped.strip_prefix("mcp_orgtree_orgtree_") {
+        if !rest.is_empty() {
+            return (format!("mcp__orgtree__{rest}"), input.clone());
+        }
+    }
+    let base = stripped.rsplit("__").next().unwrap_or(stripped);
+    if base.eq_ignore_ascii_case("call_mcp_tool") {
+        let has_args = ["Arguments", "arguments", "args"].iter().any(|k| input.get(*k).is_some());
+        let has_server = ["ServerName", "server_name", "serverName", "server"]
+            .iter()
+            .any(|k| input.get(*k).and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty()));
+        let only_wrapper_keys = input
+            .as_object()
+            .is_some_and(|o| !o.is_empty() && o.keys().all(|k| MCP_WRAPPER_KEYS.contains(&k.as_str())));
+        let tool_keys: &[&str] = if has_args || has_server {
+            &["ToolName", "tool_name", "toolName", "tool"]
+        } else {
+            &["ToolName", "tool_name", "toolName"]
+        };
+        let tool_name = tool_keys
+            .iter()
+            .find_map(|k| input.get(*k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()));
+        if let Some(tool_name) = tool_name.filter(|_| has_args || has_server || only_wrapper_keys) {
+            let server = ["ServerName", "server_name", "serverName", "server"]
+                .iter()
+                .find_map(|k| input.get(*k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()))
+                .unwrap_or("");
+            let inner = ["Arguments", "arguments", "args"]
+                .iter()
+                .find_map(|k| input.get(*k))
+                .map(|v| match v {
+                    Value::Object(_) => v.clone(),
+                    Value::String(s) => serde_json::from_str::<Value>(s).ok().filter(Value::is_object).unwrap_or_else(|| json!({})),
+                    _ => json!({}),
+                })
+                .unwrap_or_else(|| json!({}));
+            let clean = tool_name.strip_prefix("default_api:").unwrap_or(tool_name);
+            let clean = clean.rsplit("__").next().unwrap_or(clean);
+            let canonical = if server == "orgtree_orgtree" || server == "orgtree" || clean.starts_with("orgtree_") {
+                format!("mcp__orgtree__{clean}")
+            } else if !server.is_empty() {
+                format!("mcp__{server}__{clean}")
+            } else {
+                clean.to_string()
+            };
+            return (canonical, inner);
+        }
+    }
+    (stripped.to_string(), input.clone())
+}
+
+/// Unwrap and redact a stored tool input only when its chip's recorded tool
+/// name proves it was a historical `call_mcp_tool` wrapper. Every other tool's
+/// retained input (even one containing a `tool` or `ToolName` field) is
+/// returned byte-for-byte unchanged.
+#[nolog]
+pub fn unwrap_stored_tool_input(chip_name: Option<&str>, input: &Value) -> Value {
+    let Some(raw) = chip_name else { return input.clone() };
+    let stripped = raw.strip_prefix("default_api:").unwrap_or(raw);
+    let base = stripped.rsplit("__").next().unwrap_or(stripped);
+    if !base.eq_ignore_ascii_case("call_mcp_tool") {
+        return input.clone();
+    }
+    let (unwrapped_name, mut unwrapped) = unwrap_tool_call(raw, input);
+    if unwrapped_name != stripped && unwrapped_name != raw {
+        redact_tool_input(&unwrapped_name, &mut unwrapped);
+        unwrapped
+    } else {
+        input.clone()
+    }
+}
+
+#[nolog]
+fn is_file_tool_name(name: &str) -> bool {
+    let stripped = name.strip_prefix("default_api:").unwrap_or(name);
+    let tool = stripped.rsplit("__").next().unwrap_or(stripped).to_ascii_lowercase();
+    matches!(
+        tool.as_str(),
+        "read" | "write" | "edit" | "multiedit" | "multi_edit" | "notebookedit" | "notebook_edit" | "apply_patch"
+        | "read_file" | "write_file" | "edit_file" | "view_file" | "write_to_file"
+        | "replace_file_content" | "multi_replace_file_content" | "create_file" | "sed_file"
+        | "view_file_outline" | "view_code_item"
+        | "readfile" | "writefile" | "editfile" | "viewfile" | "skill" | "read_skill"
+    )
+}
+
 /// Extract only explicit file arguments from known file tools. Shell command
 /// strings are deliberately never inspected. This metadata stays on the public
 /// transcript chip while the full input remains in the private tool-input row.
 #[nolog]
 pub fn tool_file_paths(name: &str, input: &Value) -> Option<Value> {
-    let tool = name.rsplit("__").next().unwrap_or(name).to_ascii_lowercase();
-    if !matches!(tool.as_str(), "read" | "write" | "edit" | "multiedit" | "multi_edit" | "notebookedit" | "notebook_edit" | "apply_patch"
-        | "read_file" | "write_file" | "edit_file" | "view_file" | "replace_file_content" | "create_file"
-        | "readfile" | "writefile" | "editfile" | "viewfile" | "skill" | "read_skill") {
+    let (unwrapped_name, unwrapped_input) = unwrap_tool_call(name, input);
+    let (name, input) = (unwrapped_name.as_str(), &unwrapped_input);
+    if !is_file_tool_name(name) {
         return None;
     }
+    let tool = name.rsplit("__").next().unwrap_or(name).to_ascii_lowercase();
 
     fn collect(value: &Value, out: &mut Vec<String>) {
         match value {
             Value::Object(map) => {
-                for key in ["file_path", "filePath", "filepath", "path", "notebook_path", "notebookPath", "target_file", "targetFile"] {
+                for key in [
+                    "file_path", "filePath", "FilePath", "filepath",
+                    "path", "Path", "absolute_path", "AbsolutePath",
+                    "notebook_path", "notebookPath", "NotebookPath",
+                    "target_file", "targetFile", "TargetFile",
+                ] {
                     if let Some(path) = map.get(key).and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
                         if !out.iter().any(|old| old == path) { out.push(path.to_owned()); }
                     }
@@ -599,7 +723,7 @@ pub fn tool_file_paths(name: &str, input: &Value) -> Option<Value> {
     // the resolved SKILL.md path are handled by the normal explicit path fields.
     if matches!(tool.as_str(), "skill" | "read_skill") {
         paths.retain(|path| path.ends_with("SKILL.md"));
-        for key in ["skill_path", "skillPath", "path", "file_path", "filePath"] {
+        for key in ["skill_path", "skillPath", "SkillPath", "path", "Path", "file_path", "filePath", "FilePath", "AbsolutePath"] {
             if let Some(path) = input.get(key).and_then(Value::as_str) {
                 if path.ends_with("SKILL.md") && !paths.iter().any(|old| old == path) {
                     paths.push(path.to_owned());
@@ -608,7 +732,7 @@ pub fn tool_file_paths(name: &str, input: &Value) -> Option<Value> {
         }
     }
     if paths.is_empty() { return None; }
-    let cwd = ["cwd", "working_directory", "workingDirectory"]
+    let cwd = ["cwd", "Cwd", "working_directory", "workingDirectory", "WorkingDirectory"]
         .iter().find_map(|key| input.get(*key).and_then(Value::as_str))
         .map(std::path::PathBuf::from).filter(|p| p.is_absolute());
     let result: Vec<Value> = paths.into_iter().map(|raw| {
@@ -628,7 +752,9 @@ pub fn tool_file_paths(name: &str, input: &Value) -> Option<Value> {
 /// Provider-reported failed shell output only. Kept separately from chat/feed.
 #[nolog]
 pub fn retain_failed_shell_output(chip: &mut Value, text: &str, failed: bool, provider_truncated: bool) {
-    let name = chip["name"].as_str().unwrap_or("").rsplit("__").next().unwrap_or("").to_ascii_lowercase();
+    let raw = chip["name"].as_str().unwrap_or("");
+    let stripped = raw.strip_prefix("default_api:").unwrap_or(raw);
+    let name = stripped.rsplit("__").next().unwrap_or(stripped).to_ascii_lowercase();
     if !failed || !["bash", "powershell", "exec_command", "run_command", "run_shell_command", "shell"].contains(&name.as_str()) { return; }
     const MAX_BYTES: usize = 1024 * 1024;
     let mut end = text.len().min(MAX_BYTES);
@@ -822,6 +948,8 @@ pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>
                         updates.push(body);
                     }
                 }
+                restore_stored_tool_inputs(client, agent_id, &mut messages).await?;
+                restore_stored_tool_inputs(client, agent_id, &mut updates).await?;
                 restore_result_refs(&mut messages);
                 restore_result_refs(&mut updates);
                 restore_mail_notices(client, agent_id, &mut messages).await?;
@@ -854,6 +982,7 @@ pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>
     rows.reverse();
     let before = if has_older { rows.first().map(|(s, _)| s.to_string()) } else { None };
     let mut messages: Vec<Value> = rows.into_iter().map(|(_, b)| b).collect();
+    restore_stored_tool_inputs(client, agent_id, &mut messages).await?;
     restore_result_refs(&mut messages);
     restore_mail_notices(client, agent_id, &mut messages).await?;
     Ok(Page {
@@ -864,6 +993,75 @@ pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>
         before,
         after: cursor,
     })
+}
+
+#[nolog]
+fn chip_needs_stored_input(chip: &Value) -> bool {
+    if chip.get("input").is_some_and(Value::is_object) {
+        return false;
+    }
+    let name = chip["name"].as_str().unwrap_or("");
+    let stripped = name.strip_prefix("default_api:").unwrap_or(name);
+    let last = stripped.rsplit("__").next().unwrap_or(stripped);
+    if name.starts_with("default_api:")
+        || stripped.starts_with("mcp_orgtree_orgtree_")
+        || last.eq_ignore_ascii_case("call_mcp_tool")
+    {
+        return true;
+    }
+    let agy_file_tool = matches!(
+        last.to_ascii_lowercase().as_str(),
+        "read_file" | "write_file" | "edit_file" | "view_file" | "write_to_file"
+        | "replace_file_content" | "multi_replace_file_content" | "create_file"
+    );
+    agy_file_tool && chip.get("file_paths").is_none()
+}
+
+/// Older Antigravity transcript rows stored wrapped `call_mcp_tool` / `default_api:*`
+/// chips or PascalCase file arguments without `file_paths`. Recover their unwrapped
+/// names, arguments, file links and tool refs from `tool_inputs` for this bounded page.
+#[nolog]
+async fn restore_stored_tool_inputs(client: &Client, agent_id: i64, messages: &mut [Value]) -> Result<()> {
+    let mut seqs = std::collections::BTreeSet::new();
+    for message in messages.iter() {
+        let msg_seq = message["seq"].as_i64();
+        for chip in message["tools"].as_array().into_iter().flatten() {
+            if chip_needs_stored_input(chip) {
+                if let Some(seq) = chip["input_seq"].as_i64().or(msg_seq) {
+                    seqs.insert(seq);
+                }
+            }
+        }
+    }
+    if seqs.is_empty() {
+        return Ok(());
+    }
+    let seqs: Vec<i64> = seqs.into_iter().collect();
+    let mut by_seq = std::collections::HashMap::<i64, Value>::new();
+    for chunk in seqs.chunks(1000) {
+        let chunk = chunk.to_vec();
+        for row in client
+            .query(
+                "SELECT seq, coalesce(tool_inputs, '{}'::jsonb) FROM ot.convo WHERE agent_id = $1 AND seq = ANY($2::bigint[])",
+                &[&agent_id, &chunk],
+            )
+            .await?
+        {
+            by_seq.insert(row.get(0), row.get(1));
+        }
+    }
+    for message in messages {
+        let msg_seq = message["seq"].as_i64();
+        for chip in message.get_mut("tools").and_then(Value::as_array_mut).into_iter().flatten() {
+            let Some(id) = chip["id"].as_str() else { continue };
+            let Some(seq) = chip["input_seq"].as_i64().or(msg_seq) else { continue };
+            let stored = by_seq.get(&seq).and_then(|inputs| inputs.get(id)).and_then(|entry| entry.get("input"));
+            if stored.is_some() {
+                heal_tool_chip(chip, stored);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Older transcript rows dropped `notice`. Recover only missing flags from
@@ -913,7 +1111,9 @@ async fn restore_mail_notices(client: &Client, agent_id: i64, messages: &mut [Va
 /// Only shell inputs belong in recovery exports; other tools keep summaries.
 #[nolog]
 fn is_recovery_shell(t: &Value) -> bool {
-    matches!(t["name"].as_str().unwrap_or("").rsplit("__").next().unwrap_or("").to_ascii_lowercase().as_str(),
+    let raw = t["name"].as_str().unwrap_or("");
+    let stripped = raw.strip_prefix("default_api:").unwrap_or(raw);
+    matches!(stripped.rsplit("__").next().unwrap_or(stripped).to_ascii_lowercase().as_str(),
         "bash" | "powershell" | "exec_command" | "run_command" | "run_shell_command" | "shell")
 }
 
@@ -1478,6 +1678,8 @@ pub fn tool_arg(name: &str, input: &Value) -> String {
     // (`Bash ls /e/…`): the first of these that is a non-empty string, else
     // any string, whitespace collapsed and at most 90 characters — never the
     // input dumped as JSON
+    let (unwrapped_name, unwrapped_input) = unwrap_tool_call(name, input);
+    let (name, input) = (unwrapped_name.as_str(), &unwrapped_input);
     let redacted;
     let input = if is_watchdog_tool(name) {
         let mut copy = input.clone();
@@ -1489,7 +1691,17 @@ pub fn tool_arg(name: &str, input: &Value) -> String {
     };
     let Some(o) = input.as_object() else { return String::new() };
     let flat = |s: &str| -> String { s.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(90).collect() };
-    for k in ["description", "command", "file_path", "path", "pattern", "query", "url", "prompt", "name", "text", "to", "body"] {
+    for k in [
+        "description", "Description", "toolSummary",
+        "command", "CommandLine", "command_line", "cmd",
+        "file_path", "filePath", "FilePath", "path", "Path", "AbsolutePath", "TargetFile",
+        "pattern", "Pattern", "query", "Query",
+        "DirectoryPath", "SearchPath", "SearchDirectory",
+        "url", "Url", "Uri",
+        "prompt", "Prompt",
+        "name", "Name", "Role",
+        "text", "to", "Recipient", "body", "Message",
+    ] {
         match o.get(k) {
             Some(Value::String(s)) if !s.trim().is_empty() => return flat(s),
             // Codex passes a command as its argument list
@@ -1511,7 +1723,9 @@ pub const CREDENTIALS_HIDDEN: &str = "[inline credentials: stored encrypted, not
 
 #[nolog]
 fn is_watchdog_tool(name: &str) -> bool {
-    name.rsplit("__").next().unwrap_or(name) == "orgtree_watchdog"
+    let stripped = name.strip_prefix("default_api:").unwrap_or(name);
+    stripped == "mcp_orgtree_orgtree_orgtree_watchdog"
+        || stripped.rsplit("__").next().unwrap_or(stripped) == "orgtree_watchdog"
 }
 
 /// An Orgtree tool call's arguments as Orgtree keeps and shows them (saved
@@ -1527,6 +1741,35 @@ fn is_watchdog_tool(name: &str) -> bool {
 /// whose nesting serde_json bounds.
 #[nolog]
 pub fn redact_tool_input(name: &str, input: &mut Value) {
+    let stripped = name.strip_prefix("default_api:").unwrap_or(name);
+    let base = stripped.rsplit("__").next().unwrap_or(stripped);
+    if base.eq_ignore_ascii_case("call_mcp_tool") {
+        let is_wd = ["ToolName", "tool_name", "toolName", "tool"]
+            .iter()
+            .find_map(|k| input.get(*k).and_then(Value::as_str))
+            .is_some_and(|t| is_watchdog_tool(t.trim()));
+        if is_wd {
+            if let Some(o) = input.as_object_mut() {
+                for k in ["Arguments", "arguments", "args"] {
+                    if let Some(args) = o.get_mut(k) {
+                        if let Some(s) = args.as_str() {
+                            if let Ok(mut parsed) = serde_json::from_str::<Value>(s) {
+                                hide_credential_keys(&mut parsed);
+                                hide_inline_credentials(&mut parsed);
+                                mask_nested_urls(&mut parsed);
+                                *args = Value::String(parsed.to_string());
+                            }
+                        } else {
+                            hide_credential_keys(args);
+                            hide_inline_credentials(args);
+                            mask_nested_urls(args);
+                        }
+                    }
+                }
+            }
+        }
+        return;
+    }
     if !is_watchdog_tool(name) {
         return;
     }
@@ -1607,6 +1850,8 @@ fn mask_nested_urls(v: &mut Value) {
 /// Empty for any other tool.
 #[nolog]
 pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
+    let (unwrapped_name, unwrapped_input) = unwrap_tool_call(name, input);
+    let (name, input) = (unwrapped_name.as_str(), &unwrapped_input);
     let base = name.rsplit("__").next().unwrap_or(name);
     let result = result.and_then(tool_ref_result);
     let mut refs: Vec<Value> = Vec::new();
@@ -1778,29 +2023,312 @@ fn tool_ref_result(text: &str) -> Option<Value> {
 fn restore_result_refs(messages: &mut [Value]) {
     for message in messages {
         for chip in message.get_mut("tools").and_then(Value::as_array_mut).into_iter().flatten() {
-            if !chip["error"].is_null() { continue; }
-            let Some(result) = chip["result"].as_str() else { continue };
-            let fresh = tool_refs(chip["name"].as_str().unwrap_or(""), &chip["input"], Some(result));
-            let Some(fresh) = fresh.as_array().filter(|r| !r.is_empty()) else { continue };
-            let mut refs = chip["refs"].as_array().cloned().unwrap_or_default();
-            for new in fresh {
-                if let Some(old) = refs.iter_mut().find(|r| r["kind"] == new["kind"] && r["id"] == new["id"]) {
-                    for key in ["status_change", "model_change"] {
-                        if old[key].is_null() && !new[key].is_null() { old[key] = new[key].clone(); }
-                    }
-                } else { refs.push(new.clone()); }
-            }
-            chip["refs"] = Value::Array(refs);
+            heal_tool_chip(chip, None);
         }
     }
+}
+
+#[nolog]
+fn heal_tool_chip(chip: &mut Value, stored_input: Option<&Value>) {
+    let has_inline_input = chip.get("input").is_some_and(|v| !v.is_null());
+    let raw_input = stored_input.or_else(|| chip.get("input").filter(|v| !v.is_null()));
+    let raw_name = chip["name"].as_str().unwrap_or("").to_string();
+    let effective_input = if let Some(input) = raw_input {
+        let (unwrapped_name, mut unwrapped_input) = unwrap_tool_call(&raw_name, input);
+        if unwrapped_name != raw_name {
+            chip["name"] = json!(unwrapped_name.clone());
+            chip["arg"] = json!(tool_arg(&unwrapped_name, &unwrapped_input));
+            if has_inline_input {
+                redact_tool_input(&unwrapped_name, &mut unwrapped_input);
+                chip["input"] = unwrapped_input.clone();
+            }
+        } else if chip.get("arg").is_some_and(|a| a.as_str().unwrap_or("").is_empty()) {
+            let arg = tool_arg(&unwrapped_name, &unwrapped_input);
+            if !arg.is_empty() {
+                chip["arg"] = json!(arg);
+            }
+        }
+        if chip.get("file_paths").is_none() {
+            if let Some(paths) = tool_file_paths(&unwrapped_name, &unwrapped_input) {
+                chip["file_paths"] = paths;
+            }
+        }
+        Some(unwrapped_input)
+    } else {
+        let (unwrapped_name, _) = unwrap_tool_call(&raw_name, &Value::Null);
+        if unwrapped_name != raw_name {
+            chip["name"] = json!(unwrapped_name);
+        }
+        None
+    };
+    if !chip["error"].is_null() {
+        return;
+    }
+    let result = chip["result"].as_str();
+    if effective_input.is_none() && result.is_none() {
+        return;
+    }
+    let name = chip["name"].as_str().unwrap_or("");
+    let input_ref = effective_input.as_ref().unwrap_or(&Value::Null);
+    let fresh = tool_refs(name, input_ref, result);
+    let Some(fresh) = fresh.as_array().filter(|r| !r.is_empty()) else { return };
+    let mut refs = chip["refs"].as_array().cloned().unwrap_or_default();
+    for new in fresh {
+        if let Some(old) = refs.iter_mut().find(|r| r["kind"] == new["kind"] && r["id"] == new["id"]) {
+            for key in ["status_change", "model_change"] {
+                if old[key].is_null() && !new[key].is_null() {
+                    old[key] = new[key].clone();
+                }
+            }
+        } else {
+            refs.push(new.clone());
+        }
+    }
+    chip["refs"] = Value::Array(refs);
 }
 
 /// Handler-supplied document/mail cards are separate from displayed MCP text.
 #[nolog] // copies private tool metadata without logging it
 pub(super) fn apply_tool_card(chip: &mut Value, card: &Value) {
     if let (Some(chip), Some(card)) = (chip.as_object_mut(), card.as_object()) {
-        for (key, value) in card { chip.insert(key.clone(), value.clone()); }
+        for (key, value) in card {
+            if !key.starts_with("_mcp_") {
+                chip.insert(key.clone(), value.clone());
+            }
+        }
     }
+}
+
+#[nolog]
+fn strip_mcp_card_meta(card: &mut Value) {
+    if let Some(obj) = card.as_object_mut() {
+        obj.retain(|k, _| !k.starts_with("_mcp_"));
+    }
+}
+
+#[nolog]
+pub(crate) fn record_tool_card(
+    cards: &mut std::collections::HashMap<String, Value>,
+    manual_reads: &mut std::collections::HashMap<String, Vec<Value>>,
+    tool_use_id: String,
+    mut card: Value,
+) {
+    if let Some(reads) = card.as_object_mut().and_then(|c| c.remove("_manual_mail_reads")).and_then(|v| v.as_array().cloned()) {
+        if !tool_use_id.starts_with("mcp-card:") {
+            manual_reads.entry(tool_use_id.clone()).or_default().extend(reads);
+        }
+    }
+    if card.as_object().is_some_and(|c| c.keys().any(|k| !k.starts_with("_mcp_"))) {
+        let key = if tool_use_id.starts_with("mcp-card:") && cards.contains_key(&tool_use_id) {
+            let mut n = 2usize;
+            loop {
+                let candidate = format!("{tool_use_id}:{n}");
+                if !cards.contains_key(&candidate) {
+                    break candidate;
+                }
+                n += 1;
+            }
+        } else {
+            tool_use_id
+        };
+        cards.insert(key, card);
+    }
+}
+
+#[nolog]
+fn primary_mcp_result_text(result: &str) -> String {
+    let extracted = serde_json::from_str::<Value>(result)
+        .ok()
+        .and_then(|v| {
+            let blocks = v.get("content").and_then(Value::as_array)
+                .or_else(|| v.get("contentItems").and_then(Value::as_array))?;
+            blocks.first()?.get("text").and_then(Value::as_str).map(str::to_string)
+        })
+        .unwrap_or_else(|| result.to_string());
+    let trimmed = extracted.trim();
+    if let Some((before, last_line)) = trimmed.rsplit_once('\n') {
+        if let Some(ms) = last_line.trim().strip_prefix("execution time: ").and_then(|s| s.strip_suffix("ms")) {
+            if ms.parse::<f64>().is_ok_and(|v| v.is_finite() && v >= 0.0) {
+                return before.trim().to_string();
+            }
+        }
+    }
+    trimmed.to_string()
+}
+
+#[nolog]
+fn contains_id_token(haystack: &str, id: &str) -> bool {
+    if id.is_empty() {
+        return false;
+    }
+    let is_id_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'-';
+    let bytes = haystack.as_bytes();
+    for (idx, _) in haystack.match_indices(id) {
+        let before_ok = idx == 0 || !is_id_byte(bytes[idx - 1]);
+        let end = idx + id.len();
+        let after_ok = end >= bytes.len() || !is_id_byte(bytes[end]);
+        if before_ok && after_ok {
+            return true;
+        }
+    }
+    false
+}
+
+#[nolog]
+fn normalize_mail_recipient(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let without_at = trimmed.trim_start_matches('@');
+    if without_at == "user" || trimmed == "user_inbox" {
+        "user_inbox".to_string()
+    } else if without_at.starts_with("net:") || without_at.starts_with("org:") {
+        format!("@{without_at}")
+    } else {
+        without_at.to_string()
+    }
+}
+
+#[nolog]
+fn mcp_card_match_score(card: &Value, base_tool: &str, input: &Value, result: &str) -> Option<u8> {
+    let primary = primary_mcp_result_text(result);
+    if let Some(expected) = card.get("_mcp_text").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+        if !primary.is_empty() {
+            if primary == expected || (primary.chars().count() >= 4000 && expected.starts_with(&primary)) {
+                return Some(3);
+            }
+            return None;
+        }
+    }
+    let mut card_ids: Vec<&str> = Vec::new();
+    if let Some(mails) = card.get("mails").and_then(Value::as_array) {
+        for m in mails {
+            if let Some(id) = m.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                card_ids.push(id);
+            }
+        }
+    } else if let Some(id) = card.pointer("/mail/id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        card_ids.push(id);
+    } else if let Some(id) = card.pointer("/presentation/id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        card_ids.push(id);
+    } else if let Some(id) = card.pointer("/file/delivery_id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        card_ids.push(id);
+    }
+    if !card_ids.is_empty() && !primary.is_empty() {
+        if card_ids.iter().all(|id| contains_id_token(&primary, id)) {
+            return Some(2);
+        }
+        if primary.contains("(id ") || primary.contains("(delivery ") || primary.contains("Already delivered (") {
+            return None;
+        }
+    }
+    if let Some(expected_args) = card.get("_mcp_args").filter(|a| a.is_object() && !a.as_object().unwrap().is_empty()) {
+        if input.is_object() && !input.as_object().unwrap().is_empty() {
+            if expected_args == input {
+                return Some(1);
+            }
+            return None;
+        }
+    }
+    match base_tool {
+        "orgtree_message" | "orgtree_send_notice" => {
+            let input_to = input.get("to").or_else(|| input.pointer("/metadata/to"));
+            let input_recipients: Vec<String> = match input_to {
+                Some(Value::String(s)) if !s.trim().is_empty() => vec![normalize_mail_recipient(s)],
+                Some(Value::Array(arr)) => arr.iter().filter_map(Value::as_str).filter(|s| !s.trim().is_empty()).map(normalize_mail_recipient).collect(),
+                _ => Vec::new(),
+            };
+            let card_recipients: Vec<String> = if let Some(mails) = card.get("mails").and_then(Value::as_array) {
+                mails.iter().filter_map(|m| m.get("to").and_then(Value::as_str)).map(normalize_mail_recipient).collect()
+            } else if let Some(to) = card.pointer("/mail/to").and_then(Value::as_str) {
+                vec![normalize_mail_recipient(to)]
+            } else {
+                Vec::new()
+            };
+            if !input_recipients.is_empty() && !card_recipients.is_empty() {
+                if input_recipients == card_recipients {
+                    return Some(1);
+                }
+                return None;
+            }
+        }
+        "orgtree_present" => {
+            if let (Some(c_title), Some(i_title)) = (
+                card.pointer("/presentation/title").and_then(Value::as_str),
+                input.get("title").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()),
+            ) {
+                if c_title == i_title {
+                    return Some(1);
+                }
+                return None;
+            }
+        }
+        "orgtree_send_file" => {
+            if let (Some(c_did), Some(i_did)) = (
+                card.pointer("/file/delivery_id").and_then(Value::as_str),
+                input.get("delivery_id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()),
+            ) {
+                if c_did == i_did {
+                    return Some(2);
+                }
+                return None;
+            }
+            if let (Some(c_name), Some(i_path)) = (
+                card.pointer("/file/name").and_then(Value::as_str),
+                input.get("path").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()),
+            ) {
+                if i_path.replace('\\', "/").rsplit('/').next() == Some(c_name) {
+                    return Some(1);
+                }
+                return None;
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+/// Consume a pending `ToolCard` for a settled tool call. Direct `tool_use_id`
+/// keys match first. Fallback `mcp-card:*` entries (harnesses without
+/// `claudecode/toolUseId`) are matched only when a single candidate for
+/// `base_tool` is verified by response text/ID or call arguments; if uncertain
+/// or ambiguous, the card is omitted rather than attached to the wrong call.
+#[nolog]
+pub(crate) fn take_matching_tool_card(
+    cards: &mut std::collections::HashMap<String, Value>,
+    ids: &[&str],
+    base_tool: &str,
+    input: &Value,
+    result: &str,
+    succeeded: bool,
+) -> Option<Value> {
+    for id in ids {
+        if let Some(mut card) = cards.remove(*id) {
+            strip_mcp_card_meta(&mut card);
+            return Some(card);
+        }
+    }
+    if !succeeded {
+        return None;
+    }
+    let mut scored: Vec<(String, u8)> = Vec::new();
+    for (key, card) in cards.iter() {
+        let Some(rest) = key.strip_prefix("mcp-card:") else { continue };
+        let key_tool = rest.split(':').next().unwrap_or("");
+        let card_tool = card.get("_mcp_tool").and_then(Value::as_str).unwrap_or(key_tool);
+        if card_tool != base_tool {
+            continue;
+        }
+        if let Some(score) = mcp_card_match_score(card, base_tool, input, result) {
+            scored.push((key.clone(), score));
+        }
+    }
+    let max_score = scored.iter().map(|(_, s)| *s).max()?;
+    let winners: Vec<String> = scored.into_iter().filter(|(_, s)| *s == max_score).map(|(k, _)| k).collect();
+    if winners.len() != 1 {
+        return None;
+    }
+    let mut card = cards.remove(&winners[0])?;
+    strip_mcp_card_meta(&mut card);
+    Some(card)
 }
 
 #[nolog]
@@ -1817,6 +2345,196 @@ mod model_change_tests;
 #[cfg(test)]
 #[path = "convo_work_ref_tests.rs"]
 mod timed_work_ref_tests;
+
+#[cfg(test)]
+mod agy_annotation_unit_tests {
+    use super::*;
+
+    #[test]
+    fn same_name_mcp_cards_correlate_across_out_of_order_completions_and_omit_when_ambiguous() {
+        let mut cards = std::collections::HashMap::new();
+        let mut manual_reads = std::collections::HashMap::new();
+
+        let input_a = json!({"metadata": {"to": "alice"}, "body": "First message"});
+        let text_a = "Sent to alice (id m-alice-1). Delivered to alice's mailbox; it starts or joins alice's turn.";
+        let card_a = json!({
+            "mail": {"id": "m-alice-1", "to": "alice", "transfer_ids": []},
+            "_mcp_tool": "orgtree_message",
+            "_mcp_text": text_a,
+            "_mcp_args": input_a
+        });
+
+        let input_b = json!({"metadata": {"to": "bob"}, "body": "Second message"});
+        let text_b = "Sent to bob (id m-bob-2). Delivered to bob's mailbox; it starts or joins bob's turn.";
+        let card_b = json!({
+            "mail": {"id": "m-bob-2", "to": "bob", "transfer_ids": []},
+            "_mcp_tool": "orgtree_message",
+            "_mcp_text": text_b,
+            "_mcp_args": input_b
+        });
+
+        // Both ToolCard messages arrive before the next AGY poll, even if keyed identically.
+        record_tool_card(&mut cards, &mut manual_reads, "mcp-card:orgtree_message".into(), card_a);
+        record_tool_card(&mut cards, &mut manual_reads, "mcp-card:orgtree_message".into(), card_b);
+        assert_eq!(cards.len(), 2, "second same-name ToolCard must not overwrite the first");
+
+        // A concurrent failed call of the same tool must not consume either pending card.
+        let failed_take = take_matching_tool_card(
+            &mut cards,
+            &["agy-step-err"],
+            "orgtree_message",
+            &json!({"metadata": {"to": "charlie"}, "body": "Refused"}),
+            "refused: charlie is not reachable",
+            false,
+        );
+        assert!(failed_take.is_none());
+        assert_eq!(cards.len(), 2);
+
+        // Out-of-order completion: call B finishes first, then call A.
+        let got_b = take_matching_tool_card(
+            &mut cards,
+            &["agy-step-2"],
+            "orgtree_message",
+            &input_b,
+            &format!("{text_b}\nexecution time: 9.100ms"),
+            true,
+        ).expect("call B card");
+        assert_eq!(got_b, json!({"mail": {"id": "m-bob-2", "to": "bob", "transfer_ids": []}}));
+
+        let got_a = take_matching_tool_card(
+            &mut cards,
+            &["agy-step-1"],
+            "orgtree_message",
+            &input_a,
+            &format!("{text_a}\nexecution time: 11.400ms"),
+            true,
+        ).expect("call A card");
+        assert_eq!(got_a, json!({"mail": {"id": "m-alice-1", "to": "alice", "transfer_ids": []}}));
+        assert!(cards.is_empty());
+
+        // Same-recipient out-of-order calls correlate by the mail ID in the result text,
+        // and an uncertain call without a distinguishing result ID omits the card.
+        let same_input = json!({"metadata": {"to": "alice"}, "body": "Ping"});
+        record_tool_card(
+            &mut cards,
+            &mut manual_reads,
+            "mcp-card:orgtree_message:1".into(),
+            json!({"mail": {"id": "m-101", "to": "alice", "transfer_ids": []}}),
+        );
+        record_tool_card(
+            &mut cards,
+            &mut manual_reads,
+            "mcp-card:orgtree_message:2".into(),
+            json!({"mail": {"id": "m-102", "to": "alice", "transfer_ids": []}}),
+        );
+        let ambiguous = take_matching_tool_card(
+            &mut cards,
+            &["agy-step-ambiguous"],
+            "orgtree_message",
+            &same_input,
+            "",
+            true,
+        );
+        assert!(ambiguous.is_none(), "uncertain match must omit the card rather than attach someone else's");
+        assert_eq!(cards.len(), 2);
+
+        let second_first = take_matching_tool_card(
+            &mut cards,
+            &["agy-step-4"],
+            "orgtree_message",
+            &same_input,
+            "Sent to alice (id m-102). Delivered to alice's mailbox.",
+            true,
+        ).expect("m-102 card");
+        assert_eq!(second_first["mail"]["id"], "m-102");
+
+        let first_second = take_matching_tool_card(
+            &mut cards,
+            &["agy-step-3"],
+            "orgtree_message",
+            &same_input,
+            "Sent to alice (id m-101). Delivered to alice's mailbox.",
+            true,
+        ).expect("m-101 card");
+        assert_eq!(first_second["mail"]["id"], "m-101");
+    }
+
+    #[test]
+    fn unwrap_stored_tool_input_preserves_non_agy_inputs_with_tool_keys_and_unwraps_agy_wrappers() {
+        let ordinary = json!({"tool": "search", "query": "keep me"});
+        assert_eq!(unwrap_stored_tool_input(Some("mcp__search__run"), &ordinary), ordinary);
+        assert_eq!(unwrap_stored_tool_input(Some("Bash"), &ordinary), ordinary);
+        assert_eq!(unwrap_stored_tool_input(None, &ordinary), ordinary);
+        // Even if a chip is named call_mcp_tool, an unrelated payload with `tool` and `query` is preserved.
+        assert_eq!(unwrap_stored_tool_input(Some("call_mcp_tool"), &ordinary), ordinary);
+
+        let other_with_tool_name = json!({"ToolName": "orgtree_work", "Arguments": {"slug": "keep-all"}});
+        assert_eq!(
+            unwrap_stored_tool_input(Some("mcp__custom__inspector"), &other_with_tool_name),
+            other_with_tool_name,
+            "non-call_mcp_tool chip must keep its retained input byte-identical"
+        );
+
+        let agy_wrapped_wd = json!({
+            "ServerName": "orgtree_orgtree",
+            "ToolName": "orgtree_watchdog",
+            "Arguments": {
+                "action": "create",
+                "kind": "mqtt",
+                "target": "mqtts://alice:secretpass@broker.example.com/t",
+                "password": "secretpass"
+            }
+        });
+        let unwrapped = unwrap_stored_tool_input(Some("default_api:call_mcp_tool"), &agy_wrapped_wd);
+        assert_eq!(unwrapped["action"], "create");
+        assert_eq!(unwrapped["password"], "[redacted]");
+        assert!(!unwrapped.to_string().contains("secretpass"));
+    }
+
+    #[test]
+    fn heal_tool_chip_repairs_historical_agy_chips_from_stored_input_without_leaking_input() {
+        let mut file_chip = json!({
+            "id": "agy-step-3",
+            "name": "default_api:read_file",
+            "arg": "",
+            "input_seq": 10,
+            "result": "1: fn main() {}",
+            "refs": []
+        });
+        let stored_file_input = json!({"Path": "D:/orgtree-work/src/main.rs"});
+        heal_tool_chip(&mut file_chip, Some(&stored_file_input));
+        assert_eq!(file_chip["name"], "read_file");
+        assert_eq!(file_chip["arg"], "D:/orgtree-work/src/main.rs");
+        assert_eq!(file_chip["file_paths"], json!([{"path": "D:\\orgtree-work\\src\\main.rs", "link": true}]));
+        assert!(file_chip.get("input").is_none());
+    }
+
+    #[test]
+    fn direct_id_tool_card_is_returned_even_when_provider_marks_result_failed() {
+        let mut cards = std::collections::HashMap::new();
+        let mut manual_reads = std::collections::HashMap::new();
+        record_tool_card(
+            &mut cards,
+            &mut manual_reads,
+            "call-a".into(),
+            json!({"mail": {"id": "m-a"}}),
+        );
+        let got = take_matching_tool_card(
+            &mut cards,
+            &["call-a"],
+            "orgtree_message",
+            &json!({"to": "alice", "body": "hi"}),
+            "transport stream error after tool completed",
+            false,
+        );
+        assert_eq!(
+            got,
+            Some(json!({"mail": {"id": "m-a"}})),
+            "direct tool_use_id card must still attach when harness marks result failed"
+        );
+        assert!(cards.is_empty());
+    }
+}
 
 /// A chip argument written by alpha.0/alpha.1 (the input dumped as JSON, cut
 /// at 300 characters) as the one-line argument `tool_arg` gives today; None
