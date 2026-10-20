@@ -120,6 +120,9 @@ test('§1 every caller of closeSavedWindow is one the audit accounts for', () =>
     // NOT in MovableSurface. Harmless for this feature because it closes rows
     // drawn from restoredWindows(...).filter(r => r.restore?.document), and an
     // attention-kind row never carries one — this view passes no `restore`.
+    // Reader migration is explicitly limited to doc/doc-docket kinds, so
+    // it cannot clear an attention-kind row even without restore.document.
+    "canvas/OrgCanvas.tsx :: for (const r of rows) if (r.kind === 'doc' || r.kind === 'doc-docket') closeSavedWindow(r.key)",
     'canvas/OrgCanvas.tsx :: closeSavedWindow(row.key); '
       + 'setRestoredDocs(old => old.filter(r => r.key !== row.key))',
   ]
@@ -222,7 +225,7 @@ test('§5 the common DOM-node-as-actual shape is absent (patrolled, not enforced
       // being reduced to a boolean, a string or an attribute first
       if (!/assert\.(equal|deepEqual|strictEqual|notEqual)\(/.test(line)) return
       if (!/querySelector|\.el|parentElement/.test(line)) return
-      if (/!!|\?\.|textContent|getAttribute|className|\.length|=== |!== /.test(line)) return
+      if (/!!|\?\.|textContent|getAttribute|className|\.length|===\s*|!==\s*/.test(line)) return
       offenders.push(`${name}:${i + 1}  ${trimmed}`)
     })
   }

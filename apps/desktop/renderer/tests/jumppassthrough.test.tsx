@@ -75,8 +75,8 @@ test('§1 up: the nearest agent superior, then every project down to the agent',
 
 test('§2 down: each project and its members, through nested live projects, in tree order', () => {
   const { boss } = org()
-  assert.deepEqual(ids(downJumpTargets(boss.children)),
-    ['lead', 'site', 'dev1', 'ui', 'dev2', 'gone', 'old', 'docs'], 'retired members included, for the retired controls')
+  { const compared = ids(downJumpTargets(boss.children)); assert.deepEqual(compared,
+    ['lead', 'site', 'dev1', 'ui', 'dev2', 'gone', 'old', 'docs'], 'retired members included, for the retired controls') }
 })
 
 /* ─── §3 on a desk ──────────────────────────────────────────────────────── */

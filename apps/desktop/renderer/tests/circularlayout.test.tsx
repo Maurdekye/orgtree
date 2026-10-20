@@ -340,7 +340,10 @@ test('the HireSheet coworker pin is taken before the hire op, not after the tree
   const src = readFileSync('src/canvas/OrgCanvas.tsx', 'utf8')
   const at = src.indexOf('onHire={(tier, name, grant, placement)')
   const body = src.slice(at, src.indexOf('</MaybePortal>', at))
-  const pinAt = body.indexOf('ringSide(a, placement)'), opAt = body.indexOf("op({ op: 'hire'")
+  const pinAt = body.indexOf('ringSide(a, placement)'), opAt = body.indexOf('const hired =')
+  assert.ok(body.includes("const body: Parameters<OpFn>[0] = { op: 'hire'"), 'the constructed body is a hire')
+  assert.ok(body.includes('userGesture(slug, steps,') && body.includes(': op(body)'),
+    'both history and compatibility submissions use that prepared placement')
   assert.ok(pinAt > 0 && opAt > 0 && pinAt < opAt, 'ringSide runs synchronously before the hire op')
   assert.equal(body.split('ringSide(').length - 1, 1, 'and nowhere inside the .then')
 })

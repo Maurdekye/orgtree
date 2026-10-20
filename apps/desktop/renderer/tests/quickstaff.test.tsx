@@ -445,8 +445,8 @@ test('quick staff groups Antigravity Claude model rows before Gemini rows', () =
     { tier: 'flash', seat: 1, efforts: [] },
   ]
   const entry = quickStaffEntry('org', 'agy-family-order', p, () => {})
-  assert.deepEqual(entry.children?.flatMap((child) => child === 'sep' ? [] : [child.label]),
-    ['opus (antigravity)', 'sonnet (antigravity)', 'argon', 'flash'])
+  { const compared = entry.children?.flatMap((child) => child === 'sep' ? [] : [child.label]); assert.deepEqual(compared,
+    ['opus (antigravity)', 'sonnet (antigravity)', 'argon', 'flash']) }
 })
 
 test('OpenRouter quick staffing exposes all standard efforts and forwards the choice', async t => {

@@ -10,9 +10,11 @@ const shell = readFileSync(path.join(__SRC_DIR__, 'shell.css'), 'utf8')
 const attention = readFileSync(path.join(__SRC_DIR__, 'attention/attention.css'), 'utf8')
 const styles = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
 const rule = (css: string, selector: string) => {
-  const start = css.indexOf(selector + ' {')
-  assert.ok(start >= 0, `missing ${selector}`)
-  return css.slice(start, css.indexOf('}', start))
+  const bodies = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(m => m[1]!.replace(/\/\*[\s\S]*?\*\//g, '').split(',').some(s => s.trim() === selector))
+    .map(m => m[2]!)
+  assert.ok(bodies.length, 'missing ' + selector)
+  return bodies.join('\n')
 }
 
 test('adjacent header frames leave room for the badge overhang', () => {

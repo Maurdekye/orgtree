@@ -54,5 +54,5 @@ test('ordinary Open action keeps its place', async t => {
   function Fixture() { const m = useContextMenu(); return <><button onContextMenu={e => m.open(e,
     ['First', 'Middle', 'Open'].map(label => ({ label, onSelect: () => {} })))}>target</button>{m.node}</> }
   const v = await mountView(<Fixture />, el => el); t.after(() => v.unmount())
-  assert.deepEqual(labels(await openMenu(v.el.querySelector('button')!)), ['First', 'Middle', 'Open'])
+  { const compared = labels(await openMenu(v.el.querySelector('button')!)); assert.deepEqual(compared, ['First', 'Middle', 'Open']) }
 })

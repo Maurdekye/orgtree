@@ -143,7 +143,7 @@ test('the borrow flag is NOT reachable from an event handler', () => {
   // keeps it caught.
   assert.match(popout, /const redock = \(\) => returnHome\(false\)/,
     'the public form takes no arguments, so no event can tell it to borrow')
-  assert.match(popout, /const returnHome = \(transient: boolean\) =>/,
+  assert.match(popout, /const returnHome = \(transient: boolean, reason: 'close' \| 'return' = 'return'\) =>/,
     'the flag lives on an internal helper')
   assert.doesNotMatch(popout, /const redock = \(transient/,
     'and must never go back to being a defaulted parameter on the public one')
@@ -172,9 +172,9 @@ test('a stale handle is INERT — it cannot resurrect a window past a boundary',
     'and both the double-use and the boundary-crossed cases are refused')
   // the epoch really is bumped by each boundary, which is what makes the
   // check above mean anything
-  assert.match(popout, /const returnHome = \(transient: boolean\) => \{[\s\S]{0,400}?epoch\.current\+\+/,
+  assert.match(popout, /const returnHome = \(transient: boolean, reason: 'close' \| 'return' = 'return'\) => \{[\s\S]{0,400}?epoch\.current\+\+/,
     'an ordinary redock bumps it')
-  assert.match(popout, /const open = \(restoring = false\) => \{[\s\S]{0,200}?\+\+epoch\.current/,
+  assert.match(popout, /const open = \(restoring = false, origin\?: SurfaceOrigin\) => \{[\s\S]{0,200}?\+\+epoch\.current/,
     'so does opening')
   assert.match(popout, /useEffect\(\(\) => \(\) => \{[\s\S]{0,400}?epoch\.current\+\+/,
     'and so does unmount')

@@ -288,11 +288,12 @@ declare const __SRC_DIR__: string
 const CSS = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
 
 function rule(selector: string): string {
-  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const re = new RegExp(esc + String.raw`\s*\{([^}]*)\}`)
-  const m = re.exec(CSS)
-  assert.ok(m, `no "${selector}" rule found in styles.css`)
-  return m![1]!
+  // Match a complete selector, not a suffix such as .tray-panel .tray.
+  const bodies = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(m => m[1]!.replace(/\/\*[\s\S]*?\*\//g, '').split(',').some(s => s.trim() === selector))
+    .map(m => m[2]!)
+  assert.ok(bodies.length, 'no rule for ' + selector)
+  return bodies.join('\n')
 }
 
 test('Claude tray rows bind the established Claude accent token', () => {

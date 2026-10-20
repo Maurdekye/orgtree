@@ -355,7 +355,7 @@ test('§2g the jump cards stay on every tab, the members\' row above the message
     await inAct(async () => { el.querySelector<HTMLButtonElement>(`.cc-tabs button[data-tab="${tab}"]`)!.click(); await flush(2) })
     assert.equal(el.querySelector(`.cc-tabs button[data-tab="${tab}"]`)?.classList.contains('on'), true, `${tab} is open`)
     assert.equal(el.querySelector('.cc-head .desk-nav-chip') === null, true, `${tab}: no jump card among the header cards`)
-    assert.deepEqual(names(el.querySelector('.cc-head + .desk-nav')), ['boss'], `${tab}: the superior's card on the up row under the header`)
+    { const compared = names(el.querySelector('.cc-head + .desk-nav')); assert.deepEqual(compared, ['boss'], `${tab}: the superior's card on the up row under the header`) }
     const navs = [...el.querySelectorAll('.desk-nav')]
     assert.equal(navs.length, 2, `${tab}: the up row and one row down`)
     assert.deepEqual(names(navs[1]!), ['dev1', 'ui', 'dev2', null], `${tab}: the members' cards, then the retired control`)
@@ -863,17 +863,17 @@ const said = (el: Element | null | undefined) => el && [el.querySelector('.sq-id
 
 test("§8a while any agent under it works: 'Active <age>' in the agent card's active style, from when the project became active", async (t) => {
   const el = await desk(t, { node: active() })
-  assert.deepEqual(said(el.querySelector('.cc-head .project-last-activity')), ['sq-idle working active', 'Active', '6m'],
-    "dev2's turn overlapped dev1's, so the run began 6m ago")
+  { const compared = said(el.querySelector('.cc-head .project-last-activity')); assert.deepEqual(compared, ['sq-idle working active', 'Active', '6m'],
+    "dev2's turn overlapped dev1's, so the run began 6m ago") }
   const gapped = await desk(t, { node: active(true) })
-  assert.deepEqual(said(gapped.querySelector('.cc-head .project-last-activity')), ['sq-idle working active', 'Active', '2m'],
-    'a turn that ended before the run began does not extend it')
+  { const compared = said(gapped.querySelector('.cc-head .project-last-activity')); assert.deepEqual(compared, ['sq-idle working active', 'Active', '2m'],
+    'a turn that ended before the run began does not extend it') }
 })
 
 test("§8b otherwise 'Idle <age>' in the agent card's idle style, from the newest turn under it, nested included", async (t) => {
   const el = await desk(t, { node: quiet(300) })
-  assert.deepEqual(said(el.querySelector('.cc-head .project-last-activity')), ['sq-idle idle', 'Idle', '5m'],
-    "dev2 (in nested ui) ended 5m ago, newer than dev1's hour")
+  { const compared = said(el.querySelector('.cc-head .project-last-activity')); assert.deepEqual(compared, ['sq-idle idle', 'Idle', '5m'],
+    "dev2 (in nested ui) ended 5m ago, newer than dev1's hour") }
 })
 
 test('§8c the middle-zoom card carries it beside the active/hired chip', async (t) => {
@@ -886,7 +886,7 @@ test('§8c the middle-zoom card carries it beside the active/hired chip', async 
   t.after(() => view.unmount())
   const meta = view.el.querySelector('.sq.project .project-meta')!
   assert.ok(meta.querySelector('.project-activity'), 'the chip')
-  assert.deepEqual(said(meta.querySelector('.project-last-activity')), ['sq-idle idle', 'Idle', '5m'])
+  { const compared = said(meta.querySelector('.project-last-activity')); assert.deepEqual(compared, ['sq-idle idle', 'Idle', '5m']) }
 })
 
 test("§7d the zoom card shows no preview of the project's description (user 2026-10-18 08:50Z)", async (t) => {

@@ -192,7 +192,7 @@ test('G2a a nested project\'s up cards pass through the outer project to the nea
   // header cards (user 2026-10-19 21:05:53Z, 21:06:08Z)
   const up = upRow(el)
   assert.deepEqual(chipNames(up), ['boss', 'outer'], 'the agent superior first, then the projects between, outermost first')
-  assert.deepEqual(chipNames(el.querySelector('.cc-head')), [], 'no jump card among the header cards')
+  { const compared = chipNames(el.querySelector('.cc-head')); assert.deepEqual(compared, [], 'no jump card among the header cards') }
   await inAct(() => { up!.querySelector<HTMLButtonElement>('button[data-copy-agent-name="boss"]')!.click() })
   assert.deepEqual(jumped, ['boss'])
 })

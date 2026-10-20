@@ -89,8 +89,13 @@ test('only an APPLICABLE body refreshes the stamp', () => {
   const app = src('App.tsx')
   // the same test that decides whether to paint a body decides whether it
   // certifies one — one rule, not two that can drift
-  // The current guarded success block spans 753 characters with CRLF (739 with LF).
-  assert.match(app, /if \(t && wantSlug\.current === want\) \{[\s\S]{0,753}?setTreeRead\(\{ at: Date\.now\(\), error: null \}\)/,
+  // Read through the guarded block's following boot-gate call, rather than
+  // imposing a character budget on legitimate work inside the success path.
+  const start = app.indexOf('if (t && wantSlug.current === want) {')
+  const end = app.indexOf('\n      openBootGate()', start)
+  assert.ok(start >= 0 && end > start, 'the applicability guard encloses the success path')
+  const success = app.slice(start, end)
+  assert.match(success, /if \(t && wantSlug\.current === want\) \{[\s\S]*?setTreeRead\(\{ at: Date\.now\(\), error: null \}\)/,
     'a null body or one for an organization we have left does not stamp')
 })
 

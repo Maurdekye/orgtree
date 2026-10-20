@@ -53,7 +53,7 @@ test('§1 a project mail row gives its kind and queue state a line of their own'
   assert.ok(row, 'positive control: the row renders')
   assert.deepEqual(classes(row!), ['l1', 'lmeta', 'l2'], 'who and when, then kind and queue, then the preview')
   assert.ok(row!.classList.contains('project-mail'), 'the row says it carries a queue state')
-  assert.deepEqual(classes(row!.querySelector(':scope > .l1')), ['mfrom', 'mtime'], 'line 1 holds only the sender and the time')
+  { const compared = classes(row!.querySelector(':scope > .l1')); assert.deepEqual(compared, ['mfrom', 'mtime'], 'line 1 holds only the sender and the time') }
   const meta = row!.querySelector(':scope > .lmeta')
   assert.deepEqual(classes(meta), ['event-row-kind', 'queuekind queue-delivery'], 'kind chip, then the delivery marker')
   assert.equal(words(meta), 'Question→@coordinator-opus')
@@ -85,8 +85,8 @@ test('§2 every queue state sits on the meta line, never beside the sender', asy
 test('§2 an urgent project mail keeps its urgent chip beside its kind', async (t) => {
   const { v, rows: [row] } = await only([{ ...question, urgent: true, urgent_reason: 'blocks the alpha' }])
   t.after(() => v.unmount())
-  assert.deepEqual(classes(row!.querySelector(':scope > .lmeta')), ['event-row-kind', 'urgentkind', 'queuekind queue-delivery'])
-  assert.deepEqual(classes(row!.querySelector(':scope > .l1')), ['mfrom', 'mtime'])
+  { const compared = classes(row!.querySelector(':scope > .lmeta')); assert.deepEqual(compared, ['event-row-kind', 'urgentkind', 'queuekind queue-delivery']) }
+  { const compared = classes(row!.querySelector(':scope > .l1')); assert.deepEqual(compared, ['mfrom', 'mtime']) }
 })
 
 /* ─── §3 the Sent folder ─────────────────────────────────────────────────── */
@@ -119,8 +119,8 @@ test('§4 rows without a queue state keep two lines with their chips beside the 
     assert.equal(row.classList.contains('project-mail'), false)
     assert.equal(row.querySelector(':scope > .l1 > .event-row-kind')?.textContent, 'Question', 'the kind chip stays on line 1')
   }
-  assert.deepEqual(classes(rows.find((r) => r.querySelector('.urgentkind'))!.querySelector(':scope > .l1')),
-    ['mfrom', 'event-row-kind', 'urgentkind', 'mtime'], 'line 1 order is unchanged')
+  { const compared = classes(rows.find((r) => r.querySelector('.urgentkind'))!.querySelector(':scope > .l1')); assert.deepEqual(compared,
+    ['mfrom', 'event-row-kind', 'urgentkind', 'mtime'], 'line 1 order is unchanged') }
 })
 
 /* ─── §5 a project's own mailbox ─────────────────────────────────────────── */
@@ -136,8 +136,8 @@ test('§5 in a project\'s own mailbox a mail nobody holds yet carries its chips 
   t.after(() => v.unmount())
   assert.ok(q && p, 'positive control: two waiting rows')
   assert.deepEqual(classes(q!), ['l1', 'lmeta', 'l2'], 'the waiting question reads like a held one')
-  assert.deepEqual(classes(q!.querySelector(':scope > .l1')), ['mfrom', 'mtime'])
-  assert.deepEqual(classes(q!.querySelector(':scope > .lmeta')), ['event-row-kind'])
+  { const compared = classes(q!.querySelector(':scope > .l1')); assert.deepEqual(compared, ['mfrom', 'mtime']) }
+  { const compared = classes(q!.querySelector(':scope > .lmeta')); assert.deepEqual(compared, ['event-row-kind']) }
   assert.deepEqual(classes(p!), ['l1', 'l2'], 'a plain message has nothing for the meta line')
   for (const r of [q!, p!]) assert.ok(r.classList.contains('project-mail'))
 })
