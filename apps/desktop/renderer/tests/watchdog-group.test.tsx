@@ -75,7 +75,7 @@ test('expanded inventory replaces pages, reaches the final dog and preserves ide
   assert.deepEqual(requests.map(q=>new URLSearchParams(q).get('cursor')),['0','50','100'])
 })
 
-test('failed page is explicit and retry works; a closed group ignores late data',async t=>{
+test('failed page is explicit and retry works',async t=>{
   const old=globalThis.fetch;let fail=true,requests=0
   globalThis.fetch=async()=>{requests++;return fail?response({error:'fixture unavailable'},503):response({watchdogs:dogs(9),total:9,next_cursor:null})}
   t.after(()=>{globalThis.fetch=old})
@@ -86,6 +86,20 @@ test('failed page is explicit and retry works; a closed group ignores late data'
   await inAct(async()=>{document.querySelector<HTMLButtonElement>('[role="alert"] button')!.click();await flush(6)})
   assert.equal(document.querySelectorAll('[aria-label="worker watchdogs"] .watchdog-link').length,9)
   assert.equal(requests,2)
+})
+
+test('expanded pages ignore old-org and closed-list replies',async t=>{
+  const old=globalThis.fetch,pending:Array<(r:Response)=>void>=[]
+  globalThis.fetch=()=>new Promise(resolve=>pending.push(resolve));t.after(()=>{globalThis.fetch=old})
+  const show=(org:string)=><WatchdogGroup owner="worker" org={org} dogs={dogs(8)} total={9} onOpen={()=>{}}/>
+  const v=await mountView(show('old'),el=>el);t.after(()=>v.unmount())
+  await inAct(async()=>v.el.querySelector<HTMLElement>('button')!.click())
+  await v.render(show('new'))
+  await inAct(async()=>{pending[0]!(response({watchdogs:dogs(9).map(w=>({...w,name:'OLD'})),total:9,next_cursor:null}));await flush(6)})
+  assert.equal(document.querySelectorAll('[aria-label="worker watchdogs"] .watchdog-link').length,0)
+  await inAct(async()=>{document.querySelector<HTMLButtonElement>('.watchdog-list-close')!.click()})
+  await inAct(async()=>{pending[1]!(response({watchdogs:dogs(9).map(w=>({...w,name:'LATE'})),total:9,next_cursor:null}));await flush(6)})
+  assert.equal(document.querySelector('[aria-label="worker watchdogs"]')===null,true)
 })
 
 test('exact detail outside the preview ignores a reply for a previous org',async t=>{
