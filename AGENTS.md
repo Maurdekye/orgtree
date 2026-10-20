@@ -159,9 +159,11 @@
   The 08:05 sketch refinement packs staggered circle-chord rows with 8px gaps;
   short curves share ordinary hierarchy-edge styling and insertion follows the
   serpentine order, including reversed rows.
-  The default-on Display switch restores ordinary columns when off. In-bunch
-  drag uses one atomic move/reorder gesture, preserving project identities and
-  the bottom member group; swap stays agent-only. See
+  The default-on Display switch restores ordinary columns when off. The separate
+  "rearrange projects in a bunch" setting defaults OFF (user 2026-10-20 09:15Z):
+  ordinary subtree dragging/reparenting applies until enabled. Its live profile
+  preference gates insertion markers and atomic move/reorder gestures, preserving
+  project identities and the bottom member group; swap stays agent-only. See
   [project bunches](docs/rust-engine/project-bunches.md).
   [decided: user 2026-10-20; verified: `canvas/projectbunch.ts`,
   `canvas/projectbunchmove.ts`, `canvas/OrgCanvas.tsx`]

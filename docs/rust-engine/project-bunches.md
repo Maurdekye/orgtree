@@ -13,6 +13,16 @@ Display > Desk > **bunch consecutive projects** defaults on. Its profile-local
 subscription and storage events; off uses the original layout. It does not
 change organization structure or any project setting.
 
+Display > Desk > **rearrange projects in a bunch** is a separate, default-off
+setting (user 2026-10-20 09:15 UTC). The profile-local
+`orgtree-project-bunch-rearrange` key uses the same same-tab subscription and
+cross-window storage events. Off keeps ordinary whole-subtree dragging and
+reparenting, even inside the bunch, with no bunch insertion point or identity
+rotation. Turning it on enables the ordered insertion behavior below. Turning
+it off during a drag hides the insertion marker and prevents a rotation on release.
+Neither setting changes the other, and the rearranging preference only has an
+effect while projects are displayed as a bunch.
+
 `canvas/projectbunch.ts` finds runs against the full physical child lists,
 including hidden-retired counts. A display prune must not erase a structural
 break. Layout contracts each run to a block, reserves its complete footprint,
@@ -35,7 +45,7 @@ Links join the nearest rectangle edges with a small cubic bend, sharing `.edge`
 colour, width and opacity. Drag insertion chooses the nearest gap along this
 ordered path, including reversed rows, rather than sorting by horizontal position.
 
-Inside a bunch, dragging shows an insertion point and rotates the project
+With rearranging enabled, dragging inside a bunch shows an insertion point and rotates the project
 identities while retaining their settings and the bottom member group.
 `projectbunchmove.ts` emits only existing `moves` (maximum 20 per batch) and
 `reorder` steps, submitted together through one atomic `userGesture`.
@@ -53,7 +63,8 @@ upper bunch; a later direct run below that split can form a separate bunch.
 Focused tests: `projectbunch.test.tsx` (shape, exact opt-out and break behavior,
 Display persistence), `projectbunch-drag.test.tsx` (real canvas pointer gestures,
 all insertion positions for 2–8 projects, atomic steps, rollback, cancel,
-cross-window preference updates, both insertion cases and split control).
+default-off ordinary dragging, same-tab/cross-window preference updates,
+mid-drag opt-out, both insertion cases and split control).
 `projectbunch-visual.mjs` captures the real renderer with synthetic data in
 Session 0, including 2/3/5/7/8/12/20 projects, opt-out, breaks, far zoom, insertions and
 reorder. It never opens or modifies live organization data.

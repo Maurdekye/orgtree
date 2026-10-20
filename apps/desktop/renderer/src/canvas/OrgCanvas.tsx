@@ -1,6 +1,6 @@
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
 import { projectBunches, projectBunchLink, projectBunchInsertion, type ProjectBunch } from './projectbunch'
-import { projectBunchesOn, useProjectBunches } from './projectbunchprefs'
+import { projectBunchesOn, useProjectBunches, projectBunchRearrangeOn, useProjectBunchRearrange } from './projectbunchprefs'
 import { projectBunchRotation, withProjectBunchRotation, type BunchRotation } from './projectbunchmove'
 import { CanvasBackground } from './canvasbackground'
 import { publishEpicCanvas } from '../epic/tap'
@@ -1005,6 +1005,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const hidden = hiddenMemo
   const chartLayout = useChartLayout()
   const bunchProjects = useProjectBunches()
+  const rearrangeBunches = useProjectBunchRearrange()
   const bunches = useMemo(() => bunchProjects ? projectBunches(vroot, hidden, map) : new Map<string, ProjectBunch>(),
     [vroot, hidden, map, bunchProjects])
   const inSameBunch = (a: string, b: string) => !!bunches.get(a) && bunches.get(a) === bunches.get(b)
@@ -1201,7 +1202,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     inBunch?: boolean
   } | null>(null)     // {id, sx, sy, ox, oy, moved}
   const draggingId = nodeDrag.current?.moved ? nodeDrag.current.id : undefined
-  const draggingInBunch = !!nodeDrag.current?.inBunch
+  const draggingInBunch = rearrangeBunches && !!nodeDrag.current?.inBunch
   const moveGhost = useMemo(() => draggingId && !draggingInBunch ? moveGhostPosition(
     pendingBunch ? withProjectBunchRotation(tree, pendingBunch) : tree, pendingTargets,
     pendingOrders, draggingId, dropId, { draft, seats, pileFront, crowdPiles,
@@ -2802,7 +2803,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       const key = 'dog:' + w.id, p = posOf(key)
       if (p) bases.set(key, { x: p.x, y: p.y })
     }
-    const group = bunches.get(id)
+    const group = rearrangeBunches ? bunches.get(id) : undefined
     const positions = new Map<string, Pt>(group?.members.flatMap(n => {
       const p = targetRef.current.get(n.id)
       return p ? [[n.id, { ...p }] as [string, Pt]] : []
@@ -2843,7 +2844,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (Math.abs(dx) + Math.abs(dy) > 5 / z) d.moved = true
     if (!d.moved) return
     const world = toWorld(e), bunch = d.bunch
-    d.inBunch = !!bunch && world.x >= bunch.left && world.x <= bunch.right
+    // Recheck on release too: switching off mid-drag must never submit a rotation.
+    d.inBunch = projectBunchRearrangeOn() && !!bunch && world.x >= bunch.left && world.x <= bunch.right
       && world.y >= bunch.top && world.y <= bunch.bottom
     for (const [k, b] of d.bases) {
       const s = springs.current.get(k)
@@ -4087,7 +4089,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       }}>
         <svg className="edges" ref={edgesSvgRef} width={bounds.w} height={bounds.h}>
           {moveGhost && <MoveGhost point={moveGhost} zoom={view.z} />}
-          {nodeDrag.current?.reorder && (nodeDrag.current.inBunch
+          {nodeDrag.current?.reorder && (!nodeDrag.current.inBunch || rearrangeBunches) && (nodeDrag.current.inBunch
             ? <circle data-project-bunch-insert=""
               data-reorder-before={'before' in nodeDrag.current.reorder.request ? nodeDrag.current.reorder.request.before : undefined}
               data-reorder-after={'after' in nodeDrag.current.reorder.request ? nodeDrag.current.reorder.request.after : undefined}

@@ -4450,7 +4450,8 @@
     "ls:orgtree-pin-snap",
     "ls:orgtree-jump-fold",
     "ls:orgtree-canvas-anchor-bounded",
-    "ls:orgtree-project-bunches"
+    "ls:orgtree-project-bunches",
+    "ls:orgtree-project-bunch-rearrange"
    ],
    "purpose": "Display > Desk: chart layout, desk text size, piles, retired agents, card shortcuts, pinned-panel behavior.",
    "must_cover": [
@@ -4584,6 +4585,14 @@
      "needles": [
       "orgtree-project-bunches",
       "projectBunchesOn"
+     ]
+    },
+    {
+     "key": "ls:orgtree-project-bunch-rearrange",
+     "file": "apps/desktop/renderer/src/canvas/projectbunchprefs.ts",
+     "needles": [
+      "orgtree-project-bunch-rearrange",
+      "projectBunchRearrangeOn"
      ]
     }
    ]

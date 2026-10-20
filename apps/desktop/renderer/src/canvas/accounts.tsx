@@ -2,7 +2,7 @@ import { AccountRegistrySection, AddAccountDialog, useAccountRegistry } from './
 import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { CanvasBackgroundSetting } from './canvasbgsetting'
-import { setProjectBunchesOn, useProjectBunches } from './projectbunchprefs'
+import { setProjectBunchesOn, useProjectBunches, setProjectBunchRearrangeOn, useProjectBunchRearrange } from './projectbunchprefs'
 import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
 import { TurnLimitsSetting } from './turnlimitssetting'
@@ -337,6 +337,12 @@ export function ProjectBunchSetting() {
   return <SetToggle label="bunch consecutive projects" checked={on}
     onChange={setProjectBunchesOn}
     hint="pack direct project columns into a round, ordered bunch; splits and agents start separate bunches" />
+}
+export function ProjectBunchRearrangeSetting() {
+  const on = useProjectBunchRearrange()
+  return <SetToggle label="rearrange projects in a bunch" checked={on}
+    onChange={setProjectBunchRearrangeOn}
+    hint="drag within a bunch to change project order; off keeps ordinary subtree dragging" />
 }
 
 function CrowdStackToggle() {
@@ -922,7 +928,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
       <CanvasBackgroundSetting />
-      <SetGroup title="Desk"><ChartLayoutSetting /><ProjectBunchSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
+      <SetGroup title="Desk"><ChartLayoutSetting /><ProjectBunchSetting /><ProjectBunchRearrangeSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
       <SetGroup title="Quick chat"><QuickChatPositionSetting /></SetGroup>
       <SetGroup title="Typing">
         <SetRow label="Enter key" hint={composerKeyHint(enterKey ?? runtime?.enter_key_behavior ?? 'send')}>
