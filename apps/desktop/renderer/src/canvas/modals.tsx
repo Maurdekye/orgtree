@@ -1245,20 +1245,20 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
         <h4>Acknowledgement</h4>
         {mode === 'ack' && <SetToggle label="Remind an agent that ends its turn with an un-acked job" checked={turnEnd} disabled={busy}
           onChange={setTurnEndEdit}
-          hint="On: when a listener's turn ends while it still holds an un-acked job, it gets ONE reminder turn right away naming the job: finish it and ack, or set status blocked with a reason. After that the 20-minute ack timeout applies. Not sent if it ended its turn blocked with a reason, or it is halted, frozen or out of usage." />}
+          hint="Mail jobs only: when a listener's turn ends while it still holds an un-acked job, it gets ONE reminder turn right away naming the job: finish it and ack, or set status blocked with a reason. After that the 20-minute ack timeout applies. Not sent if it ended its turn blocked with a reason, or it is halted, frozen or out of usage. Slot leases use the checkup reminders below." />}
         <SetToggle label="Ack timeout" checked={timeout} disabled={busy || checkups === false} onChange={setTimeoutEdit}
           hint={checkups === false
-            ? 'Inactive: it rides the 20-minute checkup ("check on working agents after 20 minutes" in Runtime settings), which is off.'
-            : `An agent holding un-acked mail or an idle concurrency slot gets up to ${reminders} reminders, one per 20-minute checkup; at the next checkup it is taken back and handed to someone else.`} />
+            ? 'Inactive for both mail jobs and slot leases: the 20-minute checkup ("check on working agents after 20 minutes" in Runtime settings) is off.'
+            : `Applies to un-acked mail jobs and idle slot leases. Their holder gets up to ${reminders} reminders, one per 20-minute checkup; at the next checkup, mail is requeued and a slot lease is released in full so waiting claims can proceed.`} />
         <SetRow label="Max attempts" hint={checkups === false
-          ? 'Inactive while the 20-minute checkup is off.'
-          : 'A mail handed out this many times without an ack goes to the dead-letter list and you are told.'}>
+          ? 'Mail jobs only; inactive while the 20-minute checkup is off. Does not limit slot claims.'
+          : 'Mail jobs only: after this many hand-outs without an ack, a reclaimed job goes to the dead-letter list and you are told. Does not limit slot claims.'}>
           <input type="number" aria-label="Max attempts" min={1} max={100} value={attempts} disabled={busy || checkups === false}
             onChange={(e) => setAttemptsEdit(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
         </SetRow>
         <SetRow label="Ack reminders" hint={checkups === false
-          ? 'Inactive while the 20-minute checkup is off.'
-          : 'How many reminders a holder gets before un-acked mail or an idle concurrency slot is taken back. Default 3; from 1 to 10.'}>
+          ? 'Inactive for both mail jobs and slot leases while the 20-minute checkup is off.'
+          : 'Reminders per held mail job or slot lease before reclaim at the next 20-minute checkup, with Ack timeout on. A slot lease is released in full, even if it holds several slots. Default 3; from 1 to 10.'}>
           <input type="number" aria-label="Ack reminders" min={1} max={10} value={reminders} disabled={busy || checkups === false}
             onChange={(e) => setRemindersEdit(Math.max(1, Math.min(10, Math.floor(Number(e.target.value)) || 1)))} />
         </SetRow>
