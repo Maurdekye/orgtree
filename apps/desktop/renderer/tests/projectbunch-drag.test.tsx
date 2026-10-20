@@ -3,6 +3,7 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
+import { AccountsPanel } from '../src/canvas/accounts'
 import { resetConvos } from '../src/convo'
 import { USER, setChartLayout, treeParents, withPendingMoves } from '../src/canvas/shared'
 import { withPendingOrder } from '../src/canvas/pendingorder'
@@ -26,12 +27,14 @@ function client(el: HTMLElement, p: { x: number; y: number }) {
   const [x, y, z] = numbers(el.querySelector<HTMLElement>('.space')!.style.transform)
   return { clientX: x! + p.x * z!, clientY: y! + p.y * z! }
 }
-async function canvas(t: TestContext, tree = bunchTree([chain(3)]), mode: 'row' | 'circular' = 'row') {
+async function canvas(t: TestContext, tree = bunchTree([chain(3)]), mode: 'row' | 'circular' = 'row', rearrange = true) {
   useFakeClock(); t.after(realClock)
   resetConvos()
   localStorage.clear()
   setChartLayout(mode)
   setProjectBunchesOn(true)
+  // Rotation tests explicitly opt in; a fresh profile keeps ordinary dragging.
+  if (rearrange) localStorage.setItem('orgtree-project-bunch-rearrange', '1')
   const proto = W.HTMLElement.prototype
   const old = { rect: proto.getBoundingClientRect, w: Object.getOwnPropertyDescriptor(proto, 'clientWidth'),
     h: Object.getOwnPropertyDescriptor(proto, 'clientHeight'), capture: proto.setPointerCapture }
@@ -69,11 +72,14 @@ async function canvas(t: TestContext, tree = bunchTree([chain(3)]), mode: 'row' 
   return { ...view, gestures, ops, errors, resolve, reject,
     show: async (next: TreePayload) => { await view.render(render(next)); await advance(1500, 50); await flush() } }
 }
-async function drag(el: HTMLElement, id: string, world: { x: number; y: number }, cancel = false) {
+async function drag(el: HTMLElement, id: string, world: { x: number; y: number }, cancel = false,
+  during?: () => Promise<void>) {
   const p = at(el, id), c = card(el, id)!
   const start = client(el, { x: p.x + 62, y: p.y + 62 }), finish = client(el, world)
-  for (const [type, point] of [['pointerdown', start], ['pointermove', finish], [cancel ? 'pointercancel' : 'pointerup', finish]] as const)
+  for (const [type, point] of [['pointerdown', start], ['pointermove', finish], [cancel ? 'pointercancel' : 'pointerup', finish]] as const) {
     await inAct(() => c.dispatchEvent(new W.PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, ...point })))
+    if (type === 'pointermove') await during?.()
+  }
   await flush()
 }
 function endPoint(el: HTMLElement, id: string, neighbour: string) {
@@ -156,10 +162,75 @@ test('drag insertion follows a middle row running right to left', async t => {
   await view.show(next)
 })
 test('dragging outside a bunch retains the existing whole-subtree move', async t => {
-  const view = await canvas(t, bunchTree([chain(3), agent('outside')])), point = at(view.el, 'outside')
+  const view = await canvas(t, bunchTree([chain(3), agent('outside')]), 'row', false), point = at(view.el, 'outside')
   await drag(view.el, 'project-2', { x: point.x + 62, y: point.y + 62 })
   assert.equal(view.gestures.length, 0)
   assert.deepEqual(view.ops, [{ op: 'demote', node: 'project-2', new_parent: 'outside' }])
+})
+test('fresh profiles drag the entire subtree inside a bunch without an insertion point or rotation', async t => {
+  const view = await canvas(t, bunchTree([chain(3)]), 'row', false)
+  const head = at(view.el, 'project-1'), tail = at(view.el, 'project-3')
+  await drag(view.el, 'project-1', endPoint(view.el, 'project-3', 'project-2'), false, async () => {
+    assert.equal(!!view.el.querySelector('[data-project-bunch-insert]'), false)
+    const movedHead = at(view.el, 'project-1'), movedTail = at(view.el, 'project-3')
+    assert.ok(Math.hypot(movedHead.x - head.x, movedHead.y - head.y) > 20, 'actual drag ran')
+    assert.ok(Math.abs((movedHead.x - head.x) - (movedTail.x - tail.x)) < .01)
+    assert.ok(Math.abs((movedHead.y - head.y) - (movedTail.y - tail.y)) < .01)
+  })
+  assert.equal(view.gestures.length, 0)
+  assert.equal(view.ops.length, 0, 'dropping on its own descendant does not reparent')
+})
+test('rearranging off still permits ordinary reparenting within the bunch', async t => {
+  const view = await canvas(t, bunchTree([chain(3)]), 'row', false), head = at(view.el, 'project-1')
+  await drag(view.el, 'project-3', { x: head.x + 62, y: head.y + 62 })
+  assert.equal(view.gestures.length, 0)
+  assert.deepEqual(view.ops, [{ op: 'promote', node: 'project-3', new_parent: 'project-1' }])
+})
+test('the app setting and cross-window storage events change rearranging on a mounted canvas', async t => {
+  const view = await canvas(t, bunchTree([chain(3)]), 'row', false)
+  const settings = await mountView(<AccountsPanel initialTab="display" toast={() => {}} close={() => {}} />, el => el)
+  t.after(() => settings.unmount())
+  await flush(8)
+  const toggle = settings.el.querySelector<HTMLInputElement>('input[aria-label="rearrange projects in a bunch"]')
+  assert.ok(!!toggle, 'app setting exists')
+  const preview = async (enabled: boolean) => {
+    await drag(view.el, 'project-1', endPoint(view.el, 'project-3', 'project-2'), true, async () => {
+      assert.equal(!!view.el.querySelector('[data-project-bunch-insert]'), enabled)
+    })
+    assert.equal(view.gestures.length, 0, 'cancel sends nothing')
+  }
+  assert.equal(toggle!.checked, false)
+  await inAct(() => toggle!.click())
+  assert.equal(toggle!.checked, true)
+  await preview(true)
+  await inAct(() => toggle!.click())
+  await preview(false)
+  await inAct(() => {
+    localStorage.setItem('orgtree-project-bunch-rearrange', '1')
+    window.dispatchEvent(new W.StorageEvent('storage', { key: 'orgtree-project-bunch-rearrange', newValue: '1' }))
+  })
+  assert.equal(toggle!.checked, true)
+  await preview(true)
+  await inAct(() => {
+    localStorage.removeItem('orgtree-project-bunch-rearrange')
+    window.dispatchEvent(new W.StorageEvent('storage', { key: null }))
+  })
+  assert.equal(toggle!.checked, false, 'clearing storage restores the default')
+  await preview(false)
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 2, 'layout remains bunched')
+})
+test('disabling rearranging during a drag removes its marker and prevents a rotation on release', async t => {
+  const view = await canvas(t)
+  await drag(view.el, 'project-1', endPoint(view.el, 'project-3', 'project-2'), false, async () => {
+    assert.equal(!!view.el.querySelector('[data-project-bunch-insert]'), true)
+    await inAct(() => {
+      localStorage.setItem('orgtree-project-bunch-rearrange', '0')
+      window.dispatchEvent(new W.StorageEvent('storage', { key: 'orgtree-project-bunch-rearrange', newValue: '0' }))
+    })
+    assert.equal(!!view.el.querySelector('[data-project-bunch-insert]'), false)
+  })
+  assert.equal(view.gestures.length, 0)
+  assert.equal(view.ops.length, 0)
 })
 test('existing above placement joins above a project or a sole bottom agent; a split stays separate', async t => {
   for (const anchor of ['project-2', 'worker']) assert.deepEqual(
