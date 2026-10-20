@@ -16,6 +16,10 @@
 //   leaving the queue keeps a held job until it is acknowledged: nothing
 //   reclaims it, and the engine refuses to take it back
 //   the user's listener and held job survive an engine restart
+//   joining again updates the batch in place (the desk header's "Join mail
+//   queue N times", user 2026-10-20 16:39Z): the same dog keeps its place in
+//   the order, a raised batch hands a waiting job at once, a lowered one
+//   reclaims nothing (a held job stays held until acknowledged)
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-user-queue.mjs
 
 import { Proof } from '../proof.mjs'
@@ -59,8 +63,20 @@ export default async function (rig) {
   const ud = userDogs()[0]
   p.check('the user joins the queue: a fair_queue dog with no agent owner, armed', made.ok && hire.ok && da.ok && join.ok && ud?.state === 'armed'
     && ud?.owner_agent_id === null && ud?.owner_kind === 'user', { join: join.ok ? join.v : join.error, dogs: userDogs() })
-  const twice = await opTry({ op: 'user_queue_join', node: 'uq' })
-  p.check('one queue listener per project, as for an agent', !twice.ok && /already keep/.test(twice.error ?? ''), twice)
+  const dogBefore = userDogs()[0]
+  const same = await opTry({ op: 'user_queue_join', node: 'uq', batch: 1 })
+  p.check('joining again with the same batch changes nothing', same.ok && same.v?.updated === false && userDogs().length === 1
+    && userDogs()[0].id === dogBefore.id, same)
+  const twice = await opTry({ op: 'user_queue_join', node: 'uq', batch: 3 })
+  p.check('joining again with another batch updates it in place: the same dog, still one per project, armed',
+    twice.ok && twice.v?.updated === true && userDogs().length === 1 && userDogs()[0].id === dogBefore.id
+    && userDogs()[0].uid === dogBefore.uid && userDogs()[0].state === 'armed' && Number(userDogs()[0].memo?.batch) === 3
+    && userDogs()[0].fired === dogBefore.fired, { twice: twice.ok ? twice.v : twice.error, dogs: userDogs() })
+  const lowAgain = await opTry({ op: 'user_queue_join', node: 'uq', batch: 1 })
+  const tooMany = await opTry({ op: 'user_queue_join', node: 'uq', batch: 21 })
+  const none = await opTry({ op: 'user_queue_join', node: 'uq', batch: 0 })
+  p.check('an update keeps to the batch limit: 1 to 20', lowAgain.ok && Number(userDogs()[0].memo?.batch) === 1 && !tooMany.ok && !none.ok
+    && /1 to 20/.test(tooMany.error ?? '') && Number(userDogs()[0].memo?.batch) === 1, { tooMany: tooMany.error, none: none.error })
 
   for (const n of [1, 2, 3, 4]) await post('uq', `Job ${n}`)
   await settle('jobs handed out')
@@ -158,6 +174,39 @@ export default async function (rig) {
   p.check('Acknowledge without reply ends it too, and frees the place for the next job', doneNoReply.ok
     && jobs('uqa').filter(j => j.extra?.claimed?.by_user === true && !j.extra?.claimed?.acked_at).length === 1,
     { done: doneNoReply.ok ? doneNoReply.v : doneNoReply.error, held: jobs('uqa').filter(j => j.extra?.claimed?.by_user === true).map(j => ({ b: j.body.slice(0, 20), acked: !!j.extra?.claimed?.acked_at })) })
+
+  // ------------------------------------------------------------ the batch changes in place
+  const made3 = await opTry({ op: 'create_project', name: 'uqb', parent: 'boss', description: 'An ack queue to change the batch of.' })
+  const ack3 = await opTry({ op: 'set_mail_queue', node: 'uqb', mode: 'ack' })
+  const join3 = await opTry({ op: 'user_queue_join', node: 'uqb', batch: 1 })
+  const armed3 = () => userDogs().filter(d => d.state === 'armed' && Number(d.memo?.target_id) === node('uqb').id)
+  const dog3 = armed3()[0]
+  await post('uqb', 'Job A')
+  await post('uqb', 'Job B')
+  await post('uqb', 'Job C')
+  await settle('batch jobs')
+  p.check('batch 1: the user holds one job, the others wait', made3.ok && ack3.ok && join3.ok && userCopies('uqb').length === 1
+    && waiting('uqb').length === 2, { copies: userCopies('uqb').length, waiting: waiting('uqb').length })
+  const raise = await opTry({ op: 'user_queue_join', node: 'uqb', batch: 2 })
+  await rig.waitFor(() => userCopies('uqb').length === 2, { what: 'a raised batch hands the next waiting job at once', timeout: 30000 }).catch(() => {})
+  const heldNow = () => jobs('uqb').filter(j => j.extra?.claimed?.by_user === true && !j.extra?.claimed?.acked_at)
+  p.check('raising the batch hands the next waiting job at once, to the same listener, keeping the job already held',
+    raise.ok && raise.v?.updated === true && userCopies('uqb').length === 2 && waiting('uqb').length === 1 && heldNow().length === 2
+    && armed3().length === 1 && armed3()[0].uid === dog3.uid && jobOf('uqb', 'Job A')?.extra?.claimed?.by_user === true,
+    { raise: raise.ok ? raise.v : raise.error, copies: userCopies('uqb').length, waiting: waiting('uqb').length })
+  const lower = await opTry({ op: 'user_queue_join', node: 'uqb', batch: 1 })
+  await post('uqb', 'Job D')
+  await settle('after lowering')
+  p.check('lowering the batch below the jobs held reclaims nothing: both stay held, and nothing more is handed out',
+    lower.ok && lower.v?.updated === true && heldNow().length === 2 && userCopies('uqb').length === 2 && waiting('uqb').length === 2
+    && !jobs('uqb').some(j => j.extra?.released), { lower: lower.ok ? lower.v : lower.error, held: heldNow().length, waiting: waiting('uqb').length })
+  const ackA = await opTry({ op: 'user_job_ack', copy: userCopies('uqb')[0]?.uid })
+  await settle('after the first ack')
+  p.check('still over the new batch after one acknowledgement: no new job yet', ackA.ok && heldNow().length === 1 && userCopies('uqb').length === 2, { held: heldNow().length })
+  const ackB = await opTry({ op: 'user_job_ack', copy: userCopies('uqb')[1]?.uid })
+  await rig.waitFor(() => userCopies('uqb').length === 3, { what: 'the next job once under the batch', timeout: 30000 }).catch(() => {})
+  p.check('under the batch again, the next waiting job is handed', ackB.ok && userCopies('uqb').length === 3 && heldNow().length === 1,
+    { copies: userCopies('uqb').length, held: heldNow().length })
 
   await settle('the last turns')
   p.file('user-dogs.json', userDogs())
