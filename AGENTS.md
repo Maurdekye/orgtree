@@ -90,6 +90,16 @@
   [decided: user 2026-10-20; verified: `domain/{ops,node_kind}.rs`,
   `http/nodes.rs`, `tools/{control,compaction}.rs`]
 
+- WebSocket `notify_on_connect` defaults false, including absent legacy memo
+  fields: ordinary connects previously emitted no fire. Opt-in Orgtree connection
+  events bypass server filters/gaps and use normal once/notice/fire actions;
+  server payloads remain filtered EXTERNAL data. A successful-session counter
+  prevents coalesced state-watch updates losing short connections. The desktop
+  detail switch saves only this flag, without reconnecting; runners read it at
+  a new session. Existing outage/refusal/stable-recovery health alerts stay on.
+  [decided: user/coordinator 2026-10-20; verified: `runtime/watchdogs/websocket.rs`,
+  `ws/{mod,conn}.rs`, `http/dogs.rs`, `canvas/modals.tsx`]
+
 - WebSocket watchdogs (`kind=websocket`, `orgtree_watchdog action=send`) keep a
   connection per dog (`src/ws`). Their credentials (headers, bearer, Basic,
   query, secret hellos) never reach a list, card, mail, transcript or log: the

@@ -2569,9 +2569,10 @@ pub async fn configure_connect(engine: &Arc<Engine>, org_id: i64, actor: Option<
     if dog.kind != "websocket" { refuse!(BadRequest, "notify_on_connect is for websocket watchdogs only"); }
     if dog.state == "spent" { refuse!(Conflict, "a spent watchdog cannot be configured"); }
     let client = engine.db.get().await?;
-    client.execute("UPDATE ot.watchdogs SET memo=jsonb_set(memo,'{websocket}',coalesce(memo->'websocket','{}'::jsonb)||jsonb_build_object('notify_on_connect',$2::boolean)) WHERE id=$1",
+    let changed = client.execute("UPDATE ot.watchdogs SET memo=jsonb_set(memo,'{websocket}',coalesce(memo->'websocket','{}'::jsonb)||jsonb_build_object('notify_on_connect',$2::boolean)) WHERE id=$1 AND state NOT IN ('spent','removed')",
         &[&dog.row, &enabled]).await?;
     drop(client);
+    if changed == 0 { refuse!(Conflict, "this watchdog has departed"); }
     changes::notify_id(engine, org_id, vec![Change::Watchdogs]);
     Ok(json!({"id":dog.uid,"name":dog.name,"state":dog.state,"notify_on_connect":enabled}))
 }

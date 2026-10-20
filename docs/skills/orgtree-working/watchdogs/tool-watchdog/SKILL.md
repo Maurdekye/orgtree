@@ -54,6 +54,7 @@ The effective tool permission is `tools.orgtree.watchdogs`. The owner is the cal
 | `retained` | Create, `mqtt` only | Default `false`: retained messages are ignored; `true` fires each retained value once. |
 | `credentials` | Create, `mqtt` and `websocket` | A credentials file path in your folders, or inline: `{username, password, client_id}` (mqtt) or `{headers, bearer, username, password, query, hello}` (websocket); stored encrypted and never shown. See mqtt and websocket below. |
 | `hello` | Create, `websocket` only | Up to 16 messages sent after every connect; JSON values go as compact JSON. |
+| `notify_on_connect` | Create, `websocket` only | Boolean, default `false` (also for legacy dogs). When on, every successful connection/reconnection fires a labelled Orgtree event independent of the server pattern/message gap. Normal once/notice/fire-actions semantics apply. The desktop detail switch edits it without reconnecting. |
 | `protocols` | Create, `websocket` only | Subprotocols to offer (`Sec-WebSocket-Protocol`). |
 | `heartbeat` | Create, `websocket` only | `{message, every_s}`: a fixed message sent every `every_s` (5–86400) seconds while connected. |
 | `message` | Send; required | The text to write on a websocket dog's connection; JSON values go as compact JSON; at most 64 KB. |

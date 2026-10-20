@@ -489,6 +489,9 @@ impl<'a> Listener<'a> {
                     return Ok(());
                 }
                 m = self.conn.rx.recv() => {
+                    if self.conn.stats.get(&self.conn.stats.connections) > self.connections_seen && self.state_changed().await? {
+                        return Ok(());
+                    }
                     // the connection went away: the runner ends and is re-armed
                     let Some(m) = m else { return Ok(()) };
                     self.message(m);

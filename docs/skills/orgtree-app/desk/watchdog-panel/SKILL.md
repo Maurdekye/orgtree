@@ -14,7 +14,7 @@ The panel shows owner, kind, target, match pattern when present, fire mode, cade
 
 State is separate from its name: armed, paused, exited/error or departing information must be read as shown. A one-shot note explains whether it has yet to fire or its spark is traveling before it disappears. A fire proves a configured condition/notification, not that the owner has acted.
 
-The available controls pause, resume or remove. The panel is read-only over the definition: changing target/pattern means creating the appropriate new watcher rather than editing this card. Closing the panel only closes the view. A watchdog is not an agent seat.
+The available controls pause, resume or remove. WebSocket watchers also have **Notify on (re)connect**, default off including existing watchers. Switching it saves the choice without reconnecting. When on, each successful session fires a labelled Orgtree connected/reconnected event; normal one-shot, passive-notice and fire-action behavior applies. Server greetings and other server data still follow the pattern even when this switch is off. Refusal, prolonged-outage and stable-recovery health alerts remain independent. Other definition changes, such as target/pattern, require a new watcher. Closing the panel only closes the view. A watchdog is not an agent seat.
 
 Use `orgtree-tool-watchdog` (orgtree-working › watchdogs) for kinds, action parameters, fire semantics and creation constraints. This panel does not introduce a second watcher policy.
 

@@ -32,6 +32,7 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
 | `target` | `ws://host[:port][/path][?query]` (default port 80) or `wss://…` (TLS, default 443); bracketed IPv6. Refused: user info (`ws://u:p@host`), a fragment, and query parameters named like secrets (`token`, `access_token`, `key`, `api_key`, `apikey`, `auth`, `sig`, `jwt`, `session`, … and anything ending in `token`, `secret`, `password`, `_key`, `-key` or `signature`); those go under `credentials.query`. The path and query must be printable ASCII. Stored canonical: lower-case scheme and host, the port only when it is not the default. |
 | `pattern` | Optional regex on text messages; omitted, every message fires (binary ones as their size). It runs on the whole message, before anything is cut. |
 | `hello` | Optional: up to 16 messages, 64 KiB in all, sent in order right after every (re)connect. A string goes as it is; any other JSON value goes as compact JSON. Shown in lists and on the card. |
+| `notify_on_connect` | Optional boolean, default `false` (including existing dogs with no stored field). Every successful session produces an **Orgtree connection event** when on, labelled connected or reconnected. Separate from server data, it bypasses the server regex and message fire gap. It is a normal fire: `once`, `notice` and `fire_actions` apply. |
 | `protocols` | Optional: up to 8 subprotocol names offered as `Sec-WebSocket-Protocol` (`vite-hmr`, `graphql-transport-ws`). A server that answers with none of them, or with one it was not offered, is a refusal. |
 | `heartbeat` | Optional `{message, every_s}` (5 s to 1 day): a fixed message sent every `every_s` seconds while connected, for servers that need an application-level heartbeat (Discord's `{"op":1,"d":null}`). Protocol-level pings are separate (see below). |
 | `credentials` | Optional: a path to a credentials file in the owner's folders, or an inline object (below). |
@@ -56,6 +57,18 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
   It warns when credentials go over `ws://` to a host that is not this machine.
 - **Parking:** the smoke check's connection is parked for the runner (`Hub::park`), so
   the hellos are not sent twice and messages that arrive meanwhile wait for the runner.
+
+## Connection notifications
+
+The desktop watchdog detail panel has **Notify on (re)connect**, persisted without
+closing the socket or sending hello again. A paused dog's choice takes effect on
+its next connection. The tool's create parameter and both tool/desktop lists expose
+the same value. Connection notices are off by default because ordinary connects
+did not fire before this setting existed; hello messages went to the server, not
+the owner. Server greetings remain ordinary messages and still follow `pattern`,
+even with this switch off. Existing refusal, prolonged-outage and stable-recovery
+health alerts are independent and remain enabled. Connection events say they come
+from Orgtree; matching server data keeps the EXTERNAL tag.
 
 ## Credentials
 
