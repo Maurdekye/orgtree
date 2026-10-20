@@ -1,4 +1,4 @@
-import { getWorkItem, watchdogAction } from '../api'
+import { getWorkItem, getWatchdog, watchdogAction } from '../api'
 import type { ToastFn, Watchdog } from '../types'
 import { copyToClipboard } from './contextmenu'
 import { nodeMenuAction, ticketOwnerAction, ticketReferenceActions, watchdogActions } from './objectactions'
@@ -16,6 +16,7 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, focusAgent, toas
     const copy = (text: string) => { void copyToClipboard(anchor, text).then(ok => toast([ok ? 'Copied!' : 'Clipboard unavailable'])) }
     if (kind === 'watchdog') {
       const dog = dogs.find(d => d.id === id)
+      const menu = (dog:Watchdog|undefined) => {
       if (!dog || dog.spent || dog.state === 'spent') {
         if (anchor.getAttribute('data-object-stale') !== 'true') return []
         const name = anchor.getAttribute('data-object-name') || dog?.name || id.split('/').pop() || id
@@ -32,6 +33,9 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, focusAgent, toas
             .catch((error: Error) => toast([`error: ${error.message}`]))
         }), 'sep', { label: 'Copy watchdog name', onSelect: () => copy(dog.name) },
         { label: 'Copy watchdog id', onSelect: () => copy(dog.id) }]
+      }
+      return !dog && anchor.getAttribute('data-object-stale') !== 'true'
+        ? getWatchdog(org,id).then(page=>menu(page.watchdogs.find(w=>w.id===id))) : menu(dog)
     }
     if (!openTicket || id.includes('/')) return []
     return getWorkItem(org, id).then(({ item }) => {
