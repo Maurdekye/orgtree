@@ -3222,9 +3222,10 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
    computes widths for every section, and it fits the desk at its normal
    widths (user 2026-10-20 09:00Z: nothing cut off, no action hidden): the
    pane is a size container, the small columns fit their content, Agent
-   narrows with the pane, and Watchdog shares the rest with the detail
-   columns. Below the table's floor the data scrolls, keeping the action
-   column visible instead of clipping its buttons. */
+   narrows with the pane (the ack table's further, for its eleven columns),
+   and Watchdog shares the rest with the detail columns. Below the table's
+   floor the data scrolls, keeping the action column visible instead of
+   clipping its buttons. */
 .slots-table-scroll { width:100%; max-width:100%; min-width:0; overflow:auto; container-type:inline-size; }
 .slots-table { width:100%; min-width:640px; table-layout:fixed; border-collapse:separate; border-spacing:0; font-variant-numeric:tabular-nums; }
 /* the desk tables' ONE set of column widths (user 2026-10-20 06:36Z): fixed
@@ -3237,7 +3238,6 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .slots-table .slot-col-quantity { width:42px; }
 .slots-table .listener-col-count, .slots-table .listener-col-fired { width:50px; }
 @container (max-width: 899px) { .slots-table .slot-col-agent { width:152px; } }
-@container (max-width: 759px) { .slots-table .slot-col-agent { width:124px; } }
 .slots-table th,.slots-table td { padding:4px; text-align:left; vertical-align:middle; }
 /* THE HEADERS (user 2026-10-20 08:59Z: one style for every desk table): the
    column header row and each section's heading are styled here, on the
@@ -3315,10 +3315,12 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
    table's layout and time colours, in the queue's rose for the order and for
    a listener holding a job (ack mode), as the filled mail card */
 .project-mail-listeners { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 4px 10px 8px; }
-/* the ack table's eleven columns: its own floor, and an Action column as
-   wide as its one button, take back */
+/* the ack table's eleven columns: its own floor, an Action column as wide
+   as its one button, take back, and in a narrow pane a narrower Agent (the
+   other tables keep theirs: their names have the room) */
 .slots-table.mail-listeners-table.ack { min-width: 660px; }
 .mail-listeners-table .slot-col-action { width: 82px; }
+@container (max-width: 759px) { .slots-table.mail-listeners-table.ack .slot-col-agent { width: 124px; } }
 .mail-listeners-table .slot-no { display: inline-block; min-width: 30px; color: var(--fq-line); font-variant-numeric: tabular-nums; }
 .mail-listeners-table .listener-handed { font-variant-numeric: tabular-nums; }
 .mail-listeners-table .listener-row.out > * { opacity: .6; }
