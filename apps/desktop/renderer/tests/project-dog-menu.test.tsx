@@ -98,10 +98,10 @@ test('semantic slot line keeps its eight table cells, quantity, coloured time an
  const view=await mountView(<AgentNavProvider><ObjectNavProvider><Register/><ObjectNavHost {...{isProject:(id:string)=>id==='build'}} org="org" dogs={[w]} openDog={()=>{}} toast={()=>{}}/><DeskDogsProvider value={{org:'org',dogs:[w],open:()=>{}}}><ObjectMenuBoundary><SlotsView node={node} state={projectSlotState('build',3,[],[w])} map={new Map()} onJump={()=>{}} op={async()=>({holders:[],line:[{position:1,agent:'worker',dog:'slot',slots:3,since:w.at}],history:[]} as never)} toast={()=>{}}/></ObjectMenuBoundary></DeskDogsProvider></ObjectNavProvider></AgentNavProvider>,el=>el)
  t.after(view.unmount);await flush()
  const row=view.el.querySelector('.slots-line .slot-row')!
- assert.equal(row.tagName,'TR');assert.equal(row.children.length,8);assert.equal(row.firstElementChild!.textContent,'1st')
+ assert.equal(row.tagName,'TR');assert.equal(row.children.length,9);assert.equal(row.firstElementChild!.textContent,'1st')
  assert.equal(row.children[6].classList.contains('slot-quantity'),true);assert.equal(row.children[6].textContent,'3')
  assert.ok(row.querySelector('.slot-wait .slot-time')?.getAttribute('style'),'SlotTime colour preserved')
- assert.deepEqual(Array.from(view.el.querySelectorAll('thead th')).map(e=>e.textContent),['Position','Agent','Waited','Held','Ended','Claim / lease','Slots','Action'])
+ assert.deepEqual(Array.from(view.el.querySelectorAll('thead th')).map(e=>e.textContent),['Position','Agent','Waited','Held','Ended','Lease','Slots','Watchdog','Action'])
  await right(row.querySelector('.slot-rest')!);assert.ok(projectRow());await inAct(()=>projectRow()!.click());assert.deepEqual(focused,['build'])
  await right(row.querySelector('[data-agent-nav="worker"]')!);assert.equal(projectRow()===undefined,true,'inner agent link keeps its menu')
  await inAct(()=>Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(e=>e.textContent==='Focus')!.click());assert.deepEqual(focused,['build','worker'])

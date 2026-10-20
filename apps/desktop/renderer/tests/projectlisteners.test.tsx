@@ -13,20 +13,24 @@
 //      in ack mode, nothing when the queue is empty;
 //   §3 the two kinds' own words in the watchdog detail description,
 //      including the fire-time tool calls;
-//   §4 the desk: no listeners tab and no cards without any dog; with dogs,
-//      the header cards, the tab's badge, its rows and the fire control
-//      sending fire_project_event; §4b the tab as ONE table like the slots
-//      and mail listeners tables (user 2026-10-19 21:08Z-21:11Z): header
-//      row, two section rows, only the columns with data, no mode words
-//      (the shared watchdog chip shows one-shot or continuous), Fired and
-//      Last fired empty for one-shot dogs, a dash while one never fired;
+//   §4 the desk: no Listeners tab until a listener or watch has ever
+//      registered on the project, then for good (user 2026-10-20 06:22Z);
+//      with dogs, the header cards, the tab's badge, its rows and the fire
+//      control sending fire_project_event; §4b the tab as ONE table like the
+//      slots and mail listeners tables (user 2026-10-19 21:08Z-21:11Z,
+//      2026-10-20 06:22Z-06:36Z): header row, section rows, the desk tables'
+//      one column order with the watchdog last, only the columns with data,
+//      no mode words (the shared watchdog chip shows one-shot or
+//      continuous), Fired and Last fired empty for one-shot dogs, a dash
+//      while one never fired, Waited counting since arming or last fire;
 //   §5 the near-zoom card's listener and queue badges.
 //   §6 the magenta mail-listeners card (fair-queue count, user 2026-10-19
 //      17:11Z): beside the queue card on desk + near card, opens inbox.
-//   §7 the inbox's listeners folder (user 2026-10-19 19:05Z-19:33Z): the mail
-//      card opens inbox › listeners: the project's mail listeners in the
-//      engine's delivery order, as the slots view's table, with live
-//      Waited/Worked times (Worked and the held mail only in ack mode).
+//   §7 the Mail tab's listeners folder (user 2026-10-19 19:05Z-19:33Z,
+//      2026-10-20 06:22Z): the mail card opens it: Working (ack mode), the
+//      Line in the engine's delivery order and the history, as the slots
+//      view's table, with live Waited/Held times (Held, Acked and Ack only in
+//      ack mode; nothing in a Line row's Held).
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs projectlisteners
 
@@ -179,6 +183,25 @@ const agentNode = (id: string): CanvasNode => ({
   scope: { tools: {}, add_dirs: [] },
 } as unknown as CanvasNode)
 
+/** the engine's `mail_queue_history` for the desk: in ack mode sa holds a
+ *  job handed at 08:00 after waiting from its arming at 07:00, and sb's job
+ *  handed at 07:32 was acked at 07:40; in round-robin, that job delivered */
+function mailHistory(ack: boolean) {
+  const fq = (owner: string, name: string) => ({ id: `${owner}/${name}`, owner, name, kind: 'fair_queue', once: false, state: 'armed', gone: false })
+  return ack ? {
+    project: 'sync', ack: true, max_attempts: 3, dead_letters: true,
+    working: [{ mail: 'm1', gist: 'build it', copy: 'c1', agent: 'sa', dog: fq('sa', 'mail-a'), attempts: 1,
+      waited_from: '2026-10-19T07:00:00.000Z', held_at: '2026-10-19T08:00:00.000Z' }],
+    history: [{ id: 7, mail: 'm2', gist: 'test it', copy: 'c2', agent: 'sb', dog: fq('sb', 'mail-b'), how: 'acked', attempt: 1,
+      waited_from: '2026-10-19T07:00:00.000Z', held_at: '2026-10-19T07:32:00.000Z', ended_at: '2026-10-19T07:40:00.000Z',
+      ack: 'a2', ack_gist: 'tested, all green' }],
+    history_next: null,
+  } : {
+    project: 'sync', ack: false, history: [{ id: 9, copy: 'c2', agent: 'sb', mail: 'm2', gist: 'test it', dog: fq('sb', 'mail-b'),
+      held_at: '2026-10-19T07:32:00.000Z', waited_from: '2026-10-19T07:00:00.000Z' }], history_next: null,
+  }
+}
+
 async function desk(t: TestContext, nd: CanvasNode, withDogs = true) {
   serve(t)
   // each test opens the desk on Summary and its Mail tab on the inbox folder,
@@ -188,29 +211,41 @@ async function desk(t: TestContext, nd: CanvasNode, withDogs = true) {
   const tree = { slug: 'org', roots: [], watchdogs: withDogs ? dogs : [], slot_leases: [] } as unknown as TreePayload
   const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree}
     map={new Map([[nd.id, nd], ...['sa', 'sb', 'sc', 'boss'].map(id => [id, agentNode(id)] as [string, CanvasNode])])}
-    op={(b) => { ops.push(b); return Promise.resolve({ project: 'sync', listeners_armed: 2 } as unknown as OpResult) }}
+    op={(b) => {
+      ops.push(b)
+      return Promise.resolve((b.op === 'mail_queue_history' ? mailHistory(queueAckMode(nd))
+        : b.op === 'listener_history' ? { project: 'sync', history: [] }
+          : { project: 'sync', listeners_armed: 2 }) as unknown as OpResult)
+    }}
     toast={noop} refs={refs} />, (el) => el)
   t.after(() => view.unmount())
   await flush(2)
   return { view, ops }
 }
 
-test('§4 while nobody listens: no cards, but both listeners views stay, empty (user 2026-10-19 21:19:48Z)', async (t) => {
+test('§4 while no listener has ever registered: no cards and no Listeners tab; the Mail tab keeps its listeners folder (user 2026-10-20 06:22Z)', async (t) => {
   const { view } = await desk(t, project(), false)
   assert.equal(Boolean(view.el.querySelector('.project-listeners-card')), false, 'no cyan card')
   assert.equal(Boolean(view.el.querySelector('.project-queue-card')), false, 'no queue card')
-  const tab = view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="listeners"]')
-  assert.ok(tab, 'the Listeners tab is always there, so it never turns off and on')
-  assert.equal(tab!.textContent, 'listeners', 'no count while none is armed')
-  await inAct(async () => { tab!.click(); await flush(3) })
-  const empties = [...view.el.querySelectorAll('.project-listeners .listeners-table td.slot-empty')].map((c) => c.textContent ?? '')
-  assert.equal(empties.length, 2, 'it shows both empty sections')
+  assert.equal(view.el.querySelector('.cc-tabs button[data-tab="listeners"]') === null, true,
+    'hidden by default: no Listeners tab before any listener has registered')
   await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="inbox"]')!.click(); await flush(4) })
   const folder = [...view.el.querySelectorAll<HTMLButtonElement>('.mail-folders button')].find((b) => b.textContent?.startsWith('listeners'))
   assert.ok(folder, "the inbox's Listeners folder is always there too")
   await inAct(async () => { folder!.click(); await flush(3) })
-  assert.match(view.el.querySelector('.mail-listeners-table td.slot-empty')?.textContent ?? '', /Nobody listens for sync's mail/,
+  assert.match(view.el.querySelector('.mail-listeners-table .mail-line td.slot-empty')?.textContent ?? '', /Nobody listens for sync's mail/,
     'showing its empty state')
+})
+
+test('§4 once any listener has registered the tab stays for good, empty or not (user 2026-10-20 06:22Z)', async (t) => {
+  const { view } = await desk(t, project({}, { listeners_seen: true }), false)
+  const tab = view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="listeners"]')
+  assert.ok(tab, 'the engine marked the project: the tab is there with nobody listening now')
+  assert.equal(tab!.textContent, 'listeners', 'no count while none is armed')
+  await inAct(async () => { tab!.click(); await flush(3) })
+  const empties = [...view.el.querySelectorAll('.project-listeners .listeners-table td.slot-empty')].map((c) => c.textContent ?? '')
+  assert.equal(empties.length, 3, 'its three sections say they are empty')
+  assert.match(empties[2] ?? '', /No event has been fired on this project yet/)
 })
 
 test('§4 the header cards, the tab, its rows and the fire control', async (t) => {
@@ -230,7 +265,7 @@ test('§4 the header cards, the tab, its rows and the fire control', async (t) =
   const panel = view.el.querySelector('.project-listeners')!
   assert.ok(panel, 'the listeners panel')
   const sections = [...panel.querySelectorAll('h4')].map((h) => h.textContent)
-  assert.deepEqual(sections, ['Event listeners', 'Listener watches'])
+  assert.deepEqual(sections, ['Event listeners', 'Listener watches', 'Recently Fired'])
   const rows = [...panel.querySelectorAll('.listener-row')].map((r) => r.textContent ?? '')
   assert.equal(rows.length, 5, 'three listeners and two watches, paused included')
   assert.match(rows[0], /ready-a/)
@@ -252,14 +287,15 @@ test('§4 the header cards, the tab, its rows and the fire control', async (t) =
  *  passive continuous watch that fired 2 hours ago */
 function tableDogs(): Watchdog[] {
   const before = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
+  const armed = { at: before(3600) }
   return [
-    dog('project_listener', 'sa', 'ready-a'),
-    dog('project_listener', 'sb', 'ready-b', { once: false, fired: 3, last_fired: before(180) }),
-    dog('project_listener', 'sd', 'ready-d', { once: false }),
-    dog('project_listener', 'sc', 'ready-c', { state: 'paused' }),
-    dog('listener_watch', 'boss', 'all-in', { count: 4,
+    dog('project_listener', 'sa', 'ready-a', armed),
+    dog('project_listener', 'sb', 'ready-b', { ...armed, once: false, fired: 3, last_fired: before(180) }),
+    dog('project_listener', 'sd', 'ready-d', { ...armed, once: false }),
+    dog('project_listener', 'sc', 'ready-c', { ...armed, state: 'paused' }),
+    dog('listener_watch', 'boss', 'all-in', { ...armed, count: 4,
       fire_actions: [{ tool: 'orgtree_project', args: { action: 'fire_event', name: 'sync' } }] }),
-    dog('listener_watch', 'boss', 'later', { count: 5, once: false, state: 'paused', notice: true, fired: 1, last_fired: before(7200) }),
+    dog('listener_watch', 'boss', 'later', { at: before(10800), count: 5, once: false, state: 'paused', notice: true, fired: 1, last_fired: before(7200) }),
   ]
 }
 
@@ -288,26 +324,33 @@ test('§4b one table like the slots and mail listeners tables: header row, two s
   assert.ok(panel.querySelector('.listener-fire input'), 'the fire box stays above the table')
   assert.equal(panel.querySelectorAll('.slots-table-scroll > table.slots-table.listeners-table').length, 1,
     'ONE table, in the slots table style')
-  assert.deepEqual(listenerHeaders(view.el), ['Agent', 'Watchdog', 'Armed', 'Fired', 'Last fired', 'On fire'])
+  assert.deepEqual(listenerHeaders(view.el), ['Position', 'Agent', 'Waited', 'Last fired', 'Armed', 'Fired', 'On fire', 'Watchdog'],
+    "the desk tables' one column order, the watchdog last as in the Mail tab's listeners (user 2026-10-20 06:22Z-06:36Z)")
   assert.deepEqual([...view.el.querySelectorAll('.listeners-table tr.slot-section h4')].map((h) => h.textContent),
-    ['Event listeners', 'Listener watches'], 'the two kinds as section rows, as the slots table\'s Holding and Line')
+    ['Event listeners', 'Listener watches', 'Recently Fired'], 'the kinds and the history as section rows, as the slots table\'s')
   const rows = listenerRows(view.el)
   assert.equal(rows.length, 6, 'four listeners and two watches, paused included')
   for (const r of rows) {
-    assert.equal(r.children.length, 6, 'every row fills every column, so both sections line up')
+    assert.equal(r.children.length, 8, 'every row fills every column, so the sections line up')
     assert.ok(r.classList.contains('slot-row'), "the slots table's row style")
     assert.equal(r.getAttribute('data-object-nav'), 'watchdog', 'a watchdog row, as the slots line and the mail listeners')
   }
   assert.equal(listenerRow(view.el, 'sa/ready-a').querySelector('.slot-agent [data-copy-agent-name]')?.getAttribute('data-copy-agent-name'),
     'sa', 'the agent, as a link with its model card')
-  const rest = (id: string) => rowCells(listenerRow(view.el, id)).slice(2)
+  // Last fired, Armed, Fired, On fire
+  const rest = (id: string) => rowCells(listenerRow(view.el, id)).slice(3, 7)
   assert.deepEqual(rest('sa/ready-a'), ['', '', '', ''], 'a one-shot listener: no fired count and no last fire (user 21:11Z)')
-  assert.deepEqual(rest('sb/ready-b'), ['', '3', '3m ago', ''], 'a continuous one: how often and how long ago it fired (user 21:10Z)')
-  assert.deepEqual(rest('sd/ready-d'), ['', '0', '—', ''], 'a dash while it never fired')
+  assert.deepEqual(rest('sb/ready-b'), ['3m ago', '', '3', ''], 'a continuous one: how often and how long ago it fired (user 21:10Z)')
+  assert.deepEqual(rest('sd/ready-d'), ['—', '', '0', ''], 'a dash while it never fired')
   assert.deepEqual(rest('sc/ready-c'), ['', '', '', ''])
-  assert.deepEqual(rest('boss/all-in'), ['3/4', '', '', 'orgtree_project'],
+  assert.deepEqual(rest('boss/all-in'), ['', '3/4', '', 'orgtree_project'],
     'a watch: the armed listeners over its count, and the tool calls it runs on fire')
-  assert.deepEqual(rest('boss/later'), ['3/5', '1', '2h ago', ''])
+  assert.deepEqual(rest('boss/later'), ['2h ago', '3/5', '1', ''])
+  // Waited (user 2026-10-20 06:36Z, A1): an armed dog listens since its arming or its last fire, counting up
+  assert.equal(rowCells(listenerRow(view.el, 'sb/ready-b'))[2], '3m', "sb's continuous listener: since its last fire")
+  assert.ok(listenerRow(view.el, 'sb/ready-b').querySelector('.slot-wait .slot-time.live'), 'an open wait, counting up')
+  assert.ok(listenerRow(view.el, 'boss/all-in').querySelector('.slot-wait .slot-time.live'), 'a watch waits for its count too')
+  assert.equal(rowCells(listenerRow(view.el, 'sc/ready-c'))[2], '', 'a paused dog listens for nothing')
   // the mode is the chip's: no words in the table (user 21:09Z)
   assert.doesNotMatch(view.el.querySelector('.listeners-table')!.textContent ?? '', /continuous|one-shot/,
     'no "continuous" or "one-shot" words')
@@ -320,11 +363,12 @@ test('§4b one table like the slots and mail listeners tables: header row, two s
   assert.match(chip('sa/ready-a').title, /once|one-shot/)
   await inAct(async () => { chip('sb/ready-b').click(); await flush(2) })
   assert.deepEqual(opened, ['sb/ready-b'], "clicking the chip opens the dog's detail, as on the canvas")
-  // paused and passive stay in words beside the chip, as in the mail listeners table
+  // paused in the Position column, as the mail listeners' Line says it; passive beside the chip
   assert.ok(listenerRow(view.el, 'sc/ready-c').classList.contains('out'), 'a paused dog: a dimmed row')
-  assert.match(rowCells(listenerRow(view.el, 'sc/ready-c'))[1], /paused/)
-  assert.match(rowCells(listenerRow(view.el, 'boss/later'))[1], /paused/)
-  assert.match(rowCells(listenerRow(view.el, 'boss/later'))[1], /passive/)
+  assert.equal(rowCells(listenerRow(view.el, 'sc/ready-c'))[0], 'paused')
+  assert.equal(rowCells(listenerRow(view.el, 'boss/later'))[0], 'paused')
+  assert.equal(rowCells(listenerRow(view.el, 'sb/ready-b'))[0], '', 'an armed listener has no place: every one is reached at once')
+  assert.match(rowCells(listenerRow(view.el, 'boss/later'))[7], /passive/)
   // Last fired is the slots table's Ended time: its format and colours, ageing with the shared clock
   const last = listenerRow(view.el, 'sb/ready-b').querySelector<HTMLElement>('.listener-last')!
   const time = last.querySelector<HTMLElement>('.slot-time')!
@@ -333,23 +377,24 @@ test('§4b one table like the slots and mail listeners tables: header row, two s
   assert.equal(time.style.color, norm(slotEndedTimeStyle(180).color), "the slots table's Ended colour")
   assert.match(last.title, /^last fired /, 'the full time on hover')
   await advance(120_000, 1000)
-  assert.equal(rowCells(listenerRow(view.el, 'sb/ready-b'))[4], '5m ago', 'it ages with the shared clock')
+  assert.equal(rowCells(listenerRow(view.el, 'sb/ready-b'))[3], '5m ago', 'it ages with the shared clock')
 })
 
 test('§4b only the columns that carry data; empty sections as the slots table (user 21:08:19Z)', async (t) => {
   const listeners = tableDogs().filter((w) => w.kind === 'project_listener')
   const view = await listenersTable(t, listeners)
-  assert.deepEqual(listenerHeaders(view.el), ['Agent', 'Watchdog', 'Fired', 'Last fired'],
-    'no Armed column without a watch, no On fire column without fire actions')
-  for (const r of listenerRows(view.el)) assert.equal(r.children.length, 4)
+  assert.deepEqual(listenerHeaders(view.el), ['Position', 'Agent', 'Waited', 'Last fired', 'Fired', 'Watchdog'],
+    'no Armed column without a watch, no On fire column without fire actions, no Mail column without kept fires')
+  for (const r of listenerRows(view.el)) assert.equal(r.children.length, 6)
   const empty = view.el.querySelector<HTMLTableCellElement>('.listeners-table td.slot-empty')!
   assert.match(empty.textContent ?? '', /No listener watch is armed/, "the watches section's empty row")
-  assert.equal(empty.colSpan, 4, 'spanning the table')
+  assert.equal(empty.colSpan, 6, 'spanning the table')
   const none = await listenersTable(t, [])
   const empties = [...none.el.querySelectorAll('.listeners-table td.slot-empty')].map((c) => c.textContent ?? '')
-  assert.equal(empties.length, 2, 'both sections say they are empty')
+  assert.equal(empties.length, 3, 'every section says it is empty')
   assert.match(empties[0]!, /No agent listens on this project/)
   assert.match(empties[1]!, /No listener watch is armed/)
+  assert.match(empties[2]!, /No event has been fired on this project yet/)
 })
 
 /* ─── §5 the near-zoom card ──────────────────────────────────────────────── */
@@ -455,26 +500,35 @@ test('§7 the mail card opens the inbox on a new listeners folder after inbox an
   assert.equal(view.el.querySelector('.project-listeners'), null, 'the event listeners panel is not drawn here')
 })
 
-test("§7 one aligned table, values only, as the slots view; Worked and Mail only in ack mode (user 19:28Z, 19:29:12Z, 19:33Z)", async (t) => {
+const sectionTitles = (el: Element) => [...el.querySelectorAll('.mail-listeners-table tr.slot-section h4')].map((h) => h.textContent)
+const lineRows = (el: Element) => [...el.querySelectorAll<HTMLTableRowElement>('.mail-listeners-table .mail-line tr.listener-row')]
+
+test("§7 one aligned table, values only, as the slots view: Working, Line and Recently Finished in ack mode (user 19:28Z-19:33Z, 2026-10-20 06:22Z)", async (t) => {
   const ackDesk = await desk(t, project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 }))
   serveInbox(t)
   await clickCard(ackDesk.view.el)
-  assert.deepEqual(headers(ackDesk.view.el), ['Position', 'Agent', 'Waited', 'Worked', 'Mail', 'Handed', 'Batch', 'Watchdog'])
-  const [first] = tableRows(ackDesk.view.el)
+  assert.deepEqual(headers(ackDesk.view.el), ['Position', 'Agent', 'Waited', 'Held', 'Acked', 'Mail', 'Ack', 'Batch', 'Handed', 'Watchdog', 'Action'],
+    "ack mode: three time columns as the slots table's, the job and its ack, the desk tables' one order")
+  assert.deepEqual(sectionTitles(ackDesk.view.el), ['Working', 'Line', 'Recently Finished'], 'three tables, as the slots tab')
+  const [first, paused] = lineRows(ackDesk.view.el)
   const c = cells(first!)
+  assert.deepEqual(lineRows(ackDesk.view.el).map((r) => r.querySelector('[data-copy-agent-name]')?.getAttribute('data-copy-agent-name')),
+    ['sb', 'sc'], 'sa holds its batch: it is in Working, not the Line')
+  assert.equal(cells(paused!)[0], 'paused', 'a paused listener stays in the Line, out of the order')
   assert.equal(c[0], '1st', 'the place in the order, as the slots line')
   assert.equal(first!.querySelector('.slot-agent [data-copy-agent-name]')?.getAttribute('data-copy-agent-name'), 'sb',
     'the agent, as a link with its model card')
   assert.match(c[2]!, /^\d+(s|m|h \d+m)$/, 'Waited: a time and nothing else')
-  assert.equal(c[3], '8m', "Worked: sb's last job, handed 07:32 and acked 07:40")
-  assert.equal(c[4], '', 'no job held')
-  assert.equal(c[5], '0', "Handed: the watchdog's engine count, a bare number")
+  assert.deepEqual(c.slice(3, 7), ['', '', '', ''], "a Line row's Held is empty (user 2026-10-20 06:22Z), and it holds no mail")
+  assert.equal(c[7], '1', 'Batch')
+  assert.equal(c[8], '0', "Handed: the watchdog's engine count, a bare number")
   assert.equal(first!.querySelector('.watchdog-link-name')?.textContent, 'mail-b')
   assert.ok(!!first!.querySelector('.watchdog-link.fair-queue .wd-glyph'), 'watchdog identity includes its kind icon and outline')
   const rr = await desk(t, project({}, { mail_pending: 3 }))
   await clickCard(rr.view.el)
-  assert.deepEqual(headers(rr.view.el), ['Position', 'Agent', 'Waited', 'Handed', 'Batch', 'Watchdog'],
-    'round robin: no Worked and no Mail column (user 19:29:12Z)')
+  assert.deepEqual(headers(rr.view.el), ['Position', 'Agent', 'Waited', 'Delivered', 'Mail', 'Batch', 'Handed', 'Watchdog'],
+    'round robin: no Held, Acked or Ack, and Delivered says when (user 2026-10-20 06:22Z, 06:36Z)')
+  assert.deepEqual(sectionTitles(rr.view.el), ['Line', 'Recently Delivered'], 'round robin: no Working')
 })
 
 test("§7 the order is the engine's pick: never woken first, then least recently woken, then the oldest dog; ack holders after the free, the rest last", () => {
@@ -491,8 +545,7 @@ test("§7 the order is the engine's pick: never woken first, then least recently
   assert.deepEqual(mailListenerRows(st, map, [], false).map((r) => [r.dog.owner, r.position, r.out]),
     [['sb', 1, null], ['sd', 2, null], ['se', 3, null], ['sa', 4, null], ['sc', null, 'paused']],
     'round robin: the never woken (older dog first), then by last hand-out; a paused dog takes none')
-  const jobs = [{ id: 'm1', from: 'boss', kind: 'message', body: 'job', at: '2026-10-19T07:59:00.000Z',
-    queue: { held_by: 'se', ack: true, held_at: '2026-10-19T08:00:00.000Z' } }] as MailRow[]
+  const jobs = [{ mail: 'm1', agent: 'se', held_at: '2026-10-19T08:00:00.000Z' }]
   const halted = new Map(map)
   halted.set('sd', { ...agentNode('sd'), halt: { phase: 'halted', requested_at: '2026-10-19T08:30:00.000Z', by: 'user' } } as CanvasNode)
   assert.deepEqual(mailListenerRows(st, halted, jobs, true).map((r) => [r.dog.owner, r.position, r.out]),
@@ -500,16 +553,17 @@ test("§7 the order is the engine's pick: never woken first, then least recently
     'ack mode: a holder and a halted agent are handed nothing; holders follow the free listeners')
 })
 
-test('§7 a holder: a marked row, its Worked counts up, its last wait ended at the hand-out, and its mail opens in the inbox (user 19:28Z-19:30Z)', async (t) => {
+test('§7 Working: a held job\'s marked row, its Held counts up, its wait ended at the hand-out, and its mail opens in the inbox (user 19:28Z-19:30Z, 2026-10-20 06:22Z)', async (t) => {
   const nd = project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 })
   const { view } = await desk(t, nd)
   serveInbox(t)
   await clickCard(view.el)
-  const row = tableRows(view.el).find((r) => r.querySelector('[data-copy-agent-name="sa"]'))!
-  assert.ok(row.classList.contains('holding'), 'the holder row is marked')
+  const row = view.el.querySelector<HTMLTableRowElement>('.mail-listeners-table .mail-working tr.listener-row')!
+  assert.ok(row.querySelector('[data-copy-agent-name="sa"]'), "sa's job")
+  assert.ok(row.classList.contains('held-job'), 'the held job is marked')
   const c = cells(row)
   assert.equal(c[0], '', 'a holder has no place in the order until it acks')
-  assert.equal(c[2], '1h 0m', 'its last wait: armed 07:00, handed its job 08:00')
+  assert.equal(c[2], '1h 0m', 'its wait: armed 07:00, handed its job 08:00')
   assert.equal(row.querySelector('.slot-wait .slot-time')?.classList.contains('live'), false, 'that wait is over')
   assert.ok(row.querySelector('.slot-held .slot-time.live'), 'its work on the job is counting up')
   const link = row.querySelector<HTMLButtonElement>('.listener-mail-link')!
@@ -525,18 +579,18 @@ test('§7 open times count up with the shared second clock, in the shared slot t
   const at = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
   const listeners = [dog('fair_queue', 'sa', 'mail-a', { once: false, at: at(3600) }),
     dog('fair_queue', 'sb', 'mail-b', { once: false, at: at(30) })]
-  const jobs = [{ id: 'm1', from: 'boss', kind: 'message', body: 'job', at: at(10),
-    queue: { held_by: 'sa', ack: true, held_at: at(5) } }] as MailRow[]
+  const working = [{ mail: 'm1', gist: 'job', agent: 'sa', waited_from: at(3600), held_at: at(5) }]
   const map = new Map(['sa', 'sb'].map((id) => [id, agentNode(id)] as [string, CanvasNode]))
   const view = await mountView(<MailListenersView node={project({ mail_queue: 'ack' })} state={mailListenerState('sync', listeners)}
-    map={map} rows={jobs} ack />, (el) => el)
+    map={map} rows={[] as MailRow[]} ack
+    op={async () => ({ project: 'sync', ack: true, working, history: [] }) as unknown as OpResult} />, (el) => el)
   t.after(() => view.unmount())
-  await inAct(() => flush(2))
+  await inAct(() => flush(3))
   const live = () => tableRows(view.el).map((r) => r.querySelector('.slot-time.live')?.textContent)
-  assert.deepEqual(live(), ['30s', '5s'], "sb is waiting (1st), sa works on its job")
+  assert.deepEqual(live(), ['5s', '30s'], "sa works on its job (Working), sb waits (1st in the Line)")
   await advance(1000)
-  assert.deepEqual(live(), ['31s', '6s'], 'both count up together')
-  const sbWait = tableRows(view.el)[0]!.querySelector<HTMLElement>('.slot-time.live')!
+  assert.deepEqual(live(), ['6s', '31s'], 'both count up together')
+  const sbWait = tableRows(view.el)[1]!.querySelector<HTMLElement>('.slot-time.live')!
   const norm = (c: string) => { const i = document.createElement('i'); i.style.color = c; return i.style.color }
   assert.equal(sbWait.style.color, norm(slotTimeStyle(31).color), 'the shared colour scale')
 })

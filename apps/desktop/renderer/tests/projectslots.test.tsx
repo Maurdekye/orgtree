@@ -344,7 +344,7 @@ test('§5 no Slots tab and no header card without a count', async (t) => {
   assert.ok(!view.el.querySelector('.project-slots-card'), 'no header card')
 })
 
-test('§5 the Slots tab leads with the holders, then Holding, Line and Recent holds; force release asks first', async (t) => {
+test('§5 the Slots tab leads with the holders, then Holding, Line and Recently Held; force release asks first', async (t) => {
   const { view, ops } = await desk(t, project({ slots_capacity: 1 }), status)
   const card = view.el.querySelector<HTMLButtonElement>('.project-slots-card')
   assert.equal(card?.textContent, 'slots 1/1 · 2 waiting', 'the header card')
@@ -357,7 +357,7 @@ test('§5 the Slots tab leads with the holders, then Holding, Line and Recent ho
   assert.doesNotMatch(view.el.querySelector('.project-head-cards')?.textContent ?? '', /concurrency slots? held/)
   assert.match(view.el.querySelector('.cc-tabs button[data-tab="slots"]')?.textContent ?? '', /^slots$/, 'the tab omits redundant held/total counts')
   const sections = [...panel.querySelectorAll('h4')].map((h) => h.textContent)
-  assert.deepEqual(sections, ['Holding', 'Line', 'Recent holds'])
+  assert.deepEqual(sections, ['Holding', 'Line', 'Recently Held'], 'Recently Held, as the user calls it (2026-10-20 06:36Z)')
   const holding = panel.querySelector('.slots-holding')!.textContent ?? ''
   assert.doesNotMatch(holding, /#\d/); assert.match(holding, /sa/); assert.match(holding, /alpha7-build/); assert.match(holding, /s3f1c/)
   const line = [...panel.querySelectorAll('.slots-line .slot-row')].map((r) => r.textContent ?? '')
@@ -414,9 +414,10 @@ test('slot sections share columns with a separate line position and blank non-ap
   const table = v.el.querySelector('table')
   assert.ok(table, 'one shared table determines widths for every section')
   assert.deepEqual([...table.querySelectorAll('thead th')].map(el => el.textContent),
-    ['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Slots', 'Action'])
+    ['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Lease', 'Slots', 'Watchdog', 'Action'],
+    'a Watchdog column before Action, as the desk\'s other tables (user 2026-10-20 06:22Z), and the lease alone')
   assert.equal(table.querySelectorAll('tbody').length, 3)
-  assert.equal([...table.querySelectorAll('.slot-row')].every(row => row.children.length === 8), true)
+  assert.equal([...table.querySelectorAll('.slot-row')].every(row => row.children.length === 9), true)
   assert.equal(table.querySelector('.slots-holding .slot-position')?.textContent, '')
   assert.equal(table.querySelector('.slots-history .slot-position')?.textContent, '')
   assert.equal(table.querySelector('.slots-line .slot-position')?.textContent, '1st')
