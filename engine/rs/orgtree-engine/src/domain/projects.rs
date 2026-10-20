@@ -1061,11 +1061,30 @@ pub fn wait_note(project: &str, st: &QueueState) -> String {
     format!("Queued in project {project}'s mailbox{place}; it goes to the next of its {} to become eligible{paused}.", who(n))
 }
 
+/// The warning that leads a sender's note when the project's inbox has no
+/// listener at all (user 2026-10-20 11:04Z, docket
+/// warn-senders-when-they-mail-a-project-whose-inbo): no fair_queue dog on
+/// it, armed or paused, whose owner could take the mail. A paused listener
+/// is attached; its sender gets `wait_note`'s paused note instead. The mail
+/// is queued all the same.
+#[nolog]
+pub fn no_listener_warning(project: &str) -> String {
+    format!("Warning: project {project}'s inbox has no listeners, so this mail may not be read by anyone or delivered anywhere until one attaches.")
+}
+
 /// What an agent's send result says about its mail that waits in the queue
-/// (`mail::send_project`).
+/// (`mail::send_project`): `wait_note`, or with no listener the warning, how
+/// to attach one and where the mail can be read. `orgtree_inbox project`
+/// keeps `wait_note`'s own line: the warning is per send.
 #[nolog]
 pub fn sent_note(project: &str, st: &QueueState) -> String {
-    wait_note(project, st)
+    if st.listeners > 0 || st.paused > 0 {
+        return wait_note(project, st);
+    }
+    let place = st.position.map(|k| format!(" (position {k} in line)")).unwrap_or_default();
+    format!(
+        "{} It waits in the mailbox{place}; an agent above or below the project attaches one with orgtree_watchdog action=create kind=fair_queue target={project} and can read it with orgtree_inbox project={project}.",
+        no_listener_warning(project))
 }
 
 /// The user wrote to a project nobody watches (`mail::nudge_project`): who
@@ -1080,16 +1099,19 @@ pub enum Nudge {
     Woke(String),
 }
 
-/// The user's send note for a project nobody watches.
+/// The user's send note for a project nobody watches: the warning agents get
+/// (`no_listener_warning`), then what the listener wake did, in the user's
+/// terms (no tool syntax).
 #[nolog]
 pub fn unwatched_note(project: &str, nudge: &Nudge) -> String {
+    let warning = no_listener_warning(project);
     match nudge {
         Nudge::Off => format!(
-            "Queued in project {project}'s mailbox. No agent watches project {project} with a fair_queue watchdog, so it waits there until one does (waking an agent to arm one is off in Runtime settings)."),
+            "{warning} It waits in the mailbox; waking an agent to attach one is off in Runtime settings."),
         Nudge::Nobody => format!(
-            "Queued in project {project}'s mailbox, but no live, unhalted agent works directly under it, so nobody can pick it up until one is hired or unhalted."),
+            "{warning} It waits in the mailbox, but no live, unhalted agent works directly under {project}, so nobody can pick it up until one is hired or unhalted."),
         Nudge::Woke(name) => format!(
-            "Queued in project {project}'s mailbox. No agent watches project {project} with a fair_queue watchdog, so {name} was woken and asked to arm one; the mail goes to whoever arms first."),
+            "{warning} It waits in the mailbox; {name} was woken and asked to attach one (a fair_queue watchdog), and the mail goes to whoever attaches first."),
     }
 }
 
