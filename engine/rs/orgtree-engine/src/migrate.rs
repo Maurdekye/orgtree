@@ -45,6 +45,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0037_agent_reporting", include_str!("../migrations/0037_agent_reporting.sql")),
     ("0038_slot_history_paging", include_str!("../migrations/0038_slot_history_paging.sql")),
     ("0039_multi_slot_leases", include_str!("../migrations/0039_multi_slot_leases.sql")),
+    ("0041_document_opening", include_str!("../migrations/0041_document_opening.sql")),
 ];
 
 #[cfg(test)]

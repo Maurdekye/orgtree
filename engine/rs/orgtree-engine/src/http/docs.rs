@@ -114,6 +114,39 @@ pub struct ListQuery {
     /// the TEAM gallery (user 2026-10-17 22:47Z): the node and everyone under it
     #[serde(default)]
     team: Option<String>,
+    /// One opening decision, with a bounded page around the selected card.
+    #[serde(default)]
+    opening: Option<String>,
+    #[serde(default)]
+    hired: Option<String>,
+}
+
+const OPENING_UNREAD_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
+ WHERE d.org_id = $1 AND NOT d.dismissed AND (d.viewed_at IS NULL OR d.viewed_at < d.at)
+ AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
+          ELSE (d.agent_id = ANY($3) OR (d.agent_id IS NULL AND d.node_name = $2)) END
+ AND (NOT $4::boolean OR a.state = 'live') ORDER BY d.at ASC, d.id ASC LIMIT 1";
+const OPENING_NEWEST_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
+ WHERE d.org_id = $1 AND NOT d.dismissed
+ AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
+          ELSE (d.agent_id = ANY($3) OR (d.agent_id IS NULL AND d.node_name = $2)) END
+ AND (NOT $4::boolean OR a.state = 'live') ORDER BY d.at DESC, d.id DESC LIMIT 1";
+const OPENING_POSITION_SQL: &str = "SELECT count(*) FROM ot.documents d WHERE d.org_id = $1 AND d.id > $2
+ AND CASE WHEN $4::bigint[] IS NULL THEN ($3 = '' OR d.node_name = $3)
+          ELSE (d.agent_id = ANY($4) OR (d.agent_id IS NULL AND d.node_name = $3)) END";
+
+#[logged]
+async fn opening_target(client: &tokio_postgres::Client, org_id: i64, node: &str,
+    members: &Option<Vec<i64>>, hired: bool) -> ApiResult<Option<(String, i64)>> {
+    let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&org_id, &node, members, &hired];
+    let row = match client.query_opt(OPENING_UNREAD_SQL, params).await? {
+        Some(row) => Some(row),
+        None => client.query_opt(OPENING_NEWEST_SQL, params).await?,
+    };
+    let Some(row) = row else { return Ok(None) };
+    let id: i64 = row.get(1);
+    let position: i64 = client.query_one(OPENING_POSITION_SQL, &[&org_id, &id, &node, members]).await?.get(0);
+    Ok(Some((row.get(0), position)))
 }
 
 /// The gallery: every card, newest first, metadata only.
@@ -125,6 +158,15 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
     let team = matches!(q.team.as_deref(), Some("1" | "true"));
     let members = subtree_members(&client, &o, &node, team).await?;
     let limit = if q.limit > 0 { q.limit.min(1000) } else { 60 };
+    if q.locate.is_empty() && matches!(q.opening.as_deref(), Some("1" | "true")) {
+        let target = opening_target(&client, o.id, &node, &members,
+            matches!(q.hired.as_deref(), Some("1" | "true"))).await?;
+        let offset = target.as_ref().map_or(0, |(_, position)| position / limit * limit);
+        let Json(mut page) = list_page(&client, &o, &node, members.as_deref(), offset, limit, None).await?;
+        page["opening_id"] = json!(target.as_ref().map(|(id, _)| id));
+        page["opening_position"] = json!(target.as_ref().map(|(_, position)| position));
+        return Ok(Json(page));
+    }
     let mut offset = q.offset.max(0);
     let mut located = None;
     if !q.locate.is_empty() {
