@@ -1249,7 +1249,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
         <SetToggle label="Ack timeout" checked={timeout} disabled={busy || checkups === false} onChange={setTimeoutEdit}
           hint={checkups === false
             ? 'Inactive for both mail jobs and slot leases: the 20-minute checkup ("check on working agents after 20 minutes" in Runtime settings) is off.'
-            : `Applies to un-acked mail jobs and idle slot leases. Their holder gets up to ${reminders} reminders, one per 20-minute checkup; at the next checkup, mail is requeued and a slot lease is released in full so waiting claims can proceed.`} />
+            : `Applies to un-acked mail jobs and idle slot leases. Their holder gets up to ${reminders} reminders, one per 20-minute checkup; at the next checkup, mail is reclaimed for retry or dead letters and a slot lease is released in full so waiting claims can proceed.`} />
         <SetRow label="Max attempts" hint={checkups === false
           ? 'Mail jobs only; inactive while the 20-minute checkup is off. Does not limit slot claims.'
           : 'Mail jobs only: after this many hand-outs without an ack, a reclaimed job goes to the dead-letter list and you are told. Does not limit slot claims.'}>
