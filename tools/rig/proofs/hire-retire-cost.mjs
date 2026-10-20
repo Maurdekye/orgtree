@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {spawnSync} from 'node:child_process'
-import {createRequire} from 'node:module'
+import http from 'node:http'
 import {Proof} from '../proof.mjs'
 export async function setup(){return {'quiet-log':process.env.HIRE_COST_QUIET==='1',maxParked:1,fixture:{org:{name:'Hire retire cost'},agents:[{name:'boss',tier:'sol',grant:500}]}}}
 export default async function(rig){
@@ -53,10 +53,24 @@ export default async function(rig){
  p.file('log-volume.json',{bytes:Buffer.byteLength(logs),lines:logs.split(/\r?\n/).length,hot:Object.fromEntries(hot.map(k=>[k,logs.split(/\r?\n/).filter(l=>l.includes(k+'(')).length]))})
  // An explicitly open window still receives full initial bodies and live
  // lifecycle notices/history. Closed-window optimization must preserve it.
- const WebSocket=createRequire('E:/Libraries/Desktop/orgtree/package.json')('ws')
- const ws=new WebSocket(rig.url.replace(/^http/,'ws')+`/api/orgs/${rig.org}/ws`,{headers:{'X-Orgtree-Desktop-Token':rig.token}})
- const frames=[];ws.on('message',data=>{try{frames.push(JSON.parse(data.toString()))}catch{}})
- const event=(name)=>new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(Error('socket '+name+' timeout')),10000);ws.once(name,()=>{clearTimeout(t);resolve()});ws.once('error',e=>{clearTimeout(t);reject(e)})})
+ // Node's native WebSocket has no custom-header option. A loopback-only
+ // upgrade proxy adds the synthetic desktop token, with no npm dependency.
+ const proxy=http.createServer();const connections=new Set()
+ proxy.on('upgrade',(req,socket,head)=>{
+  connections.add(socket);socket.on('close',()=>connections.delete(socket))
+  const upstream=http.request(new URL(`/api/orgs/${rig.org}/ws`,rig.url),{headers:{...req.headers,'X-Orgtree-Desktop-Token':rig.token}})
+  upstream.on('upgrade',(res,peer,extra)=>{
+   connections.add(peer);peer.on('close',()=>connections.delete(peer))
+   socket.write(`HTTP/1.1 101 Switching Protocols\r\n${Object.entries(res.headers).map(([k,v])=>`${k}: ${v}`).join('\r\n')}\r\n\r\n`)
+   if(extra.length)socket.write(extra);if(head.length)peer.write(head)
+   socket.pipe(peer);peer.pipe(socket);socket.on('close',()=>peer.destroy());peer.on('error',()=>socket.destroy())
+  })
+  upstream.on('error',()=>socket.destroy());upstream.on('response',()=>socket.destroy());upstream.end()
+ })
+ await new Promise(resolve=>proxy.listen(0,'127.0.0.1',resolve))
+ const ws=new WebSocket(`ws://127.0.0.1:${proxy.address().port}/`)
+ const frames=[];ws.addEventListener('message',e=>{try{frames.push(JSON.parse(e.data))}catch{}})
+ const event=(name)=>new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(Error('socket '+name+' timeout')),10000);ws.addEventListener(name,()=>{clearTimeout(t);resolve()},{once:true});ws.addEventListener('error',()=>{clearTimeout(t);reject(Error('socket error'))},{once:true})})
  try{
   await event('open')
   ws.send(JSON.stringify({type:'subscribe',sub:9,agents:[],windows:[{kind:'agent_mail',agent:String(boss)},{kind:'agent_history',agent:String(boss)}]}))
@@ -70,6 +84,6 @@ export default async function(rig){
   await rig.op({op:'retool',node:'boss',charter:'Synthetic history-window control'})
   const history=await rig.waitFor(()=>frames.slice(historyOffset).find(f=>(f.upserts??[]).some(r=>r.entity===`agent_history:${boss}`&&r.body?.kind==='retool')),{timeout:15000,every:10,what:'live subscribed history'})
   p.check('an open history window receives lifecycle updates',!!history)
- }finally{const closed=event('close');ws.close();await closed}
+ }finally{ws.close();for(const socket of connections)socket.destroy();await new Promise(resolve=>proxy.close(resolve))}
  return p.summary()
 }
