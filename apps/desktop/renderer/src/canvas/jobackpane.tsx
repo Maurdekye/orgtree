@@ -13,7 +13,7 @@
 // and "Acknowledge without reply" sits under it in the composer's button style.
 
 import { useState } from 'react'
-import type { MailQueueState } from '../types'
+import type { MailQueueState, ToastFn } from '../types'
 import { fmtFull } from '../timefmt'
 import { MailReplyBox } from './mail'
 
@@ -30,7 +30,7 @@ export function JobAckPane({ job, onAck, target, slug, toast }: {
   /** the job's sender, whom the reply goes to */
   target?: string
   slug?: string
-  toast?: (lines: string[]) => void
+  toast?: ToastFn
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
