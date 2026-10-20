@@ -207,8 +207,10 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
       {header.map(f => <div className="event-head-field" key={f.key} data-event-field={f.key}>
         <span className="dim">{f.label}: </span><Value value={humanValue(f.value, f.type, profile)} {...content} profile={profile} org={org} actor={actor} />
       </div>)}
-      {dogFire?.source && <span className="event-external" data-event-field="source"
-        title={EXTERNAL_NOTE[dogFire.source]}>{EXTERNAL_TAG}</span>}
+      {/* not a span: the transcript header's "·" separator (styles.css
+          .turn-mail-head > span) would draw inside its border */}
+      {dogFire?.source && <small className="event-external" data-event-field="source"
+        title={EXTERNAL_NOTE[dogFire.source]}>{EXTERNAL_TAG}</small>}
     </>
   if (part === 'header') return heading
   const contents = <>

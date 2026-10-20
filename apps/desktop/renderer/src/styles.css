@@ -8450,8 +8450,6 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
    card header, its meaning in the tooltip (user 2026-10-20 09:17Z) */
 .event-external { color: var(--dim); font-size: 11px; line-height: 16px; padding: 0 5px; border: 1px solid var(--line);
   border-radius: 3px; white-space: nowrap; cursor: help; }
-/* its border sets it apart: no transcript-header separator inside it */
-.event-head .event-external::after { content: none; }
 .event-fallback { overflow-wrap: anywhere; }
 .event-surface .turn-mail-preview { margin: 0; }
 
