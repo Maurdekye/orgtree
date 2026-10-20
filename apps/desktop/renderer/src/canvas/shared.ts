@@ -1179,6 +1179,11 @@ export interface CanvasNode {
   mail_held?: number
   /** a project's open dead letters (ack-queue jobs out of attempts); 0 for an agent */
   dead_letters?: number
+  /** a project on which any event listener or watch has ever registered: its
+   *  Listeners tab shows from then on, for good (user 2026-10-20 06:22Z) */
+  listeners_seen?: boolean
+  /** a project's newest kept fire (its Recently Fired re-reads when it moves) */
+  last_fire?: number | null
   limit_locked?: boolean
   last_status?: NodeStatus | null
   prev_status?: NodeStatus | null

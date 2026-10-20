@@ -2,8 +2,11 @@
 // `project-slots-first-come-permits-claimed-through`, mockup approved by the
 // user 2026-10-18). Shown only while the project's slot count is at least 1.
 // It leads with "k of N slots held" and the holders, then Holding, Line and
-// Recent holds in one table, with shared column headers and value-only coloured
-// times (user 2026-10-19 19:16-19:24Z). The lists come from the
+// Recently Held in one table, with shared column headers and value-only coloured
+// times (user 2026-10-19 19:16-19:24Z). A Watchdog column before Action holds
+// each row's claim dog, as the desk's other tables do (user 2026-10-20
+// 06:22Z): a holder's spent claim kept by its lease, a waiting claim live; so
+// the Lease column is the lease alone (2026-10-20 06:36Z). The lists come from the
 // `slot_status` op, re-read whenever the tree's slots change; the buttons
 // are the user's (the desktop's viewer), as the project's superior's
 // through the tool.
@@ -22,10 +25,12 @@ import { ageClockNow, subscribeAgeClock } from './desk'
 import type { ProjectSlotState } from './slots'
 import { WatchdogRow } from './deskdogs'
 import { WatchdogLink } from './watchdoglink'
+import { HistoryDog } from './historydog'
+import type { DogIdentity } from './historydog'
 
-interface Holder { lease: string; agent: string; slot?: number; slots?: number; reason?: string | null; queued?: string | null; since: string; reminders?: number }
+interface Holder { lease: string; agent: string; slot?: number; slots?: number; reason?: string | null; queued?: string | null; since: string; reminders?: number; dog?: DogIdentity | null }
 interface Waiter { position: number; agent: string; dog: string; slots?: number; since?: string | null }
-interface Hold { lease: string; agent: string; slot?: number; slots?: number; reason?: string | null; queued?: string | null; since: string; ended?: string | null; how?: string | null; by?: string | null }
+interface Hold { lease: string; agent: string; slot?: number; slots?: number; reason?: string | null; queued?: string | null; since: string; ended?: string | null; how?: string | null; by?: string | null; dog?: DogIdentity | null }
 
 /** A recent hold's ending label: nothing for an ordinary release, a short
  *  word for the unusual endings (user 2026-10-19 17:23Z). Unknown endings
@@ -125,12 +130,12 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
       <div className="slots-table-scroll" role="region" aria-label="Concurrency slot records" tabIndex={0} onScroll={scrollHistory}>
       <table className="slots-table">
         <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/><col className="slot-col-time"/>
-          <col className="slot-col-ended"/><col/><col className="slot-col-quantity"/><col className="slot-col-action"/></colgroup>
-        <thead><tr>{['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Claim / lease', 'Slots', 'Action'].map(label =>
+          <col className="slot-col-ended"/><col/><col className="slot-col-quantity"/><col className="listener-col-dog"/><col className="slot-col-action"/></colgroup>
+        <thead><tr>{['Position', 'Agent', 'Waited', 'Held', 'Ended', 'Lease', 'Slots', 'Watchdog', 'Action'].map(label =>
           <th key={label} scope="col" className={label === 'Action' ? 'slot-action' : undefined}>{label}</th>)}</tr></thead>
       <tbody className="slots-holding">
-        <tr className="slot-section"><th colSpan={8} scope="rowgroup"><h4>Holding</h4></th></tr>
-        {holders.length === 0 && <tr><td colSpan={8} className="dim slot-empty">Nobody holds a concurrency slot. An agent above or below the project claims one
+        <tr className="slot-section"><th colSpan={9} scope="rowgroup"><h4>Holding</h4></th></tr>
+        {holders.length === 0 && <tr><td colSpan={9} className="dim slot-empty">Nobody holds a concurrency slot. An agent above or below the project claims one
           with <code>orgtree_watchdog action=create kind=slot target={node.id}</code>; it is granted at once while a concurrency slot is free.</td></tr>}
         {holders.map((h) => (
           <tr key={h.lease} className="slot-row">
@@ -140,10 +145,11 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
               {h.queued ? <SlotTime from={h.queued} to={h.since}/> : ''}</td>
             <td className="slot-held" title={'since ' + h.since}><SlotTime from={h.since}/></td>
             <td className="slot-ended"/>
-            <td className="slot-rest">{h.reason && <span className="slot-reason">{h.reason}</span>}
+            <td className="slot-rest">{!h.dog && h.reason && <span className="slot-reason">{h.reason}</span>}
               <span className="dim mono slot-lease">{h.lease}</span>
               {(h.reminders ?? 0) > 0 && <span className="dim"> {h.reminders} reminder{h.reminders === 1 ? '' : 's'}</span>}</td>
             <td className="slot-quantity">{slotUnits(h.slots)}</td>
+            <td className="listener-dog-cell"><HistoryDog dog={h.dog} className="slot-dog" /></td>
             <td className="slot-action"><button type="button" className="danger" data-action="force-release"
               title={`take all ${slotUnits(h.slots)} reserved slot(s) back from ${h.agent}; check the FIFO queue`}
               onClick={() => setAsking(h)}>force release</button></td>
@@ -151,8 +157,8 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
         ))}
       </tbody>
       <tbody className="slots-line">
-        <tr className="slot-section"><th colSpan={8} scope="rowgroup"><h4>Line</h4></th></tr>
-        {line.length === 0 && <tr><td colSpan={8} className="dim slot-empty">Nobody is waiting.</td></tr>}
+        <tr className="slot-section"><th colSpan={9} scope="rowgroup"><h4>Line</h4></th></tr>
+        {line.length === 0 && <tr><td colSpan={9} className="dim slot-empty">Nobody is waiting.</td></tr>}
         {line.map((w) => (
           <WatchdogRow as="tr" key={w.agent + w.dog} id={state.line.find(x=>x.agent===w.agent)?.dog??w.dog} className="slot-row">
             <td className="slot-position"><span className="slot-no">{ordinal(w.position)}</span></td>
@@ -161,9 +167,10 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
               {w.since ? <SlotTime from={w.since}/> : ''}</td>
             <td className="slot-held" />
             <td className="slot-ended" />
-            <td className="slot-rest"><WatchdogLink id={state.line.find(x=>x.agent===w.agent)?.dog??w.dog}
-              owner={w.agent} name={nameOf(w)??w.dog} className="slot-reason"/></td>
+            <td className="slot-rest"/>
             <td className="slot-quantity">{slotUnits(w.slots)}</td>
+            <td className="listener-dog-cell"><WatchdogLink id={state.line.find(x=>x.agent===w.agent)?.dog??w.dog}
+              owner={w.agent} name={nameOf(w)??w.dog} className="slot-dog"/></td>
             <td className="slot-action"><button type="button" data-action="unqueue" title={`remove ${w.agent}'s claim: it leaves the line and is not granted`}
               onClick={() => {
                 op({ op: 'slot_unqueue', node: node.id, agent: w.agent })
@@ -174,8 +181,8 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
         ))}
       </tbody>
       <tbody className="slots-history">
-        <tr className="slot-section"><th colSpan={8} scope="rowgroup"><h4>Recent holds</h4></th></tr>
-        {history.length === 0 && <tr><td colSpan={8} className="dim slot-empty">No concurrency slot has been held yet.</td></tr>}
+        <tr className="slot-section"><th colSpan={9} scope="rowgroup"><h4>Recently Held</h4></th></tr>
+        {history.length === 0 && <tr><td colSpan={9} className="dim slot-empty">No concurrency slot has been held yet.</td></tr>}
         {history.map((h) => (
           <tr key={h.lease} className="slot-row">
             <td className="slot-position"/>
@@ -184,12 +191,13 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions }: {
               {h.queued ? <SlotTime from={h.queued} to={h.since}/> : ''}</td>
             <td className="slot-held" title={`held from ${h.since} to ${h.ended ?? '?'}`}><SlotTime from={h.since} to={h.ended}/></td>
             <td className="slot-ended">{h.ended ? <SlotTime from={h.ended} ended/> : ''}</td>
-            <td className="slot-rest">{h.reason && <span className="slot-reason">{h.reason}</span>}<span className="dim mono slot-lease">{h.lease}</span></td>
+            <td className="slot-rest">{!h.dog && h.reason && <span className="slot-reason">{h.reason}</span>}<span className="dim mono slot-lease">{h.lease}</span></td>
             <td className="slot-quantity">{slotUnits(h.slots)}</td>
+            <td className="listener-dog-cell"><HistoryDog dog={h.dog} className="slot-dog" /></td>
             <td className="slot-action slot-how" title={h.how ?? undefined}>{holdEndLabel(h.how)}</td>
           </tr>
         ))}
-        {(historyLoading || historyError || status?.history_next) && <tr><td colSpan={8} className="slot-history-more" role="status">
+        {(historyLoading || historyError || status?.history_next) && <tr><td colSpan={9} className="slot-history-more" role="status">
           {historyLoading ? 'Loading older holds…' : historyError ? <>
             Could not load older holds. <button type="button" onClick={loadOlder}>Retry</button>
           </> : 'Scroll for older holds'}

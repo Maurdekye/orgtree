@@ -12,6 +12,7 @@
 // the slot amber: cyan lines and cards.
 
 import type { Watchdog } from '../types'
+import type { CanvasNode } from './shared'
 
 const target = (w: Watchdog) => w.target.replace(/^@/, '')
 
@@ -153,4 +154,55 @@ export function mailQueueCard(project: string, waiting: number, held: number, ac
 /** The tool names a dog runs when it fires, for lists and tabs. */
 export function fireActionTools(w: Watchdog): string[] {
   return (w.fire_actions ?? []).map((a) => a.tool).filter(Boolean)
+}
+
+/** Since when a listener or watch has listened (the desk's Waited, user
+ *  2026-10-20 06:22Z): its arming or its last fire, the later (engine
+ *  `listeners::LISTENING_SINCE`). */
+export function listeningSince(w: Pick<Watchdog, 'at' | 'last_fired'>): string {
+  return w.last_fired && Date.parse(w.last_fired) > Date.parse(w.at) ? w.last_fired : w.at
+}
+
+/** The event a project's dead letters fire (engine `events::DEAD_LETTER`). */
+export const DEAD_LETTER_EVENT = 'project.dead_letter'
+
+/** Does an `event` dog's target take this event (engine `accepts`): the
+ *  exact name, or a prefix ending in `*`. */
+export function acceptsEvent(target: string, name: string): boolean {
+  const t = target.replace(/^@/, '')
+  return t === name || (t.endsWith('*') && name.startsWith(t.slice(0, -1)))
+}
+
+/** A DEAD-LETTER LISTENER (user 2026-10-20 06:41Z): an `event` dog that
+ *  takes `project.dead_letter`. Its chip and card wear the dead-letter
+ *  sepia-maroon wherever they are drawn (`watchdogKindClass`). */
+export const isDeadLetterListener = (w: Pick<Watchdog, 'kind' | 'target'>) =>
+  w.kind === 'event' && acceptsEvent(w.target ?? '', DEAD_LETTER_EVENT)
+
+/** Is `agent` above or below `project` in the tree (engine `projects::reaches`)? */
+export function reachesProject(agent: string, project: string, map: Map<string, CanvasNode>): boolean {
+  const above = (from: string, target: string) => {
+    let id = map.get(from)?.parent
+    for (let depth = 0; id && depth < 1024; depth++) {
+      if (id === target) return true
+      id = map.get(id)?.parent
+    }
+    return false
+  }
+  return agent !== project && (above(project, agent) || above(agent, project))
+}
+
+/** A project's DEAD-LETTER LINE (the Mail tab's listeners folder, user
+ *  2026-10-20 06:41Z): armed or paused dead-letter dogs whose owners reach
+ *  the project and whose pattern, if any, takes its dead letters — tested
+ *  on the line the engine matches (`<event> <payload> (n matches)`); a
+ *  pattern this side cannot read counts. */
+export function deadLetterListeners(project: string, dogs: Watchdog[], map: Map<string, CanvasNode>): Watchdog[] {
+  const line = `${DEAD_LETTER_EVENT} ${JSON.stringify({ project, mail: '', from: '', attempts: 0, by: '', why: '' })} (1 matches)`
+  const takes = (pattern?: string) => {
+    if (!pattern) return true
+    try { return new RegExp(pattern).test(line) } catch { return true }
+  }
+  return dogs.filter((w) => isDeadLetterListener(w) && !w.spent && (w.state === 'armed' || w.state === 'paused')
+    && reachesProject(w.owner, project, map) && takes(w.pattern))
 }

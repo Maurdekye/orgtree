@@ -595,7 +595,7 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
       onFolderPick={onPickFolder}
       extraFolders={[{ id: 'listeners', count: mailListeners.armed.length,
         render: (rows) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
-          rows={rows} ack={queueAckMode(node)} onOpenMail={onOpenMail} /> }]}
+          rows={rows} ack={queueAckMode(node)} onOpenMail={onOpenMail} op={op} toast={toast} dogs={tree.watchdogs ?? []} /> }]}
       folderAsk={folderAsk} />
     {purging && createPortal(
       <ConfirmModal title={`purge project ${node.id}'s waiting mail?`}
@@ -701,11 +701,13 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       <NavChip key={id} n={up.find((n) => n.id === id)!} dir="up" onJump={onJump} />} />
   </div> : null
   // the Dead letters tab joins them while the project holds open dead letters;
-  // the Listeners tab is always there, empty or not (user 2026-10-19 21:19:48Z:
-  // one that follows its dogs keeps turning off and on), and only Slots
-  // follows a setting (21:20:24Z)
+  // the Listeners tab from the first time any listener or watch registers on
+  // the project, for good (user 2026-10-20 06:22Z, replacing "always" of
+  // 2026-10-19 21:19:48Z: it never hides again when they unregister); only
+  // Slots follows a setting (21:20:24Z)
   const deadLetters = node.dead_letters ?? 0
-  const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : []), 'listeners' as const]
+  const listenersSeen = !!node.listeners_seen || listenerState.listeners.length + listenerState.watches.length > 0
+  const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : []), ...(listenersSeen ? ['listeners' as const] : [])]
     .filter(v => v !== 'team' || teamCount > 0)
   const shown: Tab = tabs.includes(view) ? view : 'desk'
   // A TAB THE DESK DOES NOT OFFER (no team, slots, dead letters or listeners
@@ -836,7 +838,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {shown === 'slots' && <SlotsView node={node} state={slots} map={map} onJump={onJump} op={op} toast={toast}
         actions={<PanelCorner kind="project-slots" slug={slug} nid={node.id} />} />}
       {shown === 'dead' && <DeadLettersView node={node} map={map} onJump={onJump} op={op} toast={toast} />}
-      {shown === 'listeners' && <ListenersView node={node} dogs={tree.watchdogs ?? []} map={map} onJump={onJump} op={op} toast={toast} />}
+      {shown === 'listeners' && <ListenersView node={node} dogs={tree.watchdogs ?? []} map={map} onJump={onJump} op={op} toast={toast} refs={refs} />}
       {/* the members' jump cards under every tab, above the message box, as
           the agent desk's reports are (user 2026-10-19 19:58Z: "superior and
           subordinate jump cards persist across agent desk tabs, should be the

@@ -41,6 +41,10 @@
   --websocket: #a78bfa;     /* websocket watchdogs: chip outlines (violet, apart
                                from the rose queue, amber slot and cyan listener
                                kinds; coordinator 2026-10-19 21:14Z) */
+  --dead-letter: #b0614a;   /* dead-letter listeners (event dogs on
+                               project.dead_letter) and dead-lettered jobs: a
+                               darker sepia-maroon than the rose mail dogs
+                               (user 2026-10-20 06:41Z) */
   --bearer-panel: #262628;
   --bearer-line: #3a3a3c;
   --bearer-top: #4a4a4c;
@@ -229,6 +233,7 @@
   --listener-dim: #155e75;
   --listener-ink: #ffffff;
   --websocket: #6d28d9;
+  --dead-letter: #7a2e22;
   --tip-fill: #176377;
   --tip-seat: #155e75;
   --danger-ink: #af3320;
@@ -3209,6 +3214,7 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .wd-chip.listener { border-color: var(--listener); }
 .wd-chip.listener .wd-glyph { color: var(--listener); }
 .wd-chip.websocket .wd-glyph { color: var(--websocket); }
+:is(.wd-chip, .desk-dog-chip).dead-letter .wd-glyph { color: var(--dead-letter); }
 /* the desk's Slots tab */
 .project-slots { display: flex; flex-direction: column; gap: 4px; min-width:0; overflow: auto; }
 .project-slots h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }
@@ -3217,13 +3223,20 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 /* One table computes widths for every section. Narrow hosts scroll the data,
    keeping the action column visible instead of clipping its buttons. */
 .slots-table-scroll { width:100%; max-width:100%; min-width:0; overflow:auto; }
-.slots-table { width:100%; min-width:824px; table-layout:fixed; border-collapse:separate; border-spacing:0; font-variant-numeric:tabular-nums; }
-.slots-table .slot-col-position { width:64px; }
-.slots-table .slot-col-agent { width:22%; }
-.slots-table .slot-col-time { width:76px; }
-.slots-table .slot-col-ended { width:96px; }
-.slots-table .slot-col-action { width:132px; }
-.slots-table .slot-col-quantity { width:48px; }
+.slots-table { width:100%; min-width:860px; table-layout:fixed; border-collapse:separate; border-spacing:0; font-variant-numeric:tabular-nums; }
+/* the desk tables' ONE set of column widths (Slots, the Mail tab's listeners,
+   Listeners; user 2026-10-20 06:36Z): fixed for every column the tables
+   share, so a column sits alike in each; the detail columns share the rest */
+.slots-table .slot-col-position { width:56px; }
+.slots-table .slot-col-agent { width:140px; }
+.slots-table .slot-col-time { width:72px; }
+.slots-table .slot-col-ended { width:88px; }
+.slots-table .slot-col-action { width:124px; }
+.slots-table .slot-col-quantity { width:46px; }
+.slots-table .listener-col-count, .slots-table .listener-col-fired { width:58px; }
+.slots-table .listener-col-dog { width:136px; }
+.slots-table .listener-dog-cell { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+.slots-table .slot-dog, .slots-table .listener-dog { font-family:monospace; font-size:11px; max-width:100%; }
 .slots-table th,.slots-table td { padding:4px; text-align:left; vertical-align:middle; }
 .slots-table thead th { color:var(--dim); font-size:11px; font-weight:600; border-bottom:1px solid var(--line); }
 .slots-table .slot-row > * { border-bottom:1px solid var(--line); }
@@ -3275,13 +3288,10 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
 .project-listeners h4 { margin: 10px 0 2px; font-size: 12px; color: var(--dim); }
 .project-listeners .listener-fire { display: flex; gap: 6px; align-items: center; }
 .project-listeners .listener-fire input { flex: 1; min-width: 0; }
-.slots-table.listeners-table { min-width: 520px; }
-.listeners-table .listener-col-dog { width: 30%; }
-.listeners-table .listener-col-count, .listeners-table .listener-col-fired { width: 64px; }
-.listeners-table .listener-col-actions { width: 22%; }
+.slots-table.listeners-table { min-width: 760px; }
+.listeners-table .listener-col-actions { width: 18%; }
 .listeners-table .slot-agent { font-weight: 600; overflow: hidden; }
 .listeners-table .slot-agent .ref-agent { max-width: 100%; }
-.listeners-table .listener-dog-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .listeners-table .listener-count { color: var(--listener); }
 .listeners-table .listener-actions { overflow-wrap: anywhere; font-family: monospace; font-size: 11px; }
 /* a paused dog's row dims as the mail listeners' do; its chip already dims
@@ -3292,24 +3302,50 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
    table's layout and time colours, in the queue's rose for the order and for
    a listener holding a job (ack mode), as the filled mail card */
 .project-mail-listeners { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 4px 10px 8px; }
-.slots-table.mail-listeners-table { min-width: 620px; }
-.mail-listeners-table .listener-col-mail { width: 30%; }
-.mail-listeners-table .listener-col-handed { width: 64px; }
-.mail-listeners-table .listener-col-dog { width: 20%; }
+.slots-table.mail-listeners-table { min-width: 760px; }
+.slots-table.mail-listeners-table.ack { min-width: 900px; }
 .mail-listeners-table .slot-no { display: inline-block; min-width: 30px; color: var(--fq-line); font-variant-numeric: tabular-nums; }
 .mail-listeners-table .slot-agent { font-weight: 600; overflow: hidden; }
 .mail-listeners-table .slot-agent .ref-agent { max-width: 100%; }
 .mail-listeners-table .listener-handed { font-variant-numeric: tabular-nums; }
-.mail-listeners-table .listener-dog-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.mail-listeners-table .listener-dog { font-family: monospace; font-size: 11px; }
 .mail-listeners-table .listener-row.out > * { opacity: .6; }
-.mail-listeners-table .listener-row.holding > * { background: color-mix(in srgb, var(--fq-line) 14%, transparent); }
-.mail-listeners-table .listener-row.holding > :first-child { box-shadow: inset 3px 0 0 var(--fq-line); }
-.mail-listeners-table .listener-mail { overflow: hidden; }
-.mail-listeners-table .listener-mail-link { display: block; max-width: 100%; margin: 0; padding: 0; border: 0; background: none;
+/* Working: a held job, in the queue's rose as the filled mail card (not
+   `.working`: a global rule of that name lays its element out as a flex row) */
+.mail-listeners-table .listener-row.held-job > * { background: color-mix(in srgb, var(--fq-line) 14%, transparent); }
+.mail-listeners-table .listener-row.held-job > :first-child { box-shadow: inset 3px 0 0 var(--fq-line); }
+/* Recently Finished: a job that failed without an ack (taken back too) in
+   amber, a dead-lettered one in the dead-letter sepia-maroon (user
+   2026-10-20 06:41Z: each kind highlighted differently) */
+.mail-listeners-table .listener-row.ending-failed > * { background: color-mix(in srgb, var(--warn, #e5c07b) 13%, transparent); }
+.mail-listeners-table .listener-row.ending-failed > :first-child { box-shadow: inset 3px 0 0 var(--warn, #e5c07b); }
+.mail-listeners-table .listener-row.ending-dead > * { background: color-mix(in srgb, var(--dead-letter) 24%, transparent); }
+.mail-listeners-table .listener-row.ending-dead > :first-child { box-shadow: inset 3px 0 0 var(--dead-letter); }
+.mail-listeners-table .ending-word { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.mail-listeners-table .ending-word.ending-failed, .mail-listeners-table .ending-word.ending-taken_back { color: var(--warn, #e5c07b); }
+.mail-listeners-table .ending-word.ending-dead_letter { color: color-mix(in srgb, var(--dead-letter) 70%, var(--ink)); }
+/* the Dead Letter Line: the dead-letter listeners, marked in their colour */
+.mail-listeners-table .listener-row.dead-listener > :first-child { box-shadow: inset 3px 0 0 var(--dead-letter); }
+.mail-listeners-table .listener-mail, .mail-listeners-table .listener-ack { overflow: hidden; }
+:is(.mail-listeners-table, .listeners-table) .listener-mail-link { display: block; max-width: 100%; margin: 0; padding: 0; border: 0; background: none;
   font: inherit; font-size: 11px; color: var(--fq-line); text-align: left; cursor: pointer;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mail-listeners-table .listener-mail-link:hover { background: none; text-decoration: underline; }
+:is(.mail-listeners-table, .listeners-table) .listener-mail-link:hover { background: none; text-decoration: underline; }
+.listeners-table .listener-mail-link { color: var(--listener); }
+.listeners-table .listener-mail-link.unavailable { color: var(--dim); cursor: default; text-decoration: none; }
+/* Recently Fired (listenersdesk.tsx, user 2026-10-20 06:22Z): an event's row,
+   its message on one line until clicked, and a sub-row per listener; a
+   listener watch reaching its count on a cyan-tinted background */
+.listeners-table .fired-row > * { border-top: 1px solid var(--line); }
+.listeners-table .fired-row.watch > *, .listeners-table .fired-listener.watch > * { background: color-mix(in srgb, var(--listener) 12%, transparent); }
+.listeners-table .fired-row.watch > :first-child { box-shadow: inset 3px 0 0 var(--listener); }
+.listeners-table .fired-branch { color: var(--dim); text-align: right; padding-right: 10px; }
+.listeners-table .fired-message { overflow: hidden; font-size: 12px; }
+.listeners-table .fired-message-text { display: block; max-width: 100%; margin: 0; padding: 0; border: 0; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listeners-table .fired-message-text:hover { background: none; text-decoration: underline dotted; }
+.listeners-table .fired-message.open .fired-message-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.listeners-table .fired-by { font-size: 12px; }
+.listeners-table .slot-history-more { color: var(--dim); font-size: 11px; }
 .project-listeners code { font-size: 11px; }
 /* the desk's Dead letters tab */
 .project-dead-letters { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
@@ -6800,6 +6836,7 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
 :is(.wd-chip, .desk-dog-chip).listener { border-color: var(--listener); --button-accent: var(--listener); }
 :is(.wd-chip, .desk-dog-chip).fair-queue { border-color: var(--fq-line); --button-accent: var(--fq-line); }
 :is(.wd-chip, .desk-dog-chip).websocket { border-color: var(--websocket); --button-accent: var(--websocket); }
+:is(.wd-chip, .desk-dog-chip).dead-letter { border-color: var(--dead-letter); --button-accent: var(--dead-letter); }
 /* Listener-count watches are distinct from ordinary event listeners.
    Continuous: double cyan border. One-shot: dashed outer + solid inner ring. */
 :is(.wd-chip, .desk-dog-chip).listener-watch { border: 3px double var(--listener); }
@@ -6901,6 +6938,7 @@ html.mobile .ms-doglist button.slot { border-left: 2px solid var(--slot); }
 html.mobile .ms-doglist button.listener { border-left: 2px solid var(--listener); }
 html.mobile .ms-doglist button.fair-queue { border-left: 2px solid var(--fq-line); }
 html.mobile .ms-doglist button.websocket { border-left: 2px solid var(--websocket); }
+html.mobile .ms-doglist button.dead-letter { border-left: 2px solid var(--dead-letter); }
 html.mobile .ms-doglist button.oneshot { border-left-style: dashed; }
 html.mobile .ms-doglist button.listener-watch { border-left: 3px double var(--listener); }
 html.mobile .ms-doglist button.listener-watch.oneshot { border-left: 1px dashed var(--listener);

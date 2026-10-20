@@ -779,6 +779,9 @@ export interface Watchdog {
   threshold_percent?: number
   /** a `slot` claim (project slots): when it joined the line, its order */
   queued_at?: string
+  /** a `fair_queue` listener: when its last job ended (acked or taken back),
+   *  where its next wait starts */
+  freed_at?: string
   /** a granted `slot` claim's public lease; only legacy snapshots carry a slot number */
   lease?: string
   slot?: number
@@ -2441,8 +2444,11 @@ export interface OpRequest {
   include_dropped?: boolean
   /** slot_release — the lease; `force` for the user's force release */
   lease?: string
-  /** slot_history — opaque keyset cursor for the next older page. */
+  /** slot_history, mail_queue_history, listener_history — opaque keyset
+   *  cursor for the next older page. */
   history_before?: string
+  /** mail_take_back — the held job's id in the project's mailbox */
+  mail?: string
   force?: boolean
   /** slot_unqueue — the agent removed from the line */
   agent?: string

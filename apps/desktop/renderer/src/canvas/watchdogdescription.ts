@@ -1,6 +1,7 @@
 import type { Watchdog } from '../types'
 import {slotClaimDescription} from './slotclaim'
 import type {SlotClaimLeaseState} from './slotclaim'
+import { isDeadLetterListener } from './listeners'
 
 // Presentation only. Match the native runners, not the shared storage shape:
 // fair_queue is pushed mail, process ignores regex, and silence counts matches.
@@ -42,7 +43,8 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLe
       ? `Watches ${target} and ${alert} when the count of ${counted} crosses ${dog.threshold} in the ${scope}, excluding ${dog.owner}${dog.pattern ? `, with an event payload ${pattern}` : ''}. Staying across the threshold does not fire again.`
       : count
         ? `Watches ${target} and ${alert} when the count of ${counted} changes in the ${scope}, excluding ${dog.owner}${dog.pattern ? `, with an event payload ${pattern}` : ''}.`
-        : `Listens for ${target} and ${alert} when ${pattern} engine events arrive.`; break
+        : `Listens for ${target} and ${alert} when ${pattern} engine events arrive.${isDeadLetterListener(dog)
+          ? " A dead-letter listener: it is told when a project above or below its owner gives up on a job, and it shows in that project’s Dead Letter Line." : ''}`; break
     case 'fair_queue': summary = `Delivers mail waiting in project ${target} to ${dog.owner}, ${(dog.batch ?? 1) === 1 ? 'one message at a time' : `up to ${dog.batch} messages with one wake per batch`}, shared fairly with other armed listeners. It never waits for a full batch. Each message goes to one listener, the least recently served first. In ACK mode the batch limit caps unacked mails; each mail needs its own acknowledgement.`; break
     case 'slot': summary = slotClaimDescription(dog,dogs,target,slotLease); break
     case 'project_listener': summary = `Listens on project ${target} and ${alert} each time its event is fired, with the firer's message when one is carried. Every armed listener on the project receives the same fire at the same instant.`; break
