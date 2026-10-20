@@ -1525,6 +1525,44 @@ mod tests {
         assert!(m.contains("1 listener more paused") || m.contains("1 listener paused") || m.contains("more paused"), "{m}");
     }
 
+    // a send to a project whose inbox has no listeners (user 2026-10-20
+    // 11:04Z, docket warn-senders-when-they-mail-a-project-whose-inbo)
+    const UNREAD: &str = "inbox has no listeners, so this mail may not be read by anyone or delivered anywhere until one attaches";
+
+    #[test]
+    fn an_agent_mailing_an_inbox_with_no_listeners_is_warned_and_told_how_to_attach_one() {
+        let t = sent_note("q", &st(0, 0, 0, 0, Some(3)));
+        assert!(t.starts_with("Warning: project q's ") && t.contains(UNREAD), "{t}");
+        assert!(t.contains("orgtree_watchdog action=create kind=fair_queue target=q"), "how to attach one: {t}");
+        assert!(t.contains("orgtree_inbox project=q"), "where it can be read: {t}");
+        assert!(t.contains("position 3 in line"), "it is still queued: {t}");
+    }
+
+    #[test]
+    fn a_paused_listener_is_attached_so_its_sender_gets_the_paused_note() {
+        let t = sent_note("q", &st(0, 0, 0, 1, Some(1)));
+        assert!(!t.contains("Warning") && !t.contains("no listeners"), "{t}");
+        assert_eq!(t, wait_note("q", &st(0, 0, 0, 1, Some(1))));
+    }
+
+    #[test]
+    fn a_send_to_a_listened_inbox_keeps_the_queue_note() {
+        for s in [st(1, 0, 0, 0, Some(1)), st(2, 2, 0, 0, Some(1)), st(2, 1, 1, 0, None), st(1, 1, 0, 2, None)] {
+            assert_eq!(sent_note("q", &s), wait_note("q", &s), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn the_user_is_warned_too_ahead_of_what_the_wake_did() {
+        for (n, kept) in [(Nudge::Off, "off in Runtime settings"), (Nudge::Nobody, "nobody can pick it up"),
+                          (Nudge::Woke("dev5".into()), "dev5 was woken and asked to")] {
+            let t = unwatched_note("q", &n);
+            assert!(t.starts_with("Warning: project q's ") && t.contains(UNREAD), "{n:?}: {t}");
+            assert!(t.contains(kept), "{n:?} still says what the wake did: {t}");
+            assert!(!t.contains("orgtree_"), "the user gets no agent tool syntax: {t}");
+        }
+    }
+
     #[test]
     fn the_turn_end_reminder_is_on_unless_the_project_turns_it_off() {
         assert!(turn_end_reminder(&json!({})));

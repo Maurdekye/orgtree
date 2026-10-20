@@ -5,7 +5,8 @@
 // 2026-10-18 18:00Z-18:06Z), through the real engine.
 //   a post when every listener holds an un-acked job says so, with its place
 //   in line, in the sender's reply (agent sender and user sender alike);
-//   with nobody watching the old "no agent watches" text stays, and a project
+//   with nobody watching the sender is warned that the inbox has no listeners
+//   (user 2026-10-20 11:04Z), and a project
 //   whose only listener is paused says that instead
 //   an agent holds at most ONE un-acked job even with two fair_queue dogs on
 //   the project (a legacy duplicate is injected by SQL; the tool refuses it)
@@ -75,12 +76,12 @@ export default async function (rig) {
   const j4 = await post('aq', 'Job 4')
   const t3 = j3.text ?? '', t4 = j4.text ?? ''
   p.check('a post when every listener holds an un-acked job says so, and does not claim nobody watches',
-    j3.ok && !/No agent watches/i.test(t3) && /2 listeners/.test(t3) && /un-acked/.test(t3) && /position 1\b/.test(t3), t3)
-  p.check('the next post is told its place in line', j4.ok && /position 2\b/.test(t4) && !/No agent watches/i.test(t4), t4)
+    j3.ok && !/No agent watches|no listeners/i.test(t3) && /2 listeners/.test(t3) && /un-acked/.test(t3) && /position 1\b/.test(t3), t3)
+  p.check('the next post is told its place in line', j4.ok && /position 2\b/.test(t4) && !/No agent watches|no listeners/i.test(t4), t4)
   const u5 = await userPost('Job 5')
   const tu = u5.ok ? JSON.stringify(u5.v) : u5.error
   p.check('the user\'s post gets the same honest wording', u5.ok && /2 listeners/.test(tu) && /un-acked/.test(tu) && /position 3\b/.test(tu)
-    && !/No agent watches/i.test(tu), tu)
+    && !/No agent watches|no listeners/i.test(tu), tu)
   const inbox = await rig.tool('boss', 'orgtree_inbox', { action: 'list', project: 'aq' })
   p.check('orgtree_inbox project output carries the same queue wording', inbox.ok && /un-acked/.test(JSON.stringify(inbox.json ?? inbox.text))
     && /2 listeners/.test(JSON.stringify(inbox.json ?? inbox.text)), said(inbox))
@@ -115,7 +116,8 @@ export default async function (rig) {
   // ------------------------------------------------------------ no listener / paused listener / the setting off
   const lone = await opTry({ op: 'create_project', name: 'lone', parent: 'boss', description: 'Nobody listens.' })
   const t0 = await post('lone', 'Anyone?')
-  p.check('with nobody watching, the old text stays', lone.ok && /No agent watches/i.test(t0.text ?? ''), t0.text)
+  p.check('with nobody watching, the sender is warned that the inbox has no listeners', lone.ok
+    && /^Sent to lone \(id m[^)]*\)\. Warning: project lone's inbox has no listeners/.test(t0.text ?? ''), t0.text)
   const pz = await opTry({ op: 'create_project', name: 'pz', parent: 'boss', description: 'A paused listener.' })
   const hz = await opTry({ op: 'hire', name: 'ez', parent: 'pz', tier: 'haiku', grant: 0, title: 'Worker Z' })
   await settle('ez hired')
@@ -123,7 +125,7 @@ export default async function (rig) {
   const pausedDog = await rig.tool('ez', 'orgtree_watchdog', { action: 'pause', id: 'pz-queue' })
   const tp = await post('pz', 'Is anyone there?')
   p.check('a project whose only listener is paused says so, not that nobody watches',
-    pz.ok && hz.ok && dz.ok && pausedDog.ok && /paused/i.test(tp.text ?? '') && !/No agent watches/i.test(tp.text ?? ''), tp.text)
+    pz.ok && hz.ok && dz.ok && pausedDog.ok && /paused/i.test(tp.text ?? '') && !/No agent watches|no listeners/i.test(tp.text ?? ''), tp.text)
   const nr = await opTry({ op: 'create_project', name: 'nr', parent: 'boss', description: 'No immediate reminder.' })
   const hn = await opTry({ op: 'hire', name: 'en', parent: 'nr', tier: 'haiku', grant: 0, title: 'Worker N' })
   await settle('en hired')
