@@ -5,16 +5,21 @@ module.exports = async page => {
     await new Promise(resolve => requestAnimationFrame(() =>
       requestAnimationFrame(() => setTimeout(resolve, 300))))
   })
-  const inspect = () => page.eval(() => ({
+  const inspect = () => page.eval(() => {
+    const style = e => { if (!e) return null; const s = getComputedStyle(e)
+      return { stroke: s.stroke, width: s.strokeWidth, opacity: s.opacity, dash: s.strokeDasharray } }
+    return {
     cards: [...document.querySelectorAll('.sq.project')].map(e => ({
       name: e.getAttribute('data-copy-agent-name'), x: e.getBoundingClientRect().x, y: e.getBoundingClientRect().y,
       w: e.getBoundingClientRect().width, h: e.getBoundingClientRect().height,
       mini: !!e.querySelector('.project-mini'),
     })),
     lines: [...document.querySelectorAll('.project-bunch-edge')].map(e => e.getAttribute('d')),
+    edgeStyle: style(document.querySelector('.edge:not(.project-bunch-edge)')),
+    bunchStyle: style(document.querySelector('.project-bunch-edge')),
     receipt: window.bunchReceipt,
-  }))
-  for (const scene of ['two', 'three', 'five', 'eight', 'two-off', 'three-off', 'siblings', 'split',
+  } })
+  for (const scene of ['two', 'three', 'five', 'seven', 'eight', 'twelve', 'twenty', 'two-off', 'three-off', 'siblings', 'split',
     'agent-break', 'circular', 'far', 'insert-project', 'insert-agent', 'insert-split', 'reorder', 'settings']) {
     await page.goto('/?scene=' + scene)
     await page.waitFor(scene === 'settings' ? 'input[aria-label="bunch consecutive projects"]' : '.sq.project')
@@ -29,24 +34,31 @@ module.exports = async page => {
         const card = document.querySelector('[data-copy-agent-name="project-1"]')
         const start = card.getBoundingClientRect()
         const end = document.querySelector('[data-copy-agent-name="project-3"]').getBoundingClientRect()
+        const previous = document.querySelector('[data-copy-agent-name="project-2"]').getBoundingClientRect()
+        const dx = end.x - previous.x, dy = end.y - previous.y
+        const scale = end.width * .32 / Math.max(Math.abs(dx), Math.abs(dy))
+        const x = end.x + end.width / 2 + dx * scale, y = end.y + end.height / 2 + dy * scale
         // Synthetic pointer capture is unsupported; the events are delivered to
         // the exact pressed card just as capture would deliver real events.
         card.setPointerCapture = () => {}
         const fire = (type, x, y) => card.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 7, clientX: x, clientY: y }))
         fire('pointerdown', start.x + start.width / 2, start.y + start.height / 2)
-        fire('pointermove', end.right - end.width / 5, end.y + end.height / 2)
+        fire('pointermove', x, y)
         await new Promise(resolve => setTimeout(resolve, 40))
-        fire('pointerup', end.right - end.width / 5, end.y + end.height / 2)
+        fire('pointerup', x, y)
         await new Promise(resolve => setTimeout(resolve, 1200))
       })
     }
     await settle()
     details[scene] = await inspect()
-    const expected = { two: 1, three: 2, five: 4, eight: 7, 'two-off': 0, 'three-off': 0,
+    const expected = { two: 1, three: 2, five: 4, seven: 6, eight: 7, twelve: 11, twenty: 19, 'two-off': 0, 'three-off': 0,
       siblings: 0, split: 3, 'agent-break': 2, circular: 4, far: 4,
       'insert-project': 2, 'insert-agent': 2, 'insert-split': 1, reorder: 2 }
     if (scene !== 'settings' && details[scene].lines.length !== expected[scene])
       throw new Error(`${scene}: ${details[scene].lines.length} order lines, want ${expected[scene]}`)
+    if (details[scene].lines.length && JSON.stringify(details[scene].edgeStyle) !== JSON.stringify(details[scene].bunchStyle))
+      throw new Error(`${scene}: bunch links differ from ordinary superior/subordinate styling`)
+    if (details[scene].lines.some(d => !d.includes('C'))) throw new Error(`${scene}: order link is not curved`)
     if (scene === 'reorder') {
       const parents = new Map(details[scene].receipt.parents)
       if (parents.get('project-2') !== null || parents.get('project-1') !== 'project-3')

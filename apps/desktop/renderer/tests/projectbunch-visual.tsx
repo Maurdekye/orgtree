@@ -16,7 +16,8 @@ localStorage.setItem('orgtree-start-zoom', '0')
 localStorage.setItem('orgtree-project-bunches', scene.endsWith('-off') ? '0' : '1')
 localStorage.setItem('orgtree-chart-layout', scene === 'circular' ? 'circular' : 'row')
 const labels: Record<string, string> = {
-  two: 'Two projects', three: 'Three projects', five: 'Five projects', eight: 'Eight projects',
+  two: 'Two projects', three: 'Three projects', five: 'Five projects', seven: 'Seven projects',
+  eight: 'Eight projects', twelve: 'Twelve projects', twenty: 'Twenty projects',
   'two-off': 'Bunching off: two projects', 'three-off': 'Bunching off: three projects',
   siblings: 'Side-by-side projects stay separate', split: 'A split ends one bunch; each branch starts its own',
   'agent-break': 'An agent ends a bunch; the next project run forms another',
@@ -29,7 +30,8 @@ const labels: Record<string, string> = {
   settings: 'App settings > Display',
 }
 const trees: Record<string, TreeNode[]> = {
-  two: [chain(2)], three: [chain(3)], five: [chain(5)], eight: [chain(8)],
+  two: [chain(2)], three: [chain(3)], five: [chain(5)], seven: [chain(7)],
+  eight: [chain(8)], twelve: [chain(12)], twenty: [chain(20)],
   'two-off': [chain(2)], 'three-off': [chain(3)],
   siblings: [project('left', [agent('alpha')]), project('right', [agent('beta')])],
   split: [chain(2, [chain(2, [agent('alpha')], 'left'), chain(2, [agent('beta')], 'right')], 'upper')],
