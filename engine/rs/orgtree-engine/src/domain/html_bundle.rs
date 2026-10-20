@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 const MAX: usize = 25 * 1024 * 1024;
 const FILES: usize = 4096;
 
+#[cfg(test)]
+#[path = "html_bundle_tests.rs"]
+mod tests;
+
 #[derive(Debug)]
 pub struct Bundle {
     pub body: String,
