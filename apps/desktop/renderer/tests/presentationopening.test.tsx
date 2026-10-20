@@ -75,7 +75,7 @@ for (const surface of ['modal','agent','project'] as const) {
     assert.equal(v.el.querySelector('.doc-gallery-row .mfrom')?.textContent,'doc-0','newest document is included')
     assert.equal(v.el.querySelector('.doc-list-newer')===null,true,'fresh open never hides newer documents')
     assert.equal(requests.every(p=>Number(new URL(p,'http://fixture').searchParams.get('limit'))<=200),true,'bounded prefix/page reads: '+JSON.stringify(requests))
-    assert.ok(requests.length<=2,'one selection request and at most one aligned refresh')
+    assert.ok(requests.length<=3,'target query, newest prefix and optional viewed-state refresh: '+JSON.stringify(requests))
     await inAct(()=>(v.el.querySelector<HTMLElement>('.doc-gallery-row')!).click());await flush()
     await advance(5001);await flush();assert.equal(v.el.querySelector('.doc-gallery-row.on .mfrom')?.textContent,'doc-0')
     assert.equal(requests.filter(p=>p.includes('opening=1')).length,1,'target lookup runs once per open')
