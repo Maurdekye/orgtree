@@ -85,5 +85,16 @@ export default async function(rig){
   const history=await rig.waitFor(()=>frames.slice(historyOffset).find(f=>(f.upserts??[]).some(r=>r.entity===`agent_history:${boss}`&&r.body?.kind==='retool')),{timeout:15000,every:10,what:'live subscribed history'})
   p.check('an open history window receives lifecycle updates',!!history)
  }finally{ws.close();for(const socket of connections)socket.destroy();await new Promise(resolve=>proxy.close(resolve))}
+ // Parent scope still propagates through the deep project stack, while
+ // project audience changes refresh the actual direct member's card.
+ const card=async name=>(await snapshot()).records.find(r=>r.entity==='agent'&&r.body?.id===name)?.body
+ await rig.api('POST',`/api/orgs/${rig.org}/nodes/boss/scope`,{tools:{web:true}})
+ await rig.waitFor(async()=>(await card('peer-53'))?.scope?.tools?.web===true,{timeout:15000,every:10,what:'scope positive control'})
+ await rig.api('POST',`/api/orgs/${rig.org}/nodes/boss/scope`,{tools:{web:false}})
+ const restricted=await rig.waitFor(async()=>(await card('peer-53'))?.scope?.tools?.web===false,{timeout:15000,every:10,what:'scope cascade through projects'})
+ p.check('scope changes still cascade through 80 projects',!!restricted)
+ await rig.api('POST',`/api/orgs/${rig.org}/audiences`,{action:'grant',node:'project-80',target:'user',reason:'Synthetic feed control'})
+ const audience=await rig.waitFor(async()=>{const c=await card('peer-53');return JSON.stringify(c?.audiences_held??[]).includes('@user')},{timeout:15000,every:10,what:'project audience updates member card'})
+ p.check('project audience changes update the direct member card',!!audience)
  return p.summary()
 }
