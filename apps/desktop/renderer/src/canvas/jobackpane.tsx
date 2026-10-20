@@ -16,6 +16,7 @@ import { useState } from 'react'
 import type { MailQueueState, ToastFn } from '../types'
 import { fmtFull } from '../timefmt'
 import { MailReplyBox } from './mail'
+import { jobWasSentByUser } from './jobacks'
 
 export type QueueJob = NonNullable<MailQueueState['job']>
 
@@ -47,14 +48,19 @@ export function JobAckPane({ job, onAck, target, slug, toast }: {
       .catch((e: Error) => setError(e?.message || 'could not acknowledge the job'))
       .finally(() => setBusy(false))
   }
+  const selfSent = jobWasSentByUser(target)
   return <div className="job-ack">
     <div className="cache-send-warning compact job-ack-note"><span aria-hidden="true">⚠</span>
       <span>This job came from project {job.name}'s mail queue and is held until it is acknowledged. Reading it does not acknowledge it.</span></div>
-    <MailReplyBox target={target} slug={slug} toast={toast}
+    {selfSent ? <>
+      <p className="dim">This job was sent by you. There is no reply recipient; acknowledging it sends no mail.</p>
+      <button type="button" className="job-ack-skip" data-action="ack" disabled={busy}
+        title="acknowledge this self-sent job without sending a reply" onClick={skip}>Acknowledge job</button>
+    </> : <MailReplyBox target={target} slug={slug} toast={toast}
       sendLabel="reply & acknowledge" sendTitle="send this reply to the sender, then acknowledge the job"
       onSend={(text, attachments, notice) => onAck(text, { attachments, notice })}
       below={<button type="button" className="job-ack-skip" data-action="ack" disabled={busy}
-        title="acknowledge the job without replying to its sender" onClick={skip}>Acknowledge without reply</button>} />
+        title="acknowledge the job without replying to its sender" onClick={skip}>Acknowledge without reply</button>} />}
     {error && <div role="alert" className="job-ack-error">{error}</div>}
   </div>
 }

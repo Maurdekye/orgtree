@@ -4,10 +4,16 @@
 // FIRST, as an ordinary reply to the job's mail in the user's inbox, then
 // acknowledges with that reply's id kept as the completion record; "Acknowledge
 // without reply" only acknowledges. A reply that fails acknowledges nothing, so
-// the job stays held and the draft can be sent again. The sending and the
+// the job stays held and the draft can be sent again. Self-sent jobs only
+// acknowledge: the user is not an agent recipient, and user_job_ack stores
+// reply-mail IDs, not free-text notes. The sending and the
 // engine call are the host's (the user's inbox in App.tsx); this is the order.
 
 import type { MailRow } from './shared'
+import { isUserName } from './username'
+
+/** Mail uses the actor sentinel; retained rows may use the user's data name. */
+export const jobWasSentByUser = (sender: string | null | undefined): boolean => sender === '@user' || isUserName(sender)
 
 export interface AckJobDeps {
   row: MailRow
@@ -25,7 +31,7 @@ export interface AckJobDeps {
 export async function acknowledgeJob({ row, reply, attachments, notice, sendReply, ack }: AckJobDeps): Promise<void> {
   if (!row.id) throw new Error('this job has no mail id to acknowledge')
   let replyId: string | undefined
-  if (reply) {
+  if (reply && !jobWasSentByUser(row.from)) {
     const receipt = await sendReply(row, reply, { attachments, notice })
     replyId = receipt.id ?? undefined
   }
