@@ -8,7 +8,7 @@ import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, useNativeNotifications } from './notifications'
 import { startPendingMirror, usePendingAttention, waitingNow } from './pending-attention'
 import { ownsNotifications, useWindowIdentity } from './shell/identity'
-import { restoredAgentGallery, restoredWindows, restoreWindowKind } from './windowlayout'
+import { restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
 import { activeAgentsOnlyForOrg, activeAgentsPreferencePatch, mergeActiveAgentsPreference } from './activeagentprefs'
 import { scratchFolderAction } from './scratch-folder'
@@ -131,10 +131,10 @@ import { langServerDoc } from './canvas/langserver'
 import { invalidateStaffingOptions, prefetchStaffingOptions } from './canvas/staffingoptions'
 import { StandingMarks } from './accountusage'
 import { usageRefreshDisabledReason } from './usagerefreshpolicy'
-import { AgentGalleryModal, DocGalleryModal } from './canvas/gallery'
+import { DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
-import { closeIfCentred, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleNodePanel, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
+import { closeIfCentred, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
@@ -515,14 +515,10 @@ export default function App() {
   // org-wide, one place. It reads in its OWN right-hand pane (the mail
   // idiom the user asked for), so nothing about the canvas's reader is
   // lifted up here — that panel owns its selection.
+  // the org's GLOBAL reader. Each agent's or project's reader, and each
+  // team's, is the canvas's: one per scope (docket
+  // several-instances-of-the-same-modal-team-slots-i, USER 2026-10-20 19:03:28Z)
   const [showGallery, setShowGallery] = useState(false)
-  // The card's document shortcut opens the same list/reader layout scoped to
-  // that agent, independently of whether its desk is currently pinned.
-  const [agentGalleryId, setAgentGalleryId] = useState<string | null>(null)
-  // the agent gallery in TEAM scope (user 2026-10-17 22:47Z)
-  const [agentGalleryTeam, setAgentGalleryTeam] = useState(false)
-  usePersistedModalOpen('agent-gallery', slug, Boolean(agentGalleryId), agentGalleryId ? {agent:agentGalleryId, generation: tree ? flatNodes(tree).get(agentGalleryId)?.generation : undefined,
-    ...(agentGalleryTeam ? { team: true } : {})} : undefined)
   // the native work docket (docket-final-spec.md) — its own list+pane modal,
   // same pattern as the gallery above.
   const [showDocket, setShowDocket] = useState(false)
@@ -701,11 +697,6 @@ export default function App() {
     setShowInbox(pinnedKind('inbox') || restoreWindowKind('inbox', slug))
     setShowGallery(pinnedKind('gallery') || restoreWindowKind('gallery', slug))
     setShowDocket(pinnedKind('docket') || restoreWindowKind('docket', slug))
-    const pinnedGallery = pinnedKind('agent-gallery') ? pinned.find(r => r.kind === 'agent-gallery' && r.org === slug)?.restore : undefined
-    // its agent AND its scope: a Team presentations window comes back as one
-    const gallery = restoredAgentGallery(pinnedGallery, restoredWindows(slug).find(r => r.kind === 'agent-gallery'), flatNodes(tree))
-    setAgentGalleryId(gallery?.id ?? null)
-    setAgentGalleryTeam(gallery?.team ?? false)
     // THE RENDERER'S HALF is COMPUTED here because this is the first moment
     // both facts exist: the saved open-set has just been read, and the tree
     // that resolves its targets has just arrived. It is ANNOUNCED lower down,
@@ -1903,12 +1894,6 @@ export default function App() {
                 onOpenMailHandled={() => setMailJump(null)}
                 openDocAt={docJump}
                 onOpenDocHandled={() => setDocJump(null)}
-                onOpenAgentGallery={(id, opts) => {
-                  const sameScope = agentGalleryTeam === !!opts?.team
-                  setAgentGalleryTeam(!!opts?.team)
-                  toggleNodePanel('agent-gallery', sameScope ? agentGalleryId : null, id,
-                    setAgentGalleryId, slug, opts?.keepOpen)
-                }}
                 onAccounts={openAccounts}
                 /* the eye's ⚙ and its context menu open the WHOLE settings
                    modal (user ruling 2026-09-11), not the Hire defaults tab
@@ -2027,18 +2012,6 @@ export default function App() {
           refs={galleryRefs}
           close={() => setShowGallery(false)} />
       )}
-      {agentGalleryId && slug && (
-        <AgentGalleryModal slug={slug} nid={agentGalleryId} team={agentGalleryTeam}
-          onTeam={setAgentGalleryTeam}
-          node={tree ? flatNodes(tree).get(agentGalleryId) : undefined}
-          toast={toast}
-          refs={galleryRefs}
-          onFocusAgent={(id) => {
-            closeIfCentred('agent-gallery', () => setAgentGalleryId(null), slug)
-            setFocusAgent(id)
-          }}
-          close={() => setAgentGalleryId(null)} />
-      )}
       {showDocket && slug && tree && (
         <DocketModal slug={slug} toast={toast} tree={tree}
           jumpTo={docketJump?.id ?? null} jumpSeq={docketJump?.seq}
@@ -2057,6 +2030,15 @@ export default function App() {
               setDocketJump(null)
             }, slug)
             setMailJump({ ...mailRefTarget(r), seq: jumpTo(r.id).seq })
+          }}
+          // a document opens in the reader it belongs to (one class of reader,
+          // USER 2026-10-20 19:03:28Z), behind where a centred docket is
+          onOpenDoc={(id) => {
+            closeIfCentred('docket', () => {
+              setShowDocket(false)
+              setDocketJump(null)
+            }, slug)
+            setDocJump(id)
           }}
           close={closeDocket} />
       )}

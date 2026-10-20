@@ -22,6 +22,9 @@
 export const PER_TARGET_KINDS: ReadonlySet<string> = new Set([
   'node-inbox', 'agent-docket', 'team-docket', 'agent-team',
   'project-slots', 'project-listeners', 'project-desk', 'node-config', 'watchdog',
+  // the readers (USER 2026-10-20 19:03:28Z): one per agent or project, and one
+  // per agent's or project's team (canvas/readers.ts)
+  'agent-gallery', 'team-gallery',
 ])
 
 /** the instance of `kind` that shows `target` */
@@ -47,8 +50,20 @@ export const isInstanceKind = (kind: string): boolean =>
 
 /** The kind a legacy record belongs to now. The team docket was its own kind
  *  once (teamdocket.tsx); it has been the agent docket with its Team box
- *  ticked since 2026-10-18, so its records join that docket's. */
-export const legacyBase = (kind: string): string => kind === 'team-docket' ? 'agent-docket' : kind
+ *  ticked since 2026-10-18, so its records join that docket's. A team's
+ *  presentations were the agent gallery with its Team box ticked; a team
+ *  reader is a reader of its own since 2026-10-20. */
+export const legacyBase = (kind: string, restore?: { team?: boolean }): string =>
+  kind === 'team-docket' ? 'agent-docket'
+    : kind === 'agent-gallery' && restore?.team === true ? 'team-gallery' : kind
+
+/** the single-instance kind a stored kind descends from: the old agent
+ *  gallery window showed both scopes, and the old team docket is the agent
+ *  docket's */
+export const legacyFamily = (kind: string): string => {
+  const base = baseKind(kind)
+  return base === 'team-gallery' ? 'agent-gallery' : base === 'team-docket' ? 'agent-docket' : base
+}
 
 /** WHICH TARGET a legacy single-instance record was showing. Its restore
  *  identity already said so: the agent or project, or the watchdog. */
@@ -62,8 +77,8 @@ export const legacyTarget = (kind: string,
  *  instance it was. Everything else (already an instance, another kind, or no
  *  target to give it) is returned unchanged. */
 export const migratedKind = (kind: string,
-  restore: { agent?: string; watchdog?: string } | undefined): string => {
+  restore: { agent?: string; watchdog?: string; team?: boolean } | undefined): string => {
   if (!PER_TARGET_KINDS.has(kind)) return kind
   const target = legacyTarget(kind, restore)
-  return target ? instanceKind(legacyBase(kind), target) : kind
+  return target ? instanceKind(legacyBase(kind, restore), target) : kind
 }

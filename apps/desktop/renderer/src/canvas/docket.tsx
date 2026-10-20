@@ -952,7 +952,7 @@ export function buildSections(mode: DocketGroupMode, active: WorkItem[],
 }
 
 export function DocketModal({ slug, toast, close, tree, onFocusAgent,
-  jumpTo, jumpSeq, onJumpHandled, onOpenMail }: {
+  jumpTo, jumpSeq, onJumpHandled, onOpenMail, onOpenDoc }: {
   slug: string
   toast: ToastFn
   close: () => void
@@ -979,6 +979,11 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
    *  Advertising mail unconditionally and then dropping the click on the floor
    *  is the live-looking control that does nothing. */
   onOpenMail?: (ref: TypedRef) => void
+  /** open a document in the reader it belongs to: ONE CLASS OF READER (docket
+   *  several-instances-of-the-same-modal-team-slots-i, USER 2026-10-20
+   *  19:03:28Z) — an open reader that can show it, or its own agent's. The
+   *  shell routes it; without one, the docket's own reader below stands in. */
+  onOpenDoc?: (id: string) => void
 }) {
   // ⚠ ONE DOCUMENT READER, OPENED BY REFERENCE. The reader is `DocReader`, the
   // same one the canvas chips open, so the fetch is the EXACT get by id: it
@@ -1318,9 +1323,12 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
     // a second reader surface beside the canvas's, so without this a document
     // the canvas already has in a window gets a duplicate window here — see
     // `openDocView` in OrgCanvas.tsx for the whole rule.
-    else if (r.ref.kind === 'doc') { if (!revealDetachedDocument(slug, r.ref.id)) setDocView(r.ref.id) }
+    else if (r.ref.kind === 'doc') {
+      if (onOpenDoc) onOpenDoc(r.ref.id)
+      else if (!revealDetachedDocument(slug, r.ref.id)) setDocView(r.ref.id)
+    }
     else if (r.ref.kind === 'mail') onOpenMail?.(r.ref)
-  }, [goToItem, onFocusAgent, onOpenMail, slug])
+  }, [goToItem, onFocusAgent, onOpenMail, onOpenDoc, slug])
 
   // the flash is a hint, not a state: it clears itself and never survives to
   // confuse the next visit

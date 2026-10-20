@@ -4,7 +4,7 @@ import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, PopoutWindowControls, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
 import type { SurfaceOrigin } from '../popout'
 import { detachedKind, revealDetachedPanel } from '../windowlife'
-import { baseKind, instanceKind, instanceTarget, isInstanceKind, legacyBase, migratedKind, PER_TARGET_KINDS } from '../modalkinds'
+import { baseKind, instanceKind, instanceTarget, isInstanceKind, legacyFamily, migratedKind, PER_TARGET_KINDS } from '../modalkinds'
 // canvas/modalpin.tsx — PINNING A MODAL TO THE WINDOW (user spec 2026-09-06):
 // "most openable modals in the app should be able to be pinned to the window
 // and dragged around, like pinned agent windows. this goes for inboxes,
@@ -120,7 +120,7 @@ export const readModalPins = (): PinMap => {
         for (const [kind, pin] of Object.entries(next)) if (!kind.startsWith('[')) {
           // the markers below are already per target (readModalOpen), so a
           // per-target kind finds its owners by the kind they are instances of
-          const owners = opens.filter(o => (o.kind === kind || legacyBase(baseKind(o.kind)) === legacyBase(kind)) && o.org)
+          const owners = opens.filter(o => (o.kind === kind || legacyFamily(o.kind) === legacyFamily(kind)) && o.org)
             .map(o => o.org!)
           if (!owners.length && lastOrg) owners.push(lastOrg)
           for (const org of owners) next[modalPinKey(kind, org)] ??= pin
@@ -225,7 +225,7 @@ function migrateInstancePins(pins: PinMap, opens: ModalOpenState[]): void {
     try {
       const k = JSON.parse(key) as unknown
       return Array.isArray(k) && k.length === 2 && typeof k[0] === 'string' && typeof k[1] === 'string'
-        && PER_TARGET_KINDS.has(k[1]) ? [{ key, org: k[0], kind: legacyBase(k[1]), pin }] : []
+        && PER_TARGET_KINDS.has(k[1]) ? [{ key, org: k[0], kind: legacyFamily(k[1]), pin }] : []
     } catch { return [] }
   })
   if (!legacy.length) return
@@ -233,7 +233,9 @@ function migrateInstancePins(pins: PinMap, opens: ModalOpenState[]): void {
   // the newest placement wins where an agent docket and a team docket both had one
   for (const { key, org, kind, pin } of legacy.sort((a, b) => b.pin.z - a.pin.z)) {
     templates[templateKey(kind, org)] ??= { ...pin.rect }
-    const shown = opens.filter(o => o.org === org && isInstanceKind(o.kind) && baseKind(o.kind) === kind)
+    // the one gallery window showed a team's presentations too
+    if (kind === 'agent-gallery') templates[templateKey('team-gallery', org)] ??= { ...pin.rect }
+    const shown = opens.filter(o => o.org === org && isInstanceKind(o.kind) && legacyFamily(o.kind) === kind)
     if (shown.length === 1) pins[modalPinKey(shown[0]!.kind, org)] ??= pin
     delete pins[key]
   }

@@ -35,7 +35,12 @@ import type { LoadedDoc } from './docs'
 import { dismissDoc, MockupBadge, MockupOpen, presentationMenu, useDoc } from './docs'
 import { docUnread, useDocViewedVersion } from './docviewed'
 import { useContextMenu } from './contextmenu'
-import { PinFrame } from './modalpin'
+import { PinFrame, raisePinnedModal } from './modalpin'
+import { useReaderHandle } from './readers'
+import { instanceKind } from '../modalkinds'
+import { revealDetachedPanel } from '../windowlife'
+import type { JumpReq } from './shared'
+import { jumpTo as newJump } from './shared'
 import { CollapsibleMailer, NARROW_DOCS_WIDTH } from './narrowlist'
 import { usePanelSteps } from './panelsteps'
 import { RefMdBody } from './refmd'
@@ -316,7 +321,7 @@ function DocListEmpty({ w, className, children }: {
 }
 
 export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
-  refs, onOpenDocument, jumpTo, onJumpHandled }: {
+  refs, onOpenDocument, jumpTo: shellJump, onJumpHandled }: {
   slug: string
   jumpTo?: { id: string; seq: number } | null
   onJumpHandled?: () => void
@@ -331,6 +336,13 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
    *  what it does not supply reads as "not opened from here". */
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
 }) {
+  // THE GLOBAL READER (docket several-instances-of-the-same-modal-team-slots-i,
+  // USER 2026-10-20 19:03:28Z): a document opening elsewhere that this reader
+  // can show comes here (canvas/readers.ts) as its own jump request, beside
+  // the shell's; the newer request wins
+  const [ownJump, setOwnJump] = useState<JumpReq | null>(null)
+  const jumpTo = ownJump && (!shellJump || ownJump.seq > shellJump.seq) ? ownJump : shellJump
+  const jumpHandled = ownJump && jumpTo === ownJump ? () => setOwnJump(null) : onJumpHandled
   const w = useDocWindow(slug, '', jumpTo?.id ?? '', jumpTo?.seq ?? 0, false, true, true)
   const all = useMemo(() => w.rows?.filter(r => !r.evicted), [w.rows])
   const [showRetired, setShowRetired] = useState(false)
@@ -388,14 +400,20 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   // where the paged list had to move its offset to the row's page first.
   useEffect(() => {
     if (!jumpTo || w.seq !== jumpTo.seq) return
-    if (w.error) { toast([w.error]); onJumpHandled?.(); return }
+    if (w.error) { toast([w.error]); jumpHandled?.(); return }
     if (w.located !== jumpTo.id) return
     const row = w.rows?.find(r => r.id === jumpTo.id && !r.evicted)
     if (!row) return
     setShowRetired(on => on || !isHired(row))
     setSelId(row.id)
-    onJumpHandled?.()
-  }, [w.rows, w.seq, w.error, w.located, jumpTo, onJumpHandled, toast])
+    jumpHandled?.()
+  }, [w.rows, w.seq, w.error, w.located, jumpTo, jumpHandled, toast])
+  useReaderHandle(slug, { kind: 'global' }, () => selId, (doc) => {
+    const row = all?.find(r => r.id === doc)
+    if (row) { setShowRetired(on => on || !isHired(row)); setSelId(doc) }
+    else setOwnJump(newJump(doc))
+    if (!revealDetachedPanel('gallery', slug)) raisePinnedModal('gallery', slug)
+  })
   // THE ROW'S CONTEXT MENU (contextmenu.tsx, 2026-09-07): open/close is the
   // row's own select; dismiss is the pane's dismiss (same `dismissDoc`, same
   // toast, same deselect); copy/download come from the shared builder
@@ -677,13 +695,22 @@ export interface AgentGalleryViewProps {
    *  under it, passing through projects. A project's gallery is always so. */
   team?: boolean
   onTeam?: (team: boolean) => void
+  /** a document to show, located by the list itself (a REQUEST: a repeat is
+   *  a new one) — a reader asked to show a document it can show */
+  jumpTo?: JumpReq | null
 }
 
 /** Agent-scoped presentation gallery opened from a card action.  The list and
  * reader remain AgentGalleryView's single implementation; this wrapper only
  * gives that view the same movable/pinnable shell as inbox and docket. */
 export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
-  onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind = 'agent-gallery', team, onTeam }: AgentGalleryViewProps & { close: () => void }) {
+  onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind: pinKindProp, team, onTeam }: AgentGalleryViewProps & { close: () => void }) {
+  // ONE READER PER AGENT OR PROJECT, AND ONE PER TEAM (docket
+  // several-instances-of-the-same-modal-team-slots-i, USER 2026-10-20
+  // 19:03:28Z). The window is the scope's instance; the canvas passes it, and
+  // a reader mounted anywhere else keeps the scope it opened with.
+  const [ownKind] = useState(() => instanceKind(team ? 'team-gallery' : 'agent-gallery', nid))
+  const pinKind = pinKindProp ?? ownKind
   /** WHICH PRESENTATION THIS SURFACE IS SHOWING — the row on screen right now,
    *  NOT the one it was opened on.
    *
@@ -709,6 +736,12 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
   useEffect(() => { setLocalTeam(!!team) }, [team])
   const effectiveTeam = onTeam ? !!team : localTeam
   const handleTeam = (next: boolean) => { setLocalTeam(next); onTeam?.(next) }
+  // what a document opening elsewhere can ask of this reader (readers.ts)
+  const [jump, setJump] = useState<JumpReq | null>(null)
+  useReaderHandle(slug, { kind: effectiveTeam ? 'team' : 'agent', id: nid }, () => shown, (doc) => {
+    setJump(newJump(doc))
+    if (!revealDetachedPanel(pinKind, slug)) raisePinnedModal(pinKind, slug)
+  })
   return (
     <PinFrame kind={pinKind} title={effectiveTeam ? `Team presentations for ${nid}` : `Presented documents for ${nid}`}
       restore={{ agent: nid, generation: node?.generation, ...(shown ? {document:shown} : {}), ...(effectiveTeam ? { team: true } : {}) }}
@@ -717,7 +750,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}
         onFocusAgent={onFocusAgent} onReply={onReply} refs={refs} onShown={setShown}
         onChanged={onChanged} initialDocument={initialDocument} initialLoaded={initialLoaded} selectedRow={selectedRow}
-        collapsible team={effectiveTeam} onTeam={handleTeam} />
+        collapsible team={effectiveTeam} onTeam={handleTeam} jumpTo={jump} />
     </PinFrame>
   )
 }
@@ -730,13 +763,13 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  subtree when the "Team" checkbox is checked). */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply, onBroadcast,
   onReplyToDoc, projectBroadcastMembers, refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
-  collapsible, team, onTeam }: AgentGalleryViewProps) {
+  collapsible, team, onTeam, jumpTo }: AgentGalleryViewProps) {
   const [localTeam, setLocalTeam] = useState(!!team)
   useEffect(() => { setLocalTeam(!!team) }, [team])
   const isProject = (node as { kind?: string } | undefined)?.kind === 'project'
   const effectiveTeam = onTeam ? !!team : localTeam
   const setTeam = (next: boolean) => { setLocalTeam(next); onTeam?.(next) }
-  const w = useDocWindow(slug, nid, '', 0, effectiveTeam, !initialDocument)
+  const w = useDocWindow(slug, nid, jumpTo?.id ?? '', jumpTo?.seq ?? 0, effectiveTeam, !initialDocument)
   // a team list holds other nodes' cards, and a project's own list may hold
   // cards presented under its old name (the engine reads a project by id,
   // point 27): the engine scoped both, so their rows are not narrowed to `nid`
@@ -795,6 +828,16 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
     opening.current.pending = false
     setSelId(choice)
   }
+  // a reader asked to show a document: select it once its page is here
+  const answered = useRef<number | null>(null)
+  useEffect(() => {
+    if (!jumpTo || answered.current === jumpTo.seq || w.seq !== jumpTo.seq) return
+    if (w.error) { answered.current = jumpTo.seq; toast([w.error]); return }
+    if (w.located !== jumpTo.id || !w.rows?.some(r => r.id === jumpTo.id)) return
+    answered.current = jumpTo.seq
+    opening.current.pending = false
+    setSelId(jumpTo.id)
+  }, [jumpTo, w.seq, w.error, w.located, w.rows, toast])
   // Tell an owning window WHAT IS ON SCREEN, every time it changes — a row
   // picked from the list, a document opened by reference from the pane, a
   // dismissal that clears the selection. Whoever holds the window publishes

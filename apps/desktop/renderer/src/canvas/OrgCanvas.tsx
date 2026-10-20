@@ -18,8 +18,8 @@ import { adoptPinLayer, canvasBox, readPinSurfaces, usePinSurfaces, pinSnapId, o
 import { closeSavedWindow, renameWindowRows, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import type { WindowRestore } from '../windowlayout'
 import { baseKind, instanceKind, instanceTarget, isInstanceKind } from '../modalkinds'
-import { useModalInstances } from './modalinstances'
-import { revealDetachedDocument } from '../windowlife'
+import { placedInstance, useModalInstances } from './modalinstances'
+import { detachedPanel, revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
 import { moveDeskMemory } from './desktabs'
@@ -67,7 +67,10 @@ import { EFFORT_LEVELS } from './effortlevels'
 import { TempDeskModal } from './tempdesk'
 import { FirstUseGuide, firstUseToken, firstUseCancel, firstUseHired, useFirstUse } from './firstuse'
 import { PhoneCard, PhonePanelHost } from './phonelink'
-import { DocReader } from './docs'
+import { useDoc } from './docs'
+import type { LoadedDoc } from './docs'
+import { AgentGalleryModal } from './gallery'
+import { openReaders, pickReader } from './readers'
 import { ForegroundViewContext, mailRefTarget, useRefRoutes } from './reflinks'
 import type { ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
@@ -93,7 +96,7 @@ import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
 import { useSettingsAsk } from './settingskit'
 import type { SettingsTarget } from './settingskit'
-import { isModalPinned, ModalOverPins, PinFrame, toggleNodePanel, toggleOrRaiseModal, readModalOpen, renameModalInstances, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
+import { closeIfCentred, forgetModalOpen, isModalPinned, ModalOverPins, modalPinKey, PinFrame, pinModal, readModalPins, toggleNodePanel, toggleOrRaiseModal, readModalOpen, renameModalInstances, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
@@ -224,10 +227,6 @@ export interface OrgCanvasProps {
    *  guessed at up front. */
   openDocAt?: string | null
   onOpenDocHandled?: () => void
-  /** open the selected agent's presentations in a shell modal. `keepOpen` is
-   *  the desk corner's pin/pop-out asking for the surface to be SHOWN rather
-   *  than toggled — see PanelCorner (canvas/panelcorner.tsx). */
-  onOpenAgentGallery?: (agentId: string, opts?: { keepOpen?: boolean; team?: boolean }) => void
 }
 
 /** has this spring arrived? Both the spring loop (which snaps to the target on
@@ -513,9 +512,23 @@ function WatchdogInstance({ slug, id, dogs, op, toast, close }: {
       </div></div></ModalOverPins>
 }
 
+/** A document the tree does not list is fetched first, to learn whose it is;
+ *  then it opens in the reader it belongs to (readers.ts). This is what shows
+ *  meanwhile, and what says so if it cannot be loaded. */
+function DocOpening({ slug, docId, close, onLoaded }: {
+  slug: string; docId: string; close: () => void; onLoaded: (doc: LoadedDoc) => void
+}) {
+  const { doc, err } = useDoc(slug, docId)
+  const latest = useRef(onLoaded); latest.current = onLoaded
+  useEffect(() => { if (doc) latest.current(doc) }, [doc])
+  return <PinFrame kind="doc" pinnable={false} title="Presented documents" panel="settings wide gallery-modal" close={close}>
+    <div className={err ? 'ask-warn' : 'dim pad'}>{err ? `Could not load presentation: ${err}` : 'Loading presentation…'}</div>
+  </PinFrame>
+}
+
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, onPresentations, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, focusAgentDesk, onFocusAgentHandled, openMailAt,
-  onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery, canvasShortcuts,
+  onOpenMailHandled, openDocAt, onOpenDocHandled, canvasShortcuts,
   renderOrgSlot, canvasContent = 'shown', agentList, activeAgentsOnly = false,
   onActiveAgentsOnly }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
@@ -559,34 +572,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const [lineageId, setLineageId] = useState<string | null>(null)
   const [restoreDesks, setRestoreDesks] = useState(() => savedDeskIdentities(slug))
   useEffect(() => { setRestoreDesks(savedDeskIdentities(slug)) }, [slug])
-  const [restoredDocs, setRestoredDocs] = useState(() => restoredWindows(slug).filter(r => r.kind !== 'doc' && r.restore?.document))
   const restoredModalOrg = useRef<string | null>(null)
-  const [docView, setDocView] = useState<string | null>(null)   // FR-03 reader
-  /** OPENING a presentation — every card, chip, badge, `@doc:` reference and
-   *  cross-surface jump on the canvas goes through here rather than calling
-   *  `setDocView` directly.
-   *
-   *  ⚠ A PRESENTATION THAT IS ALREADY IN A WINDOW IS NOT OPENED AGAIN (user
-   *  report: the click looked dead). `setDocView` is a React state write, and
-   *  the reader that document is in may not be in THIS window at all:
-   *
-   *   - It is already this reader's document. `setDocView(same)` is a bail-out
-   *     render that changes nothing, so a popped-out window sitting behind the
-   *     main window — or minimized — stayed exactly where it was.
-   *   - It is in a DIFFERENT reader's window (the docket's, or a reader
-   *     restored under its own kind). Opening here would mount a second reader
-   *     for one presentation, and if this surface is itself popped out that is
-   *     literally two windows showing the same document.
-   *
-   *  Matching is by the document's own id within this org — not its title and
-   *  not its row in any list — so the right window is found across several
-   *  open presentations, and a window belonging to another organization is
-   *  never mistaken for this one's. With nothing popped out this is exactly
-   *  the `setDocView` it replaced. */
-  const openDocView = useCallback((id: string) => {
-    if (id && revealDetachedDocument(slug, id)) return
-    setDocView(id)
-  }, [slug])
   const [trayOpen, setTrayOpen] = useState(false)   // the flat agent tray
   const trayWrapRef = useRef<HTMLDivElement | null>(null)
   const [trayQ, setTrayQ] = useState('')            // №26: tray name filter
@@ -956,6 +942,94 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     setDocketTeam(t => (t[id] ?? false) === team ? t : { ...t, [id]: team })
     openDocketInstance(id, { ensureOpen: !!opts?.keepOpen || !sameScope, place: opts?.place })
   }, [docketTeam, openDocketInstance])
+  // ---- THE READERS (USER 2026-10-20 19:03:28Z, md184a546b2d7: "one class of
+  // reader; one global reader, one agent / project reader per agent or
+  // project, one team reader per agent or project team. if a document is
+  // already viewable from one, then bring it to the front, otherwise open a
+  // new one"). The org's global reader is App's Presented documents; these
+  // are the agent / project readers and the team readers, each a gallery in
+  // a window of its own. canvas/readers.ts picks which one a document goes to.
+  const agentReaders = useModalInstances('agent-gallery', slug, agentRestore)
+  const teamReaders = useModalInstances('team-gallery', slug, (id) => ({ ...agentRestore(id), team: true }))
+  // the document a reader opens on, by its window (instance kind)
+  const [readerDoc, setReaderDoc] = useState<Readonly<Record<string, { id: string; loaded?: LoadedDoc }>>>({})
+  const openAgentReader = agentReaders.open, openTeamReader = teamReaders.open
+  const agentReaderIds = agentReaders.ids, teamReaderIds = teamReaders.ids
+  const closeAgentReader = agentReaders.close, closeTeamReader = teamReaders.close
+  /** open (or reveal) `id`'s reader, its team's with `team` */
+  const openReader = useCallback((id: string, opts: { team?: boolean; keepOpen?: boolean; place?: boolean;
+    document?: string; loaded?: LoadedDoc } = {}) => {
+    const kind = opts.team ? 'team-gallery' : 'agent-gallery'
+    if (opts.document) {
+      const doc = { id: opts.document, ...(opts.loaded ? { loaded: opts.loaded } : {}) }
+      setReaderDoc(d => ({ ...d, [instanceKind(kind, id)]: doc }))
+    }
+    // ONE CLASS OF READER: a centred team reader gives way to a new agent
+    // reader as a centred agent reader does, and the other way round
+    const [otherKind, otherIds, closeOther] = opts.team
+      ? ['agent-gallery', agentReaderIds, closeAgentReader] as const
+      : ['team-gallery', teamReaderIds, closeTeamReader] as const
+    for (const other of otherIds) if (!placedInstance(instanceKind(otherKind, other), slug)) closeOther(other)
+    ;(opts.team ? openTeamReader : openAgentReader)(id, { ensureOpen: opts.keepOpen, place: opts.place })
+  }, [slug, agentReaderIds, teamReaderIds, closeAgentReader, closeTeamReader, openAgentReader, openTeamReader])
+  /** THE TEAM BOX IN A READER switches it to the other scope's reader, in its
+   *  place: the new reader takes this one's pin (a popped-out one pops out
+   *  again), shows the same document, and this one closes. If that reader is
+   *  already open, it comes to the front instead. */
+  const switchReaderScope = (id: string, team: boolean) => {
+    const from = instanceKind(team ? 'agent-gallery' : 'team-gallery', id)
+    const to = instanceKind(team ? 'team-gallery' : 'agent-gallery', id)
+    const shown = openReaders(slug).find(h => h.scope.kind === (team ? 'agent' : 'team') && h.scope.id === id)?.shown() ?? null
+    const pin = readModalPins()[modalPinKey(from, slug)]
+    const popped = !!detachedPanel(from, slug)
+    ;(team ? closeAgentReader : closeTeamReader)(id)
+    if ((team ? teamReaderIds : agentReaderIds).includes(id)) { openReader(id, { team, keepOpen: true }); return }
+    if (pin && isModalPinned(from, slug) && !isModalPinned(to, slug)) pinModal(to, pin.rect, slug)
+    openReader(id, { team, keepOpen: true, place: false, ...(shown ? { document: shown } : {}) })
+    if (popped) requestSurfaceAction(to, slug, 'popout')
+  }
+  // a document's own node, from the tree's document lists: most openings know
+  // it without a fetch
+  const docOwner = useMemo(() => {
+    const owner = new Map<string, string>()
+    for (const n of map.values()) for (const d of n.documents ?? []) if (!owner.has(d.id)) owner.set(d.id, n.id)
+    return owner
+  }, [map])
+  /** the node and its ancestors, nearest first (a team reader shows its
+   *  node's and its descendants' documents) */
+  const ancestry = useCallback((id: string): string[] => {
+    const out: string[] = []
+    for (let at: string | null | undefined = id; at && !out.includes(at); at = map.get(at)?.parent) out.push(at)
+    return out
+  }, [map])
+  /** a document whose node is known: an open reader that can show it, in the
+   *  fixed order (readers.ts), or its own agent / project reader */
+  const routeDocument = useCallback((id: string, node: string | null, loaded?: LoadedDoc): boolean => {
+    const reader = pickReader(slug, id, node ? ancestry(node) : [])
+    if (reader) { reader.show(id, loaded); return true }
+    if (!node) return false
+    openReader(node, { keepOpen: true, document: id, loaded })
+    return true
+  }, [slug, ancestry, openReader])
+  // a document whose node the tree does not list: found by its fetch first
+  const [docOpening, setDocOpening] = useState<string | null>(null)
+  /** OPENING a presentation — every card, chip, badge, `@doc:` reference and
+   *  cross-surface jump on the canvas goes through here.
+   *
+   *  ⚠ A PRESENTATION THAT IS ALREADY IN A WINDOW IS NOT OPENED AGAIN (user
+   *  report: the click looked dead): its window comes to the front. Matching
+   *  is by the document's own id within this org, never its title or row.
+   *
+   *  ⚠ ONE CLASS OF READER (USER 2026-10-20 19:03:28Z): an open reader that
+   *  can show it comes to the front showing it; otherwise its own agent or
+   *  project reader opens on it. Which reader, when several could: the fixed
+   *  order in canvas/readers.ts (USER 19:05:36Z). */
+  const openDocView = useCallback((id: string) => {
+    if (!id) return
+    if (revealDetachedDocument(slug, id)) return
+    if (routeDocument(id, docOwner.get(id) ?? null)) return
+    setDocOpening(id)
+  }, [slug, routeDocument, docOwner])
   const openInbox = inboxes.open, openTeam = teams.open, openDogView = dogViews.open
   const toggleDog = useCallback((id: string, keepOpen = false) => {
     openDogView(id, { ensureOpen: keepOpen })
@@ -967,10 +1041,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const instanceLists = useMemo(() => [configs, inboxes, teams, slotsPanels, listenersPanels, dockets, projectDesks],
     [configs, inboxes, teams, slotsPanels, listenersPanels, dockets, projectDesks])
   const renameLists = useRef<((from: string, to: string) => void)[]>([])
-  renameLists.current = instanceLists.map(list => list.rename)
+  renameLists.current = [...instanceLists, agentReaders, teamReaders].map(list => list.rename)
   useEffect(() => { if (tree.org_inbox?.enabled === false) setOiOpen(false) }, [tree.org_inbox?.enabled])
   usePersistedModalOpen('org-inbox', slug, oiOpen)
-  usePersistedModalOpen('doc', slug, docView !== null, docView ? { document: docView } : undefined)
   usePersistedModalOpen('agent-list', slug, trayOpen)
   useEffect(() => {
     if (restoredModalOrg.current === slug) return
@@ -1017,9 +1090,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // panel render below already waits for the matching tree entry.
     dogViews.restore(instances('watchdog').map(r => r.restore?.watchdog ?? instanceTarget(r.kind))
       .filter((id): id is string => !!id))
-    const pinnedDoc = pinned.find(r => r.kind === 'doc' && r.restore?.document)
-    setDocView(pinnedDoc?.restore?.document ?? rows.find(r => r.kind === 'doc')?.restore?.document ?? null)
-    setRestoredDocs(rows.filter(r => r.kind !== 'doc' && r.restore?.document))
+    // every reader comes back on the document it showed (its window row says)
+    const readerDocs: Record<string, { id: string }> = {}
+    for (const r of [...instances('agent-gallery'), ...instances('team-gallery')])
+      if (r.restore?.document && restoredAgent(r, map)) readerDocs[r.kind] ??= { id: r.restore.document }
+    setReaderDoc(readerDocs)
+    agentReaders.restore(targets('agent-gallery'))
+    teamReaders.restore(targets('team-gallery'))
+    // the single document readers of before (the canvas's, the docket's) come
+    // back as the reader their document opens in now; their records end here
+    const oldReaders = [...rows, ...pinned].filter(r => (r.kind === 'doc' || r.kind === 'doc-docket') && r.restore?.document)
+    for (const r of rows) if (r.kind === 'doc' || r.kind === 'doc-docket') closeSavedWindow(r.key)
+    for (const kind of ['doc', 'doc-docket']) forgetModalOpen(kind, slug)
+    const reopen = [...new Set(oldReaders.map(r => r.restore!.document!))]
+    if (reopen.length) queueMicrotask(() => { for (const doc of reopen) openDocRef.current?.(doc) })
     const unavailable = rows.filter(r => r.restore?.agent && !restoredAgent(r, map))
     if (unavailable.length) toast(['Some saved windows refer to an agent generation that is no longer available.'])
   }, [slug, map, nodeKnowledge, tree.slug])
@@ -2341,19 +2425,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     refs={canvasRefs} onJump={centerOn} onConfig={() => toggleConfig(n.id)} onOpenDoc={openDocView}
     onPopout={() => openProjectDesk(n.id, true)}
     onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(n.id) ? () => dismissRetiredAgent(n.id) : undefined} />
-  // the DOCUMENT READER's own copy: same world, same routes, plus the one
-  // thing that belongs to the reader rather than to the canvas — a document
-  // opening another document SWAPS the reader, while everything else lives
-  // BEHIND it, so the reader closes first or the click looks like it did
-  // nothing.
-  const docRefs = useMemo(() => ({
-    world: canvasRefs.world,
-    onOpen: (r: ResolvedRef) => {
-      if (r.ref.kind === 'doc') { openDocView(r.ref.id); return }
-      setDocView(null)
-      canvasRefs.onOpen(r)
-    },
-  }), [canvasRefs, openDocView])
+  // (each reader's own copy of these routes is made where it is rendered:
+  // a reference to anything but a document closes that reader if centred)
+  const openDocRef = useRef(openDocView); openDocRef.current = openDocView
 
   useEffect(() => {
     if (!focusAgent) return
@@ -3470,10 +3544,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onSlots: () => openProjectSlots(n.id),
       onListeners: () => openProjectListeners(n.id),
       onTeamDocket: () => openAgentDocket(n.id, { team: true, keepOpen: true }),
-      onPresentations: onOpenAgentGallery
-        ? () => onOpenAgentGallery(n.id, { keepOpen: true }) : undefined,
-      onTeamPresentations: onOpenAgentGallery
-        ? () => onOpenAgentGallery(n.id, { team: true, keepOpen: true }) : undefined,
+      onPresentations: () => openReader(n.id, { keepOpen: true }),
+      onTeamPresentations: () => openReader(n.id, { team: true, keepOpen: true }),
       onLineage: () => toggleLineage(n.id, true),
       onSettings: () => toggleConfig(n.id, true),
       onToggleUserAudience: () => audienceAction(slug,
@@ -3944,7 +4016,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // is the corner's pin / pop-out, which places the window at the tab itself
   const agentSurfaceRoutes = useMemo((): AgentSurfaceRoutes => {
     const route = (place: boolean) => (kind: AgentPanelKind, id: string) => {
-      if (kind === 'agent-gallery') onOpenAgentGallery?.(id, { keepOpen: true })
+      if (kind === 'agent-gallery') openReader(id, { keepOpen: true, place })
       else if (kind === 'agent-docket') openAgentDocket(id, { keepOpen: true, place })
       else if (kind === 'project-slots') openProjectSlots(id, place)
       else if (kind === 'project-listeners') openProjectListeners(id, place)
@@ -3952,7 +4024,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     }
     return { open: route(true), show: route(false), settings: toggleConfig,
       lineage: (id) => toggleLineage(id) }
-  }, [onOpenAgentGallery, openAgentDocket, openProjectSlots, openProjectListeners, openTeam, openInbox, toggleLineage, toggleConfig])
+  }, [openReader, openAgentDocket, openProjectSlots, openProjectListeners, openTeam, openInbox, toggleLineage, toggleConfig])
   // every desk's watchdog cards open the SAME modal the satellite chip does
   // (canvas/deskdogs.tsx)
   const deskDogs = useMemo((): DeskDogs => ({ org: slug, dogs: tree.watchdogs ?? [], counts: tree.watchdog_counts, slotLeases: tree.slot_leases ?? [], open: toggleDog }),
@@ -4419,7 +4491,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onTeam={(keepOpen) => openTeam(n.id, { ensureOpen: keepOpen })}
               onDocket={(keepOpen) => openAgentDocket(n.id, { keepOpen })}
               onOpenDoc={openDocView}
-              onOpenGallery={onOpenAgentGallery}
+              onOpenGallery={openReader}
               onOpenTemporary={!isMobile ? () => openProjectDesk(n.id) : undefined}
               onPopout={!isMobile ? () => openProjectDesk(n.id, true) : undefined}
               onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(n.id)
@@ -4452,7 +4524,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onDocket={(keepOpen) => openAgentDocket(n.id, { keepOpen })}
               onTeamDocket={(keepOpen) => openAgentDocket(n.id, { team: true, keepOpen })}
               onOpenDoc={openDocView}
-              onOpenAgentGallery={onOpenAgentGallery}
+              onOpenAgentGallery={openReader}
               onMailLink={openMail} onWorkLink={openWork}
               onRecenter={() => centerOn(n.id)}   /* recenter AND re-zoom to fill */
               onNewProject={() => spawnProject(n.id)}
@@ -4794,15 +4866,26 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       {/* no lineage panel: Orgtree 4 keeps no prior generations (ledger B1) */}
       {dogViews.ids.map(id => <WatchdogInstance key={`${slug}/${id}`} slug={slug} id={id} toast={toast}
         op={op} dogs={tree.watchdogs} close={() => dogViews.close(id)} />)}
-      {restoredDocs.map(row => <DocReader key={row.key} slug={slug} docId={row.restore!.document!}
-        pinKind={row.kind} toast={toast} refs={docRefs} close={() => {
-          closeSavedWindow(row.key); setRestoredDocs(old => old.filter(r => r.key !== row.key))
-        }} />)}
-      {docView && (
-        <MaybePortal><DocReader slug={slug} docId={docView} toast={toast}
-          refs={docRefs}
-          close={() => setDocView(null)} /></MaybePortal>
-      )}
+      {docOpening && <MaybePortal><DocOpening key={`${slug}/${docOpening}`} slug={slug} docId={docOpening}
+        close={() => setDocOpening(null)}
+        onLoaded={(doc) => { setDocOpening(null); routeDocument(docOpening, doc.node, doc) }} /></MaybePortal>}
+      {([['agent-gallery', agentReaders] as const, ['team-gallery', teamReaders] as const]).flatMap(([kind, list]) =>
+        list.ids.map(id => {
+          const own = instanceKind(kind, id), team = kind === 'team-gallery'
+          const close = () => list.close(id)
+          return <MaybePortal key={`${slug}/${own}`}><AgentGalleryModal key={`${slug}/${own}`} slug={slug} nid={id}
+            node={map.get(id)} toast={toast} pinKind={own} team={team}
+            onTeam={(next) => { if (next !== team) switchReaderScope(id, next) }}
+            initialDocument={readerDoc[own]?.id} initialLoaded={readerDoc[own]?.loaded}
+            // a reference to anything but a document lives BEHIND the reader,
+            // so a centred reader closes first
+            refs={{ world: canvasRefs.world, onOpen: (r: ResolvedRef) => {
+              if (r.ref.kind === 'doc') { openDocView(r.ref.id); return }
+              closeIfCentred(own, close, slug); canvasRefs.onOpen(r)
+            } }}
+            onFocusAgent={(agent) => { closeIfCentred(own, close, slug); centerOn(agent) }}
+            close={close} /></MaybePortal>
+        }))}
       {inboxes.ids.map(inboxId => {
         const node = map.get(inboxId)
         if (!node) return null
