@@ -13,7 +13,7 @@ import { toggleAgentHalt } from './haltcontrol'
 
 import { askHidden, useSubmittedAsks } from '../asksubmitted'
 import { hasUnseenUserMention, useSeenMentions } from './agentmentions'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
@@ -59,6 +59,7 @@ import { BulkCompactConfirm, allAgents } from './bulkcompact'
 import { useDeskActionsNow } from './deskhosts'
 import { isMobile } from '../mobile'
 import { AgentName, TierChip } from './identity'
+import { CardName } from './cardname'
 import { FarZoomName, useFarZoomReveal } from './farzoomname'
 import { PinnedPlaceholder } from './pins'
 import { ConfirmModal, DraftScopeModal } from './modals'
@@ -1733,7 +1734,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // no motion, unlike the far-zoom `.sq-far-name` reveal, which is untouched.
   // `nameHover` is kept at every lod, so a card hovered at mini and zoomed into
   // norm under a still pointer is measured on arrival without a fresh enter.
-  const nameRef = useRef<HTMLSpanElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const [nameHover, setNameHover] = useState(false)
   // The menu is a React child of the card, and closing it removes the element
@@ -1770,12 +1770,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   const farWant = farEligible && (nameHover || nameFocus)
   const farReveal = useFarZoomReveal(farEligible, farWant)
   const farGhost = farReveal.visible
-  const [fullNameAt, setFullNameAt] = useState<{ left: number; top: number } | null>(null)
-  useLayoutEffect(() => {
-    const el = nameRef.current
-    setFullNameAt(nameHover && el && el.scrollWidth > el.clientWidth
-      ? { left: el.offsetLeft, top: el.offsetTop } : null)
-  }, [nameHover, lod, focused, node.id, node.tier, node.pending_switch?.tier])
   // FR-23: the most recent completed turn (killed included — TurnStat.at is
   // written unconditionally at completion, unlike NodeStatus.at)
   const lastTurn = node.turns?.[node.turns.length - 1]
@@ -1892,11 +1886,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             stealing the context wheel's hit area. */}
         <div className="sq-title">
           <span className={'tier t-' + node.tier} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
-          <span ref={nameRef} className="name" {...agentTooltipProps(node.id)}>{node.id}</span>
-          {fullNameAt && (
-            <span className="name-full" aria-hidden="true"
-              style={{ left: fullNameAt.left, top: fullNameAt.top }}>{node.id}</span>
-          )}
+          <CardName text={node.id} hovered={nameHover} layoutKey={`${node.tier}/${node.pending_switch?.tier}`}
+            {...agentTooltipProps(node.id)} />
         </div>
         <div className="sq-meta">
           <ContextWheel occ={node.occupancy} cw={node.context_window}

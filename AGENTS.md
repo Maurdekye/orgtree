@@ -1553,6 +1553,13 @@
   [decided: user 2026-10-19 17:21Z; verified: `canvas/farzoomname.tsx`,
   `canvas/cards.tsx`, `canvas/projectcard.tsx`]
 
+- Normal-zoom agent and project card names share `CardName`: hovering a card
+  reveals the full name in place on the existing `.name-full` backdrop only
+  when its name is actually clipped. The overlay ignores pointer input and
+  stays below hire controls; far-zoom floating labels are separate.
+  [decided: user 2026-10-20 10:52Z; verified: `canvas/cardname.tsx`,
+  `canvas/{cards,projectcard}.tsx`, `tests/namehover.test.tsx`]
+
 - When a shared agent/project link's visible label omits its identity, its
   native tooltip starts with that name; visible-name labels are not duplicated.
   Shared context-menu identity entries and icon-only model/project marks opt

@@ -38,6 +38,7 @@ import { readQuickChat } from '../quickchat'
 import { agentTooltipProps } from './agentnav'
 import { useAgentSurfaceRoutes } from './panelcorner'
 import { FarZoomName, useFarZoomReveal } from './farzoomname'
+import { CardName } from './cardname'
 
 export function isProject(node: Pick<CanvasNode, 'kind'> | null | undefined): boolean {
   return node?.kind === 'project'
@@ -228,7 +229,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               <span className="project-mark" {...agentTooltipProps(node.id, true)}>
                 <FolderIcon fontSize="inherit" />
               </span>
-              <span className="name" {...agentTooltipProps(node.id)}>{node.id}</span>
+              <CardName text={node.id} hovered={nameHover} {...agentTooltipProps(node.id)} />
             </div>
             <div className="sq-meta project-meta">
               <ProjectActivity node={node} />
