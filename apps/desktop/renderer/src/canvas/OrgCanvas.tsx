@@ -2912,7 +2912,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       const key = 'dog:' + w.id, p = posOf(key)
       if (p) bases.set(key, { x: p.x, y: p.y })
     }
-    const group = rearrangeBunches ? bunches.get(id) : undefined
+    // Archived runs share the layout, but moves still require live parents.
+    // Keep ordinary subtree dragging until every project in the run is live.
+    const candidate = rearrangeBunches ? bunches.get(id) : undefined
+    const group = candidate?.members.every(n => n.state === 'live') ? candidate : undefined
     const positions = new Map<string, Pt>(group?.members.flatMap(n => {
       const p = targetRef.current.get(n.id)
       return p ? [[n.id, { ...p }] as [string, Pt]] : []

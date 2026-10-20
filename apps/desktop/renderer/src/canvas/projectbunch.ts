@@ -93,12 +93,15 @@ export function projectBunchInsertion(ids: string[], positions: ReadonlyMap<stri
       < Math.hypot(best.point.x - drop.x, best.point.y - drop.y) ? candidate : best)
 }
 
-/** Only physical, unbroken project runs qualify. The unpruned source map
- * prevents hide-retired/piles from turning a real split into a false chain. */
+/** Only physical, unbroken project runs qualify, including archived projects
+ * in the loaded retired pile front. Retirement/restoration changes no links.
+ * The unpruned source map prevents hide-retired/piles from turning a real
+ * split into a false chain; unloaded history is never fetched for bunching. */
 export function projectBunches(root: CanvasNode, hidden: ReadonlyMap<string, string> = new Map(),
   source?: ReadonlyMap<string, CanvasNode>): Map<string, ProjectBunch> {
   const out = new Map<string, ProjectBunch>()
-  const eligible = (n: CanvasNode) => n.kind === 'project' && n.state === 'live' && !hidden.has(n.id)
+  const eligible = (n: CanvasNode) => n.kind === 'project'
+    && (n.state === 'live' || n.state === 'archived') && !hidden.has(n.id)
   const walk = (start: CanvasNode) => {
     if (hidden.has(start.id)) return
     const members = [start]
