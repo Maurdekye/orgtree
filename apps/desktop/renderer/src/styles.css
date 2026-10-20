@@ -2132,6 +2132,13 @@ button.cc-name:focus-visible {
   background: color-mix(in srgb, var(--warn, #e5c07b) 10%, transparent);
 }
 .slot-queued-warning > span { flex: 1; min-width: 0; }
+/* "Turn off in settings" on the cache warning (USER 2026-10-20): a text link in
+   the banner's own colour, so it reads as part of the sentence in either theme */
+.cache-send-warning .cache-turn-off {
+  flex: none; font: inherit; color: inherit; background: none; border: 0; padding: 0;
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.cache-send-warning .cache-turn-off:hover { text-decoration-thickness: 2px; }
 .slot-queued-warning .slot-queued-open { flex: none; font-size: 11px; }
 /* `align-items: flex-end` lands every CONTROL on the composer's bottom edge:
    attach, notice toggle and send all share that baseline. The textarea opts
@@ -7714,6 +7721,14 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
   align-items: center; gap: 0 12px;
   padding: 9px 0; margin: 0; min-height: 40px;
   font-size: 13.5px; line-height: 1.45; color: var(--ink);
+}
+/* a row a link just opened the panel at (useSettingsTarget): the theme's own
+   accent, held a moment and faded out, so the eye finds the control without a
+   layout shift (an inset bar and a wash, no margin or border change) */
+.set-row.set-target-hl { border-radius: 6px; animation: set-target-fade 1.8s ease-out forwards; }
+@keyframes set-target-fade {
+  0%, 40% { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  100% { background: transparent; box-shadow: inset 3px 0 0 transparent; }
 }
 /* hairlines, not gaps: a stack of rows separated by whitespace reads as
    loose cards, and the eye loses the column. The first row in a group has

@@ -139,9 +139,9 @@ import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
 import {
   OPEN_APP_SETTINGS_EVENT, SetBlock, SetGroup, SetRow, SettingsTabPanel,
-  SettingsTabs, SetToggle, useVisitedTabs,
+  SettingsTabs, SetToggle, useSettingsAsk, useSettingsTarget, useVisitedTabs,
 } from './canvas/settingskit'
-import type { SettingsTab } from './canvas/settingskit'
+import type { SettingsTab, SettingsTarget } from './canvas/settingskit'
 import { ingestPulse, ingestStream, resetConvos } from './convo'
 import { clearNodeMetadata, metadataPatch, publishNodeMetadata, replaceNodeMetadata } from './nodemetadata'
 import type { NodeStreamFrame } from './nodemetadata'
@@ -453,6 +453,14 @@ export default function App() {
   // in one click); cleared when the panel closes so a plain gear-open lands
   // on the default tab again
   const [settingsInitialTab, setSettingsInitialTab] = useState<OrgSettingsTab | undefined>(undefined)
+  // a link into one org-settings control (the desk's cheap-compact warning:
+  // "Turn off in settings"): opens the panel (or raises it, pinned or popped
+  // out) and hands it the tab and the row; `seq` makes each ask a new one
+  const [settingsTarget, setSettingsTarget] = useState<SettingsTarget | null>(null)
+  useSettingsAsk('org', slug, (ask) => {
+    setSettingsTarget((t) => ({ tab: ask.target.tab, field: ask.target.field, seq: (t?.seq ?? 0) + 1 }))
+    toggleSurface('org-settings', showSettings, setShowSettings, true)
+  })
   // the recovery browser: 'largest' = forced triage mode (the alert's path);
   // 'last' = whatever mode was used last (the header chip's path)
   const [showInbox, setShowInbox] = useState(false)
@@ -1353,7 +1361,7 @@ export default function App() {
   const closeAccounts = () => { setShowAccounts(false); setAppSettingsTab(undefined) }
   const closeInbox = () => { setShowInbox(false); setInboxJump(null); refreshTree(slug) }
   const closeDocket = () => { setDocketJump(null); setShowDocket(false) }
-  const closeOrgSettings = () => { setShowSettings(false); setSettingsInitialTab(undefined); refreshTree(slug) }
+  const closeOrgSettings = () => { setShowSettings(false); setSettingsInitialTab(undefined); setSettingsTarget(null); refreshTree(slug) }
   const openAccounts = () => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)
   const openInbox = () => {
     setInboxJump(null)
@@ -1931,7 +1939,7 @@ export default function App() {
                   the browser — it carries the button (user refinement) */}
               {showSettings && (
                 <SettingsPanel tree={tree} toast={toast} initialTab={settingsInitialTab}
-                  close={closeOrgSettings} />
+                  target={settingsTarget} close={closeOrgSettings} />
               )}
               {showInbox && (
                 <InboxPanel slug={slug} tree={tree} toast={toast}
@@ -3072,13 +3080,16 @@ type OrgSettingsTab =
 // exported for tests/orgsettings.test.tsx — the consolidation is a claim
 // about THIS component's shape (one modal, one save, tabs not a nested
 // modal), so the test has to be able to mount it directly
-export function SettingsPanel({ tree, toast, close, initialTab }: {
+export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   tree: TreePayload
   toast: ToastFn
   close: () => void
   /** open directly on a tab (the header hub chip's failure→diagnostics
    *  path); later changes while the panel is open switch the tab too */
   initialTab?: OrgSettingsTab
+  /** open AT a control: the tab, the row (`field`), and a `seq` that makes the
+   *  next request for the same row a new one (canvas/settingskit.tsx) */
+  target?: SettingsTarget | null
 }) {
   const sharedScratch = scratchFolderAction(tree.slug, '', toast, 'shared')
   // P3 — every field below used to be its own useState SEEDED FROM `tree`.
@@ -3109,8 +3120,12 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   // "Basic" first — one surface, one Escape, one save button, and no
   // modal-over-a-modal. (AdvancedOrgModal itself stays for the create form,
   // which opens it from an inline form rather than from another modal.)
-  const [tab, setTab, visited] = useVisitedTabs<OrgSettingsTab>(initialTab ?? 'basic')
+  const [tab, setTab, visited] = useVisitedTabs<OrgSettingsTab>(initialTab ?? (target?.tab as OrgSettingsTab | undefined) ?? 'basic')
   useEffect(() => { if (initialTab) setTab(initialTab) }, [initialTab])  // eslint-disable-line react-hooks/exhaustive-deps
+  // a link into one control (the desk's "Turn off in settings"): this tab, that row
+  const stripRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => { if (target) setTab(target.tab as OrgSettingsTab) }, [target?.seq])  // eslint-disable-line react-hooks/exhaustive-deps
+  useSettingsTarget(stripRef, target, !!target && tab === target.tab && visited(target.tab as OrgSettingsTab))
   // the strip is built from live org shape: an org
   // with no mail identity has no mailserver tab. Same conditionals the
   // advanced modal's tab array used — moved out here so the tab strip and
@@ -3228,7 +3243,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
     <PinFrame kind="org-settings" title={`${tree.name} - Org settings`}
       titleBar={orgTitle} panel="settings" close={close}>
         <h3><SettingsIcon fontSize="inherit" /> {orgTitle}</h3>
-        <SettingsTabs tabs={orgTabs} tab={tab} setTab={setTab}
+        <SettingsTabs tabs={orgTabs} tab={tab} setTab={setTab} stripRef={stripRef}
           idBase="org-settings" label="Organization settings sections" />
 
         {/* ── Basic: the knobs an operator reaches for, in the order they
@@ -3360,7 +3375,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
           active={tab === 'policies'}>
           {visited('policies') && (<>
             <SetGroup title="Cache-protective cheap compaction">
-              <SetToggle label="reset a session before a known-cold turn"
+              <SetToggle label="reset a session before a known-cold turn" field="cheap-compact"
                 checked={accOn} onChange={setAccOn}
                 hint={'On by default for new organizations; existing organizations keep their setting. '
                   + 'Agents can override in their own ⚙. '

@@ -72,7 +72,7 @@ import type {
   Denial, Readiness, ServingAccount, TreeFrozen, TreeNode, TurnStat,
   ToolChip as ToolChipData, ToastFn, TurnSlotQueued, Watchdog,
 } from '../types'
-import { openAppSettings } from './settingskit'
+import { openAppSettings, openSettingsAt } from './settingskit'
 import {
   audienceAction, fileBase, fileUrl, getChat,
   interruptNode, processControl, retractMail,
@@ -1526,7 +1526,7 @@ const steerWarningGateOpen = (ratio: number | null, on: boolean | undefined,
 }
 
 export function CacheForecastWarning({ forecast, midTurn, composerFocused,
-  cheapCompactOn, cheapCompactOcc, contextRatio }: {
+  cheapCompactOn, cheapCompactOcc, contextRatio, onTurnOff }: {
   forecast?: CacheForecast | null
   midTurn: boolean
   composerFocused: boolean
@@ -1535,6 +1535,10 @@ export function CacheForecastWarning({ forecast, midTurn, composerFocused,
   cheapCompactOcc: number | null | undefined
   /** measured context / window, or null when unmeasured or estimated */
   contextRatio: number | null
+  /** opens the setting that governs this agent's automatic cheap compaction.
+   *  The "Turn off in settings" link is drawn only on the sentences that say a
+   *  cheap-compact WILL happen, and only when this is given */
+  onTurnOff?: () => void
 }) {
   // Use the badge's shared clock: receipt expiry must warn BEFORE a send,
   // even if no engine event arrives at the TTL boundary.
@@ -1567,6 +1571,7 @@ export function CacheForecastWarning({ forecast, midTurn, composerFocused,
           : 'Cache warning — if this message misses the mid-turn steer window, '
             + 'it will start a fresh turn against a cold prefix (this backend '
             + 'does not report whether cheap-compact is on).'}</span>
+      {cheapCompactOn === true && onTurnOff && <TurnOffLink onClick={onTurnOff} />}
     </div>
   }
   // ⚠ MID-TURN ENDS HERE, FOCUSED OR NOT. Case 2's whole sentence — "sending
@@ -1589,7 +1594,16 @@ export function CacheForecastWarning({ forecast, midTurn, composerFocused,
     <span>{compacts
       ? 'Cache warning — sending will cheap-compact this session first.'
       : 'Cache miss expected — this session is known cold and automatic cheap compaction is off.'}</span>
+    {compacts && onTurnOff && <TurnOffLink onClick={onTurnOff} />}
   </div>
+}
+
+/** "Turn off in settings" (USER 2026-10-20): where the warning says a
+ *  cheap-compact will happen, the way to stop it is one click away. */
+function TurnOffLink({ onClick }: { onClick: () => void }) {
+  return <button type="button" className="cache-turn-off" onClick={onClick}
+    title="Open the setting that turns automatic cheap compaction off for this agent">
+    Turn off in settings</button>
 }
 
 /** The org-level killswitch latch, provided by OrgCanvas around the whole
@@ -4401,7 +4415,13 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       <CacheForecastWarning forecast={node.cache_forecast}
         midTurn={processActive} composerFocused={composerFocused}
         cheapCompactOn={node.cheap_compact_on}
-        cheapCompactOcc={node.cheap_compact_occ} contextRatio={contextRatio} />
+        cheapCompactOcc={node.cheap_compact_occ} contextRatio={contextRatio}
+        // the control that governs THIS agent: its own gear when it carries an
+        // explicit ON override (the org switch would not stop it), else the
+        // org's Policies switch (ruling 2026-10-20 12:28Z)
+        onTurnOff={() => openSettingsAt(node.configured_scope?.auto_cheap_compact?.enabled === true
+          ? { scope: 'agent', org: slug, agentId: node.id, target: { tab: 'model', field: 'cheap-compact' } }
+          : { scope: 'org', org: slug, target: { tab: 'policies', field: 'cheap-compact' } })} />
       <div className={'cc-composer' + (canMail ? '' : ' off') + (noticeArmed ? ' notice-armed' : '')
         + (urgentMail ? ' urgent-armed' : '')} onClick={focusComposerBackground}>
         {/* the notice toggle sits ABOVE the attach button, not beside it

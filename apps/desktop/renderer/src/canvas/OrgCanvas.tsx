@@ -87,6 +87,8 @@ import { clearRegion, fitZoom } from './clearRect'
 import type { Region } from './clearRect'
 import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
+import { useSettingsAsk } from './settingskit'
+import type { SettingsTarget } from './settingskit'
 import { isModalPinned, ModalOverPins, PinFrame, toggleNodePanel, toggleOrRaiseModal, readModalOpen, requestSurfaceAction, usePersistedModalOpen } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
@@ -526,11 +528,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (popout) requestSurfaceAction('project-desk', slug, 'popout')
   }
   const [configId, setConfigId] = useState<string | null>(null)
+  // a link into one control of an agent's gear (the desk's cheap-compact
+  // warning, "Turn off in settings", when the agent carries its own ON
+  // override): opens or raises the panel and hands it the tab and the row
+  const [configTarget, setConfigTarget] = useState<{ id: string } & SettingsTarget | null>(null)
   // Same-panel buttons hide pins, including behind another panel (user
   // 2026-10-18 16:42Z); a different node keeps retargeting the same window.
   const toggleConfig = useCallback((id: string, keepOpen = false) => {
     toggleNodePanel('node-config', configId, id, setConfigId, slug, keepOpen)
   }, [configId, slug])
+  useSettingsAsk('agent', slug, (ask) => {
+    if (!ask.agentId) return
+    setConfigTarget((t) => ({ id: ask.agentId!, tab: ask.target.tab, field: ask.target.field, seq: (t?.seq ?? 0) + 1 }))
+    toggleConfig(ask.agentId, true)
+  })
   const [lineageId, setLineageId] = useState<string | null>(null)
   const [restoreDesks, setRestoreDesks] = useState(() => savedDeskIdentities(slug))
   useEffect(() => { setRestoreDesks(savedDeskIdentities(slug)) }, [slug])
@@ -4626,7 +4637,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onScratchFolder={scratchFolderAction(slug, n.id, toast, n.kind === 'project' ? 'team' : undefined)}
           onTeamScratchFolder={scratchFolderAction(slug, n.id, toast, 'team')}
           refs={canvasRefs} onFocusAgent={centerOn}
-          close={() => setConfigId(null)} />)}
+          target={configTarget?.id === n.id ? configTarget : null}
+          close={() => { setConfigId(null); setConfigTarget(null) }} />)}
         </NodeDetailGate></MaybePortal>
       )}
       {/* no lineage panel: Orgtree 4 keeps no prior generations (ledger B1) */}

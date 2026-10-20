@@ -40,7 +40,8 @@ import { ago, ALL_PRESENT, antigravityTierOffer, bySeatDesc, anyTierSeat, codexT
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
-import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel } from './settingskit'
+import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel, useSettingsTarget } from './settingskit'
+import type { SettingsTarget } from './settingskit'
 import { fmtStamp } from '../timefmt'
 import { AccountSelect } from './accountselect'
 import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
@@ -1092,6 +1093,8 @@ interface NodeConfigProps {
   onTeamScratchFolder?: () => void
   refs?: RefRoutes
   onFocusAgent?: (id: string) => void
+  /** open AT a control: the tab, the row and a `seq` (canvas/settingskit.tsx) */
+  target?: SettingsTarget | null
   close: () => void
 }
 
@@ -1290,8 +1293,12 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
 
 function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexProvider,
   antigravityProvider, openrouterProvider, langserverProvider, museProvider, presence = ALL_PRESENT,
-  onScratchFolder, onTeamScratchFolder, refs, onFocusAgent, close }: NodeConfigProps) {
-  const [tab, setTab] = useState<NodeConfigTab>('charter')
+  onScratchFolder, onTeamScratchFolder, refs, onFocusAgent, target, close }: NodeConfigProps) {
+  const [tab, setTab] = useState<NodeConfigTab>((target?.tab as NodeConfigTab | undefined) ?? 'charter')
+  // a link into one control (the desk's "Turn off in settings"): this tab, that row
+  const stripRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => { if (target) setTab(target.tab as NodeConfigTab) }, [target?.seq])  // eslint-disable-line react-hooks/exhaustive-deps
+  useSettingsTarget(stripRef, target, !!target && tab === target.tab)
   const history = useRecordHistory(slug, node.id)
   const hasHistory = (history.value?.length ?? 0) > 0
   const tabId = useId()
@@ -1679,7 +1686,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             all. Eight identical subtitles would train the reader to skip
             them, and the org-wide ones are the expensive ones to miss. */}
         <p className="set-hint">Some changes restart the agent, as noted below.</p>
-        <SettingsTabs tabs={[...NODE_CONFIG_TABS, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : [])]} tab={tab} setTab={setTab}
+        <SettingsTabs tabs={[...NODE_CONFIG_TABS, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : [])]} tab={tab} setTab={setTab} stripRef={stripRef}
           idBase={tabId} label="Agent settings" />
         {/* Keep every panel mounted: switching tabs preserves all draft fields.
             The shared save below still applies edits from every tab together. */}
@@ -1762,7 +1769,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           <option value="off">Off</option>
         </select></SetRow>
 
-        <SetRow label="Start fresh when needed" hint="Start a new conversation with a summary when reusing the old one would cost more."><select value={accMode} onChange={(e) => setAccMode(e.target.value)}>
+        <SetRow label="Start fresh when needed" field="cheap-compact" hint="Start a new conversation with a summary when reusing the old one would cost more."><select value={accMode} onChange={(e) => setAccMode(e.target.value)}>
           <option value="">Organization default</option>
           <option value="on">On</option>
           <option value="off">Off</option>

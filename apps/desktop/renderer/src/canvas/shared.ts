@@ -1285,6 +1285,8 @@ export interface CanvasNode {
  *  so the canvas-side scope is NodeScope with everything but the two
  *  always-present lists optional */
 export interface CanvasScope {
+  /** this agent's own cheap-compaction override; absent = inherit the org's */
+  auto_cheap_compact?: { enabled?: boolean; occ?: number } | null
   fast_mode?: boolean
   peer_mail?: boolean
   add_dirs: DirGrant[]
