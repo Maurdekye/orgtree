@@ -178,6 +178,7 @@ Repeat the last two calls with the watchdog target and fire_event name set to th
 
 ## Boundaries: what is not provided
 
+- **The user is a participant too:** from the project desk the user can hold slots, register an event listener or listener watch, and join the mail queue as a listener. Their entries are named `user` in `action=slots` / `action=listeners`, count like an agent's (capacity, the strict FIFO line, listener counts, queue round-robin) and last until the user ends them; an agent cannot release, cancel, remove or take them back, not even a project ancestor with `force=true`. A user hold waits in the line exactly like a claim and is granted whole. If you wait behind one, wait or ask the user.
 - **Cooperation, not enforcement:** leases do not sandbox/throttle/stop work, grant folder access or reserve RAM. Automatic reclaim/forced release can overlap an old process unless the team stops it. A semaphore is not a rate limiter.
 - **Arrival order, no priority:** eligible slot claims and queued mail have their documented ordering; there is no priority-queue setting or preemption. A supervisor's emergency procedure is an external agreement, not a scheduler feature.
 - **No read/write lock:** use the one-slot mutex for all readers and writers when exclusion is needed; an N-slot semaphore does not distinguish readers from writers or safely support upgrades.

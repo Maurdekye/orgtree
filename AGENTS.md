@@ -648,6 +648,51 @@
   `canvas/{listeners,projectdesk,watchdogchip,watchdoglink}.ts*`,
   `canvas/modals.tsx`, rig `project-listener-setting.mjs`,
   `listenersetting.test.tsx`; 2026-10-20]
+- User-side project primitives (docket
+  let-the-user-manually-hold-a-number-of-a-project; migration 0046): the
+  user holds concurrency slots, registers an event listener and a listener
+  watch, and joins a project's mail queue from the project desk. A user
+  registration is an ordinary `ot.watchdogs` row or `ot.slot_leases` row
+  with NO agent owner: `owner_agent_id` / `holder_agent_id` are nullable and
+  `owner_kind` / `holder_kind` ('agent' | 'user') agree with them by CHECK.
+  The user's data name is `"user"` (`domain/user_regs.rs` `USER`; reserved by
+  `valid_name`, so no agent has it); agents see these rows named "user" in
+  `action=slots`, `action=listeners` and handed-mail holders. The desk
+  draws the name as the standard @user mention chip (`canvas/usermention.tsx`,
+  a `RefChip` of the user's inbox ref), never "you". Ops, all `Actor::User`
+  only and refused to every agent, project ancestors included
+  (`domain/ops/user_regs.rs`): `user_slot_hold`, `user_slot_cancel`,
+  `user_listener_register`, `user_watch_register`, `user_registration_remove`,
+  `user_queue_join`, `user_queue_leave`, `user_job_ack`; no `orgtree_*` tool or
+  Hubchat equivalent. Existing ops accept the user's rows: `slot_release`
+  (the user's own lease is a plain `released`; an agent's attempt is refused),
+  `slot_unqueue agent=user`, `set_event_listeners` (OFF pauses and ON restores
+  the user's dogs; their rows are never armed in the watchdog runtime, so
+  `listener_evals` re-evaluates the watches after commit), `fire_project_event`
+  (a listener hears it). FAIL-CLOSED RULE: a query that inner-joins `ot.agents`
+  on the owner or holder does not see user rows, which is right for the runtime
+  (arm, pause, reclaim, halt, idle checkup never touch them: a user hold lasts
+  until released, across a restart) and WRONG for anything that counts or
+  orders: the slot capacity and grant (`slots::grant`, a user dog is spent by
+  its own grant), the FIFO line, `listeners::armed_count`/`evaluate`/`fire`,
+  `projects::hand_batch` round-robin (`Watcher.owner: Option<i64>`),
+  `watched`/`queue_state` (the no-listener warning and the wake) all LEFT JOIN
+  and read `owner_kind`. A new count or listener-presence query must do the
+  same. Fires and jobs reach the user as normal mail (`recipient_kind
+  'user'`, `domain::user_regs::fire_dog`, `hand_batch`); a job the user holds
+  has `claimed.by_user` true and `by_id` null, is never released by
+  `release_stale` or taken back, and stays held after `user_queue_leave` until
+  `user_job_ack` (which keeps the user's reply mail as the completion record);
+  `queue.job` on a mail entry (`feed/compute.rs`) drives the inbox's
+  acknowledge pane (`canvas/jobackpane.tsx`, `jobacks.ts`). The Listeners tab
+  still exists only while the project's event-listeners setting is on
+  (coordinator 2026-10-20 14:11Z), so registering starts from the settings
+  toggle. [decided: user 2026-10-20 13:03Z-13:22Z + 13:50Z, coordinator
+  13:30Z; verified: `domain/{user_regs,slots,listeners,projects}.rs`,
+  `domain/ops/user_regs.rs`, `migrations/0046_user_primitives.sql`,
+  `canvas/{usermention,userdialogs,slotsdesk,listenersdesk,maillisteners,mail,
+  jobackpane,jobacks}.tsx`, rig `project-user-{slots,listeners,queue}.mjs`,
+  `user{mention,slots,listeners,mailqueue,jobs,links}.test.tsx`; 2026-10-20]
 - Project desk history (migration 0040, see
   [PROJECT-NODES](docs/rust-engine/PROJECT-NODES.md)): `ot.project_fires`
   (fired events and listener watches reaching their count, with who

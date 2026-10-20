@@ -737,3 +737,35 @@ sheets; chart/docket visuals pending the user's answer.
   watches, endings, deliveries, take back, wait starts, slot claim dogs, paging, the
   backfill) and `tests/projecthistory.test.tsx`; captures with
   `PROJECTNODE_VISUAL_ONLY=history` (`tests/projectnode-visual.{mjs,cjs,tsx}`).
+
+## The user's own registrations (user 2026-10-20 13:03Z-13:22Z; migration 0046)
+
+The user holds a project's concurrency slots, keeps an event listener and a listener watch, and
+joins its mail queue from the project desk (docket
+`let-the-user-manually-hold-a-number-of-a-project`; design approved by the coordinator 13:30Z; the
+desk shows the user as the @user mention chip, user 13:50Z). The full list of rules is in the root
+`AGENTS.md` ("User-side project primitives"); the shape:
+
+- **Representation.** Migration 0046 makes `ot.watchdogs.owner_agent_id` and
+  `ot.slot_leases.holder_agent_id` nullable and adds `owner_kind` / `holder_kind` (`agent` |
+  `user`), tied to the nullable column by CHECK. A user registration is an ordinary dog or lease
+  with no agent: it reuses the FIFO line, restart persistence, the event-listeners pause mark, the
+  watch edges, the queue's hand-out and the project history. Its data name is `user`, a name
+  `valid_name` reserves; agents see it so in `slots`, `listeners` and handed-mail holders.
+- **Ops** (`domain/ops/user_regs.rs`; user only, refused to agents including ancestors; no tool or
+  Hubchat equivalent): `user_slot_hold`, `user_slot_cancel`, `user_listener_register`,
+  `user_watch_register`, `user_registration_remove`, `user_queue_join`, `user_queue_leave`,
+  `user_job_ack`. `slot_release`, `slot_unqueue agent=user`, `set_event_listeners` and
+  `fire_project_event` accept the user's rows.
+- **Fail closed, and count.** Inner joins on `ot.agents` hide user rows from the runtime (arm,
+  pause, halt, reclaim, idle checkup: a user hold lasts until released, across a restart). Every
+  query that counts or orders reads them with a LEFT JOIN: slot capacity and grant, the FIFO line,
+  listener counts and watch crossings, event delivery, queue hand-out round-robin, listener presence
+  (`watched`, `queue_state`: no "no listeners" warning and no wake while only the user listens).
+- **Mail.** A listener fire, a watch notification and a queued job are normal mail in the user's
+  inbox. A job the user holds is claimed `by_user` (`by_id` null), is never released or taken back,
+  stays held after `user_queue_leave`, and ends with `user_job_ack` (an optional reply mail kept as
+  the completion record; the ending is recorded with a null `agent_id`).
+- **Tests.** Rig proofs `project-user-slots.mjs`, `project-user-listeners.mjs`,
+  `project-user-queue.mjs`; renderer `usermention`, `userslots`, `userlisteners`, `usermailqueue`,
+  `userjobs`, `userlinks`.

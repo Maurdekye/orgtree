@@ -102,6 +102,10 @@ More actions:
 
 Rename/move/reorder/retire/dissolve/restore remain on their existing tree tools. Permanent deletion remains user-only. Acquire/drop project audiences uses orgtree_audience. Fair-queue watch and slot claim/pause/resume/remove use orgtree_watchdog; ack is a reply to the project. Project-folder inspection accepts project reach via orgtree_read_scratch. Desktop navigation (focus, pin/popout, viewport) is not a state tool.
 
+## Entries the user made themselves
+
+`action=slots` and `action=listeners` also list the user's own entries (their slot holds, event listener and listener watch), named `user` (no agent can have that name); the mail queue hands the user jobs like any listener. They are made and ended only by the user from the project desk. `release_slot` of the user's lease, `unqueue_slot` with `agent=user` and a take back of the user's job are refused to every agent, `force=true` and project ancestors included. They count toward capacity, the FIFO line, `listener_watch` counts and queue round-robin like yours. See `orgtree-projects` for what that means when you wait behind one.
+
 ## Project audiences
 
 A live project may hold an audience with the user, another agent or another project. Every live agent directly under it can use that audience exactly as if it held the grant itself: user mail, questions, presentations, file delivery and agent mail all accept effective inherited access. Tool groups and other independent permissions still apply. Only direct members inherit; a nested project never relays its parent's inherited grants to deeper agents. Moving out, retiring, pausing or revoking the source grant removes that inherited route. An agent's independent explicit grants remain.
