@@ -183,12 +183,13 @@ uiTest('§5 a name this org does not have is discarded, not held forever',
     assert.equal(handled, 1, 'an unresolvable jump was never consumed')
   })
 
-uiTest('§6 with no jump the panel opens on nothing at all', async (mount) => {
-  // the control for §4: without it, a panel that auto-selected its first row
-  // would pass §4 while ignoring `jumpTo` entirely
+uiTest('§6 with no jump the panel selects its first active row', async (mount) => {
+  // The no-jump control opens a DIFFERENT item from §4's explicit backlog
+  // target. Default selection must not make an ignored jump pass §4.
   serve([mkItem({ slug: 'something-else', title: 'Something else' })])
   const el = await mount(
     <DocketModal slug="org1" toast={() => {}} close={() => {}} tree={tree()} />)
   await flush()
-  assert.ok(el.querySelector('.mailer-none'))
+  assert.equal(pane(el)?.querySelector('.docket-slug-text')?.textContent, 'something-else')
+  assert.match(pane(el)?.textContent ?? '', /Something else/)
 })
