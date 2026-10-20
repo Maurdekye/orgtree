@@ -66,7 +66,9 @@ export default async function(rig){
   await rig.op({op:'hire',name:'subscription-control',parent:'boss',tier:'sol',grant:0})
   const changed=await rig.waitFor(()=>frames.slice(offset).find(f=>(f.upserts??[]).some(r=>r.entity===`agent_mail:${boss}`&&JSON.stringify(r.body).includes('subscription-control'))),{timeout:15000,every:10,what:'live subscribed notice'})
   p.check('an open mailbox receives the new lifecycle notice',!!changed)
-  const history=await rig.waitFor(()=>frames.slice(offset).find(f=>(f.upserts??[]).some(r=>r.entity===`agent_history:${boss}`&&JSON.stringify(r.body).includes('subscription-control'))),{timeout:15000,every:10,what:'live subscribed history'})
+  const historyOffset=frames.length
+  await rig.op({op:'retool',node:'boss',charter:'Synthetic history-window control'})
+  const history=await rig.waitFor(()=>frames.slice(historyOffset).find(f=>(f.upserts??[]).some(r=>r.entity===`agent_history:${boss}`&&r.body?.kind==='retool')),{timeout:15000,every:10,what:'live subscribed history'})
   p.check('an open history window receives lifecycle updates',!!history)
  }finally{const closed=event('close');ws.close();await closed}
  return p.summary()
