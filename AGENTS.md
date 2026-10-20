@@ -4331,13 +4331,17 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   `canvas/shared.ts`, 2026-10-05]
 - **Circular sibling arcs:** parent/arc-centre springs relax all depths together, so
   crowded subordinates push their superiors apart. Ordered collision projection keeps
-  the 190 px pitch and wrap clearance without reordering. Existing ring radii still
+  the 190 px pitch and wrap clearance without reordering. Each end's half of a team's
+  pull moves the run of leaf siblings (no visible reports) at that end as one block,
+  so a leaf never drifts away from its leaf neighbours and a team of leaves settles
+  rigidly. This replaced pulling the two end cards alone, which left end agents set
+  apart from their team (user report 2026-10-20 10:46Z). Existing ring radii still
   limit how closely arcs can align; only the existing capacity rule grows a radius.
   Up to 256 deterministic relaxation steps run per layout change, never per frame;
   unchanged numeric topology reuses one cached rest state, so status-only feeds
   do not restart the solver. Existing card springs animate to that rest state. [recorded-decision: user,
   2026-10-07; verified-from-source: `canvas/shared.ts`, `canvas/ringsprings.ts`,
-  `canvas/ringarcs.ts`]
+  `canvas/ringarcs.ts`, `tests/ringteams.test.ts`, 2026-10-20]
 - **Window bounds at fractional DPI:** Windows can add an invisible frame allowance to a
   frameless window's size, even through `setBounds`, and Electron's `did-create-window` does
   not carry the original window features. Temporary desks pass their exact rectangle and
