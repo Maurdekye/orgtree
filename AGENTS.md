@@ -124,6 +124,15 @@
   [decided: user/coordinator 2026-10-20; verified: `runtime/watchdogs.rs`,
   `feed/groups.rs`, renderer `canvas/watchdoggroup.tsx`]
 
+- Presentation galleries select the oldest unread/changed card on each fresh
+  open, otherwise the newest by current `at`; explicit references and later
+  user choices win. `documents?opening=1` uses partial unread/newest indexes
+  (migration 0041), returns `opening_id`/position and at most the requested page
+  around it. Gallery windows remain contiguous and can expand at either edge;
+  opening does not page through history. Org defaults exclude retired authors.
+  [decided: user/coordinator 2026-10-20; verified: `http/docs.rs`,
+  `canvas/gallery.tsx`, `tests/presentationopening.test.tsx`]
+
 - Agent and project desk composers share `resizeComposer`: their base rows
   plus up to 30 rendered text lines (32 rows at the current two-row base),
   measured from CSS line height. Longer drafts scroll inside; deleting/sending
