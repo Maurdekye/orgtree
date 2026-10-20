@@ -1,6 +1,7 @@
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { observeTranscriptCenter } from './transcriptscroll.fixture'
 import { DeskChat } from '../src/canvas/desk'
 import { refreshConvo, resetConvos } from '../src/convo'
 import { storeReply } from '../src/eventReply'
@@ -138,15 +139,16 @@ test('reply navigation reveals an unsent system bundle before scrolling without 
   assert.ok(run)
   assert.equal(run.open, false)
   let scrolls = 0
-  run.querySelector<HTMLElement>('[data-reply-event="event-a"]')!.scrollIntoView = () => {
-    assert.equal(run.open, true); scrolls++
-  }
+  const scroller = view.el.querySelector<HTMLElement>('.msgs')!
+  const target = run.querySelector<HTMLElement>('[data-reply-event="event-a"]')!
+  observeTranscriptCenter(scroller, target, () => { assert.equal(run.open, true); scrolls++ })
   const before = JSON.stringify(s.pending_mail)
   await inAct(async () => {
     view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-head button')!.click()
     await flush(5)
   })
   assert.equal(scrolls, 1)
+  assert.equal(scroller.scrollTop, 520, 'the transcript centers the revealed target')
   await refresh(slug)
   assert.equal(run.open, true)
   assert.equal(JSON.stringify(s.pending_mail), before)

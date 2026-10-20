@@ -1,6 +1,7 @@
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { observeTranscriptCenter } from './transcriptscroll.fixture'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { SystemRuns, systemEntry, systemRuns, transcriptEntries, revealSystemRuns } from '../src/events/systemruns'
@@ -117,12 +118,13 @@ test('real desk groups settled notices across turns and keeps assistant, tools, 
   const first = runs(scroller)[0]
   const target = first.querySelector<HTMLElement>('[data-reply-event="1"]')!
   let scrolls = 0
-  target.scrollIntoView = () => { assert.equal(first.open, true); scrolls++ }
+  observeTranscriptCenter(scroller, target, () => { assert.equal(first.open, true); scrolls++ })
   await inAct(async () => {
     view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-head button')!.click()
     await new Promise(resolve => setTimeout(resolve, 5))
   })
   assert.equal(scrolls, 1)
+  assert.equal(scroller.scrollTop, 520, 'the transcript centers the revealed target')
   assert.equal(view.el.querySelectorAll('[data-reply-event="1"]').length, 1)
   Object.defineProperties(scroller, {
     scrollHeight: { configurable: true, get: () => first.open ? 1200 : 300 },

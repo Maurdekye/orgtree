@@ -1,6 +1,7 @@
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { observeTranscriptCenter } from './transcriptscroll.fixture'
 import { DeskChat } from '../src/canvas/desk'
 import { addPending, failPending, refreshConvo, resetConvos } from '../src/convo'
 import { storeReply } from '../src/eventReply'
@@ -120,12 +121,16 @@ test('reply locate opens a collapsed pending target before scrolling and keeps i
   const run = runs(view.el)[0], target = run.querySelector<HTMLElement>('[data-reply-event="event-m0"]')!
   assert.equal(run.open, false)
   let calls = 0
-  target.scrollIntoView = () => { assert.equal(run.open, true, 'reveal precedes scroll'); calls++ }
+  const scroller = view.el.querySelector<HTMLElement>('.msgs')!
+  observeTranscriptCenter(scroller, target, () => {
+    assert.equal(run.open, true, 'reveal precedes scroll'); calls++
+  })
   await inAct(async () => {
     view.el.querySelector<HTMLButtonElement>('.reply-preview-composing .reply-preview-head button')!.click()
     await new Promise(resolve => setTimeout(resolve, 5))
   })
   assert.equal(calls, 1)
+  assert.equal(scroller.scrollTop, 520, 'the transcript centers the revealed target')
   await refresh(slug)
   assert.equal(run.open, true)
 })
