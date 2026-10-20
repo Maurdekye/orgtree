@@ -70,6 +70,11 @@
 
 # AGENTS.md — working on Orgtree
 
+- Docket palette tests read the shared `--docket-status-color` mapping. The
+  ticket-edge Chromium capture checks computed Waiting equals `--warn` and
+  differs from Open in both themes. [verified: `tests/{docket.test.tsx,ticketedge-capture.cjs}`;
+  coordinator hardening finding 2026-10-20]
+
 - Slot watchdogs accept `slots: 1..64` (default 1, at most project capacity).
   A single lease reserves all requested units atomically. Strict FIFO blocks
   smaller claims behind a head that cannot fit; release/reclaim frees the whole

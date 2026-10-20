@@ -29,6 +29,10 @@ app.whenReady().then(async () => {
       }
       if (actual !== state.bg || image.isEmpty() || state.rows.length !== 8) throw Error('Invalid capture')
       for (const row of state.rows) if (!row.className?.includes('status-' + row.status) || !row.shadow.includes(row.color) || !row.shadow.includes('3px') || row.rect.y + row.rect.height > 700) throw Error('Palette/status/bounds mismatch: ' + row.status)
+      // Resolve --warn in Chromium rather than inferring pixels from CSS text.
+      state.warn = await win.webContents.executeJavaScript(`(()=>{const probe=document.createElement('span');probe.style.color='var(--warn)';document.body.append(probe);const color=getComputedStyle(probe).color;probe.remove();return color})()`)
+      const waiting = state.rows.find(row => row.status === 'waiting'), open = state.rows.find(row => row.status === 'open')
+      if (!waiting || !open || waiting.color !== state.warn || waiting.color === open.color) throw Error('Computed Waiting must use --warn and differ from Open')
       fs.writeFileSync(path.join(out, `ticket-edge-${theme}.png`), image.toPNG()); states.push({ ...state, actual })
     }
     if (states[0].bg === states[1].bg) throw Error('Themes did not change')

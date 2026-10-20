@@ -2217,12 +2217,12 @@ uiTest('§36 the pane explains the state the item is IN, never a leftover one', 
 declare const __SRC_DIR__: string
 const DOCKET_CSS = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
 
-/** the palette token a selector paints with, or null if it has no rule */
-const paintOf = (selector: string, prop: string): string | null => {
-  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const m = new RegExp(esc + String.raw`\s*\{([^}]*)\}`).exec(DOCKET_CSS)
+/** The shared palette token for a status; text and ticket edges consume it. */
+const paintOf = (status: string): string | null => {
+  const selector = String.raw`:is\(\s*\.docket-status\s*,\s*\.tool-ticket\s*\)\.status-${status}`
+  const m = new RegExp(selector + String.raw`\s*\{([^}]*)\}`).exec(DOCKET_CSS)
   if (!m) return null
-  return new RegExp(prop + String.raw`:\s*var\((--[\w-]+)\)`).exec(m[1]!)?.[1] ?? null
+  return /--docket-status-color:\s*var\((--[\w-]+)\)/.exec(m[1]!)?.[1] ?? null
 }
 
 test('§37 Waiting is painted, and not with Open’s colour', () => {
@@ -2234,9 +2234,11 @@ test('§37 Waiting is painted, and not with Open’s colour', () => {
   // The dot half of this check went with the dot itself (user 2026-09-06), so
   // the status WORD is now the only painted reading of the state in the row —
   // which is why it is worth keeping this half.
-  assert.equal(paintOf('.docket-status.status-waiting', 'color'), '--warn')
-  assert.notEqual(paintOf('.docket-status.status-waiting', 'color'),
-    paintOf('.docket-status.status-open', 'color'),
+  assert.match(DOCKET_CSS, /\.docket-status\s*\{[^}]*color:\s*var\(--docket-status-color(?:\s*,[^)]*)?\)/,
+    'status text must consume the shared palette')
+  assert.equal(paintOf('waiting'), '--warn')
+  assert.equal(paintOf('open'), '--ink', 'Open must resolve, not pass as a missing rule')
+  assert.notEqual(paintOf('waiting'), paintOf('open'),
     'Waiting and Open declare the same colour again')
 })
 
