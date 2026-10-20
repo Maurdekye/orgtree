@@ -688,6 +688,10 @@ export const getWatchdogPage = (slug:string, owner:string, cursor='0', kept=fals
   req(`/api/orgs/${slug}/watchdogs?${new URLSearchParams({owner,cursor,limit:'50',kept:String(kept)})}`)
 export const getWatchdog = (slug:string,id:string): Promise<{watchdogs:import('./types').Watchdog[]}> =>
   req(`/api/orgs/${slug}/watchdogs?${new URLSearchParams({id})}`)
+export const setWatchdogConnectNotifications = (slug: string, id: string, notify_on_connect: boolean): Promise<{notify_on_connect: boolean}> =>
+  req(`/api/orgs/${slug}/watchdogs`, {
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:'configure',notify_on_connect}),
+  })
 export const watchdogAction = (
   slug: string, id: string, action: 'pause' | 'resume' | 'remove',
   reason?: string,
@@ -812,10 +816,6 @@ export const getWorkItems = (slug: string, archived = false,
       }
       return body
     })
-export const setWatchdogConnectNotifications = (slug: string, id: string, notify_on_connect: boolean): Promise<{notify_on_connect: boolean}> =>
-  req(`/api/orgs/${slug}/watchdogs`, {
-    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:'configure',notify_on_connect}),
-  })
   }).finally(() => {
     if (workInflight.get(path) === p) workInflight.delete(path)
   })
