@@ -416,6 +416,27 @@ test('§3d Desk, Pop out, Presentations with Team presentations submenu, and no 
   assert.equal(onlyTeam.children, undefined, 'inline when only Team presentations exists')
 })
 
+// USER 2026-10-20 16:58Z: "projects need an Open > Listeners entry in their
+// context menu (when enabled)": its own window, like Slots (coordinator 17:03Z;
+// docket slots-tab-header-hold-n-slots-button-with-number)
+test('§3e Open > Listeners opens the listeners window, only while the event listeners are on', () => {
+  const did: string[] = []
+  const h = handlers({ onSlots: () => { did.push('slots') }, onListeners: () => { did.push('listeners') }, onDocket: noop })
+  const items = (nd: CanvasNode) => entryNamed(projectMenuEntries(nd, h, {}), 'Open').children!
+    .map((c) => c === 'sep' ? 'sep' : c.label)
+  const on = project({ configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2, event_listeners: true } } as never)
+  assert.deepEqual(items(on).slice(-3), ['Project docket', 'Slots', 'Listeners'], 'last, after Slots, as the desk tabs run')
+  const entry = entryNamed(projectMenuEntries(on, h, {}), 'Open').children!.find((c) => c !== 'sep' && c.label === 'Listeners')
+  assert.ok(entry && entry !== 'sep')
+  entry.onSelect?.()
+  assert.deepEqual(did, ['listeners'])
+  const off = project({ configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2 } } as never)
+  assert.ok(!items(off).includes('Listeners'), 'no entry while they are off, as there is no tab')
+  assert.ok(!entryNamed(projectMenuEntries(on, handlers({ onDocket: noop }), {}), 'Open').children!
+    .some((c) => c !== 'sep' && c.label === 'Listeners'), 'none on a surface that cannot open the window')
+  assert.deepEqual(labels(projectMenuEntries(on, h, {})).slice(0, 2), ['Focus', 'Open'], 'Open stays the second entry')
+})
+
 test('§3b agentMenuEntries gives a project the project menu, never an agent\'s', () => {
   const nd = project()
   const got = labels(agentMenuEntries(nd, handlers(), { claudeHire: offer }))

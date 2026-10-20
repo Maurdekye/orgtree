@@ -22,9 +22,9 @@
 //      mail in the inbox; ack mode says to acknowledge each, round-robin says no
 //      acknowledgement is needed (USER 16:43Z: "keep the helptext in the hover
 //      tooltips")
-//   §6 the inbox's folder strip carries the control while its folder is open,
-//      after the folder buttons (the corner's pin / pop-out / modal buttons sit
-//      at the strip's right end)
+//   §6 the inbox's folder strip carries the control on every folder, after the
+//      folder buttons (the corner's pin / pop-out / modal buttons sit at the
+//      strip's right end): the Mail tab's one header row
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs usermailheader
 
@@ -146,7 +146,7 @@ test('§5 no control on a retired project; nothing in it says "you"', async (t) 
   assert.ok(!texts.some((x) => /\byou\b/i.test(x)), 'neither the control nor its tooltips')
 })
 
-test('§6 the inbox folder strip carries the control while that folder is open, after the folder buttons', async (t) => {
+test('§6 the inbox folder strip carries the control on every folder, after the folder buttons', async (t) => {
   const oldFetch = globalThis.fetch
   globalThis.fetch = withoutMailTransfers((async (input: string) => {
     const url = new URL(String(input), 'http://fixture.invalid')
@@ -159,20 +159,22 @@ test('§6 the inbox folder strip carries the control while that folder is open, 
   const tools = <span id="tools" className="mail-folder-tools">join here</span>
   const v = await mountView(<CurrentOrg.Provider value="org">
     <InboxView slug="org" nid="jobs" toast={() => {}} projectMail
-      extraFolders={[{ id: 'listeners', render: () => <div id="listeners-body">body</div>, tools }]}
+      extraFolders={[{ id: 'listeners', render: () => <div id="listeners-body">body</div> }]} folderTools={tools}
       folderAsk={{ folder: 'listeners', seq: 1 }} /></CurrentOrg.Provider>, (el) => el)
   t.after(() => v.unmount())
   await inAct(async () => { await flush(10) })
   const strip = v.el.querySelector<HTMLElement>('.mail-folders')!
   assert.ok(strip, 'the folder strip')
   const there = strip.querySelector('#tools')
-  assert.ok(there, 'the folder\'s tools are in the strip while it is open')
-  const last = [...strip.querySelectorAll('button')].at(-1)!
+  assert.ok(there, 'the tools are in the strip')
+  const last = [...strip.querySelectorAll(':scope > button')].at(-1)!
   assert.ok(last.compareDocumentPosition(there!) & 4, 'after the folder buttons')
   assert.ok(!v.el.querySelector('.mailpane #tools'), 'not in the pane')
-  const inbox = [...strip.querySelectorAll<HTMLButtonElement>('button')].find((b) => /^inbox/.test(b.textContent ?? ''))!
-  await inAct(async () => { inbox.click(); await flush(4) })
-  assert.ok(!v.el.querySelector('#tools'), 'gone while another folder is open')
+  for (const name of [/^inbox/, /^sent/]) {
+    const folder = [...strip.querySelectorAll<HTMLButtonElement>(':scope > button')].find((b) => name.test(b.textContent ?? ''))!
+    await inAct(async () => { folder.click(); await flush(4) })
+    assert.ok(v.el.querySelector('.mail-folders #tools'), `still there on ${folder.textContent}: the header row never jumps`)
+  }
 })
 
 test('§7 the help text of the old dialog is the control\'s tooltip', async (t) => {

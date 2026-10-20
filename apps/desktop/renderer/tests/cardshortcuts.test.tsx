@@ -192,30 +192,27 @@ test('§2a the project row is Docket, Mail, Presented, Team, Slots, Listeners, e
   t.after(() => view.unmount())
   assert.deepEqual(shortcuts(view.el), ['docket', 'mail', 'presented', 'team', 'slots', 'listeners'],
     'in the desk\'s tab order after the two it had, and no Summary (09:24:35Z)')
-  for (const kind of ['docket', 'mail', 'presented', 'team', 'slots']) {
+  for (const kind of ['docket', 'mail', 'presented', 'team', 'slots', 'listeners']) {
     await inAct(() => { button(view.el, kind)!.click() })
   }
-  assert.deepEqual(log, ['docket', 'mail', 'presented:website', 'team', 'open:project-slots:website'],
+  // Listeners has a window of its own now, like Slots (docket
+  // slots-tab-header-hold-n-slots-button-with-number; coordinator 2026-10-20 17:03Z)
+  assert.deepEqual(log, ['docket', 'mail', 'presented:website', 'team', 'open:project-slots:website', 'open:project-listeners:website'],
     'each opens the window its desk tab and menu entry open')
-  // Listeners has no window of its own: it opens the project's desk on that
-  // tab, as a glance that does not move the camera (the menu's Desk)
-  await inAct(() => { button(view.el, 'listeners')!.click() })
-  assert.deepEqual(log.slice(5), ['temporary'], 'the temporary project desk')
-  assert.equal(deskMemory('org', 'website', 'tab'), 'listeners', 'which opens on its Listeners tab')
+  assert.equal(deskMemory('org', 'website', 'tab'), null, 'the desk is not moved to a tab')
   for (const b of row(view.el)!.querySelectorAll('button')) {
     assert.ok((b.getAttribute('title') ?? '').length > 0, `${b.getAttribute('aria-label')} says what it opens`)
   }
 })
 
-test('§2b Listeners walks to the desk on that tab where no temporary desk is offered', async (t) => {
+test('§2b Listeners opens its window where no temporary desk is offered too: the camera stays', async (t) => {
   serve(t)
   shortcutsOn(t)
   const log: string[] = []
   const view = await mountView(projectCard(project({ configured_scope: { event_listeners: true } } as never), { log, temporary: false }), (el) => el)
   t.after(() => view.unmount())
   await inAct(() => { button(view.el, 'listeners')!.click() })
-  assert.deepEqual(log, ['focus'], 'the camera walks to the desk')
-  assert.equal(deskMemory('org', 'website', 'tab'), 'listeners', 'which opens on its Listeners tab')
+  assert.deepEqual(log, ['open:project-listeners:website'], 'its own window, as Slots')
 })
 
 test('§2c Presented shows with no documents of its own, as its tab always does; with some it keeps their count', async (t) => {
