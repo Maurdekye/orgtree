@@ -104,6 +104,16 @@
 
 # AGENTS.md — working on Orgtree
 
+- Watchdog creation has no per-agent or per-org number cap. More than eight
+  owner cards collapse into an `X watchdogs` card on canvas/desk; expansion
+  reads cursor pages, and any handle has an exact detail read. The tree feed
+  is a preview (first eight per owner): its owner counts are authoritative.
+  Project operational metadata remains complete under the existing unique
+  owner/project/kind rules; never use generic preview length as a count.
+  See [watchdog grouping](docs/rust-engine/project-watchdog-menus.md).
+  [decided: user/coordinator 2026-10-20; verified: `runtime/watchdogs.rs`,
+  `feed/groups.rs`, renderer `canvas/watchdoggroup.tsx`]
+
 - Agent and project desk composers share `resizeComposer`: their base rows
   plus up to 30 rendered text lines (32 rows at the current two-row base),
   measured from CSS line height. Longer drafts scroll inside; deleting/sending

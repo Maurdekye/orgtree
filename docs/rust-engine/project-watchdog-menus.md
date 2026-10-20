@@ -61,3 +61,22 @@ expired and revoked leases. An ended lease outside that history says its end
 details are unavailable; read failures keep lease status unknown. Old responses
 cannot overwrite another watchdog/org. No polling or engine fields were added.
 The org's active-lease feed is capped and is not used to infer lease endings.
+# Owner watchdog grouping (4.4.0, user 2026-10-20)
+
+There is no per-agent or per-org watchdog number cap. Eight or fewer cards
+stay individual. More than eight become one **X watchdogs** card on the
+canvas and desk, regardless of jump-card folding settings. Opening it reads
+pages of up to 50 links with previous/next controls; each link opens its own
+detail and keeps its object menu, kind color, state and lifetime outline.
+
+The tree carries at most eight generic rows per owner plus authoritative
+total/kept/one-shot counts. Project operational metadata is retained separately:
+existing creation rules permit only one active dog per owner/project/kind.
+That preserves project queue/listener counts, tables and slot ordering even
+when the owner's generic preview omits that watcher. Exact handle reads open
+details outside the preview. Tool `list` is cursor-paged (50 default, 100 max).
+
+Runners retain one task per armed dog, existing polling floors and bounded
+output/history. This does not make unlimited active processes free: command
+and stream kinds still run their configured commands. Activity watchers'
+existing unbounded input channel remains a limitation under event floods.
