@@ -308,6 +308,17 @@ pub fn mail_entry(m: &Value) -> Value {
     if let Some(r) = x.get("released").filter(|v| v.is_object()) {
         q.insert("released".into(), json!({ "by": r["by"], "why": r["why"] }));
     }
+    // a job the project's queue handed THIS mailbox (the user's inbox reader
+    // offers Acknowledge on one whose project is in ACK mode, until acknowledged)
+    if let Some(v) = x.get("via_project").filter(|v| v.is_object()) {
+        let mut job = serde_json::Map::new();
+        for k in ["id", "name", "mail", "ack", "acked_at"] {
+            if let Some(f) = v.get(k).filter(|f| !f.is_null()) {
+                job.insert(k.into(), f.clone());
+            }
+        }
+        q.insert("job".into(), Value::Object(job));
+    }
     if let Some(a) = x.get("ack_of").filter(|v| v.is_string()) {
         q.insert("ack_of".into(), a.clone());
     }

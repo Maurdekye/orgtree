@@ -23,6 +23,14 @@
 //! in dog creation order, then wakes and fire-time tool calls run after
 //! commit. Reach is the project rule: the user, and agents above or below
 //! the project.
+//!
+//! The user registers listeners and watches too (docket
+//! let-the-user-manually-hold-a-number-of-a-project; user 2026-10-20 13:03Z
+//! "allow them to register an event listener or listen watcher manually"):
+//! dogs with no agent owner (`owner_kind = 'user'`, data name `"user"`, shown
+//! as "you"). They count toward watches, receive fires as normal mail in the
+//! user's inbox (`domain/user_regs.rs`), are paused and restored by the
+//! project's event-listeners switch like any other, and only the user ends them.
 
 use std::sync::Arc;
 
@@ -34,6 +42,7 @@ use tokio_postgres::{GenericClient, Transaction};
 use crate::changes::{self, Change};
 use crate::engine::Engine;
 use crate::util::{gist, iso, uid};
+use crate::domain::user_regs::USER;
 
 /// The watchdog kind that receives a project's events.
 pub const LISTENER_KIND: &str = "project_listener";
@@ -87,7 +96,8 @@ pub struct SwitchedDog {
     pub row: i64,
     pub uid: String,
     pub name: String,
-    pub owner: i64,
+    /// None is the user's own registration (nobody to tell)
+    pub owner: Option<i64>,
     pub owner_name: String,
     pub owner_live: bool,
 }
@@ -135,9 +145,10 @@ pub async fn switch_on(tx: &Transaction<'_>, project: i64) -> Result<Switched> {
     let rows = tx
         .query(
             &format!("UPDATE ot.watchdogs w SET state = 'armed', memo = w.memo - 'paused_why' - '{OFF_MARK}'
-                FROM ot.agents a WHERE a.id = w.owner_agent_id AND w.kind IN ('project_listener', 'listener_watch')
+                WHERE w.kind IN ('project_listener', 'listener_watch')
                  AND w.state = 'paused' AND w.memo ? '{OFF_MARK}' AND (w.memo->>'target_id')::bigint = $1
-              RETURNING w.id, w.owner_agent_id, a.name, w.name, w.uid, a.state = 'live'"),
+              RETURNING w.id, w.owner_agent_id, coalesce((SELECT a.name FROM ot.agents a WHERE a.id = w.owner_agent_id), '{USER}'),
+                        w.name, w.uid, coalesce((SELECT a.state = 'live' FROM ot.agents a WHERE a.id = w.owner_agent_id), false)"),
             &[&project],
         )
         .await?;
@@ -174,9 +185,10 @@ pub async fn switch_off(tx: &Transaction<'_>, project: i64, by: &str) -> Result<
         .query(
             &format!("UPDATE ot.watchdogs w SET state = 'paused',
                      memo = w.memo || jsonb_build_object('paused_why', $2::text, '{OFF_MARK}', true)
-                FROM ot.agents a WHERE a.id = w.owner_agent_id AND w.kind IN ('project_listener', 'listener_watch')
+                WHERE w.kind IN ('project_listener', 'listener_watch')
                  AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $1
-              RETURNING w.id, w.owner_agent_id, a.name, w.name, w.uid, a.state = 'live'"),
+              RETURNING w.id, w.owner_agent_id, coalesce((SELECT a.name FROM ot.agents a WHERE a.id = w.owner_agent_id), '{USER}'),
+                        w.name, w.uid, coalesce((SELECT a.state = 'live' FROM ot.agents a WHERE a.id = w.owner_agent_id), false)"),
             &[&project, &off_reason(&name, by)],
         )
         .await?;
@@ -283,16 +295,18 @@ pub fn crossed(was_above: bool, count: i64, threshold: i64) -> bool {
 }
 
 /// How many event listeners are armed on the project: `project_listener`
-/// dogs in `armed` state whose owner is a live agent. Paused listeners do
-/// not count; this one predicate feeds the watch evaluation, the tool
-/// list and (through the tree's watchdogs) the desk cards.
+/// dogs in `armed` state whose owner is a live agent, or the user (who has
+/// no agent row: the LEFT JOIN is deliberate, an inner join would not count
+/// the user's). Paused listeners do not count; this one predicate feeds the
+/// watch evaluation, the tool list and (through the tree's watchdogs) the
+/// desk cards.
 #[logged]
 pub async fn armed_count(client: &impl GenericClient, org_id: i64, project: i64) -> Result<i64> {
     Ok(client
         .query_one(
-            "SELECT count(*) FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+            "SELECT count(*) FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'project_listener' AND w.state = 'armed'
-                AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'",
+                AND (w.memo->>'target_id')::bigint = $2 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))",
             &[&org_id, &project],
         )
         .await?
@@ -323,20 +337,21 @@ pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
     let rows = tx
         .query(
             &format!("SELECT w.id, w.owner_agent_id, (w.memo->>'count')::bigint,
-                    coalesce((w.memo->'run'->>'above')::boolean, false), w.uid, w.name, a.name, {LISTENING_SINCE}
-               FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+                    coalesce((w.memo->'run'->>'above')::boolean, false), w.uid, w.name, coalesce(a.name, '{USER}'), {LISTENING_SINCE}
+               FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'listener_watch' AND w.state = 'armed'
-                AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
+                AND (w.memo->>'target_id')::bigint = $2 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
               ORDER BY w.id LIMIT 200"),
             &[&org_id, &project],
         )
         .await?;
-    let mut firing: Vec<(i64, i64)> = Vec::new();
+    // (dog row, the count it waits for, the user's own watch)
+    let mut firing: Vec<(i64, i64, bool)> = Vec::new();
     // each crossing's record for the project's Recently Fired history:
     // the watch, and the listeners armed at the crossing
     let mut crossings: Vec<Value> = Vec::new();
     for r in &rows {
-        let (row, owner): (i64, i64) = (r.get(0), r.get(1));
+        let (row, owner): (i64, Option<i64>) = (r.get(0), r.get(1));
         let need = r.get::<_, Option<i64>>(2).unwrap_or(0);
         let was: bool = r.get(3);
         if need < 1 {
@@ -344,9 +359,13 @@ pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
         }
         // a watch whose owner moved out of the project's line no longer
         // reaches it: it never fires, as a fair-queue watcher out of reach
-        // is never handed mail
-        if crossed(was, count, need) && crate::domain::projects::reaches(&*tx, owner, project).await? {
-            firing.push((row, need));
+        // is never handed mail (the user, who watches from the desk, reaches all)
+        let reached = match owner {
+            Some(agent) => crate::domain::projects::reaches(&*tx, agent, project).await?,
+            None => true,
+        };
+        if crossed(was, count, need) && reached {
+            firing.push((row, need, owner.is_none()));
             crossings.push(json!({ "agent": r.get::<_, String>(6), "dog": r.get::<_, String>(4), "name": r.get::<_, String>(5),
                                    "count": need, "armed": count, "since": iso(r.get::<_, DateTime<Utc>>(7)) }));
         }
@@ -364,10 +383,10 @@ pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
     if !crossings.is_empty() {
         let heard: Vec<Value> = tx
             .query(
-                &format!("SELECT a.name, w.uid, w.name, w.once, {LISTENING_SINCE}
-                   FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+                &format!("SELECT coalesce(a.name, '{USER}'), w.uid, w.name, w.once, {LISTENING_SINCE}
+                   FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
                   WHERE w.org_id = $1 AND w.kind = 'project_listener' AND w.state = 'armed'
-                    AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
+                    AND (w.memo->>'target_id')::bigint = $2 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
                   ORDER BY w.id LIMIT $3"),
                 &[&org_id, &project, &FIRE_BATCH],
             )
@@ -388,11 +407,16 @@ pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
     }
     tx.commit().await?;
     drop(client);
-    for (row, need) in &firing {
+    for (row, need, user) in &firing {
         let line = format!(
             "project {pname} now has {count} event listeners armed — at or over the {need} this watch waits for"
         );
-        Box::pin(crate::runtime::watchdogs::fire_listener_watch(engine, *row, line)).await?;
+        if *user {
+            // the user's watch: mail in their inbox, spent as a one-shot (no agent to wake)
+            Box::pin(crate::domain::user_regs::fire_dog(engine, org_id, *row, " LISTENERS READY —", vec![line])).await?;
+        } else {
+            Box::pin(crate::runtime::watchdogs::fire_listener_watch(engine, *row, line)).await?;
+        }
     }
     if !firing.is_empty() {
         changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Agent(project)]);
@@ -406,7 +430,8 @@ struct Delivery {
     row: i64,
     uid: String,
     name: String,
-    owner: i64,
+    /// None is the user's own listener: the mail is theirs, nobody wakes
+    owner: Option<i64>,
     owner_name: String,
     notice: bool,
     spent: bool,
@@ -455,11 +480,11 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     }
     let rows = tx
         .query(
-            &format!("SELECT w.id, w.uid, w.name, w.owner_agent_id, a.name, w.once,
+            &format!("SELECT w.id, w.uid, w.name, w.owner_agent_id, coalesce(a.name, '{USER}'), w.once,
                     coalesce((w.memo->>'notice')::boolean, false), w.fired, w.memo->'fire_actions', {LISTENING_SINCE}
-               FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+               FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'project_listener' AND w.state = 'armed'
-                AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
+                AND (w.memo->>'target_id')::bigint = $2 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
               ORDER BY w.id LIMIT $3 FOR UPDATE OF w"),
             &[&org_id, &project, &FIRE_BATCH],
         )
@@ -468,12 +493,14 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     // who this fire reached, for the project's Recently Fired history
     let mut heard: Vec<Value> = Vec::new();
     for r in &rows {
-        let (row, dog_uid, name, owner, owner_name, once, notice, fired): (i64, String, String, i64, String, bool, bool, i32) =
+        let (row, dog_uid, name, owner, owner_name, once, notice, fired): (i64, String, String, Option<i64>, String, bool, bool, i32) =
             (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6), r.get(7));
         // a listener that has since moved out of the project's line no
-        // longer reaches it and receives nothing
-        if !crate::domain::projects::reaches(&*tx, owner, project).await? {
-            continue;
+        // longer reaches it and receives nothing (the user reaches every project)
+        if let Some(agent) = owner {
+            if !crate::domain::projects::reaches(&*tx, agent, project).await? {
+                continue;
+            }
         }
         let mail = uid("m");
         let mut body = format!(
@@ -492,10 +519,13 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
             .chain(message.map(|m| gist(m, 200)))
             .collect();
         let ev = crate::events::watchdog_fired(&org_slug, &dog_uid, &name, &owner_name, "PROJECT EVENT —", &lines, once, None);
+        // an agent's mail lands in its mailbox; the user's in their inbox
+        // (recipient_kind 'user', named '@user', as mail to the user is stored)
         tx.execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
                                   recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies)
-             VALUES ($1, $2, $3, NULL, NULL, 'agent', $4, $5, 'watchdog', $6, $7, '[]', NULL, $8, false, NULL, NULL, 'pending', '[]')",
+             VALUES ($1, $2, $3, NULL, NULL, CASE WHEN $4::bigint IS NULL THEN 'user' ELSE 'agent' END, $4,
+                     CASE WHEN $4::bigint IS NULL THEN '@user' ELSE $5::text END, 'watchdog', $6, $7, '[]', NULL, $8, false, NULL, NULL, 'pending', '[]')",
             &[&mail, &org_id, &name, &owner, &owner_name, &notice, &body, &ev],
         )
         .await?;
@@ -543,19 +573,24 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
         if d.spent {
             crate::runtime::watchdogs::disarm(engine, d.row);
         }
+        // the user's listener: the mail is in their inbox, nobody to wake
+        let Some(owner) = d.owner else {
+            ch.push(Change::UserMail);
+            continue;
+        };
         if !d.fire_actions.is_empty() {
             let text = crate::runtime::watchdogs::run_fire_actions(
-                engine, org_id, d.owner, &d.owner_name, &d.uid, &d.name, &d.fire_actions,
+                engine, org_id, owner, &d.owner_name, &d.uid, &d.name, &d.fire_actions,
             ).await;
             if !text.is_empty() {
                 append_results(engine, org_id, d, &text).await;
             }
         }
-        ch.push(Change::Mailbox(d.owner));
+        ch.push(Change::Mailbox(owner));
         ch.push(Change::Spark { from: format!("dog:{}", crate::domain::watchdogs::handle(&d.owner_name, &d.uid)), to: d.owner_name.clone() });
         if !d.notice && !(crate::mailhub::safe_start() && !crate::rig::recovers()) {
-            crate::runtime::wake(engine, org_id, d.owner);
-        } else if let Some(h) = engine.agents.get(d.owner) {
+            crate::runtime::wake(engine, org_id, owner);
+        } else if let Some(h) = engine.agents.get(owner) {
             h.send(crate::runtime::AgentMsg::Wake);
         }
     }
@@ -615,9 +650,9 @@ async fn append_results(engine: &Arc<Engine>, org_id: i64, d: &Delivery, text: &
 pub async fn status(client: &impl GenericClient, org_id: i64, project: i64, name: &str) -> Result<Value> {
     let rows = client
         .query(
-            "SELECT w.uid, w.kind, a.name, w.state, w.once, coalesce((w.memo->>'notice')::boolean, false),
+            "SELECT w.uid, w.kind, coalesce(a.name, 'user'), w.state, w.once, coalesce((w.memo->>'notice')::boolean, false),
                     w.fired, w.last_fired, (w.memo->>'count')::bigint, w.memo->'fire_actions'
-               FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+               FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind IN ('project_listener', 'listener_watch')
                 AND w.state IN ('armed', 'paused') AND (w.memo->>'target_id')::bigint = $2
               ORDER BY w.kind, w.id LIMIT 200",

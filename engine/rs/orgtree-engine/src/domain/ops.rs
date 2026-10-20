@@ -22,6 +22,7 @@ use crate::util::boxed;
 
 mod ordering;
 mod fast_defaults;
+mod user_regs;
 
 /// Who asks.
 #[derive(Clone, Debug)]
@@ -70,6 +71,9 @@ pub(crate) struct Effects {
     queue_modes: Vec<(i64, String, bool)>,
     /// projects whose free slots go to their line after commit (`slots::grant`)
     slot_grants: Vec<i64>,
+    /// projects whose listener count or watches changed through the user's own
+    /// registrations (no runner re-checks them): evaluated after commit (`listeners::evaluate`)
+    listener_evals: Vec<i64>,
     /// projects whose mail queue runs after commit (a retried dead letter is waiting again)
     queue_runs: Vec<i64>,
     /// project events to fire after commit (`listeners::fire`): (project, firer label, message)
@@ -784,6 +788,14 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         "slot_release" => boxed(|| slot_release(org, &tx, actor, req, fx)).await?,
         "slot_status" | "slot_history" => boxed(|| slot_status(org, &tx, actor, req)).await?,
         "slot_unqueue" => boxed(|| slot_unqueue(org, &tx, actor, req, fx)).await?,
+        "user_slot_hold" => boxed(|| user_regs::slot_hold(org, &tx, actor, req, fx)).await?,
+        "user_slot_cancel" => boxed(|| user_regs::slot_cancel(org, &tx, actor, req, fx)).await?,
+        "user_listener_register" => boxed(|| user_regs::listener_register(org, &tx, actor, req, fx)).await?,
+        "user_watch_register" => boxed(|| user_regs::watch_register(org, &tx, actor, req, fx)).await?,
+        "user_registration_remove" => boxed(|| user_regs::registration_remove(org, &tx, actor, req, fx)).await?,
+        "user_queue_join" => boxed(|| user_regs::queue_join(org, &tx, actor, req, fx)).await?,
+        "user_queue_leave" => boxed(|| user_regs::queue_leave(org, &tx, actor, req, fx)).await?,
+        "user_job_ack" => boxed(|| user_regs::job_ack(org, &tx, actor, req, fx)).await?,
         "fire_project_event" => boxed(|| fire_project_event(org, &tx, actor, req, fx)).await?,
         "project_listeners" => boxed(|| project_listeners(org, &tx, actor, req)).await?,
         "listener_history" => boxed(|| listener_history(org, &tx, actor, req)).await?,
@@ -988,6 +1000,11 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     for (p, by, message) in &fx.project_fires {
         if let Err(e) = Box::pin(crate::domain::listeners::fire(engine, org.id, *p, by, message.as_deref())).await {
             tracing::warn!(project = p, error = %format!("{e:#}"), "firing a project's event failed");
+        }
+    }
+    for p in &fx.listener_evals {
+        if let Err(e) = Box::pin(crate::domain::listeners::evaluate(engine, org.id, *p)).await {
+            tracing::warn!(project = p, error = %format!("{e:#}"), "evaluating a project's listener watches after a change failed");
         }
     }
     for p in &fx.slot_grants {
@@ -2415,7 +2432,12 @@ async fn set_event_listeners(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: 
     }
     fx.agents.insert(n.id);
     if on {
-        fx.dogs_on.extend(sw.dogs.iter().map(|d| d.row));
+        // the user's own registrations are never armed in the watchdog runtime;
+        // their restore changes the count the watches read, so evaluate once
+        fx.dogs_on.extend(sw.dogs.iter().filter(|d| d.owner.is_some()).map(|d| d.row));
+        if sw.dogs.iter().any(|d| d.owner.is_none()) {
+            fx.listener_evals.push(n.id);
+        }
     } else {
         fx.dogs_off.extend(sw.dogs.iter().map(|d| d.row));
     }
@@ -2429,14 +2451,16 @@ async fn set_event_listeners(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: 
 
 /// Release a held slot (`orgtree_project action=release_slot`). Its holder
 /// releases; the project's superior (an agent above it) or the user may
-/// force-release any. The next in line is granted after commit.
+/// force-release any, except the user's own hold, which only the user
+/// releases (the engine refuses an agent, an ancestor included). The next in
+/// line is granted after commit.
 #[logged]
 async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let lease = str_arg(req, "lease").unwrap_or("").trim().trim_start_matches('#').to_string();
     let Some(l) = tx
         .query_opt(
-            "SELECT l.id, l.project_id, l.holder_agent_id, l.slot_no, l.ended_at IS NOT NULL, coalesce(l.end_reason, ''), a.name, p.name, l.slot_count
-               FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id JOIN ot.agents p ON p.id = l.project_id
+            "SELECT l.id, l.project_id, l.holder_agent_id, l.slot_no, l.ended_at IS NOT NULL, coalesce(l.end_reason, ''), coalesce(a.name, 'user'), p.name, l.slot_count
+               FROM ot.slot_leases l LEFT JOIN ot.agents a ON a.id = l.holder_agent_id JOIN ot.agents p ON p.id = l.project_id
               WHERE l.org_id = $1 AND l.uid = $2",
             &[&org.id, &lease],
         )
@@ -2444,7 +2468,8 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     else {
         refuse!(NotFound, "no concurrency slot lease {lease}; orgtree_project action=slots name=<project> lists the leases");
     };
-    let (id, project, holder, slot, ended, how, holder_name, pname): (i64, i64, i64, i32, bool, String, String, String) =
+    // None is the user's own hold (no agent row)
+    let (id, project, holder, slot, ended, how, holder_name, pname): (i64, i64, Option<i64>, i32, bool, String, String, String) =
         (l.get(0), l.get(1), l.get(2), l.get(3), l.get(4), l.get(5), l.get(6), l.get(7));
     let count: i32 = l.get(8);
     if ended {
@@ -2452,7 +2477,9 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     }
     let force = req.get("force").and_then(Value::as_bool).unwrap_or(false);
     let how = match actor {
-        Actor::Agent { id: me, .. } if *me == holder => "released".to_string(),
+        Actor::Agent { .. } if holder.is_none() => refuse!(Forbidden, "lease {lease} is the user's own hold: only the user releases it, from the project desk"),
+        Actor::User if holder.is_none() => "released".to_string(),
+        Actor::Agent { id: me, .. } if Some(*me) == holder => "released".to_string(),
         Actor::Agent { id: me, .. } if force && within(tx, *me, project).await? => format!("released (forced by {})", actor.label()),
         Actor::Agent { .. } => refuse!(Forbidden, "lease {lease} is {holder_name}'s; its holder releases it, or any project ancestor uses force=true. If orgtree_project is absent from your CLI, start a fresh CLI to load current tools before claiming another concurrency slot"),
         _ => format!("released (forced by {})", actor.label()),
@@ -2460,9 +2487,11 @@ async fn slot_release(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     // the project's row first, as the grant takes it
     tx.query_one("SELECT 1 FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&project]).await?;
     crate::domain::slots::end(tx, id, &how, &actor.label()).await?;
-    event(tx, org.id, "slot_release", actor, Some(holder),
+    event(tx, org.id, "slot_release", actor, holder.or(Some(project)),
         json!({ "project": pname, "lease": lease, "slot": slot, "slots": count, "how": how, "note": str_arg(req, "note") }), fx).await?;
-    fx.agents.insert(holder);
+    if let Some(holder) = holder {
+        fx.agents.insert(holder);
+    }
     fx.agents.insert(project);
     fx.slot_grants.push(project);
     Ok(json!({ "project": pname, "lease": lease, "released": true, "how": how, "slots": count,
@@ -2595,6 +2624,10 @@ async fn mail_take_back(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
             &[&mail, &n.id],
         )
         .await?;
+    // the user's own job has no agent holder: only the user ends it, by acknowledging it
+    if held.as_ref().is_some_and(|r| r.get::<_, Option<i64>>(1).is_none() && r.get::<_, Option<String>>(2).as_deref() == Some(user_regs::USER)) {
+        refuse!(Forbidden, "mail {mail} is the user's own job: only the user ends it, by acknowledging it");
+    }
     let Some((row, Some(holder), Some(by))) = held.map(|r| (r.get::<_, i64>(0), r.get::<_, Option<i64>>(1), r.get::<_, Option<String>>(2))) else {
         refuse!(Conflict, "mail {mail} is not held by anyone in project {} (it waits, is acked or was already taken back)", n.name);
     };
@@ -2643,6 +2676,10 @@ async fn slot_unqueue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
         }
     }
     let who = str_arg(req, "agent").unwrap_or("");
+    // the user's own requests: only the user ends them
+    if who.trim_start_matches('@').eq_ignore_ascii_case(user_regs::USER) {
+        return user_regs::unqueue_user(org, tx, actor, &n, fx).await;
+    }
     let rows = tx
         .query(
             "UPDATE ot.watchdogs w SET state = 'removed', memo = memo || jsonb_build_object('reason', $3::text)
@@ -2660,6 +2697,8 @@ async fn slot_unqueue(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
         fx.agents.insert(r.get(1));
     }
     event(tx, org.id, "slot_unqueue", actor, Some(n.id), json!({ "node": n.name, "agent": who }), fx).await?;
+    // taking a blocking head out of the line can free the claims behind it
+    fx.slot_grants.push(n.id);
     Ok(json!({ "node": n.name, "removed": who }))
 }
 

@@ -27,6 +27,7 @@ use tokio_postgres::GenericClient;
 use crate::changes::{self, Change};
 use crate::engine::Engine;
 use crate::util::{gist, iso, uid};
+use crate::domain::user_regs::USER;
 
 /// `ot.agents.kind` of a project node.
 pub const KIND: &str = "project";
@@ -186,7 +187,10 @@ pub struct Watcher {
     pub row: i64,
     /// the dog's id as its owner knows it
     pub uid: String,
-    pub owner: i64,
+    /// the watching agent; None is the user's own listener (docket
+    /// let-the-user-manually-hold-a-number-of-a-project), named `"user"`:
+    /// it takes its turn in the round-robin like any other
+    pub owner: Option<i64>,
     pub owner_name: String,
     pub last_fired: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -226,10 +230,21 @@ pub fn pick_avoiding<'a>(watchers: &'a [Watcher], taken_from: &[i64]) -> Option<
     if taken_from.is_empty() {
         return pick(watchers);
     }
-    let others: Vec<Watcher> = watchers.iter().filter(|w| !taken_from.contains(&w.owner)).cloned().collect();
+    let others: Vec<Watcher> = watchers.iter().filter(|w| !w.owner.is_some_and(|o| taken_from.contains(&o))).cloned().collect();
     match pick(&others) {
         Some(o) => watchers.iter().find(|w| w.row == o.row),
         None => pick(watchers),
+    }
+}
+
+/// Is this watcher the mail's own sender (the exclude-sender setting hands
+/// nobody their own mail)? The user's listener is the sender of the mail
+/// the user wrote (`@user`).
+#[nolog]
+fn is_sender(w: &Watcher, sender: Option<i64>, sender_name: &str) -> bool {
+    match w.owner {
+        Some(agent) => Some(agent) == sender,
+        None => sender_name == "@user",
     }
 }
 
@@ -248,7 +263,8 @@ pub struct Handed {
 struct Step {
     handed: Handed,
     project: String,
-    watcher_id: i64,
+    /// None: the job went to the user's inbox
+    watcher_id: Option<i64>,
     notice: bool,
     dog_row: i64,
     spent: bool,
@@ -272,18 +288,22 @@ pub async fn dispatch(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
             if step.spent {
                 crate::runtime::watchdogs::disarm(engine, step.dog_row);
             }
-            changes::notify_id(engine, org_id, vec![
-                Change::Mailbox(project),
-                Change::Mailbox(step.watcher_id),
-                Change::Watchdogs,
-                Change::Spark { from: step.project.clone(), to: step.handed.watcher.clone() },
-                Change::EngineEvent(crate::runtime::watchdogs::events::event(
-                    "mail.waiting",
-                    crate::runtime::watchdogs::events::Scope::Agent(org_id, step.watcher_id),
-                    json!({ "agent_id": step.watcher_id, "mail_id": step.handed.copy }),
-                )),
-            ]);
-            *wakes.entry(step.watcher_id).or_default() |= !step.notice;
+            let mut ch = vec![Change::Mailbox(project), Change::Watchdogs,
+                Change::Spark { from: step.project.clone(), to: step.handed.watcher.clone() }];
+            match step.watcher_id {
+                Some(watcher_id) => {
+                    ch.push(Change::Mailbox(watcher_id));
+                    ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event(
+                        "mail.waiting",
+                        crate::runtime::watchdogs::events::Scope::Agent(org_id, watcher_id),
+                        json!({ "agent_id": watcher_id, "mail_id": step.handed.copy }),
+                    )));
+                    *wakes.entry(watcher_id).or_default() |= !step.notice;
+                }
+                // the user's job arrives in their inbox: nobody to wake
+                None => ch.push(Change::UserMail),
+            }
+            changes::notify_id(engine, org_id, ch);
             out.push(step.handed);
         }
         for (watcher, wake) in wakes {
@@ -318,26 +338,34 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
     }
     let rows = tx
         .query(
-            &format!("SELECT w.id, w.uid, w.owner_agent_id, a.name, w.last_fired, w.created_at, w.once,
+            // the user's listener has no agent row (LEFT JOIN): it is always
+            // eligible, never halted, and its held jobs are counted by `by_user`
+            &format!("SELECT w.id, w.uid, w.owner_agent_id, coalesce(a.name, '{USER}'), w.last_fired, w.created_at, w.once,
                     coalesce((w.memo->>'notice')::boolean, false), w.memo,
                     (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = $2
-                       AND (m.extra->'claimed'->>'by_id')::bigint = a.id AND {OUTSTANDING})
-               FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+                       AND CASE WHEN w.owner_kind = 'user' THEN m.extra->'claimed'->>'by_user' = 'true'
+                                ELSE (m.extra->'claimed'->>'by_id')::bigint = a.id END AND {OUTSTANDING})
+               FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed'
-                AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
-                AND (NOT $3 OR a.halt IS NULL)
+                AND (w.memo->>'target_id')::bigint = $2
+                AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent' AND (NOT $3 OR a.halt IS NULL)))
               ORDER BY w.id LIMIT 64 FOR UPDATE OF w"),
             &[&org_id, &project, &ack],
         )
         .await?;
     let mut eligible: Vec<Watcher> = Vec::with_capacity(rows.len());
     for r in &rows {
-        let owner: i64 = r.get(2);
+        let owner: Option<i64> = r.get(2);
         // Legacy duplicate registrations must not multiply an agent's share
         // or ACK capacity. The oldest armed dog is its canonical listener.
         if eligible.iter().any(|w| w.owner == owner) { continue; }
         // a watcher that has since moved out of the project's line no longer reaches it
-        if reaches(&*tx, owner, project).await? {
+        // (the user, who listens from the desk, reaches every project)
+        let reached = match owner {
+            Some(agent) => reaches(&*tx, agent, project).await?,
+            None => true,
+        };
+        if reached {
             let memo: Value = r.get(8);
             eligible.push(Watcher {
                 row: r.get(0),
@@ -372,7 +400,8 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
     for m in &waiting {
         if steps.len() == limit { break; }
         let sender: Option<i64> = m.get(3);
-        let others: Vec<Watcher> = eligible.iter().filter(|w| !skip_own || Some(w.owner) != sender).cloned().collect();
+        let sender_name: String = m.get(2);
+        let others: Vec<Watcher> = eligible.iter().filter(|w| !skip_own || !is_sender(w, sender, &sender_name)).cloned().collect();
         // a mail the user took back from a holder goes to someone else first
         let taken_from: Vec<i64> = m.get::<_, Option<Value>>(17).and_then(|v| v.as_array().cloned()).unwrap_or_default()
             .iter().filter_map(Value::as_i64).collect();
@@ -386,11 +415,15 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
         let waited_from = w.waiting_since();
         let via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack,
                                             "waited_from": iso(waited_from) } });
+        // an agent's copy lands in its mailbox; the user's in their inbox
+        // (recipient_kind 'user', named '@user', as mail to the user is stored)
         tx.execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
                                   recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason,
                                   client_op, state, net_id, net_hub, replies, extra)
-             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18, $19, $20)",
+             VALUES ($1, $2, $3, $4, $5, CASE WHEN $6::bigint IS NULL THEN 'user' ELSE 'agent' END, $6,
+                     CASE WHEN $6::bigint IS NULL THEN '@user' ELSE $7::text END, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                     'pending', $17, $18, $19, $20)",
             &[
                 &copy, &org_id, &m.get::<_, String>(2), &m.get::<_, Option<i64>>(3), &m.get::<_, Option<i32>>(4), &w.owner,
                 &w.owner_name, &m.get::<_, String>(5), &notice, &body, &m.get::<_, Value>(8), &m.get::<_, Option<Value>>(9),
@@ -403,6 +436,7 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
         tx.execute(
             "UPDATE ot.mail SET state = 'read', read_at = now(), delivered_at = coalesce(delivered_at, now()),
                     extra = extra || jsonb_build_object('claimed', jsonb_build_object('by', $2::text, 'by_id', $3::bigint,
+                            'by_user', $3::bigint IS NULL,
                             'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean, 'wakes', 0,
                             'waited_from', $7::timestamptz),
                             'attempts', coalesce((extra->>'attempts')::int, 0) + 1,
@@ -413,8 +447,7 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
             &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack, &waited_from],
         )
         .await?;
-        let sender: String = m.get(2);
-        let ring = json!([{ "at": iso(Utc::now()), "gist": gist(&format!("mail from {sender}: {body}"), 200) }]);
+        let ring = json!([{ "at": iso(Utc::now()), "gist": gist(&format!("mail from {sender_name}: {body}"), 200) }]);
         let served: DateTime<Utc> = tx
             .query_one(
                 "UPDATE ot.watchdogs SET fired = fired + 1, last_fired = clock_timestamp(),
@@ -703,9 +736,9 @@ pub async fn reclaim_in(tx: &impl GenericClient, org_id: i64, project: i64, row:
         )
         .await?;
     }
-    record_ending(tx, org_id, project, &uid, &claimed, holder, by, if dead { "dead_letter" } else { ending }, Some(why),
+    record_ending(tx, org_id, project, &uid, &claimed, Some(holder), by, if dead { "dead_letter" } else { ending }, Some(why),
                   attempts, None).await?;
-    free_listener(tx, holder, &claimed).await?;
+    free_listener(tx, Some(holder), &claimed).await?;
     Ok(Some(Reclaimed { project: pname, holder, by: by.to_string(), why: why.to_string(), mail: uid, copy, sender, attempts, dead }))
 }
 
@@ -740,7 +773,7 @@ pub async fn after_reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, r: &
 /// dead_letter. Written in the ending's own transaction, at its instant.
 #[logged]
 #[allow(clippy::too_many_arguments)]
-pub async fn record_ending(tx: &impl GenericClient, org_id: i64, project: i64, mail: &str, claimed: &Value, agent: i64, agent_name: &str,
+pub async fn record_ending(tx: &impl GenericClient, org_id: i64, project: i64, mail: &str, claimed: &Value, agent: Option<i64>, agent_name: &str,
                            how: &str, why: Option<&str>, attempt: i64, ack: Option<&str>) -> Result<()> {
     let at = |k: &str| claimed[k].as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&Utc));
     tx.execute(
@@ -755,14 +788,15 @@ pub async fn record_ending(tx: &impl GenericClient, org_id: i64, project: i64, m
 }
 
 /// The holder's fair_queue dog is free again: its next wait starts now
-/// (`memo.run.freed_at`, read back as [`Watcher::freed_at`]).
+/// (`memo.run.freed_at`, read back as [`Watcher::freed_at`]). `holder` None
+/// is the user, whose dog has no agent owner.
 #[logged]
-pub async fn free_listener(tx: &impl GenericClient, holder: i64, claimed: &Value) -> Result<()> {
+pub async fn free_listener(tx: &impl GenericClient, holder: Option<i64>, claimed: &Value) -> Result<()> {
     if let Some(dog) = claimed["dog"].as_str() {
         tx.execute(
             "UPDATE ot.watchdogs SET memo = jsonb_set(memo || jsonb_build_object('run', coalesce(memo->'run', '{}'::jsonb)),
                                                        '{run,freed_at}', to_jsonb(now()))
-              WHERE owner_agent_id = $1 AND uid = $2 AND kind = 'fair_queue' AND state IN ('armed', 'paused', 'spent')",
+              WHERE owner_agent_id IS NOT DISTINCT FROM $1 AND uid = $2 AND kind = 'fair_queue' AND state IN ('armed', 'paused', 'spent')",
             &[&holder, &dog],
         )
         .await?;
@@ -890,6 +924,55 @@ pub async fn ack_of(tx: &impl GenericClient, project: i64, agent: i64, reply: &s
     Ok(Some((row.get(0), orig, claimed)))
 }
 
+/// The job the queue handed the USER, for their ack (`op user_job_ack`):
+/// the user's copy (a mail in their inbox) names the project and its job;
+/// the job must be held by the user in ack mode and not acked yet. Returns
+/// (project id, the job's row, the job's uid, its claim). Refuses mail that
+/// is not a job handed to the user, one already acked, and one the project
+/// took back. The job row is locked (the project's row was taken first).
+#[logged]
+pub async fn user_ack_of(tx: &impl GenericClient, org_id: i64, copy: &str) -> Result<(i64, i64, String, Value)> {
+    let Some(c) = tx
+        .query_opt(
+            "SELECT extra->'via_project', extra->'released'->>'why' FROM ot.mail
+              WHERE uid = $1 AND org_id = $2 AND recipient_kind = 'user'",
+            &[&copy, &org_id],
+        )
+        .await?
+    else {
+        crate::refuse!(NotFound, "no mail {copy} in your inbox");
+    };
+    let via: Option<Value> = c.get(0);
+    let Some(via) = via.filter(|v| v["id"].as_i64().is_some()) else {
+        crate::refuse!(BadRequest, "mail {copy} was not handed to you by a project's mail queue, so there is nothing to acknowledge");
+    };
+    let project = via["id"].as_i64().unwrap_or_default();
+    // the project's row first, then its job, as the hand-out takes them
+    tx.query_opt("SELECT 1 FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project]).await?;
+    if via["ack"].as_bool() != Some(true) {
+        crate::refuse!(Conflict, "project {}'s queue is not in ACK mode for this mail: nothing to acknowledge", via["name"].as_str().unwrap_or("?"));
+    }
+    if let Some(why) = c.get::<_, Option<String>>(1) {
+        crate::refuse!(Conflict, "mail {copy} went back to project {}'s queue ({why}); it is no longer yours to acknowledge",
+            via["name"].as_str().unwrap_or("?"));
+    }
+    let orig = via["mail"].as_str().unwrap_or("").to_string();
+    let Some(row) = tx
+        .query_opt("SELECT id, extra->'claimed' FROM ot.mail WHERE uid = $1 AND recipient_agent_id = $2 FOR UPDATE", &[&orig, &project])
+        .await?
+    else {
+        crate::refuse!(NotFound, "the project's copy of mail {copy} is gone");
+    };
+    let claimed: Value = row.get::<_, Option<Value>>(1).unwrap_or(Value::Null);
+    if claimed["copy"].as_str() != Some(copy) || claimed["ack"].as_bool() != Some(true) || claimed["by_user"].as_bool() != Some(true) {
+        crate::refuse!(Conflict, "mail {copy} is not held by you any more");
+    }
+    if claimed.get("acked_at").is_some_and(|v| !v.is_null()) {
+        crate::refuse!(Conflict, "mail {copy} is already acknowledged; nothing more to do for it");
+    }
+    Ok((project, row.get(0), orig, claimed))
+}
+
 /// The user changed a project's queue mode (`set_mail_queue`): leaving ack
 /// mode waives the acks still owed; every watcher (armed or paused) is told
 /// what the mode now requires (user 2026-10-18 08:02Z); then the queue runs.
@@ -1002,16 +1085,22 @@ pub async fn held_by(client: &impl GenericClient, agent: i64) -> Result<Vec<(Str
 pub async fn watched(client: &impl GenericClient, org_id: i64, project: i64) -> Result<bool> {
     let rows = client
         .query(
-            "SELECT w.owner_agent_id FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+            "SELECT w.owner_agent_id FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed'
-                AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
+                AND (w.memo->>'target_id')::bigint = $2 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
               ORDER BY w.id LIMIT 64",
             &[&org_id, &project],
         )
         .await?;
     for r in &rows {
-        if reaches(client, r.get(0), project).await? {
-            return Ok(true);
+        // the user, who listens from the desk, is a listener that always reaches the project
+        match r.get::<_, Option<i64>>(0) {
+            None => return Ok(true),
+            Some(agent) => {
+                if reaches(client, agent, project).await? {
+                    return Ok(true);
+                }
+            }
         }
     }
     Ok(false)
@@ -1150,6 +1239,23 @@ pub async fn queue_state(client: &impl GenericClient, org_id: i64, project: i64,
             }
         }
     }
+    // the user's own listener has no agent row: it is a listener that is
+    // never halted, and holds a job while its held jobs fill its batch
+    if let Some(u) = client
+        .query_opt(
+            &format!("SELECT w.memo, (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = $2
+                                        AND m.extra->'claimed'->>'by_user' = 'true' AND {OUTSTANDING})
+                        FROM ot.watchdogs w WHERE w.org_id = $1 AND w.owner_kind = 'user' AND w.kind = 'fair_queue'
+                         AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $2 ORDER BY w.id LIMIT 1"),
+            &[&org_id, &project],
+        )
+        .await?
+    {
+        st.listeners += 1;
+        if ack && u.get::<_, i64>(1) as usize >= batch_size(&u.get::<_, Value>(0)) {
+            st.holding += 1;
+        }
+    }
     st.paused = client
         .query_one(
             "SELECT count(DISTINCT w.owner_agent_id) FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
@@ -1161,6 +1267,17 @@ pub async fn queue_state(client: &impl GenericClient, org_id: i64, project: i64,
         )
         .await?
         .get(0);
+    // the user's own listener, when it is paused and not also armed
+    st.paused += client
+        .query_one(
+            "SELECT (EXISTS (SELECT 1 FROM ot.watchdogs w WHERE w.org_id = $1 AND w.owner_kind = 'user' AND w.kind = 'fair_queue'
+                               AND w.state = 'paused' AND (w.memo->>'target_id')::bigint = $2)
+                     AND NOT EXISTS (SELECT 1 FROM ot.watchdogs w WHERE w.org_id = $1 AND w.owner_kind = 'user' AND w.kind = 'fair_queue'
+                               AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $2))::int::bigint",
+            &[&org_id, &project],
+        )
+        .await?
+        .get::<_, i64>(0);
     if let Some(uid) = mail {
         st.position = client
             .query_opt(
@@ -1301,7 +1418,7 @@ const QUEUE_PAGE: usize = 30;
 #[nolog]
 fn dog_of(owner: &str, uid: &str) -> String {
     format!("LEFT JOIN LATERAL (SELECT x.name, x.kind, x.once, CASE WHEN x.spent_at IS NOT NULL THEN 'spent' ELSE x.state END AS state
-                                  FROM ot.watchdogs x WHERE x.owner_agent_id = {owner} AND x.uid = {uid}
+                                  FROM ot.watchdogs x WHERE x.owner_agent_id IS NOT DISTINCT FROM {owner} AND x.uid = {uid}
                                  ORDER BY x.id DESC LIMIT 1) w ON true")
 }
 
@@ -1436,7 +1553,8 @@ pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str
             None => client.query(&sql(""), &[&key]).await?,
         };
         (rows.len(), rows.iter().take(QUEUE_PAGE).map(|r| {
-            let agent: String = r.get(2);
+            // the user's copy is addressed '@user'; the history names them "user"
+            let agent: String = r.get::<_, String>(2).replace("@user", USER);
             let via: Value = r.get(5);
             json!({ "id": r.get::<_, i64>(0), "copy": r.get::<_, String>(1), "agent": agent, "mail": via["mail"],
                     "dog": row_dog(r, &agent, via["dog"].as_str(), 6, "fair_queue"), "gist": first_line(r.get(4)),
@@ -1497,7 +1615,7 @@ mod tests {
     }
 
     fn w(row: i64, last: Option<i64>, created: i64) -> Watcher {
-        Watcher { row, uid: format!("q{row}"), owner: row * 10, owner_name: format!("a{row}"), last_fired: last.map(at),
+        Watcher { row, uid: format!("q{row}"), owner: Some(row * 10), owner_name: format!("a{row}"), last_fired: last.map(at),
                   created_at: at(created), once: false, notice: false, remaining: 1, freed_at: None }
     }
 

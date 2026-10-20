@@ -74,6 +74,20 @@ pub async fn snapshot(client: &Client, engine: &Engine, org: i64) -> Result<Valu
             links.push(metadata);
         }
     }
+    // The user's own registrations (no owner agent: the join above does not see
+    // them), named "user" and drawn "you" by the desk: every one of them, since
+    // a project's desk tables show each (bounded; the user keeps one dog of a kind
+    // per project and a few slot requests).
+    for row in client.query("SELECT to_jsonb(w) FROM ot.watchdogs w
+        WHERE w.org_id=$1 AND w.owner_kind='user' AND w.state IN ('armed','paused','exited') ORDER BY w.id LIMIT 200",&[&org]).await? {
+        let record:Value=row.get(0);
+        let mut metadata=shown(engine,&record,crate::domain::user_regs::USER);
+        if let Some(fields)=metadata.as_object_mut(){
+            for key in ["events","last_output","connection","health"]{fields.remove(key);}
+            fields.insert("metadata_only".into(),json!(true));
+        }
+        links.push(metadata);
+    }
     Ok(json!({"watchdogs":dogs,"watchdog_counts":counts,"watchdog_project_links":links}))
 }
 

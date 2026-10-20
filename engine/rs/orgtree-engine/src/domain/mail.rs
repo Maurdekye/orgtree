@@ -471,9 +471,9 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         .await?;
         // the desk's Recently Finished, and its listener's next wait starts now
         let attempt: i64 = tx.query_one("SELECT coalesce((extra->>'attempts')::bigint, 0) FROM ot.mail WHERE id = $1", &[orig_row]).await?.get(0);
-        crate::domain::projects::record_ending(&*tx, org.id, project.id, orig_uid, claimed, sender_agent.unwrap_or_default(),
+        crate::domain::projects::record_ending(&*tx, org.id, project.id, orig_uid, claimed, sender_agent,
             &out.from.name(), "acked", None, attempt, Some(mail_uid.as_str())).await?;
-        crate::domain::projects::free_listener(&*tx, sender_agent.unwrap_or_default(), claimed).await?;
+        crate::domain::projects::free_listener(&*tx, sender_agent, claimed).await?;
         tx.commit().await?;
         drop(client);
         let me = match &out.from { From::Agent { name, .. } => name.clone(), _ => String::new() };

@@ -40,9 +40,9 @@ fn finish(mut rows: Vec<(Cursor, Value)>) -> Value {
 pub async fn page(client: &impl GenericClient, project: i64, before: Option<&str>) -> Result<Value> {
     let before = Cursor::parse(before)?;
     let predicate = if before.is_some() { OLDER_PREDICATE } else { "" };
-    let sql = format!("SELECT l.id, l.ended_at, l.uid, a.name, l.slot_no, l.reason, l.granted_at,
+    let sql = format!("SELECT l.id, l.ended_at, l.uid, coalesce(a.name, 'user'), l.slot_no, l.reason, l.granted_at,
         l.end_reason, l.ended_by, l.queued_at, l.slot_count, {}
-        FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id {}
+        FROM ot.slot_leases l LEFT JOIN ot.agents a ON a.id = l.holder_agent_id {}
         WHERE l.project_id = $1 AND l.ended_at IS NOT NULL {predicate}
         ORDER BY l.ended_at DESC, l.id DESC LIMIT 31", crate::domain::slots::CLAIM_DOG_COLS, crate::domain::slots::CLAIM_DOG_JOIN);
     let rows = if let Some(cursor) = before {

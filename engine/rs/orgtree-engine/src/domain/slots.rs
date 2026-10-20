@@ -14,6 +14,16 @@
 //! Only agents above or below the project may claim (the mail queue's reach
 //! rule). The line is strictly first-come: armed `slot` dogs ordered by
 //! `memo.queued_at`, which a resume resets (back of the line).
+//!
+//! The user holds slots too (docket let-the-user-manually-hold-a-number-of-a-project;
+//! user 2026-10-20 13:03Z-13:22Z, `domain/ops/user_regs.rs`): their request is
+//! a `slot` dog with no agent owner (`owner_kind = 'user'`), their lease a
+//! lease with no agent holder (`holder_kind = 'user'`), data name `"user"` (a
+//! reserved word, shown as "you"). They wait in the same FIFO line and are
+//! granted whole like an agent's, count against the capacity, and last until
+//! the user releases them: no idle reclaim, no halt or retire (there is no
+//! agent), across an engine restart too. A user's dog is spent by its grant
+//! in the same transaction (no mail: the desk shows it).
 
 use std::sync::Arc;
 
@@ -60,7 +70,8 @@ pub fn free_slots(capacity: i64, held: &[i32]) -> Vec<i32> {
 #[derive(Debug, Clone)]
 struct Granted {
     dog: i64,
-    owner: i64,
+    /// the claiming agent; None is the user's hold (nobody to wake)
+    owner: Option<i64>,
     lease: String,
     count: i32,
     project: String,
@@ -94,12 +105,13 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
         .query(
             "SELECT w.id, w.owner_agent_id, l.uid, l.slot_count FROM ot.watchdogs w
                JOIN ot.slot_leases l ON l.dog_id = w.id AND l.ended_at IS NULL
-              WHERE w.kind = 'slot' AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $1 AND w.memo ? 'lease'",
+              WHERE w.kind = 'slot' AND w.state = 'armed' AND w.owner_kind = 'agent'
+                AND (w.memo->>'target_id')::bigint = $1 AND w.memo ? 'lease'",
             &[&project],
         )
         .await?
         .iter()
-        .map(|r| Granted { dog: r.get(0), owner: r.get(1), lease: r.get(2), count: r.get(3), project: pname.clone() })
+        .map(|r| Granted { dog: r.get(0), owner: Some(r.get(1)), lease: r.get(2), count: r.get(3), project: pname.clone() })
         .collect();
     let mut fresh = Vec::new();
     if state == "live" {
@@ -110,19 +122,22 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
         if remaining > 0 {
             let waiting = tx
                 .query(
-                    "SELECT w.id, w.owner_agent_id, coalesce(w.memo->>'reason', w.name, ''), (w.memo->>'queued_at')::bigint, w.memo FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+                    "SELECT w.id, w.owner_agent_id, coalesce(w.memo->>'reason', w.name, ''), (w.memo->>'queued_at')::bigint, w.memo FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
                       WHERE w.kind = 'slot' AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $1 AND NOT w.memo ? 'lease'
-                        AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL
+                        AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL))
                       ORDER BY (w.memo->>'queued_at')::bigint, w.id LIMIT 200",
                     &[&project],
                 )
                 .await?;
             let mut slots = free.into_iter();
             for w in &waiting {
-                let owner: i64 = w.get(1);
+                let owner: Option<i64> = w.get(1);
                 // a claimant that has since moved out of the project's line no longer reaches it
-                if !crate::domain::projects::reaches(&*tx, owner, project).await? {
-                    continue;
+                // (the user, who holds from the desk, reaches every project)
+                if let Some(agent) = owner {
+                    if !crate::domain::projects::reaches(&*tx, agent, project).await? {
+                        continue;
+                    }
                 }
                 let count = requested(&w.get::<_, Value>(4));
                 // Strict FIFO: never give a smaller claim the capacity that
@@ -133,13 +148,21 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
                 let dog: i64 = w.get(0);
                 let lease = uid("s");
                 tx.execute(
-                    "INSERT INTO ot.slot_leases (uid, org_id, project_id, holder_agent_id, slot_no, reason, dog_id, queued_at, slot_count)
-                     VALUES ($1, $2, $3, $4, $5, nullif($6, ''), $7, CASE WHEN $8::bigint IS NULL THEN NULL ELSE to_timestamp($8::bigint / 1000.0) END, $9)",
+                    "INSERT INTO ot.slot_leases (uid, org_id, project_id, holder_agent_id, holder_kind, slot_no, reason, dog_id, queued_at, slot_count)
+                     VALUES ($1, $2, $3, $4, CASE WHEN $4::bigint IS NULL THEN 'user' ELSE 'agent' END, $5, nullif($6, ''), $7,
+                             CASE WHEN $8::bigint IS NULL THEN NULL ELSE to_timestamp($8::bigint / 1000.0) END, $9)",
                     &[&lease, &org_id, &project, &owner, &slot, &w.get::<_, String>(2), &dog, &w.get::<_, Option<i64>>(3), &count],
                 )
                 .await?;
+                // the user's request is spent by its grant, here: it has no
+                // agent to fire and wake (an agent's dog is fired after commit)
                 tx.execute(
-                    "UPDATE ot.watchdogs SET memo = memo || jsonb_build_object('lease', $2::text, 'slot', $3::int) WHERE id = $1",
+                    "UPDATE ot.watchdogs SET memo = memo || jsonb_build_object('lease', $2::text, 'slot', $3::int),
+                            state = CASE WHEN owner_kind = 'user' THEN 'spent' ELSE state END,
+                            spent_at = CASE WHEN owner_kind = 'user' THEN now() ELSE spent_at END,
+                            fired = CASE WHEN owner_kind = 'user' THEN fired + 1 ELSE fired END,
+                            last_fired = CASE WHEN owner_kind = 'user' THEN now() ELSE last_fired END
+                      WHERE id = $1",
                     &[&dog, &lease, &slot],
                 )
                 .await?;
@@ -153,8 +176,10 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
     drop(client);
     for g in &granted {
         tracing::info!(project = %g.project, slots = g.count, lease = %g.lease, "project concurrency slots were granted");
+        // the user's hold has nobody to wake; the project change below tells the desk
+        let Some(owner) = g.owner else { continue };
         Box::pin(crate::runtime::watchdogs::fire_slot(engine, g.dog, grant_line(&g.project, g.count, &g.lease))).await?;
-        changes::notify_id(engine, org_id, vec![Change::Agent(g.owner)]);
+        changes::notify_id(engine, org_id, vec![Change::Agent(owner)]);
     }
     // every lease change (a grant, or the release or reclaim that ran this
     // grant) and every claim joining the line reaches the desk and canvas
@@ -164,11 +189,12 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
 
 /// The line on a project, first first: (dog row, dog id, owner name, queued
 /// at, requested slots). A dog's id is unique per owner only, so places are found by row.
+/// The user's request is in it, named `"user"` (LEFT JOIN: it has no agent row).
 #[logged]
 pub async fn line(client: &impl GenericClient, project: i64) -> Result<Vec<(i64, String, String, Option<DateTime<Utc>>, i32)>> {
     Ok(client
         .query(
-            "SELECT w.id, w.uid, a.name, to_timestamp((w.memo->>'queued_at')::bigint / 1000.0), w.memo FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+            "SELECT w.id, w.uid, coalesce(a.name, 'user'), to_timestamp((w.memo->>'queued_at')::bigint / 1000.0), w.memo FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.kind = 'slot' AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $1 AND NOT w.memo ? 'lease'
               ORDER BY (w.memo->>'queued_at')::bigint, w.id LIMIT 200",
             &[&project],
@@ -200,8 +226,8 @@ pub fn claim_dog(r: &tokio_postgres::Row, holder: &str, at: usize) -> Value {
 pub async fn status(client: &impl GenericClient, project: i64, name: &str, scope: &Value) -> Result<Value> {
     let holders: Vec<Value> = client
         .query(
-            &format!("SELECT l.uid, a.name, l.slot_count, l.reason, l.granted_at, l.wakes, l.queued_at, {CLAIM_DOG_COLS}
-               FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id {CLAIM_DOG_JOIN}
+            &format!("SELECT l.uid, coalesce(a.name, 'user'), l.slot_count, l.reason, l.granted_at, l.wakes, l.queued_at, {CLAIM_DOG_COLS}
+               FROM ot.slot_leases l LEFT JOIN ot.agents a ON a.id = l.holder_agent_id {CLAIM_DOG_JOIN}
               WHERE l.project_id = $1 AND l.ended_at IS NULL ORDER BY l.slot_no"),
             &[&project],
         )
@@ -226,8 +252,8 @@ pub async fn status(client: &impl GenericClient, project: i64, name: &str, scope
 pub async fn held_in_org(client: &impl GenericClient, org_id: i64) -> Result<Vec<Value>> {
     Ok(client
         .query(
-            "SELECT p.name, a.name, l.slot_no, l.uid, l.reason, l.granted_at, l.wakes, l.slot_count FROM ot.slot_leases l
-               JOIN ot.agents a ON a.id = l.holder_agent_id JOIN ot.agents p ON p.id = l.project_id
+            "SELECT p.name, coalesce(a.name, 'user'), l.slot_no, l.uid, l.reason, l.granted_at, l.wakes, l.slot_count FROM ot.slot_leases l
+               LEFT JOIN ot.agents a ON a.id = l.holder_agent_id JOIN ot.agents p ON p.id = l.project_id
               WHERE l.org_id = $1 AND l.ended_at IS NULL ORDER BY l.project_id, l.slot_no LIMIT 500",
             &[&org_id],
         )
@@ -255,7 +281,9 @@ pub async fn end(tx: &impl GenericClient, lease_id: i64, how: &str, by: &str) ->
 
 /// Take back the slots of holders that are gone (retired) or halted, tell
 /// a halted holder why, then grant (user 2026-10-18 08:40Z: reclaim as ack
-/// mode does). Runs on halt, retire and engine start.
+/// mode does). Runs on halt, retire and engine start. The join on the holder
+/// agent is deliberate: the user's hold has no agent row and is never
+/// reclaimed (it lasts until the user releases it).
 #[logged]
 pub async fn check(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()> {
     let mut client = engine.db.get().await?;
