@@ -1,3 +1,4 @@
+import { selectDocketRow } from './docketselection.fixture'
 // docketattach.test.tsx — ticket attachments (user feature 2026-09-10):
 // files and images attached TO a work item, rendered in the docket pane.
 // Images reuse the chat's AttachThumb (thumbnail + download), other files
@@ -97,7 +98,7 @@ const ITEM = mkItem({ attachments: [
 rig('the pane lists attachments: images as thumbnails, files as download chips', async ({ mount, setCalls }) => {
   setCalls(mock([ITEM]))
   const el = await mount()
-  await inAct(() => { (el.querySelector('.mailrow.docket-row') as HTMLElement).click() })
+  await selectDocketRow(el.querySelector('.mailrow.docket-row'))
   await inAct(async () => { await flush(2) })
   assert.match(el.textContent ?? '', /ATTACHMENTS/)
   const thumb = el.querySelector<HTMLImageElement>('.docket-attachments img.attach-thumb')
@@ -117,7 +118,7 @@ rig('the pane lists attachments: images as thumbnails, files as download chips',
 rig('an item without attachments still offers the add control, with no empty chrome', async ({ mount, setCalls }) => {
   setCalls(mock([mkItem({})]))
   const el = await mount()
-  await inAct(() => { (el.querySelector('.mailrow.docket-row') as HTMLElement).click() })
+  await selectDocketRow(el.querySelector('.mailrow.docket-row'))
   await inAct(async () => { await flush(2) })
   assert.match(el.textContent ?? '', /ATTACHMENTS/)
   assert.equal(el.querySelector('.docket-attachments .attach-row'), null,
@@ -129,7 +130,7 @@ rig('picking a file posts it to the item and refetches the list', async ({ mount
   const captured = mock([ITEM])
   setCalls(captured)
   const el = await mount()
-  await inAct(() => { (el.querySelector('.mailrow.docket-row') as HTMLElement).click() })
+  await selectDocketRow(el.querySelector('.mailrow.docket-row'))
   await inAct(async () => { await flush(2) })
   const before = captured.filter((c) => c.method === 'GET' && c.url.includes('/work-items')).length
   const input = el.querySelector<HTMLInputElement>(
@@ -152,7 +153,7 @@ rig('the remove control deletes by record id', async ({ mount, setCalls }) => {
   const captured = mock([ITEM])
   setCalls(captured)
   const el = await mount()
-  await inAct(() => { (el.querySelector('.mailrow.docket-row') as HTMLElement).click() })
+  await selectDocketRow(el.querySelector('.mailrow.docket-row'))
   await inAct(async () => { await flush(2) })
   const chipX = el.querySelector<HTMLButtonElement>(
     '.docket-attachments a.attach-chip .chip-x')
