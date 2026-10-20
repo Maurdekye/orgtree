@@ -16,9 +16,9 @@ app.whenReady().then(async()=>{
   webPreferences:{contextIsolation:true,sandbox:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}})
  const receipts=[]
  try{
-  win.webContents.setZoomFactor(.9)
   win.webContents.session.webRequest.onBeforeRequest((d,done)=>done({cancel:!/^(file:|data:)/.test(d.url)}))
   await win.loadFile(path.join(out,'fixture.html'))
+  win.webContents.setZoomFactor(.8)
   for(const theme of ['dark','light'])for(const surface of ['modal','agent','project','all-read']){
    const seen=await win.webContents.executeJavaScript(`(async()=>{
     const deadline=performance.now()+5000

@@ -85,6 +85,7 @@ for (const surface of ['modal','agent','project'] as const) {
 test('distant unread opening is two bounded pages; scrolling/clicking fills the explicit gap without losing selection',async t=>{
   useFakeClock();const saved=fetch,slug='sparse-opening',all=Array.from({length:400},(_,i)=>row('sparse-'+i,new Date(Date.UTC(2026,9,20)-i*60000).toISOString()))
   const requests:{offset:number;limit:number}[]=[]
+  all[280]!.node_state='archived' // the first row of the target page is hidden
   globalThis.fetch=(async url=>{
     const path=String(url),id=path.match(/\/documents\/([^/?]+)$/)?.[1]
     if(id==='viewed')return ok({ok:true})
@@ -98,7 +99,7 @@ test('distant unread opening is two bounded pages; scrolling/clicking fills the 
   const v=await mountView(<DocGalleryModal slug={slug} toast={noop} close={noop}/>,h=>h)
   t.after(async()=>{await v.unmount();globalThis.fetch=saved;realClock()})
   await flush(15)
-  assert.equal(v.el.querySelectorAll('.doc-gallery-row').length,80,'newest and target pages only on a distant opening')
+  assert.equal(v.el.querySelectorAll('.doc-gallery-row').length,79,'two bounded pages; retired boundary row is filtered')
   assert.equal(v.el.querySelector('.doc-gallery-row .mfrom')?.textContent,'sparse-0')
   assert.match(v.el.querySelector('.mailer-read')?.textContent??'',/Body sparse-299/)
   assert.equal(v.el.querySelector('.doc-list-newer')===null,true)
@@ -109,6 +110,6 @@ test('distant unread opening is two bounded pages; scrolling/clicking fills the 
   }
   assert.equal(v.el.querySelector('[data-doc-gap]')===null,true,'ranges join once the gap is filled')
   const titles=[...v.el.querySelectorAll('.doc-gallery-row .mfrom')].map(e=>e.textContent)
-  assert.deepEqual(titles,all.slice(0,320).map(r=>r.title),'no duplicated or missing documents at the join')
+  assert.deepEqual(titles,all.slice(0,320).filter(r=>r.node_state==='live').map(r=>r.title),'no duplicated or missing documents at the join')
   assert.equal(requests.every(r=>r.limit<=200),true,'every growth and refresh stays bounded')
 })

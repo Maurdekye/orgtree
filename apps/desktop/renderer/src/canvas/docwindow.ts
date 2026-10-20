@@ -35,8 +35,8 @@ type Loaded = { ident: string; rows: DocRow[] | null; total: number; more: boole
 export function useDocWindow(slug: string, node: string, locate = '', seq: unknown = 0,
   team = false, autoOpen = true, hired = false): DocWindow {
   const ident = `${slug}/${node}${team ? '/team' : ''}`
-  const plan = useRef({ ident, ranges: fresh(), opened: false, aim: '' })
-  if (plan.current.ident !== ident) plan.current = { ident, ranges: fresh(), opened: false, aim: '' }
+  const plan = useRef({ ident, ranges: fresh(), opened: false, aim: '', anchor: '' })
+  if (plan.current.ident !== ident) plan.current = { ident, ranges: fresh(), opened: false, aim: '', anchor: '' }
   const [attempt, setAttempt] = useState(0)
   const [last, setLast] = useState<Loaded>({ ident: '', rows: null, total: 0, more: false,
     error: '', located: '', seq: undefined, plan: '', gapBefore: [] })
@@ -51,6 +51,7 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
         const jump = !!aim && aim !== state.aim
         const opening = !state.opened && autoOpen && !locate
         let ranges = state.ranges, first: Packet | undefined
+        let anchor = state.anchor
         if (!state.opened || jump) {
           if (opening) await syncDocViewed(slug)
           if (dead) return
@@ -60,6 +61,12 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
           ranges = offset + DOC_PAGE <= DOC_OPEN_PREFIX
             ? [{ start: 0, size: offset + DOC_PAGE }]
             : [{ start: 0, size: DOC_PAGE }, { start: offset, size: DOC_PAGE }]
+          anchor = ranges.length > 1 ? (jump ? locate : first.opening_id ?? '') : ''
+        } else if (anchor && ranges.length > 1) {
+          // New presentations shift numeric offsets. Re-locate the target
+          // page by identity so a boundary target cannot disappear on poll.
+          first = await getDocuments(slug, 0, node, anchor, DOC_PAGE, team, false, hired)
+          ranges = merged(ranges.map((r, i) => i === ranges.length - 1 ? { ...r, start: first!.offset ?? r.start } : r))
         }
         const parts = await Promise.all(ranges.map(async range => {
           const packets: Packet[] = []
@@ -82,7 +89,7 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
         }
         const total = parts[0]?.[0]?.total ?? 0
         const tail = parts.at(-1)?.at(-1)
-        state.ranges = ranges; state.opened = true; if (jump) state.aim = aim
+        state.ranges = ranges; state.opened = true; state.anchor = ranges.length > 1 ? anchor : ''; if (jump) state.aim = aim
         setLast(p => ({ ident, rows, total, more: tail?.next_offset != null,
           error: '', located: jump ? first?.located ?? '' : p.ident === ident ? p.located : '', seq,
           openingId: opening ? first?.opening_id : p.ident === ident ? p.openingId : undefined,
