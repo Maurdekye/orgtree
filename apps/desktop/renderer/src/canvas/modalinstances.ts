@@ -33,6 +33,9 @@ export interface InstanceOpen {
   /** false for the desk tab corner's pin and pop-out, which place the window
    *  themselves at the tab; every other opener follows the kind's placement */
   place?: boolean
+  /** other open windows of the same class (instance kinds) to cascade past
+   *  as well: a team reader steps past the agent readers, and back */
+  siblings?: readonly string[]
 }
 
 export interface ModalInstances {
@@ -88,7 +91,7 @@ export function useModalInstances(kind: string, org: string | null,
     // its own window is already out there (a restore still on its way)
     if (revealDetachedPanel(own, org)) { commit([...cur, id]); return }
     const kept = cur.filter(x => placedInstance(instanceKind(kind, x), org))
-    if (opts.place !== false) placeNewInstance(kind, id, org, kept.map(x => instanceKind(kind, x)))
+    if (opts.place !== false) placeNewInstance(kind, id, org, [...kept.map(x => instanceKind(kind, x)), ...(opts.siblings ?? [])])
     commit([...kept, id])
   }, [kind, org, commit])
 

@@ -972,8 +972,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const [otherKind, otherIds, closeOther] = opts.team
       ? ['agent-gallery', agentReaderIds, closeAgentReader] as const
       : ['team-gallery', teamReaderIds, closeTeamReader] as const
-    for (const other of otherIds) if (!placedInstance(instanceKind(otherKind, other), slug)) closeOther(other)
-    ;(opts.team ? openTeamReader : openAgentReader)(id, { ensureOpen: opts.keepOpen, place: opts.place })
+    const placed = otherIds.filter(other => placedInstance(instanceKind(otherKind, other), slug))
+    for (const other of otherIds) if (!placed.includes(other)) closeOther(other)
+    ;(opts.team ? openTeamReader : openAgentReader)(id, { ensureOpen: opts.keepOpen, place: opts.place,
+      siblings: placed.map(other => instanceKind(otherKind, other)) })
   }, [slug, agentReaderIds, teamReaderIds, closeAgentReader, closeTeamReader, openAgentReader, openTeamReader])
   /** THE TEAM BOX IN A READER switches it to the other scope's reader, in its
    *  place: the new reader takes this one's pin (a popped-out one pops out
