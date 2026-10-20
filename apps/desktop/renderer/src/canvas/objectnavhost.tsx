@@ -2,7 +2,11 @@ import { getWorkItem, getWatchdog, watchdogAction } from '../api'
 import type { ToastFn, Watchdog } from '../types'
 import { copyToClipboard } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
-import { nodeMenuAction, ticketOwnerAction, ticketReferenceActions, watchdogActions } from './objectactions'
+import { nodeMenuAction, watchdogActions } from './objectactions'
+import { ticketMenuEntries, ticketStaffable } from './ticketmenu'
+import { quickStaffPath } from './quickstaff'
+import type { QuickStaffPreview } from './quickstaff'
+import { peekQuickStaff, prefetchQuickStaff } from './staffingoptions'
 import { useAgentNavRegistry } from './agentnav'
 import { useProvideObjectNav } from './objectnav'
 
@@ -39,13 +43,20 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, focusAgent, toas
         ? getWatchdog(org,id).then(page=>menu(page.watchdogs.find(w=>w.id===id))) : menu(dog)
     }
     if (!openTicket || id.includes('/')) return []
-    return getWorkItem(org, id).then(({ item }) => {
+    return getWorkItem(org, id).then(async ({ item }) => {
       const name = item.owner?.node
       const entries = name ? agents?.current?.(name) ?? [] : []
-      return ticketReferenceActions({ open: () => openTicket(item.slug),
-        owner: ticketOwnerAction(anchor, name, entries, toast),
-        copyTitle: () => copy(item.title), copySlug: () => copy(item.slug),
-        copyReference: () => copy('@item:' + org + '/' + item.slug) })
+      let staffing: QuickStaffPreview | undefined, staffError: string | undefined
+      if (ticketStaffable(org, item)) {
+        const path = quickStaffPath(org, item.slug)
+        staffing = peekQuickStaff<QuickStaffPreview>(path)
+        if (!staffing) {
+          try { staffing = await prefetchQuickStaff<QuickStaffPreview>(path) }
+          catch (error) { staffError = error instanceof Error ? error.message : String(error) }
+        }
+      }
+      return ticketMenuEntries({ org, item, anchor, ownerEntries: entries,
+        open: () => openTicket(item.slug), toast, staffing, staffError })
     })
   }, org)
   return null

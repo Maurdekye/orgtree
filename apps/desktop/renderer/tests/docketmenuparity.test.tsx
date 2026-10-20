@@ -89,11 +89,12 @@ for(const status of ['open','backlogged'] as const)for(const archived of [false,
     assert.equal(requestCount(path),status==='backlogged'&&!archived?1:0,'warm-up starts from draw before either menu')
     await right(f.card)
     const transcript=entries(top()!)
-    assert.deepEqual(transcript,['Open details',...(owner?['Owner… ▸']:[]),'sep','Copy ticket title','Copy slug','Copy reference'])
+    const common=['Open details',...(owner?['Owner… ▸']:[]),'sep','Copy ticket title','Copy slug','Copy reference']
+    assert.deepEqual(transcript,[...common,...(status==='backlogged'&&!archived?['sep','Staff… ▸']:[])])
     const ownerTranscript=owner?await ownerItems():[]
     await right(f.row)
     const extras=['Hide 2 sub-items',...(status==='backlogged'&&!archived?['Staff… ▸']:[])]
-    assert.deepEqual(entries(top()!),[...transcript,'sep',...extras])
+    assert.deepEqual(entries(top()!),[...common,'sep',...extras])
     if(owner)assert.deepEqual(await ownerItems(),ownerTranscript,'owner children and order identical')
     assert.equal(entries(top()!).filter(label=>label==='Copy ticket title').length,1)
     assert.equal(entries(top()!).includes('Close details'),false)

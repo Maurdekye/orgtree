@@ -48,7 +48,7 @@ import { AskCard } from './asks'
 import { DocReader } from './docs'
 import { revealDetachedDocument } from '../windowlife'
 import { closeIfCentred, PinFrame } from './modalpin'
-import { AgentName, nodeTierOf, ticketOwnerAction } from './identity'
+import { AgentName, nodeTierOf } from './identity'
 import { MailReplyBox } from './mail'
 import { ago, jumpKey, useEsc } from './shared'
 import { useWorkItems, useSelectedWork } from './useworkitems'
@@ -58,8 +58,8 @@ import type { MentionIndex } from './workrefs'
 import { ForegroundViewContext, RefProse, refToken, resolveRef, useAgentOutcome } from './reflinks'
 import { DocketDescription } from './docketdesc'
 import { copyToClipboard, useContextMenu } from './contextmenu'
-import { ticketReferenceActions } from './objectactions'
-import { quickStaffEntry, quickStaffPath } from './quickstaff'
+import { quickStaffPath } from './quickstaff'
+import { ticketMenuEntries, ticketStaffable, ticketStaffEntry } from './ticketmenu'
 import { peekQuickStaff, prefetchQuickStaff, queueStaffingWarm } from './staffingoptions'
 import type { QuickStaffPreview } from './quickstaff'
 import type { MenuEntry } from './contextmenu'
@@ -2185,16 +2185,17 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
     e.currentTarget.ownerDocument.defaultView?.getSelection()?.removeAllRanges()
     copySlugAt(e.currentTarget, e.clientX, e.clientY)
   }
-  // Transcript ticket actions first, unchanged; row-only Fold and Staff follow
-  // a separator (user 2026-10-14: match + keep extras). Click still toggles the
-  // selection, while the menu's Open details always opens or keeps it open.
+  // USER 2026-10-20: the row and all ticket links use one complete item menu.
+  // Only an actual list supplies its local Fold action. Click still toggles
+  // selection; the menu's Open details always opens or keeps it open.
   const menu = useContextMenu()
   const agents = useAgentNavRegistry()
   const [staffFeedback, setStaffFeedback] = useState('')
   // Quick staff is offered for a backlogged, unarchived ticket in a real org —
   // the same condition the backend enforces, so a row that cannot be staffed
   // neither shows the entry nor prefetches for it.
-  const staffable = !!org && !item.archived && item.status === 'backlogged'
+  const staffable = ticketStaffable(org, item)
+  const announce = (message: string) => { setStaffFeedback(message); toast?.([message]) }
   const staffPath = org ? quickStaffPath(org, item.slug) : ''
   const warmStaffing = () =>
     prefetchQuickStaff<QuickStaffPreview>(staffPath)
@@ -2214,29 +2215,19 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
   }
   const openDetails = useRef<() => void>(() => {})
   openDetails.current = () => { if (!selected) pickTimed() }
-  const rowMenu = (e: React.MouseEvent<HTMLDivElement>, staff?: MenuEntry): MenuEntry[] => {
+  const rowMenu = (e: React.MouseEvent<HTMLDivElement>, staffing?: QuickStaffPreview): MenuEntry[] => {
     const row = e.currentTarget
     const { clientX, clientY } = e
     const name = item.owner?.node
     const entries = name ? agents?.current?.(name) ?? [] : []
-    const extras: MenuEntry[] = []
-    if (kids > 0 && onFold && !foldLocked) extras.push({
+    const fold: MenuEntry | undefined = kids > 0 && onFold && !foldLocked ? {
       label: `${folded ? 'Show' : 'Hide'} ${kids} sub-item${kids === 1 ? '' : 's'}`,
-      onSelect: () => onFold(item.slug),
-    })
-    if (staff) extras.push(staff)
-    const copy = (text: string) => {
-      void copyToClipboard(row, text).then(ok => toast?.([ok ? 'Copied!' : 'Clipboard unavailable']))
-    }
-    return ticketReferenceActions({ open: () => openDetails.current(),
-      owner: ticketOwnerAction(row, name, entries, toast),
-      copyTitle: () => copy(item.title),
+      onSelect: () => onFold!(item.slug),
+    } : undefined
+    return ticketMenuEntries({ org, item, anchor: row, ownerEntries: entries, toast,
+      open: () => openDetails.current(),
       copySlug: () => copySlugAt(row, clientX, clientY),
-      copyReference: org ? () => {
-        const ref = refToken({ kind: 'item', org, id: item.slug })
-        void copyToClipboard(row, ref).then(ok => toast?.([ok ? `copied the reference ${ref}` : 'could not copy — clipboard unavailable']))
-      } : undefined,
-      extras,
+      fold, staffing, feedback: announce,
     })
   }
   return (
@@ -2255,9 +2246,6 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
       onPointerEnter={() => { if (staffable) void warmStaffing() }}
       onFocus={() => { if (staffable) void warmStaffing() }}
       onContextMenu={(e) => {
-        const announce = (message: string) => {
-          setStaffFeedback(message); toast?.([message])
-        }
         // ⚠ ALREADY IN HAND ⇒ DRAWN WITH THE REST OF THE MENU, in the same
         // synchronous pass, initiating nothing. There is no placeholder to
         // replace and no promise to wait on, which is the difference the user
@@ -2265,17 +2253,13 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
         // loading. An aged answer is still drawn — a refresh is the hover's
         // job, and the staffing door re-checks before it creates anything.
         const held = staffable ? peekQuickStaff<QuickStaffPreview>(staffPath) : undefined
-        const opening = menu.open(e, () => rowMenu(e, staffable ? (
-          held ? quickStaffEntry(org!, item.slug, held, announce)
-            : { label: 'Staff…', disabled: true, title: 'Loading current staffing choices…', onSelect: () => {} }
-        ) : undefined))
+        const opening = menu.open(e, () => rowMenu(e, held))
         if (opening === undefined || !staffable || held) return
         // Nothing held yet (the warm-up has not landed, or it failed): fall
         // back to the awaited path, which is what the placeholder above says.
         void warmStaffing().then(preview => {
-          menu.append(quickStaffEntry(org!, item.slug, preview, announce), opening)
-        }).catch((error: Error) => menu.append({ label: 'Staff…', disabled: true,
-          title: error.message, description: error.message, onSelect: () => {} }, opening))
+          menu.append(ticketStaffEntry(org, item, announce, preview)!, opening)
+        }).catch((error: Error) => menu.append(ticketStaffEntry(org, item, announce, undefined, error.message)!, opening))
       }}
       style={depth ? { '--docket-depth': depth } as React.CSSProperties : undefined}>
       {menu.node}
