@@ -4,6 +4,21 @@
 
 Identity prefixes, tool cards, notes, globals, shared skills and glossary delivery.
 
+## Plain mention guidance (2026-10-20)
+
+All standing-instruction variants show @name and @item:<org>/<slug> as plain
+text and explicitly forbid backticks/code spans. The user-mention passage
+explains that @user in replies, mail, presented documents or docket updates
+notifies the user; requests needing an answer still use mail or a question.
+This replaces the old backticked, reply-only examples on both skill-enabled
+and legacy lanes. The existing capability gates and notification preferences
+are unchanged. Exact prompt fixtures and the old legacy fingerprints (with
+only these replacements normalized) guard the change. See
+[instruction wording and measurements](../skills/INSTRUCTIONS-TRIM.md#15-plain-mention-guidance-2026-10-20).
+[decided: user 2026-10-20 21:43:54Z, 21:44:36Z; verified:
+`engine/rs/orgtree-engine/src/runtime/identity.rs`,
+`engine/rs/orgtree-engine/src/runtime/identity/compression_tests.rs`]
+
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
 <a id="e-de4e633eb38398d7"></a>

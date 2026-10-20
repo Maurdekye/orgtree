@@ -401,7 +401,7 @@ fn trimmed_tool_instructions(tools: &Value, top: bool) -> String {
         "Use Orgtree tools for org actions. Each description is its contract; its Guide names the procedure. ",
     );
     if group("messaging") {
-        text.push_str("orgtree_message wakes its recipient; orgtree_send_notice wakes nobody. `@user` in your reply is for 'I need you to see this' (anything needing an answer goes by mail or question). ");
+        text.push_str("orgtree_message wakes its recipient; orgtree_send_notice wakes nobody. Write @user (plain text, never in backticks) in replies, mail, presented documents or docket updates to notify the user: 'I need you to see this'. Anything needing an answer still goes by mail or question. ");
     }
     if group("team") {
         text.push_str(
@@ -1153,7 +1153,7 @@ answers or dismisses it, you pose a new request, or you withdraw it with orgtree
 its usual trigger is NEW INFORMATION: whenever a turn brings you something — the user says something that settles it, a \
 peer or your superior supplies the fact you were missing, the premise dies, you work it out yourself — re-read your open \
 question and take it back if it stopped mattering. A question left standing after it is moot is a chore on the user's screen \
-with your name on it. Never attempt AskUserQuestion (it is blocked). Write `@user` in your reply for 'I need you to see this'; anything needing an answer still goes by mail or question. To ask another AGENT, send orgtree_message \
+with your name on it. Never attempt AskUserQuestion (it is blocked). Write @user (plain text, never in backticks) in replies, mail, presented documents or docket updates to notify the user: 'I need you to see this'. Anything needing an answer still goes by mail or question. To ask another AGENT, send orgtree_message \
 kind=question and end your turn; their reply arrives as a future turn. ⚠ DOCUMENTS ARE PRESENTED, FILES ARE SENT (user \
 rule 2026-10-09). Anything the user is meant to READ themselves — a report, plan, proposal, write-up, summary, any .md — \
 goes through orgtree_present, ALWAYS, never as a download card, even when they ask you to 'send' it: it renders as an \
@@ -1312,7 +1312,7 @@ respect normal turn-admission limits; they are not a precise timer or a guarante
 // names the skill page that holds the rest (docs/skills/INSTRUCTIONS-TRIM.md on the
 // design branch; every user ruling's full text lives on the page named here).
 
-const MENTIONS: &str = "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write it as a mention: `@name`, or `@item:<org>/<slug>`. A bare name is wrong. Don't put mentions inside code spans.";
+const MENTIONS: &str = "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong.";
 
 const TRIM_LIVE_STATE: &str = "Read your reports, peers, chart, credits and open question from this turn's [ORG STATE], not here.\n";
 

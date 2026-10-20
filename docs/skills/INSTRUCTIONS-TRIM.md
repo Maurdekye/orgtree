@@ -460,3 +460,29 @@ tests still check restricted profiles. The card snapshot accepts only the
 explicit credit-request wording change. These are byte measurements and
 contract checks, not token counts, proof of model compliance or a cache-hit
 guarantee. Changed prefixes may cost cache continuity on the next launch.
+
+## 15. Plain mention guidance (2026-10-20)
+
+The user approved plain mention examples at 21:43:54Z and extended the rule
+to agent, project and docket mentions at 21:44:36Z. All full and trimmed lanes
+now show @name and @item:<org>/<slug> outside backticks and explicitly say
+plain text, never backticks/code spans. Both user-mention passages explain
+that @user in replies, mail, presented documents or docket updates notifies
+the user. Anything needing an answer still goes by mail or question.
+
+This is an explicit follow-up to section 14's preserved MENTIONS and legacy
+text. Existing group gates, tool cards and notification behavior are unchanged.
+The 20 legacy-profile fingerprints keep their original baseline: tests undo
+only the two approved mention replacements before comparing those bytes.
+The mail-basics and message-tool glossary pages give the same plain-text rule.
+
+| Synthetic compressed example | Before (42aa99a) | After | Change |
+| --- | ---: | ---: | ---: |
+| Seat A | 10,389 B | 10,474 B | +85 B |
+| Seat B | 10,401 B | 10,486 B | +85 B |
+
+The existing identity budget and 900-byte per-card / 12,000-byte combined
+description caps remain in force; no allowance is raised. These are UTF-8
+byte counts, not token estimates or proof of model compliance. The changed
+standing prefix and glossary snapshot may affect prompt-cache continuity on
+the next launch; no cache hit is promised.

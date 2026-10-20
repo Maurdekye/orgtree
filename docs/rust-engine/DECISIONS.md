@@ -7,6 +7,14 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Plain mention guidance, user 2026-10-20 21:43:54Z and 21:44:36Z:** standing
+instructions and glossary examples write @user, @name and @item:<org>/<slug>
+as plain text, never inside backticks or code spans. Explain that @user in
+replies, mail, presented documents and docket updates notifies the user;
+anything needing an answer still goes by mail or question. Apply to both
+full and skill-enabled instruction variants. See
+[instruction wording](../skills/INSTRUCTIONS-TRIM.md#15-plain-mention-guidance-2026-10-20).
+
 **Desk header controls, user 2026-10-20 16:35Z-16:58Z:** "put it in the header to the left of
 the pin / pop / modal buttons, and add a number input next to it default at 1. make the button
 say "Hold 1 slot" or "Hold 2 slots" ... clicking the button holds the slots immediately"
