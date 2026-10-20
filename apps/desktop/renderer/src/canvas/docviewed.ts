@@ -20,6 +20,7 @@ export type DocUnread = 'new' | 'updated' | null
 const KEY = 'orgtree-docs-viewed-'
 const cache = new Map<string, Record<string, string>>()
 const pushed = new Set<string>()
+const writes = new Map<string, Promise<void>>()
 const listeners = new Set<() => void>()
 let version = 0
 
@@ -32,9 +33,19 @@ function read(slug: string): Record<string, string> {
 
 function post(slug: string, marks: { id: string; at: string }[]): void {
   if (!marks.length) return
-  void req(`/api/orgs/${encodeURIComponent(slug)}/documents/viewed`, {
+  const prior = writes.get(slug) ?? Promise.resolve()
+  const write = req(`/api/orgs/${encodeURIComponent(slug)}/documents/viewed`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ marks }), keepalive: true,
-  }).catch(() => { /* the local mark stands; the next page load pushes it again */ })
+  }).then(() => {}, () => { /* local state survives; next page load retries */ })
+  writes.set(slug, Promise.all([prior, write]).then(() => {}))
+}
+
+/** An opening decision must follow this origin's pending viewed-state writes,
+ * including the first-page migration from localStorage. Highlights use those
+ * marks immediately; the server should see the same read state when choosing. */
+export async function syncDocViewed(slug: string): Promise<void> {
+  load(slug)
+  await writes.get(slug)
 }
 
 function load(slug: string): Record<string, string> {

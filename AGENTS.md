@@ -202,10 +202,15 @@
 
 - Presentation galleries select the oldest unread/changed card on each fresh
   open, otherwise the newest by current `at`; explicit references and later
-  user choices win. `documents?opening=1` uses partial unread/newest indexes
-  (migration 0041), returns `opening_id`/position and at most the requested page
-  around it. Gallery windows remain contiguous and can expand at either edge;
-  opening does not page through history. Org defaults exclude retired authors.
+  user choices win. Every opening includes the newest end too (replacing the
+  old detached target-page opening): <=200 contiguous rows, or two 40-row
+  pages for a distant target, with a labelled scroll/click gap. Later reads
+  stay <=200 rows each. `documents?opening=1` still locates the target via
+  migration 0041 indexes; `docwindow.ts` owns the loaded ranges. Opening waits
+  for pending local viewed marks; SQL unread checks use wire millisecond
+  precision, and matching viewed marks store the full current timestamp.
+  This prevents read cards with submillisecond timestamps becoming phantom
+  unread targets. Org defaults exclude retired authors.
   [decided: user/coordinator 2026-10-20; verified: `http/docs.rs`,
   `canvas/gallery.tsx`, `tests/presentationopening.test.tsx`]
 

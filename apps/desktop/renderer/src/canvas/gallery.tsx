@@ -191,7 +191,7 @@ function LazyDocList({ w, label, children }: {
     for (const gap of el.querySelectorAll<HTMLElement>('[data-doc-gap]')) {
       const box = gap.getBoundingClientRect()
       if (box.height > 0 && box.bottom >= bounds.top - DOC_EDGE && box.top <= bounds.bottom + DOC_EDGE) {
-        w.fillGap(gap.dataset.docGap!); return
+        w.fillGap(gap.dataset.docGap!); return true
       }
     }
   }
@@ -201,7 +201,7 @@ function LazyDocList({ w, label, children }: {
   // the next page, so the boundary is re-checked after every commit as well.
   // `grow` is a no-op while a page is in flight, exhausted or failed, so this
   // settles instead of looping.
-  useEffect(() => { nearGap(); if (nearEnd()) w.grow() })
+  useEffect(() => { if (!nearGap() && nearEnd()) w.grow() })
   return (
     // ⚠ A TAB STOP, DELIBERATELY. Scrolling is now the ONLY way to reach older
     // documents — the "Newer"/"Older" buttons this replaced were the two
@@ -213,7 +213,7 @@ function LazyDocList({ w, label, children }: {
     // contract, and it evaporates the moment a row gains a focusable child.
     // Stating it here is what makes the keyboard path OURS to keep.
     <div className="mailer-list" ref={ref} tabIndex={0} aria-label={label}
-      onScroll={() => { nearGap(); if (nearEnd()) w.grow() }}>
+      onScroll={() => { if (!nearGap() && nearEnd()) w.grow() }}>
       {w.newer && <button className="doc-list-newer" onClick={w.growNewer}>Load newer documents</button>}
       {children}
       <DocListEnd w={w} />

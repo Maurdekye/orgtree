@@ -18,7 +18,8 @@ globalThis.fetch=(async (url,options)=>{
 }) as typeof fetch
 function Fixture(){
  const [mode,setMode]=useState({surface:'modal',key:0})
- ;(window as any).openGallery=(surface:string,read=false)=>{allRead=read;setMode({surface,key:++counter})}
+ ;(window as any).openGallery=(surface:string,read=false)=>{allRead=read;const key=++counter;setMode({surface,key});return key}
+ document.body.dataset.fixture=String(mode.key)
  const props={key:mode.key,slug:'synthetic-opening-'+mode.key,toast:()=>{}}
  return <><style>{`html,body,#root{height:100%;margin:0}body{background:var(--bg);color:var(--text)}.fixture-desk{height:650px;padding:12px;display:flex;flex-direction:column}.fixture-desk>.gallery-agent{height:100%;min-height:0}`}</style>
   {mode.surface==='modal'?<DocGalleryModal {...props} close={()=>{}}/>:<div className="fixture-desk"><AgentGalleryView {...props} nid="synthetic-presenter" node={{id:'synthetic-presenter',kind:mode.surface==='project'?'project':'agent',documents:[]} as any}/></div>}</>

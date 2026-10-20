@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getDocuments } from '../api'
 import type { DocRow } from '../api'
 import { onLiveBump } from '../livebus'
+import { syncDocViewed } from './docviewed'
 
 export const DOC_PAGE = 40
 /** A close opening is contiguous; a distant target adds only its own page. */
@@ -51,6 +52,8 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
         const opening = !state.opened && autoOpen && !locate
         let ranges = state.ranges, first: Packet | undefined
         if (!state.opened || jump) {
+          if (opening) await syncDocViewed(slug)
+          if (dead) return
           first = await getDocuments(slug, 0, node, jump ? locate : '', DOC_PAGE, team, opening, hired)
           const offset = first.offset ?? 0
           if (jump && !first.documents.some(r => r.id === locate)) throw Error('that document is too far down the list to open from here')

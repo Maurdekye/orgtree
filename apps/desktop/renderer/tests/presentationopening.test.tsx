@@ -10,6 +10,22 @@ const data = () => [row('newest-read','2026-10-20T12:00:00Z','2026-10-20T12:00:0
   row('oldest-read','2026-10-16T12:00:00Z','2026-10-16T12:00:00Z')]
 const ok = (value:unknown) => ({ok:true,status:200,headers:new Headers(),json:async()=>value}) as Response
 
+test('opening waits for local viewed marks before asking the engine to choose unread',async t=>{
+  const saved=fetch,slug='opening-sync-local'
+  localStorage.setItem('orgtree-docs-viewed-'+slug,JSON.stringify({'old-changed':'2026-10-18T12:00:00Z'}))
+  let release:((r:Response)=>void)|undefined,asked=false
+  globalThis.fetch=(async url=>{
+    const path=String(url)
+    if(path.endsWith('/documents/viewed'))return new Promise<Response>(resolve=>{release=resolve})
+    if(path.includes('/documents?')){asked=true;return ok({documents:[],total:0,offset:0,next_offset:null,opening_id:null})}
+    return ok({})
+  }) as typeof fetch
+  const v=await mountView(<DocGalleryModal slug={slug} toast={noop} close={noop}/>,h=>h)
+  t.after(async()=>{await v.unmount();globalThis.fetch=saved;localStorage.removeItem('orgtree-docs-viewed-'+slug)})
+  await flush();assert.equal(typeof release,'function');assert.equal(asked,false,'read-state write precedes selection query')
+  await inAct(()=>release!(ok({ok:true})));await flush();assert.equal(asked,true)
+})
+
 for (const surface of ['modal','agent','project'] as const) {
   const panel=(slug:string,explicit=false) => surface==='modal'
     ? <DocGalleryModal slug={slug} toast={noop} close={noop} jumpTo={explicit?{id:'new-unread',seq:1}:undefined}/>

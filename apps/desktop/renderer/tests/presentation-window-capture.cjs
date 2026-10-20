@@ -22,8 +22,8 @@ app.whenReady().then(async()=>{
     const deadline=performance.now()+5000
     while(!window.openGallery){if(performance.now()>deadline)throw Error('fixture failed to render');await new Promise(r=>setTimeout(r,20))}
     document.documentElement.classList.toggle('contrast-light',${theme==='light'})
-    window.openGallery(${JSON.stringify(surface==='all-read'?'modal':surface)},${surface==='all-read'})
-    while(!document.querySelector('.doc-gallery-row.on')||!document.querySelector('.mailer-read')?.textContent.includes('Opening the collection')){
+    const key=window.openGallery(${JSON.stringify(surface==='all-read'?'modal':surface)},${surface==='all-read'})
+    while(document.body.dataset.fixture!==String(key)||!document.querySelector('.doc-gallery-row.on')||!document.querySelector('.mailer-read')?.textContent.includes('Opening the collection')){
      if(performance.now()>deadline)throw Error('opening never settled');await new Promise(r=>setTimeout(r,20))
     }
     await ${settle}
