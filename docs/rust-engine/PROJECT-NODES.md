@@ -611,8 +611,8 @@ coordinator 06:36Z with A1-A6, user additions 06:41Z-06:42Z).
   (the Mail tab's listeners had fallen back to the browser's own `h4`).
   Each table fits the desk at its normal widths: its pane is a size
   container, the small columns fit their content, Agent narrows with the
-  pane (168, 152, then 124px), and Watchdog shares the rest with the
-  detail columns. A name, chip, gist or ending word that must shorten
+  pane (168px, 152 under 900, and 124 under 760 in the eleven-column ack
+  table alone), and Watchdog shares the rest with the detail columns. A name, chip, gist or ending word that must shorten
   ends in an ellipsis on one line and keeps its whole text in a tooltip.
   Only below a table's floor (640px; 660 for the eleven-column ack table)
   does it scroll sideways, its Action column kept in view.
