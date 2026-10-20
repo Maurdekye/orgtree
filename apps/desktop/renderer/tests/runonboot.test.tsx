@@ -39,7 +39,8 @@ for (const [kind, label, hint, other] of [
       const text = v.el.textContent ?? ''
       assert.match(text, hint)
       assert.doesNotMatch(text, other)
-      assert.ok(!v.el.querySelector('select'), 'the removed "engine starts" choice is gone')
+      assert.ok(!v.el.querySelector('select[aria-label="Where the background engine starts"]'),
+        'the removed "engine starts" choice is gone; unrelated preferences may use selects')
       assert.doesNotMatch(text, /run on startup|engine starts/i)
     } finally { await v.unmount() }
   })

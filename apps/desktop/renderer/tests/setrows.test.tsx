@@ -169,7 +169,9 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
     // (Terra, Gemini Pro). (4.x dropped the Quick Staffing
     // account-selection switch, PLAN I5b, and the Luna reserve preference,
     // B5 / decision 31.)
-    assert.equal(rows.length, 8)
+    // The Orgtree feedback switch is also part of Runtime.
+    assert.equal(rows.length, 9)
+    assert.ok(rows.some(row => row.querySelector('input[aria-label="Suggest agents to give feedback to Orgtree"]')))
     for (const row of rows) {
       const box = row.querySelector<HTMLInputElement>('.set-lead input')!
       const name = box.getAttribute('aria-label')

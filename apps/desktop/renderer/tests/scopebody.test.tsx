@@ -134,7 +134,7 @@ test('settings retain configured rights while the current chain narrows the disp
   const el = await mount(n)
   assert.equal(selectWith(el, 'bypassPermissions').value, 'acceptEdits')
   assert.equal(selectWith(el, 'full').value, 'team')
-  assert.equal([...el.querySelectorAll<HTMLInputElement>('.set-row input[type="checkbox"]')]
+  assert.equal([...el.querySelectorAll<HTMLInputElement>('[role="tabpanel"][id$="-tools"] .set-row input[type="checkbox"]')]
     .filter((box) => box.checked).length, 12)
   await pickEffort(el, 2)
   await save(el)
@@ -176,15 +176,15 @@ test('§3 CONTROL: an edited tool and permission mode are sent whole', async (t:
   const sent = scopeBodies()
   const el = await mount()
   const { act } = await import('react')
-  const box = [...el.querySelectorAll<HTMLInputElement>('.set-row input[type="checkbox"]')]
-    .find((x) => x.checked)
-  assert.ok(box, 'no checked tool box')
+  const box = el.querySelector<HTMLInputElement>('input[aria-label="Run commands"]')
+  assert.ok(box?.checked, 'Run commands is enabled before the edit')
   await act(async () => { box!.click() })
   await choose(selectWith(el, 'bypassPermissions'), 'default')
   await save(el)
   assert.equal(sent.length, 1)
   const tools = sent[0]!.tools as Record<string, unknown>
   assert.ok(tools, 'the edited tool set was not sent')
+  assert.equal(tools.bash, false, 'the named Run commands control edits the bash grant')
   assert.equal(Object.values(tools).filter((v) => v === false).length, 1)
   assert.equal(sent[0]!.permission_mode, 'default')
   assert.equal('add_dirs' in sent[0]!, false)
