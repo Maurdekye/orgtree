@@ -78,8 +78,9 @@ Where the secrets never appear (tests in brackets):
 - the saved transcript's tool inputs, the tool call's `arg` line and the live
   tool-writing preview: `convo::redact_tool_input` replaces a non-path `credentials`
   with `[inline credentials: stored encrypted, not shown]`, top-level
-  `username`/`password`/`user`/`pass`/`passwd`/`token` with `[redacted]`, and every
-  URL's `user:password@` with `*****@` (`convo`, `toolwriting` tests);
+  `username`/`password`/`user`/`pass`/`passwd`/`token` (and websocket's misplaced keys,
+  `query` included) with `[redacted]`, and every URL's `user:password@` with `*****@`,
+  nested arguments included (`convo`, `toolwriting` tests);
 - logs: `credentials`, `password`, `pass` and `passwd` are masked keys in logged
   arguments, every logged string has its URL user info masked, and `rumqttc` logging
   is off, because rumqttc's packet Debug would print the password and payloads.

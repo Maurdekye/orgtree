@@ -102,8 +102,9 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
   - Logged strings and transcripts mask the values of secret-named query parameters in
     `ws://`/`wss://` URLs (`util::mask_url_secrets`), as they mask `user:password@`.
 - **Transcripts:** `redact_tool_input` replaces an inline `credentials` object and any
-  misplaced top-level `headers`, `bearer`, `authorization`, `cookie`, `token`,
-  `username` or `password`.
+  misplaced top-level `headers`, `bearer`, `authorization`, `cookie`, `token`, `query`,
+  `username` or `password`, whatever its value, and masks URL secrets in every string
+  of the arguments, nested ones included (a fire action's own target).
 
 ## Send
 

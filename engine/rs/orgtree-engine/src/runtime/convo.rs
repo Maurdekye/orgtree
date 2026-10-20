@@ -1361,10 +1361,12 @@ fn is_watchdog_tool(name: &str) -> bool {
 }
 
 /// An Orgtree tool call's arguments as Orgtree keeps and shows them (saved
-/// tool inputs, the chip line, the live preview): an mqtt watchdog's inline
-/// credentials and any stray top-level secret are blanked, and a URL keeps
-/// no `user:password@` (user 2026-10-19 17:43:37Z; docs/rust-engine/mqtt-
-/// watchdogs.md). A credentials file path is no secret and stays.
+/// tool inputs, the chip line, the live preview): an mqtt or websocket
+/// watchdog's inline credentials and any misplaced top-level credential key
+/// (whatever its value) are blanked, and a URL anywhere in the arguments keeps
+/// no `user:password@` and no secret-named ws query value (user 2026-10-19
+/// 17:43:37Z; docs/rust-engine/mqtt-watchdogs.md, websocket-watchdogs.md).
+/// A credentials file path is no secret and stays.
 #[nolog]
 pub fn redact_tool_input(name: &str, input: &mut Value) {
     if !is_watchdog_tool(name) {
@@ -1378,15 +1380,30 @@ pub fn redact_tool_input(name: &str, input: &mut Value) {
         }
     }
     // misplaced credentials of an mqtt or a websocket dog (refused at create)
-    for k in ["username", "password", "user", "pass", "passwd", "token", "headers", "bearer", "authorization", "cookie"] {
+    for k in ["username", "password", "user", "pass", "passwd", "token", "headers", "bearer", "authorization", "cookie", "query"] {
         if let Some(v) = o.get_mut(k) {
             *v = json!("[redacted]");
         }
     }
     for v in o.values_mut() {
-        if let Some(clean) = v.as_str().and_then(crate::util::mask_url_secrets) {
-            *v = json!(clean);
+        mask_nested_urls(v);
+    }
+}
+
+/// Masks URL secrets in every string of a value, however nested: a fire
+/// action's arguments carry targets of their own. Tool arguments come from
+/// parsed JSON, whose nesting serde_json bounds.
+#[nolog]
+fn mask_nested_urls(v: &mut Value) {
+    match v {
+        Value::String(s) => {
+            if let Some(clean) = crate::util::mask_url_secrets(s) {
+                *s = clean;
+            }
         }
+        Value::Array(a) => a.iter_mut().for_each(mask_nested_urls),
+        Value::Object(o) => o.values_mut().for_each(mask_nested_urls),
+        _ => {}
     }
 }
 
@@ -1985,5 +2002,25 @@ mod mqtt_credential_tests {
         assert_eq!(inputs["w1"]["input"]["target"], json!("wss://ha.local/api/websocket?access_token=*****"));
         assert_eq!(inputs["w1"]["input"]["hello"], json!([{"type": "subscribe_events"}]), "the dog's own hellos are no secret");
         assert_eq!(inputs["w3"]["input"]["message"], json!({"id": 2, "type": "call_service"}), "what a send writes stays readable");
+    }
+
+    /// A top-level `query` (refused at create: it belongs under credentials)
+    /// is blanked whole like the other misplaced credential keys, and a URL
+    /// nested anywhere in a watchdog call's arguments (a fire action's own
+    /// target) keeps no secret query value (@rig-sol-b's review of 2ab20c5).
+    #[test]
+    fn a_misplaced_websocket_query_never_reaches_the_saved_transcript() {
+        let name = "mcp__orgtree__orgtree_watchdog";
+        let stray = json!({ "action": "create", "name": "ha", "kind": "websocket", "target": "wss://ha.local/api/websocket",
+                            "query": { "access_token": CANARY },
+                            "fire_actions": [{ "tool": "orgtree_watchdog", "args": { "action": "create", "kind": "websocket",
+                                               "target": format!("wss://x.local/ws?access_token={CANARY}") } }] });
+        let mut body = json!({ "tools": [{ "id": "q1", "name": name, "arg": tool_arg(name, &stray), "input": stray }] });
+        let inputs = take_tool_inputs(&mut body, 9);
+        let saved = format!("{body}{inputs}");
+        assert!(!saved.contains(CANARY), "a misplaced query reached the saved transcript: {saved}");
+        assert_eq!(inputs["q1"]["input"]["query"], json!("[redacted]"));
+        assert_eq!(inputs["q1"]["input"]["fire_actions"][0]["args"]["target"], json!("wss://x.local/ws?access_token=*****"));
+        assert_eq!(inputs["q1"]["input"]["target"], json!("wss://ha.local/api/websocket"), "a target without secrets is kept");
     }
 }

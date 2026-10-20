@@ -199,4 +199,15 @@ mod tests {
         assert!(!shown.contains("PREVIEW-CANARY") && !shown.contains("ha-user"), "{shown}");
         assert_eq!(w.active(1)[0]["tool"]["preview_input"]["pattern"], "home/#");
     }
+    /// Nor a misplaced top-level `query` object, even half written (refused at
+    /// create, it would carry a websocket token; @rig-sol-b's review of 2ab20c5).
+    #[test]
+    fn a_misplaced_websocket_query_never_shows_in_the_live_preview() {
+        let mut w = ToolWriting::default();
+        w.start(0, "a", "mcp__orgtree__orgtree_watchdog", 1);
+        w.delta(0, r#"{"action":"create","kind":"websocket","target":"wss://ha.local/api/websocket","query":{"access_token":"PREVIEW-CANARY-2"#);
+        let shown = w.active(1)[0].to_string();
+        assert!(!shown.contains("PREVIEW-CANARY"), "{shown}");
+        assert_eq!(w.active(1)[0]["tool"]["preview_input"]["target"], "wss://ha.local/api/websocket");
+    }
 }
