@@ -244,6 +244,10 @@ async fn opencode_mail_pg_custody_dnd_order_restart_duplicates_and_atomic_failur
         .await
         .unwrap()
         .is_empty());
+    let mut engine = crate::engine::Engine::for_tests(std::path::PathBuf::new());
+    assert!(crate::domain::mail::acknowledge_turn(&engine, &client, 10)
+        .await.unwrap().is_empty(), "generic turn completion cannot acknowledge bridge custody");
+    assert!(load(&client, 1).await.unwrap().is_some());
     let receipts = acknowledge(&client, 1, "ses_fixture", &batch.id)
         .await
         .unwrap();
@@ -367,6 +371,47 @@ async fn opencode_mail_pg_custody_dnd_order_restart_duplicates_and_atomic_failur
     );
     drop(second);
     connection2.await.unwrap();
+    // Exercise the actual context-retry transaction, including its wake and
+    // original-mail marker, against a held bridge batch and an ordinary claim.
+    // No production engine or provider is started by this isolated fixture.
+    client.batch_execute("ALTER TABLE ot.agents ADD COLUMN name text, ADD COLUMN session_id text,
+        ADD COLUMN state text DEFAULT 'live', ADD COLUMN extra jsonb DEFAULT '{}',
+        ADD COLUMN occupancy int, ADD COLUMN occupancy_est bool, ADD COLUMN compacted_unrun bool,
+        ADD COLUMN inflight_at timestamptz, ADD COLUMN row_version bigint DEFAULT 0;
+        ALTER TABLE ot.turns ADD COLUMN ended_at timestamptz, ADD COLUMN error text;
+        ALTER TABLE ot.mail ADD COLUMN recipient_kind text, ADD COLUMN recipient_name text,
+        ADD COLUMN notice bool, ADD COLUMN attachments jsonb;
+        CREATE SEQUENCE ot.mail_fixture_ids START 100;
+        CREATE UNIQUE INDEX mail_fixture_uid ON ot.mail(uid);
+        ALTER TABLE ot.mail ALTER COLUMN id SET DEFAULT nextval('ot.mail_fixture_ids');
+        CREATE TABLE ot.agent_sessions(agent_id bigint,session_id text,ended_at timestamptz,end_reason text);
+        INSERT INTO ot.agents(id,org_id,generation,dnd,name,session_id) VALUES(3,1,1,false,'fixture','ses_retry');
+        INSERT INTO ot.turns(id,agent_id) VALUES(12,3);
+        INSERT INTO ot.mail(id,uid,recipient_agent_id,state,turn_id,org_id,sender,body,urgent)
+          VALUES(5,'held',3,'pending',NULL,1,'sender','held bridge text',false),
+                (6,'ordinary',3,'delivering',12,1,'sender','ordinary text',false);").await.unwrap();
+    let raw = claim(&client, 3, 12).await.unwrap();
+    let held = persist(&client, 3, 12, "ses_retry", "held bridge text", &raw,
+        &json!({"role":"user","text":"held bridge text","mail_ids":["held"]})).await.unwrap();
+    let manager = deadpool_postgres::Manager::new(cfg.clone(), tokio_postgres::NoTls);
+    std::sync::Arc::get_mut(&mut engine).unwrap().db = deadpool_postgres::Pool::builder(manager)
+        .max_size(1).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
+    assert!(super::super::context_reset::retry(&engine, 1, 3, 12, "synthetic context full").await.unwrap());
+    let row = client.query_one("SELECT state,turn_id,extra FROM ot.mail WHERE id=5", &[]).await.unwrap();
+    assert_eq!(row.get::<_,String>(0), "delivering", "context retry must leave bridge custody intact");
+    assert_eq!(row.get::<_,Option<i64>>(1), Some(12));
+    assert!(row.get::<_,serde_json::Value>(2).get("context_retry_original").is_none());
+    assert_eq!(load(&client, 3).await.unwrap().unwrap().id, held.id);
+    let row = client.query_one("SELECT state,turn_id,extra FROM ot.mail WHERE id=6", &[]).await.unwrap();
+    assert_eq!(row.get::<_,String>(0), "pending", "ordinary unconsumed input still retries");
+    assert_eq!(row.get::<_,Option<i64>>(1), None);
+    assert_eq!(row.get::<_,serde_json::Value>(2)["context_retry_original"], 12);
+    assert!(super::super::context_reset::retry(&engine, 1, 3, 12, "same failure").await.unwrap());
+    let wake = client.query_one("SELECT count(*),min(body) FROM ot.mail WHERE uid='context-retry-12'", &[]).await.unwrap();
+    assert_eq!(wake.get::<_,i64>(0), 1);
+    assert!(!wake.get::<_,String>(1).contains("held bridge text"));
+    assert_eq!(acknowledge(&client, 3, "ses_retry", &held.id).await.unwrap().len(), 1);
+    drop(engine);
     drop(client);
     connection.await.unwrap();
 }
