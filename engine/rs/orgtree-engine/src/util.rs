@@ -29,6 +29,21 @@ pub fn now() -> DateTime<Utc> {
     Utc::now()
 }
 
+/// Builds a future in a frame of its own and moves it to the heap, so the
+/// awaiting function's poll frame keeps only a pointer. A debug build reserves
+/// two or three copies of every future awaited inline in the awaiting poll
+/// frame: the actor's turn path (run, handle_msg, on_slot, start_turn,
+/// ensure_proc) outgrew the 2 MiB engine worker stack that way at a first
+/// Codex turn, and so did a fire action's tool call under a polled dog's
+/// runner (arm_retry, poll_once, fire_with, run_fire_actions).
+/// `Box::pin(call)` alone still builds the future in the caller's frame
+/// first. See [stack safety](docs/rust-engine/tool-cards.md#stack-safety).
+#[nolog]
+#[inline(never)]
+pub fn boxed<F: std::future::Future>(make: impl FnOnce() -> F) -> std::pin::Pin<Box<F>> {
+    Box::pin(make())
+}
+
 pub fn now_iso() -> String {
     iso(Utc::now())
 }

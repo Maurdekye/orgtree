@@ -108,3 +108,24 @@ first Claude turn on a debug engine with `RUST_MIN_STACK` unset: it fails at
 Release builds inline these poll functions: the largest actor frame in an
 alpha.10 release engine is 43,640 bytes and its largest frame overall 89,112.
 Those are static frame allocations, not measured stack use.
+
+### Fire actions
+
+A polled dog's fire action ran its tool call inline, below the dog's runner:
+`arm_retry` → `poll_once` → `fire_with` → `run_fire_actions` → `call_tool` →
+`tools::dispatch` → `create` → the websocket smoke's dial. At rust-engine 1cbaac2 a
+file dog whose fire action created a websocket dog overflowed the debug engine (the
+websocket rig proof's file-path fire action). `run_fire_actions` now builds the
+`call_tool` future through `util::boxed` (moved there from the actor); a spawned task
+would lose the task-local fire-action depth. Static frames on that path:
+
+| Poll frame (logged wrapper + inner) | Inline | Boxed |
+| --- | ---: | ---: |
+| `watchdogs::arm_retry` | 334,632 | 230,536 |
+| `watchdogs::poll_once` | 162,416 | 106,352 |
+| `watchdogs::fire_with` | 112,928 | 61,552 |
+| `watchdogs::fire` | 85,256 | 45,208 |
+| `watchdogs::run_fire_actions` | 100,512 | 11,504 |
+
+In an alpha.10 release engine the whole path is inlined into `arm_retry`, about
+78 KB of static frames.

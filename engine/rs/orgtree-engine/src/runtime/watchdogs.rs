@@ -1520,9 +1520,14 @@ pub(crate) async fn run_fire_actions(engine: &Arc<Engine>, org_id: i64, owner: i
             let tool = a["tool"].as_str().unwrap_or("");
             let argv = if a["args"].is_object() { a["args"].clone() } else { json!({}) };
             let started = Instant::now();
+            // built in a frame of its own: inline, the whole tool dispatch
+            // future sat in every poll frame up a polled dog's runner, and a
+            // fire action that created a websocket dog overflowed a debug
+            // engine's 2 MiB worker stack (a spawned task would lose the
+            // task-local depth above)
             let (ok, text) = match tokio::time::timeout(
                 Duration::from_secs(FIRE_ACTION_TIMEOUT_S),
-                crate::tools::call_tool(engine, &caller, tool, &argv, None),
+                crate::util::boxed(|| crate::tools::call_tool(engine, &caller, tool, &argv, None)),
             ).await {
                 Ok(r) => r,
                 Err(_) => (false, format!("timed out after {FIRE_ACTION_TIMEOUT_S}s")),

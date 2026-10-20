@@ -31,7 +31,7 @@ use crate::runtime::sched::Slot;
 use crate::runtime::startup;
 use super::token_counts::{self, Harness, Sample};
 use crate::runtime::{freeze, keepalive, recovery, tasks, AgentHandle, AgentMsg, AgentTx, Caller, Envelope, Post};
-use crate::util::{gist, iso, now_iso};
+use crate::util::{boxed, gist, iso, now_iso};
 
 /// What `/chat` needs from a running actor.
 #[derive(Clone, Default, Debug)]
@@ -752,19 +752,6 @@ impl Fingerprint {
 /// A fingerprint part's digest. Not logged: its input is the launch's own
 /// material, the granted MCP servers' configuration (environment, headers,
 /// arguments that can be credentials) included; the digest is what is kept.
-/// Builds a future in a frame of its own and moves it to the heap, so the
-/// awaiting function's poll frame keeps only a pointer. A debug build reserves
-/// two or three copies of every future awaited inline in the awaiting poll
-/// frame, and the actor's turn path (run, handle_msg, on_slot, start_turn,
-/// ensure_proc) outgrew the 2 MiB engine worker stack that way at a first
-/// Codex turn. `Box::pin(call)` alone still builds the future in the caller's
-/// frame first. See [stack safety](docs/rust-engine/tool-cards.md#stack-safety).
-#[nolog]
-#[inline(never)]
-fn boxed<F: std::future::Future>(make: impl FnOnce() -> F) -> std::pin::Pin<Box<F>> {
-    Box::pin(make())
-}
-
 #[nolog]
 fn hash(s: &str) -> String {
     hex::encode(&Sha256::digest(s.as_bytes())[..12])
