@@ -13,9 +13,14 @@
 //
 // The user holds slots themselves too (docket
 // let-the-user-manually-hold-a-number-of-a-project; USER 2026-10-20 13:03Z,
-// 13:22Z "B": a focused dialog, FIFO whole grants, holds that last until
-// released): "Hold slots…" asks for a count and a reason (`user_slot_hold`);
-// their hold is a Holding row and their wait a Line row, both naming the
+// 13:22Z "B": FIFO whole grants, holds that last until released): the desk
+// header carries a number input (default 1) and a button "Hold 1 slot" /
+// "Hold N slots" left of the pin / pop-out / modal buttons, and a click holds
+// at once (`user_slot_hold`, no dialog; USER 16:35Z, docket
+// slots-tab-header-hold-n-slots-button-with-number). The count runs from 1 to
+// the total minus the slots the user already holds or has asked for (a request
+// still waiting counts as held); the button is grey when none is left.
+// Their hold is a Holding row and their wait a Line row, both naming the
 // engine's "user" as the standard @user mention (13:50Z, never "you"), with
 // the user's own release (plain, unconfirmed: it is their hold) and cancel
 // request, where an agent's rows keep force release and remove from line.
@@ -27,7 +32,7 @@ import type { ToastFn, Watchdog } from '../types'
 import { ago } from './shared'
 import type { CanvasNode, OpFn } from './shared'
 import { ConfirmModal } from './modals'
-import { ordinal, slotUnits } from './slots'
+import { MAX_SLOTS, ordinal, slotUnits } from './slots'
 import { slotTimeStyle, slotEndedTimeStyle } from './slottime'
 import { AgentLink, nodeTierOf } from './identity'
 import { ageClockNow, subscribeAgeClock } from './desk'
@@ -37,7 +42,6 @@ import { WatchdogLink } from './watchdoglink'
 import { HistoryDog } from './historydog'
 import type { DogIdentity } from './historydog'
 import { UserMention, isUserName } from './usermention'
-import { HoldSlotsDialog } from './userdialogs'
 import type { RefRoutes } from './reflinks'
 
 interface Holder { lease: string; agent: string; slot?: number; slots?: number; reason?: string | null; queued?: string | null; since: string; reminders?: number; dog?: DogIdentity | null }
@@ -86,7 +90,7 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
   useSyncExternalStore(subscribeAgeClock, ageClockNow, ageClockNow)
   const [status, setStatus] = useState<SlotStatus | null>(null)
   const [asking, setAsking] = useState<Holder | null>(null)
-  const [holding, setHolding] = useState(false)
+  const [count, setCount] = useState('1')
   const [bump, setBump] = useState(0)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState(false)
@@ -154,19 +158,36 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
       .then(() => { toast([`slot request for project ${node.id} cancelled`]); reread() })
       .catch(() => {})
   }
-  const hold = (slots: number, reason: string) => {
-    op({ op: 'user_slot_hold', node: node.id, slots, ...(reason ? { reason } : {}) })
+  // the header's Hold control: what the user may still ask for is the total minus what they hold and what
+  // they wait for (an agent's hold is not theirs); the tree's rows stand in until the first read lands
+  const mineOf = (rows: { agent: string; slots?: number }[]) => rows.filter((r) => isUserName(r.agent)).reduce((n, r) => n + slotUnits(r.slots), 0)
+  const mine = status ? mineOf(status.holders ?? []) + mineOf(status.line ?? []) : mineOf(state.held) + mineOf(state.line)
+  const total = Math.min(state.total, MAX_SLOTS)
+  const room = Math.max(0, total - mine)
+  // a typed count is brought into 1..room; an empty or fractional one stays as typed, and holds nothing
+  const bring = (text: string) => /^\d+$/.test(text.trim()) ? String(Math.min(Math.max(Number(text.trim()), 1), Math.max(room, 1))) : text
+  const shown = bring(count)
+  const slotsToHold = /^\d+$/.test(shown) && room >= 1 ? Number(shown) : null
+  const hold = (slots: number) => {
+    op({ op: 'user_slot_hold', node: node.id, slots })
       .then(() => { toast([`asked for ${slotUnits(slots)} concurrency slot(s) of ${node.id}: held when all are free`]); reread() })
       .catch(() => {})
+    setCount('1')
   }
+  const holdControl = node.state === 'live' && state.total >= 1 && (
+    <span className="slot-hold" role="group" aria-label="Hold concurrency slots">
+      <input type="number" min={1} max={Math.max(room, 1)} step={1} value={shown} disabled={room < 1}
+        aria-label="Slots to hold" onChange={(e) => setCount(bring(e.target.value))} />
+      <button type="button" data-action="hold-slots" disabled={slotsToHold === null}
+        title={room < 1 ? `every concurrency slot of ${node.id} is already held or asked for by the user`
+          : slotsToHold === null ? `choose 1 to ${room} slots`
+          : `ask for ${slotsToHold === 1 ? 'a concurrency slot' : `${slotsToHold} concurrency slots`} of ${node.id}: the request waits first come first served and is granted when all are free, and lasts until released`}
+        onClick={() => { if (slotsToHold !== null) hold(slotsToHold) }}>
+        {slotsToHold === null && room >= 1 ? 'Hold slots' : `Hold ${slotsToHold ?? 1} slot${slotsToHold === null || slotsToHold === 1 ? '' : 's'}`}</button>
+    </span>)
   return (
     <div className="desk-tabpanel project-slots" onScroll={scrollHistory}>
-      {actions && <div className="team-tab-toolbar" role="toolbar" aria-label="Slots view controls">{actions}</div>}
-      {node.state === 'live' && <div className="user-reg-tools">
-        <button type="button" data-action="hold-slots"
-          title={`ask for concurrency slots of ${node.id}: the request waits first come first served and is granted when all are free`}
-          onClick={() => setHolding(true)}>Hold slots…</button>
-      </div>}
+      {(holdControl || actions) && <div className="team-tab-toolbar" role="toolbar" aria-label="Slots view controls">{holdControl}{actions}</div>}
       <div className="slots-table-scroll" role="region" aria-label="Concurrency slot records" tabIndex={0} onScroll={scrollHistory}>
       <table className="slots-table">
         <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/><col className="slot-col-time"/>
@@ -260,8 +281,6 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
       </tbody>
       </table>
       </div>
-      {holding && createPortal(
-        <HoldSlotsDialog project={node.id} slots={state.total} onHold={hold} close={() => setHolding(false)} />, document.body)}
       {asking && createPortal(
         <ConfirmModal title={`take ${slotUnits(asking.slots) === 1 ? 'the concurrency slot' : `${slotUnits(asking.slots)} concurrency slots`} of ${node.id} back from ${asking.agent}?`}
           body={`${asking.agent} has held this lease for ${span(asking.since)}${asking.reason ? ` (${asking.reason})` : ''}. `

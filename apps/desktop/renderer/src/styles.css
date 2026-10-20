@@ -3059,7 +3059,10 @@ textarea.ask-free-response-input { resize: vertical; }
 .mailpane { display: flex; flex: 1; min-height: 0; }
 .settings .mailpane { height: 55vh; }
 .mailwrap { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 8px; }
-.mail-folders { display: flex; gap: 4px; flex-shrink: 0; }
+.mail-folders { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; flex-shrink: 0; }
+/* controls a host folder puts at the strip's end (the project desk's Join mail queue); the desk's corner
+   buttons sit over the strip's reserved right padding, so these stop short of them */
+.mail-folder-tools { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .mail-folders button {
   background: none; border: none; color: var(--dim);
   font-size: 12px; padding: 2px 10px; border-radius: 4px;
@@ -9853,6 +9856,12 @@ button.node-link.node-link:focus-visible {
    chip (.ref-chip), so they need no style of their own. */
 .user-reg-tools { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin: 0 0 6px; }
 .user-reg-tools button { font-size: 12px; padding: 2px 10px; }
+/* the desk header's own controls: Hold N slots (Slots tab) and Join mail queue (Mail tab, listeners folder) —
+   a number input and a button side by side (docket slots-tab-header-hold-n-slots-button-with-number) */
+.slot-hold, .queue-join { display: inline-flex; align-items: center; gap: 4px; }
+.slot-hold input[type="number"], .queue-join input[type="number"] { width: 4.2em; font-size: 12px; padding: 2px 4px; color: var(--ink-strong); }
+.slot-hold button, .queue-join button { font-size: 12px; padding: 2px 10px; white-space: nowrap; }
+.slot-hold button:disabled, .queue-join button:disabled, .slot-hold input:disabled { opacity: 0.5; cursor: default; }
 .user-reg-form { display: flex; flex-direction: column; gap: 10px; }
 .user-reg-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--dim); }
 .user-reg-field input, .user-reg-field select { font-size: 13px; padding: 3px 6px; color: var(--ink-strong); }

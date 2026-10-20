@@ -55,7 +55,6 @@ import { useLoadWhenSeen } from './loadmore'
 import type { DogIdentity } from './historydog'
 import { fmtFull } from '../timefmt'
 import { UserMention, isUserName } from './usermention'
-import { JoinQueueDialog } from './userdialogs'
 import { resolveRef } from './reflinks'
 import type { RefRoutes } from './reflinks'
 
@@ -207,7 +206,6 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
   const [asking, setAsking] = useState<WorkingJob | null>(null)
-  const [joining, setJoining] = useState(false)
   const generation = useRef(0), busy = useRef(false)
   // the host may hand a new `op` each render: read through a ref, so only
   // the queue's own moves re-read
@@ -296,12 +294,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
     </tbody>
   )
   const empty = (text: ReactNode) => <tr><td colSpan={n} className="dim slot-empty">{text}</td></tr>
-  // the user's queue place: joined from a dialog, left from their own row
-  const join = (batch: number) => {
-    op?.({ op: 'user_queue_join', node: node.id, batch })
-      .then(() => { toast?.([`joined project ${node.id}'s mail queue (batch ${batch})`]); setBump((b) => b + 1) })
-      .catch(() => {})
-  }
+  // the user's queue place: joined from the desk header (mailqueuejoin.tsx), left from here
   const leave = () => {
     op?.({ op: 'user_queue_leave', node: node.id })
       .then(() => { toast?.([`left project ${node.id}'s mail queue; a job already held stays held until it is acknowledged`]); setBump((b) => b + 1) })
@@ -329,16 +322,12 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const maxAttempts = hist?.max_attempts ?? 3
   return (
     <div className="project-mail-listeners" onScroll={onScroll}>
-      {/* the user's place: joined from here, left from here too (a user holding as many jobs as their batch is
-          in Working, not the Line, so their row there cannot always carry the leave) */}
-      {node.state === 'live' && <div className="user-reg-tools">
-        {myDog
-          ? <button type="button" data-action="leave-queue"
-              title="leave this queue: no more jobs are handed to you; a job already held stays held until it is acknowledged"
-              onClick={leave}>Leave mail queue</button>
-          : <button type="button" data-action="join-queue"
-              title={`take a share of ${node.id}'s mail: the jobs handed to you arrive as normal mail in your inbox`}
-              onClick={() => setJoining(true)}>Join mail queue…</button>}
+      {/* the user's place: joined from the desk header (mailqueuejoin.tsx), left from here (a user holding as many
+          jobs as their batch is in Working, not the Line, so their row there cannot always carry the leave) */}
+      {node.state === 'live' && myDog && <div className="user-reg-tools">
+        <button type="button" data-action="leave-queue"
+          title="leave this queue: no more jobs are handed to you; a job already held stays held until it is acknowledged"
+          onClick={leave}>Leave mail queue</button>
       </div>}
       <div className="slots-table-scroll" role="region" aria-label={`Mail listeners of project ${node.id}`} tabIndex={0} onScroll={onScroll}>
         <table className={'slots-table mail-listeners-table' + (ack ? ' ack' : ' round-robin')}>
@@ -466,8 +455,6 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
           </>)}
         </table>
       </div>
-      {joining && createPortal(
-        <JoinQueueDialog project={node.id} ack={ack} onJoin={join} close={() => setJoining(false)} />, document.body)}
       {asking && createPortal(
         <ConfirmModal title={`take this job back from ${asking.agent}?`}
           body={`${asking.agent} has held it for ${asking.held_at ? span(asking.held_at) : 'a while'}${asking.gist ? ` (“${asking.gist}”)` : ''}. `

@@ -73,22 +73,21 @@ async fn insert_dog(tx: &Transaction<'_>, org_id: i64, kind: &str, n: &Node, nam
     Ok((dog, row))
 }
 
-/// The user keeps one dog of a kind per project, as an agent does: refused
-/// while one is armed or paused.
+/// The user's armed or paused dog of a kind on a project, locked: (row, uid,
+/// state, once, memo). The user keeps one of each kind per project, as an
+/// agent does; registering again CHANGES that dog in place (the desk header's
+/// Register... menu and Join mail queue, USER 2026-10-20 16:39Z/16:43Z), so
+/// its place in the order, its fire count and what it holds are kept.
 #[logged]
-async fn one_per_project(tx: &Transaction<'_>, org_id: i64, kind: &str, n: &Node, what: &str) -> Result<()> {
-    if let Some(r) = tx
+async fn existing_dog(tx: &Transaction<'_>, org_id: i64, kind: &str, n: &Node) -> Result<Option<(i64, String, String, bool, Value)>> {
+    let r = tx
         .query_opt(
-            "SELECT uid, state FROM ot.watchdogs WHERE org_id = $1 AND owner_kind = 'user' AND kind = $2
-                AND state IN ('armed', 'paused') AND (memo->>'target_id')::bigint = $3 ORDER BY id LIMIT 1",
+            "SELECT id, uid, state, once, memo FROM ot.watchdogs WHERE org_id = $1 AND owner_kind = 'user' AND kind = $2
+                AND state IN ('armed', 'paused') AND (memo->>'target_id')::bigint = $3 ORDER BY id LIMIT 1 FOR UPDATE",
             &[&org_id, &kind, &n.id],
         )
-        .await?
-    {
-        let (uid, state): (String, String) = (r.get(0), r.get(1));
-        refuse!(Conflict, "you already keep {what} ({uid}, {state}) on project {}; one per project. Remove it first", n.name);
-    }
-    Ok(())
+        .await?;
+    Ok(r.map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4))))
 }
 
 /// Registering a listener or watch switches the project's event listeners
@@ -218,13 +217,23 @@ pub(super) async fn unqueue_user(org: &Arc<OrgHandle>, tx: &Transaction<'_>, act
 /// user_listener_register`; the desk's Listeners tab). Every event fired on
 /// the project (`once`: only the next) arrives as mail in their inbox. It
 /// counts toward listener watches, and switches the project's event
-/// listeners on.
+/// listeners on. Registering again with the other `once` SWITCHES the
+/// listener in place (the same dog); the same kind changes nothing.
 #[logged]
 pub(super) async fn listener_register(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     require_user(actor, "registers as an event listener themselves")?;
     let n = live_project(org, tx, req, "has event listeners").await?;
     let once = req.get("once").and_then(Value::as_bool).unwrap_or(false);
-    one_per_project(tx, org.id, "project_listener", &n, "an event listener").await?;
+    if let Some((row, dog, state, was_once, _)) = existing_dog(tx, org.id, "project_listener", &n).await? {
+        if was_once != once {
+            tx.execute("UPDATE ot.watchdogs SET once = $2 WHERE id = $1", &[&row, &once]).await?;
+            event(tx, org.id, "user_listener_switch", actor, Some(n.id), json!({ "node": n.name, "dog": dog, "row": row, "once": once }), fx).await?;
+            fx.agents.insert(n.id);
+            fx.pulses.push(crate::changes::Change::Watchdogs);
+        }
+        return Ok(json!({ "node": n.name, "dog": dog, "state": state, "once": once, "updated": was_once != once,
+                          "next": "the listener was switched in place: the same dog, each event fired on the project still arrives as normal mail in your inbox" }));
+    }
     let memo = json!({ "target_id": n.id, "notice": false, "run": {} });
     let (dog, row) = insert_dog(tx, org.id, "project_listener", &n, "user-listener", once, &memo).await?;
     turn_events_on(org, tx, actor, &n, &dog, fx).await?;
@@ -240,6 +249,8 @@ pub(super) async fn listener_register(org: &Arc<OrgHandle>, tx: &Transaction<'_>
 /// Register a listener watch for the user (`op user_watch_register`): a
 /// one-time notification in their inbox when the project's armed event
 /// listeners (theirs included) reach `count`; already there, it fires at once.
+/// Registering again with another count UPDATES the watch in place (the same
+/// dog, evaluated at once); the same count changes nothing.
 #[logged]
 pub(super) async fn watch_register(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     require_user(actor, "registers a listener watch themselves")?;
@@ -247,7 +258,24 @@ pub(super) async fn watch_register(org: &Arc<OrgHandle>, tx: &Transaction<'_>, a
     let Some(count) = req.get("count").and_then(Value::as_i64).filter(|c| (1..=crate::domain::listeners::MAX_COUNT).contains(c)) else {
         refuse!(BadRequest, "count is how many armed event listeners on {} fire the watch, 1 to {}", n.name, crate::domain::listeners::MAX_COUNT);
     };
-    one_per_project(tx, org.id, "listener_watch", &n, "a listener watch").await?;
+    if let Some((row, dog, state, _, memo)) = existing_dog(tx, org.id, "listener_watch", &n).await? {
+        let before = memo.get("count").and_then(Value::as_i64).unwrap_or(0);
+        if before != count {
+            // a new count is a new crossing: it may fire at once if the project already has that many listeners
+            tx.execute(
+                "UPDATE ot.watchdogs SET memo = memo || jsonb_build_object('count', $2::bigint,
+                        'run', coalesce(memo->'run', '{}'::jsonb) || jsonb_build_object('above', false)) WHERE id = $1",
+                &[&row, &count],
+            )
+            .await?;
+            event(tx, org.id, "user_watch_update", actor, Some(n.id), json!({ "node": n.name, "dog": dog, "row": row, "from": before, "count": count }), fx).await?;
+            fx.agents.insert(n.id);
+            fx.pulses.push(crate::changes::Change::Watchdogs);
+            fx.listener_evals.push(n.id);
+        }
+        return Ok(json!({ "node": n.name, "dog": dog, "state": state, "count": count, "previous": before, "updated": before != count,
+                          "next": "the watch was updated in place: a one-time notification arrives as normal mail in your inbox when the new count is reached" }));
+    }
     let memo = json!({ "target_id": n.id, "count": count, "notice": false, "run": { "above": false } });
     let (dog, row) = insert_dog(tx, org.id, "listener_watch", &n, "user-watch", true, &memo).await?;
     turn_events_on(org, tx, actor, &n, &dog, fx).await?;
@@ -295,6 +323,12 @@ pub(super) async fn registration_remove(org: &Arc<OrgHandle>, tx: &Transaction<'
 /// mail in their inbox; in ACK mode each is theirs until they acknowledge
 /// it. `batch` bounds the jobs they hold at once. The user takes their turn
 /// in the round-robin like any listener.
+///
+/// Joining again while in the queue changes the batch IN PLACE (the desk
+/// header's "Join mail queue N times", USER 2026-10-20 16:39Z: "it can be
+/// changed after and pressed again to update the batch size"): the same dog
+/// keeps its place in the order and every job already held; a raised batch
+/// hands a waiting job at once, a lowered one reclaims nothing.
 #[logged]
 pub(super) async fn queue_join(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     require_user(actor, "joins a project's mail queue as themselves")?;
@@ -303,7 +337,19 @@ pub(super) async fn queue_join(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor
     if !(1..=crate::domain::projects::MAX_QUEUE_BATCH).contains(&batch) {
         refuse!(BadRequest, "batch is how many jobs you hold at once, 1 to {}", crate::domain::projects::MAX_QUEUE_BATCH);
     }
-    one_per_project(tx, org.id, "fair_queue", &n, "a mail queue listener").await?;
+    if let Some((row, dog, state, _, memo)) = existing_dog(tx, org.id, "fair_queue", &n).await? {
+        let before = memo.get("batch").and_then(Value::as_u64).unwrap_or(1);
+        if before != batch {
+            tx.execute("UPDATE ot.watchdogs SET memo = memo || jsonb_build_object('batch', $2::bigint) WHERE id = $1", &[&row, &(batch as i64)]).await?;
+            event(tx, org.id, "user_queue_batch", actor, Some(n.id), json!({ "node": n.name, "dog": dog, "row": row, "from": before, "batch": batch }), fx).await?;
+            fx.agents.insert(n.id);
+            fx.pulses.push(crate::changes::Change::Watchdogs);
+            // a raised batch frees room: what waits is handed out now
+            fx.queue_runs.push(n.id);
+        }
+        return Ok(json!({ "node": n.name, "dog": dog, "state": state, "batch": batch, "previous": before, "updated": before != batch,
+                          "next": "the batch changed in place: your place in the order and any job you hold are kept" }));
+    }
     let memo = json!({ "target_id": n.id, "batch": batch, "notice": false, "run": {} });
     let (dog, row) = insert_dog(tx, org.id, "fair_queue", &n, "user-queue", false, &memo).await?;
     event(tx, org.id, "user_queue_join", actor, Some(n.id), json!({ "node": n.name, "dog": dog, "row": row, "batch": batch }), fx).await?;

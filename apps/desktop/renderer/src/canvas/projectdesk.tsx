@@ -60,6 +60,7 @@ import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
 import { eventListenersOn, listenerCards, mailListenerState, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { MailListenersView } from './maillisteners'
+import { MailQueueJoin } from './mailqueuejoin'
 import { InboxNoListeners, inboxListened } from './inboxwarning'
 import { DeskJumpCards, superiorKept } from './deskjumpcards'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs, deskTabLabel } from './deskshell'
@@ -615,6 +616,7 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
       jumpTo={jumpTo ?? null} jumpSeq={jumpSeq ?? null}
       onFolderPick={onPickFolder}
       extraFolders={[{ id: 'listeners', count: mailListeners.armed.length,
+        tools: node.state === 'live' ? <MailQueueJoin node={node} state={mailListeners} op={op} toast={toast} /> : undefined,
         render: (rows) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
           rows={rows} ack={queueAckMode(node)} onOpenMail={onOpenMail} op={op} toast={toast} dogs={tree.watchdogs ?? []} refs={refs} /> }]}
       folderAsk={folderAsk} />

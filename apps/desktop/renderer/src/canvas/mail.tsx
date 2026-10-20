@@ -1452,10 +1452,13 @@ interface InboxViewProps {
 
 /** A folder the host draws in the mail pane: `id` is its name on the folder
  *  strip, `count` its badge, `render` gets the mailbox rows loaded here
- *  (waiting and delivered). */
+ *  (waiting and delivered), `tools` are controls the strip carries while the
+ *  folder is open (the project desk's Join mail queue, left of the corner's
+ *  pin / pop-out / modal buttons). */
 export interface InboxExtraFolder {
   id: string
   count?: number
+  tools?: ReactNode
   render: (rows: MailRow[]) => ReactNode
 }
 
@@ -1626,7 +1629,8 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
         unread={unreadCount === undefined ? pending.length : Math.max(0, unreadCount
           - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier}
         folders={extraFolders?.length ? ['inbox', 'sent', ...extraFolders.map((f) => f.id)] : undefined}
-        counts={Object.fromEntries((extraFolders ?? []).map((f) => [f.id, f.count ?? 0]))} />
+        counts={Object.fromEntries((extraFolders ?? []).map((f) => [f.id, f.count ?? 0]))}
+        tools={extra?.tools} />
       <div className="mailpane">
         {extra ? extra.render([...pending, ...(box?.delivered ?? [])]) : <>
         {history.error&&<div role="alert">Could not load older mail. <button onClick={history.retry}>Retry</button></div>}
@@ -1693,9 +1697,11 @@ export interface MailFoldersProps {
   tier?: string | null
   /** badges on folders other than the inbox (a project's mail listeners) */
   counts?: Record<string, number>
+  /** controls at the strip's end, for the folder that is open */
+  tools?: ReactNode
 }
 
-export function MailFolders({ folder, setFolder, unread, folders, tier, counts }: MailFoldersProps) {
+export function MailFolders({ folder, setFolder, unread, folders, tier, counts, tools }: MailFoldersProps) {
   return (
     <div className="mail-folders">
       {(folders ?? ['inbox', 'sent']).map((f) => (
@@ -1708,6 +1714,7 @@ export function MailFolders({ folder, setFolder, unread, folders, tier, counts }
             : ''}
         </button>
       ))}
+      {tools && <div className="mail-folder-tools">{tools}</div>}
     </div>
   )
 }
