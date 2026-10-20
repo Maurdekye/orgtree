@@ -10,6 +10,7 @@ import { objectNavProps } from './objectnav'
 import { WorkStatusTransition } from './docketstatus'
 import { liveRevision, onLiveBump } from '../livebus'
 import type { WorkReference } from '../workreferences'
+import { useOrgRecordCursor } from '../recordsession'
 import { HubContactChip } from './agentmentions'
 import { ModelChange } from './modelchange'
 
@@ -17,6 +18,7 @@ import { ModelChange } from './modelchange'
  *  is looked up first; one that does not exist (typo, deleted) stays plain
  *  text, like an unknown agent name gets no link. */
 function TicketRef({ org, id, onOpen }: { org: string; id: string; onOpen?: WorkLinkFn }) {
+  const cursor = useOrgRecordCursor(org)
   const key = JSON.stringify([org, id])
   const [settled, setSettled] = useState<{ key: string; row: WorkReference | null } | null>(null)
   useEffect(() => {
@@ -24,14 +26,14 @@ function TicketRef({ org, id, onOpen }: { org: string; id: string; onOpen?: Work
     let request = 0
     const refresh = () => {
       const current = ++request
-      getWorkReferences(org, `live:${liveRevision()}`, [id])
+      getWorkReferences(org, JSON.stringify([cursor, liveRevision()]), [id])
         .then(rows => { if (live && current === request) setSettled({ key, row: rows.get(id) ?? null }) })
         .catch(() => { if (live && current === request) setSettled(null) })
     }
     refresh()
     const off = onLiveBump(refresh)
     return () => { live = false; off() }
-  }, [org, id])
+  }, [org, id, cursor])
   const current = settled?.key === key ? settled : null
   if (current?.row === null || !onOpen) return <span className="tool-ticket-plain dim">{id}</span>
   const status = current?.row?.status

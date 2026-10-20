@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { RecordSession, SubscriptionInput } from './recordfeed'
 import type { PolledStatus } from './canvas/shared'
 
@@ -10,6 +10,18 @@ import type { PolledStatus } from './canvas/shared'
 export const OrgRecordContext = createContext<{ slug: string; session: RecordSession | null; status?: PolledStatus } | null>(null)
 const emptySubscribe = () => () => {}
 const emptySnapshot = () => null
+
+/** Exact-reference readers need org commits, not runtime token/clock updates.
+ * Select a primitive cursor so runtime-only publications do not rerender them. */
+export function useOrgRecordCursor(slug: string): string | null {
+  const context = useContext(OrgRecordContext)
+  const session = context?.slug === slug ? context.session : null
+  const snapshot = useCallback(() => {
+    const c = session?.getSnapshot()?.cursor
+    return c ? JSON.stringify([c.org_uuid, c.incarnation, c.rev]) : null
+  }, [session])
+  return useSyncExternalStore(session?.listen ?? emptySubscribe, snapshot)
+}
 
 export function useOrgRecords(slug: string) {
   const context = useContext(OrgRecordContext)
