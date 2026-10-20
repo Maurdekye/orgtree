@@ -72,3 +72,50 @@ test('feed preceding response still hands the card the placeholder position', as
   const card = [...v.el.querySelectorAll<HTMLElement>('.sq')].find(el => el.querySelector('.name')?.textContent === 'new-agent')!
   assert.equal(card.style.transform, pos)
 })
+// the feed can beat the hire's own response: the card the feed paints is the
+// hire (its name was not on the canvas when Hire was pressed), so it takes the
+// placeholder's place at once, and the two never show together
+test('feed preceding response swaps at once: the placeholder and the real card never show together', async t => {
+  const {v,render,resolve,pos} = await setup(t)
+  await v.render(render({...tree, roots:[born]} as unknown as TreePayload))
+  const card = () => [...v.el.querySelectorAll<HTMLElement>('.sq')].find(el => el.querySelector('.name')?.textContent === 'new-agent')
+  assert.ok(card(), 'the feed paints the real card')
+  assert.ok(!v.el.querySelector('.sq.draft'), 'the placeholder goes as the real card comes, before the response')
+  assert.equal(card()!.style.transform, pos, 'in the placeholder\'s place')
+  await advance(160)
+  assert.equal(card()!.style.transform, pos, 'and it does not move')
+  await act(async () => { resolve({node:'new-agent'}); await flush() })
+  assert.ok(!v.el.querySelector('.sq.draft'), 'the response does not bring the placeholder back')
+  assert.equal(card()!.style.transform, pos)
+})
+test('a name already on the canvas when Hire was pressed is not taken for the hire', async t => {
+  useFakeClock(); localStorage.clear(); installFetch(new FakeServer())
+  t.after(() => { resetConvos(); realClock() })
+  let reject!: (e: Error) => void
+  const request = new Promise<OpResult>((_yes, no) => { reject = no })
+  const existing = { ...born, id: 'new-agent', title: 'new-agent' }
+  const data = { ...tree, roots: [existing] } as unknown as TreePayload
+  const v = await mountView(<OrgCanvas tree={data} slug={tree.slug} mailEvt={null} toast={noop} op={() => request} />, el => el)
+  t.after(() => v.unmount())
+  await click(v.el.querySelector('.sq.user button.t-sol')); await advance(1200)
+  const input = v.el.querySelector<HTMLInputElement>('.df-name')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(input, 'new-agent')
+    input.dispatchEvent(new Event('input', { bubbles: true })); await flush()
+  })
+  await click(v.el.querySelector('.df-foot button.primary'))
+  assert.equal(v.el.querySelector('.sq.draft')?.getAttribute('aria-busy'), 'true', 'still waiting: the card of that name was already there')
+  await act(async () => { reject(new Error('name taken')); await flush() })
+  assert.equal(v.el.querySelector('.sq.draft')?.getAttribute('aria-busy'), 'false', 'restored for another try')
+})
+test('the pending placeholder is greyed and inert, with no React attribute warning', async t => {
+  const errors: string[] = []
+  const original = console.error
+  console.error = (...a: unknown[]) => { errors.push(a.map(String).join(' ')) }
+  t.after(() => { console.error = original })
+  const {v} = await setup(t)
+  const node = v.el.querySelector('.sq.draft')!
+  assert.ok(node.classList.contains('draft-pending'), 'greyed while the hire is on its way')
+  assert.equal(node.hasAttribute('inert'), true, 'inert: neither focus nor clicks reach it')
+  assert.ok(!errors.some(e => /inert/.test(e)), errors.find(e => /inert/.test(e)))
+})
