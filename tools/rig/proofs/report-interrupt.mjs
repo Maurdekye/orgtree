@@ -42,6 +42,7 @@ export default async function(rig) {
     if(r.ok) await finish(name,before+1)
     const ms=Date.parse(turn.ended_at)-Date.parse(turn.started_at)
     p.check(`${name}: current tool completes, next long step does not`,ms>=3000 && ms<9000
+      && rig.fakeLog(name).some(l=>l.kind==='tool_result' && l.tool===tool && !l.stopped && !l.interrupted && !l.declined)
       && !rig.fakeLog(name).some(l=>l.kind==='step' && l.step?.text==='AFTER-BOUNDARY-MUST-NOT-RUN'),{ms,turn})
     const state=await rig.tool('boss','orgtree_state_inspect',{node:name})
     p.check(`${name}: outcome is observable`,JSON.stringify(state.json).includes('"interrupt"')

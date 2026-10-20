@@ -1061,27 +1061,27 @@ impl Actor {
                         AgentMsg::Claude(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
-                            tracing::Instrument::instrument(boxed(|| self.on_claude(v)), span).await
+                            tracing::Instrument::instrument(boxed(|| self.handle_msg(AgentMsg::Claude(process, v))), span).await
                         }
                         AgentMsg::Codex(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
-                            tracing::Instrument::instrument(boxed(|| self.on_codex(v)), span).await
+                            tracing::Instrument::instrument(boxed(|| self.handle_msg(AgentMsg::Codex(process, v))), span).await
                         }
                         AgentMsg::Agy(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
-                            tracing::Instrument::instrument(boxed(|| self.on_agy(v)), span).await
+                            tracing::Instrument::instrument(boxed(|| self.handle_msg(AgentMsg::Agy(process, v))), span).await
                         }
                         AgentMsg::Acp(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
-                            tracing::Instrument::instrument(boxed(|| self.on_acp(v)), span).await
+                            tracing::Instrument::instrument(boxed(|| self.handle_msg(AgentMsg::Acp(process, v))), span).await
                         }
                         AgentMsg::Muse(process, v) => {
                             if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
-                            tracing::Instrument::instrument(boxed(|| self.on_muse(v)), span).await
+                            tracing::Instrument::instrument(boxed(|| self.handle_msg(AgentMsg::Muse(process, v))), span).await
                         }
                         // every other message is a request of its own, caused by its sender's
                         other => {

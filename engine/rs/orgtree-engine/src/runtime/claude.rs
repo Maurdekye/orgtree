@@ -479,7 +479,13 @@ async fn answer_control(
         }
         Some("hook_callback") => {
             let (tx, rx) = oneshot::channel();
-            let _ = actor.post(AgentMsg::Hook { process, input: req["input"].clone(), reply: tx });
+            let mut input = req["input"].clone();
+            // The SDK callback envelope carries this separately from hook input.
+            // Preserve it for the held PostToolUse parallel-call guard.
+            if let (Some(id), Some(fields)) = (req["tool_use_id"].as_str(), input.as_object_mut()) {
+                fields.insert("tool_use_id".into(), json!(id));
+            }
+            let _ = actor.post(AgentMsg::Hook { process, input, reply: tx });
             let out = tokio::time::timeout(Duration::from_secs(30), rx).await.ok().and_then(Result::ok);
             Ok(out.unwrap_or_else(|| json!({})))
         }
