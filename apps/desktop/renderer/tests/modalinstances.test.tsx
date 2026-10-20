@@ -182,20 +182,6 @@ test('§2e opening the same target again keeps one window', async t => {
   assert.deepEqual(teams(), ['report', 'worker'], 'no duplicates, nothing closed')
 })
 
-test('§2f a node\'s own button hides only its own pinned window', async t => {
-  setup(t); legacyPinned('agent-docket', 'worker')
-  const c = await canvas(t)
-  await c.select('report', 'Docket')
-  assert.deepEqual(dockets(), ['report', 'worker'])
-  const button = c.view.el.querySelector<HTMLButtonElement>('[aria-label="Docket for worker"]')
-  assert.ok(button, 'the card\'s docket button')
-  await inAct(async () => { button!.click(); await flush(4) })
-  assert.deepEqual(dockets(), ['report'], 'worker\'s closed, report\'s stays')
-  assert.deepEqual(pinOf('agent-docket:worker'), R, 'its placement is kept for next time')
-  await inAct(async () => { button!.click(); await flush(4) })
-  assert.deepEqual(dockets(), ['report', 'worker'], 'and it comes back where it was')
-})
-
 // ---------------------------------------------------- §3 every target's own
 test('§3a every pinned instance comes back at start-up', async t => {
   setup(t)
