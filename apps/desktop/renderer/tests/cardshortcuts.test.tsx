@@ -85,7 +85,8 @@ function serve(t: TestContext) {
 
 function shortcutsOn(t: TestContext, on = true) {
   setAgentShortcutsOn(on)
-  t.after(() => setAgentShortcutsOn(false))
+  // inside act: the cards still mounted re-render as the setting flips
+  t.after(() => inAct(() => { setAgentShortcutsOn(false) }))
   forgetDeskMemory()
 }
 
@@ -334,7 +335,7 @@ test('§3b no Team shortcut without a live report, with the setting off, or on t
   t.after(() => open.unmount())
   await inAct(async () => { await flush(2) })
   assert.equal(row(open.el) === null, true, 'the open desk draws no row at all')
-  setAgentShortcutsOn(false)
+  await inAct(() => { setAgentShortcutsOn(false) })
   const off = await mountView(agentCard(agentNode(), { reports: [report('live')] }), (el) => el)
   t.after(() => off.unmount())
   assert.equal(row(off.el) === null, true, 'setting off: no row at all')
