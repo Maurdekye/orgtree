@@ -91,7 +91,8 @@ test('distant unread opening is two bounded pages; scrolling/clicking fills the 
     if(id==='viewed')return ok({ok:true})
     if(id)return ok({...all.find(r=>r.id===id),body:'Body '+id})
     if(!path.includes('/documents?'))return ok({})
-    const q=new URL(path,'http://fixture').searchParams,offset=q.has('opening')?280:Number(q.get('offset')??0),limit=Number(q.get('limit')??40)
+    const q=new URL(path,'http://fixture').searchParams,limit=Number(q.get('limit')??40)
+    const offset=q.has('opening')?280:q.has('locate')?Math.floor(all.findIndex(r=>r.id===q.get('locate'))/limit)*limit:Number(q.get('offset')??0)
     requests.push({offset,limit})
     return ok({documents:all.slice(offset,offset+limit),total:all.length,offset,next_offset:offset+limit<all.length?offset+limit:null,
       ...(q.has('opening')?{opening_id:'sparse-299',opening_position:299}:{})})
