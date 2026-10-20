@@ -504,7 +504,9 @@ A project carries a manual event (replacing the "round" primitive floated
   the project row lock: every eligible listener's mail and fire/spend
   record together, in dog creation order, reach rechecked in-tx; wakes,
   spent disarm and fire-time calls after commit. Zero listeners is a
-  success reporting 0. An engine event `project.event` (project-scoped,
+  success reporting 0 while the project's event listeners are on; while
+  they are off the fire is refused (next section). An engine event
+  `project.event` (project-scoped,
   reach-checked like `project.dead_letter`, payload without message
   text) is emitted. Watchdogs-only callers may fire/list (the slot
   actions' restricted-card precedent).
@@ -530,13 +532,11 @@ A project carries a manual event (replacing the "round" primitive floated
   watch; a magenta `mail queue` card (the `--fq-line` rose) shows waiting
   mail and, in ack mode, the handed-but-unacked in-flight count (new
   feed field `mail_held`, `x_mail_held` beside `x_mail_pending`). A
-  project desk shows a **listeners** tab (badge = armed listeners) from
-  the first time any listener or watch registers on the project, and
-  keeps it for good, also once they all unregister (user 2026-10-20
-  06:22Z, replacing "every desk, empty or not" of 2026-10-19 21:19Z):
-  the dog's create transaction stamps the project's
-  `extra.listeners_seen_at` (feed `x_listeners_seen`, tree
-  `listeners_seen`). The tab holds the fire control, then one table in
+  project desk shows a **listeners** tab (badge = armed listeners)
+  exactly while the project's event-listeners setting is on (user
+  2026-10-20 10:50Z, replacing "from the first registered listener, for
+  good" of 06:22Z, which replaced "every desk, empty or not" of
+  2026-10-19 21:19Z; next section). The tab holds the fire control, then one table in
   the Slots table's style with the sections Event listeners, Listener
   watches and Recently Fired (user 21:08Z-21:11Z; the next section).
   Columns in the order every project desk table shares (coordinator A2
@@ -548,6 +548,65 @@ A project carries a manual event (replacing the "round" primitive floated
   mode words). Last fired and Fired stay empty for one-shot dogs (a dash
   before a first fire); Mail, Armed and On fire show only while some row
   has data for them (`canvas/listenersdesk.tsx`).
+
+## The event-listeners setting (user 2026-10-20 10:50Z; design approved by the coordinator 10:58Z; migration 0043)
+
+User, verbatim: "change the way event listeners are configured: enabled and
+disabled by a setting. the setting is off by default, but uniquely, any agent
+can enable it by registering a listener on a project if they have access.
+they cannot disable it. a superior can enable or disable the setting by
+manually adjusting the properties of the project. the setting is what
+controls whether or not the listeners tab appears. disabling the setting
+unwires and disables all watchdogs attached to it. creating a watchdog in an
+uninitialized state does not enable it." (docket
+`project-event-listeners-an-enable-setting-off-by`.)
+
+- **The setting** is `scope.event_listeners` on the project row, beside
+  `peer_mail`, `mail_queue` and `slots_capacity`; absent is OFF
+  (`listeners::enabled`). `orgtree_project action=settings` reads it,
+  `configure settings={"event_listeners":true|false}` and the desk op
+  `set_event_listeners {node, enabled}` write it, under the policy rule (the
+  user or a strict ancestor of the project; members may not, either way). The
+  desk gear has an **Event listeners** switch. The renderer reads
+  `configured_scope.event_listeners` (`eventListenersOn`); it alone decides the
+  desk's Listeners tab and so the card's Listeners shortcut.
+- **Agents only switch it on**: the transaction that inserts a
+  `project_listener` or `listener_watch` as armed calls `listeners::switch_on`
+  (it replaced the `listeners_seen_at` stamp), and so does a resume of one (its
+  owner must still reach the project). Their results say "turned them on".
+  "Uninitialized" (the user's word) is any create that does not end armed: a
+  refused or failed create changes nothing. Pausing or removing the last
+  listener never switches it off.
+- **Off** (`switch_off`, a superior's only): the project row first, then every
+  armed listener and watch on the project is paused with `memo.listeners_off`
+  and `paused_why` "project P's event listeners were turned off by X". Dogs
+  their owners paused stay unmarked. `fire_event` is refused while off, in the
+  tool, the desk op and `listeners::fire` (under the project row lock, so a
+  fire racing a switch-off is refused rather than delivered to nobody); a fire
+  never switches it on.
+- **On** (`switch_on`, by anyone allowed) re-arms exactly the marked dogs;
+  owner-paused, removed and spent dogs stay as they are. A watch keeps its
+  edge (`memo.run.above`), so a restore alone does not fire it. Invariant:
+  off means no armed listener or watch on the project; on means no marked dog.
+- **Rehire and engine start**: `resume_owned` re-arms an archived owner's dogs
+  as before; a listener or watch runner that finds its project off
+  (`listeners::guard`, under the project row) disables itself with the mark,
+  so the next switch-on brings it back. The rehire's warnings name the
+  listeners that stay disabled.
+- **Owners are told** once per switch, passively (a system notice, as a mail
+  queue mode change): which of their dogs were disabled or re-armed.
+- **Shown disabled**: the tree's watchdog view carries `disabled` (the
+  reason); the canvas draws no line for such a dog (unwired), its chip is the
+  dimmer ⊘ with the reason in its tooltip, and its detail leads with it.
+  Mail-queue (`fair_queue`) and slot dogs are untouched by the setting.
+- **Existing projects** (migration 0043): ON for every project with
+  `extra.listeners_seen_at` (stamped by every listener create since 0040,
+  which backfilled it) or a kept (armed or paused) listener or watch, so every
+  Listeners tab shown before keeps showing and every armed listener keeps its
+  fires. Idempotent; a written setting is never overwritten. The feed's
+  `x_listeners_seen` and the tree's `listeners_seen` are gone.
+- Proof: rig `project-listener-setting.mjs`; renderer
+  `listenersetting.test.tsx`.
 
 ## The project desk's history (user 2026-10-20 06:22Z-06:42Z; migration 0040)
 
@@ -574,8 +633,9 @@ coordinator 06:36Z with A1-A6, user additions 06:41Z-06:42Z).
 - **Backfill**: the migration copies what existed before it: fires from the
   `ot.events` `project_event_fire` rows (the 200-character message and the
   listeners' names; no dogs or times), endings from the ack records and each
-  job's attempt log, and `listeners_seen_at` for projects that had a listener.
-  It is idempotent (the rig proof runs it twice).
+  job's attempt log, and `listeners_seen_at` for projects that had a listener
+  (migration 0043 switches those projects' event listeners on). It is
+  idempotent (the rig proof runs it twice).
 - **Reads** are bounded: 30 rows and one lookahead, the cursor the last row's
   id (`history_before`, a positive integer, else refused). Ops
   `listener_history` and `mail_queue_history` (`node`, `history_before`);

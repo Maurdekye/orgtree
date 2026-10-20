@@ -605,13 +605,37 @@
   task-local depth limit 4; refused on `fair_queue`, skipped under
   SAFE_START). Cyan listener/watch lines and header cards (`x/y` per armed
   watch), a magenta mail-queue card (feed `mail_held` = ack in-flight) and
-  a desk Listeners tab with the fire control (shown from the first
-  registered listener on, for good: `extra.listeners_seen_at`; user
-  2026-10-20 06:22Z replaced "always"). Engine event `project.event`.
+  a desk Listeners tab with the fire control (shown exactly while the
+  project's event-listeners setting is on; user 2026-10-20 10:50Z replaced
+  "from the first registered listener, for good": next entry). Engine
+  event `project.event`.
   A rename now also moves `slot` watchdog targets (was activity/fair_queue
   only). [verified: `domain/listeners.rs`, `runtime/watchdogs.rs`,
   `canvas/listeners{,desk}.{ts,tsx}`, rig `project-listeners.mjs`,
   `projectlisteners.test.tsx`; 2026-10-19]
+- Project event-listeners setting (migration 0043, see
+  [PROJECT-NODES](docs/rust-engine/PROJECT-NODES.md)): `scope.event_listeners`,
+  OFF by default, decides the desk's Listeners tab, `fire_event` (refused
+  while off, also inside `listeners::fire` under the project row lock) and
+  whether the project's listener and watch dogs work. Agents only switch it
+  on, by arming a project_listener/listener_watch (the create's insert
+  transaction or a resume: `listeners::switch_on`); `orgtree_project
+  configure settings.event_listeners`, op `set_event_listeners` and the gear
+  switch it either way (the user or a strict ancestor). Off pauses every
+  armed listener/watch on the project with `memo.listeners_off` and the
+  reason; on (by anyone) re-arms exactly the marked dogs, watch edges kept.
+  Invariant: off means no armed listener/watch on the project, on means no
+  marked dog; a new path that arms one takes the project row first and
+  calls `switch_on` in its transaction, or relies on the runner's
+  `listeners::guard` (rehire, engine start). Owners get one passive system
+  notice per switch. The tree's watchdog view carries `disabled`: no canvas
+  line, a dimmer ⊘ chip, the reason in the tooltip and detail.
+  `listeners_seen` is retired. [decided: user 2026-10-20 10:50Z,
+  coordinator 10:58Z; verified: `domain/{listeners,ops,watchdogs}.rs`,
+  `runtime/watchdogs.rs`, `migrations/0043_event_listeners_setting.sql`,
+  `canvas/{listeners,projectdesk,watchdogchip,watchdoglink}.ts*`,
+  `canvas/modals.tsx`, rig `project-listener-setting.mjs`,
+  `listenersetting.test.tsx`; 2026-10-20]
 - Project desk history (migration 0040, see
   [PROJECT-NODES](docs/rust-engine/PROJECT-NODES.md)): `ot.project_fires`
   (fired events and listener watches reaching their count, with who

@@ -845,6 +845,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "label": "Remind an agent that ends its turn with an un-acked job"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Event listeners"
     }
    ]
   },

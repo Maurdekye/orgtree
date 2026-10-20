@@ -23,7 +23,7 @@ The header shows active/hired agents through nested projects, activity age, sett
 | team | The descendant Agents List. Appears while the node has live direct subordinates; its badge counts those direct nodes, including projects. |
 | slots | Appears while configured concurrency-slot capacity is greater than zero. |
 | dead letters | Appears while the project has open dead letters. |
-| listeners | Appears when an event listener or listener watch first registers, and remains available after they all leave. Its badge counts armed event listeners. |
+| listeners | Appears exactly while the project's **Event listeners** setting is on (Project settings). It is off by default; an agent registering an event listener or listener watch switches it on, and only you or an agent above the project switch it off. Its badge counts armed event listeners. |
 
 The Summary is the project's standing team charter; policy and tool authority are documented in `orgtree-projects` and `orgtree-tool-project` (orgtree-working › team). For shared mail, docket, gallery and Team controls, follow the links below.
 
@@ -53,7 +53,7 @@ Force release returns all units in that lease and checks the FIFO line; the head
 
 ## Listeners: project events and Recently Fired
 
-The **fire event** control sends its optional message to currently armed project-event listeners. It does not deliver old events to listeners that register later. **Event listeners** lists `project_listener` dogs; **Listener watches** lists dogs waiting for a specified armed-listener count. The table shows wait age, last fire, counts, watchdog and any configured On fire tool calls. Some columns appear only when they have data; continuous dogs show firing counts, while one-shot dogs omit those counters.
+The **fire event** control sends its optional message to currently armed project-event listeners. It does not deliver old events to listeners that register later. While the project's event listeners are off, the tab is hidden and the event cannot be fired. Switching them off disables every event listener and listener watch on the project: each stops listening, loses its canvas line, shows a dimmer ⊘ chip whose tooltip and detail say why, and its owner is told; switching them on again re-arms those dogs, not ones their owners paused. **Event listeners** lists `project_listener` dogs; **Listener watches** lists dogs waiting for a specified armed-listener count. The table shows wait age, last fire, counts, watchdog and any configured On fire tool calls. Some columns appear only when they have data; continuous dogs show firing counts, while one-shot dogs omit those counters.
 
 **Recently Fired** keeps fired events and listener-watch threshold crossings. An event row names the firer and firing age; click its single-line message to expand it. Sub-rows show who received it, how long they had listened and a **fire mail** link. That link opens the receiving agent's Mail tab, not the project's mailbox. Deleted or archived mail is marked unavailable. Tinted watch rows show the watch owner, wait and armed/required count, followed by the listeners armed at that moment. Historical dog names remain after the dog is gone. Older fires load on scroll with Retry on failure.
 

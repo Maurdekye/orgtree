@@ -17,7 +17,7 @@ Choose the agreement first, then its primitive. These are cooperative protocols:
 | Up to N concurrent users | N-slot counting semaphore | Counts holders, not threads, memory or calls per second. |
 | Independent jobs spread across workers | Round-robin mail queue | Least recently handed work; not a health or idle-worker check. |
 | Jobs with completion records and retry | ACK FIFO work queue | Handout order, not completion order or exactly-once effects. |
-| Tell current subscribers something happened | Project event | No replay to a listener that arms after the fire. |
+| Tell current subscribers something happened | Project event | No replay to a listener that arms after the fire. Needs the project's event listeners on: the first armed listener switches them on; a superior may switch them off, which disables every listener and refuses fires. |
 | Wait once for a release | One-shot event listener | A one-shot wait, not a sticky latch for late arrivals. |
 | Know N participants have registered readiness | Listener watch | Counts armed listeners, not a verified participant roster. |
 | Release a ready group | Listener watch with a fire-event action | A cooperative barrier; mail delivery does not synchronize execution. |

@@ -1578,3 +1578,21 @@ All entries are dated 2026-10-06 unless stated otherwise.
       inline credentials, credential keys and URL credentials in them, websocket and mqtt alike,
       and transcripts blank them at any depth.
     Details: [`websocket-watchdogs.md`](websocket-watchdogs.md).
+
+91. **A project's event listeners are a setting, off by default** (user 2026-10-20 10:50:40Z
+    m89009ce12d45; design approved by the coordinator 10:58Z, m606da90472bd; docket
+    `project-event-listeners-an-enable-setting-off-by`).
+    - `scope.event_listeners` decides the desk's Listeners tab (replacing "from the first
+      registered listener, for good", 06:22Z), whether the project's event can be fired and
+      whether its project_listener and listener_watch dogs work.
+    - Any agent with reach switches it on by arming a listener or watch (create or resume); no
+      agent switches it off. The user and the project's agent ancestors switch it either way in
+      the project's settings.
+    - Off disables (pauses with a mark and the reason) every armed listener and watch on the
+      project and tells their owners; fire_event is refused while off (coordinator's call: a
+      no-op would report a fire nobody could hear). On re-arms exactly the marked dogs, watch
+      edges kept (coordinator's call: a superior can flip it back without every owner re-arming).
+    - "Creating a watchdog in an uninitialized state does not enable it": a create that does
+      not end armed changes nothing.
+    - Existing projects: migration 0043 switches it on where a listener was ever kept.
+    Details: [`PROJECT-NODES.md`](PROJECT-NODES.md#the-event-listeners-setting-user-2026-10-20-1050z-design-approved-by-the-coordinator-1058z-migration-0043).
