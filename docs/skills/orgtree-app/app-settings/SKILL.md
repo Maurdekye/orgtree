@@ -9,6 +9,10 @@ Up: [orgtree-app](../SKILL.md)
 
 Open the Orgtree menu and choose App settings. These controls apply across organizations on this machine; defaults for new organizations seed later creations. Open the individual leaf for its save behavior, defaults and application timing. Agents explain and suggest changes; the user operates the controls.
 
+## Pin, pop out and open at a section
+
+Inside an organization window App settings has the same ↗ pop-out and pin buttons as Org settings, Usage and the other modals: pin it to the window (drag, resize, it stays while the canvas pans), or open it in a window of its own. Placement is kept per organization, so each organization remembers its own pinned or popped-out App settings and one organization's does not follow the user home or into another. At home, with no organization to pin it into, it is an ordinary centred modal (as Usage is there). A link that points at one setting, such as the turn-slot banner's **Open settings** (the Runtime row *most agent turns running at once*), opens the panel, or raises it if it is pinned behind another window or popped out, and never closes it; the panel switches to the tab, scrolls the row into view, focuses its control and highlights it for about two seconds, in the window where it lives.
+
 ## Settings
 
 - [orgtree-app-runtime-desktop](app-runtime-desktop/SKILL.md): Runtime > desktop behavior: run on boot (where agents run), exit on close, automatic updates, run as administrator.

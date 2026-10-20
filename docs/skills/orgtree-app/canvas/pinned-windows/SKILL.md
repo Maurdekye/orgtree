@@ -14,7 +14,7 @@ Pinning makes a screen-space window that stays put while the canvas pans/zooms. 
 
 The pinned desk's close/unpin control minimizes it back to its original desk. If that card is off-screen, the toast explains where to find it; Show on canvas navigates there while keeping the pin open. An archived agent's pin can remain readable. The title bar is not an instruction to rehire it.
 
-Pinnable modal surfaces dismiss when Escape is pressed or the backdrop is clicked. Their centered form has no separate close button. Once pinned, the surface is a window and keeps its Close control; detached windows use their native window controls. Pinning is disabled while detached; closing a pinned window dismisses the modal rather than merely changing its pin state. The related overlap/fade, snap and jump-fold choices are in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).
+Pinnable modal surfaces (Org settings, App settings, Usage, the inbox, docket and presentations among them) dismiss when Escape is pressed or the backdrop is clicked. Inside an organization each can be pinned or popped out and remembers its placement per organization; at home, with no organization to pin into, Usage and App settings are centred only. Their centered form has no separate close button. Once pinned, the surface is a window and keeps its Close control; detached windows use their native window controls. Pinning is disabled while detached; closing a pinned window dismisses the modal rather than merely changing its pin state. The related overlap/fade, snap and jump-fold choices are in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).
 
 ## Separate windows and Close
 

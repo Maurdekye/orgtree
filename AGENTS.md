@@ -3204,9 +3204,26 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   on WHICH panel: the org's Policies switch normally, the agent's gear (Model tab) when its
   `configured_scope.auto_cheap_compact.enabled` is true (the org switch would not stop it); the link
   is drawn only where the warning says a cheap-compact WILL happen. Tests: `cachewarninglink`,
-  `settingstarget` (incl. a second document), `settingsask`. The app-settings panel can adopt the
-  same mechanism (its `SettingsTabs` takes the same `stripRef`). [decided: user 2026-10-20 12:24Z,
+  `settingstarget` (incl. a second document), `settingsask`. The app-settings panel uses the same
+  mechanism (`AccountsPanel` takes `target`; see the App settings entry below). [decided: user 2026-10-20 12:24Z,
   coordinator ruling 12:28Z; verified: the real App in Electron, docked and popped out, both themes]
+
+- App settings pins and pops out like every other modal (docket
+  app-settings-pinnable-and-pop-out-able-like-ever, user 2026-10-20 12:26Z "i want app settings to
+  be pinnable and popoutable like every other modal", 12:53Z "put it in 19"). It replaces the
+  earlier rule that `app-settings` is a global dialog: `PinFrame` keeps only `defaults` and
+  `advanced-org` in its always-global list, and App scopes `app-settings` exactly as it scopes
+  Usage (`useScopedOpen(slug)`, `usePersistedModalOpen('app-settings', slug, ...)`, restore per
+  organization, `toggleSurface` so a pinned or popped-out panel is revealed and never toggled
+  shut). In an organization it pins, pops out and persists per organization; at HOME (no
+  organization to pin into) it stays a centred modal with no pin or pop-out button, as Usage does
+  there, so one organization's pin never follows the user home or into another. The
+  `orgtree:open-app-settings` ask (the turn-slot banner's "Open settings", detail `{ tab, focus }`)
+  goes through `toggleOrRaiseModal(..., ensureOpen)` and hands `AccountsPanel` a `SettingsTarget`:
+  the Runtime turn-limit row is `field="max_concurrent_turns"`. Tests: `appsettingspin` (the real
+  App: pin, per-org, reload, the ask on a pinned panel, a panel in another document), plus the
+  `pinspace`, `appsettingsclose` §7 and `closemenu` expectations flipped from "never pinnable".
+  [decided: user 2026-10-20; verified: the real App in Electron, pinned and popped out, both themes]
 
 - Event watchdogs (`kind:event`) receive pushed, allow-listed post-commit events.
   Catalog: credentials.bridge.available/unavailable, credentials.isolated/ready,
