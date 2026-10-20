@@ -259,6 +259,16 @@ test('§2 ack mode: Working, Line, the Dead Letter Line while a dead-letter list
     'the holder of its whole batch is not in line')
 })
 
+test("§2 the Dead Letter Line is the engine's list when it sends one: a listener past its owner's eight-dog tree preview still shows (watchdog uncap 2026-10-20)", async (t) => {
+  const late = dog('event', 'sa', 'dl-late', { target: 'project.*', state: 'paused' })
+  const { view } = await mailFolder(t, { ...ackHistory(), dead_letter_listeners: [dog('event', 'boss', 'dead-watch', { target: 'project.dead_letter' }), late] }, true)
+  const dead = [...view.el.querySelectorAll<HTMLTableRowElement>(`${T} .mail-dead-line tr.listener-row`)]
+  assert.deepEqual(dead.map((r) => r.querySelector('[data-copy-agent-name]')?.getAttribute('data-copy-agent-name')), ['boss', 'sa'],
+    "the engine's list in its order, though the tree's preview lacks sa's dog")
+  assert.equal(cells(dead[1]!)[0], 'paused')
+  assert.ok(dead.every((r) => r.querySelector('.watchdog-link')?.classList.contains('dead-letter')), 'each in the dead-letter sepia-maroon')
+})
+
 test('§2 Recently Finished: the job, its ack, the three times, and each ending without an ack highlighted by kind (user 06:41Z)', async (t) => {
   const { view, openedMail } = await mailFolder(t, ackHistory(), true)
   const rows = [...view.el.querySelectorAll<HTMLTableRowElement>(`${T} .mail-history tr.listener-row`)]

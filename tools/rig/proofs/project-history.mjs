@@ -17,6 +17,8 @@
 //   deliveries newest first; 30 a time
 //   slot holders and recent holds carry their claim dog, for the desk only:
 //   the agent tool's slots action keeps its output
+//   the mail history names the project's dead-letter listeners, also one
+//   past its owner's eight-dog tree preview (watchdog uncap 2026-10-20)
 //   the migration's backfill copies earlier fires from ot.events and marks
 //   projects that had listeners; running it again adds nothing
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-history.mjs
@@ -303,6 +305,39 @@ export default async function (rig) {
   p.check('nor for a recent hold',
     t2?.history?.[0]?.agent === 'sa' && !('dog' in t2.history[0]) && t2own?.history?.[0]?.agent === 'sa' && !('dog' in t2own.history[0]),
     { boss: t2?.history?.slice(0, 1) ?? t2, sa: t2own?.history?.slice(0, 1) ?? t2own })
+
+  // ------------------------------------------------------------ the Dead Letter Line past the tree's preview
+  // The tree carries eight generic dogs per owner (watchdog uncap,
+  // 2026-10-20) and a dead-letter listener is a generic event dog, so the
+  // engine lists a project's with its mail history
+  const madeL = await project('hl', ['la'])
+  let filled = 0
+  for (let i = 0; i < 8; i++) {
+    const f = await rig.tool('boss', 'orgtree_watchdog', { action: 'create', name: `hl-fill-${i}`, kind: 'event', target: 'project.event', pattern: 'zz-never', notice: true })
+    if (f.ok) filled++
+  }
+  const deadDog = (who, name, target, pattern) => rig.tool(who, 'orgtree_watchdog',
+    { action: 'create', name, kind: 'event', target, notice: true, ...(pattern ? { pattern } : {}) })
+  const dls = [await deadDog('boss', 'hl-dead', 'project.dead_letter', '"project":"hl"'), await deadDog('boss', 'hl-elsewhere', 'project.*', '"project":"elsewhere"'),
+    await deadDog('la', 'la-dead', 'project.*'), await deadDog('sa', 'sa-dead', 'project.dead_letter')]
+  const paused = await rig.tool('la', 'orgtree_watchdog', { action: 'pause', id: 'la-dead' })
+  const dogGroup = await rig.waitFor(async () => {
+    const s = await rig.api('GET', `/api/orgs/${rig.org}/records`)
+    const g = (s.records ?? []).find(r => r.entity === 'org' && r.id === 'watchdogs')?.body
+    return (g?.watchdog_counts?.boss?.total ?? 0) >= 10 ? g : null
+  }, { what: "boss's dogs in the tree", timeout: 10000 }).catch(() => null)
+  const bossPreview = (dogGroup?.watchdogs ?? []).filter(w => w.owner === 'boss').map(w => w.id)
+  p.check("boss's dead-letter dog is past the tree's eight-dog preview (the case this covers)",
+    madeL && filled === 8 && dls.every(d => d.ok) && paused.ok && bossPreview.length === 8 && !bossPreview.includes('boss/hl-dead'),
+    { filled, said: dls.map(said), paused: said(paused), bossPreview, counts: dogGroup?.watchdog_counts?.boss })
+  const lh = await opTry({ op: 'mail_queue_history', node: 'hl' })
+  const dlIds = (lh.v?.dead_letter_listeners ?? []).map(w => w.id)
+  p.check("the mail history names the project's dead-letter listeners: above or below it, armed or paused, their pattern taking it, in dog order",
+    lh.ok && JSON.stringify(dlIds) === '["boss/hl-dead","la/la-dead"]'
+    && lh.v.dead_letter_listeners[1]?.state === 'paused' && lh.v.dead_letter_listeners[0]?.target === 'project.dead_letter',
+    { dlIds, error: lh.error })
+  const lh2 = await opTry({ op: 'mail_queue_history', node: 'hl', history_before: '1' })
+  p.check('with the first page only', lh2.ok && !('dead_letter_listeners' in (lh2.v ?? {})), { keys: Object.keys(lh2.v ?? {}), error: lh2.error })
 
   // ------------------------------------------------------------ the migration's backfill
   const sqlText = fs.readFileSync(path.join(REPO, 'engine', 'rs', 'orgtree-engine', 'migrations', '0040_project_history.sql'), 'utf8')
