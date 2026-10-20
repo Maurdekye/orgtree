@@ -218,12 +218,8 @@ async function hireFromChip(host: HTMLElement, name: string): Promise<void> {
 /** the broadcast refetch: the tree now carries the new agent under boss */
 const withNewbie = (id: string) => tree([{ id: 'boss', children: [{ id }] }])
 
-/** …and the same refetch when the layout has MOVED underneath the hire: the
- *  new agent is seeded at the draft's slot (centred under a childless boss)
- *  but lands as the rightmost of four, columns away. Realistic — anything
- *  that reshapes boss's row between the hire and the refetch does this — and
- *  it is the only way to make the birth spring genuinely travel, which §5
- *  needs and §1 (seed ≈ target, settled almost at once) cannot provide. */
+/** A broadcast reshapes the canonical row during the hire. USER 2026-10-20
+ *  16:45Z now requires retaining the placeholder's exact position even here. */
 const withCrowd = (id: string) => tree([{ id: 'boss', children:
   [{ id: 'o1' }, { id: 'o2' }, { id: 'o3' }, { id }] }])
 
@@ -299,30 +295,26 @@ uiTest('§4 SCOPE: a node arriving by broadcast does not move the camera',
 // (Found by drag-zoom-bug while fixing the follow; noted here because this
 // is the one suite whose subject IS the spring's journey.)
 //
-// WHY THIS EXISTS. §1-§4 do not exercise the arrival wait at all — the draft
-// sits at the slot the hire lands in, so the birth spring is settled almost
-// immediately and the wait is satisfied on the first frame it is tested.
-// Proven, not assumed: with the wait removed AND the follow's arrival gate
-// disabled, all four still passed. This is the check that fails if the wait
-// is removed, which the source comment now points at by name.
-uiTest('§5 the camera waits for the new card to ARRIVE, not merely to exist',
+// The old §5 expected the new card to glide into a reshaped canonical row.
+// The signed 2026-10-20 rule supersedes that journey: its placeholder position
+// survives even a crowded feed. §3 still guards against focusing a missing card.
+uiTest('§5 a crowded hire keeps the placeholder position and opens the new desk',
   async (k) => {
     await hireFromChip(k.host, 'newbie')
     assert.equal(k.ops.length, 1, 'the draft did not submit a hire op')
 
-    // the card now exists in the layout, and is a long way from where it was
-    // seeded — it has to travel
+    const pos = k.host.querySelector<HTMLElement>('.sq.draft')!.style.transform
+    assert.ok(pos, 'the pending placeholder has a real written position')
     await k.setTree(withCrowd('newbie'))
-    await advance(96, 16)          // ~6 frames: the spring is under way
-    assert.equal(openDesk(k.host), null,
-      'the camera dived while the new card was still in flight — it would '
-      + 'centre on where the card is going to be, not where it is')
-    const mid = camera(k.host)
-    assert.ok(mid.z < Z_DESK,
-      `camera already at z=${mid.z} (≥ Z_DESK ${Z_DESK}) while the card was `
-      + 'still travelling — the arrival wait is not holding')
+    const card = () => [...k.host.querySelectorAll<HTMLElement>('.sq:not(.user)')]
+      .find(el => el.querySelector('.name,.cc-name')?.textContent === 'newbie')!
+    assert.ok(card(), 'the feed supplied the hired card')
+    assert.equal(card().style.transform, pos, 'first paint replaces the placeholder in place')
+    await advance(96, 16)
+    assert.equal(card().style.transform, pos, 'the card does not spring into a different sibling slot')
 
     await advance(3000, 16)        // …and now it has landed
+    assert.equal(card().style.transform, pos, 'camera focusing does not move the hired card')
     assert.equal(openDesk(k.host), 'newbie',
       'the desk never opened — the card arrived and the wait never released')
     const end = camera(k.host)
