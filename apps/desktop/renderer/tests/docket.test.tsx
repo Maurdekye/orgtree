@@ -1264,9 +1264,14 @@ uiTest('§18 OrgInboxModal outbox @by links resolvable local agent, while recipi
   await flush()
 
   // Only the local agent @agent-sender is a clickable jump; external recipient stays plain!
-  const jumpBtns = [...el.querySelectorAll('.mailer-read .mailer-head button.cc-name-jump')] as HTMLButtonElement[]
+  const jumpBtns = [...el.querySelectorAll('.mailer-read .org-mail-attribution > button.ref-agent')] as HTMLButtonElement[]
   assert.equal(jumpBtns.length, 1, 'only resolvable local sender is a clickable jump')
-  assert.equal(jumpBtns[0]!.textContent?.trim(), '@agent-sender')
+  assert.equal(jumpBtns[0]!.getAttribute('data-copy-agent-name'), 'agent-sender')
+  assert.equal(jumpBtns[0]!.querySelector('.tier')?.textContent, 'S', 'shared link retains the sender model')
+  assert.equal(jumpBtns[0]!.lastChild?.textContent, '@agent-sender')
+  const recipient = el.querySelector('.org-mail-recipient')!
+  assert.match(recipient.textContent ?? '', /external-client/)
+  assert.equal(!!recipient.querySelector('button, .ref-agent'), false, 'external recipient stays plain')
 
   await inAct(() => jumpBtns[0]!.click())
   assert.ok(closed, 'clicking jump closes modal')
@@ -1820,7 +1825,7 @@ uiTest('§30 a long agent name truncates instead of running under the Dismiss bu
   assert.ok(!name.classList.contains('docket-actor'),
     'the truncating element must not itself be the flex container')
   assert.equal(name.textContent, 'an-extremely-long-agent-identifier-that-will-not-fit')
-  await inAct(() => r.click())
+  await selectDocketRow(r)
   await flush()
   assert.ok(el.querySelector('.docket-attention-box .docket-dismiss'), 'the dismiss button is rendered beside attention')
 })
