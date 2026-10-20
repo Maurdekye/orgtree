@@ -2452,9 +2452,11 @@ async fn resolve(engine: &Engine, org_id: i64, actor: Option<i64>, id: &str) -> 
     let sql = format!(
         "SELECT {DOG_COLS} FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
           WHERE w.org_id = $1 AND w.uid = $2 AND w.state <> 'removed' AND ($3::text IS NULL OR a.name = $3)
-          ORDER BY w.state = 'spent', w.id DESC LIMIT 200"
+          ORDER BY (w.owner_agent_id=$4::bigint) DESC NULLS LAST, w.state = 'spent', w.id DESC LIMIT 200"
     );
-    let rows = client.query(&sql, &[&org_id, &uid, &owner]).await?;
+    // With no org cap, 200 other owners can reuse this slug. The caller's
+    // own identity must still win before the bounded ambiguity lookup.
+    let rows = client.query(&sql, &[&org_id, &uid, &owner, &actor]).await?;
     drop(client);
     // one dog per owner: the one holding the id, else its newest spent one
     let mut each: Vec<Dog> = Vec::new();
