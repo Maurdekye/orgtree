@@ -1,4 +1,4 @@
-import {advance,flush,inAct,mountView,realClock,useFakeClock} from './harness'
+import {advance,fireResize,flush,inAct,mountView,realClock,useFakeClock} from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {AgentGalleryView,DocGalleryModal} from '../src/canvas/gallery'
@@ -9,15 +9,16 @@ for(const surface of ['global','agent','project'] as const) for(const distant of
  test(`${surface}: opening unread row is visible once (${distant?'distant gap':'contiguous'})`,async t=>{
   useFakeClock();const saved=fetch,proto=HTMLElement.prototype,box=proto.getBoundingClientRect,height=Object.getOwnPropertyDescriptor(proto,'clientHeight'),scrollHeight=Object.getOwnPropertyDescriptor(proto,'scrollHeight')
   const target=distant?299:99,slug=`scroll-${surface}-${distant}`
+  let measurable=!(surface==='global'&&distant)
   const rows=Array.from({length:400},(_,i)=>({id:'scroll-'+i,node:'writer',title:'Document '+i,at:new Date(Date.UTC(2026,9,20)-i*60000).toISOString(),viewed_at:i===target?null:new Date(Date.UTC(2026,9,20)-i*60000).toISOString(),node_state:'live',evicted:false,format:'markdown'}))
   const rect=(top:number,height:number)=>({top,bottom:top+height,left:0,right:300,width:300,height,x:0,y:top,toJSON(){}}) as DOMRect
-  Object.defineProperty(proto,'clientHeight',{configurable:true,get(){return this.classList.contains('mailer-list')?180:0}})
+  Object.defineProperty(proto,'clientHeight',{configurable:true,get(){return measurable&&this.classList.contains('mailer-list')?180:0}})
   Object.defineProperty(proto,'scrollHeight',{configurable:true,get(){return this.classList.contains('mailer-list')?100000:0}})
   proto.getBoundingClientRect=function(){
    if(this.classList.contains('mailer-list'))return rect(100,180)
    if(this.classList.contains('doc-gallery-row')){
     const list=this.closest<HTMLElement>('.mailer-list')!,index=[...list.querySelectorAll('.doc-gallery-row')].indexOf(this)
-    return rect(100+index*60-list.scrollTop,60)
+    return rect(100+index*60-list.scrollTop,measurable?60:0)
    }
    return rect(0,0)
   }
@@ -36,6 +37,10 @@ for(const surface of ['global','agent','project'] as const) for(const distant of
   await flush(15)
   const list=v.el.querySelector<HTMLElement>('.mailer-list')!,selected=v.el.querySelector<HTMLElement>('.doc-gallery-row.on')!
   assert.match(selected.textContent??'',new RegExp('Document '+target))
+  if(!measurable){
+   assert.equal(list.scrollTop,0,'hidden opening waits for layout rather than consuming its reveal')
+   await inAct(()=>{measurable=true;fireResize(list)});await flush()
+  }
   assert.ok(list.scrollTop>0,'opening scrolls down to the unread selection')
   const selectedBox=selected.getBoundingClientRect(),listBox=list.getBoundingClientRect()
   assert.ok(selectedBox.top>=listBox.top&&selectedBox.bottom<=listBox.bottom,'selected row is in the list viewport')
@@ -50,5 +55,8 @@ for(const surface of ['global','agent','project'] as const) for(const distant of
   rows[target]!.viewed_at=null
   await v.render(null);await v.render(panel());await flush(15)
   assert.ok(v.el.querySelector<HTMLElement>('.mailer-list')!.scrollTop>0,'fresh open gets a fresh reveal')
+  rows[target]!.viewed_at=rows[target]!.at
+  await v.render(null);await v.render(panel());await flush(15)
+  assert.equal(v.el.querySelector<HTMLElement>('.mailer-list')!.scrollTop,0,'an all-read selection does not get an unread opening reveal')
  })
 }
