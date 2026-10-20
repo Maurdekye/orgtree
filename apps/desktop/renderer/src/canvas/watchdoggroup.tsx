@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties } from 'react'
 import type { Watchdog } from '../types'
 import { getWatchdogPage } from '../api'
@@ -7,6 +7,7 @@ import { useEsc } from './shared'
 import { WatchdogLink } from './watchdoglink'
 import { WatchdogSatellite } from './watchdogchip'
 import { DOG_W, DOG_H } from './shared'
+import { liveRevision, onLiveBump } from '../livebus'
 
 export const WATCHDOG_CARD_LIMIT = 8
 export const WATCHDOG_GROUP_W = 104
@@ -72,6 +73,7 @@ function WatchdogList({owner,dogs,total,org,onOpen,close,kept}: {
   const [page,setPage]=useState<{watchdogs:Watchdog[];next_cursor:string|null;total:number}|null>(null)
   const [error,setError]=useState(''),[retry,setRetry]=useState(0)
   const closeRef=useRef<HTMLButtonElement>(null)
+  const epoch=useSyncExternalStore(onLiveBump,liveRevision)
   useEffect(()=>{const opener=document.activeElement as HTMLElement|null;closeRef.current?.focus();return()=>{if(opener?.isConnected)opener.focus()}},[])
   // The page replaces the previous page: expanding a large inventory does
   // not accumulate every row in memory. Ignore replies after close/org change.
@@ -85,7 +87,7 @@ function WatchdogList({owner,dogs,total,org,onOpen,close,kept}: {
     } else if(org) getWatchdogPage(org,owner,cursor,kept).then(p=>{if(current)setPage(p)},e=>{if(current)setError(e.message)})
     else setError('Watchdog list is unavailable.')
     return()=>{current=false}
-  },[org,owner,cursor,total,revision,retry,kept])
+  },[org,owner,cursor,total,revision,retry,kept,epoch])
   return <ModalOverPins><div className="overlay" onClick={close} onPointerDown={e=>e.stopPropagation()}>
     <div className="settings content-height watchdog-list" role="dialog" aria-modal="true" aria-label={owner+' watchdogs'} onClick={e=>e.stopPropagation()}>
       <h3>{owner} · {page?.total??total} watchdogs</h3>
