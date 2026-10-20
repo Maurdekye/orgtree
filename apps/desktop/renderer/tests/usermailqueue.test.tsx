@@ -9,9 +9,10 @@
 //   §1 the user's fair_queue dog (owner "user") takes its turn in the Line
 //      like any listener: never "not live", never "halted"; in ack mode it
 //      holds its batch of jobs, which puts it behind the others
-//   §2 "Join mail queue…" opens a focused dialog (a batch of 1 to 20) and
-//      sends user_queue_join; the user's own row has "leave queue", which
-//      sends user_queue_leave, and a held job stays in Working after leaving
+//   §2 joining moved to the desk header (usermailheader.test.tsx), so the
+//      folder body offers none; the user's own row and the folder's toolbar have
+//      "leave queue", which sends user_queue_leave, and a held job stays in
+//      Working after leaving
 //   §3 the user's rows (Line, Working, Recently Finished, Recently Delivered)
 //      wear the @user chip; the user's held job has no take back (they
 //      acknowledge it) but opens its mail in their inbox
@@ -87,29 +88,14 @@ const setInput = (el: HTMLInputElement, value: string) => {
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')
 const button = (root: ParentNode, label: RegExp) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => label.test(b.textContent ?? ''))
 
-test('§2 Join mail queue opens a dialog (batch 1 to 20) and sends user_queue_join', async (t) => {
+test('§2 joining is the header\'s control now: the folder body offers no join button or dialog', async (t) => {
   const requests: OpRequest[] = []
-  const toasts: string[][] = []
-  const v = await mount([devDog], requests, history(), {}, () => {}, toasts)
+  const v = await mount([devDog], requests)
   t.after(() => v.unmount())
-  const open = v.el.querySelector<HTMLButtonElement>('[data-action="join-queue"]')!
-  assert.ok(open, 'offered while the user is not in the queue')
-  assert.match(open.textContent ?? '', /Join mail queue/)
-  await inAct(async () => { open.click() })
-  const box = dialog()!
-  const batch = box.querySelector<HTMLInputElement>('input[type="number"]')!
-  assert.equal(batch.min, '1')
-  assert.equal(batch.max, '20')
-  assert.match(box.textContent ?? '', /inbox/, 'jobs arrive in the inbox')
-  assert.match(box.textContent ?? '', /acknowledge/i, 'ACK mode: each job is acknowledged')
-  for (const bad of ['0', '21', '', '2.5']) {
-    await inAct(async () => { setInput(batch, bad) })
-    assert.equal(button(box, /^Join mail queue$/)!.disabled, true, `"${bad}" cannot be sent`)
-  }
-  await inAct(async () => { setInput(batch, '2') })
-  await inAct(async () => { button(box, /^Join mail queue$/)!.click(); await flush(4) })
-  assert.deepEqual(requests.find((r) => r.op === 'user_queue_join'), { op: 'user_queue_join', node: 'jobs', batch: 2 })
-  assert.ok(toasts.length > 0)
+  assert.ok(!v.el.querySelector('[data-action="join-queue"]'), 'no join button in the folder body (usermailheader.test.tsx holds the header control)')
+  assert.ok(!v.el.querySelector('.user-reg-tools'), 'and no empty strip where it was')
+  assert.ok(!dialog(), 'no dialog')
+  assert.ok(!requests.some((r) => r.op === 'user_queue_join'))
 })
 
 test('§2 the user leaves with leave queue; a job they hold stays in Working', async (t) => {
@@ -127,7 +113,7 @@ test('§2 the user leaves with leave queue; a job they hold stays in Working', a
   t.after(() => after.unmount())
   const working = after.el.querySelectorAll('.mail-working tr.held-job')
   assert.equal(working.length, 1, 'the held job stays in Working after leaving')
-  assert.ok(after.el.querySelector<HTMLButtonElement>('[data-action="join-queue"]'), 'and they may join again')
+  assert.ok(!after.el.querySelector('[data-action="leave-queue"]'), 'and nothing here says leave any more')
 })
 
 /* ─── §3 the rows ───────────────────────────────────────────────────────── */
@@ -175,8 +161,4 @@ test('§4 nothing on the tab says "you"', async (t) => {
   const v = await mount([devDog, mineDog], [], history({ working: [held] }))
   t.after(() => v.unmount())
   assert.ok(!/\byou\b/i.test(v.el.textContent ?? ''), v.el.textContent?.match(/.{20}\byou\b.{20}/i)?.[0])
-  const solo = await mount([devDog], [])
-  t.after(() => solo.unmount())
-  await inAct(async () => { solo.el.querySelector<HTMLButtonElement>('[data-action="join-queue"]')!.click() })
-  assert.ok(!/\byou\b/i.test(dialog()?.textContent ?? ''), 'nor does its dialog')
 })
