@@ -17,7 +17,9 @@
 //   §4 the Slots tab: a Watchdog column before Action, the lease alone,
 //      Recently Held;
 //   §5 dead-letter listeners: the sepia-maroon chip wherever it is drawn,
-//      their own words in the detail, and which of them count for a project.
+//      their own words in the detail, and which of them count for a project;
+//   §6 narrow desks (user 2026-10-20 09:00Z): every cell that may shorten
+//      keeps its whole text in a tooltip (the CSS is desktablelayout's).
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs projecthistory
 
@@ -392,4 +394,29 @@ test('§5 which dead-letter listeners count for a project: above or below it, ar
   assert.equal(isDeadLetterListener(dog('fair_queue', 'sa', 'q', { target: 'project.dead_letter' })), false, 'only an event dog')
   assert.equal(listeningSince({ at: '2026-10-19T07:00:00.000Z', last_fired: '2026-10-19T08:00:00.000Z' }), '2026-10-19T08:00:00.000Z')
   assert.equal(listeningSince({ at: '2026-10-19T07:00:00.000Z' }), '2026-10-19T07:00:00.000Z')
+})
+
+/* ─── §6 narrow desks ──────────────────────────────────────────────────── */
+
+test('§6 a cell that may shorten keeps its whole text in a tooltip: agent names, chips, gists and the ending word (user 2026-10-20 09:00Z)', async (t) => {
+  const { view } = await mailFolder(t, ackHistory(), true)
+  const rows = [...view.el.querySelectorAll<HTMLTableRowElement>(`${T} tbody tr.listener-row`)]
+  assert.ok(rows.length >= 6, 'Working, the Line, the Dead Letter Line and Recently Finished')
+  for (const r of rows) {
+    const agent = r.querySelector<HTMLElement>('.slot-agent [data-copy-agent-name]')!
+    assert.ok(agent.title.includes(agent.getAttribute('data-copy-agent-name')!), `the agent link names ${agent.textContent}`)
+    const chip = r.querySelector<HTMLElement>('.listener-dog-cell .watchdog-link')
+    if (chip) assert.ok(chip.title.includes(`"${chip.querySelector('.watchdog-link-name')!.textContent}"`), 'the chip names its dog')
+    for (const link of r.querySelectorAll<HTMLElement>('.listener-mail-link')) assert.ok(link.title.includes(link.textContent!), 'the gist')
+  }
+  const words = [...view.el.querySelectorAll<HTMLElement>(`${T} .ending-word`)]
+  assert.deepEqual(words.map((w) => w.title.startsWith(`${w.textContent}: `)), [true, true, true], 'the ending word leads its tooltip')
+  assert.equal(words[2]!.title, 'dead letter: sb did not ack it after 2 reminders (attempt 3 of 3)')
+})
+
+test('§6 who fired an event, when it is no agent of the tree: the label keeps its whole text in a tooltip', async (t) => {
+  const { view } = await firedTab(t)
+  const by = fireRow(view.el, 10).querySelector<HTMLElement>('.slot-agent .fired-by')!
+  assert.equal(by.textContent, '@user')
+  assert.equal(by.title, '@user')
 })

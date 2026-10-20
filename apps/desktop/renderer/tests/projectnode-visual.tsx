@@ -54,7 +54,9 @@
 //             &mode=history the three tables with their history (user
 //             2026-10-20 06:22Z-06:42Z: Working, Line, Dead Letter Line and
 //             Recently Finished; Recently Fired; the Slots Watchdog column),
-//             &mode=historyrr the Mail listeners in round-robin.
+//             &mode=historyrr the Mail listeners in round-robin; &w=740 a
+//             desk that wide, &long=1 the long agent and dog names of the
+//             user's narrow-desk screenshot (2026-10-20 09:00Z).
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
@@ -254,6 +256,17 @@ const historySets = {
     dogs: historyDogs, leases: [relayLease('dev1', 1), relayLease('dev2', 2)] } as HeadSet,
   rr: { node: relay({ slots_capacity: 3 }, { mail_pending: 0, listeners_seen: true }), dogs: historyDogs, leases: [] } as HeadSet,
 }
+/** &long=1: names as long as the user's 09:00Z screenshot's, so a narrow desk
+ *  shortens them (the fixture's data with each name swapped) */
+const LONG: Record<string, string> = {
+  dev1: 'test-proj-worker-c', dev2: 'test-project-worker-a', lead: 'test-proj-worker-b', boss: 'coordinator-opus',
+  'mail-a': 'ack-test-listener-c', 'mail-b': 'ack-test-listener-a', 'mail-c': 'ack-test-listener-b', 'mail-d': 'dlq-smoke-listener',
+  'dead-watch': 'dlq-smoke-dead-letter-watch', 'ready-a': 'ready-for-the-build-a', 'build-done': 'build-done-listener',
+  'deploy-watch': 'deploy-watch-continuous', 'all-ready': 'all-ready-listener-watch', 'build-slot': 'build-slot-for-alpha-17',
+  'test-slot': 'test-slot-for-rig-proofs', 'first-build': 'first-build-of-the-day', 'wait-a': 'wait-for-a-build-slot',
+}
+const lengthen = <T,>(x: T): T => JSON.parse(JSON.stringify(x)
+  .replace(new RegExp(`\\b(${Object.keys(LONG).join('|')})\\b`, 'g'), (m) => LONG[m]!)) as T
 const kept = (owner: string, name: string, kind: string, gone = false) => ({ id: `${owner}/${name}`, owner, name, kind, once: kind === 'slot', state: gone ? 'spent' : 'armed', gone })
 function historyAnswer(b: OpRequest, rr: boolean): unknown {
   if (b.op === 'mail_queue_history') {
@@ -308,7 +321,8 @@ function historyAnswer(b: OpRequest, rr: boolean): unknown {
 }
 const headTree = (set: HeadSet) => ({ ...tree([set.node]), watchdogs: set.dogs, slot_leases: set.leases }) as unknown as TreePayload
 const headMap = (set: HeadSet) => {
-  const boss = agent('boss', '', { parent: null, tier: 'opus', model_id: 'opus', seat: 5, grant: 20 }) as unknown as CanvasNode
+  const above = (set.node as unknown as { parent: string }).parent
+  const boss = agent(above, '', { parent: null, tier: 'opus', model_id: 'opus', seat: 5, grant: 20 }) as unknown as CanvasNode
   const kids = (set.node as unknown as { children: CanvasNode[] }).children
   return new Map<string, CanvasNode>([[boss.id, boss], [set.node.id, set.node], ...kids.map((k) => [k.id, k] as [string, CanvasNode])])
 }
@@ -319,13 +333,13 @@ const headSlotStatus = (set: HeadSet) => {
   const slots = (set.node as unknown as { configured_scope: { slots_capacity?: number } }).configured_scope.slots_capacity ?? 0
   return { project: set.node.id, slots, held: set.leases.length, holders: set.leases, line, history: [], history_next: null }
 }
-function HeadDesk({ set, top, height, id, route = false, answer }: { set: HeadSet; top: number; height: number; id: string; route?: boolean
-  answer?: (b: OpRequest) => unknown }) {
+function HeadDesk({ set, top, height, id, route = false, answer, width = 980 }: { set: HeadSet; top: number; height: number; id: string; route?: boolean
+  answer?: (b: OpRequest) => unknown; width?: number }) {
   const desk = <ProjectDesk bare node={set.node} slug="org" tree={headTree(set)} map={headMap(set)}
     op={(b) => Promise.resolve((answer ? answer(b) : b.op === 'slot_status' ? headSlotStatus(set) : {}) as unknown as OpResult)}
     toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} onJump={noop} />
   return (
-    <div id={id} className="head-desk" style={{ position: 'absolute', left: 10, top, width: 980, height, border: '1px solid var(--line)', overflow: 'hidden' }}>
+    <div id={id} className="head-desk" style={{ position: 'absolute', left: 10, top, width, height, border: '1px solid var(--line)', overflow: 'hidden' }}>
       {/* the canvas's dog route, so watchdog chips are the buttons the app shows */}
       {route ? <DeskDogsProvider value={{ org: 'org', dogs: set.dogs as never, open: noop }}>{desk}</DeskDogsProvider> : desk}
     </div>
@@ -517,8 +531,12 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
     const mode = new URLSearchParams(location.search).get('mode')
     if (mode === 'history' || mode === 'historyrr') {
       const rr = mode === 'historyrr'
-      return <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
-        <HeadDesk set={rr ? historySets.rr : historySets.ack} top={10} height={680} id="desk-inbox" route answer={(b) => historyAnswer(b, rr)} />
+      const q = new URLSearchParams(location.search)
+      const width = Number(q.get('w')) || 980
+      const named = q.get('long') === '1' ? lengthen : <T,>(x: T) => x
+      return <main style={{ position: 'relative', width: width + 20, height: 700, background: 'var(--bg)' }}>
+        <HeadDesk set={named(rr ? historySets.rr : historySets.ack)} top={10} height={680} width={width} id="desk-inbox" route
+          answer={(b) => named(historyAnswer(b, rr))} />
       </main>
     }
     return <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>

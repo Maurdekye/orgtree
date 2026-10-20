@@ -238,7 +238,12 @@ module.exports = async (page) => {
   // ack mode (Working, Line, Dead Letter Line, Recently Finished) and in
   // round-robin (Line, Recently Delivered), the Listeners tab's Recently
   // Fired (an event's message folded, then opened), the Slots tab's
-  // Watchdog column; dark and light
+  // Watchdog column; dark and light. Then the user's narrow desks
+  // (2026-10-20 08:59Z, 09:00Z) with long names, 890 and 740px wide; each
+  // table's `fit` says whether it fits its pane, keeps its actions inside
+  // it, keeps each chip inside its cell and each agent's name on one line,
+  // keeps the whole text of every shortened cell in a tooltip, and wears
+  // the shared header style.
   if (only === 'history') {
     const table = (sel) => page.eval((q) => {
       const t = document.querySelector(q)
@@ -259,6 +264,50 @@ module.exports = async (page) => {
         width: Math.round(t.getBoundingClientRect().width),
       }
     }, sel)
+    const fit = (sel) => page.eval((q) => {
+      const t = document.querySelector(q)
+      if (!t) return null
+      const pane = t.closest('.slots-table-scroll')
+      const box = pane.getBoundingClientRect()
+      const r = (el) => el.getBoundingClientRect()
+      // an element's own words: its text without a tier letter or a chip's glyphs
+      const own = (el) => { const c = el.cloneNode(true); c.querySelectorAll('.tier, .project-mark, .wd-glyph, .wd-once').forEach((x) => x.remove())
+        return c.textContent.replace(/\s+/g, ' ').trim() }
+      // reachable: a tooltip on it, inside its cell, or under it holds the whole text, or it unfolds (aria-expanded)
+      const reachable = (el, text) => {
+        const cell = el.closest('td, th')
+        for (let a = el; a && cell.contains(a); a = a.parentElement) if ((a.title || '').includes(text) || a.hasAttribute('aria-expanded')) return true
+        return [...el.querySelectorAll('[title], [aria-expanded]')].some((d) => (d.title || '').includes(text) || d.hasAttribute('aria-expanded'))
+      }
+      const rows = [...t.querySelectorAll('thead tr, tbody tr.slot-row')]
+      const cut = [], spill = []
+      for (const row of rows) for (const cell of row.children) {
+        if (cell.scrollWidth > cell.clientWidth + 1 && getComputedStyle(cell).overflowX === 'visible') spill.push(own(cell))
+        for (const el of [cell, ...cell.querySelectorAll('*')]) {
+          if (getComputedStyle(el).overflowX === 'visible' || el.scrollWidth <= el.clientWidth + 1) continue
+          const text = own(el)
+          if (text && !reachable(el, text)) cut.push(text)
+        }
+      }
+      const style = (el, props) => el ? Object.fromEntries(props.map((p) => [p, getComputedStyle(el)[p]])) : null
+      return {
+        pane: Math.round(pane.clientWidth),
+        overflow: Math.round(t.getBoundingClientRect().width - pane.clientWidth),
+        actionsOut: [...t.querySelectorAll('td.slot-action button')].filter((b) => r(b).left < box.left - 0.5 || r(b).right > box.left + pane.clientWidth + 0.5)
+          .map((b) => b.textContent),
+        chipsOut: [...t.querySelectorAll('.listener-dog-cell .watchdog-link')].filter((c) => { const cell = c.closest('td')
+          return r(c).right > r(cell).right - parseFloat(getComputedStyle(cell).paddingRight) + 0.5 }).map((c) => own(c)),
+        wrapped: [...t.querySelectorAll('.slot-agent [data-copy-agent-name]')].filter((a) => r(a).height > 24).map((a) => own(a)),
+        cut, spill,
+        header: { row: style(t.querySelector('thead th'), ['fontSize', 'fontWeight', 'color', 'lineHeight', 'borderBottomWidth', 'borderBottomStyle',
+          'borderBottomColor', 'borderTopWidth', 'paddingTop', 'paddingBottom']),
+        heading: style(t.querySelector('tr.slot-section h4'), ['fontSize', 'fontWeight', 'color', 'lineHeight', 'marginTop', 'marginBottom']) },
+      }
+    }, sel)
+    const checks = {}
+    const judge = (label, f) => {
+      checks[label] = f && { ...f, ok: f.overflow <= 0 && !f.actionsOut.length && !f.chipsOut.length && !f.wrapped.length && !f.cut.length && !f.spill.length }
+    }
     const openTab = (tab) => page.eval(async (t) => {
       document.querySelector(`#desk-inbox .cc-tabs button[data-tab="${t}"]`).click()
       await new Promise((r) => setTimeout(r, 700))
@@ -276,6 +325,7 @@ module.exports = async (page) => {
       await openMailListeners()
       await settle()
       details['mail-ack-' + name] = await table('#desk-inbox .mail-listeners-table')
+      judge('mail-ack-' + name, await fit('#desk-inbox .mail-listeners-table'))
       screenshots.push(await page.screenshot(`${prefix}-history-mail-ack-${name}-1000x700`))
       // its last rows: the taken-back and dead-lettered endings
       await page.eval(async () => {
@@ -289,6 +339,7 @@ module.exports = async (page) => {
       await openTab('listeners')
       await settle()
       details['fired-' + name] = await table('#desk-inbox .listeners-table')
+      judge('fired-' + name, await fit('#desk-inbox .listeners-table'))
       screenshots.push(await page.screenshot(`${prefix}-history-fired-${name}-1000x700`))
       if (theme) continue
       await page.eval(async () => {
@@ -301,6 +352,7 @@ module.exports = async (page) => {
       await openTab('slots')
       await settle()
       details['slots-' + name] = await table('#desk-inbox .project-slots .slots-table')
+      judge('slots-' + name, await fit('#desk-inbox .project-slots .slots-table'))
       screenshots.push(await page.screenshot(`${prefix}-history-slots-${name}-1000x700`))
     }
     await page.goto('/?scene=deskinbox&mode=historyrr')
@@ -308,7 +360,51 @@ module.exports = async (page) => {
     await openMailListeners()
     await settle()
     details['mail-rr-dark'] = await table('#desk-inbox .mail-listeners-table')
+    judge('mail-rr-dark', await fit('#desk-inbox .mail-listeners-table'))
     screenshots.push(await page.screenshot(`${prefix}-history-mail-rr-dark-1000x700`))
+    // the user's narrow desks, with long names: about 890px (their pane:
+    // the 09:00Z screenshot is scaled about 0.83) and 740px
+    for (const w of [890, 740]) {
+      await page.resize(`${w + 20}x700`)
+      await page.goto(`/?scene=deskinbox&mode=history&w=${w}&long=1`)
+      await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+      await openMailListeners()
+      await settle()
+      details[`mail-ack-${w}`] = await table('#desk-inbox .mail-listeners-table')
+      judge(`mail-ack-${w}`, await fit('#desk-inbox .mail-listeners-table'))
+      screenshots.push(await page.screenshot(`${prefix}-history-mail-ack-long-dark-${w + 20}x700`))
+      if (w !== 740) continue
+      await page.eval(async () => {
+        const last = document.querySelector('#desk-inbox .mail-listeners-table tbody:last-child tr:last-child')
+        if (last) last.scrollIntoView({ block: 'end' })
+        await new Promise((r) => setTimeout(r, 300))
+      })
+      await settle()
+      screenshots.push(await page.screenshot(`${prefix}-history-mail-ack-long-end-dark-${w + 20}x700`))
+      await openTab('listeners')
+      await settle()
+      judge(`fired-${w}`, await fit('#desk-inbox .listeners-table'))
+      screenshots.push(await page.screenshot(`${prefix}-history-fired-long-dark-${w + 20}x700`))
+      await openTab('slots')
+      await settle()
+      judge(`slots-${w}`, await fit('#desk-inbox .project-slots .slots-table'))
+      screenshots.push(await page.screenshot(`${prefix}-history-slots-long-dark-${w + 20}x700`))
+      await page.goto(`/?scene=deskinbox&mode=historyrr&w=${w}&long=1`)
+      await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+      await openMailListeners()
+      await settle()
+      judge(`mail-rr-${w}`, await fit('#desk-inbox .mail-listeners-table'))
+      screenshots.push(await page.screenshot(`${prefix}-history-mail-rr-long-dark-${w + 20}x700`))
+    }
+    // one header style: every table's header row and section heading alike, per theme
+    const same = (theme) => ['row', 'heading'].every((part) => {
+      const seen = Object.entries(checks).filter(([k, v]) => v && (theme === 'light' ? k.endsWith('-light') : !k.endsWith('-light')))
+        .map(([, v]) => JSON.stringify(v.header[part]))
+      return seen.length > 0 && seen.every((s) => s === seen[0])
+    })
+    details.checks = checks
+    details.headersAlike = { dark: same('dark'), light: same('light') }
+    details.allFit = Object.values(checks).every((v) => v && v.ok)
     return { details, screenshots }
   }
   // PROJECTNODE_VISUAL_ONLY=listenerstable: the desk's event Listeners tab
