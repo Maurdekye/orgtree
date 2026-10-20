@@ -51,7 +51,7 @@ pub const ALL: &[Harness] = &[
     Harness {
         id: "opencode",
         name: "OpenCode (ACP)",
-        what: "OpenCode 2.x through Agent Client Protocol. Mail arriving mid-turn waits for the next turn. File approvals check folder scope; shell follows the Bash switch, not an OS sandbox. Code Mode is denied in default/acceptEdits and unrestricted in bypassPermissions. Custom-provider cost is unknown; the provider key's usage is authoritative.",
+        what: "OpenCode 2.x through Agent Client Protocol. On OpenCode 2.0.28, the owned plugin delivers mail between tool calls; otherwise it waits for the next turn. File approvals check folder scope; shell follows the Bash switch, not an OS sandbox. Code Mode is denied in default/acceptEdits and unrestricted in bypassPermissions. Custom-provider cost is unknown; the provider key's usage is authoritative.",
         providers: &[catalog::OPENROUTER, catalog::LANGSERVER],
         selectable: true,
         install_url: "https://opencode.ai/docs/",

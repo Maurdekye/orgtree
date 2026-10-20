@@ -14,9 +14,6 @@ use tokio_postgres::{Client, Row};
 use tokio_util::sync::CancellationToken;
 
 pub const WARNING: &str = "may already have been delivered mid-turn";
-// Slice 2 remains dormant outside the synthetic rig. The lifecycle proof in
-// slice 3 must pass before production launch enables the bundled plugin.
-pub const ENABLED: bool = false;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Evidence {

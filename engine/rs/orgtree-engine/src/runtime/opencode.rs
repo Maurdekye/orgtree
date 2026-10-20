@@ -53,8 +53,7 @@ impl OpenCodeProc {
         // through (no-spend pre-check, docs/rust-engine/agent-typing.md)
         let host = spec.host.map(|session| (engine.clone(), caller.agent_id, session));
         let mail_owner=uuid::Uuid::new_v4();
-        let eligible=(opencode_mail::ENABLED || crate::rig::active())
-            && opencode_mail::supported(engine.providers.state.load().opencode.version.as_deref());
+        let eligible=opencode_mail::supported(engine.providers.state.load().opencode.version.as_deref());
         let (mail_endpoint,mail_ready)=if eligible {
             match opencode_mail::serve(engine.clone(),caller.clone(),mail_owner,pipe.clone()) {
                 Ok((name,ready))=>(Some(name),ready),
