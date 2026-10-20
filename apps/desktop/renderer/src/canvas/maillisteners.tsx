@@ -329,10 +329,16 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const maxAttempts = hist?.max_attempts ?? 3
   return (
     <div className="project-mail-listeners" onScroll={onScroll}>
-      {node.state === 'live' && !myDog && <div className="user-reg-tools">
-        <button type="button" data-action="join-queue"
-          title={`take a share of ${node.id}'s mail: the jobs handed to you arrive as normal mail in your inbox`}
-          onClick={() => setJoining(true)}>Join mail queue…</button>
+      {/* the user's place: joined from here, left from here too (a user holding as many jobs as their batch is
+          in Working, not the Line, so their row there cannot always carry the leave) */}
+      {node.state === 'live' && <div className="user-reg-tools">
+        {myDog
+          ? <button type="button" data-action="leave-queue"
+              title="leave this queue: no more jobs are handed to you; a job already held stays held until it is acknowledged"
+              onClick={leave}>Leave mail queue</button>
+          : <button type="button" data-action="join-queue"
+              title={`take a share of ${node.id}'s mail: the jobs handed to you arrive as normal mail in your inbox`}
+              onClick={() => setJoining(true)}>Join mail queue…</button>}
       </div>}
       <div className="slots-table-scroll" role="region" aria-label={`Mail listeners of project ${node.id}`} tabIndex={0} onScroll={onScroll}>
         <table className={'slots-table mail-listeners-table' + (ack ? ' ack' : ' round-robin')}>

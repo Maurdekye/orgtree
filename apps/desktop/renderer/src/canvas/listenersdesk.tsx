@@ -183,9 +183,8 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
       .finally(() => setBusy(false))
   }
   const agentLink = (id: string) => isUserName(id) ? <UserMention refs={refs} /> : <AgentLink id={id} tier={nodeTierOf(map.get(id))} onFocus={onJump} />
-  // who fired an event: the user (the standard @user mention), an agent of the tree, else the label as kept
-  const firer = (by?: string | null) => !by ? null : isUserName(by.replace(/^@/, '')) ? <UserMention refs={refs} />
-    : map.has(by.replace(/^@/, '')) ? agentLink(by.replace(/^@/, ''))
+  // who fired an event: an agent of the tree, else the label as kept ("@user")
+  const firer = (by?: string | null) => !by ? null : map.has(by.replace(/^@/, '')) ? agentLink(by.replace(/^@/, ''))
     : <span className="dim fired-by" title={by}>{by}</span>
   // the user's registration, taken off the project (the dog's id is "user/<id>")
   const removeOwn = (w: Watchdog) => {

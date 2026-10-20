@@ -140,12 +140,13 @@ test('§3 the user\'s rows wear the @user chip; their held job opens its mail, w
   const finished = [{ id: 5, mail: 'jm0', copy: 'c0', agent: 'user', how: 'acked', held_at: '2026-10-20T08:00:00Z', ended_at: '2026-10-20T08:30:00Z',
     ack: 'a1', ack_gist: 'Done', gist: 'Earlier job', dog: held.dog }]
   const routes = { world: { org: 'org' }, onOpen: (r: { ref: { id: string; box?: string } }) => { opened.push(`${r.ref.box}:${r.ref.id}`) } }
-  const v = await mount([devDog, mineDog], [], history({ working: [held, theirs], history: finished }), {}, () => {}, [], routes)
+  // a batch of two: the user holds one job and still takes mail, so their row is in the Line as well as in Working
+  const v = await mount([devDog, { ...mineDog, batch: 2 }], [], history({ working: [held, theirs], history: finished }), {}, () => {}, [], routes)
   t.after(() => v.unmount())
   const working = [...v.el.querySelectorAll('.mail-working tr.held-job')]
   assert.equal(working.length, 2)
-  const mine = working.find((r) => r.querySelector('.slot-agent .ref-chip'))!
-  assert.equal(mine.querySelector('.slot-agent .ref-chip')!.textContent, '@user')
+  const mine = working.find((r) => r.querySelector('.slot-agent .ref-chip.ref-mail'))!
+  assert.equal(mine.querySelector('.slot-agent .ref-chip.ref-mail')!.textContent, '@user')
   assert.ok(!mine.querySelector('[data-action="take-back"]'), 'the user\'s own job is acknowledged, never taken back')
   const open = mine.querySelector<HTMLButtonElement>('[data-action="open-job"]')!
   assert.ok(open, 'an open mail control instead')
@@ -154,10 +155,10 @@ test('§3 the user\'s rows wear the @user chip; their held job opens its mail, w
   const other = working.find((r) => r !== mine)!
   assert.ok(other.querySelector('[data-action="take-back"]'), 'an agent\'s job keeps its take back')
   const line = [...v.el.querySelectorAll('.mail-line tr.listener-row')]
-  assert.ok(line.some((r) => r.querySelector('.slot-agent .ref-chip')?.textContent === '@user'), 'the Line row')
+  assert.ok(line.some((r) => r.querySelector('.slot-agent .ref-chip.ref-mail')?.textContent === '@user'), 'the Line row')
   assert.ok(line.find((r) => r.querySelector('[data-action="leave-queue"]')), 'the leave control is on the user\'s own row')
   const done = v.el.querySelector('.mail-history tr.finished')!
-  assert.equal(done.querySelector('.slot-agent .ref-chip')?.textContent, '@user', 'Recently Finished')
+  assert.equal(done.querySelector('.slot-agent .ref-chip.ref-mail')?.textContent, '@user', 'Recently Finished')
 })
 
 test('§3 round-robin deliveries to the user wear the chip too', async (t) => {
@@ -166,7 +167,7 @@ test('§3 round-robin deliveries to the user wear the chip too', async (t) => {
     rows={[]} ack={false} op={ops([], { project: 'jobs', ack: false, history: delivered, history_next: null })} toast={() => {}} refs={refs} dogs={[mineDog]} />, (el) => el)
   t.after(() => v.unmount())
   await inAct(async () => { await flush(6) })
-  assert.equal(v.el.querySelector('.mail-history tr.delivered .slot-agent .ref-chip')?.textContent, '@user')
+  assert.equal(v.el.querySelector('.mail-history tr.delivered .slot-agent .ref-chip.ref-mail')?.textContent, '@user')
 })
 
 test('§4 nothing on the tab says "you"', async (t) => {

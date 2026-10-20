@@ -126,12 +126,12 @@ test('§2 the user\'s rows wear the @user chip; an agent keeps its own link', as
   const chip = hold[0]!.querySelector('.slot-agent .ref-chip.ref-mail')
   assert.ok(chip, 'the user\'s holder cell is the @user chip')
   assert.equal(chip.textContent, '@user')
-  assert.ok(!hold[1]!.querySelector('.ref-chip'), 'an agent holder is not the user chip')
+  assert.ok(!hold[1]!.querySelector('.ref-chip.ref-mail'), 'an agent holder is not the user chip')
   const line = [...v.el.querySelectorAll('.slots-line tr.slot-row')]
   assert.equal(line.length, 2)
-  assert.equal(line[0]!.querySelector('.slot-agent .ref-chip')?.textContent, '@user')
+  assert.equal(line[0]!.querySelector('.slot-agent .ref-chip.ref-mail')?.textContent, '@user')
   const done = [...v.el.querySelectorAll('.slots-history tr.slot-row')]
-  assert.equal(done[0]!.querySelector('.slot-agent .ref-chip')?.textContent, '@user')
+  assert.equal(done[0]!.querySelector('.slot-agent .ref-chip.ref-mail')?.textContent, '@user')
 })
 
 test('§2 the user releases their own hold: a plain release, no force, no confirmation', async (t) => {

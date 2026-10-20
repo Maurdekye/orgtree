@@ -140,29 +140,29 @@ test('§2 the user\'s rows wear the @user chip and remove only their own', async
   t.after(() => v.unmount())
   const events = [...v.el.querySelectorAll('.listeners-events tr.listener-row')]
   assert.equal(events.length, 2)
-  const user = events.find((r) => r.querySelector('.slot-agent .ref-chip'))!
+  const user = events.find((r) => r.querySelector('.slot-agent .ref-chip.ref-mail'))!
   assert.ok(user, 'the user\'s listener row')
-  assert.equal(user.querySelector('.slot-agent .ref-chip')!.textContent, '@user')
+  assert.equal(user.querySelector('.slot-agent .ref-chip.ref-mail')!.textContent, '@user')
   const agent = events.find((r) => r !== user)!
-  assert.ok(!agent.querySelector('.slot-agent .ref-chip'), 'an agent keeps its agent link')
+  assert.ok(!agent.querySelector('.slot-agent .ref-chip.ref-mail'), 'an agent keeps its agent link')
   assert.ok(!agent.querySelector('[data-action="remove-registration"]'), 'the user removes nobody else\'s dog here')
   const remove = user.querySelector<HTMLButtonElement>('[data-action="remove-registration"]')!
   assert.ok(remove)
   await inAct(async () => { remove.click(); await flush(4) })
   assert.deepEqual(requests.find((r) => r.op === 'user_registration_remove'), { op: 'user_registration_remove', node: 'sync', dog: 'u1abc' })
   const watch = v.el.querySelector('.listeners-watches tr.listener-row')!
-  assert.equal(watch.querySelector('.slot-agent .ref-chip')!.textContent, '@user')
+  assert.equal(watch.querySelector('.slot-agent .ref-chip.ref-mail')!.textContent, '@user')
   await inAct(async () => { watch.querySelector<HTMLButtonElement>('[data-action="remove-registration"]')!.click(); await flush(4) })
   assert.deepEqual(requests.filter((r) => r.op === 'user_registration_remove').at(-1),
     { op: 'user_registration_remove', node: 'sync', dog: 'u2def' })
 })
 
-test('§3 Recently Fired names the user as the @user chip, as the firer and as a listener reached', async (t) => {
+test('§3 Recently Fired names the user, as a listener reached, as the @user chip (the firer keeps its label)', async (t) => {
   const v = await mount([agentListener, mine], [])
   t.after(() => v.unmount())
   const fired = v.el.querySelector('.listeners-fired')!
   const chips = [...fired.querySelectorAll('.ref-chip.ref-mail')].map((c) => c.textContent)
-  assert.ok(chips.length >= 2, 'the firer (@user) and the listener reached (user)')
+  assert.equal(chips.length, 1, 'the listener reached (user)')
   assert.ok(chips.every((c) => c === '@user'))
 })
 
