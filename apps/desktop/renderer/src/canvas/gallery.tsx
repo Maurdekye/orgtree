@@ -154,7 +154,7 @@ function openingPresentation(slug: string, rows: DocRow[]): string | null {
 // is what keeps a growth from moving the reader. It is the transcript's own
 // rule (its poll carries the whole loaded window in `last`). An opening can
 // start around an older unread card: the engine returns its position and one
-// bounded page. Scrolling either edge expands that same contiguous window.
+// bounded page. Newer/older growth expands that same contiguous window.
 
 /** the first window, and what each growth adds. Bounded so opening the panel
  *  is one small request however long the history is. */
@@ -356,10 +356,7 @@ function LazyDocList({ w, label, children }: {
     // contract, and it evaporates the moment a row gains a focusable child.
     // Stating it here is what makes the keyboard path OURS to keep.
     <div className="mailer-list" ref={ref} tabIndex={0} aria-label={label}
-      onScroll={() => {
-        if (ref.current && ref.current.clientHeight > 0 && ref.current.scrollTop < DOC_EDGE && w.newer) w.growNewer()
-        else if (nearEnd()) w.grow()
-      }}>
+      onScroll={() => { if (nearEnd()) w.grow() }}>
       {w.newer && <button className="doc-list-newer" onClick={w.growNewer}>Load newer documents</button>}
       {children}
       <DocListEnd w={w} />

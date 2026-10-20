@@ -7,7 +7,7 @@ export default async function(rig){
  rig.scenario({default:{turns:[{name:'default',steps:[{text:'OK.'}]}]}})
  const org=rig.one(`SELECT id FROM ot.orgs WHERE slug='${rig.org}'`).id
  const agent=rig.one(`SELECT id FROM ot.agents WHERE org_id=${org} AND name='boss'`).id
- rig.sql(`INSERT INTO ot.documents(uid,org_id,agent_id,node_name,title,body,at,viewed_at)
+ rig.exec(`INSERT INTO ot.documents(uid,org_id,agent_id,node_name,title,body,at,viewed_at)
    SELECT 'opening-'||n,${org},${agent},'boss','Synthetic presentation '||n,'body '||n,
      '2026-10-01'::timestamptz+n*interval '1 minute','2026-10-01'::timestamptz+n*interval '1 minute'
    FROM generate_series(1,130) n;
@@ -21,7 +21,7 @@ export default async function(rig){
  await rig.api('POST',`/api/orgs/${rig.org}/documents/viewed`,{marks:[{id:'opening-3',at:'2026-10-01T00:03:00Z'}]})
  const changed=await rig.api('GET',route)
  p.check('opening after mark chooses next changed document',changed.opening_id==='opening-4',changed)
- rig.sql(`UPDATE ot.documents SET viewed_at=at WHERE org_id=${org}`)
+ rig.exec(`UPDATE ot.documents SET viewed_at=at WHERE org_id=${org}`)
  const read=await rig.api('GET',route)
  p.check('all-read fallback uses replacement time rather than row identity',read.opening_id==='opening-4',read)
  const explicit=await rig.api('GET',route+'&locate=opening-130')
