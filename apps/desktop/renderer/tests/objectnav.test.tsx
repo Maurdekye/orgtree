@@ -109,7 +109,11 @@ test('ticket Owner reuses the canonical agent menu; click and Enter focus while 
 test('inner object wins over row actions; invalid/foreign ids and removed watchdogs gain no actions', async t => {
   let calls = 0
   const prior = globalThis.fetch
-  globalThis.fetch = (async () => { calls++; return new Response(JSON.stringify({ item }), { status: 200 }) }) as typeof fetch
+  const reads: URL[] = []
+  globalThis.fetch = (async input => {
+    calls++; const url = new URL(String(input), 'http://fixture.invalid'); reads.push(url)
+    return new Response(JSON.stringify(url.pathname.endsWith('/watchdogs') ? { watchdogs: [] } : { item }), { status: 200 })
+  }) as typeof fetch
   t.after(() => { globalThis.fetch = prior })
   function Row() {
     const menu = useContextMenu()
@@ -126,11 +130,15 @@ test('inner object wins over row actions; invalid/foreign ids and removed watchd
   await right(view.el.querySelector('[data-object-id="task"][data-object-org="org"]')!)
   assert.ok(labels().includes('Open details')); assert.ok(!labels().includes('Row only'))
   const before = calls
-  for (const selector of ['[data-object-id="../other"]', '[data-object-org="other"]', '[data-object-id="other/check"]']) {
+  for (const selector of ['[data-object-id="../other"]', '[data-object-org="other"]']) {
     await right(view.el.querySelector(selector)!)
     assert.deepEqual(labels(), ['Row only'])
   }
-  assert.equal(calls, before)
+  assert.equal(calls, before, 'invalid and foreign objects do not fetch')
+  await right(view.el.querySelector('[data-object-id="other/check"]')!)
+  assert.deepEqual(labels(), [], 'a confirmed absent watchdog gains no action or unrelated row menu')
+  assert.equal(calls, before + 1, 'an absent preview dog uses one exact detail lookup')
+  assert.equal(reads.at(-1)!.searchParams.get('id'), 'other/check')
   assert.equal(await right(view.el.querySelector('input')!), false)
   assert.deepEqual(watchdogActions({ ...dog, spent: true }, () => {}), [])
 })
