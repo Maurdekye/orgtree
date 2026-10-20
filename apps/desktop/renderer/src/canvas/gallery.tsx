@@ -149,13 +149,11 @@ function openingPresentation(slug: string, rows: DocRow[]): string | null {
 // ⚠ THE WINDOW IS REPLACED, NOT ACCUMULATED PAGE BY PAGE. `documents` is
 // newest-first and moves underneath a reader: a card is presented, another is
 // dismissed, and an offset that addressed row 100 one poll ago addresses a
-// different row the next. Asking for one contiguous range makes every response a
-// complete window of the list, so duplicates and gaps are not handled, they
-// are impossible — and the rows already on screen come back identical, which
-// is what keeps a growth from moving the reader. It is the transcript's own
-// rule (its poll carries the whole loaded window in `last`). An opening can
-// start around an older unread card: the engine returns its position and one
-// bounded page. Newer/older growth expands that same contiguous window.
+// different row the next. docwindow refreshes each loaded range, deduplicates
+// their joins and keeps the newest end loaded on every opening. A nearby
+// unread target shares one contiguous prefix; a distant target adds its own
+// page with an explicit gap that fills as it approaches the viewport. Every
+// individual read remains bounded even after the user expands the list.
 
 export { DOC_PAGE } from './docwindow'
 import { useDocWindow } from './docwindow'
