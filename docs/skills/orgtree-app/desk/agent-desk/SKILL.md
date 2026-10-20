@@ -10,7 +10,16 @@ The Team tab appears only while the agent/project has live direct subordinates.
 Its badge counts those direct subordinates, including projects; the Team list
 itself includes all descendants. Hiring or retiring updates the tab live. If
 the last direct subordinate leaves while Team is open, an agent desk returns
-to Chat and a project desk returns to Desk. A later hire does not reopen Team.
+to Chat and a project desk returns to Summary. A later hire does not reopen Team.
+
+Every agent and project desk reopens on the tab last picked on it, also after
+a restart; the memory is per organization and node, in this app's local
+storage. A project desk's Mail tab likewise reopens the folder last picked in
+its folder strip (inbox, sent or listeners); a folder the mail card opens is
+not a pick. An open desk keeps its own tab: a pick in a pinned or popped-out
+copy does not move another. A tab the desk does not offer when it opens, or
+that goes away while it is open (Team, Slots, Dead letters, Listeners), gives
+way to Chat or Summary, and the desk stays there when the tab comes back.
 
 Open an agent's desk from its name/card or desk navigation. A focused desk, a pinned canvas window and a detached window show the same agent identity and work tabs. Pinning fixes it in screen space; pop-out opens its window surface. These view choices are not agent lifecycle changes.
 
@@ -47,7 +56,7 @@ The separate Halt and Stop controls are consequential: Stop interrupts a respons
 ## Tabs and next destination
 
 - [Chat](../desk-chat/SKILL.md): conversation and composing.
-- [Inbox](../inbox-screens/SKILL.md): the agent's mailbox.
+- [Mail](../inbox-screens/SKILL.md): the agent's mailbox, with its inbox and sent folders.
 - [Docket](../docket-screens/SKILL.md): its work items.
 - [Presented](../presentations/SKILL.md): document collection.
 - [Team](../../canvas/agents-list/SKILL.md): the same Agents List restricted to this node and all descendants, including its Filter, Active and archived controls. Project desks offer Team as well.
@@ -56,7 +65,7 @@ The shared agent/project context menu's **Open → Team** entry opens that node'
 
 Agent event history is available in the agent settings panel when the agent has retained records. Scratch folders open in the OS file explorer through **Open → Scratch folder** in the agent menu or **Open scratch folder** in the settings header.
 
-Counts appear for Inbox, Docket and Presented when nonzero. For configuration fields see [agent settings](../../agent-settings/agent-config/SKILL.md).
+Counts appear for Mail, Docket and Presented when nonzero. For configuration fields see [agent settings](../../agent-settings/agent-config/SKILL.md).
 
 ## See also
 

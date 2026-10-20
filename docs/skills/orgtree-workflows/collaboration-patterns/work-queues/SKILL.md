@@ -31,7 +31,7 @@ These describe cooperative patterns: slot holders agree to claim and release per
 - **One listener per agent.** The listener's `batch` limits its unacked jobs per project in ack mode. Creating a second fair_queue watchdog on a project you already watch is refused, naming the one you have (resume it if it is paused).
 - **Released mail.** An un-acked mail goes back to the front of the queue when its holder is retired or halted, or stops listening.
 - **Never hand an agent its own mail** (off by default): when on, a listener that posts to the project is not handed its own mail; the mail waits for another listener.
-- **Purge.** The project desk's inbox tab can purge the mail still waiting (after a confirmation); handed, acked and dead-letter mail stays.
+- **Purge.** The project desk's Mail tab can purge the mail still waiting (after a confirmation); handed, acked and dead-letter mail stays.
 - **The listener wake** (Runtime settings, "wake an agent to listen for project mail", on by default): when the user writes to a project nobody listens on, one agent directly under it (an idle one first) is woken and asked to arm a fair_queue watchdog.
 - **The megaphone** on the project desk's message box sends one message to every live agent under the project instead of to the queue: for announcements, not jobs.
 
@@ -55,6 +55,6 @@ For exact load-balancer/FIFO job, acknowledgement, retry/dead-letter and signal-
 2. Have each worker arm `orgtree_watchdog action=create kind=fair_queue target=<project>`. With the listener wake on, the first user mail to an unwatched project asks one worker to do this.
 3. Choose the mode in project settings: round-robin when jobs are quick and independent; ack mode when each job needs a completion record or must not pile up on one worker. In ack mode, keep the ack timeout on and set max attempts to how often a job may be retried.
 4. Post jobs to the project, one mail per job (`orgtree_message to=<project>`, or the project desk's message box with the megaphone off).
-5. Watch the project desk's inbox: each mail shows who holds it, whether it is awaiting an ack, acked, released or dead-lettered. Purge what should no longer run.
+5. Watch the project desk's Mail tab: each mail shows who holds it, whether it is awaiting an ack, acked, released or dead-lettered. Purge what should no longer run.
 
 For what a project is, see `orgtree-projects` (orgtree-working › team); for the fair_queue watchdog, `orgtree-tool-watchdog` (orgtree-working › watchdogs); for posting jobs and acks, `orgtree-tool-message` (orgtree-working › mail).

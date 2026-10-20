@@ -7,7 +7,7 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # Narrow layout
 
-At mobile width, selecting an agent can open a sheet instead of the full desktop card arrangement. Its header shows the agent name, tier, and status with controls for watchdogs, hiring under a live agent, inbox, settings, and closing the sheet. The conversation uses the same desk chat surface; closing the sheet does not retire the agent.
+At mobile width, selecting an agent can open a sheet instead of the full desktop card arrangement. Its header shows the agent name, tier, and status with controls for watchdogs, hiring under a live agent, mail, settings, and closing the sheet. The conversation uses the same desk chat surface; closing the sheet does not retire the agent.
 
 The hire sheet exposes the model/provider choices, name, grant, and placement relative to the selected agent: below, left, right, or above where offered. Model rows distinguish availability checks, missing harnesses, and signed-out accounts. Follow their App settings destination to resolve availability; a hidden or disabled row is not evidence that a hire succeeded.
 

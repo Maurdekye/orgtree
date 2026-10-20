@@ -17,7 +17,7 @@ Right-click a recognized object to open its menu. Copy actions come from that ob
 | Open → Desk | Temporary desk glance without changing focused agent/layout. |
 | Open → Desk as a pinned window | Pin the desk, or raise its existing pinned canvas window. Second in the desk section for both agents and projects. |
 | Open → Desk in a separate window | Detach the desk, or raise its existing native window. Third in the desk section for both agents and projects. |
-| Open → Inbox | The agent's own mailbox. |
+| Open → Mail | The agent's own mailbox (the desk's Mail tab as a window). A project's entry is Open → Project mailbox. |
 | Open → Team | The node itself and every descendant in the existing Agents List, with its filter and Active checkbox; also available as a desk tab, pinnable or popped out. |
 | Open → Scratch folder | Existing local directory, offered on supported native surfaces for live/archived identities; missing paths error without creating them. |
 | Open → Scratch folder → Team scratch folder | Submenu under Scratch folder when both are offered (inline under Open when only one exists); the team this agent leads, keyed by its numeric id even with no reports. Creates a missing managed folder on demand; supported native shells only. |

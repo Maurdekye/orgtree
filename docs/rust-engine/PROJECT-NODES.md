@@ -358,10 +358,17 @@ agents under the project".
   camera to the project and opens its desk (`canvas/projectdesk.tsx`) in the agent desk's frame
   and header; a click never opens a modal (20:04Z). No chat: a project takes no turns. It pins as
   a window like an agent desk.
-  - Tabs: **desk**, then the agent desk's three: **inbox** (its mailbox), **docket** (items
+  - Tabs: **summary** (route `desk`), then the agent desk's three: **mail** (route `inbox`; its
+    mailbox, with inbox, sent and listeners folders), **docket** (items
     owned by agents under it) and **presented** (documents presented under it with `orgtree_present
     project=`; the subtree's are its team presentations, point 27).
-    An agent's own gallery is unchanged.
+    An agent's own gallery is unchanged. The mailbox tab is "mail" on both desks, its window
+    "X · mail", the agent menu's entry Open → Mail [user 2026-10-20 06:22Z; coordinator 06:33Z].
+  - Every desk reopens on the tab last picked on it, and a project desk's Mail tab on the folder
+    last picked in its folder strip (a card's folder is not a pick): `canvas/desktabs.ts`,
+    localStorage `orgtree-desk-tabs:<org>` by node id [user 2026-10-20 06:22Z]. A tab the desk
+    does not offer, on opening or while open, gives way to Summary, which it keeps when the tab
+    comes back.
   - A project mail's list row (in its inbox, and in the Sent folder of whoever mailed the
     project) takes three lines: sender and time; its kind chip and queue state (`→ @recipient`,
     awaiting ack, acked, released, ack of, dead letter, purged); the preview. In the project's
@@ -379,7 +386,7 @@ agents under the project".
   - **Parity with the agent desk** [user 2026-10-19 19:59Z]: the project desk reuses the agent
     desk's pieces, not copies. Header: `AgentName` (plain on the focused desk, a link from other
     hosts), `HeldAudienceChips` (held audiences, revoke on explicit grants), dismiss for a
-    retired project shown under hide-retired, and the settings gear. Inbox: one `ProjectInbox`
+    retired project shown under hide-retired, and the settings gear. Mail: one `ProjectInbox`
     view on the tab and in its window (`ProjectInboxModal`) with purge, the listeners folder and
     retract; waiting mail reads "waiting in the project queue". The docket badge counts
     actionable owned tickets (`actionableTeamCount`). The composer grows like the agent's,

@@ -125,7 +125,7 @@ These rulings explain choices a reader might otherwise question.
     `accounts`.
   - `orgtree_list_tiers` (group `inspection`) is in `team`, and `orgtree_list_orgs`
     (group `inspection`) is in `mail`.
-- **Desk tabs that have their own modal** (Inbox, Docket, Presented) are covered by that
+- **Desk tabs that have their own modal** (Mail, Docket, Presented) are covered by that
   modal's leaf (`inbox-screens`, `docket-screens`, `presentations`), so each surface has
   one home. `agent-desk` lists the tabs and links to them.
 - **Settings dialogs that are really screens**, such as Add account, Clear account mark,

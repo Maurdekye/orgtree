@@ -6,7 +6,7 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Inboxes and transfers
 
-These surfaces share mail cards but have different owners and actions. An agent's Inbox tab/modal is its mailbox; the user Inbox includes the user's incoming questions/mail and sent/record views; the org inbox is the organization's outside correspondence.
+These surfaces share mail cards but have different owners and actions. An agent's or project's Mail tab, and its mail window (titled "· mail"), is its mailbox, with inbox and sent folders (a project's adds listeners); the user Inbox includes the user's incoming questions/mail and sent/record views; the org inbox is the organization's outside correspondence.
 
 ## Lists, read panes and replies
 

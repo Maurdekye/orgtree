@@ -36,7 +36,7 @@ Open a section below, then the screen or setting leaf it lists. Settings leaves 
 | Pin, move or reopen a panel | [orgtree-canvas](canvas/SKILL.md) |
 | Understand the user node or outside inbox tile | [orgtree-canvas](canvas/SKILL.md) |
 | Read the desk Chat tab or an agent's event history | [orgtree-desk](desk/SKILL.md) and [orgtree-agent-settings](agent-settings/SKILL.md) |
-| Open Inbox, Docket or Presented windows | [orgtree-desk](desk/SKILL.md) |
+| Open Mail, Docket or Presented windows | [orgtree-desk](desk/SKILL.md) |
 | Answer a question card or inspect a watchdog | [orgtree-desk](desk/SKILL.md) |
 | Choose desktop startup or notification behavior | [orgtree-app-settings](app-settings/SKILL.md) |
 | Adjust turn limits or concurrency | [orgtree-app-settings](app-settings/SKILL.md) |

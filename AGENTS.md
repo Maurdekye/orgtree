@@ -61,6 +61,21 @@
   presented-tab Team checkbox. See [project nodes](docs/rust-engine/PROJECT-NODES.md).
   [decided: user 2026-10-19 19:59Z; verified: `canvas/{desk,projectdesk}.tsx`]
 
+- Every desk reopens on the tab last picked on it, and a project desk's Mail tab
+  on the folder last picked in its folder strip (a folder the mail card or a
+  jump opened is not a pick): `canvas/desktabs.ts` (`useDeskMemory`),
+  localStorage `orgtree-desk-tabs:<org>` by node id, read when a desk mounts or
+  its host switches nodes, never live, so an open desk keeps its tab. A tab the
+  desk does not offer, on opening or while open, gives way to Chat or Summary,
+  which it keeps when the tab comes back. The mailbox tab is labelled "mail"
+  (`deskTabLabel`; the route stays `inbox`), its window "X · mail", the agent
+  menu's entry Open → Mail; folders stay inbox / sent / listeners and the
+  app-level Inbox is unchanged. Tests: find a desk tab by `data-tab`, never by
+  its label. A test file that remounts a desk shares localStorage between its
+  tests: `localStorage.clear()` per fixture. [decided: user 2026-10-20 06:22Z,
+  coordinator 06:33Z; verified: `canvas/{desktabs.ts,desk,projectdesk,mail,
+  deskshell,panelcorner,agentmenu}.tsx`, `tests/desktabmemory.test.tsx`]
+
 - Renderer supervisory controls use `agentSuperior`, `effectiveReports` and
   `isTopLevel` to cross project containers: credits follow agent funding, root
   project hires use top-level defaults, user lines belong to agents, and
@@ -426,7 +441,7 @@
 
 - Project desk cards and slot surfaces (user 2026-10-19 17:11Z-17:24Z): a
   magenta `mail listeners N` card (armed fair_queue dogs) sits beside the
-  mail-queue card on desk header + near card and opens the inbox tab; the
+  mail-queue card on desk header + near card and opens the Mail tab; the
   desk header's slots chip carries no holder links (tooltip names holders);
   an agent's slot chip opens its project's slots surface and reads
   "held since HH:MM from project X" / "waiting since … for project X"; the
