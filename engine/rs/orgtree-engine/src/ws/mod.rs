@@ -230,7 +230,8 @@ pub struct Timing {
     /// Network backoff: the first wait, doubled per failure up to `net_max`.
     pub net_first: Duration,
     pub net_max: Duration,
-    /// Waits after refusals (HTTP 401/403 and other 4xx, TLS, bad credentials), in order.
+    /// Waits after refusals (HTTP 401/403 and other 4xx, TLS, bad credentials), in order;
+    /// the last repeats.
     pub refused: Vec<Duration>,
     /// Up this long before the network backoff starts over, and before an
     /// outage counts as over.
@@ -245,7 +246,8 @@ pub struct Timing {
     pub write_timeout: Duration,
     /// Immediate retries (resume) at most this often.
     pub kick_gap: Duration,
-    /// The longest Retry-After honoured.
+    /// The longest Retry-After honoured: a server asking for longer is
+    /// asked again after the 5 min cap.
     pub retry_after_max: Duration,
     pub jitter: bool,
 }
@@ -255,14 +257,15 @@ impl Default for Timing {
         Timing {
             net_first: Duration::from_secs(2),
             net_max: Duration::from_secs(300),
-            refused: [60, 300, 900, 1800, 3600].iter().map(|s| Duration::from_secs(*s)).collect(),
+            // 1 min, then every 5 min, as mqtt's (coordinator 2026-10-20 09:24Z)
+            refused: [60, 300].iter().map(|s| Duration::from_secs(*s)).collect(),
             stable: Duration::from_secs(60),
             connect_timeout: Duration::from_secs(10),
             ping_after: Duration::from_secs(30),
             dead_after: Duration::from_secs(75),
             write_timeout: Duration::from_secs(10),
             kick_gap: Duration::from_secs(5),
-            retry_after_max: Duration::from_secs(3600),
+            retry_after_max: Duration::from_secs(300),
             jitter: true,
         }
     }

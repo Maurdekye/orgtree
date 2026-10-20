@@ -209,7 +209,7 @@ pub(super) async fn smoke(engine: &Arc<Engine>, owner: i64, c: &Created) -> (Val
         Smoke::SubRefused => json!({ "ran": format!("⚠ connected to {url}, but the broker REFUSED the subscription to {} (SUBACK 0x80): its access rules may not allow it", c.filter),
                                      "broken": true, "paused": true, "note": "the dog is PAUSED: fix the broker's access rules or the filter, then resume it" }),
         Smoke::Refused(e) => json!({ "ran": format!("⚠ the broker refused this client: {e}"), "broken": true,
-                                     "note": "the dog stays armed and retries slowly (1 min, growing to 1 h). Fix the credentials (a credentials file is read again on every attempt) or the broker, then resume the dog to retry at once" }),
+                                     "note": "the dog stays armed and retries after 1 min, then every 5 min. Fix the credentials (a credentials file is read again on every attempt) or the broker; it picks the fix up by itself, or resume the dog to retry at once" }),
         Smoke::Down(e) => json!({ "ran": format!("⚠ {url} cannot be reached now: {e}"), "broken": true,
                                   "note": "the dog stays armed and keeps retrying (2 s, doubling to 5 min); you are told if it stays down for a minute, and when it is back" }),
         Smoke::Slow => json!({ "ran": format!("still connecting to {url} after {} s", SMOKE.as_secs()),
@@ -245,7 +245,7 @@ pub(super) fn health(d: &Dog) -> Option<String> {
     match c["state"].as_str() {
         Some("down") => Some(format!("⚠ the broker is unreachable since {}: {}. It retries on its own (next try {}); messages published meanwhile are missed.",
                                      s("since"), s("error"), s("retry_at"))),
-        Some("refused") => Some(format!("⚠ REFUSED by the broker since {}: {}. It retries slowly (next try {}); fix the credentials or the broker's rules, then resume it.",
+        Some("refused") => Some(format!("⚠ REFUSED by the broker since {}: {}. It retries every 5 min (next try {}) and picks up a fix by itself: fix the credentials or the broker's rules; resume it to retry at once.",
                                         s("since"), s("error"), s("retry_at"))),
         _ => d.run["dropped"].as_u64().filter(|n| *n > 0)
             .map(|n| format!("⚠ {n} messages were dropped: they arrived faster than this dog could take them")),
@@ -664,7 +664,7 @@ impl<'a> Listener<'a> {
                     self.refused_alerted = Some(what.clone());
                     self.down_alerted = Some(*since);
                     self.alert(&what, format!("the broker {url} REFUSED this client: {error}"),
-                               "Fix the credentials (a credentials file is read again on every attempt; inline credentials need a new dog) or the broker's rules, then resume this dog to retry at once. Until then it retries slowly (1 min, growing to 1 h).",
+                               "Fix the credentials (a credentials file is read again on every attempt; inline credentials need a new dog) or the broker's rules: it retries after 1 min, then every 5 min, and picks the fix up by itself; resume this dog to retry at once.",
                                None).await?;
                 }
             }

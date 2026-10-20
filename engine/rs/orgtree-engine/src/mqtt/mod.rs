@@ -206,7 +206,8 @@ pub struct Timing {
     /// Network backoff: the first wait, doubled per failure up to `net_max`.
     pub net_first: Duration,
     pub net_max: Duration,
-    /// Waits after refusals (auth, TLS, client id, protocol), in order.
+    /// Waits after refusals (auth, TLS, client id, protocol), in order;
+    /// the last repeats.
     pub refused: Vec<Duration>,
     /// Up this long before the network backoff starts over.
     pub stable: Duration,
@@ -229,7 +230,9 @@ impl Default for Timing {
         Timing {
             net_first: Duration::from_secs(2),
             net_max: Duration::from_secs(300),
-            refused: [60, 300, 900, 1800, 3600].iter().map(|s| Duration::from_secs(*s)).collect(),
+            // 1 min, then every 5 min: a refusal that clears by itself is
+            // picked up within the cap (coordinator 2026-10-20 09:24Z)
+            refused: [60, 300].iter().map(|s| Duration::from_secs(*s)).collect(),
             stable: Duration::from_secs(60),
             connect_timeout: Duration::from_secs(10),
             keep_alive: Duration::from_secs(30),
