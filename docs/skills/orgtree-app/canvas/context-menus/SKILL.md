@@ -6,6 +6,12 @@ Up: [orgtree-canvas](../SKILL.md)
 
 # Context menus
 
+In every context menu that offers an **Open** submenu, it is the second action,
+including nested node menus. The first action and the relative order of the
+remaining actions stay the same. This also applies when Mention is first inside
+a desk; Copy mention then follows Open. A plain Open action without a submenu
+keeps its existing position.
+
 Right-click a recognized object to open its menu. Copy actions come from that object's own identity attributes; an agent or project target supplies Copy mention (copying `@<name>`). Inside an agent or project desk with a live composer, any agent or project link (across Chat, Inbox, Docket, Presented, Team, header and jump cards) puts **Mention** first, above **Copy mention**, inserting `@<name> ` into the desk's message box at the caret (or appended when unfocused) and focusing the box without sending. The menu then uses the same action definition on cards, Agents List rows, Team rows and other registered navigation surfaces, including the Attention view. Availability depends on the actual object state and the handlers its surface supports, so a missing action is not evidence that every build supports it elsewhere. Both agents and projects start Open with **Desk**, **Desk as a pinned window**, **Desk in a separate window**, in that order when supported. Team and the other entries follow below. Project menus offer Copy mention (preceded by Mention inside an open desk), Focus, Open (the three desk entries, Project mailbox, Team, Project folder, Presentations → Team presentations, Project docket), Hire under this project, New project… (hiring beside or above uses the card's hire tokens), Settings, and subtree compact/halt/retire actions.
 
 | Agent-menu item | Meaning/gate |

@@ -1,3 +1,9 @@
+- The shared context-menu renderer puts an Open submenu second at every menu
+  level, after copy/mention prefixes and async updates. Other action order,
+  callbacks and gates stay unchanged; plain Open actions keep their position.
+  [decided: user 2026-10-20 14:55Z; verified: `canvas/contextmenu.tsx`,
+  `tests/opensecond.test.tsx`]
+
 - Automatic known-cold cheap compaction defaults ON/25% for new orgs and
   fresh installations. Explicit app defaults win, then explicit template/org
   choices. Migration 0045 pins existing unset/partial org policy to the old
