@@ -108,9 +108,10 @@ test('§4 pin opens the surface, then asks THAT surface to pin itself', async ()
   assert.deepEqual(calls.show, [['agent-gallery', NID]],
     'it took the non-toggling route — a pin must not close what it is about to measure')
   assert.deepEqual(calls.open, [], 'and not the toggling one')
-  // the surface mounts a moment later and claims what was left for it
+  // the surface mounts a moment later and claims what was left for it: this
+  // agent's own instance of it (one per target since 2026-10-20)
   const got: string[] = []
-  claimSurfaceRequests('agent-gallery', SLUG, (r) => got.push(r))
+  claimSurfaceRequests(`agent-gallery:${NID}`, SLUG, (r) => got.push(r))
   await flush()
   assert.deepEqual(got, ['pin'],
     'the request waited for the surface and was delivered on mount')
@@ -120,21 +121,21 @@ test('§5 pin on an already-pinned surface releases it, and leaves no request be
   const { calls, press, view } = await corner('agent-docket')
   // inside act: the pin store notifies through useSyncExternalStore, so this
   // re-renders the mounted button
-  await inAct(async () => { pinModal('agent-docket', { x: 10, y: 10, w: 600, h: 400 }, SLUG) })
+  await inAct(async () => { pinModal(`agent-docket:${NID}`, { x: 10, y: 10, w: 600, h: 400 }, SLUG) })
   await flush()
-  assert.equal(isModalPinned('agent-docket', SLUG), true, 'pinned to begin with')
+  assert.equal(isModalPinned(`agent-docket:${NID}`, SLUG), true, 'pinned to begin with')
   assert.equal(view.last()[0]!.getAttribute('aria-pressed'), 'true',
     'and the button says so, read live from the pin store')
 
   await press(0)
-  assert.equal(isModalPinned('agent-docket', SLUG), false, 'the press released the pin')
+  assert.equal(isModalPinned(`agent-docket:${NID}`, SLUG), false, 'the press released the pin')
   assert.deepEqual(calls.show, [],
     'releasing needs no panel to measure, so it opened nothing')
   // ⚠ AND NOTHING IS LEFT QUEUED. A stale 'pin' sitting in the channel would
   // fire the next time this surface mounted for any other reason and re-pin a
   // window the user had just unpinned.
   const got: string[] = []
-  claimSurfaceRequests('agent-docket', SLUG, (r) => got.push(r))
+  claimSurfaceRequests(`agent-docket:${NID}`, SLUG, (r) => got.push(r))
   await flush()
   assert.deepEqual(got, [], 'no request was queued by an unpin')
 })
@@ -144,7 +145,7 @@ test('§6 pop-out opens the surface, then asks THAT surface to open its window',
   await press(1)
   assert.deepEqual(calls.show, [['node-inbox', NID]], 'the non-toggling route again')
   const got: string[] = []
-  claimSurfaceRequests('node-inbox', SLUG, (r) => got.push(r))
+  claimSurfaceRequests(`node-inbox:${NID}`, SLUG, (r) => got.push(r))
   await flush()
   assert.deepEqual(got, ['popout'], 'and the pop-out request was waiting for it')
 })

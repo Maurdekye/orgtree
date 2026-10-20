@@ -62,8 +62,10 @@ test('an unpinned panel still opens, and a detached panel still receives focus',
 })
 
 const flatten = (entries: MenuEntry[]): MenuItem[] => entries.flatMap(e => e === 'sep' ? [] : [e, ...flatten(e.children ?? [])])
-for (const [label, kind] of [['Mail', 'node-inbox'], ['Team', 'agent-team'], ['Docket', 'agent-docket']] as const) {
+for (const [label, base] of [['Mail', 'node-inbox'], ['Team', 'agent-team'], ['Docket', 'agent-docket']] as const) {
   test(`the real node ${label} menu raises its own pin and keeps it open`, async t => {
+    // worker's own window of this kind (one per target since 2026-10-20)
+    const kind = `${base}:worker`
     setup(t)
     localStorage.setItem('orgtree-agent-shortcuts', '1')
     const oldFetch = globalThis.fetch, inner = globalThis.fetch

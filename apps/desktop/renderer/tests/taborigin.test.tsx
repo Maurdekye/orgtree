@@ -30,7 +30,8 @@ for(const kind of ['node-inbox','agent-docket','agent-gallery','agent-team','pro
   t.after(()=>view.unmount());host=view.el.querySelector('.desk-tabpanel')!
   host!.getBoundingClientRect=()=>rect(tab)
   await inAct(()=>view.el.querySelectorAll<HTMLButtonElement>('.panel-corner-btn')[action==='pin'?0:1]!.click())
-  claimSurfaceRequests(kind,org,(a,o?:Origin)=>got.push({action:a,origin:o}));await flush(2)
+  // the tab's own target's surface: one per target since 2026-10-20
+  claimSurfaceRequests(`${kind}:${nid}`,org,(a,o?:Origin)=>got.push({action:a,origin:o}));await flush(2)
   assert.equal(got.length,1,'one delayed request reaches its surface')
   assert.equal(got[0]!.action,action)
   assert.deepEqual(got[0]!.origin?.rect,tab,'use original tab bounds, not modal/new DOM bounds')

@@ -57,7 +57,8 @@ async function modalFromMenu(host:HTMLElement){
 
 test('project native windows reuse the agent reveal route with exact org/node identity',t=>{
  const raised:string[]=[]
- const remove=registerWindow({id:'project-popout',kind:'project-desk',org:'refocus',editable:true,
+ // the project's own desk window: one per project since 2026-10-20
+ const remove=registerWindow({id:'project-popout',kind:'project-desk:build',org:'refocus',editable:true,
   window:window as unknown as Window,identity:()=>({agent:'build'}),redock:noop,reveal:()=>raised.push('build')})
  t.after(remove)
  assert.equal(revealExistingDesk('refocus',refocusProject),true)
@@ -103,14 +104,14 @@ test('generic opening reveals the pinned project desk without moving camera or c
 })
 test('generic opening raises a project popout without creating an embedded copy',async t=>{
  const c=await mounted(t),raised:string[]=[];const before=camera(c.host)
- t.after(registerWindow({id:'popout-route',kind:'project-desk',org:'refocus',editable:true,window:window as unknown as Window,
+ t.after(registerWindow({id:'popout-route',kind:'project-desk:build',org:'refocus',editable:true,window:window as unknown as Window,
   identity:()=>({agent:'build'}),redock:noop,reveal:()=>raised.push('build')}))
  await c.jump();assert.deepEqual(raised,['build']);assert.equal(camera(c.host),before)
  assert.equal(document.querySelectorAll('.project-desk').length,0)
 })
 test('canvas Focus and Agents List clicks reveal the same project popout',async t=>{
  const c=await mounted(t),raised:string[]=[];const before=camera(c.host)
- t.after(registerWindow({id:'entry-route',kind:'project-desk',org:'refocus',editable:true,window:window as unknown as Window,
+ t.after(registerWindow({id:'entry-route',kind:'project-desk:build',org:'refocus',editable:true,window:window as unknown as Window,
   identity:()=>({agent:'build'}),redock:noop,reveal:()=>raised.push('build')}))
  await press(card(c.host));assert.equal(raised.length,1,'canvas click revealed the popout')
  await inAct(()=>card(c.host).dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:40,clientY:40})))

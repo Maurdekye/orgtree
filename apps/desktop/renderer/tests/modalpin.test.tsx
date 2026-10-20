@@ -177,14 +177,16 @@ function RestartHarness() {
       </PinFrame>
     : <button className="open-modal" onClick={() => setOpen(true)}>open</button>
 }
+// a single-instance surface whose restore names a target (the per-target kinds
+// such as node-config are one window per target since 2026-10-20)
 function OrgSwitchHarness({ initial = 'a' }: { initial?: string }) {
   const [org, setOrg] = useState(initial)
-  const [open, setOpen] = useState(() => readModalOpen(initial).some(r => r.kind === 'node-config' && isModalPinned('node-config', initial)))
-  usePersistedModalOpen('node-config', org, open, open ? { agent: org === 'a' ? 'alice' : 'bob', generation: org === 'a' ? 1 : 2 } : undefined)
+  const [open, setOpen] = useState(() => readModalOpen(initial).some(r => r.kind === 'org-probe' && isModalPinned('org-probe', initial)))
+  usePersistedModalOpen('org-probe', org, open, open ? { agent: org === 'a' ? 'alice' : 'bob', generation: org === 'a' ? 1 : 2 } : undefined)
   return <CurrentOrg.Provider value={org}>
     <button className="switch-org" onClick={() => setOrg(org === 'a' ? 'b' : 'a')}>switch</button>
     {open
-      ? <PinFrame kind="node-config" title="settings" panel="settings" restore={{ agent: org === 'a' ? 'alice' : 'bob', generation: org === 'a' ? 1 : 2 }} close={() => setOpen(false)}>
+      ? <PinFrame kind="org-probe" title="settings" panel="settings" restore={{ agent: org === 'a' ? 'alice' : 'bob', generation: org === 'a' ? 1 : 2 }} close={() => setOpen(false)}>
           <button className="child-close" onClick={() => setOpen(false)}>close</button>
         </PinFrame>
       : <button className="open-modal" onClick={() => setOpen(true)}>open</button>}
@@ -262,20 +264,21 @@ test('§1 the store: pin, raise, unpin, the z band, and what garbage reads as', 
 
 test('§1d pinned modal open state survives storage reload and is scoped by org', () => {
   reset()
-  rememberModalOpen('node-config', 'acme', { agent: 'worker', generation: 2 })
+  // a per-target surface is one window per target (2026-10-20): worker's settings
+  rememberModalOpen('node-config:worker', 'acme', { agent: 'worker', generation: 2 })
   rememberModalOpen('org-inbox', null)
   assert.deepEqual(readModalOpen('acme'), [
-    { kind: 'node-config', org: 'acme', restore: { agent: 'worker', generation: 2 } },
+    { kind: 'node-config:worker', org: 'acme', restore: { agent: 'worker', generation: 2 } },
     { kind: 'org-inbox', org: null },
   ])
   assert.deepEqual(readModalOpen('other'), [{ kind: 'org-inbox', org: null }])
   forgetModalOpenCache()
-  assert.equal(localStorage.getItem(MODAL_OPEN_KEY)?.includes('node-config'), true)
+  assert.equal(localStorage.getItem(MODAL_OPEN_KEY)?.includes('node-config:worker'), true)
   assert.deepEqual(readModalOpen('acme'), [
-    { kind: 'node-config', org: 'acme', restore: { agent: 'worker', generation: 2 } },
+    { kind: 'node-config:worker', org: 'acme', restore: { agent: 'worker', generation: 2 } },
     { kind: 'org-inbox', org: null },
   ])
-  forgetModalOpen('node-config', 'acme')
+  forgetModalOpen('node-config:worker', 'acme')
   assert.deepEqual(readModalOpen('acme'), [{ kind: 'org-inbox', org: null }])
   reset()
 })
@@ -320,14 +323,14 @@ test('org switch does not copy pinned open state', async () => {
   await flush()
   await inAct(() => { click(v.el.querySelector('.modalpin-btn')!) })
   await flush()
-  assert.ok(readModalOpen('a').some(r => r.kind === 'node-config' && r.org === 'a' && r.restore?.agent === 'alice'))
-  rememberModalOpen('node-config', 'b', { agent: 'bob', generation: 2 })
+  assert.ok(readModalOpen('a').some(r => r.kind === 'org-probe' && r.org === 'a' && r.restore?.agent === 'alice'))
+  rememberModalOpen('org-probe', 'b', { agent: 'bob', generation: 2 })
   await inAct(() => { click(v.el.querySelector('.switch-org')!) })
   await flush()
-  assert.equal(readModalOpen('b').find(r => r.kind === 'node-config' && r.org === 'b')?.restore?.agent, 'bob', 'B keeps its own restore target')
-  assert.ok(readModalOpen('a').some(r => r.kind === 'node-config' && r.org === 'a' && r.restore?.agent === 'alice'))
-  forgetModalOpen('node-config', 'b')
-  assert.equal(readModalOpen('b').some(r => r.kind === 'node-config' && r.org === 'b'), false, 'a closed B stays closed')
+  assert.equal(readModalOpen('b').find(r => r.kind === 'org-probe' && r.org === 'b')?.restore?.agent, 'bob', 'B keeps its own restore target')
+  assert.ok(readModalOpen('a').some(r => r.kind === 'org-probe' && r.org === 'a' && r.restore?.agent === 'alice'))
+  forgetModalOpen('org-probe', 'b')
+  assert.equal(readModalOpen('b').some(r => r.kind === 'org-probe' && r.org === 'b'), false, 'a closed B stays closed')
   await v.unmount()
   forgetModalPins(); forgetModalOpenCache()
   v = await mountView(<OrgSwitchHarness initial="b" />, shot)

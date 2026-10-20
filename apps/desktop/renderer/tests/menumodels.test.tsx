@@ -44,8 +44,9 @@ async function config(t: TestContext, providers: ProvidersPayload, off?: string,
   forgetModalPins(); forgetModalOpenCache()
   // Restore the real settings panel: the canvas intentionally omits card gear
   // buttons at its default far zoom, so a gear query is not a stable entry point.
-  pinModal('node-config', { x: 10, y: 10, w: 930, h: 630 }, 'menu-org')
-  rememberModalOpen('node-config', 'menu-org', { agent: 'worker', generation: 1 })
+  // worker's own settings window (one per target since 2026-10-20)
+  pinModal('node-config:worker', { x: 10, y: 10, w: 930, h: 630 }, 'menu-org')
+  rememberModalOpen('node-config:worker', 'menu-org', { agent: 'worker', generation: 1 })
   globalThis.fetch = legacyAppBackend(async input => {
     const url = String(input)
     return json(url === '/api/providers' ? providers : url.endsWith('/accounts-allowed')

@@ -31,10 +31,11 @@ test('slots uses the standard org-scoped pin and remembers its project generatio
   const content=<CurrentOrg.Provider value="slot-host"><ProjectSlotsModal slug="slot-host" nid={n.id}
     tree={{roots:[n]} as TreePayload} map={new Map([[n.id,n]])} op={async()=>({holders:[],line:[],history:[]})} toast={noop} close={noop}/></CurrentOrg.Provider>
   const v=await mountView(content,el=>el);t.after(async()=>{await v.unmount();reset()})
-  await inAct(async()=>{requestSurfaceAction('project-slots','slot-host','pin');await flush(3)})
-  assert.equal(isModalPinned('project-slots','slot-host'),true)
-  assert.equal(isModalPinned('project-slots','other-org'),false)
-  const restored=readModalOpen('slot-host').find(r=>r.kind==='project-slots')
+  // the project's own slots window: one per project since 2026-10-20
+  await inAct(async()=>{requestSurfaceAction('project-slots:build','slot-host','pin');await flush(3)})
+  assert.equal(isModalPinned('project-slots:build','slot-host'),true)
+  assert.equal(isModalPinned('project-slots:build','other-org'),false)
+  const restored=readModalOpen('slot-host').find(r=>r.kind==='project-slots:build')
   assert.deepEqual(restored?.restore,{agent:'build',generation:7})
   assert.ok(document.querySelector('.modalpin-win'),'uses the shared pinned frame')
 })

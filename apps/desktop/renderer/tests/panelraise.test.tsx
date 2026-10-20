@@ -79,7 +79,8 @@ for (const project of [false, true]) {
       : <DeskChat node={f.root} map={f.map} slug={org} op={op} toast={noop} onJump={noop} bare />, el => el)
     t.after(() => view.unmount())
     for (const [tab, kind] of panels) {
-      const raised = detached(t, kind, f.root.id)
+      // the agent's own instance of the surface (one per target since 2026-10-20)
+      const raised = detached(t, `${kind}:${f.root.id}`, f.root.id)
       await inAct(() => view.el.querySelector<HTMLButtonElement>(`[data-tab="${tab}"]`)!.click())
       assert.equal(raised(), 1, `${tab}: revealed existing native window`)
       assert.equal(view.el.querySelector('[data-tab].on')?.getAttribute('data-tab'), project ? 'desk' : 'chat', 'local tab stays put')
@@ -91,7 +92,8 @@ for (const project of [false, true]) {
       ? <ProjectDesk node={f.root} tree={f.tree} map={f.map} slug={org} op={op} toast={noop} refs={refs} />
       : <DeskChat node={f.root} map={f.map} slug={org} op={op} toast={noop} onJump={noop} bare />, el => el)
     t.after(() => view.unmount())
-    for (const [tab, kind] of panels) {
+    for (const [tab, base] of panels) {
+      const kind = `${base}:${f.root.id}`
       pinModal(kind, rect, org); rememberModalOpen(kind, org, { agent: f.root.id, generation: 1 })
       updatePinSurface(pinSurfaceKey(org, kind, true), org, rect, true)
       updatePinSurface(pinSurfaceKey(org, 'covering-desk'), org, rect, false)
@@ -109,7 +111,8 @@ test('shared node menu routes reveal existing inbox, docket and Team windows', a
   function Probe() { registry = useAgentNavRegistry(); return null }
   const view = await mountView(<AgentNavProvider><OrgCanvas tree={f.tree} slug={org} op={op} toast={noop} mailEvt={null} /><Probe /></AgentNavProvider>, el => el)
   t.after(() => view.unmount()); await flush(2)
-  for (const [label, kind] of [['Mail', 'node-inbox'], ['Docket', 'agent-docket'], ['Team', 'agent-team']] as const) {
+  for (const [label, base] of [['Mail', 'node-inbox'], ['Docket', 'agent-docket'], ['Team', 'agent-team']] as const) {
+    const kind = `${base}:${f.root.id}`
     const raised = detached(t, kind, f.root.id)
     const entry = flatten(registry!.current!(f.root.id)).find(e => e.label === label)
     assert.equal(!!entry, true, `${label}: canonical entry exists`)
@@ -127,26 +130,27 @@ test('global opener ignores another organization and opens normally', t => {
 
 test('closed windows and another node/generation do not swallow a normal tab open', t => {
   setup(t)
-  const closed = detached(t, 'node-inbox', 'worker', org, true)
+  const closed = detached(t, 'node-inbox:worker', 'worker', org, true)
   const state: boolean[] = []
-  toggleOrRaiseModal('node-inbox', false, v => state.push(v), org)
+  toggleOrRaiseModal('node-inbox:worker', false, v => state.push(v), org)
   assert.equal(closed(), 0); assert.deepEqual(state, [true])
-  const other = detached(t, 'agent-team', 'other-worker')
-  assert.equal(revealOpenPanel('agent-team', org, { agent: 'worker', generation: 1 }), false)
+  const other = detached(t, 'agent-team:other-worker', 'other-worker')
+  assert.equal(revealOpenPanel('agent-team:worker', org, { agent: 'worker', generation: 1 }), false)
   assert.equal(other(), 0)
-  const generation = detached(t, 'agent-docket', 'worker')
-  assert.equal(revealOpenPanel('agent-docket', org, { agent: 'worker', generation: 2 }), false)
+  const generation = detached(t, 'agent-docket:worker', 'worker')
+  assert.equal(revealOpenPanel('agent-docket:worker', org, { agent: 'worker', generation: 2 }), false)
   assert.equal(generation(), 0)
 })
 
-test('a dormant saved pin is not an open panel; a mismatched pinned identity stays behind', t => {
-  setup(t); pinModal('agent-team', rect, org)
-  assert.equal(revealOpenPanel('agent-team', org, { agent: 'worker' }), false)
-  rememberModalOpen('agent-team', org, { agent: 'other-worker', generation: 1 })
-  updatePinSurface(pinSurfaceKey(org, 'agent-team', true), org, rect, true)
+test("a dormant saved pin is not an open panel; another target's window stays behind", t => {
+  setup(t); pinModal('agent-team:worker', rect, org)
+  assert.equal(revealOpenPanel('agent-team:worker', org, { agent: 'worker' }), false)
+  rememberModalOpen('agent-team:other-worker', org, { agent: 'other-worker', generation: 1 })
+  pinModal('agent-team:other-worker', rect, org)
+  updatePinSurface(pinSurfaceKey(org, 'agent-team:other-worker', true), org, rect, true)
   updatePinSurface(pinSurfaceKey(org, 'covering-desk'), org, rect, false)
-  assert.equal(revealOpenPanel('agent-team', org, { agent: 'worker', generation: 1 }), false)
-  assert.equal(pinnedModalBehind('agent-team', org), true)
+  assert.equal(revealOpenPanel('agent-team:worker', org, { agent: 'worker', generation: 1 }), false)
+  assert.equal(pinnedModalBehind('agent-team:other-worker', org), true)
 })
 
 test('a real MovableSurface opener reuses its window and sends its exact native focus command', async t => {

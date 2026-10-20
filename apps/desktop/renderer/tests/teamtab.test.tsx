@@ -120,7 +120,8 @@ for (const project of [false, true]) test(`${project ? 'project' : 'agent'} Team
   for (const [index, wanted] of [[0, 'pin'], [1, 'popout']] as const) {
     const got: string[] = []
     await inAct(async () => { actions[index].click() })
-    const release = claimSurfaceRequests('agent-team', 'synthetic', request => got.push(request))
+    // team-root's own Team window: one per target since 2026-10-20
+    const release = claimSurfaceRequests('agent-team:team-root', 'synthetic', request => got.push(request))
     await flush()
     release()
     assert.deepEqual(got, [wanted])

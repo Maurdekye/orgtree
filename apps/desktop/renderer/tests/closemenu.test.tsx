@@ -449,16 +449,17 @@ const OTHER_SURFACES: {
   { name: 'agent gallery', kind: 'agent-gallery', pinnable: true,
     render: (close) => <AgentGalleryModal slug="mine" nid="worker" node={cnode('worker')}
       toast={noop} close={close} /> },
-  { name: 'node inbox', kind: 'node-inbox', pinnable: true,
+  // one window per target since 2026-10-20: each surface's kind names its target
+  { name: 'node inbox', kind: 'node-inbox:worker', pinnable: true,
     render: (close) => <NodeInboxModal slug="mine" node={cnode('worker')} toast={noop}
       close={close} onFocusAgent={noop} /> },
   { name: 'org inbox', kind: 'org-inbox', pinnable: true,
     render: (close) => <OrgInboxModal inbox={{ entries: [], unread: 0, holders: [], visible: true } as never}
       net={null} map={new Map()} slug="mine" toast={noop} close={close} jumpTo={null} /> },
-  { name: 'agent docket', kind: 'agent-docket', pinnable: true,
+  { name: 'agent docket', kind: 'agent-docket:worker', pinnable: true,
     render: (close) => <AgentDocketModal slug="mine" nid="worker" tree={ctree([cnode('worker')])}
       toast={noop} close={close} refs={{ world: { org: 'mine' }, onOpen: noop } as never} /> },
-  { name: 'node configuration', kind: 'node-config', pinnable: true,
+  { name: 'node configuration', kind: 'node-config:worker', pinnable: true,
     render: (close) => <NodeConfig slug="mine" node={cnode('worker')}
       map={new Map([['worker', cnode('worker')]]) as never} tree={ctree([cnode('worker')])}
       op={(async () => ({})) as never} toast={noop} close={close} /> },
@@ -466,7 +467,7 @@ const OTHER_SURFACES: {
     render: (close) => <LineagePanel slug="mine" node={cnode('worker')}
       map={new Map([['worker', cnode('worker')]]) as never}
       op={(async () => ({})) as never} close={close} /> },
-  { name: 'watchdog', kind: 'watchdog', pinnable: true,
+  { name: 'watchdog', kind: `watchdog:${dog.id}`, pinnable: true,
     render: (close) => <WatchdogPanel slug="mine" dog={dog} toast={noop} close={close} /> },
   // …and the surfaces that are deliberately NOT pinnable: a dialog answering
   // a question, or a panel that belongs to the app rather than to an org
