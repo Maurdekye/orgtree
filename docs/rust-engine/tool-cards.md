@@ -129,3 +129,29 @@ would lose the task-local fire-action depth. Static frames on that path:
 
 In an alpha.10 release engine the whole path is inlined into `arm_retry`, about
 78 KB of static frames.
+
+### The tool path
+
+`tools::dispatch` awaited each of its 43 tool handlers inline, and
+`ops::run_in_tx_without_audience_notices` each of its 35 ops, so a debug poll frame
+reserved slots for all of them. A project create through the tool path (an agent
+wrapping itself in `project-mail-boundaries.mjs`) and a multi-slot run
+(`project-multi-slots.mjs`) overflowed the debug engine at 93b41c6 and before. Every
+arm's future is now built through `util::boxed`. Static frames:
+
+| Poll frame (logged wrapper + inner) | Inline | Boxed |
+| --- | ---: | ---: |
+| `tools::dispatch` | 636,288 | 24,848 |
+| `ops::run_in_tx_without_audience_notices` | 463,760 | 110,560 |
+| `tools::call_tool` | 74,880 | 18,160 |
+| `tools::handle_mcp`, `call`, `call_inner` and `call_agent_tool` | 212,152 | 53,336 |
+| `rig::routes::tool` | 103,432 | 35,368 |
+
+The rig route's project create (`rig::routes::tool` → `call_tool` → `dispatch` →
+`treetools::run` → `ops::run` → `run_once` → `run_in_tx` →
+`run_in_tx_without_audience_notices` → `create_project`) held about 1.53 MiB of
+static frames inline and 0.47 MiB boxed, before hyper, tokio and tokio-postgres
+frames. `debug-stack-first-turn.mjs` now also creates a project through the tool
+path, claims two slots, reads their status and releases them through it, and has a
+Codex turn's MCP call create a project, with no overflow line in stderr; the project
+create overflowed before the boxing.

@@ -26,6 +26,7 @@ use tokio_postgres::Client;
 use crate::domain::UserError;
 use crate::engine::Engine;
 use crate::runtime::{AgentMsg, Caller};
+use crate::util::boxed;
 
 
 /// One JSON-RPC message from the CLI → the response it gets.
@@ -189,6 +190,10 @@ impl Done {
     }
 }
 
+/// Every handler's future is built through `boxed`, in a frame of its own:
+/// awaited inline, a debug build reserved slots for all of them in this poll
+/// frame (636 KB), and a project create through the tool path overflowed the
+/// 2 MiB engine worker stack (docs/rust-engine/tool-cards.md#stack-safety).
 #[logged]
 async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value) -> Result<Done> {
     // status and session need no group: every agent has them
@@ -199,33 +204,33 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         }
     }
     match name {
-        "orgtree_org_logo" => logo::run(engine, caller, args).await,
-        "orgtree_message" => mailtools::message(engine, caller, args, false).await,
-        "orgtree_send_notice" => mailtools::message(engine, caller, args, true).await,
-        "orgtree_status" => mailtools::status(engine, caller, args).await,
-        "orgtree_next_turn" => next_turn::run(engine, caller, args).await,
-        "orgtree_session" => session::run(engine, caller, args).await,
-        "orgtree_transfers" => mailtools::transfers(engine, caller, args).await,
-        "orgtree_inbox" => mailtools::inbox(engine, caller, args).await,
-        "orgtree_chart" => orgview::chart(engine, caller, args).await,
-        "orgtree_state_inspect" => orgview::state_inspect(engine, caller, args).await,
-        "orgtree_usage" => usage::usage(engine, caller, args).await,
-        "orgtree_list_tiers" => orgview::list_tiers(engine).await,
-        "orgtree_list_orgs" => orgview::list_orgs(engine, caller).await,
-        "orgtree_read_transcript" => orgview::read_transcript(engine, caller, args).await,
-        "orgtree_read_scratch" => orgview::read_scratch(engine, caller, args).await,
-        "orgtree_interrupt" => control::interrupt(engine, caller, args).await,
-        "orgtree_halt" => control::halt(engine, caller, args, true).await,
-        "orgtree_unhalt" => control::halt(engine, caller, args, false).await,
-        "orgtree_unstick" => control::unstick(engine, caller, args).await,
-        "orgtree_continue_on" => control::continue_on(engine, caller, args).await,
-        "orgtree_account_mark" => control::account_mark(engine, caller, args).await,
+        "orgtree_org_logo" => boxed(|| logo::run(engine, caller, args)).await,
+        "orgtree_message" => boxed(|| mailtools::message(engine, caller, args, false)).await,
+        "orgtree_send_notice" => boxed(|| mailtools::message(engine, caller, args, true)).await,
+        "orgtree_status" => boxed(|| mailtools::status(engine, caller, args)).await,
+        "orgtree_next_turn" => boxed(|| next_turn::run(engine, caller, args)).await,
+        "orgtree_session" => boxed(|| session::run(engine, caller, args)).await,
+        "orgtree_transfers" => boxed(|| mailtools::transfers(engine, caller, args)).await,
+        "orgtree_inbox" => boxed(|| mailtools::inbox(engine, caller, args)).await,
+        "orgtree_chart" => boxed(|| orgview::chart(engine, caller, args)).await,
+        "orgtree_state_inspect" => boxed(|| orgview::state_inspect(engine, caller, args)).await,
+        "orgtree_usage" => boxed(|| usage::usage(engine, caller, args)).await,
+        "orgtree_list_tiers" => boxed(|| orgview::list_tiers(engine)).await,
+        "orgtree_list_orgs" => boxed(|| orgview::list_orgs(engine, caller)).await,
+        "orgtree_read_transcript" => boxed(|| orgview::read_transcript(engine, caller, args)).await,
+        "orgtree_read_scratch" => boxed(|| orgview::read_scratch(engine, caller, args)).await,
+        "orgtree_interrupt" => boxed(|| control::interrupt(engine, caller, args)).await,
+        "orgtree_halt" => boxed(|| control::halt(engine, caller, args, true)).await,
+        "orgtree_unhalt" => boxed(|| control::halt(engine, caller, args, false)).await,
+        "orgtree_unstick" => boxed(|| control::unstick(engine, caller, args)).await,
+        "orgtree_continue_on" => boxed(|| control::continue_on(engine, caller, args)).await,
+        "orgtree_account_mark" => boxed(|| control::account_mark(engine, caller, args)).await,
         "orgtree_ask" | "orgtree_request_credits" | "orgtree_request_scope" | "orgtree_withdraw_ask" => {
-            ask_tool(engine, caller, name, args).await
+            boxed(|| ask_tool(engine, caller, name, args)).await
         }
-        "orgtree_present" | "orgtree_send_file" => doc_tool(engine, caller, name, args).await,
-        "orgtree_watchdog" => dog_tool(engine, caller, args).await,
-        "orgtree_work" => work_tool(engine, caller, args).await,
+        "orgtree_present" | "orgtree_send_file" => boxed(|| doc_tool(engine, caller, name, args)).await,
+        "orgtree_watchdog" => boxed(|| dog_tool(engine, caller, args)).await,
+        "orgtree_work" => boxed(|| work_tool(engine, caller, args)).await,
         "orgtree_staff" => {
             let Some(org) = engine.orgs.by_id(caller.org_id) else {
                 crate::refuse!(NotFound, "organization not open");
@@ -233,25 +238,25 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
             let client = engine.db.get().await?;
             let m = me(&client, caller).await?;
             drop(client);
-            Done::json(&crate::domain::staffing::staff(engine, &org, (m.id, m.name.as_str(), m.generation), args).await?)
+            Done::json(&boxed(|| crate::domain::staffing::staff(engine, &org, (m.id, m.name.as_str(), m.generation), args)).await?)
         }
-        "orgtree_audience" => audience_tool(engine, caller, args).await,
-        "orgtree_hire" => treetools::run(engine, caller, args, "hire").await,
-        "orgtree_project" => treetools::run(engine, caller, args, "create_project").await,
-        "orgtree_reorder" => treetools::run(engine, caller, args, "reorder").await,
-        "orgtree_rehire" => treetools::run(engine, caller, args, "rehire").await,
-        "orgtree_retire" => treetools::run(engine, caller, args, "retire").await,
-        "orgtree_dissolve" => treetools::run(engine, caller, args, "dissolve").await,
-        "orgtree_move" => treetools::run(engine, caller, args, "move").await,
-        "orgtree_rename" => treetools::run(engine, caller, args, "rename").await,
-        "orgtree_reallocate" => treetools::run(engine, caller, args, "reallocate").await,
-        "orgtree_switch_model" => treetools::run(engine, caller, args, "switch_model").await,
-        "orgtree_cheap_compact" => treetools::run(engine, caller, args, "cheap_compact").await,
-        "orgtree_compact" => compaction::run(engine, caller, args).await,
-        "orgtree_retool" => treetools::run(engine, caller, args, "retool").await,
-        "orgtree_fast_defaults" => treetools::run(engine, caller, args, "fast_defaults").await,
-        "orgtree_swap" => treetools::run(engine, caller, args, "swap").await,
-        "orgtree_self_subjugate" => treetools::run(engine, caller, args, "self_subjugate").await,
+        "orgtree_audience" => boxed(|| audience_tool(engine, caller, args)).await,
+        "orgtree_hire" => boxed(|| treetools::run(engine, caller, args, "hire")).await,
+        "orgtree_project" => boxed(|| treetools::run(engine, caller, args, "create_project")).await,
+        "orgtree_reorder" => boxed(|| treetools::run(engine, caller, args, "reorder")).await,
+        "orgtree_rehire" => boxed(|| treetools::run(engine, caller, args, "rehire")).await,
+        "orgtree_retire" => boxed(|| treetools::run(engine, caller, args, "retire")).await,
+        "orgtree_dissolve" => boxed(|| treetools::run(engine, caller, args, "dissolve")).await,
+        "orgtree_move" => boxed(|| treetools::run(engine, caller, args, "move")).await,
+        "orgtree_rename" => boxed(|| treetools::run(engine, caller, args, "rename")).await,
+        "orgtree_reallocate" => boxed(|| treetools::run(engine, caller, args, "reallocate")).await,
+        "orgtree_switch_model" => boxed(|| treetools::run(engine, caller, args, "switch_model")).await,
+        "orgtree_cheap_compact" => boxed(|| treetools::run(engine, caller, args, "cheap_compact")).await,
+        "orgtree_compact" => boxed(|| compaction::run(engine, caller, args)).await,
+        "orgtree_retool" => boxed(|| treetools::run(engine, caller, args, "retool")).await,
+        "orgtree_fast_defaults" => boxed(|| treetools::run(engine, caller, args, "fast_defaults")).await,
+        "orgtree_swap" => boxed(|| treetools::run(engine, caller, args, "swap")).await,
+        "orgtree_self_subjugate" => boxed(|| treetools::run(engine, caller, args, "self_subjugate")).await,
         other if other.starts_with("orgtree_") => {
             crate::refuse!(Unprocessable, "{other} is not available in this engine build yet")
         }

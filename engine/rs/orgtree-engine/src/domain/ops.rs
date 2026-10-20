@@ -18,6 +18,7 @@ use crate::orgs::OrgHandle;
 use crate::providers::catalog;
 use crate::refuse;
 use crate::runtime::AgentMsg;
+use crate::util::boxed;
 
 mod ordering;
 mod fast_defaults;
@@ -737,6 +738,9 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
 
 /// Multi-step undo/gesture callers record one net audience delta at their
 /// transaction boundary, so an intermediate move cannot send a false notice.
+/// Every op's future is built through `boxed`, in a frame of its own: awaited
+/// inline, a debug build reserved slots for all of them in this poll frame
+/// (432 KB; docs/rust-engine/tool-cards.md#stack-safety).
 #[logged]
 pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
                             req: &Value, fx: &mut Effects) -> Result<Value> {
@@ -751,41 +755,41 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         tx.query_one("SELECT id FROM ot.orgs WHERE id=$1 FOR NO KEY UPDATE", &[&org.id]).await?;
     }
     let mut out = match canonical_op(op) {
-        "hire" => hire(engine, org, &tx, actor, req, fx).await?,
-        "create_project" => create_project(engine, org, &tx, actor, req, fx).await?,
-        "rehire" => rehire(engine, org, &tx, actor, req, fx).await?,
-        "retire" => retire(org, &tx, actor, req, fx, false).await?,
-        "rescind" => retire(org, &tx, actor, req, fx, true).await?,
-        "dissolve" => dissolve(org, &tx, actor, req, fx).await?,
-        "delete" => delete(org, &tx, actor, req, fx).await?,
-        "move" => move_node(engine, org, &tx, actor, req, fx).await?,
-        "rename" => rename(org, &tx, actor, req, fx, false).await?,
-        "set_description" => set_description(org, &tx, actor, req, fx).await?,
-        "set_mail_queue" => set_mail_queue(org, &tx, actor, req, fx).await?,
-        "purge_mail_queue" => purge_mail_queue(org, &tx, actor, req, fx).await?,
-        "dead_letters" => dead_letters(org, &tx, actor, req).await?,
-        "dead_letter_retry" => dead_letter_retry(org, &tx, actor, req, fx).await?,
-        "dead_letter_drop" => dead_letter_drop(org, &tx, actor, req, fx).await?,
-        "set_slots" => set_slots(org, &tx, actor, req, fx).await?,
-        "project_settings" => project_settings(org, &tx, actor, req).await?,
-        "configure_project" => configure_project(org, &tx, actor, req, fx).await?,
-        "project_presentations" => project_presentations(org, &tx, actor, req).await?,
-        "slot_release" => slot_release(org, &tx, actor, req, fx).await?,
-        "slot_status" | "slot_history" => slot_status(org, &tx, actor, req).await?,
-        "slot_unqueue" => slot_unqueue(org, &tx, actor, req, fx).await?,
-        "fire_project_event" => fire_project_event(org, &tx, actor, req, fx).await?,
-        "project_listeners" => project_listeners(org, &tx, actor, req).await?,
-        "reallocate" => reallocate(engine, org, &tx, actor, req, fx).await?,
-        "switch_model" => switch_model(engine, org, &tx, actor, req, fx).await?,
-        "reorder" => reorder(org, &tx, actor, req, fx).await?,
-        "account" => account(engine, org, &tx, actor, req, fx).await?,
-        "cheap_compact" => cheap_compact(engine, org, &tx, actor, req, fx).await?,
-        "swap" => swap(engine, org, &tx, actor, req, fx).await?,
-        "self_subjugate" => self_subjugate(engine, org, &tx, actor, req, fx).await?,
-        "retool" => retool(engine, org, &tx, actor, req, fx, false, Dirs::Add).await?,
-        "fast_defaults" => fast_defaults::run(engine, org, tx, actor, req, fx).await?,
-        "moves" => moves(engine, org, &tx, actor, req, fx).await?,
-        "reprice" => reprice(engine, org, &tx, actor, fx).await?,
+        "hire" => boxed(|| hire(engine, org, &tx, actor, req, fx)).await?,
+        "create_project" => boxed(|| create_project(engine, org, &tx, actor, req, fx)).await?,
+        "rehire" => boxed(|| rehire(engine, org, &tx, actor, req, fx)).await?,
+        "retire" => boxed(|| retire(org, &tx, actor, req, fx, false)).await?,
+        "rescind" => boxed(|| retire(org, &tx, actor, req, fx, true)).await?,
+        "dissolve" => boxed(|| dissolve(org, &tx, actor, req, fx)).await?,
+        "delete" => boxed(|| delete(org, &tx, actor, req, fx)).await?,
+        "move" => boxed(|| move_node(engine, org, &tx, actor, req, fx)).await?,
+        "rename" => boxed(|| rename(org, &tx, actor, req, fx, false)).await?,
+        "set_description" => boxed(|| set_description(org, &tx, actor, req, fx)).await?,
+        "set_mail_queue" => boxed(|| set_mail_queue(org, &tx, actor, req, fx)).await?,
+        "purge_mail_queue" => boxed(|| purge_mail_queue(org, &tx, actor, req, fx)).await?,
+        "dead_letters" => boxed(|| dead_letters(org, &tx, actor, req)).await?,
+        "dead_letter_retry" => boxed(|| dead_letter_retry(org, &tx, actor, req, fx)).await?,
+        "dead_letter_drop" => boxed(|| dead_letter_drop(org, &tx, actor, req, fx)).await?,
+        "set_slots" => boxed(|| set_slots(org, &tx, actor, req, fx)).await?,
+        "project_settings" => boxed(|| project_settings(org, &tx, actor, req)).await?,
+        "configure_project" => boxed(|| configure_project(org, &tx, actor, req, fx)).await?,
+        "project_presentations" => boxed(|| project_presentations(org, &tx, actor, req)).await?,
+        "slot_release" => boxed(|| slot_release(org, &tx, actor, req, fx)).await?,
+        "slot_status" | "slot_history" => boxed(|| slot_status(org, &tx, actor, req)).await?,
+        "slot_unqueue" => boxed(|| slot_unqueue(org, &tx, actor, req, fx)).await?,
+        "fire_project_event" => boxed(|| fire_project_event(org, &tx, actor, req, fx)).await?,
+        "project_listeners" => boxed(|| project_listeners(org, &tx, actor, req)).await?,
+        "reallocate" => boxed(|| reallocate(engine, org, &tx, actor, req, fx)).await?,
+        "switch_model" => boxed(|| switch_model(engine, org, &tx, actor, req, fx)).await?,
+        "reorder" => boxed(|| reorder(org, &tx, actor, req, fx)).await?,
+        "account" => boxed(|| account(engine, org, &tx, actor, req, fx)).await?,
+        "cheap_compact" => boxed(|| cheap_compact(engine, org, &tx, actor, req, fx)).await?,
+        "swap" => boxed(|| swap(engine, org, &tx, actor, req, fx)).await?,
+        "self_subjugate" => boxed(|| self_subjugate(engine, org, &tx, actor, req, fx)).await?,
+        "retool" => boxed(|| retool(engine, org, &tx, actor, req, fx, false, Dirs::Add)).await?,
+        "fast_defaults" => boxed(|| fast_defaults::run(engine, org, tx, actor, req, fx)).await?,
+        "moves" => boxed(|| moves(engine, org, &tx, actor, req, fx)).await?,
+        "reprice" => boxed(|| reprice(engine, org, &tx, actor, fx)).await?,
         other => refuse!(BadRequest, "unknown op {other}"),
     };
     if op == "hire" || op == "rehire" {

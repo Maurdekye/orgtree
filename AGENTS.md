@@ -31,19 +31,25 @@
   0.1.36 `callsite.rs` `dispatchers::rebuilder`; 1 of 3 runs at 8 test threads
   failed before, 10 of 10 passed after; coordinator 2026-10-19 22:04Z]
 
-- The actor's large futures on its turn path are awaited through `boxed(|| …)`
-  (`runtime/actor.rs`), which builds each one in a frame of its own: a debug
-  poll frame keeps two or three copies of every future awaited inline, and
-  `Box::pin(call)` still builds the future there first. Inline, `run` →
-  `handle_msg` → `on_slot` → `start_turn` → `ensure_proc` → `ensure_codex`
-  held about 1.6 MiB of static frames and overflowed the 2 MiB engine worker
-  stack at a first Codex turn (rust-engine 9edbc13); boxed, about 360 KB.
-  Await new large actor futures (a few KB or more) the same way, never raise
-  stack limits, measure frames with `dumpbin /unwindinfo` beside the PDB and
-  run `tools/rig/proofs/debug-stack-first-turn.mjs` on the default stack. See
+- Large futures on deep paths are awaited through `util::boxed(|| …)`, which
+  builds each one in a frame of its own: a debug poll frame keeps two or three
+  copies of every future awaited inline, and `Box::pin(call)` still builds the
+  future there first. The 2 MiB engine worker stack overflowed in debug builds
+  on three such paths: a first Codex turn (`run` → `handle_msg` → `on_slot` →
+  `start_turn` → `ensure_proc`: about 1.6 MiB of static frames inline at
+  9edbc13, 360 KB boxed), a polled dog's fire action that created a websocket
+  dog (`run_fire_actions` boxes its `call_tool`), and a project create through
+  the tool path (every arm of `tools::dispatch` and
+  `ops::run_in_tx_without_audience_notices` is boxed: 636 KB and 464 KB of
+  poll frame inline, 25 KB and 111 KB boxed). Await new large futures on these
+  paths (a few KB or more) the same way, never raise stack limits, measure
+  frames with `dumpbin /unwindinfo` beside the PDB and run
+  `tools/rig/proofs/debug-stack-first-turn.mjs` on the default stack. See
   [stack safety](docs/rust-engine/tool-cards.md#stack-safety).
-  [verified: `runtime/actor.rs`; debug-stack-first-turn proof red at 9edbc13,
-  green after; 2026-10-19]
+  [verified: `util.rs`, `runtime/{actor,watchdogs}.rs`, `tools/mod.rs`,
+  `domain/ops.rs`; debug-stack-first-turn proof red at 9edbc13 and, for the
+  tool path, at 1cbaac2, green after; websocket proof's fire action likewise;
+  2026-10-19/20]
 
 - Project desks reuse the agent desk's pieces, never copies: the up row (its own
   `.desk-nav` right after `DeskHead`, never among the header cards; user
