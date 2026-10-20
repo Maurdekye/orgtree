@@ -113,7 +113,13 @@ test('helper messages use desk Markdown, thinking and ordered expandable tool ch
   assert.match(view.last(), /Retained output/)
   assert.equal(view.last().includes('older tool call'), false, 'retained input does not use parent toolinput lookup')
   assert.equal(view.el.querySelectorAll('.helper-transcript').length, 1)
-  assert.equal(calls.length, 1, 'nested helper tools never read parent toolinput or recurse')
+  t.diagnostic('helper request URLs: ' + JSON.stringify(calls))
+  // The normal tool clock may read /api/desktop/phone. Count the bounded
+  // node reads, not unrelated desktop settings; this still rejects parent
+  // toolinput reads and every second or recursive helper request.
+  assert.deepEqual(calls.filter(url => url.includes('/nodes/')),
+    ['/api/orgs/org/nodes/worker/helpertranscript/8/root'],
+    'nested helper tools never read parent toolinput or recurse')
 })
 
 test('helper clipped arguments remain visible and absent timing and token values stay unknown', async t => {
