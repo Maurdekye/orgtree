@@ -63,6 +63,9 @@ export interface DeliveredJob {
 export interface MailHistory {
   project: string; ack: boolean; max_attempts?: number; dead_letters?: boolean
   working?: WorkingJob[]; history: (FinishedJob | DeliveredJob)[]; history_next?: string | null
+  /** with the first page: the Dead Letter Line, in dog order (the tree's
+   *  generic watchdogs are an eight-per-owner preview) */
+  dead_letter_listeners?: Watchdog[]
 }
 
 export interface MailListenerRow {
@@ -182,9 +185,17 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   // the host may hand a new `op` each render: read through a ref, so only
   // the queue's own moves re-read
   const opRef = useRef(op); opRef.current = op
-  // re-read when a hand-out, an ack, a failure or the mode moves the queue
+  // the tree's own dead-letter listeners: the Dead Letter Line from an
+  // engine that sends none, and a sign to re-read one that does
+  const treeDogs = dogs ?? route?.dogs ?? []
+  const treeDead = deadLetterListeners(node.id, treeDogs, map)
+  // re-read when a hand-out, an ack, a failure or the mode moves the queue,
+  // or a dead-letter listener may have come or gone (one past its owner's
+  // tree preview moves only the owner's count)
   const sig = [ack, node.mail_pending ?? 0, node.mail_held ?? 0, node.dead_letters ?? 0,
-    ...state.listeners.map((w) => `${w.id}:${w.fired}:${w.freed_at ?? ''}:${w.state}`)].join('|')
+    ...state.listeners.map((w) => `${w.id}:${w.fired}:${w.freed_at ?? ''}:${w.state}`),
+    ...treeDead.map((w) => `${w.id}:${w.state}`),
+    ...Object.entries(route?.counts ?? {}).map(([owner, c]) => `${owner}:${c.total}`)].join('|')
   useEffect(() => {
     const op = opRef.current
     if (!op) return
@@ -231,7 +242,10 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const working = ack ? hist?.working ?? [] : []
   const list = mailListenerRows(state, map, working, ack, rows)
   const line = list.filter((r) => r.out !== 'holding')
-  const deadListeners = deadLetterListeners(node.id, dogs ?? route?.dogs ?? [], map)
+  // the engine's Dead Letter Line, each dog drawn from the tree while it has it
+  const deadListeners = hist?.dead_letter_listeners
+    ? hist.dead_letter_listeners.map((w) => treeDogs.find((d) => d.id === w.id && !d.metadata_only) ?? w)
+    : treeDead
   const history = hist && hist.ack === ack ? hist.history : []
   const cols = ['Position', 'Agent', 'Waited', ...(ack ? ['Held', 'Acked'] : ['Delivered']), 'Mail', ...(ack ? ['Ack'] : []),
     'Batch', 'Handed', 'Watchdog', ...(ack ? ['Action'] : [])]
