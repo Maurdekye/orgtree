@@ -2531,6 +2531,16 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- Lifecycle invalidations read mailbox/history bodies only for ready matching
+  socket windows; initial reads and in-flight subscription dirty recovery keep
+  their own snapshot rules. Card pending counts still invalidate independently.
+  Feed metadata changes rebuild that node only; scope/placement changes cascade,
+  and audience refresh rebuilds only identities whose effective routes changed.
+  Migration 0048 indexes outstanding mail and slot leases by holder, so stop/
+  retire rechecks do not scan retained history. Hot projection/catalog helpers
+  use `#[nolog]`; request/operation diagnostics remain logged. [verified:
+  `feed/mod.rs`, `migrations/0048_active_claim_holder.sql`,
+  `tools/rig/proofs/hire-retire-cost.mjs`; user/coordinator 2026-10-20]
 - Retired pile pickers own lightweight 50-row cursor pages, with server-side
   case-insensitive substring name search. Opening one never registers a
   children browse or hydrates a full tree. Migration 0047's retired-only

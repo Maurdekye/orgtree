@@ -266,7 +266,7 @@ pub(crate) fn spends(provider: &str, tier: &str, w: &Value) -> bool {
 /// refusal). Silence is never evidence: no reading, a failed one, or a
 /// percent it cannot read. A passed reset does not free a full window
 /// (staleness weakens evidence, never frees).
-#[logged]
+#[nolog]
 pub fn at_limit(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, tier: &str) -> Option<String> {
     let provider = crate::providers::catalog::provider_of(tier);
     let v = reading_of(engine, provider, account)?;

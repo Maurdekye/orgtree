@@ -401,8 +401,13 @@ impl Actor {
         if self.inflight || self.pending.is_empty() {
             return;
         }
+        let sockets = &self.sockets;
+        let keys: Vec<Key> = self.pending.drain().filter(|key| {
+            !matches!(key, Key::Mailbox(_) | Key::History(_)) || sockets.values().any(|s|
+                s.subs.values().any(|sub| sub.ready && window_wanted(key, &sub.windows)))
+        }).collect();
+        if keys.is_empty() { return; }
         self.inflight = true;
-        let keys: Vec<Key> = self.pending.drain().collect();
         let engine = self.engine.clone();
         let org_id = self.org_id;
         let tx = self.tx.clone();
@@ -426,23 +431,12 @@ impl Actor {
         (settings, self.engine.accounts.view())
     }
 
-    /// Effective scopes and bodies for `ids` (and everything beneath them),
+    /// Effective scopes and bodies for changed ids. Only a scope/placement
+    /// change cascades below a root; credits, pending mail and status do not.
     /// top-down so a parent's effective scope is ready before its children.
-    fn rebuild_agents(&mut self, roots: &HashSet<i64>) -> Vec<i64> {
-        let mut children: HashMap<Option<i64>, Vec<i64>> = HashMap::new();
-        for (id, r) in &self.live_raw {
-            children.entry(r["parent_id"].as_i64()).or_default().push(*id);
-        }
-        // expand to descendants
-        let mut todo: Vec<i64> = roots.iter().copied().filter(|i| self.live_raw.contains_key(i)).collect();
-        let mut all: HashSet<i64> = HashSet::new();
-        while let Some(i) = todo.pop() {
-            if all.insert(i) {
-                if let Some(c) = children.get(&Some(i)) {
-                    todo.extend(c.iter().copied());
-                }
-            }
-        }
+    #[nolog]
+    fn rebuild_agents(&mut self, roots: &HashSet<i64>, scope_roots: &HashSet<i64>) -> Vec<i64> {
+        let all = rebuild_set(&self.live_raw, roots, scope_roots);
         // order by depth
         let depth = |mut id: i64, live: &HashMap<i64, Value>| {
             let mut d = 0;
@@ -490,6 +484,7 @@ impl Actor {
         let mut upserts: Vec<(String, String, Arc<Value>)> = Vec::new();
         let mut tombstones: Vec<(String, String)> = Vec::new();
         let mut rebuild: HashSet<i64> = HashSet::new();
+        let mut scope_roots: HashSet<i64> = HashSet::new();
         let mut sub_changes: HashMap<(SocketId, u64), (Vec<(String, String, Arc<Value>)>, Vec<(String, String)>)> =
             HashMap::new();
 
@@ -498,8 +493,8 @@ impl Actor {
             rebuild.extend(self.live_raw.keys().copied());
         }
         if let Some(a) = c.audiences {
+            rebuild.extend(changed_audience_roots(&self.live_raw, &self.audiences_held, &a));
             self.audiences_held = a;
-            rebuild.extend(self.live_raw.keys().copied());
         }
         // agents
         let mut retired_now: Vec<(i64, Value)> = Vec::new();
@@ -511,7 +506,7 @@ impl Actor {
                     let scope_changed = self.live_raw.get(&id).map(|o| o["scope"] != r["scope"]).unwrap_or(true);
                     self.live_raw.insert(id, r);
                     rebuild.insert(id);
-                    let _ = (moved, scope_changed);
+                    if moved || scope_changed { scope_roots.insert(id); }
                 }
                 other => {
                     if self.live_raw.remove(&id).is_some() {
@@ -535,7 +530,7 @@ impl Actor {
                 }
             }
         }
-        for id in self.rebuild_agents(&rebuild) {
+        for id in self.rebuild_agents(&rebuild, &scope_roots) {
             upserts.push(("agent".into(), id.to_string(), self.live_body[&id].clone()));
         }
         // retired-pile representatives: the shared set's archived records
@@ -1033,6 +1028,40 @@ impl Actor {
         });
     }
 }
+
+#[nolog]
+fn rebuild_set(live: &HashMap<i64, Value>, roots: &HashSet<i64>, scope_roots: &HashSet<i64>) -> HashSet<i64> {
+    let mut all: HashSet<i64> = roots.iter().copied().filter(|id| live.contains_key(id)).collect();
+    if scope_roots.is_empty() { return all; }
+    let mut children: HashMap<i64, Vec<i64>> = HashMap::new();
+    for (id, raw) in live { if let Some(parent) = raw["parent_id"].as_i64() {children.entry(parent).or_default().push(*id);} }
+    let mut todo: Vec<i64> = scope_roots.iter().copied().filter(|id| live.contains_key(id)).collect();
+    let mut expanded = HashSet::new();
+    while let Some(id) = todo.pop() {
+        if expanded.insert(id) { all.insert(id); if let Some(kids) = children.get(&id) {todo.extend(kids);} }
+    }
+    all
+}
+
+#[nolog]
+fn changed_audience_roots(live: &HashMap<i64, Value>, before: &crate::domain::audiences::EffectiveAudiences,
+                        after: &crate::domain::audiences::EffectiveAudiences) -> HashSet<i64> {
+    live.iter().filter_map(|(id, raw)| {
+        let name = raw["name"].as_str().unwrap_or("");
+        (before.get(name).map(Vec::as_slice).unwrap_or_default() != after.get(name).map(Vec::as_slice).unwrap_or_default()).then_some(*id)
+    }).collect()
+}
+
+#[nolog]
+fn window_wanted(key: &Key, windows: &[Window]) -> bool {
+    windows.iter().any(|w| match (key,w) {
+        (Key::Mailbox(a),Window::Mailbox(b)) | (Key::History(a),Window::History(b)) => a == b,
+        _ => false,
+    })
+}
+
+#[cfg(test)]
+mod rebuild_cost_tests;
 
 fn same_window(a: &Window, b: &Window) -> bool {
     match (a, b) {

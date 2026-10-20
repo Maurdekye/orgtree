@@ -187,7 +187,7 @@ pub fn antigravity_effort<'a>(tier: &str, effort: &'a str) -> &'a str {
     }
 }
 
-#[logged]
+#[nolog]
 pub fn antigravity_claude(tier: &str) -> bool {
     matches!(tier, "agy-sonnet" | "agy-opus")
 }
@@ -202,7 +202,7 @@ pub fn antigravity_model(tier: &str, model: &str, effort: &str) -> String {
     }
 }
 
-#[logged]
+#[nolog]
 pub fn antigravity_pool(tier: &str) -> &'static str {
     if antigravity_claude(tier) { "3p" } else { "gemini" }
 }

@@ -32,12 +32,12 @@ pub fn validate(tools: &Value) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[logged]
+#[nolog]
 pub fn normalize(tools: &Value) -> Value {
     Value::Object(GROUPS.iter().map(|g| ((*g).to_owned(), json!(enabled(tools, g)))).collect())
 }
 
-#[logged]
+#[nolog]
 pub fn intersect(child: &Value, parent: &Value) -> Value {
     Value::Object(GROUPS.iter().map(|g| ((*g).to_owned(), json!(enabled(child, g) && enabled(parent, g)))).collect())
 }

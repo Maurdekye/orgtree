@@ -15,7 +15,7 @@ pub(super) struct Target {
     pub display: String,
 }
 
-#[logged]
+#[nolog]
 pub(super) fn resolve(engine: &Engine, org: &str, tier: &str, raw: &str) -> Result<Target> {
     let provider = catalog::provider_of(tier);
     let raw = raw.trim();
@@ -181,7 +181,7 @@ pub(super) fn muse_offered(engine: &Engine, tier: &str, version: Option<&str>, t
 }
 
 /// The UI may offer primary explicitly; automatic fallback remains registry-only.
-#[logged]
+#[nolog]
 pub fn primary_tiers(engine: &Engine, org: &str) -> std::collections::HashSet<String> {
     catalog::TIERS
         .iter()

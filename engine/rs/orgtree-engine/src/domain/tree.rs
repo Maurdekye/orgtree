@@ -352,7 +352,7 @@ fn project_fields(o: &mut Map<String, Value>) {
 /// receipt its last turn left: ready until the entry's lifetime ends (the
 /// desk decays it on time itself), expired after. The prompt-prefix check
 /// needs the agent's actor and is made when one runs.
-#[logged]
+#[nolog]
 pub fn stored_forecast(raw: &Value, now: DateTime<Utc>, threshold: Option<f64>) -> Option<Value> {
     let action = cold_turn_action(
         threshold,
@@ -400,7 +400,7 @@ pub fn stored_forecast(raw: &Value, now: DateTime<Utc>, threshold: Option<f64>) 
 
 /// Shared by next-turn admission and both forecast sources. Estimated or
 /// already-reset context cannot justify another reset (3.x parity).
-#[logged]
+#[nolog]
 pub fn cold_turn_action(
     threshold: Option<f64>, used: Option<i64>, window: Option<i64>,
     measured: bool, eligible: bool, has_session: bool,

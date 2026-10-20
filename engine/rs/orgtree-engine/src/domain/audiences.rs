@@ -20,7 +20,7 @@ use crate::util::iso_opt;
 pub const USER: &str = "@user";
 pub const EXTERN: &str = "@extern";
 
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct EffectiveGrant {
     pub grantor: String,
     pub source_project: Option<String>,
