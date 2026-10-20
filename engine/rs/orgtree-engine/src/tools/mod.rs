@@ -341,6 +341,7 @@ pub struct Target {
     pub name: String,
     pub state: String,
     pub parent_id: Option<i64>,
+    pub kind: String,
 }
 
 #[logged]
@@ -348,12 +349,12 @@ pub async fn target(client: &Client, org_id: i64, name: &str) -> Result<Target> 
     let name = name.trim().trim_start_matches('@');
     let r = client
         .query_opt(
-            "SELECT id, name, state, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'",
+            "SELECT id, name, state, parent_id, kind FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'",
             &[&org_id, &name],
         )
         .await?;
     match r {
-        Some(r) => Ok(Target { id: r.get(0), name: r.get(1), state: r.get(2), parent_id: r.get(3) }),
+        Some(r) => Ok(Target { id: r.get(0), name: r.get(1), state: r.get(2), parent_id: r.get(3), kind: r.get(4) }),
         None => crate::refuse!(NotFound, "no agent named {name} in this organization"),
     }
 }

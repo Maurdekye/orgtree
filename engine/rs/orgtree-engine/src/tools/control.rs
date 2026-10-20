@@ -9,6 +9,7 @@ use tokio::sync::oneshot;
 
 use super::{arg_str, downward, me, need_str, target, Done};
 use crate::engine::Engine;
+use crate::domain::node_kind::require_turn_runtime;
 use crate::runtime::{self, freeze, AgentMsg, Caller};
 
 /// Ask an agent's actor something and wait for the answer.
@@ -69,6 +70,7 @@ pub async fn interrupt(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
         return Done::json(&json!({ "node": t.name, "result": r }));
     }
     downward(&client, &me, &t, "interrupt").await?;
+    require_turn_runtime(&t.kind, &t.name)?;
     drop(client);
     let r = ask_actor(engine, me.org_id, t.id, AgentMsg::Interrupt).await;
     Done::json(&json!({ "node": t.name, "result": r }))
@@ -106,6 +108,7 @@ pub async fn halt(engine: &Arc<Engine>, caller: &Caller, args: &Value, on: bool)
     for n in &names {
         let t = target(&client, me.org_id, n).await?;
         downward(&client, &me, &t, verb).await?;
+        require_turn_runtime(&t.kind, &t.name)?;
         if !targets.iter().any(|x: &super::Target| x.id == t.id) {
             targets.push(t);
         }
@@ -155,6 +158,7 @@ pub async fn unstick(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Res
     let me = me(&client, caller).await?;
     let t = target(&client, me.org_id, node).await?;
     downward(&client, &me, &t, "unstick").await?;
+    require_turn_runtime(&t.kind, &t.name)?;
     drop(client);
     let released = freeze::thaw(engine, me.org_id, t.id, false).await?;
     Done::text(if released {
@@ -172,6 +176,7 @@ pub async fn continue_on(engine: &Arc<Engine>, caller: &Caller, args: &Value) ->
     let me = me(&client, caller).await?;
     let t = target(&client, me.org_id, node).await?;
     downward(&client, &me, &t, "move").await?;
+    require_turn_runtime(&t.kind, &t.name)?;
     drop(client);
     let r = freeze::continue_on(engine, me.org_id, t.id, account, &format!("orgtree_continue_on by {}", me.name)).await?;
     Done::json(&r)

@@ -1513,42 +1513,105 @@ async fn create_project(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
                "sibling_order": order, "live_sibling_count": siblings.len() + 1, "folder": folder }))
 }
 
-/// `rehire` of a retired project: it comes back where it was, free, with
-/// no model or account to choose. Its retired agents stay retired.
+/// Placement is shared by restored nodes. The caller supplies its existing
+/// default-parent policy; explicit placement and insertion have one admission path.
 #[logged]
-async fn restore_project(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, n: &Node, fx: &mut Effects) -> Result<Value> {
+async fn restore_position(
+    org: &OrgHandle, tx: &Transaction<'_>, actor: &Actor, n: &Node, req: &Value,
+    default_parent: Option<Node>,
+) -> Result<(Option<Node>, Option<Node>)> {
+    if req.get("above").is_some_and(|v| !v.is_null()) {
+        refuse!(BadRequest, "rehire insertion uses hire_type superior with target; omit above");
+    }
+    if str_arg(req, "hire_type").is_some_and(|s| !matches!(s, "subordinate" | "superior")) {
+        refuse!(BadRequest, "hire_type must be subordinate or superior");
+    }
+    let anchor = if str_arg(req, "hire_type") == Some("superior") {
+        let name = str_arg(req, "target").or_else(|| str_arg(req, "parent"))
+            .unwrap_or_else(|| match actor { Actor::Agent { name, .. } => name, Actor::User => "@user" });
+        let a = node_by_name(tx, org.id, name).await?;
+        insertion_authority(tx, actor, &a).await?;
+        if a.id == n.id || within(tx, n.id, a.id).await? {
+            refuse!(Conflict, "superior insertion needs a live target outside the archived subtree");
+        }
+        for field in ["add_dirs", "tools", "org_visibility", "permission_mode"] {
+            if !req[field].is_null() { refuse!(BadRequest, "superior insertion inherits target scope; omit {field}"); }
+        }
+        Some(a)
+    } else { None };
+    let parent = if let Some(a) = &anchor {
+        match a.parent { Some(id) => Some(node_by_id(tx, id).await?), None => None }
+    } else if let Some(name) = str_arg(req, "target").or_else(|| str_arg(req, "parent")) {
+        if matches!(name, "user" | "@user") { None } else { Some(node_by_name(tx, org.id, name).await?) }
+    } else { default_parent };
+    if let Some(p) = &parent {
+        if p.state != "live" || p.id == n.id || within(tx, n.id, p.id).await? {
+            refuse!(Conflict, "rehire destination must be live and outside the archived subtree");
+        }
+    }
+    if let Actor::Agent { id, name } = actor {
+        match &parent {
+            Some(p) if anchor.is_some() || p.id == *id || within(tx, *id, p.id).await? => {}
+            _ => refuse!(Forbidden, "{name} can only rehire under itself or its reports"),
+        }
+    }
+    Ok((parent, anchor))
+}
+
+/// Container restoration has no model, account or independently allocated
+/// budget. Placement still follows the same rules as any restored identity.
+#[logged]
+async fn restore_project(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, n: &Node, req: &Value, fx: &mut Effects) -> Result<Value> {
     authorize(tx, actor, n, "restore").await?;
+    for field in ["tier", "grant", "account", "model_version", "effort", "fast_mode", "tools", "add_dirs",
+        "remove_dirs", "org_visibility", "permission_mode", "charter", "team_charter", "account_fallback", "clear_account_fallback"] {
+        if !req[field].is_null() {
+            refuse!(BadRequest, "{} is a project: omit {field}; project policy is changed through project settings", n.name);
+        }
+    }
     if n.state == "live" {
+        if ["target", "parent", "hire_type", "name", "above"].iter().any(|field| !req[*field].is_null()) {
+            refuse!(Conflict, "project {} is already live; use move, reorder or rename to change its placement or name", n.name);
+        }
         return Ok(json!({ "node": n.name, "cost": 0, "warnings": [format!("project {} is already live — nothing to do", n.name)] }));
     }
     if n.state != "archived" {
         refuse!(Conflict, "project {} cannot be restored from state {}", n.name, n.state);
     }
-    if let Some(p) = n.parent {
-        let p = node_by_id(tx, p).await?;
-        if p.state != "live" {
-            refuse!(Conflict, "restore {} first: project {} goes back under it", p.name, n.name);
-        }
-    } else if !matches!(actor, Actor::User) {
-        refuse!(Forbidden, "only the user restores a top-level project");
-    }
-    let order: f64 = tx
+    let default_parent = match n.parent { Some(id) => Some(node_by_id(tx, id).await?), None => None };
+    let (parent, anchor) = restore_position(org, tx, actor, n, req, default_parent).await?;
+    let parent_id = parent.as_ref().map(|p| p.id);
+    let name = if let Some(new) = str_arg(req, "name") {
+        // Check rename authority before superior insertion changes the caller's chain.
+        rename(org, tx, actor, &json!({"node":n.name,"name":new}), fx, false).await?["node"].as_str().unwrap().to_owned()
+    } else { n.name.clone() };
+    let order: f64 = if let Some(a) = &anchor {
+        tx.query_one("SELECT sibling_order::float8 FROM ot.agents WHERE id=$1", &[&a.id]).await?.get(0)
+    } else { tx
         .query_one(
             "SELECT coalesce(max(sibling_order), 0)::float8 + 1 FROM ot.agents WHERE org_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND state = 'live'",
-            &[&org.id, &n.parent]).await?.get(0);
+            &[&org.id, &parent_id]).await?.get(0) };
     tx.execute(
-        "UPDATE ot.agents SET state = 'live', archived_at = NULL, seat = 0, grant_credits = 0, sibling_order = $2,
+        "UPDATE ot.agents SET state = 'live', archived_at = NULL, seat = 0, grant_credits = 0, sibling_order = $2, parent_id = $3,
                 row_version = row_version + 1 WHERE id = $1",
-        &[&n.id, &order],
+        &[&n.id, &order, &parent_id],
     )
     .await?;
-    event(tx, org.id, "rehire", actor, Some(n.id), json!({ "node": n.name, "kind": "project" }), fx).await?;
+    if let Some(a) = &anchor {
+        tx.execute("UPDATE ot.agents SET parent_id=$2,sibling_order=1,row_version=row_version+1 WHERE id=$1", &[&a.id,&n.id]).await?;
+        fx.agents.insert(a.id);
+        fx.reconfigure.push(a.id);
+        fx.reconfigure.extend(subtree(tx, a.id).await?);
+    }
+    event(tx, org.id, "rehire", actor, Some(n.id), json!({ "node": name, "kind": "project", "parent": parent.as_ref().map(|p| &p.name),
+        "above":anchor.as_ref().map(|a| &a.name) }), fx).await?;
     fx.agents.insert(n.id);
     if let Some(p) = n.parent {
         fx.agents.insert(p);
     }
+    if let Some(p) = parent_id { fx.agents.insert(p); }
     fx.events = true;
-    Ok(json!({ "node": n.name, "cost": 0, "kind": "project" }))
+    Ok(json!({ "node": name, "cost": 0, "kind": "project" }))
 }
 
 #[logged]
@@ -1559,7 +1622,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     super::tool_groups::validate(&req["tools"])?;
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     if n.project() {
-        return restore_project(org, tx, actor, &n, fx).await;
+        return restore_project(org, tx, actor, &n, req, fx).await;
     }
     if n.state == "live" {
         // asking for what is already true is a no-op, not an error (3.x)
@@ -1572,18 +1635,6 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     let fresh = n.state == "unrecoverable";
     authorize(tx, actor, &n, "rehire").await?;
     let caps = caps(engine, tx, org.id).await?;
-    let anchor = if str_arg(req, "hire_type") == Some("superior") {
-        let target = str_arg(req, "target").or_else(|| str_arg(req, "parent")).unwrap_or_else(|| match actor { Actor::Agent { name, .. } => name, Actor::User => "@user" });
-        let a = node_by_name(tx, org.id, target).await?;
-        insertion_authority(tx, actor, &a).await?;
-        if a.state != "live" || a.id == n.id || within(tx, n.id, a.id).await? {
-            refuse!(Conflict, "superior insertion needs a live target outside the archived subtree");
-        }
-        for field in ["add_dirs", "tools", "org_visibility", "permission_mode"] {
-            if !req[field].is_null() { refuse!(BadRequest, "superior insertion inherits target scope; omit {field}"); }
-        }
-        Some(a)
-    } else { None };
     // back under its old superior if that one is live, else the nearest live ancestor
     let mut parent: Option<Node> = None;
     let mut cur = n.parent;
@@ -1595,23 +1646,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         }
         cur = p.parent;
     }
-    if let Some(p) = str_arg(req, "target").or_else(|| str_arg(req, "parent")) {
-        parent = if p == "user" { None } else { Some(node_by_name(tx, org.id, p).await?) };
-    }
-    if let Some(a) = &anchor {
-        parent = match a.parent { Some(id) => Some(node_by_id(tx, id).await?), None => None };
-    }
-    if let Some(p) = &parent {
-        if p.state != "live" || p.id == n.id || within(tx, n.id, p.id).await? {
-            refuse!(Conflict, "rehire destination must be live and outside the archived subtree");
-        }
-    }
-    if let Actor::Agent { id, name } = actor {
-        match &parent {
-            Some(p) if anchor.is_some() || p.id == *id || within(tx, *id, p.id).await? => {}
-            _ => refuse!(Forbidden, "{name} can only rehire under itself or its reports"),
-        }
-    }
+    let (parent, anchor) = restore_position(org, tx, actor, &n, req, parent).await?;
     let tier = str_arg(req, "tier").map(str::to_string).unwrap_or(n.tier.clone());
     let seat = seat_of(engine, &tier)?;
     if !engine.settings.provider_enabled(catalog::provider_of(&tier)) {
@@ -3058,25 +3093,36 @@ async fn swap(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
 /// its superior (keeping its own team) and the caller becomes its report
 /// with the rest of its subtree.
 #[logged]
-async fn self_subjugate(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+async fn self_subjugate(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let Actor::Agent { id: me_id, .. } = actor else {
         refuse!(Forbidden, "self-subjugation is an agent's own act");
     };
     let me = node_by_id(tx, *me_id).await?;
     let d = node_by_name(tx, org.id, str_arg(req, "target").unwrap_or("")).await?;
-    agent_only(&d, "take your seat")?;
     if d.state != "live" {
         refuse!(Conflict, "{} is not live", d.name);
     }
     if d.id == me.id || !within(tx, me.id, d.id).await? {
         refuse!(Forbidden, "{} is not below you; you can only raise one of your own descendants", d.name);
     }
-    // the superior's hold is unchanged: the promoted agent takes over the caller's whole stake
+    // The positional transform is independent of kind: extract the descendant,
+    // put it at the caller's old position, and place the caller beneath it.
+    // Remove the extracted stake from every intermediate funding path first.
+    // Actual agent grants keep their free credits; container grants are mirrors
+    // settled at the common transaction boundary, never independent allocations.
     let stake = me.seat + me.grant;
     let d_grant = (stake - d.seat).max(0.0);
-    // what the promoted agent then holds: the caller (seat + its remaining grant) and its own team
+    let extracted = d.seat + d.grant;
+    let path = match d.parent { Some(id) => chain(tx, id).await?, None => Vec::new() };
+    let funding_path: Vec<_> = path.iter().skip_while(|n| n.id != me.id).collect();
+    if funding_path.is_empty() { refuse!(Conflict, "the descendant's placement changed; retry promotion"); }
+    for hop in &funding_path {
+        if !hop.project() && hop.grant + 1e-9 < extracted {
+            refuse!(Conflict, "{} cannot release {:.2} credits for promotion; reallocate first", hop.name, extracted);
+        }
+    }
     let d_team_hold = hold(tx, d.id).await?;
-    let me_grant = (me.grant - (d.seat + d.grant)).max(hold(tx, me.id).await? - (d.seat + d.grant)).max(0.0);
+    let me_grant = (me.grant - extracted).max(0.0);
     let need = me.seat + me_grant + d_team_hold - d_grant;
     let raised = if need > 1e-9 {
         refuse!(
@@ -3089,10 +3135,21 @@ async fn self_subjugate(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transa
     };
     let old_parent = d.parent;
     let old_superior: Option<i64> = tx.query_one("SELECT ot.superior_of($1)", &[&d.id]).await?.get(0);
+    if !d.project() && agent_superior(tx, me.id).await?.is_none() {
+        let limit = caps(engine, tx, org.id).await?.max_top;
+        if d_grant > limit + 1e-9 { refuse!(Conflict, "promotion would exceed the top-level grant cap of {limit:.0}"); }
+    }
+    // The caller is assigned below; other intermediate agents release exactly
+    // the same stake. No project policy/scope moves into an agent's scope.
+    for hop in funding_path.iter().skip(1).filter(|n| !n.project()) {
+        tx.execute("UPDATE ot.agents SET grant_credits=grant_credits-$2::float8::numeric,row_version=row_version+1 WHERE id=$1", &[&hop.id,&extracted]).await?;
+        fx.agents.insert(hop.id);
+    }
+    let (scope, grant) = if d.project() { (&d.scope, d.grant) } else { (&me.scope, d_grant) };
     tx.execute(
         "UPDATE ot.agents SET parent_id = $2, sibling_order = (SELECT sibling_order FROM ot.agents WHERE id = $3),
                 grant_credits = $4::float8::numeric, scope = $5, row_version = row_version + 1 WHERE id = $1",
-        &[&d.id, &me.parent, &me.id, &d_grant, &me.scope],
+        &[&d.id, &me.parent, &me.id, &grant, &scope],
     )
     .await?;
     tx.execute(
@@ -3106,6 +3163,7 @@ async fn self_subjugate(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transa
         fx.agents.insert(id);
     }
     fx.reconfigure.extend([me.id, d.id]);
+    fx.reconfigure.extend(subtree(tx, d.id).await?);
     fx.events = true;
     Ok(json!({ "node": me.name, "promoted": d.name }))
 }

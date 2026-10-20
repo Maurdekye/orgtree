@@ -32,11 +32,8 @@ pub(crate) async fn authorize_id(engine: &Arc<Engine>, caller: &Caller, id: i64)
         "SELECT id,name,state,parent_id,kind FROM ot.agents WHERE id=$1 AND org_id=$2 AND state <> 'deleted'",
         &[&id, &who.org_id]).await?;
     let Some(row) = row else { crate::refuse!(NotFound, "no such agent in this organization"); };
-    let t = Target { id: row.get(0), name: row.get(1), state: row.get(2), parent_id: row.get(3) };
-    let kind: String = row.get(4);
-    if kind == crate::domain::projects::KIND {
-        crate::refuse!(BadRequest, "{} is a project, not an agent; normal compaction requires an agent", t.name);
-    }
+    let t = Target { id: row.get(0), name: row.get(1), state: row.get(2), parent_id: row.get(3), kind: row.get(4) };
+    crate::domain::node_kind::require_turn_runtime(&t.kind, &t.name)?;
     downward(&client, &who, &t, "compact").await?;
     Ok(t)
 }

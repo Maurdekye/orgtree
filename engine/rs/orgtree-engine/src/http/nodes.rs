@@ -16,6 +16,7 @@ use tokio::sync::oneshot;
 
 use crate::domain::mail::{self, From, Outgoing};
 use crate::domain::scope;
+use crate::domain::node_kind::require_turn_runtime;
 use crate::engine::Engine;
 use crate::changes::{self, Change};
 use crate::http::error::{ApiError, ApiResult};
@@ -30,6 +31,7 @@ pub struct Agent {
     pub name: String,
     pub state: String,
     pub parent_id: Option<i64>,
+    pub kind: String,
 }
 
 #[logged]
@@ -37,12 +39,12 @@ pub async fn agent(engine: &Engine, org: &OrgHandle, nid: &str) -> ApiResult<Age
     let client = engine.db.get().await?;
     let r = client
         .query_opt(
-            "SELECT id, name, state, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'",
+            "SELECT id, name, state, parent_id, kind FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'",
             &[&org.id, &nid],
         )
         .await?;
     match r {
-        Some(r) => Ok(Agent { id: r.get(0), name: r.get(1), state: r.get(2), parent_id: r.get(3) }),
+        Some(r) => Ok(Agent { id: r.get(0), name: r.get(1), state: r.get(2), parent_id: r.get(3), kind: r.get(4) }),
         None => Err(ApiError::not_found(format!("no agent named {nid} in {}", org.slug))),
     }
 }
@@ -552,6 +554,7 @@ pub async fn halt_batch(engine: &Arc<Engine>, org: &OrgHandle, args: &Value, on:
         };
         if targets.iter().any(|a| a.name == name) { continue; }
         let a = agent(engine, org, name).await?;
+        require_turn_runtime(&a.kind, &a.name)?;
         if a.state != "live" {
             return Err(ApiError::conflict(format!("{} is not live", a.name)));
         }
@@ -565,6 +568,7 @@ pub async fn halt_batch(engine: &Arc<Engine>, org: &OrgHandle, args: &Value, on:
 pub async fn interrupt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
+    require_turn_runtime(&a.kind, &a.name)?;
     if e.agents.get(a.id).is_none() {
         return Ok(Json(json!({ "interrupted": false, "reason": "no turn is running" })));
     }
@@ -575,6 +579,7 @@ pub async fn interrupt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(St
 pub async fn halt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
+    require_turn_runtime(&a.kind, &a.name)?;
     if a.state != "live" {
         return Err(ApiError::conflict(format!("{} is not live", a.name)));
     }
@@ -585,6 +590,7 @@ pub async fn halt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String,
 pub async fn unhalt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
+    require_turn_runtime(&a.kind, &a.name)?;
     Ok(Json(ask(&e, org.id, a.id, AgentMsg::Unhalt).await?))
 }
 
@@ -594,6 +600,7 @@ pub async fn unhalt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Strin
 pub async fn compact_capability(State(e): State<Arc<Engine>>, Path((slug,nid)):Path<(String,String)>) -> ApiResult<Json<Value>> {
     let org=org(&e,&slug)?;
     let a=agent(&e,&org,&nid).await?;
+    require_turn_runtime(&a.kind, &a.name)?;
     Ok(Json(crate::domain::compaction::node_capability(&e, a.id).await?))
 }
 
@@ -601,6 +608,7 @@ pub async fn compact_capability(State(e): State<Arc<Engine>>, Path((slug,nid)):P
 pub async fn compact(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
+    require_turn_runtime(&a.kind, &a.name)?;
     let r = ask(&e, org.id, a.id, |tx| AgentMsg::Command("/compact".into(), tx)).await?;
     Ok(Json(json!({ "started": r["started"].as_bool().unwrap_or(false), "reason": r["reason"] })))
 }
@@ -618,6 +626,7 @@ pub async fn process(
 ) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
+    require_turn_runtime(&a.kind, &a.name)?;
     if b.action != "start" && b.action != "stop" {
         return Err(ApiError::bad_request("action must be start or stop"));
     }
@@ -632,6 +641,7 @@ pub async fn process(
 pub async fn unstick(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
+    require_turn_runtime(&a.kind, &a.name)?;
     let client = e.db.get().await?;
     let r = client.query_one("SELECT frozen IS NOT NULL, limit_locked FROM ot.agents WHERE id = $1", &[&a.id]).await?;
     drop(client);
@@ -665,6 +675,7 @@ pub async fn continue_on(
 ) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
+    require_turn_runtime(&a.kind, &a.name)?;
     Ok(Json(freeze::continue_on(&e, org.id, a.id, &b.account, "continue on another account (user)").await?))
 }
 
@@ -791,12 +802,12 @@ pub(crate) async fn apply_user_scope_in_tx(
     let a = {
         let r = tx
             .query_opt(
-                "SELECT id, name, state, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'",
+                "SELECT id, name, state, parent_id, kind FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'",
                 &[&org.id, &nid],
             )
             .await?;
         match r {
-            Some(r) => Agent { id: r.get(0), name: r.get(1), state: r.get(2), parent_id: r.get(3) },
+            Some(r) => Agent { id: r.get(0), name: r.get(1), state: r.get(2), parent_id: r.get(3), kind: r.get(4) },
             None => crate::refuse!(NotFound, "no agent named {nid}"),
         }
     };
