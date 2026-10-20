@@ -8317,7 +8317,7 @@ pub(super) fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
     let mut segments=Vec::new();
     if !refs.is_empty() {
         let ids=refs.iter().filter_map(|r|r["id"].as_str()).collect::<Vec<_>>().join(", ");
-        let reference=format!("Context-full recovery: re-admitted original mail {ids}. Its authored message remains above; the fresh session receives its full body again.");
+        let reference=format!("Context-full recovery: re-admitted original mail {ids}. Its authored message remains above; its request is provided to the fresh session.");
         segments.push(json!({"kind":"text","text":reference}));
         text=format!("{reference}\n\n{text}");
     }
