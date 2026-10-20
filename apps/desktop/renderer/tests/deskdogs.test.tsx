@@ -79,6 +79,28 @@ test('an agent with dogs but no reports still gets the row; one with neither get
 
 const N = DESK_JUMP_FOLD_LIMIT + 1
 
+for (const count of [8, 9, 23]) test(`${count} watchdogs use the independent eight-card boundary`, async t => {
+  useFakeClock(); installFetch(new FakeServer())
+  t.after(() => { resetConvos(); realClock() })
+  localStorage.setItem(JUMP_FOLD_KEY, '0')
+  t.after(() => localStorage.removeItem(JUMP_FOLD_KEY))
+  const opened: string[] = []
+  const view = await desk(node('lead'), Array.from({length:count}, (_, i) => dog('lead/w'+i,'lead','watch-'+i)), opened)
+  t.after(() => view.unmount())
+  const group=view.el.querySelector<HTMLElement>('[data-watchdog-group]')
+  assert.equal(!!group,count>8,'only more than eight dogs collapse, independently of jump-card settings')
+  assert.equal(view.el.querySelectorAll('.desk-nav .desk-dog-chip').length,count>8?0:count)
+  if(count>8) {
+    assert.match(group!.textContent??'',new RegExp(`${count} watchdogs`))
+    await inAct(async()=>group!.click())
+    const dialog=document.querySelector('[role="dialog"][aria-label="lead watchdogs"]')!
+    assert.ok(!!dialog,'group opens the watchdog list')
+    assert.equal(dialog.querySelectorAll('.watchdog-link').length,count)
+    await inAct(async()=>dialog.querySelectorAll<HTMLElement>('.watchdog-link')[count-1]!.click())
+    assert.deepEqual(opened,['lead/w'+(count-1)])
+  }
+})
+
 test('more than 16 jump cards fold behind one counted button; opening it lists every card and they still work', async (t) => {
   useFakeClock()
   installFetch(new FakeServer())
