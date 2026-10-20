@@ -1,4 +1,4 @@
-﻿// Real actor, passive mail and placement watcher; fake Codex only, plus an
+// Real actor, passive mail and placement watcher; fake Codex only, plus an
 // owned helper attached exclusively to this scratch engine. No credential calls.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -115,4 +115,3 @@ export default async function(rig) {
   }
   return p.summary()
 }
-
