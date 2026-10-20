@@ -11,7 +11,7 @@ function run(name,args){
  const logFile=out+'/command-'+(++command)+'-'+name+'.log',fd=fs.openSync(logFile,'w');let r;
  try{r=spawnSync(exe(name),args,{windowsHide:true,stdio:['ignore',fd,fd],timeout:60000})}finally{fs.closeSync(fd)}
  const log=fs.readFileSync(logFile,'utf8');fs.appendFileSync(out+'/pg-processes.log',JSON.stringify({name,status:r.status,signal:r.signal,error:r.error?.message})+'\n'+log);
- if(r.status!==0||r.signal||r.error)throw Error(name+' failed');return log.trim();
+ if(r.status!==0||r.signal||r.error)throw Error(name+' failed');return log.replaceAll('\r\n','\n').trim();
 }
 function sql(text){const file=out+'/query.sql';fs.writeFileSync(file,text);return run('psql',['-X','-q','-A','-t','-v','ON_ERROR_STOP=1','-h','127.0.0.1','-p',String(port),'-U','postgres','-d','postgres','-f',file]);}
 const source=fs.readFileSync(repo+'/engine/rs/orgtree-engine/src/http/docs.rs','utf8');
