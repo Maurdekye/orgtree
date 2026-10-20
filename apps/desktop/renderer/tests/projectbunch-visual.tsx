@@ -3,11 +3,12 @@ import { useState } from 'react'
 import { CurrentOrg } from '../src/popout'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { AccountsPanel } from '../src/canvas/accounts'
-import { withDraftTree, withPendingMoves, treeParents, layout } from '../src/canvas/shared'
+import { withDraftTree, withPendingMoves, treeParents, layout, flatten } from '../src/canvas/shared'
+import { canonPiles, viewHidden, viewPiles } from '../src/canvas/canvaslayout'
 import { withPendingOrder } from '../src/canvas/pendingorder'
 import { projectDraftSteps } from '../src/canvas/newproject'
 import type { TreeNode, TreePayload } from '../src/types'
-import { agent, chain, project, bunchTree } from './projectbunch-fixture'
+import { agent, chain, project, bunchTree, retired } from './projectbunch-fixture'
 
 /** The review org of user 2026-10-20 09:08Z: stacks of 3/5/8/12/16 projects
  *  with three agents under each bottom project; split moves stack12-agent-b
@@ -49,7 +50,7 @@ localStorage.setItem('orgtree-project-bunches', scene.endsWith('-off') ? '0' : '
 if (scene === 'reorder' || scene === 'rearrange-on')
   localStorage.setItem('orgtree-project-bunch-rearrange', '1')
 if (scene === 'rearrange-off') localStorage.setItem('orgtree-project-bunches', '1')
-localStorage.setItem('orgtree-chart-layout', scene === 'circular' || scene.startsWith('ring-') ? 'circular' : 'row')
+localStorage.setItem('orgtree-chart-layout', scene === 'circular' || scene === 'retired-circular' || scene.startsWith('ring-') ? 'circular' : 'row')
 const labels: Record<string, string> = {
   two: 'Two projects', three: 'Three projects', five: 'Five projects', seven: 'Seven projects',
   eight: 'Eight projects', twelve: 'Twelve projects', twenty: 'Twenty projects',
@@ -69,7 +70,14 @@ const labels: Record<string, string> = {
   'ring-busy': 'Circular chart: a whole bunch among 24 agents on one ring',
   'ring-team-ends': 'Circular chart: 15 agents under the stack8 bunch, last under build-slot',
   settings: 'App settings > Display',
+  'retired-pile': 'Retired pile: the selected project column stays bunched',
+  'retired-off': 'Retired pile: Display bunching off keeps the original column',
+  'retired-circular': 'Retired pile: circular chart keeps the same project bunch',
 }
+const retiredStacks = () => [agent('archive-owner', [
+  retired(chain(3, [agent('older-worker')], 'older')),
+  retired(chain(5, [agent('retired-worker')], 'project')),
+])]
 const trees: Record<string, TreeNode[]> = {
   two: [chain(2)], three: [chain(3)], five: [chain(5)], seven: [chain(7)],
   eight: [chain(8)], twelve: [chain(12)], twenty: [chain(20)],
@@ -85,6 +93,7 @@ const trees: Record<string, TreeNode[]> = {
   'ring-busy': [agent('top', [agent('lead', [...Array.from({ length: 12 }, (_, i) => agent(`left-${i}`)),
     chain(5, [agent('member')], 'run'), ...Array.from({ length: 12 }, (_, i) => agent(`right-${i}`))])])],
   'ring-team-ends': teamEnds(),
+  'retired-pile': retiredStacks(), 'retired-off': retiredStacks(), 'retired-circular': retiredStacks(),
 }
 let current = bunchTree(trees[scene] ?? [chain(3)])
 let publish = (_tree: TreePayload) => {}
@@ -111,6 +120,9 @@ function execute(steps: Record<string, unknown>[]) {
 const answer = (data: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(data), { status }))
 window.fetch = ((url, init) => {
   const path = new URL(String(url), location.href).pathname
+  if (scene.startsWith('retired-') && path.endsWith('/retired')) return answer({
+    agents: current.roots[0]!.children.map(n => ({ ...n, children: [] })), next_cursor: null,
+  })
   if (path.endsWith('/gesture')) {
     execute(JSON.parse(String(init?.body)).steps)
     return answer({ results: [] })
@@ -136,6 +148,21 @@ if (scene.startsWith('ring-')) {
   const xs = positions.map(p => p.x), ys = positions.map(p => p.y), lift = Math.max(0, 140 - Math.min(...ys))
   const w = Math.max(...xs) - Math.min(...xs) + 124, h = Math.max(...ys) - Math.min(...ys) + 124
   const z = Math.min(940 / w, 600 / h)
+  localStorage.setItem('orgtree-start-view', 'remember')
+  localStorage.setItem('orgtree-view-' + current.slug, JSON.stringify({
+    x: 500 - (Math.min(...xs) + Math.max(...xs) + 124) * z / 2,
+    y: 326 - (Math.min(...ys) + Math.max(...ys) + 2 * lift + 124) * z / 2, z,
+  }))
+}
+if (scene.startsWith('retired-')) {
+  const root = canonPiles(withDraftTree(current, null))
+  const hidden = viewHidden(root, viewPiles(root, {}, false, false, new Set()))
+  const mode = scene === 'retired-circular' ? 'circular' : 'row'
+  const positions = [...layout(root, hidden, mode, !scene.endsWith('-off'), flatten(root, {})).values()]
+  const xs = positions.map(p => p.x), ys = positions.map(p => p.y)
+  const lift = Math.max(0, 140 - Math.min(...ys))
+  const w = Math.max(...xs) - Math.min(...xs) + 124, h = Math.max(...ys) - Math.min(...ys) + 124
+  const z = Math.min(1, 850 / w, 580 / h)
   localStorage.setItem('orgtree-start-view', 'remember')
   localStorage.setItem('orgtree-view-' + current.slug, JSON.stringify({
     x: 500 - (Math.min(...xs) + Math.max(...xs) + 124) * z / 2,
