@@ -3341,6 +3341,9 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
    other tables keep theirs: their names have the room) */
 .slots-table.mail-listeners-table.ack { min-width: 660px; }
 .mail-listeners-table .slot-col-action { width: 82px; }
+.mail-listeners-table .listener-user-actions { display:inline-flex; flex-wrap:nowrap; gap:4px; white-space:nowrap; }
+.mail-listeners-table .slot-action .listener-action { display:inline-flex; align-items:center; justify-content:center;
+  box-sizing:border-box; width:26px; height:26px; min-height:26px; margin:0; padding:4px; font-size:14px; }
 @container (max-width: 759px) { .slots-table.mail-listeners-table.ack .slot-col-agent { width: 124px; } }
 .mail-listeners-table .slot-no { display: inline-block; min-width: 30px; color: var(--fq-line); font-variant-numeric: tabular-nums; }
 .mail-listeners-table .listener-handed { font-variant-numeric: tabular-nums; }

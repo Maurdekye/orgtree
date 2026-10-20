@@ -39,6 +39,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode, UIEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, Watchdog } from '../types'
+import { CloseIcon, MailIcon } from '../icons'
 import type { CanvasNode, MailRow, OpFn } from './shared'
 import { AgentLink, nodeTierOf } from './identity'
 import { useDogRoute, WatchdogRow } from './deskdogs'
@@ -300,9 +301,9 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
       .then(() => { toast?.([`left project ${node.id}'s mail queue; a job already held stays held until it is acknowledged`]); setBump((b) => b + 1) })
       .catch(() => {})
   }
-  const leaveButton = () => <button type="button" data-action="leave-queue"
-    title="leave this queue: no more jobs are handed to you; a job already held stays held until it is acknowledged"
-    onClick={leave}>leave queue</button>
+  const leaveButton = () => <button type="button" data-action="leave-queue" className="iconbtn listener-action" aria-label="leave queue"
+    title="leave queue — leave this queue: no more jobs are handed to you; a job already held stays held until it is acknowledged"
+    onClick={leave}><CloseIcon fontSize="inherit" /></button>
   // the user's copy of a held job is in THEIR inbox (not the project's mailbox): open it there
   const openJob = (copy: string) => {
     if (refs) {
@@ -352,11 +353,12 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                   <td className="listener-dog-cell">{w ? listenerDog(w) : <HistoryDog dog={j.dog} className="listener-dog" />}</td>
                   <td className="slot-action">{isUserName(j.agent)
                     // the user's own job: they acknowledge it from their inbox; nobody takes it back
-                    ? <><button type="button" data-action="open-job" disabled={!j.copy}
-                        title="read this job in your inbox and acknowledge it there; reading does not acknowledge it"
-                        onClick={() => j.copy && openJob(j.copy)}>open mail</button>
+                    ? <span className="listener-user-actions"><button type="button" data-action="open-job" disabled={!j.copy}
+                        className="iconbtn listener-action" aria-label="open mail"
+                        title="open mail — read this job in your inbox and acknowledge it there; reading does not acknowledge it"
+                        onClick={() => j.copy && openJob(j.copy)}><MailIcon fontSize="inherit" /></button>
                         {/* Full batches have no Line row: leave stays on the user's Working rows while joined. */}
-                        {myDog && leaveButton()}</>
+                        {myDog && leaveButton()}</span>
                     : <button type="button" className="danger" data-action="take-back"
                         title={`take this job back from ${j.agent}: it goes to the front of the queue, for another listener first`}
                         onClick={() => setAsking(j)}>take back</button>}</td>
