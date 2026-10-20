@@ -1,4 +1,5 @@
 import './harness'
+import { selectDocketRow } from './docketselection.fixture'
 import { compatibilityWorkFixture } from './workcompat.fixture'
 import { FakeServer, installFetch, flush, inAct, mountView } from './harness'
 import test from 'node:test'
@@ -96,7 +97,12 @@ for (const kind of ['docket', 'agent', 'team', 'desk'] as const) test(`${kind} u
   await settle()
   assert.ok(f.calls.some(p => p.includes('/work-items-page?') && p.includes('group=items')), 'the open group is read as a page')
   assert.ok(!f.calls.some(p => p.includes('group=archived') || p.includes('group=backlogged')), 'closed groups are not requested')
-  assert.ok(!f.calls.some(p => /\/work-items\/[^/]+$/.test(p)))
+  if (kind === 'docket') {
+    assert.equal(m.el.querySelector('.docket-row.on .docket-rowname')?.textContent, 'active',
+      'the org docket auto-selects its first row')
+    assert.equal(f.calls.filter(p => p.endsWith('/work-items/active')).length, 1,
+      'opening hydrates only its selected item')
+  } else assert.ok(!f.calls.some(p => /\/work-items\/[^/]+$/.test(p)))
   if (kind === 'desk') {
     const tab = [...m.el.querySelectorAll('button')].find(b => b.textContent?.toLowerCase().includes('docket'))
     assert.ok(tab, 'desk must expose its docket tab')
@@ -104,7 +110,7 @@ for (const kind of ['docket', 'agent', 'team', 'desk'] as const) test(`${kind} u
   }
   const row = m.el.querySelector('.docket-row') as HTMLElement
   assert.ok(row, `${kind} has an active row`)
-  await inAct(() => row.click())
+  await selectDocketRow(row)
   await settle()
   assert.ok(f.calls.some(p => p.endsWith('/work-items/active')))
   assert.match(m.el.textContent ?? '', /DETAIL ACCEPTANCE IS PRESENT/)
@@ -143,7 +149,7 @@ test('a list refresh retains the selected pane and its reply draft while detail 
   const m = await mountView(<DocketModal slug={f.slug} tree={f.tree} toast={noop} close={noop} />, el => el)
   t.after(() => m.unmount())
   await settle()
-  await inAct(() => (m.el.querySelector('.docket-row') as HTMLElement).click())
+  await selectDocketRow(m.el.querySelector('.docket-row'))
   await settle()
   const field = m.el.querySelector('.mailer-read textarea') as HTMLTextAreaElement
   assert.ok(field)
