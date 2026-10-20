@@ -4,8 +4,9 @@
 // credits, so it has no model, credit bar or turn state. Zoomed out it is a
 // large folder; at middle zoom it shows its name, the activity chip (active /
 // hired agents under it) and its documents (not its description: user
-// 2026-10-18 08:50Z), with the mailbox
-// button only under "Show agent card shortcuts". A click or zooming in walks
+// 2026-10-18 08:50Z), with its shortcuts (docket, mailbox, presented, team,
+// slots, listeners) only under "Show agent card shortcuts" and never over its
+// open desk (user 2026-10-20 09:23Z–09:24Z). A click or zooming in walks
 // to its PROJECT DESK (projectdesk.tsx; user 2026-10-17 19:38Z, 20:04Z), never
 // a modal. It has an agent card's four hire strips, and its menu
 // (projectMenuEntries, shared with the Agents List) reaches its mailbox,
@@ -17,12 +18,14 @@ import { useEffect, useRef, useState } from 'react'
 import { audienceAction } from '../api'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
-import { DocIcon, DocketIcon, FolderIcon, MailIcon } from '../icons'
+import { DocIcon, DocketIcon, FolderIcon, ListenersIcon, MailIcon, TeamIcon, ViewListIcon } from '../icons'
 import { NODE_H, NODE_W, subtreeDocs, useAgentShortcuts, USER, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
 import type { RefRoutes } from './reflinks'
-import { ProjectActivity, ProjectDesk, ProjectLastActivity } from './projectdesk'
+import { ProjectActivity, ProjectDesk, projectDeskTabs, ProjectLastActivity } from './projectdesk'
+import type { ProjectDeskTab } from './projectdesk'
+import { rememberDesk } from './desktabs'
 import { PinnedPlaceholder } from './pins'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
@@ -132,6 +135,16 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const queue = mailQueueCard(node.id, waiting, node.mail_held ?? 0, queueAckMode(node), tree?.watchdogs ?? [])
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
+  // the shortcuts give way to the open desk and to the pinned desk's
+  // placeholder, as an agent card's do (user 2026-10-20 09:23Z: they stayed
+  // drawn, hover-revealed, over the desk)
+  const shortcuts = showShortcuts && !deskOpen && !pinnedFocus
+  // Team, Slots and Listeners shortcuts exactly while the desk offers those
+  // tabs (user 2026-10-20 09:24Z)
+  const deskTabs: ProjectDeskTab[] = shortcuts ? projectDeskTabs(node, map ?? new Map(), tree?.watchdogs ?? []) : []
+  // Listeners has no window of its own: its shortcut opens the desk on that
+  // tab, as the menu's Desk glance where offered, else by walking to it
+  const openListeners = onOpenTemporary ?? onFocus
   const cardRef = useRef<HTMLDivElement>(null)
   const [nameHover, setNameHover] = useState(false)
   const [nameFocus, setNameFocus] = useState(false)
@@ -231,10 +244,12 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
             {queue && <span className={'project-queue-badge' + (queue.bright ? ' bright' : '')} title={queue.title}>{queue.text}</span>}
           </div>
           {/* no description preview here: it lives on the project desk (user 2026-10-18 08:50Z) */}
-          {showShortcuts && <div className="sq-actions project-actions">
+          {shortcuts && <div className="sq-actions project-actions">
             {/* the agent card's hover row, for what a project holds (user
                 2026-10-17 22:21Z): its docket, its mailbox with the waiting
-                mail, and its presented documents (its own and its subtree's) */}
+                mail, and its presented documents (its own and its subtree's);
+                then its team, slots and listeners (2026-10-20 09:24Z; no
+                Summary, 09:24:35Z), each opening what its desk tab shows */}
             {onDocket && <button className="mailbtn docketbtn" aria-label={`Docket for project ${node.id}`}
               title={`Docket for project ${node.id}: the items owned by agents under it`}
               onPointerDown={(e) => e.stopPropagation()}
@@ -250,12 +265,42 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               onClick={(e) => { e.stopPropagation(); onInbox() }}>
               <MailIcon fontSize="inherit" />{waiting > 0 && <span className="count">{waiting}</span>}
             </button>
-            {onOpenGallery && docs > 0 &&
-              <button className="presentedbtn" aria-label={`presented documents for project ${node.id}`}
-                title={`open the ${docs} presented document${docs === 1 ? '' : 's'} of project ${node.id}`}
+            {/* always, as its desk tab: shown while it holds documents of its
+                own, else revealed on hover like the mailbox */}
+            {onOpenGallery &&
+              <button className={docs > 0 ? 'presentedbtn' : 'mailbtn presentedbtn'}
+                aria-label={`presented documents for project ${node.id}`}
+                title={docs > 0 ? `open the ${docs} presented document${docs === 1 ? '' : 's'} of project ${node.id}`
+                  : `open the presented documents of project ${node.id}`}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); onOpenGallery(node.id) }}>
                 <DocIcon fontSize="inherit" />
+              </button>}
+            {onTeam && deskTabs.includes('team') &&
+              <button className="mailbtn teambtn" aria-label={`team of project ${node.id}`}
+                title={`open the team of project ${node.id}: the agents and projects under it`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onTeam() }}>
+                <TeamIcon fontSize="inherit" />
+              </button>}
+            {surfaceRoutes && deskTabs.includes('slots') &&
+              <button className="mailbtn slotsbtn" aria-label={`slots of project ${node.id}`}
+                title={`open the concurrency slots of project ${node.id}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); surfaceRoutes.open('project-slots', node.id) }}>
+                <ViewListIcon fontSize="inherit" />
+              </button>}
+            {openListeners && deskTabs.includes('listeners') &&
+              <button className="mailbtn listenersbtn" aria-label={`listeners of project ${node.id}`}
+                title={`open project ${node.id}'s desk on its Listeners tab: the agents listening for its events`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  // the desk reads its opening tab from memory as it mounts
+                  rememberDesk(slug, node.id, 'tab', 'listeners')
+                  openListeners()
+                }}>
+                <ListenersIcon fontSize="inherit" />
               </button>}
           </div>}
         </>

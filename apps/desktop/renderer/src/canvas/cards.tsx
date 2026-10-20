@@ -28,7 +28,7 @@ import { accountTint } from '../accounttint'
 import { THEMES } from '../themes'
 import {
   AutorenewIcon, BoltIcon, CheckIcon, CloseIcon, DocketIcon, FocusIcon, FullscreenIcon, FrozenIcon, LayersIcon,
-  LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon, FolderIcon,
+  LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon, FolderIcon, TeamIcon,
 } from '../icons'
 import {
   effectiveReports, isTopLevel, ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, museTierOffer, MUSE_TIER_LETTER, MUSE_TIER_SEAT, MUSE_TIERS, useMuseHire, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, orderAntigravityTiers, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
@@ -44,6 +44,7 @@ import {
   MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
 import { EffortLevelBadge, QueuedEffortBadge } from './effort'
+import { liveTeamCount } from './team'
 import { useFastMode } from './fastmode'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { DocChips } from './docs'
@@ -1973,6 +1974,15 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onOpenAgentGallery(node.id) }}>
             <DocIcon fontSize="inherit" />
+          </button>}
+        {/* its team while it has a live report, as its desk's Team tab (user
+            2026-10-20 09:25Z); last, so no shortcut before it moves */}
+        {onTeam && liveTeamCount(map, node.id) > 0 &&
+          <button className="mailbtn teambtn" aria-label={`team of ${node.id}`}
+            title={`open the team of ${node.id}: its reports and everyone under them`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onTeam() }}>
+            <TeamIcon fontSize="inherit" />
           </button>}
       </div>}
       {!focused && lod !== 'mini' && (

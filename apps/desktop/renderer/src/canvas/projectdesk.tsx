@@ -66,8 +66,26 @@ import { useDeskMemory } from './desktabs'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
 /** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
-type Tab = typeof PROJECT_DESK_TABS[number] | 'slots' | 'dead' | 'listeners'
+export type ProjectDeskTab = typeof PROJECT_DESK_TABS[number] | 'slots' | 'dead' | 'listeners'
+type Tab = ProjectDeskTab
 const ALL_TABS: readonly Tab[] = [...PROJECT_DESK_TABS, 'slots', 'dead', 'listeners']
+
+/** The tabs a project desk offers now, in order. Team while a live node hangs
+ *  directly under it, the agent desk's rule; Slots while it has a slot count,
+ *  which is a setting (user 2026-10-19 21:20:24Z); Dead letters while it holds
+ *  open ones; Listeners from the first time any listener or watch registers on
+ *  it, for good (user 2026-10-20 06:22Z, replacing "always" of 2026-10-19
+ *  21:19:48Z: it never hides again when they unregister). The project card's
+ *  Team, Slots and Listeners shortcuts read this same list (user 2026-10-20
+ *  09:24Z), so a card never offers a tab its desk does not have. */
+export function projectDeskTabs(node: CanvasNode, map: Map<string, CanvasNode>,
+  dogs: NonNullable<TreePayload['watchdogs']>): ProjectDeskTab[] {
+  const listeners = projectListenerState(node.id, dogs)
+  const listenersSeen = !!node.listeners_seen || listeners.listeners.length + listeners.watches.length > 0
+  return [...PROJECT_DESK_TABS, ...(slotCount(node) > 0 ? ['slots' as const] : []),
+    ...((node.dead_letters ?? 0) > 0 ? ['dead' as const] : []), ...(listenersSeen ? ['listeners' as const] : [])]
+    .filter((v) => v !== 'team' || liveTeamCount(map, node.id) > 0)
+}
 /** the Mail tab's folders (ProjectInbox) */
 const MAIL_FOLDERS = ['inbox', 'sent', 'listeners'] as const
 
@@ -700,15 +718,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
     <DeskJumpCards ids={up.map((n) => n.id)} render={(id) =>
       <NavChip key={id} n={up.find((n) => n.id === id)!} dir="up" onJump={onJump} />} />
   </div> : null
-  // the Dead letters tab joins them while the project holds open dead letters;
-  // the Listeners tab from the first time any listener or watch registers on
-  // the project, for good (user 2026-10-20 06:22Z, replacing "always" of
-  // 2026-10-19 21:19:48Z: it never hides again when they unregister); only
-  // Slots follows a setting (21:20:24Z)
+  // the tabs it offers now, by the rules the card's shortcuts share
   const deadLetters = node.dead_letters ?? 0
-  const listenersSeen = !!node.listeners_seen || listenerState.listeners.length + listenerState.watches.length > 0
-  const tabs: Tab[] = [...PROJECT_DESK_TABS, ...(slots.total > 0 ? ['slots' as const] : []), ...(deadLetters > 0 ? ['dead' as const] : []), ...(listenersSeen ? ['listeners' as const] : [])]
-    .filter(v => v !== 'team' || teamCount > 0)
+  const tabs = projectDeskTabs(node, map, tree.watchdogs ?? [])
   const shown: Tab = tabs.includes(view) ? view : 'desk'
   // A TAB THE DESK DOES NOT OFFER (no team, slots, dead letters or listeners
   // any more, or remembered from an earlier visit) gives way to Summary, and

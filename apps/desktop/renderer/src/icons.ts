@@ -61,3 +61,6 @@ export { default as WarnIcon } from '@mui/icons-material/WarningAmber'
 export { default as NotificationsIcon } from '@mui/icons-material/NotificationsOutlined'
 export { default as NotificationsActiveIcon } from '@mui/icons-material/NotificationsActive'
 export { default as CampaignIcon } from '@mui/icons-material/Campaign'
+// the card shortcuts to a team and to a project's event listeners
+export { default as TeamIcon } from '@mui/icons-material/GroupsOutlined'
+export { default as ListenersIcon } from '@mui/icons-material/SensorsOutlined'
