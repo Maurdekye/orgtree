@@ -13,6 +13,9 @@ export default async function (rig) {
   const home = path.join(rig.data, 'rig-home')
   const dir = path.join(home, 'rig-usage')
   fs.mkdirSync(dir, { recursive: true })
+  // production reads one Claude login once a minute (usage.rs CLAUDE_ATTEMPT_EVERY, 2026-10-15);
+  // the canned failure below follows the engine's own first read of the login, so the rig floor is 0
+  fs.writeFileSync(path.join(dir, 'claude-attempt-floor-ms'), '0')
   const old = new Date(Date.now() - 1800e3).toISOString()
   const put = (provider, value) => fs.writeFileSync(path.join(dir, `${provider}.json`), JSON.stringify(value))
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,

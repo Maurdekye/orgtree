@@ -18,7 +18,7 @@ module.exports = async (page, { args }) => {
     }
     if (shot.account !== undefined) {
       await page.eval((v) => {
-        const sel = [...document.querySelectorAll('.uh-filter select')][1]
+        const sel = [...document.querySelectorAll('select.uh-filter')][1]
         const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set
         set.call(sel, v)
         sel.dispatchEvent(new Event('change', { bubbles: true }))

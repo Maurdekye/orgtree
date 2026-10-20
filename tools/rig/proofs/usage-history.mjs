@@ -93,6 +93,14 @@ export default async function (rig) {
   const p = new Proof('usage-history')
   const page = fileURLToPath(new URL('../desktop/usage-history.cjs', import.meta.url))
 
+  // The rig's own Muse host is read and recorded at boot (muse/primary), on a clock of its own, so
+  // "a fresh install" is only true once that reading is set aside. This proof is about the other
+  // lanes: wait for it, delete it, and the recorder (which writes an unchanged series again only
+  // hourly, KEEPALIVE_MIN) leaves the table as the proof counts it.
+  await rig.waitFor(() => rig.sql("SELECT 1 FROM ot.usage_history WHERE provider = 'muse'").length > 0,
+    { what: "the rig Muse host's boot reading", timeout: 30000 }).catch(() => {})
+  rig.exec("DELETE FROM ot.usage_history WHERE provider = 'muse'")
+
   // ---------------------------------------------------------------- 1. empty install
   const before = rig.one('SELECT count(*)::int AS n FROM ot.usage_history')
   p.check('a fresh rig install has no usage history', before.n === 0, before)
@@ -149,6 +157,9 @@ export default async function (rig) {
   // ---------------------------------------------------------------- 3. the recorder
   const usageDir = path.join(rig.data, 'rig-home', 'rig-usage')
   fs.mkdirSync(usageDir, { recursive: true })
+  // production reads one Claude login once a minute (usage.rs CLAUDE_ATTEMPT_EVERY, 2026-10-15); the
+  // default login was already read at boot, so this proof's canned reading needs the rig floor at 0
+  fs.writeFileSync(path.join(usageDir, 'claude-attempt-floor-ms'), '0')
   const put = (name, r) => fs.writeFileSync(path.join(usageDir, `${name}.json`), JSON.stringify(r))
   const later = h => new Date(Date.now() + h * 3600e3).toISOString()
   // the default login's reading continues its seeded windows (same reset

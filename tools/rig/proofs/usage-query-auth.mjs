@@ -16,6 +16,9 @@ export default async function (rig) {
   await rig.waitFor(() => fs.existsSync(path.join(dir, 'calls.log'))
     && fs.readFileSync(path.join(dir, 'calls.log'), 'utf8').includes(' google'),
     { what: 'initial automatic usage pass', timeout: 20000 })
+  // production reads one Claude login once a minute (usage.rs CLAUDE_ATTEMPT_EVERY, 2026-10-15);
+  // this proof plays several canned readings of one login in a row, so the rig floor is 0
+  fs.writeFileSync(path.join(dir, 'claude-attempt-floor-ms'), '0')
   const old = new Date(Date.now() - 120e3).toISOString()
   const room = observed_at => ({ available: true, observed_at, extra_credential: marker, detail: marker,
     limits: [{ kind: 'session', group: 'session', percent: 37, is_active: false }] })
