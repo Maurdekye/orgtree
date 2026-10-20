@@ -253,6 +253,8 @@ test('a retired token is never covered by a hovered card: it layers above the ca
   const z = (sel: string) => {
     // the last rule for `sel` that sets a z-index
     for (let at = css.lastIndexOf(sel + ' {'); at >= 0; at = css.lastIndexOf(sel + ' {', at - 1)) {
+      // a rule that STARTS its line (`.desk-retired-token {` also ends with `.retired-token {`)
+      if (at > 0 && css[at - 1] !== String.fromCharCode(10)) continue
       const m = /z-index:\s*(\d+)/.exec(css.slice(at, css.indexOf('}', at)))
       if (m) return Number(m[1])
     }
