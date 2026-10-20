@@ -290,7 +290,7 @@ mod interrupt_rule_tests {
 
     /// The user, 2026-10-16 12:05Z: an agent may always end its own turn, and
     /// restart it; interrupting another agent still needs the runtime tool
-    /// group, and `restart` is for your own turn only.
+    /// group. The user 2026-10-20 also permits report restarts.
     #[test]
     fn an_agent_may_restart_itself_or_a_report_with_runtime_permission() {
         assert_eq!(interrupt_rule(true, false, false), Ok(()));

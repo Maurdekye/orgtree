@@ -18,6 +18,8 @@ export default async function(rig) {
     { name:'default', steps:[{text:'Continuing.'}] },
   ] }]))
   rig.scenario({agents,default:{turns:[{name:'default',steps:[{text:'OK.'}]}]}})
+  await rig.waitFor(async () => (await rig.api('GET', '/api/providers'))?.providers?.find(x => x.id === 'muse' && x.muse?.catalog),
+    {what:'synthetic Muse catalog',timeout:30000})
   await seed(rig, {org:{name:'Report interrupt'},agents:[
     {name:'boss',tier:'haiku',grant:80},
     ...providers.map(([name,tier])=>({name,tier,parent:'boss'})),

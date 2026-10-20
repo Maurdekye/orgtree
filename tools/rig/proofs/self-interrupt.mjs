@@ -11,7 +11,7 @@
 //   3. it is refused while her CLI runs background work, and the turn goes on;
 //   4. cal, with every Orgtree tool group off, may still restart itself, but
 //      may not interrupt anyone else;
-//   5. boss (runtime group on) may interrupt ann, but not restart her.
+//   5. boss may interrupt ann, but cannot restart an idle report.
 //   node tools/rig/rig.mjs run tools/rig/proofs/self-interrupt.mjs
 
 import { seed } from '../fixture.mjs'
@@ -118,8 +118,8 @@ export default async function (rig) {
   await rig.userMail('boss', 'PROOF-BOSS: try ann.')
   await ended('boss', before, "boss's turn")
   const [restartAnn, plainAnn] = results('boss').slice(-2)
-  p.check('5 boss: restarting another agent is refused; a plain interrupt of a report is allowed (ann runs no turn)',
-    !!restartAnn?.is_error && /own turn only/.test(restartAnn.text ?? '') && !!plainAnn && !plainAnn.is_error && /no turn is running/.test(plainAnn.text ?? ''),
+  p.check('5 boss: an idle restart is refused; plain interrupt keeps its idle result',
+    !!restartAnn?.is_error && /no turn is running/.test(restartAnn.text ?? '') && !!plainAnn && !plainAnn.is_error && /no turn is running/.test(plainAnn.text ?? ''),
     { restartAnn, plainAnn })
   p.keep(rig, { agents: ['ann', 'cal', 'boss'], grep: /own turn|starts at once|interrupt/ })
   return p.summary()

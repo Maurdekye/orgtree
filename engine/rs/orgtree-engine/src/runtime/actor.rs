@@ -384,9 +384,9 @@ struct Turn {
     fast_mode: Option<bool>,
     limit_signal: bool,
     last_event: Instant,
-    /// API message id â†’ (convo seq, the row as built so far)
+    /// API message id → (convo seq, the row as built so far)
     rows: HashMap<String, (i64, Value)>,
-    /// tool_use_id â†’ API message id
+    /// tool_use_id → API message id
     tools: HashMap<String, String>,
     interrupted: bool,
     killed: bool,
@@ -2004,7 +2004,7 @@ impl Actor {
             (file, label, text)
         }).collect();
         let org_notes = std::fs::read_to_string(org_notes_dir.join(crate::config::ORG_NOTES_FILE)).ok();
-        // Â§15 cascade: every ancestor's team charter binds its subtree, root first.
+        // §15 cascade: every ancestor's team charter binds its subtree, root first.
         // A project ancestor's description is its team charter (user
         // 2026-10-17 19:14Z), so nested projects each add theirs.
         let cascade: Vec<(String, String)> = chain
@@ -2081,24 +2081,24 @@ impl Actor {
         let lane = id.clone();
         if let Some(a) = self.engine.accounts.view().get(&id) {
             if !a.enabled {
-                return Err(anyhow!("the OpenRouter key {lane} is inactive (App settings â€º Providers); activate it or move this agent to another key"));
+                return Err(anyhow!("the OpenRouter key {lane} is inactive (App settings › Providers); activate it or move this agent to another key"));
             }
         }
         if !crate::org_accounts::allowed(Some(&ctx.org_slug), &lane) {
-            return Err(anyhow!("{lane} is not used by this org (Org settings â€º Accounts); the agent moves at its next turn"));
+            return Err(anyhow!("{lane} is not used by this org (Org settings › Accounts); the agent moves at its next turn"));
         }
         let key = crate::openrouter::key_of(&self.engine, &id).await.ok_or_else(|| {
             if id.is_empty() {
-                anyhow!("this agent runs on an OpenRouter tier and no OpenRouter API key is set (App settings â€º Providers â€º OpenRouter)")
+                anyhow!("this agent runs on an OpenRouter tier and no OpenRouter API key is set (App settings › Providers › OpenRouter)")
             } else {
-                anyhow!("this agent's OpenRouter key {lane} is no longer stored; move it to another OpenRouter key (App settings â€º Providers â€º OpenRouter)")
+                anyhow!("this agent's OpenRouter key {lane} is no longer stored; move it to another OpenRouter key (App settings › Providers › OpenRouter)")
             }
         })?;
         // a harness no longer installed refuses, saying so: never a silent
         // switch to another (user 2026-10-13)
         for h in [ctx.harness_want.as_deref(), ctx.harness.as_deref()].into_iter().flatten() {
             if !crate::harnesses::installed(&self.engine, h) {
-                return Err(anyhow!("{} (this agent's OpenRouter harness; the key's is chosen in App settings â€º Providers â€º OpenRouter)",
+                return Err(anyhow!("{} (this agent's OpenRouter harness; the key's is chosen in App settings › Providers › OpenRouter)",
                     crate::harnesses::not_installed(h)));
             }
         }
@@ -2366,7 +2366,7 @@ impl Actor {
         }
     }
 
-    /// An inactive account (App settings â€º Providers) serves no new turn:
+    /// An inactive account (App settings › Providers) serves no new turn:
     /// the agent's mail waits, and a running turn finishes.
     fn account_gate(&self, ctx: &Ctx, route: Option<&OrRoute>) -> Result<()> {
         let usage_refused=|until:Option<DateTime<Utc>>| {
@@ -2420,18 +2420,18 @@ impl Actor {
             ));
         }
         if let Some(lane) = crate::org_accounts::barred(&self.engine, &ctx.org_slug, &ctx.tier, ctx.account.as_deref()) {
-            return Err(anyhow!("{lane} is not used by this org (Org settings â€º Accounts); the agent moves at its next turn"));
+            return Err(anyhow!("{lane} is not used by this org (Org settings › Accounts); the agent moves at its next turn"));
         }
         if crate::accounts::active(&self.engine, &ctx.provider, acc) {
             return Ok(());
         }
         match acc {
             Some(a) if !crate::accounts::is_ambient(a) => Err(anyhow!(
-                "the account {} is inactive (App settings â€º Providers); activate it or move this agent to another account",
+                "the account {} is inactive (App settings › Providers); activate it or move this agent to another account",
                 a.id
             )),
             _ => Err(anyhow!(
-                "the signed-in {} subscription is inactive (App settings â€º Providers); activate it or move this agent to another account",
+                "the signed-in {} subscription is inactive (App settings › Providers); activate it or move this agent to another account",
                 catalog::provider_label(&ctx.provider)
             )),
         }
@@ -2527,7 +2527,7 @@ impl Actor {
     }
 
     /// "Reset a session before a known-cold turn" (cheap compact; Org
-    /// settings â€º Policies, or the agent's âš™): when the prompt cache is known
+    /// settings › Policies, or the agent's ⚙): when the prompt cache is known
     /// to be cold and the context is fuller than the setting's occupancy, the
     /// turn starts a fresh session seeded with a digest instead of re-reading
     /// the whole old one at full price. An unknown forecast never resets.
@@ -2730,7 +2730,7 @@ impl Actor {
             // orgtree agent by it (the mail hub's SessionStart hook stands down)
             ("ORGTREE_NODE".into(), ctx.name.clone()),
             ("ORGTREE_ORG".into(), ctx.org_slug.clone()),
-            // the org's compaction threshold (Org settings â€º Basic)
+            // the org's compaction threshold (Org settings › Basic)
             ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), format!("{}", (ctx.compact_at * 100.0).round() as i64)),
         ];
         // The identity promises Bash and PowerShell with the terminal switch
@@ -3166,7 +3166,7 @@ impl Actor {
             gateway.append(&mut config);
             config = gateway;
         }
-        // the org's compaction threshold (Org settings â€º Basic), in tokens
+        // the org's compaction threshold (Org settings › Basic), in tokens
         let window = catalog::tier(&ctx.tier).and_then(|t| t.context).map(|c| c as f64).or_else(|| {
             crate::openrouter::favorite(&self.engine, &ctx.tier).and_then(|f| f["context"].as_f64()).filter(|c| *c > 0.0)
         });
@@ -4530,7 +4530,7 @@ impl Actor {
             Ok(st) => (st.text, st.record, st.prior_usage),
             Err(e) => {
                 tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "org state block failed");
-                (format!("[Orgtree] {} Â· you are {}", now_iso(), ctx.name), None, None)
+                (format!("[Orgtree] {} · you are {}", now_iso(), ctx.name), None, None)
             }
         };
         let sid = record.as_ref().and_then(|r| r["sid"].as_str()).or(ctx.session_id.as_deref()).unwrap_or("");
@@ -7252,6 +7252,10 @@ impl Actor {
             tracing::info!(agent = %self.name, "a new turn starts at once, as the agent asked when it ended its turn");
             if let Err(e) = crate::domain::runtime_notices::restart_asked(&self.engine, self.org_id, self.id, turn.restart_by.as_deref().filter(|by|*by!=self.name)).await {
                 tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the restart wake could not be sent");
+                self.record_interrupt("restart_failed",false,turn.restart_by.as_deref().unwrap_or(&self.name.clone()),
+                    self.interrupt_boundary_kind(),Some("the restart wake could not be sent"));
+                self.last_interrupt["turn_id"]=json!(turn.id);
+                self.publish();
             }
         }
         // a compaction the turn ended before the harness reported its end
@@ -7476,7 +7480,7 @@ impl Actor {
             }
         }
         // A language model server's window filled and the CLI could not compact the
-        // conversation (live 2026-10-11: "Prompt is too long Â· automatic
+        // conversation (live 2026-10-11: "Prompt is too long · automatic
         // compaction failed: summarization produced empty response"): the
         // agent goes on in a fresh session seeded with a handoff note, a few
         // times in a row at most (a completed turn starts the count again).
@@ -7556,7 +7560,7 @@ impl Actor {
             .await?;
         let tier_now = self.tier_of(&client).await;
         // a language model server's model has the window its server gives it (App
-        // settings â€º Providers), which the user can change: always the latest
+        // settings › Providers), which the user can change: always the latest
         let window = catalog::tier(&tier_now).and_then(|t| t.context).map(|c| c as i32).or_else(|| {
             langserver
                 .then(|| crate::langserver::route_of(&self.engine, &tier_now))
@@ -8787,7 +8791,7 @@ fn muse_finished_note(bg: &MuseBg, item: &Value) -> String {
 #[logged]
 fn muse_lost_note(lost: &[(String, MuseBg)], reason: &str) -> String {
     let list = lost.iter().take(20).map(|(_, b)| format!("- {} `{}`", b.name, gist(&b.arg, 200))).collect::<Vec<_>>().join("\n");
-    let more = if lost.len() > 20 { format!("\nâ€¦ and {} more", lost.len() - 20) } else { String::new() };
+    let more = if lost.len() > 20 { format!("\n… and {} more", lost.len() - 20) } else { String::new() };
     let (what, them) = if lost.len() == 1 { ("A command you ran in the background".to_string(), "it") } else {
         (format!("{} commands you ran in the background", lost.len()), "them")
     };
@@ -9055,7 +9059,7 @@ mod muse_silence_tests {
         let many: Vec<(String, MuseBg)> = (0..23).map(|i| b(i, "x")).collect();
         let note = muse_lost_note(&many, "r");
         assert_eq!(note.matches("\n- powershell").count(), 20);
-        assert!(note.contains("â€¦ and 3 more"), "{note}");
+        assert!(note.contains("… and 3 more"), "{note}");
     }
 
     #[test]

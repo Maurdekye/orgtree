@@ -110,6 +110,34 @@ pub fn run()->i32 {
                 let p=peer.clone();let sid=session.clone();let id=id.clone();let bridge=bridge.clone();
                 let fixture=super::load_json(&PathBuf::from("acp-fixture.json")).unwrap_or(json!({}));
                 std::thread::spawn(move||{
+                    // Synthetic concurrent tools, with start/completion receipts
+                    // and cancellable bounded waits. No external tool is run.
+                    if let Some(events) = fixture["toolTimeline"].as_array() {
+                        for event in events.iter().take(32) {
+                            let delay=event["delayMs"].as_u64().unwrap_or(0).min(10_000);
+                            for _ in 0..delay.div_ceil(10) {
+                                if p.cancelled.load(Ordering::SeqCst) {break;}
+                                std::thread::sleep(Duration::from_millis(10));
+                            }
+                            if p.cancelled.load(Ordering::SeqCst) {break;}
+                            let completed=event["completed"]==true;
+                            p.update(&sid,json!({"sessionUpdate":if completed {"tool_call_update"} else {"tool_call"},
+                                "toolCallId":event["id"],"title":"synthetic tool","kind":"execute",
+                                "status":if completed {"completed"} else {"in_progress"}}));
+                            if let Ok(mut file)=std::fs::OpenOptions::new().create(true).append(true).open("acp-events.jsonl") {
+                                let _=writeln!(file,"{}",json!({"at":super::now_ms(),"id":event["id"],"completed":completed}));
+                            }
+                        }
+                        for _ in 0..fixture["afterToolsMs"].as_u64().unwrap_or(0).min(10_000).div_ceil(10) {
+                            if p.cancelled.load(Ordering::SeqCst) {break;}
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        if !p.cancelled.load(Ordering::SeqCst) {
+                            p.update(&sid,json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ACP_AFTER_TOOLS"}}));
+                        }
+                        p.result(&id,json!({"stopReason":if p.cancelled.load(Ordering::SeqCst) {"cancelled"} else {"end_turn"}}));
+                        return;
+                    }
                     let delay=fixture["delayMs"].as_u64().unwrap_or(0).min(30_000);
                     for _ in 0..delay.div_ceil(10) {if p.cancelled.load(Ordering::SeqCst){break;}std::thread::sleep(Duration::from_millis(10));}
                     if p.cancelled.load(Ordering::SeqCst){p.result(&id,json!({"stopReason":"cancelled"}));return;}
