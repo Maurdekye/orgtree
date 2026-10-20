@@ -1067,8 +1067,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const chartLayout = useChartLayout()
   const bunchProjects = useProjectBunches()
   const rearrangeBunches = useProjectBunchRearrange()
-  const bunches = useMemo(() => bunchProjects ? projectBunches(vroot, hidden, map) : new Map<string, ProjectBunch>(),
-    [vroot, hidden, map, bunchProjects])
+  const bunches = useMemo(() => bunchProjects ? projectBunches(vroot, hidden, map, hideRetired) : new Map<string, ProjectBunch>(),
+    [vroot, hidden, map, bunchProjects, hideRetired])
   const inSameBunch = (a: string, b: string) => !!bunches.get(a) && bunches.get(a) === bunches.get(b)
   // the credit bars' scale, for the org inbox's clearance (= pxPerCredit below)
   const inboxPxc = useMemo(() => orgPxc(tree), [tree])
@@ -1082,7 +1082,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       ?? draftOpeningGrant(draft, tree.default_top_grant ?? 50, map))
     : undefined
   const target = useMemo(() => {
-    const points = canvasTargets(vroot, map, hidden, chartLayout, tree, inboxPxc, draftCredits, bunchProjects)
+    const points = canvasTargets(vroot, map, hidden, chartLayout, tree, inboxPxc, draftCredits, bunchProjects, hideRetired)
     if (pendingHire) {
       const id = hireArrived ? hireId! : DRAFT
       if (points.has(id)) points.set(id, pendingHire.pos)
@@ -1095,7 +1095,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       }
     }
     return points
-  }, [vroot, map, tree, hidden, chartLayout, inboxPxc, draftCredits, bunchProjects, pendingHire, hireArrived, hireId])
+  }, [vroot, map, tree, hidden, chartLayout, inboxPxc, draftCredits, bunchProjects, hideRetired, pendingHire, hireArrived, hireId])
   const [view, setView] = useState<View>(() => {
     // fit-on-load: center the initial tree in a typical viewport (re-fit against
     // the REAL viewport once mounted — see the mount effect below)
@@ -2915,7 +2915,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // Archived runs share the layout, but moves still require live parents.
     // Keep ordinary subtree dragging until every project in the run is live.
     const candidate = rearrangeBunches ? bunches.get(id) : undefined
-    const group = candidate?.members.every(n => n.state === 'live') ? candidate : undefined
+    const group = candidate?.members.every((n, i) => {
+      const physical = map.get(n.id)
+      // A visual run may span hidden retired branches. Rotation still needs
+      // the complete physical chain; otherwise retain ordinary subtree drag.
+      return physical?.state === 'live' && !physical.hidden_retired_children
+        && (i === candidate.members.length - 1 || physical.children.length === 1)
+    }) ? candidate : undefined
     const positions = new Map<string, Pt>(group?.members.flatMap(n => {
       const p = targetRef.current.get(n.id)
       return p ? [[n.id, { ...p }] as [string, Pt]] : []
@@ -4477,9 +4483,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           if (!p) return null
           const size = sizeOf(pid)
           if (!intersectsViewport({ ...p, ...size }, visibleRect)) return null
+          // Bunch rows have only an 8px gap: an external token would cover
+          // the next project's header. Keep it inside its owning card.
+          const inset = bunches.has(pid) && size.w === NODE_W && size.h === NODE_H
           return (
-            <button key={'rt' + pid} className="retired-token"
-              style={{ transform: `translate(${p.x + 6}px, ${p.y + size.h + 4}px)` }}
+            <button key={'rt' + pid} className="retired-token" data-retired-parent={pid}
+              style={{ transform: `translate(${p.x + 6}px, ${p.y + size.h + (inset ? -24 : 4)}px)` }}
               title={`${count} retired agent${count === 1 ? '' : 's'} hidden here — click to list`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); setRetiredOpen(pid) }}>

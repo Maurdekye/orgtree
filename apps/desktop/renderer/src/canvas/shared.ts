@@ -2307,8 +2307,8 @@ export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = n
 }
 
 export function layout(root: CanvasNode, hidden: Map<string, string> = new Map(), mode: ChartLayout = 'row',
-  bunch = true, source?: ReadonlyMap<string, CanvasNode>): Map<string, Pt> {
-  const groups = bunch ? projectBunches(root, hidden, source) : new Map()
+  bunch = true, source?: ReadonlyMap<string, CanvasNode>, hideRetired = false): Map<string, Pt> {
+  const groups = bunch ? projectBunches(root, hidden, source, hideRetired) : new Map()
   if (groups.size) {
     const contracted = contractBunches(root, groups)
     const positions = mode === 'circular' ? layoutCircular(contracted, hidden, groups)

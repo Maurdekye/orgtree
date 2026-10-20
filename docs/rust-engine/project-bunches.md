@@ -23,8 +23,8 @@ it off during a drag hides the insertion marker and prevents a rotation on relea
 Neither setting changes the other, and the rearranging preference only has an
 effect while projects are displayed as a bunch.
 
-`canvas/projectbunch.ts` finds runs against the full physical child lists,
-including hidden-retired counts. A display prune must not erase a structural
+`canvas/projectbunch.ts` checks physical child lists, with the hide-retired
+exception described below. Pile compression never erases a structural
 break. Layout contracts each run to a block, reserves its complete footprint,
 and expands it into separate full-size card positions. Row and circular layouts,
 fit, and the reparent landing ghost use the same projection. Card/desk identity,
@@ -34,7 +34,14 @@ Retirement does not change those physical links. Loaded archived and partly
 restored project columns use the same bunches (user bug report, 2026-10-20
 18:37 UTC), with the same Display opt-out. Only the selected retired pile front's
 visible chain contributes a bunch; changing fronts displays the newly selected
-chain. Hidden branches and unloaded retired-child counts still break a run.
+chain. While retired nodes are hidden, the detector ignores archived children
+removed by that display projection and unloaded retired-child counts (user
+2026-10-20 18:56 UTC). Shown retirees, knowledge bearers and archived parents
+with live descendants still count as branches, as do siblings buried in a pile
+when retired nodes are shown. The canvas and ordinary move landing ghosts pass
+the same visibility setting to the detector. In a bunch, each project's retired
+pill sits inside its own card so it cannot cover the next row; it opens the
+existing bounded picker for that project.
 This uses the existing bounded archive projection without reading more history.
 The retired picker continues to list physical sibling roots separately, with
 its existing cursor pages and search; siblings are never merged into a bunch.
@@ -87,6 +94,9 @@ added; swap remains agent-only.
 An archived or partly restored bunch retains ordinary subtree dragging even
 when rearranging is enabled. Existing move operations require live destination
 parents, so these runs must not offer an insertion marker for an invalid rotation.
+The same applies to a visual bunch joined across hidden archived side branches
+or unknown children: rotation requires the complete physical run. Hiding a
+retiree never moves it to a different parent.
 
 Dragging out retains ordinary whole-subtree movement. Existing create-project-above
 placement naturally extends a run above any project or above its sole bottom
@@ -107,3 +117,7 @@ reorder. It never opens or modifies live organization data.
 `projectbunch-retired-visual.cjs` captures an archived front in row/circular
 mode, Display opt-out, the sibling picker and another selected chain. It checks
 the picker button's actual hit target as well as the rendered order links.
+`hiddenretiredbunch.test.tsx` covers loaded/count-only hidden branches, shown
+retirees, protected retired nodes and landing ghosts. The hidden-retired visual
+fixture captures the three-project chain in row/circular mode and with retirees
+shown, checking the pill's hit target, owner and bounded picker.

@@ -207,10 +207,13 @@ test('hidden retired branch bunches while its owning project keeps a reachable l
   await inAct(() => pill.click()); await advance(20); await flush()
   assert.equal(view.archiveReads.length, 1, 'opens the existing bounded picker')
   assert.equal(view.archiveReads[0]!.searchParams.get('parent'), 'project-1')
-  assert.equal(view.el.querySelector('.pile-name')?.textContent, side.id)
-  await inAct(() => view.el.querySelector<HTMLElement>('.overlay')!.click())
+  assert.equal(document.querySelector('.pile-name')?.textContent, side.id)
+  await inAct(() => document.querySelector<HTMLElement>('.overlay')!.click())
+  const beforeDrag = at(view.el, 'project-1')
   await drag(view.el, 'project-1', endPoint(view.el, 'project-3', 'project-2'), true, async () => {
-    assert.equal(!!view.el.querySelector('[data-project-bunch-insertion]'), false,
+    await advance(50, 50)
+    assert.ok(Math.hypot(at(view.el, 'project-1').x - beforeDrag.x, at(view.el, 'project-1').y - beforeDrag.y) > 20)
+    assert.equal(!!view.el.querySelector('[data-project-bunch-insert]'), false,
       'a visually joined run with physical side branches keeps ordinary subtree dragging')
   })
   assert.equal(view.gestures.length, 0)

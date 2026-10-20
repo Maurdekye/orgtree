@@ -95,10 +95,11 @@ export function projectBunchInsertion(ids: string[], positions: ReadonlyMap<stri
 
 /** Only physical, unbroken project runs qualify, including archived projects
  * in the loaded retired pile front. Retirement/restoration changes no links.
- * The unpruned source map prevents hide-retired/piles from turning a real
- * split into a false chain; unloaded history is never fetched for bunching. */
+ * Piled or shown retirees remain branches. The hide-retired projection alone
+ * may omit archived side branches and count-only retirees (user 2026-10-20).
+ * Unloaded history is never fetched for bunching. */
 export function projectBunches(root: CanvasNode, hidden: ReadonlyMap<string, string> = new Map(),
-  source?: ReadonlyMap<string, CanvasNode>): Map<string, ProjectBunch> {
+  source?: ReadonlyMap<string, CanvasNode>, hideRetired = false): Map<string, ProjectBunch> {
   const out = new Map<string, ProjectBunch>()
   const eligible = (n: CanvasNode) => n.kind === 'project'
     && (n.state === 'live' || n.state === 'archived') && !hidden.has(n.id)
@@ -108,9 +109,13 @@ export function projectBunches(root: CanvasNode, hidden: ReadonlyMap<string, str
     let last = start
     while (eligible(last)) {
       const physical = source?.get(last.id) ?? last
-      if (physical.children.length !== 1 || physical.hidden_retired_children) break
       const next = last.children[0]
       if (last.children.length !== 1 || !next || !eligible(next)) break
+      // Only children removed by pruneRetiredView can be ignored; a pile's
+      // buried siblings remain in last.children and still split this run.
+      if (hideRetired) {
+        if (physical.children.some(c => c.id !== next.id && c.state !== 'archived')) break
+      } else if (physical.children.length !== 1 || physical.hidden_retired_children) break
       members.push(next)
       last = next
     }

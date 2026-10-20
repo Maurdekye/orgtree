@@ -263,7 +263,11 @@
   `canvas/gallery.tsx`, `tests/presentationopening.test.tsx`]
 
 - Project bunches are a display projection of maximal direct project-only runs:
-  splits/agents end a run, hidden branches still count, and siblings never bunch.
+  visible splits/agents end a run and siblings never bunch. With retirees hidden,
+  pruned archived children and archive counts do not split a bunch; shown
+  retirees/bearers/live-descendant branches still do. Each bunched project's
+  retired pill stays inside its card. Identity rotation still requires a complete
+  physical run; visual bunches across hidden branches keep ordinary subtree drag.
   Loaded archived columns (including partly restored runs) follow the same rule;
   retired pile fronts keep the shared picker layers/count and per-project restore
   targets. No extra archive reads are made to find bunches. Archived runs keep

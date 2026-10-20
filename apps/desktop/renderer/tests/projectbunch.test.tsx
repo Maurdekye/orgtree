@@ -10,7 +10,7 @@ import { pruneRetiredView } from '../src/canvas/canvaslayout'
 // The extra arguments are ignored by the base: the red control executes the
 // actual old layout instead of failing an import of a not-yet-written helper.
 const place = layout as (root: CanvasNode, hidden: Map<string, string>, mode: 'row' | 'circular',
-  bunch: boolean, source?: ReadonlyMap<string, CanvasNode>) => Map<string, Pt>
+  bunch: boolean, source?: ReadonlyMap<string, CanvasNode>, hideRetired?: boolean) => Map<string, Pt>
 const rootOf = (n: ReturnType<typeof agent>) => withDraftTree(bunchTree([n]), null)
 const extent = (p: Pt[]) => ({
   w: Math.max(...p.map(p => p.x)) - Math.min(...p.map(p => p.x)) + NODE_W,
@@ -69,11 +69,12 @@ test('splits and intervening agents end a bunch; runs below each break bunch ind
     separated([...out.values()])
   }
 })
-test('a hidden retired side branch is still a structural break', () => {
+test('only the explicit hide-retired projection ignores a hidden retired side branch', () => {
   const root = rootOf(project('outer', [project('inner', [agent('worker')]), { ...agent('retired'), state: 'archived' }]))
   const pruned = pruneRetiredView(root, true, new Set()).root
   const source = flatten(root, {})
   assert.deepEqual(place(pruned, new Map(), 'row', true, source), place(pruned, new Map(), 'row', false, source))
+  assert.notDeepEqual(place(pruned, new Map(), 'row', true, source, true), place(pruned, new Map(), 'row', false, source, true))
 })
 test('Display has a default-on bunch switch that persists opt-out and remounts', async t => {
   localStorage.removeItem('orgtree-project-bunches')

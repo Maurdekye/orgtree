@@ -65,7 +65,7 @@ test('partly restored columns retain the same physical bunch, without changing a
   assert.deepEqual(memberIds([head], 'project-1'), ['project-1', 'project-2', 'project-3'])
 })
 
-test('archive paging and display pruning cannot conceal a structural branch to create a false bunch', () => {
+test('archive paging keeps branches unless the explicit hide-retired display projection excludes them', () => {
   const loaded = retired(chain(3, [agent('worker')]))
   const root = rootOf([loaded])
   const inner = root.children[0]!.children[0]!
@@ -82,6 +82,8 @@ test('archive paging and display pruning cannot conceal a structural branch to c
   const visible = projectBunches(pruned, new Map(), source)
   assert.ok(!visible.has('outer'), 'hiding retired nodes does not join across their branch')
   assert.deepEqual(visible.get('inner')?.members.map(n => n.id), ['inner', 'bottom'])
+  assert.deepEqual(projectBunches(pruned, new Map(), source, true).get('outer')?.members.map(n => n.id),
+    ['outer', 'inner', 'bottom'], 'the hide-retired display setting excludes the archived side branch')
 })
 
 test('restoring the head or a member still names exactly that project, not the whole bunch', async t => {
