@@ -13,7 +13,7 @@ import { toggleAgentHalt } from './haltcontrol'
 
 import { askHidden, useSubmittedAsks } from '../asksubmitted'
 import { hasUnseenUserMention, useSeenMentions } from './agentmentions'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
@@ -1228,13 +1228,19 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   }, [onCancel, pending])
   const ok = !pending && name.trim().length > 0
   const hire = () => { if (ok) onConfirm(normalizeUserEnteredName(name), grant, finalCharter(), scope) }
+  // a hire on its way (user 2026-10-20 16:45Z): the placeholder stays, greyed,
+  // and takes no focus or clicks until the new card replaces it. React 18 has
+  // no boolean `inert` prop (it warns and drops it), so the attribute is set
+  // on the element, as the Attention desk's list does.
+  const pendingRef = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => { pendingRef.current?.toggleAttribute('inert', pending) }, [pending])
   // A draft already knows its tier, so it also knows its provider. Do not wait
   // for the hire to become a persisted TreeNode before applying provider
   // chrome: otherwise the dashed "uninitialized" Codex card briefly wears
   // Claude terracotta and flips to teal only after creation.
   const providerClass = ' prov-' + providerOf(draft.tier)
   return (
-    <div aria-busy={pending} inert={pending} className={'sq draft' + providerClass + (pending ? ' draft-pending' : '') + (attentionFill ? ' draft-attention-fill' : '')} style={attentionFill ? {
+    <div ref={pendingRef} aria-busy={pending} className={'sq draft' + providerClass + (pending ? ' draft-pending' : '') + (attentionFill ? ' draft-attention-fill' : '')} style={attentionFill ? {
       transform: 'none', width: '100%', height: '100%', boxSizing: 'border-box', padding: 0,
     } : {
       transform: `translate(${pos.x}px, ${pos.y}px)`, width: NODE_W, height: NODE_H,
@@ -1242,7 +1248,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
       <CreditBar seat={seats[draft.tier] ?? 0} grant={grant} committed={0}
         draftMode max={max}
         onDragValue={setGrant} zoom={zoom} pxc={pxc} />
-      <div className="draft-tag">uninitialized</div>
+      <div className="draft-tag">{pending ? 'hiring…' : 'uninitialized'}</div>
       {/* the form is authored at natural screen scale and counter-scaled into
           the card — the desk's inverted-scale regime, on a 200px surface so
           the whole hiring flow stays near overview zoom */}
@@ -1347,7 +1353,8 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
             <span className="spacer" />
             <button onClick={onCancel} disabled={pending}><CloseIcon fontSize="inherit" /> cancel</button>
             <button className="primary" disabled={!ok} onClick={hire}
-              title={ok ? undefined : 'give the agent a name first'}>
+              title={pending ? 'hiring: the new agent takes this place when it appears'
+                : ok ? undefined : 'give the agent a name first'}>
               <CheckIcon fontSize="inherit" /> hire</button>
           </div>
         </div>

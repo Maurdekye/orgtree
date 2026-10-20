@@ -4293,6 +4293,14 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
   background: repeating-linear-gradient(135deg,
     var(--panel) 0, var(--panel) 9px, var(--draft-stripe) 9px, var(--draft-stripe) 10px);
 }
+/* a hire on its way (user 2026-10-20 16:45Z: "grey it out slightly until the
+   new hire appears"): the box keeps its place and its stripes, a step back
+   (desaturated, no glow), and its tag reads "hiring…" with a slow breath. The
+   new card then takes its exact place (OrgCanvas pendingHire). */
+.sq.draft.draft-pending { filter: grayscale(.7); opacity: .78; box-shadow: none; pointer-events: none; }
+.sq.draft.draft-pending .draft-tag { animation: draft-hiring 1.6s ease-in-out infinite; }
+@keyframes draft-hiring { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .sq.draft.draft-pending .draft-tag { animation: none; } }
 /* floats ABOVE the box (user ruling) — frees a row inside the card */
 .draft-tag {
   position: absolute; top: -14px; left: 2px;
@@ -9878,4 +9886,3 @@ button.node-link.node-link:focus-visible {
 .job-ack.acked { flex-direction: row; flex-wrap: wrap; gap: 4px; font-size: 12px; }
 .job-ack-done { color: var(--accent); font-weight: 600; }
 .queuekind.job-kind { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
-.sq.draft.draft-pending { filter: grayscale(.65); opacity: .72; pointer-events: none; }

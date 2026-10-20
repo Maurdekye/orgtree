@@ -504,8 +504,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   worldHiddenRef.current = worldHidden
   const [draft, setDraft] = useState<DraftState | null>(null)
   const [draftForm, setDraftForm] = useState<DraftForm | null>(null)
-  const [pendingHire, setPendingHire] = useState<{ id?: string; pos: Pt } | null>(null)
+  // a hire on its way (user 2026-10-20 16:45Z): the placeholder stays where it
+  // is, greyed, until the new card arrives and takes its exact place. `id` is
+  // the response's; `name` is the hired name when no card had it at Hire, so a
+  // feed that beats the response is recognised too
+  const [pendingHire, setPendingHire] = useState<{ id?: string; name?: string; pos: Pt } | null>(null)
   const pendingHireRef = useRef(pendingHire); pendingHireRef.current = pendingHire
+  // the pending hires whose card arrived (through the feed, before or after
+  // the response): a late response still does its bookkeeping
+  const arrivedHires = useRef(new WeakSet<object>())
   // Keep the birth slot until a later layout change, rather than integrating
   // a seed toward a different target during the handoff itself.
   const hirePlacement = useRef<{ id: string; pos: Pt; target?: Pt } | null>(null)
@@ -852,8 +859,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     for (const entry of pendingOrders.values()) shown = withPendingOrder(shown, entry)
     return shown
   }, [tree, pendingTargets, pendingOrders, pendingBunch])
-  const hireArrived = !!pendingHire?.id && (() => {
-    const has = (nodes: TreeNode[]): boolean => nodes.some(n => n.id === pendingHire.id || has(n.children))
+  const hireId = pendingHire?.id ?? pendingHire?.name
+  const hireArrived = !!hireId && (() => {
+    const has = (nodes: TreeNode[]): boolean => nodes.some(n => n.id === hireId || has(n.children))
     return has(shownTree.roots)
   })()
   const vrootFull = useMemo(() => canonPiles(withDraftTree(shownTree, hireArrived ? null : draft)),
@@ -1048,7 +1056,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const target = useMemo(() => {
     const points = canvasTargets(vroot, map, hidden, chartLayout, tree, inboxPxc, draftCredits, bunchProjects)
     if (pendingHire) {
-      const id = hireArrived ? pendingHire.id! : DRAFT
+      const id = hireArrived ? hireId! : DRAFT
       if (points.has(id)) points.set(id, pendingHire.pos)
     } else {
       const birth = hirePlacement.current, natural = birth && points.get(birth.id)
@@ -1059,7 +1067,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       }
     }
     return points
-  }, [vroot, map, tree, hidden, chartLayout, inboxPxc, draftCredits, bunchProjects, pendingHire, hireArrived])
+  }, [vroot, map, tree, hidden, chartLayout, inboxPxc, draftCredits, bunchProjects, pendingHire, hireArrived, hireId])
   const [view, setView] = useState<View>(() => {
     // fit-on-load: center the initial tree in a typical viewport (re-fit against
     // the REAL viewport once mounted — see the mount effect below)
@@ -1195,9 +1203,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // layout doesn't know yet — and the hire response lands frames before the
   // refreshed tree does
   const seedRef = useRef(new Map<string, { x: number; y: number; at: number }>())
-  useEffect(() => {
-    if (!hireArrived || !pendingHire?.id) return
-    const { id, pos } = pendingHire
+  // the hire's card arrived: it starts exactly where the placeholder stood and
+  // the placeholder goes in the same commit (a layout effect: no painted frame
+  // shows both), whether the feed came before or after the hire's response
+  useLayoutEffect(() => {
+    if (!hireArrived || !hireId || !pendingHire) return
+    const id = hireId, { pos } = pendingHire
+    arrivedHires.current.add(pendingHire)
     springs.current.set(id, { ...pos, vx: 0, vy: 0 })
     hirePlacement.current = { id, pos }
     setPendingHire(null)
@@ -1207,7 +1219,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     draftTimer.current = null
     setDraftForm(null)
     setDraft(null)
-  }, [hireArrived, pendingHire])
+  }, [hireArrived, hireId, pendingHire])
   // user feature 2026-08-26: initializing an agent opens ITS desk. The id of a
   // hire made HERE (this browser, from the draft form) that is still waiting
   // for its card to exist and settle; the spring tick below does the opening.
@@ -1295,7 +1307,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const eyePressRef = useRef(false)
 
   const posOf = (id: string): Pt | undefined =>
-    pendingHire && (id === DRAFT || id === pendingHire.id) ? pendingHire.pos
+    pendingHire && (id === DRAFT || id === hireId) ? pendingHire.pos
       : id === INBOX && !targetRef.current.has(INBOX) ? undefined : springs.current.get(id) ?? targetRef.current.get(id)
   // the canvas Agents List's sibling order: by position, top to bottom then
   // left to right — except on rings, which already follow tree order
@@ -3695,7 +3707,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (!draft || pendingHireRef.current) return
     const point = springs.current.get(DRAFT) ?? targetRef.current.get(DRAFT)
     if (!point) return
-    const pending = { pos: { x: point.x, y: point.y } }
+    // the hired name stands for the card until the response names it, unless
+    // a card already has that name (then only the response can say which)
+    const pending = { pos: { x: point.x, y: point.y }, ...(map.has(name) ? {} : { name }) }
     pendingHireRef.current = pending
     setPendingHire(pending)
     // a Muse tier the login a no-account hire lands on does not offer goes to
@@ -3733,13 +3747,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       : op(hireBody)
     hired
       .then((r) => {
-        if (pendingHireRef.current !== pending) return
+        // still waiting for the card, or the feed brought it first (the swap is
+        // done; the rest below is still this hire's); otherwise the org changed
+        const waiting = pendingHireRef.current === pending
+        if (!waiting && !arrivedHires.current.has(pending)) return
         // the real card replaces the draft IN PLACE — seed its birth position
         // from the draft's spring. Via seedRef, NOT a direct springs.set: the
         // reaper deletes unknown-id springs every tick, and the refreshed tree
         // (which makes the id known) lands frames after this response — a
         // direct set died instantly and the node glided in from its parent
-        const ds = pending.pos
+        const ds = waiting ? pending.pos : null
         // (typeof-narrows the op result's open dict: hire returns {node: str})
         const born = r?.node
         if (typeof born === 'string' && born) firstUseHired(slug, born)
@@ -3776,7 +3793,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         // the hire op itself, atomically; the broadcast refetch already
         // carries the final shape, which the draft was previewing in place)
         if (typeof born !== 'string' || !born) throw new Error('Hire returned no node identity')
-        setPendingHire({ ...pending, id: born })
+        if (waiting) setPendingHire({ ...pending, id: born })
         if (typeof born === 'string' && born && r.history_entry) toast([`hired ${born}`], historyUndo(slug, r))
       }).catch((e: Error) => {
         if (pendingHireRef.current !== pending) return
