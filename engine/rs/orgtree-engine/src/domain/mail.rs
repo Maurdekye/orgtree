@@ -442,7 +442,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         (Some(a), Some(r)) => crate::domain::projects::ack_of(&*tx, project.id, a, r).await?,
         _ => None,
     };
-    if let Some((orig_row, orig_uid)) = &acked {
+    if let Some((orig_row, orig_uid, claimed)) = &acked {
         tx.execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
                                   recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op,
@@ -463,6 +463,11 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
             &[orig_row, &mail_uid],
         )
         .await?;
+        // the desk's Recently Finished, and its listener's next wait starts now
+        let attempt: i64 = tx.query_one("SELECT coalesce((extra->>'attempts')::bigint, 0) FROM ot.mail WHERE id = $1", &[orig_row]).await?.get(0);
+        crate::domain::projects::record_ending(&*tx, org.id, project.id, orig_uid, claimed, sender_agent.unwrap_or_default(),
+            &out.from.name(), "acked", None, attempt, Some(mail_uid.as_str())).await?;
+        crate::domain::projects::free_listener(&*tx, sender_agent.unwrap_or_default(), claimed).await?;
         tx.commit().await?;
         drop(client);
         let me = match &out.from { From::Agent { name, .. } => name.clone(), _ => String::new() };

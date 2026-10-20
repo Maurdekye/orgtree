@@ -179,20 +179,37 @@ pub async fn line(client: &impl GenericClient, project: i64) -> Result<Vec<(i64,
         .collect())
 }
 
+/// SQL: the claim dog a lease came from (`l.dog_id`; spent by its grant),
+/// for the desk's Watchdog column (user 2026-10-20 06:22Z).
+pub const CLAIM_DOG_JOIN: &str = "LEFT JOIN ot.watchdogs cd ON cd.id = l.dog_id";
+/// Its columns, read by [`claim_dog`].
+pub const CLAIM_DOG_COLS: &str = "cd.uid, cd.name, cd.once, CASE WHEN cd.spent_at IS NOT NULL THEN 'spent' ELSE cd.state END";
+
+/// A lease's claim dog as a history row names it; null when it is unknown.
+#[nolog]
+pub fn claim_dog(r: &tokio_postgres::Row, holder: &str, at: usize) -> Value {
+    match r.get::<_, Option<&str>>(at) {
+        Some(uid) => crate::domain::watchdogs::identity(holder, uid, r.get(at + 1), "slot", r.get(at + 2), r.get(at + 3)),
+        None => Value::Null,
+    }
+}
+
 /// A project's slots as the tool's `slots` action and the desk show them:
 /// count, holders, the line in order, and recent history.
 #[logged]
 pub async fn status(client: &impl GenericClient, project: i64, name: &str, scope: &Value) -> Result<Value> {
     let holders: Vec<Value> = client
         .query(
-            "SELECT l.uid, a.name, l.slot_count, l.reason, l.granted_at, l.wakes, l.queued_at FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id
-              WHERE l.project_id = $1 AND l.ended_at IS NULL ORDER BY l.slot_no",
+            &format!("SELECT l.uid, a.name, l.slot_count, l.reason, l.granted_at, l.wakes, l.queued_at, {CLAIM_DOG_COLS}
+               FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id {CLAIM_DOG_JOIN}
+              WHERE l.project_id = $1 AND l.ended_at IS NULL ORDER BY l.slot_no"),
             &[&project],
         )
         .await?
         .iter()
         .map(|r| json!({ "lease": r.get::<_, String>(0), "agent": r.get::<_, String>(1), "slots": r.get::<_, i32>(2), "reason": r.get::<_, Option<String>>(3), "since": iso(r.get::<_, DateTime<Utc>>(4)),
-                         "reminders": r.get::<_, i32>(5), "queued": r.get::<_, Option<DateTime<Utc>>>(6).map(iso) }))
+                         "reminders": r.get::<_, i32>(5), "queued": r.get::<_, Option<DateTime<Utc>>>(6).map(iso),
+                         "dog": claim_dog(r, &r.get::<_, String>(1), 7) }))
         .collect();
     let waiting: Vec<Value> = line(client, project).await?.into_iter().enumerate()
         .map(|(i, (_, dog, agent, at, count))| json!({ "position": i + 1, "agent": agent, "dog": dog, "slots": count, "since": at.map(iso) }))

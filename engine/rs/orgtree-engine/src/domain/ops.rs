@@ -74,6 +74,9 @@ pub(crate) struct Effects {
     queue_runs: Vec<i64>,
     /// project events to fire after commit (`listeners::fire`): (project, firer label, message)
     project_fires: Vec<(i64, String, Option<String>)>,
+    /// jobs the user took back from their holders (`mail_take_back`): told
+    /// and re-dealt after commit (`projects::after_take_back`)
+    take_backs: Vec<(i64, crate::domain::projects::Reclaimed)>,
 }
 
 /// A locked agent row.
@@ -779,6 +782,9 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         "slot_unqueue" => boxed(|| slot_unqueue(org, &tx, actor, req, fx)).await?,
         "fire_project_event" => boxed(|| fire_project_event(org, &tx, actor, req, fx)).await?,
         "project_listeners" => boxed(|| project_listeners(org, &tx, actor, req)).await?,
+        "listener_history" => boxed(|| listener_history(org, &tx, actor, req)).await?,
+        "mail_queue_history" => boxed(|| mail_queue_history(engine, org, &tx, actor, req)).await?,
+        "mail_take_back" => boxed(|| mail_take_back(engine, org, &tx, actor, req, fx)).await?,
         "reallocate" => boxed(|| reallocate(engine, org, &tx, actor, req, fx)).await?,
         "switch_model" => boxed(|| switch_model(engine, org, &tx, actor, req, fx)).await?,
         "reorder" => boxed(|| reorder(org, &tx, actor, req, fx)).await?,
@@ -968,6 +974,9 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
         if let Err(e) = Box::pin(crate::domain::projects::dispatch(engine, org.id, *p)).await {
             tracing::warn!(project = p, error = %format!("{e:#}"), "running a project's queue after a dead-letter retry failed");
         }
+    }
+    for (p, taken) in &fx.take_backs {
+        crate::domain::projects::after_take_back(engine, org.id, *p, taken).await;
     }
     for (p, by, message) in &fx.project_fires {
         if let Err(e) = Box::pin(crate::domain::listeners::fire(engine, org.id, *p, by, message.as_deref())).await {
@@ -2436,6 +2445,94 @@ async fn fire_project_event(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &
     fx.agents.insert(n.id);
     fx.project_fires.push((n.id, actor.label(), message));
     Ok(json!({ "project": n.name, "listeners_armed": armed }))
+}
+
+/// A project the desk's history reads look at: agents above or below it
+/// may, as they see its listeners and slots.
+#[logged]
+async fn history_project(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, what: &str) -> Result<Node> {
+    // a read: the project's row is not locked (a fire or hand-out may be under way)
+    let name = str_arg(req, "node").unwrap_or("").trim_start_matches('@');
+    let Some(r) = tx
+        .query_opt(&format!("SELECT {NODE_COLS} FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'"), &[&org.id, &name])
+        .await?
+    else {
+        refuse!(NotFound, "no agent named {name} in this organization");
+    };
+    let n = node_of(&r);
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project has {what}", n.name);
+    }
+    if let Actor::Agent { id, .. } = actor {
+        if !crate::domain::projects::reaches(tx, *id, n.id).await? {
+            refuse!(Forbidden, "only the agents above or below project {} see its {what}", n.name);
+        }
+    }
+    Ok(n)
+}
+
+/// A project's Recently Fired history, a page at a time (the desk's
+/// Listeners tab; user 2026-10-20 06:22Z).
+#[logged]
+async fn listener_history(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value) -> Result<Value> {
+    let n = history_project(org, tx, actor, req, "event history").await?;
+    let mut out = crate::domain::listeners::history(tx, n.id, str_arg(req, "history_before")).await?;
+    out["project"] = json!(n.name);
+    Ok(out)
+}
+
+/// A project's mail listener history, a page at a time (the desk's Mail ›
+/// listeners folder; user 2026-10-20 06:22Z-06:42Z).
+#[logged]
+async fn mail_queue_history(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value) -> Result<Value> {
+    let n = history_project(org, tx, actor, req, "mail history").await?;
+    let scope: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
+    let counted = crate::runtime::reminders::switches(engine).checkups;
+    crate::domain::projects::queue_history(tx, n.id, &n.name, &scope, str_arg(req, "history_before"), counted).await
+}
+
+/// Take a held job back from its holder (the desk's Working table, user
+/// 2026-10-20 06:42Z): as Slots' force release, the user's or a project
+/// ancestor's act, confirmed on the desk and logged. The job goes back to
+/// the front of the queue for another listener first, or to the dead
+/// letters when it has used its last attempt; its holder is told.
+#[logged]
+async fn mail_take_back(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value,
+                        fx: &mut Effects) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project hands out jobs", n.name);
+    }
+    if let Actor::Agent { id, .. } = actor {
+        if !within(tx, *id, n.id).await? {
+            refuse!(Forbidden, "only the user or an agent above project {} takes its jobs back", n.name);
+        }
+    }
+    let Some(mail) = str_arg(req, "mail") else { refuse!(BadRequest, "mail_take_back needs mail: the held job's id in the project's mailbox") };
+    let held = tx
+        .query_opt(
+            "SELECT id, (extra->'claimed'->>'by_id')::bigint, extra->'claimed'->>'by' FROM ot.mail
+              WHERE uid = $1 AND recipient_agent_id = $2 AND state = 'read' AND extra->'claimed'->>'ack' = 'true'
+                AND extra->'claimed'->>'acked_at' IS NULL AND NOT (extra ? 'dead_letter')",
+            &[&mail, &n.id],
+        )
+        .await?;
+    let Some((row, Some(holder), Some(by))) = held.map(|r| (r.get::<_, i64>(0), r.get::<_, Option<i64>>(1), r.get::<_, Option<String>>(2))) else {
+        refuse!(Conflict, "mail {mail} is not held by anyone in project {} (it waits, is acked or was already taken back)", n.name);
+    };
+    let why = format!("had it taken back by {}", actor.label());
+    let counted = crate::runtime::reminders::switches(engine).checkups;
+    let Some(taken) = crate::domain::projects::reclaim_in(tx, org.id, n.id, row, holder, &by, &why, "released", "taken_back", counted).await? else {
+        refuse!(Conflict, "mail {mail} is not held by anyone in project {} any more", n.name);
+    };
+    event(tx, org.id, "mail_take_back", actor, Some(n.id),
+        json!({ "project": n.name, "mail": mail, "holder": by, "copy": taken.copy, "dead_letter": taken.dead }), fx).await?;
+    fx.agents.insert(n.id);
+    fx.agents.insert(holder);
+    fx.mailboxes.push(n.id);
+    let dead = taken.dead;
+    fx.take_backs.push((n.id, taken));
+    Ok(json!({ "project": n.name, "mail": mail, "holder": by, "taken": true, "dead_letter": dead }))
 }
 
 /// A project's event listeners and listener watches (`orgtree_project

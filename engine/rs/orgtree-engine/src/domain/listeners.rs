@@ -40,6 +40,23 @@ const FIRE_BATCH: i64 = 200;
 pub const MAX_COUNT: i64 = 1024;
 /// The longest message a fired event may carry.
 pub const MAX_MESSAGE: usize = 8000;
+/// Kept fires one page of the project's Recently Fired history shows.
+const HISTORY_PAGE: usize = 30;
+
+/// SQL (alias `w`, a listener or watch dog): since when it has listened —
+/// its arming, or its previous fire (the desk's Waited, user 2026-10-20).
+const LISTENING_SINCE: &str = "greatest(w.created_at, coalesce(w.last_fired, w.created_at))";
+
+/// One listener in a kept fire: who, which dog, and since when it listened;
+/// for an event, the fire mail it got in its own mailbox.
+#[nolog]
+fn heard_entry(agent: &str, dog: &str, name: &str, once: bool, since: DateTime<Utc>, mail: Option<&str>) -> Value {
+    let mut v = json!({ "agent": agent, "dog": dog, "name": name, "once": once, "since": iso(since) });
+    if let Some(m) = mail {
+        v["mail"] = json!(m);
+    }
+    v
+}
 
 /// A `listener_watch`'s fire condition: the count crossed from below its
 /// threshold to at or above it (staying above never re-fires; dropping
@@ -89,16 +106,19 @@ pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
     let count = armed_count(&*tx, org_id, project).await?;
     let rows = tx
         .query(
-            "SELECT w.id, w.owner_agent_id, (w.memo->>'count')::bigint,
-                    coalesce((w.memo->'run'->>'above')::boolean, false)
+            &format!("SELECT w.id, w.owner_agent_id, (w.memo->>'count')::bigint,
+                    coalesce((w.memo->'run'->>'above')::boolean, false), w.uid, w.name, a.name, {LISTENING_SINCE}
                FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'listener_watch' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
-              ORDER BY w.id LIMIT 200",
+              ORDER BY w.id LIMIT 200"),
             &[&org_id, &project],
         )
         .await?;
     let mut firing: Vec<(i64, i64)> = Vec::new();
+    // each crossing's record for the project's Recently Fired history:
+    // the watch, and the listeners armed at the crossing
+    let mut crossings: Vec<Value> = Vec::new();
     for r in &rows {
         let (row, owner): (i64, i64) = (r.get(0), r.get(1));
         let need = r.get::<_, Option<i64>>(2).unwrap_or(0);
@@ -111,6 +131,8 @@ pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
         // is never handed mail
         if crossed(was, count, need) && crate::domain::projects::reaches(&*tx, owner, project).await? {
             firing.push((row, need));
+            crossings.push(json!({ "agent": r.get::<_, String>(6), "dog": r.get::<_, String>(4), "name": r.get::<_, String>(5),
+                                   "count": need, "armed": count, "since": iso(r.get::<_, DateTime<Utc>>(7)) }));
         }
         let above_now = count >= need;
         if above_now != was {
@@ -119,6 +141,31 @@ pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
                                                            '{run,above}', to_jsonb($2::boolean))
                   WHERE id = $1",
                 &[&row, &above_now],
+            )
+            .await?;
+        }
+    }
+    if !crossings.is_empty() {
+        let heard: Vec<Value> = tx
+            .query(
+                &format!("SELECT a.name, w.uid, w.name, w.once, {LISTENING_SINCE}
+                   FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+                  WHERE w.org_id = $1 AND w.kind = 'project_listener' AND w.state = 'armed'
+                    AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
+                  ORDER BY w.id LIMIT $3"),
+                &[&org_id, &project, &FIRE_BATCH],
+            )
+            .await?
+            .iter()
+            .map(|r| heard_entry(&r.get::<_, String>(0), &r.get::<_, String>(1), &r.get::<_, String>(2), r.get(3), r.get(4), None))
+            .collect();
+        // kept before the watches fire, so an event a watch's fire action
+        // fires lands after the crossing that caused it
+        for watch in &crossings {
+            tx.execute(
+                "INSERT INTO ot.project_fires (org_id, project_id, at, kind, fired_by, watch, listeners)
+                 VALUES ($1, $2, now(), 'watch', $3, $4, $5)",
+                &[&org_id, &project, &watch["agent"].as_str().unwrap_or(""), watch, &Value::Array(heard.clone())],
             )
             .await?;
         }
@@ -189,16 +236,18 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     }
     let rows = tx
         .query(
-            "SELECT w.id, w.uid, w.name, w.owner_agent_id, a.name, w.once,
-                    coalesce((w.memo->>'notice')::boolean, false), w.fired, w.memo->'fire_actions'
+            &format!("SELECT w.id, w.uid, w.name, w.owner_agent_id, a.name, w.once,
+                    coalesce((w.memo->>'notice')::boolean, false), w.fired, w.memo->'fire_actions', {LISTENING_SINCE}
                FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'project_listener' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2 AND a.state = 'live' AND a.kind = 'agent'
-              ORDER BY w.id LIMIT $3 FOR UPDATE OF w",
+              ORDER BY w.id LIMIT $3 FOR UPDATE OF w"),
             &[&org_id, &project, &FIRE_BATCH],
         )
         .await?;
     let mut deliveries: Vec<Delivery> = Vec::new();
+    // who this fire reached, for the project's Recently Fired history
+    let mut heard: Vec<Value> = Vec::new();
     for r in &rows {
         let (row, dog_uid, name, owner, owner_name, once, notice, fired): (i64, String, String, i64, String, bool, bool, i32) =
             (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6), r.get(7));
@@ -245,6 +294,7 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
             )
             .await?
             .get(0);
+        heard.push(heard_entry(&owner_name, &dog_uid, &name, once, r.get(9), Some(&mail)));
         deliveries.push(Delivery {
             row, uid: dog_uid, name, owner, owner_name, notice, spent, mail,
             fire_actions: r.get::<_, Option<Value>>(8).and_then(|v| v.as_array().cloned()).unwrap_or_default(),
@@ -255,6 +305,14 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
         "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'project_event_fire', $2, $3, $4)",
         &[&org_id, &by, &project, &json!({ "project": pname, "delivered": names.len(), "listeners": names,
                                             "message": message.map(|m| gist(m, 200)) })],
+    )
+    .await?;
+    // the fire's own record, at the same instant as the dogs' last fire (the
+    // next fire's listeners have listened since it)
+    tx.execute(
+        "INSERT INTO ot.project_fires (org_id, project_id, at, kind, fired_by, message, listeners)
+         VALUES ($1, $2, now(), 'event', $3, $4, $5)",
+        &[&org_id, &project, &by, &message, &Value::Array(heard)],
     )
     .await?;
     tx.commit().await?;
@@ -373,9 +431,84 @@ pub async fn status(client: &impl GenericClient, org_id: i64, project: i64, name
                "listeners": listeners, "watches": watches }))
 }
 
+/// A history cursor: the id of the last row a page showed. `what` names
+/// the history in the refusal.
+#[nolog]
+pub fn page_cursor(before: Option<&str>, what: &str) -> Result<Option<i64>> {
+    let Some(before) = before.map(str::trim).filter(|b| !b.is_empty()) else { return Ok(None) };
+    match before.parse::<i64>() {
+        Ok(id) if id > 0 => Ok(Some(id)),
+        _ => crate::refuse!(BadRequest, "invalid {what} cursor"),
+    }
+}
+
+/// A project's Recently Fired history, newest first (the desk's Listeners
+/// tab; user 2026-10-20 06:22Z): one bounded indexed page of kept fires, and
+/// the cursor to the next. Each listener's fire mail is marked
+/// `mail_gone` once it is no longer in the mailbox, so its link is not
+/// offered.
+#[logged]
+pub async fn history(client: &impl GenericClient, project: i64, before: Option<&str>) -> Result<Value> {
+    let before = page_cursor(before, "listener history")?;
+    let limit = HISTORY_PAGE as i64 + 1;
+    let cols = "id, at, kind, fired_by, message, watch, listeners";
+    let rows = match before {
+        Some(b) => client.query(
+            &format!("SELECT {cols} FROM ot.project_fires WHERE project_id = $1 AND id < $2 ORDER BY id DESC LIMIT $3"),
+            &[&project, &b, &limit]).await?,
+        None => client.query(
+            &format!("SELECT {cols} FROM ot.project_fires WHERE project_id = $1 ORDER BY id DESC LIMIT $2"),
+            &[&project, &limit]).await?,
+    };
+    let more = rows.len() > HISTORY_PAGE;
+    let rows = &rows[..rows.len().min(HISTORY_PAGE)];
+    let mails: Vec<String> = rows.iter()
+        .flat_map(|r| r.get::<_, Value>(6).as_array().cloned().unwrap_or_default())
+        .filter_map(|l| l["mail"].as_str().map(str::to_string))
+        .collect();
+    let kept: std::collections::HashSet<String> = if mails.is_empty() { Default::default() } else {
+        client.query("SELECT uid FROM ot.mail WHERE uid = ANY($1)", &[&mails]).await?.iter().map(|r| r.get(0)).collect()
+    };
+    let history: Vec<Value> = rows.iter().map(|r| {
+        let mut listeners = r.get::<_, Value>(6);
+        for l in listeners.as_array_mut().into_iter().flatten() {
+            if l["mail"].as_str().is_some_and(|m| !kept.contains(m)) {
+                l["mail_gone"] = json!(true);
+            }
+        }
+        let mut v = json!({ "id": r.get::<_, i64>(0), "at": iso(r.get(1)), "kind": r.get::<_, String>(2),
+                            "by": r.get::<_, Option<String>>(3), "message": r.get::<_, Option<String>>(4), "listeners": listeners });
+        if let Some(w) = r.get::<_, Option<Value>>(5) {
+            v["watch"] = w;
+        }
+        v
+    }).collect();
+    let next = if more { history.last().and_then(|v| v["id"].as_i64()).map(|id| id.to_string()) } else { None };
+    Ok(json!({ "history": history, "history_next": next }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_cursors_are_ids_and_malformed_ones_are_refused() {
+        assert_eq!(page_cursor(None, "x").unwrap(), None);
+        assert_eq!(page_cursor(Some(" "), "x").unwrap(), None);
+        assert_eq!(page_cursor(Some("9007199254740993"), "x").unwrap(), Some(9007199254740993));
+        for bad in ["abc", "0", "-4", "1.5", "9223372036854775808"] {
+            assert!(page_cursor(Some(bad), "listener history").is_err(), "{bad} is refused");
+        }
+    }
+
+    #[test]
+    fn a_kept_listener_names_its_fire_mail_only_for_an_event() {
+        let since: DateTime<Utc> = "2026-10-20T06:00:00.123456Z".parse().unwrap();
+        let ev = heard_entry("ha", "ear", "ear", false, since, Some("m1"));
+        assert_eq!(ev["since"], json!("2026-10-20T06:00:00.123Z"));
+        assert_eq!(ev["mail"], json!("m1"));
+        assert!(heard_entry("ha", "ear", "ear", true, since, None).get("mail").is_none(), "a watch's listeners got no mail");
+    }
 
     #[test]
     fn a_watch_fires_only_on_the_crossing() {

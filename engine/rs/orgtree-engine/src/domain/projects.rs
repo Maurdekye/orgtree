@@ -194,6 +194,18 @@ pub struct Watcher {
     pub notice: bool,
     /// Remaining capacity in this assignment round (also bounded by unacked mail).
     pub remaining: usize,
+    /// when its last job ended (acked or taken back): `memo.run.freed_at`
+    pub freed_at: Option<DateTime<Utc>>,
+}
+
+impl Watcher {
+    /// Since when it has waited for mail: its arming, its last hand-out or
+    /// its last job's end, whichever is latest (the desk's Waited, user
+    /// 2026-10-20 06:22Z). Recorded with each hand-out as `waited_from`.
+    #[nolog]
+    pub fn waiting_since(&self) -> DateTime<Utc> {
+        [self.last_fired, self.freed_at].into_iter().flatten().fold(self.created_at, |a, b| a.max(b))
+    }
 }
 
 /// The one watcher a project's next mail goes to: the least recently woken
@@ -204,6 +216,21 @@ pub struct Watcher {
 #[logged]
 pub fn pick(watchers: &[Watcher]) -> Option<&Watcher> {
     watchers.iter().filter(|w| w.remaining > 0).min_by_key(|w| (w.last_fired, w.created_at, w.row))
+}
+
+/// [`pick`] for a mail taken back from some of its holders (the desk's take
+/// back, user 2026-10-20 06:42Z): another listener first; one it was taken
+/// from only when nobody else can take it.
+#[logged]
+pub fn pick_avoiding<'a>(watchers: &'a [Watcher], taken_from: &[i64]) -> Option<&'a Watcher> {
+    if taken_from.is_empty() {
+        return pick(watchers);
+    }
+    let others: Vec<Watcher> = watchers.iter().filter(|w| !taken_from.contains(&w.owner)).cloned().collect();
+    match pick(&others) {
+        Some(o) => watchers.iter().find(|w| w.row == o.row),
+        None => pick(watchers),
+    }
 }
 
 /// One mail the queue handed out.
@@ -311,6 +338,7 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
         if eligible.iter().any(|w| w.owner == owner) { continue; }
         // a watcher that has since moved out of the project's line no longer reaches it
         if reaches(&*tx, owner, project).await? {
+            let memo: Value = r.get(8);
             eligible.push(Watcher {
                 row: r.get(0),
                 uid: r.get(1),
@@ -320,7 +348,8 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
                 created_at: r.get(5),
                 once: r.get(6),
                 notice: r.get(7),
-                remaining: batch_size(&r.get::<_, Value>(8)).saturating_sub(if ack { r.get::<_, i64>(9) as usize } else { 0 }),
+                remaining: batch_size(&memo).saturating_sub(if ack { r.get::<_, i64>(9) as usize } else { 0 }),
+                freed_at: memo["run"]["freed_at"].as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&Utc)),
             });
         }
     }
@@ -334,7 +363,7 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
     let waiting = tx
         .query(
             "SELECT id, uid, sender, sender_agent_id, sender_generation, kind, notice, body, attachments, reply_to, ev,
-                    urgent, urgent_reason, net_id, net_hub, replies, client_op
+                    urgent, urgent_reason, net_id, net_hub, replies, client_op, extra->'taken_from'
                FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending' ORDER BY id LIMIT 64 FOR UPDATE",
             &[&project],
         )
@@ -344,13 +373,19 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
         if steps.len() == limit { break; }
         let sender: Option<i64> = m.get(3);
         let others: Vec<Watcher> = eligible.iter().filter(|w| !skip_own || Some(w.owner) != sender).cloned().collect();
-        let Some(w) = pick(&others).cloned() else { continue };
+        // a mail the user took back from a holder goes to someone else first
+        let taken_from: Vec<i64> = m.get::<_, Option<Value>>(17).and_then(|v| v.as_array().cloned()).unwrap_or_default()
+            .iter().filter_map(Value::as_i64).collect();
+        let Some(w) = pick_avoiding(&others, &taken_from).cloned() else { continue };
         let mail_id: i64 = m.get(0);
         let mail_uid: String = m.get(1);
         let body: String = m.get(7);
         let notice = m.get::<_, bool>(6) || w.notice;
         let copy = uid("m");
-        let via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack } });
+        // since when this listener waited for it (its Waited on the desk)
+        let waited_from = w.waiting_since();
+        let via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack,
+                                            "waited_from": iso(waited_from) } });
         tx.execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
                                   recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason,
@@ -368,13 +403,14 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
         tx.execute(
             "UPDATE ot.mail SET state = 'read', read_at = now(), delivered_at = coalesce(delivered_at, now()),
                     extra = extra || jsonb_build_object('claimed', jsonb_build_object('by', $2::text, 'by_id', $3::bigint,
-                            'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean, 'wakes', 0),
+                            'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean, 'wakes', 0,
+                            'waited_from', $7::timestamptz),
                             'attempts', coalesce((extra->>'attempts')::int, 0) + 1,
                             'attempt_log', coalesce(extra->'attempt_log', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
                                 'n', coalesce((extra->>'attempts')::int, 0) + 1, 'by', $2::text, 'by_id', $3::bigint,
-                                'copy', $5::text, 'at', now())))
+                                'copy', $5::text, 'at', now(), 'waited_from', $7::timestamptz, 'dog', $4::text)))
               WHERE id = $1",
-            &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack],
+            &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack, &waited_from],
         )
         .await?;
         let sender: String = m.get(2);
@@ -559,12 +595,12 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
             _ if !listening => "stopped watching the project",
             _ => continue,
         };
-        gone.push((row, holder, h.get::<_, Option<String>>(2).unwrap_or_default(), h.get::<_, Option<String>>(3), why));
+        gone.push((row, holder, h.get::<_, Option<String>>(2).unwrap_or_default(), why));
     }
     drop(client);
     let mut released = Vec::new();
-    for (row, holder, by, copy, why) in gone {
-        if reclaim(engine, org_id, project, row, holder, &by, copy.as_deref(), why, "released").await?.is_some() {
+    for (row, holder, by, why) in gone {
+        if reclaim(engine, org_id, project, row, holder, &by, why, "released").await?.is_some() {
             released.push(by);
         }
     }
@@ -577,23 +613,59 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
 /// tells the user. One short transaction. `Some(dead)` when it was taken.
 #[logged]
 #[allow(clippy::too_many_arguments)]
-async fn reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, row: i64, holder: i64, by: &str, copy: Option<&str>,
+async fn reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, row: i64, holder: i64, by: &str,
                  why: &str, how: &str) -> Result<Option<bool>> {
     let counted = crate::runtime::reminders::switches(engine).checkups;
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
+    let Some(taken) = reclaim_in(&*tx, org_id, project, row, holder, by, why, how, "failed", counted).await? else {
+        return Ok(None);
+    };
+    tx.commit().await?;
+    drop(client);
+    after_reclaim(engine, org_id, project, &taken).await;
+    Ok(Some(taken.dead))
+}
+
+/// What [`reclaim_in`] took back, for the work after its commit.
+#[derive(Debug, Clone)]
+pub struct Reclaimed {
+    pub project: String,
+    pub holder: i64,
+    pub by: String,
+    pub why: String,
+    /// the project's copy (the job)
+    pub mail: String,
+    /// the copy its holder was handed
+    pub copy: Option<String>,
+    pub sender: String,
+    pub attempts: i64,
+    pub dead: bool,
+}
+
+/// [`reclaim`]'s writes, in the caller's transaction (the engine's own
+/// reclaims, and the user's take back in its op): the project's row first,
+/// then the job, as the hand-out takes them. Records the ending (`ending`
+/// unless it was the job's last attempt, a dead letter) and frees the
+/// holder's listener. `None` when the mail is not held any more.
+#[logged]
+#[allow(clippy::too_many_arguments)]
+pub async fn reclaim_in(tx: &impl GenericClient, org_id: i64, project: i64, row: i64, holder: i64, by: &str, why: &str,
+                        how: &str, ending: &str, counted: bool) -> Result<Option<Reclaimed>> {
     let Some(p) = tx.query_opt("SELECT name, scope FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&project]).await? else {
         return Ok(None);
     };
     let (pname, scope): (String, Value) = (p.get(0), p.get(1));
     let Some(m) = tx
-        .query_opt(&format!("SELECT m.uid, coalesce((m.extra->>'attempts')::bigint, 0), m.sender FROM ot.mail m WHERE m.id = $1 AND {OUTSTANDING} FOR UPDATE"),
+        .query_opt(&format!("SELECT m.uid, coalesce((m.extra->>'attempts')::bigint, 0), m.sender, m.extra->'claimed'
+                               FROM ot.mail m WHERE m.id = $1 AND {OUTSTANDING} FOR UPDATE"),
             &[&row])
         .await?
     else {
         return Ok(None);
     };
-    let (uid, attempts, sender): (String, i64, String) = (m.get(0), m.get(1), m.get(2));
+    let (uid, attempts, sender, claimed): (String, i64, String, Value) = (m.get(0), m.get(1), m.get(2), m.get(3));
+    let copy = claimed["copy"].as_str().map(str::to_string);
     let dead = counted && attempts >= max_attempts(&scope);
     let ended = closed_attempt("m.extra", "$6::text", "$4::text");
     if dead {
@@ -614,22 +686,40 @@ async fn reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, row: i64, hold
         )
         .await?;
     }
-    if let Some(c) = copy {
+    if ending == "taken_back" {
+        // the next hand-out prefers another listener (`pick_avoiding`)
         tx.execute(
-            "UPDATE ot.mail SET extra = extra || jsonb_build_object('released', jsonb_build_object('why', $2::text, 'at', now()))
-              WHERE uid = $1",
-            &[&c, &why],
+            "UPDATE ot.mail SET extra = jsonb_set(extra, '{taken_from}', coalesce(extra->'taken_from', '[]'::jsonb) || to_jsonb($2::bigint))
+              WHERE id = $1",
+            &[&row, &holder],
         )
         .await?;
     }
-    tx.commit().await?;
-    drop(client);
-    changes::notify_id(engine, org_id, vec![Change::Mailbox(project), Change::Mailbox(holder)]);
-    if dead {
+    if let Some(c) = &copy {
+        tx.execute(
+            "UPDATE ot.mail SET extra = extra || jsonb_build_object('released', jsonb_build_object('why', $2::text, 'at', now()))
+              WHERE uid = $1",
+            &[c, &why],
+        )
+        .await?;
+    }
+    record_ending(tx, org_id, project, &uid, &claimed, holder, by, if dead { "dead_letter" } else { ending }, Some(why),
+                  attempts, None).await?;
+    free_listener(tx, holder, &claimed).await?;
+    Ok(Some(Reclaimed { project: pname, holder, by: by.to_string(), why: why.to_string(), mail: uid, copy, sender, attempts, dead }))
+}
+
+/// After a reclaim commits: the mailboxes move, and a dead letter is
+/// announced and told to the project's superior.
+#[logged]
+pub async fn after_reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, r: &Reclaimed) {
+    changes::notify_id(engine, org_id, vec![Change::Mailbox(project), Change::Mailbox(r.holder)]);
+    let (pname, uid, by, why, attempts) = (&r.project, &r.mail, &r.by, &r.why, r.attempts);
+    if r.dead {
         tracing::warn!(project = %pname, mail = %uid, attempts, "a project mail ran out of attempts and was dead-lettered");
         crate::runtime::watchdogs::events::emit(engine, crate::runtime::watchdogs::events::event(
             "project.dead_letter", crate::runtime::watchdogs::events::Scope::Agent(org_id, project),
-            json!({ "project": pname, "mail": uid, "from": sender, "attempts": attempts, "by": by, "why": why })));
+            json!({ "project": pname, "mail": uid, "from": r.sender, "attempts": attempts, "by": by, "why": why })));
         let body = format!(
             "Project {pname} gave up on mail {uid}: it was handed out {attempts} times without an ack (the last holder, {by}, {why}). \
              It is in the project's dead-letter list (orgtree_project action=dead_letters name={pname}) and will not be handed out again              unless someone retries it.");
@@ -643,7 +733,41 @@ async fn reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, row: i64, hold
     } else {
         tracing::info!(project = %pname, holder = %by, why, "an un-acked project mail went back to the front of the queue");
     }
-    Ok(Some(dead))
+}
+
+/// One handed project mail's ending, for the desk's Recently Finished (user
+/// 2026-10-20 06:22Z-06:41Z): `how` is acked, failed, taken_back or
+/// dead_letter. Written in the ending's own transaction, at its instant.
+#[logged]
+#[allow(clippy::too_many_arguments)]
+pub async fn record_ending(tx: &impl GenericClient, org_id: i64, project: i64, mail: &str, claimed: &Value, agent: i64, agent_name: &str,
+                           how: &str, why: Option<&str>, attempt: i64, ack: Option<&str>) -> Result<()> {
+    let at = |k: &str| claimed[k].as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&Utc));
+    tx.execute(
+        "INSERT INTO ot.project_mail_endings (org_id, project_id, mail_uid, copy_uid, agent_id, agent_name, dog_uid, how, why,
+                                              attempt, waited_from, held_at, ended_at, ack_uid)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13)",
+        &[&org_id, &project, &mail, &claimed["copy"].as_str(), &agent, &agent_name, &claimed["dog"].as_str(), &how, &why,
+          &(attempt as i32), &at("waited_from"), &at("at"), &ack],
+    )
+    .await?;
+    Ok(())
+}
+
+/// The holder's fair_queue dog is free again: its next wait starts now
+/// (`memo.run.freed_at`, read back as [`Watcher::freed_at`]).
+#[logged]
+pub async fn free_listener(tx: &impl GenericClient, holder: i64, claimed: &Value) -> Result<()> {
+    if let Some(dog) = claimed["dog"].as_str() {
+        tx.execute(
+            "UPDATE ot.watchdogs SET memo = jsonb_set(memo || jsonb_build_object('run', coalesce(memo->'run', '{}'::jsonb)),
+                                                       '{run,freed_at}', to_jsonb(now()))
+              WHERE owner_agent_id = $1 AND uid = $2 AND kind = 'fair_queue' AND state IN ('armed', 'paused', 'spent')",
+            &[&holder, &dog],
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// The nearest live agent above a project (projects are crossed), or None
@@ -693,7 +817,7 @@ pub async fn ack_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &
         if ack_reminders_exhausted(&scope, wakes) {
             let reminders = ack_reminders(&scope);
             let why = format!("did not ack it after {reminders} reminders");
-            reclaim(engine, org_id, project, row, agent, name, copy.as_deref(), &why, "timed_out").await?;
+            reclaim(engine, org_id, project, row, agent, name, &why, "timed_out").await?;
             Box::pin(dispatch(engine, org_id, project)).await?;
             continue;
         }
@@ -730,7 +854,7 @@ pub async fn purge_waiting(tx: &impl GenericClient, project: i64, by: &str) -> R
 /// already acked, or released back to the queue. Runs in the sender's
 /// transaction, which then stores the ack as a read record.
 #[logged]
-pub async fn ack_of(tx: &impl GenericClient, project: i64, agent: i64, reply: &str) -> Result<Option<(i64, String)>> {
+pub async fn ack_of(tx: &impl GenericClient, project: i64, agent: i64, reply: &str) -> Result<Option<(i64, String, Value)>> {
     let Some(copy) = tx
         .query_opt(
             "SELECT extra->'via_project', extra->'released'->>'why' FROM ot.mail WHERE uid = $1 AND recipient_agent_id = $2",
@@ -763,7 +887,7 @@ pub async fn ack_of(tx: &impl GenericClient, project: i64, agent: i64, reply: &s
     if claimed.get("acked_at").is_some_and(|v| !v.is_null()) {
         crate::refuse!(Conflict, "mail {reply} is already acked; nothing more to do for it");
     }
-    Ok(Some((row.get(0), orig)))
+    Ok(Some((row.get(0), orig, claimed)))
 }
 
 /// The user changed a project's queue mode (`set_mail_queue`): leaving ack
@@ -1114,6 +1238,149 @@ pub async fn members(client: &impl GenericClient, project: i64) -> Result<Vec<St
         .collect())
 }
 
+/// Kept rows one page of a project's Recently Finished or Recently
+/// Delivered shows.
+const QUEUE_PAGE: usize = 30;
+
+/// SQL: the dog (alias `w`) a history row names, by its owner and id; the
+/// newest of that id, since a newer dog may reuse it (D67).
+#[nolog]
+fn dog_of(owner: &str, uid: &str) -> String {
+    format!("LEFT JOIN LATERAL (SELECT x.name, x.kind, x.once, CASE WHEN x.spent_at IS NOT NULL THEN 'spent' ELSE x.state END AS state
+                                  FROM ot.watchdogs x WHERE x.owner_agent_id = {owner} AND x.uid = {uid}
+                                 ORDER BY x.id DESC LIMIT 1) w ON true")
+}
+
+/// A history row's dog: its identity, kept after the dog is gone.
+#[nolog]
+fn row_dog(r: &tokio_postgres::Row, owner: &str, uid: Option<&str>, at: usize, kind: &str) -> Value {
+    match uid {
+        Some(uid) => crate::domain::watchdogs::identity(owner, uid, r.get::<_, Option<&str>>(at),
+            r.get::<_, Option<&str>>(at + 1).unwrap_or(kind), r.get(at + 2), r.get::<_, Option<&str>>(at + 3)),
+        None => Value::Null,
+    }
+}
+
+/// The desk's table times: an ISO string, or null.
+#[nolog]
+fn when(t: Option<DateTime<Utc>>) -> Value {
+    t.map(|t| json!(iso(t))).unwrap_or(Value::Null)
+}
+
+/// A JSON timestamp (`to_jsonb(now())`) as one.
+#[nolog]
+fn json_time(v: &Value) -> Option<DateTime<Utc>> {
+    v.as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&Utc))
+}
+
+/// A project's mail listener history for the desk's Mail › listeners
+/// folder (user 2026-10-20 06:22Z-06:42Z). Ack mode: the jobs held now
+/// (Working, with the first page) and the endings, newest first (Recently
+/// Finished: acked, failed, taken back, dead-lettered). Round-robin: the
+/// hand-outs, newest first (Recently Delivered). Every list is a bounded
+/// indexed read; `before` is the previous page's cursor.
+#[logged]
+pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str, scope: &Value, before: Option<&str>,
+                           dead_letters: bool) -> Result<Value> {
+    let ack = ack_mode(scope);
+    let cursor = crate::domain::listeners::page_cursor(before, "mail history")?;
+    let limit = QUEUE_PAGE as i64 + 1;
+    let mut out = json!({ "project": name, "ack": ack, "max_attempts": max_attempts(scope), "dead_letters": dead_letters });
+    if ack && cursor.is_none() {
+        let rows = client
+            .query(
+                &format!("SELECT m.uid, m.body, m.extra->'claimed', coalesce((m.extra->>'attempts')::bigint, 0),
+                                 w.name, w.kind, w.once, w.state
+                            FROM ot.mail m {}
+                           WHERE m.recipient_agent_id = $1 AND m.state = 'read' AND m.extra->'claimed'->>'ack' = 'true'
+                             AND m.extra->'claimed'->>'acked_at' IS NULL AND NOT (m.extra ? 'dead_letter')
+                           ORDER BY m.id LIMIT 200",
+                    dog_of("(m.extra->'claimed'->>'by_id')::bigint", "m.extra->'claimed'->>'dog'")),
+                &[&project],
+            )
+            .await?;
+        out["working"] = Value::Array(rows.iter().map(|r| {
+            let c: Value = r.get(2);
+            let agent = c["by"].as_str().unwrap_or("?");
+            json!({ "mail": r.get::<_, String>(0), "gist": first_line(r.get(1)), "copy": c["copy"], "agent": agent,
+                    "dog": row_dog(r, agent, c["dog"].as_str(), 4, "fair_queue"), "attempts": r.get::<_, i64>(3),
+                    "waited_from": when(json_time(&c["waited_from"])), "held_at": when(json_time(&c["at"])) })
+        }).collect());
+    }
+    let (rows, history): (usize, Vec<Value>) = if ack {
+        let sql = |page: &str| format!(
+            "SELECT e.id, e.mail_uid, e.copy_uid, e.agent_name, e.dog_uid, e.how, e.why, e.attempt, e.waited_from, e.held_at,
+                    e.ended_at, e.ack_uid, j.body, k.body, w.name, w.kind, w.once, w.state
+               FROM ot.project_mail_endings e
+               LEFT JOIN ot.mail j ON j.uid = e.mail_uid
+               LEFT JOIN ot.mail k ON k.uid = e.ack_uid {}
+              WHERE e.project_id = $1 {page} ORDER BY e.id DESC LIMIT {limit}", dog_of("e.agent_id", "e.dog_uid"));
+        let rows = match cursor {
+            Some(c) => client.query(&sql("AND e.id < $2"), &[&project, &c]).await?,
+            None => client.query(&sql(""), &[&project]).await?,
+        };
+        (rows.len(), rows.iter().take(QUEUE_PAGE).map(|r| {
+            let agent: String = r.get(3);
+            json!({ "id": r.get::<_, i64>(0), "mail": r.get::<_, String>(1), "copy": r.get::<_, Option<String>>(2), "agent": agent,
+                    "dog": row_dog(r, &agent, r.get(4), 14, "fair_queue"), "how": r.get::<_, String>(5),
+                    "why": r.get::<_, Option<String>>(6), "attempt": r.get::<_, Option<i32>>(7),
+                    "waited_from": when(r.get(8)), "held_at": when(r.get(9)), "ended_at": iso(r.get(10)),
+                    "ack": r.get::<_, Option<String>>(11), "gist": r.get::<_, Option<&str>>(12).map(first_line),
+                    "ack_gist": r.get::<_, Option<&str>>(13).map(first_line) })
+        }).collect())
+    } else {
+        let sql = |page: &str| format!(
+            "SELECT c.id, c.uid, c.recipient_name, c.created_at, c.body, c.extra->'via_project', w.name, w.kind, w.once, w.state
+               FROM ot.mail c {}
+              WHERE c.extra ? 'via_project' AND c.extra->'via_project'->>'id' = $1 {page}
+              ORDER BY c.id DESC LIMIT {limit}", dog_of("c.recipient_agent_id", "c.extra->'via_project'->>'dog'"));
+        let key = project.to_string();
+        let rows = match cursor {
+            Some(c) => client.query(&sql("AND c.id < $2"), &[&key, &c]).await?,
+            None => client.query(&sql(""), &[&key]).await?,
+        };
+        (rows.len(), rows.iter().take(QUEUE_PAGE).map(|r| {
+            let agent: String = r.get(2);
+            let via: Value = r.get(5);
+            json!({ "id": r.get::<_, i64>(0), "copy": r.get::<_, String>(1), "agent": agent, "mail": via["mail"],
+                    "dog": row_dog(r, &agent, via["dog"].as_str(), 6, "fair_queue"), "gist": first_line(r.get(4)),
+                    "held_at": iso(r.get(3)), "waited_from": when(json_time(&via["waited_from"])) })
+        }).collect())
+    };
+    let next = if rows > QUEUE_PAGE { history.last().and_then(|v| v["id"].as_i64()).map(|id| id.to_string()) } else { None };
+    out["history"] = Value::Array(history);
+    out["history_next"] = json!(next);
+    Ok(out)
+}
+
+/// After the user's take back commits (the desk's Working table, user
+/// 2026-10-20 06:42Z): the reclaim's own after-work, the holder is told
+/// to stop (its ack of it is refused from now on), and the queue runs, so
+/// another listener takes the job first.
+#[logged]
+pub async fn after_take_back(engine: &Arc<Engine>, org_id: i64, project: i64, r: &Reclaimed) {
+    after_reclaim(engine, org_id, project, r).await;
+    let copy = r.copy.as_deref().unwrap_or(&r.mail);
+    // `by` is the holder's name, as every reclaim names it
+    let to = r.by.clone();
+    let body = if r.dead {
+        format!("Project {} took mail {copy} back from you ({}); it had used its last attempt, so it went to the project's dead letters. \
+                 Stop working on it: an ack of it is refused.", r.project, r.why)
+    } else {
+        format!("Project {} took mail {copy} back from you ({}); it went back to the front of the queue, for another listener first. \
+                 Stop working on it: an ack of it is refused.", r.project, r.why)
+    };
+    let mut out = crate::domain::mail::Outgoing::new(crate::domain::mail::From::System, &to, &body);
+    out.notice = true;
+    out.grant_reply_audience = false;
+    if let Err(e) = Box::pin(crate::domain::mail::send(engine, org_id, out)).await {
+        tracing::warn!(holder = %to, error = %format!("{e:#}"), "telling a holder its job was taken back failed");
+    }
+    if let Err(e) = Box::pin(dispatch(engine, org_id, project)).await {
+        tracing::warn!(project, error = %format!("{e:#}"), "running a project's queue after a take back failed");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1124,7 +1391,7 @@ mod tests {
 
     fn w(row: i64, last: Option<i64>, created: i64) -> Watcher {
         Watcher { row, uid: format!("q{row}"), owner: row * 10, owner_name: format!("a{row}"), last_fired: last.map(at),
-                  created_at: at(created), once: false, notice: false, remaining: 1 }
+                  created_at: at(created), once: false, notice: false, remaining: 1, freed_at: None }
     }
 
     #[test]
@@ -1185,6 +1452,30 @@ mod tests {
     fn a_job_is_named_by_its_first_non_empty_line() {
         assert_eq!(first_line("\n\n  Fix the build  \nmore"), "Fix the build");
         assert_eq!(first_line(""), "");
+    }
+
+    #[test]
+    fn a_listener_waits_from_its_arming_last_hand_out_or_freed_job_whichever_is_latest() {
+        let mut x = w(1, None, 5);
+        assert_eq!(x.waiting_since(), at(5), "never handed anything: since its arming");
+        x.last_fired = Some(at(20));
+        assert_eq!(x.waiting_since(), at(20), "since its last hand-out");
+        x.freed_at = Some(at(30));
+        assert_eq!(x.waiting_since(), at(30), "an ack after it: since the ack");
+        x.freed_at = Some(at(10));
+        assert_eq!(x.waiting_since(), at(20), "an older end never moves it back");
+    }
+
+    #[test]
+    fn a_taken_back_mail_goes_to_another_listener_first_else_back() {
+        let ws = vec![w(1, Some(5), 0), w(2, Some(50), 0)];
+        assert_eq!(pick_avoiding(&ws, &[]).map(|x| x.row), Some(1), "no take back: the plain pick");
+        assert_eq!(pick_avoiding(&ws, &[10]).map(|x| x.row), Some(2), "taken from 1's owner: 2 first");
+        let lone = vec![w(1, Some(5), 0)];
+        assert_eq!(pick_avoiding(&lone, &[10]).map(|x| x.row), Some(1), "nobody else: back to it");
+        let mut full = ws.clone();
+        full[1].remaining = 0;
+        assert_eq!(pick_avoiding(&full, &[10]).map(|x| x.row), Some(1), "the other has no room: back to it");
     }
 
     #[test]

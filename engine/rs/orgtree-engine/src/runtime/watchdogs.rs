@@ -2333,6 +2333,12 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
                 if let Some(sealed) = sealed {
                     tx.execute("INSERT INTO ot.watchdog_secrets (watchdog_id, sealed) VALUES ($1, $2)", &[&row, &sealed]).await?;
                 }
+                if let Some(p) = &listener_project {
+                    // the project's event Listeners tab shows from now on, for
+                    // good (user 2026-10-20 06:22Z): set once, never cleared
+                    tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('listeners_seen_at', now())
+                                 WHERE id = $1 AND kind = 'project' AND NOT (extra ? 'listeners_seen_at')", &[&p.id]).await?;
+                }
                 tx.commit().await?;
                 break (row, id);
             }
@@ -2366,7 +2372,11 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         engine.dogs.ws.park(row, c);
     }
     arm(engine, row);
-    changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Events]);
+    let mut ch = vec![Change::Watchdogs, Change::Events];
+    if let Some(p) = &listener_project {
+        ch.push(Change::Agent(p.id));
+    }
+    changes::notify_id(engine, org_id, ch);
     let cadence = match kind.as_str() {
         "stream" => " (realtime stream)".to_string(),
         "activity" | "event" | "usage" => " (pushed events)".to_string(),

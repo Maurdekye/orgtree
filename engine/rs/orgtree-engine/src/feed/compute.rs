@@ -65,6 +65,8 @@ SELECT a.id, (to_jsonb(a) - 'extra') || jsonb_build_object(
   'x_dead_letters', CASE WHEN a.kind = 'project' THEN (SELECT count(*) FROM ot.mail m
                       WHERE m.recipient_agent_id = a.id AND m.state = 'read' AND m.extra ? 'dead_letter'
                         AND NOT (m.extra ? 'dead_letter_dropped')) ELSE 0 END,
+  'x_listeners_seen', a.kind = 'project' AND a.extra ? 'listeners_seen_at',
+  'x_last_fire', CASE WHEN a.kind = 'project' THEN (SELECT max(f.id) FROM ot.project_fires f WHERE f.project_id = a.id) END,
   'x_retired_children', (SELECT count(*) FROM ot.agents c
                       WHERE c.org_id = a.org_id AND c.parent_id = a.id AND c.state IN ('archived','unrecoverable')),
   'x_children_hold', (SELECT coalesce(sum(c.seat + c.grant_credits), 0) FROM ot.agents c

@@ -13,6 +13,17 @@ pub fn handle(owner: &str, uid: &str) -> String {
     format!("{owner}/{uid}")
 }
 
+/// A dog as a history row names it, for a chip drawn after the dog is
+/// spent or removed (the desk's tables, user 2026-10-20 06:22Z): its handle,
+/// owner, name, kind and mode, and `gone` once it is no longer armed or
+/// paused. `name` is None when its row is gone too; the id stands in.
+#[nolog]
+pub fn identity(owner: &str, uid: &str, name: Option<&str>, kind: &str, once: Option<bool>, state: Option<&str>) -> Value {
+    let live = matches!(state, Some("armed" | "paused"));
+    json!({ "id": handle(owner, uid), "owner": owner, "name": name.unwrap_or(uid), "kind": kind,
+            "once": once.unwrap_or(false), "state": state.unwrap_or("removed"), "gone": !live })
+}
+
 /// The keys a watchdog call takes only inside `credentials` (an mqtt or a
 /// websocket dog's): refused at the top level of a create, blanked in
 /// transcripts and refused in fire actions, whatever their case.
@@ -49,6 +60,10 @@ pub fn view(w: &Value, owner: &str) -> Value {
     o.insert("kind".into(), w["kind"].clone());
     if w["kind"] == "fair_queue" {
         o.insert("batch".into(), json!(crate::domain::projects::batch_size(&w["memo"])));
+        // when its last job ended (acked or taken back): its next wait starts there
+        if let Some(v) = w["memo"]["run"].get("freed_at").filter(|v| v.is_string()) {
+            o.insert("freed_at".into(), ts(v));
+        }
     }
     if w["kind"] == "slot" {
         o.insert("slots".into(), json!(crate::domain::slots::requested(&w["memo"])));
@@ -160,6 +175,20 @@ mod tests {
         assert_eq!(g["lease"],json!("sab"));
         assert!(g.get("slot").is_none(), "permit indexes stay internal");
         assert!(view(&json!({"uid":"x","kind":"command","memo":{"queued_at":1}}),"b").get("queued_at").is_none());
+    }
+    /// A fair-queue listener shows when its last job ended; a history row's
+    /// dog keeps its identity after the dog is gone.
+    #[test]
+    fn a_mail_listener_view_carries_its_freed_time_and_a_kept_dog_its_identity() {
+        let raw=json!({"uid":"q","kind":"fair_queue","state":"armed","created_at":"2026-01-01T00:00:00Z",
+            "memo":{"target_id":7,"run":{"freed_at":"2026-01-01T00:05:00.123456+00:00"}}});
+        assert_eq!(view(&raw,"qa")["freed_at"],json!("2026-01-01T00:05:00.123Z"));
+        assert!(view(&json!({"uid":"q","kind":"fair_queue","memo":{}}),"qa").get("freed_at").is_none());
+        let kept=identity("qa","q",Some("q"),"fair_queue",Some(false),Some("armed"));
+        assert_eq!((kept["id"].clone(),kept["gone"].clone()),(json!("qa/q"),json!(false)));
+        let gone=identity("sa","claim",None,"slot",None,None);
+        assert_eq!((gone["name"].clone(),gone["state"].clone(),gone["gone"].clone()),(json!("claim"),json!("removed"),json!(true)));
+        assert_eq!(identity("sa","claim",Some("claim"),"slot",Some(true),Some("spent"))["gone"],json!(true));
     }
     /// A listener_watch shows its count; fire-time tool calls ride along for the listeners tab.
     #[test]
