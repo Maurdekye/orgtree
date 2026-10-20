@@ -19,7 +19,7 @@ import { audienceAction } from '../api'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
 import { DocIcon, DocketIcon, FolderIcon, ListenersIcon, MailIcon, TeamIcon, ViewListIcon } from '../icons'
-import { NODE_H, NODE_W, subtreeDocs, useAgentShortcuts, USER, Z_MAX } from './shared'
+import { NODE_H, NODE_W, useAgentShortcuts, USER, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
 import type { RefRoutes } from './reflinks'
@@ -327,9 +327,9 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       {pinnedFocus && !deskOpen && onShowPin && (
         <div className="pin-holder"><PinnedPlaceholder id={node.id} onShow={onShowPin} /></div>
       )}
-      {/* its own presentations and its subtree's (user 2026-10-17 22:47:29Z) */}
-      {lod !== 'mini' && !deskOpen && subtreeDocs(node).length > 0 && onOpenDoc && (
-        <DocChips slug={slug} docs={subtreeDocs(node)} onOpen={onOpenDoc} />
+      {/* Own-only chips (user 2026-10-20 18:58Z), replacing the 2026-10-17 subtree rule. */}
+      {lod !== 'mini' && !deskOpen && (node.documents?.length ?? 0) > 0 && onOpenDoc && (
+        <DocChips slug={slug} docs={node.documents!} onOpen={onOpenDoc} />
       )}
       {menu.node}
       {asking && createPortal(

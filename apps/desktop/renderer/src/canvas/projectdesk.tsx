@@ -820,10 +820,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
           <HeldAudienceChips node={node} map={map} slug={slug} toast={toast} />
         </DeskMetaRow>} />
       {upRow}
-      {/* its presentations and its subtree's, on their own strip under the
-          header as on an agent desk (user 2026-10-17 22:47:29Z) */}
-      {onOpenDoc && subtreeDocs(node).length > 0 && (
-        <DeskDocsStrip slug={slug} docs={subtreeDocs(node)} toast={toast} onOpen={onOpenDoc} onReply={live ? replyToDoc : undefined} replyLabel="Reply" />
+      {/* Own-only header chips (user 2026-10-20 18:58Z), matching its Presented tab. */}
+      {onOpenDoc && (node.documents?.length ?? 0) > 0 && (
+        <DeskDocsStrip slug={slug} docs={node.documents!} toast={toast} onOpen={onOpenDoc} onReply={live ? replyToDoc : undefined} replyLabel="Reply" />
       )}
       {shown === 'desk' && <DescriptionEditor node={node} op={op} toast={toast} editable={live} />}
       {shown === 'inbox' && <div className="desk-tabpanel">
