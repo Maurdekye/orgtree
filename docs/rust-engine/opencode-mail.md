@@ -83,7 +83,7 @@ proof, a DND implementation test, or a real OpenCode lifecycle proof.
 
 ## Measured offline proof (2026-10-20)
 
-`tools/rig/proofs/opencode-mail.mjs --real-opencode <exe> --lifecycle` runs the
+`node tools/rig/rig.mjs run tools/rig/proofs/opencode-mail.mjs --real-opencode <exe> --lifecycle` runs the
 real engine and an explicitly supplied OpenCode 2.0.28 executable against
 `tools/rig/opencode-synthetic.mjs`, a loopback model. Every profile and database
 belongs to the fixture; it does not use live authentication or a provider.
@@ -98,6 +98,12 @@ one transcript row, cancellation reconciliation, and marked next-turn fallback
 after an engine crash. The existing fake-ACP proof passed 16 checks on the
 unsupported-version path. These used the default test stack; timings and raw
 receipts are retained in the author hand-in.
+
+Enabled-source validation at `5bf014d` repeated all 18 lifecycle and 16 fallback
+checks successfully, plus 24 plugin tests, 22 identity tests, engine build and
+workspace check, with the default stack. The identity regression first failed
+at `8b8d818` on the old next-turn-only instruction. The build/check retain the
+baseline's unused `HashMap` import warning in `domain/tree.rs`.
 
 The crash proof explicitly waits for discovery before its next wake. The existing
 startup auto-resume can race asynchronous OpenCode discovery and refuse a turn
