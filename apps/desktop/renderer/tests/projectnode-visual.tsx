@@ -57,6 +57,12 @@
 //             &mode=historyrr the Mail listeners in round-robin; &w=740 a
 //             desk that wide, &long=1 the long agent and dog names of the
 //             user's narrow-desk screenshot (2026-10-20 09:00Z).
+//   jumpscroll — a desk on the canvas with many jump cards (user 2026-10-20
+//             09:41Z-09:50Z): stack16-agent-a under &up=N nested projects
+//             under boss, with &down=N reports named and badged like the
+//             user's screenshot and &dogs=N watchdogs; the canvas focuses it,
+//             so its desk opens there and a wheel over a jump row meets the
+//             canvas's own handler.
 import { createRoot } from 'react-dom/client'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { SpawnChips } from '../src/canvas/cards'
@@ -175,6 +181,40 @@ function Jumps() {
     </div>
   )
   return <main style={{ display: 'flex', gap: 16, padding: 12, background: 'var(--bg)' }}>{box(dev2)}{box(boss)}</main>
+}
+
+/** jumpscroll's reports: the names of the user's 09:41Z screenshot, then
+ *  project stacks and their agents */
+const JUMP_NAMES = ['build-slot', 'desk-parity-opus', 'inbox-ui-opus', 'skilltree-opus', 'compaction-cmds-sol', 'message-docs-luna',
+  'docket-access-luna', 'image-embed-luna', 'helper-transcript-sol', 'hubchat-jumplist-sol', 'project-nodes-opus', 'taskbar-orgs-sol',
+  'agy-accounts-opus', 'uninit-model-sol', 'standalone-wonder', 'rig-sol-b', 'epic-combo-sol', 'usage-header-sonnet', 'ordering-sol',
+  'activefilter-luna', 'mentions-argon', 'hubchat-dm-sol', 'transparency-astra', 'transparency-opus', 'mqtt-watchdog-opus',
+  'listener-smoke', 'test-project', 'test-project-worker-a', 'test-proj-worker-b', 'test-proj-worker-c', 'project-transparency-committee',
+  ...[20, 12, 8, 5, 3].flatMap((k) => [...Array.from({ length: k }, (_, i) => `stack${k}-${String(i + 1).padStart(2, '0')}`),
+    ...['a', 'b', 'c'].map((x) => `stack${k}-agent-${x}`)])]
+const JUMP_PROJECTS = /^(build-slot|listener-smoke|test-project|project-transparency-committee|stack\d+-\d+)$/
+function JumpScroll() {
+  const q = new URLSearchParams(location.search)
+  const down = Number(q.get('down') ?? 12), up = Number(q.get('up') ?? 3), dogCount = Number(q.get('dogs') ?? 0)
+  const level = (i: number) => `stack16-${String(i).padStart(2, '0')}`
+  const tiers = ['opus', 'sol', 'luna', 'sonnet', 'astra', 'argon', 'wonder', 'fable']
+  const reports = JUMP_NAMES.slice(0, down).map((id, i) => JUMP_PROJECTS.test(id)
+    ? projectNode(id, 'stack16-agent-a')
+    : agent(id, 'stack16-agent-a', { tier: tiers[i % tiers.length], model_id: tiers[i % tiers.length],
+      mail_pending: [42, 16, 0, 38, 21, 0, 43, 32, 0, 29, 0, 15][i % 12], busy: i % 7 === 1 }))
+  const lead = agent('stack16-agent-a', up ? level(up) : 'boss', { tier: 'luna', model_id: 'luna', children: reports })
+  let top: unknown = lead
+  for (let i = up; i >= 1; i--) top = projectNode(level(i), i === 1 ? 'boss' : level(i - 1), [top])
+  const dogs = Array.from({ length: dogCount }, (_, i) => headDog('file', 'stack16-agent-a', `watch-${i + 1}`, { target: 'x.log' }))
+  return (
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
+      <CurrentOrg.Provider value="org">
+        <OrgCanvas tree={tree([top], dogs)} slug="org" op={() => Promise.resolve({} as OpResult)}
+          toast={noop} mailEvt={null} onOpenAgentGallery={noop} focusAgent="stack16-agent-a" />
+      </CurrentOrg.Provider>
+    </div>
+  )
 }
 
 function Activity() {
@@ -524,6 +564,7 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
       </AgentSurfaceRoutesProvider>
     </main>)
   : scene === 'activity' ? <Activity />
+  : scene === 'jumpscroll' ? <JumpScroll />
   : scene === 'slots' ? <Slots />
   : scene === 'multi-slots' ? <Slots multi />
   : scene === 'cardfix' ? <CardFix />

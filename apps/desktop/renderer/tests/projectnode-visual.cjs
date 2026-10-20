@@ -233,6 +233,113 @@ module.exports = async (page) => {
     }
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=jumpscroll: a desk on the canvas whose jump rows
+  // pass 8 rows of chips (docket desk-jump-cards-subordinate-and-superior-
+  // scroll-b, user 2026-10-20 09:41Z-09:50Z): 91 reports and 9 watchdogs
+  // (folded, then opened and scrolled by a real wheel to the "9 watchdogs"
+  // chip), exactly 8 rows, 12 cards, and 16 and 60 project levels above
+  // (the superior row folded and opened). `rows` measures each jump row;
+  // `wheel` turns the real mouse wheel over one and records the row, every
+  // scrolled ancestor and the canvas camera before and after.
+  if (only === 'jumpscroll') {
+    const DESK = '.sq.desk:not(.user) .desk-over'
+    const open = async (q) => {
+      await page.goto('/?scene=jumpscroll&' + q)
+      await page.waitFor(DESK + ' .desk-nav', { timeout: 20000 })
+      await page.sleep(1800)   // the focus glide lands
+      await settle()
+    }
+    const rows = () => page.eval((sel) => [...document.querySelectorAll(sel + ' .desk-nav')].map((r) => {
+      const box = r.getBoundingClientRect()
+      const tops = [...new Set([...r.children].map((c) => Math.round(c.getBoundingClientRect().top - box.top + r.scrollTop)))].sort((a, b) => a - b)
+      const s = getComputedStyle(r)
+      return { rows: tops.length, visible: tops.filter((t) => t < r.clientHeight - 1).length, clientHeight: r.clientHeight, scrollHeight: r.scrollHeight,
+        pitch: tops.length > 1 ? tops[1] - tops[0] : null, overflowY: s.overflowY, maxHeight: s.maxHeight, overscroll: s.overscrollBehaviorY,
+        background: s.backgroundColor, border: s.borderTopWidth + ' ' + s.borderLeftWidth, padding: s.padding,
+        chips: r.querySelectorAll('.desk-nav-chip').length, fold: r.querySelector('[data-audience-fold]')?.textContent ?? null,
+        first: r.querySelector('[data-copy-agent-name]')?.getAttribute('data-copy-agent-name') ?? null,
+        last: ([...r.children].at(-1)?.textContent ?? '').trim().slice(0, 40) }
+    }), DESK)
+    const state = (i) => page.eval((sel, k) => {
+      const r = document.querySelectorAll(sel + ' .desk-nav')[k]
+      const scrolled = []
+      for (let a = r.parentElement; a; a = a.parentElement) if (a.scrollTop || a.scrollLeft) scrolled.push(`${a.tagName.toLowerCase()}.${String(a.className).split(' ')[0]}:${a.scrollTop},${a.scrollLeft}`)
+      return { row: Math.round(r.scrollTop), scrolled, camera: document.querySelector('.space')?.style.transform ?? null }
+    }, DESK, i)
+    const wheel = async (i, notches) => {
+      const at = await page.eval((sel, k) => { const b = document.querySelectorAll(sel + ' .desk-nav')[k].getBoundingClientRect()
+        return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + Math.min(b.height / 2, 60)) } }, DESK, i)
+      const before = await state(i)
+      for (let n = 0; n < notches; n++) {
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX: 0, deltaY: 120 })
+        await page.sleep(120)
+      }
+      await page.sleep(500)
+      const after = await state(i)
+      return { notches, before, after, rowMoved: after.row !== before.row,
+        onlyRowMoved: JSON.stringify(after.scrolled) === JSON.stringify(before.scrolled) && after.camera === before.camera }
+    }
+    const unfold = (i) => page.eval(async (sel, k) => {
+      const f = document.querySelectorAll(sel + ' .desk-nav')[k].querySelector('[data-audience-fold]')
+      if (f && f.getAttribute('aria-expanded') !== 'true') f.click()
+      await new Promise((r) => setTimeout(r, 400))
+      return !!f
+    }, DESK, i)
+    const out = {}
+    // 91 reports and 9 watchdogs: folded, then opened, scrolled by the wheel, and at its end
+    await open('down=91&up=3&dogs=9')
+    out.many = { folded: await rows() }
+    screenshots.push(await page.screenshot(`${prefix}-jumpscroll-91-folded-dark-1000x700`))
+    out.many.unfolded = await unfold(1)
+    await settle()
+    out.many.open = await rows()
+    screenshots.push(await page.screenshot(`${prefix}-jumpscroll-91-dark-1000x700`))
+    out.many.wheel1 = await wheel(1, 1)
+    out.many.wheelEnd = await wheel(1, 30)
+    out.many.wheelPast = await wheel(1, 3)
+    await settle()
+    out.many.end = await rows()
+    screenshots.push(await page.screenshot(`${prefix}-jumpscroll-91-end-dark-1000x700`))
+    // how many cards fill exactly 8 rows at this width: the opened row without its cap (and so without a scrollbar)
+    const eight = await page.eval((sel) => {
+      const r = document.querySelectorAll(sel + ' .desk-nav')[1]
+      r.style.maxHeight = 'none'; r.scrollTop = 0
+      const box = r.getBoundingClientRect()
+      const items = [...r.children]
+      const tops = [...new Set(items.map((c) => Math.round(c.getBoundingClientRect().top - box.top)))].sort((a, b) => a - b)
+      const n = tops.length > 8 ? items.filter((c) => Math.round(c.getBoundingClientRect().top - box.top) < tops[8]).filter((c) => c.querySelector('.desk-nav-chip')).length : null
+      r.style.maxHeight = ''
+      return { rowsUncapped: tops.length, cardsIn8: n }
+    }, DESK)
+    out.eight = { ...eight }
+    if (eight.cardsIn8) {
+      await open(`down=${eight.cardsIn8}&up=3`)
+      await unfold(1)
+      await settle()
+      out.eight.open = await rows()
+      screenshots.push(await page.screenshot(`${prefix}-jumpscroll-8rows-dark-1000x700`))
+    }
+    // twelve cards: under 8 rows, as before
+    await open('down=12&up=3')
+    out.few = await rows()
+    screenshots.push(await page.screenshot(`${prefix}-jumpscroll-12-dark-1000x700`))
+    // sixteen project levels above: the superior row folded (the superior stays), then opened
+    await open('down=12&up=16')
+    out.up16 = { folded: await rows() }
+    screenshots.push(await page.screenshot(`${prefix}-jumpscroll-up16-folded-dark-1000x700`))
+    out.up16.unfolded = await unfold(0)
+    await settle()
+    out.up16.open = await rows()
+    screenshots.push(await page.screenshot(`${prefix}-jumpscroll-up16-open-dark-1000x700`))
+    // sixty levels: the superior row opened past 8 rows scrolls too
+    await open('down=12&up=60')
+    await unfold(0)
+    await settle()
+    out.up60 = { open: await rows() }
+    out.up60.wheel = await wheel(0, 2)
+    screenshots.push(await page.screenshot(`${prefix}-jumpscroll-up60-open-dark-1000x700`))
+    return { details: out, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=history: the desk's three tables with their
   // history (user 2026-10-20 06:22Z-06:42Z): the Mail tab's listeners in
   // ack mode (Working, Line, Dead Letter Line, Recently Finished) and in
