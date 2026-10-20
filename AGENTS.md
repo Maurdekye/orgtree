@@ -2534,17 +2534,21 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   folder grants, shell follows the bash switch, and neither claims an OS sandbox.
   Config-injected MCP is direct (`codemode:false`); the first prompt observes
   bridge initialize/tools-list plus a measured 250 ms catalog settle, or continues
-  after five seconds with an explicit unobserved-tools note. Queue mid-turn mail
-  for the next turn; never label it injected. Custom-provider cost/cache lifetime
+  after five seconds with an explicit unobserved-tools note. The owned mail hook
+  below replaces next-turn-only delivery on its verified version. Custom-provider cost/cache lifetime
   remain unknown. Credentials stay in isolated launch environment/config and
   launch directories are removed at teardown. See [ACP contract and evidence
   limits](docs/rust-engine/opencode-acp.md). [decided: user/coordinator 2026-10-13;
   verified from source: `runtime/{acp,acp_scope,opencode}.rs`, `bridge.rs`]
-- OpenCode's owned mail bridge has durable batch custody, atomic transcript/mail
-  acknowledgement and a bounded uncertain-recovery warning. Production remains
-  **disabled** pending the offline lifecycle proof; only the rig enables it. See
+- OpenCode 2.0.28 uses only the bundled plugin for mail between tool calls,
+  preserving DND/urgent filtering, durable batch identity and atomic transcript/mail
+  acknowledgement. Unknown admission returns once at the next turn, marked
+  "may already have been delivered mid-turn"; it never remains held indefinitely.
+  Other versions or an unavailable hook retain next-turn delivery. This replaces
+  the next-turn-only rule, not ACP itself; no tool boundary means no live delivery. See
   [plugin contract and limits](docs/rust-engine/opencode-mail.md).
-  [verified: `runtime/opencode_mail.rs`, `runtime/opencode.rs`, 2026-10-20]
+  [decided: user/coordinator 2026-10-20; verified: `runtime/opencode_mail.rs`,
+  `runtime/opencode.rs`, `tools/rig/proofs/opencode-mail.mjs`, 2026-10-20]
 - Far overview (`z < Z_MINI`) hides watchdog satellites/wires, presentation
   side chips, the switchboard's infinite credit bar, and hidden-retired list
   tokens when Hide Retired is on. The org-inbox mailbox becomes one globe

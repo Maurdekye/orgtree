@@ -5,6 +5,10 @@ Source audit: **2026-10-20**, `rust-engine` at
 the [glossary comparison](skills/orgtree-app/harnesses/harness-comparison/SKILL.md)
 is its shorter operational summary. Update both when an adapter changes.
 
+OpenCode mail was updated on 2026-10-20 at `181cb4914c5a2373fafc4ca1defe80c0919fbdfa`;
+[O-MAIL] and [O-MAIL-PROOF] cite that later contract and its offline measurement.
+Other source keys retain the original audit revision.
+
 This describes what **Orgtree actually implements**, not everything an upstream
 CLI might support. Five harnesses are registered: Claude Code, Codex CLI,
 Antigravity, Muse Code and OpenCode. **Gemini is a model family inside the
@@ -18,7 +22,8 @@ unchanged. **Implemented** means source-confirmed integration. **Unknown** means
 no verified contract in the cited integration; it does not mean zero, disabled
 upstream, or impossible. A dated native observation applies only to the measured
 version. No live credentials, provider calls or new CLI measurements were used
-for this audit.
+for the original audit. The later OpenCode mail proof uses the real 2.0.28
+CLI with an isolated engine and synthetic loopback model; no live auth.
 
 ## Execution, models and provider routes
 
@@ -44,11 +49,11 @@ message.
 
 | Feature | Claude Code | Codex CLI | Antigravity | Muse Code | OpenCode |
 | --- | --- | --- | --- | --- | --- |
-| Native message injection into the current turn | No exact-turn steer RPC used. Orgtree delivers mail at the PostToolUse hook boundary. Writing another user message queues a follow-up. [WAKE] [C-CONTROL] | **Yes:** `turn/steer` with `expectedTurnId`. [X-CONTROL] [STEER] | No exact-turn steer RPC used. Orgtree supplies mail through invocation hooks. [WAKE] [A-STEER] | **Yes:** `turn/steer` with `expectedTurnId`. [M-CONTROL] [STEER] | **No integration:** mail stays queued while a prompt is active. [WAKE] [O-RUN] |
-| Delivery failure / boundary | No tool boundary means hook mail may wait; no automatic interrupt merely because mail arrived. [WAKE] | Failed steer leaves mail pending; success is committed for that turn only. [STEER] | Pending file is committed only after the matching emitted receipt; unconsumed mail is returned. A hook may not run immediately. [A-STEER] | Same exact-turn custody rule as Codex. [STEER] | Delivered at a later turn; manual interrupt/follow-up remains a separate action. [WAKE] [O-RUN] |
+| Native message injection into the current turn | No exact-turn steer RPC used. Orgtree delivers mail at the PostToolUse hook boundary. Writing another user message queues a follow-up. [WAKE] [C-CONTROL] | **Yes:** `turn/steer` with `expectedTurnId`. [X-CONTROL] [STEER] | No exact-turn steer RPC used. Orgtree supplies mail through invocation hooks. [WAKE] [A-STEER] | **Yes:** `turn/steer` with `expectedTurnId`. [M-CONTROL] [STEER] | **Tool-boundary integration on 2.0.28:** the owned plugin calls native `session.prompt(delivery:"steer", resume:false)` after a tool; no ACP steer RPC. [O-MAIL] [O-MAIL-PROOF] |
+| Delivery failure / boundary | No tool boundary means hook mail may wait; no automatic interrupt merely because mail arrived. [WAKE] | Failed steer leaves mail pending; success is committed for that turn only. [STEER] | Pending file is committed only after the matching emitted receipt; unconsumed mail is returned. A hook may not run immediately. [A-STEER] | Same exact-turn custody rule as Codex. [STEER] | Stable ID/session deduplicates confirmed admission. Unknown recovery returns once next turn, marked "may already have been delivered mid-turn". Unsupported version/missing hook/no further tools means next-turn delivery. [O-MAIL] |
 | Mid-turn effort adjustment | **Eligible native Claude tiers only:** send `apply_flag_settings.effortLevel`; applies to a subsequent model call, not work already generated. “Sent” is not measured quality/effort. [EFFORT] [C-CONTROL] | Next turn; changed effort marks the process for replacement, then resumes the session where possible. [EFFORT] | Next turn/process configuration. [EFFORT] [A-RUN] | Next turn's `reasoningEffort`; host can stay running. [EFFORT] [M-CONTROL] | No negotiated live effort control; backend effect of a saved preference is **unknown**. [EFFORT] [O-LAUNCH] |
 | Interrupt mechanism | Control-channel interrupt; separate from process shutdown. [C-CONTROL] | `turn/interrupt` bound to thread/turn. [X-CONTROL] | Ends the CLI process/job tree; not a reversible pause in that process. [A-STOP] | `turn/interrupt`; separate stop support for background tasks. [M-CONTROL] | `session/cancel`; close also cancels an active prompt. [O-RUN] |
-| Do-not-disturb and urgent mail | Shared actor DND gate before delivery. [WAKE] | Same gate, then native steer if eligible. [WAKE] | Same gate, then hook delivery. [WAKE] | Same gate, then native steer if eligible. [WAKE] | Same gate; an urgent wake does not add an ACP steering API. [WAKE] |
+| Do-not-disturb and urgent mail | Shared actor DND gate before delivery. [WAKE] | Same gate, then native steer if eligible. [WAKE] | Same gate, then hook delivery. [WAKE] | Same gate, then native steer if eligible. [WAKE] | Rechecked at atomic hook claim; urgent bypasses DND, ordinary mail waits. No automatic interruption or polling. [O-MAIL] [O-MAIL-PROOF] |
 
 Interrupting does not undo a tool's external side effects. Neither an RPC response,
 hook receipt nor a transcript row proves that those effects were rolled back.
@@ -222,7 +227,8 @@ sandbox. [HOST]
   repaired email label does not freshen quota. Cache price/expiry remain unknown.
   Session 0 writable operation has a documented sandbox limitation. [M-CONTROL]
   [M-COMPACT] [M-USAGE] [FORECAST] [M-PERM]
-- **OpenCode:** custom providers over ACP only in this registry; no live steer,
+- **OpenCode:** custom providers over ACP; owned plugin mail at tool boundaries
+  on 2.0.28 with next-turn fallback otherwise [O-MAIL]. No live effort control,
   explicit session-load failure, and bounded bridge observation rather than a
   model-ready acknowledgment. Treat effort, native background parity and
   provider-cache expiry as unknown. [REG] [O-RUN] [O-LAUNCH] [FORECAST]
@@ -267,6 +273,8 @@ does not mean the associated native operation was executed during this audit.
 | [X-RUN] | `runtime/codex.rs:330-384` | Initialize, native skills, dynamic tools, thread start/resume |
 | [A-RUN] | `runtime/agy.rs:103-161` | Stream-JSON launch, model/effort/conversation and profile environment |
 | [M-RUN] | `runtime/muse.rs:550-638` | Required MSP capabilities, session MCP, resume/new and model setup |
+| [O-MAIL] | `runtime/opencode_mail.rs:1`, `runtime/opencode_mail_plugin.mjs:1`, `runtime/opencode.rs:55` at `181cb49` | Owned hook, exact-version gate, durable custody, DND/urgent filtering and bounded recovery |
+| [O-MAIL-PROOF] | `tools/rig/proofs/opencode-mail.mjs:1` at `e8f7ff4`; `docs/rust-engine/opencode-mail.md` | Dated offline 2.0.28 lifecycle proof and limitations |
 | [O-RUN] | `runtime/opencode.rs:42-155` | ACP setup, load/new/model, bridge observation, prompt/cancel |
 | [LOCAL] | `langserver.rs:102-106,201-213,305-326,393-454,995-1133` | Server protocols, installed harness, fixed route and model configuration |
 | [CAT] | `providers/catalog.rs:20-100,123-219` | Tier/provider metadata and effort mappings |
@@ -449,3 +457,6 @@ does not mean the associated native operation was executed during this audit.
 [HOST-STOP]: ../engine/rs/orgtree-engine/src/runtime/session_host.rs#L412
 [RECOVERY]: ../engine/rs/orgtree-engine/src/runtime/actor.rs#L7252
 [A-ADMISSION]: ../engine/rs/orgtree-engine/src/runtime/actor.rs#L4076
+
+[O-MAIL]: https://github.com/Maurdekye/orgtree/blob/181cb4914c5a2373fafc4ca1defe80c0919fbdfa/engine/rs/orgtree-engine/src/runtime/opencode_mail.rs#L1
+[O-MAIL-PROOF]: rust-engine/opencode-mail.md#measured-offline-proof-2026-10-20

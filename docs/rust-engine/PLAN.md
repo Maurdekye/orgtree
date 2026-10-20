@@ -289,6 +289,12 @@ split and add an admission backstop, with diagnostic stand-down reasons and no
 duplicate cut. Input-length refusals and language model server recovery retain
 their existing policies. See [context recovery](context-full-recovery.md).
 
+OpenCode mid-turn mail (user/coordinator 2026-10-20, 4.4.0): exactly 2.0.28
+uses an owned plugin after native tools, with DND/urgent filtering and durable
+identity. Unsupported/unavailable hooks keep next-turn delivery. Uncertain
+crash admission returns once next turn with an explicit possible-duplicate
+warning; no indefinite hold. See [contract and proof](opencode-mail.md).
+
 Node placement (user 2026-10-20 07:20Z/07:23Z): descendant promotion accepts
 projects, project restore honours explicit placement, and direct runtime
 controls clearly refuse containers. Seat swap remains agent-only. See

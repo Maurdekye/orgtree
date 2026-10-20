@@ -1,9 +1,10 @@
 # OpenCode owned mail plugin
 
-The plugin, private transport and durable engine custody are implemented, but
-**production activation remains disabled** until the offline lifecycle proof
-lands. Only the synthetic rig can enable the pinned 2.0.28 path in this slice.
-Ordinary production launches still use `plugins: []` and next-turn delivery.
+OpenCode **2.0.28** receives mail between native tool calls through Orgtree's
+bundled plugin. The engine checks both discovery and the running ACP handshake
+for that exact version. Other versions, a missing plugin API, or an unavailable
+private bridge retain ordinary next-turn delivery. Only this owned asset is
+enabled; third-party plugins remain disabled. ACP itself is unchanged.
 
 The dependency-free asset is `runtime/opencode_mail_plugin.mjs`. When explicitly
 installed by the engine, it registers `execute.after` through OpenCode's 2.x
@@ -78,5 +79,35 @@ at-least-once recovery, not an unconditional exactly-once promise.
 asset, real local pipe framing and handshake, bounded failure, ordered batches,
 racing hooks, and admission/acknowledgement retry. Its provider fixture models
 durable first-admission-wins storage. It is **not** an engine database restart
-proof, a DND implementation test, or a real OpenCode lifecycle proof. Those are
-required before enabling the plugin.
+proof, a DND implementation test, or a real OpenCode lifecycle proof.
+
+## Measured offline proof (2026-10-20)
+
+`tools/rig/proofs/opencode-mail.mjs --real-opencode <exe> --lifecycle` runs the
+real engine and an explicitly supplied OpenCode 2.0.28 executable against
+`tools/rig/opencode-synthetic.mjs`, a loopback model. Every profile and database
+belongs to the fixture; it does not use live authentication or a provider.
+The proof holds model requests open to observe mail before the original ACP
+prompt completes, rather than inferring injection from a later transcript.
+
+At proof commit `e8f7ff4`, the pre-change `1d5d3a4` engine passed six controls and
+failed exactly three expected checks: ordered in-turn input, acknowledgement
+before prompt completion, and urgent DND injection. The candidate passed all
+18 lifecycle checks, including failed-ack retry with one native message and
+one transcript row, cancellation reconciliation, and marked next-turn fallback
+after an engine crash. The existing fake-ACP proof passed 16 checks on the
+unsupported-version path. These used the default test stack; timings and raw
+receipts are retained in the author hand-in.
+
+The crash proof explicitly waits for discovery before its next wake. The existing
+startup auto-resume can race asynchronous OpenCode discovery and refuse a turn
+as not installed; this proof does not establish automatic restart resumption.
+Custody is released with its uncertainty marker before that next wake.
+The diagnostic privacy assertion excludes only the existing `/api/rig/tool`
+HTTP request logger's synthetic sender-input echoes, also seen on the baseline;
+all bridge diagnostics remain checked. It does not claim all engine logs are
+content-free.
+
+There is no background mail polling and no automatic interrupt on new mail.
+A turn with no further tool boundary receives mail on its next turn. A receipt
+proves provider admission, not that the model read or obeyed the message.

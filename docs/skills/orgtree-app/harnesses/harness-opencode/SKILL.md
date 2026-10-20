@@ -1,6 +1,6 @@
 ---
 name: orgtree-harness-opencode
-description: Explain OpenCode ACP reporting, queued mail, isolated custom-provider sessions and permission gotchas.
+description: Explain OpenCode ACP reporting, tool-boundary mail with next-turn fallback, isolated custom-provider sessions and permission gotchas.
 ---
 Up: [orgtree-harnesses](../SKILL.md)
 
@@ -12,7 +12,11 @@ OpenCode is an optional installed harness for [OpenRouter](../route-openrouter/S
 
 An isolated OpenCode ACP process speaks JSON-RPC. Orgtree initializes, loads an existing session or opens a new one, selects the model, then issues one `session/prompt` per turn. Ordered session updates arrive before the final prompt result. Session-load replay is suppressed; a failed load is explicit rather than silently opening a replacement conversation. Persistent isolated lane state holds resume history; temporary launch config is removed on teardown.
 
-There is no implemented mid-turn steering channel. Mail waits for the next turn. Manual interrupt sends `session/cancel`; ordinary close cancels an active prompt, drops the connection/stdin and waits five seconds before recorded forced termination if necessary. Cancellation is not an acknowledgement that queued mail entered the old prompt.
+On **OpenCode 2.0.28**, an Orgtree-owned plugin delivers mail after native tool calls using `session.prompt(delivery:"steer", resume:false)`. This is a plugin bridge, not a second ACP prompt while busy. DND holds ordinary mail; urgent mail passes the gate. No further tool boundary, another OpenCode version or an unavailable hook means ordinary next-turn delivery. It does not automatically interrupt or poll. [Owned bridge][O-MAIL].
+
+Stable message/session IDs deduplicate confirmed admission. An acknowledgement commits mail and its transcript together. Cancellation reconciles against the stopped process's isolated native history; uncertain admission after a crash returns once at the next turn, marked **"may already have been delivered mid-turn"**. This bounded recovery can repeat already-admitted input and never promises unconditional exactly-once delivery. [Recovery and offline evidence][O-MAIL-DOC].
+
+Manual interrupt sends `session/cancel`; ordinary close cancels an active prompt, drops the connection/stdin and waits five seconds before recorded forced termination if necessary. Cancellation is not an acknowledgement that queued mail entered the old prompt.
 
 ## Information and timing
 
@@ -36,7 +40,7 @@ Use the separate cheap-compact fresh-session/handoff workflow when authorized an
 
 ## Instructions and skills
 
-The private config supplies the Orgtree identity as the primary agent's `system` text. At `de6d356`, its `skills` list contains Orgtree's immutable shared skills root, with an allow rule for each exact discovered skill ID. Explicit `instructions` and plugin lists remain empty, project OpenCode config is disabled, and private homes/config/cache/state prevent inheriting the user's OpenCode login or project mutation settings. The native loader contract was checked against OpenCode 2.0.28; every older version's behavior is unknown. Source: `runtime/opencode.rs:255`, `runtime/actor.rs:2827` at `de6d356`.
+The private config supplies the Orgtree identity as the primary agent's `system` text. At `de6d356`, its `skills` list contains Orgtree's immutable shared skills root, with an allow rule for each exact discovered skill ID. Explicit `instructions` remain empty. Only the bundled mail plugin is enabled on its verified version; all third-party plugins remain disabled. Project OpenCode config is disabled, and private homes/config/cache/state prevent inheriting the user's OpenCode login or project mutation settings. The native loader contract was checked against OpenCode 2.0.28; every older version's behavior is unknown. Source: `runtime/opencode.rs:255`, `runtime/actor.rs:2827` at `de6d356`.
 
 At `7f5f27f`, personal globals from all harnesses are supplied read-only in Orgtree's identity despite the isolated native config. `Inputs::None` now describes only the absent native manifest; the enclosing shared startup snapshot still captures personal-global text and its fingerprint together. Edits reach the next permitted startup boundary and can change prefix/cache continuity. Source: `runtime/actor.rs:1939`, `runtime/startup.rs:58`/`:81`.
 
@@ -57,7 +61,7 @@ The custom model comes from the selected OpenRouter/local route with explicit co
 Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a different source/date is named.
 
 - **Imported skills have a launch boundary and version contract:** at `de6d356`, private config supplies snapshot roots and exact skill-ID allow rules, replacing the old empty-root behavior. Refresh does not reload the current turn; use the next permitted launch boundary, or explicitly read an authorized file when needed. The checked loader is OpenCode 2.0.28; model selection of a skill and compatibility with every older version are not established. Native default/project discovery is not proved disabled. See [skills and instructions](../../providers/skills-and-instructions/SKILL.md). Source: `runtime/opencode.rs:255`, `runtime/actor.rs:2827`, `docs/rust-engine/shared-skills.md` at `de6d356`.
-- **No live mail steer:** wait for the next turn, or deliberately interrupt at a tool-call boundary and send follow-up input when urgent. The current adapter does not automatically interrupt on new mail. Do not assume a cancelled command's side effects rolled back. Source: `runtime/actor.rs:1414`, `runtime/opencode.rs:139`, `runtime/actor.rs:3346`.
+- **Delivery needs a boundary:** the 2.0.28 hook runs after a tool completes or fails. A long model response or tool can delay mail, including urgent mail; another version falls back to the next turn. Confirmed delivery means provider admission, not obedience. Do not assume a cancelled command's side effects rolled back. [Owned bridge][O-MAIL].
 - **Tools may appear late:** startup waits up to five seconds for bridge initialize/tools-list and then 250 ms to settle. This observes the handshake, not the model's catalog. A timeout continues with an explicit tools-may-appear-late note. Source: `runtime/opencode.rs:81`, `runtime/opencode.rs:127`.
 - **Code Mode is not direct tool approval:** do not bypass a denial by wrapping it in `execute`; bypass mode intentionally changes the policy and is not a folder-scope workaround. Source: `runtime/acp_scope.rs:35`, `runtime/opencode.rs:251`.
 - **Unknown price/TTL:** consult the provider key's standing rather than treating custom-provider zero cost or cached-token counts as a billing/cache guarantee. Source: `runtime/acp.rs:282`, `runtime/actor.rs:6800`.
@@ -69,3 +73,6 @@ Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a dif
 - [orgtree-harness-comparison](../harness-comparison/SKILL.md)
 - [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)
 - [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
+
+[O-MAIL]: https://github.com/Maurdekye/orgtree/blob/181cb4914c5a2373fafc4ca1defe80c0919fbdfa/engine/rs/orgtree-engine/src/runtime/opencode_mail.rs#L1
+[O-MAIL-DOC]: https://github.com/Maurdekye/orgtree/blob/rust-engine/docs/rust-engine/opencode-mail.md

@@ -10,7 +10,9 @@ This is the operational summary of the developer harness parity reference, `docs
 audited **2026-10-20 at `32bb4144e0337a3c425e71515863a3412bf77987`**.
 Its matrices cite the implementation, recorded decisions and dated native
 observations. The links below pin evidence to that source revision; the developer document contains the full file:line index and limitations.
-Update both pages when behavior changes.
+Update both pages when behavior changes. OpenCode mail was updated on 2026-10-20
+at `181cb49`; [O-MAIL] pins the later implementation and its detailed page
+records the offline 2.0.28 evidence and limits.
 
 There are **five harnesses**: Claude Code, Codex CLI, Antigravity, Muse Code and
 OpenCode. Gemini models run through Antigravity here. OpenRouter and language
@@ -25,7 +27,7 @@ the upstream CLI cannot do it. “Delivered” means accepted input, not obedien
 
 | Feature | Claude Code | Codex CLI | Antigravity | Muse Code | OpenCode |
 | --- | --- | --- | --- | --- | --- |
-| Mid-turn **message** steering | Hook mail at PostToolUse; another user message is a follow-up. [WAKE] | Native exact-turn `turn/steer`. [X-CONTROL] | Invocation hooks with receipt-backed pending mail. [A-STEER] | Native exact-turn `turn/steer`. [M-CONTROL] | Queued until a later turn; no native steer integration. [O-RUN] |
+| Mid-turn **message** steering | Hook mail at PostToolUse; another user message is a follow-up. [WAKE] | Native exact-turn `turn/steer`. [X-CONTROL] | Invocation hooks with receipt-backed pending mail. [A-STEER] | Native exact-turn `turn/steer`. [M-CONTROL] | Owned plugin after tools on 2.0.28, using native steer delivery; unsupported/unavailable hooks retain next-turn mail. [O-MAIL] |
 | Mid-turn **effort** change | Eligible native Claude tiers only; next model call, “sent” is not measured effect. [EFFORT] | Next turn; process replacement/resume. [EFFORT] | Next launch/turn. [EFFORT] | Next turn, host may remain. [EFFORT] | Generic effort negotiation unknown. [O-EFFORT] |
 | Fast mode | Exact native supported Opus models and acknowledged control. [FAST] | Native OpenAI model must advertise fast/priority service. [FAST] | No mapping. [FAST] | No mapping. [FAST] | No mapping. [FAST] |
 | MCP readiness | Bounded status gate before first prompt; no-pending can include failed servers, so “ready” is not all-tools-success. [C-MCP] | Dynamic tools supplied at setup; no universal external-MCP ready barrier. [X-RUN] | Bridge configured; no all-tools-ready acknowledgment. [A-MCP] | Session MCP capability/config acceptance; not catalog readiness proof. [M-RUN] | Bounded bridge handshake observation; tools may still appear late. [O-RUN] |
@@ -36,7 +38,10 @@ the upstream CLI cannot do it. “Delivered” means accepted input, not obedien
 | Interrupt | Control interrupt. [C-CONTROL] | Exact-turn interrupt. [X-CONTROL] | Stops process tree. [A-STOP] | Turn interrupt; separate background-task controls. [M-CONTROL] | Session cancel. [O-RUN] |
 
 No automatic interrupt-on-mail feature is implied by the hook workaround.
-DND is checked before delivery. Live shell tails are bounded and ephemeral, not a complete terminal recording. [SHELL] A manual interrupt does not undo external tool
+DND is checked before delivery. The OpenCode hook rechecks it at atomic claim;
+urgent mail bypasses DND. Stable IDs deduplicate confirmed admission, while
+uncertain recovery returns once next turn labelled "may already have been
+delivered mid-turn". No tool boundary means no live delivery. [O-MAIL] Live shell tails are bounded and ephemeral, not a complete terminal recording. [SHELL] A manual interrupt does not undo external tool
 effects. Thinking-token counts alone do not imply visible thinking text.
 Control and transcript contracts [WAKE], thinking limits [A-THOUGHT] [A-HISTORY].
 
@@ -159,3 +164,5 @@ Cache evidence and implementation discrepancy [FORECAST].
 [X-STOP]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/codex.rs#L456
 [X-TOOLS]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L5993
 [X-USAGE]: https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/usage.rs#L904
+
+[O-MAIL]: https://github.com/Maurdekye/orgtree/blob/181cb4914c5a2373fafc4ca1defe80c0919fbdfa/engine/rs/orgtree-engine/src/runtime/opencode_mail.rs#L1

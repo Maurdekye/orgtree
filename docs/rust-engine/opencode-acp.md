@@ -49,8 +49,11 @@ requests invalidate the connection so late output cannot become another turn's
 output. Shutdown closes stdin first and uses the existing recorded forced-kill
 path only after a bounded graceful wait.
 
-ACP has no measured mid-turn steering primitive. Mail arriving during a prompt
-waits for the next turn; it must never be labelled injected into the current turn.
+ACP has no measured mid-turn steering primitive. The
+[owned OpenCode mail plugin](opencode-mail.md) adds tool-boundary delivery on
+exactly OpenCode 2.0.28, with durable custody, DND filtering and bounded recovery.
+Other versions or unavailable hooks keep next-turn delivery; do not label
+queued mail injected into the current turn.
 Usage comes from per-prompt results, not cumulative context updates. Custom
 provider zero cost has no verified price provenance and is unknown. The provider
 key's own usage remains authoritative. Effort must use a negotiated supported
