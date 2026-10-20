@@ -17,6 +17,7 @@ Runtime > Notifications controls native desktop alerts for every organization on
 | Urgent mail | `np:notifyUrgentMail` | On | Mail marked urgent for the user. All mail also permits this kind. |
 | Terminal failures | `np:notifyTerminalFailures` | On | Terminal-failure alerts. |
 | Docket attention | `np:notifyDocketAttention` | On | Work-item attention alerts. |
+| Mentions | `np:notifyMentions` | On | Plain @user mentions in agent replies, mail, presented documents or docket updates. Backticks/code spans and fenced code stay literal and do not create mention alerts. |
 | All mail | `np:notifyAllMail` | Off | Routine mail alerts, and urgent mail even when its own toggle is Off. |
 | New presented document | `np:notifyDocuments` | Off | A newly presented document's alert. |
 | Agent frozen | `np:notifyFrozen` | Off | Agent-freeze alerts. |

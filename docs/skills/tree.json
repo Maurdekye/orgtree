@@ -3978,6 +3978,7 @@
     "np:notifyUrgentMail",
     "np:notifyTerminalFailures",
     "np:notifyDocketAttention",
+    "np:notifyMentions",
     "np:notifyAllMail",
     "np:notifyDocuments",
     "np:notifyFrozen",
@@ -4017,6 +4018,10 @@
     {
      "file": "packages/contracts/notifications.ts",
      "label": "Docket attention"
+    },
+    {
+     "file": "packages/contracts/notifications.ts",
+     "label": "Mentions"
     },
     {
      "file": "packages/contracts/notifications.ts",
@@ -4073,6 +4078,13 @@
      "file": "packages/contracts/notifications.ts",
      "needles": [
       "notifyDocketAttention"
+     ]
+    },
+    {
+     "key": "np:notifyMentions",
+     "file": "packages/contracts/notifications.ts",
+     "needles": [
+      "notifyMentions"
      ]
     },
     {
