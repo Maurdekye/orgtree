@@ -20,7 +20,7 @@ import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
 import { LiveTokenContext, TokenCount } from './tokencount'
 import { contextReading } from '../tokenmetrics'
-import { CompactingLine, newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
+import { CompactingLine, formatDuration, formatSeconds, newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
 import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
 import { useRecordsEnabled } from '../recordpanelhooks'
@@ -4167,7 +4167,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               ? (row.text
                 ? <ThoughtBody text={row.text} live />
                 : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…
-                    {thinkSecs !== null && thinkSecs > 0 ? ` for ${thinkSecs}s` : ''}</div>)
+                    {thinkSecs !== null && thinkSecs > 0 ? ` for ${formatSeconds(thinkSecs)}` : ''}</div>)
               // render-inline-html-custom-responses: these transient rows are
               // always 'system' (starting/error) or 'assistant' (draft/delta)
               // — capture_reply_stream never produces 'user' here — but the
@@ -5100,7 +5100,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
         {t.diff && <span className="tdiffn"> +{t.diff.plus} −{t.diff.minus}</span>}
         {t.task && (
           <span className="dim"> · {t.task.tools ?? '?'} tools
-            {t.task.ms ? ` · ${Math.round(t.task.ms / 1000)}s` : ''}
+            {t.task.ms ? ` · ${formatDuration(t.task.ms)}` : ''}
             {t.task.tokens ? ` · ${Math.round(t.task.tokens / 1000)}k tok` : ''}</span>)}
         {(t.images ?? 0) > 0 && <span className="dim"> · {t.images} image{t.images === 1 ? '' : 's'}</span>}
         {(t.error || shellError) && <span className="terrtxt"> ⊘ {shellError ? 'an error occurred' : t.error}</span>}
@@ -5282,7 +5282,7 @@ function ThoughtBody({ text, live = false }: { text: string; live?: boolean }) {
 function ThoughtLine({ text, secs, sealed, foldKey, tokens }:
 { text?: string; secs?: number; sealed?: boolean; foldKey?: string; tokens?: number }) {
   const [open, toggleOpen] = useFold(foldKey)
-  const dur = secs ? `${secs}s` : 'a moment'
+  const dur = secs ? formatSeconds(secs) : 'a moment'
   if (sealed || !text) {
     return (
       <div className="thoughtwrap">

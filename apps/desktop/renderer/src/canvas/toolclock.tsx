@@ -53,6 +53,12 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
 }
 
+/** Whole-second live clocks and recorded thought seconds retain their short
+ *  form, sharing the finished-call minute/hour format once they reach 60s. */
+export function formatSeconds(seconds: number): string {
+  return seconds < 60 ? `${seconds}s` : formatDuration(seconds * 1000)
+}
+
 /** How long a finished call took, from the engine's recorded start and result
  *  stamps; '' when either is missing (older rows, an interrupted call). */
 export function executionTime(startedAt?: unknown, endedAt?: unknown): string {
@@ -112,7 +118,7 @@ function useLiveDuration(startedAt?: string, active = true): string {
     tick()
     return () => clearTimeout(timer)
   }, [active, start])
-  return active && Number.isFinite(start) ? `${Math.floor(Math.max(0, now - start) / 1000)}s` : ''
+  return active && Number.isFinite(start) ? formatSeconds(Math.floor(Math.max(0, now - start) / 1000)) : ''
 }
 
 /** Generation starts immediately at the observed block start, never after a
