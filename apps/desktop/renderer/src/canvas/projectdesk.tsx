@@ -597,13 +597,18 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
   const [purging, setPurging] = useState(false)
   const mailListeners = mailListenerState(node.id, tree.watchdogs ?? [])
   const waiting = node.mail_pending ?? 0
+  // the Mail tab's header row is the folder strip: the project's own controls end
+  // it, left of the tab's pin / pop-out / modal buttons (docket
+  // slots-tab-header-hold-n-slots-button-with-number, USER 2026-10-20 16:39Z)
+  // on every folder, so the row never jumps: waiting mail nobody holds yet can
+  // be purged (user 2026-10-18 08:11Z), and the user joins the mail queue
+  const folderTools = node.state === 'live' ? <>
+    {waiting > 0 && <button type="button" className="danger project-queue-purge" data-action="purge-queue" onClick={() => setPurging(true)}
+      title="retract every mail waiting in this project's queue; mail already handed to an agent stays">
+      Purge waiting mail</button>}
+    <MailQueueJoin node={node} state={mailListeners} ack={queueAckMode(node)} op={op} toast={toast} />
+  </> : undefined
   return <>
-    {/* waiting mail nobody holds yet can be purged (user 2026-10-18 08:11Z) */}
-    {node.state === 'live' && waiting > 0 && <div className="project-queue-tools">
-      <button type="button" className="danger" data-action="purge-queue" onClick={() => setPurging(true)}
-        title="retract every mail waiting in this project's queue; mail already handed to an agent stays">
-        Purge waiting mail</button>
-    </div>}
     <InboxView slug={slug} nid={node.id} projectMail unreadCount={node.mail_pending} toast={toast} collapsible={collapsible}
       tierOf={(id) => {
         const n = map.get(id)
@@ -614,9 +619,8 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
         // rethrow: InboxView's optimistic hide rolls back on rejection
         .catch((e: Error) => { toast([`error: ${e.message}`]); throw e }) : undefined}
       jumpTo={jumpTo ?? null} jumpSeq={jumpSeq ?? null}
-      onFolderPick={onPickFolder}
+      onFolderPick={onPickFolder} folderTools={folderTools}
       extraFolders={[{ id: 'listeners', count: mailListeners.armed.length,
-        tools: node.state === 'live' ? <MailQueueJoin node={node} state={mailListeners} op={op} toast={toast} /> : undefined,
         render: (rows) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
           rows={rows} ack={queueAckMode(node)} onOpenMail={onOpenMail} op={op} toast={toast} dogs={tree.watchdogs ?? []} refs={refs} /> }]}
       folderAsk={folderAsk} />
@@ -856,7 +860,8 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
       {shown === 'slots' && <SlotsView node={node} state={slots} map={map} onJump={onJump} op={op} toast={toast} refs={refs}
         actions={<PanelCorner kind="project-slots" slug={slug} nid={node.id} />} />}
       {shown === 'dead' && <DeadLettersView node={node} map={map} onJump={onJump} op={op} toast={toast} />}
-      {shown === 'listeners' && <ListenersView node={node} dogs={tree.watchdogs ?? []} map={map} onJump={onJump} op={op} toast={toast} refs={refs} />}
+      {shown === 'listeners' && <ListenersView node={node} dogs={tree.watchdogs ?? []} map={map} onJump={onJump} op={op} toast={toast} refs={refs}
+        actions={<PanelCorner kind="project-listeners" slug={slug} nid={node.id} />} />}
       {/* the members' jump cards under every tab, above the message box, as
           the agent desk's reports are (user 2026-10-19 19:58Z: "superior and
           subordinate jump cards persist across agent desk tabs, should be the

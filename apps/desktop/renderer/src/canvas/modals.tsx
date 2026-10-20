@@ -69,9 +69,8 @@ export interface ConfirmModalProps {
   confirmDisabled?: boolean
   confirmTitle?: string
   altDisabled?: boolean
-  /** a FORM dialog, not a destructive confirmation (the user's own slot hold,
-   *  listener, watch and queue place; canvas/userdialogs.tsx): its main button
-   *  is the primary action, and focus opens on its first field */
+  /** a FORM dialog, not a destructive confirmation: its main button is the
+   *  primary action, and focus opens on its first field */
   form?: boolean
   close: () => void
   /** FR-24: an optional SECOND way through — same confirmation gate, a

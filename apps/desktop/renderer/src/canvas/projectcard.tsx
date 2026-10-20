@@ -25,7 +25,6 @@ import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
 import type { RefRoutes } from './reflinks'
 import { ProjectActivity, ProjectDesk, projectDeskTabs, ProjectLastActivity } from './projectdesk'
 import type { ProjectDeskTab } from './projectdesk'
-import { rememberDesk } from './desktabs'
 import { PinnedPlaceholder } from './pins'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
@@ -143,9 +142,6 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   // Team, Slots and Listeners shortcuts exactly while the desk offers those
   // tabs (user 2026-10-20 09:24Z)
   const deskTabs: ProjectDeskTab[] = shortcuts ? projectDeskTabs(node, map ?? new Map()) : []
-  // Listeners has no window of its own: its shortcut opens the desk on that
-  // tab, as the menu's Desk glance where offered, else by walking to it
-  const openListeners = onOpenTemporary ?? onFocus
   const cardRef = useRef<HTMLDivElement>(null)
   const [nameHover, setNameHover] = useState(false)
   const [nameFocus, setNameFocus] = useState(false)
@@ -183,6 +179,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     onTeam: onTeam ? () => onTeam(true) : undefined,
     onDocket: onDocket ? () => onDocket(true) : undefined,
     onSlots: surfaceRoutes ? () => surfaceRoutes.open('project-slots', node.id) : undefined,
+    onListeners: surfaceRoutes ? () => surfaceRoutes.open('project-listeners', node.id) : undefined,
     onScratchFolder: scratchFolderAction(slug, node.id, toast, 'team'),
     onPresentations: onOpenGallery ? () => onOpenGallery(node.id, { keepOpen: true }) : undefined,
     onTeamPresentations: onOpenGallery ? () => onOpenGallery(node.id, { team: true, keepOpen: true }) : undefined,
@@ -291,16 +288,11 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
                 onClick={(e) => { e.stopPropagation(); surfaceRoutes.open('project-slots', node.id) }}>
                 <ViewListIcon fontSize="inherit" />
               </button>}
-            {openListeners && deskTabs.includes('listeners') &&
+            {surfaceRoutes && deskTabs.includes('listeners') &&
               <button className="mailbtn listenersbtn" aria-label={`listeners of project ${node.id}`}
-                title={`open project ${node.id}'s desk on its Listeners tab: the agents listening for its events`}
+                title={`open the event listeners of project ${node.id}: the agents listening for its events`}
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  // the desk reads its opening tab from memory as it mounts
-                  rememberDesk(slug, node.id, 'tab', 'listeners')
-                  openListeners()
-                }}>
+                onClick={(e) => { e.stopPropagation(); surfaceRoutes.open('project-listeners', node.id) }}>
                 <ListenersIcon fontSize="inherit" />
               </button>}
           </div>}

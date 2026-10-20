@@ -25,7 +25,7 @@
 import { createContext, useContext, useSyncExternalStore } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { SurfaceOrigin } from '../popout'
-import { DocIcon, DocketIcon, MailIcon, PinIcon, ViewListIcon } from '../icons'
+import { DocIcon, DocketIcon, ListenersIcon, MailIcon, PinIcon, ViewListIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { detachedPanel, revealSurface, subscribeWindows, windowRevision } from '../windowlife'
 import {
@@ -37,7 +37,7 @@ import {
  *  own. The string is the modal's PinFrame `kind` — the same identity its pin
  *  geometry, its open marker and its saved window are all stored under, so
  *  there is no second name for a surface anywhere in this file. */
-export type AgentPanelKind = 'agent-gallery' | 'agent-docket' | 'node-inbox' | 'agent-team' | 'project-slots'
+export type AgentPanelKind = 'agent-gallery' | 'agent-docket' | 'node-inbox' | 'agent-team' | 'project-slots' | 'project-listeners'
 
 /** How the shell opens each of these surfaces. The desk cannot open any of them
  *  itself — the modals are owned by App/OrgCanvas — and it must not invent a
@@ -74,6 +74,9 @@ export const useAgentSurfaceRoutes = (): AgentSurfaceRoutes | null => useContext
  *  on every surface, keep the one glyph each already has elsewhere. */
 const PANELS: Record<AgentPanelKind, { noun: string; icon: ReactNode }> = {
   'project-slots': { noun: 'slots', icon: <ViewListIcon fontSize="inherit" /> },
+  // a project's event listeners (docket slots-tab-header-hold-n-slots-button-with-number,
+  // USER 2026-10-20 16:43Z: "add pin pop & modal buttons for this screen")
+  'project-listeners': { noun: 'listeners', icon: <ListenersIcon fontSize="inherit" /> },
   'agent-team': { noun: 'team', icon: <ViewListIcon fontSize="inherit" /> },
   'agent-gallery': { noun: 'presented documents', icon: <DocIcon fontSize="inherit" /> },
   'agent-docket': { noun: 'docket', icon: <DocketIcon fontSize="inherit" /> },
@@ -97,6 +100,7 @@ function tabOrigin(button: HTMLElement): SurfaceOrigin | undefined {
 
 const PANEL_TABS: Readonly<Record<string, AgentPanelKind | undefined>> = {
   inbox: 'node-inbox', docket: 'agent-docket', presented: 'agent-gallery', team: 'agent-team', slots: 'project-slots',
+  listeners: 'project-listeners',
 }
 /** Both kinds of desk use the same mapping and activation rule. A missing
  * panel leaves normal inline tab selection intact. */

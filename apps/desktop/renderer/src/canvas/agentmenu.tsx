@@ -42,6 +42,7 @@ import { ConfirmModal } from './modals'
 import { AgentCompactConfirm } from './agentcompact'
 import { effectiveReports, fmtCredits, hireTierChoices, tierLabel, USER } from './shared'
 import { slotCount } from './slots'
+import { eventListenersOn } from './listeners'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
 
 /** Which lifecycle confirm the menu decided on. The choice is the BUILDER's
@@ -65,6 +66,8 @@ export interface AgentMenuHandlers {
   onTeamScratchFolder?: () => void
   onDocket?: () => void
   onSlots?: () => void
+  /** a project's event listeners window (Open > Listeners while the setting is on) */
+  onListeners?: () => void
   /** the reduced docket for this agent's WHOLE TEAM — it and everyone below
    *  it. For 2.1.5-RC1 this menu entry is the only door to that view, so the
    *  gate is the handler: a surface that cannot open the panel (or a viewer
@@ -409,6 +412,10 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const docket = h.onDocket
   if (docket) open.push({ label: 'Project docket', onSelect: () => docket() })
   if (slotCount(node) > 0 && h.onSlots) open.push({ label: 'Slots', onSelect: h.onSlots })
+  // its event listeners' own window, while they are on, as the desk's tab
+  // (USER 2026-10-20 16:58Z "projects need an Open > Listeners entry in their
+  // context menu (when enabled)"; a window like Slots, coordinator 17:03Z)
+  if (eventListenersOn(node) && h.onListeners) open.push({ label: 'Listeners', onSelect: h.onListeners })
   entries.push({ label: 'Open', submenuOnly: !temp, onSelect: () => temp?.(), children: open,
     title: temp ? 'Click to open the temporary desk; hover or press Right to choose what to open' : undefined })
   const hire = h.onHire

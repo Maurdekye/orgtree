@@ -25,17 +25,18 @@
 // long that listener had listened.
 //
 // The user registers an event listener and a listener watch themselves (docket
-// let-the-user-manually-hold-a-number-of-a-project; USER 2026-10-20 13:03Z,
-// 13:22Z "B": focused Add dialogs; fires arrive as normal mail in their
-// inbox): "Register event listener…" and "Register listener watch…", each
-// offered while they have none. Their rows name the engine's "user" as the
+// let-the-user-manually-hold-a-number-of-a-project; USER 2026-10-20 13:03Z;
+// fires arrive as normal mail in their inbox) from the header row's one
+// "Register…" menu, left of the tab's pin / pop-out / modal buttons (USER
+// 16:43Z, docket slots-tab-header-hold-n-slots-button-with-number:
+// registermenu.tsx); the tab, its standalone modal and its window share this
+// view (listenerspanel.tsx). Their rows name the engine's "user" as the
 // standard @user mention (13:50Z, never "you"), and an Action column, present
 // while they have a registration, carries each one's remove; an agent's rows
 // keep their links and menus.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { UIEvent } from 'react'
-import { createPortal } from 'react-dom'
+import type { ReactNode, UIEvent } from 'react'
 import type { ToastFn, Watchdog } from '../types'
 import type { CanvasNode, OpFn } from './shared'
 import { AgentLink, nodeTierOf } from './identity'
@@ -51,7 +52,7 @@ import { resolveRef } from './reflinks'
 import type { RefRoutes } from './reflinks'
 import { fmtFull } from '../timefmt'
 import { UserMention, isUserName } from './usermention'
-import { RegisterListenerDialog, RegisterWatchDialog } from './userdialogs'
+import { RegisterMenu } from './registermenu'
 
 /** One listener a kept fire names (engine `listeners::heard_entry`). */
 export interface FiredListener {
@@ -99,11 +100,13 @@ function FireMail({ agent, mail, gone, refs }: { agent: string; mail?: string; g
     title={`fire mail · unavailable: ${gone ? `it is no longer in ${agent}'s mailbox` : r ? r.why : 'mail is not opened from here'}`}>fire mail · unavailable</span>
 }
 
-export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
+export function ListenersView({ node, dogs, map, onJump, op, toast, refs, actions }: {
   node: CanvasNode; dogs: Watchdog[]; map: Map<string, CanvasNode>
   onJump?: (id: string) => void; op: OpFn; toast: ToastFn
   /** the surface's references: a fire mail opens in its listener's Mail tab */
   refs?: RefRoutes
+  /** the tab's pin / pop-out / modal buttons (PanelCorner), at the header row's end */
+  actions?: ReactNode
 }) {
   useSyncExternalStore(subscribeAgeClock, ageClockNow, ageClockNow)
   const [text, setText] = useState('')
@@ -113,7 +116,6 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
   const [open, setOpen] = useState<Set<number>>(() => new Set())
-  const [registering, setRegistering] = useState<'listener' | 'watch' | null>(null)
   const generation = useRef(0), paging = useRef(false)
   // the host may hand a new `op` each render: read through a ref
   const opRef = useRef(op); opRef.current = op
@@ -164,9 +166,9 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
   // the user's own registrations, ended by them from an Action column
   const myListener = state.listeners.find((w) => isUserName(w.owner))
   const myWatch = state.watches.find((w) => isUserName(w.owner))
-  const actions = !!myListener || !!myWatch
+  const ownRows = !!myListener || !!myWatch
   const cols = ['Position', 'Agent', 'Waited', 'Last fired', ...(mailing ? ['Mail'] : []), ...(watching ? ['Armed'] : []), 'Fired',
-    ...(firing ? ['On fire'] : []), 'Watchdog', ...(actions ? ['Action'] : [])]
+    ...(firing ? ['On fire'] : []), 'Watchdog', ...(ownRows ? ['Action'] : [])]
   const n = cols.length
   const afterLast = n - 4   // the columns after Last fired
   const fire = () => {
@@ -192,14 +194,6 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
       .then(() => { toast([`your ${w.kind === 'listener_watch' ? 'listener watch' : 'event listener'} on project ${node.id} removed`]); setBump((b) => b + 1) })
       .catch(() => {})
   }
-  const register = {
-    listener: (once: boolean) => op({ op: 'user_listener_register', node: node.id, once })
-      .then(() => { toast([`registered as an event listener of project ${node.id}${once ? ' (next event only)' : ''}`]); setBump((b) => b + 1) })
-      .catch(() => {}),
-    watch: (count: number) => op({ op: 'user_watch_register', node: node.id, count })
-      .then(() => { toast([`registered a listener watch on project ${node.id} for ${count} event listener${count === 1 ? '' : 's'}`]); setBump((b) => b + 1) })
-      .catch(() => {}),
-  }
   const row = (w: Watchdog, watch: boolean) => {
     const tools = fireActionTools(w)
     const mine = isUserName(w.owner)
@@ -221,7 +215,7 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
           {tools.join(', ')}</td>}
         <td className="listener-dog-cell"><WatchdogLink dog={w} className="listener-dog" atDestination={mine} />
           {w.notice && <span className="dim"> passive</span>}</td>
-        {actions && <td className="slot-action">{mine && <button type="button" data-action="remove-registration"
+        {ownRows && <td className="slot-action">{mine && <button type="button" data-action="remove-registration"
           title={`remove this ${watch ? 'listener watch' : 'event listener'}: it stops listening on project ${node.id}`}
           onClick={() => removeOwn(w)}>remove</button>}</td>}
     </>)
@@ -247,7 +241,7 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
       <td className="listener-fired"/>
       {firing && <td className="listener-actions"/>}
       <td className="listener-dog-cell">{keptDog(l, 'project_listener')}</td>
-      {actions && <td className="slot-action"/>}
+      {ownRows && <td className="slot-action"/>}
     </tr>
   )
   const fireRows = (f: FiredRow) => {
@@ -265,7 +259,7 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
         <td className="listener-fired"/>
         {firing && <td className="listener-actions"/>}
         <td className="listener-dog-cell">{keptDog({ agent: f.watch.agent, dog: f.watch.dog, name: f.watch.name }, 'listener_watch')}</td>
-        {actions && <td className="slot-action"/>}
+        {ownRows && <td className="slot-action"/>}
       </tr>
     ) : (
       <tr key={f.id} className="slot-row listener-row fired-row event" data-fire={f.id}>
@@ -286,14 +280,8 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
   }
   return (
     <div className="desk-tabpanel project-listeners" onScroll={onScroll}>
-      {live && (!myListener || !myWatch) && <div className="user-reg-tools">
-        {!myListener && <button type="button" data-action="register-listener"
-          title={`listen for project ${node.id}'s events: each arrives as normal mail in your inbox`}
-          onClick={() => setRegistering('listener')}>Register event listener…</button>}
-        {!myWatch && <button type="button" data-action="register-watch"
-          title={`be notified in your inbox when ${node.id} has a set number of event listeners armed`}
-          onClick={() => setRegistering('watch')}>Register listener watch…</button>}
-      </div>}
+      {(live || actions) && <div className="team-tab-toolbar" role="toolbar" aria-label="Listeners view controls">
+        {live && <RegisterMenu node={node} state={state} op={op} toast={toast} />}{actions}</div>}
       <div className="listener-fire">
         <input type="text" value={text} disabled={!live || busy}
           placeholder={`message for ${node.id}'s listeners (optional)`}
@@ -309,7 +297,7 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
           <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/><col className="slot-col-ended"/>
             {mailing && <col className="listener-col-mail"/>}{watching && <col className="listener-col-count"/>}<col className="listener-col-fired"/>
             {firing && <col className="listener-col-actions"/>}<col className="listener-col-dog"/>
-            {actions && <col className="slot-col-action"/>}</colgroup>
+            {ownRows && <col className="slot-col-action"/>}</colgroup>
           <thead><tr>{cols.map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
           <tbody className="listeners-events">
             <tr className="slot-section"><th colSpan={n} scope="rowgroup"><h4>Event listeners</h4></th></tr>
@@ -338,10 +326,6 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs }: {
           </tbody>
         </table>
       </div>
-      {registering === 'listener' && createPortal(
-        <RegisterListenerDialog project={node.id} onRegister={register.listener} close={() => setRegistering(null)} />, document.body)}
-      {registering === 'watch' && createPortal(
-        <RegisterWatchDialog project={node.id} onRegister={register.watch} close={() => setRegistering(null)} />, document.body)}
     </div>
   )
 }

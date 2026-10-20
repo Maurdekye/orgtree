@@ -43,6 +43,7 @@ import { HistoryDog } from './historydog'
 import type { DogIdentity } from './historydog'
 import { UserMention, isUserName } from './usermention'
 import type { RefRoutes } from './reflinks'
+import { DeskCount, bringCount, countOf } from './deskcount'
 
 interface Holder { lease: string; agent: string; slot?: number; slots?: number; reason?: string | null; queued?: string | null; since: string; reminders?: number; dog?: DogIdentity | null }
 interface Waiter { position: number; agent: string; dog: string; slots?: number; since?: string | null }
@@ -158,33 +159,38 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
       .then(() => { toast([`slot request for project ${node.id} cancelled`]); reread() })
       .catch(() => {})
   }
-  // the header's Hold control: what the user may still ask for is the total minus what they hold and what
-  // they wait for (an agent's hold is not theirs); the tree's rows stand in until the first read lands
+  // the header's Hold control (USER 2026-10-20 16:35Z): what the user may still ask for is the total minus
+  // what they hold and what they wait for (a waiting request counts, USER 16:36Z "yes, thats fine"; an agent's
+  // hold is not theirs); the tree's rows stand in until the first read lands
   const mineOf = (rows: { agent: string; slots?: number }[]) => rows.filter((r) => isUserName(r.agent)).reduce((n, r) => n + slotUnits(r.slots), 0)
   const mine = status ? mineOf(status.holders ?? []) + mineOf(status.line ?? []) : mineOf(state.held) + mineOf(state.line)
   const total = Math.min(state.total, MAX_SLOTS)
   const room = Math.max(0, total - mine)
-  // a typed count is brought into 1..room; an empty or fractional one stays as typed, and holds nothing
-  const bring = (text: string) => /^\d+$/.test(text.trim()) ? String(Math.min(Math.max(Number(text.trim()), 1), Math.max(room, 1))) : text
-  const shown = bring(count)
-  const slotsToHold = /^\d+$/.test(shown) && room >= 1 ? Number(shown) : null
+  const shown = bringCount(count, 1, room)
+  const slotsToHold = room >= 1 ? countOf(shown) : null
   const hold = (slots: number) => {
     op({ op: 'user_slot_hold', node: node.id, slots })
-      .then(() => { toast([`asked for ${slotUnits(slots)} concurrency slot(s) of ${node.id}: held when all are free`]); reread() })
+      .then(() => { toast([`asked for ${slots === 1 ? 'a concurrency slot' : `${slots} concurrency slots`} of ${node.id}: held when all are free`]); reread() })
       .catch(() => {})
     setCount('1')
   }
+  const slotWords = (n: number) => n === 1 ? 'a concurrency slot' : `${n} concurrency slots`
   const holdControl = node.state === 'live' && state.total >= 1 && (
-    <span className="slot-hold" role="group" aria-label="Hold concurrency slots">
-      <input type="number" min={1} max={Math.max(room, 1)} step={1} value={shown} disabled={room < 1}
-        aria-label="Slots to hold" onChange={(e) => setCount(bring(e.target.value))} />
-      <button type="button" data-action="hold-slots" disabled={slotsToHold === null}
-        title={room < 1 ? `every concurrency slot of ${node.id} is already held or asked for by the user`
-          : slotsToHold === null ? `choose 1 to ${room} slots`
-          : `ask for ${slotsToHold === 1 ? 'a concurrency slot' : `${slotsToHold} concurrency slots`} of ${node.id}: the request waits first come first served and is granted when all are free, and lasts until released`}
-        onClick={() => { if (slotsToHold !== null) hold(slotsToHold) }}>
-        {slotsToHold === null && room >= 1 ? 'Hold slots' : `Hold ${slotsToHold ?? 1} slot${slotsToHold === null || slotsToHold === 1 ? '' : 's'}`}</button>
-    </span>)
+    <DeskCount className="slot-hold" groupLabel="Hold concurrency slots"
+      value={shown} min={1} max={Math.max(room, 1)} inputDisabled={room < 1}
+      onValue={(text) => setCount(bringCount(text, 1, room))}
+      inputLabel="Slots to hold"
+      inputTitle={room < 1 ? `the user already holds or waits for every concurrency slot of ${node.id}`
+        : `how many concurrency slots to hold at once: 1 to ${room} (${node.id} has ${total}`
+          + `${mine ? `, ${mine} of them already held or asked for by the user` : ''})`}
+      action="hold-slots" disabled={slotsToHold === null}
+      label={slotsToHold === null && room >= 1 ? 'Hold slots' : `Hold ${slotsToHold ?? 1} slot${(slotsToHold ?? 1) === 1 ? '' : 's'}`}
+      title={room < 1 ? `every concurrency slot of ${node.id} is already held or asked for by the user: release a hold or cancel a waiting request first`
+        : slotsToHold === null ? `choose 1 to ${room} slots`
+        : `hold ${slotWords(slotsToHold)} of ${node.id} now. The request waits in its line first come first served, like an agent's claim, `
+          + `and is granted whole: ${slotsToHold === 1 ? 'as soon as a slot is free' : `when all ${slotsToHold} are free together`}. `
+          + 'The hold lasts until it is released, across a restart too.'}
+      onAct={() => { if (slotsToHold !== null) hold(slotsToHold) }} />)
   return (
     <div className="desk-tabpanel project-slots" onScroll={scrollHistory}>
       {(holdControl || actions) && <div className="team-tab-toolbar" role="toolbar" aria-label="Slots view controls">{holdControl}{actions}</div>}

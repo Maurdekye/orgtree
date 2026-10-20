@@ -1448,17 +1448,18 @@ interface InboxViewProps {
    *  remembers it (the project desk's Mail tab, user 2026-10-20 06:22Z); a
    *  folder a jump or a host request opened is not a pick */
   onFolderPick?: (folder: string) => void
+  /** controls the host puts at the end of the folder strip on every folder:
+   *  the project desk's Join mail queue, left of the tab's pin / pop-out /
+   *  modal buttons (docket slots-tab-header-hold-n-slots-button-with-number) */
+  folderTools?: ReactNode
 }
 
 /** A folder the host draws in the mail pane: `id` is its name on the folder
  *  strip, `count` its badge, `render` gets the mailbox rows loaded here
- *  (waiting and delivered), `tools` are controls the strip carries while the
- *  folder is open (the project desk's Join mail queue, left of the corner's
- *  pin / pop-out / modal buttons). */
+ *  (waiting and delivered). */
 export interface InboxExtraFolder {
   id: string
   count?: number
-  tools?: ReactNode
   render: (rows: MailRow[]) => ReactNode
 }
 
@@ -1528,7 +1529,7 @@ export function QueueChip({ q, onFocusAgent, hasAgent, tierOf }: {
 }
 
 export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, tier, onFocusAgent, toast,
-  tierOf, hasAgent, refs, collapsible, projectMail, extraFolders, folderAsk, onFolderPick }: InboxViewProps) {
+  tierOf, hasAgent, refs, collapsible, projectMail, extraFolders, folderAsk, onFolderPick, folderTools }: InboxViewProps) {
   const [chosen, setFolder] = useState(() => folderAsk?.folder ?? 'inbox')
   // a new request from the host opens its folder (a repoll is the same request)
   useEffect(() => { if (folderAsk) setFolder(folderAsk.folder) }, [folderAsk?.folder, folderAsk?.seq])
@@ -1630,7 +1631,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
           - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier}
         folders={extraFolders?.length ? ['inbox', 'sent', ...extraFolders.map((f) => f.id)] : undefined}
         counts={Object.fromEntries((extraFolders ?? []).map((f) => [f.id, f.count ?? 0]))}
-        tools={extra?.tools} />
+        tools={folderTools} />
       <div className="mailpane">
         {extra ? extra.render([...pending, ...(box?.delivered ?? [])]) : <>
         {history.error&&<div role="alert">Could not load older mail. <button onClick={history.retry}>Retry</button></div>}
@@ -1697,7 +1698,7 @@ export interface MailFoldersProps {
   tier?: string | null
   /** badges on folders other than the inbox (a project's mail listeners) */
   counts?: Record<string, number>
-  /** controls at the strip's end, for the folder that is open */
+  /** controls at the strip's end (InboxViewProps.folderTools) */
   tools?: ReactNode
 }
 
