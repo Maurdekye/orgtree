@@ -60,7 +60,7 @@ import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
 import { listenerCards, mailListenerState, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { MailListenersView } from './maillisteners'
-import { DeskJumpCards } from './deskjumpcards'
+import { DeskJumpCards, superiorKept } from './deskjumpcards'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
 
@@ -713,9 +713,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   // the superior's cards are NOT among them: they are the agent desk's up row,
   // their own `.desk-nav` under the header on every tab (user 2026-10-19
   // 21:05:53Z "superior jump cards go in a different row than the header
-  // cards", 21:06:08Z "same as agent desk headers")
+  // cards", 21:06:08Z "same as agent desk headers"); a long row folds only
+  // its projects, never the agent superior (user 2026-10-20 09:42Z, 09:50Z)
   const upRow = onJump && up.length > 0 ? <div className="desk-nav">
-    <DeskJumpCards ids={up.map((n) => n.id)} render={(id) =>
+    <DeskJumpCards ids={up.map((n) => n.id)} keep={superiorKept(up)} label="projects" render={(id) =>
       <NavChip key={id} n={up.find((n) => n.id === id)!} dir="up" onJump={onJump} />} />
   </div> : null
   // the tabs it offers now, by the rules the card's shortcuts share

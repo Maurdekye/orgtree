@@ -108,7 +108,7 @@ import type {
 } from './shared'
 import { ConfirmModal, PilePicker } from './modals'
 import { InboxView, RetiredFold } from './mail'
-import { DeskJumpCards } from './deskjumpcards'
+import { DeskJumpCards, superiorKept } from './deskjumpcards'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
 import { AskCard } from './asks'
@@ -3847,12 +3847,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           (user report 2026-08-04). Bearer pseudo-cards float beside a
           successor and have no meaningful parent chip. */}
       {/* through projects (user 2026-10-17 22:13Z): one card per project
-          between this agent and its nearest agent superior, after it */}
+          between this agent and its nearest agent superior, after it; a
+          long row folds only those projects, never the superior (user
+          2026-10-20 09:42Z, 09:50Z) */}
       {onJump && !node.isBearerOf && (() => {
         const up = upJumpTargets(node, map).filter((n) => !(bare && n.id === USER))
         return up.length > 0 && (
           <div className="desk-nav">
-            <DeskJumpCards ids={up.map((n) => n.id)} render={(id) =>
+            <DeskJumpCards ids={up.map((n) => n.id)} keep={superiorKept(up)} label="projects" render={(id) =>
               <NavChip key={id} n={up.find((n) => n.id === id)!} dir="up" onJump={onJump} />} />
           </div>
         )

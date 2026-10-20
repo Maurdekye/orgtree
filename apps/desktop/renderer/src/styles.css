@@ -1943,10 +1943,20 @@ html.mobile .edge-jump { display: none; }
   max-width: 100%; white-space: normal; overflow-wrap: anywhere;
 }
 /* F-01 nav chips: superior at the top of the desk, direct reports at the
-   bottom — small cards in the eye-tab language, one camera glide per click */
+   bottom — small cards in the eye-tab language, one camera glide per click.
+   Past 8 rows of chips a jump row scrolls (user 2026-10-20 09:41Z; the
+   superior row too, since projects stack levels above an agent): a chip's
+   row is its 11.5px text at the body's 1.5 line, 2px padding and a 1px border
+   above and below, and the cap adds the seven 5px gaps and the row's own 3px
+   padding. Just scrollable (09:43Z): no background, border or padding of its
+   own, and its scroll never carries on into the desk behind it. The canvas
+   never zooms on a wheel over a desk (OrgCanvas's carve-outs). */
 .desk-nav {
   display: flex; flex-wrap: wrap; gap: 5px; padding: 3px 0;
   min-height: 0;
+  --desk-nav-row: calc(11.5px * 1.5 + 6px);
+  max-height: calc(8 * var(--desk-nav-row) + 7 * 5px + 6px);
+  overflow-y: auto; overscroll-behavior: contain;
 }
 .desk-nav-chip {
   display: inline-flex; align-items: center; gap: 5px;
