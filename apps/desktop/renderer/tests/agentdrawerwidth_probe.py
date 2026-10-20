@@ -85,11 +85,27 @@ finally:
     (OUT / 'measurements.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
 
 rows = result['drawer']
+
+def separated(a, b):
+    """Clearance is two-dimensional: the toggle may sit below the filter."""
+    return (a['x'] >= b['x'] + b['width'] or b['x'] >= a['x'] + a['width']
+            or a['y'] >= b['y'] + b['height'] or b['y'] >= a['y'] + a['height'])
+
+# Controls for the geometry instrument: an overlap must fail even when the
+# rectangles have different origins; vertical separation is valid clearance.
+box = {'x': 0, 'y': 0, 'width': 20, 'height': 20}
+assert not separated(box, {**box, 'x': 10, 'y': 10})
+assert separated(box, {**box, 'y': 30})
 assert len(rows) == 4, rows
 assert rows[0]['row']['x'] <= result['bounds']['x'] + 5, 'rows still waste the toggle rail'
 assert [r['tier']['x'] - rows[0]['tier']['x'] for r in rows[:3]] == [0, 14, 28], rows
-assert result['filter']['x'] >= result['toggle']['x'] + result['toggle']['width'], result
-assert result['wideToggleFilter']['x'] >= result['wideToggle']['x'] + result['wideToggle']['width'], result
+assert separated(result['filter'], result['toggle']), result
+assert separated(result['wideToggleFilter'], result['wideToggle']), result
+# Widening the toggle must still update the measured rail and usable list
+# width, even when the filter is vertically clear of the toggle.
+rail_growth = result['wideToggle']['width'] - result['toggle']['width']
+filter_growth = result['wideToggleFilter']['width'] - result['filter']['width']
+assert rail_growth > 0 and abs(filter_growth - rail_growth) < 1, result
 assert result['childSelected'] == 'true', result
 assert 'list-open' not in result['closed'], result
 assert not result['errors'], result['errors']
