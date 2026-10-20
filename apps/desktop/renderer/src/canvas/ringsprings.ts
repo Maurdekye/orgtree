@@ -5,6 +5,8 @@ export interface SpringRing {
   step: number
   /** Index on the preceding ring; -1 is the eye. Children stay contiguous. */
   parents: number[]
+  /** Each card's arc slot in steps (default 1); a project bunch is wider. */
+  widths?: number[]
 }
 
 // Status/feed updates rebuild CanvasNodes without changing geometry. Keep only
@@ -20,7 +22,8 @@ export function settleRingSprings(rings: SpringRing[]): number[][] {
   if (cached && rings.length === cached.input.length && rings.every((ring, d) => {
     const previous = cached!.input[d]!
     return ring.step === previous.step && ring.angles.length === previous.angles.length
-      && ring.angles.every((angle, i) => angle === previous.angles[i] && ring.parents[i] === previous.parents[i])
+      && ring.angles.every((angle, i) => angle === previous.angles[i] && ring.parents[i] === previous.parents[i]
+        && (ring.widths?.[i] ?? 1) === (previous.widths?.[i] ?? 1))
   })) return cached.output.map(angles => [...angles])
   const links = rings.map(ring => {
     const groups: { parent: number; first: number; last: number }[] = []
@@ -31,7 +34,11 @@ export function settleRingSprings(rings: SpringRing[]): number[][] {
     })
     return groups
   })
-  const sizes = rings.map(r => r.angles.map(() => 1))
+  const sizes = rings.map(r => r.widths ?? r.angles.map(() => 1))
+  // The middle of a group's whole arc, so a wide first or last slot (a bunch)
+  // stays centred with its siblings; equal end slots add exactly zero.
+  const middle = (depth: number, angles: number[], first: number, last: number) =>
+    (angles[first]! + angles[last]!) / 2 + (sizes[depth]![last]! - sizes[depth]![first]!) * rings[depth]!.step / 4
   let rest = rings.map(r => [...r.angles]), trial = rest, momentum = 1
   // Accelerated projected gradient on the quadratic spring energy. Each card
   // belongs to at most two springs; 1/4 is a safe step for that graph. The hard
@@ -40,7 +47,7 @@ export function settleRingSprings(rings: SpringRing[]): number[][] {
     const force = rings.map(r => r.angles.map(() => 0))
     for (let depth = 0; depth < rings.length; depth++) {
       for (const { parent, first, last } of links[depth]!) {
-        const centre = (trial[depth]![first]! + trial[depth]![last]!) / 2
+        const centre = middle(depth, trial[depth]!, first, last)
         const above = depth === 0 ? Math.PI / 2 : trial[depth - 1]![parent]!
         const pull = centre - above
         force[depth]![first]! -= pull / 2
@@ -63,8 +70,9 @@ export function settleRingSprings(rings: SpringRing[]): number[][] {
   // Remove any residual rigid rotation: it costs no alignment or clearance,
   // and keeps the eye's reports centred at the bottom exactly as before.
   const top = rest[0]
-  const rotation = top?.length ? Math.PI / 2 - (top[0]! + top[top.length - 1]!) / 2 : 0
+  const rotation = top?.length ? Math.PI / 2 - middle(0, top, 0, top.length - 1) : 0
   const output = rest.map(angles => angles.map(angle => angle + rotation))
-  cached = { input: rings.map(r => ({ step: r.step, angles: [...r.angles], parents: [...r.parents] })), output }
+  cached = { input: rings.map(r => ({ step: r.step, angles: [...r.angles], parents: [...r.parents],
+    widths: r.widths && [...r.widths] })), output }
   return output.map(angles => [...angles])
 }

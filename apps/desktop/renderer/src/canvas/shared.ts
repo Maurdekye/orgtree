@@ -2214,7 +2214,11 @@ export function ringInsertSide(side: 'left' | 'right', anchorId: string, sibs: s
 
 /** One ring per depth, with capacity-based radii and ordered collision-safe
  * spring relaxation. Linear work per bounded relaxation step. Returns card
- * top-lefts like row layout, with the eye anchored at its usual world x. */
+ * top-lefts like row layout, with the eye anchored at its usual world x.
+ * Every card gets an arc slot for its own footprint (user 2026-10-20 09:08Z):
+ * a project bunch widens only its own slot, so the cards beside it keep the
+ * dense pitch and the ring stays arc-based instead of spreading evenly. A ring
+ * of one card size keeps the exact equal-step arithmetic. */
 export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = new Map(),
   footprints?: ReadonlyMap<string, { width: number; height: number }>): Map<string, Pt> {
   // Drawn MIRRORED (x = cx − r·cos): the ring runs counter-clockwise from the
@@ -2235,32 +2239,62 @@ export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = n
       .filter(g => g.kids.length > 0)
     const count = groups.reduce((sum, g) => sum + g.kids.length, 0)
     if (!count) break
-    const diameter = footprints ? Math.max(NODE_W, ...groups.flatMap(g => g.kids.map(n => {
-      const f = footprints.get(n.id)
-      return f ? Math.hypot(f.width, f.height) : NODE_W
-    }))) : NODE_W
-    const pitch = Math.max(RING_PITCH, diameter + 60)
+    // Circumscribed diameter per card: a bunch's whole block, else one card.
+    const diameters = groups.map(g => g.kids.map(n => {
+      const f = footprints?.get(n.id)
+      return f ? Math.max(NODE_W, Math.hypot(f.width, f.height)) : NODE_W
+    }))
+    let narrowest = Infinity, diameter = NODE_W
+    for (const ds of diameters) for (const d of ds) {
+      narrowest = Math.min(narrowest, d)
+      diameter = Math.max(diameter, d)
+    }
+    // Radial room still clears this ring's widest card and the previous one's.
     const spacing = Math.max(RING_STEP, (diameter + previousDiameter) / 2 + 76)
     radius = radius === 0 ? Math.max(RING_FIRST, spacing) : radius + spacing
     previousDiameter = diameter
-    let step = 2 * Math.asin(Math.min(1, pitch / (2 * radius)))
-    // A full level uses equal spacing, increasing the radius only as needed.
-    if (count * step >= 2 * Math.PI) {
-      step = 2 * Math.PI / count
-      radius = Math.max(radius, pitch / (2 * Math.sin(step / 2)))
+    const arc = (d: number, r: number) => 2 * Math.asin(Math.min(1, Math.max(RING_PITCH, d + 60) / (2 * r)))
+    // Slot widths count in steps of the narrowest card, so one bunch never
+    // spreads its ordinary neighbours to its own pitch.
+    const slots = (r: number, unit: number) => diameters.map(ds => ds.map(d => d === narrowest ? 1 : arc(d, r) / unit))
+    let step = arc(narrowest, radius), widths = slots(radius, step)
+    let sizes = widths.map(ws => ws.reduce((sum, w) => sum + w, 0))
+    // A full level closes the ring, increasing the radius only as needed:
+    // one card size spreads equally; mixed slots grow until they just fit.
+    if (sizes.reduce((sum, n) => sum + n, 0) * step >= 2 * Math.PI) {
+      if (narrowest === diameter) {
+        step = 2 * Math.PI / count
+        radius = Math.max(radius, Math.max(RING_PITCH, diameter + 60) / (2 * Math.sin(step / 2)))
+      } else {
+        const total = (r: number) => diameters.reduce((sum, ds) => ds.reduce((s, d) => s + arc(d, r), sum), 0)
+        let low = radius, high = radius * 2
+        while (total(high) > 2 * Math.PI) high *= 2
+        for (let k = 0; k < 60; k++) {
+          const mid = (low + high) / 2
+          if (total(mid) > 2 * Math.PI) low = mid
+          else high = mid
+        }
+        radius = high
+        step = arc(narrowest, radius)
+        widths = slots(radius, step)
+        sizes = widths.map(ws => ws.reduce((sum, w) => sum + w, 0))
+      }
     }
-    const centres = ringArcCentres(groups.map(g => g.angle), groups.map(g => g.kids.length), step)
+    const centres = ringArcCentres(groups.map(g => g.angle), sizes, step)
     level = []
-    const parents: number[] = []
+    const parents: number[] = [], cardWidths: number[] = []
     for (let g = 0; g < groups.length; g++) {
-      const kids = groups[g]!.kids
+      const kids = groups[g]!.kids, ws = widths[g]!
+      let before = 0
       for (let i = 0; i < kids.length; i++) {
-        const angle = centres[g]! + (i - (kids.length - 1) / 2) * step, node = kids[i]!
+        const angle = centres[g]! + (before + ws[i]! / 2 - sizes[g]! / 2) * step, node = kids[i]!
+        before += ws[i]!
         level.push({ node, angle })
+        cardWidths.push(ws[i]!)
         parents.push(rings.length ? groups[g]!.parent : -1)
       }
     }
-    rings.push({ angles: level.map(p => p.angle), nodes: level.map(p => p.node), parents, step, radius })
+    rings.push({ angles: level.map(p => p.angle), nodes: level.map(p => p.node), parents, step, radius, widths: cardWidths })
   }
   const settled = settleRingSprings(rings)
   rings.forEach((ring, depth) => ring.nodes.forEach((node, i) => {
