@@ -322,6 +322,11 @@ the existing collapsed thinking rendering. Live thinking requires upstream AGY
 support. Read-only exact session/step matching, duplicate-safe persistence and
 no thinking text in logs are required. 4.4.0 only. See [AGY thinking](antigravity-thinking.md).
 
+The 2026-10-20 follow-up replaces immutable/WAL refusal with a bounded read-only
+committed SQLite snapshot and zero lock wait. Current committed WAL steps must
+be visible; uncommitted steps, busy writers and rollback recovery remain excluded.
+Exact session/step, privacy annotations and receipt deduplication stay unchanged.
+
 **Compact choice, user 2026-10-17 17:15Z; coordinator 17:18Z:** direct
 Halt/Unhalt lose the ellipsis; an actual team submenu retains it. Compact…
 opens Normal compact / Cheap compact / Cancel, with one explanation each.

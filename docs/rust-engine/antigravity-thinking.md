@@ -12,8 +12,10 @@ file opened is `.gemini/antigravity-cli/conversations/<id>.db` in that home.
 The stream step index matches `steps.idx` without conversion. No other session,
 latest-file search, profile fallback or trajectory-ID guess is permitted.
 
-The reader opens SQLite read-only with `immutable=1`, zero busy timeout, on a
-blocking worker, outside any PostgreSQL transaction. It queries one INTEGER
+The reader opens SQLite read-only with zero busy timeout, on a blocking worker,
+outside any PostgreSQL transaction. A short read transaction keeps schema,
+payload size and payload on one committed snapshot, including a live WAL.
+It releases that snapshot before parsing the payload. It queries one INTEGER
 primary-key step and admits at most 2 MiB of protobuf payload. CortexStep field
 20 contains the planner response; its field 3 is the thinking string. Raw thinking
 and signatures are ignored, and redacted thinking is omitted. Text is capped at
@@ -32,16 +34,22 @@ leaves no receipt or partial thinking row. Receipt rows contain no content.
 
 ## Limits and author verification
 
-Immutable SQLite cannot see uncheckpointed WAL and cannot recover an active
-rollback journal. The reader skips a nonempty WAL/journal rather than taking
-locks or pretending that a stale checkpoint is current. No guessed status enum
+The original immutable reader rejected any nonempty WAL and therefore skipped
+thinking while the CLI kept current committed steps in WAL. Metadata-only live
+diagnosis confirmed both transient WAL and stored thinking on the affected lane,
+plus its categorical Unavailable diagnostic. The reader now uses normal SQLite
+read-only snapshot coordination, never `immutable=1`, so committed WAL steps are
+visible while a writer holds uncommitted changes. It never waits for a lock,
+writes the database/WAL or performs journal recovery. A busy/exclusive writer
+or nonempty rollback journal still skips safely. No guessed status enum
 or unverified trajectory_meta/cascade identity relation is used. Current-step
 visibility on the installed CLI remains an alpha check, with the above safe
 fallback when history is not available. No old transcript is backfilled.
 
 The synthetic suite covers exact step/session matching, missing DB/schema,
 invalid identities, bounded UTF-8 payloads, signatures/redaction, an exclusive
-writer without read locks/waits, malformed protobuf, WAL/schema skips, native
+writer without writes/waits, malformed protobuf, committed/uncommitted live-WAL
+visibility and subsequent commits without a checkpoint, rollback-journal/schema skips, native
 stream preference and thinking-before-response rows. A disposable PostgreSQL
 fixture exercises real receipt SQL across replay, writer reload and rollback.
 The red controls at 603f621 executed on 2026-10-17 19:31Z: eight tests,

@@ -1472,9 +1472,12 @@
   `runtime/{actor,identity}.rs`, `http/nodes.rs`]
 
 - Antigravity completed-step thinking uses the launched login home and exact
-  process-bound conversation/step, with an immutable bounded history read and
+  process-bound conversation/step, with a bounded read-only committed SQLite
+  snapshot (including live WAL), zero lock waiting and
   no thought text in logs. A receipt and thought-before-response rows commit
-  atomically, preventing replay/restart duplicates. WAL/journal visibility
+  atomically, preventing replay/restart duplicates. Busy/exclusive writers and
+  rollback journals skip without recovery. `immutable=1` must not be used:
+  it hides current committed WAL frames. Snapshot limits
   limits and synthetic checks: [AGY thinking](docs/rust-engine/antigravity-thinking.md).
   Keep identity stamping, transcript page/notice restoration and chat HTTP
   response bodies unlogged: nested logged arguments/returns can leak content

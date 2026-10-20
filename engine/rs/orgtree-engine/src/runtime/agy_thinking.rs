@@ -22,12 +22,11 @@ pub fn read_history(home: &Path, session: &str, index: i64) -> Result<Option<Str
     let path = home
         .join(".gemini/antigravity-cli/conversations")
         .join(format!("{session}.db"));
-    // No writes, SQLite locks, journal recovery or waiting on the live writer.
-    // Immutable cannot see WAL; do not silently read a stale checkpoint instead.
-    for suffix in ["-wal", "-journal"] {
-        if std::fs::metadata(format!("{}{suffix}", path.display())).is_ok_and(|m| m.len() > 0) {
-            return Err(Skip::Unavailable);
-        }
+    // A normal read-only snapshot sees committed WAL frames while a writer
+    // continues. Never use immutable here: it ignores a live WAL. Rollback
+    // journal recovery still belongs exclusively to AGY, not this reader.
+    if std::fs::metadata(format!("{}-journal", path.display())).is_ok_and(|m| m.len() > 0) {
+        return Err(Skip::Unavailable);
     }
     if !path.is_file() {
         return Err(Skip::Unavailable);
@@ -42,31 +41,37 @@ pub fn read_history(home: &Path, session: &str, index: i64) -> Result<Option<Str
     .map_err(|_| Skip::Unavailable)?;
     db.busy_timeout(std::time::Duration::ZERO)
         .map_err(|_| Skip::Unavailable)?;
-    let indexed: bool=db.query_row("SELECT count(*)=1 AND max(name='idx' AND upper(type)='INTEGER') FROM pragma_table_info('steps') WHERE pk>0",
-        [],|r|r.get(0)).map_err(|_|Skip::Schema)?;
+    db.pragma_update(None,"query_only",true).map_err(|_|Skip::Unavailable)?;
+    // Keep schema/size/payload from the same committed view; the bounded read
+    // ends before parsing and never holds a PostgreSQL client/transaction.
+    let snapshot=db.unchecked_transaction().map_err(|_|Skip::Unavailable)?;
+    let indexed: bool=snapshot.query_row("SELECT count(*)=1 AND max(name='idx' AND upper(type)='INTEGER') FROM pragma_table_info('steps') WHERE pk>0",
+        [],|r|r.get(0)).map_err(read_error)?;
     if !indexed {
         return Err(Skip::Schema);
     }
-    let size: Option<i64> = db
+    let size: Option<i64> = snapshot
         .query_row(
             "SELECT length(step_payload) FROM steps WHERE idx=?1",
             [index],
             |r| r.get(0),
         )
         .optional()
-        .map_err(|_| Skip::Schema)?
+        .map_err(read_error)?
         .flatten();
     let Some(size) = size else { return Ok(None) };
     if size < 0 || size as usize > MAX_PAYLOAD {
         return Err(Skip::Payload);
     }
-    let data: Vec<u8> = db
+    let data: Vec<u8> = snapshot
         .query_row(
             "SELECT step_payload FROM steps WHERE idx=?1 AND length(step_payload)<=?2",
             rusqlite::params![index, MAX_PAYLOAD],
             |r| r.get(0),
         )
-        .map_err(|_| Skip::Schema)?;
+        .map_err(read_error)?;
+    drop(snapshot);
+    drop(db);
     let Some(planner) = field(&data, 20)? else {
         return Ok(None);
     };
@@ -142,7 +147,15 @@ fn url_for(path: &Path) -> Result<String, Skip> {
         .replace('%', "%25")
         .replace('?', "%3F")
         .replace('#', "%23");
-    Ok(format!("file:{escaped}?mode=ro&immutable=1"))
+    Ok(format!("file:{escaped}?mode=ro"))
+}
+
+#[nolog]
+fn read_error(error: rusqlite::Error) -> Skip {
+    match error.sqlite_error_code() {
+        Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked) => Skip::Unavailable,
+        _ => Skip::Schema,
+    }
 }
 
 #[nolog]
@@ -373,7 +386,7 @@ mod tests {
         assert_eq!(read_history(&f.root, SESSION, 1), Ok(None));
     }
     #[test]
-    fn immutable_reader_does_not_write_or_wait_for_writer() {
+    fn read_only_reader_skips_an_exclusive_writer_without_writes_or_waiting() {
         let f = Fixture::new(SESSION);
         f.step(1, "synthetic committed thought");
         let before = std::fs::read(&f.db).unwrap();
@@ -382,7 +395,7 @@ mod tests {
         let start = std::time::Instant::now();
         assert_eq!(
             read_history(&f.root, SESSION, 1),
-            Ok(Some("synthetic committed thought".into()))
+            Err(Skip::Unavailable)
         );
         assert!(start.elapsed() < std::time::Duration::from_secs(1));
         writer.execute_batch("ROLLBACK").unwrap();
@@ -444,13 +457,9 @@ mod tests {
         assert_eq!(read_history(&f.root, SESSION, 1), Err(Skip::Payload));
     }
     #[test]
-    fn wal_or_changed_primary_key_skips_instead_of_reading_stale_or_scanning() {
+    fn changed_primary_key_skips_instead_of_scanning() {
         let f = Fixture::new(SESSION);
         f.step(1, "synthetic");
-        let wal = PathBuf::from(format!("{}-wal", f.db.display()));
-        std::fs::write(&wal, b"synthetic WAL").unwrap();
-        assert_eq!(read_history(&f.root, SESSION, 1), Err(Skip::Unavailable));
-        std::fs::remove_file(wal).unwrap();
         Connection::open(&f.db).unwrap().execute_batch("ALTER TABLE steps RENAME TO old_steps; CREATE TABLE steps(idx INTEGER,step_payload BLOB)").unwrap();
         assert_eq!(read_history(&f.root, SESSION, 1), Err(Skip::Schema));
     }

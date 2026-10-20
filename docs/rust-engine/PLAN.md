@@ -435,6 +435,8 @@ Antigravity thinking addition (user 2026-10-17, 4.4.0): after each completed
 model step, read that exact session/step's native history thinking read-only and
 display it collapsed before the response. No live-thinking claim, backfill,
 duplicate rows or thought text in logs. See [AGY thinking](antigravity-thinking.md).
+The 2026-10-20 retrieval correction reads committed live-WAL snapshots with zero
+lock wait, replacing immutable reads that skipped the CLI's active history.
 
 Transcript addition (user/coordinator 2026-10-17,4.4.0): small-icon tool-output
 estimates update live where reported output streams and retain `~`; attributed
