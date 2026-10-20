@@ -4953,3 +4953,15 @@ Cold archived docket projections covered by the existing policy spec use its typ
   written. See [elicitation](docs/rust-engine/codex-elicitation.md).
   [decided: user/coordinator 2026-10-19; verified: runtime/elicitation.rs,
   runtime/codex.rs, http/asks.rs, canvas/elicitation.tsx]
+
+
+- Interrupt/restart (2026-10-20): `orgtree_interrupt` accepts `restart:true`
+  for a runtime-authorized descendant. `queued:true` scopes a completion-triggered
+  stop to the current turn: Claude holds PostToolUse, AGY holds PostInvocation;
+  Codex/Muse/ACP notifications can cut the next step off early (accepted by user).
+  Parallel observed work settles first. Pending retool/account/model/session
+  changes can be applied with both flags. Background work refuses queued/restart;
+  natural end is a no-op stop with the requested restart. See
+  [tool guide](docs/skills/orgtree-working/runtime/tool-interrupt/SKILL.md) and
+  [parity](docs/harness-parity.md). [decided: user 2026-10-20;
+  verified: `runtime/actor/interrupt_control.rs`, `runtime/interrupt.rs`]

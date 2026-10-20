@@ -59,6 +59,19 @@ Interrupting does not undo a tool's external side effects. Neither an RPC respon
 hook receipt nor a transcript row proves that those effects were rolled back.
 The APIs above are delivery/cancellation contracts.
 
+Queued interrupt (`queued:true`, optionally `restart:true`; user 2026-10-20):
+Claude Code uses its held PostToolUse callback and Antigravity its held
+PostInvocation callback, after active tools finish. Codex and Muse use attributed
+tool/thought/response completion notices; ACP uses completed/failed tool updates,
+since its text/thought chunks have no end marker. Those three notices are
+asynchronous: a next step may already have started and be cut off early. Parallel
+active items must settle first. Natural completion makes the stop a no-op,
+but a restart still follows normal placement. No request survives into another
+turn. Sources: [boundary tracking](../engine/rs/orgtree-engine/src/runtime/interrupt.rs),
+[request/outcome handling](../engine/rs/orgtree-engine/src/runtime/actor/interrupt_control.rs),
+[glossary](skills/orgtree-working/runtime/tool-interrupt/SKILL.md).
+
+
 ## Account allowance, token reporting and cost
 
 An **account allowance observation**, **turn token receipt**, **context occupancy**

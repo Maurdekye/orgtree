@@ -75,3 +75,8 @@ the CLI or changing model/account/session. A running turn keeps its speed.
 Read defaults with [orgtree_fast_defaults](../tool-fast-defaults/SKILL.md).
 Only top-level agents whose superior is the user can write org defaults; other
 managers pass explicit `fast_mode` on individual scoped hires/retools.
+
+For a saved change that applies next turn, use `orgtree_interrupt` with
+`queued:true,restart:true` on yourself or a runtime-authorized running report.
+It waits for a completion boundary; asynchronous harnesses may cut the next
+step off early. See the orgtree-tool-interrupt page for boundary and refusal rules.

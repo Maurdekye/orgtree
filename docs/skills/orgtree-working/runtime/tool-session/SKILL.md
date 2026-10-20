@@ -91,3 +91,8 @@ An answer during a turn that started before the user signed in:
 - [orgtree-halts-and-restarts](../halts-and-restarts/SKILL.md)
 - [orgtree-turns-and-wakes](../turns-and-wakes/SKILL.md)
 - [orgtree-turn-envelope](../turn-envelope/SKILL.md)
+
+For a saved change that applies next turn, use `orgtree_interrupt` with
+`queued:true,restart:true` on yourself or a runtime-authorized running report.
+It waits for a completion boundary; asynchronous harnesses may cut the next
+step off early. See the orgtree-tool-interrupt page for boundary and refusal rules.

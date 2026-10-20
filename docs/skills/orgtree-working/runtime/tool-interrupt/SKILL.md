@@ -1,59 +1,66 @@
 ---
 name: orgtree-tool-interrupt
-description: Interrupt a descendant's current turn, or end your own and start a new one at once; interpret the result.
+description: Interrupt yourself or a report, optionally at a completion boundary, and restart its next turn.
 ---
-
 Up: [orgtree-runtime](../SKILL.md)
 
 # orgtree_interrupt
 
-Projects and other nodes without an agent runtime are refused before state changes.
-Name the actual agent members to control a project's team. A mixed halt/unhalt
-batch is validated in full before any target changes.
+`node` names one agent in your organization; a leading `@` is accepted. For a
+different agent, you need effective runtime permission and a strict descendant
+(through projects too). Peers, superiors, projects and unknown names are refused.
+Self-interruption needs no runtime permission.
 
-Use this to ask a descendant's running provider process to interrupt its current turn. The agent remains hired. Waiting waking mail may start a later turn through normal admission. For a continuing stop, use [halt](../tool-halt/SKILL.md). You can also point it at yourself (below).
+| Option | Meaning |
+| --- | --- |
+| omitted flags | Interrupt the current turn now. Waiting mail can wake it later. |
+| `restart: true` | After this turn settles, wake one new turn through normal placement. Works for yourself or an authorized descendant. |
+| `queued: true` | Record a request for this turn and wait for a completion boundary below. |
+| both flags | Wait for the boundary, interrupt, then start the next turn. |
 
-## Parameter and authority
+For a pending account/model/session change or retool, use
+`{"node":"worker","queued":true,"restart":true}` to apply it promptly.
+Background work refuses queued/restart requests; finish or stop it first.
+Immediate self-interrupt also retains that guard.
 
-`node` is required: the agent's name in your organization. A leading `@` is accepted. There is no batch form, subtree flag, reason field, or default target.
+## Harness boundaries
 
-For another agent the tool requires effective `tools.orgtree.runtime` permission (`orgtree_interrupt is disabled by your Orgtree tool group scope (you may still interrupt yourself)`), and the target must be a strict descendant: it refuses peers, superiors, or another top-level team (`you can only interrupt your reports and their reports; … is not below you`). `restart` is refused for another agent (`restart is for your own turn only: name yourself as node`). Unknown/deleted names produce `no agent named … in this organization`.
+| Harness actually running | Queued boundary |
+| --- | --- |
+| Claude Code (including OpenRouter routed through Claude) | Held PostToolUse callback after active tools finish. No streamed thought/response pause is claimed. |
+| Antigravity | Held PostInvocation callback after active tools finish. This is an invocation hook, not a post-tool RPC. |
+| Codex | Attributed completed tool, reasoning or response item, after observed active items finish. |
+| Muse | Attributed completed tool, reasoning or response item, after observed active items finish. |
+| OpenCode / ACP (OpenRouter and local server lanes) | Completed/failed tool-call update. ACP text/thought chunks have no completion marker. |
 
-## Yourself
+Codex, Muse and ACP completion notices are asynchronous: the next step may
+already have started and be cut off near its start. This trade-off is intentional
+(user 2026-10-20). Other observed active parallel calls must finish first.
+The result's `boundary` describes the current harness, not a pending model switch.
 
-`node` = your own name ends your current turn, whatever your tool groups: every agent has this. With `restart: true`, exactly one new turn starts at once, through a system message ("You ended your previous turn yourself with orgtree_interrupt and asked for a new one, so this turn started at once. Continue where you left off."). That turn runs wherever a turn's start places you: in the user's signed-in session when one is available, unless your preference keeps you elsewhere (see [orgtree_session](../tool-session/SKILL.md)). Use it to move into the signed-in session at once when `next_turn_moves` is true, to apply a new preference or an on-demand session at once, or to start a fresh turn. Without `restart`, your turn just ends, and waiting mail starts the next one as usual.
+If the turn finishes naturally first, the queued stop is a no-op;
+`restart: true` still requests one next turn. Requests cannot interrupt a later
+turn. Halt/retire/shutdown cancels an unapplied request. Repeated requests report
+the first request's options; they do not add restarts or change those options.
+No running turn is a refusal, not a request to stop a future turn.
 
-It is refused while your CLI still runs background work (`your CLI still runs background work: finish or stop it, then call orgtree_interrupt again`) and when no turn runs (`no turn is running`). The call itself is cut short: the new turn sees the message above, not this call's result. A halt that comes first wins: the new turn waits until you are unhalted. A sign-out at the same moment adds no second turn.
+## Results and observation
 
-## Result and limits
+Results contain `node` and nested `result`. `queued: true` means accepted, not
+already stopped. `interrupted: true` means an interrupt was sent, not proof all
+work settled or a replacement turn started. `restart` describes the requested
+wake; normal halt, placement, usage and admission rules still apply. A lost
+process or runtime handoff reports a reason. Timeouts are uncertain: inspect
+before retrying. An interrupt does not undo a tool's external effects.
 
-The response contains `node` and a nested `result`:
+`orgtree_state_inspect` includes the visible agent's latest runtime `interrupt`
+record: `status` (`queued`, `applied`, `noop`, `refused`, `cancelled`), `turn_id`,
+`restart`, `boundary`, requester and timestamp. It lasts for that actor's lifetime,
+not across an engine restart. The scoped `agent.interrupt` event carries the same
+small record. A boundary-time refusal appears there; it does not schedule a restart.
+Queued state is never restored onto a new turn.
 
-| Result | Interpretation |
-|---|---|
-| `interrupted: true` | The interrupt was sent to the current process; this is not proof that all work has settled. |
-| `interrupted: false`, `reason: no turn is running` | No current turn was available to interrupt; a queued future turn is not cancelled. |
-| `interrupted: false`, `reason: the process could not be reached` | The request could not reach the process. |
-| `error: the agent's runtime is stopping` or `the agent did not answer in time` | Runtime handoff failed or its bounded 30-second wait expired. |
-
-An interrupt is not an undo of tool side effects. Check the descendant's state or transcript before assuming an interrupted command finished, failed, or left no changes. A timeout may leave the result uncertain; inspect before retrying.
-
-## Example
-
-```json
-{"node":"worker"}
-```
-
-```json
-{"node":"<your own name>","restart":true}
-```
-
-Inspect afterward with [state inspection](../../inspection/tool-state-inspect/SKILL.md) or [transcript reading](../../inspection/tool-read-transcript/SKILL.md).
-
-## See also
-
-- [orgtree-turns-and-wakes](../turns-and-wakes/SKILL.md)
-- [orgtree-turn-envelope](../turn-envelope/SKILL.md)
-- [orgtree-checkups-and-reminders](../checkups-and-reminders/SKILL.md)
-- [orgtree-context-and-compaction](../context-and-compaction/SKILL.md)
-- [orgtree-halts-and-restarts](../halts-and-restarts/SKILL.md)
+Use [halt](../tool-halt/SKILL.md) for a continuing stop, and
+[state inspection](../../inspection/tool-state-inspect/SKILL.md) or
+[transcript reading](../../inspection/tool-read-transcript/SKILL.md) to verify
+settlement. [Session placement](../tool-session/SKILL.md) explains next-turn placement.
