@@ -8295,8 +8295,14 @@ pub(super) fn mail_of(m: &Value) -> Mail {
 /// The desk row for mail an agent was given: one mail segment.
 #[nolog]
 pub(super) fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
+    // The fresh prompt still uses the complete raw mail. Only the human
+    // transcript omits a previously authored segment at re-admission. Keep
+    // mail_ids in this new receipt for conservative restart settlement.
+    let repeated=|m: &&Value| m["extra"]["context_retry_original"].as_i64().is_some();
+    let refs:Vec<Value>=raw.iter().filter(repeated).map(|m|json!({"id":m["uid"],"failed_turn":m["extra"]["context_retry_original"]})).collect();
     let rows: Vec<Value> = raw
         .iter()
+        .filter(|m|!repeated(m))
         .map(|m| {
             let mut e = crate::feed::compute::mail_entry(m);
             if let Some(o) = e.as_object_mut() {
@@ -8307,19 +8313,49 @@ pub(super) fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
             e
         })
         .collect();
-    let text = raw.iter().map(|m| m["body"].as_str().unwrap_or("")).collect::<Vec<_>>().join("\n\n");
+    let mut text = raw.iter().filter(|m|!repeated(m)).map(|m| m["body"].as_str().unwrap_or("")).collect::<Vec<_>>().join("\n\n");
+    let mut segments=Vec::new();
+    if !refs.is_empty() {
+        let ids=refs.iter().filter_map(|r|r["id"].as_str()).collect::<Vec<_>>().join(", ");
+        let reference=format!("Context-full recovery: re-admitted original mail {ids}. Its authored message remains above; the fresh session receives its full body again.");
+        segments.push(json!({"kind":"text","text":reference}));
+        text=format!("{reference}\n\n{text}");
+    }
+    if !rows.is_empty() {segments.push(json!({"kind":"mail","rows":rows}));}
     let mut row = json!({
         "role": "user",
         "text": text,
         "ts": now_iso(),
-        "segments": [{ "kind": "mail", "rows": rows }],
+        "segments": segments,
         "mail_ids": raw.iter().map(|m| m["uid"].clone()).collect::<Vec<_>>(),
     });
+    if !refs.is_empty() {row["context_retry_refs"]=json!(refs);}
     if let Some(r) = receipt {
         row["steered"] = json!(true);
         row["receipt"] = json!(r);
     }
     row
+}
+
+#[cfg(test)]
+mod context_retry_transcript_tests {
+    use super::*;
+    #[test]
+    fn context_retry_keeps_a_receipt_without_copying_authored_mail() {
+        let original=json!({"uid":"original","sender":"@user","body":"PRIVATE ORIGINAL BODY","extra":{"context_retry_original":7}});
+        let wake=json!({"uid":"wake","sender":"@system","body":"Recovery event","extra":{}});
+        let row=mail_row(&[original.clone(),wake],None);
+        assert!(!row.to_string().contains("PRIVATE ORIGINAL BODY"));
+        assert_eq!(row["mail_ids"],json!(["original","wake"]));
+        assert_eq!(row["context_retry_refs"],json!([{"id":"original","failed_turn":7}]));
+        assert_eq!(row["segments"][0]["kind"],"text");
+        assert_eq!(row["segments"][1]["rows"][0]["id"],"wake");
+        // Normal authored mail is unchanged, and prompt composition retains
+        // the original body despite the transcript-only reference.
+        let mut normal=original.clone();normal["extra"]=json!({});
+        assert!(mail_row(&[normal],None).to_string().contains("PRIVATE ORIGINAL BODY"));
+        assert!(prompt::turn_text(&[mail_of(&original)],"",&Default::default(),None).contains("PRIVATE ORIGINAL BODY"));
+    }
 }
 
 #[logged]

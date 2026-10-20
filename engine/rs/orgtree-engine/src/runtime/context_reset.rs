@@ -48,7 +48,7 @@ pub async fn retry(engine: &Engine, org: i64, agent: i64, turn: i64, error: &str
     let mut ev=crate::events::typed("ordinary.message","@system",Value::Null,json!({}));
     ev["body"]=json!(&body);
     tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,notice,body,attachments,ev,state,extra) VALUES($1,$2,'@system','agent',$3,$4,'system',false,$5,'[]'::jsonb,$6,'pending',jsonb_build_object('context_retry_turn',$7::bigint)) ON CONFLICT(uid) DO NOTHING", &[&uid,&org,&agent,&name,&body,&ev,&turn]).await?;
-    tx.execute("UPDATE ot.mail SET state='pending',turn_id=NULL WHERE recipient_agent_id=$1 AND turn_id=$2 AND state='delivering'", &[&agent,&turn]).await?;
+    tx.execute("UPDATE ot.mail SET state='pending',turn_id=NULL,extra=extra || jsonb_build_object('context_retry_original',$2::bigint) WHERE recipient_agent_id=$1 AND turn_id=$2 AND state='delivering'", &[&agent,&turn]).await?;
     tx.execute("UPDATE ot.turns SET ended_at=now(),error=$2 WHERE id=$1", &[&turn,&error]).await?;
     tx.execute("UPDATE ot.agents SET session_id=NULL,occupancy=NULL,occupancy_est=true,compacted_unrun=true,inflight_at=NULL,extra=(extra-'cache_receipt') || jsonb_build_object('native_ctx_retry_run',$2::bigint,'handoff_due','your context window filled up and the previous turn is being retried once'),row_version=row_version+1 WHERE id=$1", &[&agent,&NATIVE_RETRY_MAX]).await?;
     if let Some(session)=session {

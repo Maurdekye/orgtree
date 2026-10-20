@@ -14,6 +14,10 @@ event keyed by the failed turn. Delivered original mail keeps its IDs and
 single receipts. The wake recalls those messages with sender provenance and
 existing bounded inbox references for large bodies; it never creates duplicate
 original inbox rows or acknowledges them again. A crash after the transaction
+commits also preserves recovery re-admission markers for unconsumed messages:
+the prompt contains their bodies, while the new transcript row references the
+single original authored segment. Its ID receipt still proves delivery after
+a restart; positive acknowledgement clears the marker. A crash after commit
 commits leaves a pending wake, rather than an open failed turn that restart
 could re-admit. Earlier conversation stays available through the existing
 saved-history/handoff path. The recovery wake is an engine event, not a new

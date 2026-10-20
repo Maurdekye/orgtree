@@ -36,7 +36,7 @@ pub async fn read_held(engine: &Engine, client: &tokio_postgres::Client, agent: 
 #[logged]
 pub async fn acknowledge(engine: &Engine, client: &tokio_postgres::Client, agent: i64, turn: i64, ids: &[i64]) -> Result<Vec<(String,String)>> {
     let rows = client.query(
-        "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now())
+        "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now()), extra = extra - 'context_retry_original'
           WHERE recipient_agent_id = $1 AND turn_id = $2 AND id = ANY($3) AND state = 'delivering'
           RETURNING uid,kind,org_id,net_id,net_hub",
         &[&agent, &turn, &ids],
@@ -48,7 +48,7 @@ pub async fn acknowledge(engine: &Engine, client: &tokio_postgres::Client, agent
 #[logged]
 pub async fn acknowledge_turn(engine: &Engine, client: &tokio_postgres::Client, turn: i64) -> Result<Vec<(String,String)>> {
     let rows = client.query(
-        "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now())
+        "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now()), extra = extra - 'context_retry_original'
           WHERE turn_id = $1 AND state = 'delivering' RETURNING uid,kind,org_id,net_id,net_hub", &[&turn],
     ).await?;
     Ok(consumed(engine, &rows))
@@ -99,7 +99,7 @@ pub async fn recover_turns(engine: &Engine, client: &tokio_postgres::Client, tur
 #[logged]
 async fn settle_claimed(engine: &Engine, client: &tokio_postgres::Client, ids: &[i64]) -> Result<()> {
     let proven = client.query(
-        "UPDATE ot.mail m SET state = 'delivered', delivered_at = coalesce(m.delivered_at, now())
+        "UPDATE ot.mail m SET state = 'delivered', delivered_at = coalesce(m.delivered_at, now()), extra = m.extra - 'context_retry_original'
           FROM ot.turns t WHERE m.id = ANY($1) AND m.turn_id = t.id AND m.state = 'delivering'
             AND t.agent_id = m.recipient_agent_id AND t.sent_at IS NOT NULL
             AND EXISTS (SELECT 1 FROM ot.convo c WHERE c.agent_id = m.recipient_agent_id
