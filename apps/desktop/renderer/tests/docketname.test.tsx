@@ -1,3 +1,4 @@
+import { selectDocketRow } from './docketselection.fixture'
 // canonize-the-model-chip-and-clickable-agent-name, the last two surfaces:
 // the docket's OWNER GROUP HEADING, and an AGENT NAMED IN ORDINARY PROSE.
 //
@@ -140,7 +141,7 @@ const desc = (el: HTMLElement) =>
   pane(el)?.querySelector('.docket-desc-body') as HTMLElement | null
 
 async function openFirst(el: HTMLElement) {
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 }
 
