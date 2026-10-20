@@ -556,7 +556,7 @@ uiTest('§5.1 an org-inbox row names the outside party as plain text — no chip
     await inAct(() => { (rowsOf(el)[0]!.querySelector('.l2') as HTMLElement).click() })
     const pane = el.querySelector('.mailer-head') as HTMLElement | null
     assert.ok(pane, 'positive control: opening the mail rendered a reading pane')
-    assert.ok(txt(pane!).includes(' as '),
+    assert.match(txt(pane!), /@ceo\s*as\s*@mine\s*→\s*@net:faraway\.other-machine\.abcdef/,
       `the PANE still carries the full attribution: ${JSON.stringify(txt(pane!))}`)
     // …and the local agent that sent it keeps its chip THERE, which is the
     // control proving this fixture could have produced one in the row
