@@ -68,6 +68,12 @@
 //             desks draw them; &mode=lson the same desk switched on, its
 //             Listeners tab open; &inbox=0 either one with no listener on
 //             the inbox, so the message box's yellow note shows as well;
+//   instances — the REAL canvas with lead's Team window and lead's reader
+//             pinned from today's single records (migrated on load); the
+//             capture opens dev1's and dev2's Team (cascaded beside lead's),
+//             lead's team reader (beside its own reader) and a document of
+//             dev1's (the team reader shows it), docket
+//             several-instances-of-the-same-modal-team-slots-i;
 //   jumpscroll — a desk on the canvas with many jump cards (user 2026-10-20
 //             09:41Z-09:50Z): stack16-agent-a under &up=N nested projects
 //             under boss, with &down=N reports named and badged like the
@@ -84,6 +90,8 @@ import { DeskChat } from '../src/canvas/desk'
 import { DeskDogsProvider } from '../src/canvas/deskdogs'
 import { addPin } from '../src/canvas/pins'
 import { CurrentOrg } from '../src/popout'
+import { AgentNavProvider, useAgentNavRegistry } from '../src/canvas/agentnav'
+import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
 import { NodeConfig } from '../src/canvas/modals'
@@ -111,6 +119,16 @@ window.fetch = ((input: RequestInfo | URL) => {
   if (p.endsWith('/transfers')) return answer({ next_cursor: null, transfers: [
     { id: 't1', direction: 'upload', message_id: 'm1', peer: '@net:phone', state: 'done', attempt: 1 }] })
   if (p.endsWith('/api/accounts')) return answer({ version: 2, primary: null, keys: [], assignments: {}, accounts: [] })
+  if (new URLSearchParams(location.search).get('scene') === 'instances' && /\/documents(\/[^/]+)?$/.test(p)) {
+    const one = p.match(/\/documents\/([^/]+)$/)?.[1]
+    const doc = INSTANCE_DOCS.find(d => d.id === one)
+    if (one) return doc ? answer({ ...doc, body: `## ${doc.title}\n\nWritten by ${doc.node} for the team.` }) : answer({ detail: 'no such document' }, 404)
+    const q = new URL(String(input), location.href).searchParams
+    const node = q.get('node') ?? '', team = q.get('team') === '1', locate = q.get('locate') ?? ''
+    const rows = INSTANCE_DOCS.filter(d => !node || d.node === node || (team && (node === 'lead' ? d.node !== 'boss' : false)))
+      .map(d => ({ ...d, presented_by: d.node, presenter_tier: 'haiku', format: 'md', bytes: 100, evicted: false, node_state: 'live', tier: 'haiku' }))
+    return answer({ documents: rows, total: rows.length, next_offset: null, offset: 0, ...(locate ? { located: locate } : {}) })
+  }
   if (p.endsWith('/documents')) {
     const at = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
     const row = (id: string, node: string, by: string, tier: string, title: string, m: number) =>
@@ -131,6 +149,12 @@ window.fetch = ((input: RequestInfo | URL) => {
   return answer({ detail: 'not in the fixture' }, 404)
 }) as typeof fetch
 
+const INSTANCE_DOCS = [
+  { id: 'ld-1', node: 'lead', title: 'Release plan', at: new Date(Date.now() - 4 * 60_000).toISOString() },
+  { id: 'ld-2', node: 'lead', title: 'Team charter', at: new Date(Date.now() - 50 * 60_000).toISOString() },
+  { id: 'dv-1', node: 'dev1', title: 'Parser notes', at: new Date(Date.now() - 12 * 60_000).toISOString() },
+  { id: 'dv-2', node: 'dev2', title: 'Test report', at: new Date(Date.now() - 30 * 60_000).toISOString() },
+]
 const agent = (id: string, parent: string, extra: Record<string, unknown> = {}) => ({
   id, title: id, tier: 'haiku', model_id: 'haiku', state: 'live', parent,
   seat: 1, grant: 0, free: 0, ui_order: 0, cost_usd: 0, occupancy: null,
@@ -233,6 +257,38 @@ function JumpScroll() {
         <OrgCanvas tree={tree([top], dogs)} slug="org" op={() => Promise.resolve({} as OpResult)}
           toast={noop} mailEvt={null} onOpenAgentGallery={noop} focusAgent="stack16-agent-a" />
       </CurrentOrg.Provider>
+    </div>
+  )
+}
+
+/** the node menus and the document pointer, for the capture script */
+function InstancesProbe({ onDoc }: { onDoc: (id: string) => void }) {
+  const registry = useAgentNavRegistry()
+  useEffect(() => {
+    const w = window as unknown as Record<string, unknown>
+    const flat = (es: MenuEntry[]): MenuItem[] => es.flatMap(e => e === 'sep' ? [] : [e, ...flat(e.children ?? [])])
+    w.__miSelect = (id: string, label: string) => {
+      const entry = flat(registry?.current?.(id) ?? []).find(e => e.label === label)
+      entry?.onSelect()
+      return !!entry
+    }
+    w.__miDoc = onDoc
+  })
+  return null
+}
+function Instances() {
+  const [docAt, setDocAt] = useState<string | null>(null)
+  const nodes = [agent('lead', 'boss', { tier: 'sonnet', model_id: 'sonnet', documents: INSTANCE_DOCS.filter(d => d.node === 'lead'), children: [
+    agent('dev1', 'lead', { busy: true, documents: INSTANCE_DOCS.filter(d => d.node === 'dev1') }),
+    agent('dev2', 'lead', { documents: INSTANCE_DOCS.filter(d => d.node === 'dev2') })] })]
+  return (
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      <style>{'html, body, #root { height: 100%; margin: 0 } .viewport { flex: 1; min-height: 600px }'}</style>
+      <CurrentOrg.Provider value="org"><AgentNavProvider>
+        <OrgCanvas tree={tree(nodes)} slug="org" op={() => Promise.resolve({} as OpResult)}
+          toast={noop} mailEvt={null} openDocAt={docAt} onOpenDocHandled={() => setDocAt(null)} />
+        <InstancesProbe onDoc={setDocAt} />
+      </AgentNavProvider></CurrentOrg.Provider>
     </div>
   )
 }
@@ -657,6 +713,18 @@ if (scene === 'activity') { try { localStorage.setItem('orgtree-agent-shortcuts'
 // here it is held open for the capture
 if (scene === 'activity') document.head.insertAdjacentHTML('beforeend',
   '<style>.sq.project .sq-actions .mailbtn { opacity: .8 !important; visibility: visible !important; }</style>')
+if (scene === 'instances') {
+  // TODAY'S SINGLE RECORDS, as a 4.4.0-alpha.21 profile holds them: one Team
+  // window and one presentations window per org, each naming lead
+  localStorage.clear()
+  localStorage.setItem('orgtree-agent-shortcuts', '1')
+  localStorage.setItem('orgtree-modal-pins', JSON.stringify({
+    [JSON.stringify(['org', 'agent-team'])]: { rect: { x: 16, y: 16, w: 330, h: 300 }, z: 0 },
+    [JSON.stringify(['org', 'agent-gallery'])]: { rect: { x: 420, y: 16, w: 520, h: 330 }, z: 1 } }))
+  localStorage.setItem('orgtree-modal-open', JSON.stringify([
+    { kind: 'agent-team', org: 'org', restore: { agent: 'lead', generation: 1 } },
+    { kind: 'agent-gallery', org: 'org', restore: { agent: 'lead', generation: 1 } }]))
+}
 if (scene === 'hosts') {
   addPin('org', 'sb', { x: 20, y: 330, w: 470, h: 300 })
   addPin('org', 'build', { x: 510, y: 330, w: 470, h: 300 })
@@ -694,6 +762,7 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
   : scene === 'hclmodal' ? <ListenersWindow />
   : scene === 'hire' ? <HireScene />
   : scene === 'jumpscroll' ? <JumpScroll />
+  : scene === 'instances' ? <Instances />
   : scene === 'slots' ? <Slots />
   : scene === 'multi-slots' ? <Slots multi />
   : scene === 'cardfix' ? <CardFix />

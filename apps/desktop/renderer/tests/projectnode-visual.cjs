@@ -233,6 +233,63 @@ module.exports = async (page) => {
     }
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=instances: several windows of one kind (docket
+  // several-instances-of-the-same-modal-team-slots-i, USER 2026-10-20
+  // 17:24:20Z; readers 19:03:28Z). The scene loads today's single Team and
+  // presentations records for lead (migrated: both come back pinned); the
+  // capture opens dev1's and dev2's Team through their node menus (cascaded
+  // 28 px from lead's), lead's team reader (beside its own reader) and a
+  // document of dev1's (the team reader, which can show it, shows it). Each
+  // shot records every window's box and what each reader shows. Dark and light.
+  if (only === 'instances') {
+    const windows = () => page.eval(() => {
+      const box = (el) => { const r = el.getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] }
+      const teams = [...document.querySelectorAll('.team-panel')].map((p) => ({ who: p.getAttribute('aria-label'), box: box(p), pinned: p.classList.contains('modalpin-win') }))
+      const readers = [...document.querySelectorAll('.gallery-agent')].map((s) => {
+        const panel = s.closest('.settings')
+        return { who: s.getAttribute('aria-label'), team: /and the agents under it/.test(s.querySelector('.desk-presented-head .dim')?.textContent ?? ''),
+          shows: s.querySelector('.mailrow.on .mfrom')?.textContent ?? null, box: panel ? box(panel) : null,
+          pinned: !!panel?.classList.contains('modalpin-win') }
+      })
+      const overlaps = []
+      const all = [...teams, ...readers].filter((w) => w.box)
+      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+        const [a, b] = [all[i].box, all[j].box]
+        if (a[0] === b[0] && a[1] === b[1]) overlaps.push([all[i].who, all[j].who])
+      }
+      return { teams, readers, samePlace: overlaps, pins: JSON.parse(localStorage.getItem('orgtree-modal-pins') ?? '{}') }
+    })
+    const act = (fn, ...args) => page.eval(async (f, a) => {
+      const ok = window[f](...a)
+      await new Promise((r) => setTimeout(r, 900))
+      return ok
+    }, fn, args)
+    const out = {}
+    for (const theme of ['', '&theme=light']) {
+      const name = theme ? 'light' : 'dark'
+      await page.goto('/?scene=instances' + theme)
+      await page.waitFor('.team-panel', { timeout: 20000 })
+      await page.sleep(1200)
+      await settle()
+      const run = { restored: await windows() }
+      run.dev1 = await act('__miSelect', 'dev1', 'Team')
+      run.dev2 = await act('__miSelect', 'dev2', 'Team')
+      await settle()
+      run.teams = await windows()
+      screenshots.push(await page.screenshot(`${prefix}-instances-teams-${name}-1000x700`))
+      run.teamReader = await act('__miSelect', 'lead', 'Team presentations')
+      await settle()
+      run.readers = await windows()
+      screenshots.push(await page.screenshot(`${prefix}-instances-readers-${name}-1000x700`))
+      await act('__miDoc', 'dv-1')
+      await page.sleep(900)
+      await settle()
+      run.document = await windows()
+      screenshots.push(await page.screenshot(`${prefix}-instances-document-${name}-1000x700`))
+      out[name] = run
+    }
+    return { details: out, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=jumpscroll: a desk on the canvas whose jump rows
   // pass 8 rows of chips (docket desk-jump-cards-subordinate-and-superior-
   // scroll-b, user 2026-10-20 09:41Z-09:50Z): 91 reports and 9 watchdogs
