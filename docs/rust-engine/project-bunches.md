@@ -38,6 +38,9 @@ chain. Hidden branches and unloaded retired-child counts still break a run.
 This uses the existing bounded archive projection without reading more history.
 The retired picker continues to list physical sibling roots separately, with
 its existing cursor pages and search; siblings are never merged into a bunch.
+Project rows use the shared folder badge. Its count says projects or agents only
+when a complete unfiltered cohort is known; mixed or partially loaded cohorts
+use the neutral "retirees", without fetching additional pages to infer their kind.
 Project fronts use the same clickable stack layers and count as agent fronts.
 Every project keeps its own desk and Restore action, which rehires that named
 project, not the whole bunch.

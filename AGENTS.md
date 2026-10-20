@@ -5,6 +5,11 @@
   [decided: user 2026-10-20 18:58:05Z; verified: `canvas/{projectcard,projectdesk}.tsx`,
   `tests/teampresent.test.tsx`]
 
+- Retired pile rows use project folder badges and label complete project-only
+  cohorts as projects. Mixed or incomplete cohorts use "retirees"; search/page
+  results never imply the kind of the whole pile or trigger extra history reads.
+  [verified: `canvas/modals.tsx`, `tests/retiredpages.test.tsx`; 2026-10-20]
+
 - Project desk reopening uses the agent desk's camera/pin/window reveal routes.
   Its inline canvas desk needs stationary-release arbitration because viewport
   pointer capture retargets the click; drags/cancels/controls/selections stay

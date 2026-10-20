@@ -55,7 +55,7 @@ import { EFFORT_CHANGE_HELP } from './effort'
 import { EffortBar } from './effortbar'
 import { CreditGrant } from './creditgrant'
 import { AgentHistoryView } from './historyview'
-import { AgentDirectoryProvider } from './identity'
+import { AgentDirectoryProvider, nodeTierOf, TierChip } from './identity'
 import type { RefRoutes } from './reflinks'
 import { useRecordHistory } from '../recordpanelhooks'
 import { MAX_SLOTS, slotCount } from './slots'
@@ -2098,6 +2098,16 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, 
   const rowMap = paged ? new Map(pages.rows.map(n => [n.id, n])) : map
   const rowIds = paged ? pages.rows.map(n => n.id) : ready ? pileOrder(pile.list, map) : []
   const total = pile.total ?? pile.list.length
+  // A page or search result cannot establish the kind of the whole pile.
+  // Use a complete unfiltered cohort only; never fetch history just to label it.
+  const cohort = paged && !pages.query.trim() && !pages.busy && !pages.error
+    && !pages.next && pages.rows.length === total ? pages.rows
+    : ready && pile.list.length === total && pile.list.every(id => map.has(id))
+      ? pile.list.map(id => map.get(id)!) : []
+  const countKind = crowd ? 'agents'
+    : cohort.length && cohort.every(n => nodeTierOf(n) === 'project') ? 'projects'
+    : cohort.length && cohort.every(n => nodeTierOf(n) !== 'project') ? 'agents'
+    : 'retirees'
   const [asking, setAsking] = useState(false)
   const [wiping, setWiping] = useState(false)
   useEffect(() => { if (!ready) setAsking(false) }, [ready])
@@ -2136,7 +2146,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, 
     <ModalOverPins><div className="overlay" onClick={close} onPointerDown={(e) => e.stopPropagation()}>
       <div className="settings content-height pile-picker" onClick={(e) => e.stopPropagation()}>
         <h3><LayersIcon fontSize="inherit" /> {crowd ? 'Team stack' : 'Retired pile'}
-          <span className="dim"> · {pile.total ?? pile.list.length} agents</span></h3>
+          <span className="dim"> · {total} {countKind}</span></h3>
         <div className="hint">
           {crowd
             ? 'A wide team stacks its leaf agents into one place. The one in '
@@ -2167,7 +2177,9 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, 
           return (
             <button key={id} data-copy-agent-name={id} {...agentNavProps(id)} className={'pile-row' + (id === pile.front ? ' on' : '')}
               disabled={wiping} onClick={() => onPick(id)}>
-              <span className={'tier t-' + n.tier} {...agentTooltipProps(n.id, true)}>{TIER_LETTER[n.tier!] ?? '?'}</span>
+              {nodeTierOf(n) === 'project'
+                ? <TierChip tier="project" agentName={n.id} />
+                : <span className={'tier t-' + n.tier} {...agentTooltipProps(n.id, true)}>{TIER_LETTER[n.tier!] ?? '?'}</span>}
               <span className="pile-name">{id}</span>
               {n.bearer_state && <span className="badge dim">{n.bearer_state}</span>}
               {n.busy && <span className="badge">{stateLabel('active')}</span>}
