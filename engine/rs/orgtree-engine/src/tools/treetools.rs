@@ -84,13 +84,14 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
         },
         _ => {}
     }
-    let own_slots = op == "create_project" && arg_str(args,"action") == Some("slots")
-        && !crate::domain::tool_groups::enabled(&super::caller_tools(engine,caller).await?,"team");
+    let slots = op == "create_project" && arg_str(args,"action") == Some("slots");
+    let own_slots = slots && !crate::domain::tool_groups::enabled(&super::caller_tools(engine,caller).await?,"team");
     let actor = Actor::Agent { id: me.id, name: me.name.clone() };
     // Keep the large canonical operation future off nested tool-call frames.
     // Default-stack Windows debug engines otherwise overflow before polling it.
     let out = Box::pin(ops::run(engine, &org, actor, &req)).await?;
     let out = if own_slots { own_slot_status(out,&me.name) } else { out };
+    let out = if slots { without_claim_dogs(out) } else { out };
     Ok(Done { text: serde_json::to_string_pretty(&out).unwrap_or_default(), card: None })
 }
 
@@ -111,6 +112,21 @@ fn own_slot_status(mut status: Value, agent: &str) -> Value {
     }
     status["held"] = json!(status["holders"].as_array().map_or(0,Vec::len));
     status["own_only"] = json!(false);
+    status
+}
+
+/// A lease's claim dog is the project desk's Watchdog column (user
+/// 2026-10-20 06:22Z); the tool's slots output stays as it was. The line
+/// keeps the dog it always named.
+#[nolog]
+fn without_claim_dogs(mut status: Value) -> Value {
+    for key in ["holders","history"] {
+        if let Some(rows) = status[key].as_array_mut() {
+            for row in rows {
+                if let Some(row) = row.as_object_mut() { row.remove("dog"); }
+            }
+        }
+    }
     status
 }
 
@@ -137,6 +153,18 @@ mod slot_release_projection_tests {
         assert_eq!(out["holders"],json!([{"agent":"other"}]));
         assert_eq!(out["held"],1);
         assert_eq!(out["own_only"],false);
+    }
+
+    #[test]
+    fn the_claim_dogs_stay_on_the_desk() {
+        let out=without_claim_dogs(json!({"project":"build","slots":1,
+            "holders":[{"agent":"me","lease":"mine","dog":{"id":"me/claim","name":"claim","kind":"slot"}}],
+            "line":[{"agent":"other","position":1,"dog":"wait"}],
+            "history":[{"agent":"me","lease":"old","dog":null}]}));
+        assert_eq!(out,json!({"project":"build","slots":1,
+            "holders":[{"agent":"me","lease":"mine"}],
+            "line":[{"agent":"other","position":1,"dog":"wait"}],
+            "history":[{"agent":"me","lease":"old"}]}));
     }
 }
 
