@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { Watchdog } from '../types'
 import { objectNavProps } from './objectnav'
-import { watchdogGlyph, watchdogKindClass } from './watchdogchip'
+import { watchdogGlyph, watchdogKindClass, watchdogStateWords } from './watchdogchip'
 import { WatchdogCountdown } from './watchdogcountdown'
 import { useDogRoute } from './watchdogroute'
 
@@ -39,8 +39,8 @@ export function WatchdogLink({dog:given,id,owner,name,org,onOpen,className='',ch
   return <Tag {...(open?{type:'button' as const}:{})}
     {...(open||stale||(dog&&!gone)?objectNavProps('watchdog',key,org??route?.org):{})}
     {...(stale?{'data-object-stale':'true','data-object-name':label}: {})}
-    className={`desk-nav-chip desk-dog-chip watchdog-link ${state} ${dog?watchdogKindClass(dog):''}${dog?.once?' oneshot':''}${gone?' gone':''} ${className}`}
-    title={title??(dog?`${dog.once?'one-shot dog':'watchdog'} "${label}" (${dog.kind}) — ${gone?'no longer exists':dog.state}; ${dog.once?'fires once':'continuous'}${open?'; click for detail':''}`:`watchdog "${label}" — kind and mode unknown${stale?'; no longer exists':''}`)}
+    className={`desk-nav-chip desk-dog-chip watchdog-link ${state} ${dog?watchdogKindClass(dog):''}${dog?.once?' oneshot':''}${gone?' gone':''}${dog?.disabled&&!gone?' disabled':''} ${className}`}
+    title={title??(dog?`${dog.once?'one-shot dog':'watchdog'} "${label}" (${dog.kind}) — ${gone?'no longer exists':watchdogStateWords(dog)}; ${dog.once?'fires once':'continuous'}${open?'; click for detail':''}`:`watchdog "${label}" — kind and mode unknown${stale?'; no longer exists':''}`)}
     aria-label={`watchdog ${label}, ${gone?'no longer exists':state}`}
     aria-disabled={gone?'true':undefined}
     onMouseDown={e=>{if(e.button!==0)e.stopPropagation()}}

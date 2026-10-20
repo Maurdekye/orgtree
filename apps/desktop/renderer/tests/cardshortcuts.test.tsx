@@ -187,7 +187,7 @@ test('§2a the project row is Docket, Mail, Presented, Team, Slots, Listeners, e
   serve(t)
   shortcutsOn(t)
   const log: string[] = []
-  const nd = project({ configured_scope: { slots_capacity: 2 }, listeners_seen: true } as never)
+  const nd = project({ configured_scope: { slots_capacity: 2, event_listeners: true } } as never)
   const view = await mountView(projectCard(nd, { log }), (el) => el)
   t.after(() => view.unmount())
   assert.deepEqual(shortcuts(view.el), ['docket', 'mail', 'presented', 'team', 'slots', 'listeners'],
@@ -211,7 +211,7 @@ test('§2b Listeners walks to the desk on that tab where no temporary desk is of
   serve(t)
   shortcutsOn(t)
   const log: string[] = []
-  const view = await mountView(projectCard(project({ listeners_seen: true } as never), { log, temporary: false }), (el) => el)
+  const view = await mountView(projectCard(project({ configured_scope: { event_listeners: true } } as never), { log, temporary: false }), (el) => el)
   t.after(() => view.unmount())
   await inAct(() => { button(view.el, 'listeners')!.click() })
   assert.deepEqual(log, ['focus'], 'the camera walks to the desk')
@@ -253,9 +253,10 @@ test('§2d Team, Slots and Listeners show exactly while the project desk offers 
     ['only a retired agent under it', project({ children: [retired] } as never), treeWith(), []],
     ['a live agent under it', project(), treeWith(), ['team']],
     ['slots configured', project({ children: [], configured_scope: { slots_capacity: 1 } } as never), treeWith(), ['slots']],
-    ['a listener registered now', project({ children: [] }), treeWith([listener]), ['listeners']],
-    ['a listener registered once, gone since', project({ children: [], listeners_seen: true } as never), treeWith(), ['listeners']],
-    ['all three', project({ configured_scope: { slots_capacity: 3 } } as never), treeWith([listener]), ['team', 'slots', 'listeners']],
+    ['event listeners on, one listening', project({ children: [], configured_scope: { event_listeners: true } } as never), treeWith([listener]), ['listeners']],
+    ['event listeners on, nobody listening', project({ children: [], configured_scope: { event_listeners: true } } as never), treeWith(), ['listeners']],
+    ['a listener dog, the event listeners off', project({ children: [] }), treeWith([listener]), []],
+    ['all three', project({ configured_scope: { slots_capacity: 3, event_listeners: true } } as never), treeWith([listener]), ['team', 'slots', 'listeners']],
   ]
   for (const [name, nd, tree, want] of cases) {
     const got = await tabsAndShortcuts(t, nd, tree)
@@ -267,7 +268,7 @@ test('§2d Team, Slots and Listeners show exactly while the project desk offers 
 test('§2e with the setting off, none of the project shortcuts', async (t) => {
   serve(t)
   shortcutsOn(t, false)
-  const view = await mountView(projectCard(project({ configured_scope: { slots_capacity: 2 }, listeners_seen: true } as never)),
+  const view = await mountView(projectCard(project({ configured_scope: { slots_capacity: 2, event_listeners: true } } as never)),
     (el) => el)
   t.after(() => view.unmount())
   assert.equal(row(view.el) === null, true, 'no shortcut row at all')

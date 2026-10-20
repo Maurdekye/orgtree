@@ -13,10 +13,12 @@
 //      in ack mode, nothing when the queue is empty;
 //   §3 the two kinds' own words in the watchdog detail description,
 //      including the fire-time tool calls;
-//   §4 the desk: no Listeners tab until a listener or watch has ever
-//      registered on the project, then for good (user 2026-10-20 06:22Z);
-//      with dogs, the header cards, the tab's badge, its rows and the fire
-//      control sending fire_project_event; §4b the tab as ONE table like the
+//   §4 the desk: no Listeners tab while the project's event listeners are
+//      off, the tab while they are on, empty or not (user 2026-10-20 10:50Z,
+//      replacing "from the first registered listener, for good" of 06:22Z;
+//      listenersetting.test.tsx holds the setting itself); with dogs, the
+//      header cards, the tab's badge, its rows and the fire control sending
+//      fire_project_event; §4b the tab as ONE table like the
 //      slots and mail listeners tables (user 2026-10-19 21:08Z-21:11Z,
 //      2026-10-20 06:22Z-06:36Z): header row, section rows, the desk tables'
 //      one column order with the watchdog last, only the columns with data,
@@ -223,12 +225,12 @@ async function desk(t: TestContext, nd: CanvasNode, withDogs = true) {
   return { view, ops }
 }
 
-test('§4 while no listener has ever registered: no cards and no Listeners tab; the Mail tab keeps its listeners folder (user 2026-10-20 06:22Z)', async (t) => {
+test('§4 while the event listeners are off (the default): no cards and no Listeners tab; the Mail tab keeps its listeners folder', async (t) => {
   const { view } = await desk(t, project(), false)
   assert.equal(Boolean(view.el.querySelector('.project-listeners-card')), false, 'no cyan card')
   assert.equal(Boolean(view.el.querySelector('.project-queue-card')), false, 'no queue card')
   assert.equal(view.el.querySelector('.cc-tabs button[data-tab="listeners"]') === null, true,
-    'hidden by default: no Listeners tab before any listener has registered')
+    'hidden by default: no Listeners tab while the event listeners are off')
   await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="inbox"]')!.click(); await flush(4) })
   const folder = [...view.el.querySelectorAll<HTMLButtonElement>('.mail-folders button')].find((b) => b.textContent?.startsWith('listeners'))
   assert.ok(folder, "the inbox's Listeners folder is always there too")
@@ -237,10 +239,10 @@ test('§4 while no listener has ever registered: no cards and no Listeners tab; 
     'showing its empty state')
 })
 
-test('§4 once any listener has registered the tab stays for good, empty or not (user 2026-10-20 06:22Z)', async (t) => {
-  const { view } = await desk(t, project({}, { listeners_seen: true }), false)
+test('§4 while the event listeners are on the tab shows, empty or not (user 2026-10-20 10:50Z)', async (t) => {
+  const { view } = await desk(t, project({ event_listeners: true }), false)
   const tab = view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="listeners"]')
-  assert.ok(tab, 'the engine marked the project: the tab is there with nobody listening now')
+  assert.ok(tab, 'the setting is on: the tab is there with nobody listening now')
   assert.equal(tab!.textContent, 'listeners', 'no count while none is armed')
   await inAct(async () => { tab!.click(); await flush(3) })
   const empties = [...view.el.querySelectorAll('.project-listeners .listeners-table td.slot-empty')].map((c) => c.textContent ?? '')
@@ -249,7 +251,7 @@ test('§4 once any listener has registered the tab stays for good, empty or not 
 })
 
 test('§4 the header cards, the tab, its rows and the fire control', async (t) => {
-  const nd = project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 })
+  const nd = project({ mail_queue: 'ack', event_listeners: true }, { mail_pending: 3, mail_held: 1 })
   const { view, ops } = await desk(t, nd)
   const cyan = view.el.querySelector<HTMLButtonElement>('.project-listeners-card')
   assert.equal(cyan?.textContent, 'listeners 2/2', 'the bright watch card in the header')

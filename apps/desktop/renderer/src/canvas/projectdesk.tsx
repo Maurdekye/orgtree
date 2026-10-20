@@ -58,7 +58,7 @@ import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
 import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
-import { listenerCards, mailListenerState, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
+import { eventListenersOn, listenerCards, mailListenerState, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { MailListenersView } from './maillisteners'
 import { InboxNoListeners, inboxListened } from './inboxwarning'
 import { DeskJumpCards, superiorKept } from './deskjumpcards'
@@ -74,17 +74,15 @@ const ALL_TABS: readonly Tab[] = [...PROJECT_DESK_TABS, 'slots', 'dead', 'listen
 /** The tabs a project desk offers now, in order. Team while a live node hangs
  *  directly under it, the agent desk's rule; Slots while it has a slot count,
  *  which is a setting (user 2026-10-19 21:20:24Z); Dead letters while it holds
- *  open ones; Listeners from the first time any listener or watch registers on
- *  it, for good (user 2026-10-20 06:22Z, replacing "always" of 2026-10-19
- *  21:19:48Z: it never hides again when they unregister). The project card's
- *  Team, Slots and Listeners shortcuts read this same list (user 2026-10-20
- *  09:24Z), so a card never offers a tab its desk does not have. */
-export function projectDeskTabs(node: CanvasNode, map: Map<string, CanvasNode>,
-  dogs: NonNullable<TreePayload['watchdogs']>): ProjectDeskTab[] {
-  const listeners = projectListenerState(node.id, dogs)
-  const listenersSeen = !!node.listeners_seen || listeners.listeners.length + listeners.watches.length > 0
+ *  open ones; Listeners exactly while the project's event-listeners setting is
+ *  on (user 2026-10-20 10:50Z, replacing "from the first registered listener,
+ *  for good" of 06:22Z): an agent's first listener switches it on, a superior
+ *  switches it either way. The project card's Team, Slots and Listeners
+ *  shortcuts read this same list (user 2026-10-20 09:24Z), so a card never
+ *  offers a tab its desk does not have. */
+export function projectDeskTabs(node: CanvasNode, map: Map<string, CanvasNode>): ProjectDeskTab[] {
   return [...PROJECT_DESK_TABS, ...(slotCount(node) > 0 ? ['slots' as const] : []),
-    ...((node.dead_letters ?? 0) > 0 ? ['dead' as const] : []), ...(listenersSeen ? ['listeners' as const] : [])]
+    ...((node.dead_letters ?? 0) > 0 ? ['dead' as const] : []), ...(eventListenersOn(node) ? ['listeners' as const] : [])]
     .filter((v) => v !== 'team' || liveTeamCount(map, node.id) > 0)
 }
 /** the Mail tab's folders (ProjectInbox) */
@@ -726,7 +724,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, onJu
   </div> : null
   // the tabs it offers now, by the rules the card's shortcuts share
   const deadLetters = node.dead_letters ?? 0
-  const tabs = projectDeskTabs(node, map, tree.watchdogs ?? [])
+  const tabs = projectDeskTabs(node, map)
   const shown: Tab = tabs.includes(view) ? view : 'desk'
   // A TAB THE DESK DOES NOT OFFER (no team, slots, dead letters or listeners
   // any more, or remembered from an earlier visit) gives way to Summary, and

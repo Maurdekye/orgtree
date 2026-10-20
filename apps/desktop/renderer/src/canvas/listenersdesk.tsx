@@ -1,8 +1,9 @@
 // canvas/listenersdesk.tsx — the project desk's LISTENERS tab (Orgtree
 // 4.4.0; docket `project-event-listeners-sync-monitor-watchdogs-l`, user
 // 2026-10-19; rebuilt for `project-desk-mail-event-listeners-and-slots-tabs`,
-// user 2026-10-20 06:22Z-06:42Z). The tab shows from the first time any
-// listener or watch registers on the project, for good (`listeners_seen`).
+// user 2026-10-20 06:22Z-06:42Z). The tab shows exactly while the project's
+// event-listeners setting is on (`configured_scope.event_listeners`; user
+// 2026-10-20 10:50Z).
 // It lists the event listeners and listener watches from the tree's
 // watchdogs, carries the fire control (the same `fire_project_event` op the
 // agents' `orgtree_project action=fire_event` runs, with an optional message

@@ -79,11 +79,13 @@ export function listenerCards(project: string, s: ProjectListenerState): Listene
 export interface ListenerLink { key: string; owner: string; project: string; watch: boolean; paused: boolean }
 
 /** One line per armed or paused project_listener/listener_watch dog whose
- *  project is on the canvas. Spent one-shots listen for nothing. */
+ *  project is on the canvas. Spent one-shots listen for nothing; a dog its
+ *  project's event-listeners switch-off disabled is unwired (user
+ *  2026-10-20 10:50Z): no line until the setting is on again. */
 export function listenerLinks(dogs: Watchdog[], isProject: (name: string) => boolean): ListenerLink[] {
   const out: ListenerLink[] = []
   for (const w of dogs) {
-    if ((w.kind !== 'project_listener' && w.kind !== 'listener_watch') || w.spent
+    if ((w.kind !== 'project_listener' && w.kind !== 'listener_watch') || w.spent || w.disabled
       || (w.state !== 'armed' && w.state !== 'paused')) continue
     const project = target(w)
     if (!isProject(project)) continue
@@ -93,6 +95,14 @@ export function listenerLinks(dogs: Watchdog[], isProject: (name: string) => boo
     })
   }
   return out
+}
+
+/** Are the project's event listeners on (`event_listeners` in its scope;
+ *  user 2026-10-20 10:50Z)? Off, the default, until an agent registers a
+ *  listener or a superior switches them on; it alone decides the desk's
+ *  Listeners tab. */
+export function eventListenersOn(node: { configured_scope?: unknown }): boolean {
+  return (node.configured_scope as { event_listeners?: unknown } | undefined)?.event_listeners === true
 }
 
 /** Is the project's mail queue in ack mode (`mail_queue` in its scope,

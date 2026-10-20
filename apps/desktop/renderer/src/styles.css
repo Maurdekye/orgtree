@@ -1983,6 +1983,8 @@ html.mobile .edge-jump { display: none; }
 .desk-dog-chip .wd-next-check { font-size: 9px; opacity: .82; }
 .desk-dog-chip.armed .wd-glyph { color: var(--ok, #4a9); }
 .desk-dog-chip.paused, .desk-dog-chip.exited { opacity: .6; }
+/* a listener its project's event-listeners switch-off disabled (⊘) */
+.desk-dog-chip.paused.disabled { opacity: .45; }
 .desk-body .tier {
   width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px;
 }
@@ -6866,6 +6868,7 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
 }
 .wd-chip.paused { opacity: .6; }
 .wd-chip.oneshot.paused { opacity: 1; }
+.wd-chip.paused.disabled, .wd-chip.oneshot.paused.disabled { opacity: .45; }
 .wd-chip.oneshot.paused .wd-glyph,
 .wd-chip.oneshot.paused .wd-name { opacity: .6; }
 .wd-chip.oneshot.paused .wd-once { opacity: .72; }

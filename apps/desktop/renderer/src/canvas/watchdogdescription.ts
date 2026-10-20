@@ -62,6 +62,9 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLe
       : `${pattern} ${target} engine events`
     summary = `${alert.charAt(0).toUpperCase() + alert.slice(1)} after ${quiet} without ${source}. Only matching events reset this timer; other activity does not.`
   }
+  if (dog.disabled && !dog.spent) {
+    summary = `Disabled: ${dog.disabled}. It listens for nothing until they are on again, then re-arms by itself. ${summary}`
+  }
   if (dog.fire_actions?.length) {
     summary += ` When it fires it also runs ${dog.fire_actions.map((a) => a.tool).join(', ')} as ${dog.owner}, with the authority ${dog.owner} holds then; the results ride its fire mail.`
   }

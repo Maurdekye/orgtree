@@ -823,6 +823,10 @@ export interface Watchdog {
    * Always present (`false` on every live dog), never undefined.
    */
   spent: boolean
+  /** a project_listener or listener_watch its project's event-listeners
+   *  switch-off disabled: why (paused, unwired, re-armed by the next switch-on;
+   *  docket project-event-listeners-an-enable-setting-off-by) */
+  disabled?: string
   last_check?: string
   last_fired?: string
   events?: { at: string; gist: string }[]

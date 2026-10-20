@@ -142,7 +142,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const shortcuts = showShortcuts && !deskOpen && !pinnedFocus
   // Team, Slots and Listeners shortcuts exactly while the desk offers those
   // tabs (user 2026-10-20 09:24Z)
-  const deskTabs: ProjectDeskTab[] = shortcuts ? projectDeskTabs(node, map ?? new Map(), tree?.watchdogs ?? []) : []
+  const deskTabs: ProjectDeskTab[] = shortcuts ? projectDeskTabs(node, map ?? new Map()) : []
   // Listeners has no window of its own: its shortcut opens the desk on that
   // tab, as the menu's Desk glance where offered, else by walking to it
   const openListeners = onOpenTemporary ?? onFocus

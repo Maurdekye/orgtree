@@ -53,11 +53,11 @@ const agent = (id: string, extra: Partial<CanvasNode> = {}): CanvasNode => ({
 
 const project = (id: string, extra: Record<string, unknown> = {}): CanvasNode => ({
   id, title: id, tier: 'project', kind: 'project', state: 'live', model_id: '', generation: 1,
-  seat: 0, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] }, configured_scope: { tools: {}, add_dirs: [] },
+  seat: 0, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] },
+  // its event listeners are on, so its Listeners tab shows
+  configured_scope: { tools: {}, add_dirs: [], event_listeners: true },
   parent: 'boss', charter: '', children: [], lineage: [], turns: [], audiences_held: [],
-  mail_pending: 0, mail_held: 0, last_status: null, occupancy: 0, context_window: 0, busy: false, activity: null,
-  // an armed listener has registered on it, so its Listeners tab shows
-  listeners_seen: true, ...extra,
+  mail_pending: 0, mail_held: 0, last_status: null, occupancy: 0, context_window: 0, busy: false, activity: null, ...extra,
 } as unknown as CanvasNode)
 
 const dog = (kind: Watchdog['kind'], owner: string, name: string, target: string): Watchdog =>

@@ -49,9 +49,9 @@ const agent = (id: string, tier: string, parent: string, extra: Partial<CanvasNo
 const members = ['stack3-agent-a', 'stack3-agent-b', 'stack3-agent-c'].map((id) => agent(id, 'sol', 'stack3-03'))
 const project = { id: 'stack3-03', title: 'stack3-03', parent: 'lead', tier: 'project', kind: 'project', state: 'live',
   model_id: '', generation: 0, seat: 0, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] },
-  configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2 }, charter: '', children: members, lineage: [], turns: [],
+  configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2, event_listeners: true }, charter: '', children: members, lineage: [], turns: [],
   audiences_held: [], mail_pending: 0, mail_held: 0, dead_letters: 0, documents: [], documents_count: 0,
-  listeners_seen: true, last_status: null, occupancy: 0, context_window: 0, busy: false, activity: null,
+  last_status: null, occupancy: 0, context_window: 0, busy: false, activity: null,
 } as unknown as CanvasNode
 const helper = agent('helper', 'sonnet', 'lead')
 const lead = agent('lead', 'opus', USER, { children: [project, helper], mail_pending: 2,

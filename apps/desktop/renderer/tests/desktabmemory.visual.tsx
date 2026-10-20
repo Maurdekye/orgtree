@@ -42,9 +42,9 @@ const refs = { world: { org: 'org' }, onOpen: noop } as never
 const dev1 = { id: 'dev1', parent: 'inner', tier: 'sonnet', state: 'live', generation: 0, busy: false, children: [], seat: 1,
   grant: 0, free: 0, scope: { tools: {}, add_dirs: [] }, turns: [], audiences_held: [], documents: [] } as unknown as CanvasNode
 const inner = { id: 'inner', title: 'inner', parent: 'boss', tier: 'project', kind: 'project', state: 'live', model_id: '',
-  seat: 0, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] }, configured_scope: { tools: {}, add_dirs: [] },
+  seat: 0, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] }, configured_scope: { tools: {}, add_dirs: [], event_listeners: true },
   charter: '# The docs site\n\nShip the **docs** from `main` only.', children: [dev1], lineage: [], turns: [],
-  audiences_held: [], mail_pending: 1, mail_held: 0, dead_letters: 0, documents: [], documents_count: 0, listeners_seen: true,
+  audiences_held: [], mail_pending: 1, mail_held: 0, dead_letters: 0, documents: [], documents_count: 0,
   last_status: null, occupancy: 0, context_window: 0, busy: false, activity: null } as unknown as CanvasNode
 const boss = { id: 'boss', parent: USER, tier: 'opus', state: 'live', generation: 0, busy: false, children: [inner], seat: 1,
   grant: 0, free: 0, scope: { tools: {}, add_dirs: [] }, turns: [], audiences_held: [], documents: [], mail_pending: 2,
