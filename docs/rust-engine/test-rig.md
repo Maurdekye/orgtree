@@ -144,7 +144,9 @@ the run.
   `ORGTREE_CLAUDE_BIN`/`ORGTREE_CODEX_BIN`/`ORGTREE_AGY_BIN`, no usage probe or OpenRouter call
   is made (canned readings may be dropped into `rig-home\rig-usage\<lane>.json`, or
   `<lane>@<folder>.json` for the one login whose Claude config folder or Codex home is named
-  `<folder>`; they are cached like a probe's reading; the OpenRouter key check reads
+  `<folder>`; they are cached like a probe's reading, and a login is still held to one Claude
+  attempt a minute as in production unless `rig-homeig-usage\claude-attempt-floor-ms` holds a
+  lower floor in milliseconds, e.g. `0`; the OpenRouter key check reads
   `rig-home\rig-usage\openrouter-key.json` and the OpenRouter catalog
   `rig-home\rig-usage\openrouter-models.json`, the body of `GET /api/v1/models`), and one test-only route exists:
   `POST /api/rig/tool {org, agent, tool, args}`.
