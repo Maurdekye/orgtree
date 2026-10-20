@@ -9,6 +9,22 @@ import { projectDraftSteps } from '../src/canvas/newproject'
 import type { TreeNode, TreePayload } from '../src/types'
 import { agent, chain, project, bunchTree } from './projectbunch-fixture'
 
+/** The review org of user 2026-10-20 09:08Z: stacks of 3/5/8/12/16 projects
+ *  with three agents under each bottom project; split moves stack12-agent-b
+ *  under stack16-11, ending the 16 run there. */
+function reviewStacks(split: boolean): TreeNode[] {
+  const stacks = [3, 5, 8, 12, 16].map(n => chain(n, ['a', 'b', 'c'].map(x => agent(`stack${n}-agent-${x}`)), `stack${n}`))
+  if (split) {
+    let bottom = stacks[3]!, at = stacks[4]!
+    while (bottom.children[0]?.kind === 'project') bottom = bottom.children[0]
+    while (at.id !== 'stack16-11') at = at.children[0]!
+    at.children.push(bottom.children.splice(1, 1)[0]!)
+  }
+  return [agent('coordinator', [
+    project('test-project', [project('listener-smoke', [0, 1, 2].map(i => agent(`worker-${i}`)))]),
+    ...stacks, project('build-slot', Array.from({ length: 25 }, (_, i) => agent(`bs-${i}`))), project('empty-project'),
+  ])]
+}
 const scene = new URLSearchParams(location.search).get('scene') ?? 'three'
 localStorage.clear()
 localStorage.setItem('orgtree-canvas-gl-wires', 'off')
@@ -17,7 +33,7 @@ localStorage.setItem('orgtree-project-bunches', scene.endsWith('-off') ? '0' : '
 if (scene === 'reorder' || scene === 'rearrange-on')
   localStorage.setItem('orgtree-project-bunch-rearrange', '1')
 if (scene === 'rearrange-off') localStorage.setItem('orgtree-project-bunches', '1')
-localStorage.setItem('orgtree-chart-layout', scene === 'circular' ? 'circular' : 'row')
+localStorage.setItem('orgtree-chart-layout', scene === 'circular' || scene.startsWith('ring-') ? 'circular' : 'row')
 const labels: Record<string, string> = {
   two: 'Two projects', three: 'Three projects', five: 'Five projects', seven: 'Seven projects',
   eight: 'Eight projects', twelve: 'Twelve projects', twenty: 'Twenty projects',
@@ -32,6 +48,9 @@ const labels: Record<string, string> = {
   reorder: 'Drag the first project to the end of the bunch',
   'rearrange-off': 'Rearranging off (default): ordinary subtree dragging',
   'rearrange-on': 'Rearranging on: insertion point changes project order',
+  'ring-whole': 'Circular chart: review stacks 3/5/8/12/16 above build-slot agents',
+  'ring-split': 'Circular chart: stack12-agent-b moved under stack16-11 splits the 16 run',
+  'ring-busy': 'Circular chart: a whole bunch among 24 agents on one ring',
   settings: 'App settings > Display',
 }
 const trees: Record<string, TreeNode[]> = {
@@ -45,6 +64,9 @@ const trees: Record<string, TreeNode[]> = {
   'insert-project': [chain(2, [agent('worker')])],
   'insert-agent': [chain(2, [agent('worker')])],
   'insert-split': [chain(2, [agent('worker'), agent('sibling')])],
+  'ring-whole': reviewStacks(false), 'ring-split': reviewStacks(true),
+  'ring-busy': [agent('top', [agent('lead', [...Array.from({ length: 12 }, (_, i) => agent(`left-${i}`)),
+    chain(5, [agent('member')], 'run'), ...Array.from({ length: 12 }, (_, i) => agent(`right-${i}`))])])],
 }
 let current = bunchTree(trees[scene] ?? [chain(3)])
 let publish = (_tree: TreePayload) => {}
@@ -88,6 +110,18 @@ if (scene === 'far') {
   localStorage.setItem('orgtree-view-' + current.slug, JSON.stringify({
     x: 500 - (Math.min(...xs) + Math.max(...xs) + 124) * z / 2,
     y: 310 - (Math.min(...ys) + Math.max(...ys) + 124) * z / 2, z,
+  }))
+}
+if (scene.startsWith('ring-')) {
+  // Fit the whole circular chart; canvasTargets lifts it clear of the eye's headroom.
+  const positions = [...layout(withDraftTree(current, null), new Map(), 'circular', true).values()]
+  const xs = positions.map(p => p.x), ys = positions.map(p => p.y), lift = Math.max(0, 140 - Math.min(...ys))
+  const w = Math.max(...xs) - Math.min(...xs) + 124, h = Math.max(...ys) - Math.min(...ys) + 124
+  const z = Math.min(940 / w, 600 / h)
+  localStorage.setItem('orgtree-start-view', 'remember')
+  localStorage.setItem('orgtree-view-' + current.slug, JSON.stringify({
+    x: 500 - (Math.min(...xs) + Math.max(...xs) + 124) * z / 2,
+    y: 326 - (Math.min(...ys) + Math.max(...ys) + 2 * lift + 124) * z / 2, z,
   }))
 }
 function Fixture() {
