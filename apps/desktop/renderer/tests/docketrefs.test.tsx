@@ -1,3 +1,4 @@
+import { selectDocketRow } from './docketselection.fixture'
 // w31b77251 — a slug written in prose is a link to that item.
 //
 // TWO HALVES, AND BOTH ARE NEEDED. `splitSlugRefs` is pure, so what counts as
@@ -251,7 +252,7 @@ const TARGET = mkItem({
 })
 
 async function openFirst(el: HTMLElement) {
-  await inAct(() => (rows(el)[0] as HTMLElement).click())
+  await selectDocketRow(rows(el)[0])
   await flush()
 }
 
@@ -642,7 +643,7 @@ uiTest('§26 CONTROL — a token naming an item this org does not have is marked
     })
     const el = await mount(modal())
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     const chip = el.querySelector('.docket-desc .ref-chip.ref-absent')
     assert.ok(chip, 'the dead reference is rendered as unavailable')
@@ -668,7 +669,7 @@ uiTest('§27 CONTROL — a mail reference with nowhere to open it is "not from '
     })
     const el = await mount(modal())
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     const mail = el.querySelector('.docket-desc .ref-chip.ref-mail')
     const item = el.querySelector('.docket-desc .ref-chip.ref-item')
@@ -703,7 +704,7 @@ uiTest('§28 a @doc token opens the reader, on the id the token named',
     })
     const el = await mount(modal())
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     const chip = el.querySelector('.docket-desc button.ref-chip.ref-doc')
     assert.ok(chip, 'the document token is a live control, not an inert chip')
@@ -734,7 +735,7 @@ uiTest('§29 CONTROL — a document this org does not have is reported BY THE '
     })
     const el = await mount(modal())
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     const chip = el.querySelector('.docket-desc button.ref-chip.ref-doc')
     // the chip is live BEFORE the fetch, and that is correct: this panel holds
@@ -764,7 +765,7 @@ uiTest('§30 CONTROL — while the fetch is in flight the reader says nothing '
     })
     const el = await mount(modal())
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     await inAct(() => (el.querySelector(
       '.docket-desc button.ref-chip.ref-doc') as HTMLElement).click())
@@ -791,7 +792,7 @@ uiTest('§31 Escape closes the reader and LEAVES THE DOCKET OPEN', async (mount)
       <DocketModal slug="org1" toast={() => {}} close={() => { closed += 1 }}
         tree={mkTree()} />)
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     await inAct(() => (el.querySelector(
       '.docket-desc button.ref-chip.ref-doc') as HTMLElement).click())
@@ -833,7 +834,7 @@ uiTest('§31b clicking the READER\'S backdrop closes the reader and leaves the '
       <DocketModal slug="org1" toast={() => {}} close={() => { closed += 1 }}
         tree={mkTree()} />)
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     await inAct(() => (el.querySelector(
       '.docket-desc button.ref-chip.ref-doc') as HTMLElement).click())
@@ -867,7 +868,7 @@ uiTest('§32 a mail reference is opened by the caller that owns a mailbox, and '
           generation: 1, parent: null, children: [] }])}
         onOpenMail={(r) => opened.push(r)} />)
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     const chip = el.querySelector('.docket-desc button.ref-chip.ref-mail')
     assert.ok(chip, 'with a route wired up the reference is a live control')
@@ -897,7 +898,7 @@ uiTest('§34 a reference INSIDE the opened document works, and the reader gets '
     })
     const el = await mount(modal())
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     await inAct(() => (el.querySelector(
       '.docket-desc button.ref-chip.ref-doc') as HTMLElement).click())
@@ -931,7 +932,7 @@ uiTest('§34b CONTROL — a document referencing a DOCUMENT swaps the reader '
     })
     const el = await mount(modal())
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     await inAct(() => (el.querySelector(
       '.docket-desc button.ref-chip.ref-doc') as HTMLElement).click())
@@ -965,7 +966,7 @@ uiTest('§33 a jump that lands on nothing SAYS SO, and a jump that lands does '
 
     // ⚠ AND IT IS ANSWERED BY THE NEXT DELIBERATE SELECTION. Left standing it
     // would reappear whenever the reader deselected a row.
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     await inAct(() => (rows(el)[0] as HTMLElement).click())   // deselect
     await flush()
@@ -1007,7 +1008,7 @@ uiTest('§32b CONTROL — a node inbox for somebody this org does not have is '
           generation: 1, parent: null, children: [] }])}
         onOpenMail={(r) => opened.push(r)} />)
     await flush()
-    await inAct(() => (rows(el)[0] as HTMLElement).click())
+    await selectDocketRow(rows(el)[0])
     await flush()
     const chips = [...el.querySelectorAll('.docket-desc .ref-chip.ref-mail')]
     assert.equal(chips.length, 2, 'both mail references rendered')
