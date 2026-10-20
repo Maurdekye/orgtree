@@ -446,7 +446,7 @@ const OTHER_SURFACES: {
   /** the panel, when more than one thing on screen carries a bar */
   sel?: string
 }[] = [
-  { name: 'agent gallery', kind: 'agent-gallery', pinnable: true,
+  { name: 'agent gallery', kind: 'agent-gallery:worker', pinnable: true,
     render: (close) => <AgentGalleryModal slug="mine" nid="worker" node={cnode('worker')}
       toast={noop} close={close} /> },
   // one window per target since 2026-10-20: each surface's kind names its target

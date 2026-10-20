@@ -23,7 +23,9 @@ test('§1 the open-state store keeps a team gallery\'s scope', (t) => {
   localStorage.clear(); forgetModalOpenCache()
   rememberModalOpen('agent-gallery', 'org', { agent: 'boss', generation: 1, team: true })
   forgetModalOpenCache()
-  const got = readModalOpen('org').find((o) => o.kind === 'agent-gallery')
+  // the single gallery record comes back as the TEAM READER it showed (one
+  // reader per scope since 2026-10-20, USER 19:03:28Z)
+  const got = readModalOpen('org').find((o) => o.kind === 'team-gallery:boss')
   assert.deepEqual(got?.restore, { agent: 'boss', generation: 1, team: true })
 })
 

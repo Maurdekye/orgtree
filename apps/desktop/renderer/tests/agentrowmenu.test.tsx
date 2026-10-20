@@ -458,8 +458,10 @@ uiTest('§4 each entry runs the Agents List\'s own handler — the same surfaces
     await esc()
 
     await rightClick(row()); await pick('Presentations')
-    assert.deepEqual(c.galleries, ['worker'],
-      'Presentations asked the shell for THIS agent\'s gallery')
+    // the canvas opens THIS agent's reader itself (one reader per scope since
+    // 2026-10-20, USER 19:03:28Z)
+    assert.ok(document.querySelector('[aria-label="presented documents for worker"]'),
+      'Presentations opened THIS agent\'s reader')
   })
 
 uiTest('§4b Focus glides the camera to the agent, exactly as clicking the row does',
