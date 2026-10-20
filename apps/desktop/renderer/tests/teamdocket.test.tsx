@@ -560,12 +560,25 @@ canvasTest('§10c picking it opens the team docket rooted at THAT agent — the 
     assert.ok(panel, 'the reduced docket rendered')
     assert.deepEqual(rowNames(panel), ['deep-task', 'lead-task'],
       'the root and its two-deep descendant; the other root\'s work is out')
-    // and it closes the way every other docket panel does — no bespoke exit
-    const close = [...document.querySelectorAll('.overlay button')]
-      .find((b) => b.textContent === 'Close') as HTMLButtonElement | undefined
-    assert.ok(close, 'the panel has the ordinary Close')
-    await inAct(() => { close!.click() }); await flush(4)
-    assert.equal(document.querySelector('.docket-agent'), null, 'and it closed')
+    // USER 2026-10-19, AGENTS.md "Centered modal surfaces": no dedicated
+    // modal Close; Escape/backdrop dismiss. Pinned/detached window controls
+    // are separate and remain (canvas/modalpin.tsx; modalpin.test.tsx §4).
+    const modal = panel.closest('.settings')!
+    assert.equal([...modal.querySelectorAll('button')].some(b =>
+      b.textContent?.trim() === 'Close' || b.getAttribute('aria-label') === 'close this window'), false,
+    'the centred docket has no dedicated Close button or window X')
+    await esc()
+    assert.equal(document.querySelector('.docket-agent') === null, true, 'Escape dismisses the centred docket')
+    // Reopen through the same real entry to prove the other signed exit.
+    await rightClick(cardFor(v.el, 'lead')!)
+    await pick('Team docket')
+    await flush(6)
+    const reopened = document.querySelector('.docket-agent')
+    assert.ok(reopened, 'the same team docket opens again')
+    const backdrop = reopened.closest('.overlay') as HTMLElement
+    assert.ok(backdrop, 'the centred docket has a backdrop')
+    await inAct(() => { backdrop.click() }); await flush(4)
+    assert.equal(document.querySelector('.docket-agent') === null, true, 'backdrop dismisses the centred docket')
     assert.doesNotMatch(document.body.textContent ?? '', /team docket/i,
       'leaving nothing permanent behind')
   })
