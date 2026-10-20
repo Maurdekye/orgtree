@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
@@ -13,6 +15,7 @@ import { projectDraftSteps } from '../src/canvas/newproject'
 import { agent, chain, bunchTree, project, retired } from './projectbunch-fixture'
 import type { TreeNode, TreePayload } from '../src/types'
 
+declare const __SRC_DIR__: string
 const W = window as unknown as Window & typeof globalThis
 const numbers = (s: string) => (s.match(/-?\d+(\.\d+)?(e-?\d+)?/g) ?? []).map(Number)
 const card = (el: HTMLElement, id: string) => el.querySelector<HTMLElement>(
@@ -73,13 +76,16 @@ async function canvas(t: TestContext, tree = bunchTree([chain(3)]), mode: 'row' 
     return fallback(url, init)
   }) as typeof fetch
   t.after(() => { globalThis.fetch = previous })
-  const render = (tree: TreePayload) => <OrgCanvas tree={tree} slug={tree.slug} mailEvt={null}
+  const render = (tree: TreePayload, focus: string | null = null) => <OrgCanvas tree={tree} slug={tree.slug} mailEvt={null}
+    focusAgent={focus} onFocusAgentHandled={() => {}}
     op={async b => { ops.push(b); return {} as never }} toast={lines => errors.push(...(lines ?? []))} />
   const view = await mountView(render(tree), el => el)
   t.after(() => view.unmount())
   await flush(); await advance(3000, 50); await flush()
   return { ...view, gestures, ops, errors, resolve, reject, archiveReads,
-    show: async (next: TreePayload) => { await view.render(render(next)); await advance(1500, 50); await flush() } }
+    show: async (next: TreePayload) => { await view.render(render(next)); await advance(1500, 50); await flush() },
+    /** fly the camera onto `id` (desk zoom) and let it settle */
+    zoomTo: async (next: TreePayload, id: string) => { await view.render(render(next, id)); await advance(3000, 50); await flush() } }
 }
 async function drag(el: HTMLElement, id: string, world: { x: number; y: number }, cancel = false,
   during?: () => Promise<void>) {
@@ -223,6 +229,38 @@ test('hidden retired branch bunches while its owning project keeps a reachable l
   assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 1, 'shown retired branch splits the upper project again')
   assert.equal(!!card(view.el, side.id), true)
   assert.equal(!!view.el.querySelector('.retired-token'), false)
+})
+
+// USER 2026-10-20 21:39Z: a big "1 retired" label drew OVER an open project desk and could not be clicked.
+// The bunched owner's token sits INSIDE its card (so it cannot cover the next row); once the camera is on
+// that card its desk fills the card, and the desk carries its own "1 retired" chip, so the canvas token
+// must not draw over the desk.
+test('the owner's inset retired token is not drawn over its own open desk', async t => {
+  const side = retired(agent('retired-side')), head = chain(3, [agent('worker')])
+  head.children.push(side)
+  const tree = bunchTree([head])
+  const view = await canvas(t, tree, 'row', true, [side])
+  await inAct(() => setHideRetiredOn(true))
+  await advance(1800, 50); await flush()
+  assert.equal(!!view.el.querySelector('.retired-token[data-retired-parent="project-1"]'), true, 'fixture: the token shows at map zoom')
+  await view.zoomTo(tree, 'project-1')
+  assert.equal(card(view.el, 'project-1')!.classList.contains('desk'), true, 'fixture: the camera is on project-1 and its desk is open')
+  assert.equal(!!view.el.querySelector('.retired-token[data-retired-parent="project-1"]'), false,
+    'the desk has its own retired chip: no canvas token over it')
+})
+test('a retired token is never covered by a hovered card: it layers above the card hover raise', () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  const z = (sel: string) => {
+    // the last rule for `sel` that sets a z-index
+    for (let at = css.lastIndexOf(sel + ' {'); at >= 0; at = css.lastIndexOf(sel + ' {', at - 1)) {
+      const m = /z-index:\s*(\d+)/.exec(css.slice(at, css.indexOf('}', at)))
+      if (m) return Number(m[1])
+    }
+    return NaN
+  }
+  const token = z('.retired-token'), hover = z('.sq:hover')
+  assert.ok(hover >= 6, 'fixture: a hovered card is raised to ' + hover)
+  assert.ok(token > hover, `.retired-token z-index ${token} must exceed the hovered card's ${hover}, or hovering its owner makes it unclickable`)
 })
 
 test('a retired project front opens the lazy sibling picker and selecting another stack displays its bunch', async t => {
