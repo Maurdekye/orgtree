@@ -27,8 +27,6 @@ use crate::engine::Engine;
 use crate::refuse;
 use crate::util::{gist, iso};
 
-pub const MAX_PER_AGENT: i64 = 8;
-pub const MAX_PER_ORG: i64 = 32;
 /// The pause an archive writes and a rehire undoes.
 pub const ARCHIVE_PAUSE: &str = "its owner was archived";
 const NOT_BELOW: &str = "its activity target is no longer itself or a descendant";
@@ -205,7 +203,6 @@ const DOG_COLS: &str = "w.uid, w.org_id, w.owner_agent_id, a.name, a.state = 'li
     w.silence_since, w.exit, w.memo, w.id, w.last_check, w.next_check_at, w.next_silence_at";
 /// The states in which a dog holds its id (D67): a removed or spent dog's
 /// id is free again for a new dog of the same owner.
-const HOLDS_ID: &str = "('armed', 'paused', 'exited')";
 
 fn dog_of(r: &tokio_postgres::Row) -> Dog {
     let memo: Value = r.get(21);
@@ -1929,6 +1926,7 @@ fn unnamed(kind: &str, target: &str) -> String {
 /// A new dog's id (D67): its short name, or the first of `-2`, `-3`, … that
 /// none of its owner's dogs holds (`taken`).
 #[logged]
+#[cfg(test)]
 fn free_id(base: &str, taken: &HashSet<String>) -> String {
     if !taken.contains(base) {
         return base.to_string();
@@ -2282,19 +2280,6 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     if let Some(c) = &ws_new {
         memo["websocket"] = c.memo.clone();
     }
-    let counts = client
-        .query_one(
-            "SELECT count(*) FILTER (WHERE owner_agent_id = $2), count(*) FROM ot.watchdogs
-              WHERE org_id = $1 AND state IN ('armed', 'paused', 'exited')",
-            &[&org_id, &owner],
-        )
-        .await?;
-    if counts.get::<_, i64>(0) >= MAX_PER_AGENT {
-        refuse!(Conflict, "you already keep {MAX_PER_AGENT} watchdogs — remove one first");
-    }
-    if counts.get::<_, i64>(1) >= MAX_PER_ORG {
-        refuse!(Conflict, "the org already keeps {MAX_PER_ORG} watchdogs");
-    }
     drop(client);
     // where the runner starts: a file from its current end, a process from its current state
     match kind.as_str() {
@@ -2324,13 +2309,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     let mut clashes = 0;
     // the id is also the dog's name, so its mail, chip and `list` all show it
     let (row, id) = loop {
-        let taken: HashSet<String> = client
-            .query(&format!("SELECT uid FROM ot.watchdogs WHERE owner_agent_id = $1 AND state IN {HOLDS_ID}"), &[&owner])
-            .await?
-            .iter()
-            .map(|r| r.get(0))
-            .collect();
-        let id = free_id(&base, &taken);
+        let id = crate::domain::watchdog_inventory::available_id(&**client, owner, &base).await?;
         // a dog and its sealed inline credentials are written together
         let tx = client.transaction().await?;
         let inserted = tx
@@ -2618,16 +2597,33 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &st
 /// `orgtree_watchdog list`: the caller's dogs and its team's, with the
 /// evidence that tells a quiet dog from a broken one.
 #[logged]
-pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
+pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
+    let cursor = match args.get("cursor") {
+        None => 0,
+        Some(v) => match v.as_str().and_then(|s|s.parse::<i64>().ok()).filter(|n|*n>=0) {
+            Some(n)=>n,
+            None=>refuse!(BadRequest,"list cursor must be a nonnegative cursor returned by list"),
+        }
+    };
+    let limit = match args.get("limit") {
+        None=>50,
+        Some(v)=>match v.as_i64().filter(|n|(1..=100).contains(n)) {
+            Some(n)=>n,
+            None=>refuse!(BadRequest,"list limit must be between 1 and 100"),
+        }
+    };
     let client = engine.db.get().await?;
     let sql = format!(
         "WITH RECURSIVE down(id, depth) AS (SELECT $1::bigint, 0 UNION ALL
            SELECT a.id, d.depth + 1 FROM ot.agents a JOIN down d ON a.parent_id = d.id WHERE d.depth < 1024)
          SELECT {DOG_COLS} FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
-          WHERE w.owner_agent_id IN (SELECT id FROM down) AND w.state IN ('armed', 'paused', 'exited')
-          ORDER BY w.id"
+          WHERE w.owner_agent_id IN (SELECT id FROM down) AND w.state IN ('armed', 'paused', 'exited') AND w.id>$2
+          ORDER BY w.id LIMIT $3"
     );
-    let rows = client.query(&sql, &[&agent]).await?;
+    let mut rows = client.query(&sql, &[&agent,&cursor,&(limit+1)]).await?;
+    let more=rows.len()>limit as usize;
+    rows.truncate(limit as usize);
+    let next_cursor=if more {rows.last().map(|r|dog_of(r).row.to_string())}else{None};
     // A slot claim is pushed, so report its position instead of polling health.
     // Resolve each distinct project's canonical live line once per list call.
     let mut projects = HashSet::new();
@@ -2727,7 +2723,7 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
             v
         })
         .collect();
-    Ok(json!({ "watchdogs": dogs }))
+    Ok(json!({ "watchdogs": dogs, "next_cursor": next_cursor }))
 }
 
 /// A plain-words warning about a dog that is quietly not working.

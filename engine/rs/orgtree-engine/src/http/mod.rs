@@ -84,7 +84,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/asks/{aid}/answer", post(asks::answer))
         .route("/api/orgs/{slug}/credit-requests", post(asks::credit))
         .route("/api/orgs/{slug}/nodes/{nid}/batch", post(asks::batch))
-        .route("/api/orgs/{slug}/watchdogs", post(dogs::watchdog))
+        .route("/api/orgs/{slug}/watchdogs", get(dogs::watchdogs_get).post(dogs::watchdog))
         .route("/api/orgs/{slug}/org_inbox", get(orginbox::list))
         .route("/api/orgs/{slug}/transfers", get(orginbox::transfers))
         .route("/api/orgs/{slug}/transfers/{id}", post(orginbox::transfer_change))

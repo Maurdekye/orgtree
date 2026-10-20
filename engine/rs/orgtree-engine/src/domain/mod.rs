@@ -36,6 +36,7 @@ pub mod templates;
 pub mod tree;
 pub mod undo;
 pub mod watchdogs;
+pub mod watchdog_inventory;
 
 use axum::http::StatusCode;
 

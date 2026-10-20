@@ -499,7 +499,7 @@ async fn dog_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result
     let action = args["action"].as_str().unwrap_or("");
     let v = match action {
         "create" => watchdogs::create(engine, caller.org_id, caller.agent_id, args).await?,
-        "list" => watchdogs::list(engine, caller.agent_id).await?,
+        "list" => watchdogs::list(engine, caller.agent_id, args).await?,
         "pause" | "resume" | "remove" => {
             let Some(id) = args["id"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
                 crate::refuse!(BadRequest, "{action} needs the watchdog id (see list)");

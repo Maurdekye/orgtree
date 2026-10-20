@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, State, Query};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
@@ -19,6 +19,27 @@ pub struct DogAction {
     action: String,
     #[serde(default)]
     reason: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct DogRead {
+    owner:Option<String>, id:Option<String>, cursor:Option<i64>, limit:Option<i64>, kept:Option<bool>,
+}
+
+/// Full owner inventories are read only on expansion, at most 100 rows.
+/// Any detail/menu outside the tree preview uses its exact owner/id handle.
+#[logged]
+pub async fn watchdogs_get(State(e):State<Arc<Engine>>,Path(slug):Path<String>,Query(q):Query<DogRead>)->ApiResult<Json<Value>>{
+    let o=org(&e,&slug)?;
+    let client=e.db.get().await?;
+    if let Some(id)=q.id {
+        return Ok(Json(crate::domain::watchdog_inventory::exact(&**client,&e,o.id,&id).await?));
+    }
+    let owner=q.owner.as_deref().map(str::trim).filter(|s|!s.is_empty())
+        .ok_or_else(||ApiError::bad_request("watchdog list needs owner"))?;
+    let cursor=q.cursor.unwrap_or(0);
+    if cursor<0{return Err(ApiError::bad_request("watchdog cursor must be nonnegative"));}
+    Ok(Json(crate::domain::watchdog_inventory::page(&**client,&e,o.id,owner,cursor,q.limit.unwrap_or(50),q.kept.unwrap_or(false)).await?))
 }
 
 /// pause / resume / remove / supersede any watchdog.

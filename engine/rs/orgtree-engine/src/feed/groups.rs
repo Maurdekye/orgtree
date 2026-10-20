@@ -234,27 +234,11 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             })
         }
         "watchdogs" => {
-            let rows = client
-                .query(
-                    "SELECT to_jsonb(w), a.name FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
-                      WHERE w.org_id = $1 AND (w.state IN ('armed','paused','exited')
-                         OR (w.spent_at IS NOT NULL AND w.spent_at > now() - interval '15 seconds'
-                             -- a newer dog of its owner reuses its id (D67): one row per handle
-                             AND NOT EXISTS (SELECT 1 FROM ot.watchdogs n WHERE n.owner_agent_id = w.owner_agent_id
-                                              AND n.uid = w.uid AND n.id > w.id AND n.state <> 'removed')))
-                      ORDER BY w.id",
-                    &[&org_id],
-                )
-                .await?;
-            json!({ "watchdogs": rows.iter().map(|r| {
-                let w=r.get::<_, Value>(0);
-                let mut v=crate::domain::watchdogs::view(&w, &r.get::<_, String>(1));
-                if let Some(h)=w["id"].as_i64().and_then(|row|crate::runtime::watchdogs::events::health(engine,row)){v["health"]=json!(h);}
-                v
-            }).collect::<Vec<_>>(),
+            let mut snapshot=crate::domain::watchdog_inventory::snapshot(client,engine,org_id).await?;
             // the held project slots (domain/slots.rs): a granted claim is
             // spent, so its holder is known only from the lease
-            "slot_leases": crate::domain::slots::held_in_org(client, org_id).await? })
+            snapshot["slot_leases"]=crate::domain::slots::held_in_org(client, org_id).await?;
+            snapshot
         }
         "inbox_summary" => {
             let r = client
