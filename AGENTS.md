@@ -1,3 +1,11 @@
+- Skill-enabled standing instructions use the user-approved 26 wording cuts;
+  full/no-skills prompts remain byte-identical, with lane/tool scoping intact.
+  Credit requests define TOTAL grant in their card. Description budgets remain
+  900 UTF-8 bytes per card and 12,000 combined (Guide included, schemas excluded).
+  See [instruction compression](docs/skills/INSTRUCTIONS-TRIM.md#14-approved-wording-compression-2026-10-20).
+  [decided: user 2026-10-20 20:03Z; verified: `runtime/identity.rs`,
+  `runtime/identity/compression_tests.rs`, `tools/defs.rs`]
+
 - Per-target modals are one window per target: Mail, Docket, Team, Slots,
   Listeners, the settings gear, Watchdog detail, the project desk window and
   the readers key every store (pins, open markers, window rows, pin/pop

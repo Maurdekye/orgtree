@@ -82,6 +82,22 @@ fn approved_examples_match_exact_wording() {
 }
 
 #[test]
+fn legacy_profiles_keep_their_baseline_bytes() {
+    use sha2::{Digest, Sha256};
+    let expected: Value = serde_json::from_str(include_str!(
+        "../../../testdata/standing-compression/legacy-3dc7095.json")).unwrap();
+    let mut checked = 0;
+    for (key,text) in profiles().into_iter().filter(|(key,_)| key.ends_with("trimfalse")) {
+        assert_eq!(json!(text.len()), expected[&key]["bytes"], "{key}: byte length");
+        assert_eq!(json!(format!("{:x}", Sha256::digest(text.as_bytes()))),
+            expected[&key]["sha256"], "{key}: unchanged legacy text");
+        checked += 1;
+    }
+    assert_eq!(checked, 20);
+    assert_eq!(expected.as_object().unwrap().len(), checked);
+}
+
+#[test]
 fn export_compression_profiles() {
     let texts = profiles();
     assert_eq!(texts.len(), 40);

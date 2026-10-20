@@ -938,7 +938,7 @@ fn build_tool_compact() -> Value {
 fn build_tool_request_credits() -> Value {
     tool(
         "orgtree_request_credits",
-        "Ask the user for a larger credit grant with a reason.",
+        "Ask the user for a larger TOTAL grant with a reason.",
         json!({ "new_limit": { "type": "integer" }, "reason": { "type": "string" } }),
         &["new_limit", "reason"],
     )
@@ -1494,6 +1494,9 @@ mod builder_stack_tests {
     #[test]
     fn all_tool_json_matches_pre_split_snapshot() {
         let mut expected: serde_json::Value = serde_json::from_slice(include_bytes!("../../testdata/tool-cards-c89111b.json")).unwrap();
+        // User 2026-10-20: TOTAL moved from inline instructions to this card.
+        let credit = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_request_credits").unwrap();
+        credit["description"] = serde_json::json!("Ask the user for a larger TOTAL grant with a reason.\nGuide: orgtree-tool-request-credits.");
         let present = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_present").unwrap();
         present["description"] = serde_json::json!(concat!(
             "Present documents the user should READ (reports, plans, Markdown). project places it under a reachable project; members (nested included) need no user audience for their own project. Otherwise requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. Otherwise send to your superior.",

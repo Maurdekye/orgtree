@@ -410,3 +410,53 @@ The identity budget test names this 400-byte increase `OPENCODE_HOOK_MAIL` and
 applies it only to OpenCode. The separate `EXTERNAL_TAGS = 110` allowance and
 external-authority text are preserved. This changes generated instructions on
 the next launch; it does not change account bindings or promise cache reuse.
+
+## 14. Approved wording compression (2026-10-20)
+
+The user approved the sentence-by-sentence proposal at 20:03Z. Its 26 changes
+shorten the skill-enabled standing text; the credit-request card changes
+“larger credit grant” to “larger TOTAL grant”. The short inline discovery pointer
+keeps its existing top-level/user-tool gate. The tool's actual audience and
+authorization rules do not change.
+
+Duplicate category navigation and mention instructions are removed only where
+the earlier HOW-TO pointer and unconditional MENTIONS paragraph already supply
+them. Tool procedures are reached through each card's Guide. The interrupt
+pointer retains queued restart and links to its existing boundary/early-cutoff
+procedure. The docket, question lifecycle, document/file selector, reporting,
+account placement, cache, watchdog and folder rules retain their inline
+pre-action triggers.
+
+The external-authority, background-work, MENTIONS, concurrency and 240-byte
+hierarchical shared-memory passages are unchanged. Lane-specific tool names,
+capability scoping, user content and folder paths remain. Shared alias and
+queued-restart passages use separate trimmed/legacy branches so seats without
+built-in skills retain their full text byte for byte.
+
+**Tool-description caps are 900 UTF-8 bytes per card and 12,000 bytes combined
+across the emitted cards**, checked independently for Split and Flat mail
+shapes. The 12,000-byte limit is not a per-tool allowance. These limits include
+the Guide suffix but exclude schemas and native harness wrappers. Moving a
+rule into a card must satisfy both caps; existing room is only 11 combined
+bytes in the Split shape after this change. No cap is raised.
+
+The two approved synthetic Codex examples are kept as exact UTF-8/LF fixtures
+in `engine/rs/orgtree-engine/testdata/standing-compression/`. They include
+placeholder charters, feedback, shared-folder paths and a workspace-write
+sandbox; their sizes are not interchangeable with the smaller budget fixture.
+
+| Text | Before (3dc7095) | Approved after | Saved |
+| --- | ---: | ---: | ---: |
+| First hire, Seat A | 11,649 B | 10,389 B | 1,260 B |
+| Coordinator, Seat B | 11,661 B | 10,401 B | 1,260 B |
+| All Split tool descriptions | 11,990 B | 11,989 B | 1 B |
+| All Flat tool descriptions | 11,809 B | 11,808 B | 1 B |
+
+The identity tests render all five lanes, top-level/subordinate and writable/
+read-only scopes, with and without skills (40 profiles). Legacy fingerprints
+come from the baseline renderer, not a rewritten template. The two exact
+approved prompts check every changed sentence; existing exhaustive tool-group
+tests still check restricted profiles. The card snapshot accepts only the
+explicit credit-request wording change. These are byte measurements and
+contract checks, not token counts, proof of model compliance or a cache-hit
+guarantee. Changed prefixes may cost cache continuity on the next launch.
