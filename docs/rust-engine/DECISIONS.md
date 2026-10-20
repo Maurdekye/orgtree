@@ -14,6 +14,8 @@ wins; explicit template/org settings override it. The app-defaults form does
 not incidentally save this field. Migration 0045 pins existing orgs without a
 complete enabled choice to their old effective policy, including trashed orgs,
 and does not write app defaults. Explicit org On/Off remains untouched.
+Legacy 2.x/3.x imports run after migrations, so their insertion paths preserve
+the old effective policy with a shared pure helper instead.
 Project nodes are outside this change. See the
 [compaction policy](../skills/orgtree-app/org-settings/org-policies-compaction/SKILL.md).
 

@@ -1,5 +1,7 @@
 // Synthetic database only. Restart replays migration 0045 over legacy rows.
 import {Proof} from '../proof.mjs'
+import fs from 'node:fs'
+import path from 'node:path'
 export async function setup() { return {name:'cheap-defaults',fixture:'none'} }
 export default async function(rig) {
  const p=new Proof('cheap-defaults')
@@ -8,6 +10,16 @@ export default async function(rig) {
  p.check('fresh data root defaults ON', (await rig.api('GET','/api/defaults')).auto_cheap_compact?.enabled===true)
  const fresh=await create('Fresh default')
  p.check('new org defaults ON at 25%',JSON.stringify(await cfg(fresh))===JSON.stringify({enabled:true,occ:0.25}))
+ await rig.waitFor(async()=>!(await rig.api('GET','/api/templates')).loading,{what:'synthetic sign-in check',timeout:30000})
+ const templateDir=path.join(rig.data,'rig-home','.orgtree','templates')
+ fs.mkdirSync(templateDir,{recursive:true})
+ for(const [id,settings,want] of [
+  ['cheap-inherit',{},true],['cheap-off',{auto_cheap_compact:{enabled:false,occ:0.4}},false],
+ ]){
+  fs.writeFileSync(path.join(templateDir,id+'.json'),JSON.stringify({id,name:id,agents:[{name:'template-agent',tier:'sol'}],settings}))
+  const made=await rig.api('POST','/api/orgs',{name:id,net_autoconnect:false,template:{id}})
+  p.check('template '+id+' preserves default or explicit choice',(await cfg(made.slug))?.enabled===want)
+ }
  // Explicit org choices, partial/absent legacy settings and inactive orgs.
  const names=[]
  for(const name of ['Legacy absent','Legacy on','Legacy off','Legacy partial','Legacy null','Legacy inherited'])names.push(await create(name))
