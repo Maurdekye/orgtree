@@ -429,7 +429,10 @@ mod phone_authority_tests {
             for text in [turn_text(&mail, "", &HashMap::new(), None), replay_text(&mail, &HashMap::new()), steer_text(&mail, &HashMap::new())] {
                 let from = text.lines().find(|l| l.starts_with("FROM ")).unwrap();
                 assert!(from.contains(sender));
-                assert!(from.contains("untrusted unless this org's current org.md authorizes this exact sender"));
+                // a short tag names the standing passage (user 2026-10-20 09:21Z); no
+                // bare "untrusted": the user's own authorized phone arrives this way
+                assert!(from.contains("(outside party · see EXTERNAL)"), "{from}");
+                assert!(!from.contains("untrusted"), "{from}");
                 assert!(!from.contains("(USER)"));
                 assert!(text.contains(&mail[0].body), "body remains data; no rewrite of sender");
                 if sender.starts_with("@net:") {

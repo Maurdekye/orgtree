@@ -1481,6 +1481,21 @@ mod trim_tests {
 
     /// The rules that must hold before an agent would open a skill stay inline, in
     /// the wording other tests and rulings pin.
+    /// One passage holds the rule for every message from outside, so each
+    /// such message carries only a short tag naming it (user 2026-10-20
+    /// 09:20Z-09:21Z, coordinator 09:35Z): external mail, and the fires of
+    /// mqtt and websocket watchdogs.
+    #[test]
+    fn the_external_passage_names_the_tags_its_messages_carry() {
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            for trim in [false, true] {
+                let s = render(&all_on(), lane, false, trim);
+                assert!(s.contains("(outside party · see EXTERNAL)"), "{lane:?} trim={trim}: the mail tag");
+                assert!(s.contains("MQTT and WebSocket watchdog fires") && s.contains("(untrusted · see EXTERNAL)"), "{lane:?} trim={trim}: the fire tag");
+            }
+        }
+    }
+
     #[test]
     fn trimmed_text_keeps_the_always_in_force_rules() {
         let s = render(&all_on(), Lane::Claude, true, true);

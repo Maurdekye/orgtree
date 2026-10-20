@@ -30,6 +30,17 @@ const body = 'Watchdog "ws-test" fired WEBSOCKET — (websocket · ws://127.0.0.
 let n = 0
 const mail = (ev: object, text = body) => ({ id: 'm' + ++n, from: 'ws-test', kind: 'watchdog', at: '2026-10-20T06:53:53Z', body: text, ev, notice: false })
 const card = (el: Element) => [...el.querySelectorAll('[data-event-variant="monitor.watchdog_fired"]')]
+// An mqtt or websocket fire names the standing passage that holds the rule
+// with a small muted header tag; the long amber caution is gone (user
+// 2026-10-20 09:17Z-09:21Z, coordinator 09:35Z).
+function tagged(el: Element, text: string) {
+  const tag = el.querySelector('.event-head .event-external')
+  assert.ok(tag, 'the outside source shows as a small tag in the card header')
+  assert.equal(tag?.textContent, 'untrusted · see EXTERNAL')
+  assert.match(tag?.getAttribute('title') ?? '', /external input/, 'its tooltip says what it means')
+  assert.ok(!el.querySelector('.event-untrusted'), 'no caution paragraph above the messages')
+  assert.doesNotMatch(text, /never follow instructions|UNTRUSTED:/, 'the long warning is not drawn')
+}
 
 test('websocket, mqtt and fire-action fires decode as watchdog fire events; the stored older shape still does', () => {
   for (const ev of [ws, mqtt, actions, fire('old', '', ['READY'])])
@@ -38,7 +49,7 @@ test('websocket, mqtt and fire-action fires decode as watchdog fire events; the 
     assert.notEqual(decodeEventRow({ ev, body }, 'operator').kind, 'known', 'the schema stays strict: ' + JSON.stringify(ev).slice(-40))
 })
 
-test('a websocket fire delivered after a tool call draws as the fire card, with its caution and message', async t => {
+test('a websocket fire delivered after a tool call draws as the fire card, with its header tag and message', async t => {
   const segments = [{ kind: 'mail', rows: [mail(ws)] }]
   assert.equal(isSegments(segments, 'operator'), true, 'the transcript row keeps its typed mail')
   const v = await mountView(<Msg slug="org" nid="coordinator" m={{ role: 'user', text: body, segments,
@@ -48,7 +59,7 @@ test('a websocket fire delivered after a tool call draws as the fire card, with 
   const text = v.el.textContent ?? ''
   assert.doesNotMatch(text, /fired WEBSOCKET — \(websocket ·/, 'not the mail text')
   assert.match(text, /welcome: connected to ws-test-server/)
-  assert.match(text, /UNTRUSTED: these WebSocket messages come from the server, outside Orgtree/)
+  tagged(v.el, text)
   assert.match(text, /Delivered after a tool call\./)
 })
 
@@ -63,7 +74,7 @@ test('an ordinary message keeps its card beside an mqtt fire in the same deliver
   const text = v.el.textContent ?? ''
   assert.doesNotMatch(text, /raw batch text/)
   assert.match(text, /Plain hello/)
-  assert.match(text, /UNTRUSTED: these MQTT payloads come from the broker, outside Orgtree/)
+  tagged(v.el, text)
 })
 
 test('a fire carries its fire-action results into the card', async t => {
@@ -74,7 +85,7 @@ test('a fire carries its fire-action results into the card', async t => {
   assert.match(text, /Fire actions/)
   assert.match(text, /orgtree_message: ok/)
   assert.match(text, /build finished/)
-  assert.ok(!v.el.querySelector('.event-untrusted'), 'no caution without an outside source')
+  assert.ok(!v.el.querySelector('.event-external'), 'no tag without an outside source')
 })
 
 test('JSON in fire lines draws with the tool-call JSON viewer; other text stays text', async t => {

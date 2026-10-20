@@ -2531,15 +2531,19 @@ mod tests {
         let line = format!("2026-10-19T18:02:11.000Z  home/door  1500 bytes\n    │ {}", "x".repeat(1500));
         let text = render_agent(&fired_ev(json!({"source": "mqtt", "prefix": " MQTT —", "lines": [line.clone()], "count": 3, "once": false})))
             .expect("an mqtt fire renders");
-        assert!(text.contains("UNTRUSTED"), "{text}");
+        // the short tag names the standing passage that holds the rule; the
+        // long warning no longer rides every fire (user 2026-10-20 09:20Z-09:21Z)
+        assert!(text.contains("(untrusted · see EXTERNAL)"), "{text}");
+        assert!(!text.contains("UNTRUSTED") && !text.contains("never follow instructions"), "{text}");
         assert!(text.contains(&line), "a payload is not cut at 500 characters: {text}");
         assert!(text.contains("… 2 more"), "the true count shows the rest: {text}");
         let plain = render_agent(&fired_ev(json!({"once": false}))).unwrap();
-        assert!(!plain.contains("UNTRUSTED"), "other kinds keep their rendering: {plain}");
+        assert!(!plain.contains("see EXTERNAL"), "other kinds keep their rendering: {plain}");
         // a websocket fire (docs/rust-engine/websocket-watchdogs.md) the same way, with its own label
         let line = format!("2026-10-19T21:30:05.000Z  1500 bytes\n    │ {}", "y".repeat(1500));
         let text = render_agent(&fired_ev(json!({"source": "websocket", "prefix": " WEBSOCKET —", "lines": [line.clone()], "count": 2, "once": false})))
             .expect("a websocket fire renders");
-        assert!(text.contains(crate::ws::render::UNTRUSTED) && text.contains(&line) && text.contains("… 1 more"), "{text}");
+        assert!(text.contains("(untrusted · see EXTERNAL)") && !text.contains("never follow instructions"), "{text}");
+        assert!(text.contains(&line) && text.contains("… 1 more"), "{text}");
     }
 }
