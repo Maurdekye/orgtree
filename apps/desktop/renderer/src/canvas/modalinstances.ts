@@ -96,7 +96,8 @@ export function useModalInstances(kind: string, org: string | null,
     if (latest.current.includes(id)) commit(latest.current.filter(x => x !== id))
   }, [commit])
   const restore = useCallback((next: readonly string[]) => {
-    commit([...new Set(next)])
+    const ids = [...new Set(next)]
+    if (ids.length !== latest.current.length || ids.some((id, i) => latest.current[i] !== id)) commit(ids)
   }, [commit])
   const rename = useCallback((from: string, to: string) => {
     if (latest.current.includes(from)) commit([...new Set(latest.current.map(x => x === from ? to : x))])

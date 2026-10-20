@@ -520,9 +520,12 @@ function DocOpening({ slug, docId, close, onLoaded }: {
 }) {
   const { doc, err } = useDoc(slug, docId)
   const latest = useRef(onLoaded); latest.current = onLoaded
-  useEffect(() => { if (doc) latest.current(doc) }, [doc])
+  // a document that names no agent or project has no reader to open in
+  const owner = typeof doc?.node === 'string' && doc.node.length > 0
+  useEffect(() => { if (doc && owner) latest.current(doc) }, [doc, owner])
+  const problem = err ?? (doc && !owner ? 'it names no agent or project' : null)
   return <PinFrame kind="doc" pinnable={false} title="Presented documents" panel="settings wide gallery-modal" close={close}>
-    <div className={err ? 'ask-warn' : 'dim pad'}>{err ? `Could not load presentation: ${err}` : 'Loading presentation…'}</div>
+    <div className={problem ? 'ask-warn' : 'dim pad'}>{problem ? `Could not load presentation: ${problem}` : 'Loading presentation…'}</div>
   </PinFrame>
 }
 
@@ -1024,12 +1027,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
    *  can show it comes to the front showing it; otherwise its own agent or
    *  project reader opens on it. Which reader, when several could: the fixed
    *  order in canvas/readers.ts (USER 19:05:36Z). */
-  const openDocView = useCallback((id: string) => {
+  const openDocLatest = useRef<(id: string) => void>(() => {})
+  openDocLatest.current = (id: string) => {
     if (!id) return
     if (revealDetachedDocument(slug, id)) return
     if (routeDocument(id, docOwner.get(id) ?? null)) return
     setDocOpening(id)
-  }, [slug, routeDocument, docOwner])
+  }
+  // ONE IDENTITY for the life of the canvas, as the mail router's: every card,
+  // chip and pointer effect holds it, and the readers it consults change often
+  const openDocView = useCallback((id: string) => openDocLatest.current(id), [])
   const openInbox = inboxes.open, openTeam = teams.open, openDogView = dogViews.open
   const toggleDog = useCallback((id: string, keepOpen = false) => {
     openDogView(id, { ensureOpen: keepOpen })
@@ -1103,7 +1110,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     for (const r of rows) if (r.kind === 'doc' || r.kind === 'doc-docket') closeSavedWindow(r.key)
     for (const kind of ['doc', 'doc-docket']) forgetModalOpen(kind, slug)
     const reopen = [...new Set(oldReaders.map(r => r.restore!.document!))]
-    if (reopen.length) queueMicrotask(() => { for (const doc of reopen) openDocRef.current?.(doc) })
+    if (reopen.length) queueMicrotask(() => { for (const doc of reopen) openDocView(doc) })
     const unavailable = rows.filter(r => r.restore?.agent && !restoredAgent(r, map))
     if (unavailable.length) toast(['Some saved windows refer to an agent generation that is no longer available.'])
   }, [slug, map, nodeKnowledge, tree.slug])
@@ -2427,7 +2434,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(n.id) ? () => dismissRetiredAgent(n.id) : undefined} />
   // (each reader's own copy of these routes is made where it is rendered:
   // a reference to anything but a document closes that reader if centred)
-  const openDocRef = useRef(openDocView); openDocRef.current = openDocView
 
   useEffect(() => {
     if (!focusAgent) return
