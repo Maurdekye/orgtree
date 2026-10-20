@@ -147,6 +147,15 @@ counted button and expand/collapse behavior everywhere they appear, via shared
 `DeskJumpCards`. Parent navigation remains outside the member row; agent
 retired controls and watchdog ordering stay unchanged. See [project nodes](PROJECT-NODES.md).
 
+**Desk jump rows scroll; the superior stays, user 2026-10-20 09:41Z-09:50Z
+(4.4.0):** past 8 rows of chips a jump row (superiors, reports, members) scrolls,
+with no background, border or padding of its own (09:43Z) and no scroll
+chaining into the desk. The superior row folds only where the report row folds
+(more than 16 cards with the Display preference on, 09:50Z, overriding a
+coordinator ruling of 09:49Z that offered the fold on every project level);
+its agent superior always stays in front and only the project levels fold,
+as "N projects" (09:42Z).
+
 **Inline Team tab controls, user 2026-10-18 14:44Z (4.4.0):** pin/pop-out/modal
 buttons own a row above the Team tray instead of floating over its content or
 scrollbar, on agent/project desks including narrow desks. Reuse the existing

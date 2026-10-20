@@ -803,6 +803,13 @@
   render `ProjectDesk`; parent navigation stays separate. Agent retired
   controls and watchdog ordering are retained. [decided: user 2026-10-18 14:45Z;
   verified: `canvas/{deskjumpcards,desk,projectdesk}.tsx`]
+- Every jump row (`.desk-nav`) caps at 8 chip rows and scrolls, CSS only:
+  the cap is derived from the chip (11.5px text, body line 1.5, 2px padding,
+  1px border), so restyling `.desk-nav-chip` means recomputing it
+  (`deskjumpscroll.test.tsx` pins both). The superior row folds under the
+  same rule but keeps its agent superior out of the fold (`keep`), folding
+  only the project levels as "N projects". [decided: user 2026-10-20
+  09:41Z-09:43Z, 09:50Z; verified: `styles.css`, `canvas/deskjumpcards.tsx`]
 
 - Agent/project Open menu parents click/Enter the existing temporary-desk
   action; hover/Right still expand. Hire a subordinate, Hire under this project

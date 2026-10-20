@@ -378,6 +378,13 @@ agents under the project".
     start collapsed behind the counted button, with the shared Display preference
     and expand/collapse controls. Canvas, pinned, popped-out and Attention project
     desks all use `ProjectDesk`; their parent jump remains separate.
+  - **Long rows scroll; the superior stays** [user 2026-10-20 09:41Z-09:43Z, 09:50Z]:
+    every jump row (superiors, reports, members) is capped at 8 chip rows and
+    scrolls past them, CSS only (`.desk-nav`: max-height, overflow-y auto,
+    overscroll containment; no background, border or padding of its own). The
+    superior row folds under the report row's rule (more than 16 cards, the
+    Display preference on), but its agent superior stays in front: only the
+    project levels go behind "N projects" (`DeskJumpCards` `keep`).
 - **Hires around a project** [user 2026-10-17 21:24:34Z]: a project card has an agent card's four
   strips: under it, a coworker to either side (a sibling, then the side hire's reorder) and a parent
   above it (a superior spliced in with `above`, holding the project). The token tooltips say
