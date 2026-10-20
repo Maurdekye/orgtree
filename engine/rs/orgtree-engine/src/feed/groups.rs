@@ -70,6 +70,21 @@ pub fn effective_settings(org_settings: &Value, app_defaults: &Map<String, Value
     out
 }
 
+/// The `foreground` group: the org's retired counts. The record feed also
+/// reads it inside the snapshot that picks the retired-pile representatives,
+/// so the top level's count and its held representatives agree.
+#[logged]
+pub async fn foreground(client: &impl tokio_postgres::GenericClient, org_id: i64) -> Result<Value> {
+    let r = client
+        .query_one(
+            "SELECT count(*), count(*) FILTER (WHERE parent_id IS NULL)
+               FROM ot.agents WHERE org_id = $1 AND state IN ('archived','unrecoverable')",
+            &[&org_id],
+        )
+        .await?;
+    Ok(json!({ "retired_total": r.get::<_, i64>(0), "retired_roots_total": r.get::<_, i64>(1) }))
+}
+
 #[logged]
 pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) -> Result<Value> {
     let org_id = org["id"].as_i64().unwrap_or(0);
@@ -178,16 +193,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 "problems": if over == 0 { json!([]) } else { json!([format!("{over} agents hold less than their reports")]) },
             }})
         }
-        "foreground" => {
-            let r = client
-                .query_one(
-                    "SELECT count(*), count(*) FILTER (WHERE parent_id IS NULL)
-                       FROM ot.agents WHERE org_id = $1 AND state IN ('archived','unrecoverable')",
-                    &[&org_id],
-                )
-                .await?;
-            json!({ "retired_total": r.get::<_, i64>(0), "retired_roots_total": r.get::<_, i64>(1) })
-        }
+        "foreground" => foreground(client, org_id).await?,
         "asks" => {
             let mut asks = compute::asks(client, org_id).await?;
             asks.extend(engine.elicitations.cards(org_id));

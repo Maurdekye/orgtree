@@ -126,7 +126,23 @@ struct Computed {
     events: Option<(Vec<(i64, Value)>, i64)>,
     mailboxes: HashMap<i64, Vec<(String, Value)>>,
     histories: HashMap<i64, Vec<(String, Value)>>,
+    /// the retired-pile representatives, when this batch could have moved them
+    piles: Option<PileRead>,
     failed: Option<String>,
+}
+
+/// One read of the retired-pile representatives (`compute::pile_edges`).
+struct PileRead {
+    /// every representative now, with its parent (`None` = the top level)
+    edges: Vec<(i64, Option<i64>)>,
+    /// raw rows of the representatives that are new or that the batch changed
+    rows: HashMap<i64, Value>,
+}
+
+/// A retired-pile representative: an archived record of the shared set.
+struct Pile {
+    parent: Option<i64>,
+    body: Arc<Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -183,6 +199,7 @@ pub fn spawn(engine: Arc<Engine>, org_id: i64, org_uuid: String) -> OrgFeed {
         audiences_held: HashMap::new(),
         live_raw: HashMap::new(),
         live_body: HashMap::new(),
+        piles: HashMap::new(),
         eff_scope: HashMap::new(),
         shared: BTreeMap::new(),
         ring: VecDeque::new(),
@@ -212,6 +229,9 @@ struct Actor {
     audiences_held: crate::domain::audiences::EffectiveAudiences,
     live_raw: HashMap<i64, Value>,
     live_body: HashMap<i64, Arc<Value>>,
+    /// the retired-pile representatives (record feed design §1.3): with the
+    /// live agents, what the shared set holds of the org's agents
+    piles: HashMap<i64, Pile>,
     eff_scope: HashMap<i64, Value>,
     /// every shared-set record except agents: (entity, id) → body
     shared: BTreeMap<(String, String), Arc<Value>>,
@@ -387,9 +407,10 @@ impl Actor {
         let org_id = self.org_id;
         let tx = self.tx.clone();
         let live_ids: Vec<i64> = self.live_raw.keys().copied().collect();
+        let piles: HashMap<i64, Option<i64>> = self.piles.iter().map(|(id, p)| (*id, p.parent)).collect();
         let org_row = self.org_row.clone();
         crate::trace::spawn(async move {
-            let computed = match read(&engine, org_id, keys, live_ids, org_row).await {
+            let computed = match read(&engine, org_id, keys, live_ids, org_row, piles).await {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::warn!(org_id, error = %format!("{e:#}"), "feed read failed");
@@ -517,6 +538,35 @@ impl Actor {
         for id in self.rebuild_agents(&rebuild) {
             upserts.push(("agent".into(), id.to_string(), self.live_body[&id].clone()));
         }
+        // retired-pile representatives: the shared set's archived records
+        if let Some(read) = c.piles {
+            let now: HashMap<i64, Option<i64>> = read.edges.iter().copied().collect();
+            let gone: Vec<i64> = self.piles.keys().copied().filter(|id| !now.contains_key(id)).collect();
+            for id in gone {
+                self.piles.remove(&id);
+                // a rehired one stays, as its live record
+                if !self.live_body.contains_key(&id) {
+                    tombstones.push(("agent".into(), id.to_string()));
+                }
+            }
+            for (id, pile) in self.piles.iter_mut() {
+                pile.parent = now[id];
+            }
+            let fresh: Vec<(i64, Value)> = read
+                .rows
+                .into_iter()
+                .filter(|(id, raw)| now.contains_key(id) && raw["state"] == "archived" && !self.live_body.contains_key(id))
+                .collect();
+            for (id, body) in self.retired_bodies(fresh) {
+                if !self.piles.get(&id).map(|p| *p.body == *body).unwrap_or(false) {
+                    upserts.push(("agent".into(), id.to_string(), body.clone()));
+                }
+                self.piles.insert(id, Pile { parent: now[&id], body });
+            }
+            // one that retired in this batch and now represents its pile keeps its record
+            let piles = &self.piles;
+            tombstones.retain(|(e, id)| e != "agent" || id.parse::<i64>().map_or(true, |id| !piles.contains_key(&id)));
+        }
         // a live agent can also sit in a subscription (explicit agent ids): keep it current there
         for (id, body) in upserts.iter().filter(|(e, _, _)| e == "agent").map(|(_, id, b)| (id.clone(), b.clone())) {
             let aid: i64 = id.parse().unwrap_or(0);
@@ -531,21 +581,9 @@ impl Actor {
         }
         // retired agents → windows that include them
         if !retired_now.is_empty() {
-            let (settings, accounts) = self.ctx_bodies();
-            let ceiling = scope::org_ceiling(&settings["dirs"]);
-            let ctx = TreeCtx {
-                org_settings: &settings,
-                now: chrono::Utc::now(),
-                accounts: &accounts,
-                continue_primaries: &HashSet::new(),
-                muse: &crate::providers::muse_catalogs(&self.engine),
-                audiences_held: &self.audiences_held,
-                org_slug: self.org_row["slug"].as_str().unwrap_or(""),
-            };
-            for (id, raw) in retired_now {
-                let parent = raw["parent_id"].as_i64();
-                let eff = if raw["kind"]=="project" {ceiling.clone()} else {scope::clamp(&raw["scope"], &ceiling)};
-                let body = Arc::new(agent_body(&raw, &eff, parent, &ctx));
+            let parents: HashMap<i64, Option<i64>> = retired_now.iter().map(|(id, raw)| (*id, raw["parent_id"].as_i64())).collect();
+            for (id, body) in self.retired_bodies(retired_now) {
+                let parent = parents[&id];
                 for (sid, s) in self.sockets.iter_mut() {
                     for (n, sub) in s.subs.iter_mut() {
                         if !sub.ready {
@@ -595,6 +633,34 @@ impl Actor {
             return;
         }
         self.publish(upserts, tombstones, sub_changes);
+    }
+
+    /// Bodies of retired agents, outside the live tree: each one's scope is
+    /// clamped to the org's ceiling. A retired subscription window and the
+    /// shared set's pile representatives use the same body.
+    #[nolog]
+    fn retired_bodies(&self, raws: Vec<(i64, Value)>) -> Vec<(i64, Arc<Value>)> {
+        if raws.is_empty() {
+            return Vec::new();
+        }
+        let (settings, accounts) = self.ctx_bodies();
+        let ceiling = scope::org_ceiling(&settings["dirs"]);
+        let ctx = TreeCtx {
+            org_settings: &settings,
+            now: chrono::Utc::now(),
+            accounts: &accounts,
+            continue_primaries: &HashSet::new(),
+            muse: &crate::providers::muse_catalogs(&self.engine),
+            audiences_held: &self.audiences_held,
+            org_slug: self.org_row["slug"].as_str().unwrap_or(""),
+        };
+        raws.into_iter()
+            .map(|(id, raw)| {
+                let parent = raw["parent_id"].as_i64();
+                let eff = if raw["kind"]=="project" {ceiling.clone()} else {scope::clamp(&raw["scope"], &ceiling)};
+                (id, Arc::new(agent_body(&raw, &eff, parent, &ctx)))
+            })
+            .collect()
     }
 
     #[nolog]
@@ -718,6 +784,9 @@ impl Actor {
             .map(|((e, id), b)| rec(e, id, b, None))
             .collect();
         out.extend(self.live_body.iter().map(|(id, b)| rec("agent", &id.to_string(), b, None)));
+        out.extend(
+            self.piles.iter().filter(|(id, _)| !self.live_body.contains_key(id)).map(|(id, p)| rec("agent", &id.to_string(), &p.body, None)),
+        );
         out
     }
 
@@ -990,8 +1059,17 @@ fn parse_window(w: &Value) -> Option<Window> {
 
 /// The batched read behind one round of invalidations.
 #[logged]
-async fn read(engine: &Engine, org_id: i64, keys: Vec<Key>, live_ids: Vec<i64>, org_row: Value) -> Result<Computed> {
-    let client = engine.db.get().await?;
+async fn read(
+    engine: &Engine,
+    org_id: i64,
+    keys: Vec<Key>,
+    live_ids: Vec<i64>,
+    org_row: Value,
+    piles: HashMap<i64, Option<i64>>,
+) -> Result<Computed> {
+    let mut client = engine.db.get().await?;
+    let changed: HashSet<i64> = keys.iter().filter_map(|k| if let Key::Agent(id) = k { Some(*id) } else { None }).collect();
+    let live_before: HashSet<i64> = live_ids.iter().copied().collect();
     let mut c = Computed::default();
     let mut agent_ids: HashSet<i64> = HashSet::new();
     let mut group_names: HashSet<&'static str> = HashSet::new();
@@ -1058,6 +1136,56 @@ async fn read(engine: &Engine, org_id: i64, keys: Vec<Key>, live_ids: Vec<i64>, 
         for g in group_names {
             c.groups.insert(g.to_string(), groups::group(engine, &client, &org_row, g).await?);
         }
+    }
+    // The retired-pile representatives move only when a batch touches an
+    // agent that is or was retired, a representative, or an agent entering
+    // the live set (a hire or rehire), and on a full reload. Ordinary
+    // live-agent traffic skips this.
+    let moved = c.org_row.is_some()
+        || changed.iter().any(|id| {
+            piles.contains_key(id)
+                || match c.agents.get(id) {
+                    Some(Some(raw)) => raw["state"] != "live" || !live_before.contains(id),
+                    _ => true,
+                }
+        });
+    if moved && !org_row.is_null() {
+        // One snapshot for the representatives, their rows, their parents'
+        // retired counts and the top level's, so no count trails the records.
+        let tx = client
+            .build_transaction()
+            .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
+            .read_only(true)
+            .start()
+            .await?;
+        let edges = compute::pile_edges(&*tx, org_id).await?;
+        let now: HashMap<i64, Option<i64>> = edges.iter().copied().collect();
+        let fetch: Vec<i64> =
+            edges.iter().map(|(id, _)| *id).filter(|id| !piles.contains_key(id) || changed.contains(id)).collect();
+        let mut rows = compute::agents_in(&*tx, org_id, &fetch).await?;
+        let mut parents: HashSet<i64> = HashSet::new();
+        for (id, parent) in &edges {
+            if !piles.contains_key(id) {
+                parents.extend(*parent);
+            }
+        }
+        for (id, parent) in &piles {
+            if !now.contains_key(id) {
+                parents.extend(*parent);
+            }
+        }
+        let parents: Vec<i64> = parents.into_iter().filter(|p| !rows.contains_key(p)).collect();
+        for (id, raw) in compute::agents_in(&*tx, org_id, &parents).await? {
+            // a pile's front is itself a representative; any other parent is a tree record
+            if now.contains_key(&id) {
+                rows.insert(id, raw);
+            } else {
+                c.agents.insert(id, Some(raw));
+            }
+        }
+        c.groups.insert("foreground".into(), groups::foreground(&*tx, org_id).await?);
+        tx.commit().await?;
+        c.piles = Some(PileRead { edges, rows });
     }
     Ok(c)
 }

@@ -41,6 +41,14 @@ pub fn project(snapshot: &Value) -> Value {
             }
         }
     }
+    // Retired agents held here (the feed's pile representatives) count once:
+    // the rest of each parent's retired total stays a hidden count.
+    let mut held: HashMap<Option<String>, i64> = HashMap::new();
+    for a in agents.values() {
+        if a.get("state").and_then(Value::as_str) == Some("archived") {
+            *held.entry(a.get("parent_id").and_then(Value::as_str).map(str::to_string)).or_default() += 1;
+        }
+    }
     let mut children: HashMap<Option<String>, Vec<String>> = HashMap::new();
     for (id, a) in &agents {
         let parent = a.get("parent_id").and_then(Value::as_str).map(str::to_string);
@@ -64,16 +72,20 @@ pub fn project(snapshot: &Value) -> Value {
         parent: Option<&str>,
         agents: &HashMap<String, Map<String, Value>>,
         children: &HashMap<Option<String>, Vec<String>>,
+        held: &HashMap<Option<String>, i64>,
         depth: usize,
     ) -> Value {
         let mut node = agents[id].clone();
         node.remove("parent_id");
         node.remove("sibling_order");
-        node.remove("retired_children_total");
+        if let Some(total) = node.remove("retired_children_total").and_then(|t| t.as_i64()) {
+            let shown = held.get(&Some(id.to_string())).copied().unwrap_or(0);
+            node.insert("hidden_retired_children".into(), json!((total - shown).max(0)));
+        }
         let kids: Vec<Value> = if depth < 1024 {
             children
                 .get(&Some(id.to_string()))
-                .map(|ks| ks.iter().map(|k| build(k, Some(id), agents, children, depth + 1)).collect())
+                .map(|ks| ks.iter().map(|k| build(k, Some(id), agents, children, held, depth + 1)).collect())
                 .unwrap_or_default()
         } else {
             Vec::new()
@@ -87,11 +99,12 @@ pub fn project(snapshot: &Value) -> Value {
     }
     let roots: Vec<Value> = children
         .get(&None)
-        .map(|ks| ks.iter().map(|k| build(k, None, &agents, &children, 0)).collect())
+        .map(|ks| ks.iter().map(|k| build(k, None, &agents, &children, &held, 0)).collect())
         .unwrap_or_default();
     let rev = snapshot.pointer("/cursor/rev").cloned().unwrap_or(json!(0));
     let retired_total = header.remove("retired_total").unwrap_or(json!(0));
-    let retired_roots = header.remove("retired_roots_total").unwrap_or(json!(0));
+    let retired_roots = header.remove("retired_roots_total").and_then(|t| t.as_i64()).unwrap_or(0);
+    let retired_roots = (retired_roots - held.get(&None).copied().unwrap_or(0)).max(0);
     header.insert("roots".into(), Value::Array(roots));
     header.insert("capabilities".into(), json!({ "record_changes_v1": true }));
     header.insert("sync_rev".into(), rev.clone());

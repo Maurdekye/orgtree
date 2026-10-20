@@ -89,10 +89,87 @@ FROM ot.agents a
 /// Raw rows for these agents (any state except deleted).
 #[logged]
 pub async fn agents(client: &Client, org_id: i64, ids: &[i64]) -> Result<HashMap<i64, Value>> {
+    agents_in(client, org_id, ids).await
+}
+
+/// `agents`, read inside the caller's transaction.
+#[logged]
+pub async fn agents_in(client: &impl tokio_postgres::GenericClient, org_id: i64, ids: &[i64]) -> Result<HashMap<i64, Value>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
     let sql = format!("{AGENT_SQL} WHERE a.org_id = $1 AND a.id = ANY($2) AND a.state <> 'deleted'")
         .replace("__UNREAD_STATES__", crate::domain::mail::UNREAD_STATES);
     let rows = client.query(&sql, &[&org_id, &ids]).await?;
     Ok(rows.into_iter().map(|r| (r.get::<_, i64>(0), r.get::<_, Value>(1))).collect())
+}
+
+/// The first and last archived child of each parent, in the canvas's sibling
+/// order (sibling_order, then id). Each end is one probe of the
+/// agents_retired_pile_edges index, however many retired children the parent has.
+const PILE_EDGES: &str = "
+SELECT p.parent, f.id, l.id
+  FROM __PARENTS__ AS p(parent)
+  CROSS JOIN LATERAL (SELECT c.id FROM ot.agents c
+                       WHERE c.org_id = $1 AND c.parent_id = p.parent AND c.state = 'archived'
+                       ORDER BY c.sibling_order, c.id LIMIT 1) f
+  CROSS JOIN LATERAL (SELECT c.id FROM ot.agents c
+                       WHERE c.org_id = $1 AND c.parent_id = p.parent AND c.state = 'archived'
+                       ORDER BY c.sibling_order DESC, c.id DESC LIMIT 1) l";
+const ROOT_PILE_EDGES: &str = "
+SELECT (SELECT id FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state = 'archived'
+         ORDER BY sibling_order, id LIMIT 1),
+       (SELECT id FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state = 'archived'
+         ORDER BY sibling_order DESC, id DESC LIMIT 1)";
+/// A chain of retired fronts deeper than this is not followed further.
+const PILE_ROUNDS: usize = 256;
+
+/// The retired-pile representatives the shared set carries, as `(agent,
+/// parent)` (`None` = the top level), each once. The record feed's design
+/// (docs/state-system/pg-step6-record-feed.md §1.3) and 3.x's pile edges
+/// (`foreground_store._pile_edges`): the first archived child of a visible
+/// parent places its retired pile among the live siblings, and the last is
+/// the pile's default front. Visible parents are the top level and every
+/// live agent, then, round by round, each pile's default front, whose own
+/// retired children pile under it. One probe per end per visible parent, so
+/// this grows with the live tree, not with retired history.
+#[logged]
+pub async fn pile_edges(client: &impl tokio_postgres::GenericClient, org_id: i64) -> Result<Vec<(i64, Option<i64>)>> {
+    let mut out: Vec<(i64, Option<i64>)> = Vec::new();
+    let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    let mut fronts: Vec<i64> = Vec::new();
+    let mut take = |parent: Option<i64>, first: i64, last: i64, fronts: &mut Vec<i64>| {
+        for id in [first, last] {
+            if seen.insert(id) {
+                out.push((id, parent));
+            }
+        }
+        fronts.push(last);
+    };
+    let roots = client.query_one(ROOT_PILE_EDGES, &[&org_id]).await?;
+    if let (Some(first), Some(last)) = (roots.get::<_, Option<i64>>(0), roots.get::<_, Option<i64>>(1)) {
+        take(None, first, last, &mut fronts);
+    }
+    let live = PILE_EDGES.replace("__PARENTS__", "(SELECT id FROM ot.agents WHERE org_id = $1 AND state = 'live')");
+    for r in client.query(&live, &[&org_id]).await? {
+        take(Some(r.get(0)), r.get(1), r.get(2), &mut fronts);
+    }
+    let of = PILE_EDGES.replace("__PARENTS__", "unnest($2::bigint[])");
+    let mut expanded: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    for round in 0.. {
+        let parents: Vec<i64> = std::mem::take(&mut fronts).into_iter().filter(|f| expanded.insert(*f)).collect();
+        if parents.is_empty() {
+            break;
+        }
+        if round == PILE_ROUNDS {
+            tracing::warn!(org_id, depth = PILE_ROUNDS, "retired piles nest deeper than the feed follows");
+            break;
+        }
+        for r in client.query(&of, &[&org_id, &parents]).await? {
+            take(Some(r.get(0)), r.get(1), r.get(2), &mut fronts);
+        }
+    }
+    Ok(out)
 }
 
 /// Every live agent of the org (the shared set's agent records).
