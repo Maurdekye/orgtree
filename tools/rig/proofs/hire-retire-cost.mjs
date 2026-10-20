@@ -3,6 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {spawnSync} from 'node:child_process'
+import {createRequire} from 'node:module'
 import {Proof} from '../proof.mjs'
 export async function setup(){return {'quiet-log':process.env.HIRE_COST_QUIET==='1',maxParked:1,fixture:{org:{name:'Hire retire cost'},agents:[{name:'boss',tier:'sol',grant:500}]}}}
 export default async function(rig){
@@ -50,5 +51,23 @@ export default async function(rig){
  const logs=fs.readFileSync(logPath).subarray(logOffset).toString();const hot=['rebuild_agents','tool_groups.normalize','tree.stored_forecast','continuation.resolve','catalog.antigravity_pool','usage.at_limit','tree.cold_turn_action']
  if(process.env.HIRE_COST_QUIET!=='1')p.check('closed mailbox windows are never materialized',!logs.includes('feed.compute.agent_mailbox('))
  p.file('log-volume.json',{bytes:Buffer.byteLength(logs),lines:logs.split(/\r?\n/).length,hot:Object.fromEntries(hot.map(k=>[k,logs.split(/\r?\n/).filter(l=>l.includes(k+'(')).length]))})
+ // An explicitly open window still receives full initial bodies and live
+ // lifecycle notices/history. Closed-window optimization must preserve it.
+ const WebSocket=createRequire('E:/Libraries/Desktop/orgtree/package.json')('ws')
+ const ws=new WebSocket(rig.url.replace(/^http/,'ws')+`/api/orgs/${rig.org}/ws`,{headers:{'X-Orgtree-Desktop-Token':rig.token}})
+ const frames=[];ws.on('message',data=>{try{frames.push(JSON.parse(data.toString()))}catch{}})
+ const event=(name)=>new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(Error('socket '+name+' timeout')),10000);ws.once(name,()=>{clearTimeout(t);resolve()});ws.once('error',e=>{clearTimeout(t);reject(e)})})
+ try{
+  await event('open')
+  ws.send(JSON.stringify({type:'subscribe',sub:9,agents:[],windows:[{kind:'agent_mail',agent:String(boss)},{kind:'agent_history',agent:String(boss)}]}))
+  await rig.waitFor(()=>frames.find(f=>f.type==='record_subscribed'&&f.sub===9),{timeout:15000,every:10,what:'open window snapshot'})
+  p.check('opening a mailbox reads its retained rows',frames.some(f=>f.type==='record_subscribed'&&(f.records??[]).some(r=>r.entity===`agent_mail:${boss}`)))
+  const offset=frames.length
+  await rig.op({op:'hire',name:'subscription-control',parent:'boss',tier:'sol',grant:0})
+  const changed=await rig.waitFor(()=>frames.slice(offset).find(f=>(f.upserts??[]).some(r=>r.entity===`agent_mail:${boss}`&&JSON.stringify(r.body).includes('subscription-control'))),{timeout:15000,every:10,what:'live subscribed notice'})
+  p.check('an open mailbox receives the new lifecycle notice',!!changed)
+  const history=await rig.waitFor(()=>frames.slice(offset).find(f=>(f.upserts??[]).some(r=>r.entity===`agent_history:${boss}`&&JSON.stringify(r.body).includes('subscription-control'))),{timeout:15000,every:10,what:'live subscribed history'})
+  p.check('an open history window receives lifecycle updates',!!history)
+ }finally{const closed=event('close');ws.close();await closed}
  return p.summary()
 }
