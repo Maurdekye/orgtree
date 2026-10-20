@@ -50,22 +50,22 @@ export function WatchdogCanvasCards({dogs,counts,org,onOpen,position,visible}: {
   })}</>
 }
 
-export function WatchdogGroup({ owner, dogs, total, org, onOpen, className = 'desk-nav-chip', style }: {
+export function WatchdogGroup({ owner, dogs, total, org, onOpen, className = 'desk-nav-chip', style, kept=false }: {
   owner: string; dogs: Watchdog[]; total: number; org?: string
-  onOpen: (id: string) => void; className?: string; style?: CSSProperties
+  onOpen: (id: string) => void; className?: string; style?: CSSProperties; kept?:boolean
 }) {
   const [open, setOpen] = useState(false)
   return <>
     <button type="button" data-watchdog-group={owner} className={className+' watchdog-group'} style={style}
       aria-haspopup="dialog" aria-expanded={open} onPointerDown={e=>e.stopPropagation()}
       onClick={e=>{e.stopPropagation();setOpen(true)}}>{total} watchdogs</button>
-    {open && <WatchdogList key={(org??'')+':'+owner} owner={owner} dogs={dogs} total={total} org={org}
+    {open && <WatchdogList key={(org??'')+':'+owner} owner={owner} dogs={dogs} total={total} org={org} kept={kept}
       onOpen={id=>{setOpen(false);onOpen(id)}} close={()=>setOpen(false)}/>}
   </>
 }
 
-function WatchdogList({owner,dogs,total,org,onOpen,close}: {
-  owner:string;dogs:Watchdog[];total:number;org?:string;onOpen:(id:string)=>void;close:()=>void
+function WatchdogList({owner,dogs,total,org,onOpen,close,kept}: {
+  owner:string;dogs:Watchdog[];total:number;org?:string;onOpen:(id:string)=>void;close:()=>void;kept:boolean
 }) {
   useEsc(close)
   const [cursor,setCursor]=useState('0'),[back,setBack]=useState<string[]>([])
@@ -82,10 +82,10 @@ function WatchdogList({owner,dogs,total,org,onOpen,close}: {
       const offset=Number(cursor)
       setPage({watchdogs:dogs.slice(offset,offset+WATCHDOG_PAGE_SIZE),total,
         next_cursor:offset+WATCHDOG_PAGE_SIZE<dogs.length?String(offset+WATCHDOG_PAGE_SIZE):null})
-    } else if(org) getWatchdogPage(org,owner,cursor).then(p=>{if(current)setPage(p)},e=>{if(current)setError(e.message)})
+    } else if(org) getWatchdogPage(org,owner,cursor,kept).then(p=>{if(current)setPage(p)},e=>{if(current)setError(e.message)})
     else setError('Watchdog list is unavailable.')
     return()=>{current=false}
-  },[org,owner,cursor,total,revision,retry])
+  },[org,owner,cursor,total,revision,retry,kept])
   return <ModalOverPins><div className="overlay" onClick={close} onPointerDown={e=>e.stopPropagation()}>
     <div className="settings content-height watchdog-list" role="dialog" aria-modal="true" aria-label={owner+' watchdogs'} onClick={e=>e.stopPropagation()}>
       <h3>{owner} · {page?.total??total} watchdogs</h3>

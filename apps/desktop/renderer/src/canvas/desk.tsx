@@ -1901,7 +1901,7 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs }: {
   const dogs = deskDogs?.dogs ?? []
   const dogTotal = deskDogs?.total ?? dogs.length
   const groupedDogs = dogTotal > WATCHDOG_CARD_LIMIT
-  const groupCard = () => <WatchdogGroup owner={node.id} dogs={dogs} total={dogTotal} org={deskDogs?.org} onOpen={deskDogs!.open}/>
+  const groupCard = () => <WatchdogGroup owner={node.id} dogs={dogs} total={dogTotal} org={deskDogs?.org} onOpen={deskDogs!.open} kept/>
   const cardIds = [...alive.map((c) => 'n:' + c.id), ...(groupedDogs ? ['dogs'] : dogs.map((w) => 'd:' + w.id))]
   const renderCard = (k: string) => {
     if (k === 'dogs') return <span key={k}>{groupCard()}</span>
