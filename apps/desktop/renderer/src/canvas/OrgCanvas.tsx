@@ -4361,8 +4361,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onFormChange={update => setDraftForm(current => current ? update(current) : current)} />
           }
           if (hidden.has(n.id)) return null   // piled-away: no card, no space
-          if (isProject(n)) {
-            return <ProjectSquare key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
+          const pileHere = pileByFront.get(n.id)
+          const square = isProject(n)
+            ? <ProjectSquare key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
               zoom={view.z}
               focused={n.id === focusId && !worldHidden && projectDeskId !== n.id}
               pinnedFocus={n.id === pinnedFocusId}
@@ -4392,10 +4393,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                 ? () => dismissRetiredAgent(n.id) : undefined}
               onDragStart={startNodeDrag} onDragMove={moveNodeDrag}
               onDragEnd={endNodeDrag} onDragCancel={abortNodeDrag} />
-          }
-          const pileHere = pileByFront.get(n.id)
-          const square = (
-            <NodeSquare key={n.id} node={n} pos={p} lod={lod} focused={n.id === focusId}
+            : <NodeSquare key={n.id} node={n} pos={p} lod={lod} focused={n.id === focusId}
               quickChatDefaults={tree.quick_chat}
               deskEligible={!worldHidden}
               /* FR-3: the camera is on this card but its desk is a pinned
@@ -4437,13 +4435,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               slotHolds={slotsByHolder[n.id]}
               onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(n.id)
                 ? () => dismissRetiredAgent(n.id) : undefined} />
-          )
           if (!pileHere) return square
           // the pile's stack layers render BEHIND the front card as real
           // elements (box-shadows can't be clicked): the exposed margin is
           // the hit target that opens the picker, and the whole stack eases
           // outward slightly on hover (user spec). Retired piles and live
           // CROWD piles share the mechanics; the crowd wears a live tint.
+          // Project fronts use this same selector, including a bunch's head.
           const pileTotal = pileHere.total ?? pileHere.list.length
           const layers = Math.min(pileTotal - 1, 3)
           const pTitle = pileHere.kind === 'c'

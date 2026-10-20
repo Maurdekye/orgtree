@@ -245,6 +245,10 @@
 
 - Project bunches are a display projection of maximal direct project-only runs:
   splits/agents end a run, hidden branches still count, and siblings never bunch.
+  Loaded archived columns (including partly restored runs) follow the same rule;
+  retired pile fronts keep the shared picker layers/count and per-project restore
+  targets. No extra archive reads are made to find bunches. Archived runs keep
+  ordinary dragging: identity rotation requires every project in the run live.
   The 08:05 sketch refinement packs staggered circle-chord rows with 8px gaps;
   short curves share ordinary hierarchy-edge styling and insertion follows the
   serpentine order, including reversed rows.

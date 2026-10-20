@@ -30,6 +30,18 @@ and expands it into separate full-size card positions. Row and circular layouts,
 fit, and the reparent landing ghost use the same projection. Card/desk identity,
 menus, badges, colors, and far-zoom hit targets remain the existing components.
 
+Retirement does not change those physical links. Loaded archived and partly
+restored project columns use the same bunches (user bug report, 2026-10-20
+18:37 UTC), with the same Display opt-out. Only the selected retired pile front's
+visible chain contributes a bunch; changing fronts displays the newly selected
+chain. Hidden branches and unloaded retired-child counts still break a run.
+This uses the existing bounded archive projection without reading more history.
+The retired picker continues to list physical sibling roots separately, with
+its existing cursor pages and search; siblings are never merged into a bunch.
+Project fronts use the same clickable stack layers and count as agent fronts.
+Every project keeps its own desk and Restore action, which rehires that named
+project, not the whole bunch.
+
 In the circular chart a bunch is one entry on its ring with an arc slot for its
 own block (user 2026-10-20 09:08 UTC). Every card's slot comes from its own
 footprint, so ordinary cards beside a bunch keep the dense 190px pitch and their
@@ -60,7 +72,7 @@ Links join the nearest rectangle edges with a small cubic bend, sharing `.edge`
 colour, width and opacity. Drag insertion chooses the nearest gap along this
 ordered path, including reversed rows, rather than sorting by horizontal position.
 
-With rearranging enabled, dragging inside a bunch shows an insertion point and rotates the project
+With rearranging enabled, dragging inside a wholly live bunch shows an insertion point and rotates the project
 identities while retaining their settings and the bottom member group.
 `projectbunchmove.ts` emits only existing `moves` (maximum 20 per batch) and
 `reorder` steps, submitted together through one atomic `userGesture`.
@@ -69,6 +81,9 @@ the original outside sibling slot. A refusal removes the optimistic projection;
 the successful gesture uses ordinary history undo. An incomplete or concurrently
 split run is refused before writing. No project swap or backend operation is
 added; swap remains agent-only.
+An archived or partly restored bunch retains ordinary subtree dragging even
+when rearranging is enabled. Existing move operations require live destination
+parents, so these runs must not offer an insertion marker for an invalid rotation.
 
 Dragging out retains ordinary whole-subtree movement. Existing create-project-above
 placement naturally extends a run above any project or above its sole bottom
@@ -80,6 +95,12 @@ Display persistence), `projectbunch-drag.test.tsx` (real canvas pointer gestures
 all insertion positions for 2–8 projects, atomic steps, rollback, cancel,
 default-off ordinary dragging, same-tab/cross-window preference updates,
 mid-drag opt-out, both insertion cases and split control).
+`retiredprojectbunch.test.tsx` covers retirement/layout equivalence, selected
+fronts, incomplete branches, partial restoration and individual restore targets;
+the canvas drag suite also covers archived controls and the lazy pile picker.
 `projectbunch-visual.mjs` captures the real renderer with synthetic data in
 Session 0, including 2/3/5/7/8/12/20 projects, opt-out, breaks, far zoom, insertions and
 reorder. It never opens or modifies live organization data.
+`projectbunch-retired-visual.cjs` captures an archived front in row/circular
+mode, Display opt-out, the sibling picker and another selected chain. It checks
+the picker button's actual hit target as well as the rendered order links.
