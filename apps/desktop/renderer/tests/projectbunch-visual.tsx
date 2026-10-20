@@ -25,6 +25,22 @@ function reviewStacks(split: boolean): TreeNode[] {
     ...stacks, project('build-slot', Array.from({ length: 25 }, (_, i) => agent(`bs-${i}`))), project('empty-project'),
   ])]
 }
+/** The live org of user 2026-10-20 10:46Z: the stack8 run sits last under
+ *  build-slot, after its 24 agents, with 15 agents under stack8-08. */
+function teamEnds(): TreeNode[] {
+  const stack = (n: number, xs = ['a', 'b', 'c']) => chain(n, xs.map(x => agent(`stack${n}-agent-${x}`)), `stack${n}`)
+  const stack16 = stack(16)
+  let at = stack16
+  while (at.id !== 'stack16-11') at = at.children[0]!
+  at.children.push(agent('stack12-agent-b'))
+  return [agent('coordinator', [
+    project('test-project', [project('listener-smoke', [0, 1, 2].map(i => agent(`worker-${i}`)))]),
+    stack(3), stack(5), stack(12, ['a', 'c']), stack16,
+    project('build-slot', [...Array.from({ length: 24 }, (_, i) => agent(`bs-${i}`)),
+      chain(8, Array.from({ length: 15 }, (_, i) => agent(`stack8-agent-${i}`)), 'stack8')]),
+    project('empty-project'),
+  ])]
+}
 const scene = new URLSearchParams(location.search).get('scene') ?? 'three'
 localStorage.clear()
 localStorage.setItem('orgtree-canvas-gl-wires', 'off')
@@ -51,6 +67,7 @@ const labels: Record<string, string> = {
   'ring-whole': 'Circular chart: review stacks 3/5/8/12/16 above build-slot agents',
   'ring-split': 'Circular chart: stack12-agent-b moved under stack16-11 splits the 16 run',
   'ring-busy': 'Circular chart: a whole bunch among 24 agents on one ring',
+  'ring-team-ends': 'Circular chart: 15 agents under the stack8 bunch, last under build-slot',
   settings: 'App settings > Display',
 }
 const trees: Record<string, TreeNode[]> = {
@@ -67,6 +84,7 @@ const trees: Record<string, TreeNode[]> = {
   'ring-whole': reviewStacks(false), 'ring-split': reviewStacks(true),
   'ring-busy': [agent('top', [agent('lead', [...Array.from({ length: 12 }, (_, i) => agent(`left-${i}`)),
     chain(5, [agent('member')], 'run'), ...Array.from({ length: 12 }, (_, i) => agent(`right-${i}`))])])],
+  'ring-team-ends': teamEnds(),
 }
 let current = bunchTree(trees[scene] ?? [chain(3)])
 let publish = (_tree: TreePayload) => {}

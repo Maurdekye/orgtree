@@ -9,6 +9,7 @@ module.exports = async page => {
     'ring-whole': [Array.from({ length: 25 }, (_, i) => `bs-${i}`)],
     'ring-split': [Array.from({ length: 25 }, (_, i) => `bs-${i}`)],
     'ring-busy': [Array.from({ length: 12 }, (_, i) => `left-${i}`), Array.from({ length: 12 }, (_, i) => `right-${i}`)],
+    'ring-team-ends': [Array.from({ length: 15 }, (_, i) => `stack8-agent-${i}`), Array.from({ length: 24 }, (_, i) => `bs-${i}`)],
   }
   for (const scene of Object.keys(teams)) {
     await page.goto('/?scene=' + scene)
@@ -38,7 +39,11 @@ module.exports = async page => {
       if (!a || !b) throw new Error(`${scene}: ${!a ? ids[i] : id} was not rendered`)
       return Math.hypot(centre(a).x - centre(b).x, centre(a).y - centre(b).y)
     })
-    const spacing = teams[scene].flatMap(chords)
+    const perTeam = teams[scene].map(ids => {
+      const c = chords(ids)
+      return { team: `${ids[0]}..${ids[ids.length - 1]}`, chords: c.map(x => Math.round(x * 10) / 10) }
+    })
+    const spacing = perTeam.flatMap(t => t.chords)
     const names = Object.keys(seen.cards).sort((p, q) => seen.cards[p].x - seen.cards[q].x)
     const overlaps = []
     for (let i = 0; i < names.length; i++)
@@ -47,7 +52,7 @@ module.exports = async page => {
     const ring = seen.eye && seen.cards[teams[scene][0][0]] && Math.hypot(
       centre(seen.cards[teams[scene][0][0]]).x - centre(seen.eye).x, centre(seen.cards[teams[scene][0][0]]).y - centre(seen.eye).y)
     details[scene] = { cards: names.length, eye: !!seen.eye, ring,
-      spacing: { min: Math.min(...spacing), max: Math.max(...spacing) }, overlaps }
+      spacing: { min: Math.min(...spacing), max: Math.max(...spacing) }, perTeam, overlaps }
     screenshots.push(await page.screenshot('project-bunch-' + scene))
   }
   return { details, screenshots }
