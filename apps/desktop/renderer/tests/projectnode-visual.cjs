@@ -251,9 +251,12 @@ module.exports = async (page) => {
     }
     const rows = () => page.eval((sel) => [...document.querySelectorAll(sel + ' .desk-nav')].map((r) => {
       const box = r.getBoundingClientRect()
-      const tops = [...new Set([...r.children].map((c) => Math.round(c.getBoundingClientRect().top - box.top + r.scrollTop)))].sort((a, b) => a - b)
+      // the canvas draws a desk scaled: rectangles are screen pixels, clientHeight layout pixels
+      const k = r.offsetHeight ? box.height / r.offsetHeight : 1
+      const tops = [...new Set([...r.children].map((c) => Math.round((c.getBoundingClientRect().top - box.top) / k + r.scrollTop)))].sort((a, b) => a - b)
       const s = getComputedStyle(r)
-      return { rows: tops.length, visible: tops.filter((t) => t < r.clientHeight - 1).length, clientHeight: r.clientHeight, scrollHeight: r.scrollHeight,
+      return { scale: Math.round(k * 1000) / 1000, rows: tops.length, visible: tops.filter((t) => t < r.scrollTop + r.clientHeight - 1).length,
+        clientHeight: r.clientHeight, scrollHeight: r.scrollHeight,
         pitch: tops.length > 1 ? tops[1] - tops[0] : null, overflowY: s.overflowY, maxHeight: s.maxHeight, overscroll: s.overscrollBehaviorY,
         background: s.backgroundColor, border: s.borderTopWidth + ' ' + s.borderLeftWidth, padding: s.padding,
         chips: r.querySelectorAll('.desk-nav-chip').length, fold: r.querySelector('[data-audience-fold]')?.textContent ?? null,
