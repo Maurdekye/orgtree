@@ -1914,7 +1914,7 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs, org }: {
   const retired = reports.filter((c) => c.state !== 'live')
   const hiddenRetired = (n: Pick<CanvasNode, 'children' | 'hidden_retired_children'>): number =>
     (n.hidden_retired_children ?? 0) + n.children.filter(c => c.kind === 'project' && c.state === 'live').reduce((sum, c) => sum + hiddenRetired(c), 0)
-  const retiredTotal = retired.length + hiddenRetired(node)
+  const retiredTotal = onJump ? retired.length + hiddenRetired(node) : 0
   if (!reports.length && !retiredTotal && !deskDogs) return null
   const dogs = deskDogs?.dogs ?? []
   const dogTotal = deskDogs?.total ?? dogs.length
