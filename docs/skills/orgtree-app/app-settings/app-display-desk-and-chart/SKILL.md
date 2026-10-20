@@ -35,7 +35,9 @@ bottom project. This is off by default: ordinary dragging moves the project with
 its subtree, inside or outside a bunch. Creating a project above an existing project, or above
 the sole agent under the bottom project, extends the bunch. Creating one above
 one of several children preserves that split. Bunching itself changes drawing only;
-swap remains agent-only and is not used for bunch reordering.
+swap remains agent-only and is not used for bunch reordering. In the circular chart
+a bunch takes one wider slot on its ring; the other cards on that ring keep their
+usual dense spacing and arcs.
 
 ## See also
 

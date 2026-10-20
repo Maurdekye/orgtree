@@ -168,6 +168,15 @@
   [decided: user 2026-10-20; verified: `canvas/projectbunch.ts`,
   `canvas/projectbunchmove.ts`, `canvas/OrgCanvas.tsx`]
 
+- Circular rings size each card's arc slot by its own footprint: a project bunch,
+  whole or split, widens only its own slot, so its ring neighbours keep the dense
+  190px pitch and arcs never spread evenly round the circle because of it. Radii
+  still clear the ring's widest card; a full mixed ring grows until its slots just
+  close. One-size rings keep the exact equal-step arithmetic. See
+  [project bunches](docs/rust-engine/project-bunches.md).
+  [decided: user 2026-10-20 09:08Z; verified: `canvas/shared.ts` `layoutCircular`,
+  `canvas/ringsprings.ts`, `tests/bunchring.test.ts`]
+
 - Agent and project desk composers share `resizeComposer`: their base rows
   plus up to 30 rendered text lines (32 rows at the current two-row base),
   measured from CSS line height. Longer drafts scroll inside; deleting/sending

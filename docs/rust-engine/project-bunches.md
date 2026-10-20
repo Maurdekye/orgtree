@@ -30,6 +30,19 @@ and expands it into separate full-size card positions. Row and circular layouts,
 fit, and the reparent landing ghost use the same projection. Card/desk identity,
 menus, badges, colors, and far-zoom hit targets remain the existing components.
 
+In the circular chart a bunch is one entry on its ring with an arc slot for its
+own block (user 2026-10-20 09:08 UTC). Every card's slot comes from its own
+footprint, so ordinary cards beside a bunch keep the dense 190px pitch and their
+arcs; a bunch, whole or either part of a split run, never spreads the rest of its
+ring to its pitch or into the evenly spaced full circle. Ring radii still clear
+the widest card on the ring and the one before it. A ring too full for an arc
+grows until its mixed slots just close it. Rings of one card size keep the
+original equal-step arithmetic, and spring settling centres each team on its
+whole arc extent. `bunchring.test.ts` covers the review stacks split at
+stack16-11, a whole bunch on a busy ring and a closing ring; the ring scenes of
+`projectbunch-visual.tsx` (page script `projectbunch-ring-visual.cjs`) capture
+them with measured world spacing.
+
 Packing starts with `ceil(sqrt(count))` rows. Circle-chord weights allocate the
 exact number of cards using largest remainders, with stable row-index tie breaks.
 Rows are centred, then staggered by one third of the card pitch when they would
