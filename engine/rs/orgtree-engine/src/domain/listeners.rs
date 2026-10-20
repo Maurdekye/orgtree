@@ -439,7 +439,6 @@ struct Delivery {
     fire_actions: Vec<Value>,
 }
 
-/// What one fire did, for the tool result.
 /// The same project-fire wording in its delivered mail and recorded event lines.
 #[logged]
 fn project_fire_notice(
@@ -450,8 +449,9 @@ fn project_fire_notice(
     once: bool,
     message: Option<&str>,
 ) -> (String, Vec<String>) {
+    let line = format!("@{} fired the event on project @{pname}", by.trim_start_matches('@'));
     let mut body = format!(
-        "Watchdog \"{name}\" fired — PROJECT EVENT — (project_listener · {pname}), fire #{}:\n  {by} fired the event on project {pname}\n",
+        "Watchdog \"{name}\" fired — PROJECT EVENT — (project_listener · {pname}), fire #{}:\n  {line}\n",
         fired + 1
     );
     if let Some(m) = message {
@@ -462,12 +462,13 @@ fn project_fire_notice(
     if once {
         body.push_str("This was a ONE-SHOT watchdog: it removed itself with this fire and will not appear in `list` again.\n");
     }
-    let lines = std::iter::once(format!("{by} fired the event on project {pname}"))
+    let lines = std::iter::once(line)
         .chain(message.map(|m| gist(m, 200)))
         .collect();
     (body, lines)
 }
 
+/// What one fire did, for the tool result.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Fired {
     pub project: String,
