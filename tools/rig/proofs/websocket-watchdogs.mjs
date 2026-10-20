@@ -8,6 +8,9 @@
 //   inline credentials from a fakeCLI turn (bearer, query, a secret hello)
 //   reach the server and nowhere else: not ot.convo, ot.watchdogs, ot.events,
 //   ot.mail, the sealed row's plaintext, list output or the engine log
+//   a fire action takes credentials only as a file path: inline ones (either
+//   kind) and credential keys are refused at create, from a fakeCLI turn too,
+//   and reach no table, list or log; one with a file path fires and works
 //   a refused login says so at create and in list; send refuses while not
 //   connected, on another kind and for an agent that cannot manage the dog
 //   after an engine restart the dogs reconnect (the inline one unsealed) and
@@ -27,7 +30,12 @@ const CANARY_FILE = 'WSPROOF-FILE-7c1e'
 const CANARY_BEARER = 'WSPROOF-BEARER-29af'
 const CANARY_QUERY = 'WSPROOF-QUERY-5d03'
 const CANARY_HELLO = 'WSPROOF-HELLO-b84e'
-const CANARIES = [CANARY_FILE, CANARY_BEARER, CANARY_QUERY, CANARY_HELLO]
+const CANARY_FA_WS = 'WSPROOF-FA-WS-31c7'
+const CANARY_FA_MQTT = 'WSPROOF-FA-MQTT-8e52'
+const CANARY_FA_STRAY = 'WSPROOF-FA-STRAY-f019'
+const CANARY_TOP = 'WSPROOF-TOP-QUERY-6a2d'
+const CANARIES_FA = [CANARY_FA_WS, CANARY_FA_MQTT, CANARY_FA_STRAY, CANARY_TOP]
+const CANARIES = [CANARY_FILE, CANARY_BEARER, CANARY_QUERY, CANARY_HELLO, ...CANARIES_FA]
 
 export async function setup() {
   // recover: a restarted rig engine re-arms its dogs as a normal start does
@@ -188,6 +196,68 @@ async function flow(rig, p, ws) {
     && ws.st.got.some(g => g.url.startsWith('/feed') && g.text === CANARY_HELLO), { feedUp: feedUp.map(u => u.url), hello: ws.st.got.filter(g => g.url.startsWith('/feed')).length })
   const sealed = rig.one(`SELECT count(*) AS n FROM ot.watchdog_secrets WHERE watchdog_id = ${dog('feed')?.id ?? 0}`)
   p.check('the inline credentials are sealed in ot.watchdog_secrets', Number(sealed?.n) === 1, sealed)
+
+  // ------------------------------------------------------------ fire actions take credentials only as a file path
+  // (coordinator 2026-10-20, @rig-sol-b's review of 1cbaac2): a fire action's
+  // arguments are stored and listed as written, so inline credentials in one
+  // are refused, websocket and mqtt alike; the refused calls' saved
+  // transcript and the log keep none of them (and the sweep at the end)
+  fs.writeFileSync(path.join(scratch, 'chain.log'), '')
+  const chained = (name, args, target = 'never.log') => ({ action: 'create', name, kind: 'file', target, pattern: 'open', interval_s: 15,
+    fire_actions: [{ tool: 'orgtree_watchdog', args }] })
+  const faWs = secret => ({ action: 'create', name: 'spawned', kind: 'websocket', target: ws.url('/feed'),
+    credentials: { bearer: secret, query: { session_key: secret } } })
+  const faMqtt = secret => ({ action: 'create', name: 'spawned', kind: 'mqtt', target: 'mqtts://broker.invalid', pattern: '#',
+    credentials: { username: 'ha', password: secret } })
+  // the rig's own /api/rig/tool route logs its whole request (rig mode only),
+  // so these direct calls carry secrets of their own; the swept canaries go
+  // only through the fakeCLI turn below, the path an agent's call takes
+  const DIRECT = ['DIRECT-ROUTE-WS-77a1', 'DIRECT-ROUTE-MQTT-77a2']
+  const directWs = await rig.tool('boss', 'orgtree_watchdog', chained('fa-direct-ws', faWs(DIRECT[0])))
+  const directMqtt = await rig.tool('boss', 'orgtree_watchdog', chained('fa-direct-mqtt', faMqtt(DIRECT[1])))
+  p.check('a fire action with inline websocket or mqtt credentials is refused, naming a credentials file path, quoting no secret',
+    [directWs, directMqtt].every(r => !r.ok && /credentials file path/.test(r.text) && !DIRECT.some(c => r.text.includes(c))),
+    [said(directWs), said(directMqtt)])
+  for (const n of ['fa-direct-ws', 'fa-direct-mqtt']) if (dog(n)) await rig.tool('boss', 'orgtree_watchdog', { action: 'remove', id: n })
+  rig.scenario({ default: { turns: [
+    { match: ['arm the chained dogs'], steps: [
+      { tool: 'orgtree_watchdog', id: 'toolu_fa_ws', args: chained('fa-ws', faWs(CANARY_FA_WS)) },
+      { tool: 'orgtree_watchdog', id: 'toolu_fa_mqtt', args: chained('fa-mqtt', faMqtt(CANARY_FA_MQTT)) },
+      { tool: 'orgtree_watchdog', id: 'toolu_fa_stray', args: chained('fa-stray', { action: 'create', name: 'spawned', kind: 'websocket',
+        target: ws.url('/feed'), bearer: CANARY_FA_STRAY, query: { sig: CANARY_FA_STRAY } }) },
+      { tool: 'orgtree_watchdog', id: 'toolu_top_query', args: { action: 'create', name: 'fa-top', kind: 'websocket', target: ws.url('/feed'),
+        query: { sig: CANARY_TOP }, headers: { 'X-Auth': CANARY_TOP } } },
+      { tool: 'orgtree_watchdog', id: 'toolu_fa_file', args: chained('fa-file', { action: 'create', name: 'spawned', kind: 'websocket',
+        target: ws.url('/secure'), pattern: '^event:', credentials: 'ws-secure.json' }, 'chain.log') },
+      { text: 'Chained.' }] },
+    { name: 'default', steps: [{ text: 'OK.' }] },
+  ] } })
+  const beforeFa = rig.turns('boss').length
+  await rig.userMail('boss', 'arm the chained dogs')
+  await rig.waitTurns('boss', beforeFa + 1).catch(() => {})
+  const refusedFa = ['fa-ws', 'fa-mqtt', 'fa-stray', 'fa-top']
+  p.check('from a turn: the fire actions with inline credentials or credential keys are refused, the one with a credentials file path is armed',
+    refusedFa.every(n => !dog(n)) && dog('fa-file')?.memo?.fire_actions?.[0]?.args?.credentials === 'ws-secure.json',
+    { armed: refusedFa.filter(n => dog(n)), file: dog('fa-file')?.memo?.fire_actions })
+  const faTurn = rig.one(`SELECT count(*) AS n FROM ot.convo WHERE tool_inputs::text LIKE '%toolu_fa_ws%' AND tool_inputs::text LIKE '%toolu_fa_stray%'`)
+  p.check('positive control: the refused calls are in the saved transcript', Number(faTurn?.n) >= 1, faTurn)
+  const faMemo = CANARIES_FA.filter(c => Number(rig.one(`SELECT count(*) AS n FROM ot.watchdogs WHERE memo::text LIKE '%${c}%'`)?.n) !== 0)
+  const faList = JSON.stringify((await rig.tool('boss', 'orgtree_watchdog', { action: 'list' })).json ?? {})
+  p.check('no inline credential is in a dog\'s memo or the list output; list shows the file-path fire action',
+    faMemo.length === 0 && faList.includes('ws-secure.json') && !CANARIES_FA.some(c => faList.includes(c)),
+    { memo: faMemo, list: CANARIES_FA.filter(c => faList.includes(c)) })
+  const faLog = rig.engineLog()
+  p.check('nor the engine log, where every call is logged on entry (a query or headers object included)',
+    !CANARIES_FA.some(c => faLog.includes(c)), CANARIES_FA.filter(c => faLog.includes(c)))
+  // the file-path fire action works: its dog fires, and the dog it creates dials with the file's bearer
+  const upsChain = ws.st.upgrades.length
+  fs.appendFileSync(path.join(scratch, 'chain.log'), 'door open\n')
+  const chainedUp = () => ws.st.upgrades.slice(upsChain).some(u => u.url === '/secure' && u.headers.authorization === `Bearer ${CANARY_FILE}`)
+  await rig.waitFor(() => dog('spawned')?.state === 'armed' && chainedUp(), { what: 'the chained dog dials', timeout: 60000 }).catch(() => {})
+  p.check('when it fires, its fire action creates a websocket dog that dials with the credentials file\'s bearer (positive control)',
+    dog('spawned')?.memo?.websocket?.credentials?.kind === 'file' && chainedUp(),
+    { spawned: dog('spawned')?.memo?.websocket?.credentials, upgrades: ws.st.upgrades.slice(upsChain).map(u => u.url) })
+  for (const n of ['spawned', 'fa-file', ...refusedFa]) if (dog(n)) await rig.tool('boss', 'orgtree_watchdog', { action: 'remove', id: n })
 
   // ------------------------------------------------------------ refusals
   const locked = await rig.tool('boss', 'orgtree_watchdog', { action: 'create', name: 'locked', kind: 'websocket', target: ws.url('/secure'),
