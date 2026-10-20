@@ -22,6 +22,24 @@ async function right(el:Element){await inAct(()=>{el.dispatchEvent(new window.Mo
 const projectRow=()=>Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(e=>e.textContent==='Project… ▸')
 const labels=()=>Array.from(document.querySelectorAll('[role="menuitem"]')).map(e=>e.textContent)
 
+test('a watchdog outside the preview resolves its real menu by exact handle',async t=>{
+ const w=dog('listener_watch',{id:'worker/later-page',name:'later-page'}),requests:string[]=[],opened:string[]=[]
+ const old=globalThis.fetch
+ globalThis.fetch=async input=>{requests.push(String(input));return new Response(JSON.stringify({watchdogs:[w]}),{headers:{'Content-Type':'application/json'}})}
+ t.after(()=>{globalThis.fetch=old})
+ function Register(){useProvideAgentNav(()=>[{label:'Focus',onSelect:()=>{}}]);return null}
+ const view=await mountView(<AgentNavProvider><ObjectNavProvider><Register/>
+  <ObjectNavHost org="org" dogs={[]} openDog={id=>opened.push(id)} isProject={id=>id==='build'} toast={()=>{}}/>
+  <ObjectMenuBoundary><DogChip dog={w} onOpen={id=>opened.push(id)}/></ObjectMenuBoundary>
+ </ObjectNavProvider></AgentNavProvider>,el=>el);t.after(view.unmount)
+ await right(view.el.querySelector('button')!);await inAct(async()=>{await flush(6)})
+ assert.equal(requests.length,1)
+ assert.equal(new URL(requests[0]!, 'http://fixture').searchParams.get('id'),w.id)
+ assert.ok(labels().includes('Open details'));assert.ok(labels().includes('Pause'));assert.ok(projectRow())
+ await inAct(()=>Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(e=>e.textContent==='Open details')!.click())
+ assert.deepEqual(opened,[w.id])
+})
+
 test('listener watches have a distinct kind class on the real canvas and desk chips',async t=>{
  const dogs=[dog('project_listener'),dog('listener_watch'),dog('listener_watch',{id:'worker/watch-once',once:false})]
  const view=await mountView(<>{dogs.map(w=><section key={w.id} data-kind={w.kind}><WatchdogSatellite dog={w} dogs={dogs} org="org" onOpen={()=>{}}/><DogChip dog={w} onOpen={()=>{}}/></section>)}</>,el=>el)

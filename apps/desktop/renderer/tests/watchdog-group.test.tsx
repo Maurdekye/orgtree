@@ -3,6 +3,10 @@ import assert from 'node:assert/strict'
 import { mountView, inAct, flush } from './harness'
 import { WatchdogCanvasCards, WatchdogGroup } from '../src/canvas/watchdoggroup'
 import { useWatchdogDetail } from '../src/canvas/watchdogdetail'
+import { canvasTargets } from '../src/canvas/canvaslayout'
+import { NODE_W, USER } from '../src/canvas/shared'
+import type { CanvasNode } from '../src/canvas/shared'
+import type { TreePayload } from '../src/types'
 import type { Watchdog } from '../src/types'
 
 const dogs=(n:number,owner='worker'):Watchdog[]=>Array.from({length:n},(_,i)=>({
@@ -10,6 +14,18 @@ const dogs=(n:number,owner='worker'):Watchdog[]=>Array.from({length:n},(_,i)=>({
   count:2,interval_s:600,once:i%3===0,state:i%4===0?'paused':'armed',at:'2026-10-20T00:00:00Z',fired:0,
 }))
 const response=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}})
+
+test('group layout centers one card below the owner and keeps every preview spark target',()=>{
+  const owner={id:'worker',state:'live',children:[]} as unknown as CanvasNode
+  const root={id:USER,state:'user',children:[owner]} as unknown as CanvasNode
+  const map=new Map([[root.id,root],[owner.id,owner]]),preview=dogs(8)
+  const targets=canvasTargets(root,map,new Map(),'row',{roots:[owner],watchdogs:preview,
+    watchdog_counts:{worker:{total:123,kept:123,one_shot:0}}} as unknown as TreePayload,1)
+  const positions=preview.map(w=>targets.get('dog:'+w.id)!)
+  assert.ok(positions.every(Boolean))
+  assert.equal(new Set(positions.map(p=>p.x+','+p.y)).size,1)
+  assert.equal(positions[0]!.x+104/2,targets.get('worker')!.x+NODE_W/2)
+})
 
 test('canvas eight dogs stay separate; a partial preview uses the authoritative count and one group',async t=>{
   const list=dogs(8),opened:string[]=[]
