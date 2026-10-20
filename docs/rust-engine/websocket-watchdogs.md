@@ -199,6 +199,9 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
 - **Caps:** 4 KB per message and 16 KB or 20 messages per fire, with the true count; a
   cut message says how many bytes it had.
 - **Lists:** `last_output` is labelled "UNTRUSTED server message".
+- **Desktop:** the transcript draws a fire as the watchdog fire card: the label as a
+  caution, then each message, its text drawn with the tool-call JSON viewer when all of
+  it is a JSON object or array (`renderer/src/events/firelines.ts`).
 - **Counters:** `checks_run` counts every message received (matching or not), `binary`
   the binary ones, `dropped` what the buffer lost.
 
@@ -260,6 +263,7 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
   `runtime/watchdogs.rs` (health, fire mail, fields), `runtime/convo.rs` (transcript
   redaction), `runtime/event_text.rs` (the label) and `tools/defs.rs` (the card).
 - **Renderer:** `watchdog-description.test.tsx`, and captures of the card
-  (`watchdog-card-visual.tsx`).
+  (`watchdog-card-visual.tsx`); `watchdogfirecard.test.tsx` and captures of fire cards
+  (`watchdogfire-visual.tsx`, `watchdogfire-capture.cjs`).
 - **Rig proof:** `tools/rig/proofs/websocket-watchdogs.mjs`, against the debug engine
   with a loopback Node WebSocket server.

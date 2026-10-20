@@ -3313,6 +3313,16 @@ The renderer assignment status now includes `approved`; do not overwrite that ex
 with the frozen Python generator. [verified from source / recorded coordinator ruling:
 2026-10-07; inventory and remaining parity gaps: `docs/rust-engine/typed-message-parity.md`]
 
+**An `ev` member the schema lacks hides the card (2026-10-20).** The renderer decodes `ev`
+against `renderer/src/generated/events.schema.json`, closed to unlisted members, and a
+delivered transcript row whose mail rows do not all decode falls back to its raw text: one
+unknown member turns the whole delivery, other mail included, into plain text. When an
+engine event gains a member, add it to the schema, the `generated/events.ts` type and
+MANIFEST and `events/project.ts` in the same landing, optional when stored mail lacks it.
+mqtt and websocket fires' `source` and fire actions' `fire_actions` were unlisted until
+2026-10-20. Watchdog fire cards draw JSON in fire lines and fire-action results with the
+tool-call `StructuredJson` (`events/firelines.ts`). [verified: `events/{decode,wire,card}.ts`]
+
 **Mail and artifact parity (2026-10-07).** File reads fold every ancestor's folder
 ceiling; user attachments and deliveries copy into a fresh outbox directory. Hub attachments
 must start in the sender's scratch and fit 25 MB. Org-inbox delivery uses live holders only;
