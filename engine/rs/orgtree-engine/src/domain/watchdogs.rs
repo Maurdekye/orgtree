@@ -13,6 +13,19 @@ pub fn handle(owner: &str, uid: &str) -> String {
     format!("{owner}/{uid}")
 }
 
+/// The keys a watchdog call takes only inside `credentials` (an mqtt or a
+/// websocket dog's): refused at the top level of a create, blanked in
+/// transcripts and refused in fire actions, whatever their case.
+pub const CREDENTIAL_KEYS: &[&str] = &["headers", "bearer", "token", "authorization", "cookie", "query", "username", "password", "user", "pass", "passwd"];
+
+/// Whether a watchdog's `credentials` value names a credentials file (no
+/// secret) rather than being the credentials: a string with a folder in it
+/// or a `.json` name. A bare word may be the secret itself.
+#[nolog]
+pub fn credentials_file(v: &Value) -> bool {
+    v.as_str().is_some_and(|s| s.contains('/') || s.contains('\\') || s.to_ascii_lowercase().ends_with(".json"))
+}
+
 /// How an mqtt dog authenticates, as lists and cards show it: its
 /// credentials file, or that inline credentials are stored encrypted;
 /// never the credentials (docs/rust-engine/mqtt-watchdogs.md).

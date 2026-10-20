@@ -8,11 +8,16 @@
   the `log.target` field, since tracing-log's own target is `log`); and
   `util::mask_url_secrets` masks secret-named query values of ws URLs in logged
   strings and transcripts. A target with such a parameter is refused at create.
+  A fire action takes credentials (mqtt's too) only as a file path, since a dog
+  stores and lists its fire actions as written: create refuses inline ones, a
+  key from `domain::watchdogs::CREDENTIAL_KEYS` or a URL carrying them, and
+  `convo::redact_tool_input` blanks them at any depth of fire actions.
   A send's text is the agent's own and stays in transcripts. Messages are
   untrusted: fires and `list` label them. See
   [websocket watchdogs](docs/rust-engine/websocket-watchdogs.md).
-  [decided: user 2026-10-19 21:00Z/21:01:59Z, coordinator 21:14Z; verified:
-  `src/ws/*`, `runtime/watchdogs/websocket.rs`, `trace.rs`, `util.rs`]
+  [decided: user 2026-10-19 21:00Z/21:01:59Z, coordinator 21:14Z, fire actions
+  2026-10-20; verified: `src/ws/*`, `runtime/watchdogs{,/websocket}.rs`,
+  `runtime/convo.rs`, `trace.rs`, `util.rs`]
 
 - Log canary tests use `crate::trace::LogCapture` (start, then `finish()` for
   the text), never a hand-made `test_sink` + `set_default`. tracing-core trap:

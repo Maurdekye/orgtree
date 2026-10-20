@@ -1542,4 +1542,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
       ring with mqtt's trust rules. Cargo.lock gained no package.
     - tungstenite traces whole upgrade requests: its (and rumqttc's) `log` records are dropped by
       the engine's log layer under any ORGTREE_LOG, matched by the record's own `log.target`.
+    - Fire actions take credentials only as a file path (coordinator 2026-10-20, hardening
+      review): a dog stores and lists its fire actions' arguments as written, so create refuses
+      inline credentials, credential keys and URL credentials in them, websocket and mqtt alike,
+      and transcripts blank them at any depth.
     Details: [`websocket-watchdogs.md`](websocket-watchdogs.md).

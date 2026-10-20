@@ -101,10 +101,20 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
     `x-api-key` at any depth.
   - Logged strings and transcripts mask the values of secret-named query parameters in
     `ws://`/`wss://` URLs (`util::mask_url_secrets`), as they mask `user:password@`.
-- **Transcripts:** `redact_tool_input` replaces an inline `credentials` object and any
-  misplaced top-level `headers`, `bearer`, `authorization`, `cookie`, `token`, `query`,
-  `username` or `password`, whatever its value, and masks URL secrets in every string
-  of the arguments, nested ones included (a fire action's own target).
+- **Transcripts:** `redact_tool_input` replaces every `credentials` value that is no
+  file path, at any depth (a fire action's own create included). It blanks `headers`,
+  `bearer`, `authorization`, `cookie`, `token`, `query`, `username`, `password`, `user`,
+  `pass` and `passwd` (`domain::watchdogs::CREDENTIAL_KEYS`, any case), whatever their
+  value, in the call's arguments and in every fire action's, however nested. What a
+  send writes or a hello says keeps its own keys (a GraphQL `query`). URL secrets are
+  masked in every string of the arguments.
+- **Fire actions:** a dog keeps its fire actions' arguments as written, and `list` and
+  the desktop show them, so a fire action takes credentials only as a credentials file
+  path. Create refuses a fire action that carries inline credentials (a `credentials`
+  value that is no file path, anywhere in its arguments), a key that belongs inside
+  credentials (in its arguments or a nested fire action's) or a websocket or mqtt target
+  with credentials in its URL. The refusal names what it found, never the value
+  (`watchdogs::fire_action_secret`; coordinator 2026-10-20).
 
 ## Send
 

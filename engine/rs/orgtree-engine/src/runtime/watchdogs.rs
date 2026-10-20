@@ -1397,7 +1397,7 @@ fn fire_actions_arg(args: &Value) -> Result<Vec<Value>> {
         refuse!(BadRequest, "a watchdog carries at most {MAX_FIRE_ACTIONS} fire_actions (got {})", list.len());
     }
     let mut out = Vec::new();
-    for a in list {
+    for (i, a) in list.iter().enumerate() {
         let tool = a["tool"].as_str().map(str::trim).unwrap_or("");
         if !crate::tools::defs::implemented().contains(&tool) {
             refuse!(BadRequest, "fire_actions tool must be one of the served orgtree_* tools (got {tool:?})");
@@ -1409,9 +1409,55 @@ fn fire_actions_arg(args: &Value) -> Result<Vec<Value>> {
         if serde_json::to_string(&argv).map(|s| s.len()).unwrap_or(usize::MAX) > FIRE_ACTION_ARGS_MAX {
             refuse!(BadRequest, "fire_actions args for {tool} are too large (at most {FIRE_ACTION_ARGS_MAX} characters)");
         }
+        if let Some(what) = fire_action_secret(&argv) {
+            refuse!(BadRequest, "fire_actions[{i}] carries {what}: a fire action's arguments are stored and shown as written (list, the desktop), so it takes credentials only as a credentials file path in your folders, e.g. \"credentials\": \"ws/feed.json\" (the file holds the same fields)");
+        }
         out.push(json!({ "tool": tool, "args": argv }));
     }
     Ok(out)
+}
+
+/// What a fire action's arguments would keep in plain text, named but never
+/// quoted (coordinator 2026-10-20, @rig-sol-b's review of 1cbaac2): a
+/// `credentials` value that is no file path, anywhere in them; a key that
+/// belongs inside credentials, in its arguments or a nested fire action's
+/// (no Orgtree tool takes one itself); a websocket or mqtt target with
+/// credentials in its URL. The arguments are parsed JSON, whose nesting
+/// serde_json bounds.
+#[nolog]
+fn fire_action_secret(args: &Value) -> Option<String> {
+    if inline_credentials(args) {
+        return Some("credentials that are not a file path".into());
+    }
+    let o = args.as_object()?;
+    if let Some(k) = o.keys().find(|k| crate::domain::watchdogs::CREDENTIAL_KEYS.iter().any(|c| k.eq_ignore_ascii_case(c))) {
+        return Some(format!("`{k}`, which belongs in credentials"));
+    }
+    let kind = o.get("kind").and_then(Value::as_str).unwrap_or_default();
+    if (kind == "mqtt" || kind == "websocket") && o.get("target").and_then(Value::as_str).is_some_and(|t| crate::util::mask_url_secrets(t).is_some()) {
+        return Some("a target with credentials in its URL".into());
+    }
+    o.iter()
+        .filter(|(k, _)| k.eq_ignore_ascii_case("fire_actions"))
+        .filter_map(|(_, v)| v.as_array())
+        .flatten()
+        .find_map(|a| fire_action_secret(&a["args"]))
+}
+
+/// Whether a `credentials` value that is no file path sits anywhere in `v`.
+#[nolog]
+fn inline_credentials(v: &Value) -> bool {
+    match v {
+        Value::Object(o) => o.iter().any(|(k, v)| {
+            if k.eq_ignore_ascii_case("credentials") {
+                !v.is_null() && !crate::domain::watchdogs::credentials_file(v)
+            } else {
+                inline_credentials(v)
+            }
+        }),
+        Value::Array(a) => a.iter().any(inline_credentials),
+        _ => false,
+    }
 }
 
 /// A fire-action result, capped for the fire mail but keeping its lines.
@@ -2956,6 +3002,59 @@ mod tests {
         assert!(fire_actions_arg(&json!({"fire_actions": many})).is_err(), "over the cap is refused");
         let big = "x".repeat(FIRE_ACTION_ARGS_MAX + 1);
         assert!(fire_actions_arg(&json!({"fire_actions":[{"tool":"orgtree_chart","args":{"a":big}}]})).is_err(), "oversized args are refused");
+    }
+
+    /// A fire action's arguments are stored, listed and shown as written, so
+    /// they take credentials only as a credentials file path: inline
+    /// credentials, a credential key that belongs inside credentials and a
+    /// target URL that carries credentials are refused, however deeply the
+    /// fire actions nest, and the refusal quotes no value (coordinator
+    /// 2026-10-20, @rig-sol-b's review of 1cbaac2).
+    #[test]
+    fn fire_actions_take_credentials_only_as_a_file_path() {
+        const CANARY: &str = "FIRE-ACTION-CANARY-4417";
+        let fa = |args: Value| json!({"fire_actions": [{"tool": "orgtree_watchdog", "args": args}]});
+        for bad in [
+            // inline credentials, websocket and mqtt
+            fa(json!({"action": "create", "kind": "websocket", "target": "wss://feed.local/ws", "credentials": {"bearer": CANARY}})),
+            fa(json!({"action": "create", "kind": "mqtt", "target": "mqtts://broker.local", "pattern": "home/#",
+                      "credentials": {"username": "ha", "password": CANARY}})),
+            fa(json!({"action": "create", "kind": "websocket", "target": "wss://feed.local/ws", "Credentials": {"bearer": CANARY}})),
+            // a bare word is no file path: it may be the secret itself
+            fa(json!({"action": "create", "kind": "mqtt", "target": "mqtts://broker.local", "pattern": "#", "credentials": CANARY})),
+            // keys that belong inside credentials, whatever their case
+            fa(json!({"action": "create", "kind": "websocket", "target": "wss://feed.local/ws", "bearer": CANARY})),
+            fa(json!({"action": "create", "kind": "websocket", "target": "wss://feed.local/ws", "query": {"sig": CANARY}})),
+            fa(json!({"action": "create", "kind": "websocket", "target": "wss://feed.local/ws", "headers": {"X-Auth": CANARY}})),
+            fa(json!({"action": "create", "kind": "mqtt", "target": "mqtts://broker.local", "pattern": "#", "Password": CANARY})),
+            // a target URL with credentials in it
+            fa(json!({"action": "create", "kind": "mqtt", "target": format!("mqtt://ha:{CANARY}@broker.local"), "pattern": "#"})),
+            fa(json!({"action": "create", "kind": "websocket", "target": format!("wss://feed.local/ws?access_token={CANARY}")})),
+            // nested: a fire action creates a dog whose own fire action carries them
+            fa(json!({"action": "create", "kind": "file", "target": "a.log", "pattern": "x",
+                      "fire_actions": [{"tool": "orgtree_watchdog", "args": {"action": "create", "kind": "websocket",
+                                        "target": "wss://feed.local/ws", "credentials": {"bearer": CANARY}}}]})),
+            fa(json!({"action": "create", "kind": "file", "target": "a.log", "pattern": "x",
+                      "fire_actions": [{"args": {"kind": "websocket", "token": CANARY}, "tool": "orgtree_watchdog"}]})),
+            // credentials anywhere in another tool's arguments
+            json!({"fire_actions": [{"tool": "orgtree_project", "args": {"action": "fire_event", "name": "p",
+                                     "body": {"credentials": {"password": CANARY}}}}]}),
+        ] {
+            let err = fire_actions_arg(&bad).expect_err(&format!("{bad} must be refused")).to_string();
+            assert!(err.contains("credentials file path"), "the refusal says what to use instead: {err}");
+            assert!(!err.contains(CANARY), "the refusal quotes no value: {err}");
+        }
+        // a credentials file path stays allowed, and so do a dog's own hellos and what a send writes
+        for ok in [
+            fa(json!({"action": "create", "kind": "websocket", "target": "wss://feed.local/ws", "credentials": "ws/feed.json",
+                      "hello": [{"type": "subscribe"}]})),
+            fa(json!({"action": "create", "kind": "mqtt", "target": "mqtts://broker.local", "pattern": "#", "credentials": "C:\\creds\\broker.json"})),
+            fa(json!({"action": "create", "kind": "mqtt", "target": "mqtts://broker.local", "pattern": "#", "credentials": "broker.json"})),
+            fa(json!({"action": "create", "kind": "websocket", "target": "wss://stream.local/ws?symbols=btc", "credentials": null})),
+            fa(json!({"action": "send", "id": "gql", "message": {"type": "subscribe", "payload": {"query": "subscription { doors }"}}})),
+        ] {
+            assert!(fire_actions_arg(&ok).is_ok(), "{ok} must be accepted");
+        }
     }
 
     #[test]

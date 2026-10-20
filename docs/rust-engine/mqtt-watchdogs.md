@@ -77,10 +77,15 @@ Where the secrets never appear (tests in brackets):
   credentials (stored encrypted)` or `none` (`domain::watchdogs::credentials_label`);
 - the saved transcript's tool inputs, the tool call's `arg` line and the live
   tool-writing preview: `convo::redact_tool_input` replaces a non-path `credentials`
-  with `[inline credentials: stored encrypted, not shown]`, top-level
-  `username`/`password`/`user`/`pass`/`passwd`/`token` (and websocket's misplaced keys,
-  `query` included) with `[redacted]`, and every URL's `user:password@` with `*****@`,
-  nested arguments included (`convo`, `toolwriting` tests);
+  with `[inline credentials: stored encrypted, not shown]` at any depth, the keys that
+  belong inside credentials (`username`/`password`/`user`/`pass`/`passwd`/`token` and
+  websocket's) with `[redacted]` in the call's arguments and every fire action's, and
+  every URL's `user:password@` with `*****@`, nested arguments included (`convo`,
+  `toolwriting` tests);
+- fire actions: a dog keeps and lists its fire actions' arguments as written, so a fire
+  action takes credentials only as a file path; inline ones, a credential key or a target
+  with user info are refused at create (`watchdogs` tests; see
+  [websocket watchdogs](websocket-watchdogs.md#where-secrets-never-appear));
 - logs: `credentials`, `password`, `pass` and `passwd` are masked keys in logged
   arguments, every logged string has its URL user info masked, and `rumqttc` logging
   is off, because rumqttc's packet Debug would print the password and payloads.

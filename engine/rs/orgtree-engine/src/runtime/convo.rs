@@ -1352,7 +1352,8 @@ pub fn tool_arg(name: &str, input: &Value) -> String {
     o.values().filter_map(Value::as_str).find(|s| !s.trim().is_empty()).map(flat).unwrap_or_default()
 }
 
-/// What a transcript keeps in place of an mqtt watchdog's inline credentials.
+/// What a transcript keeps in place of an mqtt or websocket watchdog's inline
+/// credentials.
 pub const CREDENTIALS_HIDDEN: &str = "[inline credentials: stored encrypted, not shown]";
 
 #[nolog]
@@ -1361,32 +1362,66 @@ fn is_watchdog_tool(name: &str) -> bool {
 }
 
 /// An Orgtree tool call's arguments as Orgtree keeps and shows them (saved
-/// tool inputs, the chip line, the live preview): an mqtt or websocket
-/// watchdog's inline credentials and any misplaced top-level credential key
-/// (whatever its value) are blanked, and a URL anywhere in the arguments keeps
-/// no `user:password@` and no secret-named ws query value (user 2026-10-19
-/// 17:43:37Z; docs/rust-engine/mqtt-watchdogs.md, websocket-watchdogs.md).
-/// A credentials file path is no secret and stays.
+/// tool inputs, the chip line, the live preview), for a watchdog call: an
+/// mqtt or websocket dog's inline credentials (a `credentials` value that is
+/// no file path, at any depth, a fire action's own create included) and the
+/// keys that belong inside credentials (in the call's arguments and every
+/// fire action's, however nested) are blanked whatever their value, and a URL
+/// anywhere in the arguments keeps no `user:password@` and no secret-named ws
+/// query value (user 2026-10-19 17:43:37Z; coordinator 2026-10-20;
+/// docs/rust-engine/mqtt-watchdogs.md, websocket-watchdogs.md). A credentials
+/// file path is no secret and stays. Tool arguments come from parsed JSON,
+/// whose nesting serde_json bounds.
 #[nolog]
 pub fn redact_tool_input(name: &str, input: &mut Value) {
     if !is_watchdog_tool(name) {
         return;
     }
-    let Some(o) = input.as_object_mut() else { return };
-    if let Some(c) = o.get_mut("credentials") {
-        let path = c.as_str().is_some_and(|s| s.contains('/') || s.contains('\\') || s.to_ascii_lowercase().ends_with(".json"));
-        if !c.is_null() && !path {
-            *c = json!(CREDENTIALS_HIDDEN);
-        }
-    }
-    // misplaced credentials of an mqtt or a websocket dog (refused at create)
-    for k in ["username", "password", "user", "pass", "passwd", "token", "headers", "bearer", "authorization", "cookie", "query"] {
-        if let Some(v) = o.get_mut(k) {
+    hide_credential_keys(input);
+    hide_inline_credentials(input);
+    mask_nested_urls(input);
+}
+
+/// Blanks the keys that belong inside credentials in a watchdog call's own
+/// arguments and in every fire action's, however nested and whatever its
+/// tool (no Orgtree tool takes such a key itself, and a half-written call
+/// may show a fire action's `args` before its `tool`). Only these argument
+/// objects: what a send writes or a hello says keeps its own keys (a
+/// GraphQL `query`).
+#[nolog]
+fn hide_credential_keys(args: &mut Value) {
+    let Some(o) = args.as_object_mut() else { return };
+    for (k, v) in o.iter_mut() {
+        if crate::domain::watchdogs::CREDENTIAL_KEYS.iter().any(|c| k.eq_ignore_ascii_case(c)) {
             *v = json!("[redacted]");
+        } else if k.eq_ignore_ascii_case("fire_actions") {
+            for a in v.as_array_mut().into_iter().flatten() {
+                if let Some(args) = a.get_mut("args") {
+                    hide_credential_keys(args);
+                }
+            }
         }
     }
-    for v in o.values_mut() {
-        mask_nested_urls(v);
+}
+
+/// Replaces every `credentials` value that is no file path, at any depth,
+/// with [`CREDENTIALS_HIDDEN`].
+#[nolog]
+fn hide_inline_credentials(v: &mut Value) {
+    match v {
+        Value::Object(o) => {
+            for (k, v) in o.iter_mut() {
+                if k.eq_ignore_ascii_case("credentials") {
+                    if !v.is_null() && !crate::domain::watchdogs::credentials_file(v) {
+                        *v = json!(CREDENTIALS_HIDDEN);
+                    }
+                } else {
+                    hide_inline_credentials(v);
+                }
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(hide_inline_credentials),
+        _ => {}
     }
 }
 
@@ -2022,5 +2057,41 @@ mod mqtt_credential_tests {
         assert_eq!(inputs["q1"]["input"]["query"], json!("[redacted]"));
         assert_eq!(inputs["q1"]["input"]["fire_actions"][0]["args"]["target"], json!("wss://x.local/ws?access_token=*****"));
         assert_eq!(inputs["q1"]["input"]["target"], json!("wss://ha.local/api/websocket"), "a target without secrets is kept");
+    }
+
+    /// Inline credentials nested in fire actions (refused at create: a fire
+    /// action's arguments are stored as written) never reach the saved
+    /// transcript either, however deep: a `credentials` value that is no file
+    /// path, anywhere, and in every fire action's arguments the keys that
+    /// belong inside credentials. What a send writes keeps its GraphQL
+    /// `query` (coordinator 2026-10-20, @rig-sol-b's review of 1cbaac2).
+    #[test]
+    fn inline_credentials_in_a_fire_action_never_reach_the_saved_transcript() {
+        let name = "mcp__orgtree__orgtree_watchdog";
+        let nested = json!({ "action": "create", "name": "door", "kind": "file", "target": "door.log", "pattern": "open",
+            "fire_actions": [
+                { "tool": "orgtree_watchdog", "args": { "action": "create", "kind": "websocket", "target": "wss://feed.local/ws",
+                  "credentials": { "bearer": CANARY, "headers": {"X-Api-Key": CANARY}, "query": {"t": CANARY}, "hello": [CANARY] } } },
+                { "tool": "orgtree_watchdog", "args": { "action": "create", "kind": "mqtt", "target": "mqtts://broker.local", "pattern": "#",
+                  "credentials": { "username": "ha", "password": CANARY } } },
+                { "tool": "orgtree_watchdog", "args": { "kind": "websocket", "Bearer": CANARY, "query": {"sig": CANARY},
+                  "fire_actions": [{ "args": { "credentials": { "bearer": CANARY }, "token": CANARY }, "tool": "orgtree_watchdog" }] } },
+                { "tool": "orgtree_watchdog", "args": { "action": "create", "kind": "websocket", "target": "wss://feed.local/ws",
+                  "credentials": "ws/feed.json" } },
+                { "tool": "orgtree_watchdog", "args": { "action": "send", "id": "gql",
+                  "message": { "type": "subscribe", "payload": { "query": "subscription { doors }" } } } },
+            ] });
+        let mut body = json!({ "tools": [{ "id": "f1", "name": name, "arg": tool_arg(name, &nested), "input": nested }] });
+        let inputs = take_tool_inputs(&mut body, 11);
+        let saved = format!("{body}{inputs}");
+        assert!(!saved.contains(CANARY), "a nested credential reached the saved transcript: {saved}");
+        let fa = &inputs["f1"]["input"]["fire_actions"];
+        assert_eq!(fa[0]["args"]["credentials"], json!(CREDENTIALS_HIDDEN));
+        assert_eq!(fa[1]["args"]["credentials"], json!(CREDENTIALS_HIDDEN));
+        assert_eq!(fa[2]["args"]["Bearer"], json!("[redacted]"));
+        assert_eq!(fa[2]["args"]["fire_actions"][0]["args"]["token"], json!("[redacted]"));
+        assert_eq!(fa[3]["args"]["credentials"], json!("ws/feed.json"), "a file path is no secret");
+        assert_eq!(fa[4]["args"]["message"]["payload"]["query"], json!("subscription { doors }"), "what a send writes stays readable");
+        assert_eq!(inputs["f1"]["input"]["target"], json!("door.log"));
     }
 }

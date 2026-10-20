@@ -71,8 +71,8 @@ pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scra
     if !holds_web(engine, owner).await? {
         refuse!(Forbidden, "a websocket watchdog reaches the network with YOUR hands — it needs the web tool you do not hold; ask for it (orgtree_request_scope)");
     }
-    for k in ["headers", "bearer", "token", "authorization", "cookie", "query", "username", "password", "user", "pass", "passwd"] {
-        if args.get(k).is_some_and(|v| !v.is_null()) {
+    for k in crate::domain::watchdogs::CREDENTIAL_KEYS {
+        if args.get(*k).is_some_and(|v| !v.is_null()) {
             refuse!(BadRequest, "{k} goes inside credentials: credentials={{\"{k}\": …}} (stored encrypted, never shown), or a credentials file path");
         }
     }

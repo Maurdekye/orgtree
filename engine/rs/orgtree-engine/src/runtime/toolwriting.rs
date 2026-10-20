@@ -210,4 +210,21 @@ mod tests {
         assert!(!shown.contains("PREVIEW-CANARY"), "{shown}");
         assert_eq!(w.active(1)[0]["tool"]["preview_input"]["target"], "wss://ha.local/api/websocket");
     }
+    /// Nor inline credentials nested in a fire action, half written, even when
+    /// the fire action's `args` come before its `tool` (coordinator
+    /// 2026-10-20, @rig-sol-b's review of 1cbaac2).
+    #[test]
+    fn inline_credentials_in_a_fire_action_never_show_in_the_live_preview() {
+        for (i, text) in [
+            r#"{"action":"create","kind":"file","target":"door.log","fire_actions":[{"tool":"orgtree_watchdog","args":{"action":"create","kind":"websocket","target":"wss://feed.local/ws","credentials":{"bearer":"PREVIEW-CANARY-3"#,
+            r#"{"action":"create","kind":"file","target":"door.log","fire_actions":[{"args":{"kind":"websocket","bearer":"PREVIEW-CANARY-4"#,
+        ].into_iter().enumerate() {
+            let mut w = ToolWriting::default();
+            w.start(0, "a", "mcp__orgtree__orgtree_watchdog", 1);
+            w.delta(0, text);
+            let shown = w.active(1)[0].to_string();
+            assert!(!shown.contains("PREVIEW-CANARY"), "{i}: {shown}");
+            assert_eq!(w.active(1)[0]["tool"]["preview_input"]["target"], "door.log");
+        }
+    }
 }
