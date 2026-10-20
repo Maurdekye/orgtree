@@ -3,13 +3,15 @@
 // the backend's provider_hire_gate enforces.
 
 import {
-  FakeServer, installFetch, mountView, realClock, useFakeClock,
+  FakeServer, inAct, installFetch, mountView, realClock, useFakeClock,
 } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { ActiveAgentSummary } from '../src/App'
 import { NodeConfig } from '../src/canvas/modals'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
+import { agentTooltipInfo } from '../src/canvas/OrgCanvas'
 import { CODEX_TIER_SEAT, MODEL_VERSIONS, setOpenRouterTiers, TIER_SEAT, USER } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpRequest, OpResult, ProviderInfo, TreeNode, TreePayload } from '../src/types'
@@ -61,8 +63,12 @@ function configTest(name: string, body: (mount: (o?: {
     await body(async (o = {}) => {
       const ops: OpRequest[] = []
       const nd = o.node ?? node()
+      function TooltipRegistry() {
+        useProvideAgentNav(null, id => id === nd.id ? agentTooltipInfo(nd) : null)
+        return null
+      }
       const v = await mountView(
-        <NodeConfig node={nd} map={new Map([[nd.id, nd]])}
+        <AgentNavProvider><TooltipRegistry /><NodeConfig node={nd} map={new Map([[nd.id, nd]])}
           tree={o.tree ?? tree()} slug="org"
           op={(x) => { ops.push(x); return Promise.resolve({} as OpResult) }}
           toast={noop} codexProvider={o.provider === undefined ? provider() : o.provider}
@@ -71,7 +77,7 @@ function configTest(name: string, body: (mount: (o?: {
                          status: { installed: true, connected: true,
                                    kind: 'api-key' } })
             : o.antigravity}
-          close={noop} />,
+          close={noop} /></AgentNavProvider>,
         (el) => el,
       )
       open.push(v)
@@ -222,7 +228,7 @@ configTest('an OpenRouter tier is named by its model, never by its or- slug (use
       name: 'Claude Sonnet 5', label: 'claude-sonnet-5', vendor: 'anthropic' }])
     try {
       const { el } = await mount({
-        node: { ...node(), tier: TIER } as CanvasNode,
+        node: { ...node(), tier: TIER, model_id: 'anthropic/claude-sonnet-5' } as CanvasNode,
         tree: tree({ tiers: { haiku: 1, sonnet: 2, opus: 5, fable: 10, [TIER]: 2 } }),
       })
       // ⚠ THE HEADER, NOT THE H3. The tier label moved one line out of the
@@ -236,7 +242,9 @@ configTest('an OpenRouter tier is named by its model, never by its or- slug (use
         + ' ' + (el.querySelector('.modalpin-subtitle')?.textContent ?? '')
       // 4.2: the header shows the agent's name and a tier badge; the model's name is the badge's tooltip
       const icon = el.querySelector<HTMLElement>('.agent-model-icon')
-      assert.match(icon?.title ?? '', /claude-sonnet-5/, 'the header badge names the model')
+      assert.ok(icon, 'the model badge rendered')
+      await inAct(() => { icon.dispatchEvent(new window.MouseEvent('pointerover', { bubbles: true })) })
+      assert.match(icon.title, /claude-sonnet-5/, 'the header badge names the model')
       assert.doesNotMatch(header + (icon?.title ?? ''), /or-anthropic/, 'and never the or- slug')
       const own = option(el, TIER)
       assert.ok(own, 'listed under its tier id — the value the op sends is untouched')

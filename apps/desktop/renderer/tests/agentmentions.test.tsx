@@ -362,11 +362,11 @@ test('agent and project mentions share the rich tooltip and shared NodeLink base
 
   for(const el of view.el.querySelectorAll<HTMLElement>('[data-agent-tooltip="worker-alpha"]')){
     await inAct(()=>{el.dispatchEvent(new window.MouseEvent('pointerover',{bubbles:true}))})
-    assert.equal(el.title,'GPT-5.4 · high','agent mention and AgentLink show rich model tooltip on hover')
+    assert.equal(el.title,el.hasAttribute('data-agent-tooltip-name-first')?'worker-alpha\nGPT-5.4 · high':'GPT-5.4 · high','agent mention and AgentLink show rich model tooltip on hover')
   }
   for(const el of view.el.querySelectorAll<HTMLElement>('[data-agent-tooltip="worker-project"]')){
     await inAct(()=>{el.dispatchEvent(new window.MouseEvent('pointerover',{bubbles:true}))})
-    assert.equal(el.title,'Project · 2 slots · Build slot coordination','project mention and ProjectLink show rich project tooltip on hover')
+    assert.equal(el.title,el.hasAttribute('data-agent-tooltip-name-first')?'worker-project\nProject · 2 slots · Build slot coordination':'Project · 2 slots · Build slot coordination','project mention and ProjectLink show rich project tooltip on hover')
     const svg=el.querySelector('.project-mark svg')
     assert.ok(svg,'project link renders folder SVG')
     assert.equal(svg.getAttribute('fill'),'currentColor','project folder SVG uses currentColor for org theme tint')

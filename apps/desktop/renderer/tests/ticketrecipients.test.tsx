@@ -115,7 +115,7 @@ test('reply recipient options share agent tooltip, badge hover and right-click m
   const badge = option.querySelector<HTMLElement>('.tier')!
   assert.ok(badge, 'the recipient item includes its model badge')
   await inAct(() => badge.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
-  assert.equal(badge.title, 'ChatGPT Sol 6.1 · high · default',
+  assert.equal(badge.title, 'collaborator\nChatGPT Sol 6.1 · high · default',
     'hovering the badge shows the same tooltip as the agent link')
 
   const contextEvent = new MouseEvent('contextmenu', {

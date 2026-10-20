@@ -91,7 +91,7 @@ test('references decorate normal prose but never duplicate or mutate math intern
   const host = body(String.raw`@helper $\text{@helper}$ @user [link](https://example.com)`)
   const before = host.querySelector('.katex')?.outerHTML
   assert.ok(before, 'missing formula control')
-  const world = { org: 'test', agents: new Map([['helper', { id: 'helper', name: 'helper', tier: 'sol', state: 'live' }]]), items: new Map(), docs: new Map() } as any
+  const world = { org: 'test', agents: new Map([['helper', 'sol']]), items: new Map(), docs: new Map() } as any
   linkifyRefs(host, world, false)
   assert.equal(host.querySelector('.katex')?.outerHTML, before)
   assert.ok(host.querySelector('[data-ref-token="@helper"]'))
