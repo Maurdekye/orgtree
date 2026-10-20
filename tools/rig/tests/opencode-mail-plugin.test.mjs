@@ -164,6 +164,18 @@ test('bridge failure leaves mail with the engine and never leaks error text', as
   assert.equal(attempts, 2);
 });
 
+test('a stalled admission cannot hold the tool hook forever or acknowledge an unknown outcome', async () => {
+  const f = fixture();
+  const hook = plugin.createMailHook({ rpc: f.rpc, prompt: () => new Promise(() => {}),
+    admissionTimeoutMs: 20 });
+  await hook(event);
+  assert.equal(f.queue.length, 1);
+  assert.deepEqual(f.acknowledgements, []);
+  // A new hook can retry because custody never moved out of the engine.
+  await f.hook()(event);
+  assert.equal(f.inbox.size, 1);
+});
+
 async function pipeServer(t, respond) {
   const endpoint = process.platform === 'win32'
     ? `\\\\.\\pipe\\orgtree-mail-test-${randomUUID()}`
@@ -211,4 +223,52 @@ test('private pipe transport bounds an unresponsive bridge and closes its connec
 test('private pipe transport rejects malformed JSON', async t => {
   const endpoint = await pipeServer(t, socket => socket.end('not-json\n'));
   await assert.rejects(plugin.pipeRequest(endpoint, { protocol: 1, op: 'claim' }));
+});
+
+test('plugin setup registers only its tool-after hook and requires bridge readiness', async t => {
+  const f = fixture();
+  const requests = [];
+  const endpoint = await pipeServer(t, (socket, data) => {
+    const request = JSON.parse(data.toString());
+    requests.push(request);
+    void (async () => {
+      const response = request.op === 'ready' ? { protocol: 1, ready: true } : await f.rpc(request);
+      socket.end(`${JSON.stringify(response)}\n`);
+    })();
+  });
+  const previous = process.env.ORGTREE_OPENCODE_MAIL_PIPE;
+  t.after(() => {
+    if (previous === undefined) delete process.env.ORGTREE_OPENCODE_MAIL_PIPE;
+    else process.env.ORGTREE_OPENCODE_MAIL_PIPE = previous;
+  });
+  process.env.ORGTREE_OPENCODE_MAIL_PIPE = endpoint;
+  const hooks = new Map();
+  await plugin.default.setup({ tool: { hook: (name, fn) => hooks.set(name, fn) }, session: { prompt: f.prompt } });
+  assert.deepEqual([...hooks.keys()], ['execute.after']);
+  await hooks.get('execute.after')(event);
+  assert.deepEqual(requests.map(r => r.op), ['ready', 'claim', 'ack']);
+  assert.equal(f.inbox.size, 1);
+});
+
+test('unsupported bridge handshake leaves its registered hook inert', async t => {
+  let requests = 0, hook;
+  const endpoint = await pipeServer(t, socket => {
+    requests++;
+    socket.end('{"protocol":2,"ready":true}\n');
+  });
+  const previous = process.env.ORGTREE_OPENCODE_MAIL_PIPE;
+  t.after(() => {
+    if (previous === undefined) delete process.env.ORGTREE_OPENCODE_MAIL_PIPE;
+    else process.env.ORGTREE_OPENCODE_MAIL_PIPE = previous;
+  });
+  process.env.ORGTREE_OPENCODE_MAIL_PIPE = endpoint;
+  await plugin.default.setup({ tool: { hook: (_name, fn) => { hook = fn; } },
+    session: { prompt: async () => assert.fail('unsupported bridge admitted mail') } });
+  await hook(event);
+  assert.equal(requests, 1);
+});
+
+test('missing OpenCode plugin APIs fall back without throwing or registering hooks', async () => {
+  await plugin.default.setup({});
+  await plugin.default.setup({ tool: {}, session: {} });
 });
