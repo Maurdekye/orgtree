@@ -1,3 +1,9 @@
+- Project Mail queue leave actions live on the user's rows, never a separate
+  top toolbar. Full ACK batches leave from Working rows while still joined;
+  leaving keeps held jobs. The header's join/count control stays unchanged.
+  [decided: user 2026-10-20 18:22Z; verified: `canvas/maillisteners.tsx`,
+  `tests/usermailqueue.test.tsx`]
+
 - Docket rows and every ticket-link menu use `canvas/ticketmenu.ts` for all
   item actions, including Staff on eligible backlogged items. Only real list
   folds stay row-specific. Link menus read current item state and share the
