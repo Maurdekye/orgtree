@@ -1464,8 +1464,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
       turn where it took effect; an agent's first turn ever and a restart that comes back in the
       same session deliver none. The RESTART NOTICE gets "Session access at start: Session 0." or
       "...: signed-in session.". An agent last in the signed-in session waits at its first turn
-      after an engine start until 15 s after that start for the helper; the expiry is logged once
-      (ruling D).
+      after an engine start until 60 s after that start for the helper; the expiry is logged once.
+      The user-reported startup transient fix (2026-10-20) replaces ruling D's 15 s:
+      first observed hosting closes the grace early, explicit Session 0 bypasses it,
+      and subsequent helper loss uses normal debounce. The watcher keeps reading and
+      running helper keepalive throughout startup.
     - Chosen in the implementation, flagged for the user on the docket item: the settle at the
       first turn; the restart line added at delivery from the real placement; plain system mail
       for the notices; an engine not in Session 0 counts as the signed-in session; deferral while

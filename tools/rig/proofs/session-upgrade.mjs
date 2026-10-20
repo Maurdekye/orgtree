@@ -20,7 +20,7 @@
 //   4. an engine restart: ann comes back in Session 0, which is no move, so no
 //      notice, and her restart notice says "Session access at start: Session
 //      0."; flo last ran in the signed-in session, so her first turn waits for
-//      the helper (until 15 s after the engine's start, logged once) and then
+//      the helper (until 60 s after the engine's start, logged once) and then
 //      moves down to Session 0, and is told so.
 // A `recover` run: a safe-start rig engine otherwise holds back the restart
 // path, and with it the restart notices step 4 reads.

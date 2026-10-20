@@ -282,6 +282,12 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Restart session notices (user 2026-10-20, 4.4.0): startup helper absence is
+unknown for up to 60 seconds, ending early on observed hosting. Previously
+signed-in agents wait before selecting placement; explicit Session 0 bypasses
+the wait. Real later helper loss retains the normal debounce and notices.
+See [run on boot](run-on-boot.md).
+
 Context recovery (user/coordinator 2026-10-20, 4.4.0): native Claude/Codex
 conversation overflow gets one cheap fresh-session retry with the same request
 and single original mail receipts. Restore the 3.x after-turn size threshold

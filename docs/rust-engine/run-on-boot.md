@@ -136,8 +136,12 @@ who="<agent>" reason="the user's Windows session ended" status="..."` line.
   really runs. The stored notice is updated to match.
 - **Restarts while signed in:** after an engine start the helper registers
   again within seconds. An agent whose last turn ran in the signed-in session
-  waits at its first turn until 15 s after the engine's start for the helper
-  (ruling D), so a restart is no move down and back up. When the wait runs
+  waits at its first turn until 60 s after the engine's start for the helper
+  (2026-10-20 startup-transient fix, replacing ruling D's 15 s). An explicit
+  Session 0 preference or next-turn choice skips the wait. The first observed
+  hosting closes startup grace for all agents; a subsequent real loss follows
+  normal debounce, even for an agent that has not yet run since restart.
+  A reconnect within the grace is no move down and back up. When the wait runs
   out the engine logs once `the sign-in helper did not register again after
   the engine's start; agents start in Session 0`, and the agent moves down,
   told so.
@@ -180,8 +184,11 @@ short recovered losses log once and retain turn placement without extending
 authenticated leases. See [session blips](session-placement-blips.md).
 A confirmed change from what agents were last told (kept in
 `<data>\session-placement.json`, baseline Session 0, so a restart while
-the user stays signed in tells nobody anything; readings start after the
-15 s settle), sends every live agent one passive line: `[ORGTREE SIGN-IN
+the user stays signed in tells nobody anything), sends every live agent one
+passive line. Readings and helper keepalive start immediately, but startup
+absence cannot count as sign-out until the 60 s grace expires. The first
+observed helper closes that grace early, so real later loss still needs only
+the ordinary three checks. The notices are `[ORGTREE SIGN-IN
 NOTICE]` or `[ORGTREE SIGN-OUT NOTICE]`. The sign-in line says where the
 agent's next turn runs as its own runtime would start that turn (asked
 for its `orgtree_session` view, 5 s at most, every agent at once): in the

@@ -215,6 +215,11 @@ impl Bridge {
     pub(crate) fn set_placement_hosts(&self, hosts: Vec<(u32, u32)>) {
         self.placement_hosts.store(Some(Arc::new(hosts)));
     }
+    /// The watcher has observed a helper or exhausted startup grace. Later
+    /// losses use normal debounce, even for an agent's first turn this boot.
+    pub(crate) fn placement_initialized(&self) -> bool {
+        self.placement_hosts.load().is_some()
+    }
     pub(crate) fn placement_hosting(&self) -> Vec<(u32, u32)> {
         self.placement_hosts.load_full().map(|h| (*h).clone()).unwrap_or_else(|| self.hosting())
     }
@@ -1394,8 +1399,10 @@ mod host_slot_tests {
     #[nolog]
     fn session_blip_placement_does_not_extend_authenticated_leases() {
         let bridge=Bridge::new();
+        assert!(!bridge.placement_initialized());
         assert!(bridge.hosts.admit(1,lease(false,false)).is_ok());
         bridge.set_placement_hosts(bridge.hosting());
+        assert!(bridge.placement_initialized());
         assert!(!bridge.placement_pending(1));
         assert!(bridge.hosts.admit(1,lease(true,false)).is_ok());
         assert!(!bridge.can_host() && !bridge.ready());
@@ -1403,6 +1410,7 @@ mod host_slot_tests {
         assert!(bridge.placement_pending(1));
         assert_eq!(bridge.host_pid_in(1),None,"cached placement cannot authorize spawning");
         bridge.set_placement_hosts(Vec::new());
+        assert!(bridge.placement_initialized(), "a real loss must not reopen startup grace");
         assert!(bridge.placement_hosting().is_empty() && !bridge.placement_pending(1));
     }
 }

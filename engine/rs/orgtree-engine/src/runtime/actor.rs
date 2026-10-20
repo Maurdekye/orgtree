@@ -367,8 +367,9 @@ fn helper_gone(host: crate::runtime::session_host::Host, live: &[(u32, (u32, u64
 const SIGNED_IN: &str = "signed-in";
 const SESSION0: &str = "session0";
 /// How long after the engine's start a first turn waits for the sign-in
-/// helper to register again (coordinator ruling D, 2026-10-16).
-pub(crate) const SESSION_SETTLE: Duration = Duration::from_secs(15);
+/// helper to register again (startup-transient fix, user 2026-10-20;
+/// replaces ruling D's 15 seconds).
+pub(crate) const SESSION_SETTLE: Duration = Duration::from_secs(60);
 static SETTLE_EXPIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 mod interrupt_control;
@@ -3002,8 +3003,11 @@ impl Actor {
     /// it, at most `SESSION_SETTLE` from the engine's start, before it picks
     /// where its CLI runs, so a restart is no move out of the signed-in session
     /// and back. Its expiry is logged once.
-    async fn session_settle(&mut self) {
-        if std::mem::replace(&mut self.settled, true) || !codexrt::session0() || self.engine.credential_bridge.can_host() {
+    async fn session_settle(&mut self, pref: &crate::runtime::session_host::Pref) {
+        if std::mem::replace(&mut self.settled, true) || !codexrt::session0()
+            || self.use_session == Some(0)
+            || (self.use_session.is_none() && *pref == crate::runtime::session_host::Pref::Session0)
+            || self.engine.credential_bridge.can_host() || self.engine.credential_bridge.placement_initialized() {
             return;
         }
         if self.last_session().await.as_deref() != Some(SIGNED_IN) {
@@ -3012,10 +3016,13 @@ impl Actor {
         let elapsed = (Utc::now() - self.engine.boot.started_at).to_std().unwrap_or_default();
         let until = Instant::now() + SESSION_SETTLE.saturating_sub(elapsed);
         while Instant::now() < until {
-            if self.engine.credential_bridge.can_host() {
+            if self.engine.credential_bridge.can_host() || self.engine.credential_bridge.placement_initialized() {
                 return;
             }
-            tokio::time::sleep(Duration::from_millis(250)).await;
+            tokio::select! {
+                _ = self.engine.shutdown.cancelled() => return,
+                _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+            }
         }
         if !SETTLE_EXPIRED.swap(true, std::sync::atomic::Ordering::Relaxed) {
             tracing::warn!(seconds = SESSION_SETTLE.as_secs(), "the sign-in helper did not register again after the engine's start; agents start in Session 0");
@@ -4355,7 +4362,7 @@ impl Actor {
                 None
             }
         };
-        self.session_settle().await;
+        self.session_settle(&ctx.session_pref).await;
         // Placement selection consumes an on-demand session choice. An
         // admission hold must retain that choice for the original unsent turn.
         let use_session = self.use_session;

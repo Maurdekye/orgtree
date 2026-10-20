@@ -39,14 +39,20 @@ struct Placement {
     told: bool,
     misses: u32,
     last_miss: Option<std::time::Instant>,
+    startup_until: Option<std::time::Instant>,
 }
 
 #[logged]
 impl Placement {
-    fn new(signed_in: bool) -> Self { Self { told: signed_in, misses: 0, last_miss: None } }
+    fn new(signed_in: bool) -> Self { Self { told: signed_in, misses: 0, last_miss: None, startup_until: None } }
+
+    fn startup(signed_in: bool, until: std::time::Instant) -> Self {
+        Self { startup_until: Some(until), ..Self::new(signed_in) }
+    }
 
     fn observe(&mut self, hosting: bool, at: std::time::Instant) -> Option<bool> {
         if hosting {
+            self.startup_until = None;
             if self.told && self.misses > 0 {
                 tracing::info!(missed_checks=self.misses,"suppressed transient session-placement blip");
             }
@@ -54,6 +60,10 @@ impl Placement {
             self.last_miss = None;
             return if self.told { None } else { self.told = true; Some(true) };
         }
+        // Absence before the helper's first reconnect is unknown, not a
+        // sign-out. End this grace early on success; never renew it on loss.
+        if self.startup_until.is_some_and(|until| at < until) { return None; }
+        self.startup_until = None;
         if !self.told { return None; }
         // Skip overdue ticks in the watcher; this independent guard also
         // rejects burst replays without rejecting normal timer jitter.
@@ -95,13 +105,11 @@ pub fn start(engine: &Arc<Engine>) {
 async fn watch(engine: Arc<Engine>) {
     let path = engine.cfg.data_root.join(FILE);
     let mut told = read(&path).unwrap_or_else(|| SESSION0.to_string());
-    // after a restart the helper registers again within the actors' settle time
+    // Observe immediately: keepalive must run during startup, and a helper
+    // that connects then stops must get the ordinary loss debounce.
     let elapsed = (chrono::Utc::now() - engine.boot.started_at).to_std().unwrap_or_default();
-    tokio::select! {
-        _ = engine.shutdown.cancelled() => return,
-        _ = tokio::time::sleep(crate::runtime::actor::SESSION_SETTLE.saturating_sub(elapsed)) => {}
-    }
-    let mut placement = Placement::new(told == SIGNED_IN);
+    let until = std::time::Instant::now() + crate::runtime::actor::SESSION_SETTLE.saturating_sub(elapsed);
+    let mut placement = Placement::startup(told == SIGNED_IN, until);
     let mut keep = Keepalive::default();
     #[cfg(windows)]
     let mut sessions = crate::core_process::Sessions::new();
@@ -127,7 +135,7 @@ async fn watch(engine: Arc<Engine>) {
         let changed = placement.observe(hosting, std::time::Instant::now());
         if hosting {
             engine.credential_bridge.set_placement_hosts(hosts);
-        } else if !placement.told {
+        } else if !placement.told && placement.startup_until.is_none() {
             engine.credential_bridge.set_placement_hosts(Vec::new());
         }
         let Some(up) = changed else { continue };
@@ -324,6 +332,52 @@ fn write(path: &Path, placement: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_delayed_helper_does_not_announce_false_signout_or_signin() {
+        let at = std::time::Instant::now();
+        let mut p = Placement::startup(true, at + Duration::from_secs(60));
+        for sec in (0..36).step_by(2) {
+            assert_eq!(p.observe(false, at + Duration::from_secs(sec)), None);
+            assert!(p.told);
+        }
+        assert_eq!(p.observe(true, at + Duration::from_secs(35)), None);
+        assert!(p.startup_until.is_none());
+        assert_eq!(p.misses, 0);
+    }
+
+    #[test]
+    fn startup_missing_helper_eventually_announces_one_real_loss() {
+        let at = std::time::Instant::now();
+        let mut p = Placement::startup(true, at + Duration::from_secs(60));
+        assert_eq!(p.observe(false, at + Duration::from_secs(59)), None);
+        assert_eq!(p.observe(false, at + Duration::from_secs(60)), None);
+        assert_eq!(p.observe(false, at + Duration::from_secs(62)), None);
+        assert_eq!(p.observe(false, at + Duration::from_secs(64)), Some(false));
+        assert_eq!(p.observe(false, at + Duration::from_secs(66)), None);
+        assert_eq!(p.observe(true, at + Duration::from_secs(70)), Some(true));
+    }
+
+    #[test]
+    fn startup_grace_ends_on_first_helper_and_does_not_hide_later_loss() {
+        let at = std::time::Instant::now();
+        let mut p = Placement::startup(true, at + Duration::from_secs(60));
+        assert_eq!(p.observe(true, at + Duration::from_secs(1)), None);
+        assert_eq!(p.observe(false, at + Duration::from_secs(2)), None);
+        assert_eq!(p.observe(false, at + Duration::from_secs(4)), None);
+        assert_eq!(p.observe(false, at + Duration::from_secs(6)), Some(false));
+        assert_eq!(p.observe(true, at + Duration::from_secs(8)), Some(true));
+    }
+
+    #[test]
+    fn startup_first_signin_is_still_announced_immediately() {
+        let at = std::time::Instant::now();
+        let mut p = Placement::startup(false, at + Duration::from_secs(60));
+        assert_eq!(p.observe(false, at), None);
+        assert!(p.startup_until.is_some());
+        assert_eq!(p.observe(true, at + Duration::from_secs(2)), Some(true));
+        assert_eq!(p.observe(true, at + Duration::from_secs(4)), None);
+    }
 
     #[test]
     fn session_blip_one_miss_then_recovery_stays_signed_in() {

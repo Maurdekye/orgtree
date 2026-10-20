@@ -3084,7 +3084,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   - session notices go out only on a real move (the last placement is
     `ot.agents.extra.session`); the restart notice's "Session access at start"
     line is added at delivery; an agent last in the signed-in session waits
-    at its first turn until 15 s after the engine's start for the helper;
+    at its first turn until 60 s after the engine's start for the helper.
+    Startup absence is unknown until the first hosting observation or that
+    deadline; the watcher still runs keepalive during the grace. Explicit
+    Session 0 skips the wait. Once placement is established, later helper
+    loss uses the normal debounce, including for an agent's first turn.
+    [decided: user 2026-10-20 startup-transient fix; verified:
+    `src/runtime/session_watch.rs`, `src/runtime/actor.rs`];
   - anything that starts the background engine (recovery, a restart) goes
     through `startEngineTask()`, which is the boot task. Never run the console
     `orgtree-engine.exe` from an interactive-token task: it opens a window at
