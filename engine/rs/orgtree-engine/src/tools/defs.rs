@@ -1649,16 +1649,16 @@ mod builder_stack_tests {
             let suffix=card["description"].as_str().unwrap().split_once('\n').unwrap().1;
             card["description"]=serde_json::json!(format!("{description}\n{suffix}"));
         }
+        // User 2026-10-20: descendant restart and queued completion boundaries.
+        let interrupt=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_interrupt").unwrap();
+        interrupt["inputSchema"]["properties"]["restart"]=serde_json::json!({"type":"boolean","description":"start one next turn after this turn settles"});
+        interrupt["inputSchema"]["properties"]["queued"]=serde_json::json!({"type":"boolean","description":"wait for a completion boundary before interrupting this turn"});
         // the edited cards must match in content (keys in any order); their
         // key order is the builder's
         for name in ["orgtree_project", "orgtree_watchdog", "orgtree_audience", "orgtree_inbox", "orgtree_message"] {
             let want = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == name).unwrap();
             let got = actual.iter().find(|card| card["name"] == name).unwrap();
-            // User 2026-10-20: descendant restart and queued completion boundaries.
-        let interrupt=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_interrupt").unwrap();
-        interrupt["inputSchema"]["properties"]["restart"]=json!({"type":"boolean","description":"start one next turn after this turn settles"});
-        interrupt["inputSchema"]["properties"]["queued"]=json!({"type":"boolean","description":"wait for a completion boundary before interrupting this turn"});
-        assert_eq!(*want, *got, "{name}: differs beyond the approved slot changes");
+            assert_eq!(*want, *got, "{name}: differs beyond the approved slot changes");
             *want = got.clone();
         }
         // Approved fast-mode additions: one card after hire and one shared

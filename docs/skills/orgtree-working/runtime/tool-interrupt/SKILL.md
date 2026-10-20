@@ -54,7 +54,7 @@ process or runtime handoff reports a reason. Timeouts are uncertain: inspect
 before retrying. An interrupt does not undo a tool's external effects.
 
 `orgtree_state_inspect` includes the visible agent's latest runtime `interrupt`
-record: `status` (`queued`, `applied`, `noop`, `refused`, `cancelled`), `turn_id`,
+record: `status` (`queued`, `applied`, `noop`, `refused`, `cancelled`, `restart_failed`), `turn_id`,
 `restart`, `boundary`, requester and timestamp. It lasts for that actor's lifetime,
 not across an engine restart. The scoped `agent.interrupt` event carries the same
 small record. A boundary-time refusal appears there; it does not schedule a restart.
