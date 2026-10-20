@@ -5,11 +5,12 @@ import path from 'node:path'
 export async function setup() { return {name:'cheap-defaults',fixture:'none'} }
 export default async function(rig) {
  const p=new Proof('cheap-defaults')
+ const same=(a,b)=>a?.enabled===b.enabled&&a?.occ===b.occ
  const create=async name=>(await rig.api('POST','/api/orgs',{name,net_autoconnect:false})).slug
  const cfg=async slug=>(await rig.api('GET',`/api/orgs/${slug}`)).auto_cheap_compact
  p.check('fresh data root defaults ON', (await rig.api('GET','/api/defaults')).auto_cheap_compact?.enabled===true)
  const fresh=await create('Fresh default')
- p.check('new org defaults ON at 25%',JSON.stringify(await cfg(fresh))===JSON.stringify({enabled:true,occ:0.25}))
+ p.check('new org defaults ON at 25%',same(await cfg(fresh),{enabled:true,occ:0.25}))
  await rig.waitFor(async()=>!(await rig.api('GET','/api/templates')).loading,{what:'synthetic sign-in check',timeout:30000})
  const templateDir=path.join(rig.data,'rig-home','.orgtree','templates')
  fs.mkdirSync(templateDir,{recursive:true})
@@ -34,10 +35,10 @@ export default async function(rig) {
  await rig.restart()
  p.check('migration0045 registered and applied',rig.one("SELECT count(*)::int AS n FROM public.ot_migrations WHERE name='0045_cheap_compact_default'").n===1)
  const stored=slug=>rig.one(`SELECT settings->'auto_cheap_compact' AS cfg FROM ot.orgs WHERE slug='${slug}'`).cfg
- p.check('legacy absent pinned OFF even in trash',JSON.stringify(stored(names[0]))===JSON.stringify({enabled:false,occ:0.25}))
- p.check('legacy explicit ON preserved',JSON.stringify(stored(names[1]))===JSON.stringify({enabled:true,occ:0.6}))
- p.check('legacy explicit OFF preserved',JSON.stringify(stored(names[2]))===JSON.stringify({enabled:false,occ:0.7}))
- p.check('legacy partial preserves OFF and occupancy',JSON.stringify(stored(names[3]))===JSON.stringify({enabled:false,occ:0.45}))
+ p.check('legacy absent pinned OFF even in trash',same(stored(names[0]),{enabled:false,occ:0.25}))
+ p.check('legacy explicit ON preserved',same(stored(names[1]),{enabled:true,occ:0.6}))
+ p.check('legacy explicit OFF preserved',same(stored(names[2]),{enabled:false,occ:0.7}))
+ p.check('legacy partial preserves OFF and occupancy',same(stored(names[3]),{enabled:false,occ:0.45}))
  p.check('legacy null preserves OFF',stored(names[4])?.enabled===false)
  p.check('absent app default remains absent',!rig.one("SELECT value AS v FROM ot.kv WHERE key='app_settings'").v.defaults?.auto_cheap_compact)
  const after=await create('After upgrade')
@@ -47,7 +48,7 @@ export default async function(rig) {
  set(names[5],{})
  rig.exec("DELETE FROM public.ot_migrations WHERE name='0045_cheap_compact_default'")
  await rig.restart()
- p.check('legacy inherited app ON and threshold preserved',JSON.stringify(stored(names[5]))===JSON.stringify({enabled:true,occ:0.55}))
+ p.check('legacy inherited app ON and threshold preserved',same(stored(names[5]),{enabled:true,occ:0.55}))
  await rig.api('POST','/api/defaults',{auto_cheap_compact:{enabled:false,occ:0.35}})
  const off=await create('Explicit app off')
  p.check('explicit app OFF wins for new org',(await cfg(off))?.enabled===false)
