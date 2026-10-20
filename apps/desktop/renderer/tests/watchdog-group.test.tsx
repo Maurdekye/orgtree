@@ -7,6 +7,7 @@ import { canvasTargets } from '../src/canvas/canvaslayout'
 import { NODE_W, USER } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
+import { hydrateTree } from '../src/archived'
 import type { Watchdog } from '../src/types'
 
 const dogs=(n:number,owner='worker'):Watchdog[]=>Array.from({length:n},(_,i)=>({
@@ -14,6 +15,14 @@ const dogs=(n:number,owner='worker'):Watchdog[]=>Array.from({length:n},(_,i)=>({
   count:2,interval_s:600,once:i%3===0,state:i%4===0?'paused':'armed',at:'2026-10-20T00:00:00Z',fired:0,
 }))
 const response=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}})
+
+test('operational metadata keeps the preview order and cannot overwrite a full dog',()=>{
+  const preview=dogs(8),extra={...dogs(1)[0]!,id:'worker/beyond',metadata_only:true}
+  const tree=hydrateTree({roots:[],watchdogs:preview,watchdog_project_links:[{...preview[3]!,name:'STUB',metadata_only:true},extra]} as unknown as TreePayload)
+  assert.deepEqual(tree.watchdogs!.map(w=>w.id),[...preview.map(w=>w.id),extra.id])
+  assert.equal(tree.watchdogs![3]!.name,preview[3]!.name)
+  assert.equal(tree.watchdogs![3]!.metadata_only,undefined)
+})
 
 test('group layout centers one card below the owner and keeps every preview spark target',()=>{
   const owner={id:'worker',state:'live',children:[]} as unknown as CanvasNode
