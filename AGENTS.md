@@ -2531,6 +2531,18 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- Retired pile pickers own lightweight 50-row cursor pages, with server-side
+  case-insensitive substring name search. Opening one never registers a
+  children browse or hydrates a full tree. Migration 0047's retired-only
+  directory indexes `(org,parent,last-turn time,sibling order,id)`; time
+  triggers ignore unchanged timestamps and accounting writes. Live turns
+  have no directory row to lock; triggers never lock agents or org revision
+  rows. Search may scan that small directory, per coordinator approval.
+  Delete all ignores the search and visits bounded pages only after explicit
+  confirmation. See [piles](docs/skills/orgtree-app/canvas/piles/SKILL.md).
+  [decided: user/coordinator 2026-10-20; verified: `http/retired.rs`,
+  `migrations/0047_retired_picker.sql`, `canvas/retiredpages.ts`,
+  `tests/retiredpages.test.tsx`, `tools/rig/proofs/retired-pages.mjs`]
 - With "hide retired agents" off the canvas draws a retired pile only from
   retired records it holds, so the record feed's shared set carries, beside the
   live agents, each visible parent's first and last archived child in the

@@ -71,3 +71,25 @@ test('crowd stack stays local and keeps its existing ordering', async t => {
   assert.equal(v.urls.length, 0)
   assert.deepEqual(names(v.el), ['two', 'one'])
 })
+test('delete all ignores the search and visits every page only after confirmation', async t => {
+  const removed: string[] = [], notes: string[][] = []
+  const v = await fixture(t, async u => json(u.searchParams.get('q') ? ['needle'] : u.searchParams.get('cursor') ? ['last'] : ['first'], u.searchParams.get('q') || u.searchParams.get('cursor') ? null : 'more'),
+    { op: async (r: { node: string }) => { removed.push(r.node) }, toast: (n: string[]) => notes.push(n) })
+  await search(v.el, 'needle')
+  assert.deepEqual(removed, [])
+  const wipe = [...v.el.querySelectorAll('button')].find(b => b.textContent?.includes('delete all 1401'))!
+  assert.ok(wipe)
+  await inAct(() => wipe.click())
+  assert.deepEqual(removed, [])
+  const confirm = [...v.el.querySelectorAll('button')].find(b => b.textContent === 'delete all')!
+  assert.ok(confirm)
+  await inAct(() => confirm.click()); await inAct(() => flush())
+  assert.deepEqual(removed, ['first', 'last'])
+  assert.match(notes.flat().join(' '), /2 of 2/)
+})
+test('picking a loaded page row works without adding it to the canvas map', async t => {
+  const picked: string[] = []
+  const v = await fixture(t, async () => json(['unloaded']), { onPick: (id: string) => picked.push(id) })
+  await inAct(() => v.el.querySelector<HTMLButtonElement>('.pile-row')!.click())
+  assert.deepEqual(picked, ['unloaded'])
+})
