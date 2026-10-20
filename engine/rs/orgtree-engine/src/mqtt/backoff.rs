@@ -17,7 +17,8 @@ pub(crate) struct Waits<'a> {
     pub refused: &'a [Duration],
     /// Up this long before the network backoff starts over.
     pub stable: Duration,
-    /// Spread waits by ±20 % so many dogs do not retry in step.
+    /// Spread waits by ±20 % so many dogs do not retry in step, never past
+    /// the longest wait of their kind (`net_max`, the longest refusal wait).
     pub jitter: bool,
 }
 
@@ -53,15 +54,17 @@ impl Backoff {
                 self.net = 0;
             }
         }
-        let base = if refused {
+        let (base, cap) = if refused {
             let d = t.refused.get(self.refused as usize).or(t.refused.last()).copied().unwrap_or(Duration::from_secs(60));
             self.refused = self.refused.saturating_add(1);
-            d
+            (d, t.refused.iter().copied().max().unwrap_or(d).max(d))
         } else {
             let d = t.net_first.saturating_mul(1u32 << self.net.min(16)).min(t.net_max);
             self.net = self.net.saturating_add(1);
-            d
+            (d, t.net_max.max(d))
         };
-        if t.jitter { base.mul_f64(rand::thread_rng().gen_range(0.8..1.2)) } else { base }
+        // the spread stays under the longest wait: a dog never waits past
+        // the cap its mail promises (5 min in production)
+        if t.jitter { base.mul_f64(rand::thread_rng().gen_range(0.8..1.2)).min(cap) } else { base }
     }
 }
