@@ -1061,6 +1061,38 @@ pub fn wait_note(project: &str, st: &QueueState) -> String {
     format!("Queued in project {project}'s mailbox{place}; it goes to the next of its {} to become eligible{paused}.", who(n))
 }
 
+/// What an agent's send result says about its mail that waits in the queue
+/// (`mail::send_project`).
+#[nolog]
+pub fn sent_note(project: &str, st: &QueueState) -> String {
+    wait_note(project, st)
+}
+
+/// The user wrote to a project nobody watches (`mail::nudge_project`): who
+/// was asked to arm a fair_queue dog, or why nobody was.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Nudge {
+    /// Runtime settings turn the wake off
+    Off,
+    /// no live, unhalted agent works directly under the project
+    Nobody,
+    /// this agent was woken and asked to arm one
+    Woke(String),
+}
+
+/// The user's send note for a project nobody watches.
+#[nolog]
+pub fn unwatched_note(project: &str, nudge: &Nudge) -> String {
+    match nudge {
+        Nudge::Off => format!(
+            "Queued in project {project}'s mailbox. No agent watches project {project} with a fair_queue watchdog, so it waits there until one does (waking an agent to arm one is off in Runtime settings)."),
+        Nudge::Nobody => format!(
+            "Queued in project {project}'s mailbox, but no live, unhalted agent works directly under it, so nobody can pick it up until one is hired or unhalted."),
+        Nudge::Woke(name) => format!(
+            "Queued in project {project}'s mailbox. No agent watches project {project} with a fair_queue watchdog, so {name} was woken and asked to arm one; the mail goes to whoever arms first."),
+    }
+}
+
 /// Read how a project's queue stands now; `mail` is the waiting mail whose
 /// place in line is wanted (its uid).
 #[logged]

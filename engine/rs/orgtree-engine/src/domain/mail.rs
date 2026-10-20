@@ -528,7 +528,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
             // who could take it and why not: every listener busy, halted or paused is not "nobody watches"
             let client = engine.db.get().await?;
             let st = crate::domain::projects::queue_state(&**client, org.id, project.id, Some(&mail_uid)).await?;
-            crate::domain::projects::wait_note(&project.name, &st)
+            crate::domain::projects::sent_note(&project.name, &st)
         }
     };
     Ok(Sent { dnd_held: false, transfer_ids: Vec::new(), uid: mail_uid, to: project.name, recipient_state: "live".into(), delivery, deferred: false })
@@ -542,6 +542,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
 /// send's delivery note.
 #[logged]
 async fn nudge_project(engine: &Arc<Engine>, org_id: i64, project: &crate::domain::projects::Project) -> Result<String> {
+    use crate::domain::projects::{unwatched_note, Nudge};
     let client = engine.db.get().await?;
     if crate::domain::projects::watched(&**client, org_id, project.id).await? {
         let st = crate::domain::projects::queue_state(&**client, org_id, project.id, None).await?;
@@ -558,14 +559,10 @@ async fn nudge_project(engine: &Arc<Engine>, org_id: i64, project: &crate::domai
         return Ok(crate::domain::projects::wait_note(&project.name, &paused));
     }
     if !engine.settings.project_listener_wake() {
-        return Ok(format!(
-            "Queued in project {p}'s mailbox. No agent watches project {p} with a fair_queue watchdog, so it waits there until one does (waking an agent to arm one is off in Runtime settings).",
-            p = project.name));
+        return Ok(unwatched_note(&project.name, &Nudge::Off));
     }
     let Some((_, name)) = crate::domain::projects::nudge_target(engine, &**client, project.id).await? else {
-        return Ok(format!(
-            "Queued in project {}'s mailbox, but no live, unhalted agent works directly under it, so nobody can pick it up until one is hired or unhalted.",
-            project.name));
+        return Ok(unwatched_note(&project.name, &Nudge::Nobody));
     };
     drop(client);
     let body = format!(
@@ -575,9 +572,7 @@ async fn nudge_project(engine: &Arc<Engine>, org_id: i64, project: &crate::domai
     let mut nudge = Outgoing::new(From::System, &name, &body);
     nudge.grant_reply_audience = false;
     Box::pin(send(engine, org_id, nudge)).await?;
-    Ok(format!(
-        "Queued in project {p}'s mailbox. No agent watches project {p} with a fair_queue watchdog, so {name} was woken and asked to arm one; the mail goes to whoever arms first.",
-        p = project.name))
+    Ok(unwatched_note(&project.name, &Nudge::Woke(name)))
 }
 
 /// A bare recipient is resolved only when no internal agent has that name.
