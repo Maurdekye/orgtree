@@ -502,17 +502,15 @@ uiTest('§13 A JUMP THAT NO WINDOW CAN REACH stops after ONE correction — a '
   // prefix. Without the one-correction latch this is an unbounded request
   // loop that takes the whole panel with it.
   const s = serve(many(130))
-  s.stubborn = 100
+  s.stubborn = 1000
   const said: string[] = []
   const { el } = await mount(gallery({
     jumpTo: { id: 'd120', seq: 1 }, toast: (m) => said.push(...m),
   }))
   await inAct(async () => { await flush(40) })
-  assert.equal(s.list.length, 2,
-    `the first ask and exactly one correction (made ${s.list.length})`)
-  assert.deepEqual(s.list.map((c) => c.offset), [0, 0],
-    'and both still read from the newest end')
-  assert.ok(s.list[1]!.limit > s.list[0]!.limit, 'the correction widened the window')
+  assert.equal(s.list.length, 1,
+    `a locate answer missing its target is rejected without a request loop (${s.list.length})`)
+  assert.deepEqual(s.list.map((c) => c.offset), [0], 'the lookup still starts from the newest end')
   assert.match(said.join(' '), /too far down the list/,
     'the reader is told the jump could not be placed')
   assert.match(el.textContent ?? '', /could not load the presented documents/)

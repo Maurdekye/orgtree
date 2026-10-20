@@ -13,6 +13,7 @@ import { DocumentDownload } from './download'
 // classes — `.mailer` / `.mailer-list` / `.mailrow` / `.mailer-read` — and
 // selection BY IDENTITY (the list repolls under you), the newest visible
 // oldest unread/changed document selected on open (newest when all read).
+// Every opening also includes the newest end, independently of that selection.
 // It does NOT reuse MailList itself: that component is built on MailRow
 // (sender, kind, an inline body, replies, notice piles) and a document row
 // is a title + agent + time whose body is fetched on click. Sharing the
@@ -21,10 +22,10 @@ import { DocumentDownload } from './download'
 // The BODY half is shared for real: `useDoc` + `dismissDoc` from docs.tsx
 // are the same fetch and the same dismiss the overlay reader uses.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { DocRow } from '../api'
-import { fileBase, getDocuments, mockupUrl } from '../api'
+import { fileBase, mockupUrl } from '../api'
 import { onLiveBump } from '../livebus'
 import { sendLinkedReply } from '../events/reply'
 import type { ReplyTarget } from '../generated/events'
@@ -156,165 +157,10 @@ function openingPresentation(slug: string, rows: DocRow[]): string | null {
 // start around an older unread card: the engine returns its position and one
 // bounded page. Newer/older growth expands that same contiguous window.
 
-/** the first window, and what each growth adds. Bounded so opening the panel
- *  is one small request however long the history is. */
-export const DOC_PAGE = 40
-/** mirrors DOCUMENTS_MAX_WINDOW in engine/backend/orgtree/api.py — the server
- *  will not serve a larger single window, so growth stops here rather than
- *  asking for one it cannot have. Reached only after scrolling past 5000 rows. */
-const DOC_MAX_WINDOW = 5000
-/** the mail list's own threshold, for the same gesture */
+export { DOC_PAGE } from './docwindow'
+import { useDocWindow } from './docwindow'
+import type { DocWindow } from './docwindow'
 const DOC_EDGE = 240
-
-export interface DocWindow {
-  /** null until the first response lands. "nothing yet" is not "nothing". */
-  rows: DocRow[] | null
-  total: number
-  /** the server holds older rows past the loaded window */
-  more: boolean
-  /** the first window, or a growth, is in flight */
-  busy: boolean
-  /** the last request failed — `rows` is whatever survived it */
-  error: string
-  /** the `locate` the last completed response answered… */
-  located: string
-  /** …and the request identity it belonged to, for the jump latch */
-  seq: unknown
-  /** ask for the next older page. A no-op while busy, exhausted or failed, so
-   *  it is safe to call from a scroll handler and from a render effect. */
-  grow: () => void
-  /** Opening can land in an older page; the top edge grows toward newer rows. */
-  newer: boolean
-  growNewer: () => void
-  openingId?: string | null
-  /** ask again after a failure */
-  retry: () => void
-}
-
-interface DocWindowState {
-  ident?: string
-  rows: DocRow[] | null
-  total: number
-  more: boolean
-  /** the window size THESE rows were read with, which is how an outstanding
-   *  growth is told from a settled one */
-  win: number
-  located: string
-  seq: unknown
-  error: string
-  offset: number
-  openingId?: string | null
-}
-
-const EMPTY_WINDOW: DocWindowState = {
-  rows: null, total: 0, more: false, win: 0, located: '', seq: undefined, error: '', offset: 0,
-}
-
-/** The gallery's list half: a growing newest-first window over `documents`,
- *  kept live by the same heartbeat every other panel uses (usePolled's
- *  interval plus the livebus bump, canvas/shared.ts).
- *
- *  ⚠ A GROWTH MUST NOT BLANK THE LIST. `usePolled` resets to null whenever its
- *  deps change, which is right for an identity change and wrong for "same list,
- *  one page more" — it would unmount every row and drop the reader back to the
- *  top. So this hook keeps its own state and resets only on `slug`/`node`. */
-function useDocWindow(slug: string, node: string, locate = '',
-  seq: unknown = 0, team = false, autoOpen = true, hired = false): DocWindow {
-  const ident = `${slug}/${node}${team ? '/team' : ''}`
-  const [want, setWant] = useState(DOC_PAGE)
-  const [start, setStart] = useState(0)
-  const openingRead = useRef(true)
-  const [attempt, setAttempt] = useState(0)
-  const [last, setLast] = useState<DocWindowState>(EMPTY_WINDOW)
-  /** ⚠ ONE RE-AIM PER JUMP, AND NO MORE. See the `locate` branch below. */
-  const aimed = useRef('')
-  // a different org or agent is a different list, not a refresh of this one:
-  // its rows must not stay on screen under the new identity, and its window
-  // size must not carry over either
-  useEffect(() => {
-    setWant(DOC_PAGE); setStart(0); setAttempt(0); setLast(EMPTY_WINDOW); aimed.current = ''; openingRead.current = true
-  }, [ident])
-  useEffect(() => {
-    let dead = false
-    const tick = () => {
-      const opening = autoOpen && !locate && openingRead.current
-      getDocuments(slug, start, node, locate, want, team, opening, hired).then((d) => {
-        if (dead) return
-        if (opening) {
-          openingRead.current = false
-          setStart(d.offset ?? 0)
-        }
-        // A `locate` for a row BELOW the window answers with that row's own
-        // page rather than a prefix from zero (api.py snaps the offset to
-        // `index // limit * limit`). Adopt a window that reaches it and ask
-        // again — rendering a slice that starts in the middle is exactly the
-        // gap this design excludes.
-        //
-        // ⚠ ONLY FOR A `locate`, AND ONLY ONCE. Without a locate the server
-        // echoes the offset it was sent, which is always zero here, so
-        // correcting on it would be reacting to our own request. And one
-        // correction is all a healthy answer can need: a window wide enough to
-        // reach the row snaps to zero by that same arithmetic. A SECOND
-        // non-zero offset means no width will ever reach it — the row sits
-        // past the widest window this server will serve — and re-aiming again
-        // is an unbounded request loop rather than a slow success. Say so
-        // instead; the jump is then answered (and cleared) by the panel above,
-        // and the plain window read that follows still lists.
-        const at = locate ? d.offset ?? 0 : 0
-        if (at > 0) {
-          const aim = `${ident}|${locate}|${String(seq)}`
-          if (aimed.current !== aim) {
-            aimed.current = aim
-            setWant((w) => Math.min(DOC_MAX_WINDOW, Math.max(w, at + w)))
-            return
-          }
-          setLast((p) => ({ ...p, seq,
-            error: 'that document is too far down the list to open from here' }))
-          return
-        }
-        const rows = d.documents ?? []
-        setLast(p => ({
-          ident,
-          rows, total: d.total ?? rows.length, win: want,
-          // a short answer means the server gave everything it was willing to
-          // in one window, so asking for a wider one would only repeat it
-          more: d.next_offset != null && rows.length >= want && want < DOC_MAX_WINDOW,
-          located: d.located ?? '', seq, error: '',
-          offset: d.offset ?? start,
-          openingId: opening ? d.opening_id : p.openingId,
-        }))
-      }, (e: Error) => {
-        // the rows already read stay on screen — a dropped poll is not a
-        // reason to empty a list the reader is using
-        if (!dead) setLast((p) => ({ ...p, seq, error: String(e?.message ?? e) }))
-      })
-    }
-    tick()
-    const t = setInterval(tick, 5000)
-    const off = onLiveBump(tick)
-    return () => { dead = true; clearInterval(t); off() }
-  }, [ident, slug, node, locate, seq, want, start, attempt, team, autoOpen, hired])
-  const settled = last.win >= want
-  const grow = useCallback(() => {
-    setWant((w) => (last.rows != null && last.win >= w && last.more && !last.error)
-      ? w + DOC_PAGE : w)
-  }, [last])
-  const retry = useCallback(() => {
-    setLast((p) => ({ ...p, error: '' }))
-    setAttempt((a) => a + 1)
-  }, [])
-  const growNewer = useCallback(() => {
-    if (last.rows == null || last.win < want || last.error || start === 0) return
-    const extra = Math.min(DOC_PAGE, start)
-    setStart(start - extra); setWant(w => w + extra)
-  }, [last, start, want])
-  return {
-    rows: last.ident === ident ? last.rows : null, total: last.total, more: last.more, error: last.error,
-    busy: !last.error && (last.ident !== ident || last.rows == null || !settled),
-    located: last.located, seq: last.seq, grow, retry,
-    newer: start > 0, growNewer, openingId: last.ident === ident ? last.openingId : undefined,
-  }
-}
 
 /** The list column both galleries render: the scroller that asks for the next
  *  older page as the reader nears the bottom, and the end marker that says
@@ -338,13 +184,24 @@ function LazyDocList({ w, label, children }: {
     return !!el && el.clientHeight > 0
       && el.scrollHeight - el.scrollTop - el.clientHeight < DOC_EDGE
   }
+  const nearGap = () => {
+    const el = ref.current
+    if (!el || el.clientHeight <= 0) return
+    const bounds = el.getBoundingClientRect()
+    for (const gap of el.querySelectorAll<HTMLElement>('[data-doc-gap]')) {
+      const box = gap.getBoundingClientRect()
+      if (box.height > 0 && box.bottom >= bounds.top - DOC_EDGE && box.top <= bounds.bottom + DOC_EDGE) {
+        w.fillGap(gap.dataset.docGap!); return
+      }
+    }
+  }
   // THE LIST CAN BE SHORTER THAN ITS SCROLLER and still have history behind it
   // — "show retired agents" unticked over a window whose hired cards are two,
   // say. No overflow means no scroll event means nothing would ever ask for
   // the next page, so the boundary is re-checked after every commit as well.
   // `grow` is a no-op while a page is in flight, exhausted or failed, so this
   // settles instead of looping.
-  useEffect(() => { if (nearEnd()) w.grow() })
+  useEffect(() => { nearGap(); if (nearEnd()) w.grow() })
   return (
     // ⚠ A TAB STOP, DELIBERATELY. Scrolling is now the ONLY way to reach older
     // documents — the "Newer"/"Older" buttons this replaced were the two
@@ -356,12 +213,18 @@ function LazyDocList({ w, label, children }: {
     // contract, and it evaporates the moment a row gains a focusable child.
     // Stating it here is what makes the keyboard path OURS to keep.
     <div className="mailer-list" ref={ref} tabIndex={0} aria-label={label}
-      onScroll={() => { if (nearEnd()) w.grow() }}>
+      onScroll={() => { nearGap(); if (nearEnd()) w.grow() }}>
       {w.newer && <button className="doc-list-newer" onClick={w.growNewer}>Load newer documents</button>}
       {children}
       <DocListEnd w={w} />
     </div>
   )
+}
+
+function DocRangeGap({ w, id }: { w: DocWindow; id: string }) {
+  return w.gapBefore.includes(id) ? <div className="doc-list-end dim" data-doc-gap={id}>
+    <button onClick={() => w.fillGap(id)} disabled={w.busy}>Load documents between these pages</button>
+  </div> : null
 }
 
 /** What the bottom of the list says, and nothing more than it has to: a page
@@ -578,7 +441,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                   <LazyDocList w={w} label="Presented documents">
                     {menu.node}
                     {rows!.map((r) => (
-                      <GalleryEntry key={r.id} slug={slug} row={r}
+                      <Fragment key={r.id}><DocRangeGap w={w} id={r.id} /><GalleryEntry slug={slug} row={r}
                         className={'mailrow doc-gallery-row'
                           // `.active`/`.past` — styled in styles.css, scoped
                           // to `.gallery-modal` only (accepted docket
@@ -607,7 +470,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                           {r.format === 'html' && <MockupBadge />}
                           {r.evicted && <span className="badge evicted">content evicted</span>}
                         </div>
-                      </GalleryEntry>
+                      </GalleryEntry></Fragment>
                     ))}
                   </LazyDocList>
                   }>
@@ -940,7 +803,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
           <LazyDocList w={w} label={`Presented documents from ${nid}`}>
             {menu.node}
             {rows.map((r) => (
-              <GalleryEntry key={r.id} slug={slug} row={r}
+              <Fragment key={r.id}><DocRangeGap w={w} id={r.id} /><GalleryEntry slug={slug} row={r}
                 className={'mailrow doc-gallery-row desk-presented-card'
                   + (isHired(r) ? ' active' : ' past')
                   + (r.id === selId ? ' on' : '')
@@ -963,7 +826,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                   {r.format === 'html' && <MockupBadge />}
                   {r.evicted && <span className="badge evicted">content evicted</span>}
                 </div>
-              </GalleryEntry>
+              </GalleryEntry></Fragment>
             ))}
           </LazyDocList>
           }>

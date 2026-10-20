@@ -24,6 +24,21 @@ export default async function(rig){
  rig.exec(`UPDATE ot.documents SET viewed_at=at WHERE org_id=${org}`)
  const read=await rig.api('GET',route)
  p.check('all-read fallback uses replacement time rather than row identity',read.opening_id==='opening-4',read)
+ // The renderer sees milliseconds, while PG stores microseconds. A legacy
+ // viewed mark at wire precision must not become an invisible unread card.
+ rig.exec(`UPDATE ot.documents SET at=at+interval '0.000456 seconds' WHERE uid='opening-3';
+   UPDATE ot.documents SET viewed_at=date_trunc('milliseconds',at) WHERE org_id=${org}`)
+ const precision=await rig.api('GET',route)
+ p.check('all wire-precision read marks use newest fallback, not phantom unread',precision.opening_id==='opening-4',precision)
+ await rig.api('POST',`/api/orgs/${rig.org}/documents/viewed`,{marks:[{id:'opening-3',at:'2026-10-01T00:03:00.000Z'}]})
+ // A new mark is canonical when the exact version was current at read time.
+ rig.exec(`UPDATE ot.documents SET viewed_at=NULL WHERE uid='opening-3'`)
+ await rig.api('POST',`/api/orgs/${rig.org}/documents/viewed`,{marks:[{id:'opening-3',at:'2026-10-01T00:03:00.000Z'}]})
+ p.check('new viewed mark records full current PG timestamp',rig.one("SELECT viewed_at=at AS same FROM ot.documents WHERE uid='opening-3'").same===true)
+ rig.exec(`UPDATE ot.documents SET at=at+interval '1 second' WHERE uid='opening-3'`)
+ await rig.api('POST',`/api/orgs/${rig.org}/documents/viewed`,{marks:[{id:'opening-3',at:'2026-10-01T00:03:00.000Z'}]})
+ const replaced=await rig.api('GET',route)
+ p.check('a stale viewed mark never clears a later replacement',replaced.opening_id==='opening-3',replaced)
  const explicit=await rig.api('GET',route+'&locate=opening-130')
  p.check('explicit locate overrides auto-open decision',explicit.located==='opening-130'&&explicit.opening_id===undefined,explicit)
  assert.equal(p.summary().passed,true)

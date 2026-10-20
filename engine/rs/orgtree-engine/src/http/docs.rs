@@ -81,7 +81,9 @@ pub async fn viewed(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json
         let Some(at) = crate::util::parse_ts(&m.at) else { continue };
         let rows = client
             .query(
-                "UPDATE ot.documents SET viewed_at = $3 WHERE org_id = $1 AND uid = $2 AND (viewed_at IS NULL OR viewed_at < $3)
+                "UPDATE ot.documents SET viewed_at = CASE
+                   WHEN date_trunc('milliseconds', at) = date_trunc('milliseconds', $3::timestamptz) THEN at ELSE $3 END
+                 WHERE org_id = $1 AND uid = $2 AND (viewed_at IS NULL OR viewed_at < $3)
                  RETURNING agent_id",
                 &[&o.id, &m.id, &at],
             )
@@ -123,6 +125,7 @@ pub struct ListQuery {
 
 const OPENING_UNREAD_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
  WHERE d.org_id = $1 AND NOT d.dismissed AND (d.viewed_at IS NULL OR d.viewed_at < d.at)
+ AND (d.viewed_at IS NULL OR date_trunc('milliseconds', d.viewed_at) < date_trunc('milliseconds', d.at))
  AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
           ELSE (d.agent_id = ANY($3) OR (d.agent_id IS NULL AND d.node_name = $2)) END
  AND (NOT $4::boolean OR a.state = 'live') ORDER BY d.at ASC, d.id ASC LIMIT 1";

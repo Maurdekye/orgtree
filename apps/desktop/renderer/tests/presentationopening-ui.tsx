@@ -4,16 +4,17 @@ import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
 import '../src/styles.css'
 
 let allRead=false,counter=0
-const records=()=>[
- {id:'newest',title:'Newest presentation — already read',at:'2026-10-20T06:00:00Z',viewed_at:'2026-10-20T06:00:00Z'},
- {id:'recent',title:'Recent proposal — unread',at:'2026-10-19T12:00:00Z',viewed_at:null},
- {id:'oldest',title:'Oldest changed presentation — selected on open',at:'2026-10-18T12:00:00Z',viewed_at:'2026-10-17T12:00:00Z'},
- {id:'read',title:'Older notes — already read',at:'2026-10-16T12:00:00Z',viewed_at:'2026-10-16T12:00:00Z'},
-].map(r=>({node:'synthetic-presenter',tier:'sol',format:'markdown',node_state:'live',evicted:false,...r,viewed_at:allRead?r.at:r.viewed_at}))
+const records=()=>Array.from({length:150},(_,i)=>{
+ const at=new Date(Date.UTC(2026,9,20,6)-i*3600000).toISOString()
+ return {id:i===0?'newest':i===99?'oldest':'read-'+i,
+ title:i===0?'Newest presentation':i===99?'Oldest unread presentation — selected':'Reviewed presentation '+i,
+ at,viewed_at:!allRead&&i===99?null:at,node:'synthetic-presenter',tier:'sol',format:'markdown',node_state:'live',evicted:false}
+})
 globalThis.fetch=(async (url,options)=>{
  const path=String(url),rows=records(),id=path.match(/\/documents\/([^/?]+)$/)?.[1]
- return {ok:true,status:200,headers:new Headers(),json:async()=>id==='viewed'?{ok:true}:id?{...rows.find(r=>r.id===id),body:'# '+rows.find(r=>r.id===id)?.title+'\n\nSynthetic presentation. This reader opens automatically, using the existing saved unread state.\n\nOther unread presentations remain highlighted until opened.'}
-  :{documents:rows,total:allRead?4:84,next_offset:null,offset:allRead?0:80,...(path.includes('opening=1')?{opening_id:allRead?'newest':'oldest',opening_position:allRead?0:82}:{})}} as Response
+ const q=new URL(path,'http://fixture').searchParams,offset=q.has('opening')&&!allRead?80:Number(q.get('offset')??0),limit=Number(q.get('limit')??40)
+ return {ok:true,status:200,headers:new Headers(),json:async()=>id==='viewed'?{ok:true}:id?{...rows.find(r=>r.id===id),body:'# '+rows.find(r=>r.id===id)?.title+'\n\nSynthetic presentation. The oldest unread remains selected, and the newest document is loaded at the top of the list.\n\nOpening the collection never hides its newest end.'}
+  :{documents:rows.slice(offset,offset+limit),total:150,next_offset:offset+limit<150?offset+limit:null,offset,...(q.has('opening')?{opening_id:allRead?'newest':'oldest',opening_position:allRead?0:99}:{})}} as Response
 }) as typeof fetch
 function Fixture(){
  const [mode,setMode]=useState({surface:'modal',key:0})
