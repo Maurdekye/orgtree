@@ -439,7 +439,7 @@ async fn read_stdout(
                 // every control request (tool call, hook) is its own request
                 let span = crate::trace::request(&crate::trace::agent_client(caller.agent_id, &caller.name));
                 tokio::spawn(tracing::Instrument::instrument(async move {
-                    let response = if keepalive { Ok(answer_keepalive(&engine, &caller, &req).await) } else { answer_control(&engine, &caller, &actor, &req).await };
+                    let response = if keepalive { Ok(answer_keepalive(&engine, &caller, &req).await) } else { answer_control(&engine, &caller, &actor, process, &req).await };
                     let line = match response {
                         Ok(r) => json!({ "type": "control_response",
                                          "response": { "subtype": "success", "request_id": id, "response": r } }),
@@ -465,6 +465,7 @@ async fn answer_control(
     engine: &Arc<Engine>,
     caller: &Caller,
     actor: &AgentTx,
+    process: uuid::Uuid,
     req: &Value,
 ) -> Result<Value> {
     match req["subtype"].as_str() {
@@ -478,7 +479,7 @@ async fn answer_control(
         }
         Some("hook_callback") => {
             let (tx, rx) = oneshot::channel();
-            let _ = actor.post(AgentMsg::Hook { input: req["input"].clone(), reply: tx });
+            let _ = actor.post(AgentMsg::Hook { process, input: req["input"].clone(), reply: tx });
             let out = tokio::time::timeout(Duration::from_secs(30), rx).await.ok().and_then(Result::ok);
             Ok(out.unwrap_or_else(|| json!({})))
         }
@@ -589,7 +590,7 @@ mod tool_result_timing_tests {
         let engine = Engine::for_tests(PathBuf::from("unused-tool-result-timing"));
         let caller = Caller { org_id:1, org_slug:"fixture".into(), agent_id:7, name:"fixture".into() };
         let (actor, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let result = answer_control(&engine, &caller, &actor,
+        let result = answer_control(&engine, &caller, &actor, uuid::Uuid::nil(),
             &json!({"subtype":"mcp_message", "server_name":"orgtree", "message":{
                 "jsonrpc":"2.0", "id":73, "method":"tools/call", "params":{
                     "name":"orgtree_chart", "arguments":[]}}})).await.unwrap();

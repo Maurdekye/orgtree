@@ -34,17 +34,14 @@ pub async fn ask_actor(
 /// Who may interrupt whom, and restart (the user, 2026-10-16 12:05Z): any
 /// agent may end its own turn and have a new one start at once, whatever its
 /// tool groups; interrupting another agent needs the runtime tool group (and
-/// that agent below you), and `restart` is for your own turn only.
+/// that agent below you). Restart uses that same authority (user 2026-10-20).
 #[logged]
-pub(crate) fn interrupt_rule(is_self: bool, runtime_group: bool, restart: bool) -> std::result::Result<(), &'static str> {
+pub(crate) fn interrupt_rule(is_self: bool, runtime_group: bool, _restart: bool) -> std::result::Result<(), &'static str> {
     if is_self {
         return Ok(());
     }
     if !runtime_group {
         return Err("orgtree_interrupt is disabled by your Orgtree tool group scope (you may still interrupt yourself)");
-    }
-    if restart {
-        return Err("restart is for your own turn only: name yourself as node");
     }
     Ok(())
 }
@@ -53,6 +50,7 @@ pub(crate) fn interrupt_rule(is_self: bool, runtime_group: bool, restart: bool) 
 pub async fn interrupt(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
     let restart = args["restart"].as_bool().unwrap_or(false);
+    let queued = args["queued"].as_bool().unwrap_or(false);
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
     let t = target(&client, me.org_id, node).await?;
@@ -63,7 +61,7 @@ pub async fn interrupt(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
     }
     if is_self {
         drop(client);
-        let r = ask_actor(engine, me.org_id, me.id, |reply| AgentMsg::InterruptSelf { restart, reply }).await;
+        let r = ask_actor(engine, me.org_id, me.id, |reply| AgentMsg::InterruptFromAgent { caller:caller.clone(), restart, queued, reply }).await;
         if let Some(why) = r["error"].as_str().or(r["reason"].as_str()) {
             crate::refuse!(Conflict, "{why}");
         }
@@ -72,8 +70,32 @@ pub async fn interrupt(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
     downward(&client, &me, &t, "interrupt").await?;
     require_turn_runtime(&t.kind, &t.name)?;
     drop(client);
-    let r = ask_actor(engine, me.org_id, t.id, AgentMsg::Interrupt).await;
+    // Keep the historical plain interrupt result shape. New queued/restart
+    // requests use the self path's refusal and background-work checks.
+    let r = ask_actor(engine, me.org_id, t.id, |reply| AgentMsg::InterruptFromAgent { caller:caller.clone(), restart, queued, reply }).await;
+    if restart || queued {
+        if let Some(why)=r["error"].as_str().or(r["reason"].as_str()) { crate::refuse!(Conflict,"{why}"); }
+    }
     Done::json(&json!({ "node": t.name, "result": r }))
+}
+
+/// Actor-side recheck after the message waited in its queue.
+#[logged]
+pub(crate) async fn authorize_interrupt(engine:&Arc<Engine>,caller:&Caller,id:i64)->Result<()> {
+    let client=engine.db.get().await?;
+    let who=me(&client,caller).await?;
+    if who.id==id {return Ok(());}
+    drop(client);
+    if !crate::domain::tool_groups::enabled(&super::caller_tools(engine,caller).await?,"runtime") {
+        crate::refuse!(Forbidden,"orgtree_interrupt is disabled by your Orgtree tool group scope (you may still interrupt yourself)");
+    }
+    let client=engine.db.get().await?;
+    let row=client.query_opt("SELECT id,name,state,parent_id,kind FROM ot.agents WHERE id=$1 AND org_id=$2 AND state<>'deleted'",&[&id,&who.org_id]).await?;
+    let Some(row)=row else {crate::refuse!(NotFound,"no such agent in this organization");};
+    let t=super::Target{id:row.get(0),name:row.get(1),state:row.get(2),parent_id:row.get(3),kind:row.get(4)};
+    require_turn_runtime(&t.kind,&t.name)?;
+    downward(&client,&who,&t,"interrupt").await?;
+    Ok(())
 }
 
 /// Halt or unhalt one agent or a batch (3.x api.py orgtree_halt). Authority

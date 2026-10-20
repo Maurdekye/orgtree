@@ -336,7 +336,13 @@ where
         let span = crate::trace::request(&crate::trace::agent_client(caller.agent_id, &caller.name));
         tokio::spawn(tracing::Instrument::instrument(
             async move {
-                let resp = crate::tools::handle_mcp_as(&engine, &caller, &msg, shape).await;
+                let resp = if msg["method"]=="orgtree/interruptBoundary" {
+                    let value=if let Some(process)=msg["params"]["process"].as_str().and_then(|s|uuid::Uuid::parse_str(s).ok()) {
+                        crate::tools::control::ask_actor(&engine,caller.org_id,caller.agent_id,
+                            |reply|crate::runtime::AgentMsg::InterruptBoundary{process,reply}).await
+                    } else {json!({"interrupted":false})};
+                    json!({"jsonrpc":"2.0","id":msg["id"],"result":value})
+                } else { crate::tools::handle_mcp_as(&engine, &caller, &msg, shape).await };
                 let observed = if resp.get("error").is_none() && resp.get("result").is_some() {
                     match msg["method"].as_str() {
                         Some("initialize") => Some("initialize"),
@@ -360,6 +366,7 @@ pub fn steer(args: &[String]) -> ExitCode {
     use std::io::{Read, Write};
     let mut raw = Vec::new();
     let _ = std::io::stdin().read_to_end(&mut raw);
+    if args.first().map(String::as_str)==Some("post") { held_invocation_boundary(); }
     let nothing = || {
         println!("{{}}");
         ExitCode::SUCCESS
@@ -386,6 +393,26 @@ pub fn steer(args: &[String]) -> ExitCode {
     }
     let _ = std::fs::remove_file(&claimed);
     ExitCode::SUCCESS
+}
+
+/// The existing owned PostInvocation hook remains blocked until the actor has
+/// considered the queued interrupt. No mail is claimed before this check.
+#[nolog]
+fn held_invocation_boundary() {
+    let (Ok(pipe),Ok(process))=(std::env::var("ORGTREE_INTERRUPT_PIPE"),std::env::var("ORGTREE_INTERRUPT_PROCESS")) else {return};
+    let Ok(rt)=tokio::runtime::Builder::new_current_thread().enable_all().build() else {return};
+    rt.block_on(async {
+        use tokio::io::{AsyncBufReadExt,AsyncWriteExt,BufReader};
+        let _=tokio::time::timeout(std::time::Duration::from_secs(5),async {
+            let mut conn=connect(&pipe).await?;
+            let request=json!({"jsonrpc":"2.0","id":1,"method":"orgtree/interruptBoundary","params":{"process":process}});
+            conn.write_all(format!("{request}\n").as_bytes()).await?;
+            conn.flush().await?;
+            let mut line=String::new();
+            BufReader::new(conn).read_line(&mut line).await?;
+            Ok::<(),std::io::Error>(())
+        }).await;
+    });
 }
 
 /// `agy-hook <deny.json>`: allow or deny the pending tool call on stdin.

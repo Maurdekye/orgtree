@@ -21,6 +21,7 @@ pub mod global_instructions;
 pub mod history;
 pub mod helper_transcript;
 pub mod identity;
+pub mod interrupt;
 pub mod keepalive;
 pub mod live_usage;
 pub mod manual_mail;
@@ -88,7 +89,9 @@ pub enum AgentMsg {
     Session { pref: Option<crate::runtime::session_host::Pref>, use_id: Option<u32>, reply: oneshot::Sender<Value> },
     /// orgtree_interrupt on itself: end the running turn; `restart` wakes one
     /// new turn at once when it has ended
-    InterruptSelf { restart: bool, reply: oneshot::Sender<Value> },
+    InterruptFromAgent { caller: Caller, restart: bool, queued: bool, reply: oneshot::Sender<Value> },
+    /// AGY's private, process-bound held invocation callback.
+    InterruptBoundary { process: uuid::Uuid, reply: oneshot::Sender<Value> },
     Halt(oneshot::Sender<Value>),
     Unhalt(oneshot::Sender<Value>),
     /// a slash command typed on the desk (`/compact`, ...), sent to the CLI as is
@@ -116,7 +119,7 @@ pub enum AgentMsg {
     /// An attributed ACP session update or prompt completion.
     Acp(uuid::Uuid, Value),
     /// the PostToolUse hook: return waiting mail as additional context
-    Hook { input: Value, reply: oneshot::Sender<Value> },
+    Hook { process: uuid::Uuid, input: Value, reply: oneshot::Sender<Value> },
     /// Private owned-plugin channel. Identity-only request; no text in Debug.
     OpenCodeMail { owner: uuid::Uuid, input: opencode_mail::Request, reply: oneshot::Sender<Value> },
     ProcExited { process: uuid::Uuid, reason: String },

@@ -455,7 +455,7 @@ fn all() -> Vec<Value> {
 fn build_tool_org_logo() -> Value {
     tool(
         "orgtree_org_logo",
-        "Set/remove your org's Logo immediately; requires logo tools, no user/inbox audience. Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP; normalizes to square PNG ≤512px/256KiB. Optional crop fractions use 0..1 travel and 0.1..1 size. Remove restores the letter. Logged and undoable; returns no image bytes.",
+        "Set/remove your org's Logo immediately; requires logo tools, no user/inbox audience. Set reads a held local PNG/JPEG/WebP, â‰¤5 MiB and 16 MP; normalizes to square PNG â‰¤512px/256KiB. Optional crop fractions use 0..1 travel and 0.1..1 size. Remove restores the letter. Logged and undoable; returns no image bytes.",
         json!({
             "action": {"type":"string", "enum":["set","remove"]},
             "path": {"type":"string", "description":"set: local image file in your folders"},
@@ -514,7 +514,7 @@ fn build_tool_session() -> Value {
 fn build_tool_transfers() -> Value {
     tool(
         "orgtree_transfers",
-        "Inspect mail attachment transfers: list pages≤100, get by id. retry resumes failed/cancelled transfers; cancel stops the request and holds mail; remove omits a failed/cancelled outgoing file. Mail releases once every remaining file is ready. Success sends no notice.",
+        "Inspect mail attachment transfers: list pagesâ‰¤100, get by id. retry resumes failed/cancelled transfers; cancel stops the request and holds mail; remove omits a failed/cancelled outgoing file. Mail releases once every remaining file is ready. Success sends no notice.",
         json!({"action":{"type":"string","enum":["list","get","retry","cancel","remove"]},"id":{"type":"string"},"cursor":{"type":"string"}}),
         &["action"],
     )
@@ -577,7 +577,7 @@ fn build_tool_state_inspect() -> Value {
 fn build_tool_usage() -> Value {
     tool(
         "orgtree_usage",
-        "Read cached provider usage with exact account/provider/window filters; missing/stale stays explicit. refresh needs inspection+runtime, one explicit active account; floors 60s (Google 300) and provider cooldowns apply. No inference/account switch. Account pages≤100, windows/account≤64; truncation explicit.",
+        "Read cached provider usage with exact account/provider/window filters; missing/stale stays explicit. refresh needs inspection+runtime, one explicit active account; floors 60s (Google 300) and provider cooldowns apply. No inference/account switch. Account pagesâ‰¤100, windows/accountâ‰¤64; truncation explicit.",
         json!({
             "accounts":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
             "providers":{"type":"array","items":{"type":"string","enum":["claude","openai","google","muse","openrouter","langserver"]},"minItems":1,"maxItems":32},
@@ -631,10 +631,11 @@ fn build_tool_read_scratch() -> Value {
 fn build_tool_interrupt() -> Value {
     tool(
         "orgtree_interrupt",
-        "Interrupt a descendant agent with runtime permission, or yourself without it. Self restart=true starts one new turn by placement rules. Self-interrupt refuses while your CLI has background work. Waiting mail may wake later; no retirement.",
+        "Interrupt a descendant with runtime permission, or yourself without it. restart starts one next turn by placement rules. queued waits for Claude post-tool/AGY post-invocation hooks, or Codex/Muse/ACP completion notices (the next step may be cut off early). Background work refuses queued/restart. Inspect interrupt status; no retirement.",
         json!({
             "node": { "type": "string" },
-            "restart": { "type": "boolean", "description": "yourself only: start one new turn at once" },
+            "restart": { "type": "boolean", "description": "start one next turn after this turn settles" },
+            "queued": { "type": "boolean", "description": "wait for a completion boundary before interrupting this turn" },
         }),
         &["node"],
     )
@@ -738,7 +739,7 @@ fn build_tool_withdraw_ask() -> Value {
 fn build_tool_present() -> Value {
     tool(
         "orgtree_present",
-        "Present documents the user should READ (reports, plans, Markdown). project places it under a reachable project; members (nested included) need no user audience for their own project. Otherwise requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. Otherwise send to your superior.",
+        "Present documents the user should READ (reports, plans, Markdown). project places it under a reachable project; members (nested included) need no user audience for their own project. Otherwise requires user audience/top-level authority. body or .md pathâ‰¤64KiB; self-contained HTML pathâ‰¤4MiB, sandboxed without network. replaces updates a card. Otherwise send to your superior.",
         json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
                 "replaces": { "type": "string" },
                 "project": { "type": "string", "description": "a project's name: present under that project" } }),
@@ -1016,8 +1017,8 @@ fn build_tool_watchdog() -> Value {
             "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, (fair_queue, slot, project_listener, listener_watch) project name, (event) dotted event name/prefix ending in .*, (mqtt, needs your web tool) mqtt://host[:port] / mqtts://host[:port], or (websocket, needs your web tool) ws:// or wss:// URL" },
             "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line); (mqtt, required) the topic filter, + and # wildcards; (websocket) regex on text messages, optional = every message" },
             "interval_s": { "type": "integer", "minimum": 5, "description": "poll cadence (floor 15s); stream/activity/mqtt/websocket: the minimum gap between fires (floor 5s)" },
-            "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },
-            "once": { "type": "boolean", "description": "create: ONE-SHOT — fires once and removes itself" },
+            "notice": { "type": "boolean", "description": "create: fire passively â€” the mail waits without starting a turn" },
+            "once": { "type": "boolean", "description": "create: ONE-SHOT â€” fires once and removes itself" },
             "shell": { "type": "string", "enum": ["native", "bash"], "description": "create, command/stream only" },
             "id": { "type": "string", "description": "pause/resume/remove/send: the watchdog's id as `list` shows it (owner/id for a team member's dog)" },
             "reason": { "type": "string", "description": "remove: why (optional)" },
@@ -1043,8 +1044,8 @@ fn build_tool_work() -> Value {
             "title": { "type": "string", "description": "create/update: short concrete title (max 200)" },
             "objective": { "type": "string", "description": "create (REQUIRED) / update: the description and scope" },
             "objective_append": { "type": "string", "description": "update: text added to the end of the description" },
-            "kind": { "type": "string", "description": "create: code|non-code · evidence: note|link|file|commit|log" },
-            "owner": { "type": "string", "description": "create/assign: the owner (you or a subordinate) · update: the CURRENT owner, to leave it with them" },
+            "kind": { "type": "string", "description": "create: code|non-code Â· evidence: note|link|file|commit|log" },
+            "owner": { "type": "string", "description": "create/assign: the owner (you or a subordinate) Â· update: the CURRENT owner, to leave it with them" },
             "reviewer": { "type": "string", "description": "update: the agent that checks the work at review (never the owner)" },
             "status": { "type": "string", "description": "backlogged|open|in_progress|blocked|review|approved|deploy_ready|done|dropped" },
             "blocked_reason": { "type": "string", "description": "REQUIRED to enter blocked (max 2000)" },
@@ -1488,7 +1489,7 @@ mod builder_stack_tests {
         let mut expected: serde_json::Value = serde_json::from_slice(include_bytes!("../../testdata/tool-cards-c89111b.json")).unwrap();
         let present = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_present").unwrap();
         present["description"] = serde_json::json!(concat!(
-            "Present documents the user should READ (reports, plans, Markdown). project places it under a reachable project; members (nested included) need no user audience for their own project. Otherwise requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. Otherwise send to your superior.",
+            "Present documents the user should READ (reports, plans, Markdown). project places it under a reachable project; members (nested included) need no user audience for their own project. Otherwise requires user audience/top-level authority. body or .md pathâ‰¤64KiB; self-contained HTML pathâ‰¤4MiB, sandboxed without network. replaces updates a card. Otherwise send to your superior.",
             "\nGuide: orgtree-tool-present."
         ));
         // project slots (user 2026-10-18 08:37Z-08:42Z, docket
@@ -1635,7 +1636,7 @@ mod builder_stack_tests {
         // Approved node-placement contracts (bfa9369) and their concise wording.
         // Keep the captured required-field text and guide; schemas/order stay guarded.
         for (name, description) in [
-            ("orgtree_interrupt", "Interrupt a descendant agent with runtime permission, or yourself without it. Self restart=true starts one new turn by placement rules. Self-interrupt refuses while your CLI has background work. Waiting mail may wake later; no retirement."),
+            ("orgtree_interrupt", "Interrupt a descendant with runtime permission, or yourself without it. restart starts one next turn by placement rules. queued waits for Claude post-tool/AGY post-invocation hooks, or Codex/Muse/ACP completion notices (the next step may be cut off early). Background work refuses queued/restart. Inspect interrupt status; no retirement."),
             ("orgtree_halt", "Halt descendant agents until unhalt: stop processes, keep waiting mail and suppress wakes."),
             ("orgtree_unhalt", "Unhalt descendant agents; waiting mail may start their next turn."),
             ("orgtree_unstick", "Release a descendant agent's usage freeze and let it continue."),
@@ -1653,7 +1654,11 @@ mod builder_stack_tests {
         for name in ["orgtree_project", "orgtree_watchdog", "orgtree_audience", "orgtree_inbox", "orgtree_message"] {
             let want = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == name).unwrap();
             let got = actual.iter().find(|card| card["name"] == name).unwrap();
-            assert_eq!(*want, *got, "{name}: differs beyond the approved slot changes");
+            // User 2026-10-20: descendant restart and queued completion boundaries.
+        let interrupt=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_interrupt").unwrap();
+        interrupt["inputSchema"]["properties"]["restart"]=json!({"type":"boolean","description":"start one next turn after this turn settles"});
+        interrupt["inputSchema"]["properties"]["queued"]=json!({"type":"boolean","description":"wait for a completion boundary before interrupting this turn"});
+        assert_eq!(*want, *got, "{name}: differs beyond the approved slot changes");
             *want = got.clone();
         }
         // Approved fast-mode additions: one card after hire and one shared

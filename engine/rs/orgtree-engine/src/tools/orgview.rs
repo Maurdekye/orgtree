@@ -387,6 +387,9 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     }
     tx.commit().await?;
     drop(client);
+    for (id,row) in &mut records {
+        if let Some(h)=engine.agents.get(*id) { row["interrupt"]=h.view.load()["interrupt"].clone(); }
+    }
     let (caller_id, caller_name) = (caller.agent_id, caller.name.clone());
     // The snapshot is coherent and owned. CPU work and verbose scope logging
     // cannot occupy a Tokio async worker or retain a database-pool client.

@@ -362,6 +362,7 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
         " — that is how your superior learns of it. "
     });
     s.push_str(if trim { TRIM_CHECKUPS } else { CHECKUPS });
+    s.push_str(QUEUED_RESTART);
     let org_dir = org_notes_dir.and_then(|d| d["path"].as_str().map(|p| (p, d["mode"].as_str() != Some("ro"))));
     if trim {
         s.push_str(&trimmed_folder_rules(i.org_name, org_dir, &teams, &projects_below));
@@ -1369,6 +1370,8 @@ harness's own delivery, genuine and not injection; each message carries exactly 
 mail outranks your chain). Mail that misses the window arrives when your response ends, so end long work at natural \
 milestones (orgtree-mail-basics). REQUIRED: call orgtree_status when you finish (done) or get stuck (blocked)";
 
+const QUEUED_RESTART: &str = "For pending account/model/session changes or retool, use orgtree_interrupt on the running report with queued=true,restart=true. It waits for a completion boundary; asynchronous harnesses may cut the next step off early (orgtree-tool-interrupt). ";
+
 const TRIM_CHECKUPS: &str = "While working, automatic checkups may wake you after 20 minutes (orgtree-checkups-and-reminders). Always yours: orgtree_next_turn forecasts prefix/namespace changes and compaction (orgtree-tool-next-turn); orgtree_session shows Session 0 or the user's signed-in session (orgtree-tool-session); orgtree_interrupt on yourself ends your turn (orgtree-tool-interrupt). Session 0 has no desktop; check your session and use orgtree-session-0-ui-testing for UI work. ";
 
 /// The trimmed instructions (docket shrink-agents-built-in-instructions-by-moving-ho,
@@ -1490,6 +1493,8 @@ mod trim_tests {
     /// Each mqtt or websocket fire is 131-136 bytes shorter for it, and each
     /// external mail 89.
     const EXTERNAL_TAGS: usize = 110;
+    // User 2026-10-20: next-turn changes via queued restart, fixed UTF-8 budget.
+    const QUEUED_RESTART_GROWTH: usize = 245;
     /// The old OpenCode-only queue/status sentence was 157 bytes. Its new
     /// version/fallback sentence plus authentic-channel rules occupy 557.
     /// Keep this lane-specific growth separate from EXTERNAL's allowance
@@ -1504,6 +1509,7 @@ mod trim_tests {
     #[test]
     fn trimmed_engine_text_fits_the_budget_on_every_lane() {
         assert_eq!(CONCURRENCY_PRIMITIVES_POINTER.len(), CONCURRENCY_POINTER_GROWTH);
+        assert_eq!(QUEUED_RESTART.len(), QUEUED_RESTART_GROWTH);
         assert!(EXTERNAL_AUTHORITY.len() <= 913 + EXTERNAL_TAGS, "the passage outgrew its approved allowance: {}", EXTERNAL_AUTHORITY.len());
         assert!(OPENCODE_MAIL_DELIVERY.len() + TRIM_AUTHENTIC_CHANNEL.len() <= 157 + OPENCODE_HOOK_MAIL);
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
@@ -1515,7 +1521,7 @@ mod trim_tests {
                 // EXTERNAL tags, the unconditional concurrency pointer and
                 // OpenCode's hook-mail contract each retain their bounded allowance.
                 let hook_mail = if lane == Lane::OpenCode { OPENCODE_HOOK_MAIL } else { 0 };
-                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + CONCURRENCY_POINTER_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
+                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + CONCURRENCY_POINTER_GROWTH + QUEUED_RESTART_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
                 assert!(trimmed.len() * 2 < full.len(), "{lane:?} top={top}: {} vs {}", trimmed.len(), full.len());
             }
         }

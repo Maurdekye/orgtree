@@ -158,12 +158,16 @@ impl AgyProc {
         let pipe_name = crate::bridge::serve(engine.clone(), caller.clone(), pipe.clone(), crate::tools::defs::MailShape::Flat)?;
         write_workspace(&spec, &pipe_name, &engine.cfg.data_root)?;
         if let Some(failure) = crate::providers::agy_auth::blocked_for(&engine, &spec.login) { return Err(failure.into()); }
-        let (started, hosted) = session_host::spawn(&engine, spec.host, false, caller.agent_id, "Antigravity", |_| Ok(command(&spec)))
+        let process = uuid::Uuid::new_v4();
+        let (started, hosted) = session_host::spawn(&engine, spec.host, false, caller.agent_id, "Antigravity", |_| {
+            let mut cmd=command(&spec);
+            cmd.env("ORGTREE_INTERRUPT_PIPE",&pipe_name).env("ORGTREE_INTERRUPT_PROCESS",process.to_string());
+            Ok(cmd)
+        })
             .await
             .with_context(|| format!("could not start {}", spec.exe.display()))?;
         let session_host::Started { io, launched: child, job, pid } = started;
         let job = job.map(Arc::new);
-        let process = uuid::Uuid::new_v4();
         tracing::info!(agent = caller.agent_id, pid, %process, provider = "Agy", hosted, "CLI started");
         let session_host::Io { mut stdin, stdout, stderr } = io;
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
