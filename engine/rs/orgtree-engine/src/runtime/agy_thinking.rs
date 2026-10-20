@@ -454,4 +454,48 @@ mod tests {
         Connection::open(&f.db).unwrap().execute_batch("ALTER TABLE steps RENAME TO old_steps; CREATE TABLE steps(idx INTEGER,step_payload BLOB)").unwrap();
         assert_eq!(read_history(&f.root, SESSION, 1), Err(Skip::Schema));
     }
+
+    #[test]
+    fn live_wal_reads_committed_step_while_writer_keeps_uncommitted_changes() {
+        let f = Fixture::new(SESSION);
+        f.step(1, "synthetic checkpointed step");
+        let writer = Connection::open(&f.db).unwrap();
+        writer.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;").unwrap();
+        writer.execute("INSERT INTO steps VALUES(6,15,0,?1,0)",
+            [bytes(20,&bytes(3,b"synthetic committed WAL step"))]).unwrap();
+        let wal = PathBuf::from(format!("{}-wal",f.db.display()));
+        assert!(std::fs::metadata(&wal).unwrap().len()>0);
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        writer.execute("UPDATE steps SET step_payload=?1 WHERE idx=6",
+            [bytes(20,&bytes(3,b"synthetic next commit"))]).unwrap();
+        writer.execute("INSERT INTO steps VALUES(7,15,0,?1,0)",
+            [bytes(20,&bytes(3,b"synthetic uncommitted step"))]).unwrap();
+        let before_db=std::fs::read(&f.db).unwrap();
+        let before_wal=std::fs::read(&wal).unwrap();
+        let start=std::time::Instant::now();
+        assert_eq!(read_history(&f.root,SESSION,6),Ok(Some("synthetic committed WAL step".into())));
+        assert_eq!(read_history(&f.root,SESSION,7),Ok(None),"uncommitted data must remain invisible");
+        assert!(start.elapsed()<std::time::Duration::from_secs(1));
+        assert_eq!(std::fs::read(&f.db).unwrap(),before_db,"reader never modifies the database");
+        assert_eq!(std::fs::read(&wal).unwrap(),before_wal,"reader never modifies the WAL");
+        writer.execute_batch("COMMIT").unwrap();
+        assert_eq!(read_history(&f.root,SESSION,6),Ok(Some("synthetic next commit".into())));
+        assert_eq!(read_history(&f.root,SESSION,7),Ok(Some("synthetic uncommitted step".into())));
+        assert_eq!(read_history(&f.root,SESSION,5),Ok(None),"exact index matching is unchanged");
+    }
+    #[test]
+    fn rollback_journal_is_not_recovered_or_waited_on() {
+        let f=Fixture::new(SESSION);
+        f.step(1,"synthetic checkpointed step");
+        let writer=Connection::open(&f.db).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE; UPDATE steps SET status=1 WHERE idx=1").unwrap();
+        let journal=PathBuf::from(format!("{}-journal",f.db.display()));
+        assert!(std::fs::metadata(&journal).unwrap().len()>0);
+        let before=std::fs::read(&journal).unwrap();
+        let start=std::time::Instant::now();
+        assert_eq!(read_history(&f.root,SESSION,1),Err(Skip::Unavailable));
+        assert!(start.elapsed()<std::time::Duration::from_secs(1));
+        assert_eq!(std::fs::read(&journal).unwrap(),before);
+        writer.execute_batch("ROLLBACK").unwrap();
+    }
 }
