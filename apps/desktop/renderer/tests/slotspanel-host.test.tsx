@@ -18,7 +18,7 @@ test('standalone slots reuses its live view, handles disabled capacity and close
     toast={noop} close={()=>closed++}/></CurrentOrg.Provider>
   const v=await mountView(render(node()),el=>el);t.after(async()=>{await v.unmount();reset()})
   await inAct(()=>flush(3));assert.equal(reads,1)
-  assert.deepEqual([...document.querySelectorAll('.project-slots h4')].map(e=>e.textContent),['Holding','Line','Recent holds'])
+  assert.deepEqual([...document.querySelectorAll('.project-slots h4')].map(e=>e.textContent),['Holding','Line','Recently Held'])
   assert.ok(document.querySelector('button[title="Open in new window"]'),'standard pop-out control')
   await v.render(render(node(0)));assert.match(document.body.textContent??'',/This project has no concurrency slots/)
   assert.equal(document.querySelector('.project-slots')===null,true);assert.equal(reads,1)

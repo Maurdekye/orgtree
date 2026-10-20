@@ -958,9 +958,9 @@ test("§11a the temporary project desk has the agent desk's ONE title bar: folde
   assert.ok(bar.querySelector('button.modalpin-btn[aria-label="pin this to the window"]'), 'pin')
   assert.equal(bar.querySelector('button.popout-button') === null, true, 'no pop-out in the title bar')
   assert.ok(document.querySelector('.project-desk-modal .cc-head-right button.popout-button'), 'the pop-out beside the tabs, as on the agent desk')
-  const x = bar.querySelector<HTMLButtonElement>('button.modalpin-x')
-  assert.ok(x, 'close')
-  await inAct(() => { x!.click() })
+  assert.equal(bar.querySelector('button.modalpin-x') === null, true,
+    'centered modals use Escape/backdrop dismissal (ec44759)')
+  await inAct(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
   assert.equal(closed, 1)
 })
 
@@ -996,8 +996,9 @@ test("§11c the editable description shows it is clickable: the theme's hover ba
 })
 
 declare const __SRC_DIR__: string
-test("§8g the activity line stays inside the card: the meta row wraps, and the word truncates before the clock (user 2026-10-18 10:51Z)", () => {
-  assert.equal(cssLast('flex-wrap', '.sq.project .project-meta'), 'wrap', "'Active 80s' drops under the chip instead of running off the card")
+test("§8g the activity line stays inside the one-line meta row, with its word yielding before the clock (user 2026-10-19 18:47Z)", () => {
+  assert.equal(cssLast('flex-wrap', '.sq.project .project-meta'), 'nowrap', 'count and age share one line')
+  assert.equal(cssLast('flex', '.sq.project .project-meta .project-last-activity'), '1 1 0', 'the activity yields within the shared line')
   assert.equal(cssLast('min-width', '.project-last-activity'), '0')
   assert.equal(cssLast('max-width', '.project-last-activity'), '100%')
   assert.equal(cssLast('overflow', '.project-last-activity'), 'hidden', 'alone on its line and still too long: clipped, never past the edge')
