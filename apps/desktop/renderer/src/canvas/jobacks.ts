@@ -13,17 +13,20 @@ export interface AckJobDeps {
   row: MailRow
   /** the reply text, when there is one */
   reply?: string
+  /** files staged on the reply and whether it was armed as a passive notice (the composer's own choices) */
+  attachments?: string[]
+  notice?: boolean
   /** send `text` to the job's sender as a reply to `row`; resolves with the sent mail's id */
-  sendReply: (row: MailRow, text: string) => Promise<{ id?: string | null }>
+  sendReply: (row: MailRow, text: string, opts?: { attachments?: string[]; notice?: boolean }) => Promise<{ id?: string | null }>
   /** the engine's `user_job_ack` for the job's mail (`copy`), naming the reply mail if any */
   ack: (copy: string, reply?: string) => Promise<unknown>
 }
 
-export async function acknowledgeJob({ row, reply, sendReply, ack }: AckJobDeps): Promise<void> {
+export async function acknowledgeJob({ row, reply, attachments, notice, sendReply, ack }: AckJobDeps): Promise<void> {
   if (!row.id) throw new Error('this job has no mail id to acknowledge')
   let replyId: string | undefined
   if (reply) {
-    const receipt = await sendReply(row, reply)
+    const receipt = await sendReply(row, reply, { attachments, notice })
     replyId = receipt.id ?? undefined
   }
   await ack(row.id, replyId)

@@ -110,7 +110,7 @@ export interface MailListProps {
    *  acknowledge a job the project's mail queue handed the user, with the reply
    *  to its sender when there is one. Present, a job of an ACK-mode queue shows
    *  the acknowledge pane in place of the reply box (`JobAckPane`). */
-  onAckJob?: (m: MailRow, reply?: string) => Promise<unknown>
+  onAckJob?: (m: MailRow, reply?: string, opts?: { attachments?: string[]; notice?: boolean }) => Promise<unknown>
   onRetract?: (m: MailRow) => void
   /** User-inbox-only permanent deletion. Other MailList surfaces omit it. */
   onDeleteUserMail?: (m: MailRow) => void
@@ -719,7 +719,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
                 setReplyTargets(current => current.filter(m => !targets.some(t => t.id === m.id)))
               }
               : undefined}
-            onAckJob={onAckJob && !outgoing && cur.queue?.job ? (reply) => onAckJob(cur, reply) : undefined}
+            onAckJob={onAckJob && !outgoing && cur.queue?.job ? (reply, opts) => onAckJob(cur, reply, opts) : undefined}
             toast={toast} onTag={tagFilter ? tag=>tagFilter.onChange(toggleMailTag(tagFilter.selected,tag)):undefined} />
         )}
         {!cur && (
@@ -965,7 +965,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
   custom?: ReactNode | null
   onReply?: (text: string, attachments?: string[], notice?: boolean) => Promise<unknown> | void
   /** acknowledge this mail as a job the project's queue handed the user (the user's inbox) */
-  onAckJob?: (reply?: string) => Promise<unknown>
+  onAckJob?: (reply?: string, opts?: { attachments?: string[]; notice?: boolean }) => Promise<unknown>
   toast?: ToastFn
 }) {
   const profile = 'operator'
@@ -1065,7 +1065,8 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
       )}
       {/* a job the project's queue handed the user (ACK mode): acknowledged here, in place of the
           reply box until it is; once acknowledged it says so and the reply box returns */}
-      {onAckJob && needsAck(cur.queue?.job) && <JobAckPane job={cur.queue!.job!} onAck={onAckJob} />}
+      {onAckJob && needsAck(cur.queue?.job) && <JobAckPane job={cur.queue!.job!} onAck={onAckJob}
+        target={outgoing ? cur.to : cur.from} slug={org ?? refs?.world.org} toast={toast} />}
       {onReply && !(onAckJob && needsAck(cur.queue?.job) && !cur.queue!.job!.acked_at) && (
         /* ⚠ `org ?? refs?.world.org` — THE SAME RESOLUTION THE HEAD USES
            (above, and the body's `imgBase`). `org` is an OPTIONAL prop, and
@@ -1096,7 +1097,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
  *  prop is needed beyond `slug`, which callers did not previously have to
  *  pass because nothing here touched the API layer directly. */
 export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false,
-  toast, broadcast }: {
+  toast, broadcast, sendLabel = 'reply', sendTitle, below }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
    *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
@@ -1111,6 +1112,11 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   toast?: ToastFn
   /** Present only for a project presentation reader. */
   broadcast?: { project: string; members: number }
+  /** the send button's words and tooltip when sending does more than reply (an ack job: reply & acknowledge) */
+  sendLabel?: string
+  sendTitle?: string
+  /** a row under the box, right-aligned (the ack job's "Acknowledge without reply") */
+  below?: ReactNode
 }) {
   const [draft, setDraft] = useState('')
   const taRef = useRef<HTMLTextAreaElement | null>(null)
@@ -1287,9 +1293,9 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             positional match silently pick the wrong element instead of
             failing loudly, which is worse */}
         <button className="mail-reply-send"
-          title={enterKey.hint}
+          title={sendTitle ? `${sendTitle} (${enterKey.hint})` : enterKey.hint}
           disabled={(!draft.trim() && !attached.length) || sendDisabled || staging.rows.length>0} onClick={send}>
-          reply
+          {sendLabel}
         </button>
       </div>
       {sendState && (
@@ -1301,6 +1307,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
               + (sendState.state === 'sending' ? '…' : '')}
         </div>
       )}
+      {below && <div className="mail-reply-below">{below}</div>}
     </>
   )
 }

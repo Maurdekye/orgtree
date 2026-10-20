@@ -3028,9 +3028,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   }}
                   /* a job the project's queue handed the user: reply to its sender, then
                      acknowledge it (the reply's id is kept as the completion record) */
-                  onAckJob={(m: MailEntry, reply?: string) => acknowledgeJob({
-                    row: m, reply,
-                    sendReply: (row, text) => sendLinkedReply(slug, row.from, text, { kind: 'mail', org: slug, box: 'user', id: row.id! }),
+                  onAckJob={(m: MailEntry, reply?: string, opts?: { attachments?: string[]; notice?: boolean }) => acknowledgeJob({
+                    row: m, reply, attachments: opts?.attachments, notice: opts?.notice,
+                    sendReply: (row, text, o) => sendLinkedReply(slug, row.from, text, { kind: 'mail', org: slug, box: 'user', id: row.id! }, o?.attachments, o?.notice),
                     ack: (copy, replyId) => runOp(slug, { op: 'user_job_ack', copy, ...(replyId ? { reply: replyId } : {}) }),
                   }).then(() => {
                     setAckedJobs((old) => ({ ...old, [m.id]: new Date().toISOString() }))

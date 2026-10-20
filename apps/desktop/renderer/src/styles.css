@@ -9895,6 +9895,18 @@ button.node-link.node-link:focus-visible {
 .register-panel > .desk-count { margin-top: 3px; padding-top: 6px; border-top: 1px solid var(--line-soft); }
 .register-panel > .desk-count > button { flex: 1; padding: 5px 10px; text-align: left; }
 .register-panel > .desk-count > input[type="number"] { width: 4.4em; }
+.job-ack { display: flex; flex-direction: column; }
 .job-ack.acked { flex-direction: row; flex-wrap: wrap; gap: 4px; font-size: 12px; }
+/* a queued job's reply pane: the warning, then the ordinary composer (send reads "reply & acknowledge"), then the
+   skip action under it, right-aligned in the composer's own button style */
+.mail-reply-send { white-space: nowrap; }
+.mail-reply-below { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+.job-ack-skip {
+  background: var(--input); border: 1px solid var(--line); border-radius: 6px; color: var(--ink);
+  font-size: 12px; padding: 4px 10px;
+}
+.job-ack-skip:not(:disabled):hover { border-color: var(--accent); }
+.job-ack-skip:disabled { opacity: .55; }
+.job-ack-error { color: var(--danger-ink); font-size: 11px; margin-top: 3px; }
 .job-ack-done { color: var(--accent); font-weight: 600; }
 .queuekind.job-kind { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
