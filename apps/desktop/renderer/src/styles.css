@@ -6348,8 +6348,22 @@ svg.MuiSvgIcon-root {
 .cc-broadcast-toggle:hover { color: var(--agent-accent-text, var(--accent)); border-color: var(--button-accent); }
 .cc-broadcast-toggle.armed { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .cc-broadcast-toggle:disabled { opacity: .5; cursor: not-allowed; }
-/* at the desk's foot under every tab, as the agent desk's composer sits */
-.project-desk .attach-row:has(+ .project-composer), .project-desk .project-composer:not(.attach-row + .project-composer) { margin-top: auto; }
+/* at the desk's foot under every tab, as the agent desk's composer sits; a
+   staged attachment row and the inbox note above the box ride with it */
+.project-desk .attach-row:has(+ .project-composer), .project-desk .attach-row:has(+ .inbox-no-listeners + .project-composer),
+.project-desk .inbox-no-listeners:not(.attach-row + .inbox-no-listeners),
+.project-desk .project-composer:not(.attach-row + .project-composer):not(.inbox-no-listeners + .project-composer) { margin-top: auto; }
+/* the inbox has no listeners (canvas/inboxwarning.tsx, user 2026-10-20
+   11:04Z): the agent desk's yellow warning band, right above the box */
+.inbox-no-listeners {
+  display: flex; align-items: flex-start; gap: 6px; flex: none; min-width: 0;
+  margin-bottom: 4px; padding: 4px 8px; border: 1px solid; border-radius: 6px;
+  font-size: 11px; line-height: 1.35; overflow-wrap: anywhere;
+  color: var(--warn, #e5c07b);
+  border-color: color-mix(in srgb, var(--warn, #e5c07b) 68%, var(--line));
+  background: color-mix(in srgb, var(--warn, #e5c07b) 10%, transparent);
+}
+.inbox-no-listeners svg { flex: none; margin-top: 1px; }
 .cc-composer.project-composer.broadcast-armed {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);

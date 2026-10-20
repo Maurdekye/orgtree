@@ -60,6 +60,7 @@ import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
 import { listenerCards, mailListenerState, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import { MailListenersView } from './maillisteners'
+import { InboxNoListeners } from './inboxwarning'
 import { DeskJumpCards, superiorKept } from './deskjumpcards'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
@@ -498,6 +499,8 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
               onClick={() => setAttached((x) => x.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
           </span>))}
     </div>}
+    {/* nobody listens on the inbox: say so before the user sends (user 2026-10-20 11:04Z) */}
+    {node.state === 'live' && !megaphone && <InboxNoListeners project={node.id} dogs={tree.watchdogs ?? []} />}
     <div className={'cc-composer project-composer' + (can ? '' : ' off') + (notice ? ' notice-armed' : '')
       + (megaphone ? ' broadcast-armed' : '') + (urgentMail ? ' urgent-armed' : '')} onClick={focusComposerBackground}>
       {mentions.menu}
