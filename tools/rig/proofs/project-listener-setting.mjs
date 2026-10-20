@@ -89,6 +89,9 @@ export default async function (rig) {
 
   // ------------------------------------------------------------ an agent's registration switches it on
   const first = await listen('la', 'la-ear', 'ls')
+  // the tree is the feed's, refreshed just after the create commits
+  await rig.waitFor(async () => (await treeNode('ls'))?.configured_scope?.event_listeners === true,
+    { what: 'the tree says on', timeout: 15000 }).catch(() => {})
   p.check('the first listener an agent arms switches them ON, and its create result says so',
     first.ok && /turned them on/.test(first.text) && (await setting('ls')) === true
     && (await treeNode('ls'))?.configured_scope?.event_listeners === true, { said: said(first), settings: await settings('ls') })
