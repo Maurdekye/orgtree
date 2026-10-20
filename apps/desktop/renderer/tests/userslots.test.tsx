@@ -200,6 +200,18 @@ test('§1 a count that is not a whole number keeps the button grey', async (t) =
   assert.equal(holdControl(v.el).input!.value, '3', 'four is brought down to the three slots')
 })
 
+test('§1 the help text of the old dialog is the control\'s tooltip', async (t) => {
+  const v = await mountHold({ status: rows(0, 0) }, [])
+  t.after(() => v.unmount())
+  const { input, button } = holdControl(v.el)
+  const tip = button!.getAttribute('title') ?? ''
+  assert.match(tip, /first come first served/i, 'it waits in the line like an agent\'s claim')
+  assert.match(tip, /all .*free|whole/i, 'and is granted when all the requested slots are free together')
+  assert.match(tip, /until .*released/i, 'it lasts until released')
+  assert.match(tip, /restart/i, 'across a restart too')
+  assert.ok((input!.getAttribute('title') ?? '').length > 0, 'the input says what the number is')
+})
+
 test('§1 no Hold control on a retired project', async (t) => {
   const v = await mountHold({ status: rows(0, 0) }, [], { state: 'archived' })
   t.after(() => v.unmount())

@@ -18,6 +18,10 @@
 //   §4 a count that is not a whole number holds nothing; one outside 1..20 is
 //      brought into it
 //   §5 no control on a retired project; nothing in it says "you"
+//   §7 the old dialog's help text is the control's tooltip: jobs arrive as normal
+//      mail in the inbox; ack mode says to acknowledge each, round-robin says no
+//      acknowledgement is needed (USER 16:43Z: "keep the helptext in the hover
+//      tooltips")
 //   §6 the inbox's folder strip carries the control while its folder is open,
 //      after the folder buttons (the corner's pin / pop-out / modal buttons sit
 //      at the strip's right end)
@@ -55,9 +59,9 @@ const control = (root: ParentNode) => ({
   input: root.querySelector<HTMLInputElement>('.queue-join input[type="number"]'),
   button: root.querySelector<HTMLButtonElement>('.queue-join [data-action="join-queue"]'),
 })
-function view(dogs: Watchdog[], requests: OpRequest[], toasts: string[][] = [], extra: Record<string, unknown> = {}) {
+function view(dogs: Watchdog[], requests: OpRequest[], toasts: string[][] = [], extra: Record<string, unknown> = {}, ack = true) {
   const op = async (req: OpRequest): Promise<OpResult> => { requests.push(req); return { ok: true } as unknown as OpResult }
-  return <MailQueueJoin node={node(extra)} state={mailListenerState('jobs', dogs)} op={op} toast={(m) => { toasts.push(m as string[]) }} />
+  return <MailQueueJoin node={node(extra)} state={mailListenerState('jobs', dogs)} ack={ack} op={op} toast={(m) => { toasts.push(m as string[]) }} />
 }
 
 test('§1 the label names the batch: once, twice, N times', () => {
@@ -169,4 +173,18 @@ test('§6 the inbox folder strip carries the control while that folder is open, 
   const inbox = [...strip.querySelectorAll<HTMLButtonElement>('button')].find((b) => /^inbox/.test(b.textContent ?? ''))!
   await inAct(async () => { inbox.click(); await flush(4) })
   assert.ok(!v.el.querySelector('#tools'), 'gone while another folder is open')
+})
+
+test('§7 the help text of the old dialog is the control\'s tooltip', async (t) => {
+  const acked = await mountView(view([devDog], [], [], {}, true), (el) => el)
+  t.after(() => acked.unmount())
+  const tip = (root: ParentNode) => control(root).button!.getAttribute('title') ?? ''
+  assert.match(tip(acked.el), /normal mail in your inbox/i, 'where the jobs arrive')
+  assert.match(tip(acked.el), /acknowledge/i, 'ACK mode: each job is acknowledged')
+  assert.match(tip(acked.el), /held until|stays held/i, 'a held job stays held, even after leaving')
+  assert.ok((control(acked.el).input!.getAttribute('title') ?? '').length > 0, 'the input says what the number is')
+  const rr = await mountView(view([devDog], [], [], {}, false), (el) => el)
+  t.after(() => rr.unmount())
+  assert.match(tip(rr.el), /round-robin/i)
+  assert.doesNotMatch(tip(rr.el), /acknowledge each/i, 'a round-robin queue needs no acknowledgement')
 })
