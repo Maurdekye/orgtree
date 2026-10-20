@@ -1,25 +1,31 @@
 // userslots.test.tsx — the Slots tab lets the user hold slots themselves
 // (docket let-the-user-manually-hold-a-number-of-a-project; USER 2026-10-20
 // 13:03Z "allow the user to manually hold a number of slots themselves",
-// 13:22Z "B, and yes to all three": a focused dialog, a hold that waits in the
-// line FIFO and is granted whole, a hold that lasts until released; 13:50Z:
-// the user shows as the standard @user mention, never "you").
+// 13:22Z "B, and yes to all three": a hold that waits in the line FIFO and is
+// granted whole, a hold that lasts until released; 13:50Z: the user shows as
+// the standard @user mention, never "you"; 16:35Z, docket
+// slots-tab-header-hold-n-slots-button-with-number: the control moves into the
+// desk header, left of the pin / pop-out / modal buttons, with a number input
+// and a button that holds at once).
 //
 // WHAT THIS FILE HOLDS THE CODE TO:
-//   §1 the tab offers "Hold slots…" while the project is live; its dialog asks
-//      for a count (1 to the project's slots) and an optional reason and
-//      sends user_slot_hold
+//   §1 the desk header offers a number input (default 1) and a button "Hold 1
+//      slot" / "Hold N slots" while the project is live: a click sends
+//      user_slot_hold at once, no dialog; the count runs from 1 to the total
+//      minus the slots the user holds or has asked for (a waiting request
+//      counts, an agent's hold does not); the button is grey when none is left
 //   §2 the user's rows wear the @user chip (Holding, Line, Recently Held);
 //      the user releases their own hold (a plain release, no force, no
 //      confirmation) and cancels their own waiting request; an agent's rows
 //      keep force release and remove from line
-//   §3 nothing on the tab says "you"
+//   §3 nothing on the tab says "you", the header control included
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs userslots
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { flush, inAct, mountView } from './harness'
+import type { ReactNode } from 'react'
 import { SlotsView } from '../src/canvas/slotsdesk'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
 
@@ -68,53 +74,136 @@ const setInput = (el: HTMLInputElement | HTMLTextAreaElement, value: string) => 
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')
 const button = (root: ParentNode, label: RegExp) => [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => label.test(b.textContent ?? ''))
 
-test('§1 the tab offers Hold slots, and its dialog sends user_slot_hold', async (t) => {
+// the header's Hold control: the slot_status the test serves can be swapped between reads
+// (`held` slots the user holds, `waiting` slots they have requested, `agent` slots an agent holds)
+const rows = (held: number, waiting: number, agent = 0) => ({
+  project: 'build', slots: 3, held: held + agent,
+  holders: [
+    ...(held ? [{ lease: 'sU', agent: 'user', slots: held, since: '2026-10-20T09:00:00Z' }] : []),
+    ...(agent ? [{ lease: 'sD', agent: 'dev', slots: agent, since: '2026-10-20T09:30:00Z' }] : []),
+  ],
+  line: waiting ? [{ position: 1, agent: 'user', dog: 'u9', slots: waiting, since: '2026-10-20T10:00:00Z' }] : [],
+  history: [], history_next: null,
+})
+const bareState = { total: 3, held: [], line: [] }
+async function mountHold(box: { status: unknown }, requests: OpRequest[], extra: Record<string, unknown> = {}, toasts: string[][] = [], actions?: ReactNode) {
+  const op = async (req: OpRequest): Promise<OpResult> => {
+    requests.push(req)
+    return (req.op === 'slot_status' ? box.status : { ok: true }) as unknown as OpResult
+  }
+  const v = await mountView(<SlotsView node={node(extra)} state={bareState} map={new Map()} op={op}
+    toast={(m) => { toasts.push(m as string[]) }} refs={refs} actions={actions} />, (el) => el)
+  await inAct(async () => { await flush(6) })
+  return v
+}
+const holdControl = (root: ParentNode) => ({
+  group: root.querySelector<HTMLElement>('.slot-hold'),
+  input: root.querySelector<HTMLInputElement>('.slot-hold input[type="number"]'),
+  button: root.querySelector<HTMLButtonElement>('.slot-hold [data-action="hold-slots"]'),
+})
+
+test('§1 the Hold control sits in the header, left of the pin / pop-out / modal buttons, not in the tab body', async (t) => {
+  const corner = <span id="corner" className="panel-corner">corner</span>
+  const v = await mountHold({ status: rows(0, 0) }, [], {}, [], corner)
+  t.after(() => v.unmount())
+  const bar = v.el.querySelector<HTMLElement>('[role="toolbar"]')!
+  assert.ok(bar, 'the header toolbar')
+  const { group, input, button } = holdControl(bar)
+  assert.ok(group && input && button, 'a number input and a Hold button in the header')
+  const cornerEl = bar.querySelector('#corner')!
+  assert.ok(group.compareDocumentPosition(cornerEl) & 4, 'directly before the window buttons')
+  assert.ok(!v.el.querySelector('.slots-table-scroll [data-action="hold-slots"]'), 'nothing in the tab body')
+  assert.ok(!v.el.querySelector('.user-reg-tools'), 'the old body strip is gone')
+  assert.equal(input.type, 'number')
+  assert.equal(input.value, '1', 'the count starts at 1')
+  assert.equal(input.min, '1')
+  assert.equal(input.max, '3')
+  assert.equal(button.textContent, 'Hold 1 slot')
+})
+
+test('§1 the Hold control also shows where the tab has no window buttons of its own (the standalone modal)', async (t) => {
+  const v = await mountHold({ status: rows(0, 0) }, [])
+  t.after(() => v.unmount())
+  const { group, button } = holdControl(v.el)
+  assert.ok(group && button, 'the control without actions')
+  assert.ok(group.closest('[role="toolbar"]'), 'still in a header toolbar')
+})
+
+test('§1 the button names the count and a click holds at once: no dialog', async (t) => {
   const requests: OpRequest[] = []
   const toasts: string[][] = []
-  const v = await mount(requests, {}, toasts)
+  const v = await mountHold({ status: rows(0, 0) }, requests, {}, toasts)
   t.after(() => v.unmount())
-  const open = v.el.querySelector<HTMLButtonElement>('[data-action="hold-slots"]')
-  assert.ok(open, 'a Hold slots control on the tab')
-  assert.match(open.textContent ?? '', /Hold slots/)
-  assert.ok(!dialog(), 'the form is a dialog, not inline')
-  await inAct(async () => { open.click() })
-  const box = dialog()
-  assert.ok(box, 'a focused dialog opens')
-  assert.match(box.textContent ?? '', /Hold slots/)
-  const count = box.querySelector<HTMLInputElement>('input[type="number"]')!
-  assert.equal(count.min, '1')
-  assert.equal(count.max, '3', 'at most the project\'s slots')
-  const reason = box.querySelector<HTMLInputElement>('input[type="text"], textarea')!
-  await inAct(async () => { setInput(count, '2'); setInput(reason, 'signing run') })
-  await inAct(async () => { button(box, /^Hold slots$/)!.click(); await flush(4) })
-  const sent = requests.find((r) => r.op === 'user_slot_hold')
-  assert.deepEqual(sent, { op: 'user_slot_hold', node: 'build', slots: 2, reason: 'signing run' })
+  const { input, button } = holdControl(v.el)
+  await inAct(async () => { setInput(input!, '2') })
+  assert.equal(button!.textContent, 'Hold 2 slots', 'the label follows the number')
+  await inAct(async () => { setInput(input!, '1') })
+  assert.equal(button!.textContent, 'Hold 1 slot', 'singular for one')
+  await inAct(async () => { setInput(input!, '2') })
+  await inAct(async () => { button!.click(); await flush(4) })
+  assert.ok(!dialog(), 'no dialog opens')
+  assert.deepEqual(requests.find((r) => r.op === 'user_slot_hold'), { op: 'user_slot_hold', node: 'build', slots: 2 })
   assert.ok(requests.filter((r) => r.op === 'slot_status').length >= 2, 'the tab re-reads after the hold')
-  assert.ok(toasts.some((m) => /hold|slot/i.test(m.join(' '))), 'the user is told')
-  assert.ok(!dialog(), 'the dialog closes')
+  assert.ok(toasts.some((m) => /slot/i.test(m.join(' '))), 'the user is told')
+  assert.equal(holdControl(v.el).input!.value, '1', 'the count goes back to 1')
 })
 
-test('§1 the dialog refuses a count outside the project\'s slots', async (t) => {
+test('§1 the count runs from 1 to the total minus what the user holds or has asked for; an agent\'s hold does not reduce it', async (t) => {
+  const box = { status: rows(0, 0, 2) as unknown }
   const requests: OpRequest[] = []
-  const v = await mount(requests)
+  const v = await mountHold(box, requests)
   t.after(() => v.unmount())
-  await inAct(async () => { v.el.querySelector<HTMLButtonElement>('[data-action="hold-slots"]')!.click() })
-  const box = dialog()!
-  const count = box.querySelector<HTMLInputElement>('input[type="number"]')!
-  for (const bad of ['0', '4', '', '1.5']) {
-    await inAct(async () => { setInput(count, bad) })
-    assert.equal(button(box, /^Hold slots$/)!.disabled, true, `"${bad}" cannot be sent`)
-  }
-  await inAct(async () => { setInput(count, '3') })
-  assert.equal(button(box, /^Hold slots$/)!.disabled, false)
-  assert.ok(!requests.some((r) => r.op === 'user_slot_hold'), 'nothing was sent')
+  assert.equal(holdControl(v.el).input!.max, '3', 'agents\' holds leave the whole total open to the user')
+  // the user asks for 2: a request still waiting in the line counts as held
+  box.status = rows(0, 2, 2)
+  await inAct(async () => { setInput(holdControl(v.el).input!, '2') })
+  await inAct(async () => { holdControl(v.el).button!.click(); await flush(6) })
+  const { input, button } = holdControl(v.el)
+  assert.equal(input!.max, '1', 'the waiting request counts as already held')
+  await inAct(async () => { setInput(input!, '5') })
+  assert.equal(input!.value, '1', 'a larger count is brought back to the most the user may still ask for')
+  assert.equal(button!.textContent, 'Hold 1 slot')
 })
 
-test('§1 no Hold slots on a retired project', async (t) => {
-  const v = await mount([], { state: 'archived' })
+test('§1 a hold and a wait together leave only the rest', async (t) => {
+  const v = await mountHold({ status: rows(1, 1) }, [])
   t.after(() => v.unmount())
-  const open = v.el.querySelector<HTMLButtonElement>('[data-action="hold-slots"]')
-  assert.ok(!open || open.disabled, 'a retired project takes no hold')
+  assert.equal(holdControl(v.el).input!.max, '1')
+  assert.equal(holdControl(v.el).button!.disabled, false)
+})
+
+test('§1 the button is grey when the user holds or has asked for every slot', async (t) => {
+  for (const status of [rows(3, 0), rows(2, 1), rows(1, 2, 0), rows(0, 3, 0)]) {
+    const requests: OpRequest[] = []
+    const v = await mountHold({ status }, requests)
+    const { input, button } = holdControl(v.el)
+    assert.equal(button!.disabled, true, 'nothing left to hold')
+    assert.equal(input!.disabled, true)
+    await inAct(async () => { button!.click(); await flush(2) })
+    assert.ok(!requests.some((r) => r.op === 'user_slot_hold'), 'a grey button sends nothing')
+    v.unmount()
+  }
+})
+
+test('§1 a count that is not a whole number keeps the button grey', async (t) => {
+  const v = await mountHold({ status: rows(0, 0) }, [])
+  t.after(() => v.unmount())
+  const { input } = holdControl(v.el)
+  for (const bad of ['', '1.5', 'e']) {
+    await inAct(async () => { setInput(input!, bad) })
+    assert.equal(holdControl(v.el).button!.disabled, true, `"${bad}" cannot be sent`)
+  }
+  await inAct(async () => { setInput(input!, '0') })
+  assert.equal(holdControl(v.el).input!.value, '1', 'zero is brought up to one')
+  assert.equal(holdControl(v.el).button!.disabled, false)
+  await inAct(async () => { setInput(input!, '4') })
+  assert.equal(holdControl(v.el).input!.value, '3', 'four is brought down to the three slots')
+})
+
+test('§1 no Hold control on a retired project', async (t) => {
+  const v = await mountHold({ status: rows(0, 0) }, [], { state: 'archived' })
+  t.after(() => v.unmount())
+  assert.ok(!holdControl(v.el).group, 'a retired project takes no hold')
 })
 
 test('§2 the user\'s rows wear the @user chip; an agent keeps its own link', async (t) => {
@@ -176,6 +265,8 @@ test('§3 nothing on the tab says "you"', async (t) => {
   const v = await mount([])
   t.after(() => v.unmount())
   assert.ok(!/\byou\b/i.test(v.el.textContent ?? ''), v.el.textContent?.match(/.{20}\byou\b.{20}/i)?.[0])
-  await inAct(async () => { v.el.querySelector<HTMLButtonElement>('[data-action="hold-slots"]')!.click() })
-  assert.ok(!/\byou\b/i.test(dialog()?.textContent ?? ''), 'nor does its dialog')
+  const texts = [...v.el.querySelectorAll<HTMLElement>('.slot-hold, .slot-hold *')].flatMap((el) =>
+    [el.textContent ?? '', el.getAttribute('title') ?? '', el.getAttribute('aria-label') ?? ''])
+  assert.ok(texts.length > 0, 'the header control is there to read')
+  assert.ok(!texts.some((x) => /\byou\b/i.test(x)), 'nor does the header control or its tooltips')
 })
