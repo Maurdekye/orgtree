@@ -4,62 +4,116 @@ use super::*;
 use serde_json::json;
 
 struct Temp(std::path::PathBuf);
-impl Temp { fn path(&self) -> &std::path::Path { &self.0 } }
-impl Drop for Temp { fn drop(&mut self) { let _=std::fs::remove_dir_all(&self.0); } }
+impl Temp {
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+impl Drop for Temp {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 fn native_fixture() -> (Temp, std::path::PathBuf, rusqlite::Connection) {
-    let dir = Temp(std::env::temp_dir().join(format!("opencode-mail-fixture-{}",uuid::Uuid::new_v4())));
+    let dir =
+        Temp(std::env::temp_dir().join(format!("opencode-mail-fixture-{}", uuid::Uuid::new_v4())));
     std::fs::create_dir(&dir.0).unwrap();
     let path = dir.path().join("opencode.db");
     let db = rusqlite::Connection::open(&path).unwrap();
-    db.execute_batch("CREATE TABLE session_v2(id TEXT PRIMARY KEY);
+    db.execute_batch(
+        "CREATE TABLE session_v2(id TEXT PRIMARY KEY);
         CREATE TABLE session_inbox(id TEXT PRIMARY KEY, session_id TEXT, type TEXT);
         CREATE TABLE session_message(id TEXT PRIMARY KEY, session_id TEXT, type TEXT);
-        INSERT INTO session_v2 VALUES('ses_fixture');").unwrap();
+        INSERT INTO session_v2 VALUES('ses_fixture');",
+    )
+    .unwrap();
     (dir, path, db)
 }
 
 #[test]
 fn opencode_mail_native_pending_and_promoted_are_equivalent() {
     let (_dir, path, db) = native_fixture();
-    assert_eq!(native_evidence(&path, "ses_fixture", "msg_fixture"), Evidence::Absent);
-    db.execute_batch("INSERT INTO session_inbox VALUES('msg_fixture','ses_fixture','user')").unwrap();
-    assert_eq!(native_evidence(&path, "ses_fixture", "msg_fixture"), Evidence::Admitted);
-    db.execute_batch("BEGIN; INSERT INTO session_message SELECT * FROM session_inbox;
-        DELETE FROM session_inbox; COMMIT;").unwrap();
-    assert_eq!(native_evidence(&path, "ses_fixture", "msg_fixture"), Evidence::Admitted);
+    assert_eq!(
+        native_evidence(&path, "ses_fixture", "msg_fixture"),
+        Evidence::Absent
+    );
+    db.execute_batch("INSERT INTO session_inbox VALUES('msg_fixture','ses_fixture','user')")
+        .unwrap();
+    assert_eq!(
+        native_evidence(&path, "ses_fixture", "msg_fixture"),
+        Evidence::Admitted
+    );
+    db.execute_batch(
+        "BEGIN; INSERT INTO session_message SELECT * FROM session_inbox;
+        DELETE FROM session_inbox; COMMIT;",
+    )
+    .unwrap();
+    assert_eq!(
+        native_evidence(&path, "ses_fixture", "msg_fixture"),
+        Evidence::Admitted
+    );
 }
 
 #[test]
 fn opencode_mail_native_identity_is_exact_and_never_reads_content() {
     let (_dir, path, db) = native_fixture();
-    db.execute_batch("INSERT INTO session_message VALUES('msg_fixture','ses_other','user')").unwrap();
-    assert_eq!(native_evidence(&path, "ses_fixture", "msg_fixture"), Evidence::Unknown);
-    db.execute_batch("UPDATE session_message SET session_id='ses_fixture',type='assistant'").unwrap();
-    assert_eq!(native_evidence(&path, "ses_fixture", "msg_fixture"), Evidence::Unknown);
-    assert_eq!(native_evidence(&path, "missing_session", "msg_other"), Evidence::Unknown);
+    db.execute_batch("INSERT INTO session_message VALUES('msg_fixture','ses_other','user')")
+        .unwrap();
+    assert_eq!(
+        native_evidence(&path, "ses_fixture", "msg_fixture"),
+        Evidence::Unknown
+    );
+    db.execute_batch("UPDATE session_message SET session_id='ses_fixture',type='assistant'")
+        .unwrap();
+    assert_eq!(
+        native_evidence(&path, "ses_fixture", "msg_fixture"),
+        Evidence::Unknown
+    );
+    assert_eq!(
+        native_evidence(&path, "missing_session", "msg_other"),
+        Evidence::Unknown
+    );
 }
 
 #[test]
 fn opencode_mail_native_missing_corrupt_and_partial_schema_are_unknown() {
     let (dir, path, db) = native_fixture();
-    assert_eq!(native_evidence(&dir.path().join("missing.db"), "ses_fixture", "msg_fixture"), Evidence::Unknown);
-    assert!(!dir.path().join("missing.db").exists(), "read-only must not create a DB");
+    assert_eq!(
+        native_evidence(&dir.path().join("missing.db"), "ses_fixture", "msg_fixture"),
+        Evidence::Unknown
+    );
+    assert!(
+        !dir.path().join("missing.db").exists(),
+        "read-only must not create a DB"
+    );
     db.execute_batch("DROP TABLE session_inbox").unwrap();
-    assert_eq!(native_evidence(&path, "ses_fixture", "msg_fixture"), Evidence::Unknown);
+    assert_eq!(
+        native_evidence(&path, "ses_fixture", "msg_fixture"),
+        Evidence::Unknown
+    );
     drop(db);
     std::fs::write(&path, b"not SQLite").unwrap();
-    assert_eq!(native_evidence(&path, "ses_fixture", "msg_fixture"), Evidence::Unknown);
+    assert_eq!(
+        native_evidence(&path, "ses_fixture", "msg_fixture"),
+        Evidence::Unknown
+    );
 }
 
 #[test]
 fn opencode_mail_native_sees_committed_wal_without_changing_it() {
     let (_dir, path, db) = native_fixture();
-    db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;
-        INSERT INTO session_inbox VALUES('msg_fixture','ses_fixture','user')").unwrap();
+    db.execute_batch(
+        "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;
+        INSERT INTO session_inbox VALUES('msg_fixture','ses_fixture','user')",
+    )
+    .unwrap();
     let wal = path.with_extension("db-wal");
     let before = std::fs::read(&wal).unwrap();
-    assert_eq!(native_evidence(&path, "ses_fixture", "msg_fixture"), Evidence::Admitted);
+    assert_eq!(
+        native_evidence(&path, "ses_fixture", "msg_fixture"),
+        Evidence::Admitted
+    );
     assert_eq!(std::fs::read(&wal).unwrap(), before);
 }
 
@@ -68,14 +122,23 @@ fn opencode_mail_native_locked_is_bounded_unknown() {
     let (_dir, path, db) = native_fixture();
     db.execute_batch("BEGIN EXCLUSIVE").unwrap();
     let at = std::time::Instant::now();
-    assert_eq!(native_evidence(&path, "ses_fixture", "msg_fixture"), Evidence::Unknown);
+    assert_eq!(
+        native_evidence(&path, "ses_fixture", "msg_fixture"),
+        Evidence::Unknown
+    );
     assert!(at.elapsed() < std::time::Duration::from_secs(1));
 }
 
 #[test]
 fn opencode_mail_version_and_request_bounds_fail_closed() {
     assert!(supported(Some("2.0.28")));
-    for version in [None, Some("2.0.27"), Some("2.0.29"), Some("2.0.28-dev"), Some("3.0.0")] {
+    for version in [
+        None,
+        Some("2.0.27"),
+        Some("2.0.29"),
+        Some("2.0.28-dev"),
+        Some("3.0.0"),
+    ] {
         assert!(!supported(version));
     }
     assert!(request(&json!({"protocol":1,"op":"claim","sessionID":"ses_fixture"})).is_some());
@@ -85,20 +148,33 @@ fn opencode_mail_version_and_request_bounds_fail_closed() {
         json!({"protocol":1,"op":"ack","sessionID":"ses_fixture","id":"not_message"}),
         json!({"protocol":1,"op":"read","sessionID":"ses_fixture"}),
         json!({"protocol":1,"op":"claim","sessionID":"x".repeat(129)}),
-    ] { assert!(request(&value).is_none()); }
+    ] {
+        assert!(request(&value).is_none());
+    }
 }
 
 #[test]
 fn opencode_mail_uncertain_warning_survives_typed_events_and_reference_budget() {
     let mail = super::super::prompt::Mail {
-        uid:"m_fixture".into(),sender:"@system".into(),kind:"message".into(),body:"x".repeat(200_000),
-        at:chrono::DateTime::from_timestamp(0,0).unwrap(),attachments:json!([]),notice:false,urgent:false,
-        reply_to:json!(null),replies:json!([]),ev:json!({"variant":"runtime.restarted"}),
-        via_project:None,via_project_ack:false,uncertain_mid_turn:true,
+        uid: "m_fixture".into(),
+        sender: "@system".into(),
+        kind: "message".into(),
+        body: "x".repeat(200_000),
+        at: chrono::DateTime::from_timestamp(0, 0).unwrap(),
+        attachments: json!([]),
+        notice: false,
+        urgent: false,
+        reply_to: json!(null),
+        replies: json!([]),
+        ev: json!({"variant":"runtime.restarted"}),
+        via_project: None,
+        via_project_ack: false,
+        uncertain_mid_turn: true,
     };
-    let result=super::super::prompt::batch(&[mail],"",&Default::default(),None,4096,false).unwrap();
+    let result =
+        super::super::prompt::batch(&[mail], "", &Default::default(), None, 4096, false).unwrap();
     assert!(result.text.contains(WARNING));
-    assert_eq!(result.text.matches(WARNING).count(),1);
+    assert_eq!(result.text.matches(WARNING).count(), 1);
 }
 
 /// Deliberately ignored in ordinary workspace runs; the author rig creates a
@@ -106,7 +182,8 @@ fn opencode_mail_uncertain_warning_survives_typed_events_and_reference_budget() 
 #[tokio::test]
 #[ignore = "requires isolated opencode_mail_fixture cluster"]
 async fn opencode_mail_pg_custody_dnd_order_restart_duplicates_and_atomic_failure() {
-    let url = std::env::var("ORGTREE_OPENCODE_MAIL_TEST_URL").expect("explicit synthetic URL required");
+    let url =
+        std::env::var("ORGTREE_OPENCODE_MAIL_TEST_URL").expect("explicit synthetic URL required");
     let cfg: tokio_postgres::Config = url.parse().unwrap();
     assert_eq!(cfg.get_dbname(), Some("opencode_mail_fixture"));
     assert_eq!(cfg.get_user(), Some("opencode_mail_fixture"));
@@ -131,58 +208,165 @@ async fn opencode_mail_pg_custody_dnd_order_restart_duplicates_and_atomic_failur
                 (2,'m2',1,'pending',1,'sender','urgent',true),
                 (3,'m3',1,'pending',1,'sender','later',false),
                 (4,'m4',2,'pending',1,'sender','other agent',false);").await.unwrap();
-    client.batch_execute(include_str!("../../migrations/0042_opencode_mail.sql")).await.unwrap();
+    client
+        .batch_execute(include_str!("../../migrations/0042_opencode_mail.sql"))
+        .await
+        .unwrap();
     let raw = claim(&client, 1, 10).await.unwrap();
-    assert_eq!(raw.iter().map(|r| r["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![2]);
-    let preview:i64=client.query_one("SELECT count(*) FROM ot.mail WHERE state='delivering'",&[]).await.unwrap().get(0);
-    assert_eq!(preview,0,"formatting does not take custody");
+    assert_eq!(
+        raw.iter()
+            .map(|r| r["id"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![2]
+    );
+    let preview: i64 = client
+        .query_one("SELECT count(*) FROM ot.mail WHERE state='delivering'", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(preview, 0, "formatting does not take custody");
     let body = json!({"role":"user","text":"PRIVATE_CANARY","mail_ids":["m2"]});
-    let batch = persist(&client, 1, 10, "ses_fixture", "PRIVATE_CANARY", &raw, &body).await.unwrap();
+    let batch = persist(&client, 1, 10, "ses_fixture", "PRIVATE_CANARY", &raw, &body)
+        .await
+        .unwrap();
     let loaded = load(&client, 1).await.unwrap().unwrap();
     assert_eq!(batch.id, loaded.id, "actor reload retains provider id");
     assert_eq!(batch.text, loaded.text);
-    assert!(claim(&client, 1, 10).await.unwrap().is_empty(), "outstanding custody blocks a second claim");
-    assert!(acknowledge(&client, 2, "ses_fixture", &batch.id).await.unwrap().is_empty());
-    assert!(acknowledge(&client, 1, "wrong", &batch.id).await.unwrap().is_empty());
-    let receipts = acknowledge(&client, 1, "ses_fixture", &batch.id).await.unwrap();
+    assert!(
+        claim(&client, 1, 10).await.unwrap().is_empty(),
+        "outstanding custody blocks a second claim"
+    );
+    assert!(acknowledge(&client, 2, "ses_fixture", &batch.id)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(acknowledge(&client, 1, "wrong", &batch.id)
+        .await
+        .unwrap()
+        .is_empty());
+    let receipts = acknowledge(&client, 1, "ses_fixture", &batch.id)
+        .await
+        .unwrap();
     assert_eq!(receipts.len(), 1);
-    assert!(acknowledge(&client, 1, "ses_fixture", &batch.id).await.unwrap().is_empty());
+    assert!(acknowledge(&client, 1, "ses_fixture", &batch.id)
+        .await
+        .unwrap()
+        .is_empty());
     assert!(load(&client, 1).await.unwrap().is_none());
-    client.execute("UPDATE ot.agents SET dnd=false WHERE id=1", &[]).await.unwrap();
+    client
+        .execute("UPDATE ot.agents SET dnd=false WHERE id=1", &[])
+        .await
+        .unwrap();
     let raw = claim(&client, 1, 10).await.unwrap();
-    assert_eq!(raw.iter().map(|r| r["id"].as_i64().unwrap()).collect::<Vec<_>>(), vec![1,3]);
-    let batch = persist(&client, 1, 10, "ses_fixture", "more mail", &raw,
-        &json!({"role":"user","synthetic_reject":true,"text":"PRIVATE_CANARY"})).await.unwrap();
-    let failure = acknowledge(&client, 1, "ses_fixture", &batch.id).await.unwrap_err();
+    assert_eq!(
+        raw.iter()
+            .map(|r| r["id"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![1, 3]
+    );
+    let batch = persist(
+        &client,
+        1,
+        10,
+        "ses_fixture",
+        "more mail",
+        &raw,
+        &json!({"role":"user","synthetic_reject":true,"text":"PRIVATE_CANARY"}),
+    )
+    .await
+    .unwrap();
+    let failure = acknowledge(&client, 1, "ses_fixture", &batch.id)
+        .await
+        .unwrap_err();
     assert!(!format!("{failure:?}").contains("PRIVATE_CANARY"));
-    assert!(load(&client, 1).await.unwrap().is_some(), "rollback retains custody");
-    let count: i64 = client.query_one("SELECT count(*) FROM ot.mail WHERE state='delivered'", &[]).await.unwrap().get(0);
+    assert!(
+        load(&client, 1).await.unwrap().is_some(),
+        "rollback retains custody"
+    );
+    let count: i64 = client
+        .query_one("SELECT count(*) FROM ot.mail WHERE state='delivered'", &[])
+        .await
+        .unwrap()
+        .get(0);
     assert_eq!(count, 1, "ack and transcript must roll back together");
     assert!(release(&client, 1, &batch.id, true).await.unwrap());
-    assert!(!release(&client, 1, &batch.id, true).await.unwrap(), "fallback happens once");
-    assert!(load(&client, 1).await.unwrap().is_none(), "no held batch crosses a second turn boundary");
-    assert!(claim(&client, 1, 10).await.unwrap().is_empty(), "ambiguous mail waits for ordinary next-turn delivery");
-    let fallback: i64 = client.query_one("SELECT count(*) FROM ot.mail WHERE state='pending'
-        AND extra->>'opencode_ambiguous'='true'", &[]).await.unwrap().get(0);
+    assert!(
+        !release(&client, 1, &batch.id, true).await.unwrap(),
+        "fallback happens once"
+    );
+    assert!(
+        load(&client, 1).await.unwrap().is_none(),
+        "no held batch crosses a second turn boundary"
+    );
+    assert!(
+        claim(&client, 1, 10).await.unwrap().is_empty(),
+        "ambiguous mail waits for ordinary next-turn delivery"
+    );
+    let fallback: i64 = client
+        .query_one(
+            "SELECT count(*) FROM ot.mail WHERE state='pending'
+        AND extra->>'opencode_ambiguous'='true'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
     assert_eq!(fallback, 2);
-    let normal: i64 = client.query_one("SELECT count(*) FROM ot.mail WHERE recipient_agent_id=2 AND state='pending'", &[]).await.unwrap().get(0);
+    let normal: i64 = client
+        .query_one(
+            "SELECT count(*) FROM ot.mail WHERE recipient_agent_id=2 AND state='pending'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
     assert_eq!(normal, 1);
     // A DND change/manual read between preview and persistence must reject the
     // whole prefix without claiming its remaining members.
-    client.batch_execute("UPDATE ot.mail SET extra='{}' WHERE id IN(1,3)").await.unwrap();
-    let raw=claim(&client,1,10).await.unwrap();
-    client.batch_execute("UPDATE ot.agents SET dnd=true WHERE id=1").await.unwrap();
-    assert!(persist(&client,1,10,"ses_fixture","text",&raw,&body).await.is_err());
-    client.batch_execute("UPDATE ot.agents SET dnd=false WHERE id=1; UPDATE ot.mail SET state='read' WHERE id=1").await.unwrap();
-    assert!(persist(&client,1,10,"ses_fixture","text",&raw,&body).await.is_err());
-    let left:String=client.query_one("SELECT state FROM ot.mail WHERE id=3",&[]).await.unwrap().get(0);
-    assert_eq!(left,"pending");
-    let raw=claim(&client,1,10).await.unwrap();
-    let batch=persist(&client,1,10,"ses_fixture","text",&raw,&body).await.unwrap();
-    let (second,connection2)=cfg.connect(tokio_postgres::NoTls).await.unwrap();
-    let connection2=tokio::spawn(async move{connection2.await.unwrap()});
-    let (a,b)=tokio::join!(acknowledge(&client,1,"ses_fixture",&batch.id),acknowledge(&second,1,"ses_fixture",&batch.id));
-    assert_eq!(a.unwrap().len()+b.unwrap().len(),1,"concurrent duplicate ack commits one receipt");
-    drop(second);connection2.await.unwrap();
-    drop(client); connection.await.unwrap();
+    client
+        .batch_execute("UPDATE ot.mail SET extra='{}' WHERE id IN(1,3)")
+        .await
+        .unwrap();
+    let raw = claim(&client, 1, 10).await.unwrap();
+    client
+        .batch_execute("UPDATE ot.agents SET dnd=true WHERE id=1")
+        .await
+        .unwrap();
+    assert!(persist(&client, 1, 10, "ses_fixture", "text", &raw, &body)
+        .await
+        .is_err());
+    client
+        .batch_execute(
+            "UPDATE ot.agents SET dnd=false WHERE id=1; UPDATE ot.mail SET state='read' WHERE id=1",
+        )
+        .await
+        .unwrap();
+    assert!(persist(&client, 1, 10, "ses_fixture", "text", &raw, &body)
+        .await
+        .is_err());
+    let left: String = client
+        .query_one("SELECT state FROM ot.mail WHERE id=3", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(left, "pending");
+    let raw = claim(&client, 1, 10).await.unwrap();
+    let batch = persist(&client, 1, 10, "ses_fixture", "text", &raw, &body)
+        .await
+        .unwrap();
+    let (second, connection2) = cfg.connect(tokio_postgres::NoTls).await.unwrap();
+    let connection2 = tokio::spawn(async move { connection2.await.unwrap() });
+    let (a, b) = tokio::join!(
+        acknowledge(&client, 1, "ses_fixture", &batch.id),
+        acknowledge(&second, 1, "ses_fixture", &batch.id)
+    );
+    assert_eq!(
+        a.unwrap().len() + b.unwrap().len(),
+        1,
+        "concurrent duplicate ack commits one receipt"
+    );
+    drop(second);
+    connection2.await.unwrap();
+    drop(client);
+    connection.await.unwrap();
 }

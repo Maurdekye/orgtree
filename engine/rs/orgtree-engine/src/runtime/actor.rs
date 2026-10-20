@@ -3811,6 +3811,9 @@ impl Actor {
                 let formatted=result?;
                 let row=mail_row(&raw,Some("Admitted through the OpenCode tool-boundary mail hook."));
                 let batch=mail::persist(&client,self.id,turn_id,&session,&formatted.text,&raw,&row).await?;
+                if let Some(guard)=super::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
+                    if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
+                }
                 Ok(json!({"protocol":1,"batch":{"id":batch.id,"sessionID":batch.session,"text":batch.text}}))
             },
         }
@@ -3835,6 +3838,20 @@ impl Actor {
         let rows=super::opencode_mail::recover_agent(&self.engine,&client,self.id,true).await?;
         self.opencode_receipts(&rows);
         Ok(())
+    }
+
+    /// A failed cleanup must not strand custody behind an ended turn. Retry at
+    /// both boundaries, before another turn can claim ordinary mail. Propagate
+    /// database failures so admission waits instead of crossing that boundary.
+    #[nolog]
+    async fn settle_pending_opencode_mail(&mut self) -> Result<()> {
+        let client=self.engine.db.get().await?;
+        if super::opencode_mail::load(&client,self.id).await?.is_none() {return Ok(())}
+        drop(client);
+        if self.proc.as_ref().is_some_and(Proc::is_acp) {
+            self.close_proc().await;
+        }
+        self.settle_opencode_mail().await
     }
 
     /// Mail that arrived during a Codex or Muse turn goes straight in
@@ -4195,6 +4212,7 @@ impl Actor {
     async fn start_turn(&mut self) -> Result<bool> {
         // real work comes first (3.x `_cancel_working_cache`)
         boxed(|| self.cancel_keepalive()).await;
+        boxed(|| self.settle_pending_opencode_mail()).await?;
         let admitted_at = Utc::now();
         let mut ctx = boxed(|| self.load_ctx()).await?;
         if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
@@ -7201,13 +7219,7 @@ impl Actor {
     /// Close the turn: mail settled, ledger written, slot freed.
     async fn end_turn(&mut self, mut error: Option<String>, res: Value) -> Result<()> {
         let refusal_at = Utc::now();
-        if self.proc.as_ref().is_some_and(Proc::is_acp) {
-            let client=self.engine.db.get().await?;
-            if super::opencode_mail::load(&client,self.id).await?.is_some() {
-                // Stop the writer before treating native absence as evidence.
-                self.close_proc().await;
-            }
-        }
+        boxed(|| self.settle_pending_opencode_mail()).await?;
         self.flush_helpers().await;
         self.helpers.retain(|_, helper| helper.dirty);
         // Process exits and interrupts do not necessarily carry an `agy`
@@ -7767,7 +7779,7 @@ impl Actor {
             .iter()
             .map(|r| r.get(0))
             .collect();
-        if !open.is_empty() && self.proc.as_ref().is_some_and(Proc::is_acp) {self.close_proc().await;}
+        if !open.is_empty() {boxed(|| self.settle_pending_opencode_mail()).await?;}
         crate::domain::mail::recover_turns(&self.engine, &client, &open).await?;
         let ended = client
             .execute(

@@ -88,7 +88,9 @@ pub async fn recover_deliveries(engine: &Engine, client: &tokio_postgres::Client
 #[logged]
 pub async fn recover_turns(engine: &Engine, client: &tokio_postgres::Client, turns: &[i64]) -> Result<()> {
     if turns.is_empty() { return Ok(()) }
-    crate::runtime::opencode_mail::recover_all(engine,client,Some(turns),true).await?;
+    // Actor-owned cleanup reconciles after joining its child. This generic path
+    // has no child ownership proof, so any residue uses bounded marked fallback.
+    crate::runtime::opencode_mail::recover_all(engine,client,Some(turns),false).await?;
     loop {
         let ids: Vec<i64> = client.query(
             "SELECT id FROM ot.mail WHERE turn_id = ANY($1) AND state = 'delivering' ORDER BY id LIMIT 256", &[&turns],
