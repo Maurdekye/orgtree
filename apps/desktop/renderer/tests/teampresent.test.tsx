@@ -48,7 +48,7 @@ test('§1 Agent Open submenu offers Presentations (even with 0 documents) with T
   const open = agentMenuEntries(boss, h, {}).find((e) => e !== 'sep' && e.label === 'Open')
   assert.ok(open && open !== 'sep')
   const labels = open.children!.map((c) => c === 'sep' ? 'sep' : c.label)
-  assert.deepEqual(labels, ['Inbox', 'Scratch folder', 'Docket', 'Presentations'])
+  assert.deepEqual(labels, ['Mail', 'Scratch folder', 'Docket', 'Presentations'])
   for (const c of open.children!) {
     if (c === 'sep') continue
     assert.equal(/\bOpen\b/.test(c.label), false, `Open submenu entry "${c.label}" must not contain the word Open`)
@@ -75,7 +75,7 @@ test('§1 Agent Open submenu offers Presentations (even with 0 documents) with T
   }, {}).find((e) => e !== 'sep' && e.label === 'Open')
   assert.ok(singleOpen && singleOpen !== 'sep')
   assert.deepEqual(singleOpen.children!.map((c) => c === 'sep' ? 'sep' : [c.label, Boolean(c.children)]), [
-    ['Inbox', false],
+    ['Mail', false],
     ['Scratch folder', false],
     ['Team docket', false],
     ['Presentations', false],

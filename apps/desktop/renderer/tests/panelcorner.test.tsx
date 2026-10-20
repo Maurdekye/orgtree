@@ -73,7 +73,7 @@ test('§2 three buttons together, in order, naming this tab\'s own surface', asy
   for (const [kind, noun] of [
     ['agent-gallery', 'presented documents'],
     ['agent-docket', 'docket'],
-    ['node-inbox', 'inbox'],
+    ['node-inbox', 'mail'],
   ] as const) {
     const { view } = await corner(kind)
     const labels = view.last().map((b) => b.getAttribute('aria-label') ?? '')

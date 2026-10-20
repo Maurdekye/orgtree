@@ -43,6 +43,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import * as projectdesk from '../src/canvas/projectdesk'
+import { forgetDeskMemory } from '../src/canvas/desktabs'
 import { SlotsView } from '../src/canvas/slotsdesk'
 import { AgentSurfaceRoutesProvider } from '../src/canvas/panelcorner'
 import { buttonAccent, buttonAgentOf, setButtonAgent } from '../src/buttoncolours'
@@ -108,6 +109,8 @@ async function mountDesk(t: TestContext, node: CanvasNode, map: Map<string, Canv
   bare?: boolean; jump?: (id: string) => void; tree?: TreePayload; ops?: OpRequest[]
 } = {}) {
   const ops = h.ops ?? []
+  // each test opens the desk on Summary, not on the tab an earlier one picked
+  forgetDeskMemory()
   const view = await mountView(<ProjectDesk node={node} slug="org" tree={h.tree ?? { slug: 'org', roots: [] } as unknown as TreePayload}
     map={map} op={(b) => { ops.push(b); return Promise.resolve((b.op === 'slot_status' ? slotStatus() : {}) as unknown as OpResult) }}
     toast={noop} refs={refs} bare={h.bare} onJump={h.jump ?? noop} />, (el) => el)
@@ -356,6 +359,7 @@ async function deskView(t: TestContext, node: CanvasNode, h: {
   bare?: boolean; jump?: (id: string) => void; config?: () => void; dismiss?: () => void
   openDoc?: (id: string) => void; wrap?: (desk: ReactElement) => ReactElement
 } = {}) {
+  forgetDeskMemory()
   const desk = <ProjectDesk node={node} slug="org" tree={{ slug: 'org', roots: [] } as unknown as TreePayload}
     map={mapOf(node)} op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs} bare={h.bare}
     onJump={h.jump ?? noop} onConfig={h.config} onOpenDoc={h.openDoc} {...{ onDismiss: h.dismiss }} />

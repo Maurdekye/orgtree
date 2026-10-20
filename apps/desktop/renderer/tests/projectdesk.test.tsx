@@ -43,6 +43,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk, ProjectDeskModal, sourceOffset } from '../src/canvas/projectdesk'
+import { forgetDeskMemory } from '../src/canvas/desktabs'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { pinAccentClass } from '../src/canvas/pins'
 import { CurrentOrg } from '../src/popout'
@@ -113,6 +114,8 @@ async function desk(t: TestContext, h: { jump?: (id: string) => void; config?: (
   toast?: (lines: string[]) => void; openDoc?: (id: string) => void;
   fetch?: (inner: typeof fetch) => typeof fetch; tree?: TreePayload } = {}) {
   serve(t)
+  // each test opens the desk on Summary, not on the tab an earlier one picked
+  forgetDeskMemory()
   if (h.fetch) globalThis.fetch = h.fetch(globalThis.fetch!)
   const nd = h.node ?? project()
   const ops = h.ops ?? []

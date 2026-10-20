@@ -35,6 +35,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import { ProjectDesk } from '../src/canvas/projectdesk'
+import { forgetDeskMemory } from '../src/canvas/desktabs'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import {
   fireActionTools, listenerCards, listenerLinks, mailListenerState, mailQueueCard, projectListenerState, queueAckMode,
@@ -180,6 +181,9 @@ const agentNode = (id: string): CanvasNode => ({
 
 async function desk(t: TestContext, nd: CanvasNode, withDogs = true) {
   serve(t)
+  // each test opens the desk on Summary and its Mail tab on the inbox folder,
+  // not on what an earlier test picked
+  forgetDeskMemory()
   const ops: OpRequest[] = []
   const tree = { slug: 'org', roots: [], watchdogs: withDogs ? dogs : [], slot_leases: [] } as unknown as TreePayload
   const view = await mountView(<ProjectDesk node={nd} slug="org" tree={tree}

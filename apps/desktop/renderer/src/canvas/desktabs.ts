@@ -46,6 +46,15 @@ export function rememberDesk(slug: string, nid: string, part: DeskPart, value: s
   save(slug, { ...all, [nid]: { ...entry(all, nid), [part]: value } })
 }
 
+/** Every organization's desk memory forgotten: a test fixture that mounts the
+ *  same desk in several tests starts each one on the desk's first tab. */
+export function forgetDeskMemory(): void {
+  fallback.clear()
+  try {
+    for (const key of Object.keys(localStorage)) if (key.startsWith(KEY)) localStorage.removeItem(key)
+  } catch { /* no storage, nothing stored */ }
+}
+
 /** A renamed node keeps its desk's memory (OrgCanvas's client-state move).
  *  As there, a value already under the new id wins. */
 export function moveDeskMemory(slug: string, from: string, to: string): void {
