@@ -182,11 +182,12 @@ test('§3 the gear: an Event listeners switch, off by default; switching it on a
 
 test('§3 a project whose setting is on shows it on; switching it off and saving sends enabled false, nothing else', async (t) => {
   const { ops } = await gear(t, project({ event_listeners: true }))
-  const sw = document.querySelector<HTMLInputElement>('input[aria-label="Event listeners"]')!
-  assert.equal(sw.checked, true)
+  const sw = document.querySelector<HTMLInputElement>('input[aria-label="Event listeners"]')
+  assert.ok(sw, 'an Event listeners switch')
+  assert.equal(sw!.checked, true)
   await save()
   assert.deepEqual(ops, [], 'an untouched switch sends nothing')
-  await inAct(() => { sw.click() })
+  await inAct(() => { sw!.click() })
   await save()
   assert.deepEqual(ops, [{ op: 'set_event_listeners', node: 'sync', enabled: false }])
 })
