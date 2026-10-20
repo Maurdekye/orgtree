@@ -1374,7 +1374,8 @@ async fn fire_with(engine: &Arc<Engine>, dog: &mut Dog, events: &[String], prefi
     let once: bool = row.get(0);
     let fired: i32 = row.get(1);
     dog.last_fired=row.get(2);dog.silence_since=row.get(3);dog.next_silence_at=row.get(4);
-    let mut body = fire_body(dog, events, prefix, once, fired);
+    let external = !extra.as_ref().is_some_and(|x| x["source"] == "orgtree");
+    let mut body = fire_body_origin(dog, events, prefix, once, fired, external);
     // a fire that gathered more than it shows (mqtt) says how many
     let total = extra.as_ref().and_then(|x| x["count"].as_u64()).unwrap_or(events.len() as u64);
     if total > events.len() as u64 {
@@ -1585,8 +1586,12 @@ pub(crate) async fn run_fire_actions(engine: &Arc<Engine>, org_id: i64, owner: i
 }
 
 fn fire_body(dog: &Dog, events: &[String], prefix: &str, once: bool, fired: i32) -> String {
+    fire_body_origin(dog, events, prefix, once, fired, true)
+}
+
+fn fire_body_origin(dog: &Dog, events: &[String], prefix: &str, once: bool, fired: i32, external: bool) -> String {
     // outside input names the standing passage with a short tag (mqtt/render.rs TAG)
-    let tag = if dog.kind == "mqtt" || dog.kind == "websocket" { format!(" {}", crate::mqtt::render::TAG) } else { String::new() };
+    let tag = if external && (dog.kind == "mqtt" || dog.kind == "websocket") { format!(" {}", crate::mqtt::render::TAG) } else { String::new() };
     let mut body = format!("Watchdog \"{}\" fired{} ({} · {}), fire #{fired}{tag}:\n", dog.name, prefix, dog.kind, dog.target);
     for e in events.iter().take(40) {
         body.push_str("  ");
@@ -2559,6 +2564,19 @@ async fn resolve(engine: &Engine, org_id: i64, actor: Option<i64>, id: &str) -> 
 
 /// pause / resume / remove, by the owner, a superior, or the user (`actor: None`).
 #[logged]
+pub async fn configure_connect(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, enabled: bool) -> Result<Value> {
+    let dog = resolve(engine, org_id, actor, id).await?;
+    if dog.kind != "websocket" { refuse!(BadRequest, "notify_on_connect is for websocket watchdogs only"); }
+    if dog.state == "spent" { refuse!(Conflict, "a spent watchdog cannot be configured"); }
+    let client = engine.db.get().await?;
+    client.execute("UPDATE ot.watchdogs SET memo=jsonb_set(memo,'{websocket}',coalesce(memo->'websocket','{}'::jsonb)||jsonb_build_object('notify_on_connect',$2::boolean)) WHERE id=$1",
+        &[&dog.row, &enabled]).await?;
+    drop(client);
+    changes::notify_id(engine, org_id, vec![Change::Watchdogs]);
+    Ok(json!({"id":dog.uid,"name":dog.name,"state":dog.state,"notify_on_connect":enabled}))
+}
+
+#[logged]
 pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, action: &str, reason: Option<&str>) -> Result<Value> {
     let dog = resolve(engine, org_id, actor, id).await?;
     let reason = reason.map(str::trim).filter(|r| !r.is_empty());
@@ -2855,6 +2873,7 @@ pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
                 put("dropped", d.run["dropped"].clone());
             }
             if d.kind == "websocket" {
+                put("notify_on_connect", json!(d.memo["websocket"]["notify_on_connect"].as_bool().unwrap_or(false)));
                 // how it authenticates, never with what; what it says on each connect
                 put("credentials", json!(mqtt::credentials_label(&d.memo)));
                 for key in ["hello", "protocols", "heartbeat"] {
@@ -3135,6 +3154,12 @@ mod tests {
     /// send's message on any create.
     #[test]
     fn websocket_fields_belong_to_their_kind() {
+        assert!(websocket::foreign_fields("file", &json!({"notify_on_connect":false})).is_err());
+        assert!(!websocket::notify_setting(None).unwrap());
+        assert!(!websocket::notify_setting(Some(&Value::Null)).unwrap());
+        assert!(!websocket::notify_setting(Some(&json!(false))).unwrap());
+        assert!(websocket::notify_setting(Some(&json!(true))).unwrap());
+        assert!(websocket::notify_setting(Some(&json!("true"))).is_err());
         assert!(websocket::foreign_fields("file", &json!({"hello": ["x"]})).is_err());
         assert!(websocket::foreign_fields("mqtt", &json!({"protocols": ["p"]})).is_err());
         assert!(websocket::foreign_fields("websocket", &json!({"hello": ["x"], "protocols": ["p"], "heartbeat": {"message": "b", "every_s": 30}})).is_ok());

@@ -178,6 +178,7 @@ impl Task {
             }
         }
         self.backoff.connected();
+        self.stats.connections.fetch_add(1, Ordering::Relaxed);
         self.set(State::Connected { since: Utc::now() });
         tracing::info!(url = %self.spec.endpoint.base(), "websocket connected");
         let mut heard = Instant::now();

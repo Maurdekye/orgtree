@@ -19,6 +19,8 @@ pub struct DogAction {
     action: String,
     #[serde(default)]
     reason: String,
+    #[serde(default)]
+    notify_on_connect: Option<bool>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -46,6 +48,11 @@ pub async fn watchdogs_get(State(e):State<Arc<Engine>>,Path(slug):Path<String>,Q
 #[logged]
 pub async fn watchdog(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b): Json<DogAction>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    if b.action == "configure" {
+        let enabled = b.notify_on_connect.ok_or_else(||ApiError::bad_request("configure requires notify_on_connect"))?;
+        return Ok(Json(crate::runtime::watchdogs::configure_connect(&e,o.id,None,&b.id,enabled).await?));
+    }
+    if b.notify_on_connect.is_some() { return Err(ApiError::bad_request("notify_on_connect requires action configure")); }
     Ok(Json(crate::runtime::watchdogs::act(&e, o.id, None, &b.id, &b.action, Some(&b.reason)).await?))
 }
 

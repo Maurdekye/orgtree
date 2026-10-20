@@ -93,6 +93,7 @@ pub fn view(w: &Value, owner: &str) -> Value {
     // a websocket dog: how it authenticates (never with what), what it says
     // on each connect, its connection and what it has sent
     if w["kind"] == "websocket" {
+        o.insert("notify_on_connect".into(), json!(w["memo"]["websocket"]["notify_on_connect"].as_bool().unwrap_or(false)));
         o.insert("credentials".into(), json!(credentials_label(&w["memo"])));
         for key in ["hello", "protocols", "heartbeat"] {
             if let Some(v) = w["memo"]["websocket"].get(key).filter(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty())) { o.insert(key.into(), v.clone()); }

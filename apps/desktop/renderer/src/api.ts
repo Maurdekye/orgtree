@@ -812,6 +812,10 @@ export const getWorkItems = (slug: string, archived = false,
       }
       return body
     })
+export const setWatchdogConnectNotifications = (slug: string, id: string, notify_on_connect: boolean): Promise<{notify_on_connect: boolean}> =>
+  req(`/api/orgs/${slug}/watchdogs`, {
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:'configure',notify_on_connect}),
+  })
   }).finally(() => {
     if (workInflight.get(path) === p) workInflight.delete(path)
   })

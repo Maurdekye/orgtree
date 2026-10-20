@@ -998,6 +998,7 @@ fn build_tool_watchdog() -> Value {
             "hello": { "type": "array", "maxItems": 16, "items": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }] },
                        "description": "websocket: messages sent in order after every (re)connect; a JSON value goes as compact JSON" },
             "protocols": { "type": "array", "maxItems": 8, "items": { "type": "string" }, "description": "websocket: Sec-WebSocket-Protocol subprotocols to offer" },
+            "notify_on_connect": { "type": "boolean", "description": "websocket: Orgtree (re)connect fires, default false; server messages still follow pattern" },
             "heartbeat": { "type": "object", "properties": { "message": { "anyOf": [{ "type": "string" }, { "type": "object" }] }, "every_s": { "type": "integer", "minimum": 5 } },
                            "required": ["message", "every_s"], "description": "websocket: a fixed message sent every every_s seconds while connected" },
             "message": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }],

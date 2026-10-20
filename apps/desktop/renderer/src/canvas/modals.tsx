@@ -2,6 +2,7 @@ import { agentSuperior, effectiveReports, isTopLevel } from './shared'
 import { watchdogActions } from './objectactions'
 import { WatchdogCountdown } from './watchdogcountdown'
 import { watchdogDescription } from './watchdogdescription'
+import { setWatchdogConnectNotifications } from '../api'
 import { WatchdogLink } from './watchdoglink'
 import {useDogRoute} from './watchdogroute'
 import {slotClaimLeaseState} from './slotclaim'
@@ -213,6 +214,15 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
   // in view; the click survives as a collapse for a screen-filling one.
   const [expTarget, setExpTarget] = useState(true)
   const [expPattern, setExpPattern] = useState(true)
+  const [connectNotify, setConnectNotify] = useState(!!dog.notify_on_connect)
+  const [connectSaving, setConnectSaving] = useState(false)
+  useEffect(() => { setConnectNotify(!!dog.notify_on_connect) }, [dog.id, dog.notify_on_connect])
+  const changeConnectNotify = async (enabled: boolean) => {
+    setConnectSaving(true)
+    try { const saved = await setWatchdogConnectNotifications(slug,dog.id,enabled); setConnectNotify(saved.notify_on_connect) }
+    catch(e) { toast([`error: ${(e as Error).message}`]) }
+    finally { setConnectSaving(false) }
+  }
   const route=useDogRoute()
   const [slotLease,setSlotLease]=useState<{key:string;value:SlotClaimLeaseState}|null>(null)
   const leaseKey=JSON.stringify([slug,dog.id,dog.target,dog.lease??''])
@@ -297,6 +307,10 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
             {feedConnection(dog)}</div>
         </>}
         {dog.kind === 'websocket' && <>
+          <label className="row"><input type="checkbox" aria-label="Notify on (re)connect"
+            checked={connectNotify} disabled={connectSaving || dog.spent || dog.state === 'spent'}
+            onChange={e => { void changeConnectNotify(e.target.checked) }} />Notify on (re)connect</label>
+          <div className="dim">Orgtree connection events; server messages still follow the pattern. Outage and recovery health alerts stay on.</div>
           <div className="field-label">credentials</div>
           <div className="chip mono">{dog.credentials ?? 'none'}</div>
           {!!dog.hello?.length && <><div className="field-label">hello (sent after every connect)</div>

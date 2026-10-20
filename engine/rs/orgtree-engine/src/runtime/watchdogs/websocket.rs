@@ -16,7 +16,7 @@ use crate::ws::{creds, render, Conn, Spec, State};
 
 pub(super) const NO_WEB: &str = "its owner no longer holds the web tool — a websocket watchdog reaches the network with its owner's hands";
 /// The arguments only a websocket dog takes.
-const FIELDS: &[&str] = &["hello", "protocols", "heartbeat"];
+const FIELDS: &[&str] = &["hello", "protocols", "heartbeat", "notify_on_connect"];
 /// An outage is reported once it has lasted this long; a blip is not.
 const DOWN_ALERT_S: i64 = 60;
 /// After an outage alert, connected this long before "recovered" is told.
@@ -36,7 +36,7 @@ const HEARTBEAT_MAX_S: u64 = 86_400;
 #[logged]
 pub(super) fn foreign_fields(kind: &str, args: &Value) -> Result<()> {
     if kind != "websocket" && FIELDS.iter().any(|k| args.get(*k).is_some_and(|v| !v.is_null())) {
-        refuse!(BadRequest, "hello, protocols and heartbeat are for kind websocket only");
+        refuse!(BadRequest, "hello, protocols, heartbeat and notify_on_connect are for kind websocket only");
     }
     if args.get("message").is_some_and(|v| !v.is_null()) {
         refuse!(BadRequest, "message is for action=send (it writes on a websocket dog's live connection); messages sent after every connect go in hello");
@@ -83,6 +83,7 @@ pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scra
             Err(e) => refuse!(BadRequest, "pattern does not compile: {e}"),
         },
     };
+    let notify_on_connect = notify_setting(args.get("notify_on_connect"))?;
     let hello = match args.get("hello") {
         None | Some(Value::Null) => Vec::new(),
         Some(v) => match creds::messages(v, "hello") {
@@ -144,10 +145,19 @@ pub(super) async fn validate(engine: &Arc<Engine>, org_id: i64, owner: i64, scra
     };
     let plaintext = !endpoint.tls && !endpoint.loopback() && !matches!(source, creds::Source::None);
     let memo = json!({
-        "credentials": shown, "hello": hello, "protocols": protocols,
+        "credentials": shown, "hello": hello, "protocols": protocols, "notify_on_connect": notify_on_connect,
         "heartbeat": heartbeat.as_ref().map(|(m, every)| json!({ "message": m, "every_s": every.as_secs() })),
     });
     Ok(Created { target: endpoint.url(), memo, inline, endpoint, source, hello, protocols, heartbeat, pattern, plaintext })
+}
+
+#[nolog]
+pub(super) fn notify_setting(value: Option<&Value>) -> Result<bool> {
+    match value {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(enabled)) => Ok(*enabled),
+        _ => refuse!(BadRequest, "notify_on_connect must be true or false"),
+    }
 }
 
 /// The sealed form of a new dog's inline credentials, for its row: mqtt's
@@ -429,12 +439,16 @@ struct Listener<'a> {
     /// once has not recovered).
     recovered_due: Option<DateTime<Utc>>,
     state_saved: Option<Value>,
+    connections_seen: u64,
+    ever_connected: bool,
 }
 
 #[logged]
 impl<'a> Listener<'a> {
     #[nolog]
     fn new(engine: &'a Arc<Engine>, d: Dog, cfg: Config, conn: Conn) -> Listener<'a> {
+        let ever_connected = d.run["has_connected"].as_bool().unwrap_or(false)
+            || d.run["websocket"]["state"] == "connected";
         Listener {
             engine,
             gap: Duration::from_secs(d.interval_s.max(STREAM_FLOOR_S) as u64),
@@ -456,6 +470,8 @@ impl<'a> Listener<'a> {
             refused_alerted: None,
             recovered_due: None,
             state_saved: None,
+            connections_seen: 0,
+            ever_connected,
         }
     }
 
@@ -618,11 +634,32 @@ impl<'a> Listener<'a> {
     async fn state_changed(&mut self) -> Result<bool> {
         let snap = self.conn.state.borrow_and_update().clone();
         let view = json!(snap.state);
-        if self.state_saved.as_ref() != Some(&view) {
+        let connections = self.conn.stats.get(&self.conn.stats.connections);
+        let new_connection = connections > self.connections_seen;
+        if new_connection { self.d.run["has_connected"] = json!(true); }
+        if self.state_saved.as_ref() != Some(&view) || new_connection {
             self.d.run["websocket"] = view.clone();
             self.state_saved = Some(view);
             self.save().await?;
             changes::notify_id(self.engine, self.d.org_id, vec![Change::Watchdogs]);
+        }
+        if new_connection {
+            // Read just this flag at a handshake, not on the message hot path.
+            // A user can toggle it without closing/reopening the connection.
+            let client = self.engine.db.get().await?;
+            let enabled = client.query_opt("SELECT coalesce((memo #>> '{websocket,notify_on_connect}')::boolean,false) FROM ot.watchdogs WHERE id=$1",
+                &[&self.d.row]).await?.is_some_and(|row| row.get::<_, bool>(0));
+            drop(client);
+            while self.connections_seen < connections {
+                self.connections_seen += 1;
+                let event = if self.ever_connected { "reconnected" } else { "connected" };
+                self.ever_connected = true;
+                if enabled {
+                    let line = format!("Orgtree connection event: WebSocket {event} to {} (not a server message).", self.cfg.endpoint.base());
+                    if fire_with(self.engine, &mut self.d, &[line], " ORGTREE CONNECTION —",
+                        Some(json!({"source":"orgtree", "connection_event":event}))).await? { return Ok(true); }
+                }
+            }
         }
         let url = self.cfg.endpoint.base();
         match &snap.state {

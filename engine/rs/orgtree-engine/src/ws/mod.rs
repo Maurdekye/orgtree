@@ -193,6 +193,9 @@ pub struct Spec {
 /// The counters a connection keeps for its dog (lists, cards, alerts).
 #[derive(Default)]
 pub struct Stats {
+    /// Successful sessions, counted before notifying the state watcher. Unlike
+    /// watch snapshots, this cannot lose a short-lived connected transition.
+    pub connections: AtomicU64,
     /// Dials attempted (a credentials file that fails to read counts too).
     pub dials: AtomicU64,
     /// Messages received, matching or not, text or binary.
