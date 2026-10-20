@@ -118,9 +118,11 @@
 
 - Inline ticket links in transcript tool calls use a thin inset left edge from
   the shared docket status palette. Exact current references refresh on the
-  existing live-change epoch; captured transition labels remain historical.
+  accepted native org cursor (identity + revision) and legacy live-change epoch;
+  native record frames deliberately bypass the legacy bus, so both are needed.
+  Runtime-only frames at the same cursor do not refetch. Captured transition labels remain historical.
   No polling or card geometry changes. [decided: user 2026-10-19 21:14Z;
-  verified: `canvas/toolrefs.tsx`, `livebus.ts`, `styles.css`]
+  verified: `canvas/toolrefs.tsx`, `recordsession.ts`, `livebus.ts`, `styles.css`; follow-up user 2026-10-20 06:33Z]
 
 - User-facing local inference providers are **Language model servers** (compact
   account labels: **LM server: <name>**), distinct from editor LSP servers.
