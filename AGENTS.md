@@ -1,3 +1,10 @@
+- Docket rows and every ticket-link menu use `canvas/ticketmenu.ts` for all
+  item actions, including Staff on eligible backlogged items. Only real list
+  folds stay row-specific. Link menus read current item state and share the
+  row's staffing cache, preview/commit gates and action implementation.
+  [decided: user/coordinator 2026-10-20 17:26Z/17:27Z; verified:
+  `canvas/{docket,objectnavhost}.tsx`, `tests/ticketstaffmenu.test.tsx`]
+
 - HTML capture failures for missing/unreadable local assets name the source
   reference as written, its resolved path and the referring HTML/CSS file.
   Preserve typed refusal context at the tool boundary; outer anyhow context

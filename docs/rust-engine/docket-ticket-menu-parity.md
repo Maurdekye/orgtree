@@ -1,17 +1,18 @@
 # Docket and transcript ticket menus
 
-User 2026-10-14 23:04Z requested the same context menu for docket rows and
-transcript ticket cards. After a read-only comparison, the user ruled
-"Match + keep extras" at23:06:53Z. This source-only change starts on rust-engine
-a47bb16; the coordinator integrates and rig-sol verifies.
+USER 2026-10-20 17:26:35Z requires the exact same item menu for docket rows
+and ticket links everywhere, including quick Staff on backlogged items. This
+supersedes the earlier separate transcript menu with row-only Staff. Coordinator
+clarification 17:27:20Z keeps Show/Hide sub-items only where a real list fold exists.
 
 ## Exact menu
 
-Both use ticketReferenceActions with ticketOwnerAction for the same owner route:
+Both call `ticketMenuEntries` in `canvas/ticketmenu.ts`; there is no separate
+reduced link menu. It uses `ticketReferenceActions` and `ticketOwnerAction` for:
 
 1. Open details (always that label; an already selected docket row stays open).
 2. Owner... (displayed with an ellipsis glyph), when the ticket has an owner.
-   Its submenu starts with Copy agent name, then the current canonical agent
+   Its submenu starts with Copy mention, then the current canonical agent
    entries. Selecting its parent invokes the enabled Focus entry. With no
    available Focus, the parent is action-disabled while the submenu stays usable.
 3. Separator.
@@ -19,12 +20,21 @@ Both use ticketReferenceActions with ticketOwnerAction for the same owner route:
 5. Copy slug.
 6. Copy reference (@item:org/slug).
 
-Docket rows then add one separator, followed by Show/Hide N sub-item(s) when
-kids>0, a fold callback exists and search has not locked folding; and Staff...
-when the ticket is unarchived, backlogged, and scoped to a real org. No extra
-separator appears when neither extra exists. The existing draw-time staffing
-queue, pointer/focus refresh, held preview, loading placeholder and async entry
-replacement are unchanged. Staffing/model/action behavior is unchanged.
+Both add Staff when the ticket is unarchived, backlogged and scoped to a real
+org, using the same `ticketStaffEntry` and existing `quickStaffEntry`. Rows alone
+may insert Show/Hide N sub-items before Staff when kids>0, a real fold callback
+exists and search has not locked folding. One separator precedes these actions,
+and none appears when neither exists. Canonical node Open submenus remain second
+at every level through the shared context-menu renderer.
+
+Rows retain draw-time warm-up, pointer/focus refresh and loading/error updates.
+Reference menus fetch the current item, reuse any held staffing preview, and
+otherwise join the existing single-flight per-ticket preview request. The engine
+preview reads cached availability; links do not mount a hidden docket, poll or
+invent provider/model choices. Preview refusals produce the same disabled Staff
+entry as rows. Existing request/direct modes, model/effort/account gates,
+idempotent submission and commit-time revalidation remain in `quickstaff.ts` and
+the engine's quick-staff endpoint.
 
 Left clicks still toggle docket selection, and double-click still copies the
 slug with its existing success bubble and selection cleanup. The context-menu
@@ -35,15 +45,15 @@ row retains its existing omission of Copy reference/Staff instead of inventing
 an org. Manual attention flags do not add a dismissal menu; detail-pane dismissal
 controls are unchanged. The stale row comment claiming such an entry is removed.
 
-ObjectNavHost's owner entry is extracted without changing its labels, child order,
-disabled condition, Focus callback, clipboard behavior or async lookup contract.
+ObjectNavHost routes its current item to the same builder as DocketRow; its
+owner entry retains the canonical labels, child order, Focus gate and callback.
 The common menu wrapper leaves explicitly supplied Copy ticket title in its
 canonical position, without prepending its automatic copy entry/separator.
 Other automatic object-copy paths and more-specific agent/object menu precedence
-remain unchanged. Transcript menus have no extras, so their visible behavior is
-unchanged.
+remain unchanged. Reference menus now include the complete item actions,
+including Staff; list-local folds remain on their actual rows.
 
-## Verification hand-in
+## Focused verification
 
 Source/whitespace inspection is complete; runtime verification is pending rig-sol.
 No renderer jobs, app builds, installs, live-data operations or pushes were run.
