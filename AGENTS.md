@@ -684,7 +684,10 @@
   `release_stale` or taken back, and stays held after `user_queue_leave` until
   `user_job_ack` (which keeps the user's reply mail as the completion record);
   `queue.job` on a mail entry (`feed/compute.rs`) drives the inbox's
-  acknowledge pane (`canvas/jobackpane.tsx`, `jobacks.ts`). The Listeners tab
+  acknowledge pane (`canvas/jobackpane.tsx`, `jobacks.ts`). Migration 0048's holder-first
+  indexes (`slot_leases_active_holder`, `mail_active_claim_holder`) are not unique and
+  their predicates ignore the holder: a user row (NULL holder / `by_id`) is indexed,
+  never matched by an agent's recheck. The Listeners tab
   still exists only while the project's event-listeners setting is on
   (coordinator 2026-10-20 14:11Z), so registering starts from the settings
   toggle. [decided: user 2026-10-20 13:03Z-13:22Z + 13:50Z, coordinator
