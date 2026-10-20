@@ -42,9 +42,9 @@ test('org pin uses canvas coordinates, snaps to a desk peer, and joins its stack
 })
 test('global dialogs have no pin or popout controls and overlap fading defaults off', async () => {
   localStorage.clear(); forgetModalPins()
-  const v=await mountView(<CurrentOrg.Provider value="org"><ModalOverlapSettings/>{['app-settings','advanced-org','defaults'].map(kind=><PinFrame key={kind} kind={kind} title={kind} panel="global-fixture" close={()=>{}}>content</PinFrame>)}</CurrentOrg.Provider>,el=>el)
+  const v=await mountView(<CurrentOrg.Provider value="org"><ModalOverlapSettings/>{['advanced-org','defaults'].map(kind=><PinFrame key={kind} kind={kind} title={kind} panel="global-fixture" close={()=>{}}>content</PinFrame>)}</CurrentOrg.Provider>,el=>el)
   try {
-    assert.equal(v.el.querySelectorAll('.global-fixture').length,3,'all global dialogs rendered')
+    assert.equal(v.el.querySelectorAll('.global-fixture').length,2,'all global dialogs rendered')
     assert.equal(v.el.querySelectorAll('.modalpin-btn').length,0)
     assert.equal(v.el.querySelectorAll('.popout-btn').length,0)
     const toggle=v.el.querySelector<HTMLInputElement>('input[type=checkbox]')!
@@ -53,4 +53,24 @@ test('global dialogs have no pin or popout controls and overlap fading defaults 
     assert.equal(toggle.checked,true)
     assert.equal(JSON.parse(localStorage.getItem(MODAL_OVERLAP_KEY)!).enabled,true)
   } finally {await v.unmount()}
+})
+
+// USER 2026-10-20 12:26Z: "i want app settings to be pinnable and popoutable like every other
+// modal" (docket app-settings-pinnable-and-pop-out-able-like-ever). It is no longer a global
+// dialog: with an organization open it pins and pops out like Usage; with none (home) there is
+// nothing to pin it into, and it stays a centred modal
+test('app settings pins and pops out inside an organization, and is a plain modal at home', async () => {
+  localStorage.clear(); forgetModalPins()
+  const frame=<PinFrame kind="app-settings" title="App settings" panel="app-fixture" close={()=>{}}>content</PinFrame>
+  const inOrg=await mountView(<CurrentOrg.Provider value="org">{frame}</CurrentOrg.Provider>, el=>el)
+  try {
+    assert.equal(inOrg.el.querySelectorAll('.modalpin-btn').length,1,'the pin button')
+    assert.equal(inOrg.el.querySelectorAll('.popout-button').length,1,'and the pop-out button')
+  } finally {await inOrg.unmount()}
+  const home=await mountView(<CurrentOrg.Provider value={null}>{frame}</CurrentOrg.Provider>, el=>el)
+  try {
+    assert.equal(home.el.querySelectorAll('.app-fixture').length,1,'it renders at home')
+    assert.equal(home.el.querySelectorAll('.modalpin-btn').length,0,'no pin button at home')
+    assert.equal(home.el.querySelectorAll('.popout-button').length,0,'no pop-out button at home')
+  } finally {await home.unmount()}
 })

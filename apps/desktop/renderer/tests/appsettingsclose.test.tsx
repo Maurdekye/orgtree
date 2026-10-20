@@ -5,13 +5,15 @@
 // close control". THAT IS NOT TRUE OF THIS SURFACE, and §4 below pins the fact
 // down so the next reader does not have to re-derive it:
 //
-//   modalpin.tsx  const scope = ['defaults','app-settings','advanced-org']
+//   modalpin.tsx  const scope = ['defaults','advanced-org']
 //                   .includes(props.kind) ? null : org
 //
-// `app-settings` therefore always reaches PinFrameInner with orgScope=null and
-// pinnable=false, so `pinned` is permanently false, so the frame's X — which is
-// written `{pinned && (…)}` — never renders here, and neither does the pin
-// button nor the popout button. The title bar is an empty spacer.
+// At HOME (no org in context) `scope` is null, so `app-settings` reaches
+// PinFrameInner with orgScope=null and pinnable=false, so `pinned` is
+// permanently false, so the frame's X — which is written `{pinned && (…)}` —
+// never renders here, and neither does the pin button nor the popout button.
+// The title bar is an empty spacer. (With an org open it is pinnable since
+// 2026-10-20, like Usage: §7 below.)
 //
 // What actually dismisses this modal is Escape, a backdrop click, and the title
 // bar's right-click menu. All three are driven below through the real rendered
@@ -147,7 +149,7 @@ test('§4 the frame draws NO close control of its own here, and the title bar\u2
   const { state } = await setup(t)
   // the premise this ticket was written on, nailed down as an assertion
   assert.equal(document.querySelector('[aria-label="close this window"]'), null,
-    'app-settings is never pinnable, so PinFrame\u2019s X never renders for it')
+    'at home app-settings is never pinnable, so PinFrame\u2019s X never renders for it')
   assert.equal(bar().querySelector('button'), null,
     'and its title bar carries no buttons at all')
   await inAct(async () => {
@@ -161,18 +163,18 @@ test('§4 the frame draws NO close control of its own here, and the title bar\u2
   assert.equal(state.closed, 1, 'and Close ran the panel\u2019s own dismiss')
 })
 
-test('§7 …and still draws none WITH AN ORG OPEN, which is the state the '
-  + 'never-pinnable guard actually decides', async (t) => {
-  // ⚠ §4 alone does not prove this. With no org in context `useCurrentOrg()`
-  // is null, so PinFrame's scope is null whatever the kind-list says, and a
-  // mutation that DELETED 'app-settings' from that list still passed §4. Open
-  // an org and the list becomes the only thing holding the pin, popout and
-  // close controls off this surface — which is what this section pins down.
+test('§7 with an org open the frame carries the pin and pop-out controls every org modal has', async (t) => {
+  // USER 2026-10-20 12:26Z reversed the never-pinnable ruling this section used
+  // to pin down: App settings is no longer a global dialog. With an org in
+  // context it pins and pops out like Usage (tests/appsettingspin.test.tsx
+  // drives the whole behaviour); §4 above, with NO org, still holds because
+  // home has nothing to pin it into. It is still dismissed by Escape and the
+  // backdrop, and still has no footer close button.
   const { state } = await setup(t, 'mine')
   assert.equal(document.querySelector('[aria-label="close this window"]'), null,
-    'no close control even with an org open')
-  assert.equal(bar().querySelector('button'), null,
-    'no pin button and no popout button either — the bar stays empty')
+    'a centred panel has no close of its own in the bar (only a pinned window does)')
+  assert.equal(bar().querySelector('.popout-button') !== null, true, 'the pop-out button')
+  assert.equal(bar().querySelector('.modalpin-btn[aria-label="pin this to the window"]') !== null, true, 'and the pin button')
   assert.equal(footerCloses().map(b => b.className).length, 0,
     'and no footer close button came back')
   assert.equal(state.closed, 0, 'nothing dismissed the modal')

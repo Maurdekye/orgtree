@@ -470,7 +470,7 @@ const OTHER_SURFACES: {
     render: (close) => <WatchdogPanel slug="mine" dog={dog} toast={noop} close={close} /> },
   // …and the surfaces that are deliberately NOT pinnable: a dialog answering
   // a question, or a panel that belongs to the app rather than to an org
-  { name: 'app settings', kind: 'app-settings', pinnable: false,
+  { name: 'app settings', kind: 'app-settings', pinnable: true,
     render: (close) => <AccountsPanel toast={noop} close={close} /> },
   { name: 'default org settings', kind: 'defaults', pinnable: false,
     render: (close) => <DefaultsPanel toast={noop} close={close} /> },
