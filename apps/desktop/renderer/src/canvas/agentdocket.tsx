@@ -39,17 +39,29 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
   const facts = useNodeFacts(slug, tree, actorIds)
   // A SELECTED tree may omit retired owners, and team membership needs their
   // ancestry. Ask the tree selection for those owners while in team mode.
+  const owners = useMemo(() => [...new Set([
+    ...(work?.items ?? []), ...(work?.backlogged ?? []),
+    ...(showArchived ? (work?.archived ?? []) : []),
+  ].map(it => it.owner?.node).filter((id): id is string => !!id))].sort(), [work, showArchived])
   const unplaced = useMemo(() => {
     const view = tree.foreground
     if (!useSubtree || !view || !work) return []
     const known = new Set([...view.present, ...view.missing])
-    const owners = [...(work.items ?? []), ...(work.backlogged ?? []),
-      ...(showArchived ? (work.archived ?? []) : [])].map(it => it.owner?.node)
-    return [...new Set(owners)].filter((id): id is string => !!id && !known.has(id)).sort()
-  }, [useSubtree, tree.foreground, work, showArchived])
-  const held = useRef<{ slug: string; ids: string[] }>({ slug, ids: [] })
-  if (held.current.slug !== slug || !useSubtree) held.current = { slug, ids: [] }
-  if (useSubtree && tree.foreground && work) held.current = { slug, ids: unplaced }
+    return owners.filter(id => !known.has(id))
+  }, [useSubtree, tree.foreground, work, owners])
+  const scope = JSON.stringify([slug, nid, useSubtree])
+  const held = useRef<{ scope: string; ids: string[] }>({ scope, ids: [] })
+  if (held.current.scope !== scope) held.current = { scope, ids: [] }
+  if (useSubtree && work) {
+    // A selected-tree answer exists only while its selection is held. Keep
+    // found AND missing owners requested until their work leaves this view;
+    // dropping a fulfilled request removes the answer and starts a feedback loop.
+    // The complete-tree fallback (>128 selections) must retain these too.
+    const needed = new Set(owners)
+    held.current = { scope, ids: [...new Set([
+      ...held.current.ids.filter(id => needed.has(id)), ...unplaced,
+    ])].sort() }
+  }
   const registered = held.current.ids
   const registeredKey = JSON.stringify(registered)
   useEffect(() => {
@@ -66,9 +78,11 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
   return <PinFrame kind={pinKind}
     restore={{ agent: nid, generation: flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.generation, ...(isTeam ? { team: true } : {}) }}
     title={titleText} panel="settings wide" close={close}>
-    <h3 data-copy-agent-name={nid}><DocketIcon fontSize="inherit" /> {nid} <span className="dim">· {isTeam ? 'Team docket' : 'Docket'}</span></h3>
-    {unplaced.length > 0 && <div role="status" className="hint">
-      Checking team membership for {unplaced.length} retired {unplaced.length === 1 ? 'owner' : 'owners'}…</div>}
+    <div className="docket-membership-head">
+      <h3 data-copy-agent-name={nid}><DocketIcon fontSize="inherit" /> {nid} <span className="dim">· {isTeam ? 'Team docket' : 'Docket'}</span></h3>
+      {unplaced.length > 0 && <div role="status" className="hint docket-membership-pending">
+        Checking team membership for {unplaced.length} retired {unplaced.length === 1 ? 'owner' : 'owners'}…</div>}
+    </div>
     <AgentDocketView slug={slug} nid={nid} mine={mine} facts={facts} toast={toast}
       team={!isProject ? isTeam : undefined}
       onTeam={!isProject ? setTeam : undefined}

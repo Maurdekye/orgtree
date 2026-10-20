@@ -4382,6 +4382,14 @@ main.solo { width: 100%; }
   line-height: 1.55;
 }
 .settings > * { min-width: 0; }
+/* Membership loading cannot insert/remove a flex row above a live docket. */
+.docket-membership-head { position: relative; flex-shrink: 0; }
+.docket-membership-head h3 { margin: 0; }
+.docket-membership-pending {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 1;
+  padding: 2px 6px; border-radius: 4px; background: var(--panel);
+  pointer-events: none; font-size: 11px;
+}
 /* App settings alone: measured 719px tabs + 64px chrome + 8px margin for
    font/scaling variation (coordinator 2026-10-14); keep the 94vw cap. */
 .settings.acct-panel { width: 791px; }
