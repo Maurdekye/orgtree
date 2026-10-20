@@ -12,6 +12,7 @@ export const monitorMail=(from='user-watch',name='user-watch'):MailRow=>({
 })
 const lookup=async()=>null
 const view=(row:MailRow,outgoing=false)=><MailList org="synthetic" delivered={[row]} outgoing={outgoing} lookup={lookup}
+ tagFilter={{selected:[],choices:[],onChange:()=>{}}}
  rowSender={id=><span>{id}</span>} sender={id=><b>{id}</b>}/>
 async function search(el:HTMLElement,value:string){
  const input=el.querySelector<HTMLInputElement>('.mail-filter')!
