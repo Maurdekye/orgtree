@@ -93,3 +93,56 @@ test('picking a loaded page row works without adding it to the canvas map', asyn
   await inAct(() => v.el.querySelector<HTMLButtonElement>('.pile-row')!.click())
   assert.deepEqual(picked, ['unloaded'])
 })
+
+// The bounded HTTP page returns the canonical tier="project" sentinel, not
+// a full tree's kind field. Both that shape and full canvas identities work.
+const projectRow = (id: string) => ({ ...node(id), tier: 'project' })
+const rowsResponse = (rows: CanvasNode[], next: string | null = null) =>
+  new Response(JSON.stringify({ agents: rows, next_cursor: next }), { headers: { 'content-type': 'application/json' } })
+const two = { ...pile, total: 2 }
+
+test('a complete project cohort says projects and renders folder badges for bounded API rows', async t => {
+  const picked: string[] = []
+  const v = await fixture(t, async () => rowsResponse([projectRow('old-project'), projectRow('other-project')]),
+    { pile: two, onPick: (id: string) => picked.push(id) })
+  assert.match(v.el.querySelector('.pile-picker h3')!.textContent!, /2 projects$/)
+  assert.equal(v.el.querySelectorAll('.pile-row .project-mark svg').length, 2)
+  assert.equal(v.el.querySelectorAll('.pile-row .tier').length, 0)
+  await inAct(() => v.el.querySelector<HTMLButtonElement>('.pile-row')!.click())
+  assert.deepEqual(picked, ['old-project'])
+  assert.equal(v.urls.length, 1)
+})
+
+test('mixed retirees have a neutral count; the agent row keeps its model badge', async t => {
+  const v = await fixture(t, async () => rowsResponse([projectRow('project'), node('agent')]), { pile: two })
+  assert.match(v.el.querySelector('.pile-picker h3')!.textContent!, /2 retirees$/)
+  assert.equal(v.el.querySelectorAll('.pile-row .project-mark svg').length, 1)
+  assert.equal(v.el.querySelector('.pile-row .tier.t-sol')!.textContent, 'S')
+})
+
+test('agent-only picker keeps the agent count and existing tier badges', async t => {
+  const v = await fixture(t, async () => json(['agent-a', 'agent-b']), { pile: two })
+  assert.match(v.el.querySelector('.pile-picker h3')!.textContent!, /2 agents$/)
+  assert.equal(v.el.querySelectorAll('.pile-row .tier.t-sol').length, 2)
+  assert.equal(v.el.querySelectorAll('.pile-row .project-mark').length, 0)
+})
+
+test('one project page or a project-only search cannot label the entire unknown archive as projects', async t => {
+  const v = await fixture(t, async u => rowsResponse([projectRow('project')],
+    u.searchParams.get('q') ? null : 'page2'))
+  assert.match(v.el.querySelector('.pile-picker h3')!.textContent!, /1401 retirees$/)
+  await search(v.el, 'project')
+  assert.match(v.el.querySelector('.pile-picker h3')!.textContent!, /1401 retirees$/)
+  assert.equal(v.urls.length, 2, 'no extra reads to count kinds')
+  assert.equal(v.el.querySelectorAll('.pile-row .project-mark svg').length, 1)
+})
+
+test('a complete canvas cohort keeps its project label during search even when page rows omit kind', async t => {
+  const rows = ['one', 'two'].map(id => ({ ...node(id), kind: 'project', tier: null } as unknown as CanvasNode))
+  const v = await fixture(t, async u => rowsResponse(u.searchParams.get('q') ? [] : rows), {
+    pile: { ...two, list: ['one', 'two'], front: 'two' }, map: new Map(rows.map(n => [n.id, n])),
+  })
+  assert.match(v.el.querySelector('.pile-picker h3')!.textContent!, /2 projects$/)
+  await search(v.el, 'missing')
+  assert.match(v.el.querySelector('.pile-picker h3')!.textContent!, /2 projects$/)
+})
