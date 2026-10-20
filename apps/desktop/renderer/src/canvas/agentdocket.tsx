@@ -64,11 +64,15 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
   }
   const registered = held.current.ids
   const registeredKey = JSON.stringify(registered)
+  const selectionOwner = useRef({})
   useEffect(() => {
-    if (!registered.length) return
-    const owner = {}
-    treeSelections.set(slug, owner, { include: registered })
+    const owner = selectionOwner.current
     return () => treeSelections.release(slug, owner)
+  }, [slug])
+  useEffect(() => {
+    const owner = selectionOwner.current
+    if (registered.length) treeSelections.set(slug, owner, { include: registered })
+    else treeSelections.release(slug, owner)
   }, [slug, registeredKey])   // eslint-disable-line react-hooks/exhaustive-deps
   const routes: RefRoutes = { world: refs.world, onOpen: r => {
     closeIfCentred(pinKind, close, slug)
