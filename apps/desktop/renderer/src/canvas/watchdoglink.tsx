@@ -30,7 +30,10 @@ export function WatchdogLink({dog:given,id,owner,name,org,onOpen,className='',ch
   const key=dog?.id??handle??''
   const label=name??dog?.name??id??''
   const gone=stale||!!dog?.spent||dog?.state==='spent'
-  const open=gone||atDestination?undefined:onOpen??(sameOrg&&dog?route?.open:undefined)
+  // A bounded tree preview cannot establish that another handle is gone.
+  // Keep its exact detail/menu route without guessing kind or lifetime.
+  const partialOwner=key.includes('/')&&(route?.counts?.[key.split('/')[0]!]?.total??0)>8
+  const open=gone||atDestination?undefined:onOpen??(sameOrg&&(dog||partialOwner)?route?.open:undefined)
   const Tag=open?'button':'span'
   const state=dog?.state??(gone?'spent':'unknown')
   return <Tag {...(open?{type:'button' as const}:{})}

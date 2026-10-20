@@ -51,6 +51,20 @@ test('missing watchdog metadata keeps a neutral shared chip without inventing it
   assert.equal(chip!.tagName,'SPAN')
 })
 
+test('a handle beyond a partial preview keeps its exact detail and menu route',async t=>{
+  const opened:string[]=[]
+  const v=await mountView(<DeskDogsProvider value={{org:'demo',dogs:[],counts:{worker:{total:33,kept:33,one_shot:0}},open:id=>opened.push(id)}}>
+    <ToolRefs refs={[{kind:'watchdog',id:'later'}]} owner="worker" org="demo" agent={id=>id}/>
+  </DeskDogsProvider>,el=>el);t.after(()=>v.unmount())
+  const chip=v.el.querySelector<HTMLElement>('.watchdog-link')!
+  assert.equal(chip.tagName,'BUTTON')
+  assert.equal(chip.dataset.objectId,'worker/later')
+  assert.equal(chip.dataset.objectOrg,'demo')
+  assert.equal(chip.classList.contains('listener-watch'),false,'unknown metadata stays neutral')
+  await inAct(async()=>chip.click())
+  assert.deepEqual(opened,['worker/later'])
+})
+
 test('each kind and lifetime uses the same icon and perimeter classes in links and cards',async t=>{
   const kinds:Watchdog['kind'][]=['command','event','mqtt','websocket','slot','fair_queue','project_listener','listener_watch']
   for(const kind of kinds)for(const once of [false,true]){
