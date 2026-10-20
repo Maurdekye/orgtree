@@ -7,7 +7,7 @@ export default async function(rig) {
   const p = new Proof('report-interrupt')
   const providers = [
     ['ann', 'haiku', 'Bash'], ['cod', 'sol', 'shell'],
-    ['mus', 'wonder', 'shell'], ['agy', 'argon', 'run_command'],
+    ['mus', 'wonder', 'shell'], ['agy', 'flash', 'run_command'],
   ]
   const agents = Object.fromEntries(providers.map(([name,,tool]) => [name, { turns: [
     { name: 'long', match: 'QUEUED-LONG', once: true, steps: [
