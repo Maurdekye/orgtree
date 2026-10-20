@@ -4,7 +4,7 @@ export async function setup() { return {name:'cheap-defaults',fixture:'none'} }
 export default async function(rig) {
  const p=new Proof('cheap-defaults')
  const create=async name=>(await rig.api('POST','/api/orgs',{name,net_autoconnect:false})).slug
- const cfg=async slug=>(await rig.api('GET',`/api/orgs/${slug}/tree`)).auto_cheap_compact
+ const cfg=async slug=>(await rig.api('GET',`/api/orgs/${slug}`)).auto_cheap_compact
  p.check('fresh data root defaults ON', (await rig.api('GET','/api/defaults')).auto_cheap_compact?.enabled===true)
  const fresh=await create('Fresh default')
  p.check('new org defaults ON at 25%',JSON.stringify(await cfg(fresh))===JSON.stringify({enabled:true,occ:0.25}))
