@@ -22,6 +22,7 @@ Orgtree puts the controls for a whole organization around your agent harnesses. 
 - **Talk to any agent, at any depth.** Every agent in the tree is a full, persistent agent with its own desk. Open it and send instructions or follow-up messages directly, including to agents hired by other agents.
 - **A hierarchy you choose.** Build a flat team, a deep tree of coordinators and specialists, or a mix of both. Move agents between teams as the job changes, within the permissions and capacity you set.
 - **Team charters.** Give each agent its own role, and give a manager standing instructions that apply to its whole team below it. Set the rules once for that subtree and revise them as the work teaches you, without editing every agent.
+- **[Hierarchical shared memory](#hierarchical-shared-memory).** Give agents persistent personal notes and shared workspaces for their teams, projects and whole organization. Each agent inherits the standing notes along its branch of the tree; the built-in glossary supplies detailed how-to guidance when needed.
 - **A shared work docket and tickets.** Give each job an owner, requirements, status and a record of progress. Keep decisions, evidence and attachments with the task when it changes hands.
 - **Credits that control capacity.** Each model has a seat cost, and each agent has a grant it can use to staff a team beneath it. Retiring agents releases that capacity; credits govern team size and delegation, separately from provider billing and token allowances.
 - **Mail for you and your agents.** Exchange typed messages, questions, decisions and attachments through persistent inboxes. A busy agent can send concise progress reports and results straight to your inbox, so you can follow the work without scrolling through hours of tool calls. Reply while it keeps working, or grant an audience for a direct line outside its reporting chain.
@@ -198,6 +199,27 @@ If setup fails, use the server card's **refresh** button to check its answer and
 5. **Follow up in the workspace.** Read the conversation, answer requests, and use the docket, inbox and presentations to follow the results.
 
 Start with one agent and a small task. Add specialists or a coordinator once you know how you want the team to work.
+
+## Hierarchical shared memory
+
+Agents have persistent folders for notes, drafts, evidence and files they work on together. Within an organization's scratch root, the layers are:
+
+| Folder | Purpose |
+| --- | --- |
+| `_shared/` | Org-wide scratch space for conventions, decisions and files every agent in the organization can use, including future hires. |
+| `<agent>/` | Each agent's own scratch folder for its working notes, drafts and recovery breadcrumbs. |
+| `_teams/<agent-id>/` | A shared workspace for the team rooted at that agent, including the agent itself and everyone below it. |
+| `_teams/<project-id>/` | A project's shared workspace, using the same layout as team folders. Agents under the project and supervisors above it can use the folder. |
+
+Each layer can hold an `AGENTS.md` for standing notes. At session start, an agent receives its own scratch notes, the notes of its own team and every ancestor team or project up the chain, and the org-wide shared notes. Team and project notes arrive nearest first, followed by the org's notes. A supervisor's access to a project folder below it does not add that project's notes to its prompt.
+
+This gives agents a collaborative workspace with several levels of memory: personal recovery notes, team-specific practices, project decisions and organization-wide conventions. Keep each shared file in the narrowest workspace its readers share. Prompt copies reflect session start; agents re-read the actual files before relying on recent changes or editing shared notes. Folder access and writes remain subject to the agent's permissions.
+
+### The built-in glossary
+
+The built-in skill library, also called the **glossary** or **Orgtree Encyclopaedia**, gives agents a reference for Orgtree's tools, permissions, screens, settings and suggested workflows. Its three entry points are [Working inside Orgtree](docs/skills/orgtree-working/SKILL.md), [The Orgtree app](docs/skills/orgtree-app/SKILL.md) and [Suggested workflows](docs/skills/orgtree-workflows/SKILL.md), with section links leading to specific pages.
+
+Agents are instructed to read the relevant page before first acting in its area. Keeping detailed how-to guidance in these on-demand skills lets the standing instructions stay short, while agents can look up exact tool rules and collaboration patterns as the job requires. Shared notes can then focus on what this organization and its teams have learned.
 
 ## Recommended developer team setup
 
