@@ -440,6 +440,34 @@ struct Delivery {
 }
 
 /// What one fire did, for the tool result.
+/// The same project-fire wording in its delivered mail and recorded event lines.
+#[logged]
+fn project_fire_notice(
+    name: &str,
+    pname: &str,
+    by: &str,
+    fired: i32,
+    once: bool,
+    message: Option<&str>,
+) -> (String, Vec<String>) {
+    let mut body = format!(
+        "Watchdog \"{name}\" fired — PROJECT EVENT — (project_listener · {pname}), fire #{}:\n  {by} fired the event on project {pname}\n",
+        fired + 1
+    );
+    if let Some(m) = message {
+        body.push('\n');
+        body.push_str(m);
+        body.push('\n');
+    }
+    if once {
+        body.push_str("This was a ONE-SHOT watchdog: it removed itself with this fire and will not appear in `list` again.\n");
+    }
+    let lines = std::iter::once(format!("{by} fired the event on project {pname}"))
+        .chain(message.map(|m| gist(m, 200)))
+        .collect();
+    (body, lines)
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Fired {
     pub project: String,
@@ -503,21 +531,7 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
             }
         }
         let mail = uid("m");
-        let mut body = format!(
-            "Watchdog \"{name}\" fired — PROJECT EVENT — (project_listener · {pname}), fire #{}:\n  {by} fired the event on project {pname}\n",
-            fired + 1
-        );
-        if let Some(m) = message {
-            body.push('\n');
-            body.push_str(m);
-            body.push('\n');
-        }
-        if once {
-            body.push_str("This was a ONE-SHOT watchdog: it removed itself with this fire and will not appear in `list` again.\n");
-        }
-        let lines: Vec<String> = std::iter::once(format!("{by} fired the event on project {pname}"))
-            .chain(message.map(|m| gist(m, 200)))
-            .collect();
+        let (body, lines) = project_fire_notice(&name, &pname, by, fired, once, message);
         let ev = crate::events::watchdog_fired(&org_slug, &dog_uid, &name, &owner_name, "PROJECT EVENT —", &lines, once, None);
         // an agent's mail lands in its mailbox; the user's in their inbox
         // (recipient_kind 'user', named '@user', as mail to the user is stored)
@@ -745,6 +759,60 @@ pub async fn history(client: &impl GenericClient, project: i64, before: Option<&
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_fire_mentions_agent_and_project_in_mail_and_event() {
+        let (body, lines) =
+            project_fire_notice("ready", "listener-smoke", "worker", 2, false, None);
+        assert!(
+            body.contains("  @worker fired the event on project @listener-smoke\n"),
+            "{body}"
+        );
+        assert_eq!(
+            lines,
+            vec!["@worker fired the event on project @listener-smoke"]
+        );
+        assert!(body.starts_with("Watchdog \"ready\" fired — PROJECT EVENT — (project_listener · listener-smoke), fire #3:\n"));
+    }
+
+    #[test]
+    fn project_fire_keeps_user_mention_and_message_and_one_shot_words() {
+        let (body, lines) = project_fire_notice(
+            "ready",
+            "listener-smoke",
+            "@user",
+            0,
+            true,
+            Some("payload stays unchanged"),
+        );
+        assert!(
+            body.contains(
+                "  @user fired the event on project @listener-smoke\n\npayload stays unchanged\n"
+            ),
+            "{body}"
+        );
+        assert!(!body.contains("@@user"));
+        assert_eq!(
+            lines,
+            vec![
+                "@user fired the event on project @listener-smoke",
+                "payload stays unchanged"
+            ]
+        );
+        assert!(body.ends_with("This was a ONE-SHOT watchdog: it removed itself with this fire and will not appear in `list` again.\n"));
+    }
+
+    #[test]
+    fn project_fire_empty_payload_and_already_mentioned_agent_are_preserved() {
+        let (body, lines) = project_fire_notice("ready", "sync", "@worker", 4, false, Some(""));
+        assert!(
+            body.contains("  @worker fired the event on project @sync\n\n\n"),
+            "{body}"
+        );
+        assert_eq!(lines, vec!["@worker fired the event on project @sync", ""]);
+        assert!(!body.contains("@@worker"));
+    }
+
 
     #[test]
     fn history_cursors_are_ids_and_malformed_ones_are_refused() {
