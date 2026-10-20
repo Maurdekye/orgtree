@@ -565,7 +565,11 @@ coordinator 06:36Z with A1-A6, user additions 06:41Z-06:42Z).
 - **Mail tab, listeners folder.** Ack mode: **Working** (the jobs held now,
   rose), **Line** (the free listeners in delivery order; Held stays empty),
   **Dead Letter Line** (only while an event listener for
-  `project.dead_letter` above or below takes this project) and **Recently
+  `project.dead_letter` above or below takes this project: the armed or
+  paused `event` dogs on `project.dead_letter` or `project.*` whose
+  pattern takes it, at most 200, which the engine sends with the first
+  page as `dead_letter_listeners`, since the tree's generic watchdogs are
+  an eight-per-owner preview) and **Recently
   Finished** (newest first: acked plain; failed and taken back amber; dead
   letter sepia-maroon; the ending's word in the Ack column). Round-robin:
   Line and **Recently Delivered** (each hand-out, "Delivered … ago", A3).

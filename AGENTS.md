@@ -546,7 +546,9 @@
   the desk, event `mail_take_back`) ends a held job `taken_back` and
   re-queues it for another listener first (`extra.taken_from`), or
   dead-letters it at the last counted attempt; the holder is told and its
-  later ack is refused. The slot claim dog on holders and history rows is
+  later ack is refused. The Dead Letter Line comes from that read's first
+  page (`dead_letter_listeners`), never from the tree's eight-per-owner
+  watchdog preview. The slot claim dog on holders and history rows is
   for the desk only: `orgtree_project action=slots` strips it. CSS trap:
   the global `.working` rule is a flex layout, so a table row with class
   `working` stops being a row (held jobs use `held-job`). [decided: user
