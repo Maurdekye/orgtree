@@ -2515,6 +2515,24 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 > stopped]
 
 ## Orgtree 4.0.0 (Rust engine): read this first
+- With "hide retired agents" off the canvas draws a retired pile only from
+  retired records it holds, so the record feed's shared set carries, beside the
+  live agents, each visible parent's first and last archived child in the
+  canvas's sibling order (`sibling_order`, then id): the top level's, every live
+  agent's and, in turn, each pile front's (design §1.3, 3.x `_pile_edges`).
+  Buried pile members stay out. `compute::pile_edges` probes the partial index
+  `agents_retired_pile_edges` (migration 0044) twice per visible parent, so the
+  read follows the live tree, not retired history. The actor re-reads it only
+  for batches touching a retired agent, a representative, an agent entering the
+  live set or an org reload, in one snapshot with the `foreground` counts (no
+  write refreshed those before). A rehire also marks its old parent: a retired
+  one may front a pile. The HTTP tree subtracts held representatives
+  from each hidden count. Measured at 1411 retired (debug engine): `/records`
+  36.5 KB in about 13 ms. See [record feed](docs/state-system/pg-step6-record-feed.md).
+  [decided: user 2026-10-20 11:00Z, coordinator 11:11Z; verified: `feed/compute.rs`,
+  `feed/mod.rs`, `http/tree.rs`, `domain/ops.rs` rehire, `tools/rig/proofs/retired-piles.mjs`,
+  `retired-piles-scale.mjs`, 2026-10-20]
+
 - Native Claude/Codex context overflow gets one durable cheap-reset retry;
   delivered original mail is recalled, never re-acknowledged. Size compaction
   checks the latest threshold after completed idle turns and before admission;
