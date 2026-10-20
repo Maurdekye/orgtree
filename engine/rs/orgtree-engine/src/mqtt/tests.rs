@@ -177,6 +177,75 @@ async fn an_unavailable_broker_is_retried_with_growing_waits_not_a_tight_loop() 
     cancel.cancel();
 }
 
+/// However long the broker stays away, the connection keeps trying (no
+/// attempt is the last) and, once it is back, subscribes again (user
+/// 2026-10-20 09:13Z).
+#[tokio::test]
+async fn a_long_outage_is_retried_without_end_and_subscribes_again() {
+    let b = TestBroker::start(Opts { refuse: Some(ConnectReturnCode::ServiceUnavailable), ..Default::default() }).await;
+    let hub = Hub::with_timing(Timing { net_max: Duration::from_millis(50), ..Timing::fast() });
+    let cancel = CancellationToken::new();
+    let src = creds::Source::None;
+    let k = key(&hub, 1, broker_of(&b, false), &src, None);
+    let mut a = attach(&hub, &k, &src, "door/#", 1, &cancel).await;
+    state(&mut a, "down", 5).await;
+    assert!(b.until(10, |b| b.connects() >= 40).await, "40 failed attempts and still trying: {}", b.connects());
+    b.set_opts(|o| o.refuse = None);
+    state(&mut a, "connected", 5).await;
+    assert!(b.until(3, |b| b.filters() == vec!["door/#".to_string()]).await, "subscribed again after the outage");
+    cancel.cancel();
+}
+
+/// A broker that takes the TCP connection and closes it before its CONNACK
+/// (restarting, or a port forwarder whose backend is not up yet) is an
+/// outage, not a refusal (the websocket twin is in ws/tests.rs).
+#[tokio::test]
+async fn a_broker_closing_before_its_connack_is_an_outage_not_a_refusal() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut sock, _)) = l.accept().await {
+            // take the CONNECT, then close: a clean end of stream
+            let mut buf = [0u8; 1024];
+            let _ = sock.read(&mut buf).await;
+            let _ = sock.shutdown().await;
+        }
+    });
+    let hub = Hub::with_timing(Timing::fast());
+    let cancel = CancellationToken::new();
+    let src = creds::Source::None;
+    let k = key(&hub, 1, Broker { tls: false, host: "127.0.0.1".into(), port }, &src, None);
+    let mut a = attach(&hub, &k, &src, "x/#", 1, &cancel).await;
+    let s = state(&mut a, "down", 5).await;
+    assert!(matches!(s, State::Down { ref error, .. } if error.contains("closed the connection")), "{s:?}");
+    cancel.cancel();
+}
+
+/// Every wait a production connection takes, mqtt's and websocket's, stays
+/// within the 5 minutes the fire mail promises, refusals included: after a
+/// minute, then every 5 minutes (user 2026-10-20 09:13Z, coordinator ruling
+/// 09:24Z). Jitter spreads the waits below the cap, never past it.
+#[test]
+fn production_waits_stay_within_five_minutes() {
+    use super::backoff::Backoff;
+    let five = Duration::from_secs(300);
+    let (m, w) = (Timing::default(), crate::ws::Timing::default());
+    for (kind, waits) in [("mqtt", m.waits()), ("websocket", w.waits())] {
+        assert!(waits.jitter, "{kind}: production waits are spread");
+        let mut b = Backoff::default();
+        let net: Vec<Duration> = (0..200).map(|_| b.failed(false, &waits)).collect();
+        assert!(net.iter().all(|d| *d <= five), "{kind}: a network wait past 5 min: {:?}", net.iter().max());
+        assert!(net[100..].iter().any(|d| *d > Duration::from_secs(240)), "{kind}: the network waits do grow to the cap");
+        let mut b = Backoff::default();
+        let refused: Vec<Duration> = (0..200).map(|_| b.failed(true, &waits)).collect();
+        assert!((48..=72).contains(&refused[0].as_secs()), "{kind}: the first refusal waits about a minute: {:?}", refused[0]);
+        assert!(refused.iter().all(|d| *d <= five), "{kind}: a refusal wait past 5 min: {:?}", refused.iter().max());
+        assert!(refused[100..].iter().any(|d| *d > Duration::from_secs(240)), "{kind}: later refusals wait about 5 min");
+    }
+    assert!(w.retry_after_max <= five, "a server's Retry-After holds a websocket dog at most 5 min: {:?}", w.retry_after_max);
+}
+
 #[tokio::test]
 async fn refused_logins_retry_slowly_and_a_fixed_credentials_file_is_read_on_the_next_try() {
     let b = TestBroker::start(Opts { login: Some(("ha".into(), CANARY.into())), ..Default::default() }).await;

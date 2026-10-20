@@ -251,6 +251,59 @@ async fn a_server_that_drops_the_client_at_once_is_one_outage() {
     assert_eq!(since(&later), since(&first), "connections the server ends at once do not end the outage");
 }
 
+/// A server that takes the TCP connection and closes it before answering the
+/// upgrade (one that is restarting, or a port forwarder whose backend is not
+/// up yet) is an outage, not a refusal: tungstenite calls the early end of
+/// stream a handshake protocol error, but nothing refused this client
+/// (user 2026-10-20 09:13Z: retry until the connection is back).
+#[tokio::test]
+async fn a_server_closing_during_the_upgrade_is_an_outage_not_a_refusal() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut sock, _)) = l.accept().await {
+            // read the whole upgrade request, then close: a clean end of
+            // stream, as a port forwarder gives, not a reset
+            let mut req = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                match sock.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(k) => req.extend_from_slice(&buf[..k]),
+                }
+            }
+            let _ = sock.shutdown().await;
+        }
+    });
+    let hub = Hub::with_timing(Timing::fast());
+    let cancel = CancellationToken::new();
+    let mut c = hub.open(spec(&format!("ws://127.0.0.1:{port}/ws")), &cancel);
+    let st = state(&mut c.state, "down", 5).await;
+    assert!(error(&st).contains("closed the connection before answering the upgrade"), "{st:?}");
+    assert!(c.stats.get(&c.stats.dials) >= 1);
+    cancel.cancel();
+}
+
+/// However long the server stays away, the dog keeps dialling (no attempt
+/// is the last) and, once it is back, connects and sends its hellos again
+/// (user 2026-10-20 09:13Z).
+#[tokio::test]
+async fn a_long_outage_is_redialled_without_end_and_the_hellos_go_out_again() {
+    let s = TestServer::start(Opts { refuse: Some((503, None)), ..Default::default() }).await;
+    let hub = Hub::with_timing(Timing { net_max: Duration::from_millis(50), ..Timing::fast() });
+    let cancel = CancellationToken::new();
+    let mut sp = spec(&s.url("/"));
+    sp.hello = vec!["subscribe door".into()];
+    let mut c = hub.open(sp, &cancel);
+    state(&mut c.state, "down", 5).await;
+    assert!(s.until(10, |s| s.dials() >= 40).await, "40 failed dials and still dialling: {}", s.dials());
+    s.set_opts(|o| o.refuse = None);
+    state(&mut c.state, "connected", 5).await;
+    assert!(s.until(5, |s| texts(&s.got()).contains(&"subscribe door")).await, "the hello went out after the outage: {:?}", s.got());
+    cancel.cancel();
+}
+
 #[tokio::test]
 async fn binary_big_and_overflowing_messages() {
     let s = TestServer::start(Opts::default()).await;

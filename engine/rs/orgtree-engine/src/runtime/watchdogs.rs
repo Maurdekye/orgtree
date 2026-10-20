@@ -2897,6 +2897,23 @@ mod tests {
             silence_since: None, exit: None, memo: json!({}), run: json!({}) }
     }
 
+    /// A failed read of the armed dogs at engine start is logged and tried
+    /// again until it works, instead of leaving every dog unarmed, with no
+    /// trace, until the next start (user 2026-10-20 09:13Z: dogs reconnect
+    /// by themselves after every restart).
+    #[tokio::test]
+    async fn a_failed_start_read_is_logged_and_retried() {
+        let capture = crate::trace::LogCapture::start().await;
+        // no database: every read fails
+        let engine = Engine::for_tests(std::env::temp_dir().join("orgtree-dogs-start-retry"));
+        tokio::time::timeout(Duration::from_secs(5), start(&engine)).await.expect("start does not hold the engine's boot up");
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        engine.request_shutdown();
+        let log = capture.finish().await;
+        let n = log.matches("the armed watchdogs could not be read").count();
+        assert!(n >= 2, "the failed read was logged and tried again: {n} lines\n{log}");
+    }
+
     #[test]
     fn push_driven_dogs_do_not_report_missing_polls() {
         for kind in ["slot", "fair_queue", "event", "project_listener", "listener_watch"] {
