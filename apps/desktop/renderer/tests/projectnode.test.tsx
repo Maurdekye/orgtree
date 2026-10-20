@@ -110,7 +110,7 @@ test('§1f the draft card: a dashed project square with a focused name, a descri
   const name = sq.querySelector<HTMLInputElement>('input.df-name')!
   assert.equal(document.activeElement, name, 'the name takes the keyboard')
   const description = sq.querySelector<HTMLTextAreaElement>('textarea.df-charter')!
-  assert.match(description.placeholder, /description/)
+  assert.match(description.placeholder, /Summary \(optional\)/)
   const create = [...sq.querySelectorAll('button')].find((b) => /create/.test(b.textContent ?? ''))!
   assert.equal(create.disabled, true, 'nothing to create without a name')
   await inAct(() => {
