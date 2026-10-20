@@ -16,7 +16,7 @@
 //     reveal round trip through the REAL centerOn hook.
 //
 // Run:  cd frontend && node tests/run.mjs hideretired
-import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import { readFileSync } from 'node:fs'
 import { join as joinPath } from 'node:path'
 import test from 'node:test'
@@ -51,6 +51,28 @@ const FIXTURE: Kid[] = [
   ] },
   { id: 'solo-ret', state: 'archived' },
 ]
+
+// Retired rows now arrive through a lazy HTTP page, independently of the tree
+// records used by the canvas. Answer from the same synthetic fixture so these
+// tests still exercise the real picker, reveal and dismiss paths.
+function installRetiredFetch(): () => void {
+  const previous = globalThis.fetch
+  installFetch(new FakeServer())
+  const fallback = globalThis.fetch
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://fixture.invalid')
+    if ((init?.method ?? 'GET') === 'GET' && url.pathname === '/api/orgs/hr/retired') {
+      const parent = url.searchParams.get('parent') ?? ''
+      const children = parent ? FIXTURE.find(k => k.id === parent)?.children ?? [] : FIXTURE
+      const query = (url.searchParams.get('q') ?? '').toLowerCase()
+      const agents = children.filter(k => k.state === 'archived' && k.id.toLowerCase().includes(query)).map(mk)
+      return Promise.resolve(new Response(JSON.stringify({ agents, next_cursor: null }),
+        { headers: { 'Content-Type': 'application/json' } }))
+    }
+    return fallback(input, init)
+  }) as typeof fetch
+  return () => { globalThis.fetch = previous }
+}
 
 function tree(kids: Kid[]): TreePayload {
   return {
@@ -203,10 +225,12 @@ function domTest(name: string, body: (k: {
     useFakeClock()
     localStorage.clear()
     const unstub = stubRects()
+    const restoreFetch = installRetiredFetch()
     const open: { unmount: () => Promise<void> }[] = []
     t.after(async () => {
       for (const m of open) { try { await m.unmount() } catch { /* gone */ } }
       unstub()
+      restoreFetch()
       localStorage.clear()
       realClock()
     })
@@ -289,12 +313,11 @@ domTest('flipping the setting off mid-session brings every retiree back', async 
 })
 
 test('zoomed desk replaces retired jumps with a picker and hides retired audiences reactively', async () => {
-  const { FakeServer, installFetch } = await import('./harness')
   const { DeskChat } = await import('../src/canvas/desk')
   const { RetiredFold } = await import('../src/canvas/mail')
   const { resetConvos } = await import('../src/convo')
   localStorage.clear(); resetConvos(); setHideRetiredOn(false)
-  installFetch(new FakeServer())
+  const restoreFetch = installRetiredFetch()
   const boss = mk(FIXTURE[0]!)
   const map = new Map([boss, ...boss.children].map(n => [n.id, n]))
   const jumps: string[] = []
@@ -317,7 +340,7 @@ test('zoomed desk replaces retired jumps with a picker and hides retired audienc
     assert.ok(pick, 'retired list opens over zoomed desk')
     await inAct(() => pick.click())
     assert.deepEqual(jumps, ['ret-one'])
-  } finally { await v.unmount(); setHideRetiredOn(false); resetConvos() }
+  } finally { await v.unmount(); restoreFetch(); setHideRetiredOn(false); resetConvos() }
 })
 
 domTest('revealed retired agent can be dismissed via card action, restores token count, cleans up pinned window, and can be reselected', async ({ mount }) => {
