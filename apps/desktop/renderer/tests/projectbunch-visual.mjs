@@ -10,9 +10,9 @@ import { runDesktop } from '../../../../tools/rig/desktop.mjs'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '../../../..')
 // optional 4th argument: another styles.css (a base revision's) for the before capture
-const [output, evidence, deps, css] = process.argv.slice(2).map(p => path.resolve(p))
+const [output, evidence, deps, css, capture] = process.argv.slice(2).map(p => path.resolve(p))
 if (![output, evidence, deps].every(Boolean)) {
-  throw new Error('Usage: projectbunch-visual.mjs <C build output> <C evidence> <existing node_modules> [styles.css]')
+  throw new Error('Usage: projectbunch-visual.mjs <C build output> <C evidence> <existing node_modules> [styles.css] [capture.cjs]')
 }
 const require = createRequire(path.join(deps, '../package.json'))
 const esbuild = require('esbuild')
@@ -51,7 +51,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 try {
   const result = await runDesktop(
     { dir: evidence, url: `http://127.0.0.1:${server.address().port}`, token: '', org: '' },
-    path.join(here, 'projectbunch-visual.cjs'), {
+    capture || path.join(here, 'projectbunch-visual.cjs'), {
       out: path.join(evidence, 'desktop'),
       timeout: 100000,
       electron: path.join(deps, 'electron/dist/electron.exe'),

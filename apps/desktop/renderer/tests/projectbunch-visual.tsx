@@ -14,6 +14,9 @@ localStorage.clear()
 localStorage.setItem('orgtree-canvas-gl-wires', 'off')
 localStorage.setItem('orgtree-start-zoom', '0')
 localStorage.setItem('orgtree-project-bunches', scene.endsWith('-off') ? '0' : '1')
+if (scene === 'reorder' || scene === 'rearrange-on')
+  localStorage.setItem('orgtree-project-bunch-rearrange', '1')
+if (scene === 'rearrange-off') localStorage.setItem('orgtree-project-bunches', '1')
 localStorage.setItem('orgtree-chart-layout', scene === 'circular' ? 'circular' : 'row')
 const labels: Record<string, string> = {
   two: 'Two projects', three: 'Three projects', five: 'Five projects', seven: 'Seven projects',
@@ -27,6 +30,8 @@ const labels: Record<string, string> = {
   'insert-agent': 'Insert above the sole bottom agent',
   'insert-split': 'Insert above one of several agents: the split stays',
   reorder: 'Drag the first project to the end of the bunch',
+  'rearrange-off': 'Rearranging off (default): ordinary subtree dragging',
+  'rearrange-on': 'Rearranging on: insertion point changes project order',
   settings: 'App settings > Display',
 }
 const trees: Record<string, TreeNode[]> = {
@@ -43,7 +48,7 @@ const trees: Record<string, TreeNode[]> = {
 }
 let current = bunchTree(trees[scene] ?? [chain(3)])
 let publish = (_tree: TreePayload) => {}
-const receipt: { steps: Record<string, unknown>[][]; parents: [string, string | null][] } = { steps: [], parents: [] }
+const receipt: { steps: Record<string, unknown>[][]; parents: [string, string | null][] } = { steps: [], parents: [...treeParents(current)] }
 ;(window as unknown as { bunchReceipt: typeof receipt }).bunchReceipt = receipt
 function execute(steps: Record<string, unknown>[]) {
   receipt.steps.push(steps)
