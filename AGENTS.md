@@ -1,3 +1,18 @@
+- Per-target modals are one window per target: Mail, Docket, Team, Slots,
+  Listeners, the settings gear, Watchdog detail, the project desk window and
+  the readers key every store (pins, open markers, window rows, pin/pop
+  requests) as `kind:target` (`modalkinds.ts`); the canvas keeps a list per
+  kind (`canvas/modalinstances.ts`). The same target reveals its window; a new
+  one never moves a pinned or popped-out sibling, replaces a centred one, and
+  opens at its own placement, else the kind's template (last pin or move; an
+  unpin clears it) cascaded 28 px, else centred. 20 closed placements kept.
+  Readers: App's global one, one per agent/project, one per team; a document
+  goes to an open reader that can show it in a fixed order
+  (`canvas/readers.ts`), else to its own agent's. Single-instance records
+  migrate on first read. [decided: user 2026-10-20 17:24:20Z, 19:03:28Z,
+  19:05:36Z, coordinator 18:58:51Z; verified: `tests/modalinstances*.test.tsx`,
+  `tests/readers*.test.ts*`]
+
 - Project canvas cards and desk-header chips show only their own documents,
   matching the Presented tab. Team presentations still includes descendants;
   agent cards are unchanged. This replaces the 2026-10-17 subtree-chip rule.

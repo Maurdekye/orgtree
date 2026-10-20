@@ -16,6 +16,10 @@ The pinned desk's close/unpin control minimizes it back to its original desk. If
 
 Pinnable modal surfaces (Org settings, App settings, Usage, the inbox, docket and presentations among them) dismiss when Escape is pressed or the backdrop is clicked. Inside an organization each can be pinned or popped out and remembers its placement per organization; at home, with no organization to pin into, Usage and App settings are centred only. Their centered form has no separate close button. Once pinned, the surface is a window and keeps its Close control; detached windows use their native window controls. Pinning is disabled while detached; closing a pinned window dismisses the modal rather than merely changing its pin state. The related overlap/fade, snap and jump-fold choices are in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).
 
+## Several windows of one kind
+
+Surfaces that belong to one agent, project or watchdog open one window per target: Mail, Docket, Team, Slots, Listeners, Settings, a watchdog's detail, a project's desk window and the presentation readers. Opening the Team of a second agent opens a second window beside the first instead of replacing it; opening one that is already open brings it to the front, and an agent's own card button closes only that agent's window. Each target remembers its own place, pin and pop-out. A target opened for the first time pins where the kind was last pinned, moved or resized, stepped 28 px right and down past any window already there; if the kind was last unpinned it opens centred instead. Only one centred window of a kind is open at a time, so the next one replaces it. Placements of closed windows are remembered for the 20 most recent targets of each kind in each organization.
+
 ## Separate windows and Close
 
 A project's Open → Slots entry opens the canonical slot list as a modal, only

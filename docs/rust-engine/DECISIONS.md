@@ -1628,3 +1628,37 @@ All entries are dated 2026-10-06 unless stated otherwise.
       not end armed changes nothing.
     - Existing projects: migration 0043 switches it on where a listener was ever kept.
     Details: [`PROJECT-NODES.md`](PROJECT-NODES.md#the-event-listeners-setting-user-2026-10-20-1050z-design-approved-by-the-coordinator-1058z-migration-0043).
+
+92. **Several instances of one kind of modal, one per target; readers per scope** (user
+    2026-10-20 17:24:20Z m0f997859ccfb, staffed 18:51:27Z; defaults approved by the
+    coordinator 18:58:51Z m5083ac2a0b30; readers 19:03:28Z md184a546b2d7, tie-break
+    19:05:36Z mcebcf541bac6; docket `several-instances-of-the-same-modal-team-slots-i`).
+    - "different versions of the same modal ... should be able to coexist. right now opening
+      one replaces the other's position": Mail, Docket (own and team: one modal), Team,
+      Slots, Listeners, the settings gear, Watchdog detail and the project desk window are
+      keyed by kind AND target in every store. Opening the same target reveals it; a node's
+      own button still hides its own open pin.
+    - A new target never touches a pinned or popped-out instance. At most one centred
+      instance per kind: a centred modal has no place to keep, so the next target replaces
+      it (mobile, all centred, stays one at a time).
+    - Placement: a target reopens where it was last pinned or popped out. Otherwise it
+      follows its kind's last explicit placement (a pin, drag or resize sets it; an unpin
+      clears it, as the single window's unpin did), cascaded 28 px right and down past open
+      siblings and wrapping inside the canvas; or opens centred. A first pop-out window
+      steps past its siblings' windows the same way.
+    - No cap on open instances; the newest 20 placements of closed ones per kind per org are
+      kept. Home is unchanged (none of these surfaces exist there).
+    - Readers: "one class of reader; one global reader, one agent / project reader per agent
+      or project, one team reader per agent or project team. if a document is already
+      viewable from one, then bring it to the front, otherwise open a new one". Viewable is
+      read by scope (global: any document of the org; agent: its node's; team: its node's
+      and its descendants'). Several: "choose one arbitrarily in a consistent manner" ->
+      a reader already showing it, then the document's own agent/project reader, then the
+      team readers nearest first, then the global reader. Otherwise its own agent/project
+      reader opens on it. The Team box in a reader switches it to that team's reader in its
+      place. The docket hands its documents to the same route.
+    - Migration, one-off on first read: each kind's single pin and open marker move to the
+      target the marker names; the single pin becomes the kind's template; window rows move
+      to their restore target; the single team gallery record becomes the team reader; the
+      old document readers' records reopen through the route. Renames carry everything.
+    Details: [`panel-activation.md`](panel-activation.md#several-instances-of-one-kind-2026-10-20).
