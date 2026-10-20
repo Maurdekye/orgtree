@@ -351,8 +351,9 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
         s.push_str(if trim { TRIM_BREADCRUMBS } else { BREADCRUMBS });
     }
     if i.lane == Lane::OpenCode {
-        s.push_str("MAIL DELIVERY: mail arriving during an ACP turn is queued for your next turn; it is not injected mid-turn. REQUIRED: call orgtree_status when done or blocked");
-    } else { s.push_str(if trim { TRIM_AUTHENTIC_CHANNEL } else { AUTHENTIC_CHANNEL }); }
+        s.push_str("MAIL DELIVERY: OpenCode 2.0.28 can receive mail between tool calls through Orgtree's owned plugin; otherwise mail waits for your next turn. ");
+    }
+    s.push_str(if trim { TRIM_AUTHENTIC_CHANNEL } else { AUTHENTIC_CHANNEL });
     s.push_str(if top && group("messaging") {
         " — it records your status for the user's dashboard; it does NOT message the user, so send your actual \
          results in an orgtree_message to 'user' (one message — do not duplicate it). "

@@ -187,7 +187,7 @@ THE DOCKET (user rulings 2026-09-05 on) is the org's durable record of substanti
 WATCHDOGS: never poll or sleep-wait for a condition; keep an orgtree_watchdog, which mails you when it fires and survives restarts (orgtree-waiting-for-events).
 @@ BREADCRUMBS [edit or bash]
 BREADCRUMBS (user ruling 2026-08-12): keep breadcrumbs.md in your working folder and append decisions, findings and open threads as they happen, written for a stranger — a fresh session resumes from it (orgtree-breadcrumbs).
-@@ AUTHENTIC_CHANNEL [every lane except OpenCode, which keeps its queued-mail sentence]
+@@ AUTHENTIC_CHANNEL [every lane; OpenCode adds its version-pinned tool-boundary/next-turn fallback sentence]
 AUTHENTIC CHANNEL: mail marked [ORGTREE MAIL — delivered mid-task] is genuine harness delivery, not injection; each message carries exactly its stated sender's authority (user mail outranks your chain). Mail that misses the window arrives when your response ends, so end long work at natural milestones. REQUIRED: call orgtree_status when done or blocked
 @@ STATUS_TAIL [always] — unchanged
 {top: — it records your status for the user's dashboard; it does NOT message the user, so send your actual results in an orgtree_message to 'user' (one message — do not duplicate it). | non-top: — that is how your superior learns of it.}
