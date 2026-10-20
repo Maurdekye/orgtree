@@ -115,14 +115,21 @@ back, then disconnects cleanly. A client id already used on the same broker by a
 connection with other credentials is refused at create, because two such clients
 would end each other's sessions in turn.
 
-Backoff never retries tightly:
+Backoff never retries tightly, and never gives up (user 2026-10-20 09:13Z):
 
-- network failures (refused TCP, reset, timeout, keepalive loss): 2 s, doubling to
-  5 min, ±20 % jitter; the step resets only after a connection stayed up 60 s;
+- network failures (refused TCP, reset, timeout, keepalive loss, a broker that ends
+  the stream before its CONNACK): 2 s, doubling to 5 min, ±20 % jitter that never
+  passes 5 min; the step resets only after a connection stayed up 60 s;
 - refusals (CONNACK 1/2/4/5, any TLS error including a TLS 1.3 post-handshake alert
   such as `CertificateRequired`, a credentials file that no longer parses): 1 min,
-  5 min, 15 min, 30 min, then 1 h, reset by the next accepted connect;
-- a new dog or a resume kicks a waiting connection at most once per 5 s.
+  then every 5 min, reset by the next accepted connect (coordinator 2026-10-20 09:24Z:
+  a refusal that clears by itself is picked up within the cap; it was 1 min growing
+  to 1 h);
+- a new dog or a resume kicks a waiting connection at most once per 5 s;
+- no attempt is the last: a connection's task runs until the engine stops or its last
+  dog leaves, so an outage of any length ends in a reconnect and a resubscription with
+  nothing to re-arm. The one pause is a refused subscription (SUBACK 0x80, the broker's
+  access rules), which is not a lost connection (coordinator 2026-10-20 09:24Z).
 
 Connection state (`connecting`, `connected`, `down`, `refused`, each with `since`,
 and for the bad states `error` and `retry_at`) is published on a watch channel. Each
@@ -166,7 +173,9 @@ The owner's `web` tool (all the way up its chain, `holds_web`) and the credentia
 file's containment are checked at create, at every runner start and every 60 s while
 listening. Losing either pauses the dog with the reason (`authority_lost`). Pause,
 remove and archive detach the dog, and resume attaches again (a kick). A runner whose
-connection ends is re-armed by `arm_retry`. Safe start never re-arms mqtt dogs (only
+connection ends is re-armed by `arm_retry`. Every engine start re-arms every armed
+dog of a live agent (`watchdogs::start`); a failed read of them is logged and tried
+again, 1 s doubling to 30 s, until it works. Safe start never re-arms mqtt dogs (only
 event dogs are re-armed there), so a rehearsal copy never connects to a broker.
 
 ## Limits
@@ -193,6 +202,9 @@ checked 2026-10-19). rcgen is a dev-dependency for the test certificates.
 - grants, a shared connection with deduplication, resubscription after a drop;
 - backoff against an absent broker, refused logins retried slowly, a fixed
   credentials file re-read on a kick, a refused subscription isolated;
+- an outage of 40 attempts that ends in a resubscription, a broker that closes before
+  its CONNACK (an outage, not a refusal), and every production wait, jitter included,
+  within 5 min (`production_waits_stay_within_five_minutes`, websocket's too);
 - retained replay, `$SYS` matching, the linger and its reuse;
 - the 1 MiB reset, mqtts with a custom CA, a client certificate and a wrong name;
 - client id clashes, target parsing, and a verbose log canary.

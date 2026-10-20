@@ -293,6 +293,17 @@
   [decided: user 2026-10-19 17:40Z/17:43Z, coordinator 18:04Z; verified:
   `src/mqtt/*`, `runtime/watchdogs/mqtt.rs`, `runtime/convo.rs`, `trace.rs`]
 
+- MQTT and websocket dogs never give up while armed: every engine start re-arms
+  them (`watchdogs::start` logs and retries a failed read), no connection loop
+  counts attempts, outages back off 2 s doubling to 5 min, and refusals retry
+  after 1 min, then every 5 min. Jitter and a server's `Retry-After` never pass
+  5 min (`mqtt/backoff.rs`). The one pause is a refused MQTT subscription.
+  Gotcha: tungstenite reports a stream that ends before the upgrade's answer as
+  `Protocol(HandshakeIncomplete)`, which is an outage, not a refusal
+  (`ws/conn.rs` `classify`). [decided: user 2026-10-20 09:13Z, coordinator
+  09:24Z; verified: `mqtt/backoff.rs`, `mqtt/conn.rs`, `ws/conn.rs`,
+  `runtime/watchdogs.rs`]
+
 - Slot chips and all current-project-targeted watchdog menus offer Project…
   through the shared project-link menu; primary slot clicks still open Slots.
   Listener/slot-line rows and mobile dog lists use the shared object host.

@@ -165,12 +165,19 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
     engine stopping).
 - **Limits:** a frame or message over 1 MiB resets the connection, like mqtt's packet
   cap, and the error says so.
-- **Backoff, shared with mqtt (`mqtt/backoff.rs`), never a tight loop:**
-  - Network errors, a server's Close, a dead connection and HTTP 5xx: 2 s, doubling to
-    5 min, ±20 %. It starts over only after the connection has been up 60 s.
-  - HTTP 429/503: `Retry-After` (in seconds) is honoured, up to 1 h.
+- **Backoff, shared with mqtt (`mqtt/backoff.rs`), never a tight loop, never giving up
+  (user 2026-10-20 09:13Z):**
+  - Network errors, a server's Close, a dead connection, HTTP 5xx, and a server that
+    ends the stream before it answers the upgrade (a restarting server, or a port
+    forwarder whose backend is not up; tungstenite calls it `HandshakeIncomplete`):
+    2 s, doubling to 5 min, ±20 % that never passes 5 min. It starts over only after
+    the connection has been up 60 s.
+  - HTTP 429/503: `Retry-After` (in seconds) is honoured, up to 5 min.
   - Refusals (HTTP 401/403 and other 4xx, a redirect, an unaccepted subprotocol, TLS, a
-    bad credentials file): 1 min, 5, 15, 30, then 60 min.
+    bad credentials file): 1 min, then every 5 min (coordinator 2026-10-20 09:24Z; it
+    was 1 min growing to 1 h).
+  - No dial is the last: the dog dials until it is paused or removed or the engine
+    stops, and every connect sends its hellos again.
   - Resuming a dog opens a fresh connection at once.
 - **One outage, not many:** a server that accepts the client and drops it within 60 s
   (a login rejected by a Close frame) does not end the outage: its `since` stays.
@@ -212,6 +219,9 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
   with the reason.
 - **Archive and rehire:** archiving an owner pauses its dogs; rehire re-arms them
   through the generic paths.
+- **Engine start:** every start re-arms every armed dog of a live agent
+  (`watchdogs::start`, which logs a failed read and tries again, 1 s doubling to 30 s,
+  until it works), and each dials at once.
 - **Safe start:** SAFE_START never connects (only event dogs re-arm in safe start).
 - **Shutdown:** each connection says goodbye with Close 1001.
 - **Desktop:** the desktop can pause, resume and remove a dog; only agents create dogs
@@ -249,6 +259,8 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
   - 404 and redirects;
   - a silent server;
   - one outage across instant drops;
+  - a server that ends the stream during the upgrade: an outage, not a refusal;
+  - 40 failed dials, then the connection and its hellos;
   - binary, 100 KB and over-cap messages, and the buffer overflow;
   - the heartbeat;
   - Close 1001 on drop and unpark;

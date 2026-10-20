@@ -1516,8 +1516,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - Trust: Mozilla roots (webpki-roots); a custom CA in the credentials file replaces them for
       that broker (pinning). The OS certificate store is not used unless the user asks.
     - One connection per org, broker, credentials and client id. Backoff is 2 s doubling to 5 min
-      for network failures and 1 min to 1 h for refusals. The connection state is visible, and the
-      owner is told about a refusal, an outage longer than a minute, and the recovery.
+      for network failures and 1 min, then every 5 min, for refusals (coordinator 2026-10-20
+      09:24Z; it was 1 min to 1 h), jitter included, and no attempt is the last (user 2026-10-20
+      09:13Z). The connection state is visible, and the owner is told about a refusal, an outage
+      longer than a minute, and the recovery.
     - Payloads are untrusted outside input: every fire (mail and event rendering) and `list`'s last
       message carry the UNTRUSTED label; payload lines are guttered and escaped.
     - Crate: rumqttc =0.25.1 (Apache-2.0), default features off, rustls on ring; license check in
