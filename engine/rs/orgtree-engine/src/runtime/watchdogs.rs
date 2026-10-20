@@ -252,22 +252,50 @@ async fn load(engine: &Engine, row: i64) -> Result<Option<Dog>> {
 
 // ------------------------------------------------------------ arming
 
-/// Arm every armed watchdog whose owner is live (engine start).
+/// Arm every armed watchdog whose owner is live (engine start). A failed
+/// read is logged and tried again in the background until it works or the
+/// engine stops: no dog may stay unarmed, unseen, until the next start
+/// (user 2026-10-20 09:13Z: dogs reconnect by themselves after a restart).
 #[logged]
 pub async fn start(engine: &Arc<Engine>) {
+    let Err(e) = arm_armed(engine).await else { return };
+    tracing::warn!(error = %format!("{e:#}"), "the armed watchdogs could not be read at start; trying again");
+    let engine = engine.clone();
+    tokio::spawn(tracing::Instrument::instrument(async move {
+        for attempt in 1u32.. {
+            let delay = Duration::from_secs((1u64 << (attempt - 1).min(5)).min(30));
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {}
+                _ = engine.shutdown.cancelled() => return,
+            }
+            match arm_armed(&engine).await {
+                Ok(()) => {
+                    tracing::info!(attempt, "the armed watchdogs were read and armed after a failed start");
+                    return;
+                }
+                Err(e) => tracing::warn!(error = %format!("{e:#}"), attempt, "the armed watchdogs could not be read at start; trying again"),
+            }
+        }
+    }, tracing::Span::current()));
+}
+
+/// Arm the armed dogs of live agents, 256 rows a page. A dog whose runner
+/// already runs is left alone, so a retry from the first page starts only
+/// the runners still missing.
+#[logged]
+async fn arm_armed(engine: &Arc<Engine>) -> Result<()> {
     let safe=crate::mailhub::safe_start() && !crate::rig::recovers();
     let mut after=0i64;
     loop {
-        let Ok(client)=engine.db.get().await else{return};
+        let client=engine.db.get().await?;
         let rows=client.query(
             "SELECT w.id FROM ot.watchdogs w JOIN ot.agents a ON a.id=w.owner_agent_id JOIN ot.orgs o ON o.id=w.org_id
               WHERE w.state='armed' AND a.state='live' AND a.kind='agent' AND o.state<>'trashed'
-                AND (NOT $1 OR w.kind='event') AND w.id>$2 ORDER BY w.id LIMIT 256",&[&safe,&after]).await;
+                AND (NOT $1 OR w.kind='event') AND w.id>$2 ORDER BY w.id LIMIT 256",&[&safe,&after]).await?;
         drop(client);
-        let Ok(rows)=rows else{return};
         let more=rows.len()==256;
         for row in rows {after=row.get(0);arm(engine,after);}
-        if !more{break}
+        if !more{return Ok(())}
         tokio::task::yield_now().await;
     }
 }
