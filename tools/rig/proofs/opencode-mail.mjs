@@ -13,7 +13,7 @@ export async function setup(flags) {
   } }
 }
 
-export default async function (rig) {
+export default async function (rig, { lifecycle = false } = {}) {
   const p = new Proof('opencode-mail')
   const model = await startOpenCodeSynthetic()
   try {
@@ -41,7 +41,7 @@ export default async function (rig) {
         ...(urgent ? { urgent: true, urgent_reason: 'synthetic urgent control' } : {}) })
       if (!result.ok) throw Error(result.text)
     }
-    const row = text => rig.one(`SELECT id,state,turn_id FROM ot.mail
+    const row = text => rig.one(`SELECT id,state,turn_id,extra FROM ot.mail
       WHERE recipient_agent_id=${agent.id} AND body='${text}' ORDER BY id DESC LIMIT 1`)
     const liveTurn = () => rig.turns('mailprobe').find(t => !t.ended_at)
     const awaitSettled = async () => rig.waitFor(() =>
@@ -94,9 +94,97 @@ export default async function (rig) {
         rig.one(`SELECT count(*)::int AS n FROM ot.opencode_mail_batches WHERE agent_id=${agent.id}`).n === 0)
     } else p.note('baseline has no custody table; runtime custody checks require the candidate')
 
+    if (lifecycle) {
+      if (!claimTable) throw Error('lifecycle mode requires candidate custody schema')
+      const blockAck = () => rig.exec(`
+        CREATE OR REPLACE FUNCTION ot.mail_proof_fail_ack() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'synthetic acknowledgement failure'; END $$;
+        CREATE TRIGGER mail_proof_fail_ack BEFORE DELETE ON ot.opencode_mail_batches
+          FOR EACH ROW WHEN(OLD.agent_id=${agent.id}) EXECUTE FUNCTION ot.mail_proof_fail_ack();`)
+      const allowAck = () => rig.exec('DROP TRIGGER IF EXISTS mail_proof_fail_ack ON ot.opencode_mail_batches;')
+      const held = () => rig.one(`SELECT message_id,session_id,turn_id,mail_ids FROM ot.opencode_mail_batches WHERE agent_id=${agent.id}`)
+      const receiptCount = marker => rig.one(`SELECT count(*)::int AS n FROM ot.convo
+        WHERE agent_id=${agent.id} AND body::text LIKE '%${marker}%'`).n
+
+      // An acknowledgement can fail after admission. The next hook retries the
+      // same durable provider ID, which must not add a second native message.
+      const retry = model.arm('MAIL_CASE_RETRY', file, 2)
+      await rig.userMail('mailprobe', 'MAIL_CASE_RETRY')
+      await retry.first()
+      const retryTurn = liveTurn()?.id
+      blockAck()
+      await sent('MAIL_CANARY_RETRY')
+      retry.releaseFirst()
+      await retry.second()
+      const firstBatch = held()
+      p.check('failed acknowledgement retains exact durable custody after native admission',
+        !!firstBatch && firstBatch.turn_id === retryTurn && row('MAIL_CANARY_RETRY')?.state === 'delivering'
+        && receiptCount('MAIL_CANARY_RETRY') === 0, firstBatch)
+      allowAck()
+      retry.releaseSecond()
+      const retried = JSON.stringify((await retry.third()).body.messages)
+      p.check('retry deduplicates native message and commits one transcript row',
+        retried.split('MAIL_CANARY_RETRY').length - 1 === 1
+        && row('MAIL_CANARY_RETRY')?.state === 'delivered' && receiptCount('MAIL_CANARY_RETRY') === 1
+        && held() === null)
+      retry.releaseThird()
+      await awaitSettled()
+
+      // Cancel at the next model request, after OpenCode admitted the batch but
+      // the engine transaction failed. The stopped writer's native history is
+      // sufficient to settle without another model delivery.
+      const cancel = model.arm('MAIL_CASE_CANCEL', file)
+      await rig.userMail('mailprobe', 'MAIL_CASE_CANCEL')
+      await cancel.first()
+      const cancelTurn = liveTurn()?.id
+      blockAck()
+      await sent('MAIL_CANARY_CANCEL')
+      cancel.releaseFirst()
+      await cancel.second()
+      p.check('cancellation fixture has real unacknowledged custody', !!held())
+      allowAck()
+      await rig.api('POST', `/api/orgs/${rig.org}/nodes/mailprobe/interrupt`, {})
+      cancel.releaseSecond()
+      await awaitSettled()
+      p.check('cancel reconciles admitted mail from stopped native history exactly once',
+        row('MAIL_CANARY_CANCEL')?.state === 'delivered' && row('MAIL_CANARY_CANCEL')?.turn_id === cancelTurn
+        && row('MAIL_CANARY_CANCEL')?.extra?.opencode_ambiguous !== true
+        && receiptCount('MAIL_CANARY_CANCEL') === 1 && held() === null)
+
+      // An engine crash cannot prove the old hosted writer has stopped. The
+      // explicitly ruled fallback must carry a warning and end at the next turn.
+      const crash = model.arm('MAIL_CASE_CRASH', file)
+      await rig.userMail('mailprobe', 'MAIL_CASE_CRASH')
+      await crash.first()
+      const crashTurn = liveTurn()?.id
+      blockAck()
+      await sent('MAIL_CANARY_CRASH')
+      crash.releaseFirst()
+      await crash.second()
+      p.check('restart fixture has real unacknowledged custody', !!held())
+      allowAck()
+      await rig.crash()
+      crash.releaseSecond()
+      const afterCrashRequest = model.requests.length
+      await rig.restart()
+      await awaitSettled()
+      const recoveryRequests = JSON.stringify(model.requests.slice(afterCrashRequest))
+      p.check('uncertain crash custody returns once on the next turn with its warning',
+        row('MAIL_CANARY_CRASH')?.state === 'delivered' && row('MAIL_CANARY_CRASH')?.turn_id !== crashTurn
+        && row('MAIL_CANARY_CRASH')?.extra?.opencode_ambiguous === true && held() === null
+        && receiptCount('MAIL_CANARY_CRASH') === 1
+        && recoveryRequests.includes('may already have been delivered mid-turn'))
+      p.check('uncertain restart emits exactly one content-free diagnostic',
+        rig.engineLog().split('OpenCode mail admission unresolved; next-turn delivery').length - 1 === 1)
+    }
+
     const logs = rig.engineLog()
-    p.check('engine diagnostics contain no private mail canaries',
-      !['MAIL_CANARY_FIRST', 'MAIL_CANARY_SECOND', 'MAIL_CANARY_HELD', 'MAIL_CANARY_URGENT'].some(x => logs.includes(x)))
+    // The pre-existing /api/rig/tool HTTP request log echoes fixture inputs on
+    // both engines. Exclude exactly those request lines; the bridge's warnings,
+    // errors, receipts and all other diagnostics remain under this assertion.
+    const bridgeLogs = logs.split(/\r?\n/).filter(line => !/ REQUEST .* POST \/api\/rig\/tool \| /.test(line)).join('\n')
+    p.check('bridge diagnostics contain no private mail canaries', !bridgeLogs.includes('MAIL_CANARY_'))
+    p.note('privacy check excludes only existing /api/rig/tool HTTP request echoes; baseline exhibits those too')
     p.check('synthetic model completed without handler errors', model.errors.length === 0, model.errors)
     p.file('turns.json', rig.turns('mailprobe'))
     p.keep(rig, { grep: /OpenCode|ACP|mail custody|mail admission/ })

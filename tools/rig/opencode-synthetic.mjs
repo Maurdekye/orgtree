@@ -35,16 +35,21 @@ export async function startOpenCodeSynthetic() {
       if (n === 1) {
         phase.first.resolve(entry)
         await bounded(phase.releaseFirst.promise, 'first response')
+      } else if (n === 2) {
+        phase.second.resolve(entry)
+        await bounded(phase.releaseSecond.promise, 'second response')
+      } else if (n === 3 && phase.toolRounds === 2) {
+        phase.third.resolve(entry)
+        await bounded(phase.releaseThird.promise, 'third response')
+      }
+      if (n <= phase.toolRounds) {
         const tool = body.tools.find(t => t.function?.name === 'read')?.function
         if (!tool) throw Error('OpenCode native read was not offered')
         const properties = tool.parameters?.properties ?? {}
         const key = ['filePath', 'path', 'file_path'].find(k => k in properties)
         if (!key) throw Error('unknown native read input')
-        call = { index: 0, id: `read_${phase.token}`, type: 'function',
+        call = { index: 0, id: `read_${phase.token}_${n}`, type: 'function',
           function: { name: tool.name, arguments: JSON.stringify({ [key]: phase.file }) } }
-      } else if (n === 2) {
-        phase.second.resolve(entry)
-        await bounded(phase.releaseSecond.promise, 'second response')
       }
     }
     if (res.destroyed) return
@@ -74,21 +79,23 @@ export async function startOpenCodeSynthetic() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   return {
     url: `http://127.0.0.1:${server.address().port}`, requests, errors,
-    arm(token, file) {
-      if (active) { active.releaseFirst.resolve(); active.releaseSecond.resolve() }
-      active = { token, file, requests: [], first: deferred(), second: deferred(),
-        releaseFirst: deferred(), releaseSecond: deferred() }
+    arm(token, file, toolRounds = 1) {
+      if (active) { active.releaseFirst.resolve(); active.releaseSecond.resolve(); active.releaseThird.resolve() }
+      active = { token, file, toolRounds, requests: [], first: deferred(), second: deferred(), third: deferred(),
+        releaseFirst: deferred(), releaseSecond: deferred(), releaseThird: deferred() }
       const phase = active
       return {
         first: () => bounded(phase.first.promise, `${token} request 1`),
         second: () => bounded(phase.second.promise, `${token} request 2`),
+        third: () => bounded(phase.third.promise, `${token} request 3`),
         releaseFirst: () => phase.releaseFirst.resolve(),
         releaseSecond: () => phase.releaseSecond.resolve(),
+        releaseThird: () => phase.releaseThird.resolve(),
         requests: phase.requests,
       }
     },
     async close() {
-      if (active) { active.releaseFirst.resolve(); active.releaseSecond.resolve(); active = null }
+      if (active) { active.releaseFirst.resolve(); active.releaseSecond.resolve(); active.releaseThird.resolve(); active = null }
       for (const socket of pending) socket.destroy()
       await new Promise(resolve => server.close(resolve))
     },
