@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { AccountsPanel } from '../src/canvas/accounts'
 import { resetConvos } from '../src/convo'
-import { USER, setChartLayout, treeParents, withPendingMoves } from '../src/canvas/shared'
+import { USER, setChartLayout, setHideRetiredOn, treeParents, withPendingMoves } from '../src/canvas/shared'
 import { withPendingOrder } from '../src/canvas/pendingorder'
 import { setProjectBunchesOn } from '../src/canvas/projectbunchprefs'
 import { projectBunchRotation, withProjectBunchRotation } from '../src/canvas/projectbunchmove'
@@ -189,6 +189,37 @@ test('retired project cards keep their own order links and respond to the live D
   await inAct(() => setProjectBunchesOn(true))
   await advance(1500, 50)
   assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 4)
+})
+test('hidden retired branch bunches while its owning project keeps a reachable list and ordinary drag', async t => {
+  const side = retired(agent('retired-side')), head = chain(3, [agent('worker')])
+  head.children.push(side)
+  const view = await canvas(t, bunchTree([head]), 'row', true, [side])
+  await inAct(() => setHideRetiredOn(true))
+  await advance(1800, 50); await flush()
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 2)
+  assert.equal(!!card(view.el, side.id), false)
+  const pill = view.el.querySelector<HTMLButtonElement>('.retired-token')!
+  assert.equal(pill.textContent, '1 retired')
+  assert.equal(pill.dataset.retiredParent, 'project-1')
+  const [x, y] = numbers(pill.style.transform), owner = at(view.el, 'project-1')
+  assert.ok(x! >= owner.x && y! >= owner.y && y! + 20 <= owner.y + 124,
+    'bunched pill stays inside its owner rather than overlapping the next row')
+  await inAct(() => pill.click()); await advance(20); await flush()
+  assert.equal(view.archiveReads.length, 1, 'opens the existing bounded picker')
+  assert.equal(view.archiveReads[0]!.searchParams.get('parent'), 'project-1')
+  assert.equal(view.el.querySelector('.pile-name')?.textContent, side.id)
+  await inAct(() => view.el.querySelector<HTMLElement>('.overlay')!.click())
+  await drag(view.el, 'project-1', endPoint(view.el, 'project-3', 'project-2'), true, async () => {
+    assert.equal(!!view.el.querySelector('[data-project-bunch-insertion]'), false,
+      'a visually joined run with physical side branches keeps ordinary subtree dragging')
+  })
+  assert.equal(view.gestures.length, 0)
+  assert.equal(view.errors.length, 0)
+  await inAct(() => setHideRetiredOn(false))
+  await advance(1600, 50); await flush()
+  assert.equal(view.el.querySelectorAll('.project-bunch-edge').length, 1, 'shown retired branch splits the upper project again')
+  assert.equal(!!card(view.el, side.id), true)
+  assert.equal(!!view.el.querySelector('.retired-token'), false)
 })
 
 test('a retired project front opens the lazy sibling picker and selecting another stack displays its bunch', async t => {
