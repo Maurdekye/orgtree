@@ -219,8 +219,19 @@ function LazyDocList({ w, label, children }: {
   )
 }
 
-function DocRangeGap({ w, id }: { w: DocWindow; id: string }) {
-  return w.gapBefore.includes(id) ? <div className="doc-list-end dim" data-doc-gap={id}>
+function visibleGaps(w: DocWindow, rows: DocRow[]): Map<string, string> {
+  const visible = new Set(rows.map(r => r.id)), result = new Map<string, string>()
+  const all = w.rows ?? []
+  for (const gap of w.gapBefore) {
+    const start = all.findIndex(r => r.id === gap)
+    const first = all.slice(start).find(r => visible.has(r.id))
+    if (first) result.set(first.id, gap)
+  }
+  return result
+}
+
+function DocRangeGap({ w, id }: { w: DocWindow; id?: string }) {
+  return id ? <div className="doc-list-end dim" data-doc-gap={id}>
     <button onClick={() => w.fillGap(id)} disabled={w.busy}>Load documents between these pages</button>
   </div> : null
 }
@@ -302,6 +313,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   const hired = (all ?? []).filter(isHired)
   const retired = (all ?? []).filter((r) => !isHired(r))
   const rows = all && (showRetired ? [...hired, ...retired] : hired)
+  const rowGaps = visibleGaps(w, rows ?? [])
   const retiredCt = retired.length
   // ⚠ A FILTER CAN EMPTY THE WINDOW WITHOUT EMPTYING THE HISTORY. The default
   // list is currently-hired agents only, and the newest page can be entirely
@@ -439,7 +451,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                   <LazyDocList w={w} label="Presented documents">
                     {menu.node}
                     {rows!.map((r) => (
-                      <Fragment key={r.id}><DocRangeGap w={w} id={r.id} /><GalleryEntry slug={slug} row={r}
+                      <Fragment key={r.id}><DocRangeGap w={w} id={rowGaps.get(r.id)} /><GalleryEntry slug={slug} row={r}
                         className={'mailrow doc-gallery-row'
                           // `.active`/`.past` — styled in styles.css, scoped
                           // to `.gallery-modal` only (accepted docket
@@ -720,6 +732,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
       ? [selectedRow, ...source] : source
     return includeSelected.filter((r) => !dismissed.includes(r.id))
   }, [w.rows, nid, fallbackRows, dismissed, selectedRow, wide])
+  const rowGaps = visibleGaps(w, rows)
 
   const [selId, setSelId] = useState<string | null>(initialDocument ?? null)
   useEffect(() => {setSelId(initialDocument ?? null); setDismissed([])}, [slug, nid, initialDocument])
@@ -801,7 +814,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
           <LazyDocList w={w} label={`Presented documents from ${nid}`}>
             {menu.node}
             {rows.map((r) => (
-              <Fragment key={r.id}><DocRangeGap w={w} id={r.id} /><GalleryEntry slug={slug} row={r}
+              <Fragment key={r.id}><DocRangeGap w={w} id={rowGaps.get(r.id)} /><GalleryEntry slug={slug} row={r}
                 className={'mailrow doc-gallery-row desk-presented-card'
                   + (isHired(r) ? ' active' : ' past')
                   + (r.id === selId ? ' on' : '')

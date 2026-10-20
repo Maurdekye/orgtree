@@ -2,10 +2,12 @@ const {app,BrowserWindow}=require('electron')
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
 const out=process.env.PRESENTATION_CAPTURE_ROOT,modules=process.env.ORGTREE_NODE_MODULES||'E:/Libraries/Desktop/orgtree/node_modules'
 if(!/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i.test(out||''))throw Error('owned capture output required')
+try {
 fs.mkdirSync(out,{recursive:true})
 require(path.join(modules,'esbuild')).buildSync({entryPoints:[path.join(process.cwd(),'apps/desktop/renderer/tests/presentationopening-ui.tsx')],
- bundle:true,platform:'browser',format:'esm',outfile:path.join(out,'fixture.js'),nodePaths:[modules],define:{'process.env.NODE_ENV':'"production"'}})
-fs.writeFileSync(path.join(out,'fixture.html'),'<!doctype html><meta charset="utf-8"><div id="root"></div><script type="module" src="fixture.js"></script>')
+ bundle:true,platform:'browser',format:'esm',outfile:path.join(out,'fixture.js'),nodePaths:[modules],loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"production"'}})
+fs.copyFileSync(path.join(process.cwd(),'apps/desktop/renderer/src/styles.css'),path.join(out,'styles.css'))
+fs.writeFileSync(path.join(out,'fixture.html'),'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="styles.css"><div id="root"></div><script type="module" src="fixture.js"></script>')
 for(const key of ['userData','sessionData','logs','crashDumps']){const dir=path.join(out,key);fs.mkdirSync(dir,{recursive:true});app.setPath(key,dir)}
 app.disableHardwareAcceleration()
 const settle='new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,180))))'
@@ -43,3 +45,4 @@ app.whenReady().then(async()=>{
   fs.writeFileSync(path.join(out,'capture.json'),JSON.stringify(receipts,null,2))
  }finally{win.destroy()}
 }).then(()=>app.exit(0),error=>{console.error(error.stack||error);app.exit(1)})
+}catch(error){console.error(error.stack||error);app.exit(1)}
