@@ -299,7 +299,9 @@ uiTest('switchboard Hire an agent opens the same draft and submits at root, neve
   const hire = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
     .find(b => b.textContent?.startsWith('Hire an agent'))!
   assert.ok(hire)
-  await inAct(async () => { hire.click(); await flush(2) })
+  // Primary click can open the remembered tier directly; Right explicitly
+  // chooses through the same keyboard-accessible tier submenu.
+  await inAct(async () => { hire.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); await flush(2) })
   const tier = document.querySelector<HTMLButtonElement>('.ctxmenu-submenu [role="menuitem"]:not(:disabled)')!
   assert.ok(tier)
   await inAct(async () => { tier.click(); await flush(2) })

@@ -117,7 +117,9 @@ test('§3 menus list the dearest first; Quick chat\'s "first offered" fallback k
   assert.deepEqual(offered('default'), ['wonder', 'wonder-full', 'spark'], 'the default order')
   // Muse alone: Quick chat still opens on Wonder, not on the dearest model
   assert.equal(quickChatTier(undefined, offered('default')), 'wonder')
-  assert.equal(quickChatTier(undefined, offered('listed')), 'wonder-full', 'control: the listing order WOULD have moved it')
+  assert.equal(quickChatTier(undefined, offered('listed')), 'wonder', 'the explicit Quick chat preference is independent of listing order')
+    assert.equal(quickChatTier(undefined, ['spark', 'wonder-full']), 'spark', 'without a preferred tier, the first offered remains the fallback')
+    assert.equal(quickChatTier(undefined, ['wonder-full', 'spark']), 'wonder-full', 'the non-preferred fallback still follows its input order')
   // a model chosen before is still the one shown
   assert.equal(quickChatTier('spark', offered('default')), 'spark')
   // every provider at once: each family in listing order, families in the order they were
