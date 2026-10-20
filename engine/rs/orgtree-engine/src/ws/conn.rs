@@ -400,6 +400,10 @@ fn classify(e: tungstenite::Error, handshake: bool) -> End {
         E::Protocol(ProtocolError::SecWebSocketSubProtocolError(_)) => {
             failed(true, "the server did not accept the subprotocols this dog offers (`protocols`), or chose one it was not offered")
         }
+        // the stream ended before the server answered the upgrade (it is
+        // restarting, or a port forwarder's backend is not up yet): an
+        // outage, though tungstenite calls it a protocol error
+        E::Protocol(ProtocolError::HandshakeIncomplete) => failed(false, "the server closed the connection before answering the upgrade"),
         E::Protocol(p) => failed(handshake, format!("WebSocket protocol error: {p}")),
         E::ConnectionClosed | E::AlreadyClosed => failed(false, "the server closed the connection"),
         E::Utf8(_) => failed(false, "the server sent a text message that is not UTF-8"),
