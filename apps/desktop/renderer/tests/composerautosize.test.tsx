@@ -37,7 +37,7 @@ for (const home of ['embedded', 'standalone', 'compact'] as const) {
     } })
     t.after(async () => { await v.unmount(); resetConvos() })
     await type(ta, 'A draft that wraps to many lines at narrow width.')
-    assert.equal(ta.style.height, '160px')
+    assert.equal(ta.style.height, '490px', 'wrapped text grows beyond the former 160px cap')
     assert.equal(resizeWatchers(ta), 1, 'one observer follows this composer')
     width = 778
     await inAct(() => fireResize(ta))

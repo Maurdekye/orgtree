@@ -1,6 +1,7 @@
 import { effectiveReports } from './shared'
 import { Fragment } from 'react'
 import { focusComposerBackground } from '../composerfocus'
+import { resizeComposer } from '../composerautosize'
 import { ShellOutputContext, LiveShellOutput } from '../shelloutput'
 import { DeskModelButton } from './deskmodel'
 import { creditSegments } from './creditsegments'
@@ -3435,14 +3436,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       })
       .catch((e: Error) => toast([`upload error: ${e.message}`]))
   }
-  // №13: the composer grows with the draft (2 → ~8 rows); the desk interior
-  // is a fixed 900px virtual panel, so .msgs absorbs the difference
+  // The composer grows from its base rows by up to thirty extra text lines;
+  // .msgs absorbs the difference and longer drafts scroll inside the input.
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const grow = useCallback(() => {
-    const el = taRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+    resizeComposer(taRef.current)
   }, [])
   // the height follows the TEXT, not the keystroke. onChange was the only
   // caller, so every other way the value changes left the inline height
@@ -3454,7 +3452,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // handler would measure the outgoing text.
   useLayoutEffect(grow, [text, grow])
   // Panel/divider changes rewrap a draft without changing `text`. Measure
-  // that width change too; otherwise a narrow panel's 160px height survives
+  // that width change too; otherwise a narrow panel's taller height survives
   // after widening, until another keystroke. Ignore height-only deliveries:
   // our own height write must never become a resize feedback loop.
   const composerRO = useRef<ResizeObserver | null>(null)

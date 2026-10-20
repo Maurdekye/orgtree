@@ -1,4 +1,5 @@
 import { UrgentAgentOptions, type UrgentAgentMail } from './dnd'
+import { resizeComposer } from '../composerautosize'
 import { useDndRecipients } from '../nodemetadata'
 // canvas/projectdesk.tsx — the PROJECT DESK (docs/rust-engine/
 // PROJECT-NODES.md; user 2026-10-17 19:38Z–20:10Z). A focused project card,
@@ -342,13 +343,10 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
       .catch((e: Error) => toast([`upload error: ${e.message}`]))
   }
   onRegisterAttach?.(can ? attach : null)
-  // the box grows with the draft, from two rows to about eight (160px), and
-  // follows a width change that rewraps it, as the agent composer does (G8)
+  // Shared with the agent composer: thirty extra lines beyond the base rows,
+  // also following width changes that rewrap the draft (G8).
   const grow = useCallback(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+    resizeComposer(textareaRef.current)
   }, [])
   useLayoutEffect(grow, [text, grow])
   const composerRO = useRef<ResizeObserver | null>(null)
