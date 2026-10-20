@@ -25,13 +25,25 @@ export function settleRingSprings(rings: SpringRing[]): number[][] {
       && ring.angles.every((angle, i) => angle === previous.angles[i] && ring.parents[i] === previous.parents[i]
         && (ring.widths?.[i] ?? 1) === (previous.widths?.[i] ?? 1))
   })) return cached.output.map(angles => [...angles])
-  const links = rings.map(ring => {
-    const groups: { parent: number; first: number; last: number }[] = []
+  // A card nobody on the next ring reports to is a leaf. Each end of a team
+  // pulls the run of leaf siblings at that end as one block: a leaf has no
+  // arc of its own to hold it apart, so it must never slide away from its
+  // leaf neighbours (user 2026-10-20 10:46Z). A team of leaves moves rigidly.
+  const links = rings.map((ring, depth) => {
+    const leaf = ring.angles.map(() => true)
+    for (const parent of rings[depth + 1]?.parents ?? []) leaf[parent] = false
+    const groups: { parent: number; first: number; last: number; ends: [number, number][] }[] = []
     ring.parents.forEach((parent, i) => {
       const previous = groups[groups.length - 1]
       if (previous?.parent === parent) previous.last = i
-      else groups.push({ parent, first: i, last: i })
+      else groups.push({ parent, first: i, last: i, ends: [] })
     })
+    for (const group of groups) {
+      let head = group.first, tail = group.last
+      if (leaf[head]) while (head < group.last && leaf[head + 1]) head++
+      if (leaf[tail]) while (tail > group.first && leaf[tail - 1]) tail--
+      group.ends = [[group.first, head], [tail, group.last]]
+    }
     return groups
   })
   const sizes = rings.map(r => r.widths ?? r.angles.map(() => 1))
@@ -46,12 +58,12 @@ export function settleRingSprings(rings: SpringRing[]): number[][] {
   for (let iteration = 0; iteration < 256; iteration++) {
     const force = rings.map(r => r.angles.map(() => 0))
     for (let depth = 0; depth < rings.length; depth++) {
-      for (const { parent, first, last } of links[depth]!) {
+      for (const { parent, first, last, ends } of links[depth]!) {
         const centre = middle(depth, trial[depth]!, first, last)
         const above = depth === 0 ? Math.PI / 2 : trial[depth - 1]![parent]!
         const pull = centre - above
-        force[depth]![first]! -= pull / 2
-        force[depth]![last]! -= pull / 2
+        for (const [from, to] of ends)
+          for (let i = from; i <= to; i++) force[depth]![i]! -= pull / 2 / (to - from + 1)
         if (depth > 0) force[depth - 1]![parent]! += pull
       }
     }
