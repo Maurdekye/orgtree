@@ -265,7 +265,9 @@ test('a direct show stages taps, survives unknown frames and stops cleanly', t =
   tap!.frame('acme', { type: 'record_changes', upserts: [] })
   tap!.frame('acme', null)
   tap!.tree('acme', tree([node('boss')]))
-  tap!.tree('acme', tree([node('boss', { busy: true })]))
+  // Activity audio follows an observed phase; busy alone intentionally has no
+  // synthesized machinery layer (activitySources contract).
+  tap!.tree('acme', tree([node('boss', { busy: true, activity: { phase: 'thinking' } })]))
   tap!.action('acme', 'interrupt', 'boss')
   assert.equal(show.staged >= before + 3, true, `staged ${show.staged - before}`)
   t.mock.timers.enable({ apis: ['setTimeout'] })
