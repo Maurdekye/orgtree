@@ -1,3 +1,13 @@
+- Automatic known-cold cheap compaction defaults ON/25% for new orgs and
+  fresh installations. Explicit app defaults win, then explicit template/org
+  choices. Migration 0045 pins existing unset/partial org policy to the old
+  effective value (including trashed orgs); app defaults stay untouched.
+  The app-defaults form does not incidentally write this setting. See
+  [compaction policy](docs/skills/orgtree-app/org-settings/org-policies-compaction/SKILL.md).
+  [decided: user/coordinator 2026-10-20; verified: `settings.rs`,
+  `feed/groups.rs`, `domain/tree.rs`, `migrations/0045_cheap_compact_default.sql`,
+  `shell/defaults.tsx`, `tools/rig/proofs/cheap-defaults.mjs`]
+
 - Every instruction lane, full and trimmed, always names the concurrency
   recipes and exact glossary breadcrumb, independent of project ancestry and
   tool switches. Its byte-budget allowance is exactly the new sentence plus

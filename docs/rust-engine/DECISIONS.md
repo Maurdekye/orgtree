@@ -7,6 +7,16 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Automatic cheap compaction default, user 2026-10-20 12:24Z; coordinator
+precedence clarification:** new organizations and fresh installations default
+to On at the existing 25% occupancy. An explicitly saved app default still
+wins; explicit template/org settings override it. The app-defaults form does
+not incidentally save this field. Migration 0045 pins existing orgs without a
+complete enabled choice to their old effective policy, including trashed orgs,
+and does not write app defaults. Explicit org On/Off remains untouched.
+Project nodes are outside this change. See the
+[compaction policy](../skills/orgtree-app/org-settings/org-policies-compaction/SKILL.md).
+
 **Senders warned about an unlistened project inbox, user 2026-10-20 11:04Z:**
 "when agents send mail to a project with no listeners, make sure they're
 warned that their mail may not be read by anyone or delivered anywhere unless

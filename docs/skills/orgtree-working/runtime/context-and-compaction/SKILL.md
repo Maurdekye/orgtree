@@ -37,7 +37,14 @@ Read the recovery wake and original mail before acting; a reset does not prove
 that a command in the failed attempt completed. Language model server seats
 retain their separate fresh-session recovery policy.
 
-The optional known-cold policy can choose a cheap compact before a normal turn. It requires an existing eligible session, measured nonzero context at or above the configured occupancy, and a forecast that calls for compaction. Estimated/unknown context, an already reset context or an unknown cache forecast does not justify a reset just because enough time passed.
+The known-cold policy defaults On at 25% for new orgs and fresh installations;
+explicit app defaults and template choices still win. Existing orgs keep their
+previous effective policy, pinned by migration 0045. It can choose a cheap
+compact before a normal turn. It requires an existing eligible session,
+measured nonzero context at or above the configured occupancy, and a forecast
+that calls for compaction. Estimated/unknown context, an already reset context
+or an unknown cache forecast does not justify a reset just because enough time
+passed.
 
 The policy merges an agent override key by key over effective org policy. Its user-facing controls and numerical defaults belong to `orgtree-org-policies-compaction` (orgtree-app › org-settings) and `orgtree-agent-fresh-start` (orgtree-app › agent-settings).
 
