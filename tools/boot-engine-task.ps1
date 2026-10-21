@@ -339,33 +339,6 @@ function Get-BootMarker($Record) { return "com.maurdekye.orgtree.boot.v1:$($Reco
 function Test-RunOnStartup($Record) { return ($null -eq $Record['RunOnStartup'] -or [int]$Record['RunOnStartup'] -ne 0) }
 function Get-EnabledText([bool]$Value) { if ($Value) { return 'true' } return 'false' }
 
-# Read-only console ownership, independent of the installer's (possibly alternate
-# administrator) token. Unknown inspection fails rather than guessing Session 0.
-function Get-SignedInConsoleSid {
-    if (-not ('OrgtreeInstallerConsole' -as [type])) {
-        Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class OrgtreeInstallerConsole {
-    [DllImport("kernel32.dll")] public static extern uint WTSGetActiveConsoleSessionId();
-    [DllImport("wtsapi32.dll", SetLastError=true)] static extern bool WTSQuerySessionInformationW(IntPtr server, uint id, int kind, out IntPtr buffer, out uint size);
-    [DllImport("wtsapi32.dll")] static extern void WTSFreeMemory(IntPtr p);
-    public static string Read(uint id, int kind) {
-        IntPtr p; uint size;
-        if (!WTSQuerySessionInformationW(IntPtr.Zero,id,kind,out p,out size)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-        try { return p == IntPtr.Zero ? "" : Marshal.PtrToStringUni(p); } finally { if(p != IntPtr.Zero) WTSFreeMemory(p); }
-    }
-}
-'@
-    }
-    $session=[OrgtreeInstallerConsole]::WTSGetActiveConsoleSessionId()
-    if ($session -eq [uint32]::MaxValue -or $session -eq 0) { return $null }
-    $user=[OrgtreeInstallerConsole]::Read($session,5)
-    if (-not $user) { return $null }
-    $domain=[OrgtreeInstallerConsole]::Read($session,7)
-    $account=[Security.Principal.NTAccount]::new($domain,$user)
-    return $account.Translate([Security.Principal.SecurityIdentifier]).Value
-}
 # "Run Orgtree as administrator": exactly DWORD 1 under HKLM\SOFTWARE\Orgtree\Runtime,
 # the rule the engine host applies (host.rs run_as_administrator). The
 # credential helper then runs with the highest privileges, and so do the agent
@@ -416,14 +389,20 @@ function Assert-OwnedBootTask($Task, $Record, [string]$InstallDir) {
     if (-not $matched) { throw "Refusing foreign or changed boot task ($lastKey)." }
     # Task Scheduler omits the serialized LeastPrivilege default. Verify the
     # actual COM principal too, rather than accepting a missing security value.
+    # Exactly two states (coordinator 2026-10-21 16:27Z, Q2): least privilege,
+    # or the highest available while "Run as admin" is on.
     $runLevel=$xml.SelectNodes('/t:Task/t:Principals/t:Principal/t:RunLevel',$ns)
-    if ($null -eq $Task.Definition.Principal.RunLevel -or $Task.Definition.Principal.RunLevel -ne 0 -or
-        $runLevel.Count -gt 1 -or ($runLevel.Count -eq 1 -and $runLevel[0].InnerText -cne 'LeastPrivilege')) {
+    $level='LeastPrivilege'; if ($runLevel.Count -eq 1) { $level=$runLevel[0].InnerText }
+    $com=$Task.Definition.Principal.RunLevel
+    if ($null -eq $com -or $runLevel.Count -gt 1 -or
+        -not (($level -ceq 'LeastPrivilege' -and $com -eq 0) -or ($level -ceq 'HighestAvailable' -and $com -eq 1))) {
         throw 'Refusing foreign or changed boot task (principal run level).'
     }
     if ($xml.SelectNodes('/t:Task/t:Actions/*', $ns).Count -ne 1 -or $xml.SelectNodes('/t:Task/t:Principals/*', $ns).Count -ne 1) { throw 'Unexpected boot actions or principals.' }
 }
-function New-BootTaskXml($Record) {
+# $Highest is "Run as admin" (Get-RunAsAdministrator): the Session 0 engine runs
+# elevated while it is on (coordinator 2026-10-21 16:27Z, Q2), with no prompt.
+function New-BootTaskXml($Record, [bool]$Highest = $false) {
     $paths = Get-BootPaths $Record.InstallDir
     # Serialize Unicode/XML escaping. Command is an unquoted path, not shell
     # text; the separate argument is the quoted service-host script path.
@@ -434,6 +413,7 @@ function New-BootTaskXml($Record) {
     $doc.Task.Settings.Enabled = 'true'
     $doc.Task.Triggers.BootTrigger.Enabled = Get-EnabledText (Test-RunOnStartup $Record)
     $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
+    if ($Highest) { $doc.Task.Principals.Principal.RunLevel = 'HighestAvailable' }
     $doc.Task.Actions.Exec.Command = [string]$paths.Python
     $doc.Task.Actions.Exec.Arguments = '"'+$paths.Host+'"'
     $doc.Task.Actions.Exec.WorkingDirectory = [string]$paths.Engine
@@ -509,13 +489,22 @@ function Register-InteractiveTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,
 }
 function Remove-InteractiveTask($Folder) { $Folder.DeleteTask($script:InteractiveTaskName,0) }
 function Get-InteractiveMarker($Record) { return "com.maurdekye.orgtree.user-session.v1:$($Record.Id)" }
+# Windows starts it in the operator's own session with their interactive token,
+# at the task's run level: the highest while "Run as admin" is on, so a restart
+# or update in that session needs no prompt. The engine is a console program;
+# the windowless broker's fixed `session-engine` starts its `session-launch
+# signin` without a window. Its logon trigger moves the engine into the
+# operator's session at sign-in only while Run on boot AND Run as admin are on
+# (coordinator Q1); otherwise only demand runs start it (the desktop, the boot
+# host).
 function New-InteractiveTaskXml($Record,[bool]$Highest) {
     $doc=Read-BootXml (New-HelperTaskXml $Record $Highest)
     $doc.Task.RegistrationInfo.Description=Get-InteractiveMarker $Record
-    $doc.Task.Actions.Exec.Command=[string](Join-Path $Record.InstallDir 'resources\engine\orgtree-engine.exe')
+    $doc.Task.Triggers.LogonTrigger.Enabled=Get-EnabledText ((Test-RunOnStartup $Record) -and $Highest)
+    $doc.Task.Actions.Exec.Command=[string](Get-HelperPath $Record.InstallDir)
     $argument=$doc.CreateElement('Arguments',$doc.DocumentElement.NamespaceURI)
-    $argument.InnerText='session-launch signin'
-    $null=$doc.Task.Actions.Exec.AppendChild($argument)
+    $argument.InnerText='session-engine'
+    $null=$doc.Task.Actions.Exec.InsertAfter($argument,$doc.Task.Actions.Exec.SelectSingleNode('*[local-name()="Command"]'))
     # A new demand restart may overlap the old host while it drains. Native
     # admission serializes the handover; Task Scheduler must not discard it.
     $doc.Task.Settings.MultipleInstancesPolicy='Parallel'
@@ -532,8 +521,8 @@ function Assert-OwnedInteractiveTask($Task,$Record,[string]$InstallDir) {
         '/t:Task/t:RegistrationInfo/t:Description'=(Get-InteractiveMarker $Record)
         '/t:Task/t:Principals/t:Principal/t:UserId'=$Record.OperatorSid
         '/t:Task/t:Principals/t:Principal/t:LogonType'='InteractiveToken'
-        '/t:Task/t:Actions/t:Exec/t:Command'=(Join-Path $InstallDir 'resources\engine\orgtree-engine.exe')
-        '/t:Task/t:Actions/t:Exec/t:Arguments'='session-launch signin'
+        '/t:Task/t:Actions/t:Exec/t:Command'=(Get-HelperPath $InstallDir)
+        '/t:Task/t:Actions/t:Exec/t:Arguments'='session-engine'
         '/t:Task/t:Actions/t:Exec/t:WorkingDirectory'=(Join-Path $InstallDir 'resources\engine')
     }
     foreach ($pair in $expected.GetEnumerator()) {
@@ -675,14 +664,19 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
             # since the core-lifecycle recovery (2026-10-12) an engine outlives its
             # host, so that alone left it running and this step timed out. A task
             # ended any other way (a manual End) still leaves its engine running.
+            # The record first, always (docket after-an-update-or-engine-restart-
+            # while-the-user, 2026-10-21): a boot host that waits beside an engine in
+            # the operator's session holds this installation open and stops only by
+            # it; engines read it too, so asking through the descriptor after it is
+            # only faster.
             $asked = $false
-            if ($running.Count -ne 0) { $asked = [bool](Request-BootEngineShutdown $Record $InstallDir) }
+            if ($running.Count -ne 0) {
+                if (Request-BootEngineStopByRecord) { Write-BootLog "stop: recorded a stop request in the installer's record" }
+                else { Write-BootLog "stop: could not record a stop request in the installer's record" }
+                $asked = [bool](Request-BootEngineShutdown $Record $InstallDir)
+            }
             if ($asked) { Write-BootLog 'stop: the engine took the shutdown request' }
             else {
-                if ($running.Count -ne 0) {
-                    if (Request-BootEngineStopByRecord) { Write-BootLog "stop: recorded a stop request in the installer's record" }
-                    else { Write-BootLog "stop: could not record a stop request in the installer's record" }
-                }
                 $ended = @()
                 if ($null -ne $task) { $task.Stop(0); $ended += 'the boot task' }
                 if ($null -ne $signin) { $signin.Stop(0); $ended += 'the sign-in engine task' }
@@ -863,7 +857,7 @@ function Invoke-BootLifecycle {
             # Ownership accepts older task priorities. Register
             # always writes explicit Normal priority (Task Scheduler value 5), including upgrades.
             $sddl = "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$($record.OperatorSid))"
-            $registered = $folder.RegisterTask($script:BootTaskName,(New-BootTaskXml $record),$flags,$record.OperatorSid,$null,2,$sddl)
+            $registered = $folder.RegisterTask($script:BootTaskName,(New-BootTaskXml $record (Get-RunAsAdministrator)),$flags,$record.OperatorSid,$null,2,$sddl)
             Assert-OwnedBootTask $registered $record $InstallDir
             # Paired release requirement: desktop startup must retry authenticated
             # attachment after losing the data-root lock to this newly started host.
@@ -872,7 +866,6 @@ function Invoke-BootLifecycle {
             # With "Run on boot" off the task is registered disabled and not
             # started: nothing of Orgtree runs until the user opens it.
             $runs = Test-RunOnStartup $record
-            if ($runs -and (Get-SignedInConsoleSid) -ne $record.OperatorSid) { $null = $registered.Run($null) }
             # The sign-in credential broker ships with the native engine only.
             # It follows Run on boot; its run level follows "Run Orgtree as
             # administrator", because the agent turns it starts in the
@@ -893,10 +886,11 @@ function Invoke-BootLifecycle {
                 if ($null -ne $interactive) { Assert-OwnedInteractiveTask $interactive $record $InstallDir; $interactiveFlags=20 }
                 $interactive=Register-InteractiveTask $folder (New-InteractiveTaskXml $record (Get-RunAsAdministrator)) $interactiveFlags $record.OperatorSid $sddl
                 Assert-OwnedInteractiveTask $interactive $record $InstallDir
-                if ($runs -and (Get-SignedInConsoleSid) -eq $record.OperatorSid) {
-                    try { $null=$interactive.Run($null) } catch { Write-Warning "The interactive engine did not start: $_" }
-                }
             }
+            # Started last, once every task it may hand over to is registered: with
+            # the operator signed in at the console its host runs the user-session
+            # task and waits in Session 0 for the sign-out fallback.
+            if ($runs) { $null = $registered.Run($null) }
         }
     }
 }
