@@ -58,6 +58,8 @@ tokio::task_local! { static STOP_AFTER_WATCH_EDGE: bool; }
 #[cfg(test)]
 tokio::task_local! { static STOP_AFTER_EVENT_PAGE: bool; }
 #[cfg(test)]
+tokio::task_local! { static STOP_BEFORE_USER_FIRE_COMMIT: bool; }
+#[cfg(test)]
 mod watch_boundary_tests;
 
 /// The largest listener count a watch may ask for.
@@ -682,6 +684,8 @@ async fn stage_fire(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option<(
     let boot=&engine.boot.id;
     let Some(work)=tx.query_opt("SELECT id,watchdog_id,line,delivery FROM ot.listener_fire_outbox WHERE project_id=$1 AND NOT done AND (processing_boot IS NULL OR processing_boot<>$2) ORDER BY id LIMIT 1 FOR UPDATE",&[&project,&boot]).await? else{return Ok(None)};
     let (id,row,line,saved):(i64,i64,Option<String>,Option<Value>)=(work.get(0),work.get(1),work.get(2),work.get(3));
+    #[cfg(test)]
+    let allocating=saved.is_none();
     let delivery=if let Some(saved)=saved {serde_json::from_value(saved)?} else {
         let Some(d)=tx.query_opt("SELECT w.uid,w.name,w.owner_agent_id,coalesce(a.name,'user'),w.once,w.fired,w.memo,w.state,a.state,coalesce(a.kind,'agent'),w.target FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id=w.owner_agent_id WHERE w.id=$1 FOR UPDATE OF w",&[&row]).await? else{return Ok(None)};
         let owner:Option<i64>=d.get(2);
@@ -706,6 +710,10 @@ async fn stage_fire(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option<(
         Delivery {row,uid:dog,name,owner,owner_name,notice,spent:once,mail,fire_actions:memo["fire_actions"].as_array().cloned().unwrap_or_default()}
     };
     tx.execute("UPDATE ot.listener_fire_outbox SET delivery=$2,processing_boot=$3 WHERE id=$1",&[&id,&serde_json::to_value(&delivery)?,&boot]).await?;
+    #[cfg(test)]
+    if allocating && delivery.owner.is_none() && STOP_BEFORE_USER_FIRE_COMMIT.try_with(|stop|*stop).unwrap_or(false) {
+        anyhow::bail!("isolated user fire commit boundary");
+    }
     tx.commit().await?;
     Ok(Some((id,Some(delivery))))
 }

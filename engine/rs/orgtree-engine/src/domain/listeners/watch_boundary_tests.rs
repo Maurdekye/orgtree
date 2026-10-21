@@ -81,6 +81,9 @@ async fn watch_boundary_restart_after_edge_commit() {
     assert_eq!(c.query_one("SELECT count(*) FROM ot.watchdogs WHERE kind='listener_watch' AND (memo->>'target_id')::bigint=$1 AND memo->'run'->>'above'='true'",&[&project]).await.unwrap().get::<_,i64>(0),2);
     // The first worker is gone at the commit boundary. Recover only durable
     // state, without a new threshold crossing or another registration.
+    assert!(STOP_BEFORE_USER_FIRE_COMMIT.scope(true,recover_pending(&engine)).await.is_err());
+    assert_eq!(c.query_one("SELECT fired FROM ot.watchdogs WHERE owner_kind='user' AND (memo->>'target_id')::bigint=$1",&[&project]).await.unwrap().get::<_,i32>(0),0,"rollback cannot spend the user watch before its mail commits");
+    assert_eq!(c.query_one("SELECT count(*) FROM ot.mail WHERE body LIKE '%barrier-user%'",&[]).await.unwrap().get::<_,i64>(0),0);
     recover_pending(&engine).await.unwrap();
     let count:i64=c.query_one("SELECT count(*) FROM ot.watchdogs WHERE kind='listener_watch' AND (memo->>'target_id')::bigint=$1 AND state='spent' AND fired=1",&[&project]).await.unwrap().get(0);
     let mails:i64=c.query_one("SELECT count(*) FROM ot.mail WHERE body LIKE '%barrier-%' AND body LIKE '%LISTENERS READY%'",&[]).await.unwrap().get(0);

@@ -3,6 +3,33 @@ use super::*;
 use tokio_postgres::NoTls;
 
 #[tokio::test]
+#[ignore = "requires explicitly isolated listener-bounds rig cluster"]
+#[nolog]
+async fn claim_boundary_reminder_does_not_increment_a_later_claim() {
+    let root=std::env::var("ORGTREE_CLAIM_TEST_ROOT").unwrap().replace('\\',"/");assert!(root.starts_with("D:/orgtree-work/rig/taskbar-orgs-sol-listener-bounds/runs/"));
+    let cfg:tokio_postgres::Config=std::env::var("ORGTREE_CLAIM_TEST_URL").unwrap().parse().unwrap();
+    let org:i64=std::env::var("ORGTREE_CLAIM_TEST_ORG").unwrap().parse().unwrap();
+    let (mut b,conn)=cfg.connect(NoTls).await.unwrap();tokio::spawn(async move{let _=conn.await;});
+    let project:i64=b.query_one("INSERT INTO ot.agents(org_id,name,kind,tier,state,scope,born) VALUES($1,$2,'project','project','live','{\"mail_queue\":\"ack\"}','synthetic') RETURNING id",&[&org,&uid("reminder-project")]).await.unwrap().get(0);
+    let holder:i64=b.query_one("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,$2,$3,'sol','live','synthetic') RETURNING id",&[&org,&uid("reminder-owner"),&project]).await.unwrap().get(0);
+    let copy=uid("reminder-old-copy");let new_copy=uid("reminder-new-copy");
+    let row:i64=b.query_one("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'@user','agent',$3,'fixture','job','read',$4) RETURNING id",&[&uid("reminder-job"),&org,&project,&json!({"attempts":1,"claimed":{"by_id":holder,"by":"fixture","copy":copy,"ack":true,"wakes":0}})]).await.unwrap().get(0);
+    let mut engine=Engine::for_tests(std::path::PathBuf::from("C:/orgtree-build/taskbar-orgs-sol/reminder-boundary-engine"));
+    let mgr=deadpool_postgres::Manager::from_config(cfg,NoTls,deadpool_postgres::ManagerConfig{recycling_method:deadpool_postgres::RecyclingMethod::Fast});
+    Arc::get_mut(&mut engine).unwrap().db=deadpool_postgres::Pool::builder(mgr).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
+    let tx=b.transaction().await.unwrap();tx.query_one("SELECT id FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE",&[&project]).await.unwrap();tx.query_one("SELECT id FROM ot.mail WHERE id=$1 FOR UPDATE",&[&row]).await.unwrap();
+    let (started,wait)=tokio::sync::oneshot::channel();
+    let worker=engine.clone();
+    let mut task=tokio::spawn(async move{let _=started.send(());ack_timeouts(&worker,org,holder,"fixture").await.unwrap()});
+    wait.await.unwrap();assert!(tokio::time::timeout(std::time::Duration::from_millis(50),&mut task).await.is_err());
+    tx.execute("UPDATE ot.mail SET extra=jsonb_set(jsonb_set(extra,'{claimed,copy}',to_jsonb($2::text)),'{attempts}','2') WHERE id=$1",&[&row,&new_copy]).await.unwrap();tx.commit().await.unwrap();
+    assert!(task.await.unwrap().is_empty(),"the old copy must not be returned for a reminder");
+    assert_eq!(b.query_one("SELECT (extra->'claimed'->>'wakes')::int FROM ot.mail WHERE id=$1",&[&row]).await.unwrap().get::<_,i32>(0),0,"old reminder cannot increment a same-holder new-copy attempt");
+    let kept=ack_timeouts(&engine,org,holder,"fixture").await.unwrap();assert_eq!(kept[0].0,new_copy);
+    assert_eq!(b.query_one("SELECT (extra->'claimed'->>'wakes')::int FROM ot.mail WHERE id=$1",&[&row]).await.unwrap().get::<_,i32>(0),1,"a current claim still gets its normal reminder");
+}
+
+#[tokio::test]
 #[ignore = "requires the explicitly isolated listener-bounds rig cluster"]
 #[nolog]
 async fn claim_boundary_stale_reclaim() {
