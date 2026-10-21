@@ -131,7 +131,7 @@ test('copy entries target full title, slug and reference; fold toggles at the bo
 test('Owner parent and submenu actions use the same agent registry as transcript',async t=>{
   const f=await fixture(t,make())
   await right(f.row);await choose('Owner… ▸');assert.deepEqual(f.calls,['Focus'])
-  await right(f.row);assert.deepEqual(await ownerItems(),['Copy mention','sep','Focus','Existing agent action'])
+  await right(f.row);assert.deepEqual(await ownerItems(),['Copy mention','Focus','Existing agent action'])
   await choose('Copy mention',document.querySelector('.ctxmenu-submenu')!)
   assert.deepEqual(f.writes,['@owner'])
   await right(f.row);await ownerItems();await choose('Existing agent action',document.querySelector('.ctxmenu-submenu')!)

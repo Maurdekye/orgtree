@@ -183,6 +183,15 @@ export function agentCopyEntry(el: Element, name: string, toast?: ToastFn): Menu
   } }
 }
 
+/** The complete identity-link menu, whether opened directly or nested under
+ * Owner/Presenter/Project/Sender. Capture the real composer scope before the
+ * menu portals away from its anchor; no synthetic Mention action otherwise. */
+export function agentLinkMenuEntries(el: Element, name: string, entries: MenuEntry[], toast?: ToastFn): MenuEntry[] {
+  const mention = captureDeskMentionAt(el, name)
+  return [...(mention ? [{ label: 'Mention', onSelect: mention }] : []),
+    agentCopyEntry(el, name, toast), ...entries]
+}
+
 function objectCopyEntry(object: Element, toast?: ToastFn): MenuItem {
   const agent = object.getAttribute('data-copy-agent-name')
   const label = agent !== null ? 'Copy mention' : 'Copy ticket title'
@@ -421,22 +430,19 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     // their existing copy/action separator.
     const agentCopy = object?.hasAttribute('data-copy-agent-name') || (!object && navEl && navId)
     const agentId = object?.getAttribute('data-copy-agent-name') || (!object && navEl ? navId : null)
-    const mentionAction = captureDeskMentionAt(object ?? navEl, agentId)
-    const mentionPrefix: MenuEntry[] = mentionAction ? [{ label: 'Mention', onSelect: mentionAction }] : []
     const copyGap: MenuEntry[] = agentCopy ? [] : ['sep']
     // An explicit ticket menu owns its copy-title position, just as an async
     // resolved object menu does below. Keep other objects' automatic prefix.
     const suppliedTicketCopy = object?.hasAttribute('data-copy-ticket-title')
       && surfaceEntries.some(entry => entry !== 'sep' && entry.label === 'Copy ticket title')
-    const list: MenuEntry[] = object
-      ? [...mentionPrefix,
-         ...(suppliedTicketCopy ? [] : [objectCopyEntry(object, feedback)]),
+    const list: MenuEntry[] = agentCopy && agentId
+      ? agentLinkMenuEntries(object ?? navEl ?? el, agentId, [...navEntries, ...surfaceEntries], feedback)
+      : object
+      ? [...(suppliedTicketCopy ? [] : [objectCopyEntry(object, feedback)]),
          ...(navEntries.length ? [...copyGap, ...navEntries] : []),
          ...(surfaceEntries.length ? [...(suppliedTicketCopy ? [] : copyGap), ...surfaceEntries] : [])]
       : (navEl && navId
-          ? [...mentionPrefix,
-             agentCopyEntry(navEl, navId, feedback),
-             ...navEntries, ...surfaceEntries]
+          ? agentLinkMenuEntries(navEl, navId, [...navEntries, ...surfaceEntries], feedback)
           : objectList.length ? objectList : entriesList)
     // nothing to offer is not a menu: the browser's own stands
     if (!list.some((x) => x !== 'sep')) return

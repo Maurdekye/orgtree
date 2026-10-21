@@ -22,6 +22,12 @@ settings.
   menu handling.
 - The canonical context menu's `Owner…` entry carries the owner's tooltip id,
   resolved by the same native tooltip host when hovered.
+- Node-link submenus (`Owner…`, `Presenter…`, `Project…`, `Sender…`) and direct
+  links assemble their Copy mention and composer-scoped Mention prefix through
+  `agentLinkMenuEntries`. They retain the same separators and rendered order;
+  a real composer is required for Mention. Parent Focus and hover/Right
+  expansion semantics stay unchanged. [decided: user 2026-10-21 06:48:13Z;
+  verified: `canvas/{contextmenu,objectactions}.ts*`]
 - When a shared agent/project link's visible label omits its identity (for
   example a model chip or a shared `Owner...`/`Presenter...`/`Project...` menu
   entry), the shared tooltip host prefixes the entity name on its first line.

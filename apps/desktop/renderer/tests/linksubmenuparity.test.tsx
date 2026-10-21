@@ -68,6 +68,14 @@ for (const kind of ['agent', 'project'] as const) for (const composer of [false,
       assert.deepEqual(items(sub), expected, `${link.textContent} is the direct ${kind} menu, including separators`)
       assert.deepEqual(called, [], 'hover and right click execute no action')
     }
+    if (composer) {
+      const mention = [...root().querySelectorAll<HTMLButtonElement>('.ctxmenu-submenu [role="menuitem"]')]
+        .find(item => item.textContent === 'Mention')!
+      await inAct(() => mention.click())
+      assert.deepEqual(called, ['mention:' + id], 'submenu Mention acts on its original composer scope')
+      called.length = 0
+      await right(v.el.querySelector('[data-wrapper="Sender…"]')!)
+    }
     const parent = root().querySelector<HTMLButtonElement>('[role="menuitem"]')!
     await inAct(() => parent.click())
     assert.deepEqual(called, ['focus'], 'parent keeps the canonical Focus action')
