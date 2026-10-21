@@ -169,10 +169,12 @@ test('agent docket keeps selected archive draft when its filtered rows become em
     mine={open ? [row('old-ticket', true)] : []} boundedReferences />
   const view = await mountView(render(true), el => el)
   t.after(() => view.unmount())
-  await inAct(() => (view.el.querySelector('.docket-row') as HTMLElement).click())
+  // Opening selects the first shown ticket (USER 2026-10-21 16:50Z).
+  // Clicking that selected row would clear it before the draft is entered.
+  assert.match(view.el.querySelector('.mailer-read')?.textContent ?? '', /old-ticket/)
   const textarea = await draft(view.el)
   await view.render(render(false))
-  assert.equal(view.el.querySelector('.mailer-read textarea'), textarea)
+  assert.equal(view.el.querySelector('.mailer-read textarea') === textarea, true, 'same mounted composer')
   assert.equal(textarea.value, 'keep this draft')
 })
 
