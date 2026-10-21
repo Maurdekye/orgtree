@@ -8,6 +8,8 @@ Up: [orgtree-canvas](../SKILL.md)
 
 The eye-shaped root represents the user. Focusing it opens the switchboard: direct lines to live top-level agents and agents holding a user audience. Tabs follow the canvas's spatial order. They are not a promise that every agent in the organization may send directly to the user.
 
+When the user holds a slot, or has a listener, watch or mail-queue place on a project (set from the project desk's headers), the canvas draws the same coloured project line an agent in that role gets, from the eye card to the project, and shows the user's watchdogs as chips below the eye card. These are display only: the lines and chips carry no extra action, and a chip jumps to its project.
+
 Selecting a tab opens/minimizes that chat, or raises its pinned window. The separate jump control navigates to the agent's place. A close control on an audience-granted line revokes that audience; intrinsic top-level lines have no equivalent revoke control. Its mail count and busy indicator belong to that tab's agent.
 
 The switchboard's auto toggle controls whether a newly arriving direct line opens while the switchboard is already being viewed and another panel fits without horizontal scrolling. Otherwise the new line arrives minimized. Catch-up lines discovered when returning to the switchboard do not all force themselves open. This is presentation behavior, not a new user audience.
