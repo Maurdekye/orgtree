@@ -341,6 +341,55 @@ and the launcher then makes the same handover elevated. The button never
 changes Run as admin, and a declined prompt leaves the engine untouched. It
 is disabled while Run as admin is on and when nobody is at the console.
 
+**The database never runs as administrator** (`pg.rs` `spawn_postmaster`,
+`winproc::spawn_restricted`). PostgreSQL refuses administrator rights
+("Execution of PostgreSQL by a user with administrative permissions is not
+permitted"). The engine that Run this session as admin started on the user's
+PC died there (alpha.29, 2026-10-21 22:47Z), and the rollback to Session 0
+worked. Run as admin's elevated engines, in the session and in Session 0
+(S4U, highest available), started PostgreSQL the same way (inferred from the
+source; not run on a real PC). On Windows the
+engine therefore always starts the postmaster with a restricted copy of its
+own token, as pg_ctl starts it. That token is `restricted_medium_token`, the
+one the boot host gives an engine without Run as admin:
+
+- Administrators and Power Users are deny-only (PostgreSQL's own test is
+  `CheckTokenMembership` on those two groups).
+- Every privilege but SeChangeNotify is removed, and the label is Medium.
+- The default DACL grants the user, SYSTEM and Administrators. An elevated
+  token's default DACL names only Administrators and SYSTEM, so without this
+  the postmaster could not open its own objects.
+
+The postmaster stays the engine's own child. `pg-attach.json` records its
+real pid, and stdout and stderr both append to `postgres.log`; those are its
+only inherited handles, with stdin on NUL. `pg_ctl stop`, then a kill and a
+wait, still end it, and it stays in the engine's kill-on-close job. It runs
+without a window, with the engine's environment and working folder, and its
+argv is quoted as a tokio spawn quotes it. initdb drops the rights itself (it
+starts itself again with a restricted token unless `PG_RESTRICT_EXEC=1`), so
+the engine removes an inherited `PG_RESTRICT_EXEC` from its environment. The
+engine itself, its agents, `pg_ctl` and the mail hub keep the engine's
+rights; none of them refuses administrator rights.
+
+Measured on `rig-opus/pg-restricted` over `rust-engine` `24aa387` (logs in
+`D:\orgtree-work\tmp\rig-opus\batch-pgrights\logs`):
+
+- `pg::rights_tests` (ignored by default; it starts a scratch cluster) reads
+  the postmaster's token from outside. At the red commit it failed only on
+  privileges: the postmaster held all five of the test process's. With the
+  fix it passed: SeChangeNotify only, Medium, the test's session and job.
+- `winproc::restricted_tests`: 5/5. The focused `winproc`, `pg`, `host`,
+  `boot_supervisor`, `session_launch`, `session_handover` and
+  `core_process` tests: 51/51.
+- Clippy: no warning on a changed line. The `x86_64-linux-android` check:
+  only the five base warnings.
+- `session0-handover.mjs` part 1: 23/23. All four of its engine starts went
+  through `spawn_restricted`.
+
+The test process was not elevated (Medium, Administrators deny-only). So
+PostgreSQL's refusal and an elevated parent's token are unmeasured here;
+only the user's elevated run can show them.
+
 **The boot host** (`boot_supervisor.rs`, the boot task's `orgtree-engine
 host`) now supervises instead of always starting an engine. Every 2 s a pure
 `decide` step chooses from what it sees:

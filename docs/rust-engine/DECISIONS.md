@@ -1752,6 +1752,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **"Run this session as admin":** one permission prompt per click restarts the engine and
       its agents elevated in this session. It never changes the toggle; a declined prompt leaves
       the engine untouched.
+    - **The database never runs as administrator** (the user's alpha.29 run, 2026-10-21 22:47Z:
+      the engine this button started died because PostgreSQL refuses administrator rights). On
+      Windows the postmaster always starts with a restricted copy of the engine's token, as
+      pg_ctl starts it; the engine and its agents keep the engine's rights.
     - **Failures:** one before the stop leaves the old engine untouched. After a graceful stop,
       a failed replacement gets exactly one boot-task rollback, recorded durably and reported in
       the app and in the next restart notice. If the rollback fails too, the engine stays

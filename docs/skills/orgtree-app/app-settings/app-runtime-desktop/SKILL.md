@@ -44,6 +44,8 @@ Run as admin is available only on Windows while Orgtree uses its boot task. Othe
 
 **Run this session as admin**, next to the switch, restarts the engine and its agents elevated in the user's current session, with one Windows permission prompt per click. It never changes the switch, and a later automatic restart or update follows the switch again. It is disabled while Run as admin is on and when nobody is signed in at the console. A declined prompt leaves the running engine untouched.
 
+Administrator rights never reach Orgtree's bundled database. PostgreSQL refuses to run with them, so an elevated engine (from either control) always starts it without them, as PostgreSQL's own tools do. The engine and its agents keep their rights.
+
 Restarting interrupts running agent turns. While the user is signed in at the console, the restart starts the new engine in their session: the old one stops gracefully first, and the desktop reattaches to the new one. Otherwise the desktop requests the authenticated stop and reattaches to the started boot task. If the new engine cannot start in the user's session after the old one stopped, Orgtree starts it once in Session 0 instead and says so, in a message and in the agents' restart notice. If that fails too, the engine stays stopped and the tray offers **Start engine**. A busy restart/update refuses another restart, and a reconnect failure is reported rather than presented as success.
 
 The desktop preference switches do not rewrite agent instructions by themselves. An engine restart can replace local processes; process replacement alone proves neither a provider cache hit nor a miss. Explain the restart's interruption before suggesting immediate application.
