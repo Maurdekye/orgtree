@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeServer, installFetch, mountView, inAct } from './harness'
 import { OrgCanvas, agentTooltipInfo } from '../src/canvas/OrgCanvas'
+import { ProjectSquare } from '../src/canvas/projectcard'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import { bunchTree, project } from './projectbunch-fixture'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload, Watchdog } from '../src/types'
@@ -42,21 +44,36 @@ test('facts change with current leases and watches; empty projects keep their ex
     { ...tree, watchdogs: [], slot_leases: [] }), { title: 'Project · # Test project' })
 })
 
-test('real canvas name/card and icon hovers use current facts and match the rendered badges', async t => {
-  const original = globalThis.fetch
-  installFetch(new FakeServer()); t.after(() => { globalThis.fetch = original })
-  localStorage.clear(); localStorage.setItem('orgtree-start-zoom', '0')
-  const { node, tree } = fixture()
-  const render = () => <OrgCanvas tree={tree} slug={tree.slug} op={async () => ({ ok: true } as never)} toast={() => {}} mailEvt={null} />
-  const v = await mountView(render(), el => el); t.after(() => v.unmount())
+test('near card/name and icon hovers share facts matching the rendered badges', async t => {
+  const { node, tree } = fixture(), noop = () => {}
+  function Card() {
+    useProvideAgentNav(() => [], () => info(node, tree))
+    return <ProjectSquare node={node} tree={tree} pos={{ x: 0, y: 0 }} lod="norm" slug={tree.slug}
+      dragging={false} isDrop={false} op={async () => ({ ok: true } as never)} toast={noop} zoom={1} hire={{}}
+      onHire={noop} onNewProject={noop} onInbox={noop} onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+  }
+  const v = await mountView(<AgentNavProvider><Card /></AgentNavProvider>, el => el)
+  t.after(() => v.unmount())
   const card = v.el.querySelector<HTMLElement>('.sq.project')!
-  assert.ok(card)
   for (const text of ['1/2 held', 'listeners 3/5', "3 listeners · 4 q'd · 1 in flight"])
     assert.ok([...card.querySelectorAll('.project-header-badges > span')].some(b => b.textContent === text), text)
   for (const target of [card, card.querySelector<HTMLElement>('.name')!, card.querySelector<HTMLElement>('.project-mark')!]) {
     await inAct(() => target.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
     assert.equal(target.title, target.classList.contains('project-mark') ? `test-project\n${facts}` : facts)
   }
+})
+
+test('real canvas far-zoom hover omits the name and reads replacement feed facts', async t => {
+  const original = globalThis.fetch
+  installFetch(new FakeServer()); t.after(() => { globalThis.fetch = original })
+  localStorage.clear(); localStorage.setItem('orgtree-start-zoom', '0')
+  const { tree } = fixture()
+  const render = () => <OrgCanvas tree={tree} slug={tree.slug} op={async () => ({ ok: true } as never)} toast={() => {}} mailEvt={null} />
+  const v = await mountView(render(), el => el); t.after(() => v.unmount())
+  const card = v.el.querySelector<HTMLElement>('.sq.project .project-mini')!
+  assert.ok(card)
+  await inAct(() => card.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(card.title, facts)
   // The registered lookup must read the replacement feed, not a captured tree.
   tree.slot_leases = []; tree.watchdogs = []
   await v.render(render())
