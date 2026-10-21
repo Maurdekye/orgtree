@@ -81,15 +81,16 @@ test('real canvas far-zoom hover omits the name and reads replacement feed facts
   const original = globalThis.fetch
   installFetch(new FakeServer()); t.after(() => { globalThis.fetch = original })
   localStorage.clear(); localStorage.setItem('orgtree-start-zoom', '0')
-  const { tree } = fixture()
+  let { tree } = fixture()
   const render = () => <OrgCanvas tree={tree} slug={tree.slug} op={async () => ({ ok: true } as never)} toast={() => {}} mailEvt={null} />
   const v = await mountView(render(), el => el); t.after(() => v.unmount())
   const card = v.el.querySelector<HTMLElement>('.sq.project .project-mini')!
   assert.ok(card)
   await inAct(() => card.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
   assert.equal(card.title, facts)
-  // The registered lookup must read the replacement feed, not a captured tree.
-  tree.slot_leases = []; tree.watchdogs = []
+  // Real feed updates replace the payload; mutating the same object would
+  // bypass the canvas's memoized derived tree instead of testing its lookup.
+  tree = { ...tree, slot_leases: [], watchdogs: [] }
   await v.render(render())
   await inAct(() => card.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
   assert.equal(card.title, "0/2 held · 4 q'd · 1 in flight")
