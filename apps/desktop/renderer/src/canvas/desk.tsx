@@ -2495,7 +2495,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
   const locateReplyHandler = useRef(locateReplyNow)
   locateReplyHandler.current = r=>{
-    mentionCenterHoldRef.current = null
+    cancelMentionScroll()
     if(replyLoaded(r)){
       growAnchor.current=null;stopSettle();setPendingReplyJump(null);locateReplyNow(r)
     }else if(canPageReply(r)){
@@ -2556,6 +2556,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const scrolledMentionRef = useRef<string | null>(null)
   const scrolledMentionSeqRef = useRef<number | null>(null)
   const mentionCenterHoldRef = useRef<string | null>(null)
+  const cancelMentionScroll = () => {
+    mentionCenterHoldRef.current = null
+    if (mentionHighlight) {
+      scrolledMentionRef.current = `${mentionHighlight.mentionId}:${mentionHighlight.seq ?? 0}`
+    }
+  }
   useEffect(() => {
     if (!historyVisible || view !== 'chat') return
     if (orgView === 'attention') return
@@ -2663,7 +2669,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const noteScrollIntent = (direction: -1 | 1) => {
     // Cover asynchronous default scrolling and touch/trackpad momentum; this
     // timestamp does not schedule a timer or keep a closed desk alive.
-    mentionCenterHoldRef.current = null
+    cancelMentionScroll()
     scrollIntent.current = { direction, until: performance.now() + 1000 }
     if (direction < 0) setStuck(false)
   }
@@ -2914,7 +2920,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   })
   // seq is the PRE-slice ordinal, so a non-zero first seq means older rows exist
   const hasOlder = chat?.has_older ?? ((chat?.messages[0]?.seq ?? 0) > 0)
-  useLayoutEffect(() => {
+  const centerMentionRef = useRef<() => void>(() => {})
+  centerMentionRef.current = () => {
     if (!mentionHighlight) {
       scrolledMentionRef.current = null
       scrolledMentionSeqRef.current = null
@@ -3003,6 +3010,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         }
       }
     }
+  }
+  useLayoutEffect(() => {
+    centerMentionRef.current()
   }, [mentionHighlight, view, convo.loaded, chat?.messages, chat?.before, chat?.has_older, loadingOlder, convo.olderError, live_feed])
   /** the rows this desk needs to fill itself — the floor a window collapse
    *  must never cut below, or it takes away what is on screen. A tall pinned
@@ -3013,7 +3023,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     return el ? transcriptViewport(el).page : CHAT_WINDOW
   }
   const toBottom = () => {
-    mentionCenterHoldRef.current = null
+    cancelMentionScroll()
     scrollIntent.current = null
     scrollbarPointer.current = null
     followTop.current = null   // explicit jump wins over unreported movement
@@ -3124,6 +3134,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       // Resize follows an already-following reader. It must not re-enable
       // follow after upward input, before the browser has moved the viewport.
       // Only a downward scroll to the bottom or an explicit jump resumes it.
+      centerMentionRef.current()
       if (stickRef.current) pin()
       calcPinRef.current()
       fillViewportRef.current()
@@ -4120,7 +4131,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               && (direction === 0 || scrollIntent.current?.direction === 1)
             const manual = (direction !== null || returningToBottom) && !echo
             if (manual) {
-              mentionCenterHoldRef.current = null
+              cancelMentionScroll()
               if (direction === 0 && top < previous) setStuck(false)
               else if (returningToBottom) setStuck(true)
             }

@@ -1,4 +1,4 @@
-import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
+import { FakeServer, fireResize, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DeskChat } from '../src/canvas/desk'
@@ -256,13 +256,25 @@ test('clicking a mention while the desk scroller has zero height does not consum
     })
     assert.equal(list.scrollTop, 0, 'precondition: zero-height scroller could not scroll yet')
 
-    // Now the stage becomes visible with real geometry and a subsequent update renders
+    // Now the stage becomes visible with real geometry via ResizeObserver ONLY (no network refresh)
+    const fetchesBeforeReveal = server.requests.length
     installTranscriptGeometry(list, oldRect)
     await inAct(async () => {
-      await refreshConvo('synthetic', node.id, { force: true })
-      await flush(6)
+      fireResize(list)
+      await flush(4)
     })
-    assert.equal(list.scrollTop, 140, `expected mention scroll to run once scroller has layout height, got scrollTop=${list.scrollTop}`)
+    assert.equal(server.requests.length, fetchesBeforeReveal, 'reveal resize did not require a transcript refetch')
+    assert.equal(list.scrollTop, 140, `expected mention scroll to run on resize once scroller has layout height, got scrollTop=${list.scrollTop}`)
+
+    // Once centered, a manual user scroll away is not undone by a later resize
+    list.dispatchEvent(new window.WheelEvent('wheel', { deltaY: 80, bubbles: true }))
+    list.scrollTop = 300
+    list.dispatchEvent(new window.Event('scroll'))
+    await inAct(async () => {
+      fireResize(list)
+      await flush(2)
+    })
+    assert.equal(list.scrollTop, 300, 'later resize after manual scroll does not re-center the already-handled mention')
   } finally {
     proto.getBoundingClientRect = oldRect
     await view.unmount()
