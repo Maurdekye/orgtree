@@ -323,8 +323,12 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
           <div className="field-label">connection</div>
           <div className={'dim wd-connection' + (dog.connection?.state === 'down' || dog.connection?.state === 'refused' ? ' wd-connection-bad' : '')}>
             {feedConnection(dog)}</div>
-          <div className="dim">{dog.sent ? `${dog.sent} message${dog.sent === 1 ? '' : 's'} sent${dog.last_sent_at ? `, the last ${ago(dog.last_sent_at)} ago` : ''}` : 'nothing sent yet'} · its owner writes with orgtree_watchdog action=send</div>
         </>}
+        {(dog.kind === 'mqtt' || dog.kind === 'websocket') && <div className="dim wd-send-description">
+          {dog.sent ? `${dog.sent} message${dog.sent === 1 ? '' : 's'} sent${dog.last_sent_at ? `, the last ${ago(dog.last_sent_at)} ago` : ''}` : 'nothing sent yet'} · {dog.kind === 'mqtt'
+            ? 'its owner publishes with orgtree_watchdog action=send, topic and message, on its existing broker connection. At most 64 KB; QoS 0 by default (1/2 supported), retain false by default. Replies fire it when its filters match.'
+            : 'its owner writes with orgtree_watchdog action=send'}
+        </div>}
         {dog.health && <div className="ask-warn">{dog.health}</div>}
         {dog.kind === 'event' && dog.last_output && <><div className="field-label">last event</div><div className="chip mono grow wd-cmd">{dog.last_output}</div></>}
         {(dog.kind === 'mqtt' || dog.kind === 'websocket') && dog.last_output && <><div className="field-label">last message</div><div className="chip mono grow wd-cmd">{dog.last_output}</div></>}
