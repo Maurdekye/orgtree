@@ -34,6 +34,20 @@ test('legacy websocket switch defaults off and a failed save preserves it',async
 const base: Watchdog = { id: 'worker/watch', owner: 'worker', name: 'watch', kind: 'file',
   target: 'build.log', state: 'armed', interval_s: 60, fired: 0, once: false, spent: false,
   at: '2026-10-18T07:00:00Z', events: [] }
+
+test('MQTT detail mirrors send availability and counts on the existing connection', async t => {
+  const view = await panel({ kind: 'mqtt', target: 'mqtt://localhost:1883', pattern: 'reply/#', sent: 3,
+    last_sent_at: new Date().toISOString() })
+  t.after(() => view.unmount())
+  const text = view.el.textContent ?? ''
+  assert.match(text, /3 messages sent/)
+  assert.match(text, /orgtree_watchdog action=send/)
+  assert.match(text, /topic/)
+  assert.match(text, /64 KB/)
+  assert.match(text, /existing.*connection/)
+  assert.equal(view.el.querySelector('input[aria-label="Notify on (re)connect"]') === null, true,
+    'the WebSocket-only notification switch does not leak to MQTT')
+})
 async function panel(patch: Partial<Watchdog> & { notice?: boolean } = {}) {
   return mountView(<WatchdogPanel slug="synthetic" dog={{ ...base, ...patch }} toast={noop} close={noop} />, host => host)
 }
