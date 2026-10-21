@@ -8,6 +8,7 @@ pub mod defs;
 pub mod usermcp;
 mod mailtools;
 mod project_inbox;
+pub(crate) use project_inbox::VISIBLE_SQL as PROJECT_MAIL_VISIBLE_SQL;
 pub(crate) use mailtools::typing_peers;
 mod orgview;
 mod session;

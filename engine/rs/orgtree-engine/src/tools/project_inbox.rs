@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use tokio_postgres::Client;
 
 const NOTE: &str = "Read-only project mail: reading never claims, acknowledges or marks mail read. Fair-queue watchdogs consume waiting mail.";
-const VISIBLE_SQL: &str = "((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
+pub(crate) const VISIBLE_SQL: &str = "((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
     AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL)
     OR NOT EXISTS (SELECT 1 FROM ot.orgs o WHERE o.id=m.org_id AND o.settings->'org_inbox_enabled'='false'::jsonb))";
 const STATUS_SQL: &str = "CASE

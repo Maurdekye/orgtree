@@ -1,6 +1,7 @@
 //! Explicit inbox content reads become ordinary transcript mail after the
 //! containing tool completes. These receipts never claim project queue mail.
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 #[cfg(test)]
 #[path = "manual_mail_security_tests.rs"]
@@ -24,18 +25,6 @@ pub fn opened(items: &[Value], recipient: i64, project: bool) -> Vec<Value> {
     out
 }
 
-/// Resolve a successful fallback's candidate receipts before the canonical read.
-#[nolog]
-pub async fn fallback_opened(client:&tokio_postgres::Client,agent:i64,org:i64,_name:&str,args:&Value,body:&Value) -> anyhow::Result<Vec<Value>> {
-    let project=args["project"].as_str().filter(|s|!s.trim().is_empty());
-    let recipient=if let Some(name)=project {
-        crate::domain::projects::by_name(client,org,name).await?.map(|p|p.id)
-    } else {Some(agent)};
-    let Some(recipient)=recipient else{return Ok(Vec::new());};
-    let items=body["messages"].as_array().cloned().unwrap_or_else(||vec![body.clone()]);
-    Ok(opened(&items,recipient,project.is_some()))
-}
-
 /// A single actor owns its transcript. The existing indexed mail_ids receipts
 /// deduplicate earlier automatic delivery, repeated chunks and actor reloads.
 #[nolog]
@@ -49,19 +38,79 @@ pub async fn unseen(client:&tokio_postgres::Client, agent:i64, org:i64, opened:&
         }
     }
     if ids.is_empty() {return Ok(Vec::new());}
-    let rows=client.query("SELECT to_jsonb(m) FROM ot.mail m
+    let mut allowed=Vec::new();
+    for recipient in recipients {
+        if recipient!=agent {
+            let project=client.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND org_id=$2 AND kind='project' AND state<>'deleted'",&[&recipient,&org]).await?.is_some();
+            if !project || !crate::domain::projects::reaches(client,agent,recipient).await? {continue;}
+        }
+        allowed.push(recipient);
+    }
+    if allowed.is_empty() {return Ok(Vec::new());}
+    let sql=format!("SELECT to_jsonb(m) FROM ot.mail m
         WHERE m.org_id=$3 AND m.uid=ANY($2) AND m.recipient_agent_id=ANY($4)
+        AND (m.recipient_agent_id=$1 OR m.recipient_kind='agent') AND {}
         AND NOT EXISTS (SELECT 1 FROM ot.convo c WHERE c.agent_id=$1 AND c.body->>'role'='user' AND (c.body->'mail_ids') ? m.uid)
-        ORDER BY array_position($2,m.uid)", &[&agent,&ids,&org,&recipients]).await?;
+        ORDER BY array_position($2,m.uid)",crate::tools::PROJECT_MAIL_VISIBLE_SQL);
+    let rows=client.query(&sql, &[&agent,&ids,&org,&allowed]).await?;
     Ok(rows.into_iter().map(|r|r.get::<_,Value>(0)).filter(|m|
         opened.iter().any(|o|o["uid"]==m["uid"]&&o["recipient"]==m["recipient_agent_id"])).collect())
 }
 
-/// AGY's external MCP result lacks ToolCard metadata. Accept only a successful
-/// built-in content-read result, parsed before preview clipping.
+/// Correlate only the original native Orgtree server identity. Display-name
+/// unwrapping deliberately accepts broader aliases and is not an authority check.
+#[nolog]
+fn trusted_call(name:&str,args:&Value) -> Option<(String,Value)> {
+    let native=name.strip_prefix("default_api:").unwrap_or(name);
+    let own=|tool:&str|matches!(tool,"orgtree_inbox"|"orgtree_watchdog");
+    if native.strip_prefix("mcp__orgtree__").is_some_and(own)
+        || native.strip_prefix("mcp_orgtree_orgtree_").is_some_and(own) {
+        return Some(crate::runtime::convo::unwrap_tool_call(name,args));
+    }
+    if native!="call_mcp_tool" {return None;}
+    let server=one_alias(args,&["ServerName","server_name","serverName","server"])?.as_str()?.trim();
+    let tool=one_alias(args,&["ToolName","tool_name","toolName","tool"])?.as_str()?.trim();
+    if !matches!(server,"orgtree"|"orgtree_orgtree") || !own(tool) {return None;}
+    one_alias(args,&["Arguments","arguments","args"])?;
+    Some(crate::runtime::convo::unwrap_tool_call(name,args))
+}
+
+#[nolog]
+fn one_alias<'a>(args:&'a Value,keys:&[&str]) -> Option<&'a Value> {
+    let mut values=keys.iter().filter_map(|key|args.get(*key));
+    let first=values.next()?;
+    values.all(|value|value==first).then_some(first)
+}
+
+/// A result can correlate a private dispatcher receipt, never manufacture one.
+/// The caller invokes this before consuming the annotation card and only after
+/// successful native completion. Identical genuine reads remain interchangeable;
+/// conflicting proofs fail closed.
+#[nolog]
+pub fn bind_fallback(cards:&HashMap<String,Value>,reads:&mut HashMap<String,Vec<Value>>,calls:&[&str],name:&str,args:&Value,text:&str) {
+    let Some(target)=calls.first().copied() else{return;};
+    let Some((tool,input))=trusted_call(name,args) else{return;};
+    let Some(body)=output(name,args,text) else{return;};
+    let base=tool.rsplit("__").next().unwrap_or(&tool);
+    let mut matched:Vec<String>=cards.iter().filter(|(key,card)| {
+        key.starts_with("mcp-card:") && reads.contains_key(*key)
+            && card["_mcp_tool"]==base && card["_mcp_args"]==input
+            && card["_mcp_text"].as_str().and_then(|s|
+                serde_json::Deserializer::from_str(s).into_iter::<Value>().next()?.ok()).as_ref()==Some(&body)
+    }).map(|(key,_)|key.clone()).collect();
+    matched.sort();
+    let Some(first)=matched.first() else{return;};
+    let Some(proof)=reads.get(first).cloned() else{return;};
+    if matched.iter().any(|key|reads.get(key)!=Some(&proof)) {return;}
+    reads.remove(first);
+    reads.entry(target.to_string()).or_default().extend(proof);
+}
+
+/// Parse a successful, provenance-checked result before preview clipping. The
+/// parsed body is used only to match dispatcher metadata, not to authorize IDs.
 #[nolog]
 pub fn output(name:&str,args:&Value,text:&str) -> Option<Value> {
-    let (unwrapped_name, unwrapped_args) = crate::runtime::convo::unwrap_tool_call(name, args);
+    let (unwrapped_name, unwrapped_args) = trusted_call(name,args)?;
     let (name, args) = (unwrapped_name.as_str(), &unwrapped_args);
     let inbox=name.rsplit("__").next()==Some("orgtree_inbox") && matches!(args["action"].as_str(),Some("fetch"|"chunk"));
     let inline=name.rsplit("__").next()==Some("orgtree_watchdog") && args["action"]=="create" && args["kind"]=="fair_queue";
@@ -83,9 +132,9 @@ mod tests {
     fn inline_queue_tool_result_is_a_single_consumed_mail_receipt() {
         let args=json!({"action":"create","kind":"fair_queue"});
         let result=json!({"resolved":true,"registered":false,"messages":[{"id":"m1","direction":"received"}]});
-        let parsed=output("orgtree_watchdog",&args,&result.to_string()).unwrap();
+        let parsed=output("mcp__orgtree__orgtree_watchdog",&args,&result.to_string()).unwrap();
         assert_eq!(opened(parsed["messages"].as_array().unwrap(),7,false),vec![json!({"uid":"m1","recipient":7})]);
-        assert!(output("orgtree_watchdog",&args,"{\"registered\":true}").is_none());
+        assert!(output("mcp__orgtree__orgtree_watchdog",&args,"{\"registered\":true}").is_none());
         assert!(output("shell",&args,&result.to_string()).is_none());
     }
     #[test]
@@ -94,11 +143,11 @@ mod tests {
         assert_eq!(opened(&items,7,false),vec![json!({"uid":"received","recipient":7})]);
         assert_eq!(opened(&items[..2],9,true).len(),1);
         assert_eq!(opened(&[json!({"id":"legacy-project"})],9,true).len(),1);
-        for action in ["list","conversation"] {assert!(output("orgtree_inbox",&json!({"action":action}),"{}").is_none());}
+        for action in ["list","conversation"] {assert!(output("mcp__orgtree__orgtree_inbox",&json!({"action":action}),"{}").is_none());}
         assert!(output("shell",&json!({"action":"fetch"}),"{}").is_none());
         assert_eq!(output("mcp__orgtree__orgtree_inbox",&json!({"action":"chunk"}),"{\"id\":\"received\",\"direction\":\"received\"}\nexecution time: 1ms").unwrap()["id"],"received");
         let envelope=json!({"content":[{"type":"text","text":"{\"id\":\"received\",\"direction\":\"received\"}"},{"type":"text","text":"execution time: 1ms"}]});
-        assert_eq!(output("orgtree_inbox",&json!({"action":"fetch"}),&envelope.to_string()).unwrap()["id"],"received");
+        assert_eq!(output("mcp__orgtree__orgtree_inbox",&json!({"action":"fetch"}),&envelope.to_string()).unwrap()["id"],"received");
         assert_eq!(
             output(
                 "default_api:call_mcp_tool",
@@ -107,7 +156,7 @@ mod tests {
             ).unwrap()["id"],
             "received"
         );
-        assert!(output("orgtree_inbox",&json!({"action":"fetch"}),"{\"isError\":true,\"content\":[]}").is_none());
+        assert!(output("mcp__orgtree__orgtree_inbox",&json!({"action":"fetch"}),"{\"isError\":true,\"content\":[]}").is_none());
         assert_eq!(crate::feed::compute::mail_entry(&json!({"state":"read","extra":{"manual_read":true}}))["dnd_read"],true);
     }
 }

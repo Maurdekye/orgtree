@@ -3771,15 +3771,12 @@ impl Actor {
 
     /// Called only after the containing tool row has been persisted.
     #[nolog]
-    async fn settle_manual_mail(&mut self, calls:&[&str], fallback:Option<(&str,&Value,&str)>) -> Result<()> {
-        let mut opened:Vec<Value>=self.turn.as_ref().map(|t|calls.iter()
+    async fn settle_manual_mail(&mut self, calls:&[&str]) -> Result<()> {
+        // Only the engine dispatcher can populate these private receipts.
+        let opened:Vec<Value>=self.turn.as_ref().map(|t|calls.iter()
             .flat_map(|id|t.manual_reads.get(*id).into_iter().flatten().cloned()).collect()).unwrap_or_default();
-        let parsed=fallback.and_then(|(name,args,text)|super::manual_mail::output(name,args,text));
-        if opened.is_empty()&&parsed.is_none() {return Ok(());}
+        if opened.is_empty() {return Ok(());}
         let client=self.engine.db.get().await?;
-        if let (Some((name,args,_)),Some(body))=(fallback,parsed) {
-            opened.extend(super::manual_mail::fallback_opened(&client,self.id,self.org_id,name,args,&body).await?);
-        }
         let raw=super::manual_mail::unseen(&client,self.id,self.org_id,&opened).await?;
         if !raw.is_empty() {
             let mut row=mail_row(&raw,None);
@@ -5331,6 +5328,7 @@ impl Actor {
                     let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
                     let base_tool = name.rsplit("__").next().unwrap_or(&name);
                     let call_id = item["callId"].as_str().unwrap_or(&id);
+                    if !failed { super::manual_mail::bind_fallback(&t.cards,&mut t.manual_reads,&[call_id,&id],&name,&input,&text); }
                     let card = convo::take_matching_tool_card(&mut t.cards, &[call_id, &id], base_tool, &input, &text, !failed);
                     let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
                     if let Some(chips) = row["tools"].as_array_mut() {
@@ -5350,7 +5348,7 @@ impl Actor {
                 };
                 self.convo.update(&client, update.0, update.1).await?;
                 drop(client);
-                self.settle_manual_mail(&[&id,item["callId"].as_str().unwrap_or(&id)],None).await?;
+                self.settle_manual_mail(&[&id,item["callId"].as_str().unwrap_or(&id)]).await?;
                 self.set_activity("thinking", None);
                 self.stream("tool", json!({}));
             }
@@ -6055,6 +6053,7 @@ impl Actor {
                         }
                         let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
                         let base_tool = name.rsplit("__").next().unwrap_or(&name);
+                        if state=="DONE" { super::manual_mail::bind_fallback(&t.cards,&mut t.manual_reads,&[&id],raw_name,&raw_params,&result); }
                         let card = convo::take_matching_tool_card(&mut t.cards, &[&id], base_tool, &input, &result, state == "DONE");
                         let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
                         let (clipped, truncated) = convo::clip(&result, 4000);
@@ -6086,7 +6085,7 @@ impl Actor {
                         (*seq, row.clone())
                     };
                     self.convo.update(&client, update.0, update.1).await?;
-                    self.settle_manual_mail(&[&id],(state=="DONE").then_some((name.as_str(),&input,result.as_str()))).await?;
+                    self.settle_manual_mail(&[&id]).await?;
                     self.set_activity("thinking", None);
                     self.stream("tool", json!({}));
                 }
@@ -6266,6 +6265,7 @@ impl Actor {
                     let Some(t) = self.turn.as_mut() else { return Ok(()) };
                     let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
                     let base_tool = name.rsplit("__").next().unwrap_or(&name);
+                    if !failed { super::manual_mail::bind_fallback(&t.cards,&mut t.manual_reads,&[&id],&name,&input,&text); }
                     let card = convo::take_matching_tool_card(&mut t.cards, &[&id], base_tool, &input, &text, !failed);
                     let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
                     let (clipped, truncated) = convo::clip(&text, 4000);
@@ -6299,7 +6299,7 @@ impl Actor {
                 };
                 self.convo.update(&client, update.0, update.1).await?;
                 drop(client);
-                self.settle_manual_mail(&[&id],(!failed).then_some((name.as_str(),&input,text.as_str()))).await?;
+                self.settle_manual_mail(&[&id]).await?;
                 self.set_activity("thinking", None);
                 self.stream("tool", json!({}));
             }
@@ -6915,7 +6915,7 @@ impl Actor {
         drop(client);
         let calls:Vec<&str>=v.pointer("/message/content").and_then(Value::as_array).into_iter().flatten()
             .filter(|b|b["type"]=="tool_result").filter_map(|b|b["tool_use_id"].as_str()).collect();
-        self.settle_manual_mail(&calls,None).await?;
+        self.settle_manual_mail(&calls).await?;
         self.set_activity("thinking", None);
         self.stream("tool", json!({}));
         Ok(())

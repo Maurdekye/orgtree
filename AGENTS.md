@@ -20,6 +20,14 @@ Before renderer tests, visual captures or rig proofs, read the [test and capture
   [helper transcripts](docs/rust-engine/helper-transcripts.md).
   [verified: 2026-10-21, `runtime/helper_transcript.rs`, `http/nodes.rs`]
 
+- Transcript mail requires a private successful dispatcher receipt, not a tool
+  basename or returned JSON. ID-less MCP completions correlate original own-server
+  provenance plus dispatcher arguments/result; display-name unwrapping is not an
+  authority check. The canonical read rechecks current project reach and shares
+  normal inbox visibility. See [manual mail provenance](docs/rust-engine/manual-mail-provenance.md).
+  [verified: `runtime/manual_mail.rs`, `runtime/convo.rs`, `tools/project_inbox.rs`; 2026-10-21]
+
+
 - Claude completed thinking retains observed monotonic start/stop elapsed seconds
   per native block; the renderer uses row-level legacy timing only for a single
   thought. A transmitted thinking-specific duration takes precedence over

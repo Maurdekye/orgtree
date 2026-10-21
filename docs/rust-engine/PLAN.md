@@ -451,6 +451,11 @@ their established restoration rules. See [`popout-close.md`](popout-close.md).
 
 ### C. Agent desk
 
+Manual mail hardening (2026-10-21): transcript copies require genuine dispatcher
+receipts and current project reach/inbox visibility. External MCP tools sharing
+a basename cannot import canonical mail. See [manual mail provenance](manual-mail-provenance.md).
+
+
 Claude timing fix (user 2026-10-21 20:48Z, 4.4.0): keep observed per-block
 thinking elapsed seconds through finalization and reload. Historical missing
 timing stays unknown. The user's 20:58:40Z ruling gives transmitted thinking

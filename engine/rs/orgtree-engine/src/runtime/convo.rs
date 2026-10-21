@@ -2114,26 +2114,22 @@ pub(crate) fn record_tool_card(
     tool_use_id: String,
     mut card: Value,
 ) {
-    if let Some(reads) = card.as_object_mut().and_then(|c| c.remove("_manual_mail_reads")).and_then(|v| v.as_array().cloned()) {
-        if !tool_use_id.starts_with("mcp-card:") {
-            manual_reads.entry(tool_use_id.clone()).or_default().extend(reads);
+    let reads=card.as_object_mut().and_then(|c|c.remove("_manual_mail_reads")).and_then(|v|v.as_array().cloned()).unwrap_or_default();
+    let fallback=tool_use_id.starts_with("mcp-card:");
+    let keep=card.as_object().is_some_and(|c|c.keys().any(|k|!k.starts_with("_mcp_"))) || fallback && !reads.is_empty();
+    let key=if fallback && (cards.contains_key(&tool_use_id)||manual_reads.contains_key(&tool_use_id)) {
+        let mut n=2usize;
+        loop {
+            let candidate=format!("{tool_use_id}:{n}");
+            if !cards.contains_key(&candidate)&&!manual_reads.contains_key(&candidate) {break candidate;}
+            n+=1;
         }
-    }
-    if card.as_object().is_some_and(|c| c.keys().any(|k| !k.starts_with("_mcp_"))) {
-        let key = if tool_use_id.starts_with("mcp-card:") && cards.contains_key(&tool_use_id) {
-            let mut n = 2usize;
-            loop {
-                let candidate = format!("{tool_use_id}:{n}");
-                if !cards.contains_key(&candidate) {
-                    break candidate;
-                }
-                n += 1;
-            }
-        } else {
-            tool_use_id
-        };
-        cards.insert(key, card);
-    }
+    } else {tool_use_id};
+    // Keep ID-less receipts private, alongside dispatcher-owned correlation
+    // metadata. Native result text can match this proof, never create it.
+    if !reads.is_empty() {manual_reads.entry(key.clone()).or_default().extend(reads);}
+    if keep {cards.insert(key,card);}
+
 }
 
 #[nolog]

@@ -117,7 +117,11 @@ async fn explicit_mail_transcript_receipts_follow_tools_and_survive_reload() {
         (1,'opening',1,1,'sender','reader','message','opening',now(),'delivered',false,false,'[]','{}'),
         (2,'manual',1,1,'sender','reader','message','manual',now(),'read',false,false,'[]','{}'),
         (3,'project',1,9,'sender','work','message','project',now(),'pending',true,false,'[]','{}'),
-        (4,'sent',1,2,'reader','other','message','sent',now(),'pending',false,false,'[]','{}');").await.unwrap();
+        (4,'sent',1,2,'reader','other','message','sent',now(),'pending',false,false,'[]','{}');
+        ALTER TABLE ot.mail ADD COLUMN recipient_kind text DEFAULT 'agent', ADD COLUMN ev jsonb DEFAULT '{}';
+        CREATE TABLE ot.orgs(id bigint PRIMARY KEY,settings jsonb); INSERT INTO ot.orgs VALUES(1,'{}');
+        CREATE TABLE ot.agents(id bigint PRIMARY KEY,org_id bigint,kind text,state text,parent_id bigint);
+        INSERT INTO ot.agents VALUES(1,1,'agent','live',9),(9,1,'project','live',NULL);").await.unwrap();
     let mut writer=super::convo::ConvoWriter::load(&client,1).await.unwrap();
     let opening=vec![json!({"uid":"opening","recipient":1})];
     let raw=super::manual_mail::unseen(&client,1,1,&opening).await.unwrap();

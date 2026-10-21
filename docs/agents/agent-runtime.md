@@ -1022,3 +1022,12 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
   [decided: user/coordinator 2026-10-20; verified: `runtime/convo.rs`,
   `runtime/actor.rs`, `runtime/manual_mail.rs`, `tools/mod.rs`, `http/nodes.rs`,
   `runtime/convo_work_ref_tests.rs`]
+
+## Manual transcript mail provenance (2026-10-21 hardening)
+
+Private dispatcher receipts bind explicit reads to native calls, including
+ID-less AGY/Muse MCP calls. Original server provenance, arguments and dispatcher
+result correlate the latter; returned JSON never issues new receipt authority.
+The canonical secondary read rechecks project reach and normal outside-mail
+visibility. Display-name normalization is deliberately not trusted here.
+See [manual mail provenance](../rust-engine/manual-mail-provenance.md).
