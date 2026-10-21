@@ -36,14 +36,14 @@ test('project facts use active badge counts, excluding paused/spent/other-projec
   assert.deepEqual(info(node, tree), { title: facts })
 })
 
-test('facts change with current leases and watches; empty projects keep their existing summary', () => {
+test('facts change with current leases and watches; projects without chips show only their name', () => {
   const { node, tree } = fixture()
   tree.slot_leases![0]!.slots = 2
   tree.watchdogs = tree.watchdogs!.filter(w => w.kind !== 'listener_watch')
   assert.equal(info(node, tree).title, facts.replace('1/2 held', '2/2 held')
     .replace('listeners 3/5 · 1 listener watch', 'listeners 3'))
   assert.deepEqual(info({ ...node, configured_scope: {}, mail_pending: 0, mail_held: 0 },
-    { ...tree, watchdogs: [], slot_leases: [] }), { title: 'Project · # Test project' })
+    { ...tree, watchdogs: [], slot_leases: [] }), { title: 'test-project' })
 })
 
 test('near card/name and icon hovers share facts matching the rendered badges', async t => {
