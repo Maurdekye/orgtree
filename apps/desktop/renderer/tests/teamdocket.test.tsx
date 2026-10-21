@@ -336,9 +336,13 @@ panelTest('§8 a filtered row opens the ORDINARY ticket detail', async (t) => {
   const p = await mountPanel(t, ORG, 'lead', {
     items: [owned('deep-task', 'deep', { objective: 'A distinctive objective line' })],
   })
-  assert.match(p.el.textContent ?? '', /select an item to view it/, 'nothing selected yet')
   const row = p.el.querySelector('.docket-row') as HTMLElement
   assert.ok(row, 'the descendant\'s row rendered')
+  assert.equal(row.classList.contains('on'), true, 'the first shown team ticket is selected on open')
+  assert.match(p.el.querySelector('.mailer-read')?.textContent ?? '', /A distinctive objective line/)
+  await inAct(() => { row.click() })
+  await flush(4)
+  assert.match(p.el.textContent ?? '', /select an item to view it/, 'a deliberate clear stays empty')
   await inAct(() => { row.click() })
   await flush(4)
   assert.match(p.el.querySelector('.mailer-read')?.textContent ?? '',

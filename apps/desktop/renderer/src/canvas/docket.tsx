@@ -1424,8 +1424,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
     if (!data || work.status.loading || navigation.current.sequence !== 0
         || jumpTo || selId) return
     const first = windowSections.filter(section => !section.folded)
-      .flatMap(section => section.rows)
-      [0]
+      .flatMap(section => section.rows)[0]
     ++navigation.current.sequence // consume even an empty initial list
     if (first) setSelId(first.item.slug)
   }, [slug, data, work.status.loading, windowSections, jumpTo, selId, setSelId])
