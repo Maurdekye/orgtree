@@ -478,3 +478,12 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
   authorize following links. See shared-skills.md export guard.
   [verified from source: providers/skills.rs; rig review finding 2026-10-15]
 <!-- /preserved:e-535f71202df6c4ee -->
+
+## inbox reader diagnostic boundary (2026-10-21)
+
+Private inbox reader bodies use the HTTP quiet-body guard before auth/extraction,
+with exact family matching. Body-returning handlers/projections are nolog so
+verbose function instrumentation cannot bypass the wire boundary. Client JSON
+and path/status metadata are unchanged.
+[verified: http/mod.rs; feed/compute.rs;
+real-engine proof private-read-wire-privacy.mjs in both logging modes]

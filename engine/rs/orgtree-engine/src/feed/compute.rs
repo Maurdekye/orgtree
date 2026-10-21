@@ -337,7 +337,8 @@ pub fn mail_entry(m: &Value) -> Value {
 }
 
 /// `(user_inbox, user_mail_log, user_outbox)` windows, keyed by mail id.
-#[logged]
+// Private mail projections must not bypass the nolog HTTP reader.
+#[nolog]
 pub async fn user_mail(client: &Client, org_id: i64) -> Result<(Vec<(i64, Value)>, Vec<(i64, Value)>, Vec<(i64, Value)>)> {
     let pending = client
         .query(
