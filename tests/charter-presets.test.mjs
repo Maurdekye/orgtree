@@ -34,9 +34,46 @@ test('whole-file preset introductions describe the role without manual charter-c
 test('Heavy dev shop developers resolve the short combined author/reviewer preset', () => {
   const text = readFileSync(path.join(root, 'engine/docs/charters/developer.md'), 'utf8')
   assert.ok(text.length < 1800)
-  for (const requirement of [/private\s+worktree/, /red-first/, /exact committed SHA/, /exact SHA/, /independent checks/, /on the docket/, /never edit/, /by mail/, /same landing/]) assert.match(text, requirement)
+  assert.match(text, /assigned implementation and assigned/)
+  assert.match(text, /peer review/)
+  assert.doesNotMatch(text, /private worktree|red-first|exact SHA|same landing/)
+  // Operational policy is inherited once; the preset remains a role summary.
   const template = JSON.parse(readFileSync(path.join(root, 'engine/docs/templates/heavy-dev-shop.json'), 'utf8'))
   const developers = template.agents[0].reports[0].reports[0].reports.filter(s => s.name.startsWith('developer-'))
   assert.equal(developers.length, 11)
   for (const seat of developers) assert.deepEqual(seat.charter, {preset: 'developer'})
+  const coordinator = template.agents[0].reports[0]
+  const project = coordinator.reports[0]
+  const notes = { shared: template.shared_agents_md }
+  function collect(slots) {
+    for (const s of slots) {
+      if (s.team_agents_md) notes[s.name + '.team'] = s.team_agents_md
+      if (s.scratch_agents_md) notes[s.name + '.personal'] = s.scratch_agents_md
+      collect(s.reports ?? [])
+    }
+  }
+  collect(template.agents)
+  assert.equal(Object.keys(notes).length, 7)
+  const charters = [text, template.agents[0].team_charter]
+  function roles(slots) { for (const s of slots) { if (s.charter?.text) charters.push(s.charter.text); roles(s.reports ?? []) } }
+  roles(template.agents)
+  const locations = { ...notes, charters: charters.join('\n'), summary: project.description }
+  for (const [phrase, owner] of [
+    ['Record user rulings verbatim', 'shared'],
+    ['Label measured and inferred claims', 'shared'],
+    ['Never serialize secrets', 'shared'],
+    ['Leave no agent-owned background children', 'shared'],
+    ['private worktree', 'coordinator.team'],
+    ['red-first', 'coordinator.team'],
+    ['Only the coordinator or its explicitly assigned release owner integrates', 'coordinator.team'],
+    ['orgtree_project action=release_slot', 'build-slot.team'],
+    ['orgtree_staff', 'coordinator.personal'],
+    ['self-contained coordinator briefs', 'liaison.personal'],
+    ['inverted checks', 'test-rig.personal'],
+    ['re-checkable citations', 'curator.personal']
+  ]) {
+    assert.ok(locations[owner].includes(phrase), phrase + ' must remain in its canonical file')
+    assert.equal(Object.values(locations).reduce((n, s) => n + s.split(phrase).length - 1, 0), 1, phrase + ' must not repeat in lower notes, summaries or charters')
+  }
+  for (const requirement of [/exact SHA/, /independent checks/, /on the docket/, /never fix the author's product code in place/, /by mail/, /same landing/]) assert.match(coordinator.team_agents_md, requirement)
 })

@@ -19,7 +19,10 @@ parsing/writing and notes I/O are unlogged. Unknown free-text secrets still
 require human review. Creation seeds create-new notes after commit, before
 warm/kickoff effects; failures are reported as warnings on the committed org.
 Heavy dev shop has fifteen agents and one three-slot project, with operational
-practice in inherited notes and short role-focused charters. Its eleven developer
+practice in inherited notes and short role-focused charters. Shared policy is
+not restated in team/project/personal notes; lower layers add only reader-specific
+procedures or refer upward. The Developer preset summarizes its combined role;
+implementation and review mechanics live once in development-team notes. Its eleven developer
 seats resolve the bundled Developer preset, combining assigned author and
 reviewer roles; the author retains fixes and operational policy stays in notes.
 Leadership and five developers use medium; the three Sol developers and Argon
