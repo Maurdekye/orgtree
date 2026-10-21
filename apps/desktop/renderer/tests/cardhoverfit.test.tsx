@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mountView, inAct, fireResize } from './harness'
+import { mountView, inAct, fireResize, resizeWatchers } from './harness'
 import { CardFace } from '../src/canvas/cardface'
 import { CardName } from '../src/canvas/cardname'
 import { CardHoverCard } from './cardhoverfit-fixture'
@@ -8,6 +8,9 @@ import { CardHoverCard } from './cardhoverfit-fixture'
 // jsdom has no layout. Model only the measurement boundary: an absolute
 // full-name overlay adds scroll overflow unless excluded during measurement.
 test('fit excludes transient full-name overflow but still responds to real content', async t => {
+  const observer = Object.getOwnPropertyDescriptor(window, 'ResizeObserver')
+  Object.defineProperty(window, 'ResizeObserver', { configurable: true, writable: true, value: globalThis.ResizeObserver })
+  t.after(() => { if (observer) Object.defineProperty(window, 'ResizeObserver', observer); else Reflect.deleteProperty(window, 'ResizeObserver') })
   const proto = HTMLElement.prototype, saved = new Map<string, PropertyDescriptor | undefined>()
   let height = 60
   for (const key of ['clientWidth','clientHeight','offsetWidth','offsetHeight','scrollWidth','scrollHeight']) {
@@ -28,6 +31,7 @@ test('fit excludes transient full-name overflow but still responds to real conte
   const v = await mountView(render(false), el => el); t.after(() => v.unmount())
   const frame = v.el.querySelector<HTMLElement>('.card-face')!
   const inner = v.el.querySelector<HTMLElement>('.card-face-inner')!
+  assert.ok(resizeWatchers(inner) > 0, 'positive control: observer installed in the owning window')
   const rest = frame.dataset.cardScale
   assert.equal(rest, '1')
   await v.render(render(true))
