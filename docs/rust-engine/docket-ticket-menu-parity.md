@@ -55,6 +55,14 @@ including Staff; list-local folds remain on their actual rows.
 
 ## Focused verification
 
+Ticket hover text is the authoritative full title on rows, React and Markdown
+references, bare slug links and tool-result links (user 2026-10-21 06:53Z).
+The document-local object tooltip host asks for only the exact hovered ticket,
+coalesces concurrent reads without retaining a stale catalog, and ignores a
+reply after the target changes, leaves, disconnects or its host is removed.
+Popout documents register the same host. Row-local fold/staff controls and
+their existing prefetch rules remain unchanged.
+
 `ticketstaffmenu.test.tsx` compares complete row menus with real React,
 Markdown and bare ticket references for backlogged/open/done and archived items.
 It covers request submission, direct model/effort gates, denied previews, a

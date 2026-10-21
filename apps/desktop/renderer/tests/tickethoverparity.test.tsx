@@ -11,6 +11,44 @@ import { RefMdBody } from '../src/canvas/refmd'
 import { ToolRefs } from '../src/canvas/toolrefs'
 import { ToolChip } from '../src/canvas/desk'
 import type { WorkItem } from '../src/types'
+import { objectTooltipProps, registerObjectNativeTooltipDocument } from '../src/canvas/objecttooltip'
+
+test('native object tooltip binds to the adopted document and ignores stale/cleaned-up reads', async t => {
+  const original = globalThis.fetch
+  const frame = document.createElement('iframe'); document.body.appendChild(frame)
+  const owner = frame.contentDocument!, win = frame.contentWindow!
+  let settle: ((response: Response) => void) | undefined
+  const reads: string[] = []
+  globalThis.fetch = (async input => {
+    reads.push(String(input))
+    return new Promise<Response>(resolve => { settle = resolve })
+  }) as typeof fetch
+  const cleanup = registerObjectNativeTooltipDocument(owner)
+  t.after(() => { cleanup(); frame.remove(); globalThis.fetch = original })
+  const link = owner.createElement('button')
+  for (const [key, value] of Object.entries(objectTooltipProps('ticket', 'native-ticket', 'org'))) if (value) link.setAttribute(key, value)
+  owner.body.appendChild(link)
+  const hover = async () => {
+    await inAct(() => link.dispatchEvent(new win.MouseEvent('pointerover', { bubbles: true })))
+    await flush()
+  }
+  await hover()
+  assert.equal(reads.length, 1, 'only the adopted document sees its hover')
+  await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Native title' } }), { status: 200 })))
+  await flush()
+  assert.equal(link.title, 'Native title')
+  await inAct(() => link.dispatchEvent(new win.MouseEvent('pointerout', { bubbles: true })))
+  await hover()
+  await inAct(() => link.dispatchEvent(new win.MouseEvent('pointerout', { bubbles: true })))
+  await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Too late' } }), { status: 200 })))
+  await flush()
+  assert.equal(link.title, '', 'a reply after departure cannot restore stale hover text')
+  await hover()
+  cleanup()
+  await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'After cleanup' } }), { status: 200 })))
+  await flush()
+  assert.equal(link.title, '', 'cleaned-up window hosts do not decorate retained DOM')
+})
 
 test('ticket row, typed/Markdown/bare refs and tool links share full-title hover and base menu', async t => {
   const original = globalThis.fetch

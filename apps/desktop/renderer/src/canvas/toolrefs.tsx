@@ -39,7 +39,7 @@ function TicketRef({ org, id, onOpen }: { org: string; id: string; onOpen?: Work
   const status = current?.row?.status
   return (
     <button type="button" {...objectNavProps('ticket', id, org)} className={`desk-nav-chip tool-ticket${status ? ` status-${status}` : ''}`}
-      title={`open ${id} in the work docket`} aria-label={`ticket ${id}`}
+      title={current?.row?.title} aria-label={`ticket ${id}`}
       onClick={() => onOpen({ slug: id } as Parameters<WorkLinkFn>[0])}>
       <DocketIcon fontSize="inherit" />{id}
     </button>

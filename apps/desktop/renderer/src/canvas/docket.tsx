@@ -43,6 +43,7 @@ import {
 } from '../api'
 import { AttachIcon, CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
 import { agentNavProps, useAgentNavRegistry } from './agentnav'
+import { objectTooltipProps } from './objecttooltip'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { AskCard } from './asks'
 import { DocReader } from './docs'
@@ -2243,6 +2244,7 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
     // title is printed only in the detail pane; here it is the row's hover
     // title, so nothing is lost and the row stays one line of name.
     <div data-copy-ticket-title={item.title} data-docket-measure={'row:' + item.slug}
+      {...objectTooltipProps('ticket', item.slug, org)}
       className={cls} title={item.title} onClick={pickTimed}
       onDoubleClick={copySlug} ref={capture}
       // ⚠ THE STAFFING LOAD STARTS HERE, NOT ON THE MENU (user requirement

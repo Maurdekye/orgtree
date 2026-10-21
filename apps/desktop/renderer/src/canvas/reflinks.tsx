@@ -581,7 +581,7 @@ export function RefChip({ r, onOpen }: {
     return (
       <button type="button" {...copy}
         {...(r.ref.kind === 'item' ? objectNavProps('ticket', r.ref.id, r.ref.org) : {})}
-        className={cls} title={r.why}
+        className={cls} title={r.ref.kind === 'item' ? r.copyTitle : r.why}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onOpen(r) }}>
         {r.label}

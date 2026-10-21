@@ -195,7 +195,7 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
     return onPick
       ? (
         <button key={key} type="button" {...objectNavProps('ticket', ref.slug, org ?? undefined)} data-copy-ticket-title={ref.title} className="docket-ref"
-          title={`go to ${shown}`}
+          title={ref.title}
           onClick={(e) => { e.stopPropagation(); onPick(ref.slug) }}>
           {shown}
         </button>

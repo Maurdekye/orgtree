@@ -5162,7 +5162,6 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
             guess anywhere in this path. */}
         {t.work && onWorkLink && (
           <button className="maillink worklink" {...objectNavProps('ticket', t.work.slug, slug)}
-            title={`open ${t.work.slug} in the work docket`}
             onClick={(e) => { e.stopPropagation(); onWorkLink!(t.work) }}>
             <DocketIcon fontSize="inherit" /> open</button>)}
       </span>

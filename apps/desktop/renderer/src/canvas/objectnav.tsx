@@ -1,6 +1,7 @@
-import { createContext, useContext, useMemo, useRef } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
 import type { MenuEntry } from './contextmenu'
+import { objectTooltipProps, registerObjectNativeTooltipDocument } from './objecttooltip'
 
 export type ObjectKind = 'ticket' | 'watchdog'
 export const OBJECT_NAV_ATTR = 'data-object-nav'
@@ -12,6 +13,9 @@ export function ObjectNavProvider({ children }: { children: ReactNode }) {
   const inherited = useContext(Ctx)
   const reg = useRef<{ current: ObjectNavMenu | null; org: string | null }>({ current: null, org: null })
   const own = useMemo(() => reg.current, [])
+  useEffect(() => {
+    if (!inherited) return registerObjectNativeTooltipDocument(document, () => own.org)
+  }, [inherited, own])
   return <Ctx.Provider value={inherited ?? own}>{children}</Ctx.Provider>
 }
 export function useProvideObjectNav(build: ObjectNavMenu | null, org: string) {
@@ -24,5 +28,6 @@ export function objectNavElementAt(target: EventTarget | null, within?: Element)
   return el && (!within || within.contains(el)) ? el : null
 }
 export function objectNavProps(kind: ObjectKind, id: string, org?: string) {
-  return { [OBJECT_NAV_ATTR]: kind, [OBJECT_ID_ATTR]: id, [OBJECT_ORG_ATTR]: org }
+  return { [OBJECT_NAV_ATTR]: kind, [OBJECT_ID_ATTR]: id, [OBJECT_ORG_ATTR]: org,
+    ...(kind === 'ticket' ? objectTooltipProps(kind, id, org) : {}) }
 }

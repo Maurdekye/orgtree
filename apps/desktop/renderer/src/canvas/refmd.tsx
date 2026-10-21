@@ -135,7 +135,8 @@ function chipEl(doc: Document, r: ResolvedRef,
   const el: HTMLElement = doc.createElement(live ? 'button' : 'span')
   if (live) (el as HTMLButtonElement).type = 'button'
   el.className = cls
-  el.title = r.why
+  if (r.ref.kind !== 'item' || r.outcome !== 'ready') el.title = r.why
+  else if (r.copyTitle) el.title = r.copyTitle
   el.setAttribute(TOK, r.token)
   el.setAttribute(OUT, r.outcome)
   el.setAttribute(SIG, chipSig(r, live))
@@ -273,7 +274,7 @@ function mentionEl(doc: Document, ref: MentionRef,
   if (live) {
     (el as HTMLButtonElement).type = 'button'
     el.className = 'docket-ref'
-    el.title = `go to ${slug}`
+    if (ref.kind === 'item' && ref.title) el.title = ref.title
   }
   el.setAttribute(MEN, slug)
   if (live) for (const [key, value] of Object.entries(objectNavProps('ticket', slug, org))) {
