@@ -3,7 +3,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {Proof} from '../proof.mjs'
-export async function setup() { return {name:'heavy-dev-shop',fixture:'none'} }
+export async function setup() { return {name:'heavy-dev-shop',fixture:'none',prepare:({dir})=>{
+  const fake=path.join(dir,'fakecli');fs.mkdirSync(fake,{recursive:true})
+  fs.writeFileSync(path.join(fake,'agy-models.txt'),'gemini-4-argon-high\tGemini 4 Argon (High)\n')
+}} }
 export default async function(rig) {
   const p=new Proof('heavy-dev-shop')
   const source=JSON.parse(fs.readFileSync(fileURLToPath(new URL('../../../engine/docs/templates/heavy-dev-shop.json',import.meta.url)),'utf8'))
@@ -22,7 +25,7 @@ export default async function(rig) {
   p.check('project policy is three slots and coworker mail ON',rows[2].scope.slots_capacity===3&&rows[2].scope.peer_mail===true,rows[2].scope)
   const developer=fs.readFileSync(fileURLToPath(new URL('../../../engine/docs/charters/developer.md',import.meta.url)),'utf8')
   const developers=rows.filter(r=>r.name.startsWith('developer-'))
-  p.check('all five created developers receive the complete Developer preset',developers.length===5&&developers.every(r=>r.charter===developer))
+  p.check('all five created developers receive the complete Developer preset (normal hire trimming)',developers.length===5&&developers.every(r=>r.charter===developer.trim()))
   const scratch=path.join(rig.data,'scratch',slug)
   const byName=Object.fromEntries(rows.map(r=>[r.name,r]))
   let count=0,allNotes=true
