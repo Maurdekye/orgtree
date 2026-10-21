@@ -1,6 +1,6 @@
 ---
 name: orgtree-tool-watchdog
-description: Create and manage persistent watchers, and send on an MQTT or WebSocket watcher's existing connection.
+description: Create and manage persistent watchers, configure WebSocket connection notices, and send on an MQTT or WebSocket watcher's existing connection.
 ---
 
 Up: [orgtree-watchdogs](../SKILL.md)
@@ -11,7 +11,7 @@ For worked queue/slot/event/readiness/barrier protocols, open `orgtree-concurren
 
 ## Call contract
 
-Create/list/pause/resume/remove/send persistent watchers, with no per-agent or per-org number cap. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN (a once dog already DOWN resolves inline). fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. project_listener receives a project's fired events; listener_watch fires at a count of armed listeners. fire_actions run orgtree tool calls as you at fire time. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. mqtt subscribes to a topic filter (pattern) on an mqtt:// or mqtts:// broker; it needs your web tool, takes credentials as a file in your folders or inline (stored encrypted, never shown), and its mail tags payloads `(untrusted · see EXTERNAL)`. websocket connects to a ws:// or wss:// server (pattern = optional regex on text messages; hello, protocols and heartbeat; credentials as for mqtt; your web tool), and send writes a message on its live connection; MQTT send publishes to a required topic on its own connection. Event/count/silence semantics and catalog are in the guide. No added authority.
+Create/list/pause/resume/remove/send/configure persistent watchers, with no per-agent or per-org number cap. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN (a once dog already DOWN resolves inline). fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. project_listener receives a project's fired events; listener_watch fires at a count of armed listeners. fire_actions run orgtree tool calls as you at fire time. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. mqtt subscribes to a topic filter (pattern) on an mqtt:// or mqtts:// broker; it needs your web tool, takes credentials as a file in your folders or inline (stored encrypted, never shown), and its mail tags payloads `(untrusted · see EXTERNAL)`. websocket connects to a ws:// or wss:// server (pattern = optional regex on text messages; hello, protocols and heartbeat; credentials as for mqtt; your web tool), and send writes a message on its live connection; MQTT send publishes to a required topic on its own connection. Event/count/silence semantics and catalog are in the guide. No added authority.
 
 Use a watchdog to be told when an observable condition happens, instead of spending turns polling it. The watcher persists across engine restarts and costs no hiring credits. By default a fire mails and wakes its owner; `notice: true` makes that mail passive. A watchdog does not grant new filesystem or shell authority.
 
@@ -66,7 +66,7 @@ requirements, including user-held assignments. Leaving the queue alone does not.
 
 | Parameter | Applies to | Default / meaning |
 |---|---|---|
-| `action` | All calls; required | `create`, `list`, `pause`, `resume`, `remove` or `send` (MQTT/WebSocket). |
+| `action` | All calls; required | `create`, `list`, `pause`, `resume`, `remove`, `send` (MQTT/WebSocket), or `configure` (WebSocket connection notices). |
 | `cursor`, `limit` | List | Resume with the returned `next_cursor`; limit defaults to 50, maximum 100. Each page rechecks your current team reach. |
 | `kind` | Create; required | `file`, `command`, `process`, `stream`, `activity`, `event`, `usage`, `fair_queue`, `slot`, `project_listener`, `listener_watch`, `mqtt` or `websocket`. |
 | `count` | Create, `listener_watch` (required there) | Armed project listeners that fire it, 1–1024. Refused for every other kind. |
@@ -80,7 +80,7 @@ requirements, including user-held assignments. Leaving the queue alone does not.
 | `retained` | Create, `mqtt` only | Default `false`: retained messages are ignored; `true` fires each retained value once. |
 | `credentials` | Create, `mqtt` and `websocket` | A credentials file path in your folders, or inline: `{username, password, client_id}` (mqtt) or `{headers, bearer, username, password, query, hello}` (websocket); stored encrypted and never shown. See mqtt and websocket below. |
 | `hello` | Create, `websocket` only | Up to 16 messages sent after every connect; JSON values go as compact JSON. |
-| `notify_on_connect` | Create, `websocket` only | Boolean, default `false` (also for legacy dogs). When on, every successful connection/reconnection fires a labelled Orgtree event independent of the server pattern/message gap. Normal once/notice/fire-actions semantics apply. The desktop detail switch edits it without reconnecting. |
+| `notify_on_connect` | Create/configure, `websocket` only | Boolean; create defaults to `false` (also for legacy dogs), configure requires an explicit `true` or `false`. When on, every successful connection/reconnection fires a labelled Orgtree event independent of the server pattern/message gap. Normal once/notice/fire-actions semantics apply. Configure and the desktop detail switch edit it without reconnecting. |
 | `protocols` | Create, `websocket` only | Subprotocols to offer (`Sec-WebSocket-Protocol`). |
 | `heartbeat` | Create, `websocket` only | `{message, every_s}`: a fixed message sent every `every_s` (5–86400) seconds while connected. |
 | `message` | Send; required unless MQTT payload supplied | Text or compact JSON on the WebSocket/MQTT dog's existing connection; at most 64 KiB. |
@@ -95,10 +95,10 @@ requirements, including user-held assignments. Leaving the queue alone does not.
 | `shell` | Create, command/stream only | `native` by default, or `bash`; other kinds do not execute a shell. |
 | `threshold` | Create, event counts only | `below N` or `at least N`, nonnegative integer N; crossing behavior below. |
 | `event_scope` | Create, event counts only | `subtree` by default, or `org` with full visibility. |
-| `id` | Pause/resume/remove/send; required | Returned ID, or `owner/id` for a descendant's dog. |
+| `id` | Pause/resume/remove/send/configure; required | Returned ID, or `owner/id` for a descendant's dog. |
 | `reason` | Remove | Optional explanation recorded with removal. |
 
-Supply parameters for the chosen action; this tool has no edit action. To change a target, regex, mode or delivery choice, remove and recreate the watcher. There are no custom owner, recipient, cwd or environment arguments.
+Supply parameters for the chosen action. `configure` changes only an existing WebSocket watcher's connection-notification flag: `{"action":"configure","id":"socket-watch","notify_on_connect":false}`. It requires the normal watchdog tool permission and ownership or authorized superior reach; use `owner/id` for a descendant's watcher. Missing, null, string or numeric flags are refused rather than coerced. The watcher must be unspent; armed and paused dogs are supported. Its identity, lifecycle state and live connection stay intact; no reconnect or hello replay occurs. A paused dog's choice applies on its next connection. The response includes its ID, name, state and updated flag. To change a target, regex, mode or other delivery choice, remove and recreate the watcher. There are no custom owner, recipient, cwd or environment arguments.
 
 Names become lowercase letters/digits/hyphens, with a 24-character base. Without a name, the base comes from kind and target. A clash gets the first free `-2`, `-3`, … suffix. Use the returned ID rather than guessing it. There is no per-agent or per-org number cap. The per-owner/project/kind uniqueness rules for project watchers still apply. Watchdogs consume no agent seat. `list` is paged; follow `next_cursor` until it is null to read all current dogs. The canvas and desk collapse more than eight into an **X watchdogs** card; opening it lists their individual links in pages.
 

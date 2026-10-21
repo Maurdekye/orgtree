@@ -506,6 +506,48 @@ async fn doc_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
 }
 
 /// orgtree_watchdog.
+/// Configure only the connection-notification flag; never coerce a missing
+/// or malformed value into false. Resolution/authority remain runtime-owned.
+#[nolog]
+fn watchdog_configure_args(args: &Value) -> Result<(&str, bool)> {
+    let Some(id) = args["id"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+        crate::refuse!(BadRequest, "configure needs the watchdog id (see list)");
+    };
+    let Some(enabled) = args["notify_on_connect"].as_bool() else {
+        crate::refuse!(BadRequest, "configure requires notify_on_connect: true or false");
+    };
+    Ok((id, enabled))
+}
+
+#[cfg(test)]
+mod watchdog_configure_tests {
+    use super::*;
+
+    #[test]
+    fn watchdog_configure_accepts_true_false_and_qualified_handles() {
+        for enabled in [true, false] {
+            let args = json!({"id":" owner/dog ", "notify_on_connect":enabled});
+            assert_eq!(watchdog_configure_args(&args).unwrap(), ("owner/dog", enabled));
+        }
+    }
+
+    #[test]
+    fn watchdog_configure_rejects_missing_or_non_boolean_flags() {
+        assert!(watchdog_configure_args(&json!({"id":"dog"})).is_err());
+        for value in [Value::Null, json!("true"), json!("false"), json!(0), json!(1), json!([]), json!({})] {
+            assert!(watchdog_configure_args(&json!({"id":"dog","notify_on_connect":value})).is_err());
+        }
+    }
+
+    #[test]
+    fn watchdog_configure_rejects_missing_blank_or_non_string_ids() {
+        assert!(watchdog_configure_args(&json!({"notify_on_connect":false})).is_err());
+        for value in [Value::Null, json!(""), json!(" \t "), json!(1), json!(false), json!([])] {
+            assert!(watchdog_configure_args(&json!({"id":value,"notify_on_connect":true})).is_err());
+        }
+    }
+}
+
 // Inline fair_queue results contain full mail bodies.
 #[nolog]
 async fn dog_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
@@ -514,6 +556,10 @@ async fn dog_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result
     let v = match action {
         "create" => watchdogs::create(engine, caller.org_id, caller.agent_id, args).await?,
         "list" => watchdogs::list(engine, caller.agent_id, args).await?,
+        "configure" => {
+            let (id, enabled) = watchdog_configure_args(args)?;
+            watchdogs::configure_connect(engine, caller.org_id, Some(caller.agent_id), id, enabled).await?
+        }
         "pause" | "resume" | "remove" => {
             let Some(id) = args["id"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
                 crate::refuse!(BadRequest, "{action} needs the watchdog id (see list)");
@@ -527,7 +573,7 @@ async fn dog_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result
             };
             watchdogs::send(engine, caller.org_id, Some(caller.agent_id), id, &args).await?
         }
-        other => crate::refuse!(BadRequest, "action must be create, list, pause, resume, remove or send (not {other:?})"),
+        other => crate::refuse!(BadRequest, "action must be create, list, pause, resume, remove, send or configure (not {other:?})"),
     };
     if v["resolved"]==true {
         if let Some(items)=v["messages"].as_array() {

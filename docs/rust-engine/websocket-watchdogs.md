@@ -62,8 +62,13 @@ native-websocket-watchdog-plus-a-tool-to-send-on.
 
 The desktop watchdog detail panel has **Notify on (re)connect**, persisted without
 closing the socket or sending hello again. A paused dog's choice takes effect on
-its next connection. The tool's create parameter and both tool/desktop lists expose
-the same value. Connection notices are off by default because ordinary connects
+its next connection. Agents use `orgtree_watchdog action=configure id=<id>`
+with an explicit boolean `notify_on_connect` for the same in-place edit.
+Normal watchdog permission and owner/authorized-superior reach apply; other kinds
+and spent dogs are refused. Missing, null and non-boolean flags are refused.
+Configuration preserves the dog identity, state and live connection. The tool's
+create parameter and both tool/desktop lists expose the same value.
+Connection notices are off by default because ordinary connects
 did not fire before this setting existed; hello messages went to the server, not
 the owner. Server greetings remain ordinary messages and still follow `pattern`,
 even with this switch off. Existing refusal, prolonged-outage and stable-recovery
