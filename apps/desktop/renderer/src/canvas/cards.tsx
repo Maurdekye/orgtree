@@ -1,3 +1,4 @@
+import { RetiredBadge } from './retiredbadge'
 import { grantLimits, hireGrantMax } from './creditgrant'
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge } from './nextturn'
 import { DndBadge } from './dnd'
@@ -1376,6 +1377,8 @@ interface NodeSquareProps {
   /** Org template defaults; manual Quick chat picks are read at menu-open time. */
   quickChatDefaults?: TreePayload['quick_chat']
   node: CanvasNode
+  retiredCount?: number
+  onRetired?: () => void
   pos: Pt
   lod: 'mini' | 'norm'
   focused: boolean
@@ -1594,7 +1597,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, deskEligible = true, dogs, oneShotDogs, slotHolds, pinned, pinnedFocus, onPin, onShowPin,
   onOpenTemporary,
-  onDismiss }: NodeSquareProps) {
+  onDismiss, retiredCount = 0, onRetired }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
   // drag — which a pinned placeholder shares with an open desk. Only the
   // DeskChat mount itself keys on `deskOpen`.
@@ -1986,6 +1989,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       </div>}
       {!focused && lod !== 'mini' && (
         <div className="sq-badges">
+          {onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
           {/* no seat/free badges — the credit bar carries all of that */}
           {/* the project slots it holds, in the chip row and not on the
               status row (user 2026-10-18 10:52Z); a waiting claim is its

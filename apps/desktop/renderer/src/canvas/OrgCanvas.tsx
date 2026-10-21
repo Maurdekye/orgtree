@@ -87,6 +87,7 @@ import { TeamListNavigation, TeamListOrder, TeamModal } from './team'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
 import { museHireAccount } from './musehire'
 import { DraftNode, NodeSquare, UserNode } from './cards'
+import { RetiredBadge } from './retiredbadge'
 import type { DraftForm, DraftNodeProps } from './cards'
 import { addPin, clampRect, PinLayer, prunePins, removePin, renamePin, showPin, usePins } from './pins'
 import type { PinRect } from './pins'
@@ -4476,7 +4477,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           if (hidden.has(n.id)) return null   // piled-away: no card, no space
           const pileHere = pileByFront.get(n.id)
           const square = isProject(n)
-            ? <ProjectSquare key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
+            ? <ProjectSquare retiredCount={retiredCounts.get(n.id)} onRetired={() => setRetiredOpen(n.id)} key={n.id} node={n} pos={p} lod={lod} slug={slug} toast={toast} op={op}
               zoom={view.z}
               focused={n.id === focusId && !worldHidden && !projectDesks.ids.includes(n.id)}
               pinnedFocus={n.id === pinnedFocusId}
@@ -4506,7 +4507,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                 ? () => dismissRetiredAgent(n.id) : undefined}
               onDragStart={startNodeDrag} onDragMove={moveNodeDrag}
               onDragEnd={endNodeDrag} onDragCancel={abortNodeDrag} />
-            : <NodeSquare key={n.id} node={n} pos={p} lod={lod} focused={n.id === focusId}
+            : <NodeSquare retiredCount={retiredCounts.get(n.id)} onRetired={() => setRetiredOpen(n.id)} key={n.id} node={n} pos={p} lod={lod} focused={n.id === focusId}
               quickChatDefaults={tree.quick_chat}
               deskEligible={!worldHidden}
               /* FR-3: the camera is on this card but its desk is a pinned
@@ -4581,31 +4582,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             </span>
           )
         })}
-        {/* hide-retired: the retired-list TOKEN — the one place hidden
-            retirees surface on the canvas. It sits under the parent card
-            that has retired subordinates; clicking lists them (the same
-            picker the retired pile uses) and picking one reveals it. */}
-        {!(hideRetired && lod === 'mini') && [...retiredCounts.entries()].map(([pid, count]) => {
-          const p = posOf(pid)
-          if (!p) return null
-          const size = sizeOf(pid)
-          if (!intersectsViewport({ ...p, ...size }, visibleRect)) return null
-          // Bunch rows have only an 8px gap: an external token would cover
-          // the next project's header. Keep it inside its owning card.
-          const inset = bunches.has(pid) && size.w === NODE_W && size.h === NODE_H
-          // ...which is where the card's OPEN DESK fills it (zoomed in), and the desk carries its own
-          // "N retired" chip: drawn over the desk the token covers its composer (user 2026-10-20 21:39Z)
-          if (inset && pid === focusId && !worldHidden && !projectDesks.ids.includes(pid)) return null
-          return (
-            <button key={'rt' + pid} className="retired-token" data-retired-parent={pid}
-              style={{ transform: `translate(${p.x + 6}px, ${p.y + size.h + (inset ? -24 : 4)}px)` }}
-              title={`${count} retired agent${count === 1 ? '' : 's'} hidden here — click to list`}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); setRetiredOpen(pid) }}>
-              {count} retired
-            </button>
-          )
-        })}
+        {/* Root retirees belong to the org, whose eye has no header-badge
+            list. Keep that entry reachable; node retirees live in their headers. */}
+        {!(hideRetired && lod === 'mini') && (retiredCounts.get(USER) ?? 0) > 0 && posOf(USER) && (
+          <div className="root-retired-list" style={{ position: 'absolute', zIndex: 7,
+            transform: `translate(${posOf(USER)!.x + 6}px, ${posOf(USER)!.y + sizeOf(USER).h + 4}px)` }}>
+            <RetiredBadge parent={USER} count={retiredCounts.get(USER)!} onOpen={() => setRetiredOpen(USER)} />
+          </div>)}
         {/* FR-18: watchdog chips — tiny satellite cards beside their owner
             (the user's spec: named; click for the detail + sent-events
             panel). Not agents: no chrome beyond name + state glyph.

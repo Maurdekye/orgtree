@@ -1,3 +1,4 @@
+import { RetiredBadge } from './retiredbadge'
 // canvas/projectcard.tsx — the canvas card of a PROJECT NODE
 // (docs/rust-engine/PROJECT-NODES.md; user 2026-10-16): a node that stands
 // for one project and is not an agent. It runs no turns and holds no
@@ -45,6 +46,8 @@ export function isProject(node: Pick<CanvasNode, 'kind'> | null | undefined): bo
 
 interface ProjectSquareProps {
   node: CanvasNode
+  retiredCount?: number
+  onRetired?: () => void
   pos: Pt
   lod: 'mini' | 'norm'
   /** the camera is on it: the card is its project desk (user 2026-10-17 19:38Z) */
@@ -102,7 +105,7 @@ interface ProjectSquareProps {
 
 export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, onFocus, onShowPin, tree, map, refs, onJump, onPin, dragging, isDrop, op, slug, toast, zoom, hire, seats,
   onHire, onNewProject, onSpawnSide, onSpawnTop, onNewProjectAt, onInbox, onTeam, onSettings, onDocket, onOpenDoc, onOpenGallery,
-  onOpenTemporary, onPopout, onDismiss, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
+  onOpenTemporary, onPopout, onDismiss, retiredCount = 0, onRetired, onDragStart, onDragMove, onDragEnd, onDragCancel }: ProjectSquareProps) {
   const menu = useContextMenu()
   const surfaceRoutes = useAgentSurfaceRoutes()
   // the mailbox hover button obeys "Show agent card shortcuts", like an
@@ -234,6 +237,8 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               <ProjectLastActivity node={node} />
               {node.state !== 'live' && <span className="badge dim">{node.state}</span>}
             </div>
+            <div className="sq-badges project-header-badges">
+            {!deskOpen && onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
             {slotBadge && <span className={'project-slots-badge' + (slotsFull(slots) ? ' full' : '')}
               title={`${heldSlotCount(slots)} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
                 + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '')
@@ -241,6 +246,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
             {listenerBadges.map((c) => <span key={c.key} className={'project-listeners-badge' + (c.bright ? ' bright' : '')}
               title={c.title}>{c.text}</span>)}
             {queue && <span className={'project-queue-badge' + (queue.bright ? ' bright' : '')} title={queue.title}>{queue.text}</span>}
+            </div>
           </div>
           {/* no description preview here: it lives on the project desk (user 2026-10-18 08:50Z) */}
           {shortcuts && <div className="sq-actions project-actions">

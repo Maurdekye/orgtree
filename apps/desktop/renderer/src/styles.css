@@ -379,25 +379,17 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 @media (prefers-reduced-motion: reduce) {
   .org-activity .cc-spin { animation: none; }
 }
-/* hide-retired: the retired-list token under a parent card — the one canvas
-   surface for retirees the setting hides. World-positioned like the cards
-   (transform carries the translate), quiet like the retired pile's grey. */
-.retired-token {
-  /* z 2 = where it already was, now said out loud. It is a satellite of its
-     owner card and used to ride above every card simply by being rendered
-     after them; `.space > .sq` is a numbered layer since 2026-09-11 (see the
-     far-map hire-token rule), so without a number of its own this would have
-     dropped under the cards. `.wd-chip`, the other satellite, has carried an
-     explicit 2 all along — this is the same statement. Now 7, above the hover raise a hovered card gets
-     (the `.sq:hover` layer): a bunched owner's token sits INSIDE its card, and hovering the card raised it
-     over the token, so it could not be clicked (user 2026-10-20 21:39Z "not clickable anywhere"). */
-  position: absolute; left: 0; top: 0; z-index: 7;
+/* Retired-list badges share the normal header flow on agents and projects.
+   No world-space satellite or raised overlay: card hover cannot cover a child
+   button, and it cannot collide with watchdogs below or the next bunch row. */
+.retired-badge {
+  flex: 0 0 auto; max-width: 100%; min-width: 0;
   background: var(--panel-2); color: var(--dim);
   border: 1px solid var(--line-soft); border-radius: 9px;
-  padding: 1px 8px; font-size: 10px; line-height: 1.5;
-  cursor: pointer; white-space: nowrap;
+  font: inherit; line-height: 1.5; white-space: normal; overflow-wrap: anywhere;
+  cursor: pointer;
 }
-.retired-token:hover { color: var(--ink-strong); border-color: var(--dim); }
+.retired-badge:hover { color: var(--ink-strong); border-color: var(--dim); }
 .watchdog-group { white-space: nowrap; min-width: 104px; }
 .watchdog-list { position: relative; width: 460px; max-width: calc(100vw - 32px); }
 .watchdog-list-close { position: absolute; right: 16px; top: 12px; }

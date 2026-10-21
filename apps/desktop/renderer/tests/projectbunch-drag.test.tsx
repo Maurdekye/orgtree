@@ -207,9 +207,10 @@ test('hidden retired branch bunches while its owning project keeps a reachable l
   const pill = view.el.querySelector<HTMLButtonElement>('.retired-token')!
   assert.equal(pill.textContent, '1 retired')
   assert.equal(pill.dataset.retiredParent, 'project-1')
-  const [x, y] = numbers(pill.style.transform), owner = at(view.el, 'project-1')
-  assert.ok(x! >= owner.x && y! >= owner.y && y! + 20 <= owner.y + 124,
-    'bunched pill stays inside its owner rather than overlapping the next row')
+  // USER 2026-10-21 11:16Z: retired now shares the owner's header-badge list;
+  // it no longer uses an independently translated overlay inside that card.
+  assert.equal(pill.closest('.sq-badges')?.closest('.sq'), card(view.el, 'project-1'))
+  assert.equal(pill.style.transform, '')
   await inAct(() => pill.click()); await advance(20); await flush()
   assert.equal(view.archiveReads.length, 1, 'opens the existing bounded picker')
   assert.equal(view.archiveReads[0]!.searchParams.get('parent'), 'project-1')
@@ -248,21 +249,12 @@ test('the owning project inset retired token is not drawn over its own open desk
   assert.equal(!!view.el.querySelector('.retired-token[data-retired-parent="project-1"]'), false,
     'the desk has its own retired chip: no canvas token over it')
 })
-test('a retired token is never covered by a hovered card: it layers above the card hover raise', () => {
+test('a retired header badge stays in its owner flow instead of a competing canvas layer', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  const z = (sel: string) => {
-    // the last rule for `sel` that sets a z-index
-    for (let at = css.lastIndexOf(sel + ' {'); at >= 0; at = css.lastIndexOf(sel + ' {', at - 1)) {
-      // a rule that STARTS its line (`.desk-retired-token {` also ends with `.retired-token {`)
-      if (at > 0 && css[at - 1] !== String.fromCharCode(10)) continue
-      const m = /z-index:\s*(\d+)/.exec(css.slice(at, css.indexOf('}', at)))
-      if (m) return Number(m[1])
-    }
-    return NaN
-  }
-  const token = z('.retired-token'), hover = z('.sq:hover')
-  assert.ok(hover >= 6, 'fixture: a hovered card is raised to ' + hover)
-  assert.ok(token > hover, `.retired-token z-index ${token} must exceed the hovered card's ${hover}, or hovering its owner makes it unclickable`)
+  const rule = css.slice(css.indexOf('.retired-badge {'), css.indexOf('}', css.indexOf('.retired-badge {')))
+  assert.match(rule, /flex: 0 0 auto/)
+  assert.doesNotMatch(rule, /position:\s*absolute|z-index:/)
+  // The real geometry/hit-test capture checks this while owner hover is active.
 })
 
 test('a retired project front opens the lazy sibling picker and selecting another stack displays its bunch', async t => {

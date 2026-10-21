@@ -477,7 +477,8 @@ domTest('revealed retired agent can be dismissed via context menu Dismiss entry'
 
   const shown = cardNames(el)
   assert.ok(!shown.includes('ret-one'), 'ret-one dismissed via context menu')
-  assert.ok([...el.querySelectorAll('.retired-token')].some((t) => t.textContent === '2 retired'))
+  assert.ok([...el.querySelectorAll('.retired-token, .desk-retired-token')].some((t) => t.textContent === '2 retired'),
+    'retired reports stay reachable from either the map header or the focused desk header')
 })
 
 domTest('dismissing an inactive revealed retiree preserves the active live target and camera', async ({ mount }) => {

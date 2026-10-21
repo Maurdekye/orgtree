@@ -28,6 +28,7 @@ import { transcriptViewport } from '../transcriptViewport'
 import { centerTranscriptTarget } from './deskscroll'
 import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps, agentTooltipProps } from './agentnav'
+import { RetiredBadge } from './retiredbadge'
 import { objectNavProps } from './objectnav'
 import { mailLinkProps, mailTargetIdentity } from './mailidentity'
 import { dismissUserMention, hasUnseenUserMention, useAgentMentions, useDeskMentionScope, useMentionHighlight, useOrgMentionCandidates, useSeenMentions } from './agentmentions'
@@ -1935,9 +1936,7 @@ export function DeskReportRow({ node, map, onJump, dogs: deskDogs, org }: {
       <DeskJumpCards ids={cardIds} render={renderCard}>{folded => <>
         {!folded && alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
         {hideRetired && retiredTotal > 0 && <>
-          <button className="desk-nav-chip desk-retired-token" onClick={() => setRetiredMenuOpen(true)}>
-            {retiredTotal} retired
-          </button>
+          <RetiredBadge className="desk-nav-chip desk-retired-token" parent={node.id} count={retiredTotal} onOpen={() => setRetiredMenuOpen(true)} />
           {retiredMenuOpen && <ModalOverPins><PilePicker org={org} reports
             pile={{ key: `desk-retired:${node.id}`, parent: node.id, kind: 'a', list: retired.map(c => c.id), front: retired[0]?.id ?? '', total: retiredTotal }}
             map={map} close={() => setRetiredMenuOpen(false)}
