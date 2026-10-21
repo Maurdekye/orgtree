@@ -7,9 +7,11 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # Tray and windows
 
-Clicking the tray icon toggles its organization activity list. Double-clicking when no window is visible opens the last-used organization or homepage. Right-click opens the native tray menu.
+Clicking the tray icon toggles its organization activity list. It is ordered by most recently opened org, remembered across restarts. At most ten org rows fit before the list scrolls; scrolling reaches the rest. Activity/attention and active/hired counts update independently of this ordering. Double-clicking when no window is visible opens the last-used organization or homepage. Right-click opens the native tray menu.
 
 On Windows, right-clicking the **taskbar** icon offers **Home**, **New org** and the current organizations. Home opens a homepage window; New org opens the organization creation view. An org entry focuses that org's existing window or opens its own window. Entries follow the org switcher's slug order, exclude trashed orgs and update when organizations are added, removed or renamed. They also work when the app is closed or still starting: a launch hands its destination to the single running app. Windows controls the taskbar menu's layout and available space.
+
+While running, organizations are grouped into their own taskbar identities using the org Logo when set. Attention-seeking unread mail, questions and docket flags drive their badge/dot and menu destinations; ordinary notice traffic does not demand attention by itself. Clicking an attention item opens its exact mail, question or docket destination, and transcript mentions open the mentioning Chat passage. A menu entry can outlive its source, so activation rechecks the current record. Notification switches control banners separately from explicit taskbar navigation.
 
 | Menu entry | Action |
 |---|---|

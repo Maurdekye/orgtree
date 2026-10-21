@@ -25,7 +25,7 @@ A confirmation concerns the named operation and target; a batch can still encoun
 | Undo hire | Retires the hired agent after it has begun working; its work and context remain archived |
 | Cross-provider model switch | Read the conversation reset warning and whether a busy agent's switch is queued |
 
-Bulk cheap compaction previews eligible and skipped agents. It skips busy agents, sessions that have not run since compaction, and agents without measured context. Execution proceeds sequentially, rechecks idleness, and reports per-target outcomes; one refusal does not cancel the remaining targets. Some older compaction wording mentions lineage behavior: use the source-checked workflow below for session semantics.
+Bulk cheap compaction previews eligible and skipped agents. It skips busy agents, sessions that have not run since compaction, and agents without measured context. Execution proceeds sequentially, rechecks idleness, and reports per-target outcomes; one refusal does not cancel the remaining targets. The shared bulk dialog offers separate Normal compact and Cheap compact buttons plus Cancel, each with its own eligible count. Hover count-only acting/skip summaries to see the covered names. Busy/no-measured-context skips appear under both modes; Normal-only support refusals stay under Normal. A zero-target action is disabled. Use the source-checked workflow below for session semantics.
 
 For lifecycle and credit rules see `orgtree-team-shape` (orgtree-working › team); for session behavior see `orgtree-context-and-compaction` (orgtree-working › runtime). Undo mechanics belong to [toasts and undo](../toasts-and-undo/SKILL.md).
 

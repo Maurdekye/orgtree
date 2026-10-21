@@ -33,4 +33,4 @@ entry still select automatically.
 
 ## Jump to a transcript mention
 
-The header’s glowing @ button, just left of STOP ALL, has the same count and behavior as in Canvas. It opens the newest unobserved transcript mention in the Attention desk, switches to Chat when necessary, and uses the existing text highlight and observed clearing. Mail mentions remain on the Inbox attention path.
+The header’s glowing @ button, just left of STOP ALL, has the same count and behavior as in Canvas. It opens the newest unobserved transcript mention in the Attention desk, switches to Chat when necessary, centers the mentioning passage and uses the existing text highlight and observed clearing. Older transcript pages or a desk resize may be needed before the target can be centered; the jump is retained through that layout work instead of snapping back to the bottom. Mail mentions remain on the Inbox attention path.
