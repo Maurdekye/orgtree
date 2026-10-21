@@ -166,7 +166,8 @@ pub struct NodeQuery {
 }
 
 /// One message from the box that holds it (a reference outside the loaded window).
-#[logged]
+// Full private message body; the wire guard records route/status only.
+#[nolog]
 pub async fn mail_by_id(
     State(e): State<Arc<Engine>>,
     Path((slug, boxname, id)): Path<(String, String, String)>,

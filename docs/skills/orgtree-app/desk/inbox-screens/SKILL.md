@@ -6,6 +6,8 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Inboxes and transfers
 
+Single-message reader requests under the mail-by-id route omit their HTTP bodies and private handler returns from diagnostics in both logging modes, while preserving the message delivered to the reader.
+
 User Inbox reads, including historical pages, omit HTTP bodies from wire diagnostics with verbose logging off or on. Private mail projections are also excluded from function-return logging; paths/status and normal client content remain available.
 
 These surfaces share mail cards but have different owners and actions. An agent's or project's Mail tab, and its mail window (titled "· mail"), is its mailbox, with inbox and sent folders (a project's adds listeners); the user Inbox includes the user's incoming questions/mail and sent/record views; the org inbox is the organization's outside correspondence.

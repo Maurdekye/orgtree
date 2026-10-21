@@ -331,6 +331,9 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         // Private inbox reader bodies, including rejected child routes.
         || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
             .map(|(_, rest)| rest == "inbox" || rest.starts_with("inbox/")).unwrap_or(false)
+        // Private mail reader bodies, including rejected child routes.
+        || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
+            .map(|(_, rest)| rest.starts_with("mail/")).unwrap_or(false)
         // Agent chat includes transcript text and thinking. Keep the same
         // outer omission boundary for reads, bad queries and child routes.
         || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
@@ -634,5 +637,16 @@ mod inbox_reader_wire_tests {
         let headers = axum::http::HeaderMap::new();
         for path in ["/api/orgs/fixture/inbox","/api/orgs/fixture/inbox/read","/api/orgs/fixture/inbox/unknown-child"] { assert!(quiet_body(path, &headers), "{path}"); }
         for path in ["/api/orgs/fixture/inbox-extra","/api/orgs/fixture/org_inbox"] { assert!(!quiet_body(path, &headers), "{path}"); }
+    }
+}
+
+#[cfg(test)]
+mod mail_reader_wire_tests {
+    use super::*;
+    #[test]
+    fn mail_reader_wire_bodies_are_quiet_with_exact_route_boundaries() {
+        let headers = axum::http::HeaderMap::new();
+        for path in ["/api/orgs/fixture/mail/user/m1","/api/orgs/fixture/mail/node/m2","/api/orgs/fixture/mail/org/m3","/api/orgs/fixture/mail/user/m1/unknown-child"] { assert!(quiet_body(path, &headers), "{path}"); }
+        for path in ["/api/orgs/fixture/mail-extra/user/m1","/api/orgs/fixture/nodes/worker/detail"] { assert!(!quiet_body(path, &headers), "{path}"); }
     }
 }

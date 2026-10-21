@@ -487,3 +487,12 @@ verbose function instrumentation cannot bypass the wire boundary. Client JSON
 and path/status metadata are unchanged.
 [verified: http/mod.rs; feed/compute.rs;
 real-engine proof private-read-wire-privacy.mjs in both logging modes]
+
+## mail reader diagnostic boundary (2026-10-21)
+
+Private mail reader bodies use the HTTP quiet-body guard before auth/extraction,
+with exact family matching. Body-returning handlers/projections are nolog so
+verbose function instrumentation cannot bypass the wire boundary. Client JSON
+and path/status metadata are unchanged.
+[verified: http/mod.rs; http/mailbox.rs;
+real-engine proof private-read-wire-privacy.mjs in both logging modes]
