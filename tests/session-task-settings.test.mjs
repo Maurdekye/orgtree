@@ -73,7 +73,7 @@ function execute(script, setup='') {
   assert.doesNotMatch(safe, /::OpenBaseKey|WindowsIdentity|Start-Process|schtasks|Invoke-WebRequest/)
   const program = fixture + '\n' + setup + '\n$failure=$null\ntry {\n' + safe + '\n} catch {$failure=$_.Exception.Message}\n' +
     '[pscustomobject]@{failure=$failure;events=@($events);values=$values;tasks=$store} | ConvertTo-Json -Depth 9 -Compress'
-  const r=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command','-'],{input:program,encoding:'utf8',windowsHide:true})
+  const r=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(program,'utf16le').toString('base64')],{encoding:'utf8',windowsHide:true})
   assert.equal(r.status,0,r.stderr)
   const line=r.stdout.split(/\r?\n/).findLast(l=>l.startsWith('{"failure"'))
   assert.ok(line, r.stdout+'\n'+r.stderr)
