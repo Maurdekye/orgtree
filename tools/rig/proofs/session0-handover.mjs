@@ -35,6 +35,8 @@
 //      user-session engine with it.
 // A `recover` run: a safe-start engine otherwise holds back its restart path.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/session0-handover.mjs
+// SESSION0_PROOF_PART=1 runs A B C D F G, =2 runs A B E H (each fits a
+// 10-minute command limit; E waits out the real 120 s backstop); unset, all.
 
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -54,6 +56,8 @@ const within = (promise, ms) => {
 }
 const AGENT = 'ada'
 const BACKSTOP_MS = 120000
+const PART = process.env.SESSION0_PROOF_PART || 'all'
+const ONE = PART !== '2', TWO = PART !== '1'
 
 export default async function (rig) {
   const p = new Proof('session0-handover')
@@ -159,6 +163,8 @@ export default async function (rig) {
     const b = await serving()
     p.check('B: signing in moves nothing by itself (Run as admin off: decision 84)', b?.enginePid === a.enginePid && !record(), { enginePid: b?.enginePid })
 
+    let e = null
+    if (ONE) {
     // ------------------------------------------------------------ C: restart while signed in
     const s0 = at(a)
     const turnsBefore = rig.turns(AGENT).length
@@ -201,28 +207,37 @@ export default async function (rig) {
     const startedAt = Date.parse((/^(\S+) pid \d+ starting the engine in Session 0/m.exec(logD) ?? [])[1] ?? '')
     p.check('D: after sign-out the boot host runs the engine in Session 0 again', d.identity.session === 0, { enginePid: d.enginePid })
     p.check('D: not before three empty readings (about 6 s)', Number.isFinite(startedAt) && startedAt - signedOutAt >= 4000, { afterMs: startedAt - signedOutAt })
+    }
 
+    if (TWO) {
     // ------------------------------------------------------------ E: lost while signed in
     fs.rmSync(marker, { force: true })
     await sleep(8000)
+    const d = await serving()
     logFrom = size(bootLogFile)
     const lostAt = Date.now()
     kill(d.enginePid)
     await rig.waitFor(() => !alive(d.enginePid), { what: 'the Session 0 engine to die', timeout: 30000 })
     const quiet = await within(waitServing('anything before the backstop', () => true, BACKSTOP_MS - 15000).catch(() => null), BACKSTOP_MS - 10000)
     p.check('E: for the backstop no engine starts (the desktop would recover it)', !quiet, { started: quiet?.enginePid })
-    const e = await waitServing('the boot host to run the user-session task', s => s.identity.session !== 0, BACKSTOP_MS + 120000)
+    e = await waitServing('the boot host to run the user-session task', s => s.identity.session !== 0, BACKSTOP_MS + 120000)
     const re = record()
     p.check('E: after the backstop the boot host ran the task; the engine is back in the user\'s session',
       e.identity.session !== 0 && re?.by === 'boot-host' && re?.phase === 'ready' && Date.now() - lostAt >= BACKSTOP_MS, { by: re?.by, afterMs: Date.now() - lostAt })
     p.check('E: the boot host claimed the one recovery and said so', /the engine was lost while the operator is signed in: running the user-session engine task/.test(after(bootLogFile, logFrom)))
+    }
 
+    if (ONE) {
     // ------------------------------------------------------------ F: one rollback
+    // signed in again; the engine that runs now (Session 0) is handed over
+    fs.rmSync(marker, { force: true })
+    await sleep(8000)
+    const before = await serving()
     logFrom = size(bootLogFile)
     const mailF = lastMail()
     ask(true)
     const l3 = startLauncher('launcher-F', { ORGTREE_V2_UI_DIR: brokenUi })
-    const f = await waitServing('the one rollback into Session 0', s => s.hostPid === host.pid && s.enginePid !== e.enginePid)
+    const f = await waitServing('the one rollback into Session 0', s => s.hostPid === host.pid && s.enginePid !== before.enginePid)
     const rf = record()
     p.check('F: a replacement that failed after the stop gets exactly one rollback into Session 0',
       f.identity.session === 0 && rf?.phase === 'failed' && rf?.stopped_old === true && rf?.rollback === 'done', rf)
@@ -255,17 +270,21 @@ export default async function (rig) {
     const l5 = startLauncher('launcher-G-start')
     const g = await waitServing('Start engine to bring the engine back in the user\'s session', s => s.hostPid === l5.pid)
     p.check('G: Start engine brings it back in the user\'s session', g.identity.session !== 0 && record()?.phase === 'ready')
+    }
 
+    if (TWO) {
     // ------------------------------------------------------------ H: the installer's stop
-    host = startHost('host-H')
+    const g = await serving()
+    if (!alive(host.pid)) host = startHost('host-H')
     await sleep(6000)
-    p.check('H: a boot host started beside the user-session engine waits', alive(host.pid) && (await serving())?.enginePid === g.enginePid)
+    p.check('H: a boot host beside the user-session engine waits', alive(host.pid) && g && g.identity.session !== 0 && (await serving())?.enginePid === g.enginePid)
     const recorded = reg(['add', `HKCU\\${stopKey}`, '/v', 'StopRequested', '/t', 'REG_QWORD', '/d', String(Date.now()), '/f'])
     p.check('H: the installer\'s stop request is recorded', recorded.status === 0)
     const hostEnd = await within(host.exited, 60000)
-    await rig.waitFor(() => !alive(g.enginePid) && !alive(l5.pid), { what: 'the user-session engine and its launcher to stop', timeout: 120000 }).catch(() => null)
+    await rig.waitFor(() => !alive(g.enginePid) && !alive(g.hostPid), { what: 'the user-session engine and its launcher to stop', timeout: 120000 }).catch(() => null)
     p.check('H: the waiting boot host ends for the install (exit 0)', hostEnd?.code === 0, hostEnd)
-    p.check('H: the user-session engine and its launcher stop too', !alive(g.enginePid) && !alive(l5.pid))
+    p.check('H: the user-session engine and its launcher stop too', !alive(g.enginePid) && !alive(g.hostPid))
+    }
   } catch (error) {
     p.check(`no step stopped the proof early (${error.message})`, false)
   } finally {
