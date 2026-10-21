@@ -9,7 +9,7 @@ Up: [orgtree-user](../SKILL.md)
 
 Use for missing information or a decision, with enough context for the recipient to answer. After asking, end your turn; the answer arrives as mail. Withdraw a request that becomes moot with [orgtree_withdraw_ask](../tool-withdraw-ask/SKILL.md). For Hubchat preset-answer questions use [orgtree_message](../../mail/tool-message/SKILL.md), which has a different options shape and route.
 
-Required tool group: `user`, inherited through your ancestor chain. Top-level agents and live, unpaused user-audience holders create a card on the user's desk. Without that audience, the normalized questions go to your direct superior as mail, with their labels/options and docket context; no user card is opened. That superior's reply arrives as mail. This fallback is not a user-audience grant.
+Required tool group: `user`, inherited through your ancestor chain. Agents with no agent superior and live, unpaused effective user-audience holders create a card on the user's desk; an inherited project audience counts. Without that audience, the normalized questions go to your nearest agent superior through intervening projects as mail, with their labels/options and docket context; no user card is opened. That superior's reply arrives as mail. This fallback is not a user-audience grant.
 
 ## Parameters
 

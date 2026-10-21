@@ -9,7 +9,7 @@ Up: [orgtree-user](../SKILL.md)
 
 Use when additional concurrent staffing capacity requires a larger grant. Credits are capacity, not inference tokens or a monetary balance. A request does not allocate credits immediately. For ordinary agent-to-superior coordination use [mail](../../mail/tool-message/SKILL.md).
 
-Required tool group: `user`, inherited through the ancestor chain. Only top-level agents and live, unpaused user-audience holders can request credits through this tool. A lower caller without the audience is **refused**, not automatically routed to its superior; send the superior the amount and reason by mail.
+Required tool group: `user`, inherited through the ancestor chain. Only agents with no agent superior and live, unpaused effective user-audience holders can request credits through this tool; an inherited project audience counts. A lower caller without the audience is **refused**, not automatically routed to its superior; send the nearest agent superior the amount and reason by mail.
 
 ## Parameters and call
 

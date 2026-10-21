@@ -9,7 +9,7 @@ Up: [orgtree-user](../SKILL.md)
 
 Use when the task actually needs access you do not hold. This creates a request, not a grant. For permission to contact a recipient use [orgtree_audience](../../mail/tool-audience/SKILL.md); a communication audience and a folder/tool grant are different.
 
-Required tool group: `user`, intersected through your ancestor chain. Top-level agents and live, unpaused user-audience holders place scope tabs on the user's desk. Without the audience, remaining requested items are sent to your direct superior as mail instead. A denied user tool group cannot be bypassed by invoking this tool to grant itself.
+Required tool group: `user`, intersected through your ancestor chain. Agents with no agent superior and live, unpaused effective user-audience holders place scope tabs on the user's desk; an inherited project audience counts. Without the audience, remaining requested items are sent to your nearest agent superior through intervening projects as mail instead. A denied user tool group cannot be bypassed by invoking this tool to grant itself.
 
 ## Parameters and item forms
 
