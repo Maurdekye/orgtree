@@ -4,6 +4,8 @@ import { FakeServer, installFetch, mountView, inAct } from './harness'
 import { OrgCanvas, agentTooltipInfo } from '../src/canvas/OrgCanvas'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
+import { ProjectLink } from '../src/canvas/identity'
+import { useContextMenu } from '../src/canvas/contextmenu'
 import { bunchTree, project } from './projectbunch-fixture'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload, Watchdog } from '../src/types'
@@ -48,9 +50,12 @@ test('near card/name and icon hovers share facts matching the rendered badges', 
   const { node, tree } = fixture(), noop = () => {}
   function Card() {
     useProvideAgentNav(() => [], () => info(node, tree))
-    return <ProjectSquare node={node} tree={tree} pos={{ x: 0, y: 0 }} lod="norm" slug={tree.slug}
-      dragging={false} isDrop={false} op={async () => ({ ok: true } as never)} toast={noop} zoom={1} hire={{}}
+    const menu = useContextMenu()
+    return <><ProjectSquare node={node} tree={tree} pos={{ x: 0, y: 0 }} lod="norm" slug={tree.slug}
+      dragging={false} isDrop={false} op={async () => ({ ok: true } as never)} toast={noop} zoom={1} hire={{}} seats={{}}
       onHire={noop} onNewProject={noop} onInbox={noop} onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+      <ProjectLink id={node.id} onFocus={noop} />
+      <button className="menu-opener" onClick={e => menu.open(e, [{ label: 'Project…', agentTooltipId: node.id, onSelect: noop }])}>Menu</button>{menu.node}</>
   }
   const v = await mountView(<AgentNavProvider><Card /></AgentNavProvider>, el => el)
   t.after(() => v.unmount())
@@ -61,6 +66,14 @@ test('near card/name and icon hovers share facts matching the rendered badges', 
     await inAct(() => target.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
     assert.equal(target.title, target.classList.contains('project-mark') ? `test-project\n${facts}` : facts)
   }
+  const link = v.el.querySelector<HTMLElement>('.ref-ready')!
+  await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(link.title, facts, 'named inline link uses the same facts')
+  await inAct(() => v.el.querySelector<HTMLButtonElement>('.menu-opener')!.click())
+  const entry = document.querySelector<HTMLElement>('.ctxmenu [data-agent-tooltip="test-project"]')!
+  assert.ok(entry)
+  await inAct(() => entry.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(entry.title, `test-project\n${facts}`, 'identity-less submenu uses the same name-first source')
 })
 
 test('real canvas far-zoom hover omits the name and reads replacement feed facts', async t => {

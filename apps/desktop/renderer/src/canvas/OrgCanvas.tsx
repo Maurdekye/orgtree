@@ -125,8 +125,8 @@ import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 import { setAttentionLayout } from '../attention/mode'
 import type { CanvasShortcutRef } from '../shell/appshortcuts'
-import { projectLineLanes, slotCount, slotLinks } from './slots'
-import { listenerLinks } from './listeners'
+import { projectLineLanes, projectSlotState, slotBadgeText, slotCount, slotLinks } from './slots'
+import { listenerCards, listenerLinks, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
 import type { ProjectLine, SlotLease } from './slots'
 
 /** What the org host hands a view rendered in its slot. Every field is
@@ -403,18 +403,25 @@ function AgentListMenuHost({ render, map, op, slug, toast }: {
  *  agentnavmenu.test.tsx §12/§12.1 hold the two arms to the same answer. */
 export function agentTooltipInfo(n: CanvasNode | undefined,
   providers: ProviderInfo[] = [], accounts?: AccountRegistryPayload | null,
-  defaultEffort?: string, effortLevels?: readonly string[]): AgentTooltipInfo | null {
+  defaultEffort?: string, effortLevels?: readonly string[],
+  projectTree?: Pick<TreePayload, 'slot_leases' | 'watchdogs'>): AgentTooltipInfo | null {
   if (!n || n.state === 'user') return null
   if (n.kind === 'project' || n.tier === 'project') {
     const retired = n.state !== 'live' && n.state !== 'draft'
-    const rawScopeSlots = (n.scope as { slots?: unknown } | undefined)?.slots
-    const count = slotCount(n) || (typeof rawScopeSlots === 'number' && rawScopeSlots > 0 ? rawScopeSlots : 0)
-    const slotsLabel = count > 0 ? `${count} ${count === 1 ? 'slot' : 'slots'}` : undefined
+    // Same helpers and feed as the header badges. The shared native-title
+    // host adds a name line only for identity-less links (USER 11:17:42Z).
+    const dogs = projectTree?.watchdogs ?? []
+    const slotBadge = slotBadgeText(projectSlotState(n.id, slotCount(n), projectTree?.slot_leases ?? [], dogs))
+    const listeners = projectListenerState(n.id, dogs)
+    const queue = mailQueueCard(n.id, n.mail_pending ?? 0, n.mail_held ?? 0, queueAckMode(n), dogs)
     const charterFirstLine = n.charter?.split(/\r?\n/).find(l => l.trim().length > 0)?.trim()
     const charterSummary = charterFirstLine
       ? (charterFirstLine.length > 64 ? charterFirstLine.slice(0, 61) + '…' : charterFirstLine)
       : undefined
-    const values = ['Project' + (retired ? ' (retired)' : ''), slotsLabel, charterSummary]
+    const values = ['Project' + (retired ? ' (retired)' : ''), slotBadge ? `slots ${slotBadge}` : undefined,
+      ...listenerCards(n.id, listeners).map(c => c.text),
+      listeners.armedWatches.length ? `${listeners.armedWatches.length} listener watch${listeners.armedWatches.length === 1 ? '' : 'es'}` : undefined,
+      queue ? `mail: ${queue.text}` : undefined, charterSummary]
       .filter((value): value is string => !!value?.trim())
     return { title: values.join(' · ') }
   }
@@ -450,7 +457,7 @@ export function agentTooltipInfo(n: CanvasNode | undefined,
   return values.length ? { title: values.join(' · ') } : null
 }
 
-function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts, defaultEffort }: {
+function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts, defaultEffort, tree }: {
   map: Map<string, CanvasNode>
   op: OpFn
   slug: string
@@ -459,6 +466,7 @@ function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts, 
   providers: ProviderInfo[]
   accounts?: AccountRegistryPayload | null
   defaultEffort?: string
+  tree: TreePayload
   build: (n: CanvasNode, go: () => void,
     ask: (a: { id: string; kind: RetireKind }) => void,
     deskNow: ReturnType<typeof useDeskActionsNow>, target?: Element) => MenuEntry[]
@@ -477,7 +485,7 @@ function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts, 
     MUSE_TIERS.includes(map.get(id)?.tier ?? '')
       ? museEffortLevels(map.get(id)?.tier ?? '', map.get(id)?.scope?.model_version ?? null,
         map.get(id)?.account ?? null)
-      : tierEffortLevels(slug, map.get(id)?.tier)))
+      : tierEffortLevels(slug, map.get(id)?.tier), tree))
   // the CARD's confirm — same wording, same op, same undo toast — portaled
   // into this document, exactly as the tray's menu host does it
   return node && asking
@@ -4260,7 +4268,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       onJump: centerOn, onConfig: () => toggleConfig(node.id),
       onLineage: () => toggleLineage(node.id),
     })}><AgentNavHost
-      map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu}
+      map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} tree={tree}
       providers={providerEntries} accounts={accountPayload}
       defaultEffort={resolveOrgDefault(tree.default_effort, tree.effort_default)} /><div style={freeAnchor ?? undefined} className={'viewport'
       + (tree.headless ? ' headless' : '')

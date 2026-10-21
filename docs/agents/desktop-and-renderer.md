@@ -12,6 +12,11 @@ Normal agent/project card faces scale uniformly only when their complete content
 would overflow; fixed card bounds stay unchanged and fitting content stays at scale 1.
 [decided: user 2026-10-21 11:21Z; verified: `canvas/cardface.tsx`]
 
+Project identity tooltips share live slot/listener/watch/mail-queue badge counts
+on one facts line; only identity-less targets prefix a separate name line.
+See [identity tooltip](../rust-engine/agent-identity-tooltip.md).
+[decided: user 2026-10-21 11:16:57Z and 11:17:42Z; verified: `canvas/OrgCanvas.tsx`]
+
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
 <a id="e-ce6c8f6006d5c62b"></a>

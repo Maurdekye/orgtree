@@ -54,6 +54,19 @@ settings.
   its content's own hover targets in charge. Normal identity-less folder
   marks still prefix the project name. [verified: `canvas/projectcard.tsx`;
   user link-consistency invariant 2026-10-21]
+- Project facts use the same live feed and helpers as their header badges:
+  `slots held/total` (and waiting line), event `listeners n` or each watch's
+  `listeners n/target`, the armed listener-watch count, and `mail:` followed by
+  the queue badge's listener/waiting/in-flight text. Paused/spent or unrelated
+  dogs follow the badge helpers' exclusions. The facts and existing Project,
+  retired marker and charter summary stay on one line. Identity-less links
+  prefix the project name on its own first line; name-visible and far-zoom
+  links omit that prefix. USER 2026-10-21 11:16:57Z asked for the name followed
+  by slot/listener facts; 11:17:42Z (m044c37a6c76b) confirmed "okay, yes, leave
+  out the name there" on name-visible links. `AgentNavHost` reads replacement
+  tree leases/watchdogs at hover time, so all classes share current facts.
+  [verified: `canvas/OrgCanvas.tsx`, `canvas/{slots,listeners}.ts`;
+  tests: `projecttooltip.test.tsx`]
 - The renderer joins its existing `/api/providers` and `/api/accounts` reads;
   the tree projection does not grow. Static tier names and version names come
   from the Rust model catalog. Dynamic tiers retain their `name`/`label`; a
