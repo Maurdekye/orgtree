@@ -40,7 +40,7 @@ The effective tool permission is `tools.orgtree.watchdogs`. The owner is the cal
 
 | Parameter | Applies to | Default / meaning |
 |---|---|---|
-| `action` | All calls; required | `create`, `list`, `pause`, `resume`, `remove` or `send` (websocket). |
+| `action` | All calls; required | `create`, `list`, `pause`, `resume`, `remove` or `send` (MQTT/WebSocket). |
 | `cursor`, `limit` | List | Resume with the returned `next_cursor`; limit defaults to 50, maximum 100. Each page rechecks your current team reach. |
 | `kind` | Create; required | `file`, `command`, `process`, `stream`, `activity`, `event`, `usage`, `fair_queue`, `slot`, `project_listener`, `listener_watch`, `mqtt` or `websocket`. |
 | `count` | Create, `listener_watch` (required there) | Armed project listeners that fire it, 1–1024. Refused for every other kind. |
