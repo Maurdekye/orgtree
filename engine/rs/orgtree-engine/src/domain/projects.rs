@@ -398,14 +398,31 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
             // eligible, never halted, and its held jobs are counted by `by_user`
             &format!("SELECT w.id, w.uid, w.owner_agent_id, coalesce(a.name, '{USER}'), w.last_fired, w.created_at, w.once,
                     coalesce((w.memo->>'notice')::boolean, false), w.memo,
-                    (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = $2
-                       AND CASE WHEN w.owner_kind = 'user' THEN m.extra->'claimed'->>'by_user' = 'true'
-                                ELSE (m.extra->'claimed'->>'by_id')::bigint = a.id END AND {OUTSTANDING})
+                    held.n
                FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
+               CROSS JOIN LATERAL (SELECT count(*) AS n FROM ot.mail m WHERE m.recipient_agent_id = $2
+                       AND CASE WHEN w.owner_kind = 'user' THEN m.extra->'claimed'->>'by_user' = 'true'
+                                ELSE (m.extra->'claimed'->>'by_id')::bigint = a.id END AND {OUTSTANDING}) held
               WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2
                 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent' AND (NOT $3 OR a.halt IS NULL)))
-              ORDER BY w.id LIMIT 64 FOR UPDATE OF w"),
+                AND NOT EXISTS (SELECT 1 FROM ot.watchdogs older WHERE older.org_id=w.org_id
+                      AND older.kind='fair_queue' AND older.state='armed' AND older.id<w.id
+                      AND older.owner_agent_id IS NOT DISTINCT FROM w.owner_agent_id
+                      AND (older.memo->>'target_id')::bigint=$2)
+                AND (w.owner_kind='user' OR EXISTS (
+                    WITH RECURSIVE owners(id,parent_id,depth) AS (
+                      SELECT id,parent_id,0 FROM ot.agents WHERE id=a.id
+                      UNION ALL SELECT x.id,x.parent_id,o.depth+1 FROM ot.agents x JOIN owners o ON x.id=o.parent_id WHERE o.depth<1024),
+                    project_line(id,parent_id,depth) AS (
+                      SELECT id,parent_id,0 FROM ot.agents WHERE id=$2
+                      UNION ALL SELECT x.id,x.parent_id,p.depth+1 FROM ot.agents x JOIN project_line p ON x.id=p.parent_id WHERE p.depth<1024)
+                    SELECT 1 FROM owners WHERE id=$2 AND depth>0
+                    UNION ALL SELECT 1 FROM project_line WHERE id=a.id AND depth>0))
+                AND (NOT $3 OR held.n < CASE WHEN w.memo->>'batch' IN
+                      ('1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20')
+                      THEN (w.memo->>'batch')::int ELSE 1 END)
+              ORDER BY w.last_fired NULLS FIRST, w.created_at, w.id LIMIT 64 FOR UPDATE OF w"),
             &[&org_id, &project, &ack],
         )
         .await?;
@@ -437,7 +454,7 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
             });
         }
     }
-    if let Some(mut candidate) = inline.filter(|_| rows.len() < 64) {
+    if let Some(mut candidate) = inline {
         let owner = candidate.owner.unwrap();
         if tx.query_opt("SELECT 1 FROM ot.watchdogs WHERE kind='fair_queue' AND owner_agent_id=$1 AND state IN ('armed','paused') AND (memo->>'target_id')::bigint=$2 LIMIT 1", &[&owner,&project]).await?.is_some() {
             crate::refuse!(Conflict,"you already watch this project's mailbox; keep using that listener");
