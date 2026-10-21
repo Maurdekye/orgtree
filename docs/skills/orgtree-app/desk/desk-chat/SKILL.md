@@ -76,9 +76,19 @@ The notice control arms the next send as passive; its visual state and Alt+N sho
 
 The effort control shows supported choices for the current model/login/pin. It saves a scope effort selection; provider-specific live/next-turn behavior determines when it applies. See [agent desk](../agent-desk/SKILL.md) for the other runtime indicators, and the app's agent-settings pages for the setting's semantics.
 
+Mention suggestions include live agent/project identities and available hub contacts. Names mentioned most recently in the loaded transcript appear nearest the composer at the bottom of the menu; unmentioned candidates keep their ordinary order above them. Completion inserts text and never sends the message on its own.
+
+The DND badge means this turn holds non-urgent mail until it ends. While that recipient is in DND, the round orange urgency control can bypass the hold for the next send; the user's desk interrupt does not ask for a reason. Urgency is cleared when DND ends rather than saved as a preference. A project broadcast offers this control when a live recipient is in DND and applies it per recipient; it does not make the project itself a running agent.
+
 While responding, the button becomes Stop to interrupt; Enter can still queue text. Stopping the response is different from halting all future wakes. Send results can show queued/delivering/failure and restore failed text for retry. An optimistic clear of the composer is not proof the model read the message.
 
 At the first/last line, plain Up/Down can browse local composer history; otherwise they move the caret normally. The app's Enter preference governs multiline composing rather than a fixed send-on-Enter assumption.
+
+## Jumping to a user mention
+
+A transcript-mention notification, the header @ button or an Attention mention row opens the agent's Chat tab and centers the mentioning passage in that desk's scroll area. It reveals folded pending/system rows and can load older transcript pages to reach the target. New content and pending layout/resize work do not immediately pull a deliberate mention jump back to the bottom; scrolling is still under your control. Simply observing a mention in an already-visible chat clears its attention marker without forcing a new scroll jump.
+
+Tool and supplied-thought durations use seconds for short runs and minutes/seconds for longer ones; hover preserves the exact duration where supplied. A live shell preview appears only inside the expanded, currently executing tool row. It is a preview of output, not evidence the command has completed.
 
 ## See also
 

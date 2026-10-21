@@ -18,6 +18,10 @@ A batch can contain question, credit and scope tabs. A tab is decided by an answ
 
 Credit tabs let the user grant, deny or counteroffer within the shown capacity constraints. Scope tabs name the requested folder/tool/MCP/permission decision. They are not a blanket grant beyond what is actually approved.
 
+## MCP permission requests
+
+A correlated MCP request appears in the ordinary question-card frame as MCP permission with the server name. Form requests expose the supplied required fields, choices and numeric/text constraints; URL requests offer the supplied link to open yourself before accepting. Accept, Decline and Cancel resolve that request, which expires after five minutes. A failed submission leaves an error and can be retried while the request is valid. The decision is specific to this request, not a lasting scope or server grant, and the agent cannot answer it for the user.
+
 ## Outcomes and failure
 
 Submission can optimistically hide the open card and queue its answer representation; a failure restores applicable drafts with its error. Changed question definitions invalidate incompatible old selections rather than pairing an old draft with new text. Do not infer server acceptance merely because the card disappeared locally.

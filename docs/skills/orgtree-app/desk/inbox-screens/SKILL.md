@@ -80,6 +80,12 @@ Transfers appears on supported mail surfaces, initially collapsed. Expand to ins
 
 Retry, Cancel transfer and (for eligible failed/cancelled outgoing files) Remove file and send are different. Removing explicitly omits that attachment so the remaining ready message can proceed. Closing the panel does not cancel engine transfer work. Refresh retries a failed panel read, not a new send. Use `orgtree-tool-transfers` (orgtree-working › mail) for exact agent-side actions and custody rules.
 
+## Reading and acknowledging project jobs
+
+An unread real message whose body has been displayed is marked read when it leaves the reading pane: selecting another message, clearing selection, changing a folder/filter/tab, closing the panel, switching organizations or closing its native window all use that rule. Merely loading a row is not reading it; question cards have their own answer flow. Failed read saves remain failures.
+
+A project job delivered to the user in ACK mode adds the project-job tag and acknowledge pane. Reply & acknowledge sends an ordinary reply to its sender, then acknowledges the assignment; Acknowledge without reply sends no response. A self-sent job offers Acknowledge job without a reply box. Reading, closing or leaving the queue never acknowledges a held job. See [project desk](../project-desk/SKILL.md#the-users-own-slots-listeners-and-queue-place) for joining, changing the batch and leaving.
+
 ## See also
 
 - See `orgtree-mail-basics` (orgtree-working › mail).

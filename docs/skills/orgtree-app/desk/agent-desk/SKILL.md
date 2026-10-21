@@ -21,6 +21,7 @@ Open an agent's desk from its name/card or desk navigation. A focused desk, a pi
 | Control/indicator | Meaning |
 | --- | --- |
 | Agent name | Identity/navigation target; available menus can copy the name. |
+| Model token | Opens Change agent model. Picking an eligible model saves immediately when idle or queues it while busy. Switching providers asks to reset the conversation; the current generation remains in lineage and scratch/mail survive. Selecting the current model cancels a queued model switch. |
 | Context wheel | Context occupancy/window and compact threshold; where available it opens Normal compact / Cheap compact / Cancel. Normal uses the harness; cheap starts a fresh session with a summary handoff on the same agent. Unsupported normal compaction is disabled with a reason. |
 | Process indicator | Current process lifecycle, warming/relaunch/pause information and an enabled process action when the engine provides one. |
 | Turn status | Engine turn activity/result and reported status summary; a self-reported status is not proof a process runs. |
@@ -39,6 +40,8 @@ Freeze badges show the recorded cause/deadline/provenance rather than promising 
 ## Jump cards
 
 The row above the conversation jumps up to the agent's superior; the row below jumps down to its reports, then its watchdogs. Projects pass through: an agent under projects gets an up card for its nearest agent superior and for each project in between (superior first, then outermost to innermost), and a report that is a project brings a card for each of its live members, through nested projects. A project's card shows a folder instead of a model letter. Long rows fold per **Collapse many jump cards on desks**.
+
+The leading agent-superior or switchboard card stays outside that fold; only intervening project levels fold behind it. Expanded jump lists scroll after eight rows rather than growing indefinitely.
 
 ## Composer banners
 
@@ -59,6 +62,12 @@ The shared agent/project context menu's **Open → Team** entry opens that node'
 Agent event history is available in the agent settings panel when the agent has retained records. Scratch folders open in the OS file explorer through **Open → Scratch folder** in the agent menu or **Open scratch folder** in the settings header.
 
 Counts appear for Mail, Docket and Presented when nonzero. For configuration fields see [agent settings](../../agent-settings/agent-config/SKILL.md).
+
+## Retired reports and slot holds
+
+With retired agents hidden, the report-jump row keeps a retired-count badge for both agent and project desks. Click it, or choose Open retired list from its own menu, to search the retained reports and reveal one. This is navigation, not rehire.
+
+Held-slot and waiting-claim chips name the project, show quantities for multi-slot claims and open that project's Slots panel when a route is available. Their hover gives held/waiting time; waiting chips also show line position. A grant notification and an active lease are separate facts: inspect the Slots panel to confirm what is still held.
 
 ## See also
 

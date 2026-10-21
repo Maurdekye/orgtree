@@ -26,6 +26,12 @@ Do not interpret “review” as waiting for the user: status policy lives in `o
 
 Opening/closing a pane or changing filters does not assign, complete, archive or delete a ticket. A failed read is not an empty docket.
 
+## Shared item menu and staffing
+
+Right-click a docket row or an item reference elsewhere for the same item menu: open, owner identity/actions, copy title, copy slug and copy item reference when its org is known. Only an actual list has its local Show/Hide sub-items action. Hover any item link for the full current title.
+
+An unarchived backlogged item offers Staff… using the app's Runtime > Docket > Quick staff behavior: request staffing from the assignee, hire under the assignee or hire at top level. Its disclosure states the effective mode and any fallback. Model, effort and account choices follow current availability; unavailable models are omitted, while a failed availability read says so. Opening the menu does nothing by itself; selecting a staffing action submits it, and changed authority, capacity or ownership can still cause refusal. See [Quick staff behavior](../../app-settings/app-quick-staff/SKILL.md) for the policy details.
+
 ## See also
 
 - See `orgtree-docket-statuses` (orgtree-working › docket).
