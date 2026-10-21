@@ -24,6 +24,12 @@ The desk panel's agent drawer offers search and archive inclusion. Choose an age
 
 Unread mail mentioning @user in visible content uses the same mail entry and read/selection retention as urgent mail, without an urgent tag or fabricated reason. A matching sender/prose transcript mention is represented by the mail only when the mail was created at or after that mention and within ten seconds of it. Reading clears only that matching marker. Older mail, later independent repeats, and missing/invalid timestamps keep the transcript mention visible; uncertainty may leave a duplicate rather than hide an unseen mention.
 
+Mentions appearing only inside inline, fenced, indented or HTML code do not
+qualify as visible prose, including code in quoted mail content. Inbox and native
+attention counts use that same rule across all unread mail, including mail beyond
+the first loaded page. A real mention outside code still qualifies, and explicitly
+urgent mail retains its attention signal regardless of its body.
+
 Click a selected mail, question or ticket row again to clear its reading pane,
 or press Escape while the queue list has focus. A read mail then leaves the
 queue. Refreshing keeps a deliberately cleared pane empty and does not read
