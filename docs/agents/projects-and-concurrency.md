@@ -6,6 +6,22 @@ Project folders, policy, slots, listeners, watchdogs, queues and coordination.
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Current project/watchdog reference (2026-10-21)
+
+The [area A source audit](../rust-engine/glossary-area-a-audit.md) records
+4.4.0 workflow, team/project and watchdog coverage. It supersedes older
+watchdog-count quotas: there is no per-agent/org number cap; eight is a
+preview bound, not available capacity. Different actual parents still need
+directional mail audiences despite a common reporting superior, and a
+project-to-project bridge needs both projects' peer-mail switches ON.
+Only live agent descendants block self-retirement. Use project configuration
+for project policy; retool/model/account/launch controls target agents.
+The glossary distinguishes user-owned holds/registrations from agent-owned
+ones and records automatic one-shot completion separately from manual removal.
+[verified: `engine/rs/orgtree-engine/src/domain/watchdog_inventory.rs:7`,
+`:14`; `domain/peer_mail.rs:27`, `:45`; `domain/ops.rs:1859`, `:3441`;
+`domain/ops/user_regs.rs:201`, `:232`, `:309`]
+
 ## Current mail-queue and dead-letter rules (2026-10-21)
 
 The [source audit](../skills/orgtree-workflows/collaboration-patterns/work-queues/source-audit.md) supersedes older
