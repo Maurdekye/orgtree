@@ -1,6 +1,7 @@
 import { getDocument, getWorkItem, getMailById } from '../api'
 
 import { mailTitle } from './mailtitle'
+import { knownStatus, statusLabel } from './docketstatus'
 export type ObjectTooltipKind = 'ticket' | 'document' | 'mail'
 const KIND = 'data-object-tooltip-kind', ID = 'data-object-tooltip-id', ORG = 'data-object-tooltip-org'
 
@@ -19,7 +20,14 @@ async function titleOf(kind: string, org: string, id: string, box?: string | nul
   let request = reading.get(key)
   if (!request) {
     request = (kind === 'mail' ? getMailById(org, box as 'user'|'org'|'node', id, node || undefined).then(r => r.found && r.mail ? mailTitle(r.mail, actionLabel) : null)
-      : kind === 'ticket' ? getWorkItem(org, id).then(({ item }) => item?.title || null)
+      : kind === 'ticket' ? getWorkItem(org, id).then(({ item }) => {
+        if (!item?.title) return null
+        // Read current state with the title on every hover, never from a
+        // historical tool result or a cached list row (user 2026-10-21).
+        const status = item.archived === true ? 'Archived'
+          : knownStatus(item.status) ? statusLabel(item.status) : null
+        return status ? `${status} · ${item.title}` : item.title
+      })
       : getDocument(org, id).then(doc => doc?.title || null)).catch(() => null)
     reading.set(key, request)
     void request.then(() => { if (reading.get(key) === request) reading.delete(key) })

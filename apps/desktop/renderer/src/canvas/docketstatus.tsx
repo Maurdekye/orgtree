@@ -13,7 +13,7 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 export const statusLabel = (status: string): string => STATUS_LABEL[status] ?? status
-const knownStatus = (status: unknown): status is string =>
+export const knownStatus = (status: unknown): status is string =>
   typeof status === 'string' && Object.prototype.hasOwnProperty.call(STATUS_LABEL, status)
 
 /** Missing historical before-states show nothing. The engine recorded these
