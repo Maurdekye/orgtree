@@ -2124,7 +2124,7 @@
     "orgtree_watchdog"
    ],
    "tool_group": "watchdogs",
-   "purpose": "Persistent watchers (file/command/process/stream/activity/event/mqtt/websocket) that mail you, and send on a websocket watcher.",
+   "purpose": "Persistent watchers (file/command/process/stream/activity/event/mqtt/websocket) that mail you, and send on an MQTT or WebSocket watcher's existing connection.",
    "must_cover": [
     "when to use it and when not",
     "every parameter/action with defaults and limits from the definition",
