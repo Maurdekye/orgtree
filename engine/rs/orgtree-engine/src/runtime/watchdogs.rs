@@ -70,6 +70,7 @@ mod mqtt;
 mod schedule;
 mod websocket;
 mod usage_eval;
+mod immediate;
 pub mod usage;
 
 type ActivityTx = UnboundedSender<(String, DateTime<Utc>)>;
@@ -1590,9 +1591,14 @@ fn fire_body(dog: &Dog, events: &[String], prefix: &str, once: bool, fired: i32)
 }
 
 fn fire_body_origin(dog: &Dog, events: &[String], prefix: &str, once: bool, fired: i32, external: bool) -> String {
+    fire_body_parts(&dog.name, &dog.kind, &dog.target, events, prefix, once, fired, external)
+}
+
+#[nolog]
+fn fire_body_parts(name: &str, kind: &str, target: &str, events: &[String], prefix: &str, once: bool, fired: i32, external: bool) -> String {
     // outside input names the standing passage with a short tag (mqtt/render.rs TAG)
-    let tag = if external && (dog.kind == "mqtt" || dog.kind == "websocket") { format!(" {}", crate::mqtt::render::TAG) } else { String::new() };
-    let mut body = format!("Watchdog \"{}\" fired{} ({} · {}), fire #{fired}{tag}:\n", dog.name, prefix, dog.kind, dog.target);
+    let tag = if external && (kind == "mqtt" || kind == "websocket") { format!(" {}", crate::mqtt::render::TAG) } else { String::new() };
+    let mut body = format!("Watchdog \"{name}\" fired{prefix} ({kind} · {target}), fire #{fired}{tag}:\n");
     for e in events.iter().take(40) {
         body.push_str("  ");
         body.push_str(e);
@@ -1883,6 +1889,7 @@ async fn smoke(kind: &str, target: &str, pattern: Option<&Regex>, shell: Option<
         }
         "process" => {
             let up = target_up(target).await;
+            res["up"] = json!(up);
             res["ran"] = json!(match up {
                 Some(true) => format!("{target} is UP right now"),
                 Some(false) => format!("{target} is DOWN right now"),
@@ -1898,6 +1905,10 @@ async fn smoke(kind: &str, target: &str, pattern: Option<&Regex>, shell: Option<
         _ => {}
     }
     let out = run_command(target, shell, cwd, SMOKE_TIMEOUT_S).await;
+    if kind == "command" {
+        res["_fire_lines"] = json!(out.output.lines().filter(|l| !l.trim().is_empty() && pattern.is_some_and(|re| re.is_match(l).unwrap_or(false)))
+            .map(|l| gist(l.trim_end(), 300)).collect::<Vec<_>>());
+    }
     if !out.ran {
         res["ran"] = json!(format!("FAILED TO START: {}", out.output));
         res["exit_code"] = Value::Null;
@@ -2319,7 +2330,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     // an mqtt smoke's connection is handed to the dog's runner once it is armed
     let mut parked: Option<crate::mqtt::Parked> = None;
     let mut ws_parked: Option<crate::ws::Conn> = None;
-    let smoked = if kind=="usage" {json!({"push":true,"note":"Current cache seeded without firing. Usage edges only; no provider requests. Clock checks detect stale/reset transitions within 15 seconds."})}
+    let mut smoked = if kind=="usage" {json!({"push":true,"note":"Current cache seeded without firing. Usage edges only; no provider requests. Clock checks detect stale/reset transitions within 15 seconds."})}
         else if let Some(c) = &mqtt_new { let (v, p) = mqtt::smoke(engine, owner, c).await; parked = p; v }
         else if let Some(c) = &ws_new { let (v, p) = websocket::smoke(engine, c).await; ws_parked = p; v }
         else if kind=="event" { events::smoke(engine,owner,&target,args).await? }
@@ -2327,6 +2338,15 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         else if slot_project.is_some() { json!({ "ran": "a concurrency slot claim has nothing to run" }) }
         else if let Some(p) = &listener_project { listener_smoke(engine, org_id, p, &kind, memo["count"].as_i64()).await? }
         else { smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await };
+    let smoke_lines: Vec<String> = smoked.as_object_mut().and_then(|o| o.remove("_fire_lines"))
+        .and_then(|v| v.as_array().cloned()).unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+    if once && fire_mode == "event" {
+        let id = crate::domain::watchdog_inventory::available_id(&**engine.db.get().await?, owner, &base).await?;
+        if let Some(out) = immediate::resolve(engine, org_id, owner, &owner_name, &id, &kind, &target,
+            &memo, &smoked, &smoke_lines, &fire_actions).await? {
+            return Ok(out);
+        }
+    }
     if let Some(n)=smoked["current"]["count"].as_i64(){memo["run"]["count"]=json!(n);}
     if smoked["current"]["credits"].is_object(){memo["run"]["credits"]=smoked["current"]["credits"].clone();}
     let mut client = engine.db.get().await?;

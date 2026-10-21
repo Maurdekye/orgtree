@@ -110,7 +110,7 @@ struct Granted {
 
 /// The grant line a slot dog fires with.
 #[nolog]
-fn grant_line(project: &str, count: i32, lease: &str) -> String {
+pub(crate) fn grant_line(project: &str, count: i32, lease: &str) -> String {
     let held = quantity(count);
     format!("You now hold {held} of project {project} (lease {lease}). Release the whole lease as soon as the work \
              ends: orgtree_project action=release_slot lease={lease}. That frees all {count} reserved slot(s) together. \
@@ -124,11 +124,36 @@ fn grant_line(project: &str, count: i32, lease: &str) -> String {
 pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Vec<String>> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
+    let (granted, fresh) = grant_in(&tx, org_id, project, None).await?;
+    tx.commit().await?;
+    drop(client);
+    after_grants(engine, org_id, project, &granted).await?;
+    Ok(fresh)
+}
+
+/// A create-time candidate participates in the very same locked FIFO pass,
+/// but has no watchdog row. Roll back the pass unless this candidate wins.
+#[logged]
+pub async fn claim_once(engine: &Arc<Engine>, org_id: i64, project: i64, owner: i64, memo: &Value) -> Result<Option<Value>> {
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    admit(&tx, project, Some(owner), i64::from(requested(memo)), None).await?;
+    let (granted, _) = grant_in(&tx, org_id, project, Some((owner, memo))).await?;
+    let Some(own) = granted.iter().find(|g| g.dog == 0) else { return Ok(None) };
+    let result = json!({"lease":own.lease,"slots":own.count,"line":grant_line(&own.project,own.count,&own.lease)});
+    tx.commit().await?;
+    drop(client);
+    after_grants(engine, org_id, project, &granted).await?;
+    Ok(Some(result))
+}
+
+#[logged]
+async fn grant_in(tx: &impl GenericClient, org_id: i64, project: i64, inline: Option<(i64, &Value)>) -> Result<(Vec<Granted>, Vec<String>)> {
     let Some(p) = tx
         .query_opt("SELECT name, state, scope FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project])
         .await?
     else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     };
     let (pname, state, scope): (String, String, Value) = (p.get(0), p.get(1), p.get(2));
     // granted before a crash but not fired: fire now
@@ -151,7 +176,7 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
         let mut remaining = capacity(&scope) - leases.iter().map(|r| i64::from(r.get::<_, i32>(1))).sum::<i64>();
         let free = free_slots(capacity(&scope), &held);
         if remaining > 0 {
-            let waiting = tx
+            let waiting_rows = tx
                 .query(
                     "SELECT w.id, w.owner_agent_id, coalesce(w.memo->>'reason', w.name, ''), (w.memo->>'queued_at')::bigint, w.memo FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
                       WHERE w.kind = 'slot' AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $1 AND NOT w.memo ? 'lease'
@@ -160,9 +185,20 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
                     &[&project],
                 )
                 .await?;
+            let mut waiting: Vec<(i64, Option<i64>, String, Option<i64>, Value)> = waiting_rows.iter()
+                .map(|w| (w.get(0), w.get(1), w.get(2), w.get(3), w.get(4))).collect();
+            if waiting.len() < 200 {
+                if let Some((owner, memo)) = inline {
+                    let active = tx.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent' AND halt IS NULL", &[&owner]).await?.is_some();
+                    if active {
+                        waiting.push((0, Some(owner), memo["reason"].as_str().unwrap_or("").to_string(), memo["queued_at"].as_i64(), memo.clone()));
+                        waiting.sort_by_key(|w| (w.3, if w.0 == 0 { i64::MAX } else { w.0 }));
+                    }
+                }
+            }
             let mut slots = free.into_iter();
             for w in &waiting {
-                let owner: Option<i64> = w.get(1);
+                let owner = w.1;
                 // a claimant that has since moved out of the project's line no longer reaches it
                 // (the user, who holds from the desk, reaches every project)
                 if let Some(agent) = owner {
@@ -170,19 +206,20 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
                         continue;
                     }
                 }
-                let count = requested(&w.get::<_, Value>(4));
+                let count = requested(&w.4);
                 // Strict FIFO: never give a smaller claim the capacity that
                 // the head is waiting to accumulate. A capacity decrease may
                 // leave the head waiting until raised again or cancelled.
                 if i64::from(count) > remaining { break; }
                 let Some(slot) = slots.next() else { break };
-                let dog: i64 = w.get(0);
+                let dog = w.0;
+                let dog_record = (dog != 0).then_some(dog);
                 let lease = uid("s");
                 tx.execute(
                     "INSERT INTO ot.slot_leases (uid, org_id, project_id, holder_agent_id, holder_kind, slot_no, reason, dog_id, queued_at, slot_count)
                      VALUES ($1, $2, $3, $4, CASE WHEN $4::bigint IS NULL THEN 'user' ELSE 'agent' END, $5, nullif($6, ''), $7,
                              CASE WHEN $8::bigint IS NULL THEN NULL ELSE to_timestamp($8::bigint / 1000.0) END, $9)",
-                    &[&lease, &org_id, &project, &owner, &slot, &w.get::<_, String>(2), &dog, &w.get::<_, Option<i64>>(3), &count],
+                    &[&lease, &org_id, &project, &owner, &slot, &w.2, &dog_record, &w.3, &count],
                 )
                 .await?;
                 // the user's request is spent by its grant, here: it has no
@@ -203,19 +240,24 @@ pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Ve
             }
         }
     }
-    tx.commit().await?;
-    drop(client);
-    for g in &granted {
+    Ok((granted, fresh))
+}
+
+#[logged]
+async fn after_grants(engine: &Arc<Engine>, org_id: i64, project: i64, granted: &[Granted]) -> Result<()> {
+    for g in granted {
         tracing::info!(project = %g.project, slots = g.count, lease = %g.lease, "project concurrency slots were granted");
         // the user's hold has nobody to wake; the project change below tells the desk
         let Some(owner) = g.owner else { continue };
-        Box::pin(crate::runtime::watchdogs::fire_slot(engine, g.dog, grant_line(&g.project, g.count, &g.lease))).await?;
+        if g.dog != 0 {
+            Box::pin(crate::runtime::watchdogs::fire_slot(engine, g.dog, grant_line(&g.project, g.count, &g.lease))).await?;
+        }
         changes::notify_id(engine, org_id, vec![Change::Agent(owner)]);
     }
     // every lease change (a grant, or the release or reclaim that ran this
     // grant) and every claim joining the line reaches the desk and canvas
     changes::notify_id(engine, org_id, vec![Change::Agent(project), Change::Watchdogs]);
-    Ok(fresh)
+    Ok(())
 }
 
 /// The line on a project, first first: (dog row, dog id, owner name, queued

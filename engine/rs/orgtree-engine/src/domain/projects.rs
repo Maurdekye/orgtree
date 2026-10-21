@@ -283,8 +283,25 @@ pub async fn dispatch(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
     while out.len() < DISPATCH_BATCH {
         let steps = hand_batch(engine, org_id, project, (DISPATCH_BATCH - out.len()).min(64)).await?;
         if steps.is_empty() { break; }
+        out.extend(notify_handed(engine, org_id, project, steps));
+    }
+    Ok(out)
+}
+
+/// Publish committed queue changes. A create-time candidate (row 0) has
+/// already consumed its copies through the tool result, so it never wakes.
+#[logged]
+fn notify_handed(engine: &Arc<Engine>, org_id: i64, project: i64, steps: Vec<Step>) -> Vec<Handed> {
+        let mut out = Vec::new();
         let mut wakes: HashMap<i64, bool> = HashMap::new();
         for step in steps {
+            if step.dog_row == 0 {
+                let mut ch = vec![Change::Mailbox(project)];
+                if let Some(owner) = step.watcher_id { ch.push(Change::Mailbox(owner)); }
+                changes::notify_id(engine, org_id, ch);
+                out.push(step.handed);
+                continue;
+            }
             if step.spent {
                 crate::runtime::watchdogs::disarm(engine, step.dog_row);
             }
@@ -314,14 +331,50 @@ pub async fn dispatch(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
                 h.send(crate::runtime::AgentMsg::Wake);
             }
         }
-    }
-    Ok(out)
+    out
 }
 
 #[logged]
 async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usize) -> Result<Vec<Step>> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
+    let steps = hand_batch_in(&*tx, org_id, project, limit, None).await?;
+    tx.commit().await?;
+    Ok(steps)
+}
+
+/// The normal queue allocator with a transient one-shot listener. A probe
+/// that assigns this listener nothing rolls back, including other handouts.
+#[logged]
+pub async fn take_once(engine: &Arc<Engine>, org_id: i64, project: i64, owner: i64, name: &str, dog: &str, batch: usize) -> Result<Option<Vec<Value>>> {
+    release_stale(engine, org_id, project).await?;
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let candidate = Watcher { row: 0, uid: dog.to_string(), owner: Some(owner), owner_name: name.to_string(),
+        last_fired: None, created_at: Utc::now(), once: true, notice: false, remaining: batch, freed_at: None };
+    let steps = hand_batch_in(&*tx, org_id, project, 64, Some(candidate)).await?;
+    let copies: Vec<String> = steps.iter().filter(|s| s.dog_row == 0).map(|s| s.handed.copy.clone()).collect();
+    if copies.is_empty() { return Ok(None); }
+    let rows = tx.query("SELECT uid,sender,kind,body,attachments,reply_to,replies,created_at,extra FROM ot.mail WHERE uid=ANY($1) ORDER BY id", &[&copies]).await?;
+    let messages = rows.iter().map(|r| {
+        let first: Option<Value> = r.get(5);
+        json!({"id":r.get::<_,String>(0),"message_id":r.get::<_,String>(0),"from":r.get::<_,String>(1),
+            "kind":crate::domain::mail::shown_kind(&r.get::<_,String>(2)),"body":r.get::<_,String>(3),
+            "at":iso(r.get(7)),"attachments":r.get::<_,Value>(4).as_array().into_iter().flatten().filter(|a|a["transfer_removed"]!=true).cloned().collect::<Vec<_>>(),
+            "reply_to":first,"replies":crate::domain::replies::value(first.as_ref(),Some(&r.get::<_,Value>(6))),
+            "via_project":r.get::<_,Value>(8)["via_project"],"state":"read","will_redeliver":false})
+    }).collect();
+    let consumed = tx.query("SELECT uid,kind,org_id,net_id,net_hub,sender_agent_id FROM ot.mail WHERE uid=ANY($1)", &[&copies]).await?;
+    tx.commit().await?;
+    drop(client);
+    notify_handed(engine, org_id, project, steps);
+    let receipts = crate::domain::mail::consumed(engine, &consumed);
+    crate::runtime::watchdogs::events::mail_delivered(engine, org_id, owner, receipts);
+    Ok(Some(messages))
+}
+
+#[logged]
+async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit: usize, inline: Option<Watcher>) -> Result<Vec<Step>> {
     // one dispatcher per project at a time: a row lock on this project only
     // (NO KEY, so documents and other rows referencing it are not held up)
     let Some(p) = tx
@@ -379,6 +432,20 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
                 remaining: batch_size(&memo).saturating_sub(if ack { r.get::<_, i64>(9) as usize } else { 0 }),
                 freed_at: memo["run"]["freed_at"].as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&Utc)),
             });
+        }
+    }
+    if let Some(mut candidate) = inline.filter(|_| rows.len() < 64) {
+        let owner = candidate.owner.unwrap();
+        if tx.query_opt("SELECT 1 FROM ot.watchdogs WHERE kind='fair_queue' AND owner_agent_id=$1 AND state IN ('armed','paused') AND (memo->>'target_id')::bigint=$2 LIMIT 1", &[&owner,&project]).await?.is_some() {
+            crate::refuse!(Conflict,"you already watch this project's mailbox; keep using that listener");
+        }
+        let active = tx.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent' AND (NOT $2 OR halt IS NULL)", &[&owner,&ack]).await?.is_some();
+        if active && reaches(tx, owner, project).await? {
+            if ack {
+                let held: i64 = tx.query_one(&format!("SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id=$1 AND (m.extra->'claimed'->>'by_id')::bigint=$2 AND {OUTSTANDING}"), &[&project,&owner]).await?.get(0);
+                candidate.remaining = candidate.remaining.saturating_sub(held as usize);
+            }
+            eligible.push(candidate);
         }
     }
     if eligible.is_empty() {
@@ -448,7 +515,13 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
         )
         .await?;
         let ring = json!([{ "at": iso(Utc::now()), "gist": gist(&format!("mail from {sender_name}: {body}"), 200) }]);
-        let served: DateTime<Utc> = tx
+        let served: DateTime<Utc> = if w.row == 0 {
+            // No watchdog exists. Custody survives until its normal ACK,
+            // halt/retirement/reach loss, timeout or explicit user reclaim.
+            tx.execute("UPDATE ot.mail SET extra=jsonb_set(jsonb_set(extra,'{claimed,inline}', 'true'::jsonb),'{claimed,dog}','null'::jsonb) WHERE id=$1", &[&mail_id]).await?;
+            tx.execute("UPDATE ot.mail SET state='read',read_at=now(),delivered_at=now(),extra=jsonb_set(jsonb_set(extra || '{\"manual_read\":true}'::jsonb,'{via_project,inline}','true'::jsonb),'{via_project,dog}','null'::jsonb) WHERE uid=$1", &[&copy]).await?;
+            Utc::now()
+        } else { tx
             .query_one(
                 "UPDATE ot.watchdogs SET fired = fired + 1, last_fired = clock_timestamp(),
                         events = (SELECT coalesce(jsonb_agg(x ORDER BY n), '[]'::jsonb) FROM (
@@ -458,7 +531,7 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
                 &[&w.row, &ring, &EVENTS_KEEP],
             )
             .await?
-            .get(0);
+            .get(0) };
         if let Some(next) = eligible.iter_mut().find(|next| next.row == w.row) {
             next.remaining -= 1;
             next.last_fired = Some(served);
@@ -474,11 +547,10 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
     }
     // A one-shot accepts its whole available batch; becoming spent is atomic
     // with those copies, never after the first message of the batch.
-    let once: Vec<i64> = steps.iter().filter(|s| s.spent).map(|s| s.dog_row).collect();
+    let once: Vec<i64> = steps.iter().filter(|s| s.spent && s.dog_row != 0).map(|s| s.dog_row).collect();
     if !once.is_empty() {
         tx.execute("UPDATE ot.watchdogs SET state='spent', spent_at=now() WHERE id=ANY($1)", &[&once]).await?;
     }
-    tx.commit().await?;
     Ok(steps)
 }
 
@@ -600,7 +672,7 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
     let held = client
         .query(
             &format!("SELECT m.id, (m.extra->'claimed'->>'by_id')::bigint, m.extra->'claimed'->>'by', m.extra->'claimed'->>'copy',
-                             coalesce(m.extra->'claimed'->>'dog', '')
+                             coalesce(m.extra->'claimed'->>'dog', ''), m.extra->'claimed'->>'inline'='true'
                         FROM ot.mail m WHERE m.recipient_agent_id = $1 AND {OUTSTANDING} ORDER BY m.id LIMIT 200"),
             &[&project],
         )
@@ -610,7 +682,7 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
         let (row, holder): (i64, Option<i64>) = (h.get(0), h.get(1));
         let Some(holder) = holder else { continue };
         let a = client.query_opt("SELECT state, halt IS NOT NULL FROM ot.agents WHERE id = $1", &[&holder]).await?;
-        let listening = client
+        let listening = (h.get::<_,Option<bool>>(5).unwrap_or(false) || client
             .query_opt(
                 // a one-shot dog that handed this very mail is spent, and still counts
                 "SELECT 1 FROM ot.watchdogs w WHERE w.org_id = $1 AND w.kind = 'fair_queue'
@@ -619,7 +691,7 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
                 &[&org_id, &holder, &project, &h.get::<_, String>(4)],
             )
             .await?
-            .is_some()
+            .is_some())
             && reaches(&**client, holder, project).await?;
         let why = match a {
             None => "is gone",

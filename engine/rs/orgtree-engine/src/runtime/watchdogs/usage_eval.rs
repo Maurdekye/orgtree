@@ -2,6 +2,12 @@
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 
+/// Creation-only level snapshot. Existing runners continue to evaluate edges.
+#[nolog]
+pub(super) fn initial(_state: &mut Value, _rows: &[Value], _config: &Value, _now: DateTime<Utc>) -> Vec<Value> {
+    Vec::new()
+}
+
 #[nolog]
 pub(super) fn evaluate(state: &mut Value, rows: &[Value], config: &Value, now: DateTime<Utc>) -> Vec<Value> {
     let initialized=state["initialized"]==true;
@@ -115,6 +121,33 @@ mod tests {
         "resets_at":crate::util::iso(now()+chrono::Duration::hours(1))}]}) }
     fn cfg() -> Value { json!({"threshold_percent":98}) }
     fn names(v: &[Value]) -> Vec<&str> { v.iter().filter_map(|v|v["event"].as_str()).collect() }
+    #[test]
+    fn usage_initial_levels_seed_edges_without_repeating() {
+        let mut s=json!({});let c=cfg();
+        assert_eq!(names(&initial(&mut s,&[row(100.)],&c,now())),vec!["above","limit"]);
+        assert!(evaluate(&mut s,&[row(100.)],&c,now()).is_empty());
+        assert!(names(&evaluate(&mut s,&[row(97.)],&c,now())).contains(&"below"));
+        assert_eq!(names(&initial(&mut json!({}),&[row(1.)],&c,now())),vec!["below"]);
+    }
+    #[test]
+    fn usage_initial_unknown_stale_and_unreadable_are_never_thresholds() {
+        let c=cfg();let mut r=row(0.);r["available"]=json!(false);
+        assert_eq!(names(&initial(&mut json!({}),&[r.clone()],&c,now())),vec!["unreadable"]);
+        r["freshness"]=json!("stale");
+        assert_eq!(names(&initial(&mut json!({}),&[r],&c,now())),vec!["stale"]);
+        let mut unknown=row(0.);unknown["windows"][0]["used_percent"]=Value::Null;
+        assert_eq!(names(&initial(&mut json!({}),&[unknown],&c,now())),vec!["unreadable"]);
+        assert_eq!(names(&initial(&mut json!({}),&[row(100.)],&c,now()+chrono::Duration::minutes(16))),vec!["stale"]);
+    }
+    #[test]
+    fn usage_initial_filters_and_edge_only_events() {
+        for c in [json!({"accounts":["other"]}),json!({"windows":["daily"]}),
+            json!({"usage_events":["reset","recovered","refused","account_added","account_removed"]})] {
+            assert!(initial(&mut json!({}),&[row(100.)],&c,now()).is_empty());
+        }
+        let c=json!({"windows":["weekly"],"usage_events":["limit"]});
+        assert_eq!(names(&initial(&mut json!({}),&[row(100.)],&c,now())),vec!["limit"]);
+    }
     #[test]
     fn usage_crossings_are_edges_and_rearm_below() {
         let mut s=json!({}); let c=cfg();
