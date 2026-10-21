@@ -306,6 +306,43 @@ mod tests {
         f.windows = false;
         assert!(answer(&f)["summary"].as_str().unwrap().starts_with("This is not Windows"));
     }
+
+    /// Decision 93 runs the engine in the user's session after a restart or
+    /// update while they are signed in. From there every turn runs in that
+    /// one session, so a stored Session 0 or remote preference, or a pick of
+    /// Session 0, is not followed, and the answer says so instead of
+    /// reporting it as in force (Lane B review 2026-10-21; coordinator 23:13Z).
+    #[test]
+    fn an_engine_in_the_users_session_says_which_choices_it_cannot_follow() {
+        let in_session = |pref: Value| {
+            let mut f = facts(Some(true), true, SIGNED_IN, SIGNED_IN);
+            f.engine_session0 = false;
+            f.this_session = Some(1);
+            f.next_session = Some(1);
+            f.sessions = vec![json!({ "id": 1, "kind": "console", "state": "active", "user": "someone" })];
+            f.preference = pref;
+            f
+        };
+        for pref in [json!("session0"), json!("remote")] {
+            let out = answer(&in_session(pref.clone()));
+            assert_eq!(out["preference_followed"], false, "{pref}: {out}");
+            let s = out["summary"].as_str().unwrap();
+            assert!(s.contains("is not followed") && s.contains("only while Orgtree's engine runs in Session 0"), "{pref}: {s}");
+        }
+        for pref in [Value::Null, json!("console"), json!(["remote", "console"])] {
+            let out = answer(&in_session(pref.clone()));
+            assert_eq!(out["preference_followed"], true, "{pref}: {out}");
+            assert!(!out["summary"].as_str().unwrap().contains("not followed"), "{pref}: {out}");
+        }
+        let mut f = in_session(Value::Null);
+        f.use_id = Some(0);
+        let s = answer(&f)["summary"].as_str().unwrap().to_string();
+        assert!(s.contains("Session 0") && s.contains("is not followed"), "{s}");
+        // from Session 0 every choice applies as before
+        let mut f = facts(Some(true), true, SESSION0, SESSION0);
+        f.preference = json!("session0");
+        assert_eq!(answer(&f)["preference_followed"], true);
+    }
 }
 
 #[cfg(test)]
