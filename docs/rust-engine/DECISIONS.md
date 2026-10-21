@@ -7,6 +7,18 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Slot holder room and card-digit limit, user 2026-10-21 06:56–06:59Z:**
+agents, like the user, may hold multiple whole leases, but cannot request more
+units than capacity minus their own held/pending units. Agents keep one armed
+or paused pending claim; user pending requests all count. Admission and resume
+recheck under the project lock. The maximum follows the actual near-card
+held/total count: seven digits fit, eight wrap, so capacity is 9,999,999
+(migration 0049; safe for PostgreSQL integer, Rust i32 and JSON). Allocation
+is lazy, rows are disclosed in bounded batches and holder chips/lines aggregate
+by project. The glossary explicitly documents reader1/writerN, strict FIFO,
+eventual-release fairness and release-before-upgrade. See
+[measurement](slot-capacity-measurement.md).
+
 **Plain mention guidance, user 2026-10-20 21:43:54Z and 21:44:36Z:** standing
 instructions and glossary examples write @user, @name and @item:<org>/<slug>
 as plain text, never inside backticks or code spans. Explain that @user in

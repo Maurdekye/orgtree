@@ -84,7 +84,7 @@ These describe cooperative patterns: slot holders agree to claim and release per
 | max_attempts | Integer 1–100, default 3 |
 | ack_reminders | Integer 1–10, default 3; reminders before reclaiming held un-acked mail or an idle concurrency slot |
 | turn_end_reminder | Boolean, true; ack mode: a listener that ends its turn still holding an un-acked job gets ONE reminder turn right away (not sent if it is blocked with a reason, halted, frozen or out of usage); the 20-minute ack timeout applies afterwards |
-| slots | Integer 0–64, default 0 (no concurrency slots) |
+| slots | Integer 0–9,999,999, default 0 (no concurrency slots). Claims cannot exceed capacity minus that holder's held/pending units. |
 | event_listeners | Boolean, false; the project's event listeners and its desk's listeners tab. An agent's first armed listener or watch switches it on; false disables every listener and watch on the project, true re-arms them |
 
 Example: `{"action":"configure","name":"build-slot","settings":{"slots":1,"ack_timeout":true}}`. Existing create and describe calls remain valid.

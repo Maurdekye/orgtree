@@ -23,7 +23,7 @@ project's team, address its actual agents. `swap` deliberately remains an
 agent-only seat operation (user 2026-10-20 07:23Z); reorder bunched projects
 with move/reorder, not swap. Proof: `tools/rig/proofs/node-placement.mjs`.
 
-Slot claims accept `slots=N` (1–64, default 1, at most project capacity).
+Slot claims accept `slots=N` (1–9,999,999, default 1, at most capacity minus the holder's held/pending units).
 Migration 0039 adds `slot_leases.slot_count`, defaulting old leases to one.
 Admission holds the project row lock, subtracts the sum of active lease
 counts and grants each eligible FIFO head in full; an oversized head stops

@@ -13,8 +13,9 @@ Choose the agreement first, then its primitive. These are cooperative protocols:
 
 | Need | Use | Important limit |
 | --- | --- | --- |
-| One agent using a resource | One-slot mutex | One claim/hold per agent per project; no reentrant acquisition. |
+| One agent using a resource | One-slot mutex | A held unit leaves no room for another claim; release before claiming again. |
 | Up to N concurrent users | N-slot counting semaphore | Counts holders, not threads, memory or calls per second. |
+| Concurrent readers, exclusive writers | N-slot read/write agreement | Each reader claims 1, a writer claims N; release reader leases before requesting N. |
 | Independent jobs spread across workers | Round-robin mail queue | Least recently handed work; not a health or idle-worker check. |
 | Jobs with completion records and retry | ACK FIFO work queue | Handout order, not completion order or exactly-once effects. |
 | Tell current subscribers something happened | Project event | No replay to a listener that arms after the fire. Needs the project's event listeners on: the first armed listener switches them on; a superior may switch them off, which disables every listener and refuses fires. |
@@ -50,7 +51,48 @@ If granted immediately, use the returned lease. If queued, end the turn; the one
 {"tool":"orgtree_project","args":{"action":"release_slot","lease":"<returned-lease>","note":"Resource update finished"}}
 ```
 
-For a counting semaphore, the supervisor configures `{"action":"configure","name":"resource-lock","settings":{"slots":3}}` instead. A worker may add `"slots":2` to its slot watchdog claim; omitted means 1. The engine grants all requested units together as **one lease** and releasing that lease frees all of them. Requests above the project's total capacity are refused. The eligible line is strict FIFO: a head needing two slots blocks a smaller claim behind it while only one is free. Three is an example capacity, not permission for three builds on any machine. Capacity 0 disables new claims; a capacity decrease can leave an existing head waiting until capacity is raised or the claim is cancelled. There is no priority setting. Resource/RAM gates and process containment remain separate agreements; [build-slots](../build-slots/SKILL.md) applies these ideas to builds.
+For a counting semaphore, the supervisor configures `{"action":"configure","name":"resource-lock","settings":{"slots":3}}` instead. A worker may add `"slots":2` to its slot watchdog claim; omitted means 1. Capacity is 0–9,999,999, and a claim is 1–9,999,999. The engine grants all requested units together as **one lease** and releasing that lease frees all of them. Requests above capacity minus that holder's active units and counted pending requests are refused with an explanatory conflict. Agents may hold several leases but keep one armed/paused pending claim per project; cancel it before making another. The user may keep several pending requests, all counted against their remaining room. Admission and resume recheck under the project lock. The eligible line is strict FIFO: a head needing two slots blocks a smaller claim behind it while only one is free. Three is an example capacity, not permission for three builds on any machine. Capacity 0 disables new claims; a capacity decrease can leave an existing head waiting until capacity is raised or the claim is cancelled. There is no priority setting. Resource/RAM gates and process containment remain separate agreements; [build-slots](../build-slots/SKILL.md) applies these ideas to builds.
+
+## Read/write agreement: one slot per reader, all slots per writer
+
+An authorized supervisor creates an N-slot project above the workers. For
+example, after creating @document-lock above @workers, configure eight units:
+
+```json
+{"tool":"orgtree_project","args":{"action":"configure","name":"document-lock","settings":{"slots":8}}}
+```
+
+Each reader requests one unit, and each writer requests all eight:
+
+```json
+[
+  {"tool":"orgtree_watchdog","args":{"action":"create","kind":"slot","target":"document-lock","name":"read-document","slots":1,"once":true}},
+  {"tool":"orgtree_watchdog","args":{"action":"create","kind":"slot","target":"document-lock","name":"write-document","slots":8,"once":true}}
+]
+```
+
+These are alternative calls by different participants, not two successive
+requests by one worker. A queued worker ends its turn and waits for its grant.
+Only then may it read or write. Every participant releases its whole lease:
+
+```json
+{"tool":"orgtree_project","args":{"action":"release_slot","lease":"<granted lease>","note":"Document work finished"}}
+```
+
+At most N readers run together. A writer gets all N units atomically, so no
+reader can hold a unit during its write. Once a writer is queued, later
+readers cannot bypass it: the FIFO head waits for all requested units to be
+free together. With finite work, eventual release and eligible participants,
+neither readers nor writers starve. This is a cooperative agreement, not
+file-system enforcement, preemption or a promise that a stalled holder exits.
+
+There is no atomic upgrade. Release every reader lease before requesting N;
+the remaining-capacity refusal prevents a holder asking for N while retaining
+reader units. Releasing loses its old place, and the writer claim joins the
+back. Agent pending claims, including paused ones, must be removed before a
+second is created. The user's Hold N control follows the same capacity
+accounting. Keep a stable N during the agreement: reducing capacity can strand
+an older queued writer until the capacity is restored or its claim cancelled.
 
 Inspect state or recover a stuck agreement with these distinct calls:
 
@@ -181,7 +223,7 @@ Repeat the last two calls with the watchdog target and fire_event name set to th
 - **The user is a participant too:** from the project desk the user can hold slots, register an event listener or listener watch, and join the mail queue as a listener. Their entries are named `user` in `action=slots` / `action=listeners`, count like an agent's (capacity, the strict FIFO line, listener counts, queue round-robin) and last until the user ends them; an agent cannot release, cancel, remove or take them back, not even a project ancestor with `force=true`. A user hold waits in the line exactly like a claim and is granted whole. If you wait behind one, wait or ask the user.
 - **Cooperation, not enforcement:** leases do not sandbox/throttle/stop work, grant folder access or reserve RAM. Automatic reclaim/forced release can overlap an old process unless the team stops it. A semaphore is not a rate limiter.
 - **Arrival order, no priority:** eligible slot claims and queued mail have their documented ordering; there is no priority-queue setting or preemption. A supervisor's emergency procedure is an external agreement, not a scheduler feature.
-- **No read/write lock:** use the one-slot mutex for all readers and writers when exclusion is needed; an N-slot semaphore does not distinguish readers from writers or safely support upgrades.
+- **Read/write is a cooperative recipe:** use the N-slot agreement above; it has no atomic upgrade, native reader/writer identity or resource enforcement.
 - **No shared atomic variable:** keep state in an agreed scoped file under a single-writer/slot protocol, or a docket record with `expected_rev` on updates. Read the current revision; on conflict re-read and reconcile rather than overwrite. Files are not inherently atomic and `expected_rev` is not a general compare-and-swap tool for external effects. See `orgtree-tool-work` (orgtree-working > docket).
 - **No deadlock detection or atomic multi-project acquire:** use a common resource order, bounded work, explicit cancellation/lease cleanup and supervisor recovery. Check the current lease after reclaim/restart; never continue protected work on an ended lease.
 

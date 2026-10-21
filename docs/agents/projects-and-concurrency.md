@@ -6,6 +6,20 @@ Project folders, policy, slots, listeners, watchdogs, queues and coordination.
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Slot admission and measured capacity (2026-10-21)
+
+The user changed the old 64-unit limit to the seven-digit card-fit limit,
+9,999,999 (migration 0049). Agents may hold multiple whole leases, with one
+armed/paused pending claim per project; user pending requests all count.
+Shared admission under the project lock refuses requests above capacity minus
+the holder's own units and counted requests, including explicit resume.
+This supersedes the earlier 1..64 and one-held-lease rules below. Anchor
+allocation is lazy; lease rows reveal in batches of 100 and chips/lines
+aggregate per agent/project. See [measurement](../rust-engine/slot-capacity-measurement.md)
+and [read/write recipe](../skills/orgtree-workflows/collaboration-patterns/concurrency-primitives/SKILL.md).
+[decided: user/coordinator 2026-10-21; verified: `domain/slots.rs`,
+`runtime/watchdogs.rs`, `domain/ops/user_regs.rs`, renderer `canvas/slots*.ts*`]
+
 ## User queue ACKs, compact actions and event mentions (2026-10-20)
 
 - Self-sent ACK jobs (`@user`, or retained data name `user`) acknowledge without
