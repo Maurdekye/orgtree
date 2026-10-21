@@ -116,6 +116,27 @@ pub async fn delete_user_mail(
     let o = org(&e, &slug)?;
     let mut client = e.db.get().await?;
     let tx = client.transaction().await?;
+    let copy = tx.query_opt(
+        "SELECT extra->'via_project' FROM ot.mail WHERE org_id = $1 AND uid = $2 AND recipient_kind = 'user'",
+        &[&o.id, &uid],
+    ).await?.ok_or_else(|| ApiError::not_found("user inbox message not found"))?;
+    let via: Value = copy.get::<_, Option<Value>>(0).unwrap_or(Value::Null);
+    if let (Some(project), Some(original)) = (via["id"].as_i64(), via["mail"].as_str()) {
+        // Match the ACK writer's project -> job lock order. The job's current
+        // claim, not stale delivery metadata on the inbox copy, owns custody.
+        tx.query_opt("SELECT 1 FROM ot.agents WHERE org_id = $1 AND id = $2 AND kind = 'project' FOR NO KEY UPDATE", &[&o.id, &project]).await?;
+        if let Some(job) = tx.query_opt(
+            "SELECT extra->'claimed' FROM ot.mail WHERE org_id = $1 AND uid = $2 AND recipient_agent_id = $3 FOR UPDATE",
+            &[&o.id, &original, &project],
+        ).await? {
+            let claim: Value = job.get::<_, Option<Value>>(0).unwrap_or(Value::Null);
+            if claim["copy"].as_str() == Some(uid.as_str()) && claim["by_user"].as_bool() == Some(true)
+                && claim["ack"].as_bool() == Some(true) && claim["acked_at"].is_null()
+            {
+                return Err(ApiError::conflict("This inbox message is a project job you still hold. Open it and use Acknowledge job, Reply & acknowledge, or Acknowledge without reply before deleting it. Deleting does not acknowledge a job."));
+            }
+        }
+    }
     let deleted = tx.query_opt(
         "DELETE FROM ot.mail WHERE org_id = $1 AND uid = $2 AND recipient_kind = 'user' RETURNING id",
         &[&o.id, &uid],
