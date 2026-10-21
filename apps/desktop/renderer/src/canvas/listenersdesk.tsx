@@ -90,10 +90,12 @@ function Waited({ from, to }: { from?: string | null; to?: string | null }) {
  *  or a mailbox this surface cannot open, shows as unavailable. */
 function FireMail({ agent, mail, gone, refs }: { agent: string; mail?: string; gone?: boolean; refs?: RefRoutes }) {
   if (!mail) return null
-  const r = refs ? resolveRef({ kind: 'mail', org: refs.world.org, box: 'node', node: agent, id: mail }, refs.world) : null
+  const r = refs ? resolveRef(isUserName(agent)
+    ? { kind: 'mail', org: refs.world.org, box: 'user', id: mail }
+    : { kind: 'mail', org: refs.world.org, box: 'node', node: agent, id: mail }, refs.world) : null
   if (!gone && r && r.outcome === 'ready' && refs?.onOpen) {
     return <button type="button" className="listener-mail-link fire-mail" data-mail={mail}
-      {...mailLinkProps({ org: r.ref.org, id: mail, box: 'node', node: agent })}
+      {...mailLinkProps({ org: r.ref.org, id: mail, box: r.ref.box!, node: r.ref.node })}
       onClick={(e) => { e.stopPropagation(); refs.onOpen(r) }}>fire mail</button>
   }
   // its words lead the tooltip, since a narrow desk may shorten them (user 2026-10-20 09:00Z)

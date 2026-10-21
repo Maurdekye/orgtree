@@ -116,6 +116,11 @@ their leading "fire mail · unavailable" wording (documentary source comment:
 user 2026-10-20 09:00Z, "its words lead the tooltip, since a narrow desk may
 shorten them").
 
+User listener fire-mail routes use the user mailbox; ordinary listeners use
+their own node mailbox. The same resolved mailbox identity supplies menu and
+hover markers. [verified: `listenersdesk.tsx`, `listenermaillinkparity.test.tsx`;
+approved: coordinator 2026-10-21 07:22Z]
+
 Mail links use `mailMenuEntries` for their common Open/copy-text/copy-reference
 menu. Inbox rows retain real Close, reply, read, retract and delete capabilities;
 reply frames retain their contextual menu, while the inner message link uses the
