@@ -39,13 +39,41 @@ fn conflict(error:anyhow::Error) -> String {
 #[tokio::test]
 #[ignore="requires disposable slot_limit_fixture DB/role; never an ambient DB"]
 async fn slot_limit_agent_accepts_remaining_inline_and_refuses_over_capacity() {
-    let (e,o,p,a)=fixture(10).await; hold(&e,&o,p,Some(a)).await;
+    let (e,o,p,a)=fixture(10).await;
+    // Only this case needs seven genuinely free units. Keep the shared full
+    // fixture for queued-acceptance controls below.
+    e.db.get().await.unwrap().execute("DELETE FROM ot.slot_leases WHERE uid='other-lease'",&[]).await.unwrap();
+    hold(&e,&o,p,Some(a)).await;
     let result=crate::runtime::watchdogs::create(&e,o.id,a,&json!({"kind":"slot","target":"resource","slots":7,"notice":true})).await;
-    assert!(result.is_ok(),"an existing holder may queue its remaining seven: {result:?}");
+    assert!(result.is_ok(),"an existing holder may immediately hold its remaining seven: {result:?}");
     let result=result.unwrap();
     assert_eq!(result["resolved"],true);assert_eq!(result["registered"],false);assert!(result["lease"].is_string());
+    let c=e.db.get().await.unwrap();
+    let lease=result["lease"].as_str().unwrap();
+    let held=c.query_one("SELECT project_id,holder_agent_id,slot_count FROM ot.slot_leases WHERE uid=$1 AND ended_at IS NULL",&[&lease]).await.unwrap();
+    assert_eq!((held.get::<_,i64>(0),held.get::<_,i64>(1),held.get::<_,i32>(2)),(p,a,7));
+    let counts=c.query_one("SELECT count(*)::bigint,coalesce(sum(slot_count),0)::bigint FROM ot.slot_leases WHERE project_id=$1 AND holder_agent_id=$2 AND ended_at IS NULL",&[&p,&a]).await.unwrap();
+    assert_eq!((counts.get::<_,i64>(0),counts.get::<_,i64>(1)),(2,10),"own three plus the new seven are durable whole leases");
     let error=crate::runtime::watchdogs::create(&e,o.id,a,&json!({"kind":"slot","target":"resource","slots":1,"notice":true})).await.unwrap_err();
     assert!(conflict(error).contains("release"));
+    assert_eq!(c.query_one("SELECT count(*)::bigint FROM ot.watchdogs WHERE kind='slot'",&[]).await.unwrap().get::<_,i64>(0),0,"inline acceptance and refusal must not leave a queued claim");
+    assert_eq!(c.query_one("SELECT sum(slot_count)::bigint FROM ot.slot_leases WHERE project_id=$1 AND ended_at IS NULL",&[&p]).await.unwrap().get::<_,i64>(0),10,"refusal keeps the granted leases unchanged");
+    e.shutdown.cancel();
+}
+
+#[tokio::test]
+#[ignore="requires disposable slot_limit_fixture DB/role; never an ambient DB"]
+async fn slot_limit_agent_accepts_remaining_as_queued_when_capacity_held() {
+    let (e,o,p,a)=fixture(10).await;hold(&e,&o,p,Some(a)).await;
+    let result=crate::runtime::watchdogs::create(&e,o.id,a,&json!({"kind":"slot","target":"resource","slots":7,"notice":true})).await.unwrap();
+    assert_ne!(result["resolved"],true,"the other holder leaves no free capacity");
+    let uid=result["id"].as_str().unwrap();
+    let c=e.db.get().await.unwrap();
+    let claim=c.query_one("SELECT state,memo FROM ot.watchdogs WHERE uid=$1 AND owner_agent_id=$2 AND kind='slot'",&[&uid,&a]).await.unwrap();
+    assert_eq!(claim.get::<_,String>(0),"armed");
+    assert_eq!(claim.get::<_,Value>(1)["slots"],7);
+    let held=c.query_one("SELECT count(*)::bigint,sum(slot_count)::bigint FROM ot.slot_leases WHERE project_id=$1 AND ended_at IS NULL",&[&p]).await.unwrap();
+    assert_eq!((held.get::<_,i64>(0),held.get::<_,i64>(1)),(2,10),"queuing creates no lease");
     e.shutdown.cancel();
 }
 
