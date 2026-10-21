@@ -67,10 +67,10 @@ function node(): CanvasNode {
 
 // z .24 is the desktop wheel's zoom-out clamp (OrgCanvas), i.e. the "maximum
 // zoom" of the report; .8 is an ordinary one.
-function card(lod: 'mini' | 'norm', sink: Sink = { spawned: [], downs: [] }) {
+function card(lod: 'mini' | 'norm', sink: Sink = { spawned: [], downs: [] }, focused = false) {
   const nd = node()
   return mountView(
-    <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod={lod} focused={false}
+    <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod={lod} focused={focused}
       dragging={false} isDrop={false} seats={seats} codexHire={hire}
       antigravityHire={hire} claudeHire={hire}
       map={new Map([[nd.id, nd]])} op={op} slug="org" toast={noop}
@@ -188,6 +188,22 @@ test('§6 the gate really is gone from the card source, not merely widened',
     assert.doesNotMatch(src, /hireChips/,
       'the hire strips are gated again — §1 would still pass against a gate '
       + 'that admits this fixture and rejects some other card')
-    assert.match(src, /showShortcuts && !focused && lod !== 'mini'/,
-      'the shortcut row must keep the threshold the tokens just left')
   })
+
+test('§7 shortcuts keep their near-only, unfocused threshold through the fitted card face', async t => {
+  // CardFace now owns the outer mini/focused gate. Assert the mounted behavior
+  // rather than requiring that same guard again on its nested shortcut row.
+  for (const [lod, focused, shown] of [
+    ['norm', false, true], ['mini', false, false], ['norm', true, false],
+  ] as const) {
+    const view = await card(lod, undefined, focused)
+    t.after(() => view.unmount())
+    assert.ok(view.el.querySelector('.sq'), 'control: the card is mounted')
+    assert.equal(view.el.querySelector('.sq')!.classList.contains('desk'), focused,
+      'control: the requested focused state is actually rendered')
+    assert.equal(view.el.querySelector('.sq-actions') !== null, shown,
+      `shortcut row at ${lod}, focused=${focused}`)
+    assert.equal(view.el.querySelectorAll('.hsof').length, 4,
+      'all four hire strips stay mounted regardless of the shortcut threshold')
+  }
+})
