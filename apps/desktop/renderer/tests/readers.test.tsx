@@ -19,6 +19,7 @@ import { forgetModalOpenCache, forgetModalPins, MODAL_OPEN_KEY, MODAL_PINS_KEY, 
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { AgentNavProvider, useAgentNavRegistry } from '../src/canvas/agentnav'
 import { readPinSurfaces, removePinSurface } from '../src/canvas/pinspace'
+import { bumpLive, flushLive } from '../src/livebus'
 import { resetConvos } from '../src/convo'
 import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -236,3 +237,55 @@ for (const team of [false, true]) {
     assert.equal(Object.fromEntries(readers())[first], null, 'reporting a deselection must not reopen a default document')
   })
 }
+
+test('§10 moving a presenter out of a team clears the stale team reader selection and routes reopens to the new scope', async t => {
+  setup(t); legacyGallery('worker', true)
+  PARENT.other = null
+  t.after(() => { PARENT.intern = 'report'; delete PARENT.other })
+
+  function treeWithInternUnder(parentId: 'report' | 'other'): TreePayload {
+    const intern = agent('intern', parentId, [], [doc('i-1', 'Intern memo')])
+    const report = agent('report', 'worker', parentId === 'report' ? [intern] : [], [doc('r-1', 'Report draft')])
+    const worker = agent('worker', null, [report], [doc('w-2', 'Worker notes'), doc('w-1', 'Worker plan')])
+    const other = agent('other', null, parentId === 'other' ? [intern] : [], [])
+    return { slug: org, name: org, roots: [worker, other], dirs: [], tiers: { sol: 2 }, audiences: [],
+      credit_requests: [], audience_requests: [], audit: { live_nodes: 4, top_level_holds: 0, problems: [] },
+      user_inbox_count: 0, max_top_grant: 1000, default_top_grant: 50 } as unknown as TreePayload
+  }
+
+  let registry: ReturnType<typeof useAgentNavRegistry>
+  let openDoc: (id: string) => void = noop
+  let setParent: (p: 'report' | 'other') => void = noop
+  function Probe() { registry = useAgentNavRegistry(); return null }
+  function Host() {
+    const [docAt, setDocAt] = useState<string | null>(null)
+    const [parentId, setParentId] = useState<'report' | 'other'>('report')
+    openDoc = setDocAt
+    setParent = setParentId
+    return <CurrentOrg.Provider value={org}><AgentNavProvider>
+      <OrgCanvas tree={treeWithInternUnder(parentId)} slug={org} op={async () => ({})} toast={noop} mailEvt={null}
+        openDocAt={docAt} onOpenDocHandled={() => setDocAt(null)} /><Probe />
+    </AgentNavProvider></CurrentOrg.Provider>
+  }
+
+  const view = await mountView(<Host />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(8) })
+
+  assert.deepEqual(readers().map(r => r[0]), ['team:worker'], 'the pinned team reader is restored')
+  await inAct(async () => { openDoc('i-1'); await flush(12) })
+  assert.deepEqual(readers(), [['team:worker', 'Intern memo']])
+
+  PARENT.intern = 'other'
+  await inAct(async () => {
+    setParent('other')
+    bumpLive()
+    flushLive()
+    await new Promise(r => setTimeout(r, 10))
+    await flush(12)
+  })
+  assert.deepEqual(readers(), [['team:worker', null]], 'team:worker clears its selection when i-1 leaves its team scope')
+
+  await inAct(async () => { openDoc('i-1'); await flush(12) })
+  assert.deepEqual(readers(), [['intern', 'Intern memo'], ['team:worker', null]])
+})

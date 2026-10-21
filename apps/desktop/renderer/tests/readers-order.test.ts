@@ -48,4 +48,19 @@ test('an unknown node: only a reader showing it, or the global one', () => {
   const off = open([[{ kind: 'agent', id: 'intern' }, null], [{ kind: 'global' }, null]])
   try { assert.equal(name(pickReader(org, 'd', [])?.scope), 'global') } finally { off() }
   assert.equal(readerRank({ kind: 'team', id: 'x' }, []), Infinity)
+  const offShowing = open([[{ kind: 'team', id: 'elsewhere' }, 'd'], [{ kind: 'global' }, null]])
+  try { assert.equal(name(pickReader(org, 'd', [])?.scope), 'team:elsewhere', 'unknown ancestry preserves showing reader') } finally { offShowing() }
+})
+
+test('a known node rejects a reader claiming to show the document when its scope cannot view that node', () => {
+  let off = open([[{ kind: 'team', id: 'elsewhere' }, 'd'], [{ kind: 'team', id: 'worker' }, null]])
+  try {
+    assert.equal(name(pickReader(org, 'd', ANCESTRY)?.scope), 'team:worker',
+      'stale out-of-scope showing reader must not trap routing when ancestry is known')
+  } finally { off() }
+  off = open([[{ kind: 'team', id: 'elsewhere' }, 'd'], [{ kind: 'agent', id: 'report' }, 'd']])
+  try {
+    assert.equal(pickReader(org, 'd', ANCESTRY), null,
+      "when only out-of-scope readers report the document, pickReader returns null so the node's own reader opens")
+  } finally { off() }
 })

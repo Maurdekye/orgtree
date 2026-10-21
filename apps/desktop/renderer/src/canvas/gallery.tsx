@@ -838,12 +838,17 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
     opening.current.pending = false
     setSelId(jumpTo.id)
   }, [jumpTo, w.seq, w.error, w.located, w.rows, toast])
+  const cur = rows.find((r) => r.id === selId)
+  // Clear an out-of-scope or missing selection once authoritative rows arrive.
+  useEffect(() => {
+    if (w.rows != null && !w.busy && !opening.current.pending && selId !== null && !cur) setSelId(null)
+  }, [w.rows, w.busy, selId, cur])
   // Tell an owning window WHAT IS ON SCREEN, every time it changes — a row
   // picked from the list, a document opened by reference from the pane, a
   // dismissal that clears the selection. Whoever holds the window publishes
   // this as the surface's identity; see AgentGalleryModal.
-  useEffect(() => { onShown?.(selId) }, [selId, onShown])
-  const cur = rows.find((r) => r.id === selId)
+  const shownId = cur?.id ?? (w.rows == null ? selId : null)
+  useEffect(() => { onShown?.(shownId) }, [shownId, onShown])
   const steps = usePanelSteps(rows.map(row => row.id), selId, chooseDocument, '.doc-gallery-row')
   // the row's context menu — the same entries as the org gallery's rows, with
   // this view's own dismiss bookkeeping (the optimistic `dismissed` list)

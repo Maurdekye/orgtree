@@ -63,7 +63,7 @@ export function pickReader(org: string, doc: string, ancestry: readonly string[]
   const ranked = (list: ReaderHandle[]) => list
     .map(h => ({ h, rank: readerRank(h.scope, ancestry) }))
     .sort((a, b) => a.rank - b.rank || scopeKey(a.h.scope).localeCompare(scopeKey(b.h.scope)))
-  const showing = ranked(open.filter(h => h.shown() === doc))
+  const showing = ranked(open.filter(h => h.shown() === doc)).filter(r => !ancestry.length || r.rank < Infinity)
   if (showing.length) return showing[0]!.h
   const viewable = ranked(open).filter(r => r.rank < Infinity)
   return viewable[0]?.h ?? null
