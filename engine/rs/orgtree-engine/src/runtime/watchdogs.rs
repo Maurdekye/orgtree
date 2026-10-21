@@ -2168,7 +2168,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     if let Some(slots) = args.get("slots").filter(|s| !s.is_null()) {
         if kind != "slot" { refuse!(BadRequest, "slots is only for a slot watchdog"); }
         let Some(n) = slots.as_i64().filter(|n| (1..=crate::domain::slots::MAX_CAPACITY).contains(n)) else {
-            refuse!(BadRequest, "slots must be an integer from 1 to 64");
+            refuse!(BadRequest, "slots must be an integer from 1 to {}",crate::domain::slots::MAX_CAPACITY);
         };
         memo["slots"] = json!(n);
     }
@@ -2191,20 +2191,9 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         if i64::from(count) > crate::domain::slots::capacity(&scope) {
             refuse!(BadRequest, "requested {count} slots exceeds project {}'s total capacity of {}", p.name, crate::domain::slots::capacity(&scope));
         }
-        let mine = client
-            .query_one(
-                "SELECT EXISTS (SELECT 1 FROM ot.slot_leases WHERE project_id = $1 AND holder_agent_id = $2 AND ended_at IS NULL),
-                        EXISTS (SELECT 1 FROM ot.watchdogs WHERE kind = 'slot' AND owner_agent_id = $2 AND state IN ('armed', 'paused')
-                                  AND (memo->>'target_id')::bigint = $1)",
-                &[&p.id, &owner],
-            )
-            .await?;
-        if mine.get::<_, bool>(0) {
-            refuse!(Conflict, "you already hold a concurrency slot of project {}; release it first (orgtree_project action=slots name={} lists your lease)", p.name, p.name);
-        }
-        if mine.get::<_, bool>(1) {
-            refuse!(Conflict, "you already have a concurrency slot claim on project {} (one per agent); remove it to leave the line", p.name);
-        }
+        // Ownership/remaining capacity is rechecked atomically with insertion
+        // under the project lock below. Existing leases do not forbid a
+        // smaller additional whole lease that still fits.
         if args["fire_mode"].as_str().is_some_and(|m| !m.is_empty() && m != "event") || args.get("quiet_period_s").is_some_and(|q| !q.is_null()) {
             refuse!(BadRequest, "a slot watchdog fires once, when you are granted the concurrency slot; it has no silence mode");
         }
@@ -2358,6 +2347,9 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         let id = crate::domain::watchdog_inventory::available_id(&**client, owner, &base).await?;
         // a dog and its sealed inline credentials are written together
         let tx = client.transaction().await?;
+        if let Some(p)=&slot_project {
+            crate::domain::slots::admit(&tx,p.id,Some(owner),i64::from(crate::domain::slots::requested(&memo)),None).await?;
+        }
         let inserted = tx
             .query_one(
                 "INSERT INTO ot.watchdogs (uid, org_id, owner_agent_id, name, kind, target, pattern, shell, interval_s, fire_mode,
@@ -2602,6 +2594,10 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
             if !dog.owner_live {
                 refuse!(Conflict, "its owner {} is not live; rehire it first", dog.owner_name);
             }
+            if dog.kind == "slot" {
+                drop(client);
+                return resume_slot(engine,org_id,actor,&dog,reason).await;
+            }
             if dog.kind == "project_listener" || dog.kind == "listener_watch" {
                 drop(client);
                 return Box::pin(resume_listener(engine, org_id, actor, &dog, reason)).await;
@@ -2677,6 +2673,25 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
         out["reason"] = json!(r);
     }
     Ok(out)
+}
+
+/// A paused slot claim is a new queue admission, not a capacity bypass.
+#[logged]
+async fn resume_slot(engine:&Arc<Engine>,org_id:i64,actor:Option<i64>,dog:&Dog,reason:Option<&str>) -> Result<Value> {
+    let Some(project)=dog.memo["target_id"].as_i64() else {refuse!(Conflict,"this slot claim's project is unknown; create a new one");};
+    let mut client=engine.db.get().await?;let tx=client.transaction().await?;
+    tx.query_one("SELECT id FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE",&[&project]).await?;
+    let row=tx.query_one("SELECT state,memo FROM ot.watchdogs WHERE id=$1 FOR UPDATE",&[&dog.row]).await?;
+    let state:String=row.get(0);let memo:Value=row.get(1);
+    if !matches!(state.as_str(),"armed"|"paused")||memo.get("lease").is_some() {refuse!(Conflict,"this slot claim was granted or removed; create a new one");}
+    if !crate::domain::projects::reaches(&*tx,dog.owner,project).await? {refuse!(Forbidden,"you no longer reach this slot claim's project");}
+    crate::domain::slots::admit(&tx,project,Some(dog.owner),i64::from(crate::domain::slots::requested(&memo)),Some(dog.row)).await?;
+    tx.execute("UPDATE ot.watchdogs SET state='armed',exit=NULL,memo=(memo-'paused_why'-'paused_by')||jsonb_build_object('queued_at',(extract(epoch FROM clock_timestamp())*1000)::bigint) WHERE id=$1",&[&dog.row]).await?;
+    let by=match actor {Some(a)=>tx.query_one("SELECT name FROM ot.agents WHERE id=$1",&[&a]).await?.get::<_,String>(0),None=>"@user".into()};
+    tx.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail) VALUES($1,'watchdog_resume',$2,$3,$4)",&[&org_id,&by,&dog.owner,&json!({"id":dog.uid,"name":dog.name,"reason":reason})]).await?;
+    tx.commit().await?;drop(client);disarm(engine,dog.row);arm(engine,dog.row);
+    changes::notify_id(engine,org_id,vec![Change::Watchdogs,Change::Events,Change::Agent(project)]);
+    Ok(json!({"id":dog.uid,"name":dog.name,"state":"armed"}))
 }
 
 /// Resume a project_listener or listener_watch (`act`): it arms, so, as a

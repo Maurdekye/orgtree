@@ -795,7 +795,7 @@ fn build_tool_project() -> Value {
             "include_dropped": {"type":"boolean","description":"dead_letters: list dropped letters too"},
             "lease": { "type": "string", "description": "release_slot: the lease your concurrency slot grant named" },
             "note": { "type": "string", "description": "release_slot: optional, e.g. build ok 265s" },
-            "settings": {"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"turn_end_reminder":{"type":"boolean"},"slots":{"type":"integer","minimum":0,"maximum":64},"event_listeners":{"type":"boolean"}}},
+            "settings": {"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"turn_end_reminder":{"type":"boolean"},"slots":{"type":"integer","minimum":0,"maximum":9999999},"event_listeners":{"type":"boolean"}}},
             "force": {"type":"boolean","description":"release_slot: any project ancestor may force release"},
             "agent": {"type":"string","description":"unqueue_slot: agent to remove from line"},
             "team": {"type":"boolean","description":"presentations/read_presentation: include the project subtree"},
@@ -989,7 +989,7 @@ fn build_tool_watchdog() -> Value {
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
             "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "mqtt", "websocket"] },
             "batch": { "type": "integer", "minimum": 1, "maximum": 20, "description": "fair_queue only: up to this many mails per wake; ACK capacity too. Default 1." },
-            "slots": { "type": "integer", "minimum": 1, "maximum": 64, "description": "slot only: reserve this many slots together as one lease, in strict FIFO. Default 1; at most project capacity." },
+            "slots": { "type": "integer", "minimum": 1, "maximum": 9999999, "description": "slot only: reserve this many slots together as one lease, in strict FIFO. Default 1; at most project capacity." },
             "credentials": { "anyOf": [
                 { "type": "string" },
                 { "type": "object", "properties": { "username": { "type": "string" }, "password": { "type": "string" }, "client_id": { "type": "string" },
@@ -1515,7 +1515,7 @@ mod builder_stack_tests {
         schema["properties"]["id"] = serde_json::json!({"type":"string","description":"dead_letters: read this dead letter in full; retry_dead_letter/drop_dead_letter: its mail id"});
         schema["properties"]["reason"] = serde_json::json!({"type":"string","description":"drop_dead_letter: why the job is dropped"});
         schema["properties"]["include_dropped"] = serde_json::json!({"type":"boolean","description":"dead_letters: list dropped letters too"});
-        schema["properties"]["settings"] = serde_json::json!({"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"turn_end_reminder":{"type":"boolean"},"slots":{"type":"integer","minimum":0,"maximum":64},"event_listeners":{"type":"boolean"}}});
+        schema["properties"]["settings"] = serde_json::json!({"type":"object","additionalProperties":false,"properties":{"name":{"type":"string"},"description":{"type":"string"},"peer_mail":{"type":"boolean"},"mail_queue":{"type":"string","enum":["round_robin","ack"]},"exclude_sender":{"type":"boolean"},"ack_timeout":{"type":"boolean"},"max_attempts":{"type":"integer","minimum":1,"maximum":100},"ack_reminders":{"type":"integer","minimum":1,"maximum":10},"turn_end_reminder":{"type":"boolean"},"slots":{"type":"integer","minimum":0,"maximum":9999999},"event_listeners":{"type":"boolean"}}});
         schema["properties"]["force"] = serde_json::json!({"type":"boolean","description":"release_slot: any project ancestor may force release"});
         schema["properties"]["agent"] = serde_json::json!({"type":"string","description":"unqueue_slot: agent to remove from line"});
         schema["properties"]["team"] = serde_json::json!({"type":"boolean","description":"presentations/read_presentation: include the project subtree"});
@@ -1538,7 +1538,7 @@ mod builder_stack_tests {
         dschema["properties"]["cursor"] = serde_json::json!({"type":"string","description":"list: next_cursor from the preceding page"});
         dschema["properties"]["limit"] = serde_json::json!({"type":"integer","minimum":1,"maximum":100,"description":"list: page size (default 50, max 100)"});
         dschema["properties"]["batch"] = serde_json::json!({"type":"integer","minimum":1,"maximum":20,"description":"fair_queue only: up to this many mails per wake; ACK capacity too. Default 1."});
-        dschema["properties"]["slots"] = serde_json::json!({"type":"integer","minimum":1,"maximum":64,"description":"slot only: reserve this many slots together as one lease, in strict FIFO. Default 1; at most project capacity."});
+        dschema["properties"]["slots"] = serde_json::json!({"type":"integer","minimum":1,"maximum":9999999,"description":"slot only: reserve this many slots together as one lease, in strict FIFO. Default 1; at most project capacity."});
         dschema["properties"]["kind"]["enum"] = serde_json::json!(["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch"]);
         dschema["properties"]["count"] = serde_json::json!({"type":"integer","minimum":1,"maximum":1024,"description":"listener_watch only: armed project listeners that fire it"});
         dschema["properties"]["fire_actions"] = serde_json::json!({"type":"array","maxItems":4,"items":{"type":"object","properties":{"tool":{"type":"string"},"args":{"type":"object"}},"required":["tool"]},"description":"create: orgtree_* tool calls run as you when it fires, results in the fire mail; authority rechecked at fire time; not for fair_queue"});

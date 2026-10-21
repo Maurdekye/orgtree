@@ -26,6 +26,7 @@
 //! in the same transaction (no mail: the desk shows it).
 
 use std::sync::Arc;
+use std::collections::HashSet;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -39,7 +40,36 @@ use crate::util::{iso, uid};
 /// The watchdog kind that claims a slot.
 pub const KIND: &str = "slot";
 /// The largest slot count a project may have.
-pub const MAX_CAPACITY: i64 = 64;
+pub const MAX_CAPACITY: i64 = 9_999_999;
+
+/// Admission serializes with grants, releases and project policy changes.
+/// Several leases are allowed; agents keep only one armed/paused pending
+/// claim, while the user's several pending requests count against room.
+#[logged]
+pub async fn admit(
+    tx: &tokio_postgres::Transaction<'_>, project: i64, owner: Option<i64>,
+    count: i64, excluding: Option<i64>,
+) -> Result<()> {
+    let row=tx.query_one("SELECT name,state,scope FROM ot.agents WHERE id=$1 AND kind='project' FOR NO KEY UPDATE",&[&project]).await?;
+    let name:String=row.get(0);let state:String=row.get(1);let cap=capacity(&row.get::<_,Value>(2));
+    if state!="live" {crate::refuse!(Conflict,"project {name} is retired");}
+    if cap==0 {crate::refuse!(Conflict,"project {name} has no concurrency slots");}
+    if !(1..=MAX_CAPACITY).contains(&count) {crate::refuse!(BadRequest,"slots must be an integer from 1 to {MAX_CAPACITY}");}
+    if count>cap {crate::refuse!(BadRequest,"requested {count} slots exceeds project {name}'s total capacity of {cap}");}
+    let mine=tx.query_one(
+        "SELECT coalesce((SELECT sum(slot_count) FROM ot.slot_leases WHERE project_id=$1
+            AND holder_agent_id IS NOT DISTINCT FROM $2::bigint AND ended_at IS NULL),0)::bigint,
+            coalesce((SELECT sum(CASE WHEN (memo->>'slots') ~ '^[0-9]+$' THEN (memo->>'slots')::bigint ELSE 1 END)
+              FROM ot.watchdogs WHERE kind='slot' AND owner_agent_id IS NOT DISTINCT FROM $2::bigint
+                AND state IN ('armed','paused') AND (memo->>'target_id')::bigint=$1
+                AND NOT memo ? 'lease' AND ($3::bigint IS NULL OR id<>$3)),0)::bigint",
+        &[&project,&owner,&excluding]).await?;
+    let held:i64=mine.get(0);let pending:i64=mine.get(1);
+    if owner.is_some()&&pending>0 {crate::refuse!(Conflict,"you already have a concurrency slot claim on project {name} (one armed or paused claim per agent); remove it to leave the line");}
+    let room=(cap-held-pending).max(0);
+    if count>room {crate::refuse!(Conflict,"requested {count} slots but only {room} remain for you on project {name} ({held} held, {pending} pending, capacity {cap}); release a hold or cancel a waiting claim first");}
+    Ok(())
+}
 
 /// A project's slot count (`scope.slots_capacity`; 0, the default, is no
 /// slots: user 2026-10-18 08:42Z).
@@ -62,8 +92,9 @@ pub fn quantity(count: i32) -> String {
 /// Free private lease anchors, not capacity units. A multi-slot lease keeps
 /// one anchor; admission accounts for its slot_count separately.
 #[nolog]
-pub fn free_slots(capacity: i64, held: &[i32]) -> Vec<i32> {
-    (1..=capacity as i32).filter(|n| !held.contains(n)).collect()
+pub fn free_slots(capacity: i64, held: &[i32]) -> impl Iterator<Item=i32> {
+    let held:HashSet<i32>=held.iter().copied().collect();
+    (1..=capacity as i32).filter(move |n| !held.contains(n))
 }
 
 /// A grant made by `grant`, fired after its transaction commits.
@@ -454,14 +485,15 @@ mod tests {
     fn the_slot_count_defaults_to_none() {
         assert_eq!(capacity(&json!({})), 0);
         assert_eq!(capacity(&json!({ "slots_capacity": 2 })), 2);
-        assert_eq!(capacity(&json!({ "slots_capacity": 1000 })), 0, "out of range reads as none");
+        assert_eq!(capacity(&json!({ "slots_capacity": MAX_CAPACITY+1 })), 0, "out of range reads as none");
     }
 
     /// The lowest free slots, never one already held.
     #[test]
     fn free_slots_are_the_lowest_not_held() {
-        assert_eq!(free_slots(3, &[2]), vec![1, 3]);
-        assert_eq!(free_slots(1, &[1]), Vec::<i32>::new());
-        assert_eq!(free_slots(0, &[]), Vec::<i32>::new());
+        assert_eq!(free_slots(3, &[2]).collect::<Vec<_>>(), vec![1, 3]);
+        assert_eq!(free_slots(1, &[1]).collect::<Vec<_>>(), Vec::<i32>::new());
+        assert_eq!(free_slots(0, &[]).collect::<Vec<_>>(), Vec::<i32>::new());
+        assert_eq!(free_slots(MAX_CAPACITY,&[1,3]).take(3).collect::<Vec<_>>(),vec![2,4,5]);
     }
 }

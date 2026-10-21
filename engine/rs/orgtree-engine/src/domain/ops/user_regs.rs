@@ -120,36 +120,15 @@ async fn turn_events_on(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Acto
 pub(super) async fn slot_hold(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     require_user(actor, "holds concurrency slots as themselves")?;
     let n = live_project(org, tx, req, "has concurrency slots").await?;
-    let capacity = crate::domain::slots::capacity(&n.scope);
-    if capacity == 0 {
-        refuse!(Conflict, "project {} has no concurrency slots (its slot count in Project settings is 0)", n.name);
-    }
     let Some(count) = req.get("slots").and_then(Value::as_i64).filter(|c| (1..=crate::domain::slots::MAX_CAPACITY).contains(c)) else {
         refuse!(BadRequest, "slots is how many concurrency slots to hold, 1 to {}", crate::domain::slots::MAX_CAPACITY);
     };
-    if count > capacity {
-        refuse!(BadRequest, "requested {count} slots exceeds project {}'s total capacity of {capacity}", n.name);
-    }
     let reason = str_arg(req, "reason").map(str::trim).unwrap_or("");
     if reason.chars().count() > MAX_REASON {
         refuse!(BadRequest, "the reason is at most {MAX_REASON} characters");
     }
-    // the user's holds and waiting requests together stay within the count:
-    // more could never be granted, only block the line behind themselves
-    let mine: i64 = tx
-        .query_one(
-            "SELECT coalesce((SELECT sum(slot_count) FROM ot.slot_leases
-                               WHERE project_id = $1 AND holder_kind = 'user' AND ended_at IS NULL), 0)::bigint
-                  + coalesce((SELECT sum(CASE WHEN (memo->>'slots') ~ '^[0-9]+$' THEN (memo->>'slots')::int ELSE 1 END) FROM ot.watchdogs
-                               WHERE kind = 'slot' AND owner_kind = 'user' AND state = 'armed'
-                                 AND (memo->>'target_id')::bigint = $1 AND NOT memo ? 'lease'), 0)::bigint",
-            &[&n.id],
-        )
-        .await?
-        .get(0);
-    if mine + count > capacity {
-        refuse!(Conflict, "you already hold or wait for {mine} of project {}'s {capacity} slots; asking for {count} more would exceed them. Release one or cancel the wait first", n.name);
-    }
+    // Shared admission takes the project lock and re-reads current policy.
+    crate::domain::slots::admit(tx,n.id,None,count,None).await?;
     let queued_at = chrono::Utc::now().timestamp_millis();
     let memo = json!({ "target_id": n.id, "slots": count, "queued_at": queued_at, "reason": reason, "notice": true, "run": {} });
     let (dog, row) = insert_dog(tx, org.id, "slot", &n, "user-hold", true, &memo).await?;
