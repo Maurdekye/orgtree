@@ -209,6 +209,64 @@ fn text_content(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn completed_tool(name: &str, input: Value) -> Transcript {
+        let mut t = Transcript::default();
+        t.observe(&json!({"type":"assistant","message":{"id":"redaction","content":[
+            {"type":"tool_use","id":"call","name":name,"input":input}]}}));
+        t
+    }
+    fn input_of(t: &Transcript) -> Value {
+        serde_json::from_str(t.snapshot()["messages"][0]["tools"][0]["input_text"].as_str().unwrap()).unwrap()
+    }
+    fn private_args(kind: &str) -> Value {
+        json!({"action":"create","kind":kind,"target":"wss://helper-user:helper-canary-url@example.test/feed?token=helper-canary-query&room=safe",
+            "credentials":{"password":"helper-canary-password","bearer":"helper-canary-bearer"},
+            "fire_actions":[{"tool":"orgtree_watchdog","args":{"kind":"mqtt","credentials":{"password":"helper-canary-nested"}}}]})
+    }
+    #[test]
+    fn completed_watchdog_helper_inputs_redact_credentials_and_secret_urls() {
+        for kind in ["mqtt","websocket"] {
+            let t=completed_tool("mcp__orgtree__orgtree_watchdog",private_args(kind));
+            assert!(!t.snapshot().to_string().contains("helper-canary-"),"helper snapshot exposed a synthetic credential");
+            let kept=input_of(&t);
+            assert_eq!(kept["action"],"create");
+            assert_eq!(kept["kind"],kind);
+            assert!(kept["target"].as_str().unwrap().contains("room=safe"));
+        }
+    }
+    #[test]
+    fn wrapped_helper_watchdog_inputs_are_normalized_then_redacted() {
+        for args in [private_args("websocket"),json!(private_args("mqtt").to_string())] {
+            let t=completed_tool("default_api:call_mcp_tool",json!({"ServerName":"orgtree","ToolName":"orgtree_watchdog","Arguments":args}));
+            assert!(!t.snapshot().to_string().contains("helper-canary-"),"wrapped helper snapshot exposed a synthetic credential");
+            assert_eq!(input_of(&t)["action"],"create");
+            assert_eq!(t.snapshot()["messages"][0]["tools"][0]["name"],"mcp__orgtree__orgtree_watchdog");
+        }
+    }
+    #[test]
+    fn partial_helper_inputs_never_publish_secret_fragments() {
+        for (name,args) in [("mcp__orgtree__orgtree_watchdog",private_args("mqtt")),
+            ("default_api:call_mcp_tool",json!({"ServerName":"orgtree","ToolName":"orgtree_watchdog","Arguments":private_args("websocket").to_string()}))] {
+            let mut t=Transcript::default();
+            let stream=|event|json!({"type":"stream_event","event":event});
+            t.observe(&stream(json!({"type":"message_start","message":{"id":"stream"}})));
+            t.observe(&stream(json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call","name":name,"input":{}}})));
+            for ch in args.to_string().chars() {
+                t.observe(&stream(json!({"type":"content_block_delta","index":0,"delta":{"partial_json":ch.to_string()}})));
+                assert!(!t.snapshot().to_string().contains("helper-canary-"),"stream snapshot exposed a synthetic credential fragment");
+            }
+            assert_eq!(input_of(&t)["action"],"create");
+            assert!(!t.snapshot().to_string().contains("helper-canary-"));
+        }
+    }
+    #[test]
+    fn helper_redaction_preserves_ordinary_arguments_and_credentials_files() {
+        assert_eq!(input_of(&completed_tool("Read",json!({"file_path":"safe.txt","offset":7}))),json!({"file_path":"safe.txt","offset":7}));
+        for name in ["orgtree_watchdog","mcp__orgtree__orgtree_watchdog"] {
+            let args=json!({"action":"create","kind":"mqtt","target":"mqtt://localhost","pattern":"safe/#","credentials":"config/broker.json"});
+            assert_eq!(input_of(&completed_tool(name,args.clone())),args);
+        }
+    }
     #[test]
     fn ordered_fragments_remain_bounded_and_report_omitted_activity() {
         let mut t = Transcript::default();
