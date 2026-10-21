@@ -15,7 +15,8 @@ module.exports=async page=>{
    const text=range.getBoundingClientRect(),box=badge.getBoundingClientRect(),parent=card.getBoundingClientRect()
    // Ignore ellipsis/clipping: the full text must fit the badge's content box.
    const inset=(parseFloat(style.paddingLeft)+parseFloat(style.paddingRight)+parseFloat(style.borderLeftWidth)+parseFloat(style.borderRightWidth))*3
-   results.push({digits,text:badge.textContent,textWidth:text.width,badgeWidth:box.width,cardWidth:parent.width,fits:text.width<=box.width-inset+0.1&&box.right<=parent.right+0.1})
+   const lines=range.getClientRects().length
+   results.push({digits,text:badge.textContent,textWidth:text.width,badgeWidth:box.width,cardWidth:parent.width,lines,fits:lines===1&&text.width<=box.width-inset+0.1&&box.right<=parent.right+0.1})
   }
   const digits=Math.max(...results.filter(r=>r.fits).map(r=>r.digits))
   const n=widest.repeat(digits);badge.textContent=n+'/'+n+' held'
