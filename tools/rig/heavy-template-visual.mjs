@@ -20,7 +20,7 @@ const esbuild = createRequire(import.meta.url)(path.join(deps, 'esbuild'))
 try {
   await esbuild.build({ entryPoints: [path.join(repo, 'apps/desktop/renderer/tests/heavytemplates.visual.tsx')],
     outfile: path.join(out, 'fixture.js'), bundle: true, format: 'iife', jsx: 'automatic', nodePaths: [deps],
-    loader: { '.png': 'file', '.svg': 'file', '.jpg': 'file', '.woff': 'file', '.woff2': 'file' } })
+    loader: { '.png': 'file', '.svg': 'file', '.jpg': 'file', '.woff': 'file', '.woff2': 'file', '.ttf': 'file' } })
 } finally { esbuild.stop() }
 fs.writeFileSync(path.join(out, 'index.html'), '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script src="fixture.js"></script>')
 fs.mkdirSync(path.join(out, 'tmp'), { recursive: true })
