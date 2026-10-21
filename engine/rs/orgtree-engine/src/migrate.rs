@@ -55,6 +55,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0047_retired_picker", include_str!("../migrations/0047_retired_picker.sql")),
     ("0048_active_claim_holder", include_str!("../migrations/0048_active_claim_holder.sql")),
     ("0049_slot_capacity_digits", include_str!("../migrations/0049_slot_capacity_digits.sql")),
+    ("0051_dead_letter_readers", include_str!("../migrations/0051_dead_letter_readers.sql")),
 ];
 
 #[cfg(test)]

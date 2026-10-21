@@ -32,7 +32,7 @@ const open=dead.match(/pub const OPEN: &str = "([^"]+)"/)[1]
 const any=dead.match(/const ANY: &str = "([^"]+)"/)[1]
 // Read the actual production SQL, so a changed reader cannot silently leave
 // the proof measuring a hand-written approximation.
-const counts=[...dead.matchAll(/\.query_one\(&format!\("([^"]+)"\)/g)].map(x=>x[1].replaceAll('{OPEN}',open).replaceAll('{ANY}',any))
+const counts=[...dead.matchAll(/\.query_one\((?:&format!\("([^"]+)"\)|"([^"]+)")/g)].map(x=>(x[1]??x[2]).replaceAll('{OPEN}',open).replaceAll('{ANY}',any))
 assert.equal(counts.length,2,'production open and dropped count readers')
 const page=dead.match(/&format!\("(SELECT m.uid,[\s\S]+?)"\),\s*&\[&project, &limit, &offset\]/)[1]
 const unread=fs.readFileSync(path.join(repo,'engine/rs/orgtree-engine/src/domain/mail.rs'),'utf8').match(/pub const UNREAD_STATES: &str = "([^"]+)"/)[1]

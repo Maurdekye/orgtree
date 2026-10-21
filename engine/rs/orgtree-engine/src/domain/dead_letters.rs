@@ -26,7 +26,7 @@ const ANY: &str = "m.state = 'read' AND m.extra ? 'dead_letter'";
 #[logged]
 pub async fn count(client: &impl GenericClient, project: i64) -> Result<i64> {
     Ok(client
-        .query_one(&format!("SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = $1 AND {OPEN}"), &[&project])
+        .query_one("SELECT coalesce((SELECT open_count FROM ot.project_dead_letter_counts WHERE recipient_agent_id = $1), 0)", &[&project])
         .await?
         .get(0))
 }
@@ -37,7 +37,7 @@ pub async fn count(client: &impl GenericClient, project: i64) -> Result<i64> {
 pub async fn list(client: &impl GenericClient, project: i64, pname: &str, limit: i64, offset: i64, include_dropped: bool) -> Result<Value> {
     let total = count(client, project).await?;
     let dropped: i64 = client
-        .query_one(&format!("SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = $1 AND {ANY} AND m.extra ? 'dead_letter_dropped'"), &[&project])
+        .query_one("SELECT coalesce((SELECT dropped_count FROM ot.project_dead_letter_counts WHERE recipient_agent_id = $1), 0)", &[&project])
         .await?
         .get(0);
     let scope = if include_dropped { ANY } else { OPEN };
