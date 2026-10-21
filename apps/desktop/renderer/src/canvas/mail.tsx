@@ -35,6 +35,7 @@ import {
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
 import { AgentLink, AgentName } from './identity'
+import { WatchdogLink } from './watchdoglink'
 import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
 import { RefMdBody } from './refmd'
 import { refToken } from './reflinks'
@@ -362,9 +363,12 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   }
   const rowParty = (m: MailRow) => {
     const monitor = monitorOf(m)
-    const identity = R(displayParty(m)!, m)
+    // A recorded monitor name is a label, never an agent id. Reuse its typed
+    // identity/route even when a live agent happens to have the same name.
     return monitor ? <span className="mail-monitor-sender"
-      title={`monitor ${monitor.name || monitor.id} · ${monitor.id.includes('/') ? monitor.id : `${monitor.owner}/${monitor.id}`}`}>{identity}</span> : identity
+      title={`monitor ${monitor.name || monitor.id} · ${monitor.id.includes('/') ? monitor.id : `${monitor.owner}/${monitor.id}`}`}>
+      <WatchdogLink id={monitor.id} owner={monitor.owner} name={displayParty(m)!} org={monitor.org} />
+    </span> : R(displayParty(m)!, m)
   }
   const qn = q.trim().toLowerCase()
   const tagged = tagFilter?.selected.length ? all.filter(m => mailMatchesTags(m.tags,tagFilter.selected)) : all

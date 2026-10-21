@@ -25,6 +25,15 @@ Create/Enter are disabled while pending, with a synchronous submission guard;
 Cancel remains available. A refusal re-enables only its still-current form.
 [verified: `canvas/OrgCanvas.tsx`, `canvas/newproject.tsx`,
 `tests/projectdraft-response.test.tsx`; coordinator 2026-10-21 23:31Z]
+## Typed monitor senders
+
+Monitor-event mail rows render the shared `WatchdogLink` with the recorded
+org, handle, owner and label. A display-name collision never resolves an agent
+or adds its model chip. Live watchdogs use their usual detail route and tooltip;
+missing registry metadata stays neutral. The recorded handle remains on the
+sender wrapper and searchable. [verified: `canvas/mail.tsx`,
+`tests/monitor-sender-collision.test.tsx`; 2026-10-21]
+
 ## Register menu in popped-out documents
 
 RegisterMenu tests containment after a structural node check, rather than the

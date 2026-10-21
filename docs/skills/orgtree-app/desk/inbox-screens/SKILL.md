@@ -15,6 +15,9 @@ Inbox/Sent selects direction. A selected message opens the read pane with sender
 Monitor-event list rows use the monitor name shown by the opened card, including
 recorded names of spent monitors. Hover the sender for its full stable handle;
 sender/body search also accepts that ID. If no name remains, the ID is the label.
+Monitor senders use watchdog identity and detail navigation, even when their
+name matches an agent. They never acquire that agent's model chip or desk link.
+If live monitor metadata is unavailable, the recorded name and handle remain.
 
 Mail bodies support inline Markdown images. Relative image paths resolve within the author's files; absolute Windows paths and HTTP(S) URLs use the checked image endpoint. PNG, JPEG, GIF and WebP are supported there; an image that cannot be loaded falls back to a link (local files can be revealed in their folder).
 
