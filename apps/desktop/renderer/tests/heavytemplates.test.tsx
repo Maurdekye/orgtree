@@ -10,7 +10,7 @@ const plan:TemplatePlan={id:'heavy',name:'Heavy dev shop',org_md:false,ok:true,b
   {slot:'build-slot',name:'build-slot',parent:'lead',depth:1,tier:'project',requested_tier:'project',note:null,account:null,provider:null,seat:0,grant:0,charter:'none',team_charter:null,kickoff:false,blocked:false,dirs_dropped:[]},
 ]}
 const choice={id:'heavy',overrides:{},removed:[],kickoff:false}
-const response=(value:unknown)=>({ok:true,status:200,headers:new Headers(),json:async()=>value})
+const response=(value:unknown)=>new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}})
 test('project preview is free and has no model picker; expectation pins its kind',async()=>{
   globalThis.fetch=(async()=>response({templates:[],loading:false})) as typeof fetch
   const view=await mountView(<TemplatePicker choice={choice} onChange={()=>{}} plan={plan} onPlan={()=>{}} orgName="Fixture" dirs={[]}/>,e=>e)
