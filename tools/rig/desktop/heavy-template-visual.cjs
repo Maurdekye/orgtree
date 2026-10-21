@@ -11,6 +11,7 @@ app.whenReady().then(async()=>{
  await win.loadFile(path.join(out,'index.html'))
  await win.webContents.executeJavaScript(`new Promise((resolve,reject)=>{const check=()=>document.querySelectorAll('.tp-preview tbody tr').length===10&&document.body.textContent.includes('Scratch AGENTS.md');if(check())return resolve(true);const o=new MutationObserver(()=>{if(check()){o.disconnect();clearTimeout(t);resolve(true)}});o.observe(document.body,{childList:true,subtree:true});const t=setTimeout(()=>{o.disconnect();reject(Error('fixture did not mount'))},10000)})`)
  await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+ await new Promise(resolve=>setTimeout(resolve,100))
  const image=await win.webContents.capturePage()
  const png=image.toPNG();if(png.length<10000)throw new Error('empty fixture capture')
  fs.writeFileSync(path.join(out,'heavy-dev-shop.png'),png)

@@ -31,13 +31,16 @@ test('scratch note capture is an explicit unchecked save choice and names copyin
   globalThis.fetch=(async(_url:unknown,init?:RequestInit)=>{seen.body=JSON.parse(String(init?.body));return response({id:'x',file:'x.json',path:'/fixture/x.json',content:'{}',agents:1,problems:[]})}) as typeof fetch
   const view=await mountView(<SaveTemplateModal slug="fixture" orgName="Fixture" close={()=>{}}/>,e=>e)
   try {
-    const label=[...view.el.querySelectorAll('label')].find(l=>l.textContent?.includes('Scratch AGENTS.md'))!
+    // ModalOverPins portals into the owner document rather than the host view.
+    const dialog=document.querySelector<HTMLElement>('[role="dialog"][aria-label="Save as template"]')
+    assert.ok(dialog!==null)
+    const label=[...dialog.querySelectorAll('label')].find(l=>l.textContent?.includes('Scratch AGENTS.md'))!
     const checkbox=label.querySelector<HTMLInputElement>('input')!
     assert.equal(checkbox.checked,false)
     assert.match(label.textContent??'',/copies shared, team\/project and personal notes into this template file/)
     assert.match(label.textContent??'',/16,000.*128,000/)
     await inAct(async()=>{checkbox.click();await flush(2)})
-    const save=[...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Save template')!
+    const save=[...dialog.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Save template')!
     await inAct(async()=>{save.click();await flush(3)})
     assert.equal((seen.body?.['include'] as {standing_notes:boolean}).standing_notes,true)
   }finally{await view.unmount()}
