@@ -10,6 +10,7 @@ import { RefChip, resolveRef } from '../src/canvas/reflinks'
 import { RefMdBody } from '../src/canvas/refmd'
 import { ToolRefs } from '../src/canvas/toolrefs'
 import { ToolChip } from '../src/canvas/desk'
+import { MailReplyPreview } from '../src/canvas/mailreply'
 import type { WorkItem } from '../src/types'
 import { objectTooltipProps, registerObjectNativeTooltipDocument } from '../src/canvas/objecttooltip'
 
@@ -34,9 +35,9 @@ test('native object tooltip binds to the adopted document and ignores stale/clea
   }
   await hover()
   assert.equal(reads.length, 1, 'only the adopted document sees its hover')
-  await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Native title' } }), { status: 200 })))
+  await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Native title', status: 'open' } }), { status: 200 })))
   await flush()
-  assert.equal(link.title, 'Native title')
+  assert.equal(link.title, 'Open · Native title')
   await inAct(() => link.dispatchEvent(new win.MouseEvent('pointerout', { bubbles: true })))
   await hover()
   await inAct(() => link.dispatchEvent(new win.MouseEvent('pointerout', { bubbles: true })))
@@ -50,16 +51,17 @@ test('native object tooltip binds to the adopted document and ignores stale/clea
   assert.equal(link.title, '', 'cleaned-up window hosts do not decorate retained DOM')
 })
 
-test('ticket row, typed/Markdown/bare refs and tool links share full-title hover and base menu', async t => {
+test('ticket row, typed/Markdown/bare refs, inbox reply and tools share live status/title hover and base menu', async t => {
   const original = globalThis.fetch
   let title = 'A full ticket title'
+  let status = 'open', archived = false
   const item = { slug: 'ticket-parity', title, status: 'open', owner: null, archived: false,
     at: '2026-10-21T00:00:00Z', updated_at: '2026-10-21T00:00:00Z', questions: [],
     done_so_far: [], working_on_next: [], attention_sources: [] } as unknown as WorkItem
   const reads: string[] = [], opened: string[] = []
   globalThis.fetch = (async input => {
     const url = String(input); reads.push(url)
-    return new Response(JSON.stringify(url.includes('/references') ? { references: [{ ...item, title }] } : { item: { ...item, title } }), { status: 200 })
+    return new Response(JSON.stringify(url.includes('/references') ? { references: [{ ...item, title, status, archived }] } : { item: { ...item, title, status, archived } }), { status: 200 })
   }) as typeof fetch
   t.after(() => { globalThis.fetch = original })
   const world = { org: 'org', items: new Map([[item.slug, item.title]]), itemTitles: new Map([[item.slug, item.title]]) }
@@ -74,20 +76,23 @@ test('ticket row, typed/Markdown/bare refs and tool links share full-title hover
       <WorkRefText text={item.slug} org="org" index={buildMentionIndex([item])} onPick={() => {}} />
       <ToolRefs org="org" owner="worker" agent={id => id} refs={[{ kind: 'ticket', id: item.slug }]} onWorkLink={() => {}} />
       <ToolChip t={{ id: 'created', name: 'orgtree_work', work: { slug: item.slug } }} slug="org" nid="worker" onWorkLink={() => {}} />
+      <MailReplyPreview row={{ reply_to: { id: item.slug, kind: 'work_item', org: 'org', gist: 'Ticket context' } }} org="org" world={world} onOpen={() => {}} />
     </ObjectMenuBoundary>
   </ObjectNavProvider>, el => el)
   t.after(() => v.unmount())
   await flush(3)
   const links = [...v.el.querySelectorAll<HTMLElement>('.docket-row, [data-object-nav="ticket"]')]
-  assert.equal(links.length, 7, 'actual row, React, Markdown typed/bare, React bare and two tool targets')
+  assert.equal(links.length, 8, 'actual row, React, Markdown typed/bare, React bare, two tool targets and inbox reply')
   const readsBeforeHover = reads.length
-  for (const expectedTitle of [title, 'Renamed ticket, still the same target']) {
-    title = expectedTitle
+  for (const state of [{ status: 'open', label: 'Open', title },
+    { status: 'blocked', label: 'Blocked', title: 'Renamed ticket, still the same target' },
+    { status: 'done', label: 'Archived', title: 'Renamed ticket, still the same target', archived: true }]) {
+    title = state.title; status = state.status; archived = !!state.archived
     let menu: (string | null)[] | undefined
     for (const link of links) {
       await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
       await flush(2)
-      assert.equal(link.title, expectedTitle, 'hover resolves the authoritative full title, never a surface action hint')
+      assert.equal(link.title, `${state.label} · ${title}`, 'hover resolves current state and full title rather than cached row state')
       await inAct(() => link.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })))
       await flush(2)
       const labels = [...document.querySelectorAll('.ctxmenu:not(.ctxmenu-submenu) > .ctxmenu-branch > [role="menuitem"]')].map(el => el.textContent)
@@ -98,4 +103,57 @@ test('ticket row, typed/Markdown/bare refs and tool links share full-title hover
   }
   assert.ok(reads.length > readsBeforeHover, 'renames are read exactly on demand rather than permanently cached')
   assert.deepEqual(opened, [], 'hover and context opening do not navigate')
+})
+
+test('ticket status labels match the docket; unknown or absent status shows only the title', async t => {
+  const original = fetch
+  let served: Record<string, unknown> = {}
+  globalThis.fetch = (async () => new Response(JSON.stringify({ item: { title: 'Complete title', ...served } }))) as typeof fetch
+  t.after(() => { globalThis.fetch = original })
+  const cleanup = registerObjectNativeTooltipDocument(document)
+  t.after(cleanup)
+  const view = await mountView(<button {...objectTooltipProps('ticket', 'status-labels', 'org')}>ticket</button>, el => el)
+  t.after(view.unmount)
+  const link = view.el.querySelector('button')!
+  const states = [
+    ['open', 'Open'], ['in_progress', 'In progress'], ['blocked', 'Blocked'],
+    ['review', 'Agent review'], ['approved', 'Approved — not landed'], ['deploy_ready', 'Deploy Ready'],
+    ['done', 'Done'], ['dropped', 'Dropped'], ['backlogged', 'Backlogged'], ['superseded', 'Superseded'],
+  ] as const
+  for (const [status, label] of states) {
+    served = { status }
+    await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(3)
+    assert.equal(link.title, `${label} · Complete title`)
+    await inAct(() => link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
+  }
+  for (const status of [undefined, null, '', 'future-status', '__proto__', 12, {}]) {
+    served = { status }
+    await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(3)
+    assert.equal(link.title, 'Complete title', 'unknown status must not be invented')
+    await inAct(() => link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
+  }
+  served = { status: 'done', archived: true }
+  await inAct(() => link.dispatchEvent(new MouseEvent('focusin', { bubbles: true }))); await flush(3)
+  assert.equal(link.title, 'Archived · Complete title')
+})
+
+test('concurrent ticket hovers share one read, and a later focus rereads changed status', async t => {
+  const original = fetch
+  let settle: ((response: Response) => void) | undefined, reads = 0
+  globalThis.fetch = (() => { ++reads; return new Promise<Response>(resolve => { settle = resolve }) }) as typeof fetch
+  t.after(() => { globalThis.fetch = original })
+  const cleanup = registerObjectNativeTooltipDocument(document)
+  t.after(cleanup)
+  const view = await mountView(<><button {...objectTooltipProps('ticket', 'concurrent-ticket', 'org')}>one</button>
+    <button {...objectTooltipProps('ticket', 'concurrent-ticket', 'org')}>two</button></>, el => el)
+  t.after(view.unmount)
+  const [one, two] = [...view.el.querySelectorAll('button')]
+  await inAct(() => { one!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })); two!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })) })
+  assert.equal(reads, 1)
+  await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Ticket', status: 'open' } })))); await flush(3)
+  assert.equal(one!.title, 'Open · Ticket'); assert.equal(two!.title, one!.title)
+  await inAct(() => one!.dispatchEvent(new MouseEvent('focusin', { bubbles: true })))
+  assert.equal(reads, 2, 'settled result was not retained as a cache')
+  await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Ticket', status: 'done' } })))); await flush(3)
+  assert.equal(one!.title, 'Done · Ticket')
 })
