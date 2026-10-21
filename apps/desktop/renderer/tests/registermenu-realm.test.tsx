@@ -21,7 +21,7 @@ async function popupMenu(t: TestContext) {
   t.after(async () => { await view.unmount(); popup.window.close() })
   const trigger = doc.querySelector<HTMLButtonElement>('[data-action="register-menu"]')!
   assert.ok(trigger, 'positive control: trigger mounted in popup')
-  assert.equal(trigger.ownerDocument, doc)
+  assert.equal(trigger.ownerDocument === doc, true)
   assert.equal(trigger instanceof Node, false, 'fixture has a different DOM realm from the opener')
   assert.equal(trigger instanceof popup.window.Node, true)
   const down = async (el: Element) => inAct(async () => {
@@ -41,7 +41,7 @@ async function popupMenu(t: TestContext) {
   const panel = () => doc.querySelector<HTMLElement>('.register-panel')
   await click(trigger)
   assert.ok(panel(), 'positive control: Register opened in popup')
-  assert.equal(panel()!.ownerDocument, doc)
+  assert.equal(panel()!.ownerDocument === doc, true)
   return { popup, doc, requests, trigger, panel, down, click }
 }
 
@@ -50,7 +50,7 @@ for (const once of [true, false]) test(`popup Register ${once ? 'one-time' : 'co
   const button = p.panel()!.querySelector<HTMLButtonElement>(`[data-action="register-${once ? 'once' : 'continuous'}"]`)!
   await p.click(button)
   assert.deepEqual(p.requests, [{ op: 'user_listener_register', node: 'sync', once }])
-  assert.equal(p.panel(), null, 'an accepted action closes the menu')
+  assert.equal(p.panel() === null, true, 'an accepted action closes the menu')
 })
 
 test('popup Register count input and inside wheel stay open, then register the chosen watch', async t => {
@@ -74,20 +74,20 @@ test('popup Register count input and inside wheel stay open, then register the c
 test('popup Register trigger closes on its second complete pointer gesture', async t => {
   const p = await popupMenu(t)
   await p.click(p.trigger)
-  assert.equal(p.panel(), null, 'pointerdown must not close then let click reopen the menu')
+  assert.equal(p.panel() === null, true, 'pointerdown must not close then let click reopen the menu')
   assert.deepEqual(p.requests, [])
 })
 
 test('popup Register still closes on outside pointer, outside wheel and Escape', async t => {
   const p = await popupMenu(t)
   await p.down(p.doc.body)
-  assert.equal(p.panel(), null)
+  assert.equal(p.panel() === null, true)
   await p.click(p.trigger)
   await inAct(() => { p.doc.body.dispatchEvent(new p.popup.window.WheelEvent('wheel', { bubbles: true })) })
-  assert.equal(p.panel(), null)
+  assert.equal(p.panel() === null, true)
   await p.click(p.trigger)
   await inAct(() => { p.doc.dispatchEvent(new p.popup.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
-  assert.equal(p.panel(), null)
-  assert.equal(p.doc.activeElement, p.trigger, 'Escape returns focus to the popup trigger')
+  assert.equal(p.panel() === null, true)
+  assert.equal(p.doc.activeElement === p.trigger, true, 'Escape returns focus to the popup trigger')
   assert.deepEqual(p.requests, [])
 })
