@@ -296,7 +296,7 @@ async fn arm_armed(engine: &Arc<Engine>) -> Result<()> {
         drop(client);
         let more=rows.len()==256;
         for row in rows {after=row.get(0);arm(engine,after);}
-        if !more{return Ok(())}
+        if !more { if !safe { crate::domain::listeners::recover_pending(engine).await?; } return Ok(()) }
         tokio::task::yield_now().await;
     }
 }

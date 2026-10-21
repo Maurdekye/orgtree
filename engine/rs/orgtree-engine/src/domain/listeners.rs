@@ -17,9 +17,9 @@
 //! it off disables the armed ones with a mark, switching it on re-arms
 //! exactly the marked ones.
 //!
-//! Delivery is one transaction per fire, serialized by a `FOR NO KEY
+//! Delivery uses durable, bounded pages, serialized by a `FOR NO KEY
 //! UPDATE` on the project row (as the mail queue's hand-out and the slot
-//! grant): every eligible listener's mail and fire record lands together,
+//! grant): each page's eligible listeners, mail and cursor land together,
 //! in dog creation order, then wakes and fire-time tool calls run after
 //! commit. Reach is the project rule: the user, and agents above or below
 //! the project.
@@ -50,8 +50,7 @@ pub const LISTENER_KIND: &str = "project_listener";
 pub const WATCH_KIND: &str = "listener_watch";
 /// Fires a listener dog keeps in its `events` ring (as the other kinds).
 const EVENTS_KEEP: i64 = 50;
-/// Listeners one fire delivers to (the org-wide kept-dog cap binds lower;
-/// this only keeps the transaction's row set explicit).
+/// Maximum listener/watch rows processed in one committed transaction.
 const FIRE_BATCH: i64 = 200;
 
 /// The largest listener count a watch may ask for.
@@ -321,17 +320,27 @@ pub async fn armed_count(client: &impl GenericClient, org_id: i64, project: i64)
 /// short transaction; the fires themselves run after it commits.
 #[logged]
 pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()> {
+    let mut after = 0i64;
+    while let Some(last) = Box::pin(evaluate_page(engine, org_id, project, after)).await? {
+        after = last;
+        tokio::task::yield_now().await;
+    }
+    Ok(())
+}
+
+#[logged]
+async fn evaluate_page(engine: &Arc<Engine>, org_id: i64, project: i64, after: i64) -> Result<Option<i64>> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let Some(p) = tx
         .query_opt("SELECT name, state FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project])
         .await?
     else {
-        return Ok(());
+        return Ok(None);
     };
     let pname: String = p.get(0);
     if p.get::<_, String>(1) != "live" {
-        return Ok(());
+        return Ok(None);
     }
     let count = armed_count(&*tx, org_id, project).await?;
     let rows = tx
@@ -340,11 +349,12 @@ pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
                     coalesce((w.memo->'run'->>'above')::boolean, false), w.uid, w.name, coalesce(a.name, '{USER}'), {LISTENING_SINCE}
                FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'listener_watch' AND w.state = 'armed'
-                AND (w.memo->>'target_id')::bigint = $2 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
+                AND (w.memo->>'target_id')::bigint = $2 AND w.id > $3 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
               ORDER BY w.id LIMIT 200"),
-            &[&org_id, &project],
+            &[&org_id, &project, &after],
         )
         .await?;
+    let last = rows.last().map(|r| r.get::<_, i64>(0));
     // (dog row, the count it waits for, the user's own watch)
     let mut firing: Vec<(i64, i64, bool)> = Vec::new();
     // each crossing's record for the project's Recently Fired history:
@@ -421,7 +431,7 @@ pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result
     if !firing.is_empty() {
         changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Agent(project)]);
     }
-    Ok(())
+    Ok(last)
 }
 
 /// One listener an event fire delivered to (its fire-time tool calls and
@@ -491,7 +501,6 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     if message.map(|m| m.chars().count()).unwrap_or(0) > MAX_MESSAGE {
         crate::refuse!(BadRequest, "a project event message is at most {MAX_MESSAGE} characters");
     }
-    let org_slug = engine.orgs.by_id(org_id).map(|o| o.slug.clone()).unwrap_or_default();
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let Some(p) = tx
@@ -507,17 +516,74 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     if !enabled(&p.get::<_, Value>(2)) {
         crate::refuse!(Conflict, "{}", off_refusal(&pname));
     }
+    let fire_id: i64 = tx.query_one(
+        "INSERT INTO ot.project_fires(org_id,project_id,kind,fired_by,message) VALUES($1,$2,'event',$3,$4) RETURNING id",
+        &[&org_id,&project,&by,&message]).await?.get(0);
+    tx.execute("INSERT INTO ot.project_event_dispatch(fire_id,org_id,project_id,high_water)
+        SELECT $1,$2,$3,coalesce(max(id),0) FROM ot.watchdogs WHERE org_id=$2 AND kind='project_listener' AND (memo->>'target_id')::bigint=$3",
+        &[&fire_id,&org_id,&project]).await?;
+    tx.commit().await?;
+    drop(client);
+    Box::pin(drain_pending(engine,org_id,project)).await?;
+    let c=engine.db.get().await?;
+    let heard: Value=c.query_one("SELECT listeners FROM ot.project_fires WHERE id=$1",&[&fire_id]).await?.get(0);
+    let heard=heard.as_array().cloned().unwrap_or_default();
+    Ok(Fired { project:pname, delivered:heard.iter().filter_map(|v|v["agent"].as_str().map(str::to_string)).collect(),
+        dogs:heard.iter().filter_map(|v|v["dog"].as_str().map(str::to_string)).collect() })
+}
+
+/// Commit bounded pages of the oldest pending event first. A page's cursor,
+/// mail, one-shot state and history are atomic, so restart cannot duplicate it.
+#[logged]
+async fn drain_pending(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<()> {
+    while Box::pin(deliver_page(engine,org_id,project)).await?.is_some() {
+        tokio::task::yield_now().await;
+    }
+    Ok(())
+}
+
+/// Startup continuation, including user-only registrations. No new event is
+/// synthesized: queued events retain their original fire id, actor and body.
+#[logged]
+pub async fn recover_pending(engine:&Arc<Engine>)->Result<()> {
+    let mut after=0i64;
+    loop {
+        let c=engine.db.get().await?;
+        let rows=c.query("SELECT fire_id,org_id,project_id FROM ot.project_event_dispatch WHERE NOT done AND fire_id>$1 ORDER BY fire_id LIMIT 64",&[&after]).await?;
+        drop(c);
+        if rows.is_empty(){return Ok(())}
+        for r in rows {after=r.get(0);Box::pin(drain_pending(engine,r.get(1),r.get(2))).await?;}
+    }
+}
+
+#[logged]
+async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option<i64>> {
+    let org_slug=engine.orgs.by_id(org_id).map(|o|o.slug.clone()).unwrap_or_default();
+    let mut client=engine.db.get().await?;
+    let tx=client.transaction().await?;
+    let Some(p)=tx.query_opt("SELECT name,state,scope FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE",&[&project]).await? else{return Ok(None)};
+    let pname:String=p.get(0);
+    let Some(job)=tx.query_opt("SELECT d.fire_id,d.after_id,d.high_water,f.fired_by,f.message FROM ot.project_event_dispatch d JOIN ot.project_fires f ON f.id=d.fire_id WHERE d.project_id=$1 AND NOT d.done ORDER BY d.fire_id LIMIT 1 FOR UPDATE OF d",&[&project]).await? else{return Ok(None)};
+    let (fire_id,after,high):(i64,i64,i64)=(job.get(0),job.get(1),job.get(2));
+    let by:String=job.get(3);let by=by.as_str();
+    let message:Option<String>=job.get(4);let message=message.as_deref();
+    if p.get::<_,String>(1)!="live" || !enabled(&p.get::<_,Value>(2)) {
+        tx.execute("UPDATE ot.project_event_dispatch SET done=true,after_id=high_water WHERE fire_id=$1",&[&fire_id]).await?;
+        tx.commit().await?;return Ok(Some(fire_id));
+    }
     let rows = tx
         .query(
             &format!("SELECT w.id, w.uid, w.name, w.owner_agent_id, coalesce(a.name, '{USER}'), w.once,
                     coalesce((w.memo->>'notice')::boolean, false), w.fired, w.memo->'fire_actions', {LISTENING_SINCE}
                FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
               WHERE w.org_id = $1 AND w.kind = 'project_listener' AND w.state = 'armed'
-                AND (w.memo->>'target_id')::bigint = $2 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
+                AND (w.memo->>'target_id')::bigint = $2 AND w.id > $4 AND w.id <= $5 AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent'))
               ORDER BY w.id LIMIT $3 FOR UPDATE OF w"),
-            &[&org_id, &project, &FIRE_BATCH],
+            &[&org_id, &project, &FIRE_BATCH, &after, &high],
         )
         .await?;
+    let next=rows.last().map(|r|r.get::<_,i64>(0)).unwrap_or(high);
+    let done=rows.len() < FIRE_BATCH as usize || next>=high;
     let mut deliveries: Vec<Delivery> = Vec::new();
     // who this fire reached, for the project's Recently Fired history
     let mut heard: Vec<Value> = Vec::new();
@@ -558,27 +624,19 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
             )
             .await?
             .get(0);
+        tx.execute("UPDATE ot.mail SET extra=extra||jsonb_build_object('project_event',jsonb_build_object('fire_id',$2::bigint,'dog_id',$3::bigint)) WHERE uid=$1",&[&mail,&fire_id,&row]).await?;
         heard.push(heard_entry(&owner_name, &dog_uid, &name, once, r.get(9), Some(&mail)));
         deliveries.push(Delivery {
             row, uid: dog_uid, name, owner, owner_name, notice, spent, mail,
             fire_actions: r.get::<_, Option<Value>>(8).and_then(|v| v.as_array().cloned()).unwrap_or_default(),
         });
     }
-    let names: Vec<String> = deliveries.iter().map(|d| d.owner_name.clone()).collect();
-    tx.execute(
-        "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'project_event_fire', $2, $3, $4)",
-        &[&org_id, &by, &project, &json!({ "project": pname, "delivered": names.len(), "listeners": names,
-                                            "message": message.map(|m| gist(m, 200)) })],
-    )
-    .await?;
-    // the fire's own record, at the same instant as the dogs' last fire (the
-    // next fire's listeners have listened since it)
-    tx.execute(
-        "INSERT INTO ot.project_fires (org_id, project_id, at, kind, fired_by, message, listeners)
-         VALUES ($1, $2, now(), 'event', $3, $4, $5)",
-        &[&org_id, &project, &by, &message, &Value::Array(heard)],
-    )
-    .await?;
+    let total:i32=tx.query_one("UPDATE ot.project_fires SET listeners=listeners||$2::jsonb WHERE id=$1 RETURNING jsonb_array_length(listeners)",&[&fire_id,&Value::Array(heard)]).await?.get(0);
+    tx.execute("UPDATE ot.project_event_dispatch SET after_id=$2,done=$3 WHERE fire_id=$1",&[&fire_id,&next,&done]).await?;
+    if done {
+        tx.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail) SELECT $1,'project_event_fire',$2,$3,jsonb_build_object('project',$4::text,'delivered',$5::int,'fire_id',$6::bigint,'listeners',(SELECT coalesce(jsonb_agg(v->>'agent'),'[]'::jsonb) FROM jsonb_array_elements(f.listeners) v),'message',$7::text) FROM ot.project_fires f WHERE f.id=$6",
+            &[&org_id,&by,&project,&pname,&total,&fire_id,&message.map(|m|gist(m,200))]).await?;
+    }
     tx.commit().await?;
     drop(client);
     // after commit, in delivery order: a spent dog stops, fire-time tool
@@ -609,20 +667,17 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
             h.send(crate::runtime::AgentMsg::Wake);
         }
     }
-    ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event(
+    if done { ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event(
         crate::runtime::watchdogs::events::PROJECT_EVENT,
         crate::runtime::watchdogs::events::Scope::Agent(org_id, project),
-        json!({ "project": pname, "project_id": project, "by": by, "delivered": deliveries.len(),
+        json!({ "project": pname, "project_id": project, "by": by, "delivered": total, "fire_id": fire_id,
                 "has_message": message.is_some() }),
     )));
+    }
     changes::notify_id(engine, org_id, ch);
     // spent one-shot listeners changed the count the watches read
     Box::pin(evaluate(engine, org_id, project)).await?;
-    Ok(Fired {
-        project: pname,
-        dogs: deliveries.iter().map(|d| d.uid.clone()).collect(),
-        delivered: deliveries.into_iter().map(|d| d.owner_name).collect(),
-    })
+    Ok(Some(fire_id))
 }
 
 /// Append a listener's fire-action results to its fire mail (body and
