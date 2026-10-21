@@ -110,7 +110,7 @@ try{
  calls.push(...writers);check('both concurrent writers commit',()=>assert.ok(writers.every(r=>r.status===0&&!r.error)))
  check('concurrent first-counter creation retains both increments',()=>assert.equal(Number(sql(bind(counts[0],2))),2))
  equal('concurrent writes keep other recipient exact')
- sql('TRUNCATE ot.mail;')
+ sql('TRUNCATE ot.mail CASCADE;')
  check('truncate resets totals',()=>assert.deepEqual(totals(),{open:0,dropped:0}))
  if(migrations.some(f=>f.startsWith('0051_')))check('truncate clears materialized membership',()=>assert.equal(Number(sql('SELECT count(*) FROM ot.project_dead_letter_counts')),0))
 }catch(e){error=e.stack}
