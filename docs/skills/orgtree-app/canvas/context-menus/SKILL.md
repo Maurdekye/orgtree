@@ -8,6 +8,12 @@ Up: [orgtree-canvas](../SKILL.md)
 
 ## Shared object links
 
+Mail **Copy contents** / **Copy message text** copies the complete message,
+including folded text. Complete local bodies copy immediately; previews and
+chunked bodies require a successful full lookup. If that lookup fails or any
+required chunk is unavailable, the action says the full message is unavailable
+and leaves the clipboard unchanged. It never silently substitutes a preview.
+
 Links to the same kind of object use the same context menu and hover information across canvas cards, Chat and tool references, Mail, Docket, Presented, lists, and pinned or separate windows. Owner, Presenter, Project and Sender submenus use that object's shared identity actions too. Right-click the specific link for its object menu; right-click the surrounding row for the row's menu. A missing object or unavailable route can limit actions; reaching a menu grants no extra authority. The name-visible, icon-only and far-zoom tooltip rules are described under [agent-card identity](../agent-card/SKILL.md#identity-tooltips).
 
 Document links show their full current title on hover. Docket/ticket links show the current docket status label, then ` · `, then the full title (for example, `Open · Project card resizes`). Archived tickets show `Archived`; an unknown or unreadable status leaves the title alone. Each new hover or focus reads the exact ticket again, so a transcript's older status snapshot cannot become the tooltip's state. This same tooltip applies to every ticket identity, including mentions, tool rows, inbox and docket references, and menu identity links. File links show the full path and share file actions such as opening or revealing the parent folder when the host supports them. Mail references identify the exact mailbox message; Sender opens the sender's identity submenu. The @user chip identifies the user's inbox, rather than an agent: its menu offers Open inbox, Copy mention and, inside a live desk composer, Mention.

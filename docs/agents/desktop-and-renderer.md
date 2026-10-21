@@ -1,5 +1,18 @@
 # Desktop and renderer
 
+## Full mail copy failures (2026-10-21)
+
+`resolveFullMailCopyText` rejects unavailable/incomplete bodies and missing
+chunks; unknown-length chunks must terminate within the existing 128-read
+bound. Every mail-copy caller (desk, mailbox, both reply previews, shared mail
+identity host) reports the same full-message failure without writing to the
+clipboard or reporting success. Complete local bodies remain synchronous at
+the caller; full fetched bodies and assembled chunks preserve whitespace.
+This replaces fallback-to-preview copying. Clipboard actions are local UI
+operations; no engine mutation or agent tool was added.
+[verified: `canvas/copytext.ts`, `desk.tsx`, `mail.tsx`, `mailreply.tsx`,
+`replypreview.tsx`, `objectnavhost.tsx`; decided: coordinator 2026-10-21 hardening assignment]
+
 ## Retained mail reconciliation (2026-10-21)
 
 `useMailboxHistory` refreshes the bounded head on pushed revisions and then
