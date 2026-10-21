@@ -1,5 +1,6 @@
 import type { Watchdog } from '../types'
 import { useWatchdogCountdown } from './watchdogcountdown'
+import { useNativeTitle } from './nativetitle'
 
 export const watchdogStateWords = (dog: Watchdog) => dog.disabled ? `disabled: ${dog.disabled}` : dog.state
 
@@ -18,4 +19,8 @@ export function useWatchdogTitle(dog: Watchdog | undefined, handle = '', gone = 
   const countdown = useWatchdogCountdown(dog)
   return dog ? watchdogTitle(dog, countdown)
     : `watchdog "${handle}" — kind and mode unknown${gone ? '; no longer exists' : ''}`
+}
+
+export function useWatchdogTooltip(dog: Watchdog | undefined, handle = '', gone = false) {
+  return useNativeTitle(useWatchdogTitle(dog, handle, gone), dog?.id ?? handle)
 }

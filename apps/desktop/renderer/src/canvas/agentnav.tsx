@@ -122,12 +122,20 @@ export function agentTooltipProps(id: string | null | undefined, nameFirst = fal
  * events do not reach the main window's document listeners. */
 export function registerAgentNativeTooltipDocument(owner: Document,
                                                    lookup: AgentTooltipLookup): () => void {
+  const active = new WeakMap<HTMLElement, { pointer: boolean; focus: boolean }>()
   const target = (event: Event): HTMLElement | null =>
     (event.target as Element | null)?.closest?.('[' + AGENT_TOOLTIP_ATTR + ']') as HTMLElement | null
   const show = (event: Event) => {
     const anchor = target(event)
     const id = anchor?.getAttribute(AGENT_TOOLTIP_ATTR)
     if (!anchor || !id) return
+    const related = (event as PointerEvent | FocusEvent).relatedTarget
+    if (related && typeof related === 'object' && 'nodeType' in related
+        && anchor.contains(related as Node)) return
+    const previous = active.get(anchor)
+    active.set(anchor, { pointer: previous?.pointer || event.type === 'pointerover',
+      focus: previous?.focus || event.type === 'focusin' })
+    if (previous) return
     const title = lookup(id)?.title
     if (title) {
       const firstLine = title.split('\n', 1)[0]!.trim()
@@ -142,7 +150,15 @@ export function registerAgentNativeTooltipDocument(owner: Document,
     const relatedNode = related && typeof related === 'object' && 'nodeType' in related
       ? related as Node : null
     if (event.type !== 'contextmenu' && relatedNode && anchor?.contains(relatedNode)) return
-    if (anchor) anchor.removeAttribute('title')
+    if (!anchor) return
+    const session = active.get(anchor)
+    if (session && event.type !== 'contextmenu') {
+      if (event.type === 'pointerout') session.pointer = false
+      else session.focus = false
+      if (session.pointer || session.focus) return
+    }
+    active.delete(anchor)
+    anchor.removeAttribute('title')
   }
   owner.addEventListener('pointerover', show, true)
   owner.addEventListener('focusin', show, true)

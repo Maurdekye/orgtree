@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { Watchdog } from '../types'
 import { objectNavProps } from './objectnav'
 import { watchdogGlyph, watchdogKindClass } from './watchdogchip'
-import { useWatchdogTitle } from './watchdogtitle'
+import { useWatchdogTooltip } from './watchdogtitle'
 import { WatchdogCountdown } from './watchdogcountdown'
 import { useDogRoute } from './watchdogroute'
 
@@ -30,7 +30,7 @@ export function WatchdogLink({dog:given,id,owner,name,org,onOpen,className='',ch
   const key=dog?.id??handle??''
   const label=name??dog?.name??id??''
   const gone=stale||!!dog?.spent||dog?.state==='spent'
-  const title=useWatchdogTitle(dog,key,gone)
+  const tooltip=useWatchdogTooltip(dog,key,gone)
   // A bounded tree preview cannot establish that another handle is gone.
   // Keep its exact detail/menu route without guessing kind or lifetime.
   const partialOwner=key.includes('/')&&(route?.counts?.[key.split('/')[0]!]?.total??0)>8
@@ -41,7 +41,7 @@ export function WatchdogLink({dog:given,id,owner,name,org,onOpen,className='',ch
     {...(open||stale||(dog&&!gone)?objectNavProps('watchdog',key,org??route?.org):{})}
     {...(stale?{'data-object-stale':'true','data-object-name':label}: {})}
     className={`desk-nav-chip desk-dog-chip watchdog-link ${state} ${dog?watchdogKindClass(dog):''}${dog?.once?' oneshot':''}${gone?' gone':''}${dog?.disabled&&!gone?' disabled':''} ${className}`}
-    title={title}
+    {...tooltip}
     aria-label={`watchdog ${label}, ${gone?'no longer exists':state}`}
     aria-disabled={gone?'true':undefined}
     onMouseDown={e=>{if(e.button!==0)e.stopPropagation()}}

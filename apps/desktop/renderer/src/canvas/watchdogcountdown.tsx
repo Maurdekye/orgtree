@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { Watchdog } from '../types'
+import { useNativeTitle } from './nativetitle'
 
 const POLL_FLOOR_S = 15
 const CHECKING_GRACE_MS = 3_000
@@ -111,10 +112,12 @@ export function useWatchdogCountdown(dog: Watchdog | undefined): string | undefi
   return useSyncExternalStore(shouldTick ? subscribeDog : noSubscribe, read, read)
 }
 
-/** A tiny row-local subscriber. It lets list chips update their own tooltip
- *  without ticking or re-rendering the surrounding canvas. */
+/** Row-local timer; compact labels inherit the enclosing identity's tooltip. */
 export function WatchdogCountdown({ dog, compact = false }: { dog: Watchdog; compact?: boolean }) {
   const text = useWatchdogCountdown(dog)
+  const tooltip = useNativeTitle(compact ? undefined : text, dog.id)
   if (!text) return null
-  return <span className={compact ? 'wd-next-check compact' : 'wd-next-check'} title={text}>{text}</span>
+  return <span className={compact ? 'wd-next-check compact' : 'wd-next-check'} {...tooltip}>
+    {compact ? text.replace(/^next check in /, '') : text}
+  </span>
 }
