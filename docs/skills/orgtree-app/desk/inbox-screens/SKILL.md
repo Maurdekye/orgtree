@@ -56,6 +56,14 @@ recipients' copies, sender history and attachment files remain. Tag membership
 and unused tag suggestions disappear with the message. There is no bulk-delete,
 toolbar or keyboard action.
 
+Deletion is refused while that inbox copy is needed to acknowledge a project
+job the user still holds. Open the message and use **Acknowledge job** (self-sent),
+**Reply & acknowledge**, or **Acknowledge without reply**, then delete it.
+Deleting, reading or leaving the queue never implicitly acknowledges a job.
+After ACK, deletion works normally and keeps the project's original and history.
+There is no user release/NACK action; agents cannot acknowledge the user's job
+through their tools.
+
 Within the current app session, reopening the user's Inbox restores and scrolls
 to the last opened received message for that org when no new mail has arrived.
 If new mail arrived, the message is no longer retained, or the active filters

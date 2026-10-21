@@ -24,6 +24,14 @@ ones and records automatic one-shot completion separately from manual removal.
 
 ## Current mail-queue and dead-letter rules (2026-10-21)
 
+User inbox deletion refuses an outstanding ACK job's exact handed copy with
+HTTP 409 and names the existing ACK actions. The guard reads the current
+project claim under project-then-job locks, so a stale copy's delivery metadata
+does not block deletion after ACK or an ACK waiver. No delete implicitly ACKs;
+the project original and history remain. User jobs have no release/NACK path.
+[verified: `engine/rs/orgtree-engine/src/http/mailbox.rs`,
+`domain/ops/user_regs.rs`; decided: coordinator 2026-10-21]
+
 The [source audit](../skills/orgtree-workflows/collaboration-patterns/work-queues/source-audit.md) supersedes older
 fixed-three-reminder and one-job-per-listener descriptions below; preserved
 attributed records remain historical evidence. ACK batch is 1–20, default 1;
