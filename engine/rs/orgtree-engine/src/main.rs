@@ -35,6 +35,7 @@ mod events;
 mod feed;
 mod host;
 mod session_launch;
+mod session_handover;
 #[cfg(windows)]
 mod hosted_pipes;
 mod http;
