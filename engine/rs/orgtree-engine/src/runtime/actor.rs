@@ -533,6 +533,47 @@ impl Turn {
             user_mention: None,
         }
     }
+    /// Shared by the live Claude stream and deterministic stream-path tests.
+    #[nolog]
+    fn observe_claude_thought(&mut self, ev: &Value, _now: Instant) {
+        if ev["type"] == "content_block_start"
+            && matches!(ev["content_block"]["type"].as_str(), Some("thinking" | "redacted_thinking")) {
+            self.thinking.clear();
+            self.thinking_order = None;
+        }
+    }
+
+    #[nolog]
+    fn append_claude_thought(&mut self, row: &mut Value, block: &Value, _mid: &str, _now: Instant) {
+        match block["type"].as_str() {
+            Some("thinking") => {
+                        let cur = row.get("thinking").and_then(Value::as_str).unwrap_or("").to_string();
+                        let add = block["thinking"].as_str().unwrap_or("");
+                        if add.is_empty() {
+                            row["thinking_sealed"] = json!(true);
+                        } else {
+                            let joined = if cur.is_empty() { add.to_string() } else { format!("{cur}\n\n{add}") };
+                            row["thinking"] = json!(convo::clip(&joined, 20_000).0);
+                        }
+                        let room = 20_000usize.saturating_sub(cur.chars().count() + if cur.is_empty() { 0 } else { 2 });
+                        let shown = convo::clip(add, room).0;
+                        if !shown.is_empty() || add.is_empty() {
+                            let start = cur.encode_utf16().count() + if cur.is_empty() { 0 } else { 2 };
+                            convo::append_display_block(row, json!({"kind":"thinking", "start":start, "end":start + shown.encode_utf16().count(), "sealed":add.is_empty()}));
+                        }
+                        self.thinking.clear();
+                        self.thinking_order = None;
+                    }
+            Some("redacted_thinking") => {
+                        row["thinking_sealed"] = json!(true);
+                        convo::append_display_block(row, json!({"kind":"thinking", "sealed":true}));
+                        self.thinking.clear();
+                        self.thinking_order = None;
+                    }
+            _ => {}
+        }
+    }
+
 }
 
 /// The agent's CLI process: Claude Code, the Codex app-server, Antigravity
@@ -6403,6 +6444,7 @@ impl Actor {
 
     #[nolog]
     fn on_stream_event(&mut self, ev: &Value) {
+        if let Some(t) = self.turn.as_mut() { t.observe_claude_thought(ev, Instant::now()); }
         match ev["type"].as_str() {
             Some("message_start") => {
                 if let Some(t)=self.turn.as_mut() {
@@ -6426,10 +6468,6 @@ impl Actor {
                 let block = &ev["content_block"];
                 match block["type"].as_str() {
                     Some("thinking") | Some("redacted_thinking") => {
-                        if let Some(t) = self.turn.as_mut() {
-                            t.thinking.clear();
-                            t.thinking_order = None;
-                        }
                         self.stream("thinking_start", json!({}));
                         self.set_activity("thinking", None);
                     }
@@ -6709,30 +6747,8 @@ impl Actor {
                         turn.draft_order = None;
                         wrote_text = true;
                     }
-                    Some("thinking") => {
-                        let cur = row.get("thinking").and_then(Value::as_str).unwrap_or("").to_string();
-                        let add = block["thinking"].as_str().unwrap_or("");
-                        if add.is_empty() {
-                            row["thinking_sealed"] = json!(true);
-                        } else {
-                            let joined = if cur.is_empty() { add.to_string() } else { format!("{cur}\n\n{add}") };
-                            row["thinking"] = json!(convo::clip(&joined, 20_000).0);
-                        }
-                        let room = 20_000usize.saturating_sub(cur.chars().count() + if cur.is_empty() { 0 } else { 2 });
-                        let shown = convo::clip(add, room).0;
-                        if !shown.is_empty() || add.is_empty() {
-                            let start = cur.encode_utf16().count() + if cur.is_empty() { 0 } else { 2 };
-                            convo::append_display_block(&mut row, json!({"kind":"thinking", "start":start, "end":start + shown.encode_utf16().count(), "sealed":add.is_empty()}));
-                        }
-                        turn.thinking.clear();
-                        turn.thinking_order = None;
-                        wrote_thought = true;
-                    }
-                    Some("redacted_thinking") => {
-                        row["thinking_sealed"] = json!(true);
-                        convo::append_display_block(&mut row, json!({"kind":"thinking", "sealed":true}));
-                        turn.thinking.clear();
-                        turn.thinking_order = None;
+                    Some("thinking") | Some("redacted_thinking") => {
+                        turn.append_claude_thought(&mut row, &block, &mid, Instant::now());
                         wrote_thought = true;
                     }
                     Some("tool_use") | Some("server_tool_use") => {
@@ -9168,5 +9184,72 @@ mod session_end_tests {
         assert!(!helper_gone(B, &[A, (7, (700, 11))]));
         assert!(!helper_gone(B, &[(7, (700, 11))]));
         assert!(helper_gone(B, &[]));
+    }
+}
+
+#[cfg(test)]
+mod claude_thinking_time_tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn stream(t: &mut Turn, ev: Value, at: Instant) { t.observe_claude_thought(&ev, at); }
+    fn begin(t: &mut Turn, mid: &str, at: Instant) {
+        stream(t, json!({"type":"message_start","message":{"id":mid}}), at);
+    }
+    fn start(t: &mut Turn, index: u64, kind: &str, at: Instant) {
+        stream(t, json!({"type":"content_block_start","index":index,"content_block":{"type":kind}}), at);
+    }
+    fn stop(t: &mut Turn, index: u64, at: Instant) {
+        stream(t, json!({"type":"content_block_stop","index":index}), at);
+    }
+    fn land(t: &mut Turn, row: &mut Value, mid: &str, kind: &str, at: Instant) {
+        t.append_claude_thought(row, &json!({"type":kind,"thinking":"Synthetic reasoning"}), mid, at);
+    }
+
+    #[test]
+    fn completed_claude_block_keeps_stop_time_through_delayed_finalization_and_reload() {
+        let mut t=Turn::new(1,false); let at=Instant::now(); let mut row=json!({});
+        begin(&mut t,"m",at); start(&mut t,0,"thinking",at);
+        stop(&mut t,0,at+Duration::from_secs(125));
+        land(&mut t,&mut row,"m","thinking",at+Duration::from_secs(300));
+        let loaded:Value=serde_json::from_str(&row.to_string()).unwrap();
+        assert_eq!(loaded["content_blocks"][0]["think_secs"],125.0);
+        assert_eq!(loaded["think_secs"],125.0);
+        if let Ok(path)=std::env::var("CLAUDE_THOUGHT_FIXTURE") {
+            std::fs::write(path,loaded.to_string()).unwrap();
+        }
+    }
+    #[test]
+    fn separate_blocks_and_sealed_thinking_keep_their_own_durations() {
+        let mut t=Turn::new(1,false); let at=Instant::now(); let mut row=json!({});
+        begin(&mut t,"m",at); start(&mut t,0,"thinking",at);
+        start(&mut t,0,"thinking",at+Duration::from_secs(20)); // duplicate never resets
+        start(&mut t,1,"text",at+Duration::from_secs(30));
+        stop(&mut t,1,at+Duration::from_secs(40)); // other blocks never stop the thought
+        stop(&mut t,0,at+Duration::from_secs(60));
+        stop(&mut t,0,at+Duration::from_secs(90));
+        land(&mut t,&mut row,"m","thinking",at+Duration::from_secs(120));
+        start(&mut t,2,"redacted_thinking",at+Duration::from_secs(130));
+        stop(&mut t,2,at+Duration::from_secs(132));
+        land(&mut t,&mut row,"m","redacted_thinking",at+Duration::from_secs(140));
+        assert_eq!(row["content_blocks"][0]["think_secs"],60.0);
+        assert_eq!(row["content_blocks"][1]["think_secs"],2.0);
+        assert!(row["content_blocks"][1]["sealed"].as_bool().unwrap());
+        assert!(row.get("think_secs").is_none(),"no ambiguous whole-row duration for multiple thoughts");
+    }
+    #[test]
+    fn unobserved_history_and_other_messages_never_borrow_a_clock() {
+        let mut t=Turn::new(1,false); let at=Instant::now();
+        begin(&mut t,"a",at); start(&mut t,0,"thinking",at);
+        let mut historic=json!({}); land(&mut t,&mut historic,"history","thinking",at+Duration::from_secs(300));
+        assert!(historic.get("think_secs").is_none());
+        assert!(historic["content_blocks"][0].get("think_secs").is_none());
+        let mut current=json!({}); land(&mut t,&mut current,"a","thinking",at+Duration::from_secs(7));
+        assert_eq!(current["content_blocks"][0]["think_secs"],7.0,"final native block is an observed end if stop is absent");
+        let mut replay=json!({}); land(&mut t,&mut replay,"a","thinking",at+Duration::from_secs(20));
+        assert!(replay.get("think_secs").is_none(),"consumed timing cannot be replayed");
+        begin(&mut t,"b",at+Duration::from_secs(30));
+        let mut next=json!({}); land(&mut t,&mut next,"b","thinking",at+Duration::from_secs(99));
+        assert!(next.get("think_secs").is_none());
     }
 }
