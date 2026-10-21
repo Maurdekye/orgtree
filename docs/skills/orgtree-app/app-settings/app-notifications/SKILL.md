@@ -29,6 +29,14 @@ Suggest individual kinds according to what the user wants to notice. All mail is
 
 Native alerts have stable identities to avoid duplicate banners, and resolved attention removes corresponding native alerts where supported. The desktop closes pending/shown alerts for kinds disabled by a changed preference. OS support and native delivery still matter: the engine recording mail or attention does not prove a banner appeared, and a banner does not establish that the user read or approved it.
 
+The persistent taskbar/dock attention dot is separate from these banner
+preferences. It follows unresolved questions, urgent mail, docket attention and
+plain user mentions; ordinary unread mail and standalone terminal failures do
+not add the dot. Focus does not clear it; resolving the underlying attention
+does. Mention-only activation opens the relevant place rather than inventing a
+question. Verified at `2ec8c0e`: `notifications.ts`, `attention.ts` in the
+desktop main process and `docs/rust-engine/taskbar-dot.md`.
+
 Older preferences with routineNotifications enabled and no explicit notifyAllMail retain that routine-mail opt-in. Explicit current values take priority; absent current fields receive the defaults above. Read the saved preferences rather than assuming an older installation has every default value.
 
 ## See also

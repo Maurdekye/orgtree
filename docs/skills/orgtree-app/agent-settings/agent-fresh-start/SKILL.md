@@ -11,7 +11,7 @@ The Model tab's **Start fresh when needed** setting is `node:auto_cheap_compact`
 
 | Control | Meaning and default |
 |---|---|
-| Organization default | Remove this agent's override and inherit the organization's policy. Built-in policy: off with a 25% occupancy threshold. |
+| Organization default | Remove this agent's override and inherit the organization's effective policy. New-org built-in policy: On at 25%; existing orgs keep the policy pinned by migration 0045, and saved app/template defaults can differ. |
 | On | Enable the policy explicitly for this agent and show Conversation size. |
 | Off | Disable it explicitly for this agent. |
 | Conversation size | Context occupancy percentage; displayed only for explicit On. Starts from the agent's saved occupancy, else the org's, else 25%. UI range 5–95%, step 5. |
@@ -21,6 +21,11 @@ The desk's cheap-compact warning (**Turn off in settings**) opens this row, on t
 Save sends an empty object for inheritance, which removes the override. Explicit On/Off sends `enabled` and `occ`; percentage is converted to a fraction. A blank or zero form value falls back to 25%. The engine keeps numeric occupancy within 5–95% and refuses the wrong value types. The effective policy merges agent keys over org keys, so a partial stored override can inherit the other key.
 
 The policy resets before a turn only when the cache forecast calls for compaction and measured conversation occupancy is at least the threshold, with an existing session and valid context size. Turning it on does not immediately reset the session. Unknown cache readiness and estimated context do not establish a reset condition. It is separate from the organization's ordinary context-compaction threshold.
+
+This switch governs known-cold compaction, not every fresh-session recovery.
+The separate measured-size check and bounded native Claude/Codex overflow retry
+can still apply with this switch Off. Verified at `2ec8c0e`: `settings.rs`,
+`domain/tree.rs::cheap_compact`, `runtime/actor.rs`, migration 0045.
 
 When triggered, the current agent continues in a fresh session with a summary and attempts to save the old conversation in its scratch folder. A failed history save is logged, so do not promise an export in every failure case. Detailed cache forecasting, receipts and handoff behavior belong to `orgtree-context-and-compaction` (orgtree-working › runtime).
 

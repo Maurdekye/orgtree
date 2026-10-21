@@ -34,6 +34,13 @@ A nonexistent registered account or an org-restricted key from another org is
 refused on save. Hiring still validates whether the chosen account can run the
 selected model; an unsuitable org default is not an entitlement to that model.
 
+The same Hire defaults tab has **Fast mode** switches for supported tiers,
+all Off by default. These seed new hires and Quick chat; existing agents and
+rehires retain their saved speed. An explicit hire choice, including false,
+wins over the default. See [Fast mode](../../agent-settings/agent-fast-mode/SKILL.md#hiring-defaults-and-agent-tools)
+for supported exact models and the authorized agent-tool controls. Verified:
+`canvas/fastdefaults.tsx`, `domain/fast_mode.rs` at `2ec8c0e`.
+
 Permission mode changes the starting approval policy; it is distinct from the
 folder holdings and tool switches. Unrestricted access removes approval
 prompts, including the sensitive shared-skill-file prompt. Saving an edited

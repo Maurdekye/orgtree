@@ -21,6 +21,14 @@ These Runtime settings apply across organizations and save immediately through `
 
 The concurrency cap changes admission immediately. Lowering it lets admitted turns finish; new turns wait until capacity becomes available. Waiting is first-come-first-served within an organization and round-robin across organizations. Local language model server caps can impose an additional wait. The displayed running/waiting counts are scheduler facts, not counts of credits or all live agents.
 
+Runtime also has **Antigravity models > enable Claude Sonnet 5.5 and Opus 5.5
+through Antigravity**, `antigravity_claude_enabled`, default Off. It saves
+immediately and enables eligible catalog offers through the Google login's
+Claude/GPT pool; it neither signs in nor creates quota and does not move
+existing native Claude agents. Verify the selected account's offered model
+before hiring. Source at `2ec8c0e`: `canvas/accounts.tsx`, `settings.rs` and
+`providers/agy_models.rs`.
+
 Warming is bounded by memory checks and the machine-wide parked-process cap, currently 64 idle processes with the longest parked closed first. It is not a promise that every live seat always has a process. Turning warming On requests warming; turning it Off requests cooling. A warm local process is separate from provider prompt-cache compatibility, receipts and expiry.
 
 ## Automatic wakes

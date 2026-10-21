@@ -60,6 +60,13 @@ After a saved effective effort change, supported running Claude turns can receiv
 
 The full form is a structural save and can replace processes, so it does not promise the narrower behavior of an effort-only action; see [the form's save behavior](../agent-config/SKILL.md). An effort-only control change by itself does not invalidate an unchanged prompt prefix.
 
+The desk effort control shows the inherited effective org level when no local
+override is set, and the queued target when a next-turn change is pending.
+Models with no offered effort levels omit the control; projects have none.
+Read a queued level as a future request, not evidence that the current model
+call already changed. Verified at `2ec8c0e`: `canvas/effort.tsx`,
+`canvas/effortlevels.ts`, `canvas/desk.tsx`.
+
 ## See also
 
 - `orgtree-tool-switch-model` (orgtree-working › team).

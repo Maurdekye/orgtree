@@ -34,6 +34,17 @@ Each harness/model maps the effective level to its supported names; an
 agent's explicit level takes precedence. No rehire is needed. Do not promise
 an immediate mid-turn effort change from this org control.
 
+The ordinary compaction threshold also governs Orgtree's measured-size
+after-turn split and admission backstop in 4.4.0. Those use the fresh-session
+handoff without a model summarization call, independently of the known-cold
+policy. Missing/estimated measurements, native compaction during that turn and
+other runtime gates prevent an unsafe duplicate split; reported working status
+defers the after-turn path, while admission remains the backstop. Turning off
+known-cold compaction does not disable these size/recovery paths. Verified at
+`2ec8c0e`: `runtime/actor.rs`, `runtime/recovery.rs`; details in the
+[Claude](../../harnesses/harness-claude-code/SKILL.md#compaction) and
+[Codex](../../harnesses/harness-codex/SKILL.md#compaction) guides.
+
 Suggest changing the cap when the user's desired team size requires larger
 top-level allocations; changing the hire grant when new hires repeatedly need
 the same adjustment; changing the threshold when context pressure warrants a
