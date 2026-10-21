@@ -3,6 +3,47 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { flush, inAct, mountView } from './harness'
 import { ToolChip } from '../src/canvas/desk'
+import { RefMdBody } from '../src/canvas/refmd'
+import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
+import { md, revealFileFromEvent } from '../src/canvas/shared'
+
+test('same local file in tool, Markdown and raw prose has one tooltip and context menu', async t => {
+  const path = 'C:\\synthetic\\notes\\plan.md'
+  const bridge = Object.getOwnPropertyDescriptor(window, 'orgtreeDesktop')
+  const opened: string[] = [], revealed: string[] = []
+  Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: {
+    localFileStatus: async () => ({ ok: true, exists: true }),
+    openLocalFile: async (file: string) => { opened.push(file); return { ok: true } },
+    revealFile: async (file: string) => { revealed.push(file); return { ok: true } },
+  } })
+  t.after(() => {
+    if (bridge) Object.defineProperty(window, 'orgtreeDesktop', bridge)
+    else delete (window as unknown as { orgtreeDesktop?: unknown }).orgtreeDesktop
+  })
+  const html = md(`[Plan](<${path}>)`)
+  const v = await mountView(<div onClick={e => { revealFileFromEvent(e) }}>
+    <ToolChip t={{ id: 'file-parity', name: 'Read', file_paths: [{ path, link: true }] }} slug="org" nid="agent" />
+    <RefMdBody html={html} />
+    <ObjectMenuBoundary><div dangerouslySetInnerHTML={html} /></ObjectMenuBoundary>
+  </div>, el => el)
+  t.after(() => v.unmount())
+  const links = [...v.el.querySelectorAll<HTMLAnchorElement>('[data-local-path]')]
+  assert.equal(links.length, 3)
+  for (const link of links) {
+    assert.equal(link.title, links[0].title)
+    const event = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })
+    await inAct(() => link.dispatchEvent(event))
+    await flush(3)
+    assert.equal(event.defaultPrevented, true, 'each file identity owns its file menu')
+    assert.deepEqual([...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(item => item.textContent),
+      ['Open', 'Show in folder', 'Copy path', 'Copy file name'])
+    assert.deepEqual(opened, [], 'right click never launches the local file')
+    assert.deepEqual(revealed, [], 'right click does not reveal it either')
+  }
+  await inAct(() => links[1].click())
+  assert.deepEqual(revealed, [path], 'ordinary prose click stays reveal-only')
+  assert.deepEqual(opened, [])
+})
 
 test('tool file links show only the filename, expose the full path on hover, and replace a duplicate truncated argument', async t => {
   const path = 'C:\\Users\\ncola_k8bx\\AppData\\Roaming\\Orgtree v2\\data\\scratch\\orgtree\\agent-tooltip-luna\\CLAUDE.md'
