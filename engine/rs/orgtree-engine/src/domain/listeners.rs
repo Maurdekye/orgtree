@@ -52,6 +52,7 @@ pub const WATCH_KIND: &str = "listener_watch";
 const EVENTS_KEEP: i64 = 50;
 /// Maximum listener/watch rows processed in one committed transaction.
 const FIRE_BATCH: i64 = 200;
+const EVENT_HIGH_WATER: &str = "SELECT coalesce(max(id),0) FROM ot.watchdogs WHERE org_id=$1 AND kind='project_listener' AND (memo->>'target_id')::bigint=$2";
 
 #[cfg(test)]
 tokio::task_local! { static STOP_AFTER_WATCH_EDGE: bool; }
@@ -61,6 +62,8 @@ tokio::task_local! { static STOP_AFTER_EVENT_PAGE: bool; }
 tokio::task_local! { static STOP_BEFORE_USER_FIRE_COMMIT: bool; }
 #[cfg(test)]
 mod watch_boundary_tests;
+#[cfg(test)]
+mod recovery_boundary_tests;
 
 /// The largest listener count a watch may ask for.
 pub const MAX_COUNT: i64 = 1024;
@@ -523,9 +526,9 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
     let fire_id: i64 = tx.query_one(
         "INSERT INTO ot.project_fires(org_id,project_id,kind,fired_by,message) VALUES($1,$2,'event',$3,$4) RETURNING id",
         &[&org_id,&project,&by,&message]).await?.get(0);
-    tx.execute("INSERT INTO ot.project_event_dispatch(fire_id,org_id,project_id,high_water)
-        SELECT $1,$2,$3,coalesce(max(id),0) FROM ot.watchdogs WHERE org_id=$2 AND kind='project_listener' AND (memo->>'target_id')::bigint=$3",
-        &[&fire_id,&org_id,&project]).await?;
+    let high:i64=tx.query_one(EVENT_HIGH_WATER,&[&org_id,&project]).await?.get(0);
+    tx.execute("INSERT INTO ot.project_event_dispatch(fire_id,org_id,project_id,high_water) VALUES($1,$2,$3,$4)",
+        &[&fire_id,&org_id,&project,&high]).await?;
     tx.commit().await?;
     drop(client);
     Box::pin(drain_pending(engine,org_id,project)).await?;
