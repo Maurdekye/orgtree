@@ -9,9 +9,9 @@ import '../src/styles.css'
 // Isolated display fixture; no org, database, bridge, providers or network.
 const rows:TemplatePlanRow[]=[]
 const costs:Record<string,number>={opus:4,sonnet:2,astra:10,sol:2,argon:2}
-type Slot={name:string;tier:string;spare?:number;reports?:Slot[]}
+type Slot={name:string;tier:string;spare?:number;charter?:{preset?:string;text?:string};reports?:Slot[]}
 const walk=(slots:Slot[],depth=0,parent:string|null=null):number=>slots.reduce((total,s)=>{
-  const row:TemplatePlanRow={slot:s.name,name:s.name,parent,depth,tier:s.tier,requested_tier:s.tier,note:null,account:s.tier==='project'?null:'primary',provider:['opus','sonnet'].includes(s.tier)?'claude':s.tier==='argon'?'google':s.tier==='project'?null:'openai',seat:costs[s.tier]??0,grant:0,charter:s.tier==='project'?'none':'text',team_charter:null,kickoff:depth===0,blocked:false,dirs_dropped:[]}
+  const row:TemplatePlanRow={slot:s.name,name:s.name,parent,depth,tier:s.tier,requested_tier:s.tier,note:null,account:s.tier==='project'?null:'primary',provider:['opus','sonnet'].includes(s.tier)?'claude':s.tier==='argon'?'google':s.tier==='project'?null:'openai',seat:costs[s.tier]??0,grant:0,charter:s.tier==='project'?'none':s.charter?.preset?'preset: '+s.charter.preset:'text',team_charter:null,kickoff:depth===0,blocked:false,dirs_dropped:[]}
   rows.push(row)
   const below=walk(s.reports??[],depth+1,s.name)
   row.grant=s.tier==='project'?0:(s.spare??0)+below
