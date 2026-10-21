@@ -1,7 +1,8 @@
+// Install the DOM before react-dom detects native input-event support.
+import { flush, inAct, JSDOM, mountView } from './harness'
 import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { createPortal } from 'react-dom'
-import { flush, inAct, JSDOM, mountView } from './harness'
 import { RegisterMenu } from '../src/canvas/registermenu'
 import { projectListenerState } from '../src/canvas/listeners'
 import { SurfaceDocumentOwner } from '../src/popout'
