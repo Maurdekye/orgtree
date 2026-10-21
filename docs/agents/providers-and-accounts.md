@@ -6,8 +6,6 @@ Harnesses, model/effort offers, account binding, credentials, usage and inferenc
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
-<a id="e-5ef50fb6f47c902d"></a>
-
 ## Fast mode during a queued model switch (2026-10-22)
 
 User scope saves and agent retool validate the next-turn target in
@@ -15,6 +13,8 @@ User scope saves and agent retool validate the next-turn target in
 Exact-model capability checks still apply; speed-only saves preserve the switch
 and the running turn's speed evidence. See [fast mode](../rust-engine/fast-mode.md).
 [verified: `http/nodes.rs`, `domain/ops.rs`, `providers/fast_mode.rs`]
+
+<a id="e-5ef50fb6f47c902d"></a>
 
 ## Fast-mode hire/rehire/staff/retool fields share exact-model validation;
 
