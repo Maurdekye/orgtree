@@ -512,7 +512,7 @@ function Get-InteractiveMarker($Record) { return "com.maurdekye.orgtree.user-ses
 function New-InteractiveTaskXml($Record,[bool]$Highest) {
     $doc=Read-BootXml (New-HelperTaskXml $Record $Highest)
     $doc.Task.RegistrationInfo.Description=Get-InteractiveMarker $Record
-    $doc.Task.Actions.Exec.Command=Join-Path $Record.InstallDir 'resources\engine\orgtree-engine.exe'
+    $doc.Task.Actions.Exec.Command=[string](Join-Path $Record.InstallDir 'resources\engine\orgtree-engine.exe')
     $argument=$doc.CreateElement('Arguments',$doc.DocumentElement.NamespaceURI)
     $argument.InnerText='session-launch signin'
     $null=$doc.Task.Actions.Exec.AppendChild($argument)
