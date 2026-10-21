@@ -345,7 +345,8 @@ async fn hand_batch(engine: &Arc<Engine>, org_id: i64, project: i64, limit: usiz
 
 /// The normal queue allocator with a transient one-shot listener. A probe
 /// that assigns this listener nothing rolls back, including other handouts.
-#[logged]
+// Full mail bodies belong only in the tool result, never invocation logs.
+#[nolog]
 pub async fn take_once(engine: &Arc<Engine>, org_id: i64, project: i64, owner: i64, name: &str, dog: &str, batch: usize) -> Result<Option<Vec<Value>>> {
     release_stale(engine, org_id, project).await?;
     let mut client = engine.db.get().await?;
@@ -1139,8 +1140,8 @@ pub async fn held_by(client: &impl GenericClient, agent: i64) -> Result<Vec<(Str
             &format!("SELECT m.extra->'claimed'->>'copy', p.name FROM ot.mail m JOIN ot.agents p ON p.id = m.recipient_agent_id
                        WHERE (m.extra->'claimed'->>'by_id')::bigint = $1 AND {OUTSTANDING}
                          AND p.kind = 'project' AND p.scope->>'mail_queue' = 'ack'
-                         AND EXISTS (SELECT 1 FROM ot.watchdogs w WHERE w.kind = 'fair_queue' AND w.state = 'armed'
-                                       AND (w.memo->>'target_id')::bigint = p.id)
+                         AND (m.extra->'claimed'->>'inline'='true' OR EXISTS (SELECT 1 FROM ot.watchdogs w WHERE w.kind = 'fair_queue' AND w.state = 'armed'
+                                       AND (w.memo->>'target_id')::bigint = p.id))
                        ORDER BY m.id LIMIT 20"),
             &[&agent],
         )

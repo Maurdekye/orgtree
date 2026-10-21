@@ -2046,7 +2046,8 @@ async fn listener_watch_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domai
 }
 
 /// `orgtree_watchdog create`: a dog for `owner` (the caller), smoke-run once.
-#[logged]
+// Inline queue results contain full mail; credentials may also be supplied.
+#[nolog]
 pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value) -> Result<Value> {
     let kind = args["kind"].as_str().unwrap_or("").to_string();
     if !["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "mqtt", "websocket"].contains(&kind.as_str()) {
@@ -2118,8 +2119,10 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         if memo["usage"]["accounts"].as_array().is_some_and(|ids|ids.iter().any(|id|!rows.iter().any(|r|r["account"]==*id))) {
             refuse!(Forbidden,"requested usage account is unavailable to this organization");
         }
-        let mut baseline=json!({});usage_eval::evaluate(&mut baseline,&rows,&memo["usage"],Utc::now());
+        let (baseline,pending)=usage::initial(engine,org_id,owner,&memo["usage"],&rows).await?;
         memo["run"]["usage"]=baseline;
+        memo["run"]["usage_pending"]=json!(pending);
+        memo["run"]["usage_pending_fired"]=json!(0);
     } else if ["accounts","windows","usage_events","threshold_percent"].iter().any(|k|args.get(k).is_some()) {
         refuse!(BadRequest,"accounts/windows/usage_events/threshold_percent require kind usage");
     }
@@ -2330,7 +2333,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     // an mqtt smoke's connection is handed to the dog's runner once it is armed
     let mut parked: Option<crate::mqtt::Parked> = None;
     let mut ws_parked: Option<crate::ws::Conn> = None;
-    let mut smoked = if kind=="usage" {json!({"push":true,"note":"Current cache seeded without firing. Usage edges only; no provider requests. Clock checks detect stale/reset transitions within 15 seconds."})}
+    let mut smoked = if kind=="usage" {json!({"push":true,"note":"Current cached levels evaluated now; future changes use edges. No provider requests. Clock checks detect stale/reset transitions within 15 seconds."})}
         else if let Some(c) = &mqtt_new { let (v, p) = mqtt::smoke(engine, owner, c).await; parked = p; v }
         else if let Some(c) = &ws_new { let (v, p) = websocket::smoke(engine, c).await; ws_parked = p; v }
         else if kind=="event" { events::smoke(engine,owner,&target,args).await? }

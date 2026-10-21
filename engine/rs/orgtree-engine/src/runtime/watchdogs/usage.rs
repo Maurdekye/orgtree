@@ -48,6 +48,31 @@ fn permitted(engine:&Engine,org:&str,id:&str)->bool {
     crate::org_accounts::allowed(Some(org),id) && engine.accounts.view().get(id).is_none_or(|a|a.available_origin(org))
 }
 
+/// Cache-only creation snapshot, including visible current usage freezes.
+/// This is never used by resume/recovery, so upgrades do not refire old dogs.
+#[nolog]
+pub(super) async fn initial(engine:&Arc<Engine>,org_id:i64,owner:i64,config:&Value,rows:&[Value])->Result<(Value,Vec<Value>)> {
+    let mut state=json!({});
+    let mut pending=usage_eval::initial(&mut state,rows,config,Utc::now());
+    if usage_eval::selected(config,"usage_events","frozen") {
+        let access=events::Access::for_owner(engine,owner,&[]).await?;
+        let c=engine.db.get().await?;
+        let frozen=c.query("SELECT id,frozen,account,tier FROM ot.agents WHERE org_id=$1 AND state='live' AND kind='agent' AND frozen->>'limit'='true' ORDER BY id LIMIT 200",&[&org_id]).await?;
+        for r in frozen {
+            let rec:Value=r.get(1);let tier:String=r.get(3);
+            let account=rec["account"].as_str().map(str::to_string).or(r.get::<_,Option<String>>(2))
+                .or_else(||crate::providers::catalog::tier(&tier).map(|t|crate::org_accounts::primary(t.provider)));
+            let Some(account)=account else{continue};
+            if !rows.iter().any(|v|v["account"]==account) || !usage_eval::selected(config,"accounts",&account)
+                || config["windows"].as_array().is_some_and(|a|!a.contains(&rec["window"])) {continue;}
+            let payload=json!({"event":"frozen","agent_id":r.get::<_,i64>(0),"account":account,"window":rec["window"],
+                "old_percent":null,"new_percent":null,"threshold_percent":null,"resets_at":rec["until"],"observed_at":rec["at"]});
+            if access.sees(&events::event("usage.frozen",events::Scope::Agent(org_id,r.get(0)),payload.clone())) {pending.push(payload);}
+        }
+    }
+    pending.truncate(40);Ok((state,pending))
+}
+
 #[logged]
 pub(super) async fn run(engine:&Arc<Engine>,dog:Dog,sub:&events::Subscription,mut rx:Receiver<events::Event>,cancel:&CancellationToken)->Result<()> {
     // Scope filters run before evaluation. Account lifecycle/clock transitions

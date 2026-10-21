@@ -16,6 +16,11 @@ pub(super) async fn resolve(engine: &Arc<Engine>, org_id: i64, owner: i64, owner
     kind: &str, target: &str, memo: &Value, smoke: &Value, smoke_lines: &[String], actions: &[Value]) -> Result<Option<Value>> {
     let mut out = json!({});
     let (lines, prefix) = match kind {
+        "usage" => {
+            let lines:Vec<String>=memo["run"]["usage_pending"].as_array().into_iter().flatten().map(Value::to_string).collect();
+            if lines.is_empty(){return Ok(None);}
+            (lines," USAGE —")
+        }
         "slot" => {
             let project = memo["target_id"].as_i64().unwrap();
             let Some(grant) = crate::domain::slots::claim_once(engine, org_id, project, owner, memo).await? else { return Ok(None) };

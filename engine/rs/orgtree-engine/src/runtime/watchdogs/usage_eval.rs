@@ -4,8 +4,30 @@ use serde_json::{json, Value};
 
 /// Creation-only level snapshot. Existing runners continue to evaluate edges.
 #[nolog]
-pub(super) fn initial(_state: &mut Value, _rows: &[Value], _config: &Value, _now: DateTime<Utc>) -> Vec<Value> {
-    Vec::new()
+pub(super) fn initial(state: &mut Value, rows: &[Value], config: &Value, now: DateTime<Utc>) -> Vec<Value> {
+    evaluate(state, rows, config, now);
+    let mut out=Vec::new();let threshold=config["threshold_percent"].as_f64();
+    for saved in state["accounts"].as_object().into_iter().flat_map(|a|a.values()) {
+        let row=&saved["row"];
+        let windows:Vec<&Value>=row["windows"].as_array().into_iter().flatten().filter(|w|window_selected(config,w)).collect();
+        let status=saved["status"].as_str().unwrap_or("unreadable");
+        if status!="ok" {
+            if windows.is_empty() && config.get("windows").is_none() {out.push(event(status,row,&Value::Null,None,None,threshold));}
+            for w in windows {out.push(event(status,row,w,None,None,threshold));}
+            continue;
+        }
+        if windows.is_empty() && config.get("windows").is_none() {out.push(event("unreadable",row,&Value::Null,None,None,threshold));}
+        for w in windows {
+            let pct=w["used_percent"].as_f64().filter(|p|p.is_finite() && *p>=0.);
+            let expired=w["resets_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t|t<=now);
+            if let Some(n)=pct.filter(|_|!expired) {
+                if let Some(t)=threshold {out.push(event(if n>=t{"above"}else{"below"},row,w,None,Some(n),Some(t)));}
+                if n>=100. {out.push(event("limit",row,w,None,Some(n),Some(100.)));}
+            } else {out.push(event("unreadable",row,w,None,None,threshold));}
+        }
+    }
+    out.retain(|e|selected(config,"usage_events",e["event"].as_str().unwrap_or("")));
+    out.truncate(40);out
 }
 
 #[nolog]
