@@ -13,7 +13,7 @@ app.whenReady().then(async()=>{
   win.webContents.session.webRequest.onBeforeRequest((d,cb)=>cb({cancel:!/^(file:|data:)/.test(d.url)}))
   await win.loadFile(out+'/fixture.html');await new Promise(r=>setTimeout(r,1500))
   for(const theme of ['dark','light']){
-   await win.webContents.executeJavaScript(`(async()=>{document.documentElement.classList.toggle('contrast-light',${theme==='light'});const space=document.querySelector('.space'),eye=document.querySelector('.sq.user');if(!eye)throw Error('missing actual eye');space.style.transform='translate(300px,100px) scale(1.6)';space.style.setProperty('--invzf',1/1.6);eye.style.transform='translate(0px,0px)';eye.classList.remove('mini');await ${settle}})()`)
+   await win.webContents.executeJavaScript(`(async()=>{document.documentElement.classList.toggle('contrast-light',${theme==='light'});const space=document.querySelector('.space'),eye=document.querySelector('.sq.user');if(!eye)throw Error('missing actual eye');space.style.transformOrigin='0 0';space.style.transform='scale(1.6)';space.style.setProperty('--invzf',1/1.6);const r=eye.getBoundingClientRect();space.style.transform='translate('+(300-r.left)+'px,'+(100-r.top)+'px) scale(1.6)';await ${settle}})()`)
    const point=await win.webContents.executeJavaScript(`(()=>{const r=document.querySelector('.sq.user').getBoundingClientRect();return{x:Math.round(r.x+r.width/2),y:Math.round(r.bottom-3)}})()`)
    win.webContents.sendInputEvent({type:'mouseMove',...point});await win.webContents.executeJavaScript(settle)
    const record=await win.webContents.executeJavaScript(`(()=>{const eye=document.querySelector('.sq.user'),list=document.querySelector('.root-retired-list'),pill=list.querySelector('button'),p=pill.getBoundingClientRect(),strip=eye.querySelector('.hsof');if(strip.classList.contains('hire-compact'))strip.querySelector('.hire-expand')?.click();return{hover:eye.matches(':hover'),listLayer:getComputedStyle(list).zIndex,pill:p.toJSON()}})()`)
@@ -21,6 +21,7 @@ app.whenReady().then(async()=>{
    record.theme=theme
    record.hits=await win.webContents.executeJavaScript(`(()=>{const p=document.querySelector('.root-retired-list button').getBoundingClientRect();return [...document.querySelectorAll('.sq.user > .hsof button:not(.hire-expand)')].map(b=>{const r=b.getBoundingClientRect(),left=Math.max(p.left,r.left),right=Math.min(p.right,r.right),top=Math.max(p.top,r.top),bottom=Math.min(p.bottom,r.bottom);if(right-left<1||bottom-top<1)return null;const x=(left+right)/2,y=(top+bottom)/2,hit=document.elementFromPoint(x,y);return{text:b.textContent,x,y,hit:hit?.closest('button')?.textContent,owns:hit===b||b.contains(hit)}}).filter(Boolean)})()`)
    records.push(record)
+   fs.writeFileSync(out+'/geometry.json',JSON.stringify(records,null,2))
    assert.equal(record.hover,true,'real eye hover must be active')
    assert.ok(record.hits.length>0,'positive control: hire buttons and pill really overlap')
    if(!red){const im=await win.webContents.capturePage();assert.equal(im.isEmpty(),false);fs.writeFileSync(out+'/'+theme+'.png',im.toPNG())}
