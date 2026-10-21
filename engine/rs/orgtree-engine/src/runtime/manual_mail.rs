@@ -47,19 +47,31 @@ pub async fn unseen(client:&tokio_postgres::Client, agent:i64, org:i64, opened:&
 pub fn output(name:&str,args:&Value,text:&str) -> Option<Value> {
     let (unwrapped_name, unwrapped_args) = crate::runtime::convo::unwrap_tool_call(name, args);
     let (name, args) = (unwrapped_name.as_str(), &unwrapped_args);
-    if name.rsplit("__").next()!=Some("orgtree_inbox") || !matches!(args["action"].as_str(),Some("fetch"|"chunk")) {return None;}
+    let inbox=name.rsplit("__").next()==Some("orgtree_inbox") && matches!(args["action"].as_str(),Some("fetch"|"chunk"));
+    let inline=name.rsplit("__").next()==Some("orgtree_watchdog") && args["action"]=="create" && args["kind"]=="fair_queue";
+    if !inbox && !inline {return None;}
     let body=serde_json::Deserializer::from_str(text).into_iter::<Value>().next()?.ok()?;
     if body["isError"]==true {return None;}
-    if let Some(blocks)=body["content"].as_array() {
-        return blocks.iter().filter_map(|b|b["text"].as_str()).find_map(|s|
-            serde_json::Deserializer::from_str(s).into_iter::<Value>().next()?.ok());
-    }
-    Some(body)
+    let parsed=if let Some(blocks)=body["content"].as_array() {
+        blocks.iter().filter_map(|b|b["text"].as_str()).find_map(|s|
+            serde_json::Deserializer::from_str(s).into_iter::<Value>().next()?.ok())?
+    } else {body};
+    if inline && !(parsed["resolved"]==true && parsed["registered"]==false && parsed["messages"].is_array()) {return None;}
+    Some(parsed)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inline_queue_tool_result_is_a_single_consumed_mail_receipt() {
+        let args=json!({"action":"create","kind":"fair_queue"});
+        let result=json!({"resolved":true,"registered":false,"messages":[{"id":"m1","direction":"received"}]});
+        let parsed=output("orgtree_watchdog",&args,&result.to_string()).unwrap();
+        assert_eq!(opened(parsed["messages"].as_array().unwrap(),7,false),vec![json!({"uid":"m1","recipient":7})]);
+        assert!(output("orgtree_watchdog",&args,"{\"registered\":true}").is_none());
+        assert!(output("shell",&args,&result.to_string()).is_none());
+    }
     #[test]
     fn explicit_mail_receipts_exclude_sent_and_previews() {
         let items=vec![json!({"id":"received","direction":"received"}),json!({"id":"sent","direction":"sent"}),json!({"id":"received","direction":"received"})];

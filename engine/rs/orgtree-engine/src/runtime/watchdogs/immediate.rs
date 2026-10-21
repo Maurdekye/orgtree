@@ -32,8 +32,7 @@ pub(super) async fn resolve(engine: &Arc<Engine>, org_id: i64, owner: i64, owner
             let project = memo["target_id"].as_i64().unwrap();
             let Some(messages) = crate::domain::projects::take_once(engine, org_id, project, owner, owner_name, id,
                 crate::domain::projects::batch_size(memo)).await? else { return Ok(None) };
-            let lines = messages.iter().map(|m| format!("Mail {} from {} via project {target}:\n{}", m["id"].as_str().unwrap_or(""),
-                m["from"].as_str().unwrap_or(""), m["body"].as_str().unwrap_or(""))).collect();
+            let lines = messages.iter().filter_map(|m|m["content"].as_str().map(str::to_string)).collect();
             out["messages"] = json!(messages);
             (lines, " PROJECT MAIL —")
         }

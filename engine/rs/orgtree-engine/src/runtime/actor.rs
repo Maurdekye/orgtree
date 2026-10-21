@@ -8423,7 +8423,7 @@ impl Actor {
 
 /// A claimed mail row (`to_jsonb(ot.mail)`) as the agent reads it.
 #[nolog]
-pub(super) fn mail_of(m: &Value) -> Mail {
+pub(crate) fn mail_of(m: &Value) -> Mail {
     Mail {
         uid: m["uid"].as_str().unwrap_or("").to_string(),
         sender: m["sender"].as_str().unwrap_or("").to_string(),

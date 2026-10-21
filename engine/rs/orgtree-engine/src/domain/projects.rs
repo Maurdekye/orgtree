@@ -356,18 +356,20 @@ pub async fn take_once(engine: &Arc<Engine>, org_id: i64, project: i64, owner: i
     let steps = hand_batch_in(&*tx, org_id, project, 64, Some(candidate)).await?;
     let copies: Vec<String> = steps.iter().filter(|s| s.dog_row == 0).map(|s| s.handed.copy.clone()).collect();
     if copies.is_empty() { return Ok(None); }
-    let rows = tx.query("SELECT uid,sender,kind,body,attachments,reply_to,replies,created_at,extra FROM ot.mail WHERE uid=ANY($1) ORDER BY id", &[&copies]).await?;
-    let messages = rows.iter().map(|r| {
-        let first: Option<Value> = r.get(5);
-        json!({"id":r.get::<_,String>(0),"message_id":r.get::<_,String>(0),"from":r.get::<_,String>(1),
-            "kind":crate::domain::mail::shown_kind(&r.get::<_,String>(2)),"body":r.get::<_,String>(3),
-            "at":iso(r.get(7)),"attachments":r.get::<_,Value>(4).as_array().into_iter().flatten().filter(|a|a["transfer_removed"]!=true).cloned().collect::<Vec<_>>(),
-            "reply_to":first,"replies":crate::domain::replies::value(first.as_ref(),Some(&r.get::<_,Value>(6))),
-            "via_project":r.get::<_,Value>(8)["via_project"],"state":"read","will_redeliver":false})
-    }).collect();
+    let rows = tx.query("SELECT to_jsonb(m) FROM ot.mail m WHERE uid=ANY($1) ORDER BY id", &[&copies]).await?;
     let consumed = tx.query("SELECT uid,kind,org_id,net_id,net_hub,sender_agent_id FROM ot.mail WHERE uid=ANY($1)", &[&copies]).await?;
     tx.commit().await?;
     drop(client);
+    let raw:Vec<Value>=rows.iter().map(|r|r.get(0)).collect();
+    let mail:Vec<_>=raw.iter().map(crate::runtime::actor::mail_of).collect();
+    let senders=mail.iter().map(|m|m.sender.clone()).collect::<Vec<_>>();
+    let rels=crate::runtime::envelope::relationships(engine,owner,&senders).await.unwrap_or_default();
+    let messages=mail.iter().zip(&raw).map(|(m,r)|json!({"id":m.uid,"message_id":m.uid,"from":m.sender,
+        "kind":crate::domain::mail::shown_kind(&m.kind),"body":m.body,"at":iso(m.at),
+        "content":crate::runtime::envelope::mail_block(&[m],&rels,false),
+        "attachments":m.attachments.as_array().into_iter().flatten().filter(|a|a["transfer_removed"]!=true).cloned().collect::<Vec<_>>(),
+        "reply_to":m.reply_to,"replies":m.replies,"via_project":r["extra"]["via_project"],"direction":"received",
+        "state":"read","will_redeliver":false})).collect();
     notify_handed(engine, org_id, project, steps);
     let receipts = crate::domain::mail::consumed(engine, &consumed);
     crate::runtime::watchdogs::events::mail_delivered(engine, org_id, owner, receipts);

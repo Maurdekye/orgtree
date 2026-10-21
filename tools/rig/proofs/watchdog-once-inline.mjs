@@ -39,13 +39,18 @@ export default async function(rig){
  p.check('unavailable slot registers a normal pending claim',queued.ok&&!queued.json?.resolved&&!!rig.one("SELECT id FROM ot.watchdogs WHERE name='queued' AND state='armed'"),queued.text)
  const release=held?await rig.tool('boss','orgtree_project',{action:'release_slot',lease:held.uid}):{ok:false}
  p.check('inline lease releases normally and grants the waiting claim',release.ok&&!!rig.one("SELECT id FROM ot.slot_leases WHERE holder_agent_id=(SELECT id FROM ot.agents WHERE name='waiter') AND ended_at IS NULL"),release.text)
+ await rig.op({op:'hire',name:'tail',parent:'build',tier:'sol',grant:0});await settled()
+ const head=await create('slot-head','slot','build',{slots:2,notice:true})
+ const tail=await rig.tool('tail','orgtree_watchdog',{action:'create',name:'slot-tail',kind:'slot',target:'build',slots:1,once:true,notice:true})
+ p.check('inline candidates respect a whole-unit FIFO head even with room for the tail',head.ok&&!head.json?.resolved&&tail.ok&&!tail.json?.resolved&&rig.one("SELECT count(*)::int n FROM ot.slot_leases WHERE ended_at IS NULL").n===1,{head:head.text,tail:tail.text})
  for(const ack of [false,true]){
   const name=ack?'ackq':'roundq';await rig.op({op:'create_project',name,parent:'boss'});if(ack)await rig.op({op:'set_mail_queue',node:name,mode:'ack'});await settled()
   rig.exec(`INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,notice)
-   SELECT 'm-inline-${name}-'||g,p.org_id,'@user','agent',p.id,p.name,'job-${name}-'||g,'pending',false FROM ot.agents p CROSS JOIN generate_series(1,3) g WHERE p.name='${name}'`)
+   SELECT 'm-inline-${name}-'||g,p.org_id,CASE WHEN g=2 THEN '@net:outside.fixture' ELSE '@user' END,'agent',p.id,p.name,'job-${name}-'||g,'pending',false FROM ot.agents p CROSS JOIN generate_series(1,3) g WHERE p.name='${name}'`)
   const before=rig.one("SELECT count(*)::int n FROM ot.turns WHERE agent_id=(SELECT id FROM ot.agents WHERE name='boss')").n
   const take=await create('take-'+name,'fair_queue',name,{batch:2})
   p.check(name+' returns its complete available batch inline',inline(take)&&take.json?.messages?.length===2&&take.text.includes('job-'+name+'-1')&&take.text.includes('job-'+name+'-2'),take.text)
+  p.check(name+' retains canonical sender authority, EXTERNAL and queue/ACK instructions',take.text.includes('outside party · see EXTERNAL')&&take.text.includes('Via project '+name)&&(!ack||take.text.includes('ACK MODE')),take.text)
   const copies=rig.sql(`SELECT uid,state,extra FROM ot.mail WHERE recipient_name='boss' AND extra->'via_project'->>'name'='${name}' ORDER BY id`)
   p.check(name+' copies are already consumed and no dog is registered',absent('take-'+name)&&copies.length===2&&copies.every(m=>m.state==='read'),copies)
   p.check(name+' keeps unclaimed mail and ACK provenance',rig.one(`SELECT count(*)::int n FROM ot.mail WHERE recipient_name='${name}' AND state='pending'`).n===1&&copies.every(m=>m.extra.via_project.ack===ack))

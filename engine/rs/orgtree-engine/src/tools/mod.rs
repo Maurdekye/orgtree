@@ -506,7 +506,8 @@ async fn doc_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
 }
 
 /// orgtree_watchdog.
-#[logged]
+// Inline fair_queue results contain full mail bodies.
+#[nolog]
 async fn dog_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     use crate::runtime::watchdogs;
     let action = args["action"].as_str().unwrap_or("");
@@ -528,6 +529,11 @@ async fn dog_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result
         }
         other => crate::refuse!(BadRequest, "action must be create, list, pause, resume, remove or send (not {other:?})"),
     };
+    if v["resolved"]==true {
+        if let Some(items)=v["messages"].as_array() {
+            return mailtools::inbox_read_done(&v,items,caller.agent_id,false);
+        }
+    }
     Done::json(&v)
 }
 

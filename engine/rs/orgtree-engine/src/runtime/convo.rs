@@ -1915,6 +1915,7 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
             let id = input["id"].as_str().map(str::to_string).or_else(|| {
                 if input["action"] != "create" { return None; }
                 let v = result.as_ref()?;
+                if v["registered"] == false { return None; }
                 v["id"].as_str().map(str::to_string)
             });
             if let Some(id) = id.filter(|i| !i.trim().is_empty()) {
