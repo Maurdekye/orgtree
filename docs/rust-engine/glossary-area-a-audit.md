@@ -10,8 +10,13 @@ Area A owns `docs/skills/orgtree-workflows/**`,
 `docs/skills/orgtree-working/team/**` and
 `docs/skills/orgtree-working/watchdogs/**`. Screen navigation, mail/docket/user
 tool pages and settings/provider pages are checked by their separate owners.
-MQTT publishing is a concurrent feature landing, whose author owns the publish
-instructions; those changes must be included in the final integration.
+The final branch rebases onto `5174fe397d035b58006ae13550210426c85fbfc1`,
+including the other areas' glossary updates and MQTT publishing. Its author's
+publish instructions are retained. The final reconciliation removes the old
+"no publishing" claim and updates the generic send-refusal wording, checked
+against `runtime/watchdogs/mqtt.rs:19`, `:42` and
+`runtime/watchdogs.rs:2769` at `5174fe3`. The queue, slot, listener and peer-mail
+source files cited below are unchanged between the two baselines.
 
 Source paths in the tables are under `engine/rs/orgtree-engine/src/` unless
 written out. Line numbers identify this source baseline, not future edits.
@@ -47,7 +52,7 @@ written out. Line numbers identify this source baseline, not future edits.
 | Persistent polling/silence recurrence and one overdue catch-up | `tool-watchdog` restart/resume schedules | `runtime/watchdogs/schedule.rs:6`, `:13`, `:20`; `runtime/watchdogs.rs:527` |
 | Cached usage edges, filters, initial baseline and partial/unknown recovery | `tool-watchdog` usage contract | `runtime/watchdogs/usage.rs:6`, `:9`, `:53`; `runtime/watchdogs/usage_eval.rs` |
 | Engine events, safe visibility-filtered payloads, count crossings, bounded delivery and loop suppression | `tool-watchdog` event catalog/count/delivery sections | `runtime/watchdogs/events.rs:103`, `:110`, `:138`, `:235`, `:368`, `:415` |
-| MQTT subscription, credentials/TLS, retained/payload filtering, retries and untrusted bounded payloads | `tool-watchdog` MQTT section; publishing owned by concurrent feature author | `runtime/watchdogs/mqtt.rs`; `mqtt/mod.rs:38`, `:68`, `:205`; `mqtt/creds.rs`, `mqtt/render.rs`, `mqtt/topic.rs` |
+| MQTT subscription, credentials/TLS, retained/payload filtering, retries and untrusted bounded payloads | `tool-watchdog` MQTT section, plus the inherited publish contract at final base `5174fe3`; obsolete no-publish wording removed | `runtime/watchdogs/mqtt.rs`; `mqtt/mod.rs:38`, `:68`, `:205`; `mqtt/creds.rs`, `mqtt/render.rs`, `mqtt/topic.rs`; final publish anchors above |
 | WebSocket connections, credentials/hellos/protocol/heartbeat, send, retries and opt-in connect events | `tool-watchdog` WebSocket section/parameters | `runtime/watchdogs/websocket.rs:19`, `:39`, `:86`, `:653`; `ws/mod.rs:40`, `:42`, `:47`; `mqtt/backoff.rs` |
 | Explicit hire scope, composite task/audience/kickoff admission and first-task behavior | `tool-hire`, `tool-rehire`, `hiring`, `delegating` | `domain/hire_requirements.rs:4`, `:9`, `:43`; `domain/ops.rs:719`, `:846`, `:1193`, `:1651` |
 | Fast mode and per-tier hiring defaults, top-level write authority and saved-seat behavior | `tool-fast-defaults`, `tool-hire`, `tool-rehire`, `tool-retool`, model tool pages | `domain/ops/fast_defaults.rs:5`, `:11`; `providers/fast_mode.rs:12`, `:23`, `:31`, `:44` |
