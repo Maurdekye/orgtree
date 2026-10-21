@@ -1,5 +1,16 @@
 # Desktop and renderer
 
+## Project jump activity
+
+The shared `NavChip` derives project activity from `subtreeAgents(node)` and
+the agents' observed `busy` flag, matching project header counts/activity.
+Nested projects and agents are crossed; retired agents and bearer ghosts do
+not activate it, and agent jump cards retain their own busy flag. All superior
+and report jump cards in agent/project desks, including windowed desks, use
+the same `DestinationBusy` arrows/animation. A reported Working status alone
+does not count. [decided: user 2026-10-21 22:21:42Z; verified:
+`canvas/desk.tsx`, `canvas/bulkcompact.tsx`, `tests/projectjumpworking.test.tsx`]
+
 ## Root retired-list stacking
 
 The external root retired-list satellite uses layer 2: above resting cards

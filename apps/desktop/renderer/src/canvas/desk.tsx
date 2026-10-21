@@ -112,6 +112,7 @@ import type {
 import { ConfirmModal, PilePicker } from './modals'
 import { InboxView, RetiredFold } from './mail'
 import { DeskJumpCards, superiorKept } from './deskjumpcards'
+import { subtreeAgents } from './bulkcompact'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
 import { AskCard } from './asks'
@@ -1834,6 +1835,11 @@ export interface DeskChatProps {
 export function NavChip({ n, dir, onJump }:
 { n: CanvasNode; dir: 'up' | 'down'; onJump: (id: string) => void }) {
   const eye = n.id === USER
+  // Projects take no turns themselves: use the same live-agent subtree and
+  // observed busy signal as their header, through nested projects and agents.
+  const busy = n.kind === 'project'
+    ? n.state === 'live' && subtreeAgents(n).some(agent => agent.busy)
+    : n.busy
   // the chip's accent and unread count belong to the DESTINATION agent, not
   // to whichever provider's themed desk this chip happens to render inside
   const prov = !eye && n.tier ? ' prov-' + providerOf(n.tier) : ''
@@ -1847,7 +1853,7 @@ export function NavChip({ n, dir, onJump }:
         {eye
           ? <><EyeIcon fontSize="inherit" /> switchboard</>
           : <><TierChip tier={nodeTierOf(n)} agentName={n.id} />{n.id}</>}
-        {n.busy && <DestinationBusy tier={n.tier} />}
+        {busy && <DestinationBusy tier={n.tier} />}
         {(n.mail_pending ?? 0) > 0 &&
           <b className={'eye-count' + prov}>{n.mail_pending}</b>}
       </button>
