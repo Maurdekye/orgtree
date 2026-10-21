@@ -22,7 +22,7 @@ The desk panel's agent drawer offers search and archive inclusion. Choose an age
 
 ## User-mention mail
 
-Unread mail mentioning @user in visible content uses the same mail entry and read/selection retention as urgent mail, without an urgent tag or fabricated reason. Its matching sender/prose mention blurb is suppressed while that mail represents it; reading clears that matching marker, and unrelated mention rows remain.
+Unread mail mentioning @user in visible content uses the same mail entry and read/selection retention as urgent mail, without an urgent tag or fabricated reason. A matching sender/prose transcript mention is represented by the mail only when the mail was created at or after that mention and within ten seconds of it. Reading clears only that matching marker. Older mail, later independent repeats, and missing/invalid timestamps keep the transcript mention visible; uncertainty may leave a duplicate rather than hide an unseen mention.
 
 Click a selected mail, question or ticket row again to clear its reading pane,
 or press Escape while the queue list has focus. A read mail then leaves the

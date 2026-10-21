@@ -1,5 +1,18 @@
 # Agent runtime
 
+## Mail and transcript mention correlation
+
+The renderer, native duplicate predicate and mail read-clear require matching
+sender/prose plus a mail creation time from zero through ten seconds after the
+mention timestamp. Earlier mail and unknown/invalid timestamps cannot cover a
+mention; repeated wording outside that window remains independent. The ten
+seconds is a conservative hardening choice: the controlled correspondence test
+uses a three-second gap and verifies both boundaries, not a measurement of live
+provider latency. Slow copies may remain duplicated. Exact event provenance is
+a possible later improvement, outside 4.4.0. [decided: coordinator 2026-10-21
+23:15Z; verified: `mailattention.ts`, `domain/mail_attention.rs`,
+`tests/mentionmailtime.test.tsx`]
+
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
 Turns, context, compaction, warm processes, sessions, interrupts and transcript recovery.

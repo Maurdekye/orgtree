@@ -4,7 +4,9 @@ use anyhow::Result;
 
 // Only user-visible prose, never sender/recipient identities, paths or ids.
 const FIELDS: &[&str]=&["body","text","title","subject","gist","quoted_context","question","summary","excerpt","reason","err","headline"];
-pub const DUPLICATE_MENTION_SQL: &str = "m.sender=a.name AND a.extra->'user_mention'->>'blurb' LIKE '%@user%' AND position(trim(both '…' from btrim(regexp_replace(a.extra->'user_mention'->>'blurb', '\\s+', ' ', 'g'))) in btrim(regexp_replace(m.body, '\\s+', ' ', 'g'))) > 0";
+// Same conservative 0..10 second window as the renderer and read-clear helper.
+// CASE protects the cast: malformed legacy metadata leaves its mention visible.
+pub const DUPLICATE_MENTION_SQL: &str = "m.sender=a.name AND CASE WHEN pg_input_is_valid(a.extra->'user_mention'->>'at', 'timestamp with time zone') THEN m.created_at >= (a.extra->'user_mention'->>'at')::timestamptz AND m.created_at <= (a.extra->'user_mention'->>'at')::timestamptz + interval '10 seconds' ELSE false END AND a.extra->'user_mention'->>'blurb' LIKE '%@user%' AND position(trim(both '…' from btrim(regexp_replace(a.extra->'user_mention'->>'blurb', '\\s+', ' ', 'g'))) in btrim(regexp_replace(m.body, '\\s+', ' ', 'g'))) > 0";
 pub const SQL: &str = "(urgent OR concat_ws(E'\\n', body, (SELECT string_agg(part, E'\\n') FROM jsonb_array_elements_text(jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.body') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.text') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.title') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.subject') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.gist') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.quoted_context') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.question') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.summary') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.excerpt') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.reason') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.err') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.headline')) AS prose(part))) ~ '(^|[^A-Za-z0-9_@./:-])@user([^A-Za-z0-9_-]|$)')";
 
 #[nolog]
@@ -23,6 +25,9 @@ pub fn qualifies(mail:&Value)->bool {
 
 #[nolog]
 pub fn covers_mention(mail:&Value, mention:&Value)->bool {
+    let (Some(mail_at),Some(mention_at))=(mail["created_at"].as_str().and_then(|s|chrono::DateTime::parse_from_rfc3339(s).ok()),
+        mention["at"].as_str().and_then(|s|chrono::DateTime::parse_from_rfc3339(s).ok())) else {return false;};
+    if mail_at<mention_at || mail_at>mention_at+chrono::Duration::seconds(10) {return false;}
     let blurb=normalize(mention["blurb"].as_str().unwrap_or("")).trim_matches('…').to_string();
     !blurb.is_empty() && blurb.contains("@user") && normalize(mail["body"].as_str().unwrap_or("")).contains(&blurb)
 }
@@ -37,7 +42,8 @@ pub async fn clear_read_mentions(client:&(impl tokio_postgres::GenericClient + S
     for mail in mails {
         if !qualifies(mail) {continue;}
         let Some(id)=mail["sender_agent_id"].as_i64() else {continue;};
-        let Some(row)=client.query_opt("SELECT extra->'user_mention' FROM ot.agents WHERE id=$1 AND org_id=$2 AND extra->'user_mention' IS NOT NULL",&[&id,&org]).await? else {continue;};
+        let Some(sender)=mail["sender"].as_str() else {continue;};
+        let Some(row)=client.query_opt("SELECT extra->'user_mention' FROM ot.agents WHERE id=$1 AND org_id=$2 AND name=$3 AND extra->'user_mention' IS NOT NULL",&[&id,&org,&sender]).await? else {continue;};
         let mention:Value=row.get(0);
         if !covers_mention(mail,&mention) {continue;}
         let n=client.execute("UPDATE ot.agents SET extra=extra-'user_mention',row_version=row_version+1 WHERE id=$1 AND extra->'user_mention'=$2",&[&id,&mention]).await?;
