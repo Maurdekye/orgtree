@@ -37,6 +37,6 @@ test('Heavy dev shop developers resolve the short combined author/reviewer prese
   for (const requirement of [/private\s+worktree/, /red-first/, /exact committed SHA/, /exact SHA/, /independent checks/, /on the docket/, /never edit/, /by mail/, /same landing/]) assert.match(text, requirement)
   const template = JSON.parse(readFileSync(path.join(root, 'engine/docs/templates/heavy-dev-shop.json'), 'utf8'))
   const developers = template.agents[0].reports[0].reports[0].reports.filter(s => s.name.startsWith('developer-'))
-  assert.equal(developers.length, 5)
+  assert.equal(developers.length, 11)
   for (const seat of developers) assert.deepEqual(seat.charter, {preset: 'developer'})
 })

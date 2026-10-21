@@ -18,7 +18,7 @@ const walk=(slots:Slot[],depth=0,parent:string|null=null):number=>slots.reduce((
   return total+(s.tier==='project'?below:row.seat+row.grant)
 },0)
 walk(template.agents)
-const plan:TemplatePlan={id:template.id,name:template.name,agents:rows,blocked:[],ok:true,org_md:false,top_grant:48,standing_notes:7,offered:Object.entries(costs).map(([tier,seat])=>({tier,seat,provider:tier==='argon'?'google':['opus','sonnet'].includes(tier)?'claude':'openai'}))}
+const plan:TemplatePlan={id:template.id,name:template.name,agents:rows,blocked:[],ok:true,org_md:false,top_grant:80,standing_notes:7,offered:Object.entries(costs).map(([tier,seat])=>({tier,seat,provider:tier==='argon'?'google':['opus','sonnet'].includes(tier)?'claude':'openai'}))}
 const summary:TemplateSummary={id:template.id,name:template.name,description:template.description,source:'folder',path:'/templates/heavy-dev-shop.json',agents:rows.map(r=>({name:r.name,tier:r.tier!,depth:r.depth,parent:r.parent})),problems:[]}
 window.fetch=(async(url:RequestInfo|URL)=>new Response(JSON.stringify(String(url).includes('/resolve')?plan:{templates:[summary],dir:'/templates'}),{status:200,headers:{'Content-Type':'application/json'}})) as typeof fetch
 function Surface(){

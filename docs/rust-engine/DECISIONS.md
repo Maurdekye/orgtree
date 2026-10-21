@@ -1769,3 +1769,5 @@ All entries are dated 2026-10-06 unless stated otherwise.
     proof `tools/rig/proofs/session0-handover.mjs`.
 
 - 2026-10-21: USER adds a short Developer preset combining assigned implementation and assigned exact-SHA peer review; Heavy dev shop developer seats use it. Operational practices remain in AGENTS.md; author owns fixes, reviewer never edits the author's code in place.
+
+- 2026-10-21 19:40:55Z, USER m406984d5555a: Heavy dev shop leadership uses medium; developers expand to three Opus, three Sol, three Astra plus Sonnet and Argon. Nine developers use medium, one Opus and one Astra use max. Sol/high rig and curator stay unchanged. This supersedes the earlier named-seat effort defaults; generic hiring guidance remains subordinate to explicit user choices.

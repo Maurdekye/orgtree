@@ -1259,10 +1259,20 @@ mod tests {
         }
         let (p,b)=plan(&t,&Choices::default(),&av,&[]).unwrap();
         assert!(b.is_empty());
-        assert_eq!(p.iter().filter(|p| !p.slot.project()).count(),9);
-        assert_eq!(p.iter().map(|p|p.seat).sum::<f64>(),32.0);
+        assert_eq!(p.len(),16); // fifteen seats plus one project, below the 24-node limit
+        assert_eq!(p.iter().filter(|p| !p.slot.project()).count(),15);
+        assert_eq!(p.iter().map(|p|p.seat).sum::<f64>(),64.0);
         assert_eq!(p[0].name,"liaison");
-        assert_eq!(p[0].grant,48.0);
+        assert_eq!(p[0].grant,80.0);
+        assert_eq!(p[1].grant,72.0);
+        let developers:Vec<_>=p.iter().filter(|p|p.name.starts_with("developer-")).collect();
+        assert_eq!(developers.len(),11);
+        for tier in ["opus","sol","astra"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),3); }
+        for tier in ["sonnet","argon"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),1); }
+        assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("medium")).count(),9);
+        let mut max_names:Vec<_>=developers.iter().filter(|p|p.slot.effort.as_deref()==Some("max")).map(|p|p.name.as_str()).collect();
+        max_names.sort();
+        assert_eq!(max_names,vec!["developer-astra-max","developer-opus-max"]);
         assert_eq!(p[1].parent.as_deref(),Some("liaison"));
         assert_eq!(hire_request(&p[1],false)["audiences"],json!(["user"]));
         assert_eq!(p[2].name,"build-slot");
@@ -1271,7 +1281,7 @@ mod tests {
         assert_eq!(p[2].slot.peer_mail,Some(true));
         assert!(p[3..].iter().all(|p|p.parent.as_deref()==Some("build-slot")));
         for p in p.iter().filter(|p|!p.slot.project()) {
-            let expected=match p.slot.tier.as_str() {"opus"=>"max","astra"=>"xhigh",_=>"high"};
+            let expected=match p.name.as_str() {"developer-opus-max"|"developer-astra-max"=>"max","test-rig"|"curator"=>"high",_=>"medium"};
             assert_eq!(p.slot.effort.as_deref(),Some(expected));
             if p.name.starts_with("developer-") {
                 assert_eq!(p.slot.charter.preset.as_deref(),Some("developer"));
