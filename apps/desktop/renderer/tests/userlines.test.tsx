@@ -24,11 +24,11 @@ import assert from 'node:assert/strict'
 import { advance, FakeServer, flush, installFetch, mountView, realClock, useFakeClock } from './harness'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { resetConvos } from '../src/convo'
-import { USER, setChartLayout } from '../src/canvas/shared'
+import { DOG_H, DOG_W, USER, setChartLayout, setHideRetiredOn } from '../src/canvas/shared'
 import { listenerLinks } from '../src/canvas/listeners'
 import { slotLinks } from '../src/canvas/slots'
 import { fairQueueLinks } from '../src/canvas/shared'
-import { agent, bunchTree, project } from './projectbunch-fixture'
+import { agent, bunchTree, project, retired } from './projectbunch-fixture'
 import type { TreePayload, Watchdog } from '../src/types'
 
 const W = window as unknown as Window & typeof globalThis
@@ -57,13 +57,14 @@ test('§1 the link helpers keep the user\'s rows, owner "user", beside the agent
 
 /* ─── §2 the mounted canvas ────────────────────────────────────────────── */
 
-async function canvas(t: TestContext, tree: TreePayload) {
+async function canvas(t: TestContext, tree: TreePayload, hideRetired = false) {
   useFakeClock(); t.after(realClock)
   resetConvos()
   localStorage.clear()
   setChartLayout('row')
   localStorage.setItem('orgtree-canvas-gl-wires', 'off')
   localStorage.setItem('orgtree-start-zoom', '0')
+  if (hideRetired) setHideRetiredOn(true)
   const proto = W.HTMLElement.prototype
   const old = { rect: proto.getBoundingClientRect, w: Object.getOwnPropertyDescriptor(proto, 'clientWidth'),
     h: Object.getOwnPropertyDescriptor(proto, 'clientHeight'), capture: proto.setPointerCapture }
@@ -145,3 +146,31 @@ test('§2 the user\'s watchdogs show as chips BELOW the switchboard, tethered to
   assert.ok(count(view.el, 'path.tether.wd') >= 1, 'a tether wire from the chips to the eye card')
   assert.equal(USER, '@user')
 })
+
+/* ─── §3 the eye's three satellites keep clear of one another ───────────── */
+
+// USER 2026-10-21 22:34Z: "make sure the watchdogs dont interfere with the retired card under the switchboard".
+// Under the eye sit (at rest) the root's "N retired" badge and now the user's watchdog chips; the hire chips
+// are the card's own hover strip, drawn above both. The badge and the chips must not overlap at rest.
+const BADGE_H = 22
+const rectOf = (el: HTMLElement, w: number, h: number) => { const [x, y] = numbers(el.style.transform); return { x: x!, y: y!, w, h } }
+const overlap = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) =>
+  a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+for (const dogs of [1, 3, 5, 9]) {
+  test(`§3 ${dogs} user watchdog(s) and the root retired badge under the switchboard never overlap`, async t => {
+    const view = await canvas(t, treeWith({
+      roots: [retired(agent('old-boss')), ...bunchTree([agent('boss', [project('build', [agent('dev')])])]).roots],
+      watchdogs: Array.from({ length: dogs }, (_, i) => dog(i % 2 ? 'project_listener' : 'fair_queue', 'user', 'd' + i)),
+    }), true)
+    const badge = view.el.querySelector<HTMLElement>('.root-retired-list')
+    assert.ok(!!badge, 'fixture: the root retired badge shows')
+    const eye = at(view.el, '.sq.user'), b = rectOf(badge!, 60, BADGE_H)
+    assert.ok(b.y >= eye.y + 124, 'fixture: the badge is below the eye card')
+    const chips = [...view.el.querySelectorAll<HTMLElement>('.wd-chip')]
+    assert.equal(chips.length, dogs > 8 ? 1 : dogs, dogs > 8 ? 'more than eight dogs share one group card' : 'one chip per dog')
+    for (const chip of chips) {
+      const c = rectOf(chip, dogs > 8 ? 104 : DOG_W, DOG_H)
+      assert.equal(overlap(b, c), false, `a watchdog chip at ${c.x},${c.y} overlaps the retired badge at ${b.x},${b.y}`)
+    }
+  })
+}
