@@ -20,7 +20,7 @@ Read with `action=settings`, never `action=describe`: omitted-description `descr
 ## Run one assigned batch
 
 1. Prepare the checkout, storage audit, tests/fixes and commands before claiming. Verify this CLI has watchdog `kind=slot` and project `release_slot`; stale startup schemas need a fresh CLI or coordinator help. Never claim a permit you cannot release, invent a lock-file fallback or bypass the tool interface through live APIs.
-2. Claim with `orgtree_watchdog action=create kind=slot target=build-slot name=<assigned batch>`. If queued, end the turn; the one-shot dog wakes you with the lease when granted. Do not poll. If granted immediately, retain the returned lease, not a guessed permit number.
+2. Claim with `orgtree_watchdog action=create kind=slot target=build-slot name=<assigned batch>`. If queued, end the turn; the one-shot dog wakes you with the lease when granted. Do not poll. If granted immediately, `resolved:true, registered:false` returns the lease inline without a dog, mail or wake. Retain that lease and proceed without yielding; never guess a permit number.
 3. Check fresh free RAM against the current project Summary immediately before every phase. Follow its current Cargo jobs, Job limit and low-RAM wait/release deadline, using a once RAM watchdog where instructed. If the lease is reclaimed, claim again before work. Capacity alone never authorizes extra work.
 4. Run the assigned red/green/typecheck/capture batch in the foreground, in your own assigned build output/target. Release immediately even after failure, before mail or analysis: `orgtree_project action=release_slot lease=<lease> note=<result and seconds>`.
 

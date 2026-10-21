@@ -134,7 +134,7 @@ Reads use windows up to 1 MiB and normally wait for a complete CR/LF-terminated 
 
 Runs `target` once per poll and matches its stdout/stderr lines. `pattern` is required: merely printing something is not an event. A condition that remains printed can fire repeatedly, so use `once: true` for a deadline or completion condition.
 
-The recurring command must exit. After 60 seconds it is stopped, and that timeout itself contributes an event even without a regex match. Creation also executes it once for smoke, so choose a read-only probe or another command explicitly safe to repeat. An ordinary nonzero exit alone is not a match; inspect the output and pattern.
+The recurring command must exit. After 60 seconds it is stopped, and that timeout itself contributes an event even without a regex match. Creation also executes it once for smoke. A matching once event-mode smoke is returned as the fire without a second execution; otherwise choose a read-only probe or another command explicitly safe to repeat. An ordinary nonzero exit alone is not a match; inspect the output and pattern.
 
 ### process
 
