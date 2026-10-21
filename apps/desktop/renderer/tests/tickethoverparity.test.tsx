@@ -17,7 +17,7 @@ import { objectTooltipProps, registerObjectNativeTooltipDocument } from '../src/
 test('native object tooltip binds to the adopted document and ignores stale/cleaned-up reads', async t => {
   const original = globalThis.fetch
   const frame = document.createElement('iframe'); document.body.appendChild(frame)
-  const owner = frame.contentDocument!, win = frame.contentWindow!
+  const owner = frame.contentDocument!, win = frame.contentWindow! as Window & typeof globalThis
   let settle: ((response: Response) => void) | undefined
   const reads: string[] = []
   globalThis.fetch = (async input => {
@@ -30,7 +30,7 @@ test('native object tooltip binds to the adopted document and ignores stale/clea
   for (const [key, value] of Object.entries(objectTooltipProps('ticket', 'native-ticket', 'org'))) if (value) link.setAttribute(key, value)
   owner.body.appendChild(link)
   const hover = async () => {
-    await inAct(() => link.dispatchEvent(new win.MouseEvent('pointerover', { bubbles: true })))
+    await inAct(() => void link.dispatchEvent(new win.MouseEvent('pointerover', { bubbles: true })))
     await flush()
   }
   await hover()
@@ -38,9 +38,9 @@ test('native object tooltip binds to the adopted document and ignores stale/clea
   await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Native title', status: 'open' } }), { status: 200 })))
   await flush()
   assert.equal(link.title, 'Open · Native title')
-  await inAct(() => link.dispatchEvent(new win.MouseEvent('pointerout', { bubbles: true })))
+  await inAct(() => void link.dispatchEvent(new win.MouseEvent('pointerout', { bubbles: true })))
   await hover()
-  await inAct(() => link.dispatchEvent(new win.MouseEvent('pointerout', { bubbles: true })))
+  await inAct(() => void link.dispatchEvent(new win.MouseEvent('pointerout', { bubbles: true })))
   await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Too late' } }), { status: 200 })))
   await flush()
   assert.equal(link.title, '', 'a reply after departure cannot restore stale hover text')
@@ -73,7 +73,7 @@ test('ticket row, typed/Markdown/bare refs, inbox reply and tools share live sta
       <RefChip r={resolveRef({ kind: 'item', org: 'org', id: item.slug }, world)} onOpen={() => {}} />
       <RefMdBody html={{ __html: `<p>@item:org/${item.slug} ${item.slug}</p>` }} world={world} onOpen={() => {}}
         mentions={{ index: buildMentionIndex([item]), onPick: () => {} }} />
-      <WorkRefText text={item.slug} org="org" index={buildMentionIndex([item])} onPick={() => {}} />
+      <WorkRefText text={item.slug} index={buildMentionIndex([item])} onPick={() => {}} />
       <ToolRefs org="org" owner="worker" agent={id => id} refs={[{ kind: 'ticket', id: item.slug }]} onWorkLink={() => {}} />
       <ToolChip t={{ id: 'created', name: 'orgtree_work', work: { slug: item.slug } }} slug="org" nid="worker" onWorkLink={() => {}} />
       <MailReplyPreview row={{ reply_to: { id: item.slug, kind: 'work_item', org: 'org', gist: 'Ticket context' } }} org="org" world={world} onOpen={() => {}} />
@@ -90,15 +90,15 @@ test('ticket row, typed/Markdown/bare refs, inbox reply and tools share live sta
     title = state.title; status = state.status; archived = !!state.archived
     let menu: (string | null)[] | undefined
     for (const link of links) {
-      await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+      await inAct(() => void link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
       await flush(2)
       assert.equal(link.title, `${state.label} · ${title}`, 'hover resolves current state and full title rather than cached row state')
-      await inAct(() => link.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })))
+      await inAct(() => void link.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })))
       await flush(2)
       const labels = [...document.querySelectorAll('.ctxmenu:not(.ctxmenu-submenu) > .ctxmenu-branch > [role="menuitem"]')].map(el => el.textContent)
       menu ??= labels
       assert.deepEqual(labels, menu)
-      await inAct(() => link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
+      await inAct(() => void link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
     }
   }
   assert.ok(reads.length > readsBeforeHover, 'renames are read exactly on demand rather than permanently cached')
@@ -122,18 +122,18 @@ test('ticket status labels match the docket; unknown or absent status shows only
   ] as const
   for (const [status, label] of states) {
     served = { status }
-    await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(3)
+    await inAct(() => void link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(3)
     assert.equal(link.title, `${label} · Complete title`)
-    await inAct(() => link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
+    await inAct(() => void link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
   }
   for (const status of [undefined, null, '', 'future-status', '__proto__', 12, {}]) {
     served = { status }
-    await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(3)
+    await inAct(() => void link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(3)
     assert.equal(link.title, 'Complete title', 'unknown status must not be invented')
-    await inAct(() => link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
+    await inAct(() => void link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
   }
   served = { status: 'done', archived: true }
-  await inAct(() => link.dispatchEvent(new MouseEvent('focusin', { bubbles: true }))); await flush(3)
+  await inAct(() => void link.dispatchEvent(new MouseEvent('focusin', { bubbles: true }))); await flush(3)
   assert.equal(link.title, 'Archived · Complete title')
 })
 
@@ -152,7 +152,7 @@ test('concurrent ticket hovers share one read, and a later focus rereads changed
   assert.equal(reads, 1)
   await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Ticket', status: 'open' } })))); await flush(3)
   assert.equal(one!.title, 'Open · Ticket'); assert.equal(two!.title, one!.title)
-  await inAct(() => one!.dispatchEvent(new MouseEvent('focusin', { bubbles: true })))
+  await inAct(() => void one!.dispatchEvent(new MouseEvent('focusin', { bubbles: true })))
   assert.equal(reads, 2, 'settled result was not retained as a cache')
   await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Ticket', status: 'done' } })))); await flush(3)
   assert.equal(one!.title, 'Done · Ticket')
