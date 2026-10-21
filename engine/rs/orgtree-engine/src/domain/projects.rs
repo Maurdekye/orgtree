@@ -29,6 +29,9 @@ use crate::engine::Engine;
 use crate::util::{gist, iso, uid};
 use crate::domain::user_regs::USER;
 
+#[cfg(test)]
+mod claim_boundary_tests;
+
 /// `ot.agents.kind` of a project node.
 pub const KIND: &str = "project";
 /// The `tier` a project row stores: a sentinel, never a catalog tier.
