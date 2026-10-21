@@ -11,8 +11,10 @@ settings.
   provider has multiple configured accounts or keys; it is the bound account
   name or `default` when unbound. Missing values are omitted.
 - The browser supplies the native tooltip delay and presentation. The shared
-  host resolves the current title on hover or focus, and clears it when the
-  pointer leaves or a context menu opens. No custom tooltip overlay is mounted.
+  host resolves the current title on hover or focus. It snapshots that value
+  until both pointer and focus have left; moving between children of the same
+  identity does not refresh it. A new entry reads fresh facts. A context menu
+  clears the delegated title. No custom tooltip overlay is mounted.
 - A draft with a selected tier shows `(not started)` for effort. Archived
   agents show their last model with `(retired)`. Queued model switches are
   omitted.
@@ -84,3 +86,30 @@ settings.
 Implementation and focused coverage: `apps/desktop/renderer/src/canvas/agentnav.tsx`,
 `apps/desktop/renderer/src/canvas/OrgCanvas.tsx`, and
 `apps/desktop/renderer/tests/agenttooltip*.test.tsx`.
+
+## Live watchdog titles (2026-10-21)
+
+Watchdog satellites, shared links (including transcript/tool/history references),
+desk chips and rows snapshot their native title for the whole hover/focus
+session. The shared `useNativeTitle` hook also protects the detail countdown's
+own title. Countdown labels keep ticking; compact chip labels contain only
+the timer (`4:08`, `3h 3m`, `1d 3h`). The identity tooltip retains its
+`next check in …` wording. Compact timer descendants inherit the enclosing
+identity tooltip so they cannot replace it with a separate ticking title.
+
+This is the snapshot option approved by the coordinator on 2026-10-21 17:40Z
+for the user's flicker report and timer-only label request at 17:39Z. It does
+not introduce a custom tooltip. Agent/project facts already resolve lazily
+through `registerAgentNativeTooltipDocument`; its shared session now also
+preserves the title across child transitions and overlapping focus/hover.
+Other inspected clocks (last-turn ages and slot durations) change visible
+text or colour while retaining timestamp-based titles, so they do not rewrite
+their native title on a clock tick.
+
+Regression: `tests/tooltip-hover.test.tsx` covers countdown ticks, shared
+watchdog surfaces, focus/hover overlap, timer units and delegated project
+facts in both the main and adopted documents. `tooltip-hover-capture.cjs`
+uses real browser mouse movement and a title MutationObserver: visible
+countdown changes, zero title mutations while hovered, fresh title on re-entry.
+Dark/light captures show labels and a DOM title inspection panel; offscreen
+captures do not photograph the operating system's native tooltip window.

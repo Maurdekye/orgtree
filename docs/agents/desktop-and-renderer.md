@@ -18,6 +18,14 @@ stay unchanged. [decided: user 2026-10-21 17:38:28Z; verified:
 `canvas/objecttooltip.ts`, `canvas/docketstatus.tsx`,
 `tests/tickethoverparity.test.tsx`]
 
+### Stable live identity titles
+
+Watchdog and agent/project native titles stay snapshotted until pointer and focus both leave.
+Watchdog chips keep ticking with timer-only labels; their tooltips retain
+"next check in …". Descendant entry does not refresh agent/project facts.
+See [identity tooltip behavior](../rust-engine/agent-identity-tooltip.md#live-watchdog-titles-2026-10-21).
+[decided: user 2026-10-21 17:39Z, coordinator 17:40Z; verified: `canvas/{nativetitle,agentnav,watchdogtitle}.ts*`]
+
 Agent and project retired counts share a clickable header badge, replacing the
 external/inset overlay label. See [retired header badges](../rust-engine/retired-header-badges.md).
 [decided: user 2026-10-21 11:16Z; verified: `canvas/retiredbadge.tsx`]
