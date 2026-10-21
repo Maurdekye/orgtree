@@ -258,7 +258,7 @@ fn failed_delegation(root: &std::path::Path, active: &[crate::core_process::Sess
         session: 0, admin: false, stopped_old: false, at_ms: crate::core_state::now(), epoch: active.to_vec(),
         error: Some(why::TASK_FAILED.into()), rollback: None, reported: None };
     let _ = handover::write(root, &record);
-    crate::host::say(Some(root), &format!("{}", why::TASK_FAILED));
+    crate::host::say(Some(root), why::TASK_FAILED);
 }
 
 /// Mark the rollback before the engine starts, so its own restart notices
