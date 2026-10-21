@@ -7,7 +7,7 @@ import { eventFanout, startBus } from './heldevents'
 import { forgetModalPins, forgetModalOpenCache } from '../src/canvas/modalpin'
 import { resetSeenMentions, useMentionHighlight, hasUnseenUserMention } from '../src/canvas/agentmentions'
 import { DEFAULT_NOTIFICATIONS } from '../../../../packages/contracts/notifications'
-import type { TreeNode } from '../src/types'
+import type { TreeNode, UserMentionInfo } from '../src/types'
 
 const response=(data:unknown)=>new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}})
 const scenarios=[
@@ -33,7 +33,7 @@ for(const focusDesk of [false,true])for(const scenario of scenarios) {
       title:'agent mentioned you',body:'Old mention',...(focusDesk?{focusDesk:true,fromTaskbar:true}:{})}
     const root={id:'agent',tier:'sol',model_id:'sol',generation:scenario.generation??2,state:'live',seat:1,
       grant:0,free:0,mail_pending:0,documents:[],children:[],lineage:[],turns:[],audiences_held:[],
-      user_mention:{id:scenario.currentId,event_id:scenario.currentEvent,blurb:'New mention',at:'2026-10-21T20:00:00Z'},
+      user_mention:{id:scenario.currentId,event_id:scenario.currentEvent,blurb:'New mention',at:'2026-10-21T20:00:00Z'} as UserMentionInfo|null,
       scope:{tools:{},add_dirs:[],permission_mode:'default',org_visibility:'team'}}
     const seen:string[]=[]
     let highlight:ReturnType<typeof useMentionHighlight>=null
@@ -53,7 +53,7 @@ for(const focusDesk of [false,true])for(const scenario of scenarios) {
         const id=JSON.parse(String(init.body)).id;seen.push(id)
         // Mirror the endpoint's ID-matched deletion: a stale acknowledgement
         // cannot remove a newer marker from the returned tree snapshot.
-        if(root.user_mention?.id===id)root.user_mention=null as never
+        if(root.user_mention?.id===id)root.user_mention=null
         return response({ok:true})
       }
       if(path==='/api/providers')return response({providers:[]})
