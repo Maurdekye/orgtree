@@ -26,6 +26,8 @@ renderer path is written out.
 | Purge | User or project ancestor retracts currently pending/unassigned mail, including jobs returned after an earlier attempt. Held, ACKed and dead-letter records remain. It is not a way to erase dead letters or reclaim a running job. | `domain/ops.rs:2708`; `domain/projects.rs:875` |
 | User participation | The user's queue registration shares round-robin and batch accounting. Jobs arrive in the user's inbox. Reading is not an ACK. Leaving removes the registration but leaves held jobs until the user acknowledges; no idle/halt/retire reclaim or take-back applies. Exclude-sender covers user self-posts too. | `domain/projects.rs:243`, `:350`, `:608`, `:934`; `domain/ops.rs:2627`; `domain/ops/user_regs.rs:347` |
 
-The glossary pages link this receipt for the applicable source lines.
+The glossary pages name this repository receipt for the applicable source lines.
+It is not a manifest page served in the glossary bundles; cross-category
+navigation uses category names and breadcrumbs, not relative file links.
 Attributed historical records in `docs/agents` stay intact; their
 current guidance points here rather than silently rewriting old rulings.

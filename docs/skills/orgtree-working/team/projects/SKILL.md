@@ -101,9 +101,10 @@ back. Exclude-sender also covers user self-posts. Purge retracts only currently
 pending/unassigned jobs, including returned jobs with earlier attempts;
 held, ACKed and dead-letter records stay.
 
-For settings, examples and limits see
-[work-queues](../../../orgtree-workflows/collaboration-patterns/work-queues/SKILL.md)
-and [the source audit](../../../orgtree-workflows/collaboration-patterns/work-queues/source-audit.md).
+For settings, examples and limits open `orgtree-work-queues`
+(orgtree-workflows > collaboration-patterns > work-queues).
+The repository's `docs/skills/orgtree-workflows/collaboration-patterns/work-queues/source-audit.md`
+records the implementation references; it is not a bundled glossary page.
 
 ## Concurrency slots
 

@@ -48,7 +48,8 @@ an earlier attempt, while held/acked/dead-letter records remain.
 jobs: up to 200 matching armed/paused `event` dogs on `project.dead_letter` or
 `project.*`. Paused rows do not receive events. Its pattern preview uses a
 project-only synthetic event line, so payload-specific filters may be absent.
-See the [source audit](source-audit.md) for the exact implementation references.
+The repository's `docs/skills/orgtree-workflows/collaboration-patterns/work-queues/source-audit.md`
+records the exact implementation references; it is not a bundled glossary page.
 
 ## Project audiences
 

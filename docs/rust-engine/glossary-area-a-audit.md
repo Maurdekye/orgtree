@@ -61,7 +61,14 @@ written out. Line numbers identify this source baseline, not future edits.
 
 ## Validation and boundaries
 
-Run `node docs/agents/check-coverage.mjs --self-test` and `git diff --check`.
+Run `node --test tests/skills-tree-coverage.test.mjs` for the glossary's nine
+coverage/navigation contracts. Relative glossary links must stay within their
+category and target manifest pages; cross-category references use the skill
+name and category/breadcrumb. Repository audit files are not manifest pages.
+Also run `node docs/agents/check-coverage.mjs --self-test` and `git diff --check`.
+The latter coverage checker preserves repository instruction notes; it does
+not replace the glossary coverage test. A file existing locally does not prove
+that it is a valid link inside a served glossary bundle.
 Check local Markdown targets in the changed pages and source targets named by
 this receipt. Preserved attributed records remain unchanged; current dated
 guidance explicitly supersedes their stale descriptions.
