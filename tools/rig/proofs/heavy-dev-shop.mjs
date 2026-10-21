@@ -28,7 +28,7 @@ export default async function(rig) {
   const developer=fs.readFileSync(fileURLToPath(new URL('../../../engine/docs/charters/developer.md',import.meta.url)),'utf8')
   const developers=rows.filter(r=>r.name.startsWith('developer-'))
   p.check('all eleven created developers receive the complete Developer preset (normal hire trimming)',developers.length===11&&developers.every(r=>r.charter===developer.trim()))
-  p.check('medium leadership, nine medium developers and exactly one Opus plus one Astra at max are stored',rows[0].scope.effort==='medium'&&rows[1].scope.effort==='medium'&&developers.filter(r=>r.scope.effort==='medium').length===9&&JSON.stringify(developers.filter(r=>r.scope.effort==='max').map(r=>[r.name,r.tier]).sort())===JSON.stringify([['developer-astra-max','astra'],['developer-opus-max','opus']])&&rows.filter(r=>['test-rig','curator'].includes(r.name)).every(r=>r.tier==='sol'&&r.scope.effort==='high'))
+  p.check('medium leadership, five medium developers, Sol/Argon high and exactly one Opus plus one Astra at max are stored',rows[0].scope.effort==='medium'&&rows[1].scope.effort==='medium'&&developers.filter(r=>r.scope.effort==='medium').length===5&&JSON.stringify(developers.filter(r=>r.scope.effort==='high').map(r=>r.name).sort())===JSON.stringify(['developer-argon','developer-sol-1','developer-sol-2','developer-sol-3'])&&JSON.stringify(developers.filter(r=>r.scope.effort==='max').map(r=>[r.name,r.tier]).sort())===JSON.stringify([['developer-astra-max','astra'],['developer-opus-max','opus']])&&rows.filter(r=>['test-rig','curator'].includes(r.name)).every(r=>r.tier==='sol'&&r.scope.effort==='high'))
   const scratch=path.join(rig.data,'scratch',slug)
   const byName=Object.fromEntries(rows.map(r=>[r.name,r]))
   let count=0,allNotes=true

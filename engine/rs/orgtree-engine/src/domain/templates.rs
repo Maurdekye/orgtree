@@ -1269,7 +1269,8 @@ mod tests {
         assert_eq!(developers.len(),11);
         for tier in ["opus","sol","astra"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),3); }
         for tier in ["sonnet","argon"] { assert_eq!(developers.iter().filter(|p|p.tier.as_deref()==Some(tier)).count(),1); }
-        assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("medium")).count(),9);
+        assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("medium")).count(),5);
+        assert_eq!(developers.iter().filter(|p|p.slot.effort.as_deref()==Some("high")).count(),4);
         let mut max_names:Vec<_>=developers.iter().filter(|p|p.slot.effort.as_deref()==Some("max")).map(|p|p.name.as_str()).collect();
         max_names.sort();
         assert_eq!(max_names,vec!["developer-astra-max","developer-opus-max"]);
@@ -1281,7 +1282,7 @@ mod tests {
         assert_eq!(p[2].slot.peer_mail,Some(true));
         assert!(p[3..].iter().all(|p|p.parent.as_deref()==Some("build-slot")));
         for p in p.iter().filter(|p|!p.slot.project()) {
-            let expected=match p.name.as_str() {"developer-opus-max"|"developer-astra-max"=>"max","test-rig"|"curator"=>"high",_=>"medium"};
+            let expected=match p.name.as_str() {"developer-opus-max"|"developer-astra-max"=>"max","developer-sol-1"|"developer-sol-2"|"developer-sol-3"|"developer-argon"|"test-rig"|"curator"=>"high",_=>"medium"};
             assert_eq!(p.slot.effort.as_deref(),Some(expected));
             if p.name.starts_with("developer-") {
                 assert_eq!(p.slot.charter.preset.as_deref(),Some("developer"));

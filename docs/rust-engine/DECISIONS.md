@@ -1771,3 +1771,5 @@ All entries are dated 2026-10-06 unless stated otherwise.
 - 2026-10-21: USER adds a short Developer preset combining assigned implementation and assigned exact-SHA peer review; Heavy dev shop developer seats use it. Operational practices remain in AGENTS.md; author owns fixes, reviewer never edits the author's code in place.
 
 - 2026-10-21 19:40:55Z, USER m406984d5555a: Heavy dev shop leadership uses medium; developers expand to three Opus, three Sol, three Astra plus Sonnet and Argon. Nine developers use medium, one Opus and one Astra use max. Sol/high rig and curator stay unchanged. This supersedes the earlier named-seat effort defaults; generic hiring guidance remains subordinate to explicit user choices.
+
+- 2026-10-21 19:52:37Z, USER: Heavy dev shop developer-sol-1/2/3 and developer-argon use high effort. This supersedes their medium setting from 19:40:55Z; leadership and five other developers remain medium, one Opus and one Astra remain max, and rig/curator remain Sol/high. Seat count and credits are unchanged.

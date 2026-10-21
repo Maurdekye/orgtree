@@ -22,11 +22,12 @@ Heavy dev shop has fifteen agents and one three-slot project, with operational
 practice in inherited notes and short role-focused charters. Its eleven developer
 seats resolve the bundled Developer preset, combining assigned author and
 reviewer roles; the author retains fixes and operational policy stays in notes.
-Leadership and nine developers use medium; exactly one Opus and one Astra
-developer use max, with Sol/high support seats unchanged. This explicit user
+Leadership and five developers use medium; the three Sol developers and Argon
+use high; exactly one Opus and one Astra developer use max, with Sol/high
+support seats unchanged. This explicit user
 choice overrides general placement defaults for these named seats. Seat cost
 64 plus spare20 totals84, fitting16nodes/fourlevels within existing limits.
-[decided: user 2026-10-21 19:40:55Z; verified: heavy-dev-shop.json]
+[decided: user 2026-10-21 19:40:55Z, updated 19:52:37Z; verified: heavy-dev-shop.json]
 See
 [templates](../skills/orgtree-app/org-settings/org-templates/SKILL.md).
 [decided: user 2026-10-21 18:40–18:45Z; verified: domain/templates.rs,
