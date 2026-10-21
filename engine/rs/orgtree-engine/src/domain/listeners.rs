@@ -380,6 +380,8 @@ async fn evaluate_page(engine: &Arc<Engine>, org_id: i64, project: i64, after: i
             None => true,
         };
         if crossed(was, count, need) && reached {
+            let line=format!("project {pname} now has {count} event listeners armed — at or over the {need} this watch waits for");
+            tx.execute("INSERT INTO ot.listener_fire_outbox(org_id,project_id,watchdog_id,line) VALUES($1,$2,$3,$4)",&[&org_id,&project,&row,&line]).await?;
             firing.push((row, need, owner.is_none()));
             crossings.push(json!({ "agent": r.get::<_, String>(6), "dog": r.get::<_, String>(4), "name": r.get::<_, String>(5),
                                    "count": need, "armed": count, "since": iso(r.get::<_, DateTime<Utc>>(7)) }));
@@ -424,17 +426,7 @@ async fn evaluate_page(engine: &Arc<Engine>, org_id: i64, project: i64, after: i
     drop(client);
     #[cfg(test)]
     if STOP_AFTER_WATCH_EDGE.try_with(|stop| *stop).unwrap_or(false) { return Ok(last); }
-    for (row, need, user) in &firing {
-        let line = format!(
-            "project {pname} now has {count} event listeners armed — at or over the {need} this watch waits for"
-        );
-        if *user {
-            // the user's watch: mail in their inbox, spent as a one-shot (no agent to wake)
-            Box::pin(crate::domain::user_regs::fire_dog(engine, org_id, *row, " LISTENERS READY —", vec![line])).await?;
-        } else {
-            Box::pin(crate::runtime::watchdogs::fire_listener_watch(engine, *row, line)).await?;
-        }
-    }
+    Box::pin(drain_fires(engine,org_id,project)).await?;
     if !firing.is_empty() {
         changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Agent(project)]);
     }
@@ -443,6 +435,7 @@ async fn evaluate_page(engine: &Arc<Engine>, org_id: i64, project: i64, after: i
 
 /// One listener an event fire delivered to (its fire-time tool calls and
 /// wake run after the delivery transaction, in this order).
+#[derive(serde::Serialize,serde::Deserialize)]
 struct Delivery {
     row: i64,
     uid: String,
@@ -495,8 +488,8 @@ pub struct Fired {
     pub dogs: Vec<String>,
 }
 
-/// Fire the project's event: one transaction gives every eligible
-/// listener its mail and records its fire (spending one-shots), in dog
+/// Fire the project's event: durable bounded pages give every eligible
+/// listener its mail and record its fire (spending one-shots), in dog
 /// creation order; then each listener's fire-time tool calls run and its
 /// results are appended to its still-pending mail before it is woken.
 /// `by` is the firer's label (`@user` or an agent name); authority to
@@ -558,9 +551,18 @@ pub async fn recover_pending(engine:&Arc<Engine>)->Result<()> {
         let c=engine.db.get().await?;
         let rows=c.query("SELECT fire_id,org_id,project_id FROM ot.project_event_dispatch WHERE NOT done AND fire_id>$1 ORDER BY fire_id LIMIT 64",&[&after]).await?;
         drop(c);
-        if rows.is_empty(){return Ok(())}
+        if rows.is_empty(){break}
         for r in rows {after=r.get(0);Box::pin(drain_pending(engine,r.get(1),r.get(2))).await?;}
     }
+    let mut after=0i64;
+    loop {
+        let c=engine.db.get().await?;
+        let rows=c.query("SELECT id,org_id,project_id FROM ot.listener_fire_outbox WHERE NOT done AND id>$1 ORDER BY id LIMIT 64",&[&after]).await?;
+        drop(c);
+        if rows.is_empty(){return Ok(())}
+        for r in rows {after=r.get(0);Box::pin(drain_fires(engine,r.get(1),r.get(2))).await?;}
+    }
+
 }
 
 #[logged]
@@ -638,6 +640,9 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
             fire_actions: r.get::<_, Option<Value>>(8).and_then(|v| v.as_array().cloned()).unwrap_or_default(),
         });
     }
+    for d in &deliveries {
+        tx.execute("INSERT INTO ot.listener_fire_outbox(org_id,project_id,watchdog_id,delivery) VALUES($1,$2,$3,$4)",&[&org_id,&project,&d.row,&serde_json::to_value(d)?]).await?;
+    }
     let total:i32=tx.query_one("UPDATE ot.project_fires SET listeners=listeners||$2::jsonb WHERE id=$1 RETURNING jsonb_array_length(listeners)",&[&fire_id,&Value::Array(heard)]).await?.get(0);
     tx.execute("UPDATE ot.project_event_dispatch SET after_id=$2,done=$3 WHERE fire_id=$1",&[&fire_id,&next,&done]).await?;
     if done {
@@ -649,31 +654,7 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
     // after commit, in delivery order: a spent dog stops, fire-time tool
     // calls run and their results join the mail, then the owner wakes
     let mut ch: Vec<Change> = vec![Change::Watchdogs, Change::Agent(project), Change::Events];
-    for d in &deliveries {
-        if d.spent {
-            crate::runtime::watchdogs::disarm(engine, d.row);
-        }
-        // the user's listener: the mail is in their inbox, nobody to wake
-        let Some(owner) = d.owner else {
-            ch.push(Change::UserMail);
-            continue;
-        };
-        if !d.fire_actions.is_empty() {
-            let text = crate::runtime::watchdogs::run_fire_actions(
-                engine, org_id, owner, &d.owner_name, &d.uid, &d.name, &d.fire_actions,
-            ).await;
-            if !text.is_empty() {
-                append_results(engine, org_id, d, &text).await;
-            }
-        }
-        ch.push(Change::Mailbox(owner));
-        ch.push(Change::Spark { from: format!("dog:{}", crate::domain::watchdogs::handle(&d.owner_name, &d.uid)), to: d.owner_name.clone() });
-        if !d.notice && !(crate::mailhub::safe_start() && !crate::rig::recovers()) {
-            crate::runtime::wake(engine, org_id, owner);
-        } else if let Some(h) = engine.agents.get(owner) {
-            h.send(crate::runtime::AgentMsg::Wake);
-        }
-    }
+    Box::pin(drain_fires(engine,org_id,project)).await?;
     if done { ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event(
         crate::runtime::watchdogs::events::PROJECT_EVENT,
         crate::runtime::watchdogs::events::Scope::Agent(org_id, project),
@@ -685,6 +666,83 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
     // spent one-shot listeners changed the count the watches read
     Box::pin(evaluate(engine, org_id, project)).await?;
     Ok(Some(fire_id))
+}
+
+/// Claim one durable notification in a short project-locked transaction.
+/// Mail allocation and a one-shot's spent state commit together. A different
+/// engine boot may reclaim post-commit work, but never its already-attempted actions.
+#[nolog]
+async fn stage_fire(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option<(i64,Option<Delivery>)>> {
+    let mut c=engine.db.get().await?;let tx=c.transaction().await?;
+    if tx.query_opt("SELECT id FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE",&[&project]).await?.is_none(){return Ok(None)}
+    let boot=&engine.boot.id;
+    let Some(work)=tx.query_opt("SELECT id,watchdog_id,line,delivery FROM ot.listener_fire_outbox WHERE project_id=$1 AND NOT done AND (processing_boot IS NULL OR processing_boot<>$2) ORDER BY id LIMIT 1 FOR UPDATE",&[&project,&boot]).await? else{return Ok(None)};
+    let (id,row,line,saved):(i64,i64,Option<String>,Option<Value>)=(work.get(0),work.get(1),work.get(2),work.get(3));
+    let delivery=if let Some(saved)=saved {serde_json::from_value(saved)?} else {
+        let Some(d)=tx.query_opt("SELECT w.uid,w.name,w.owner_agent_id,coalesce(a.name,'user'),w.once,w.fired,w.memo,w.state,a.state,coalesce(a.kind,'agent'),w.target FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id=w.owner_agent_id WHERE w.id=$1 FOR UPDATE OF w",&[&row]).await? else{return Ok(None)};
+        let owner:Option<i64>=d.get(2);
+        let allowed=d.get::<_,String>(7)=="armed" && match owner {
+            None=>true,
+            Some(owner)=>d.get::<_,Option<String>>(8).as_deref()==Some("live") && d.get::<_,String>(9)=="agent" && crate::domain::projects::reaches(&*tx,owner,project).await?,
+        };
+        if !allowed {
+            tx.execute("UPDATE ot.listener_fire_outbox SET done=true WHERE id=$1",&[&id]).await?;
+            tx.commit().await?;return Ok(Some((id,None)));
+        }
+        let (dog,name,owner_name,once,fired,memo,target):(String,String,String,bool,i32,Value,String)=(d.get(0),d.get(1),d.get(3),d.get(4),d.get(5),d.get(6),d.get(10));
+        let line=line.unwrap_or_default();
+        let mut body=format!("Watchdog \"{name}\" fired LISTENERS READY — (listener_watch · {target}), fire #{}:\n  {line}\n",fired+1);
+        if once {body.push_str("This was a ONE-SHOT watchdog: it removed itself with this fire and will not appear in `list` again.\n");}
+        let mail=uid("m");let notice=memo["notice"].as_bool().unwrap_or(false);
+        let slug=engine.orgs.by_id(org_id).map(|o|o.slug.clone()).unwrap_or_default();
+        let ev=crate::events::watchdog_fired(&slug,&dog,&name,&owner_name,"LISTENERS READY —",&[line.clone()],once,None);
+        tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,notice,body,ev,state) VALUES($1,$2,$3,CASE WHEN $4::bigint IS NULL THEN 'user' ELSE 'agent' END,$4,CASE WHEN $4::bigint IS NULL THEN '@user' ELSE $5::text END,'watchdog',$6,$7,$8,'pending')",&[&mail,&org_id,&name,&owner,&owner_name,&notice,&body,&ev]).await?;
+        let ring=json!([{ "at":iso(Utc::now()),"gist":gist(&line,200)}]);
+        tx.execute("UPDATE ot.watchdogs SET fired=fired+1,last_fired=now(),state=CASE WHEN once THEN 'spent' ELSE state END,spent_at=CASE WHEN once THEN now() ELSE spent_at END,events=(SELECT coalesce(jsonb_agg(x ORDER BY n),'[]'::jsonb) FROM(SELECT x,n FROM jsonb_array_elements(events||$2) WITH ORDINALITY e(x,n) ORDER BY n DESC LIMIT $3)s) WHERE id=$1",&[&row,&ring,&EVENTS_KEEP]).await?;
+        Delivery {row,uid:dog,name,owner,owner_name,notice,spent:once,mail,fire_actions:memo["fire_actions"].as_array().cloned().unwrap_or_default()}
+    };
+    tx.execute("UPDATE ot.listener_fire_outbox SET delivery=$2,processing_boot=$3 WHERE id=$1",&[&id,&serde_json::to_value(&delivery)?,&boot]).await?;
+    tx.commit().await?;
+    Ok(Some((id,Some(delivery))))
+}
+
+#[nolog]
+async fn drain_fires(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<()> {
+    while let Some((id,delivery))=Box::pin(stage_fire(engine,org_id,project)).await? {
+        let Some(d)=delivery else {continue};
+        let result=Box::pin(finish_fire(engine,org_id,project,id,&d)).await;
+        if let Err(error)=result {
+            let c=engine.db.get().await?;
+            c.execute("UPDATE ot.listener_fire_outbox SET processing_boot=NULL WHERE id=$1 AND NOT done",&[&id]).await?;
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+#[nolog]
+async fn finish_fire(engine:&Arc<Engine>,org_id:i64,project:i64,id:i64,d:&Delivery)->Result<()> {
+    if d.spent {crate::runtime::watchdogs::disarm(engine,d.row);}
+    let c=engine.db.get().await?;
+    let first=c.execute("UPDATE ot.listener_fire_outbox SET actions_claimed=true WHERE id=$1 AND NOT actions_claimed",&[&id]).await?==1;
+    drop(c);
+    if first && !d.fire_actions.is_empty() {
+        if let Some(owner)=d.owner {
+            let text=crate::runtime::watchdogs::run_fire_actions(engine,org_id,owner,&d.owner_name,&d.uid,&d.name,&d.fire_actions).await;
+            if !text.is_empty(){append_results(engine,org_id,d,&text).await;}
+        }
+    }
+    let mut ch=vec![Change::Watchdogs,Change::Agent(project)];
+    if let Some(owner)=d.owner {
+        ch.push(Change::Mailbox(owner));
+        ch.push(Change::Spark{from:format!("dog:{}",crate::domain::watchdogs::handle(&d.owner_name,&d.uid)),to:d.owner_name.clone()});
+        if !d.notice && !(crate::mailhub::safe_start() && !crate::rig::recovers()){crate::runtime::wake(engine,org_id,owner);}
+        else if let Some(h)=engine.agents.get(owner){h.send(crate::runtime::AgentMsg::Wake);}
+    }else{ch.push(Change::UserMail);}
+    changes::notify_id(engine,org_id,ch);
+    let c=engine.db.get().await?;
+    c.execute("UPDATE ot.listener_fire_outbox SET done=true,processing_boot=NULL WHERE id=$1",&[&id]).await?;
+    Ok(())
 }
 
 /// Append a listener's fire-action results to its fire mail (body and
