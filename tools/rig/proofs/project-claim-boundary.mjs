@@ -10,6 +10,11 @@ export default async function(rig){
  if(!exes.length)throw Error('compile focused native test first')
  const {port,password}=rig.pgConn()
  const env={...process.env,ORGTREE_CLAIM_TEST_URL:`host=127.0.0.1 port=${port} user=orgtree_admin password=${password} dbname=orgtree_engine`,ORGTREE_CLAIM_TEST_ROOT:rig.dir.replaceAll('\\','/'),ORGTREE_CLAIM_TEST_ORG:String(rig.one(`SELECT org_id FROM ot.agents WHERE name='boss'`).org_id)}
+ if(filter.startsWith('upgrade_')){
+  const list=spawnSync('git',['ls-tree','--name-only','v4.3.3:engine/rs/orgtree-engine/migrations'],{encoding:'utf8',windowsHide:true});if(list.status!==0)throw Error('missing local v4.3.3 migration source')
+  const entries=list.stdout.trim().split(/\r?\n/).filter(n=>n.endsWith('.sql')).map(n=>{const r=spawnSync('git',['show',`v4.3.3:engine/rs/orgtree-engine/migrations/${n}`],{encoding:'utf8',windowsHide:true});if(r.status!==0)throw Error('cannot read baseline migration');return{name:n.replace(/\.sql$/,''),sql:r.stdout}})
+  env.ORGTREE_V433_MIGRATIONS='C:/orgtree-build/taskbar-orgs-sol/v433-upgrade-migrations.json';fs.writeFileSync(env.ORGTREE_V433_MIGRATIONS,JSON.stringify(entries))
+ }
  const result=spawnSync(exes[0],[filter,'--ignored','--nocapture'],{env,encoding:'utf8',windowsHide:true,timeout:60000,maxBuffer:2*1024**2})
  p.file('native.log',(result.stdout||'')+(result.stderr||''));p.file('exit.json',{status:result.status,signal:result.signal,error:result.error?.message})
  p.check(filter,result.status===0&&result.signal===null&&!result.error,{status:result.status,signal:result.signal})

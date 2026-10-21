@@ -56,6 +56,8 @@ const FIRE_BATCH: i64 = 200;
 #[cfg(test)]
 tokio::task_local! { static STOP_AFTER_WATCH_EDGE: bool; }
 #[cfg(test)]
+tokio::task_local! { static STOP_AFTER_EVENT_PAGE: bool; }
+#[cfg(test)]
 mod watch_boundary_tests;
 
 /// The largest listener count a watch may ask for.
@@ -537,6 +539,8 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
 #[logged]
 async fn drain_pending(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<()> {
     while Box::pin(deliver_page(engine,org_id,project)).await?.is_some() {
+        #[cfg(test)]
+        if STOP_AFTER_EVENT_PAGE.try_with(|stop|*stop).unwrap_or(false) {return Ok(())}
         tokio::task::yield_now().await;
     }
     Ok(())
