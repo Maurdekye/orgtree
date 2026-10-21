@@ -77,6 +77,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
     getUpdateCapability: () => ipcRenderer.invoke('desktop:update-capability'),
     getRunAsAdministrator: () => ipcRenderer.invoke('desktop:run-as-admin'),
+    runThisSessionAsAdmin: () => ipcRenderer.invoke('desktop:run-session-as-admin'),
     setRunAsAdministrator: (enabled: boolean, restartNow: boolean) =>
       ipcRenderer.invoke('desktop:set-run-as-admin', enabled, restartNow),
     getStartupKind: () => ipcRenderer.invoke('desktop:startup-kind'),

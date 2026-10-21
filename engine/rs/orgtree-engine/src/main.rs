@@ -34,6 +34,7 @@ mod engine;
 mod events;
 mod feed;
 mod host;
+mod session_launch;
 #[cfg(windows)]
 mod hosted_pipes;
 mod http;
@@ -92,6 +93,7 @@ fn main() -> ExitCode {
         None | Some("serve") => serve(false),
         Some("standalone") => serve(true),
         Some("host") => host::run(),
+        Some("session-launch") => session_launch::cli(&args[2..]),
         Some("core-control") => core_monitor::cli(&args[2..]),
         Some("core-recovery") => core_recovery::cli(&args[2..]),
         Some("credential-helper") => credential_bridge::cli("git", &args[2..]),

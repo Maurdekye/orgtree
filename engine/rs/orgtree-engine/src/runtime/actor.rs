@@ -856,7 +856,6 @@ struct Actor {
     /// the first turn since the engine started has waited for the sign-in
     /// helper (`session_settle`), and said where it started (`session_notes`)
     settled: bool,
-    session_noted: bool,
     /// the seat counted as unsandboxed when its CLI's placement was last
     /// chosen (`session_host::wanted`), for `session_view`
     bypass_seat: bool,
@@ -1008,7 +1007,6 @@ impl Actor {
             receipt,
             reconfigured: false,
             settled: false,
-            session_noted: false,
             bypass_seat: false,
             session_pref: crate::runtime::session_host::Pref::SignedIn,
             use_session: None,
@@ -3036,16 +3034,6 @@ impl Actor {
     async fn session_notes(&mut self, turn_id: i64, raw: &mut Vec<Value>) {
         let Some(hosted) = self.proc.as_ref().map(|p| p.hosted()) else { return };
         let now = if hosted || !codexrt::session0() { SIGNED_IN } else { SESSION0 };
-        if !std::mem::replace(&mut self.session_noted, true) {
-            let line = format!("\nSession access at start: {}.", if now == SIGNED_IN { "signed-in session" } else { "Session 0" });
-            for m in raw.iter_mut().filter(|m| m["ev"]["variant"] == "runtime.restart_notice") {
-                let (Some(id), Some(body)) = (m["id"].as_i64(), m["body"].as_str().map(|b| format!("{b}{line}"))) else { continue };
-                if let Ok(client) = self.engine.db.get().await {
-                    let _ = client.execute("UPDATE ot.mail SET body = $2 WHERE id = $1", &[&id, &body]).await;
-                }
-                m["body"] = Value::String(body);
-            }
-        }
         let before = self.last_session().await;
         if before.as_deref() == Some(now) {
             return;

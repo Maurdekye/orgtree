@@ -52,7 +52,8 @@ import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttentionItems, type T
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
-import { readStartupTasks, startEngineTask, startupOn, writeRunOnStartup } from './runonstartup'
+import { readStartupTasks, startupOn, writeRunOnStartup } from './runonstartup'
+import { launchBackground, launchContext, inConsole, prepareSessionLaunch, replaceWithSessionAdmin } from './sessionlaunch'
 import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, privateDataFolders, type BootInputs } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
@@ -2272,6 +2273,9 @@ else {
         if (await engine.attach(engineOptions)) return true
         return engine.attachWithRetry(engineOptions)
       }
+      if (process.platform === 'win32' && engineOptions.binary) {
+        engineOptions.launchBackground = () => launchBackground(engineOptions)
+      }
       const initialEngine = async () => {
       if (!await bootAttached() && !await engine.attach(engineOptions)) {
         if (engine.attachDiagnostic) console.warn(`boot-engine descriptor rejected: ${engine.attachDiagnostic}`)
@@ -2323,16 +2327,20 @@ else {
        *  authenticated, with proof of exit - the stop an update uses - so
        *  PostgreSQL shuts down cleanly. Then the boot engine task, which the
        *  operator may start without elevation. */
-      const restartBackgroundEngine = async () => {
+      const restartBackgroundEngine = async (adminOnce = false) => {
         if (backgroundEngineRestart || engineRestartBlocked()) throw new Error('Orgtree is busy restarting or updating; try again in a moment.')
         backgroundEngineRestart = true
         try {
-          await coreLifecycle?.transition(true)
-          await engine.stopAttachedForUpdate()
-          await startEngineTask()
-          if (!await engine.reattachBackground(engineOptions, 120000)) {
-            throw new Error('The background engine was restarted, but Orgtree has not reconnected to it yet. It keeps trying.')
+          const stop = async () => {
+            if (quitting || installerUpgradeShutdown) throw new Error('Session restart cancelled by Quit or update')
+            await coreLifecycle?.transition(true)
+            await engine.stopForSessionRestart(engineOptions)
           }
+          const attach = async () => {
+            if (!await engine.reattachBackground(engineOptions, 120000)) throw new Error('The engine was restarted, but Orgtree has not reconnected to it yet. It keeps trying.')
+          }
+          if (adminOnce) await replaceWithSessionAdmin(() => prepareSessionLaunch(engineOptions, true), stop, attach)
+          else { await stop(); await launchBackground(engineOptions); await attach() }
           if (engine.origin === initialOrigin) {
             await coreLifecycle?.complete()
             for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
@@ -2349,10 +2357,17 @@ else {
       const runAsAdministratorState = async (): Promise<RunAsAdministratorState> => {
         if (process.platform !== 'win32') return { available: false, enabled: false, reason: 'Only Windows has this setting.' }
         const enabled = await readRunAsAdministrator()
-        if (!engine.usesBackgroundTask) return { available: false, enabled, reason: "Orgtree is not using its background engine, so the engine runs with Orgtree's own rights." }
-        return { available: true, enabled }
+        const tasks = await readStartupTasks().catch(() => null)
+        const canRunInSession = !!engineOptions.binary && await launchContext(engineOptions.binary).then(inConsole).catch(() => false)
+        return { available: tasks?.boot != null, enabled, canRunInSession,
+          ...(!tasks || tasks.boot === null ? {reason:'The Session 0 boot task is not installed.'} : {}) }
       }
       handleApp('desktop:run-as-admin', () => runAsAdministratorState())
+      handleApp('desktop:run-session-as-admin', async () => {
+        if (!(await runAsAdministratorState()).canRunInSession) throw new Error('No signed-in console session is available.')
+        await restartBackgroundEngine(true)
+        return runAsAdministratorState()
+      })
       // "Chat from your phone": the door's firewall rule needs one UAC prompt,
       // which only this (interactive) process can show
       handleApp('desktop:phone-firewall', (scope: unknown) => {
@@ -2634,7 +2649,7 @@ else {
       coreLifecycle?.configureRecovery(async allowSpawn => {
         if (quitting || installerUpgradeShutdown || backgroundEngineRestart || updateApplying) return
         const before = engine.origin || initialOrigin
-        await engine.recoverUnexpected(engineOptions, allowSpawn, startEngineTask)
+        await engine.recoverUnexpected(engineOptions, allowSpawn, () => launchBackground(engineOptions))
         if (quitting || installerUpgradeShutdown || !engine.origin) return
         await coreLifecycle?.complete()
         if (engine.origin === before) {

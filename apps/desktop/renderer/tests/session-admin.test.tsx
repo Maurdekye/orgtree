@@ -5,28 +5,28 @@ import { RunAsAdministratorSetting } from '../src/canvas/desktopsettings'
 
 function bridge(canRun: boolean, launch: () => Promise<unknown>, changes: boolean[]) {
   Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: {
-    getRunAsAdministrator: async () => ({ available: true, enabled: true, canRunInSession: canRun }),
+    getRunAsAdministrator: async () => ({ available: true, enabled: false, canRunInSession: canRun }),
     setRunAsAdministrator: async (enabled: boolean) => { changes.push(enabled); return { available: true, enabled } },
     runThisSessionAsAdmin: launch,
   } })
 }
 
-test('Session 0 toggle and independent current-session action share the settings row', async () => {
+test('Unified admin toggle and independent current-session action share the settings row', async () => {
   const changes: boolean[] = []; let launches = 0
-  bridge(true, async () => { launches++; return { available: true, enabled: true, canRunInSession: true } }, changes)
+  bridge(true, async () => { launches++; return { available: true, enabled: false, canRunInSession: true } }, changes)
   const v = await mountView(<RunAsAdministratorSetting />, el => el)
   try {
     await inAct(async () => { await flush(5) })
-    const toggle = v.el.querySelector<HTMLInputElement>('input[aria-label="Run Session 0 as admin"]')
-    assert.ok(!!toggle, 'the toggle names Session 0 explicitly')
-    assert.equal(toggle!.checked, true)
+    const toggle = v.el.querySelector<HTMLInputElement>('input[aria-label="Run as admin"]')
+    assert.ok(!!toggle, 'the toggle uses the unified label')
+    assert.equal(toggle!.checked, false)
     const button = [...v.el.querySelectorAll('button')].find(b => b.textContent === 'Run this session as admin')
     assert.ok(!!button, 'the one-off button is visible')
     assert.equal(toggle!.closest('.set-row'), button!.closest('.set-row'))
     await inAct(async () => { button!.click(); await flush(5) })
     assert.equal(launches, 1)
     assert.deepEqual(changes, [], 'one-off launch never changes the stored boot toggle')
-    assert.equal(toggle!.checked, true)
+    assert.equal(toggle!.checked, false)
   } finally { await v.unmount() }
 })
 
@@ -55,6 +55,6 @@ test('declined one-off elevation leaves the toggle unchanged and reports the ref
     await inAct(async () => { button!.click(); await flush(5) })
     assert.match(v.el.querySelector('[role="alert"]')?.textContent ?? '', /running engine is unchanged/)
     assert.deepEqual(changes, [])
-    assert.equal(v.el.querySelector<HTMLInputElement>('input')!.checked, true)
+    assert.equal(v.el.querySelector<HTMLInputElement>('input')!.checked, false)
   } finally { await v.unmount() }
 })

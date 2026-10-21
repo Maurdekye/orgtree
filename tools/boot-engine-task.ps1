@@ -337,6 +337,34 @@ function Get-BootMarker($Record) { return "com.maurdekye.orgtree.boot.v1:$($Reco
 # choice was recorded) counts as on, the desktop's default.
 function Test-RunOnStartup($Record) { return ($null -eq $Record['RunOnStartup'] -or [int]$Record['RunOnStartup'] -ne 0) }
 function Get-EnabledText([bool]$Value) { if ($Value) { return 'true' } return 'false' }
+
+# Read-only console ownership, independent of the installer's (possibly alternate
+# administrator) token. Unknown inspection fails rather than guessing Session 0.
+function Get-SignedInConsoleSid {
+    if (-not ('OrgtreeInstallerConsole' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class OrgtreeInstallerConsole {
+    [DllImport("kernel32.dll")] public static extern uint WTSGetActiveConsoleSessionId();
+    [DllImport("wtsapi32.dll", SetLastError=true)] static extern bool WTSQuerySessionInformationW(IntPtr server, uint id, int kind, out IntPtr buffer, out uint size);
+    [DllImport("wtsapi32.dll")] static extern void WTSFreeMemory(IntPtr p);
+    public static string Read(uint id, int kind) {
+        IntPtr p; uint size;
+        if (!WTSQuerySessionInformationW(IntPtr.Zero,id,kind,out p,out size)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        try { return p == IntPtr.Zero ? "" : Marshal.PtrToStringUni(p); } finally { if(p != IntPtr.Zero) WTSFreeMemory(p); }
+    }
+}
+'@
+    }
+    $session=[OrgtreeInstallerConsole]::WTSGetActiveConsoleSessionId()
+    if ($session -eq [uint32]::MaxValue -or $session -eq 0) { return $null }
+    $user=[OrgtreeInstallerConsole]::Read($session,5)
+    if (-not $user) { return $null }
+    $domain=[OrgtreeInstallerConsole]::Read($session,7)
+    $account=[Security.Principal.NTAccount]::new($domain,$user)
+    return $account.Translate([Security.Principal.SecurityIdentifier]).Value
+}
 # "Run Orgtree as administrator": exactly DWORD 1 under HKLM\SOFTWARE\Orgtree\Runtime,
 # the rule the engine host applies (host.rs run_as_administrator). The
 # credential helper then runs with the highest privileges, and so do the agent
@@ -766,7 +794,7 @@ function Invoke-BootLifecycle {
             # With "Run on boot" off the task is registered disabled and not
             # started: nothing of Orgtree runs until the user opens it.
             $runs = Test-RunOnStartup $record
-            if ($runs) { $null = $registered.Run($null) }
+            if ($runs -and (Get-SignedInConsoleSid) -ne $record.OperatorSid) { $null = $registered.Run($null) }
             # The sign-in credential broker ships with the native engine only.
             # It follows Run on boot; its run level follows "Run Orgtree as
             # administrator", because the agent turns it starts in the

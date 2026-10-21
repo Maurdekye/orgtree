@@ -38,8 +38,13 @@ const HUNG_RESTART_WINDOW: Duration = Duration::from_secs(3600);
 static STOP: AtomicBool = AtomicBool::new(false);
 
 #[nolog]
-fn engine_admin(boot_setting: bool, _session_admin: Option<bool>) -> bool {
-    boot_setting
+fn engine_admin(boot_setting: bool, session_admin: Option<bool>) -> bool {
+    session_admin.unwrap_or(boot_setting)
+}
+
+#[nolog]
+pub(crate) fn launch_identity() -> (Option<String>, bool) {
+    (win::user_sid(), win::is_elevated())
 }
 
 #[cfg(test)]
@@ -404,7 +409,7 @@ fn once(session_admin: Option<bool>) -> u8 {
     let elevated = win::is_elevated();
     let as_admin = engine_admin(win::run_as_administrator(), session_admin);
     if as_admin {
-        say(Some(&root), "'Run Orgtree as administrator' is on; the engine keeps this host's rights");
+        say(Some(&root), "administrator launch selected; the engine keeps this host's rights");
     }
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("orgtree-engine.exe"));
     let (child, reader) = match win::spawn(&exe, &["serve"], &env, &exe_dir(), elevated && !as_admin) {

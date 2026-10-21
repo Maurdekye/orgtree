@@ -118,8 +118,6 @@ export function RunAsAdministratorSetting() {
   const [state, setState] = useState<RunAsAdministratorState | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  // Changed in this session and not yet applied to the running engine.
-  const [pending, setPending] = useState(false)
   useEffect(() => {
     if (!bridge?.getRunAsAdministrator) return
     let alive = true
@@ -131,21 +129,23 @@ export function RunAsAdministratorSetting() {
   const set = bridge.setRunAsAdministrator
   const change = (enabled: boolean, restartNow: boolean) => {
     setBusy(true)
-    set(enabled, restartNow).then(s => { setState(s); setError(''); setPending(!restartNow) })
+    set(enabled, restartNow).then(s => { setState(s); setError('') })
       .catch((e: Error) => setError(e.message)).finally(() => setBusy(false))
   }
   return <SetGroup title="Administrator rights">
     {error && <p role="alert">{error}</p>}
-    <SetToggle label="run Orgtree as administrator" checked={state?.enabled ?? false}
+    <SetToggle label="Run as admin" checked={state?.enabled ?? false}
       disabled={!state || busy || !state.available}
       title={state && !state.available ? state.reason : undefined}
       onChange={enabled => change(enabled, false)}
+      action={bridge.runThisSessionAsAdmin && <button type="button" disabled={busy || !state?.canRunInSession || !!state.enabled}
+        title="One permission prompt. Restarts the engine and its agents in this session; the stored setting stays unchanged."
+        onClick={() => {
+          setBusy(true)
+          bridge.runThisSessionAsAdmin!().then(s => { setState(s); setError('') })
+            .catch((e: Error) => setError(e.message)).finally(() => setBusy(false))
+        }}>Run this session as admin</button>}
       hint={state && !state.available ? state.reason
-        : 'Agents get full control of this PC. Windows asks for permission to change this, and it applies when the background engine restarts.'} />
-    {pending && <SetRow label="apply the change" hint="Running agent turns are interrupted.">
-      <button type="button" disabled={busy || !state} onClick={() => state && change(state.enabled, true)}>
-        {busy ? 'Restarting…' : 'Restart the background engine now'}
-      </button>
-    </SetRow>}
+        : 'Every agent runs with full administrator rights on this PC. Windows asks once when enabled; boot, sign-in and restarts then need no further prompts.'} />
   </SetGroup>
 }

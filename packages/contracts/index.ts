@@ -122,7 +122,7 @@ export interface UpdateCapability { unattendedInstall: boolean; installDirectory
  *  agents keep administrator rights. Stored in HKLM (admin-writable only), so
  *  changing it asks Windows for permission. `available` is false where there
  *  is no background engine for it to apply to. */
-export interface RunAsAdministratorState { available: boolean; enabled: boolean; reason?: string }
+export interface RunAsAdministratorState { available: boolean; enabled: boolean; reason?: string; canRunInSession?: boolean }
 /** What the startup switch does here (docket
  *  option-to-run-the-background-engine-in-the-user-s, user 2026-10-16): `boot`
  *  on an installation for all users on Windows, "Run on boot" (the engine at
@@ -205,6 +205,7 @@ export interface DesktopBridge {
   getUpdateStatus(): Promise<UpdateStatus>
   getUpdateCapability?(): Promise<UpdateCapability>
   getRunAsAdministrator?(): Promise<RunAsAdministratorState>
+  runThisSessionAsAdmin?(): Promise<RunAsAdministratorState>
   /** Change the setting (a UAC prompt). `restartNow` then restarts the
    *  background engine so the change applies at once; otherwise it applies at
    *  the engine's next start. */

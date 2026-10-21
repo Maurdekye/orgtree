@@ -373,8 +373,13 @@ mod forwarding_tests {
 // Extracted unchanged rendering; the regression below requires engine session
 // provenance before any agent turn/hosting decision is available.
 #[nolog]
-fn restart_body(version: &str, commit: &str, pid: u32, started: &str, _session: Option<u32>) -> String {
-    format!("[ORGTREE RESTART NOTICE]\nOrgtree {version} restarted. Commit: {commit}. PID: {pid}. Started at: {started}.\nThis is an informational notice; it does not start a turn.")
+fn restart_body(version: &str, commit: &str, pid: u32, started: &str, session: Option<u32>) -> String {
+    let where_ = match session {
+        Some(0) => "Session 0".into(),
+        Some(id) => format!("Windows session {id}"),
+        None => "unknown or not applicable".into(),
+    };
+    format!("[ORGTREE RESTART NOTICE]\nOrgtree {version} restarted. Commit: {commit}. PID: {pid}. Started at: {started}.\nEngine session at start: {where_}.\nThis is an informational notice; it does not start a turn.")
 }
 
 #[cfg(test)]

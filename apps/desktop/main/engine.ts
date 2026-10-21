@@ -66,7 +66,10 @@ import { readHarnessRegistry } from './harnesses'
 export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; conversionWindowMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean
   /** Orgtree 4: the Rust engine executable. When set it is started instead of
    *  the Python engine, with the same environment and launch handshake. */
-  binary?: string }
+  binary?: string
+  /** Windows desktop session-aware host launch. Tests and legacy runtimes may
+   * omit it; descriptor validation and root ownership remain in Engine. */
+  launchBackground?: () => Promise<void> }
 /** The bundled mail hub's live state, as /api/desktop/status reports it —
  *  feeds the tray's right-click status line (user requirement 2026-09-15). */
 export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
@@ -313,6 +316,15 @@ export class Engine extends EventEmitter {
     const realRoot = fs.realpathSync.native(root)
     validateDataRoot(realRoot, options.forbiddenRoot)
     this.state({ state: 'starting' })
+    if (binary && options.launchBackground) {
+      this.managed = false
+      this.attachedManaged = false
+      await options.launchBackground()
+      if (this.launchesCancelled) throw new Error('Engine launch cancelled by Quit')
+      if (!await this.attachWithRetry(options)) throw new Error('The session engine did not publish a verified attachment in time.')
+      this.stopping = false
+      return
+    }
     const env = { ...process.env, ...(binary ? {} : postgresRuntimeEnvironment(options.directory, options.packagedPostgres)),
       ORGTREE_DATA: realRoot, ORGTREE_V2_TOKEN: this.credential,
       ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid), PYTHONUNBUFFERED: '1' }
@@ -523,6 +535,19 @@ export class Engine extends EventEmitter {
     this.managed = false
     this.state({ state: 'stopped', message: 'Background engine stopped. Reconnecting…' })
     return false
+  }
+
+  /** Session handoff also covers a desktop-owned engine from an older launch.
+   * Never force-kill here: permission cancellation and stop failures are inert. */
+  async stopForSessionRestart(options: EngineOptions): Promise<void> {
+    if (this.launchesCancelled) throw new Error('Engine launch cancelled by Quit')
+    if (!await this.stopGracefullyForInstaller()) throw new Error('The running engine did not stop safely; session launch was cancelled.')
+    if (!await this.rootReleased(options)) throw new Error('The engine data root is still held; session launch was cancelled.')
+    this.child = undefined
+    this.endpoint = ''
+    this.managed = false
+    this.attachedManaged = false
+    this.stopping = false
   }
 
   /** Can THIS process write byte 0 of the guardian's lock file? The
