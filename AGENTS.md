@@ -15,6 +15,11 @@ Before renderer tests, visual captures or rig proofs, read the [test and capture
 
 ## Engine and desktop invariants
 
+- Helper transcript tool inputs use the ordinary credential redactor before
+  capture and on retained reads; never publish raw partial JSON. See
+  [helper transcripts](docs/rust-engine/helper-transcripts.md).
+  [verified: 2026-10-21, `runtime/helper_transcript.rs`, `http/nodes.rs`]
+
 - Claude completed thinking retains observed monotonic start/stop elapsed seconds
   per native block; the renderer uses row-level legacy timing only for a single
   thought. A transmitted thinking-specific duration takes precedence over

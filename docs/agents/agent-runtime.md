@@ -19,6 +19,13 @@ Turns, context, compaction, warm processes, sessions, interrupts and transcript 
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+Helper capture and its authenticated read route normalize tool inputs and use
+the ordinary credential redactor. Partial JSON stays only in a bounded 8 KiB
+unlogged draft until safe to publish; incomplete/clipped inputs are withheld,
+including older stored snapshots. Ordinary arguments and credential-file paths
+remain available. See [helper transcripts](../rust-engine/helper-transcripts.md).
+[verified: 2026-10-21, `runtime/helper_transcript.rs`, `http/nodes.rs`]
+
 <a id="e-e71373a072b7b615"></a>
 
 ## Automatic known-cold cheap compaction defaults ON/25% for new orgs and

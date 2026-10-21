@@ -70,6 +70,11 @@ New captures keep native content order. Supplied timing/token fields use normal
 slots; missing values remain unknown. The nested view stays visibly marked as
 a helper and scrolls within its own bound.
 
+Helper tool inputs hide inline MQTT/WebSocket credentials and secret URL
+values, while keeping ordinary arguments and credential-file paths. Incomplete
+or clipped JSON says "Arguments withheld until complete JSON can be redacted."
+The same protection applies when older retained helper snapshots are opened.
+
 Collapsed calls do not read helper snapshots. Completed captures remain
 available on reopening; read errors offer Retry, and a size-limit note means
 some activity was omitted. Older calls and other harnesses explain when no

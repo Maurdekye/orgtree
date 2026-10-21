@@ -35,7 +35,20 @@ typeface instead of inheriting its parent tool row's monospace styling.
 Each helper has its own fold store, pruned against retained rows, so a native ID
 cannot open a parent or sibling helper's fold. Child input uses `ToolInputDetails`
 with a retained payload; it never looks up a tool in the parent conversation or
-opens another helper transcript. Clipped arguments stay readable verbatim.
+opens another helper transcript. Completed arguments are normalized and passed
+through the ordinary transcript credential redactor before capture. Inline
+MQTT/WebSocket credentials and secret URL values are hidden; ordinary arguments
+and credential-file paths remain available.
+
+Partial tool JSON stays in an unlogged, bounded 8 KiB draft until it parses as
+a complete argument object that can be normalized and redacted. Until then the
+input disclosure says "Arguments withheld until complete JSON can be redacted."
+Truncated or unidentified wrappers are withheld too. Drafts are cleared at the
+block/message boundary and completed-message replacement. Older saved snapshots
+are sanitized by the authenticated read route; clipped JSON from those records
+is withheld because its secrets cannot be reliably identified. This protects
+publication without rewriting historical storage. [verified: 2026-10-21,
+`runtime/helper_transcript.rs`, `http/nodes.rs`; hardening credential fix]
 
 New capture includes at most 64 ordered content fragments per message, within
 the unchanged message/tool/serialized-byte caps. Text and thinking ranges use
