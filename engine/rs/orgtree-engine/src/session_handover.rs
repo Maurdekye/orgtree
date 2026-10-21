@@ -26,12 +26,13 @@ pub struct Admission {
 
 #[nolog]
 pub fn admit(state: &mut Snapshot, request: &Admission, now: i64, stopped: bool, native_peer: bool, owner_gone: bool) -> bool {
-    let _ = owner_gone;
     if stopped || !native_peer || state.generation != request.generation { return false; }
     match request.action {
         Action::Begin => {
-            // Neither a repeat nor another owner can renew this allowance.
-            if state.transition_until != 0 { return false; }
+            // Neither a repeat nor another live owner can renew this allowance.
+            // One whose owner has ended (a launcher that failed after its stop)
+            // can never finish, so a new launcher takes it over.
+            if state.transition_until != 0 && !owner_gone { return false; }
             state.transition_until = now + crate::core_policy::TRANSITION_MAX_MS as i64;
             state.transition_desktop = Some(request.who.clone());
             state.installing = true;

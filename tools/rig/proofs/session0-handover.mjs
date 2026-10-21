@@ -202,11 +202,13 @@ export default async function (rig) {
     const signedOutAt = Date.now()
     kill(l1.pid, true)
     await rig.waitFor(() => !alive(c.enginePid), { what: 'the session engine to end with the session', timeout: 60000 })
+    // the log's own times are whole seconds: watch it closely instead
+    const decidedAt = await rig.waitFor(() => /starting the engine in Session 0/.test(after(bootLogFile, logFrom)) ? Date.now() : null,
+      { what: 'the boot host to decide on the sign-out', timeout: 60000, every: 100 })
     const d = await waitServing('the boot host to fall back to Session 0', s => s.hostPid === host.pid)
-    const logD = after(bootLogFile, logFrom)
-    const startedAt = Date.parse((/^(\S+) pid \d+ starting the engine in Session 0/m.exec(logD) ?? [])[1] ?? '')
     p.check('D: after sign-out the boot host runs the engine in Session 0 again', d.identity.session === 0, { enginePid: d.enginePid })
-    p.check('D: not before three empty readings (about 6 s)', Number.isFinite(startedAt) && startedAt - signedOutAt >= 4000, { afterMs: startedAt - signedOutAt })
+    p.check('D: not before three empty readings, 2 s apart', decidedAt - signedOutAt >= 3900, { afterMs: decidedAt - signedOutAt })
+    p.check('D: until then it waited instead of starting in Session 0', /waiting: the desktop may recover the lost engine first/.test(after(bootLogFile, logFrom)))
     }
 
     if (TWO) {
