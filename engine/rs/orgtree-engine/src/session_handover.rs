@@ -16,8 +16,29 @@ pub struct Admission {
 }
 
 #[nolog]
-pub fn admit(_state: &mut Snapshot, _request: &Admission, _now: i64, _stopped: bool, _native_peer: bool) -> bool {
-    false
+pub fn admit(state: &mut Snapshot, request: &Admission, now: i64, stopped: bool, native_peer: bool) -> bool {
+    if stopped || !native_peer || state.generation != request.generation { return false; }
+    match request.action {
+        Action::Begin => {
+            // Neither a repeat nor another owner can renew this allowance.
+            if state.transition_until != 0 { return false; }
+            state.transition_until = now + crate::core_policy::TRANSITION_MAX_MS as i64;
+            state.transition_desktop = Some(request.who.clone());
+            state.installing = true;
+            state.completion_requested = false;
+        }
+        Action::Cancel | Action::Complete => {
+            let remaining = state.transition_until.saturating_sub(now);
+            if remaining <= 0 || remaining > crate::core_policy::TRANSITION_MAX_MS as i64
+                || state.transition_desktop.as_ref() != Some(&request.who)
+                || (matches!(request.action, Action::Complete) && state.host.as_ref() != Some(&request.who)) { return false; }
+            state.transition_until = 0;
+            state.transition_desktop = None;
+            state.installing = false;
+            state.completion_requested = false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -67,5 +88,12 @@ mod tests {
         let (mut s,mut r)=fixture();assert!(admit(&mut s,&r,1000,false,true));s.host=Some(r.who.clone());
         for action in [Action::Complete,Action::Begin,Action::Cancel] {r.action=action;assert!(!admit(&mut s,&r,181001,false,true));}
         assert_eq!(s.transition_until,181000);
+    }
+    #[cfg(windows)]
+    #[test] fn stamped_same_native_image_is_required() {
+        let mut who=crate::core_process::identity(std::process::id()).unwrap();
+        assert!(crate::core_process::native_peer(&who));
+        who.created="0".into();assert!(!crate::core_process::native_peer(&who));
+        who.pid=u32::MAX;assert!(!crate::core_process::native_peer(&who));
     }
 }

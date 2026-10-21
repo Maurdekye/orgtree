@@ -13,8 +13,15 @@ use crate::http::error::ApiResult;
 
 #[logged]
 pub async fn identity(State(e): State<Arc<Engine>>) -> Json<Value> {
-    Json(json!({ "protocol": 1, "pid": e.boot.pid, "dataRootId": e.cfg.data_root_id,
+    Json(json!({ "protocol": 1, "pid": e.boot.pid, "dataRootId": e.cfg.data_root_id, "generation":e.boot.id,
         "credentialContext": e.credentials.view(&e.credential_bridge) }))
+}
+
+/// Same loopback desktop-token authentication as shutdown, plus a stamped
+/// same-image native operator check; never registers a fake desktop member.
+#[nolog]
+pub async fn session_handover(State(e): State<Arc<Engine>>, Json(request): Json<crate::session_handover::Admission>) -> Json<Value> {
+    Json(json!({"ok":e.core.handover(request).await}))
 }
 
 #[logged]

@@ -24,7 +24,7 @@ pub enum Life { Alive, Gone, Unknown }
 pub struct Failed { pub stage: &'static str, pub os: u32 }
 
 #[cfg(windows)]
-pub use win::{diagnose, identity, life, Sessions};
+pub use win::{diagnose, identity, life, native_peer, Sessions};
 
 #[cfg(not(windows))]
 #[nolog]
@@ -35,6 +35,10 @@ pub fn life(_: &Identity) -> Life { Life::Unknown }
 #[cfg(not(windows))]
 #[nolog]
 pub fn diagnose(_: &Identity) -> (Life, Option<Failed>) { (Life::Unknown, None) }
+
+#[cfg(not(windows))]
+#[nolog]
+pub fn native_peer(_: &Identity) -> bool { false }
 
 #[cfg(windows)]
 mod win {
@@ -87,6 +91,48 @@ mod win {
             Ok(_) => (Life::Gone, None),
             Err(failed) => (Life::Unknown, Some(failed)),
         }
+    }
+
+    /// The native launcher must be this executable, this operator and this
+    /// process incarnation. All observations use the same query-only handle.
+    #[nolog]
+    pub fn native_peer(who: &Identity) -> bool {
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, 0, who.pid);
+            if handle.is_null() { return false; }
+            let valid = (|| {
+                if WaitForSingleObject(handle, 0) != WAIT_TIMEOUT { return None; }
+                let mut c: FILETIME = std::mem::zeroed(); let mut e=c; let mut k=c; let mut u=c;
+                if GetProcessTimes(handle,&mut c,&mut e,&mut k,&mut u)==0 { return None; }
+                let created=((c.dwHighDateTime as u64)<<32)|c.dwLowDateTime as u64;
+                if created.to_string()!=who.created { return None; }
+                let mut image=vec![0u16;32768]; let mut n=image.len() as u32;
+                if QueryFullProcessImageNameW(handle,0,image.as_mut_ptr(),&mut n)==0 { return None; }
+                let normalize=|p: std::path::PathBuf| p.to_string_lossy().trim_start_matches(r"\\?\").to_lowercase();
+                let theirs=normalize(std::path::PathBuf::from(String::from_utf16_lossy(&image[..n as usize])).canonicalize().ok()?);
+                let ours=normalize(std::env::current_exe().ok()?.canonicalize().ok()?);
+                if theirs!=ours { return None; }
+                let sid=process_sid(handle)?;
+                let own=process_sid(GetCurrentProcess())?;
+                Some(sid==own)
+            })().unwrap_or(false);
+            CloseHandle(handle);
+            valid
+        }
+    }
+
+    #[nolog]
+    unsafe fn process_sid(handle: HANDLE) -> Option<Vec<u8>> {
+        let mut token=ptr::null_mut();
+        if OpenProcessToken(handle,TOKEN_QUERY,&mut token)==0 { return None; }
+        let mut n=0;
+        GetTokenInformation(token,TokenUser,ptr::null_mut(),0,&mut n);
+        let mut data=vec![0u8;n as usize];
+        let ok=GetTokenInformation(token,TokenUser,data.as_mut_ptr().cast(),n,&mut n);
+        CloseHandle(token);
+        if ok==0 { return None; }
+        let sid=(*(data.as_ptr() as *const TOKEN_USER)).User.Sid;
+        Some(std::slice::from_raw_parts(sid.cast::<u8>(),GetLengthSid(sid) as usize).to_vec())
     }
 
     /// Cache SID resolution per WTS logon, not per tick: avoid repeated account
