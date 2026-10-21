@@ -1416,16 +1416,16 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
       ?? null
   }, [sections, searching, collapsed])
 
-  // Opening an org docket gets one default selection after its first load.
+  // Opening any docket gets its first shown ticket (user 2026-10-21).
   // Explicit navigation and deliberate selects/clears already advance this
   // sequence, so neither a delayed load nor a later poll can steal their place.
-  // Use the rendered nesting/folds, skipping archive/backlog and group headers.
+  // Use the rendered nesting/folds and enabled sections, skipping headers.
   useEffect(() => {
     if (!data || work.status.loading || navigation.current.sequence !== 0
         || jumpTo || selId) return
     const first = windowSections.filter(section => !section.folded)
       .flatMap(section => section.rows)
-      .find(row => !row.item.archived && row.item.status !== 'backlogged')
+      [0]
     ++navigation.current.sequence // consume even an empty initial list
     if (first) setSelId(first.item.slug)
   }, [slug, data, work.status.loading, windowSections, jumpTo, selId, setSelId])
@@ -1835,8 +1835,15 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   const [groupMode, setGroupMode] = useState<DocketGroupMode>(readGroupMode)
   const [selection, setSelection] = useState<{ scope: string; id: string } | null>(null)
   const selectionScope = JSON.stringify([slug, nid])
+  const opening = useRef({ scope: selectionScope, consumed: false })
+  if (opening.current.scope !== selectionScope) opening.current = { scope: selectionScope, consumed: false }
   const selId = selection?.scope === selectionScope ? selection.id : null
-  const setSelId = (id: string | null) => setSelection(id ? { scope: selectionScope, id } : null)
+  const setSelId = useCallback((id: string | null) => {
+    // Every explicit selection, including a clear or an item reference, wins
+    // over a delayed initial load. Polls and filter changes never re-arm it.
+    opening.current.consumed = true
+    setSelection(id ? { scope: selectionScope, id } : null)
+  }, [selectionScope])
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set<string>())
   const [collapsedCategories, setCollapsedCategories] = useState<ReadonlySet<string>>(
@@ -1948,6 +1955,13 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   const steps = usePanelSteps(windowSections.filter(section => !section.folded)
     .flatMap(section => section.rows.map(row => row.item.slug)), selId, setSelId, '.docket-row')
   const rowWindow = useDocketWindow(windowSections, selId)
+  useEffect(() => {
+    if (mine === null || opening.current.consumed) return
+    opening.current.consumed = true // an empty first load also consumes opening
+    if (selId) return
+    const first = windowSections.find(section => !section.folded && section.rows.length)?.rows[0]
+    if (first) setSelId(first.item.slug)
+  }, [selectionScope, mine, windowSections, selId, setSelId])
   useEffect(() => { paging?.setFilter?.({ query, sort: sortMode }) }, [query, sortMode, paging?.setFilter])
   const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
