@@ -3026,8 +3026,8 @@ impl Actor {
 
     /// Where this turn's CLI runs, against where the agent's last turn ran
     /// (persisted, so a restart that comes back in the same session is no
-    /// move). The first turn since the engine started says it in the restart
-    /// notice it delivers ("Session access at start"). A real move between
+    /// move). The restart notice says where the engine itself runs ("Engine
+    /// session at start", decision 93), not this turn. A real move between
     /// Session 0 and the operator's signed-in session is told in this turn,
     /// both ways (the user, 2026-10-16 09:37Z, 09:37:53Z and 09:37:58Z). An
     /// engine not in Session 0 runs every CLI in the signed-in session.
