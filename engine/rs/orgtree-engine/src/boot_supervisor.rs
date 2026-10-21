@@ -145,9 +145,16 @@ pub fn run() -> std::process::ExitCode {
     let mut served = false;
     let mut hangs: Vec<Instant> = Vec::new();
     let mut last: Option<Step> = None;
+    // Whether the operator owns the console, from the last reading that saw a
+    // sign-in: an empty or failed reading keeps it until the debounced
+    // sign-out, so a WTS blip never reads as "signed in elsewhere".
+    let mut console = false;
     loop {
         let active = core_state::sessions(&root, &mut wts);
         let signed_in = debounce.note(active.as_ref().map(|a| !a.is_empty()));
+        if let Some(a) = active.as_ref().filter(|a| !a.is_empty()) {
+            console = session_launch::console_session().is_some_and(|c| a.iter().any(|s| s.id == c));
+        } else if signed_in == Some(false) { console = false; }
         let record = handover::read(&root);
         let attempt = handover::held(&root);
         let root_held = !host::root_released(&root, Duration::ZERO);
@@ -158,7 +165,6 @@ pub fn run() -> std::process::ExitCode {
             served = false;
             if lost.is_none() { lost = Some(Lost { at: now, generation: core_state::read(&root).map(|s| s.generation), ours: false }); }
         }
-        let console = match (&active, session_launch::console_session()) { (Some(a), Some(c)) => a.iter().any(|s| s.id == c), _ => false };
         let epoch_matches = record.as_ref().is_some_and(|r| active.as_ref().is_some_and(|a| r.epoch.iter().any(|s| a.contains(s))));
         let seen = Seen {
             stop: host::STOP.load(Ordering::SeqCst) || crate::install_stop::requested_since(started, rig),
