@@ -475,12 +475,17 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
     // exclude-sender setting on (user 2026-10-18 08:07Z-08:08Z; off by
     // default) nobody is handed their own mail, and a mail only its sender
     // could take waits without holding up the rest
+    let owners: Vec<i64> = eligible.iter().filter(|w| w.remaining > 0).filter_map(|w| w.owner).collect();
+    let user = eligible.iter().any(|w| w.remaining > 0 && w.owner.is_none());
     let waiting = tx
         .query(
             "SELECT id, uid, sender, sender_agent_id, sender_generation, kind, notice, body, attachments, reply_to, ev,
                     urgent, urgent_reason, net_id, net_hub, replies, client_op, extra->'taken_from'
-               FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending' ORDER BY id LIMIT 64 FOR UPDATE",
-            &[&project],
+               FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                 AND (NOT $2 OR EXISTS (SELECT 1 FROM unnest($3::bigint[]) AS o(id) WHERE sender_agent_id IS DISTINCT FROM o.id)
+                      OR ($4 AND sender <> '@user'))
+               ORDER BY id LIMIT 64 FOR UPDATE",
+            &[&project, &skip_own, &owners, &user],
         )
         .await?;
     let mut steps = Vec::new();
