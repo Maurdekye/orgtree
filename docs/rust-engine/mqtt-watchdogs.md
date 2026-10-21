@@ -9,6 +9,35 @@ custom CA, the OS store only if the user asks; inline secrets sealed under a DPA
 machine-scope key; rumqttc `=0.25.1`; an optional `client_id` in both forms.
 Docket item: native-mqtt-watchdog-fire-on-a-topic-pattern-fro.
 
+## Publish on an existing watchdog
+
+USER 2026-10-21 13:44:58Z approved MQTT publishing mirroring WebSocket send.
+`orgtree_watchdog action=send` uses the selected dog's own existing connection,
+broker, credentials and client. It never dials another connection. The owner or
+a superior may send, with the caller's web tool; the user's normal authority
+also applies. A paused, spent, detached or disconnected dog refuses the call.
+
+```json
+{"action":"send","id":"door","topic":"home/kitchen/reply",
+ "message":{"accepted":true},"qos":1,"retain":false}
+```
+
+`topic` is required, nonempty, at most 65535 UTF-8 bytes and contains no NUL,
+`+` or `#`. `message` is text or compact JSON; `payload` is an alias when
+message is absent. The encoded payload limit is 64 KiB. QoS defaults to 0;
+1 and 2 are supported by the existing rumqttc client. `retain` defaults false
+and is independent of the receive-side `retained` option. Empty text is valid:
+an empty payload with retain=true clears the broker's retained value.
+
+Success reports `sent`, bytes, topic, qos, retain and timestamp after the client
+flushes the publish to its existing socket; it is not confirmation that an
+application consumed it. Replies are ordinary untrusted fires only if this
+dog's topic subscription, payload filter and receive settings match. Per-dog
+sent count and last-send time appear in the detail panel and inventories.
+Disconnected calls are never buffered for a future connection. If a write's
+confirmation is lost or times out, the refusal explicitly says delivery is
+uncertain; do not blindly retry a non-idempotent command.
+
 ## Create
 
 ```json

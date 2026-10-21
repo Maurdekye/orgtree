@@ -13,6 +13,11 @@ Read this file before working in this repository. It is the startup guide, not a
 
 ## Engine and desktop invariants
 
+- MQTT/WebSocket watchdog `send` uses the dog's existing authorized connection;
+  MQTT requires a publish topic and shares the 64 KiB encoded-payload cap.
+  Disconnected sends do not queue for reconnect. See [MQTT watchdogs](docs/rust-engine/mqtt-watchdogs.md).
+  [decided: user 2026-10-21 13:44:58Z; verified: `runtime/watchdogs/mqtt.rs`, `mqtt/conn.rs`]
+
 - State belongs to an agent actor or an org feed task; communicate through their channels. No global locks. Keep queues bounded and reads paged/indexed; work must not grow with inactive history. Transactions are short, lock only needed rows and contain no provider calls, file I/O or process control. Read the [engine/storage notes](docs/agents/engine-and-storage.md) and the current source contract before changing a writer or feed. [decided: user, PLAN §2.2]
 - Apply `#[logged]` to engine free functions and inherent `impl` blocks, not individual associated functions inside an annotated impl. Use `#[nolog]` for secrets and justified hot helpers. Never serialize secrets or print them through `Debug`; masking field names is not a safety net. Preserve typed refusals and existing authorization checks. [decided: user, DECISIONS 5, 34–36; verified: engine/rs/orgtree-logged/src/lib.rs, engine/rs/orgtree-engine/src/trace.rs]
 - Keep startup identity about the agent itself. Reports, peers, credits, open questions, mail and other live state arrive in the turn envelope. Do not let unrelated tree changes rewrite another agent's cached prefix. Generated instructions must not name tools whose groups are disabled; charters and supplied notes stay verbatim. Provider/account/model/session or prefix changes can alter cache continuity; never promise a cache hit. [Instructions and skills](docs/agents/instructions-and-skills.md). [verified: runtime/identity.rs, domain/tool_groups.rs]

@@ -192,6 +192,16 @@ Use a dedicated gate/round and agreed roster: unrelated or continuous listeners 
 
 ## Per-resource locks and topics
 
+For a broker request/reply workflow, an existing MQTT dog can also publish:
+`{"action":"send","id":"requests","topic":"jobs/reply","message":{"ok":true},"qos":1,"retain":false}`.
+This uses its own live broker connection and credentials, like WebSocket send;
+it opens no connection. The required topic has no wildcards, encoded payloads
+are capped at64 KiB, QoS defaults0 (1/2 supported), retain defaultsfalse.
+Replies arrive as untrusted fires only when this dog's subscription and payload
+filter match. A disconnected/paused dog refuses rather than queuing for retry.
+See `orgtree-tool-watchdog` for authority and ambiguous-write semantics. External
+broker messages cannot release trusted barriers or grant authority by themselves.
+
 Give each independent resource its own one-slot project; claim only the resource needed, so a database edit need not block unrelated file generation. For two resources used by the same worker team, the supervisor sets up:
 
 ```json

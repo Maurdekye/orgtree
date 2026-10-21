@@ -20,4 +20,9 @@ Use `orgtree-tool-watchdog` (orgtree-working › watchdogs) for kinds, action pa
 
 ## See also
 
+MQTT detail also shows the owner's sent-message count/time and its publishing
+contract: `orgtree_watchdog action=send` with topic and message on the existing
+connection, at most64 KB, optional QoS0/1/2 and retain. The panel exposes the same
+owner-driven tool path as WebSocket send; it does not dial a second client.
+
 - See `orgtree-tool-watchdog` (orgtree-working › watchdogs).
