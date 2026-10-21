@@ -75,7 +75,7 @@ async fn slot_limit_user_held_and_pending_share_remaining_limit() {
 #[ignore="requires disposable slot_limit_fixture DB/role; never an ambient DB"]
 async fn slot_limit_resume_rechecks_capacity_without_arming() {
     let (e,o,p,a)=fixture(10).await;hold(&e,&o,p,Some(a)).await;
-    e.db.get().await.unwrap().execute("INSERT INTO ot.watchdogs(uid,org_id,owner_agent_id,kind,target,once,state,memo) VALUES('paused-claim',$1,$2,'slot','resource',true,'paused',$3)",&[&o.id,&a,&json!({"target_id":p,"slots":7,"queued_at":1})]).await.unwrap();
+    e.db.get().await.unwrap().execute("INSERT INTO ot.watchdogs(uid,org_id,owner_agent_id,name,kind,target,interval_s,once,state,memo) VALUES('paused-claim',$1,$2,'paused-claim','slot','resource',60,true,'paused',$3)",&[&o.id,&a,&json!({"target_id":p,"slots":7,"queued_at":1})]).await.unwrap();
     e.db.get().await.unwrap().execute("UPDATE ot.agents SET scope=jsonb_build_object('slots_capacity',6) WHERE id=$1",&[&p]).await.unwrap();
     let error=crate::runtime::watchdogs::act(&e,o.id,Some(a),"paused-claim","resume",None).await.unwrap_err();
     conflict(error);
