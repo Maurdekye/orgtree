@@ -11,7 +11,7 @@ For worked queue/slot/event/readiness/barrier protocols, open `orgtree-concurren
 
 ## Call contract
 
-Create/list/pause/resume/remove/send persistent watchers, with no per-agent or per-org number cap. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. project_listener receives a project's fired events; listener_watch fires at a count of armed listeners. fire_actions run orgtree tool calls as you at fire time. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. mqtt subscribes to a topic filter (pattern) on an mqtt:// or mqtts:// broker; it needs your web tool, takes credentials as a file in your folders or inline (stored encrypted, never shown), and its mail tags payloads `(untrusted · see EXTERNAL)`. websocket connects to a ws:// or wss:// server (pattern = optional regex on text messages; hello, protocols and heartbeat; credentials as for mqtt; your web tool), and send writes a message on its live connection. Event/count/silence semantics and catalog are in the guide. No added authority.
+Create/list/pause/resume/remove/send persistent watchers, with no per-agent or per-org number cap. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. project_listener receives a project's fired events; listener_watch fires at a count of armed listeners. fire_actions run orgtree tool calls as you at fire time. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. mqtt subscribes to a topic filter (pattern) on an mqtt:// or mqtts:// broker; it needs your web tool, takes credentials as a file in your folders or inline (stored encrypted, never shown), and its mail tags payloads `(untrusted · see EXTERNAL)`. websocket connects to a ws:// or wss:// server (pattern = optional regex on text messages; hello, protocols and heartbeat; credentials as for mqtt; your web tool), and send writes a message on its live connection; MQTT send publishes to a required topic on its own connection. Event/count/silence semantics and catalog are in the guide. No added authority.
 
 Use a watchdog to be told when an observable condition happens, instead of spending turns polling it. The watcher persists across engine restarts and costs no hiring credits. By default a fire mails and wakes its owner; `notice: true` makes that mail passive. A watchdog does not grant new filesystem or shell authority.
 
@@ -57,7 +57,10 @@ The effective tool permission is `tools.orgtree.watchdogs`. The owner is the cal
 | `notify_on_connect` | Create, `websocket` only | Boolean, default `false` (also for legacy dogs). When on, every successful connection/reconnection fires a labelled Orgtree event independent of the server pattern/message gap. Normal once/notice/fire-actions semantics apply. The desktop detail switch edits it without reconnecting. |
 | `protocols` | Create, `websocket` only | Subprotocols to offer (`Sec-WebSocket-Protocol`). |
 | `heartbeat` | Create, `websocket` only | `{message, every_s}`: a fixed message sent every `every_s` (5–86400) seconds while connected. |
-| `message` | Send; required | The text to write on a websocket dog's connection; JSON values go as compact JSON; at most 64 KB. |
+| `message` | Send; required unless MQTT payload supplied | Text or compact JSON on the WebSocket/MQTT dog's existing connection; at most 64 KiB. |
+| `payload` | MQTT send | Alias when message is absent; any JSON value is encoded compactly. |
+| `topic` | MQTT send; required | Nonempty topic without NUL or +/# wildcards, at most 65535 UTF-8 bytes. |
+| `qos`, `retain` | MQTT send | QoS 0 by default (1/2 supported); retain false by default. Empty retained payload clears a value. |
 | `interval_s` | Create | Default 60 seconds; poll cadence for file/command/process, minimum fire gap for stream/activity/event/mqtt/websocket. Floor 15 seconds for pollers, 5 seconds for pushed/streamed kinds; capped at 2,147,483,647 seconds. |
 | `fire_mode` | Create | `event` by default; `silence` to fire after no matching event for a quiet period. |
 | `quiet_period_s` | Create, silence only | Required positive integer seconds, capped at 2,147,483,647; refused with event mode. |
@@ -158,9 +161,9 @@ Arming a `project_listener` or `listener_watch` (creating one, or resuming one) 
 
 `action: "send"` publishes on this dog's **existing live connection**, never a
 new connection. Give its `id`, a required nonempty `topic` without `+`/`#`
-wildcards or NUL (at most65535 UTF-8 bytes), and `message` (text or compact JSON,
-at most64 KiB encoded). `payload` is an alias if message is absent. `qos` is
-0 by default, or1/2 (the existing client supports both). `retain` defaults
+wildcards or NUL (at most 65535 UTF-8 bytes), and `message` (text or compact JSON,
+at most 64 KiB encoded). `payload` is an alias if message is absent. `qos` is
+0 by default, or 1/2 (the existing client supports both). `retain` defaults
 false; it is a publish flag, distinct from receive-side `retained`. Empty text
 with retain=true clears a retained value. Example:
 `{"action":"send","id":"door","topic":"home/kitchen/reply","message":{"ok":true},"qos":1}`.
