@@ -12,7 +12,7 @@ const makeItem = (slug: string, title: string, objective: string, parent?: strin
   dependencies: [], evidence: [], history: [], dismissals: [], acceptance: [], attention_sources: [],
   effective_attention: false, manual_attention: null, at: '2026-10-21T12:00:00Z',
   updated_at: '2026-10-21T12:00:00Z', docket_at: '2026-10-21T12:00:00Z',
-} as WorkItem)
+} as unknown as WorkItem)
 const items = [
   makeItem('implementation', 'Implement the shared opening rule', 'Use the first ticket shown by the current sort and grouping.', 'release-plan'),
   makeItem('release-plan', 'Release plan', 'Opening ticket selected automatically.\n\nSpecific ticket links keep their target. A deliberate clear stays empty after refresh.'),

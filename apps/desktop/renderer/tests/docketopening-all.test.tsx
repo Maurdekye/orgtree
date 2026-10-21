@@ -40,7 +40,7 @@ let serial = 0
 
 async function scenario(body: (ctx: {
   slug: string; served: { items: WorkItem[]; archived: WorkItem[]; backlogged: WorkItem[] }
-  mount: (surface: Surface) => Promise<Awaited<ReturnType<typeof mountView>>>
+  mount: (surface: Surface, jumpTo?: string) => Promise<Awaited<ReturnType<typeof mountView>>>
   direct: (mine: WorkItem[] | null, nid?: string, org?: string, archived?: boolean) => ReactElement
   mountDirect: (mine: WorkItem[] | null) => Promise<Awaited<ReturnType<typeof mountView>>>
   org: (jumpTo?: string) => ReactElement
@@ -79,8 +79,8 @@ async function scenario(body: (ctx: {
     return view
   }
   try {
-    await body({ slug, served, direct, org, mountDirect: mine => mount(direct(mine)), mount: surface => {
-      if (surface === 'org') return mount(org())
+    await body({ slug, served, direct, org, mountDirect: mine => mount(direct(mine)), mount: (surface, jumpTo) => {
+      if (surface === 'org') return mount(org(jumpTo))
       if (surface === 'agent modal') return mount(<AgentDocketModal slug={slug} nid="worker" tree={tree} toast={noop} close={noop} refs={refs} />)
       if (surface === 'team modal') return mount(<TeamDocketModal slug={slug} nid="boss" tree={tree} toast={noop} close={noop} refs={refs} />)
       if (surface === 'project modal') return mount(<AgentDocketModal slug={slug} nid="project" tree={tree} toast={noop} close={noop} refs={refs} />)
@@ -176,10 +176,8 @@ test('node docket selects a shown archived row when it is the first shown ticket
 })
 
 test('ticket reference wins over opening default and remains selected after refresh', async () => {
-  await scenario(async ({ mount, served, org }) => {
-    const view = await mount('org')
-    await view.render(org('second'))
-    await inAct(async () => { await flush(15) })
+  await scenario(async ({ mount, served }) => {
+    const view = await mount('org', 'second')
     assert.equal(selected(view.el), 'second')
     served.items.unshift(item('newest', { updated_at: '2026-10-21T15:00:00Z' }))
     await inAct(async () => { await advance(5000); await flush(15) })
