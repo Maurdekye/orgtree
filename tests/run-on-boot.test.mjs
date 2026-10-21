@@ -143,7 +143,7 @@ test('every script parses in Windows PowerShell 5.1', { skip: !windows && 'UNEXE
   }
 })
 
-test('main and the preload wire one switch: its name, one change at a time, the boot task for restarts and recovery', () => {
+test('main and the preload wire one startup switch and the session-aware restart path', () => {
   const main = read('apps/desktop/main/index.ts')
   assert.doesNotMatch(main, /desktop:engine-start|desktop:set-engine-start|changeEngineStart|engineStartState/)
   // "Run on boot", or "Run on sign-in" where Orgtree cannot start at boot (coordinator ruling A)
@@ -155,10 +155,10 @@ test('main and the preload wire one switch: its name, one change at a time, the 
   assert.match(change, /finally \{\s+startupChanging = false/)
   assert.match(change, /if \(tasks\.boot !== null && startupOn\(tasks\) !== enabled\) await writeRunOnStartup\(enabled\)/)
   const restart = main.slice(main.indexOf('const restartBackgroundEngine = async'), main.indexOf('const runAsAdministratorState'))
-  const order = ['engine.stopAttachedForUpdate()', 'startEngineTask()', 'engine.reattachBackground(']
-  const at = order.map(s => restart.indexOf(s))
-  assert.ok(at.every(i => i > 0) && at[0] < at[1] && at[1] < at[2], `graceful stop, then the boot task, then reattach: ${at}`)
-  assert.match(main, /engine\.recoverUnexpected\(engineOptions, allowSpawn, startEngineTask\)/)
+  assert.match(restart, /engine\.stopForSessionRestart\(engineOptions\)/)
+  assert.match(restart, /replaceWithSessionAdmin/)
+  assert.match(restart, /engine\.reattachBackground\(engineOptions/)
+  assert.match(main, /launchBackground\(engineOptions\)/)
   const preload = read('apps/desktop/preload/index.ts')
   assert.match(preload, /getStartupKind: \(\) => ipcRenderer\.invoke\('desktop:startup-kind'\)/)
   assert.doesNotMatch(preload, /engine-start/)

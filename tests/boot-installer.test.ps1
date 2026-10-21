@@ -40,6 +40,16 @@ $script:folder | Add-Member ScriptMethod RegisterTask {
     return $script:task
 }
 function Get-BootFolder { $script:events.Add('folder'); return $script:folder }
+$script:interactive=$null
+function Find-InteractiveTask($Folder) { return $script:interactive }
+function Register-InteractiveTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,[string]$Sddl) {
+    $script:events.Add("interactive-register:$Flags")
+    Assert ($Sid -eq $script:record.OperatorSid -and $Sddl -match '^O:BAG:BAD:P') 'Wrong interactive principal or ACL'
+    $script:interactive=New-HelperFake $Xml
+    $script:interactive | Add-Member -Force ScriptMethod Run { param($args) $script:events.Add('interactive-run') }
+    return $script:interactive
+}
+function Remove-InteractiveTask($Folder) { $script:events.Add('interactive-delete'); $script:interactive=$null }
 # The credential helper task has its own boundaries; absent unless a test adds it.
 $script:helper=$null
 function Find-HelperTask($Folder) { return $script:helper }
@@ -352,8 +362,10 @@ $script:record.Remove('RunOnStartup'); $script:operatorChoice=$false; $script:ev
 Invoke-BootLifecycle Prepare $dir $sid
 Assert ($script:record['RunOnStartup'] -eq 0) 'Prepare did not record the operator''s Run on startup off'
 Invoke-BootLifecycle Register $dir
-Assert ((Read-BootXml $script:task.Xml).Task.Settings.Enabled -eq 'false') 'The boot task was registered enabled with Run on startup off'
-Assert ((Read-BootXml $script:helper.Xml).Task.Settings.Enabled -eq 'false') 'The helper task was registered enabled with Run on startup off'
+Assert ((Read-BootXml $script:task.Xml).Task.Settings.Enabled -eq 'true') 'Manual boot-task launch must remain available with startup off'
+Assert ((Read-BootXml $script:task.Xml).Task.Triggers.BootTrigger.Enabled -eq 'false') 'The boot trigger was enabled with startup off'
+Assert ((Read-BootXml $script:helper.Xml).Task.Settings.Enabled -eq 'true') 'Manual helper launch must remain available with startup off'
+Assert ((Read-BootXml $script:helper.Xml).Task.Triggers.LogonTrigger.Enabled -eq 'false') 'The helper trigger was enabled with startup off'
 Assert (-not ($script:events -contains 'run') -and -not ($script:events -contains 'helper-run')) 'A task was started with Run on startup off'
 # A recorded choice (the switch writes it) wins over the settings file.
 $script:operatorChoice=$true; $script:events.Clear()
@@ -495,7 +507,10 @@ $script:processes=@()
 # "Run Orgtree as administrator" (ruling C), so the agents it starts keep the
 # rights the boot engine gives them.
 $script:folder | Add-Member -Force ScriptMethod DeleteTask { param($name,$flags) $script:events.Add('delete'); $script:task=$null }
-function Get-RegisteredEnabled($Task) { return ((Read-BootXml $Task.Xml).Task.Settings.Enabled -eq 'true') }
+function Get-RegisteredEnabled($Task) {
+    $doc=Read-BootXml $Task.Xml
+    return ($doc.Task.Settings.Enabled -eq 'true' -and @($doc.SelectNodes('//*[local-name()="Triggers"]/*') | Where-Object { $_.Enabled -eq 'true' }).Count -gt 0)
+}
 # What 4.3.x registered as "Orgtree Sign-in Engine": the existing task an update meets.
 function New-OldSigninTaskXml($Record, [bool]$Highest) {
     $doc = Read-BootXml @'
@@ -568,7 +583,7 @@ Assert ((Read-BootXml $script:helper.Xml).Task.Principals.Principal.RunLevel -ce
 $script:record['RunOnStartup']=0; $script:signin=New-SigninFake $signinXml; $script:events.Clear()
 Invoke-BootLifecycle Register $dir
 Assert (-not (Get-RegisteredEnabled $script:task) -and -not (Get-RegisteredEnabled $script:helper)) 'Run on boot off must disable the boot task and the helper'
-Assert (-not ($script:events -match '^(run|helper-run|signin-run)$')) "A task was started with Run on boot off: $($script:events -join ',')"
+Assert (-not ($script:events -match '^(run|helper-run|signin-run|interactive-run)$')) "A task was started with Run on boot off: $($script:events -join ',')"
 Assert ($null -eq $script:signin -and $script:events -contains 'signin-delete') 'An update with Run on boot off must delete the obsolete sign-in engine task too'
 $script:record['RunOnStartup']=1
 $script:events.Clear()
@@ -620,5 +635,38 @@ Invoke-BootLifecycle Remove $dir
 Assert ($null -eq $script:signin -and $script:events -contains 'signin-delete') "Uninstall did not remove the sign-in engine task: $($script:events -join ',')"
 Assert ($script:events.IndexOf('signin-stop') -ge 0 -and $script:events.IndexOf('signin-stop') -lt $script:events.IndexOf('signin-delete')) 'The sign-in engine task was deleted before its stop'
 Assert ($null -eq $script:record -and $null -eq $script:task -and $null -eq $script:helper) 'Uninstall did not remove the other tasks and the record'
+
+# Native installations add the protected user-session engine task. These are
+# fake task objects and empty executable fixtures; nothing is launched.
+[IO.File]::WriteAllText($engineExe,'fixture')
+$script:record=$original.Clone();$script:record.RunOnStartup=0
+$script:consoleSid=$sid;$script:events.Clear();$script:runAsAdmin=$false
+Invoke-BootLifecycle Register $dir
+Assert ($null -ne $script:interactive) 'Native installation omitted the interactive engine task'
+Assert (-not ($script:events -match '^(run|helper-run|interactive-run)$')) 'Native startup-off install started an owned task'
+foreach($owned in @($script:task,$script:helper,$script:interactive)) {
+    Assert ((Read-BootXml $owned.Xml).Task.Settings.Enabled -eq 'true') 'Demand launch is disabled'
+    Assert (-not (Get-RegisteredEnabled $owned)) 'An automatic trigger survived startup off'
+}
+$script:record.RunOnStartup=1;$script:runAsAdmin=$true;$script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert ($script:events -contains 'interactive-run' -and -not ($script:events -contains 'run')) 'Signed-in install did not select the interactive engine'
+Assert ((Read-BootXml $script:interactive.Xml).Task.Principals.Principal.RunLevel -eq 'HighestAvailable') 'Stored admin choice was not applied to interactive engine'
+$script:interactive.Instances=1;$script:interactive.Enabled=$true
+Refuses { Stop-OwnedBootTask $script:folder $script:record $dir 0 } 'Orgtree User Session Engine'
+Assert ($script:interactive.Enabled) 'Failed installer stop did not restore interactive demand launch'
+$script:interactive.Enabled=$false
+Refuses { Stop-OwnedBootTask $script:folder $script:record $dir 0 } 'Orgtree User Session Engine'
+Assert (-not $script:interactive.Enabled) 'Failed installer stop unexpectedly enabled a disabled interactive task'
+$script:interactive.Instances=0
+$goodInteractive=$script:interactive.Xml
+$script:interactive.Xml=$goodInteractive.Replace('session-launch signin','foreign command')
+$script:events.Clear()
+Refuses { Invoke-BootLifecycle Register $dir } 'interactive engine'
+Assert (-not ($script:events -match 'register:|stop|delete')) 'Foreign interactive task permitted installer mutation'
+$script:interactive.Xml=$goodInteractive
+Invoke-BootLifecycle Remove $dir
+Assert ($null -eq $script:interactive -and $null -eq $script:record) 'Uninstall retained the interactive task'
+[IO.File]::Delete($engineExe)
 [IO.File]::Delete($signinHost); [IO.File]::Delete($brokerPath)
 Write-Output "PASS $script:checks installer assertions; synthetic fixture: $root"

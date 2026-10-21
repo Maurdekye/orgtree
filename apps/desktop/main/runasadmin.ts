@@ -26,6 +26,7 @@ export const BOOT_TASK = 'Orgtree Background Engine'
  *  the CLIs it starts; off, with least privilege (coordinator ruling C,
  *  2026-10-16). */
 export const HELPER_TASK = 'Orgtree Credential Helper'
+export const INTERACTIVE_TASK = 'Orgtree User Session Engine'
 /** ERROR_CANCELLED: the user declined the UAC prompt. */
 export const UAC_CANCELLED = 1223
 const PROTECTED_KEY_SDDL = 'O:BAG:BAD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KR;;;BU)'
@@ -62,6 +63,7 @@ export function elevatedWriteScript(enabled: boolean): string {
   return [
     "$ErrorActionPreference = 'Stop'",
     "$hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')",
+    '$updated = @(); $originalXml = @{}',
     'try {',
     "  $record = $hive.OpenSubKey('SOFTWARE\\Orgtree\\BootEngine')",
     '  if ($null -ne $record) {',
@@ -70,15 +72,29 @@ export function elevatedWriteScript(enabled: boolean): string {
     '      $service = New-Object -ComObject Schedule.Service',
     '      $service.Connect()',
     "      $folder = $service.GetFolder('\\')",
-    '      $task = $null',
-    `      try { $task = $folder.GetTask('${HELPER_TASK}') } catch { if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw } }`,
-    '      if ($null -ne $task) {',
-    `        if (-not $id -or [string]([xml]$task.Xml).Task.RegistrationInfo.Description -cne ('com.maurdekye.orgtree.credential-helper.v1:' + $id)) { throw 'Refusing to change a task Orgtree did not install: ${HELPER_TASK}' }`,
+    `      $markers = @{ '${HELPER_TASK}' = 'com.maurdekye.orgtree.credential-helper.v1:'; '${INTERACTIVE_TASK}' = 'com.maurdekye.orgtree.user-session.v1:' }`,
+    '      $tasks = @{}',
+    // Validate both before changing either. Enabling with another administrator's
+    // credentials cannot give a standard operator an elevated interactive token.
+    ...(enabled ? ["      if ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne $sid) { throw 'Enable Run as admin using the installed operator administrator account.' }"] : []),
+    '      foreach ($name in @($markers.Keys)) {',
+    '        $task = $null',
+    '        try { $task = $folder.GetTask($name) } catch { if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw } }',
+    '        if ($null -eq $task) { continue }',
+    '        if (-not $id -or [string]([xml]$task.Xml).Task.RegistrationInfo.Description -cne ($markers[$name] + $id)) { throw "Refusing to change a task Orgtree did not install: $name" }',
+    '        if ([string]$task.Definition.Principal.UserId -cne $sid -or $task.Definition.Principal.LogonType -ne 3) { throw "Interactive task operator does not match the installation: $name" }',
+    '        $tasks[$name] = $task',
+    '        $originalXml[$name] = [string]$task.Xml',
+    '      }',
+    `      if (-not $tasks.ContainsKey('${INTERACTIVE_TASK}')) { throw 'Update Orgtree before changing Run as admin: the owned user-session task is missing.' }`,
+    '      foreach ($name in @($tasks.Keys)) {',
+    '        $task = $tasks[$name]',
     '        $definition = $task.Definition',
     // 1 = TASK_RUNLEVEL_HIGHEST, 0 = least privilege
     `        $definition.Principal.RunLevel = ${enabled ? 1 : 0}`,
     // 20 = TASK_UPDATE | TASK_DONT_ADD_PRINCIPAL_ACE, 3 = the operator's interactive token, the installer's ACL
-    `        $null = $folder.RegisterTaskDefinition('${HELPER_TASK}', $definition, 20, $sid, $null, 3, "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)")`,
+    '        $null = $folder.RegisterTaskDefinition($name, $definition, 20, $sid, $null, 3, "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)")',
+    '        $updated += $name',
     '      }',
     '    } finally { $record.Dispose() }',
     '  }',
@@ -90,6 +106,10 @@ export function elevatedWriteScript(enabled: boolean): string {
     '    $key.SetAccessControl($acl)',
     `    $key.SetValue('${RUN_AS_ADMIN_VALUE}', ${enabled ? 1 : 0}, [Microsoft.Win32.RegistryValueKind]::DWord)`,
     '  } finally { $key.Dispose() }',
+    '} catch {',
+    '  $failure = $_',
+    '  foreach ($name in $updated) { try { $null = $folder.RegisterTask($name, $originalXml[$name], 20, $sid, $null, 3, "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)") } catch { Write-Warning "Could not restore task $name after failed change: $_" } }',
+    '  throw $failure',
     '} finally { $hive.Dispose() }',
   ].join('\n')
 }

@@ -10,6 +10,7 @@ $script:BootRecordKey = 'SOFTWARE\Orgtree\BootEngine'
 # operator's signed-in session (user 2026-10-16 09:37Z: "agents always start
 # at boot, and then automatically get upgraded when signed in").
 $script:HelperTaskName = 'Orgtree Credential Helper'
+$script:InteractiveTaskName = 'Orgtree User Session Engine'
 $script:HelperExe = 'orgtree-credential-broker.exe'
 # The engine at sign-in from 4.3.x, a logon task running the windowless host,
 # is gone (the same ruling): an update stops and deletes the task it finds.
@@ -430,7 +431,8 @@ function New-BootTaskXml($Record) {
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><BootTrigger><Enabled>true</Enabled></BootTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>S4U</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>5</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><Arguments /><WorkingDirectory /></Exec></Actions></Task>
 '@
     $doc.Task.RegistrationInfo.Description = Get-BootMarker $Record
-    $doc.Task.Settings.Enabled = Get-EnabledText (Test-RunOnStartup $Record)
+    $doc.Task.Settings.Enabled = 'true'
+    $doc.Task.Triggers.BootTrigger.Enabled = Get-EnabledText (Test-RunOnStartup $Record)
     $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
     $doc.Task.Actions.Exec.Command = [string]$paths.Python
     $doc.Task.Actions.Exec.Arguments = '"'+$paths.Host+'"'
@@ -460,7 +462,8 @@ function New-HelperTaskXml($Record, [bool]$Highest) {
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><LogonTrigger><Enabled>true</Enabled><UserId /></LogonTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>5</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><WorkingDirectory /></Exec></Actions></Task>
 '@
     $doc.Task.RegistrationInfo.Description = Get-HelperMarker $Record
-    $doc.Task.Settings.Enabled = Get-EnabledText (Test-RunOnStartup $Record)
+    $doc.Task.Settings.Enabled = 'true'
+    $doc.Task.Triggers.LogonTrigger.Enabled = Get-EnabledText (Test-RunOnStartup $Record)
     $doc.Task.Triggers.LogonTrigger.UserId = $Record.OperatorSid
     $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
     if ($Highest) { $doc.Task.Principals.Principal.RunLevel = 'HighestAvailable' }
@@ -494,6 +497,54 @@ function Assert-OwnedHelperTask($Task, $Record, [string]$InstallDir) {
         throw 'Refusing foreign or changed credential helper task (principal run level).'
     }
     if ($xml.SelectNodes('/t:Task/t:Actions/*', $ns).Count -ne 1 -or $xml.SelectNodes('/t:Task/t:Principals/*', $ns).Count -ne 1) { throw 'Unexpected credential helper actions or principals.' }
+}
+# Separate from the retired 4.3.x sign-in host. Its immutable action is native;
+# no script path or caller-supplied argument can become an elevated command.
+function Find-InteractiveTask($Folder) {
+    try { return $Folder.GetTask($script:InteractiveTaskName) }
+    catch { if ($_.Exception.GetBaseException().HResult -eq -2147024894) { return $null }; throw }
+}
+function Register-InteractiveTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,[string]$Sddl) {
+    return $Folder.RegisterTask($script:InteractiveTaskName,$Xml,$Flags,$Sid,$null,3,$Sddl)
+}
+function Remove-InteractiveTask($Folder) { $Folder.DeleteTask($script:InteractiveTaskName,0) }
+function Get-InteractiveMarker($Record) { return "com.maurdekye.orgtree.user-session.v1:$($Record.Id)" }
+function New-InteractiveTaskXml($Record,[bool]$Highest) {
+    $doc=Read-BootXml (New-HelperTaskXml $Record $Highest)
+    $doc.Task.RegistrationInfo.Description=Get-InteractiveMarker $Record
+    $doc.Task.Actions.Exec.Command=Join-Path $Record.InstallDir 'resources\engine\orgtree-engine.exe'
+    $argument=$doc.CreateElement('Arguments',$doc.DocumentElement.NamespaceURI)
+    $argument.InnerText='session-launch signin'
+    $null=$doc.Task.Actions.Exec.AppendChild($argument)
+    # A new demand restart may overlap the old host while it drains. Native
+    # admission serializes the handover; Task Scheduler must not discard it.
+    $doc.Task.Settings.MultipleInstancesPolicy='Parallel'
+    $null=$doc.Task.Settings.RemoveChild($doc.Task.Settings.RestartOnFailure)
+    return $doc.OuterXml
+}
+function Assert-OwnedInteractiveTask($Task,$Record,[string]$InstallDir) {
+    Assert-BootRecord $Record $InstallDir
+    Assert-BootProtectedAcl ($Task.GetSecurityDescriptor(7)) 0x500D0116
+    $doc=Read-BootXml $Task.Xml
+    $ns=[Xml.XmlNamespaceManager]::new($doc.NameTable)
+    $ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
+    $expected=@{
+        '/t:Task/t:RegistrationInfo/t:Description'=(Get-InteractiveMarker $Record)
+        '/t:Task/t:Principals/t:Principal/t:UserId'=$Record.OperatorSid
+        '/t:Task/t:Principals/t:Principal/t:LogonType'='InteractiveToken'
+        '/t:Task/t:Actions/t:Exec/t:Command'=(Join-Path $InstallDir 'resources\engine\orgtree-engine.exe')
+        '/t:Task/t:Actions/t:Exec/t:Arguments'='session-launch signin'
+        '/t:Task/t:Actions/t:Exec/t:WorkingDirectory'=(Join-Path $InstallDir 'resources\engine')
+    }
+    foreach ($pair in $expected.GetEnumerator()) {
+        $nodes=$doc.SelectNodes($pair.Key,$ns)
+        if ($nodes.Count -ne 1 -or $nodes[0].InnerText -cne $pair.Value) { throw "Refusing foreign or changed interactive engine task ($($pair.Key))." }
+    }
+    $levels=$doc.SelectNodes('/t:Task/t:Principals/t:Principal/t:RunLevel',$ns)
+    $level='LeastPrivilege'; if ($levels.Count -eq 1) { $level=$levels[0].InnerText }
+    $com=$Task.Definition.Principal.RunLevel
+    if ($levels.Count -gt 1 -or -not (($level -ceq 'LeastPrivilege' -and $com -eq 0) -or ($level -ceq 'HighestAvailable' -and $com -eq 1))) { throw 'Refusing changed interactive task run level.' }
+    if ($doc.SelectNodes('/t:Task/t:Actions/*',$ns).Count -ne 1 -or $doc.SelectNodes('/t:Task/t:Principals/*',$ns).Count -ne 1) { throw 'Unexpected interactive task actions or principals.' }
 }
 # Before the boot tree is stopped: the broker runs from the engine folder, so
 # a running one would hold the installation open. Disable its task (no
@@ -591,6 +642,7 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
     # 4.3.x's engine at sign-in may still run from this installation, under its
     # own task, until the update that deletes that task (Register).
     $signin = Find-SigninTask $Folder
+    $interactive = Find-InteractiveTask $Folder
     $processes = @(Get-BootProcesses)
     # Before the tree is captured: a closed desktop's observer is not the engine.
     if (Stop-ClosedDesktopWatchers $InstallDir $processes) { $processes = @(Get-BootProcesses) }
@@ -601,15 +653,19 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
     $wasEnabled = $false
     $signinDisabledByUs = $false
     $signinWasEnabled = $false
+    $interactiveDisabledByUs = $false
+    $interactiveWasEnabled = $false
     try {
         # Both tasks are verified before either is changed.
         if ($null -ne $task) { Assert-OwnedBootTask $task $Record $InstallDir }
         if ($null -ne $signin) { Assert-OwnedSigninTask $signin $Record $InstallDir }
-        if ($null -ne $task -or $null -ne $signin) {
+        if ($null -ne $interactive) { Assert-OwnedInteractiveTask $interactive $Record $InstallDir }
+        if ($null -ne $task -or $null -ne $signin -or $null -ne $interactive) {
             # Stop only after ownership; disable first so restart-on-failure (or a
             # sign-in) cannot relaunch the engine while the installer replaces its files.
             if ($null -ne $task) { $wasEnabled = [bool]$task.Enabled; $disabledByUs = $true; $task.Enabled = $false }
             if ($null -ne $signin) { $signinWasEnabled = [bool]$signin.Enabled; $signinDisabledByUs = $true; $signin.Enabled = $false }
+            if ($null -ne $interactive) { $interactiveWasEnabled = [bool]$interactive.Enabled; $interactiveDisabledByUs = $true; $interactive.Enabled = $false }
             # Graceful first (docket installer-can-t-replace-a-running-orgtree-an-ins):
             # the engine is asked to stop, so it ends its agents' CLIs itself.
             # Whichever task's host it is, the engine publishes the same descriptor.
@@ -637,6 +693,7 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
         do {
             $task = Find-BootTask $Folder
             $signin = Find-SigninTask $Folder
+            $interactive = Find-InteractiveTask $Folder
             $instances = 0
             $busy = @()
             if ($null -ne $task) {
@@ -656,6 +713,14 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
                 $instances += $count
             }
             $remaining = @(Get-BootTree (Get-BootProcesses) $InstallDir $known)
+            if ($null -ne $interactive) {
+                Assert-OwnedInteractiveTask $interactive $Record $InstallDir
+                if ($interactive.Enabled) { throw 'Interactive engine task re-enabled during stop; installation aborted.' }
+                $count = $interactive.GetInstances(0).Count
+                if ($interactive.State -in @(2,4)) { $count++ }
+                if ($count -gt 0) { $busy += "the $script:InteractiveTaskName task ($count instance(s) running)" }
+                $instances += $count
+            }
             if ($instances -eq 0 -and $remaining.Count -eq 0) { Write-BootLog "stop: the boot tree is quiet after $([int]$clock.Elapsed.TotalSeconds) s"; return }
             if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
                 # Name what is still running (docket installer-can-t-replace-a-running-
@@ -688,6 +753,14 @@ function Stop-OwnedBootTask($Folder, $Record, [string]$InstallDir, [int]$Timeout
                 $restoreTask.Enabled = $signinWasEnabled
             } catch { Write-Warning "Could not restore sign-in engine task state after failed stop: $_" }
         }
+        if ($interactiveDisabledByUs) {
+            try {
+                $restoreTask = Find-InteractiveTask $Folder
+                if ($null -eq $restoreTask) { throw 'Owned interactive engine task disappeared during stop.' }
+                Assert-OwnedInteractiveTask $restoreTask $Record $InstallDir
+                $restoreTask.Enabled = $interactiveWasEnabled
+            } catch { Write-Warning "Could not restore interactive engine task state after failed stop: $_" }
+        }
         throw $stopError
     }
 }
@@ -714,10 +787,12 @@ function Invoke-BootLifecycle {
     $folder = Get-BootFolder
     $task = Find-BootTask $folder
     $signin = Find-SigninTask $folder
+    $interactive = Find-InteractiveTask $folder
     if ($null -eq $record) {
         if ($null -ne $task) { throw 'Task name exists without installer ownership. It will not be changed.' }
         if ($null -ne (Find-HelperTask $folder)) { throw 'Credential helper task exists without installer ownership. It will not be changed.' }
         if ($null -ne $signin) { throw 'Sign-in engine task exists without installer ownership. It will not be changed.' }
+        if ($null -ne $interactive) { throw 'Interactive engine task exists without installer ownership. It will not be changed.' }
         if ($Action -in @('Remove','Stop')) {
             Assert-BootDesktopClosed $InstallDir
             Stop-OwnedHelperTask $folder $null $InstallDir
@@ -732,6 +807,7 @@ function Invoke-BootLifecycle {
         $helper = Find-HelperTask $folder
         if ($null -ne $helper) { Assert-OwnedHelperTask $helper $record $InstallDir }
         if ($null -ne $signin) { Assert-OwnedSigninTask $signin $record $InstallDir }
+        if ($null -ne $interactive) { Assert-OwnedInteractiveTask $interactive $record $InstallDir }
         # Existing operator remains authoritative during alternate-admin updates.
     }
     # 4.3.x's StartupMode is gone with its choice: the engine always starts at
@@ -763,6 +839,8 @@ function Invoke-BootLifecycle {
             if ($null -ne (Find-HelperTask $folder)) { throw 'Credential helper task removal not confirmed.' }
             if ($null -ne (Find-SigninTask $folder)) { Remove-SigninTask $folder }
             if ($null -ne (Find-SigninTask $folder)) { throw 'Sign-in engine task removal not confirmed.' }
+            if ($null -ne (Find-InteractiveTask $folder)) { Remove-InteractiveTask $folder }
+            if ($null -ne (Find-InteractiveTask $folder)) { throw 'Interactive engine task removal not confirmed.' }
             Remove-BootRecord
         }
         'Register' {
@@ -808,6 +886,16 @@ function Invoke-BootLifecycle {
                 $helperTask = Register-HelperTask $folder (New-HelperTaskXml $record (Get-RunAsAdministrator)) $helperFlags $record.OperatorSid $sddl
                 Assert-OwnedHelperTask $helperTask $record $InstallDir
                 if (Test-RunOnStartup $record) { try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" } }
+            }
+            if ([IO.File]::Exists((Join-Path $InstallDir 'resources\engine\orgtree-engine.exe'))) {
+                $interactiveFlags=18
+                $interactive=Find-InteractiveTask $folder
+                if ($null -ne $interactive) { Assert-OwnedInteractiveTask $interactive $record $InstallDir; $interactiveFlags=20 }
+                $interactive=Register-InteractiveTask $folder (New-InteractiveTaskXml $record (Get-RunAsAdministrator)) $interactiveFlags $record.OperatorSid $sddl
+                Assert-OwnedInteractiveTask $interactive $record $InstallDir
+                if ($runs -and (Get-SignedInConsoleSid) -eq $record.OperatorSid) {
+                    try { $null=$interactive.Run($null) } catch { Write-Warning "The interactive engine did not start: $_" }
+                }
             }
         }
     }

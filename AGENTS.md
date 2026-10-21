@@ -38,6 +38,8 @@ Before renderer tests, visual captures or rig proofs, read the [test and capture
   [decided: user 2026-10-21 15:56:49Z, 15:59:29Z and 16:00:17Z;
   verified: `canvas/OrgCanvas.tsx`, `canvas/projectcard.tsx`]
 
+- Windows startup tasks remain enabled for explicit demand launches. “Run on boot” off disables **every boot/logon trigger** on the owned boot engine, credential helper and user-session engine tasks; it never starts any of them. Installer stop temporarily disables tasks and restores prior states if draining fails. Keep the protected `RunOnStartup` preference and one UAC prompt per change. [decided: user 2026-10-10, coordinator 2026-10-21; verified: `tools/boot-engine-task.ps1`, `apps/desktop/main/runonstartup.ts`]
+
 - MQTT/WebSocket watchdog `send` uses the dog's existing authorized connection;
   MQTT requires a publish topic and shares the 64 KiB encoded-payload cap.
   Disconnected sends do not queue for reconnect. See [MQTT watchdogs](docs/rust-engine/mqtt-watchdogs.md).
