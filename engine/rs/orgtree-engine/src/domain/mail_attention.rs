@@ -65,9 +65,88 @@ mod tests {
         assert!(!qualifies(&json!({"reply_to":{"node":"@user","id":"@user"}})));
     }
     #[test] fn a_read_mail_only_clears_the_matching_blurb(){
-        let mail=json!({"body":"A complete reply for @user. More detail."});
-        assert!(covers_mention(&mail,&json!({"blurb":"A complete reply for @user. More detail."})));
+        let mail=json!({"body":"A complete reply for @user. More detail.","created_at":"2026-10-21T22:00:03Z"});
+        assert!(covers_mention(&mail,&json!({"blurb":"A complete reply for @user. More detail.","at":"2026-10-21T22:00:00Z"})));
         assert!(!covers_mention(&mail,&json!({"blurb":"A different request for @user."})));
+    }
+    #[test] fn repeated_prose_only_covers_a_recent_prior_mention(){
+        let mention=json!({"blurb":"Ready @user.","at":"2026-10-21T22:00:00Z"});
+        for at in ["2026-10-20T10:00:00Z","2026-10-21T22:00:10.001Z","", "invalid"] {
+            assert!(!covers_mention(&json!({"body":"Ready @user.","created_at":at}),&mention),"{at}");
+        }
+        for at in ["2026-10-21T22:00:00Z","2026-10-21T22:00:03Z","2026-10-22T01:00:10+03:00"] {
+            assert!(covers_mention(&json!({"body":"Ready @user.","created_at":at}),&mention),"{at}");
+        }
+    }
+    #[tokio::test]
+    #[ignore="requires explicit isolated mail_attention_fixture cluster"]
+    async fn postgres_attention_counts_match_visible_prose_beyond_one_page(){
+        let (client,connection)=fixture().await;
+        let cases=[
+            json!({"body":"Do not alert on `@user` in code."}),
+            json!({"body":"```ts\nconst x='@user'\n```"}),
+            json!({"body":"~~~\n@user\n~~~"}),
+            json!({"body":"Before\n\n    @user in code\n"}),
+            json!({"body":"<CODE>@user</CODE>"}),
+            json!({"body":"plain","replies":[{"gist":"quoted `@user` only"}]}),
+            json!({"body":"plain","ev":{"quote":{"subject":"~~~\n@user\n~~~"}}}),
+            json!({"body":"Skip `@user`, but alert @USER outside."}),
+            json!({"body":"plain","replies":[{"gist":"Please review @user."}]}),
+            json!({"body":"plain","urgent":true}),
+            json!({"body":"email@user.com @username %@user +@user @user/path @user.txt"}),
+            json!({"body":"`@user` only","ev":{"quote":{"gist":"Real @user outside code"}}}),
+        ];
+        let mut mismatches=Vec::new();
+        for (i,mail) in cases.iter().enumerate(){
+            client.execute("DELETE FROM ot.mail",&[]).await.unwrap();
+            client.execute("INSERT INTO ot.mail(id,body,urgent,ev,reply_to,replies) VALUES(1,$1,$2,$3,$4,$5)",
+                &[&mail["body"].as_str().unwrap(),&mail["urgent"].as_bool().unwrap_or(false),&mail["ev"],&mail["reply_to"],&mail["replies"]]).await.unwrap();
+            let count=crate::domain::notices::attention_count(&client,1).await.unwrap();
+            if count!=i64::from(qualifies(mail)){mismatches.push((i,count,qualifies(mail)));}
+        }
+        assert!(mismatches.is_empty(),"SQL/native count differs from projection: {mismatches:?}");
+        client.batch_execute("DELETE FROM ot.mail; INSERT INTO ot.mail(id,body) SELECT i,'Ready @user.' FROM generate_series(1,405) i;
+            INSERT INTO ot.mail(id,body,state) SELECT i,'Old @user.','read' FROM generate_series(406,810) i;").await.unwrap();
+        assert_eq!(crate::domain::notices::attention_count(&client,1).await.unwrap(),405,"count must exhaust pending pages and ignore read history");
+        drop(client);connection.await.unwrap();
+    }
+    #[tokio::test]
+    #[ignore="requires explicit isolated mail_attention_fixture cluster"]
+    async fn postgres_duplicate_guard_matches_read_clear_window(){
+        let (client,connection)=fixture().await;
+        client.batch_execute("INSERT INTO ot.agents(id,org_id,name,state,extra) VALUES(7,1,'worker','live','{\"user_mention\":{\"id\":\"fresh\",\"blurb\":\"Ready @user.\",\"at\":\"2026-10-21T22:00:00Z\"}}');
+            INSERT INTO ot.mail(id,sender,sender_agent_id,body) VALUES(1,'worker',7,'Ready @user.');").await.unwrap();
+        let mut mismatches=Vec::new();
+        for (at,expected) in [("2026-10-20T10:00:00Z",false),("2026-10-21T22:00:00Z",true),("2026-10-21T22:00:03Z",true),("2026-10-21T22:00:10Z",true),("2026-10-21T22:00:10.001Z",false)] {
+            client.execute("UPDATE ot.mail SET created_at=$1::text::timestamptz",&[&at]).await.unwrap();
+            let query=format!("SELECT coalesce(({DUPLICATE_MENTION_SQL}),false) FROM ot.mail m CROSS JOIN ot.agents a");
+            let actual:bool=client.query_one(&query,&[]).await.unwrap().get(0);
+            if actual!=expected{mismatches.push((at,actual,expected));}
+        }
+        assert!(mismatches.is_empty(),"stale/future mail suppresses mention: {mismatches:?}");
+        client.batch_execute("UPDATE ot.mail SET created_at='2026-10-20T10:00:00Z'").await.unwrap();
+        let raw:Value=client.query_one("SELECT to_jsonb(m) FROM ot.mail m",&[]).await.unwrap().get(0);
+        assert!(clear_read_mentions(&client,1,&[raw]).await.unwrap().is_empty());
+        client.batch_execute("UPDATE ot.mail SET created_at='2026-10-21T22:00:03Z'").await.unwrap();
+        let raw:Value=client.query_one("SELECT to_jsonb(m) FROM ot.mail m",&[]).await.unwrap().get(0);
+        assert_eq!(clear_read_mentions(&client,1,&[raw]).await.unwrap(),vec![7]);
+        drop(client);connection.await.unwrap();
+    }
+    #[nolog]
+    async fn fixture()->(tokio_postgres::Client,tokio::task::JoinHandle<()>){
+        let url=std::env::var("ORGTREE_MAIL_ATTENTION_TEST_URL").expect("explicit synthetic fixture URL");
+        let cfg:tokio_postgres::Config=url.parse().unwrap();
+        assert_eq!(cfg.get_dbname(),Some("mail_attention_fixture"));
+        assert_eq!(cfg.get_user(),Some("mail_attention_fixture"));
+        let (client,connection)=cfg.connect(tokio_postgres::NoTls).await.unwrap();
+        let connection=tokio::spawn(async move{connection.await.unwrap();});
+        client.batch_execute("DROP SCHEMA IF EXISTS ot CASCADE; CREATE SCHEMA ot;
+            CREATE TABLE ot.orgs(id bigint PRIMARY KEY,settings jsonb); INSERT INTO ot.orgs VALUES(1,'{}');
+            CREATE TABLE ot.agents(id bigint,org_id bigint,name text,generation int,state text,extra jsonb,row_version bigint DEFAULT 0);
+            CREATE TABLE ot.asks(org_id bigint,agent_id bigint,status text); CREATE TABLE ot.work_items(org_id bigint,manual_attention jsonb);
+            CREATE TABLE ot.mail(id bigint PRIMARY KEY,org_id bigint DEFAULT 1,sender text DEFAULT 'worker',sender_agent_id bigint,recipient_kind text DEFAULT 'user',
+                state text DEFAULT 'pending',body text DEFAULT '',urgent bool DEFAULT false,ev jsonb,reply_to jsonb,replies jsonb,extra jsonb DEFAULT '{}',created_at timestamptz DEFAULT now());").await.unwrap();
+        (client,connection)
     }
     #[test] fn code_spans_and_fenced_blocks_do_not_qualify_mail_mentions(){
         assert!(!qualifies(&json!({"body":"Do not alert on `@user` in code."})));
