@@ -13,7 +13,7 @@ With Run on boot, Orgtree's engine runs in Windows Session 0, which has no deskt
 
 - **Before work that needs the user's desktop or apps**: opening a GUI program, taking a screenshot or screen capture, or showing the user a window. If `this_turn` is `"session0"` and `next_turn_moves` is `true`, finish the current step and end your turn at a safe point, with no background work running, or end it at once with [`orgtree_interrupt`](../tool-interrupt/SKILL.md) on yourself with `restart: true`: the new turn starts in the signed-in session. If `signed_in` is `false`, do not retry desktop work: say what is blocked, and wait for the sign-in (a watchdog on `session.signed_in`, below).
 - When something that needs the desktop fails in a way that suggests there is none.
-- After a session notice (`[ORGTREE SESSION NOTICE]`, `[ORGTREE SIGN-IN NOTICE]`, `[ORGTREE SIGN-OUT NOTICE]`) or the restart notice's "Session access at start" line, when you need the state now.
+- After a session notice (`[ORGTREE SESSION NOTICE]`, `[ORGTREE SIGN-IN NOTICE]`, `[ORGTREE SIGN-OUT NOTICE]`) or the restart notice's "Engine session at start" line (where the engine runs, not your turn), when you need the state now.
 
 Without arguments it only reads, and is cheap.
 

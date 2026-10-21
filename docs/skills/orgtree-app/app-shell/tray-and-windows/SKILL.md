@@ -24,7 +24,7 @@ While running, organizations are grouped into their own taskbar identities using
 | Notifications | Master checkbox and per-event notification switches; subordinate switches are disabled when the master is off |
 | Harness setup | Detected harness status and the corresponding installation destinations |
 | Crash reports | Opens the local crash-report location |
-| Restart engine | Explicit engine restart; visible even when unavailable, disabled during conflicting shutdown/restart activity |
+| Restart engine / Start engine | Explicit engine restart, in the user's session while they are signed in at the console. Reads Start engine while the engine is stopped or unavailable, for example after a failed move whose fallback to Session 0 failed too. Visible even when unavailable, disabled during conflicting shutdown/restart activity |
 | Quit Orgtree | Requests application shutdown |
 
 For individual notification switches see [App notifications](../../app-settings/app-notifications/SKILL.md); startup and close semantics belong to the settings references below. A restart click is not a success receipt: the menu follows engine readiness and reports failure separately.
