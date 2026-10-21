@@ -21,10 +21,10 @@ window.fetch = (async input => {
 }) as typeof fetch
 let sequence = 0
 function Fixture() {
-  const [state, setState] = useState({ kind: 'agent', count: 624, dogs: 123, key: 0 })
+  const [state, setState] = useState({ kind: 'agent', count: 624, dogs: 123, key: 0, crowded: false })
   ;(window as unknown as { retiredHeaderFixture: unknown }).retiredHeaderFixture = {
-    render: (kind: string, count: number, dogs: number) => {
-      const key = ++sequence; setState({ kind, count, dogs, key }); return key
+    render: (kind: string, count: number, dogs: number, crowded = false) => {
+      const key = ++sequence; setState({ kind, count, dogs, key, crowded }); return key
     }, reads,
   }
   const owner = state.kind === 'agent' ? agent('owner') : project('owner', [project('next-project', [agent('worker')])])
@@ -32,7 +32,14 @@ function Fixture() {
   owner.effort = 'medium'
   const dogs = Array.from({ length: Math.min(8, state.dogs) }, (_, i) => ({ id: `owner/watch-${i}`, owner: 'owner', name: `watch-${i}`,
     kind: 'file', target: 'synthetic', state: 'armed', once: false, fired: 0, interval_s: 600, at: '2026-10-21T00:00:00Z' })) as Watchdog[]
+  if (state.crowded && state.kind === 'project') {
+    Object.assign(owner.scope!, { slots: 9999999, mail_queue_ack: true })
+    owner.mail_pending = 9999999; owner.mail_held = 9999999
+    dogs.push(...(['project_listener', 'listener_watch', 'fair_queue'] as const).map((kind, i) => ({ ...dogs[0]!,
+      id: `observer/${i}`, owner: 'observer', kind, target: 'owner', count: 999999999 })))
+  }
   const tree = { ...bunchTree([owner]), slug: 'retired-header-fixture', name: 'Retired header badges', watchdogs: dogs,
+    slot_leases: state.crowded && state.kind === 'agent' ? Array.from({ length: 10 }, (_, i) => ({ project: `pool-${i}`, agent: 'owner', lease: `lease-${i}`, since: '2026-10-21T00:00:00Z', slots: 1 })) : [],
     watchdog_counts: { owner: { total: state.dogs, kept: state.dogs, one_shot: 0 } } }
   document.body.dataset.fixture = String(state.key)
   return <CurrentOrg.Provider value={tree.slug}><div className="app"><main className="solo"><div className="canvas-stage">

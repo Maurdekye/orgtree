@@ -13,8 +13,8 @@ const records=[],failures=[]
 try{
 win.webContents.session.webRequest.onBeforeRequest((d,done)=>done({cancel:!/^(file:|data:)/.test(d.url)}))
 await win.loadFile(out+'/fixture.html')
-for(const kind of ['agent','project'])for(const [count,dogs]of [[1,1],[624,123],[9999,8]]){
-await win.webContents.executeJavaScript(`(async()=>{const end=performance.now()+5000;while(!window.retiredHeaderFixture){if(performance.now()>end)throw Error('missing fixture');await new Promise(r=>setTimeout(r,20))}window.retiredHeaderFixture.render('${kind}',${count},${dogs});await new Promise(r=>setTimeout(r,650))})()`)
+for(const kind of ['agent','project'])for(const [count,dogs,crowded=false]of [[1,1],[624,123],[9999,8],[9999,8,true]]){
+await win.webContents.executeJavaScript(`(async()=>{const end=performance.now()+5000;while(!window.retiredHeaderFixture){if(performance.now()>end)throw Error('missing fixture');await new Promise(r=>setTimeout(r,20))}window.retiredHeaderFixture.render('${kind}',${count},${dogs},${crowded});await new Promise(r=>setTimeout(r,650))})()`)
 for(const theme of ['dark','light'])for(const scale of [0.4,0.7,1,1.5]){
 const seen=await win.webContents.executeJavaScript(`(async()=>{
 document.documentElement.classList.toggle('contrast-light',${theme==='light'})
@@ -30,13 +30,15 @@ if(!token||!chips.length)throw Error('required retired/watchdog targets absent')
 const rect=el=>{const r=el.getBoundingClientRect();return{x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height}}
 const overlap=(a,b)=>Math.min(a.right,b.right)>Math.max(a.x,b.x)+.1&&Math.min(a.bottom,b.bottom)>Math.max(a.y,b.y)+.1
 const a=rect(token),b=rect(card),others=chips.map(rect),point={x:a.x+a.width/2,y:a.y+a.height/2},hit=document.elementFromPoint(point.x,point.y)
-return{token:a,card:b,dogs:others,overlap:others.some(c=>overlap(a,c)),inHeader:!!token.closest('.sq-badges'),inOwner:card.contains(token),hit:!!hit&&(hit===token||token.contains(hit)),text:token.textContent,title:token.title,style:{fontSize:getComputedStyle(token).fontSize,padding:getComputedStyle(token).padding,borderRadius:getComputedStyle(token).borderRadius},next:[...document.querySelectorAll('.sq.project')].filter(c=>c!==card).map(rect)}
+const content=[...card.querySelectorAll('.sq-head,.sq-badges > *,.sq-actions')].map(rect),fit=card.querySelector('.card-face')
+return{token:a,card:b,dogs:others,content,scale:fit?.dataset.cardScale??'1',overflow:content.some(c=>c.x<b.x-.5||c.y<b.y-.5||c.right>b.right+.5||c.bottom>b.bottom+.5),overlap:others.some(c=>overlap(a,c)),inHeader:!!token.closest('.sq-badges'),inOwner:card.contains(token),hit:!!hit&&(hit===token||token.contains(hit)),text:token.textContent,title:token.title,style:{fontSize:getComputedStyle(token).fontSize,padding:getComputedStyle(token).padding,borderRadius:getComputedStyle(token).borderRadius},next:[...document.querySelectorAll('.sq.project')].filter(c=>c!==card).map(rect)}
 })()`)
-records.push({kind,count,dogs,theme,scale,...seen})
+records.push({kind,count,dogs,crowded,theme,scale,...seen})
 if(seen.overlap)failures.push({kind,count,dogs,theme,scale,reason:'retired/watchdog rectangles intersect'})
+if(seen.overflow)failures.push({kind,count,dogs,crowded,theme,scale,reason:'card content overflows fixed card'})
 if(!red){assert.equal(seen.inHeader,true);assert.equal(seen.inOwner,true);assert.equal(seen.hit,true);assert.equal(seen.overlap,false)}
-if(scale===1&&count===624&&theme==='dark'){
-await win.webContents.executeJavaScript(settle);const frame=await win.webContents.capturePage();assert.equal(frame.isEmpty(),false);fs.writeFileSync(out+`/${kind}-${theme}.png`,frame.toPNG())
+if(scale===1&&(count===624||crowded)&&theme==='dark'){
+await win.webContents.executeJavaScript(settle);const frame=await win.webContents.capturePage();assert.equal(frame.isEmpty(),false);fs.writeFileSync(out+`/${kind}-${crowded?'crowded-':''}${theme}.png`,frame.toPNG())
 }
 }
 if(!red){
