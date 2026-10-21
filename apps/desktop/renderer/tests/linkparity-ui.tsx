@@ -48,7 +48,7 @@ function Fixture() {
       <SenderTargets />
       <div className="sample" data-sample="file"><b>Local file capability</b><RefMdBody html={{ __html: '<a data-local-path="C:\\synthetic\\report.txt" href="#">report.txt</a>' }} /></div>
     </section><output id="identity-readout">Hover identity is checked before each menu capture.</output></main></ObjectMenuBoundary>
-    <style>{`html,body,#root{margin:0;min-height:100%;background:var(--bg);color:var(--text)}main{padding:24px;font:14px system-ui}h1{margin:0 0 8px;font-size:22px}p{color:var(--muted)}section{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:900px}.sample{padding:14px;border:1px solid var(--line);border-radius:6px;min-height:78px;display:flex;align-items:flex-start;flex-direction:column;gap:12px}.sample>b{font-size:12px;color:var(--muted)}.sample>.org{min-width:240px}output{display:block;margin-top:20px;white-space:pre-wrap;border-top:1px solid var(--line);padding-top:12px}`}</style>
+    <style>{`html,body,#root{margin:0;min-height:100%;background:var(--bg);color:var(--ink)}main{padding:24px;font:14px system-ui}h1{margin:0 0 8px;font-size:22px}p{color:var(--dim)}section{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:900px}.sample{padding:14px;border:1px solid var(--line);border-radius:6px;min-height:78px;display:flex;align-items:flex-start;flex-direction:column;gap:12px}.sample>b{font-size:12px;color:var(--dim)}.sample>.org{min-width:240px}output{display:block;margin-top:20px;white-space:pre-wrap;border-top:1px solid var(--line);padding-top:12px}`}</style>
   </ObjectNavProvider>
 }
 // A detached document uses the same exact-id tooltip host. Tests cover its
