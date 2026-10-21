@@ -219,7 +219,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       }}
       onContextMenu={(e) => menu.open(e, menuEntries)}>
       {lod === 'mini' ? (
-        <span className="project-mini" {...agentTooltipProps(node.id, true)}><FolderIcon fontSize="inherit" /></span>
+        <span className="project-mini" {...agentTooltipProps(node.id)}><FolderIcon fontSize="inherit" /></span>
       ) : (
         <>
           <div className="sq-head project-head">

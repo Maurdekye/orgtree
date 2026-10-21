@@ -40,6 +40,10 @@ settings.
   details. Normal project icons and other identity-less links still prefix
   the name. Zooming out of the mini presentation removes the floating label
   immediately. [user 2026-10-19 17:21Z]
+  User 2026-10-21 06:53:22Z explicitly confirmed this exception includes the
+  project mini folder: it omits the name, while the normal folder and
+  identity-less `Project…` submenu label still prefix it. This supersedes
+  the mini-specific name prefix introduced during alpha.23 hardening.
 - The docket reply recipient Select keeps its MUI menu inside its
   `ObjectMenuBoundary` (`disablePortal`) so right-clicks reach the delegated
   agent menu. The shared context menu uses z-index 1600, above MUI popovers,
