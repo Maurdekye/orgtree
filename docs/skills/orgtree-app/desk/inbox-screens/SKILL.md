@@ -24,6 +24,12 @@ User contextual replies target the original sender(s), can include attachments a
 
 Mail links can switch to the folder containing the referenced message and perform an exact lookup outside the loaded window. A missing row in the current slice is not proof it never existed; failed lookup offers retry.
 
+Loaded older pages reconcile read-state changes and deletion from other windows
+when their mailbox revision changes. The reader refreshes its head and only the
+IDs already retained, in batches of at most 200, keeping its older-page cursor.
+An absent head row alone never proves deletion. Failed or incomplete refreshes
+keep the retained rows and offer Retry; they do not silently remove mail.
+
 ## User-mail tags
 
 The user's Inbox has one tag dropdown: search narrows a wrapping list of

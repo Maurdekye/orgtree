@@ -1,5 +1,20 @@
 # Desktop and renderer
 
+## Retained mail reconciliation (2026-10-21)
+
+`useMailboxHistory` refreshes the bounded head on pushed revisions and then
+reconciles only retained IDs missing from that head, up to 200 per request.
+User, agent and project history share the same folder/identity checks. The
+server echoes `refreshed_ids` so an older engine ignoring the query cannot
+cause false deletion. Failed/malformed/incomplete reads keep rows and Retry;
+success updates pending/delivered state without resetting paging or selection.
+The existing history GET supports JSON-array `ids` with `folder`, refusing
+empty/over-200 lists and cursor combinations; indexed IDs retain mailbox/org
+and hidden-outside-mail filtering. This is automatic display reconciliation,
+with no new user action or agent-tool mutation.
+[verified: `src/usemailhistory.ts`, `domain/mail_history.rs`,
+`http/{mailbox,nodes}.rs`; decided: coordinator 2026-10-21 hardening assignment]
+
 ## Tray administrator setting
 
 The tray Run as admin checkbox and Settings share the protected admin-change
