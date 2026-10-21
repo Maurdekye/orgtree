@@ -38,7 +38,7 @@ async function fixture(initial = false, { platform = 'win32', installed = true }
     epicMuteTrayItem: () => ({}), label: () => 'Ready', updatesSupported: false,
     hubMenuItem: () => ({ label: 'Mail hub' }), NOTIFICATION_OPTIONS: [],
     detectHarnesses: () => [], harnessSetupMenu: () => [], trayHarnesses: null,
-    app: { quit() {} }, setTimeout, process: { platform },
+    app: { quit() {} }, setTimeout, process: { platform }, setPreferences() {},
     handleApp: (name, fn) => { handlers[name] = fn },
     removePhoneFirewallRule() {}, addPhoneFirewallRule() {},
     engineOptions: { binary: 'fake-engine' }, launchContext: async () => ({}), inConsole: () => true,
