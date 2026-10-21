@@ -53,6 +53,11 @@ const EVENTS_KEEP: i64 = 50;
 /// Maximum listener/watch rows processed in one committed transaction.
 const FIRE_BATCH: i64 = 200;
 
+#[cfg(test)]
+tokio::task_local! { static STOP_AFTER_WATCH_EDGE: bool; }
+#[cfg(test)]
+mod watch_boundary_tests;
+
 /// The largest listener count a watch may ask for.
 pub const MAX_COUNT: i64 = 1024;
 /// The longest message a fired event may carry.
@@ -417,6 +422,8 @@ async fn evaluate_page(engine: &Arc<Engine>, org_id: i64, project: i64, after: i
     }
     tx.commit().await?;
     drop(client);
+    #[cfg(test)]
+    if STOP_AFTER_WATCH_EDGE.try_with(|stop| *stop).unwrap_or(false) { return Ok(last); }
     for (row, need, user) in &firing {
         let line = format!(
             "project {pname} now has {count} event listeners armed — at or over the {need} this watch waits for"
