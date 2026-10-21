@@ -46,7 +46,7 @@ A server-specific instruction-file byte/token ceiling is unknown here; native ha
 
 Folder/tool grants and Windows/Session 0 behavior are those of the driver; a loopback endpoint adds no filesystem sandbox. Codex hosted web search is explicitly disabled for the local route because that service runs on OpenAI servers. Other tool availability depends on native scope and the model's ability to call tools.
 
-Mail uses Claude's tool-boundary hook, Codex exact-turn steer or OpenCode next-turn queue. When a non-steering route urgently needs redirection, a deliberate tool-boundary interruption plus follow-up is a workflow, not an implemented automatic mail interrupt; stopping a tool does not reverse side effects.
+Mail uses Claude's tool-boundary hook, Codex exact-turn steer or OpenCode 2.0.28's owned after-tool bridge. Other OpenCode versions, unavailable hooks or no further tool boundary retain next-turn delivery; see [OpenCode](../harness-opencode/SKILL.md) for DND and uncertain-admission recovery. When delivery cannot wait, a deliberate interruption plus follow-up is a workflow, not an implemented automatic mail interrupt; stopping a tool does not reverse side effects.
 
 ## Models and effort
 

@@ -26,6 +26,12 @@ Muse's own dated five-hour and weekly observations come from metadata reads and 
 
 Muse has **no on-demand fresh usage query**: `usage/read` returns an observation the host already has, and a forced Orgtree metadata read cannot force a new provider measurement. The current UI keeps Refresh visible but disabled, explaining that Muse reports usage after a turn. Its real observation time must remain attached even when a metadata getter succeeds.
 
+Account identity is refreshed independently of retained quota: an email/name
+can reappear in the account roster after restart without making an old quota
+observation fresh. A missing identity is not proof that the allowance is empty,
+and a last-good allowance is not current authentication evidence. Verified
+at `2ec8c0e`: `providers/muse_models.rs`, `usage/muse_cache.rs` and `usage.rs`.
+
 ## Caching
 
 Muse can report cache reads/writes but publishes neither prices nor a cache lifetime in the checked evidence. Cost and expiry remain unknown; do not display a made-up countdown or interpret recorded zero as free provider inference. The fingerprint still detects incompatible identity, tools/MCP, scope, model, account or startup changes.

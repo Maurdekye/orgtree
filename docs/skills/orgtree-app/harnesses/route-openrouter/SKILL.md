@@ -44,7 +44,7 @@ Common bundle/global sharing is in [skills and instructions](../../providers/ski
 
 The selected harness owns permission callbacks, sensitive-path behavior and Windows/Session 0 posture. The route does not add an OS sandbox. MCP/tool availability still requires the seat's grants and a model capable of tool calling. A provider's tool-support catalog flag is not a successful native tool invocation.
 
-Use each driver's actual mail path: Claude tool-boundary hook, Codex native exact-turn steering, OpenCode next-turn queue. A key change is not an automatic way to change permission policy.
+Use each driver's actual mail path: Claude tool-boundary hook, Codex native exact-turn steering, or OpenCode 2.0.28's owned after-tool mail bridge. Unsupported OpenCode versions or unavailable hooks retain next-turn delivery; no further tool boundary means no mid-turn delivery. DND/urgent and uncertain-admission recovery are described in [OpenCode](../harness-opencode/SKILL.md). A key change is not an automatic way to change permission policy.
 
 ## Models and effort
 

@@ -34,6 +34,16 @@ Where the context window is known, Orgtree sends `model_auto_compact_token_limit
 
 Cheap compact preserves durable files/Orgtree records and exports earlier conversation, then replaces the provider session with a short handoff. It does not guarantee every provider-summary detail survives. Actual native summarizer internals/retention are unknown here. Common policy and gates live in `orgtree-context-and-compaction` (orgtree-working › runtime).
 
+4.4.0's measured-size check can create a fresh handoff session after a successful
+turn or before the next admission at the org threshold, independently of cache
+temperature. Native compaction invalidates the old occupancy measurement to
+avoid another reset from the same peak. A native context-window overflow gets
+one fresh-session recovery attempt; the second is terminal. Input-length,
+quota/auth and cancellation errors are not that recovery signal. Original
+mail retains its IDs and single delivery receipts. Language model servers
+keep their separate bounded recovery policy. Verified at `2ec8c0e`:
+`runtime/recovery.rs`, `runtime/actor.rs`, `docs/rust-engine/context-full-recovery.md`.
+
 ## Instructions and skills
 
 The checked native startup manifest reads the selected Codex home's `AGENTS.md` and the project chain from a `.git` root to cwd; without a root it uses cwd alone. In a project directory `AGENTS.override.md` wins over `AGENTS.md`. Codex does not natively read legacy `CLAUDE.md`; Orgtree supplies otherwise omitted scratch/granted notes. A general native instruction byte/token ceiling is unknown in this source review; do not substitute an Orgtree transcript-preview limit.

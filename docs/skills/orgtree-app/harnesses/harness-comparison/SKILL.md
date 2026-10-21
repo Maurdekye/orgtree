@@ -14,6 +14,12 @@ Update both pages when behavior changes. OpenCode mail was updated on 2026-10-20
 at `181cb49`; [O-MAIL] pins the later implementation and its detailed page
 records the offline 2.0.28 evidence and limits.
 
+The 2026-10-21 audit at `2ec8c0e` additionally verifies AGY tool/file
+annotations and committed-WAL thinking recovery, profile-isolated quota,
+and native Claude/Codex context-overflow and measured-size recovery. See
+the detailed harness pages for those current contracts. Original pinned
+evidence below retains its date; it does not claim new native measurements.
+
 There are **five harnesses**: Claude Code, Codex CLI, Antigravity, Muse Code and
 OpenCode. Gemini models run through Antigravity here. OpenRouter and language
 model servers are routes through Claude Code, Codex or OpenCode, not extra
@@ -45,6 +51,11 @@ delivered mid-turn". No tool boundary means no live delivery. [O-MAIL] Live shel
 effects. Thinking-token counts alone do not imply visible thinking text.
 Control and transcript contracts [WAKE], thinking limits [A-THOUGHT] [A-HISTORY].
 
+AGY's current tool chips unwrap native MCP wrappers, recover retained inputs
+on older page reads, and use shared object/file links (`runtime/convo.rs` at
+`2ec8c0e`). Committed thinking in an active WAL is readable without closing the
+CLI, using the bounded read-only snapshot in `runtime/agy_thinking.rs`.
+
 ## Usage, accounts, cache and compaction
 
 | Feature | Claude Code / Claude | Codex CLI / OpenAI | Antigravity / Google | Muse Code / Muse | OpenCode / custom provider |
@@ -56,6 +67,13 @@ Control and transcript contracts [WAKE], thinking limits [A-THOUGHT] [A-HISTORY]
 | Prompt-cache expiry | Engine guidance/receipts: subscription ~1h, key ~5m; no guarantee. [CACHE-GUIDE] | Native 30-minute engine estimate; no guarantee. [CACHE-GUIDE] | Engine 300-second value; actual provider expiry unknown. [TOKENS] | Cache read may be known; TTL unknown. [FORECAST] | Custom-provider TTL unknown. [FORECAST] |
 | Normal compaction | Yes; Claude-driven custom routes too. [COMPACT] | Not offered by Orgtree. [COMPACT] | Not offered by Orgtree. [COMPACT] | Yes; native completion required, not just request admission. [M-COMPACT-EVENT] | Not offered by Orgtree. [COMPACT] |
 | Cheap compaction | Shared fresh session + bounded handoff; preserve history. [CHEAP] | Same; different from normal compact. [CHEAP] | Same engine operation. [CHEAP] | Same; unknown TTL cannot itself trigger cold reset. [CHEAP] | Same; unknown forecast cannot trigger cold reset. [CHEAP] |
+
+Separate from known-cold compaction, measured size can split a session after
+a successful turn or at admission. Claude/Codex native context overflow gets
+one bounded fresh-session retry, then fails; length/auth/quota refusals keep
+their own handling. Mail IDs/receipts remain single across that retry. See
+[Claude](../harness-claude-code/SKILL.md#compaction) and
+[Codex](../harness-codex/SKILL.md#compaction), verified at `2ec8c0e`.
 
 Allowance freshness, turn tokens, occupancy and prompt-cache receipts are four
 different facts. A fresh account label does not freshen old quota. After a Muse

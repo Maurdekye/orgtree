@@ -29,6 +29,23 @@ reasoning tokens, latency or answer quality.
 
 Tool steps provide a tool name, parameters, state and result/error. Orgtree records the first observed step as the start and DONE/ERROR as the end, updating arguments when later step information arrives. No distinct tool-writing phase is reported here; writing time is unknown, and these are engine-observed intervals rather than guaranteed native execution durations.
 
+In 4.4.0, wrapped `call_mcp_tool` and `default_api:*` steps are normalized to
+their actual tool name and input. Successful Orgtree calls can carry the same
+agent, project, mail, docket and watchdog links as other harnesses; file tools
+also expose file links from native argument names. Older stored chips are
+repaired from retained tool input when their bounded transcript page is read.
+An ambiguous or failed result does not establish a successful object action.
+Use the shared link/menu rather than copying a display label as an identifier.
+Verified at `2ec8c0e`: `runtime/convo.rs` (`unwrap_tool_call`,
+`restore_stored_tool_inputs`, `restore_result_refs`) and `runtime/actor.rs`.
+
+Completed-step thinking can be read from a committed live WAL using a short
+read-only snapshot; it no longer requires a checkpoint or a closed native
+history database. Busy/unsafe/unavailable history still skips safely. There is
+no old-transcript backfill and this is still after-DONE recovery, not live
+thought streaming. Verified: `runtime/agy_thinking.rs`,
+`docs/rust-engine/antigravity-thinking.md` (2026-10-21 source audit).
+
 Usage windows come from the separate zero-inference `/usage` metadata path. Gemini and Claude-family offerings spend different groups; cadence/freshness and unsupported readings are defined in `orgtree-usage-windows` (orgtree-working › accounts). Result errors, sign-in blocks and typed window/reset evidence are not interchangeable.
 
 ## Caching
@@ -69,7 +86,31 @@ These hooks are not an OS filesystem sandbox, and a folder grant does not establ
 
 Use the discovered Google catalog. Gemini tiers spend Gemini windows; `agy-sonnet`/`agy-opus` require the app's `antigravity_claude_enabled` opt-in and the appropriate catalog offer. Its default is false. The runtime setting belongs to the app Runtime controls; enabling it neither signs in nor creates quota.
 
-AGY maps `none`/`minimal` to `low`, unsupported larger names to `high`; `medium` is supported for Flash and the Claude-family route. Those Claude-family model IDs encode effort variants. A model/effort change can therefore change the model ID even though a pure effort-only control elsewhere does not rewrite the old prefix. Secondary subscription-profile selection is unsupported in this integration.
+AGY maps `none`/`minimal` to `low`, unsupported larger names to `high`; `medium` is supported for Argon, Flash and the Claude-family route. Those Claude-family model IDs encode effort variants. A model/effort change can therefore change the model ID even though a pure effort-only control elsewhere does not rewrite the old prefix.
+
+## Registered accounts and the Windows sign-in limit
+
+Antigravity CLI 1.3.5 was measured to share one Windows Credential Manager
+sign-in even when given a fresh profile folder. Signing in again can replace
+the default login for every AGY agent. The Add account dialog explains this
+limit and offers a Gemini API key, not a second subscription sign-in terminal.
+API billing is separate from a second Google subscription.
+
+Existing registered subscription rows use their own home for launch, silent
+identity checks and usage. Before launch, the profile must name an identity
+different from the default login; missing identity fails closed and the same
+identity is refused as `not_isolated`, leaving mail waiting. There is no silent fallback to
+the default login. Profile quota, admission and placement use that profile's
+own reading; absent/stale/unavailable quota stays unknown instead of borrowing
+the default account's bars. Separate folders therefore do not promise usable
+concurrent subscriptions. The same guard can accept a future upstream version
+that genuinely isolates them.
+
+A transient launch-check failure gets at most one bounded retry; an actual
+auth refusal or profile-isolation refusal is not converted into success.
+Verified at `2ec8c0e`: `providers/agy_auth.rs`, `usage/agy_reading_tests.rs`,
+`canvas/accountsregistry.tsx`; detailed evidence:
+`docs/rust-engine/antigravity-accounts.md`.
 
 ## Gotchas and workarounds
 

@@ -36,6 +36,17 @@ Orgtree passes the effective org `compact_at` fraction as `CLAUDE_AUTOCOMPACT_PC
 
 Cheap compact instead exports earlier conversation and starts a fresh session with a bounded handoff on the same agent. Durable files and Orgtree records survive; the complete old conversation is not inserted into the new prompt. Exact provider-summary retention is unknown here. Automatic cold resets require the configured policy and qualifying measured context/cache evidence; see `orgtree-context-and-compaction` (orgtree-working › runtime).
 
+4.4.0 also checks measured conversation size after a successful turn and before
+admission. At the org threshold it can split into a fresh handoff session even
+when the cache is warm; this is separate from the known-cold policy. Missing
+or estimated occupancy is not enough. A native context-window overflow gets
+one fresh-session recovery attempt; a second overflow ends with an error.
+Input/message-length, authentication and quota refusals keep their own policies.
+Original mail keeps its IDs and delivery receipts across recovery. Verified
+at `2ec8c0e`: `runtime/recovery.rs`, `runtime/actor.rs`, and
+`docs/rust-engine/context-full-recovery.md`; these are source contracts,
+not a new live-provider measurement.
+
 ## Instructions and skills
 
 The native startup manifest accounts for managed/user `CLAUDE.md`, the project ancestor chain's `CLAUDE.md`/`CLAUDE.local.md`, cwd `.claude/CLAUDE.md`, unscoped rules and imports. Installed CLI evidence records project `AGENTS.md` fallback only when that project chain has no nonempty Claude notes. Native `--add-dir` alone does not load granted-folder notes; Orgtree supplies otherwise omitted standing notes without duplicating native files.
