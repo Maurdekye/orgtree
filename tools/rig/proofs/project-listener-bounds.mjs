@@ -27,18 +27,20 @@ export default async function(rig) {
   p.check('all 65 continuous listeners enter service before any is served twice',trigger.ok&&served.length>=65,{trigger:trigger.ok,served:served.length})
   // ACK: the first 64 listeners are at capacity, listener 65 and a new inline
   // candidate both remain eligible. Held copies have valid watchdog provenance.
-  rig.exec(`UPDATE ot.agents SET scope=scope||'{"mail_queue":"ack"}'::jsonb WHERE id=${q.id};
-    UPDATE ot.mail SET extra=extra||jsonb_build_object('claimed',jsonb_build_object('by_id',w.owner_agent_id,'by',a.name,'dog',w.uid,'ack',true,'at',now(),'copy',m.uid))
-      FROM ot.watchdogs w JOIN ot.agents a ON a.id=w.owner_agent_id, LATERAL (SELECT 'dummy'::text AS uid) m
-      WHERE ot.mail.recipient_agent_id=${q.id} AND ot.mail.id IN(SELECT id FROM ot.mail WHERE recipient_agent_id=${q.id} ORDER BY id LIMIT 64)
-        AND w.id=(SELECT id FROM ot.watchdogs WHERE kind='fair_queue' AND (memo->>'target_id')::bigint=${q.id} ORDER BY id OFFSET ((SELECT count(*) FROM ot.mail mm WHERE mm.recipient_agent_id=${q.id} AND mm.id<ot.mail.id)) LIMIT 1)`)
-  // Existing originals already carry real copies from round-robin; keep those.
-  rig.exec(`UPDATE ot.mail SET extra=jsonb_set(extra,'{claimed,copy}',to_jsonb(c.uid)) FROM ot.mail c
-    WHERE ot.mail.recipient_agent_id=${q.id} AND c.extra->'via_project'->>'mail'=ot.mail.uid`)
-  jobs(q,1,'ack-next')
-  const newOwner=rig.one(`SELECT name FROM ot.agents WHERE parent_id=${q.id} ORDER BY id DESC LIMIT 1`).name
-  const inline=await rig.tool(newOwner,'orgtree_watchdog',{action:'create',kind:'fair_queue',target:'many-queue',name:'inline-tail',once:true,notice:true})
-  const assigned=rig.one(`SELECT state,extra->'claimed'->>'by' AS owner FROM ot.mail WHERE recipient_agent_id=${q.id} AND body='ack-next-1'`)
+  const aq=await project('ack-queue');members(aq,66);dogs(aq,'fair_queue',65);jobs(aq,64,'held')
+  rig.exec(`UPDATE ot.agents SET scope=scope||'{"mail_queue":"ack"}'::jsonb WHERE id=${aq.id};
+    WITH originals AS (SELECT id,uid,row_number() OVER(ORDER BY id) AS rn FROM ot.mail WHERE recipient_agent_id=${aq.id}),
+    holders AS (SELECT w.*,a.name AS owner_name,row_number() OVER(ORDER BY w.id) AS rn FROM ot.watchdogs w JOIN ot.agents a ON a.id=w.owner_agent_id WHERE (w.memo->>'target_id')::bigint=${aq.id})
+    UPDATE ot.mail m SET state='read',extra=jsonb_build_object('claimed',jsonb_build_object('by_id',h.owner_agent_id,'by',h.owner_name,'dog',h.uid,'ack',true,'at',now(),'copy','copy-'||o.uid))
+      FROM originals o JOIN holders h USING(rn) WHERE m.id=o.id;
+    INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,notice,extra)
+      SELECT 'copy-'||m.uid,m.org_id,'@user','agent',a.id,a.name,m.body,'pending',true,
+        jsonb_build_object('via_project',jsonb_build_object('id',pr.id,'name',pr.name,'mail',m.uid,'dog',m.extra->'claimed'->>'dog','ack',true))
+      FROM ot.mail m JOIN ot.agents a ON a.id=(m.extra->'claimed'->>'by_id')::bigint JOIN ot.agents pr ON pr.id=m.recipient_agent_id WHERE pr.id=${aq.id}`)
+  jobs(aq,1,'ack-next')
+  const newOwner=rig.one(`SELECT name FROM ot.agents WHERE parent_id=${aq.id} ORDER BY id DESC LIMIT 1`).name
+  const inline=await rig.tool(newOwner,'orgtree_watchdog',{action:'create',kind:'fair_queue',target:'ack-queue',name:'inline-tail',once:true,notice:true})
+  const assigned=rig.one(`SELECT state,extra->'claimed'->>'by' AS owner FROM ot.mail WHERE recipient_agent_id=${aq.id} AND body='ack-next-1'`)
   p.check('ACK-saturated first 64 do not hide the available tail or inline candidate',inline.ok&&assigned.state==='read',{inline:inline.ok,assigned})
   const e=await project('many-events');members(e,201);dogs(e,'project_listener',201)
   rig.exec(`UPDATE ot.agents SET scope=scope||'{"event_listeners":true}'::jsonb WHERE id=${e.id}`)
