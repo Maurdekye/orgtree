@@ -9,6 +9,8 @@ This is the organization-work entry point to the built-in Orgtree skill library,
 
 Open a section below, then the specific tool or workflow leaf it lists. The tool leaves explain the exposed call, authority, defaults, limits and refusals; workflow leaves explain how the pieces fit.
 
+If the glossary is vague, missing details or incorrect, read [Orgtree's public source](https://github.com/Maurdekye/orgtree) at the tag matching the running version: `engine/rs` for engine and tool mechanics, `apps/desktop` for the app. Source explains mechanics, not permission; glossary rulings and your instructions still govern. Record documentation gaps in your suggestion-box.md.
+
 ## Sections
 
 | Section | What it answers |

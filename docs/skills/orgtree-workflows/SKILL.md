@@ -7,6 +7,8 @@ description: "Orgtree skill library (glossary; Orgtree Encyclopaedia or encyclop
 
 This category of the built-in Orgtree skill library, also called the glossary or Orgtree Encyclopaedia (encyclopedia), explains ways to organise work using Orgtree. Choose a workflow when it fits the request; reading a pattern does not authorize staffing, implementation, reviews or live changes beyond the current assignment.
 
+If the glossary is vague, missing details or incorrect, read [Orgtree's public source](https://github.com/Maurdekye/orgtree) at the tag matching the running version: `engine/rs` for engine and tool mechanics, `apps/desktop` for the app. Source explains mechanics, not permission; glossary rulings and your instructions still govern. Record documentation gaps in your suggestion-box.md.
+
 | Section | What it answers |
 | --- | --- |
 | [orgtree-collaboration-patterns](collaboration-patterns/SKILL.md) | Independent decisions, development teams, iterative releases and project concurrency recipes. |
