@@ -144,7 +144,7 @@ pub fn run() -> std::process::ExitCode {
     let mut delegated_at: Option<i64> = None;
     let mut served = false;
     let mut hangs: Vec<Instant> = Vec::new();
-    let mut last: Option<Step> = None;
+    let mut last: Option<String> = None;
     // Whether the operator owns the console, from the last reading that saw a
     // sign-in: an empty or failed reading keeps it until the debounced
     // sign-out, so a WTS blip never reads as "signed in elsewhere".
@@ -173,7 +173,10 @@ pub fn run() -> std::process::ExitCode {
             lost: lost.clone(), delegated_at, now,
         };
         let step = decide(&seen);
-        if last.as_ref() != Some(&step) { host::say(Some(&root), &describe(&step, &seen)); last = Some(step.clone()); }
+        // logged when the reason changes, not only the step: waiting for another
+        // engine and waiting out the backstop read differently
+        let reason = describe(&step, &seen);
+        if last.as_deref() != Some(reason.as_str()) { host::say(Some(&root), &reason); last = Some(reason); }
         match step {
             Step::Exit => return ExitCode::SUCCESS,
             Step::Wait => std::thread::sleep(Duration::from_secs(2)),
