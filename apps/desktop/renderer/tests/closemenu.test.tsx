@@ -155,7 +155,16 @@ async function app(t: TestContext) {
     await inAct(() => { hit.click() })
     await settle()
   }
-  return { view, settle, press, enter: (org: string) => press(org) }
+  const enter = async (org: string) => {
+    // Organization identity hovers describe the action; its visible name
+    // identifies the row, independently of that canonical tooltip text.
+    const row = [...document.querySelectorAll<HTMLElement>('.org[role="button"]')]
+      .find(el => el.querySelector('.org-name-text')?.textContent === org)
+    assert.ok(row, `the harness could not find the "${org}" row in the org list`)
+    assert.equal(row.title, `Open organization ${org} in a new window`)
+    await inAct(() => { row.click() }); await settle()
+  }
+  return { view, settle, press, enter }
 }
 
 /** a panel by the classes its own `panel` prop carries, and its title bar */
