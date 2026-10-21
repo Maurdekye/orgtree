@@ -41,6 +41,14 @@ dispatch or watchdog lifecycle semantics are changed.
 
 ## Focused verification
 
+All watchdog identity surfaces use `useWatchdogTitle` for the same name, kind,
+state and mode, without a click suffix (user approval 2026-10-21 06:53Z).
+The meaningful next-check countdown is included everywhere by the same hook;
+this is the coordinator's 2026-10-21 interpretation of that approval, not a
+separate user ruling. Countdown-only controls retain their timing hints.
+Recorded gone identities retain their known metadata and gain no live action.
+The canvas's departing spark and existing spent-detail explanation remain.
+
 `watchdog-description.test.tsx` mounts the real detail panel for all seven kinds,
 silence, delivery, thresholds, stream one-shot exceptions and existing controls.
 `domain::watchdogs::tests` checks passive-delivery projection and legacy defaults.

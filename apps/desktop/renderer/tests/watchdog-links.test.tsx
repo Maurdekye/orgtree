@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mountView, inAct } from './harness'
+import { mountView, inAct, flush } from './harness'
 import { DeskDogsProvider, DogChip, WatchdogRow } from '../src/canvas/deskdogs'
 import { ToolRefs } from '../src/canvas/toolrefs'
 import type { Watchdog } from '../src/types'
@@ -10,6 +10,38 @@ import { MailListenersView } from '../src/canvas/maillisteners'
 import { mailListenerState } from '../src/canvas/listeners'
 import type { CanvasNode } from '../src/canvas/shared'
 import { HistoryDog } from '../src/canvas/historydog'
+import { ObjectNavProvider } from '../src/canvas/objectnav'
+import { ObjectNavHost } from '../src/canvas/objectnavhost'
+import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
+
+test('watchdog satellite, desk and destination offer the identical canonical object menu', async t => {
+  const opened: string[] = []
+  const v = await mountView(<ObjectNavProvider>
+    <ObjectNavHost org="demo" dogs={[dog]} openDog={id => opened.push(id)} toast={() => {}} />
+    <DeskDogsProvider value={{ org: 'demo', dogs: [dog], open: id => opened.push(id) }}>
+      <ObjectMenuBoundary>
+        <WatchdogSatellite dog={dog} dogs={[dog]} org="demo" onOpen={id => opened.push(id)} />
+        <DogChip dog={dog} onOpen={id => opened.push(id)} />
+        <WatchdogLink dog={dog} atDestination />
+        <WatchdogRow id={dog.id}>watch</WatchdogRow>
+      </ObjectMenuBoundary>
+    </DeskDogsProvider>
+  </ObjectNavProvider>, el => el)
+  t.after(() => v.unmount())
+  let expected: string[] | undefined
+  for (const identity of v.el.querySelectorAll('[data-object-id]')) {
+    await inAct(() => identity.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })))
+    await flush()
+    const menu = document.querySelector('.ctxmenu:not(.ctxmenu-submenu)')!
+    const entries = [...menu.children].flatMap(child => child.getAttribute('role') === 'separator' ? ['sep']
+      : child.classList.contains('ctxmenu-branch') ? [child.querySelector('[role="menuitem"]')!.textContent!.trim()] : [])
+    expected ??= entries
+    assert.deepEqual(entries, expected)
+    assert.ok(entries.includes('Open details'))
+    assert.ok(entries.includes('Pause'))
+  }
+  assert.deepEqual(opened, [], 'opening menus executes no dog action')
+})
 
 test('known watchdog hover text is identical on satellite, name, desk, tool, history, row and destination', async t => {
   const clock = Date.now

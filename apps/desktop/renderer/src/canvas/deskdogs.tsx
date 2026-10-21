@@ -16,13 +16,16 @@ import { agentNavElementAt } from './agentnav'
 import { objectNavProps } from './objectnav'
 import { WatchdogLink } from './watchdoglink'
 import { useDogRoute } from './watchdogroute'
+import { useWatchdogTitle } from './watchdogtitle'
 export { DeskDogsProvider, useDogRoute } from './watchdogroute'
 export type { DeskDogs } from './watchdogroute'
 
 /** Row whitespace borrows the dog menu; a nested agent link keeps its own menu. */
 export function WatchdogRow({id,org,children,className,as:Tag='div'}:{id:string;org?:string;children:ReactNode;className?:string;as?:'div'|'tr'}){
  const route=useDogRoute(),menu=useContextMenu()
- return <Tag {...objectNavProps('watchdog',id,org??route?.org)} className={className}
+ const dog=(!org||org===route?.org)?route?.dogs.find(dog=>dog.id===id):undefined
+ const title=useWatchdogTitle(dog,id)
+ return <Tag {...objectNavProps('watchdog',id,org??route?.org)} className={className} title={title}
    onContextMenu={e=>menu.open(e,[],agentNavElementAt(e.target,e.currentTarget)??e.currentTarget)}>{children}{menu.node}</Tag>
 }
 

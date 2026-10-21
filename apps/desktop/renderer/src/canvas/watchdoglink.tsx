@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import type { Watchdog } from '../types'
 import { objectNavProps } from './objectnav'
-import { watchdogGlyph, watchdogKindClass, watchdogStateWords } from './watchdogchip'
+import { watchdogGlyph, watchdogKindClass } from './watchdogchip'
+import { useWatchdogTitle } from './watchdogtitle'
 import { WatchdogCountdown } from './watchdogcountdown'
 import { useDogRoute } from './watchdogroute'
 
@@ -14,7 +15,6 @@ export interface WatchdogLinkProps {
   onOpen?: (id: string) => void
   className?: string
   children?: ReactNode
-  title?: string
   countdown?: boolean
   /** Keep a recorded identity and copy menu after its watchdog is removed. */
   stale?: boolean
@@ -22,7 +22,7 @@ export interface WatchdogLinkProps {
 }
 
 /** One watchdog identity chip. Missing metadata stays neutral; orgs never share IDs. */
-export function WatchdogLink({dog:given,id,owner,name,org,onOpen,className='',children,title,countdown=false,stale=false,atDestination=false}:WatchdogLinkProps) {
+export function WatchdogLink({dog:given,id,owner,name,org,onOpen,className='',children,countdown=false,stale=false,atDestination=false}:WatchdogLinkProps) {
   const route=useDogRoute()
   const handle=id?.includes('/')||!owner?id:`${owner}/${id}`
   const sameOrg=!org||!route?.org||org===route.org
@@ -30,6 +30,7 @@ export function WatchdogLink({dog:given,id,owner,name,org,onOpen,className='',ch
   const key=dog?.id??handle??''
   const label=name??dog?.name??id??''
   const gone=stale||!!dog?.spent||dog?.state==='spent'
+  const title=useWatchdogTitle(dog,key,gone)
   // A bounded tree preview cannot establish that another handle is gone.
   // Keep its exact detail/menu route without guessing kind or lifetime.
   const partialOwner=key.includes('/')&&(route?.counts?.[key.split('/')[0]!]?.total??0)>8
@@ -40,7 +41,7 @@ export function WatchdogLink({dog:given,id,owner,name,org,onOpen,className='',ch
     {...(open||stale||(dog&&!gone)?objectNavProps('watchdog',key,org??route?.org):{})}
     {...(stale?{'data-object-stale':'true','data-object-name':label}: {})}
     className={`desk-nav-chip desk-dog-chip watchdog-link ${state} ${dog?watchdogKindClass(dog):''}${dog?.once?' oneshot':''}${gone?' gone':''}${dog?.disabled&&!gone?' disabled':''} ${className}`}
-    title={title??(dog?`${dog.once?'one-shot dog':'watchdog'} "${label}" (${dog.kind}) — ${gone?'no longer exists':watchdogStateWords(dog)}; ${dog.once?'fires once':'continuous'}${open?'; click for detail':''}`:`watchdog "${label}" — kind and mode unknown${stale?'; no longer exists':''}`)}
+    title={title}
     aria-label={`watchdog ${label}, ${gone?'no longer exists':state}`}
     aria-disabled={gone?'true':undefined}
     onMouseDown={e=>{if(e.button!==0)e.stopPropagation()}}

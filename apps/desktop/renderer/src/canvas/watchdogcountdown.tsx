@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from 'react'
-import type { ReactNode } from 'react'
 import type { Watchdog } from '../types'
 
 const POLL_FLOOR_S = 15
@@ -103,11 +102,11 @@ export function watchdogCountdownText(dog: Watchdog, nowMs: number): string | un
   return `next check in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
-export function useWatchdogCountdown(dog: Watchdog): string | undefined {
-  const shouldTick = PERIODIC.has(dog.kind) && dog.state === 'armed' && !dog.spent
+export function useWatchdogCountdown(dog: Watchdog | undefined): string | undefined {
+  const shouldTick = !!dog && PERIODIC.has(dog.kind) && dog.state === 'armed' && !dog.spent
     && Number.isFinite(dog.interval_s) && dog.interval_s > 0
     && (timestamp(dog.next_check_at) !== undefined || timestamp(dog.last_check) !== undefined)
-  const read = () => watchdogCountdownText(dog, Date.now())
+  const read = () => dog ? watchdogCountdownText(dog, Date.now()) : undefined
   const subscribeDog = (listener: () => void) => subscribe(listener, read)
   return useSyncExternalStore(shouldTick ? subscribeDog : noSubscribe, read, read)
 }
@@ -118,15 +117,4 @@ export function WatchdogCountdown({ dog, compact = false }: { dog: Watchdog; com
   const text = useWatchdogCountdown(dog)
   if (!text) return null
   return <span className={compact ? 'wd-next-check compact' : 'wd-next-check'} title={text}>{text}</span>
-}
-
-/** Updates the existing chip's native tooltip without changing its compact
- *  geometry or subscribing the surrounding canvas to the clock. */
-export function WatchdogCountdownTitle({ dog, title, children }: {
-  dog: Watchdog
-  title: string
-  children: ReactNode
-}) {
-  const text = useWatchdogCountdown(dog)
-  return <span title={text ? `${title} · ${text}` : title}>{children}</span>
 }
