@@ -1534,7 +1534,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **Agents are told:** a real move either way delivers an `[ORGTREE SESSION NOTICE]` in the
       turn where it took effect; an agent's first turn ever and a restart that comes back in the
       same session deliver none. The RESTART NOTICE gets "Session access at start: Session 0." or
-      "...: signed-in session.". An agent last in the signed-in session waits at its first turn
+      "...: signed-in session." (decision 93 replaced it with where the engine itself runs, "Engine
+      session at start: ..."). An agent last in the signed-in session waits at its first turn
       after an engine start until 60 s after that start for the helper; the expiry is logged once.
       The user-reported startup transient fix (2026-10-20) replaces ruling D's 15 s:
       first observed hosting closes the grace early, explicit Session 0 bypasses it,
@@ -1716,3 +1717,40 @@ All entries are dated 2026-10-06 unless stated otherwise.
       to their restore target; the single team gallery record becomes the team reader; the
       old document readers' records reopen through the route. Renames carry everything.
     Details: [`panel-activation.md`](panel-activation.md#several-instances-of-one-kind-2026-10-20).
+
+93. **A restart or update while the user is signed in starts the engine in their session; one
+    "Run as admin"** (user 2026-10-21 15:03Z report; rulings 15:15Z-15:27Z, final 15:27:17Z
+    mbe842e7be8d1; coordinator 15:10Z, 15:19Z, 15:29Z, 15:38Z and the approved design 16:27Z
+    with Q1-Q3; docket `after-an-update-or-engine-restart-while-the-user`). Keeps decision 84 for
+    a cold boot and for a plain sign-in with Run as admin off.
+    - **Where the engine starts:** while a console user is signed in, an update, a restart or
+      crash recovery starts the engine and its mail hub in their session, through the owned
+      "Orgtree User Session Engine" task (their interactive token, started windowless through
+      `orgtree-credential-broker.exe session-engine`). A cold boot with nobody signed in keeps
+      the S4U boot task in Session 0. The handover is native (`session-launch signin`): a
+      cross-session lock, a durable attempt record, generation-bound admission from the running
+      engine, its graceful stop, then the new engine in this session.
+    - **One "Run as admin"** (replacing "Run Orgtree as administrator" and the brief separate
+      Session 0 and at-sign-in settings, 15:16Z-15:25Z), with the same stored `RunAsAdministrator`
+      key and value. On: a full-admin warning and one permission prompt, then the boot engine (S4U,
+      highest available), the helper and the user-session engine all run elevated, at boot,
+      sign-in, restart and update, with no repeat prompts. Off: everything at least privilege.
+      With it on (and Run on boot on), signing in moves the engine into the session (Q1).
+    - **"Run this session as admin":** one permission prompt per click restarts the engine and
+      its agents elevated in this session. It never changes the toggle; a declined prompt leaves
+      the engine untouched.
+    - **Failures:** one before the stop leaves the old engine untouched. After a graceful stop,
+      a failed replacement gets exactly one boot-task rollback, recorded durably and reported in
+      the app and in the next restart notice. If the rollback fails too, the engine stays
+      stopped and the tray offers Start engine.
+    - **The boot host supervises** (no new service): it hands the engine to the user's session
+      while they are at the console, waits beside it, starts Session 0 again after the sign-out
+      debounce, and claims the recovery itself after 120 s without an engine (Q3: the durable
+      claim decides one owner per attempt, so it never loops with the desktop's recovery).
+    - **Tasks:** owned tasks stay enabled for demand launch; Run on boot off disables every boot
+      and logon trigger (15:38Z). The user-session task's logon trigger needs Run on boot and Run
+      as admin. Register always runs the boot task last. One permission prompt per setting change.
+    - **The restart notice says where the engine runs:** "Engine session at start: Session 0." or
+      "...: Windows session <n>.", replacing decision 84's "Session access at start" line.
+    Details, verification and limits: [`run-on-boot.md`](run-on-boot.md#restarts-and-updates-while-signed-in-decision-93);
+    proof `tools/rig/proofs/session0-handover.mjs`.
