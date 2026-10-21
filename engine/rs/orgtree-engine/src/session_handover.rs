@@ -25,7 +25,8 @@ pub struct Admission {
 }
 
 #[nolog]
-pub fn admit(state: &mut Snapshot, request: &Admission, now: i64, stopped: bool, native_peer: bool) -> bool {
+pub fn admit(state: &mut Snapshot, request: &Admission, now: i64, stopped: bool, native_peer: bool, owner_gone: bool) -> bool {
+    let _ = owner_gone;
     if stopped || !native_peer || state.generation != request.generation { return false; }
     match request.action {
         Action::Begin => {
@@ -214,42 +215,48 @@ mod tests {
          Admission {generation:"a".repeat(32),who,action:Action::Begin})
     }
     #[test] fn native_signin_needs_no_desktop_membership() {
-        let (mut s,r)=fixture(); assert!(admit(&mut s,&r,1000,false,true));
+        let (mut s,r)=fixture(); assert!(admit(&mut s,&r,1000,false,true,false));
         assert_eq!(s.transition_until,181000); assert_eq!(s.transition_desktop,Some(r.who));
         assert!(s.installing); assert!(s.desktop.is_none());
     }
     #[test] fn stale_generation_cannot_interrupt_replacement() {
         let (mut s,mut r)=fixture();r.generation="b".repeat(32);
-        assert!(!admit(&mut s,&r,1000,false,true)); assert_eq!(s.transition_until,0);
+        assert!(!admit(&mut s,&r,1000,false,true,false)); assert_eq!(s.transition_until,0);
     }
     #[test] fn stop_or_foreign_image_refuses_without_mutation() {
         for (stopped,peer) in [(true,true),(false,false)] {
-            let (mut s,r)=fixture();assert!(!admit(&mut s,&r,1000,stopped,peer));assert_eq!(s.transition_until,0);
+            let (mut s,r)=fixture();assert!(!admit(&mut s,&r,1000,stopped,peer,false));assert_eq!(s.transition_until,0);
         }
     }
     #[test] fn duplicate_or_competing_request_never_extends_deadline() {
-        let (mut s,r)=fixture();assert!(admit(&mut s,&r,1000,false,true));let until=s.transition_until;
-        assert!(!admit(&mut s,&r,1100,false,true));let mut other=r.clone();other.who.pid+=1;
-        assert!(!admit(&mut s,&other,1200,false,true));assert_eq!(s.transition_until,until);
+        let (mut s,r)=fixture();assert!(admit(&mut s,&r,1000,false,true,false));let until=s.transition_until;
+        assert!(!admit(&mut s,&r,1100,false,true,false));let mut other=r.clone();other.who.pid+=1;
+        assert!(!admit(&mut s,&other,1200,false,true,false));assert_eq!(s.transition_until,until);
     }
     #[test] fn existing_desktop_transition_is_not_stolen() {
         let (mut s,r)=fixture();s.transition_until=2000;s.transition_desktop=Some(s.engine.clone());
-        assert!(!admit(&mut s,&r,1000,false,true));assert_eq!(s.transition_until,2000);
+        assert!(!admit(&mut s,&r,1000,false,true,false));assert_eq!(s.transition_until,2000);
     }
     #[test] fn cancellation_only_clears_its_own_live_admission() {
-        let (mut s,mut r)=fixture();assert!(admit(&mut s,&r,1000,false,true));r.action=Action::Cancel;
-        let mut wrong=r.clone();wrong.who.created="reused".into();assert!(!admit(&mut s,&wrong,1100,false,true));
-        assert!(admit(&mut s,&r,1100,false,true));assert_eq!(s.transition_until,0);assert!(!s.installing);
+        let (mut s,mut r)=fixture();assert!(admit(&mut s,&r,1000,false,true,false));r.action=Action::Cancel;
+        let mut wrong=r.clone();wrong.who.created="reused".into();assert!(!admit(&mut s,&wrong,1100,false,true,false));
+        assert!(admit(&mut s,&r,1100,false,true,false));assert_eq!(s.transition_until,0);assert!(!s.installing);
     }
     #[test] fn completion_requires_the_replacement_host() {
-        let (mut s,mut r)=fixture();assert!(admit(&mut s,&r,1000,false,true));r.action=Action::Complete;
-        assert!(!admit(&mut s,&r,1100,false,true));s.host=Some(r.who.clone());
-        assert!(admit(&mut s,&r,1100,false,true));assert_eq!(s.transition_until,0);assert!(s.transition_desktop.is_none());
+        let (mut s,mut r)=fixture();assert!(admit(&mut s,&r,1000,false,true,false));r.action=Action::Complete;
+        assert!(!admit(&mut s,&r,1100,false,true,false));s.host=Some(r.who.clone());
+        assert!(admit(&mut s,&r,1100,false,true,false));assert_eq!(s.transition_until,0);assert!(s.transition_desktop.is_none());
     }
     #[test] fn expired_admission_cannot_be_completed_or_extended() {
-        let (mut s,mut r)=fixture();assert!(admit(&mut s,&r,1000,false,true));s.host=Some(r.who.clone());
-        for action in [Action::Complete,Action::Begin,Action::Cancel] {r.action=action;assert!(!admit(&mut s,&r,181001,false,true));}
+        let (mut s,mut r)=fixture();assert!(admit(&mut s,&r,1000,false,true,false));s.host=Some(r.who.clone());
+        for action in [Action::Complete,Action::Begin,Action::Cancel] {r.action=action;assert!(!admit(&mut s,&r,181001,false,true,false));}
         assert_eq!(s.transition_until,181000);
+    }
+    #[test] fn a_transition_whose_owner_ended_can_be_taken_over() {
+        let (mut s,r)=fixture(); s.transition_until=2000; s.transition_desktop=Some(Identity{pid:30,created:"300".into()}); s.installing=true;
+        assert!(!admit(&mut s,&r,1000,false,true,false),"a live owner keeps its transition");
+        assert!(admit(&mut s,&r,1000,false,true,true),"a launcher that ended after its stop cannot finish it: a new one takes over");
+        assert_eq!(s.transition_desktop,Some(r.who.clone())); assert_eq!(s.transition_until,181000); assert!(s.installing);
     }
     #[cfg(windows)]
     #[test] fn stamped_same_native_image_is_required() {

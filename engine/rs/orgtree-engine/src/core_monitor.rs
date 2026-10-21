@@ -95,7 +95,12 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                 let stopped = core_state::stopped(root, &state);
                 let before = state.clone();
                 let accepted = match &cmd {
-                    Command::Handover {request,..} => crate::session_handover::admit(&mut state,request,core_state::now(),stopped,core_process::native_peer(&request.who)),
+                    Command::Handover {request,..} => {
+                        // a transition whose owner has ended (a launcher that failed after
+                        // the stop) can never finish; a new launcher may take it over
+                        let owner_gone = state.transition_desktop.as_ref().is_some_and(|d| core_process::life(d) == Life::Gone);
+                        crate::session_handover::admit(&mut state,request,core_state::now(),stopped,core_process::native_peer(&request.who),owner_gone)
+                    }
                     Command::Member { desktop, who, .. } => {
                         let previous = if *desktop { &state.desktop } else { &state.helper };
                         let replacement = previous.as_ref().is_some_and(|p| core_process::life(p) == Life::Gone)
