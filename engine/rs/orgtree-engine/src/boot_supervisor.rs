@@ -117,6 +117,182 @@ impl Debounce {
     }
 }
 
+/// The boot task's host on Windows: `decide` in a loop, every 2 s while it
+/// waits, around the existing one-engine host (`host::once`).
+#[cfg(windows)]
+#[nolog]
+pub fn run() -> std::process::ExitCode {
+    use std::process::ExitCode;
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+    use crate::{core_process, core_state, host, session_handover as handover, session_launch};
+    host::install_stop_handler();
+    let root = match host::data_root() { Ok(r) => r, Err(e) => { host::say(None, &e); return ExitCode::from(1); } };
+    let _ = std::fs::create_dir_all(&root);
+    // One boot host per data root, across sessions: a second one (the task
+    // run again while this one waits) leaves at once.
+    let Some(_single) = handover::exclusive(&root.join(SINGLE)) else {
+        host::say(Some(&root), "another boot host already runs for this data root; leaving");
+        return ExitCode::SUCCESS;
+    };
+    let started = core_state::now();
+    let rig = core_state::rig_root(&root);
+    let task = session_launch::task_installed(&root, session_launch::USER_SESSION_TASK, USER_TASK_RIG);
+    let mut wts = core_process::Sessions::new();
+    let mut debounce = Debounce::default();
+    let mut lost: Option<Lost> = None;
+    let mut delegated_at: Option<i64> = None;
+    let mut served = false;
+    let mut hangs: Vec<Instant> = Vec::new();
+    let mut last: Option<Step> = None;
+    loop {
+        let active = core_state::sessions(&root, &mut wts);
+        let signed_in = debounce.note(active.as_ref().map(|a| !a.is_empty()));
+        let record = handover::read(&root);
+        let attempt = handover::held(&root);
+        let root_held = !host::root_released(&root, Duration::ZERO);
+        let now = core_state::now();
+        if root_held {
+            served = true; lost = None; delegated_at = None;
+        } else if served && !attempt {
+            served = false;
+            if lost.is_none() { lost = Some(Lost { at: now, generation: core_state::read(&root).map(|s| s.generation), ours: false }); }
+        }
+        let console = match (&active, session_launch::console_session()) { (Some(a), Some(c)) => a.iter().any(|s| s.id == c), _ => false };
+        let epoch_matches = record.as_ref().is_some_and(|r| active.as_ref().is_some_and(|a| r.epoch.iter().any(|s| a.contains(s))));
+        let seen = Seen {
+            stop: host::STOP.load(Ordering::SeqCst) || crate::install_stop::requested_since(started, rig),
+            blocked: active.as_ref().is_some_and(|a| core_state::blocked(&root, a)),
+            attempt, root_held, signed_in, console, task, record: record.clone(), epoch_matches,
+            lost: lost.clone(), delegated_at, now,
+        };
+        let step = decide(&seen);
+        if last.as_ref() != Some(&step) { host::say(Some(&root), &describe(&step, &seen)); last = Some(step.clone()); }
+        match step {
+            Step::Exit => return ExitCode::SUCCESS,
+            Step::Wait => std::thread::sleep(Duration::from_secs(2)),
+            Step::Delegate { claim } => {
+                if let Some(generation) = &claim {
+                    if !crate::core_recovery::claim_engine(&root, generation) {
+                        // the desktop claimed this recovery: its outcome, or the
+                        // backstop after it, decides (one owner per attempt)
+                        host::say(Some(&root), "the desktop recovers the lost engine; waiting for its outcome");
+                        delegated_at = Some(now);
+                        continue;
+                    }
+                }
+                session_launch::write_ask(&root, "boot-host", false);
+                delegated_at = Some(now);
+                if !session_launch::run_task(&root, session_launch::USER_SESSION_TASK, USER_TASK_RIG) {
+                    failed_delegation(&root, active.as_deref().unwrap_or_default());
+                }
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            Step::Supervise { rollback } => {
+                let id = if rollback { begin_rollback(&root, active.as_deref().unwrap_or_default()) } else { None };
+                let mut became_ready = false;
+                let code = host::once(None, &mut |_| { became_ready = true; });
+                if let (Some(id), false) = (&id, became_ready) { end_rollback(&root, id); }
+                served = false;
+                if code == host::EXIT_ENGINE_HUNG {
+                    let at = Instant::now();
+                    hangs.retain(|t| at.duration_since(*t) < host::HUNG_RESTART_WINDOW);
+                    hangs.push(at);
+                    if hangs.len() > host::HUNG_RESTART_LIMIT {
+                        host::say(Some(&root), &format!("{} hung engines within an hour; not restarting again", hangs.len()));
+                        return ExitCode::from(code);
+                    }
+                    // the host ended it: its own to replace, at once
+                    lost = Some(Lost { at: core_state::now(), generation: core_state::read(&root).map(|s| s.generation), ours: true });
+                    continue;
+                }
+                if code == host::EXIT_ROOT_OWNED { continue; }
+                // a start that failed: as before, the task's restart-on-failure retries
+                if !became_ready && code != 0 { return ExitCode::from(code); }
+                if host::STOP.load(Ordering::SeqCst) || crate::install_stop::requested_since(started, rig) { return ExitCode::SUCCESS; }
+                // Handed over, or lost while the operator is at the console: the
+                // loop waits, then recovers or falls back. Otherwise as before.
+                let now_active = core_state::sessions(&root, &mut wts);
+                let at_console = match (&now_active, session_launch::console_session()) {
+                    (Some(a), Some(c)) => a.iter().any(|s| s.id == c), _ => false };
+                if handover::held(&root) || (task && at_console) { served = true; continue; }
+                return ExitCode::from(code);
+            }
+        }
+    }
+}
+
+/// The boot host's single-instance lock file.
+#[cfg(windows)]
+const SINGLE: &str = "boot-host.lock";
+/// The rig proof's stand-in for the user-session task (`rig-<name>.json`).
+#[cfg(windows)]
+const USER_TASK_RIG: &str = "user-session-task";
+
+#[cfg(windows)]
+#[nolog]
+fn describe(step: &Step, seen: &Seen) -> String {
+    match step {
+        Step::Exit if seen.stop => "stop requested; the boot host ends".into(),
+        Step::Exit if seen.blocked => "core session stopped; waiting for a new desktop launch".into(),
+        Step::Exit => "the start in Session 0 failed after a failed move for this sign-in; the engine stays stopped until it is started again".into(),
+        Step::Wait if seen.attempt => "waiting: a start in the signed-in session is running".into(),
+        Step::Wait if seen.root_held => "waiting: another engine holds the data root".into(),
+        Step::Wait if seen.delegated_at.is_some() => "waiting for the engine in the signed-in session".into(),
+        Step::Wait => "waiting: the desktop may recover the lost engine first".into(),
+        Step::Delegate { claim: None } => "the operator is signed in at the console: running the user-session engine task".into(),
+        Step::Delegate { claim: Some(_) } => "the engine was lost while the operator is signed in: running the user-session engine task".into(),
+        Step::Supervise { rollback: true } => "the move into the signed-in session failed: starting the engine in Session 0 (the one rollback)".into(),
+        Step::Supervise { rollback: false } => "starting the engine in Session 0".into(),
+    }
+}
+
+/// The task could not be run: recorded, so `decide` makes the one rollback at once.
+#[cfg(windows)]
+#[nolog]
+fn failed_delegation(root: &std::path::Path, active: &[crate::core_process::Session]) {
+    use crate::session_handover::{self as handover, why, Phase, Record};
+    let Some(_lock) = handover::lock_within(root, std::time::Duration::from_secs(5)) else { return };
+    let Some(owner) = crate::core_process::identity(std::process::id()) else { return };
+    let record = Record { id: crate::util::random_hex(16), phase: Phase::Failed, by: "boot-host".into(), owner,
+        session: 0, admin: false, stopped_old: false, at_ms: crate::core_state::now(), epoch: active.to_vec(),
+        error: Some(why::TASK_FAILED.into()), rollback: None, reported: None };
+    let _ = handover::write(root, &record);
+    crate::host::say(Some(root), &format!("{}", why::TASK_FAILED));
+}
+
+/// Mark the rollback before the engine starts, so its own restart notices
+/// report it; `end_rollback` turns it into a failed one if it never got ready.
+#[cfg(windows)]
+#[nolog]
+fn begin_rollback(root: &std::path::Path, active: &[crate::core_process::Session]) -> Option<String> {
+    use crate::session_handover::{self as handover, why, Phase, Record, Rollback};
+    let _lock = handover::lock_within(root, std::time::Duration::from_secs(10))?;
+    let mut record = match handover::read(root) {
+        Some(r) if r.phase == Phase::Failed && r.rollback.is_none() => r,
+        _ => Record { id: crate::util::random_hex(16), phase: Phase::Failed, by: "boot-host".into(),
+            owner: crate::core_process::identity(std::process::id())?, session: 0, admin: false, stopped_old: false,
+            at_ms: crate::core_state::now(), epoch: active.to_vec(), error: Some(why::NO_ENGINE.into()), rollback: None, reported: None },
+    };
+    record.rollback = Some(Rollback::Done);
+    record.reported = None;
+    handover::write(root, &record).ok()?;
+    Some(record.id)
+}
+
+#[cfg(windows)]
+#[nolog]
+fn end_rollback(root: &std::path::Path, id: &str) {
+    use crate::session_handover::{self as handover, Rollback};
+    let Some(_lock) = handover::lock_within(root, std::time::Duration::from_secs(10)) else { return };
+    if let Some(mut record) = handover::read(root).filter(|r| r.id == id) {
+        record.rollback = Some(Rollback::Failed);
+        record.reported = None;
+        let _ = handover::write(root, &record);
+        crate::host::say(Some(root), "the engine did not start in Session 0 either; it stays stopped until it is started again");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

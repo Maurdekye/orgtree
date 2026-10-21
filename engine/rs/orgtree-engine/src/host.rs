@@ -22,20 +22,21 @@ const READY_TIMEOUT: Duration = Duration::from_secs(120);
 /// between two checkpoints of a long import or conversion step
 const LONG_STEP_TIMEOUT: Duration = Duration::from_secs(3600);
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(10);
-const DESCRIPTOR: &str = "engine-attach.json";
+pub(crate) const DESCRIPTOR: &str = "engine-attach.json";
 /// another engine or host owns the data root
-const EXIT_ROOT_OWNED: u8 = 75;
+pub(crate) const EXIT_ROOT_OWNED: u8 = 75;
 /// the engine hung and its tree was proven gone: start a fresh one
-const EXIT_ENGINE_HUNG: u8 = 76;
+pub(crate) const EXIT_ENGINE_HUNG: u8 = 76;
+/// hung engines within `HUNG_RESTART_WINDOW` after which the host gives up
+pub(crate) const HUNG_RESTART_LIMIT: usize = 3;
+pub(crate) const HUNG_RESTART_WINDOW: Duration = Duration::from_secs(3600);
 const LIVENESS_INTERVAL: Duration = Duration::from_secs(30);
 const LIVENESS_PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 const LIVENESS_DEADLINE: Duration = Duration::from_secs(300);
 const LIVENESS_MIN_FAILURES: u32 = 3;
 const HUNG_RELEASE_WAIT: Duration = Duration::from_secs(30);
-const HUNG_RESTART_LIMIT: usize = 3;
-const HUNG_RESTART_WINDOW: Duration = Duration::from_secs(3600);
 
-static STOP: AtomicBool = AtomicBool::new(false);
+pub(crate) static STOP: AtomicBool = AtomicBool::new(false);
 
 #[nolog]
 fn engine_admin(boot_setting: bool, session_admin: Option<bool>) -> bool {
@@ -65,21 +66,39 @@ mod session_launch_tests {
     }
 }
 
+/// The boot task's entry. On Windows the boot supervisor decides where the
+/// engine runs (src/boot_supervisor.rs); elsewhere the host runs it here.
 pub fn run() -> ExitCode {
-    run_with_rights(None)
+    #[cfg(windows)]
+    { crate::boot_supervisor::run() }
+    #[cfg(not(windows))]
+    { run_with_rights(None, &mut |_| {}) }
+}
+
+/// What a host learns when its engine is ready: its port, token and pid.
+pub(crate) struct Ready<'a> {
+    pub port: u16,
+    pub token: &'a str,
+    pub pid: u32,
 }
 
 /// Desktop launches never inherit the Session 0 preference. A one-off admin
 /// launch has already verified its elevated token and interactive operator.
-pub(crate) fn run_in_session(admin: bool) -> ExitCode {
-    run_with_rights(Some(admin))
+/// `ready` runs each time an engine of this host becomes ready.
+pub(crate) fn run_in_session(admin: bool, ready: &mut dyn FnMut(&Ready)) -> ExitCode {
+    run_with_rights(Some(admin), ready)
 }
 
-fn run_with_rights(session_admin: Option<bool>) -> ExitCode {
+/// Whether this process has administrator rights (the restricted-token test).
+pub(crate) fn elevated() -> bool {
+    win::is_elevated()
+}
+
+fn run_with_rights(session_admin: Option<bool>, ready: &mut dyn FnMut(&Ready)) -> ExitCode {
     install_stop_handler();
     let mut hangs: Vec<Instant> = Vec::new();
     loop {
-        let code = once(session_admin);
+        let code = once(session_admin, ready);
         if code != EXIT_ENGINE_HUNG {
             return ExitCode::from(code);
         }
@@ -95,7 +114,7 @@ fn run_with_rights(session_admin: Option<bool>) -> ExitCode {
 }
 
 /// A line for whoever reads the task's output, and the boot host's own log.
-fn say(root: Option<&Path>, msg: &str) {
+pub(crate) fn say(root: Option<&Path>, msg: &str) {
     eprintln!("boot host: {msg}");
     let root = root.map(Path::to_path_buf).or_else(|| data_root().ok());
     if let Some(r) = root {
@@ -109,7 +128,7 @@ fn say(root: Option<&Path>, msg: &str) {
 
 /// The same default the desktop resolves, without Electron present.
 #[logged]
-fn data_root() -> Result<PathBuf, String> {
+pub(crate) fn data_root() -> Result<PathBuf, String> {
     if let Some(v) = std::env::var_os("ORGTREE_V2_DATA").filter(|v| !v.is_empty()) {
         return Ok(PathBuf::from(v));
     }
@@ -125,7 +144,7 @@ fn data_root() -> Result<PathBuf, String> {
     appdata.map(|a| a.join("Orgtree v2").join("data")).ok_or_else(|| "neither ORGTREE_V2_DATA, APPDATA nor USERPROFILE is set".into())
 }
 
-fn exe_dir() -> PathBuf {
+pub(crate) fn exe_dir() -> PathBuf {
     std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."))
 }
 
@@ -140,7 +159,7 @@ fn ui_dir() -> Result<PathBuf, String> {
 }
 
 /// Comparable form of a path (`\\?\` and case dropped).
-fn canon(p: &Path) -> String {
+pub(crate) fn canon(p: &Path) -> String {
     let c = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     c.to_string_lossy().trim_start_matches(r"\\?\").trim_end_matches('\\').to_lowercase()
 }
@@ -182,21 +201,30 @@ fn packaged_postgres() -> Result<Vec<(String, String)>, String> {
 
 // ------------------------------------------------------------ a tiny loopback HTTP client
 
-struct Answer {
-    status: u16,
-    body: Value,
+pub(crate) struct Answer {
+    pub status: u16,
+    pub body: Value,
 }
 
 /// One request to the engine on 127.0.0.1 (the token never leaves this
 /// machine; no proxy, no TLS).
-fn http(port: u16, method: &str, path: &str, token: &str, timeout: Duration) -> Result<Answer, String> {
+pub(crate) fn http(port: u16, method: &str, path: &str, token: &str, timeout: Duration) -> Result<Answer, String> {
+    http_body(port, method, path, token, None, timeout)
+}
+
+/// The same, with a JSON body.
+#[nolog]
+pub(crate) fn http_body(port: u16, method: &str, path: &str, token: &str, body: Option<&Value>, timeout: Duration) -> Result<Answer, String> {
     use std::net::{SocketAddr, TcpStream};
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let mut s = TcpStream::connect_timeout(&addr, timeout.min(Duration::from_secs(5))).map_err(|e| format!("connect: {e}"))?;
     s.set_read_timeout(Some(timeout)).ok();
     s.set_write_timeout(Some(timeout)).ok();
+    let payload = body.map(Value::to_string).unwrap_or_default();
+    let kind = if body.is_some() { "Content-Type: application/json\r\n" } else { "" };
     let req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-Orgtree-Desktop-Token: {token}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-Orgtree-Desktop-Token: {token}\r\n{kind}Content-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+        payload.len()
     );
     s.write_all(req.as_bytes()).map_err(|e| format!("write: {e}"))?;
     let mut raw = Vec::new();
@@ -223,7 +251,7 @@ fn http(port: u16, method: &str, path: &str, token: &str, timeout: Duration) -> 
 
 // ------------------------------------------------------------ the attach descriptor
 
-fn read_descriptor(root: &Path) -> Option<Value> {
+pub(crate) fn read_descriptor(root: &Path) -> Option<Value> {
     std::fs::read_to_string(root.join(DESCRIPTOR)).ok().and_then(|t| serde_json::from_str(&t).ok())
 }
 
@@ -291,7 +319,7 @@ pub(crate) fn write_descriptor(root: &Path, port: u16, engine_pid: u32, token: &
 
 /// Has the root lock been released (the engine tree really gone)?
 #[logged]
-fn root_released(root: &Path, within: Duration) -> bool {
+pub(crate) fn root_released(root: &Path, within: Duration) -> bool {
     let lock = root.join(".desktop-engine.lock");
     let deadline = Instant::now() + within;
     loop {
@@ -339,8 +367,9 @@ fn record_liveness(root: &Path, event: Value) {
     say(Some(root), &line.to_string());
 }
 
-/// Run ONE engine until it exits, is stopped, or hangs.
-fn once(session_admin: Option<bool>) -> u8 {
+/// Run ONE engine until it exits, is stopped, or hangs. `ready` runs once the
+/// engine is ready and its descriptor published.
+pub(crate) fn once(session_admin: Option<bool>, ready: &mut dyn FnMut(&Ready)) -> u8 {
     let root = match data_root() {
         Ok(r) => r,
         Err(e) => {
@@ -505,6 +534,7 @@ fn once(session_admin: Option<bool>) -> u8 {
         return if core_stopping { 0 } else { 1 };
     }
     say(Some(&root), &format!("engine ready on 127.0.0.1:{port} (pid {pid})"));
+    ready(&Ready { port, token: &token, pid });
     let watch = Arc::new(Liveness::new());
     {
         let watch = watch.clone();
@@ -646,7 +676,7 @@ impl Liveness {
 }
 
 #[cfg(windows)]
-fn install_stop_handler() {
+pub(crate) fn install_stop_handler() {
     use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
     unsafe extern "system" fn handler(_ctrl: u32) -> i32 {
         STOP.store(true, Ordering::SeqCst);
@@ -659,7 +689,7 @@ fn install_stop_handler() {
 
 /// launchd and systemd end a service with SIGTERM: stop the engine cleanly.
 #[cfg(not(windows))]
-fn install_stop_handler() {
+pub(crate) fn install_stop_handler() {
     extern "C" fn handler(_signal: libc::c_int) {
         STOP.store(true, Ordering::SeqCst);
     }

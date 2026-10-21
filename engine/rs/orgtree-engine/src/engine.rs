@@ -17,6 +17,9 @@ pub struct Boot {
     pub pid: u32,
     pub started_at: DateTime<Utc>,
     pub port: u16,
+    /// What this engine's restart notices add about a failed move into the
+    /// signed-in session and its rollback (session_handover::startup_note).
+    pub note: Option<String>,
 }
 
 pub struct Engine {
@@ -77,7 +80,7 @@ impl Engine {
         Arc::new(Engine {
             cfg,
             db,
-            boot: Boot { id: "test".into(), pid: std::process::id(), started_at: Utc::now(), port: 0 },
+            boot: Boot { id: "test".into(), pid: std::process::id(), started_at: Utc::now(), port: 0, note: None },
             credentials: crate::credential_context::CredentialContext::for_tests(),
             credential_bridge: crate::credential_bridge::Bridge::new(),
             core: crate::core_monitor::Core::channel().0,

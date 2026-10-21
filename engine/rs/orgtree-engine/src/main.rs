@@ -239,6 +239,7 @@ async fn run_with_cluster(
         pid: std::process::id(),
         started_at: chrono::Utc::now(),
         port,
+        note: session_handover::startup_note(&cfg.data_root, &startup.generation),
     };
     let settings = settings::AppSettings::new(settings_doc);
     trace::apply_verbose(settings.verbose_logging());

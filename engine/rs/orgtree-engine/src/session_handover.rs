@@ -136,18 +136,25 @@ pub struct Lock(#[allow(dead_code)] std::fs::File);
 /// The lock if nobody holds it now.
 #[nolog]
 pub fn try_lock(root: &Path) -> Option<Lock> {
+    exclusive(&root.join(LOCK)).map(Lock)
+}
+
+/// An exclusive open of `path`: refused while another process holds it, in
+/// any Windows session; released when the holder closes it or dies.
+#[nolog]
+pub fn exclusive(path: &Path) -> Option<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true).write(true).create(true);
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
         options.share_mode(0);
-        options.open(root.join(LOCK)).ok().map(Lock)
+        options.open(path).ok()
     }
     #[cfg(not(windows))]
     {
-        let file = options.open(root.join(LOCK)).ok()?;
-        file.try_lock().ok().map(|_| Lock(file))
+        let file = options.open(path).ok()?;
+        file.try_lock().ok().map(|_| file)
     }
 }
 
@@ -178,6 +185,22 @@ pub fn notice_line(record: &Record) -> Option<String> {
         Rollback::Done => Some(format!("Orgtree could not start the engine in the signed-in session ({why}), so it started the engine in Session 0 instead.")),
         Rollback::Failed => Some(format!("Orgtree could not start the engine in the signed-in session ({why}), and it did not start in Session 0 either, so it stayed stopped until it was started again.")),
     }
+}
+
+/// At an engine's start: the line its restart notices add, taken once. The
+/// record names the generation that reported it, so the next engine is quiet.
+/// An attempt still running holds the lock; its record has nothing to report.
+#[nolog]
+pub fn startup_note(root: &Path, generation: &str) -> Option<String> {
+    let line = notice_line(&read(root)?)?;
+    if let Some(_lock) = try_lock(root) {
+        if let Some(mut record) = read(root).filter(|r| notice_line(r).as_deref() == Some(line.as_str())) {
+            record.reported = Some(generation.to_string());
+            if let Err(e) = write(root, &record) { tracing::warn!(error = %e, "could not mark the failed move as reported"); }
+        }
+    }
+    tracing::warn!(note = %line, "restart notices report a failed move into the signed-in session");
+    Some(line)
 }
 
 #[cfg(test)]

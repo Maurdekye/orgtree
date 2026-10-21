@@ -108,6 +108,14 @@ async fn watch(engine: Arc<Engine>, location: Location) {
     }
 }
 
+/// Whether the installer asked for a stop after `started_ms` (the boot host's
+/// own start): the same request the engines read, from the same place.
+#[nolog]
+pub fn requested_since(started_ms: i64, rig: bool) -> bool {
+    let location = location(rig, std::env::var("ORGTREE_RIG_STOP_KEY").ok());
+    read(&location).is_some_and(|raw| matches!(decide(i64::try_from(raw).unwrap_or(i64::MAX), started_ms, chrono::Utc::now().timestamp_millis()), Decision::Stop { .. }))
+}
+
 /// The request's time, or None when there is none (or it cannot be read).
 #[cfg(windows)]
 #[nolog]

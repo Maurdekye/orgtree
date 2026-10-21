@@ -112,9 +112,12 @@ mod win {
                 let theirs=normalize(std::path::PathBuf::from(String::from_utf16_lossy(&image[..n as usize])).canonicalize().ok()?);
                 let ours=normalize(std::env::current_exe().ok()?.canonicalize().ok()?);
                 if theirs!=ours { return None; }
-                let sid=process_sid(handle)?;
                 let own=process_sid(GetCurrentProcess())?;
-                Some(sid==own)
+                // An elevated launcher's token is closed to an unelevated
+                // engine ("Run this session as admin", a first elevated start):
+                // then the image and creation stamp are the check, and the
+                // caller already proved the operator's descriptor token.
+                Some(process_sid(handle).is_none_or(|sid| sid==own))
             })().unwrap_or(false);
             CloseHandle(handle);
             valid

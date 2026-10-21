@@ -13,7 +13,10 @@ use crate::http::error::ApiResult;
 
 #[logged]
 pub async fn identity(State(e): State<Arc<Engine>>) -> Json<Value> {
+    // where this engine runs and with which rights: a launcher in the signed-in
+    // session hands over only an engine that runs elsewhere (session_launch::plan)
     Json(json!({ "protocol": 1, "pid": e.boot.pid, "dataRootId": e.cfg.data_root_id, "generation":e.boot.id,
+        "session": crate::domain::runtime_notices::engine_session(&e), "elevated": crate::host::elevated(),
         "credentialContext": e.credentials.view(&e.credential_bridge) }))
 }
 
