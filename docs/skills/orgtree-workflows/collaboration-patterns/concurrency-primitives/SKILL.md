@@ -161,6 +161,10 @@ nothing. User-held jobs are not reclaimed on timeout, listener removal or
 take-back; only the user acknowledges them. Purge affects currently pending
 jobs, including returned jobs, not held/ACKed/dead-letter records.
 
+Switching the queue from ACK to round-robin waives outstanding ACK
+requirements, including user-held jobs; it does not record completion.
+Leaving the queue alone does not waive a user job.
+
 ## Broadcast, signal and a one-shot latch
 
 For a signal on @phase-gate, each participant first subscribes; an authorized coordinator fires after registration:

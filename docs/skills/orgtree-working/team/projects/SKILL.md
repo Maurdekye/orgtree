@@ -39,7 +39,7 @@ For worked mutex/semaphore, lease recovery, load-balancer/FIFO, signal/latch, re
 ## Concurrency analogies in Project settings
 
 - Round-robin works like a load balancer: each job goes to the least recently woken listener.
-- ACK works like a FIFO work queue: jobs in order, one per listener until it acks, with retries and dead letters.
+- ACK works like a FIFO work queue: jobs in order, up to each listener's batch size unacked (default 1), with retries and dead letters.
 - One slot works like a shared lock (mutex); several slots work like a counting semaphore. 0 = no concurrency slots.
 
 These describe cooperative patterns: slot holders agree to claim and release permits; the engine does not enforce a limit on the work itself. FIFO describes job handout order, not completion order across listeners. Retry/dead-letter behavior follows the acknowledgement settings below.
@@ -51,7 +51,12 @@ Write to a project with `orgtree_message` to its name. Its mail wakes nobody: it
 The queue has a mode, set in the project's settings ("Mail queue"):
 
 - **Round-robin** (the default): each mail goes out as soon as it arrives, as above. No ack is needed.
-- **Ack mode**: each watcher holds up to its `batch` size in unacked mails (1–20, default 1); ack every mail separately: `orgtree_message to=<project> reply_to=<the id of the mail you were handed>` with a short completion record. The ack is kept in the project's mailbox as a read record, and if mail is waiting the ack hands you the next one at once. Acking the same mail twice, or a mail already taken back, is refused. A halted watcher is handed nothing in ack mode.
+- **Ack mode**: each watcher holds up to its `batch` size in unacked mails (1–20, default 1); ack every mail separately: `orgtree_message to=<project> reply_to=<the id of the mail you were handed>` with a short completion record. The ack is kept in the project's mailbox as a read record, frees one batch place and triggers dispatch of waiting work. Acking the same mail twice, or a mail already taken back, is refused. A halted watcher is handed nothing in ack mode.
+
+Switching to round-robin waives outstanding ACK requirements, including
+user-held jobs, without recording completed work. Switching into ACK does
+not add an ACK requirement to earlier round-robin deliveries. Armed and
+paused agent listeners receive a mode-change notice.
 
 A waiting post explains its position and why no eligible listener can take
 it. No armed or paused mail listener produces a warning; a paused listener

@@ -40,6 +40,9 @@ The effective tool permission is `tools.orgtree.watchdogs`. The owner is the cal
 
 The user can independently register a project event listener, listener watch or mail-queue listener from the project desk. These are user-owned registrations, shown as `user`; an agent cannot create or manage them on the user's behalf. A user listener counts toward `listener_watch`, and its event arrives in the user's inbox without starting an agent turn. User one-shot listeners and watches spend themselves on fire; continuous listeners stay registered. The user's watch count (1–1024), listener mode and queue batch (1–20) can change in place. Leaving the queue keeps outstanding user jobs, which only the user may acknowledge. See [orgtree-projects](../../team/projects/SKILL.md) for user slot leases and job protection.
 
+Changing the project's queue mode to round-robin waives outstanding ACK
+requirements, including user-held assignments. Leaving the queue alone does not.
+
 | Parameter | Applies to | Default / meaning |
 |---|---|---|
 | `action` | All calls; required | `create`, `list`, `pause`, `resume`, `remove` or `send` (MQTT/WebSocket). |

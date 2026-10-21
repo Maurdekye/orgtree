@@ -11,6 +11,7 @@ renderer path is written out.
 | --- | --- | --- |
 | Assignment | Round-robin selects the least recently handed eligible listener; never handed first, then oldest registration. ACK skips halted agents, caps outstanding jobs by each listener's batch (1–20, default 1), and preserves pending eligible mail order. Busy/frozen mailboxes can still receive mail. | `domain/projects.rs:43`, `:221`, `:338`, `:376`, `:391` |
 | ACK identity | An agent replies to the project using its handed copy's ID, once per job. Reclaimed copies cannot be acknowledged. Each ACK frees one place; reading a project mailbox is not an ACK or claim. | `domain/projects.rs:891`; `domain/mail.rs:448`, `:468`; `tools/project_inbox.rs:7` |
+| Mode changes | Leaving ACK waives outstanding ACK requirements, including user jobs, without recording completion. Entering ACK does not retrofit earlier round-robin copies. Armed and paused agent listeners are notified, then dispatch runs. | `domain/projects.rs:980`; `domain/ops.rs:2198` |
 | Reminders | `ack_reminders` is 1–10, default 3. With project `ack_timeout` and Runtime `working_checkups` on, each eligible checkup counts a reminder per outstanding job; a job already at its budget is reclaimed at the next checkup. These are inactivity/eligibility checks, not a precise elapsed-time deadline. | `domain/projects.rs:64`, `:77`, `:834`; `runtime/reminders.rs:157`, `:328` |
 | Attempts and release | Each hand-out increments attempts. `max_attempts` is 1–100, default 3. A job becomes a dead letter on reclaim after exhausting attempts, not on its final hand-out. Halt, retirement, loss of reach or stopping/pausing the listener also release outstanding agent jobs. A spent one-shot still holds its own unacked batch. | `domain/projects.rs:90`, `:444`, `:592`, `:702` |
 | Separate gates | Runtime `working_checkups` gates dead-letter enforcement on automatic reclaim and manual take-back. Project `ack_timeout=false` disables idle-timeout reclaim; it does not prevent release/take-back from dead-lettering an exhausted job while checkups are on. With checkups off, release/take-back returns it to pending even beyond the attempt limit. | `domain/projects.rs:651`, `:702`, `:851`; `domain/ops.rs:2635` |
@@ -25,6 +26,6 @@ renderer path is written out.
 | Purge | User or project ancestor retracts currently pending/unassigned mail, including jobs returned after an earlier attempt. Held, ACKed and dead-letter records remain. It is not a way to erase dead letters or reclaim a running job. | `domain/ops.rs:2708`; `domain/projects.rs:875` |
 | User participation | The user's queue registration shares round-robin and batch accounting. Jobs arrive in the user's inbox. Reading is not an ACK. Leaving removes the registration but leaves held jobs until the user acknowledges; no idle/halt/retire reclaim or take-back applies. Exclude-sender covers user self-posts too. | `domain/projects.rs:243`, `:350`, `:608`, `:934`; `domain/ops.rs:2627`; `domain/ops/user_regs.rs:347` |
 
-The glossary pages link the applicable source lines beside their corrected
-rules. Attributed historical records in `docs/agents` stay intact; their
+The glossary pages link this receipt for the applicable source lines.
+Attributed historical records in `docs/agents` stay intact; their
 current guidance points here rather than silently rewriting old rulings.

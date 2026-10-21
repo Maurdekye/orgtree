@@ -23,8 +23,8 @@ These describe cooperative patterns: slot holders agree to claim and release per
 - **The project's mailbox.** Anyone who reaches the project posts with `orgtree_message to=<project>`; the user posts from the project desk's message box. Mail waits there until a listener can take it.
 - **Queue mode** (project settings, "Mail queue"):
   - **Round-robin** (the default, for throughput): each mail goes out as soon as it arrives, to the listener woken least recently. No ack is needed.
-  - **Ack mode** (completion records): each listener holds up to its `batch` size in unacked mails (1–20, default 1). Ack each mail separately with `orgtree_message to=<project> reply_to=<the mail's id>` and a short completion record. The ack is kept in the project's mailbox as a read record and immediately hands the acker the next waiting mail. Every handed mail's wrapper says whether it needs an ack and how; listeners get a notice whenever the mode changes.
-- **Turn-end reminder** (ack mode, project setting "Remind an agent that ends its turn with an un-acked job", **on by default**): when a listener's turn ends while it still holds an un-acked job, the engine queues ONE immediate reminder naming the job (its mail id and first line): finish it and ack, or set your status to blocked with the reason. It fires once per held job; afterwards the 20-minute ack timeout applies unchanged. No immediate reminder if the listener's latest status, set after it took the job, is `blocked` with a reason (that job gets only the 20-minute reminders), if the listener is halted, frozen or out of usage, or if the turn was interrupted or failed. It is not forced to keep running; it just gets one turn. Turn it off in project settings (or `orgtree_project action=configure settings={"turn_end_reminder":false}`).
+  - **Ack mode** (completion records): each listener holds up to its `batch` size in unacked mails (1–20, default 1). Ack each mail separately with `orgtree_message to=<project> reply_to=<the mail's id>` and a short completion record. The ack is kept in the project's mailbox as a read record, frees one batch place and triggers dispatch of waiting work. Every handed mail's wrapper says whether it needs an ack and how; armed and paused agent listeners get a notice whenever the mode changes.
+- **Turn-end reminder** (ack mode, project setting "Remind an agent that ends its turn with an un-acked job", **on by default**): queues one immediate nudge per held assignment, subject to the delivery and turn-outcome conditions below. It is normal mail, not a guaranteed extra turn or completion. Disable it with `orgtree_project action=configure settings={"turn_end_reminder":false}`.
 - **Ack timeout** (ack mode, on by default): with Runtime working checkups on, each outstanding agent job gets its configured **Ack reminders** budget (integer 1–10, default 3); the next eligible checkup reclaims it. Nonterminal jobs return to the front of the queue. Checkups depend on inactivity and runtime eligibility, so this is not a precise wall-clock deadline.
 
 The turn-end reminder is separate from both timeout switches and does not use
@@ -32,6 +32,11 @@ the checkup reminder budget. It applies only after the handed copy was consumed
 and a successful ordinary turn ended; failed/interrupted/compacting/session-end
 turns do not trigger it. A fresh, nonempty blocked status suppresses the
 immediate reminder, not later eligible timeout checks.
+
+Switching from ACK to round-robin waives outstanding ACK requirements,
+including user-held assignments; it does not manufacture completion records.
+Switching into ACK does not retroactively require ACKs for earlier
+round-robin deliveries.
 
 The user may join the same queue with batch 1–20 from the desk. Their held jobs
 remain until they acknowledge, even after leaving the queue; no timeout or
