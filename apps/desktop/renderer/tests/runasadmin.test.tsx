@@ -27,7 +27,12 @@ test('"Run as admin" is off by default, warns, and changes only through the brid
     await inAct(async () => { toggle.click(); await flush(5) })
     assert.deepEqual(calls, [[true, false]])
     assert.equal(toggle.checked, true)
-    assert.equal(v.el.querySelector('button') === null, true, 'boot policy is stored without restarting the current engine')
+    const restart = [...v.el.querySelectorAll('button')].find(b => /Restart the background engine now/.test(b.textContent ?? ''))
+    assert.ok(restart, 'a change offers the restart')
+    // Restart now repeats the stored value with restartNow; the offer then goes away.
+    await inAct(async () => { restart!.click(); await flush(5) })
+    assert.deepEqual(calls, [[true, false], [true, true]])
+    assert.equal(v.el.querySelector('button') === null, true, 'the offer goes once the restart ran')
   } finally { await v.unmount() }
 })
 
