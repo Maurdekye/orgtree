@@ -77,6 +77,11 @@ For watchdog setup, exact event/readiness recipes and their limits, open `orgtre
 
 ## The user's own slots, listeners and queue place
 
+In a popped-out desk or Listeners window, Register… keeps its panel open while
+you use its count input or scroll inside it. Choosing a registration closes the
+panel; pressing Register… again, clicking or scrolling outside, or pressing
+Escape also closes it.
+
 The user can take part in a project's concurrency primitives themselves, from three tabs. Slots and Mail use a number beside a button whose words follow it; Listeners uses the three-row Register… menu. They sit left of the tab's pin, pop-out and modal controls. Pressing an action applies it immediately without a confirmation dialog; the help text is in the tooltips. Each sends one desk operation; there is no tool or Hubchat equivalent (agents cannot make or end these). The engine names the user **user** (a reserved word no agent can have) and the desk draws it everywhere as the standard **@user** mention chip, the same chip an @user mention gets in prose: it opens the user's inbox, and is inert where a surface cannot open it. Agents see these entries too, named `user`, in `orgtree_project action=slots` and `action=listeners`.
 
 | Where | Control | What it does |

@@ -25,6 +25,15 @@ Create/Enter are disabled while pending, with a synchronous submission guard;
 Cancel remains available. A refusal re-enables only its still-current form.
 [verified: `canvas/OrgCanvas.tsx`, `canvas/newproject.tsx`,
 `tests/projectdraft-response.test.tsx`; coordinator 2026-10-21 23:31Z]
+## Register menu in popped-out documents
+
+RegisterMenu tests containment after a structural node check, rather than the
+opener's `Node` constructor: portal controls belong to the pop-out realm, while
+an adopted trigger can still belong to the opener. Inside pointer/wheel events
+keep the menu mounted; outside events and Escape retain their close behavior.
+The second-document regression dispatches pointerdown before click, including
+the count input and a second trigger press. [verified: `canvas/registermenu.tsx`,
+`tests/registermenu-realm.test.tsx`; 2026-10-21]
 
 ## Tray administrator setting
 

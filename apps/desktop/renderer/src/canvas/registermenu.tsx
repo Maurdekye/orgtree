@@ -76,8 +76,13 @@ export function RegisterMenu({ node, state, op, toast }: {
   const panelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
-    const inside = (target: EventTarget | null) => target instanceof Node
-      && (!!panelRef.current?.contains(target) || !!triggerRef.current?.contains(target))
+    const inside = (target: EventTarget | null) => {
+      // Portals create controls in the surface document's realm; adopted
+      // triggers can still belong to the opener's realm. Containment covers both.
+      const node = target as Node | null
+      return !!node?.nodeType
+        && (!!panelRef.current?.contains(node) || !!triggerRef.current?.contains(node))
+    }
     const away = (e: Event) => { if (!inside(e.target)) setOpen(false) }
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); triggerRef.current?.focus() } }
     doc.addEventListener('pointerdown', away, true)
