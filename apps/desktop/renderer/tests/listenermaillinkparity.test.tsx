@@ -36,3 +36,14 @@ test('listener fire and queue mail links use message identity hovers and menus',
   assert.ok(requests.some(url => url.includes('/mail/node/original?node=project')), 'queue original resolves project mailbox')
   assert.ok(requests.some(url => url.includes('/mail/node/original?node=reader')), 'fire resolves listener mailbox')
 })
+
+test('a user listener fire opens its copy in the user inbox, never a node called user', async t => {
+  const opened: unknown[] = [], node = { id: 'project', kind: 'project', state: 'live', children: [] } as unknown as CanvasNode
+  const v = await mountView(<ListenersView node={node} dogs={[]} map={new Map()}
+    refs={{ world: { org: 'org' }, onOpen: r => opened.push(r.ref) }} toast={() => {}}
+    op={(async () => ({ history: [{ id: 3, at: '2026-10-21T00:00:00Z', kind: 'event', listeners: [{ agent: 'user', mail: 'user-fire-copy' }] }] })) as never} />, el => el)
+  t.after(() => v.unmount()); await inAct(async () => { await flush(3) })
+  const link = v.el.querySelector<HTMLButtonElement>('button.fire-mail')!; assert.ok(link)
+  await inAct(() => link.click())
+  assert.deepEqual(opened, [{ kind: 'mail', org: 'org', box: 'user', id: 'user-fire-copy' }])
+})
