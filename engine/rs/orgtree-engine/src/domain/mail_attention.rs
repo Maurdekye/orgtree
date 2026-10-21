@@ -1,5 +1,5 @@
 //! Mailbox attention is not an urgent flag. All user-mail surfaces share it.
-use serde_json::Value;
+use serde_json::{json, Value};
 use anyhow::Result;
 
 // Only user-visible prose, never sender/recipient identities, paths or ids.
