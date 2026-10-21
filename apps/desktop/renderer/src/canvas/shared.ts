@@ -1503,6 +1503,10 @@ export const SPRING_K = 170, SPRING_C = 15
 
 export const DRAFT = '__draft__'
 export const USER = '@user'   // actor sentinel — never collides with a node named "user"
+/** The canvas node a registration's owner is drawn at: the engine names the user's slot holds, listeners,
+ *  watches and queue place "user" (a reserved word no agent can have), and the user's card on the canvas
+ *  is the switchboard, `USER` (USER 2026-10-21 22:18Z: their lines and watchdogs are drawn from it). */
+export const canvasOwner = (owner: string): string => isUserName(owner) ? USER : owner
 
 /** D-234: the hover text of a queued model switch — ONE wording for every
  *  surface that wears the flag (card badge, map/head/tray/jump marks, desk
@@ -2172,8 +2176,8 @@ export interface FairQueueLink { key: string; owner: string; project: string; pa
 export function fairQueueLinks(dogs: Watchdog[], isProject: (name: string) => boolean): FairQueueLink[] {
   const out: FairQueueLink[] = []
   for (const w of dogs) {
-    // the user draws no line: they are no node of the tree (their place in the queue still counts)
-    if (w.kind !== 'fair_queue' || w.spent || isUserName(w.owner) || (w.state !== 'armed' && w.state !== 'paused')) continue
+    // the user's place in the queue is drawn from the switchboard (owner "user", see `canvasOwner`)
+    if (w.kind !== 'fair_queue' || w.spent || (w.state !== 'armed' && w.state !== 'paused')) continue
     const project = w.target.replace(/^@/, '')
     if (!isProject(project)) continue
     out.push({ key: 'fq:' + w.id, owner: w.owner, project, paused: w.state === 'paused' })

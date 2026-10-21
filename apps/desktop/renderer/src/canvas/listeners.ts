@@ -13,7 +13,6 @@
 
 import type { Watchdog } from '../types'
 import type { CanvasNode } from './shared'
-import { isUserName } from './username'
 
 const target = (w: Watchdog) => w.target.replace(/^@/, '')
 
@@ -86,8 +85,8 @@ export interface ListenerLink { key: string; owner: string; project: string; wat
 export function listenerLinks(dogs: Watchdog[], isProject: (name: string) => boolean): ListenerLink[] {
   const out: ListenerLink[] = []
   for (const w of dogs) {
-    // the user draws no line: they are no node of the tree (their listeners still count)
-    if ((w.kind !== 'project_listener' && w.kind !== 'listener_watch') || w.spent || w.disabled || isUserName(w.owner)
+    // the user's listeners and watches are drawn from the switchboard (owner "user", see `canvasOwner`)
+    if ((w.kind !== 'project_listener' && w.kind !== 'listener_watch') || w.spent || w.disabled
       || (w.state !== 'armed' && w.state !== 'paused')) continue
     const project = target(w)
     if (!isProject(project)) continue

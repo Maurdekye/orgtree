@@ -1,6 +1,6 @@
 // Shared display projection for the canvas and reparent landing ghosts.
 import type { TreePayload } from '../types'
-import { DRAFT, DOG_W, DOG_H, NODE_W, NODE_H, INBOX, USER, layout, placeOrgInbox, cardFurniture } from './shared'
+import { DRAFT, DOG_W, DOG_H, NODE_W, NODE_H, INBOX, USER, canvasOwner, layout, placeOrgInbox, cardFurniture } from './shared'
 import type { CanvasNode, Pile, ChartLayout } from './shared'
 import { WATCHDOG_CARD_LIMIT, WATCHDOG_GROUP_W } from './watchdoggroup'
 
@@ -151,22 +151,24 @@ export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, Canvas
     // position is ALL a spark needs, so launchSpark(dog → owner) works
     // with zero animation code.
     {
+      // the user's dogs (owner "user") hang below the switchboard card, the eye
       const byOwner: Record<string, number> = {}
       for (const w of tree.watchdogs ?? [])
-        if (t.has(w.owner)) byOwner[w.owner] = (byOwner[w.owner] ?? 0) + 1
+        if (t.has(canvasOwner(w.owner))) byOwner[canvasOwner(w.owner)] = (byOwner[canvasOwner(w.owner)] ?? 0) + 1
       const seen: Record<string, number> = {}
       const PER_ROW = 3, GX = 6, GY = 4
       for (const w of tree.watchdogs ?? []) {
-        if (!t.has(w.owner)) continue
-        const p = t.get(w.owner)!
-        if ((tree.watchdog_counts?.[w.owner]?.total ?? byOwner[w.owner]!) > WATCHDOG_CARD_LIMIT) {
+        const own = canvasOwner(w.owner)
+        if (!t.has(own)) continue
+        const p = t.get(own)!
+        if ((tree.watchdog_counts?.[w.owner]?.total ?? byOwner[own]!) > WATCHDOG_CARD_LIMIT) {
           t.set('dog:' + w.id, { x:p.x+NODE_W/2-WATCHDOG_GROUP_W/2, y:p.y+NODE_H+8 })
           continue
         }
-        const i = seen[w.owner] ?? 0
-        seen[w.owner] = i + 1
+        const i = seen[own] ?? 0
+        seen[own] = i + 1
         const row = Math.floor(i / PER_ROW), col = i % PER_ROW
-        const inRow = Math.min(PER_ROW, byOwner[w.owner]! - row * PER_ROW)
+        const inRow = Math.min(PER_ROW, byOwner[own]! - row * PER_ROW)
         const rowW = inRow * DOG_W + (inRow - 1) * GX
         t.set('dog:' + w.id, {
           x: p.x + NODE_W / 2 - rowW / 2 + col * (DOG_W + GX),

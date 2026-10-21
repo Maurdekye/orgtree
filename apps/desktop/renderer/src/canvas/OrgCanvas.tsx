@@ -53,7 +53,7 @@ import {
 import {
   ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOfHires, segD, setLangServerTiers, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, PROVIDER_LABEL, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
-  fairQueueLinks, peerLinkPairs, peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
+  canvasOwner, fairQueueLinks, peerLinkPairs, peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
 import type {
   CanvasNode, DraftScope, DraftState, FamilyOffer, MailEvent, MailLinkFn,
@@ -126,6 +126,7 @@ import { useSurfaceDocument } from '../popout'
 import { setAttentionLayout } from '../attention/mode'
 import type { CanvasShortcutRef } from '../shell/appshortcuts'
 import { projectLineLanes, slotLinks } from './slots'
+import { isUserName } from './username'
 import { listenerLinks } from './listeners'
 import { projectHeaderFacts } from './projectheaderfacts'
 import type { ProjectLine, SlotLease } from './slots'
@@ -4053,9 +4054,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const lanes = projectLineLanes([
     ...audLines.filter((a) => isProjectId(a.grantor) !== isProjectId(a.grantee))
       .map((a): ProjectLine => ({ key: 'a' + a.grantor + '→' + a.grantee, agent: a.grantor, project: a.grantee })),
-    ...fqLinks.map((l): ProjectLine => ({ key: l.key, agent: l.owner, project: l.project })),
-    ...slLinks.map((l): ProjectLine => ({ key: l.key, agent: l.owner, project: l.project })),
-    ...lsLinks.map((l): ProjectLine => ({ key: l.key, agent: l.owner, project: l.project })),
+    ...fqLinks.map((l): ProjectLine => ({ key: l.key, agent: canvasOwner(l.owner), project: l.project })),
+    ...slLinks.map((l): ProjectLine => ({ key: l.key, agent: canvasOwner(l.owner), project: l.project })),
+    ...lsLinks.map((l): ProjectLine => ({ key: l.key, agent: canvasOwner(l.owner), project: l.project })),
   ])
   const shifted = (key: string, s: Seg): Seg => {
     const dy = lanes.get(key) ?? 0
@@ -4132,7 +4133,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // its own, which a style probe cannot reproduce, so it stays in SVG.
   const wiredDogOwners = new Set<string>()
   if (!compact && lod !== 'mini') for (const w of tree.watchdogs ?? []) {
-    const a = posOf('dog:' + w.id), b = posOf(w.owner)
+    const a = posOf('dog:' + w.id), b = posOf(canvasOwner(w.owner))
     if (!a || !b) continue
     const grouped = (dogsByOwner[w.owner]?.total ?? 0) > WATCHDOG_CARD_LIMIT
     if (grouped && wiredDogOwners.has(w.owner)) continue
@@ -4150,7 +4151,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // A slot's line takes the same path in amber (the approved mockup's option
   // A): a holder's solid, a waiter's dashed. A lane offset moves a line's ends
   // apart and its bow out by as much, so side-by-side lines nest.
-  const bowed = (key: string, owner: string, project: string, cls: string) => {
+  const bowed = (key: string, who: string, project: string, cls: string) => {
+    // the user's registrations (owner "user") leave from the switchboard card
+    const owner = canvasOwner(who)
     const a = posOf(owner), b = posOf(project)
     if (!a || !b || owner === project) return
     const ga = sizeOf(owner), gb = sizeOf(project)
@@ -4596,7 +4599,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             untappable at any phone-fitting zoom; the owner card carries a
             count-dot and the sheet header carries the list. */}
         {!compact && lod !== 'mini' && <WatchdogCanvasCards dogs={tree.watchdogs ?? []} counts={tree.watchdog_counts} org={slug}
-          position={id=>posOf('dog:'+id)} visible={(owner,p)=>!hidden.has(owner)&&intersectsViewport(p,visibleRect)} onOpen={id=>toggleDog(id)}/>}
+          position={id=>posOf('dog:'+id)} visible={(owner,p)=>!hidden.has(owner)&&intersectsViewport(p,visibleRect)}
+          onOpen={id=>{
+            // the user's own dog has no detail panel (the engine reads one by its owner agent): its chip takes
+            // the click to the project it is connected to
+            const w=(tree.watchdogs??[]).find(x=>x.id===id), project=w&&isUserName(w.owner)?w.target.replace(/^@/,''):''
+            if(project&&map.has(project))centerOn(project);else toggleDog(id)
+          }}/>}
         {(tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX) && (
           <div className={'sq orginbox' + (lod === 'mini' ? ' orginbox-far' : '') + (dropId === INBOX ? ' drop' : '')}
             style={{
