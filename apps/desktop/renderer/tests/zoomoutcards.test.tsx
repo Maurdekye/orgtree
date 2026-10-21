@@ -82,7 +82,7 @@ test('§1 mini omits the document attachment while preserving its owning agent c
 test('§2 mini has no document button, tab stop or read tooltip', async t => {
   const view = await card('mini'); t.after(() => view.unmount())
   assert.ok(view.el.querySelector('.sq-far-tier'), 'the far card content rendered')
-  assert.equal(view.el.querySelectorAll('.doc-chip, .doc-chips, [title*="read the plan"]').length, 0)
+  assert.equal(view.el.querySelectorAll('.doc-chip, .doc-chips, [title="the plan"]').length, 0)
 })
 
 test('§3 clicking the mini card does not open its omitted document', async t => {
@@ -144,7 +144,7 @@ test('§7 zoomed in it is a live control again, and opens its document',
     assert.equal(c.tagName, 'BUTTON', 'the chip did not come back as a control')
     assert.equal(c.getAttribute('aria-hidden'), null)
     assert.equal(view.el.querySelector('.doc-chips.inert'), null)
-    assert.match(c.getAttribute('title') ?? '', /read the plan/)
+    assert.equal(c.getAttribute('title'), 'the plan')
     await inAct(() => { c.click() })
     assert.deepEqual(sink.opened, ['d1'],
       'the document card must still open its document at normal zoom — this '
