@@ -35,7 +35,8 @@ const any=dead.match(/const ANY: &str = "([^"]+)"/)[1]
 const counts=[...dead.matchAll(/\.query_one\(&format!\("([^"]+)"\)/g)].map(x=>x[1].replaceAll('{OPEN}',open).replaceAll('{ANY}',any))
 assert.equal(counts.length,2,'production open and dropped count readers')
 const page=dead.match(/&format!\("(SELECT m.uid,[\s\S]+?)"\),\s*&\[&project, &limit, &offset\]/)[1]
-const agent=feed.match(/const AGENT_SQL: &str = r#"([\s\S]+?)"#;/)[1].replaceAll('__UNREAD_STATES__',"('pending','delivering','delivered')")
+const unread=fs.readFileSync(path.join(repo,'engine/rs/orgtree-engine/src/domain/mail.rs'),'utf8').match(/pub const UNREAD_STATES: &str = "([^"]+)"/)[1]
+const agent=feed.match(/const AGENT_SQL: &str = r#"([\s\S]+?)"#;/)[1].replaceAll('__UNREAD_STATES__',unread)
 const bind=(q,id=1)=>q.replaceAll('$1',String(id)).replaceAll('$2','2').replaceAll('$3','0')
 function queryPlan(name,q){
  const p=json('EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) '+q)[0]
@@ -98,5 +99,5 @@ finally{
  if(started){const r=spawnSync(path.join(bin,'pg_ctl.exe'),['-D',data,'-m','fast','-w','stop'],{encoding:'utf8',windowsHide:true});calls.push({exe:'pg_ctl stop',status:r.status,signal:r.signal,error:r.error?.message??null});if(r.status!==0)error=(error??'')+' PG STOP FAILED '+r.stderr}
  const receipt={sha:spawnSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).stdout.trim(),checks,plans,calls,error,pass:!error&&checks.every(c=>c.pass)}
  fs.writeFileSync(path.join(out,'receipt.json'),JSON.stringify(receipt,null,2))
- console.log(JSON.stringify({...receipt,plans:plans.map(({plan,...p})=>p)},null,2));process.exitCode=receipt.pass?0:1
+ console.log(JSON.stringify({...receipt,calls:{total:calls.length,failed:calls.filter(c=>c.status!==0)},plans:plans.map(({plan,...p})=>p)},null,2));process.exitCode=receipt.pass?0:1
 }
