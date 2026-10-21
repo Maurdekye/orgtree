@@ -170,11 +170,24 @@ Release with `orgtree_project action=release_slot lease=L` as soon as the work e
 
 ### project_listener
 
+An event covers registrations through its creation-time high-water mark, using
+short committed pages rather than a listener-count cap. Each page checks current
+eligibility: a paused or removed listener is skipped. A listener registered
+after that mark waits for the next event. An interrupted fire resumes its
+remaining pages at engine startup with the same event identity and message;
+already committed listener mail and one-shot fires are not duplicated.
+
 `target` is a live project above or below you. The dog listens for the project's manual event: each time someone above or below the project (or the user) fires it with `orgtree_project action=fire_event name=P` (optional `body`), every armed listener that still reaches the project receives the event and its message as ordinary watchdog mail, in the same instant; a one-shot is spent by it. This is the project's **sync wake**: participants arm one-shot listeners and end their turns; the fire releases them together. `list` shows fire count and last fire. A `pattern`, silence mode and `shell` are refused. One event listener per agent per project (a second is refused, naming the first). **Removed 4.4.0:** there is no separate "round" or barrier primitive; the listener plus the watch below is the mechanism.
 
 Arming a `project_listener` or `listener_watch` (creating one, or resuming one) switches the project's **event listeners** setting on if it was off, and the result says "turned them on"; a create that is refused changes nothing. Only the user or an agent above the project may switch the setting off with project configuration; a below-project member cannot. Switching off pauses armed listeners/watches, with `paused_why` naming who switched it off; switching on restores those disabled registrations, including the user's. Manually paused registrations stay paused.
 
 ### listener_watch
+
+A threshold crossing and its owed fire are saved together. Recovery completes
+the notification even when the engine stopped after saving the above marker.
+The one-shot state and mail commit together, for agent and user watches alike.
+Fire-action attempts are claimed before execution: an interrupted attempt is
+not automatically repeated, while the notification remains recoverable.
 
 `target` is a live project above or below you; `count` (required, 1–1024) is how many armed `project_listener` dogs fire it. Paused listeners do not count; your own listener does. The watch evaluates whenever it is armed and whenever a listener on its project arms, resumes, pauses, is removed or is spent: reaching the count fires it — including at create, when the count is already reached (like a slot granted at once, so arming the watch after everyone has arrived works). Staying at or above the count does not fire again; a continuous watch fires again only after the count drops below and crosses again. Resuming re-evaluates from a cleared edge. One listener watch per agent per project. `list` shows its `count` and the project's current armed `listeners`. Paired with a `fire_actions` entry that fires the project's event, a superior is both told the group is ready and releases it in the same instant:
 

@@ -1,5 +1,30 @@
 # Projects and concurrency
 
+## Uncapped registrations and durable delivery (2026-10-21)
+
+Queue allocation filters live/reachable canonical listeners and ACK capacity
+before selecting a bounded service-ordered window; a query page is never a
+registration limit. Sender-only jobs stay pending while later deliverable
+jobs remain eligible. Reclaims and reminder changes bind the observed holder
+and unique handed-copy id, then recheck custody and reclaim policy under the
+project/job locks, including same-holder reassignment and transfers to the user.
+
+Project events persist one history identity and registration high-water mark.
+Each transaction delivers at most 200 eligible rows and commits its mail,
+one-shot changes, history and cursor together. Eligibility is checked when
+the page is processed; paused/removed listeners are skipped. New registrations
+after the high-water mark wait for the next event. Pending pages recover at
+engine startup without synthesizing a second event.
+
+Listener-watch edges enqueue durable fire obligations with their above marker.
+The watch's spent state and notification mail commit atomically, including
+user watches. Post-commit fire actions and wakes use a durable outbox; action
+attempts are claimed before execution and never automatically repeated after
+an interrupted attempt. Notification recovery does not duplicate the fire/mail.
+Migration 0050 is additive. [verified: `domain/{projects,listeners}.rs`,
+`migrations/0050_project_event_dispatch.sql`; coordinator 2026-10-21 23:10Z
+approved processing-time eligibility]
+
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
 Project folders, policy, slots, listeners, watchdogs, queues and coordination.

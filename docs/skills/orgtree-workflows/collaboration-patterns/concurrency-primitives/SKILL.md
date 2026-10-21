@@ -34,6 +34,19 @@ inspect the create result before ending the turn to wait.
 
 ## Setup, reach and call notation
 
+Internal query pages do not cap project registrations. Fair mail selection
+considers service order and free ACK capacity across the registration set;
+exclude-sender jobs that nobody else can take wait without blocking later
+deliverable jobs. Reclaims/reminders target the observed claim copy, so a
+reassignment cannot inherit an old holder's timeout or release decision.
+
+Project event delivery uses durable pages and resumes unfinished work after
+restart. Registrations through the event's high-water mark are checked when
+their page is processed; paused/removed listeners are skipped. Watch threshold
+edges keep a durable owed notification. A one-shot's mail and spent state
+commit together, including the user's registrations. Fire-action attempts are
+not automatically retried after interruption.
+
 For each recipe, an authorized supervisor first places the existing worker team below the named project. Only agents above or below a project reach its slots, queue or event; peers beside it cannot subscribe. A directional audience does not replace this tree relationship. For example, the supervisor may insert @resource-lock above its existing agent @workers (whose team stays underneath), then set its slot count:
 
 ```json
