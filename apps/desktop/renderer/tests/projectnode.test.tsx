@@ -197,7 +197,7 @@ test('§2a a project draws as a project card: no model, credit bar, desk or turn
   }
 })
 
-test('§2a1 project card name uses its rich tooltip; the far-zoom folder starts with the project name', async (t) => {
+test('§2a1 project tooltip classes match: named and far-zoom omit names; normal folder includes it', async (t) => {
   const rich = 'Project · Summary: the company website'
   function Registry() {
     useProvideAgentNav(() => [], id => id === 'website' ? { title: rich } : null)
@@ -215,12 +215,37 @@ test('§2a1 project card name uses its rich tooltip; the far-zoom folder starts 
   assert.equal(name.hasAttribute('title'), false, 'project name has no plain browser title')
   await inAct(() => name.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
   assert.equal(name.title, rich, 'near-zoom project name resolves its rich project tooltip')
+  const icon = near.el.querySelector<HTMLElement>('.project-mark')!
+  await inAct(() => icon.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(icon.title, `website\n${rich}`, 'normal identity-less project folder prefixes its name')
 
   const far = await render('mini')
   t.after(() => far.unmount())
   const folder = far.el.querySelector<HTMLElement>('.project-mini')!
   await inAct(() => folder.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
-  assert.equal(folder.title, `website\n${rich}`, 'the icon-only far-zoom project card names its project first')
+  // USER 2026-10-21 06:47Z retained the 10-19 exception: far-zoom cards
+  // omit the native name because their floating label already supplies it.
+  assert.equal(folder.title, name.title, 'far-zoom and named links share the same no-name class text')
+})
+
+test('§2a2 project card background uses the same tooltip as its visible name', async t => {
+  const rich = 'Project · Summary: the company website'
+  function Registry() {
+    useProvideAgentNav(() => [], id => id === 'website' ? { title: rich } : null)
+    return null
+  }
+  const v = await mountView(<AgentNavProvider><Registry /><ProjectSquare node={project()}
+    pos={{ x: 0, y: 0 }} lod="norm" dragging={false} isDrop={false}
+    op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={2}
+    hire={{ claudeHire: offer }} seats={seats} onHire={noop} onInbox={noop} onNewProject={noop}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} /></AgentNavProvider>, el => el)
+  t.after(() => v.unmount())
+  const card = v.el.querySelector<HTMLElement>('.sq.project')!
+  const name = card.querySelector<HTMLElement>('.name')!
+  await inAct(() => name.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  await inAct(() => card.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  assert.equal(card.title, rich, 'the card identity background must not lose the shared tooltip')
+  assert.equal(card.title, name.title)
 })
 
 test('§2b0 the mailbox hover button follows "Show agent card shortcuts" (off by default)', async (t) => {
