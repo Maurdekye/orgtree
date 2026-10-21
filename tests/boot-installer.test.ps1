@@ -37,6 +37,9 @@ $script:folder | Add-Member ScriptMethod RegisterTask {
     $script:events.Add("register:$flags")
     Assert ($user -eq $sid -and $null -eq $password -and $logon -eq 2) 'Wrong principal/password/logon'
     $script:task=New-FakeTask $xml
+    # Task Scheduler's principal follows the XML's run level, as for the helper.
+    $level=(Read-BootXml $xml).SelectSingleNode('//*[local-name()="Principal"]/*[local-name()="RunLevel"]')
+    $script:task.Definition.Principal.RunLevel=[int]($null -ne $level -and $level.InnerText -eq 'HighestAvailable')
     return $script:task
 }
 function Get-BootFolder { $script:events.Add('folder'); return $script:folder }
@@ -216,7 +219,11 @@ $script:processes=$engineTree; $script:engineAnswers=$true; $script:events.Clear
 Stop-OwnedBootTask $script:folder $original $dir 2
 Assert ($script:events -contains 'engine-request') 'A running engine was not asked to stop'
 Assert (-not ($script:events -contains 'stop')) 'The task was ended although the engine took the request'
-Assert (-not ($script:events -contains 'record-stop')) 'An engine that took the request must not be asked again through the record'
+# 2026-10-21 (docket after-an-update-or-engine-restart-while-the-user): the
+# installer's record is written first, whether or not the engine takes the
+# descriptor request. A boot host that waits while a user-session engine runs
+# holds the installation open too and stops only by the record.
+Assert ($script:events.IndexOf('record-stop') -ge 0 -and $script:events.IndexOf('record-stop') -lt $script:events.IndexOf('engine-request')) "The installer's record must be written before the engine is asked: $($script:events -join ',')"
 Assert (-not $script:task.Enabled) 'The task must stay disabled while files are replaced'
 # An engine that cannot be asked is stopped by ending its task, after asking.
 $script:task=New-FakeTask $xml
@@ -226,7 +233,7 @@ Assert ($script:events.IndexOf('engine-request') -ge 0 -and $script:events.Index
 # ...and through the installer's record first (docket installer-s-end-task-fallback-no-
 # longer-stops-th): ending a task ends only its host, and since the 2026-10-12 recovery
 # the engine outlives its host.
-Assert ($script:events.IndexOf('record-stop') -gt $script:events.IndexOf('engine-request') -and $script:events.IndexOf('record-stop') -lt $script:events.IndexOf('stop')) "An engine that cannot be asked through its descriptor must be asked through the installer's record before its task is ended: $($script:events -join ',')"
+Assert ($script:events.IndexOf('record-stop') -ge 0 -and $script:events.IndexOf('record-stop') -lt $script:events.IndexOf('stop')) "An engine that cannot be asked through its descriptor must be asked through the installer's record before its task is ended: $($script:events -join ',')"
 # The record alone stops an engine that outlives its ended host.
 $script:task=New-FakeTask $xml; $script:task.KeepProcesses=$true
 $script:processes=$engineTree; $script:engineAnswers=$false; $script:recordStops=$true; $script:events.Clear()
@@ -304,20 +311,33 @@ Assert ($script:events -contains 'register:20') 'Owned update must preserve the 
 Assert ($script:task.Enabled) 'Completing Register must restore boot-start after an earlier disabled state'
 Assert ($script:events -contains 'run') 'Registered task not started'
 
-# An update with the recorded operator already signed in lets the original-user
-# desktop relaunch start the engine in that session, regardless of the boot toggle.
-foreach ($admin in @($false,$true)) {
-    $script:runAsAdmin=$admin; $script:consoleSid=$sid; $script:events.Clear()
-    Invoke-BootLifecycle Register $dir
-    Assert (-not ($script:events -contains 'run')) 'Signed-in update must not start the S4U engine'
+# An update starts the boot task whether or not the operator is signed in at the
+# console (coordinator 2026-10-21 16:27Z, plan point 6): its host hands the engine
+# to the user-session task while they are (src/boot_supervisor.rs) and stays in
+# Session 0 for the sign-out fallback. Register never starts the user-session
+# task itself. The boot task's run level follows "Run as admin" (Q2).
+foreach ($console in @($null,$sid,'S-1-5-21-111-222-333-9999')) {
+    foreach ($admin in @($false,$true)) {
+        $script:runAsAdmin=$admin; $script:consoleSid=$console; $script:events.Clear()
+        Invoke-BootLifecycle Register $dir
+        Assert ($script:events -contains 'run') "Register must start the boot task (console=$console admin=$admin)"
+        Assert (-not ($script:events -contains 'interactive-run')) 'Register never starts the user-session task itself'
+        $level=if ($admin) {'HighestAvailable'} else {'LeastPrivilege'}
+        Assert ((Read-BootXml $script:task.Xml).Task.Principals.Principal.RunLevel -ceq $level) "The boot task's run level must follow Run as admin ($admin)"
+        Assert ($script:task.Definition.Principal.RunLevel -eq [int]$admin) 'The boot task principal must agree with its XML'
+    }
 }
-$script:runAsAdmin=$false
-foreach ($console in @($null,'S-1-5-21-111-222-333-9999')) {
-    $script:consoleSid=$console; $script:events.Clear()
-    Invoke-BootLifecycle Register $dir
-    Assert ($script:events -contains 'run') 'No operator console keeps the cold-boot task route'
-}
-$script:consoleSid=$null
+$script:runAsAdmin=$false; $script:consoleSid=$null
+Invoke-BootLifecycle Register $dir
+# Exactly two accepted boot run levels, XML and principal agreeing.
+$highBoot=New-FakeTask (New-BootTaskXml $original $true); $highBoot.Definition.Principal.RunLevel=1
+Assert-OwnedBootTask $highBoot $original $dir
+$mixed=New-FakeTask (New-BootTaskXml $original $true)
+Refuses { Assert-OwnedBootTask $mixed $original $dir } 'run level'
+$mixed=New-FakeTask (New-BootTaskXml $original $false); $mixed.Definition.Principal.RunLevel=1
+Refuses { Assert-OwnedBootTask $mixed $original $dir } 'run level'
+$mixed=New-FakeTask ((New-BootTaskXml $original $false).Replace('<RunLevel>LeastPrivilege</RunLevel>','<RunLevel>LeastPrivilege</RunLevel><RunLevel>HighestAvailable</RunLevel>'))
+Refuses { Assert-OwnedBootTask $mixed $original $dir } 'run level'
 
 # The credential helper: registered only beside the native engine binary.
 Assert ($null -eq $script:helper -and -not ($script:events -match 'helper-register')) 'Helper registered without its binary'
@@ -648,9 +668,22 @@ foreach($owned in @($script:task,$script:helper,$script:interactive)) {
     Assert ((Read-BootXml $owned.Xml).Task.Settings.Enabled -eq 'true') 'Demand launch is disabled'
     Assert (-not (Get-RegisteredEnabled $owned)) 'An automatic trigger survived startup off'
 }
-$script:record.RunOnStartup=1;$script:runAsAdmin=$true;$script:events.Clear()
-Invoke-BootLifecycle Register $dir
-Assert ($script:events -contains 'interactive-run' -and -not ($script:events -contains 'run')) 'Signed-in install did not select the interactive engine'
+# The user-session task's logon trigger moves the engine at sign-in only while
+# both "Run on boot" and "Run as admin" are on (coordinator Q1); it is always
+# registered before the boot task runs, so the boot host can hand over to it.
+foreach ($startup in @(0,1)) {
+    foreach ($admin in @($false,$true)) {
+        $script:record.RunOnStartup=$startup;$script:runAsAdmin=$admin;$script:events.Clear()
+        Invoke-BootLifecycle Register $dir
+        $trigger=(Read-BootXml $script:interactive.Xml).Task.Triggers.LogonTrigger.Enabled
+        Assert ($trigger -ceq (Get-EnabledText ($startup -eq 1 -and $admin))) "The user-session logon trigger must follow startup=$startup and admin=$admin"
+        if ($startup -eq 1) {
+            Assert ($script:events -contains 'run' -and -not ($script:events -contains 'interactive-run')) 'Signed-in install must start the boot task, whose host hands over'
+            $registered=$script:events.IndexOf(($script:events | Where-Object { $_ -like 'interactive-register:*' } | Select-Object -First 1))
+            Assert ($registered -ge 0 -and $registered -lt $script:events.IndexOf('run')) "The user-session task must be registered before the boot task runs: $($script:events -join ',')"
+        }
+    }
+}
 Assert ((Read-BootXml $script:interactive.Xml).Task.Principals.Principal.RunLevel -eq 'HighestAvailable') 'Stored admin choice was not applied to interactive engine'
 $script:interactive.Instances=1;$script:interactive.Enabled=$true
 Refuses { Stop-OwnedBootTask $script:folder $script:record $dir 0 } 'Orgtree User Session Engine'
@@ -660,7 +693,7 @@ Refuses { Stop-OwnedBootTask $script:folder $script:record $dir 0 } 'Orgtree Use
 Assert (-not $script:interactive.Enabled) 'Failed installer stop unexpectedly enabled a disabled interactive task'
 $script:interactive.Instances=0
 $goodInteractive=$script:interactive.Xml
-$script:interactive.Xml=$goodInteractive.Replace('session-launch signin','foreign command')
+$script:interactive.Xml=$goodInteractive.Replace('>session-engine<','>foreign command<')
 $script:events.Clear()
 Refuses { Invoke-BootLifecycle Register $dir } 'interactive engine'
 Assert (-not ($script:events -match 'register:|stop|delete')) 'Foreign interactive task permitted installer mutation'
