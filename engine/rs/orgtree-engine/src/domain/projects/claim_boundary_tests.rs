@@ -18,6 +18,7 @@ async fn claim_boundary_stale_reclaim() {
         let project:i64=b.query_one("INSERT INTO ot.agents(org_id,name,kind,tier,state,scope,born) VALUES($1,$2,'project','project','live','{\"mail_queue\":\"ack\"}', 'synthetic') RETURNING id",&[&org,&uid("claim-project")]).await.unwrap().get(0);
         let holder:i64=b.query_one("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,halt,born) VALUES($1,$2,$3,'sol','live','{\"phase\":\"halted\"}','synthetic') RETURNING id",&[&org,&uid("claim-owner"),&project]).await.unwrap().get(0);
         let other:i64=b.query_one("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,$2,$3,'sol','live','synthetic') RETURNING id",&[&org,&uid("claim-other"),&project]).await.unwrap().get(0);
+        b.execute("INSERT INTO ot.watchdogs(uid,org_id,owner_agent_id,name,kind,target,interval_s,state,memo) VALUES($1,$2,$3,'claim-listener','fair_queue','synthetic',600,'armed',jsonb_build_object('target_id',$4::bigint))",&[&uid("claim-listener"),&org,&holder,&project]).await.unwrap();
         let first=uid("copy-first");let second=uid("copy-second");
         let row:i64=b.query_one("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'@user','agent',$3,'fixture','job','read',$4) RETURNING id",&[&uid("claim-job"),&org,&project,&json!({"attempts":1,"claimed":{"by_id":holder,"by":"fixture","copy":first,"ack":true,"at":iso(Utc::now())}})]).await.unwrap().get(0);
         // B owns the project lock while A starts reclaim with the OLD holder.

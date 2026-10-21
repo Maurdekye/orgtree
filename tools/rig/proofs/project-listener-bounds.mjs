@@ -24,7 +24,7 @@ export default async function(rig) {
   const q=await project('many-queue');members(q,66);dogs(q,'fair_queue',65);jobs(q,65)
   const trigger=await rig.tool('boss','orgtree_watchdog',{action:'create',kind:'fair_queue',target:'many-queue',name:'queue-trigger',notice:true})
   await rig.tool('boss','orgtree_message',{metadata:{to:'many-queue',notice:true},body:'flush-service'})
-  const served=rig.sql(`SELECT DISTINCT extra->'claimed'->>'by_id' AS owner FROM ot.mail WHERE recipient_agent_id=${q.id} AND state='read'`)
+  const served=rig.sql(`SELECT DISTINCT extra->'claimed'->>'by_id' AS owner FROM ot.mail WHERE recipient_agent_id=${q.id} AND state='read' AND (extra->'claimed'->>'by_id')::bigint IN(SELECT owner_agent_id FROM ot.watchdogs WHERE name='bounds-fair_queue' AND (memo->>'target_id')::bigint=${q.id})`)
   p.check('all 65 continuous listeners enter service before any is served twice',trigger.ok&&served.length>=65,{trigger:trigger.ok,served:served.length})
   // ACK: the first 64 listeners are at capacity, listener 65 and a new inline
   // candidate both remain eligible. Held copies have valid watchdog provenance.
@@ -41,8 +41,14 @@ export default async function(rig) {
   jobs(aq,1,'ack-next')
   const newOwner=rig.one(`SELECT name FROM ot.agents WHERE parent_id=${aq.id} ORDER BY id DESC LIMIT 1`).name
   const inline=await rig.tool(newOwner,'orgtree_watchdog',{action:'create',kind:'fair_queue',target:'ack-queue',name:'inline-tail',once:true,notice:true})
+  await rig.tool('boss','orgtree_message',{metadata:{to:'ack-queue',notice:true},body:'flush-ack'})
   const assigned=rig.one(`SELECT state,extra->'claimed'->>'by' AS owner FROM ot.mail WHERE recipient_agent_id=${aq.id} AND body='ack-next-1'`)
   p.check('ACK-saturated first 64 do not hide the available tail or inline candidate',inline.ok&&assigned.state==='read',{inline:inline.ok,assigned})
+  const iq=await project('inline-full-window');members(iq,64);dogs(iq,'fair_queue',64)
+  rig.exec(`UPDATE ot.watchdogs SET last_fired=now()-interval '1 hour' WHERE (memo->>'target_id')::bigint=${iq.id}`)
+  jobs(iq,1,'inline-ready')
+  const ready=await rig.tool('boss','orgtree_watchdog',{action:'create',kind:'fair_queue',target:'inline-full-window',name:'inline-window',once:true,notice:true})
+  p.check('an immediately eligible one-shot is considered alongside a full 64-row listener window',ready.ok&&ready.json?.resolved===true&&ready.json?.registered===false,{ok:ready.ok,text:ready.text?.slice(0,300),json:ready.json})
   const e=await project('many-events');members(e,201);dogs(e,'project_listener',201)
   rig.exec(`UPDATE ot.agents SET scope=scope||'{"event_listeners":true}'::jsonb WHERE id=${e.id}`)
   const fire=await rig.tool('boss','orgtree_project',{action:'fire_event',name:'many-events',body:'boundary-event-one'})
@@ -61,6 +67,9 @@ export default async function(rig) {
   const pending=rig.one(`SELECT count(*)::int AS n FROM ot.mail WHERE recipient_agent_id=${s.id} AND body LIKE 'own-blocked-%' AND state='pending'`).n
   const next=rig.one(`SELECT state FROM ot.mail WHERE recipient_agent_id=${s.id} AND body='deliverable-1'`).state
   p.check('64 sender-only head jobs remain pending without blocking mail 65',kick.ok&&pending===64&&next==='read',{kick:kick.ok,pending,next})
+  const blocked=await rig.tool(rig.one(`SELECT name FROM ot.agents WHERE id=${a}`).name,'orgtree_message',{metadata:{to:'sender-queue',notice:true},body:'own-blocked-extra'})
+  const left=rig.one(`SELECT count(*)::int AS n FROM ot.mail WHERE recipient_agent_id=${s.id} AND state='pending'`).n
+  p.check('an entirely sender-only backlog terminates without discarding jobs',blocked.ok&&left===65,{ok:blocked.ok,left})
   p.note('Seeded synthetic rows only; dispatch/fire/evaluation triggered through public tools, notice delivery prevents live agent work.')
   return p.summary()
 }
