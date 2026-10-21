@@ -37,11 +37,44 @@ const HUNG_RESTART_WINDOW: Duration = Duration::from_secs(3600);
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
+#[nolog]
+fn engine_admin(boot_setting: bool, _session_admin: Option<bool>) -> bool {
+    boot_setting
+}
+
+#[cfg(test)]
+mod session_launch_tests {
+    use super::*;
+    #[test]
+    fn boot_keeps_both_stored_choices() {
+        assert!(engine_admin(true, None));
+        assert!(!engine_admin(false, None));
+    }
+    #[test]
+    fn signed_in_restart_drops_rights_even_when_boot_is_admin() {
+        assert!(!engine_admin(true, Some(false)));
+    }
+    #[test]
+    fn one_off_admin_does_not_depend_on_boot_setting() {
+        assert!(engine_admin(false, Some(true)));
+    }
+}
+
 pub fn run() -> ExitCode {
+    run_with_rights(None)
+}
+
+/// Desktop launches never inherit the Session 0 preference. A one-off admin
+/// launch has already verified its elevated token and interactive operator.
+pub(crate) fn run_in_session(admin: bool) -> ExitCode {
+    run_with_rights(Some(admin))
+}
+
+fn run_with_rights(session_admin: Option<bool>) -> ExitCode {
     install_stop_handler();
     let mut hangs: Vec<Instant> = Vec::new();
     loop {
-        let code = once();
+        let code = once(session_admin);
         if code != EXIT_ENGINE_HUNG {
             return ExitCode::from(code);
         }
@@ -302,7 +335,7 @@ fn record_liveness(root: &Path, event: Value) {
 }
 
 /// Run ONE engine until it exits, is stopped, or hangs.
-fn once() -> u8 {
+fn once(session_admin: Option<bool>) -> u8 {
     let root = match data_root() {
         Ok(r) => r,
         Err(e) => {
@@ -369,7 +402,7 @@ fn once() -> u8 {
     env.push(("ORGTREE_CORE_MODE".into(), "boot".into()));
     env.extend(pg);
     let elevated = win::is_elevated();
-    let as_admin = win::run_as_administrator();
+    let as_admin = engine_admin(win::run_as_administrator(), session_admin);
     if as_admin {
         say(Some(&root), "'Run Orgtree as administrator' is on; the engine keeps this host's rights");
     }
