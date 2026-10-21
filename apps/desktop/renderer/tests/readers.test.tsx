@@ -93,8 +93,11 @@ async function canvas(t: TestContext) {
     </AgentNavProvider></CurrentOrg.Provider>
   }
   const view = await mountView(<Host />, el => el)
-  t.after(() => view.unmount()); await inAct(async () => { await flush(8) })
+  let mounted = true
+  const unmount = async () => { if (mounted) { mounted = false; await view.unmount() } }
+  t.after(unmount); await inAct(async () => { await flush(8) })
   return {
+    unmount,
     select: async (id: string, label: string) => inAct(async () => {
       const entry = flatten(registry!.current!(id)).find(e => e.label === label)
       assert.ok(entry, `${id}: the menu offers ${label}`)
@@ -202,3 +205,27 @@ test('§9 the Team box in a pinned reader switches it to the team reader, in its
   assert.deepEqual(readers().map(r => r[0]), ['team:worker'], 'one reader, now the team\'s')
   assert.deepEqual(pinOf('team-gallery:worker'), R, 'where the agent reader was')
 })
+
+for (const team of [false, true]) {
+  test(`a pinned ${team ? 'team' : 'agent'} reader restores its selected document after another reader opens`, async t => {
+    setup(t); legacyGallery('worker', team)
+    const c = await canvas(t)
+    const selected = [...document.querySelectorAll<HTMLElement>('.gallery-agent .mailrow')]
+      .find(row => row.querySelector('.mfrom')?.textContent === 'Worker notes')
+    assert.ok(selected, 'the older document is available in the first reader')
+    await inAct(async () => {
+      selected.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+      await flush(10)
+    })
+    const first = team ? 'team:worker' : 'worker'
+    assert.equal(Object.fromEntries(readers())[first], 'Worker notes', 'the control selects the document')
+    await c.select('report', team ? 'Team presentations' : 'Presentations')
+    assert.equal(readers().length, 2, 'a second pinned reader is open')
+    const marker = readModalOpen(org).find(r => r.kind === `${team ? 'team-gallery' : 'agent-gallery'}:worker`)
+    await c.unmount()
+    forgetModalOpenCache(); forgetModalPins()
+    await canvas(t)
+    assert.equal(Object.fromEntries(readers())[first], 'Worker notes', 'the lifecycle restores the document on screen')
+    assert.equal(marker?.restore?.document, 'w-2', 'opening the second reader did not erase the first selection')
+  })
+}
