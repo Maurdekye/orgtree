@@ -80,9 +80,8 @@ for (const history of [false, true]) {
     await h.click(checkbox!)
     await h.save()
     // A busy model change uses its existing explicit queue confirmation.
-    const confirm = document.querySelector<HTMLButtonElement>('.overlay .confirm .primary')
-      ?? [...document.querySelectorAll<HTMLButtonElement>('.overlay button.primary')]
-        .find(b => /queue|switch|confirm|move/i.test(b.textContent ?? ''))
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('.confirm-box button')]
+      .find(b => b.textContent?.startsWith('queue the switch to '))
     assert.equal(!!confirm, true, 'busy model changes still ask before queuing')
     await h.click(confirm!)
     if (history) {
