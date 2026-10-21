@@ -39,7 +39,7 @@ export function TemplateDocumentsSetting() {
   return <SetGroup title="Organization templates"
     note="starting layouts for a new organization, in ~/.orgtree/templates">
     <SetRow label="restore default templates"
-      hint="Writes back the built-in templates (devteam (claude), devteam (codex), devteam (muse), devteam (antigravity)) missing from your templates folder, including ones you deleted. Files you already have are never changed.">
+      hint="Writes back the built-in templates (devteam (claude), devteam (codex), devteam (muse), devteam (antigravity), Heavy dev shop) missing from your templates folder, including ones you deleted. Files you already have are never changed.">
       <button onClick={run} disabled={busy}>
         {busy ? 'restoring…' : 'restore'}
       </button>
@@ -74,9 +74,11 @@ const GROUPS: { key: keyof TemplateInclude; label: string; hint?: string }[] = [
     hint: 'grant caps, new-agent defaults, compaction and resume; never folders, accounts or hubs' },
   { key: 'accounts', label: 'Account binding', hint: 'this computer only; used where it can run, otherwise picked automatically' },
   { key: 'folders', label: 'Folder scopes', hint: "this computer only; trimmed to the new organization's folders" },
+  { key: 'standing_notes', label: 'Scratch AGENTS.md files',
+    hint: 'off by default; copies shared, team/project and personal notes into this template file. Include only secret-free notes. 16,000 UTF-8 bytes per file, 128,000 total; recognizable credentials are refused, not a guarantee for arbitrary text.' },
 ]
 export const DEFAULT_INCLUDE: TemplateInclude = {
-  charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true, settings: true,
+  charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true, settings: true, standing_notes: false,
 }
 
 /** Hand the saved file to the browser's download, as documents are. */

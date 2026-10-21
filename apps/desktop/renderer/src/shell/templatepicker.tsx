@@ -111,10 +111,16 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
   const pick = (id: string) => onChange({ ...EMPTY_LAYOUT, id })
   const setSlot = (slot: string, v: { tier?: string; name?: string }) =>
     onChange({ ...choice, overrides: { ...choice.overrides, [slot]: { ...choice.overrides[slot], ...v } } })
+  const agentCount = (rows: { tier: string | null }[]) => rows.filter(a => a.tier !== 'project').length
+  const projectCount = (rows: { tier: string | null }[]) => rows.filter(a => a.tier === 'project').length
+  const layoutCount = (rows: { tier: string | null }[]) => {
+    const agents = agentCount(rows), projects = projectCount(rows)
+    return `${agents} agent${agents === 1 ? '' : 's'}${projects ? ` + ${projects} project${projects === 1 ? '' : 's'}` : ''}`
+  }
   const anyKickoff = plan?.agents.some((a) => a.kickoff) ?? false
   const currentPlan = plan?.id === choice.id ? plan : null
   const planUnusable = !!currentPlan && !currentPlan.loading &&
-    (currentPlan.unusable_here ?? (currentPlan.agents.length > 0 && currentPlan.agents.every(a => !a.tier)))
+    (currentPlan.unusable_here ?? (currentPlan.agents.length > 0 && currentPlan.agents.filter(a => a.requested_tier !== 'project').every(a => !a.tier)))
   return <div className="tp">
     <div className="field-label tp-label">
       <span>Starting layout</span>
@@ -143,7 +149,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
           onClick={() => t.id && pick(t.id)}>
           {!collapsed && <MiniTree t={t} />}
           <span className="tp-name">{t.name}</span>
-          {!collapsed && <span className="tp-count">{t.agents.length} agent{t.agents.length === 1 ? '' : 's'}</span>}
+          {!collapsed && <span className="tp-count">{layoutCount(t.agents)}</span>}
           {unavailable && <span className="tp-reason">{t.availability?.reason ?? 'models unavailable here'}</span>}
           {!collapsed && desc && <span className="tp-desc">{desc}</span>}
         </button>
@@ -158,7 +164,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
       {planUnusable && <div className="ask-warn tp-unusable-warning" role="alert">
         These agents can't be hired here unless you change their models. Choose available models below.</div>}
       <div className="tp-ph">
-        <span>{plan.agents.length} agent{plan.agents.length === 1 ? '' : 's'} will be hired under you</span>
+        <span>{layoutCount(plan.agents)} will be created under you</span>
         <span className="dim">grants add each agent's reports' seats</span>
       </div>
       <table>
@@ -166,23 +172,23 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
         <tbody>
           {plan.agents.map((a) => <tr key={a.slot} className={a.blocked && !plan.loading ? 'tp-blocked' : ''}>
             <td className="tp-nm">
-              {a.depth > 0 && <span className="tp-indent" aria-hidden="true">{'└'}</span>}
+              {a.depth > 0 && <span className="tp-indent" style={{ marginLeft: (a.depth - 1) * 12 }} aria-hidden="true">{'└'}</span>}
               <input value={choice.overrides[a.slot]?.name ?? a.name} aria-label={`name of ${a.slot}`}
                 onChange={(e) => setSlot(a.slot, { name: e.target.value })} />
             </td>
             <td>
-              <select value={a.tier ?? ''} aria-label={`tier of ${a.name}`} data-provider={a.provider ?? ''}
+              {a.requested_tier === 'project' ? <span className="tp-chip">project</span> : <select value={a.tier ?? ''} aria-label={`tier of ${a.name}`} data-provider={a.provider ?? ''}
                 onChange={(e) => setSlot(a.slot, { tier: e.target.value })}>
                 {!a.tier && <option value="" disabled>{plan.loading ? 'checking…' : 'needs a sign-in'}</option>}
                 {offered.map((o) => <option key={o.tier} value={o.tier}>{o.tier}</option>)}
-              </select>
+              </select>}
               {a.note && <div className={a.blocked && !plan.loading ? 'tp-bad' : 'tp-note'}>{a.note}</div>}
               {a.dirs_dropped.length > 0 && <div className="tp-note">
                 folders not in this organization: {a.dirs_dropped.join(', ')}</div>}
             </td>
             <td className="dim">{a.account === 'primary' ? `${SIGN_IN[a.provider ?? ''] ?? a.provider} sign-in` : a.account ?? '—'}</td>
             <td><span className="tp-chip">{a.charter}</span></td>
-            <td className="num">{a.tier ? (a.depth === 0 ? `${a.grant}` : `${a.seat} + ${a.grant}`) : '—'}</td>
+            <td className="num">{a.requested_tier === 'project' ? 'free' : a.tier ? (a.depth === 0 ? `${a.grant}` : `${a.seat} + ${a.grant}`) : '—'}</td>
             <td>{a.depth > 0 && <button type="button" className="tp-x" title={`Leave ${a.name} out`}
               aria-label={`leave ${a.name} out`}
               onClick={() => onChange({ ...choice, removed: [...choice.removed, a.slot] })}>✕</button>}</td>
@@ -192,6 +198,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
       <div className="tp-foot">
         <span>{choice.removed.length > 0 && <button type="button" className="tp-link"
           onClick={() => onChange({ ...choice, removed: [] })}>bring back {choice.removed.length} left out</button>}
+          {!!plan.standing_notes && <span className="dim"> · copies {plan.standing_notes} AGENTS.md files</span>}
           {plan.org_md && <span className="dim"> · writes the template's org.md</span>}</span>
         <span>Top-level grant <b>{plan.top_grant}</b></span>
       </div>
@@ -199,7 +206,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
     {choice.id && plan && plan.id === choice.id && anyKickoff && <label className="row org-check tp-kick">
       <input type="checkbox" checked={choice.kickoff}
         onChange={(e) => onChange({ ...choice, kickoff: e.target.checked })} />
-      Send the coordinator its first message now
+      Send the top-level agent its first message now
       <span className="dim"> · off: nobody spends anything until you write to them</span>
     </label>}
     {choice.id && plan?.loading && <div className="dim tp-checking" role="status">

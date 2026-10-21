@@ -229,8 +229,8 @@ export const createOrg = (
   name: string, dirs: string[],
   netAutoconnect = true, netHubs: string[] = [],
   template: TemplatePick | null = null,
-): Promise<{ slug: string; hired?: string[] }> =>
-  req<{ slug: string; hired?: string[] }>('/api/orgs', {
+): Promise<{ slug: string; hired?: string[]; standing_notes?: { created: number; existing: number; warnings: string[] } }> =>
+  req<{ slug: string; hired?: string[]; standing_notes?: { created: number; existing: number; warnings: string[] } }>('/api/orgs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -270,7 +270,7 @@ export interface TemplatePlanRow {
 }
 export interface TemplatePlan {
   id: string; name: string; agents: TemplatePlanRow[]; blocked: string[]
-  ok: boolean; top_grant: number; org_md: boolean
+  ok: boolean; top_grant: number; org_md: boolean; standing_notes?: number
   offered: { tier: string; seat: number; provider: string }[]
   /** the engine has not finished its first sign-in check: ask again shortly */
   loading?: boolean
@@ -283,6 +283,8 @@ export interface TemplateInclude {
   quick_chat: boolean
   /** the org-wide settings this org set itself, never its folders, accounts or hubs */
   settings: boolean
+  /** Opt-in bounded copies of shared, team and personal scratch AGENTS.md. */
+  standing_notes?: boolean
 }
 export interface SavedTemplate {
   id: string; file: string; path: string; content: string; agents: number; problems: string[]

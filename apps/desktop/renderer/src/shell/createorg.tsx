@@ -78,6 +78,7 @@ export function cancelCreationNatively(bridge = desktop()): void {
 }
 
 export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateOrgViewProps) {
+  const [createdWarning, setCreatedWarning] = useState<{ slug: string; warnings: string[] } | null>(null)
   const [name, setName] = useState('')
   const [dirs, setDirs] = useState<string[]>([])
   // F-06: local-hub auto-connect defaults ON (ruled); detection is a HINT
@@ -116,7 +117,7 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (busy) return
+    if (busy || createdWarning) return
     setBusy(true); setError(null)
     try {
       const template = layoutPick(layout, plan)
@@ -131,7 +132,9 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
       // terminal for this form whatever the binding then does
       published.current = false
       await desktop()?.setUnsavedCreation?.(false)?.catch?.(() => {})
-      await onCreated(made.slug)
+      if (made.standing_notes?.warnings.length) {
+        setCreatedWarning({ slug: made.slug, warnings: made.standing_notes.warnings })
+      } else await onCreated(made.slug)
     } catch (err) {
       // ⚠ NOTHING IS RESET HERE. An actionable error and every detail still
       // in place is the settled failure behaviour; a form that clears itself
@@ -140,6 +143,12 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
     } finally { setBusy(false) }
   }
 
+  if (createdWarning) return <div className="shell-page shell-create"><div className="shell-page-inner">
+    <h1 className="shell-page-title">Organization created</h1>
+    <div role="alert">Some standing-notes files could not be copied: {createdWarning.warnings.join('; ')}.
+      The organization exists; inspect its scratch notes before starting work.</div>
+    <button type="button" className="primary" onClick={() => { void onCreated(createdWarning.slug) }}>Open organization</button>
+  </div></div>
   return (
     <div className="shell-page shell-create">
       <form className="shell-page-inner" onSubmit={submit}>

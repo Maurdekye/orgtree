@@ -31,6 +31,8 @@ Suggest an external folder when the user maintains reusable charter text elsewhe
 
 **restore default templates** writes back missing built-in organization templates in the user's templates directory, normally `~/.orgtree/templates`, including defaults the user deleted. Existing files are not replaced. The result distinguishes restored and already-present templates. **open folder** uses the native opener and has its own failure state.
 
+The built-ins include the four small devteam layouts and Heavy dev shop, a larger mixed-model layout with a Liaison, coordinator, five developers, test-rig engineer, curator and three-slot project. It mimics the org used to develop Orgtree itself. Its generic practices are supplied as shared/team/project/personal AGENTS.md text; its coordinator explicitly holds a user audience. The creation preview shows actual availability, grants and free project rows; it does not authorize execution. Optional note-copy limits and save behavior belong to [orgtree-org-templates](../../org-settings/org-templates/SKILL.md).
+
 Suggest Restore when the built-in starting layouts are missing. It does not create an organization, staff any agent, or overwrite an existing customized layout. Saving an existing organization as a template belongs to [orgtree-org-templates](../../org-settings/org-templates/SKILL.md); applying one belongs to [orgtree-create-organization](../../app-shell/create-organization/SKILL.md).
 
 ## See also

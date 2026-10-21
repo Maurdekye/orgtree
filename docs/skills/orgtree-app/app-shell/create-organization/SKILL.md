@@ -17,6 +17,8 @@ For a template coordinator, Send coordinator its first message now controls the 
 
 Changing the name, folders, remote addresses, local-hub choice, or layout makes the form dirty. Closing then uses the native discard confirmation. Cancel returns a reused homepage to the homepage and closes a separately opened creation window. This is an unsaved form, not a durable draft after a crash.
 
+A template may include free project containers and optional shared/team/personal AGENTS.md copies. Project rows have no model selector or seat cost; the preview counts them separately. If copying a note fails after the org is committed, creation reports that the org exists and shows a warning plus Open organization, rather than encouraging a duplicate create. Inspect the notes before work. The field limits and Heavy dev shop layout are documented in [orgtree-org-templates](../../org-settings/org-templates/SKILL.md).
+
 ## See also
 
 - [orgtree-app-charters-and-templates](../../app-settings/app-charters-and-templates/SKILL.md)

@@ -5119,10 +5119,16 @@
    ],
    "purpose": "Basic > save as template: what a template includes.",
    "must_cover": [
-    "include options"
+    "include options",
+    "Heavy dev shop seats, coordinator user audience and generic inherited practices",
+    "project containers and transparent funding",
+    "opt-in shared/team/personal AGENTS.md copies, UTF-8/size/credential guards and create-new seeding warnings"
    ],
    "sources": [
-    "apps/desktop/renderer/src/canvas/templates.tsx:66-184"
+    "apps/desktop/renderer/src/canvas/templates.tsx:66-184",
+    "engine/docs/templates/heavy-dev-shop.json",
+    "engine/rs/orgtree-engine/src/domain/template_notes.rs",
+    "engine/rs/orgtree-engine/src/domain/templates.rs"
    ],
    "see_also": [
     "app-charters-and-templates",

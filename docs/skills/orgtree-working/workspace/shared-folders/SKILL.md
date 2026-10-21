@@ -18,6 +18,8 @@ Orgtree layers persistent working files and standing notes by their intended rea
 
 You hold your own team workspace and every ancestor team or project workspace, nearest first. This is upward workspace access, not permission to read an ancestor's personal scratch. A sibling's own team folder is not one you implicitly hold. Supervisors also reach the folders of projects below them. Team and project folders use stable node IDs, so a rename does not move them. A move changes the held set for the next CLI launch.
 
+Organization templates may optionally seed shared, team/project and personal AGENTS.md text into a new org before warm/kickoff effects, without overwriting existing files. Save as template captures these fixed files only when the user opts in; see orgtree-org-templates (orgtree-app › org-settings) for limits and credential checks.
+
 The engine creates shared folders and a header-only `AGENTS.md` when missing, including existing folders at startup or first use. It never overwrites an existing file, even an empty one. A writable seat may create, change and delete files there without a separate folder grant. A read-only seat can read them. Retiring a team root does not delete its workspace. Read the session's effective access rather than inferring write permission solely from a path appearing in a prompt.
 
 Your own scratch is your working folder; its writes also depend on your scope and tools. For native note loading and generated files, see [orgtree-scratch-folder](../scratch-folder/SKILL.md).
