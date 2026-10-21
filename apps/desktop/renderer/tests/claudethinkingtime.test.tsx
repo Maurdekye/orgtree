@@ -11,7 +11,7 @@ test('Claude persisted block clocks survive a serialized reload and stay collaps
   const v = await mountView(<Msg m={row} slug="synthetic" nid="agent" />, h => h)
   t.after(() => v.unmount())
   assert.deepEqual([...v.el.querySelectorAll('.thoughtline')].map(e => e.textContent?.trim()),
-    ['thought for 2m 05s', 'thought for 7s'])
+    ['thought for 2m 05s ▸', 'thought for 7s ▸'])
   assert.equal(v.el.querySelectorAll('.thoughtbody').length, 0)
 })
 

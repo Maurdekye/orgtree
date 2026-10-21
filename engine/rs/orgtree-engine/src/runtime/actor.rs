@@ -9296,4 +9296,29 @@ mod claude_thinking_time_tests {
         assert!(row["content_blocks"][0].get("think_secs").is_none());
         assert!(row.get("think_secs").is_none(),"partial timing must not be presented as the entire group");
     }
+
+    #[test]
+    fn reported_thinking_duration_wins_and_invalid_values_fall_back_to_measured_time() {
+        let at=Instant::now();
+        for (reported,expected) in [(json!({"duration_ms":42000}),42.0),
+            (json!({"think_secs":0}),0.0), (json!({"thinking_duration_ms":9000}),9.0),
+            (json!({"duration_ms":-1}),125.0), (json!({"duration_ms":"unknown"}),125.0)] {
+            let mut t=Turn::new(1,false);begin(&mut t,"m",at);start(&mut t,0,"thinking",at);
+            stop(&mut t,0,at+Duration::from_secs(125));
+            let mut block=json!({"type":"thinking","thinking":"Synthetic reasoning"});
+            block.as_object_mut().unwrap().extend(reported.as_object().unwrap().clone());
+            let mut row=json!({"role":"assistant","text":"","content_blocks":[]});
+            t.append_claude_thought(&mut row,&block,"m",at+Duration::from_secs(300));
+            assert_eq!(row["content_blocks"][0]["think_secs"],expected,"provider timing is authoritative only when numeric, finite and nonnegative");
+        }
+        let mut t=Turn::new(1,false);begin(&mut t,"m",at);
+        stream(&mut t,json!({"type":"content_block_start","index":0,"content_block":{"type":"thinking","duration_ms":17000}}),at);
+        stream(&mut t,json!({"type":"content_block_stop","index":0,"thinking_duration_ms":23000}),at+Duration::from_secs(125));
+        let mut row=json!({"role":"assistant","text":"","content_blocks":[]});
+        land(&mut t,&mut row,"m","thinking",at+Duration::from_secs(300));
+        assert_eq!(row["think_secs"],23.0,"stream block timing wins over computed time");
+        let mut history=json!({"role":"assistant","text":"","content_blocks":[]});
+        t.append_claude_thought(&mut history,&json!({"type":"redacted_thinking","duration_ms":8000}),"history",at);
+        assert_eq!(history["think_secs"],8.0,"a transmitted historical duration needs no fabricated start");
+    }
 }
