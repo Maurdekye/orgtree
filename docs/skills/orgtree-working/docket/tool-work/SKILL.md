@@ -84,7 +84,7 @@ Read rev before using a patch:
 
 The example assumes the actual item read at revision 7. Supplying a whole list and keep/append for that same list is refused. If a revision changed, read and reconcile before retrying. If a mutation timed out, re-read first: a lost response is not proof nothing was written.
 
-**Omitting owner on your update takes the item.** Reviewers/participants must pass the current holder when preserving ownership. Assignment mail starts the new owner and item-linked user replies normally go there. Plain assign retains backlog status; staffing through [staff](../tool-staff/SKILL.md) or hire/rehire work_item opens the staffed backlog. A backlog assignment is not permission to start it.
+**Omitting owner on your update takes the item.** Reviewers/participants must pass the current holder when preserving ownership. Assignment mail starts the new owner. Item-linked user replies default to the current manual-attention raiser when one exists, otherwise the owner; the user may choose another eligible recipient. Plain assign retains backlog status; staffing through [staff](../tool-staff/SKILL.md) or hire/rehire work_item opens the staffed backlog. A backlog assignment is not permission to start it.
 
 ## Statuses
 
@@ -105,7 +105,7 @@ New items may start backlogged through deploy_ready, including approved, but nev
 
 ## Questions and user attention
 
-Ask a question through [orgtree_ask](../../user/tool-ask/SKILL.md), linking work_item on the question/tab. Answer mail returns to the asker; ordinary item replies go to the owner. They can be different agents. An attached open question contributes attention separately from a manual flag. Withdraw a stale question through [withdraw ask](../../user/tool-withdraw-ask/SKILL.md); clearing a flag or marking done does not answer it.
+Ask a question through [orgtree_ask](../../user/tool-ask/SKILL.md), linking work_item on the question/tab. Answer mail returns to the asker. The item's separate Reply section offers the owner, participants and the current manual-attention raiser, defaulting to that raiser before the owner. A raiser who is also owner/participant keeps that existing role. Clearing the flag removes its extra recipient eligibility and restores the owner default. Sending to the raiser does not assign the item or grant docket access; the reply explicitly directs coordination with the owner. An attached open question contributes attention separately from a manual flag. Withdraw a stale question through [withdraw ask](../../user/tool-withdraw-ask/SKILL.md); clearing a flag or marking done does not answer it.
 
 Raise attention only for a concrete non-question the user needs to see or confirm: a decision beyond scope, specialized edge case, definition filled on their behalf, or blocker not already covered by a question. The reason says what was asked, what was built/decided, the exact deviation and the requested confirmation. "Ready for review", a test report or generic "please approve" does not say that. Routine completion matching the requested scope needs no new acceptance round.
 

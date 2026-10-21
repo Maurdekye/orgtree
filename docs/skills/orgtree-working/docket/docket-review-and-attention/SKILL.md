@@ -14,7 +14,7 @@ A useful attention reason contrasts the requested scope with the exact decision,
 
 Before ending a handoff, read current attention sources and linked questions. Retract your flag when it no longer matters; refine a standing reason with amendment rather than raising again. Respect a dismissal and require material new information before returning to it. Exact persistence, dismissal/reply behavior and parameter limits belong in [work's attention reference](../tool-work/SKILL.md#questions-and-user-attention).
 
-Keep the evidence and authoritative decision in the item itself. A cleared manual flag does not imply every question was answered, and an item-owner reply can reach a different agent from the original question's asker.
+Keep the evidence and authoritative decision in the item itself. While a manual flag stands, its raiser is an eligible item-reply recipient and the default before the owner. The user may instead select the owner or a participant. Clearing the flag removes that additional role; receiving the reply gives the raiser neither ownership nor docket access. A cleared manual flag does not imply every question was answered, and a selected item-reply recipient can differ from the original question's asker.
 
 ## See also
 
