@@ -9324,5 +9324,11 @@ mod claude_thinking_time_tests {
         let mut history=json!({"role":"assistant","text":"","content_blocks":[]});
         t.append_claude_thought(&mut history,&json!({"type":"redacted_thinking","duration_ms":8000}),"history",at);
         assert_eq!(history["think_secs"],8.0,"a transmitted historical duration needs no fabricated start");
+        begin(&mut t,"next",at);start(&mut t,0,"thinking",at);
+        stop(&mut t,0,at+Duration::from_secs(3));
+        stream(&mut t,json!({"type":"result","duration_ms":999000}),at+Duration::from_secs(4));
+        let mut next=json!({"role":"assistant","text":"","content_blocks":[]});
+        land(&mut t,&mut next,"next","thinking",at+Duration::from_secs(5));
+        assert_eq!(next["think_secs"],3.0,"whole-turn runtime is never a thinking clock");
     }
 }
