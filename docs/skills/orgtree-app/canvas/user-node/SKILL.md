@@ -31,4 +31,9 @@ These are human controls. They do not extend an agent's downward authority or tu
 
 ## See also
 
+The org's root retired-list badge stays visible below the YOU card. Hovering
+the card draws its hire controls above that badge, so overlapping provider
+buttons remain clickable. Agent and project retired badges stay in their
+card headers. See [piles](../piles/SKILL.md).
+
 - [orgtree-confirm-dialogs](../../app-shell/confirm-dialogs/SKILL.md)

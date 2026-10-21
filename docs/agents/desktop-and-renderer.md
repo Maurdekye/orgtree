@@ -1,5 +1,15 @@
 # Desktop and renderer
 
+## Root retired-list stacking
+
+The external root retired-list satellite uses layer 2: above resting cards
+(1), below the focused eye (5) and its hover raise (6). Do not reuse the old
+inset-bunch layer 7: it covers the eye's provider hire rows. Agent/project
+retired badges live in their header flow. This restores the root relationship
+in `571c0b8`, regressed by the global layer increase in `50ca4f3` and retained
+for the root by `0235610`. [decided: user 2026-10-21 22:11Z; verified:
+`canvas/OrgCanvas.tsx`, `tests/rootretiredhire{.test.tsx,-capture.cjs}`]
+
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
 Canvas, desks, links, menus, windows, geometry, rendering and visual behavior.

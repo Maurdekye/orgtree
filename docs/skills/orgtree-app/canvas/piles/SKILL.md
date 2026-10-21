@@ -21,6 +21,10 @@ Dragging a retired stack's front can reorder its members as a block; ordinary [c
 
 ## Project bunches
 
+Agent and project retired-list badges use their header flow. The org's root
+retired-list badge sits below the YOU card, above resting cards but below its
+active hire controls; the badge cannot cover or intercept those hire buttons.
+
 Project bunching is separate from crowd stacks and retired piles. With Bunch consecutive projects enabled (the default), an uninterrupted chain of projects is packed in a compact, ordered, round serpentine group. Hidden retired branches do not break a live chain; archived columns can bunch too. Each project remains its own node, desk and menu. The optional rearrange-on-drag setting is off by default: turn it on to rotate the bunch around the grabbed project while dragging; ordinary structural drop validation still applies. These choices live in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).
 
 Retired project fronts retain their folder identity and can open the same retired-pile picker as agent fronts. Opening the owner's desk hides the card's inset retired token; the desk keeps its own retired-list access.
