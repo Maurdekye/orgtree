@@ -95,6 +95,11 @@ function ui(name: string, run: (rig: Rig) => Promise<void>) {
     Object.defineProperty(navigator, 'clipboard', { configurable: true,
       value: { writeText: (text: string) => { writes.push(text); return Promise.resolve() } } })
     const server = new FakeServer(); installFetch(server)
+    const serverFetch = globalThis.fetch
+    globalThis.fetch = ((url, init) => String(url).endsWith('/quick-staff')
+      ? Promise.resolve(new Response(JSON.stringify({ mode: 'request', configured_mode: 'request',
+        owner: {}, fallback: false, disclosure: '', models: [] })))
+      : serverFetch(url, init)) as typeof fetch
     const views: { unmount: () => Promise<void> }[] = []
     try {
       await run({ server, writes, feedback, mount: async node => {
@@ -310,7 +315,7 @@ for (const scope of ['org', 'agent']) {
     assert.equal(rows.length, 4, 'all four ticket variants rendered')
     for (const row of rows) {
       const selectedOnOpen = row.classList.contains('on')
-      assert.equal(selectedOnOpen, scope === 'org' && row === rows[0])
+      assert.equal(selectedOnOpen, row === rows[0], 'every docket opens its first shown ticket')
       const expected = items.find(it => it.slug === row.querySelector('.docket-rowname')?.textContent)!.title
       await copy(row, 'Copy ticket title')
       assert.equal(writes.at(-1), expected)

@@ -5,6 +5,7 @@
 // nothing and `sanitize` is not a function.
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import { compatibilityWorkFixture } from './workcompat.fixture'
+import { selectDocketRow } from './docketselection.fixture'
 import { AGENT_SHORTCUTS_KEY, setAgentShortcutsOn } from '../src/canvas/shared'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -36,7 +37,9 @@ test('overview Docket opens the selected agent, archive toggle and details reuse
  assert.equal(archive.checked, true)
  assert.equal(team.checked, false, 'archive toggle does not broaden ownership to descendants')
  assert.match(panel().textContent??'',/alpha-archive/)
- await click([...panel().querySelectorAll('.docket-row')].find(e=>e.textContent?.includes('alpha-task'))??null)
+ const active = [...panel().querySelectorAll('.docket-row')].find(e=>e.textContent?.includes('alpha-task'))
+ assert.equal(active?.classList.contains('on'), true, 'opening selects the agent ticket')
+ await selectDocketRow(active)
  assert.match(panel().textContent??'',/Test objective/)
  await inAct(()=>{document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}))}); await flush()
  assert.equal(document.querySelector('.docket-agent') === null,true)

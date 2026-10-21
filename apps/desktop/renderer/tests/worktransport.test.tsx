@@ -97,9 +97,9 @@ for (const kind of ['docket', 'agent', 'team', 'desk'] as const) test(`${kind} u
   await settle()
   assert.ok(f.calls.some(p => p.includes('/work-items-page?') && p.includes('group=items')), 'the open group is read as a page')
   assert.ok(!f.calls.some(p => p.includes('group=archived') || p.includes('group=backlogged')), 'closed groups are not requested')
-  if (kind === 'docket') {
+  if (kind !== 'desk') {
     assert.equal(m.el.querySelector('.docket-row.on .docket-rowname')?.textContent, 'active',
-      'the org docket auto-selects its first row')
+      'every opened docket auto-selects its first shown row')
     assert.equal(f.calls.filter(p => p.endsWith('/work-items/active')).length, 1,
       'opening hydrates only its selected item')
   } else assert.ok(!f.calls.some(p => /\/work-items\/[^/]+$/.test(p)))

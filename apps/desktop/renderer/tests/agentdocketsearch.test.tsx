@@ -51,7 +51,10 @@ test('the agent docket has the work docket search box; typing narrows, clearing 
   assert.match(titles()[0]!, /fix-login/, 'the archived "login" ticket is not reached')
   assert.match(view.el.querySelector('.docket-search-count')?.textContent ?? '', /1 of 2 match/)
   await type(box!, 'zzz')
-  assert.ok(view.el.querySelector('.docket-nomatch'))
+  assert.equal(titles().length, 0, 'no rows match the search')
+  assert.match(view.el.querySelector('.docket-search-count')?.textContent ?? '', /0 of 2 match/)
+  assert.equal(view.el.querySelector('.docket-pane-head b')?.textContent, 'Fix login',
+    'filtering the list keeps the ticket selected on opening in its reader')
   await inAct(async () => { view.el.querySelector<HTMLElement>('.docket-search-clear')!.click() })
   assert.equal(titles().length, 2, 'clearing restores the full list')
 })

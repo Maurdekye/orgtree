@@ -73,6 +73,7 @@
 // Run:  cd frontend && node tests/run.mjs progress
 
 import './harness'
+import { selectDocketRow } from './docketselection.fixture'
 import { advance, FakeServer, flush, installFetch, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -591,8 +592,10 @@ test('§4 DeskChat: the docket tab is the agent\'s OWN DOCKET, and the chip coun
   // identity, so reading the column's text would compare 'Sagent'
   assert.equal(panel!.querySelector('.mailrow.docket-row .l2 .docket-actor-name')?.textContent,
     'agent')
-  // and selecting one opens the docket's own detail pane
-  await act(async () => { (panel!.querySelector('.mailrow.docket-row') as HTMLElement).click() })
+    // Opening already selects the first ticket. A detail assertion must not
+    // click it again, which is the explicit close-selection action.
+    assert.equal(panel!.querySelector('.mailrow.docket-row')?.classList.contains('on'), true)
+    await selectDocketRow(panel!.querySelector('.mailrow.docket-row'))
   assert.match(view.el.querySelector('.docket-agent .mailer-read')?.textContent ?? '',
     /DONE SO FAR/)
   // the tab strip is the other way in

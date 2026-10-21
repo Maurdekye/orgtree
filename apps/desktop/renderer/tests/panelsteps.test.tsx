@@ -2,6 +2,7 @@
 // preservation on actual gallery/docket surfaces. No engine or live sends.
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import { compatibilityWorkFixture } from './workcompat.fixture'
+import { clearDocketSelection } from './docketselection.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -138,6 +139,9 @@ async function fixture(t: TestContext, surface: Surface, options: {
     } else await inAct(() => current.click())
     await flush(6)
   }
+  // Every docket now selects its first shown ticket on open. Establish an
+  // intentional empty reader before testing navigation from that state.
+  if (options.blank && surface === 'agent-work') await clearDocketSelection(root)
   if (!options.blank && !options.opening) await pick(name(rows()[0]!))
   scrolled.length = 0
   const refresh = () => view.render(portalHost ? createPortal(cloneElement(body), portalHost) : cloneElement(body))
@@ -147,7 +151,7 @@ async function fixture(t: TestContext, surface: Surface, options: {
 for (const surface of surfaces) {
   for (const key of ['ArrowDown', 'ArrowUp']) test(`${surface}: opening routes ${key} from actual focus without a row click`, async t => {
     const f = await fixture(t, surface, { opening: true })
-    const initial = surface === 'agent-work' ? null : 'alpha'
+    const initial = 'alpha'
     assert.equal(f.selected(), initial, 'opening selection is unchanged, without fixture clicks')
     const doc = f.root.ownerDocument
     const event = await press((doc.activeElement ?? doc.body) as HTMLElement, key)
@@ -175,7 +179,7 @@ for (const surface of ['agent-docs', 'agent-work'] as const) test(`${surface}: o
   const doc = f.root.ownerDocument
   assert.equal(doc === document, false)
   const event = await press((doc.activeElement ?? doc.body) as HTMLElement, 'ArrowDown')
-  assert.equal(f.selected(), surface === 'agent-docs' ? 'beta' : 'alpha')
+  assert.equal(f.selected(), 'beta')
   assert.equal(event.defaultPrevented, true)
   assert.equal(f.root.contains(doc.activeElement), true)
 })

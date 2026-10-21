@@ -11,6 +11,8 @@ export const node = (id: string, extra = {}): TreeNode => ({ id, title: id, tier
 export const item = (slug: string, owner: string, extra = {}): WorkItem => ({ slug, title: slug,
   rev: 1, status: 'open', owner: { node: owner, generation: 1 }, owner_current: true,
   owner_state: 'live', at: '2026-10-20T08:00:00Z', updated_at: '2026-10-20T08:00:00Z',
+  kind: 'code', objective: slug, archived: false, manual_attention: null,
+  attention_sources: [], effective_attention: false, dependencies: [], evidence: [], acceptance: [], dismissals: [],
   done_so_far: [], working_on_next: [], participants: [], questions: [], history: [], ...extra } as WorkItem)
 export function tree(included: string[] = [], project = false, missing = false): TreePayload {
   return { slug: 'membership-test', name: 'Synthetic org', tiers: { sol: 2 }, asks: [],

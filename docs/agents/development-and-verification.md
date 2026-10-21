@@ -8,6 +8,15 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- Docket detail tests must account for first-shown-ticket opening on org,
+  agent, team and project surfaces (USER 2026-10-21 16:50:46Z, PLAN §10).
+  Use `selectDocketRow` for idempotent detail setup and deliberately clear the
+  opening selection before testing navigation from an empty reader. Searches
+  filter the list while retaining its selected reader. Work fixtures must
+  include required detail fields such as `attention_sources`; auto-selection
+  exposes incomplete mocks immediately. See `docketselection.fixture.ts`.
+  [verified: renderer docket/keyboard/membership suites; 2026-10-21]
+
 Relocated from team standing notes on 2026-10-21. The dates below identify the
 original observations; relocation is not a fresh test run. Current assignment,
 verification phase and build-project permits still govern what may be run.
