@@ -19,6 +19,12 @@ The retired-pile picker also offers Delete all when the human action is availabl
 
 Dragging a retired stack's front can reorder its members as a block; ordinary [canvas](../org-canvas/SKILL.md) drag and engine validation still apply. For the crowd/hide-retired display choices and their defaults, see [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md). For capacity effects of retirement, see `orgtree-tool-retire` (orgtree-working › team); stacking alone frees no seat.
 
+## Project bunches
+
+Project bunching is separate from crowd stacks and retired piles. With Bunch consecutive projects enabled (the default), an uninterrupted chain of projects is packed in a compact, ordered, round serpentine group. Hidden retired branches do not break a live chain; archived columns can bunch too. Each project remains its own node, desk and menu. The optional rearrange-on-drag setting is off by default: turn it on to rotate the bunch around the grabbed project while dragging; ordinary structural drop validation still applies. These choices live in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).
+
+Retired project fronts retain their folder identity and can open the same retired-pile picker as agent fronts. Opening the owner's desk hides the card's inset retired token; the desk keeps its own retired-list access.
+
 ## See also
 
 - [orgtree-app-display-desk-and-chart](../../app-settings/app-display-desk-and-chart/SKILL.md)

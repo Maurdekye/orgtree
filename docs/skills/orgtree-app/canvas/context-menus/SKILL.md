@@ -6,6 +6,12 @@ Up: [orgtree-canvas](../SKILL.md)
 
 # Context menus
 
+## Shared object links
+
+Links to the same kind of object use the same context menu and hover information across canvas cards, Chat and tool references, Mail, Docket, Presented, lists, and pinned or separate windows. Owner, Presenter, Project and Sender submenus use that object's shared identity actions too. Right-click the specific link for its object menu; right-click the surrounding row for the row's menu. A missing object or unavailable route can limit actions; reaching a menu grants no extra authority. The name-visible, icon-only and far-zoom tooltip rules are described under [agent-card identity](../agent-card/SKILL.md#identity-tooltips).
+
+Document and docket links show their full current title on hover. File links show the full path and share file actions such as opening or revealing the parent folder when the host supports them. Mail references identify the exact mailbox message; Sender opens the sender's identity submenu. The @user chip identifies the user's inbox, rather than an agent: its menu offers Open inbox, Copy mention and, inside a live desk composer, Mention.
+
 In every context menu that offers an **Open** submenu, it is the second action,
 including nested node menus. The first action and the relative order of the
 remaining actions stay the same. This also applies when Mention is first inside

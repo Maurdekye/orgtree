@@ -29,11 +29,23 @@ At ordinary overview zoom, a card has identity, state and shortcut rows. Its tie
 
 Process readiness and provider-cache indicators on the opened desk are separate from the card's occupancy wheel; see [agent desk](../../desk/agent-desk/SKILL.md). A parked process is not proof of a provider cache hit. Session behavior belongs to `orgtree-turns-and-wakes` (orgtree-working › runtime), and usage interruption to `orgtree-usage-freezes` (orgtree-working › accounts).
 
-The credit bar beside the card distinguishes seat, allocated grant, held segments and free room. Its tooltip/readout gives the values. On desktop an editable bar can stage and commit a grant change on release, with a lower bound covering held reports; cancellation abandons it. Touch uses a read-only gauge rather than precision reallocation dragging. For staffing arithmetic see `orgtree-credits` (orgtree-working › team).
+The credit bar beside the card distinguishes seat, allocated grant, held segments and free room. Its tooltip/readout gives the values. An editable bar can stage and commit a grant change on release, with a lower bound covering held reports; cancellation abandons it. Project containers contribute no seat of their own: held-report segments pass through them to their live agent descendants. The current app does not switch to a separate mobile gauge merely because the window is narrow. For staffing arithmetic see `orgtree-credits` (orgtree-working › team).
 
 Hover shortcuts can open docket, mail, pinned desk, settings, presented documents and, while the agent has a live report, its Team. The retirement shortcut becomes a whole-team dissolution confirmation for a manager. Use [context menus](../context-menus/SKILL.md) for the complete state-gated action list. Unread mail count is mail state, not a request to acknowledge every notice.
 
 At far zoom the card becomes a tier/state locator; shortcut hit targets are removed. Selecting it navigates to the agent. At desk zoom the desk's own header replaces the overview chrome, and a desk already hosted elsewhere can show a placeholder. See [pinned windows](../pinned-windows/SKILL.md) and [agent desk](../../desk/agent-desk/SKILL.md) for those surfaces.
+
+## Identity tooltips
+
+Agent identity hovers use the native tooltip: catalog model/version, effort and, when that provider has multiple configured accounts, the bound account or default. Missing values and queued model changes are omitted. Draft effort reads (not started); retired identities retain the last model with a retired marker. A visible name is not repeated in the tooltip; an icon-only link or identity-less Owner/Presenter menu label puts the name first. Far-zoom cards instead reveal the name in a floating label and omit it from the native tooltip, for projects as well as agents.
+
+Project identities use the same hover everywhere, including the whole closed card: Project/retired state, configured slots held/total and waiting line, event listeners and watch thresholds/counts, mail queue listeners/waiting/in-flight counts, then a short Summary gist when present. These are the live facts used by its header badges, not a separate snapshot. Projects use a folder mark and have no model/account tooltip. The same three name rules apply.
+
+## Card fit and retired entries
+
+At overview zoom, the complete face of an agent or project card shrinks uniformly when needed to fit its fixed bounds. Text, badges and icons shrink together; the card does not expand or cut off its lower controls. This does not change an opened desk or far-zoom locator.
+
+A retired-count badge on an agent or project card opens the shared retired list. Its own right-click menu offers Open retired list rather than the containing agent/project menu. The same badge is available among a desk's report jump controls when retired reports are hidden. Selecting an entry reveals/navigates to that retained identity; it does not restore or rehire it. See [piles](../piles/SKILL.md).
 
 ## See also
 
