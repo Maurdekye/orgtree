@@ -22,6 +22,10 @@ use crate::http::orgs::org;
 pub async fn inbox(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q):Query<InboxQuery>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
+    if let Some(ids) = q.ids.as_deref() {
+        if q.before.is_some() { return Err(ApiError::bad_request("mail refresh ids cannot be combined with a cursor")); }
+        return Ok(Json(crate::domain::mail_history::selected_page(&client,o.id,None,q.folder.as_deref().unwrap_or("inbox"),ids).await?));
+    }
     if let Some(folder) = q.folder.as_deref() {
         return Ok(Json(crate::domain::mail_history::user_page(&client,o.id,folder,q.before).await?));
     }
@@ -39,6 +43,7 @@ pub async fn inbox(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query
 #[derive(Deserialize, Debug)]
 pub struct InboxQuery {
     folder:Option<String>,
+    ids:Option<String>,
     tag:Option<String>, before:Option<i64>, tags_only:Option<bool>, prefix:Option<String>, after:Option<String>,
 }
 

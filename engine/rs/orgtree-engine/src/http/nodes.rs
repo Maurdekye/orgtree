@@ -1416,6 +1416,10 @@ pub async fn inbox(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
     let client = e.db.get().await?;
+    if let Some(ids) = q.ids.as_deref() {
+        if q.before.is_some() { return Err(ApiError::bad_request("mail refresh ids cannot be combined with a cursor")); }
+        return Ok(Json(crate::domain::mail_history::selected_page(&client,org.id,Some(a.id),q.folder.as_deref().unwrap_or("inbox"),ids).await?));
+    }
     if let Some(folder) = q.folder.as_deref() {
         return Ok(Json(crate::domain::mail_history::agent_page(&client,org.id,a.id,folder,q.before).await?));
     }
@@ -1435,7 +1439,7 @@ pub async fn inbox(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String
 }
 
 #[derive(serde::Deserialize, Debug, Default)]
-pub struct MailPageQuery { folder: Option<String>, before: Option<i64> }
+pub struct MailPageQuery { folder: Option<String>, before: Option<i64>, ids: Option<String> }
 
 #[derive(serde::Deserialize, Debug, Default)]
 pub struct ToolImgQuery {

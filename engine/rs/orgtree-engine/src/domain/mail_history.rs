@@ -19,6 +19,30 @@ pub fn sent_folder(folder: &str) -> Result<bool> {
     }
 }
 
+/// Refresh only identities already retained by a reader. Explicit coverage
+/// distinguishes missing rows from an older engine ignoring the `ids` query.
+#[nolog]
+pub async fn selected_page(client: &Client, org: i64, agent: Option<i64>, folder: &str, ids: &str) -> Result<Value> {
+    let ids: Vec<String> = serde_json::from_str(ids).map_err(|_| crate::domain::UserError::BadRequest("mail ids must be a JSON string array".into()))?;
+    if ids.is_empty() || ids.len() > 200 || ids.iter().any(|id| id.is_empty()) {
+        crate::refuse!(BadRequest, "refresh 1 to 200 mail ids at a time");
+    }
+    let sent = sent_folder(folder)?;
+    let (user, node) = if sent { ("m.sender='@user'", "m.sender_agent_id=$3") }
+        else { ("m.recipient_kind='user' AND m.state IN ('pending','read')",
+                "m.recipient_agent_id=$3 AND m.recipient_kind='agent' AND m.state IN ('pending','delivering','delivered','read','retracted')") };
+    let sql = format!("SELECT m.id,to_jsonb(m)||jsonb_build_object('tags',ot.mail_tag_labels(m.id)) FROM ot.mail m
+        WHERE m.org_id=$1 AND m.uid=ANY($2) AND CASE WHEN $3::bigint IS NULL THEN {user} ELSE {node} END
+        AND ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
+          AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL)
+          OR NOT EXISTS (SELECT 1 FROM ot.orgs o WHERE o.id=m.org_id AND o.settings->'org_inbox_enabled'='false'::jsonb))
+        ORDER BY m.id DESC LIMIT 200");
+    let rows = client.query(&sql, &[&org, &ids, &agent]).await?;
+    let mut page = project(rows, sent, 200);
+    page["refreshed_ids"] = json!(ids);
+    Ok(page)
+}
+
 /// Seek the existing mail_user_box/mail_user_sent indexes. One lookahead row
 /// says whether there is another page; neither OFFSET nor a total is needed.
 #[nolog]

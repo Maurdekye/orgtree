@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { getMailHistory } from './api'
+import { getMailHistory, refreshMailHistory } from './api'
 import type { InboxPayload, MailEntry, SentMailEntry } from './types'
 
 const empty = (): InboxPayload => ({ pending: [], delivered: [], sent: [] })
@@ -39,8 +39,8 @@ function merge(a: InboxPayload, b: InboxPayload): InboxPayload {
     delivered: [...incoming.values()].filter(m => !m.pending).map(m => m.mail), sent: [...sent.values()] }
 }
 
-/** One bounded page on open/change/scroll, never an unbounded history refresh.
- * Keep older pages when the live head changes; invalidate old identity responses. */
+/** Bounded history pages plus exact retained-ID refresh on mail changes.
+ * Never infer deletion from absence in a head page or accept old identity responses. */
 export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | undefined, folder: string, visible: boolean, refresh: unknown = 0, node?: string) {
   const base = useMemo(() => rawBase == null ? rawBase : mailbox(rawBase), [rawBase])
   const identity = JSON.stringify([slug, node ?? null, folder])
@@ -54,10 +54,30 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
     if (busy.current || (folder !== 'inbox' && folder !== 'sent')) return
     busy.current = true; retryCursor.current = before
     setState(old => ({ ...(old.identity === identity ? old : { ...current }), identity, loading: true, error: null }))
-    void getMailHistory(slug, folder, before, node).then(value => {
+    const retained = latest.current.identity === identity ? latest.current.box : empty()
+    void getMailHistory(slug, folder, before, node).then(async value => {
       if (generation.current !== request) return
       const page = historyPage(value)
-      setState(old => ({ ...old, identity, box: merge(old.identity === identity ? old.box : empty(), page),
+      let box = merge(retained, page)
+      if (!before) {
+        const fresh = new Set(folders.flatMap(field => page[field].map(m => m.id)))
+        const ids = [...new Set(folders.flatMap(field => retained[field].map(m => m.id)))].filter(id => !fresh.has(id))
+        // Refresh only loaded identities, 200 per indexed read. Complete all
+        // batches before replacing state; failure cannot masquerade as deletion.
+        let refreshed = empty()
+        for (let offset = 0; offset < ids.length; offset += 200) {
+          const batch = ids.slice(offset, offset + 200)
+          const result = await refreshMailHistory(slug, folder, batch, node)
+          if (generation.current !== request) return
+          const rows = historyPage(result)
+          if (!Array.isArray(result?.refreshed_ids) || result.refreshed_ids.length !== batch.length
+            || batch.some(id => !result.refreshed_ids!.includes(id))
+            || folders.some(field => rows[field].some(m => !batch.includes(m.id)))) throw Error('Invalid mail refresh coverage')
+          refreshed = merge(refreshed, rows)
+        }
+        box = merge(refreshed, page)
+      }
+      setState(old => ({ ...old, identity, box,
         cursor: !before && old.identity === identity && old.paged ? old.cursor : page.next_cursor ?? null,
         paged: !!before || old.paged, ready: true, loading: false, error: null }))
     }).catch((e: Error) => {
