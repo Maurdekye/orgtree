@@ -282,6 +282,13 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Charter presets (user 2026-10-21 18:33Z/18:36Z, 4.4.0): Liaison is the sixth
+bundled role, for user conversation and decision memory above a large org's
+existing coordinator. Execution/staffing remain with the coordinator.
+Preset introductions describe selection/capabilities without manual-copy
+instructions; whole-file insertion and local override behavior stay intact.
+See [charters](../skills/orgtree-working/team/charters/SKILL.md).
+
 Docket opening (user 2026-10-21 16:50:46Z): every org, agent, team and project
 docket surface selects the first shown ticket on open/initial load, unless a
 specific ticket link supplies the target. This replaces the org-only active-row

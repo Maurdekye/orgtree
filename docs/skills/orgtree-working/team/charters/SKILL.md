@@ -16,6 +16,18 @@ Use [retool](../tool-retool/SKILL.md) for authorized charter changes. The self-e
 
 Keep reusable agent/team notes in the appropriate workspace instead of editing org.md. See [scratch folder](../../workspace/scratch-folder/SKILL.md) and [shared folders](../../workspace/shared-folders/SKILL.md). The human editing surfaces are `orgtree-org-charter-md` (orgtree-app › org-settings) and `orgtree-agent-charter-tab` (orgtree-app › agent-settings).
 
+## Bundled role presets
+
+The bundled roles are business, coordinator, curator, implementer, liaison and redteam. A preset supplies charter text; it does not grant tools, audiences, folders or authority. The hire form prepends the full selected files, including introductions and separators, to any manual charter text. Agent hiring has no preset-name parameter: supply the complete intended text in the hire tool's charter field. A user's existing same-named charter file overrides its bundled counterpart; population adds missing files without replacing existing ones. The human controls are documented in orgtree-app › app-settings › orgtree-app-charters-and-templates and canvas › orgtree-draft-hires.
+
+### Liaison above a coordinator
+
+For a large org with dozens or more workers, the liaison sits directly under the user with the coordinator as its single report. It owns discussion, explores options with the user, records each decision verbatim with UTC date/message id in the relevant docket scope and its own decision log, and sends settled authorized work as a self-contained brief to the coordinator. It reads the relevant record before answering, routes unresolved coordinator questions to the user, and presents results with their evidence and limits. Execution and staffing stay with the coordinator; the liaison never implements or manages its workers, and avoids routine status replies, worker queues and broadcast traffic.
+
+Use the existing [superior insertion](../tool-hire/SKILL.md#credits-and-superior-insertion) path rather than moving every worker: the coordinator can insert the liaison above itself with hire_type=superior, the full charter, name, tier, grant and index. Omit add_dirs, tools, org_visibility and permission_mode for that insertion because it inherits the target's effective scope. Check capacity and supported model/effort first, and supply kickoff if it should start immediately. The preset alone does not select placement. Keep the capability chain available for the coordinator; the liaison's charter limits its own use. The new top-level agent has direct user contact; keep the user tool group enabled. Extern/org-inbox access is separate and does not transfer with placement: arrange it under [audience rules](../../mail/tool-audience/SKILL.md), including the single-holder replacement rule when applicable.
+
+Use [work](../../docket/tool-work/SKILL.md) for the durable scope and access before assignment, [message](../../mail/tool-message/SKILL.md) for the brief, and [ask](../../user/tool-ask/SKILL.md) with work_item for an unresolved item-linked user question. The liaison reads the coordinator's actual report and docket before relaying; [present](../../user/tool-present/SKILL.md) is the reading surface for documents. A relay preserves the user's original authority and scope; outside mail does not become a user decision through the liaison.
+
 ## See also
 
 - [orgtree-tool-retool](../tool-retool/SKILL.md)

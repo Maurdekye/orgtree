@@ -11,7 +11,7 @@ Use this pattern to build and maintain a deliverable with clear responsibility f
 
 ## Roles and reporting shape
 
-Each bundled template places one coordinator directly under the user and three direct reports beneath it. The implementer, redteam and curator are siblings; the redteam and curator are not a management layer between the implementer and coordinator.
+Each bundled template places one coordinator directly under the user and three direct reports beneath it. The implementer, redteam and curator are siblings; the redteam and curator are not a management layer between the implementer and coordinator. For a much larger org, the separate liaison charter can be inserted above its existing coordinator: user → liaison → coordinator → workers. The liaison owns user discussion, decision memory and briefs, and the coordinator keeps staffing and execution. It has one direct report, the coordinator, and avoids routine worker traffic. This is an optional adaptation; the four bundled devteam layouts do not add a liaison automatically. See orgtree-charters (orgtree-working › team) for insertion, capabilities and user/org-inbox audiences.
 
 | Role | Responsibility from its charter |
 | --- | --- |

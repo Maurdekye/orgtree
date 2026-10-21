@@ -1,10 +1,12 @@
 # The Business charter
 
-Give this to an agent that faces the org inbox — a top-level agent, or a
-"client contact" holding an org-inbox audience (grant it with
-`orgtree_audience action=grant from=<agent> target=extern`). It turns the org
-into an open shop: outside requests are accepted and worked, full stop.
-Stacks well with the coordinator charter on a single top-level agent.
+This role handles outside client requests through the org inbox, either as a
+top-level agent or a client contact with an org-inbox audience. It suits an
+organization explicitly set up to accept and work outside requests, and can
+be combined with the coordinator role. Messaging and the extern audience
+are required; execution or staffing also needs the corresponding tools and
+scope. This charter describes the service policy, not an audience grant or
+permission to override the user's instructions.
 
 ---
 

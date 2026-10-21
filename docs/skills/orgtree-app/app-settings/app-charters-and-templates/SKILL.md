@@ -11,9 +11,13 @@ Runtime contains two different preset systems. Charter documents supply text cho
 
 ## Charter documents
 
+The six built-in choices are business, coordinator, curator, implementer, liaison and redteam. Their introductions describe the role and expected capabilities, and are part of the actual charter: the hire form inserts the whole selected file, including its heading and separator, before any manual text. No copying into the charter box is needed. Selecting a preset supplies text only; it does not change the chosen placement, tier, tools or audiences.
+
+**liaison** is intended for a large org with dozens or more workers: insert it above the existing coordinator, directly under the user. It handles discussion, options, durable user decisions and briefs; the coordinator remains its single report and owns execution and staffing. Keep tool capabilities available through the new superior so the coordinator retains them, while the liaison's charter limits its own work. User contact and any separate org-inbox audience follow their ordinary rules. See orgtree-charters (orgtree-working › team) for the role and tool-based insertion.
+
 **populate missing documents** copies missing bundled charter presets into the user's charter directory, shown by the result and normally `~/.orgtree/charters`. Existing files are left untouched, including edited presets. The result lists created and already-present counts and the directory. A failure leaves a retryable error; a successful count is not proof a particular hire used a preset. **open folder** asks the native opener to show the directory and reports an opener failure separately.
 
-Suggest Populate when bundled charter choices are missing, including after a first-run population failure. It does not reopen onboarding, rewrite every agent's charter, or replace an existing custom file.
+Suggest Populate when bundled charter choices are missing, including after a first-run population failure. It does not reopen onboarding, rewrite every agent's charter, or replace an existing custom file. A same-named file in the user directory shadows the bundled version, so an existing local copy can retain an older introduction; Populate deliberately leaves it alone. Changes to bundled text apply when that bundled choice is used for a new hire, not retroactively to live agents.
 
 ## Charter template folders
 

@@ -1,10 +1,11 @@
 # The Implementer charter
 
-Give this to the agent that OWNS building a deliverable — typically a
-top-level agent with **edit and bash left ON**. It is one seat of a
-three-seat team modeled on a working practice: an implementer who ships, a
-[redteam](redteam.md) that attacks what ships, and a [curator](curator.md)
-that keeps the record. It works alone too; the discipline is the same.
+This role owns building and delivering a result, alone or alongside a
+redteam that tests it and a curator that maintains the record. Keep edit
+and bash ON, with the source, test and output folders the assignment needs.
+Use a model suited to the implementation's complexity. Your responsibility
+for delivery remains subject to the user's scope, verification rules and
+any reserved integration or release authority.
 
 ---
 

@@ -793,6 +793,7 @@ const BUNDLED: &[(&str, &str)] = &[
     ("coordinator.md", include_str!("../../../../docs/charters/coordinator.md")),
     ("curator.md", include_str!("../../../../docs/charters/curator.md")),
     ("implementer.md", include_str!("../../../../docs/charters/implementer.md")),
+    ("liaison.md", include_str!("../../../../docs/charters/liaison.md")),
     ("redteam.md", include_str!("../../../../docs/charters/redteam.md")),
 ];
 const PRESET_MAX: usize = 100_000;

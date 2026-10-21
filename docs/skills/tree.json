@@ -738,10 +738,15 @@
     "precedence of charter sources",
     "org.md and its trusted notes",
     "how a charter change reaches a running agent",
-    "retool to change one"
+    "retool to change one",
+    "bundled role presets and full-file insertion",
+    "Liaison above the coordinator: decision memory, delegation, superior insertion and separate audiences"
    ],
    "sources": [
-    "engine/rs/orgtree-engine/src/runtime/identity.rs l.88-104, org_charter()"
+    "engine/rs/orgtree-engine/src/runtime/identity.rs l.88-104, org_charter()",
+    "engine/docs/charters/liaison.md",
+    "engine/rs/orgtree-engine/src/http/settings.rs#BUNDLED",
+    "apps/desktop/renderer/src/canvas/cards.tsx#finalCharter"
    ],
    "see_also": [
     "tool-retool",

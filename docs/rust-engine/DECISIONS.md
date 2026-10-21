@@ -7,6 +7,17 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Liaison charter preset (user 2026-10-21 18:33:44Z, m1726260b9ebe;
+name confirmed 18:36:18Z, ma1c356c483a4):** add Liaison as a bundled charter
+for large orgs, above an existing coordinator. It owns user discussion,
+durable sourced decision memory and delegation; its single coordinator
+report owns execution and staffing. All preset introductions describe
+their roles/capabilities without manual-copy instructions. The hire form
+continues inserting the entire selected file, including its introduction;
+existing local overrides and live charters are not rewritten. See
+[charters](../skills/orgtree-working/team/charters/SKILL.md) and
+engine/docs/charters/liaison.md.
+
 **Ticket identity status prefix (user 2026-10-21 17:38:28Z,
 m312db362c183):** every ticket link's shared native tooltip begins with its
 current docket status label and ` · ` before the full title. Unknown status

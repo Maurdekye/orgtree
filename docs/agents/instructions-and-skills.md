@@ -4,6 +4,21 @@
 
 Identity prefixes, tool cards, notes, globals, shared skills and glossary delivery.
 
+## Charter preset content and Liaison (2026-10-21)
+
+The hire form joins each selected preset's full content before manual text;
+headings, introductory paragraphs and separators remain in the agent charter.
+Keep all preset prose suitable for that agent; do not add manual-copy setup
+instructions or silently strip content at a separator. The six bundled roles
+include Liaison, inserted above an existing coordinator for large orgs. It owns
+user conversation and decision records; its single coordinator report owns
+execution and staffing. User-local copies shadow bundled files and Populate
+preserves them, so source updates do not rewrite those copies or live charters.
+See [charters](../skills/orgtree-working/team/charters/SKILL.md).
+[decided: user 2026-10-21 18:33:44Z and 18:36:18Z; verified:
+engine/rs/orgtree-engine/src/http/settings.rs BUNDLED/charters/charters_populate,
+apps/desktop/renderer/src/canvas/cards.tsx finalCharter]
+
 ## Plain mention guidance (2026-10-20)
 
 All standing-instruction variants show @name and @item:<org>/<slug> as plain

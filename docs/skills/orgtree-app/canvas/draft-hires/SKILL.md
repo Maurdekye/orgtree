@@ -14,7 +14,7 @@ The dashed draft says uninitialized because no live seat exists yet. It shows th
 | --- | --- |
 | Model icon | Click to open the model/tier menu. Pick a model to replace the proposed hire's tier; name, charter/presets, grant and placement stay. Availability and refusal reasons follow the regular hire choices. No seat or running agent changes until Hire. Escape closes this menu first. |
 | Name | Starts empty; the first chosen charter preset can fill an empty name, still editable. |
-| Charter presets | Named source files shown as removable cards; their text is prepended to manual charter text only when finalized. Loading errors have Retry; a bounded preset warns how much was omitted. |
+| Charter presets | Named source files shown as removable cards; the entire file (heading, introduction and separator included) is prepended to manual charter text only when finalized, in pick order. Loading errors have Retry; a bounded preset warns how much was omitted. A preset changes text only, not placement or permissions. |
 | Grant bar | The draft's allocation editor. Opening grant comes from draft/org defaults, not a universal fixed number. It is bounded by the org cap or available parent room when hire cascade is off. |
 | Permission gear | Opens Draft permissions; Apply stores choices in the draft, Cancel leaves them unapplied. Neither creates a seat. |
 | Hire / Cancel | Submit the proposed seat, or abandon the draft. Escape cancels; submission can still fail the engine's current checks. After Hire the draft stays where it is, greyed, its tag reading HIRING…, and takes no input until the new card arrives; the card then takes its exact place without moving, and the camera walks to its desk as before. A refused hire returns the draft to normal with its fields kept, and says why. |
@@ -30,6 +30,10 @@ Apply returns to the draft; only final Hire creates the seat. The final engine o
 Changing the model keeps staged folders, tools and visibility. An account belonging to another provider, or excluded by the target model's known staffing offers, returns to automatic placement. A known unsupported effort maps to the highest supported level at or below it, otherwise the lowest; models with no effort setting inherit. Open Draft permissions to choose again. Final Hire still validates current accounts, model support and credits.
 
 Default-setting details belong to [Hire defaults: scope](../../org-settings/org-hire-defaults-scope/SKILL.md), [folders](../../org-settings/org-hire-defaults-folders/SKILL.md) and [tools](../../org-settings/org-hire-defaults-tools/SKILL.md), rather than a copied price/default table here.
+
+## Liaison preset placement
+
+The bundled liaison role is for a large organization where the user needs a conversation partner above a busy coordinator. Open a superior draft above the existing coordinator and select liaison; selecting the preset on a subordinate draft would still create a subordinate. The intended shape is user → liaison → coordinator → workers. The coordinator remains the liaison's sole direct report and handles execution and staffing. Keep the coordinator's required capabilities available through its new superior; the charter itself limits the liaison to discussion, decision records and delegation. See orgtree-charters (orgtree-working › team) for the role, tool insertion and separate audience rules, and [charter documents](../../app-settings/app-charters-and-templates/SKILL.md) for bundled/local copies.
 
 ## Projects
 
