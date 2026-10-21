@@ -130,6 +130,63 @@ pub fn cli(args: &[String]) -> ExitCode {
     ExitCode::from(2)
 }
 
+/// The engine that serves the data root now, as its identity answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Current {
+    pub session: Option<u32>,
+    pub elevated: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Plan {
+    /// The engine already runs in this session with these rights.
+    Nothing,
+    /// No engine runs: start one here.
+    Start,
+    /// Hand the running engine over: stop it gracefully, then start here.
+    Replace,
+}
+
+/// A launch (sign-in, desktop start, the boot host's delegation) moves an
+/// engine that runs elsewhere or with other rights, and starts one when none
+/// runs; only an explicit restart replaces an engine already in place.
+#[nolog]
+pub(crate) fn plan(current: Option<Current>, session: u32, elevated: bool, restart: bool) -> Plan {
+    let _ = (current, session, elevated, restart);
+    Plan::Start
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+    const HERE: u32 = 1;
+    fn at(session: Option<u32>, elevated: Option<bool>) -> Option<Current> { Some(Current { session, elevated }) }
+
+    #[test]
+    fn nothing_running_starts_one() {
+        assert_eq!(plan(None, HERE, false, false), Plan::Start);
+        assert_eq!(plan(None, HERE, true, true), Plan::Start);
+    }
+
+    #[test]
+    fn an_engine_elsewhere_or_with_other_rights_is_handed_over() {
+        assert_eq!(plan(at(Some(0), Some(false)), HERE, false, false), Plan::Replace, "the Session 0 engine moves up");
+        assert_eq!(plan(at(Some(2), Some(false)), HERE, false, false), Plan::Replace);
+        assert_eq!(plan(at(Some(HERE), Some(false)), HERE, true, false), Plan::Replace, "Run as admin: elevate in place");
+        assert_eq!(plan(at(Some(HERE), Some(true)), HERE, false, false), Plan::Replace, "toggle off: drop the rights");
+        assert_eq!(plan(at(None, Some(false)), HERE, false, false), Plan::Replace, "an unknown session is not this one");
+        assert_eq!(plan(at(Some(HERE), None), HERE, false, false), Plan::Replace, "unknown rights are not these");
+    }
+
+    #[test]
+    fn an_engine_already_in_place_is_kept_unless_a_restart_was_asked_for() {
+        assert_eq!(plan(at(Some(HERE), Some(false)), HERE, false, false), Plan::Nothing,
+            "a second launch racing the first, or a sign-in start that found its engine");
+        assert_eq!(plan(at(Some(HERE), Some(true)), HERE, true, false), Plan::Nothing);
+        assert_eq!(plan(at(Some(HERE), Some(false)), HERE, false, true), Plan::Replace, "the user asked to restart");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

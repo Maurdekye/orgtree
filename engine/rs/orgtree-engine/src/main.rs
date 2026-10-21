@@ -34,6 +34,7 @@ mod engine;
 mod events;
 mod feed;
 mod host;
+mod boot_supervisor;
 mod session_launch;
 mod session_handover;
 #[cfg(windows)]

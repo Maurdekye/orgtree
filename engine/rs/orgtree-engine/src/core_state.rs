@@ -127,6 +127,19 @@ pub fn write(root: &Path, state: &Snapshot) -> std::io::Result<()> {
     result
 }
 
+/// Another small journal file in the data root, replaced atomically the same way.
+#[nolog]
+pub fn write_file(root: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = root.join(format!(".{name}-{}.tmp", uuid::Uuid::new_v4().simple()));
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    let result = replace(&tmp, &root.join(name));
+    if result.is_err() { let _ = std::fs::remove_file(tmp); }
+    result
+}
+
 #[cfg(windows)]
 #[nolog]
 fn replace(from: &Path, to: &Path) -> std::io::Result<()> {

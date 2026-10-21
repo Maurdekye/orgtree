@@ -82,7 +82,7 @@ pub async fn restarted(engine: &Arc<Engine>, org_id:i64, agent_id:i64, interrupt
     let (variant,fields,body)=if interrupted {
         ("context.drive_restart_interrupted",json!({"text":text,"summary":"The engine stopped during the preceding turn."}),text.to_string())
     } else {
-        ("runtime.restart_notice",json!({"prev_pid":null,"started_at":crate::util::iso(engine.boot.started_at),"branch":option_env!("ORGTREE_BUILD_BRANCH"),"version":env!("CARGO_PKG_VERSION")}),restart_body(env!("CARGO_PKG_VERSION"), option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("unknown"), engine.boot.pid, &crate::util::iso(engine.boot.started_at), engine.credentials.state.load().process_session))
+        ("runtime.restart_notice",json!({"prev_pid":null,"started_at":crate::util::iso(engine.boot.started_at),"branch":option_env!("ORGTREE_BUILD_BRANCH"),"version":env!("CARGO_PKG_VERSION")}),restart_body(env!("CARGO_PKG_VERSION"), option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("unknown"), engine.boot.pid, &crate::util::iso(engine.boot.started_at), engine.credentials.state.load().process_session, None))
     };
     let ev=crate::events::typed(variant,"@system",build_ref(engine),fields);
     mail::system_event(engine,org_id,agent_id,&body,!interrupted,Some(ev)).await
@@ -373,7 +373,8 @@ mod forwarding_tests {
 // Extracted unchanged rendering; the regression below requires engine session
 // provenance before any agent turn/hosting decision is available.
 #[nolog]
-fn restart_body(version: &str, commit: &str, pid: u32, started: &str, session: Option<u32>) -> String {
+fn restart_body(version: &str, commit: &str, pid: u32, started: &str, session: Option<u32>, note: Option<&str>) -> String {
+    let _ = note;
     let where_ = match session {
         Some(0) => "Session 0".into(),
         Some(id) => format!("Windows session {id}"),
@@ -387,22 +388,33 @@ mod restart_session_tests {
     use super::*;
     #[test]
     fn engine_zero_is_reported_even_when_agents_can_be_hosted() {
-        assert!(restart_body("4.4", "test", 42, "now", Some(0)).contains("Engine session at start: Session 0."));
+        assert!(restart_body("4.4", "test", 42, "now", Some(0), None).contains("Engine session at start: Session 0."));
     }
     #[test]
     fn nonzero_engine_session_keeps_its_actual_id() {
-        assert!(restart_body("4.4", "test", 42, "now", Some(7)).contains("Engine session at start: Windows session 7."));
+        assert!(restart_body("4.4", "test", 42, "now", Some(7), None).contains("Engine session at start: Windows session 7."));
     }
     #[test]
     fn unknown_engine_session_is_not_claimed_signed_in() {
-        let body=restart_body("4.4", "test", 42, "now", None);
+        let body=restart_body("4.4", "test", 42, "now", None, None);
         assert!(body.contains("Engine session at start: unknown or not applicable."));
         assert!(!body.contains("signed-in session"));
     }
     #[test]
     fn restart_identity_and_passive_delivery_are_preserved() {
-        let body=restart_body("4.4", "abc123", 42, "UTC-time", Some(0));
+        let body=restart_body("4.4", "abc123", 42, "UTC-time", Some(0), None);
         assert!(body.contains("Commit: abc123. PID: 42. Started at: UTC-time."));
         assert!(body.contains("informational notice; it does not start a turn"));
+    }
+    #[test]
+    fn a_failed_move_is_reported_before_the_informational_line() {
+        let note = "Orgtree could not start the engine in the signed-in session (x), so it started the engine in Session 0 instead.";
+        let body = restart_body("4.4", "abc123", 42, "now", Some(0), Some(note));
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 5, "{body}");
+        assert_eq!(lines[2], "Engine session at start: Session 0.");
+        assert_eq!(lines[3], note);
+        assert!(lines[4].starts_with("This is an informational notice"));
+        assert_eq!(restart_body("4.4", "abc123", 42, "now", Some(0), None).lines().count(), 4, "no note, no line");
     }
 }
