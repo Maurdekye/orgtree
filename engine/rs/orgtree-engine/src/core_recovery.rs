@@ -288,7 +288,13 @@ mod win {
             assert!(claim(&dir, "engine", "third"));
             fs::write(&budget, serde_json::to_vec(&vec![core_state::now()-60_000;3]).unwrap()).unwrap();
             assert!(!claim(&dir, "engine", "fourth"));
-            assert_eq!(fs::read_dir(&dir).unwrap().count(), 2, "fixed-size journal, no per-crash file growth");
+            // the budget, the claim and the cross-session handover lock (one fixed file)
+            assert_eq!(fs::read_dir(&dir).unwrap().count(), 3, "fixed-size journal, no per-crash file growth");
+            let held = crate::session_handover::try_lock(&dir).unwrap();
+            fs::write(&budget, b"[]").unwrap();
+            assert!(!claim(&dir, "engine", "fifth"), "a claim waits for a handover attempt running in another session");
+            drop(held);
+            assert!(claim(&dir, "engine", "fifth"));
             fs::remove_dir_all(dir).unwrap();
         }
         #[test]
