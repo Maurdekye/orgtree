@@ -954,7 +954,7 @@ export function ProjectDeskModal({ close, pinAsWindow, ...props }: ProjectDeskPr
     // bar, as the agent desk's: folder and name, pin and close — the desk
     // below does not repeat the name (styles.css, user 11:14Z)
     <DeskModalShell kind={instanceKind('project-desk', props.node.id)} title={`Project ${props.node.id}`}
-      nodeId={props.node.id} tier="project"
+      nodeId={props.node.id} generation={props.node.generation} tier="project"
       panel="tempdesk-panel pin-project project-desk-modal" close={close}
       pinElsewhere={pinAsWindow}>
       <ProjectDesk {...props} bare />

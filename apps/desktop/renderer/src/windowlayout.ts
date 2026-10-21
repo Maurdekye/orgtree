@@ -38,10 +38,18 @@ const validRestore = (v: unknown): v is WindowRestore => {
     : key === 'team' ? value === true
     : ['agent', 'document', 'watchdog'].includes(key) && typeof value === 'string' && value.length > 0 && value.length <= 512)
 }
-export function restoredAgent(row: SavedWindow | undefined, nodes: Map<string, { generation?: number }>): string | null {
+export function restoredAgent(row: SavedWindow | undefined,
+  nodes: Map<string, { generation?: number; kind?: string; state?: string }>): string | null {
   const target = row?.restore
-  if (!target?.agent || !Number.isSafeInteger(target.generation)) return null
-  return nodes.get(target.agent)?.generation === target.generation ? target.agent : null
+  if (!target?.agent) return null
+  const node = nodes.get(target.agent)
+  // Early 4.4 alphas saved project desks without a generation. Recover only
+  // those records against a live project; never relax agent identity checks
+  // or an explicit generation mismatch. The next capture writes its identity.
+  if (target.generation === undefined && row && baseKind(row.kind) === 'project-desk')
+    return node?.kind === 'project' && node.state === 'live' ? target.agent : null
+  if (!Number.isSafeInteger(target.generation)) return null
+  return node?.generation === target.generation ? target.agent : null
 }
 /** An agent gallery window back from storage: its agent, while that agent is
  *  still the same generation, and its scope, team or ordinary (review of

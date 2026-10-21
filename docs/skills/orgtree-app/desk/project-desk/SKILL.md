@@ -14,6 +14,12 @@ dragging still pans. Pinned desks are raised and revealed, popped-out windows
 are activated, and an open modal keeps its tab and message draft. Reopening
 does not create another desk or reset its navigation.
 
+With **Restore previous windows** enabled, a saved project desk pin or pop-out
+reopens for the same project generation. A replaced or missing project is
+skipped with the saved-window availability warning. Older 4.4 alpha desk records
+without a generation reopen only while the same id is a live project; the next
+save records its generation.
+
 With **show agent card shortcuts** on, the project card's hover row opens its docket, mail, presented, team and slots windows, and its desk on the listeners tab. Team, slots and listeners appear only while the desk offers those tabs (see the table below). The row hides while the desk is open on the canvas or its pinned placeholder holds the card.
 
 The header shows active/hired agents through nested projects, activity age, settings and the available team lifecycle controls. Header cards open the mail queue, event listeners or slots; held audiences appear alongside them. Superior jump cards stay below the header, and member jump cards above the composer, on every tab. Project jump cards show the same spinning arrows as agent jump cards whenever any live agent below the destination project is mid-turn, at any depth; they stop when all are idle. The composer sends to the project mailbox by default; its megaphone broadcasts to live agents under the project. Notice, attachments and reply previews work as on an agent desk. Projects have no model, effort, account or credit controls.

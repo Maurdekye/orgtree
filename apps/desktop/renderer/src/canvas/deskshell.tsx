@@ -50,10 +50,11 @@ export function DeskTitleBar({ id, tier, onPin }: {
  *  the desk inside bare. The project desk's modal is this; the temporary
  *  agent desk keeps its own frame (its borrow and focus semantics are
  *  desk-specific) and shares the title bar above instead. */
-export function DeskModalShell({ kind, title, nodeId, tier, panel, close, pinElsewhere, children }: {
+export function DeskModalShell({ kind, title, nodeId, generation, tier, panel, close, pinElsewhere, children }: {
   kind: string
   title: string
   nodeId: string
+  generation?: number
   tier?: string | null
   panel: string
   close: () => void
@@ -62,7 +63,7 @@ export function DeskModalShell({ kind, title, nodeId, tier, panel, close, pinEls
 }) {
   return (
     <PinFrame kind={kind} title={title}
-      restore={{ agent: nodeId }}
+      restore={{ agent: nodeId, generation }}
       panel={panel} close={close}
       deskTitle titleBar={<DeskModalName id={nodeId} tier={tier} />}
       pinElsewhere={pinElsewhere}>

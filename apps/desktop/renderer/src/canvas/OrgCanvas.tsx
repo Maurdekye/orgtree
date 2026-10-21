@@ -896,7 +896,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const dogViews = useModalInstances('watchdog', slug, (id) => ({ watchdog: id }))   // FR-18 panels
   // a PROJECT's desk as a modal: "Open desk", or popped out to its own window
   // (point 27, user 2026-10-17 23:28Z, 23:29:47Z); one per project
-  const projectDesks = useModalInstances('project-desk', slug, (id) => ({ agent: id }))
+  const projectDesks = useModalInstances('project-desk', slug, agentRestore)
   const [projectDeskFocus, setProjectDeskFocus] = useState<Readonly<Record<string, number>>>({})
   const hasProjectDesk = projectDesks.has
   const revealProjectDesk = useCallback((id: string) => {
@@ -1103,6 +1103,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     teams.restore(targets('agent-team'))
     slotsPanels.restore(targets('project-slots'))
     listenersPanels.restore(targets('project-listeners'))
+    projectDesks.restore(targets('project-desk'))
     setOiOpen(pinnedKind('org-inbox') || rows.some(r => r.kind === 'org-inbox'))
     setTrayOpen(pinnedKind('agent-list') || rows.some(r => r.kind === 'agent-list'))
     // Keep a pinned restore target even when watchdog data arrives later; the

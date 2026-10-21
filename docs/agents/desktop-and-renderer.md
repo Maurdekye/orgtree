@@ -44,6 +44,17 @@ keep the menu mounted; outside events and Escape retain their close behavior.
 The second-document regression dispatches pointerdown before click, including
 the count input and a second trigger press. [verified: `canvas/registermenu.tsx`,
 `tests/registermenu-realm.test.tsx`; 2026-10-21]
+## Saved project desk identity
+
+Project desk modal pins and pop-outs save the project's generation and restore
+through the canvas's per-target instance list. Explicit generation mismatches
+remain unavailable. Early 4.4 alpha records without a generation may restore
+only against a currently live project with the same id; their next capture or
+pin marker write records the current generation. Missing or retired projects
+do not receive this legacy fallback, nor do other window kinds.
+[decided: coordinator 2026-10-21 23:24Z; verified:
+`canvas/{OrgCanvas,deskshell,projectdesk}.tsx`, `windowlayout.ts`,
+`tests/projectdeskrestore.test.tsx`]
 
 ## Tray administrator setting
 
