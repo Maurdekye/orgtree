@@ -197,7 +197,7 @@ test('§2a a project draws as a project card: no model, credit bar, desk or turn
   }
 })
 
-test('§2a1 project card name uses its rich tooltip; identity-less folder icons include its name', async (t) => {
+test('§2a1 project name and far card share text; normal identity-less folder prefixes its name', async (t) => {
   const rich = 'Project · Summary: the company website'
   function Registry() {
     useProvideAgentNav(() => [], id => id === 'website' ? { title: rich } : null)
@@ -223,9 +223,9 @@ test('§2a1 project card name uses its rich tooltip; identity-less folder icons 
   t.after(() => far.unmount())
   const folder = far.el.querySelector<HTMLElement>('.project-mini')!
   await inAct(() => folder.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
-  // Keep the existing mini behavior until the user resolves its explicit
-  // exception against the retained far-zoom rule (coordinator 2026-10-21).
-  assert.equal(folder.title, `website\n${rich}`, 'the icon-only far-zoom project card names its project first')
+  // USER 2026-10-21 06:53:22Z m0164d2a2b0cf explicitly retained the
+  // far-zoom exception for project minis too: their floating label names it.
+  assert.equal(folder.title, name.title, 'far-zoom cards omit names; normal folder icons above still include them')
 })
 
 test('§2a2 project card background uses the same tooltip as its visible name', async t => {
