@@ -4,6 +4,18 @@
 
 Identity prefixes, tool cards, notes, globals, shared skills and glossary delivery.
 
+## Template wire-log privacy (2026-10-21)
+
+The HTTP guard omits entire request/response bodies for /api/templates and
+its descendants, and /api/orgs/{slug}/template and its descendants, before
+authentication or extraction. Saved template JSON embeds private AGENTS.md
+inside a content string, so key masking and inner nolog handlers are not
+a wire boundary. Keep paths/status diagnostics and the returned download
+unchanged. List/resolve project note counts; create reads a stored template
+and returns note-copy counts/warnings, not the text.
+[verified: http/mod.rs, http/templates.rs, domain/templates.rs; synthetic
+real-engine proof template-wire-privacy.mjs in both logging modes]
+
 ## Template projects and standing-note snapshots (2026-10-21)
 
 Template slots with tier=project create real free containers through canonical

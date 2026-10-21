@@ -318,9 +318,16 @@ async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> R
     tracing::Instrument::instrument(guarded(engine, req, next), crate::trace::request(client)).await
 }
 
-/// Bodies the log never holds: uploads, downloads, the UI bundle, sockets.
+/// Bodies the log never holds: private template traffic, uploads, downloads, UI, sockets.
 fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
     !path.starts_with("/api/")
+        // Template downloads contain copied private AGENTS.md text inside a
+        // JSON string. Omit entire request/response bodies before auth and
+        // extraction, including malformed requests and unknown child routes.
+        || path == "/api/templates" || path.starts_with("/api/templates/")
+        || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
+            .map(|(_, rest)| rest == "template" || rest.starts_with("template/"))
+            .unwrap_or(false)
         // Arbitrarily named MCP fields can contain private user input. Omit
         // before authentication too, including rejected/unrecognized children.
         || path.contains("/asks/elicitation-")
@@ -571,5 +578,23 @@ mod elicitation_wire_tests {
         assert!(quiet_body("/api/orgs/fixture/asks/elicitation-id/answer",&headers));
         assert!(quiet_body("/api/orgs/fixture/asks/elicitation-id/unknown-child",&headers));
         assert!(!quiet_body("/api/orgs/fixture/asks/ordinary-id/answer",&headers));
+    }
+}
+
+#[cfg(test)]
+mod template_wire_tests {
+    use super::*;
+    #[test]
+    fn template_wire_bodies_are_quiet_before_auth_and_on_unknown_routes() {
+        let headers = axum::http::HeaderMap::new();
+        for path in ["/api/templates", "/api/templates/resolve", "/api/templates/populate",
+            "/api/templates/open", "/api/templates/unknown-child", "/api/orgs/fixture/template",
+            "/api/orgs/fixture/template/unknown-child", "/api/orgs//template"] {
+            assert!(quiet_body(path, &headers), "{path}");
+        }
+        for path in ["/api/templates-extra", "/api/orgs", "/api/orgs/fixture",
+            "/api/orgs/template/nodes", "/api/orgs/fixture/templates", "/api/orgs/fixture/template-extra"] {
+            assert!(!quiet_body(path, &headers), "{path}");
+        }
     }
 }
