@@ -2183,14 +2183,6 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
             refuse!(Conflict, "project {} is retired", p.name);
         }
         crate::domain::projects::require_reach(&**client, owner, &p, "claim its concurrency slots").await?;
-        let scope: Value = client.query_one("SELECT scope FROM ot.agents WHERE id = $1", &[&p.id]).await?.get(0);
-        if crate::domain::slots::capacity(&scope) == 0 {
-            refuse!(Conflict, "project {} has no concurrency slots (its slot count in Project settings is 0)", p.name);
-        }
-        let count = crate::domain::slots::requested(&memo);
-        if i64::from(count) > crate::domain::slots::capacity(&scope) {
-            refuse!(BadRequest, "requested {count} slots exceeds project {}'s total capacity of {}", p.name, crate::domain::slots::capacity(&scope));
-        }
         // Ownership/remaining capacity is rechecked atomically with insertion
         // under the project lock below. Existing leases do not forbid a
         // smaller additional whole lease that still fits.
