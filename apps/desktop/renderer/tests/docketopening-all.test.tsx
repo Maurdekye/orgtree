@@ -10,7 +10,6 @@ import { ProjectDesk } from '../src/canvas/projectdesk'
 import { OwnedDeskChat } from '../src/canvas/desk'
 import { rememberDesk } from '../src/canvas/desktabs'
 import { resetConvos } from '../src/convo'
-import { CurrentOrg } from '../src/popout'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload, WorkItem } from '../src/types'
 
@@ -60,18 +59,22 @@ async function scenario(body: (ctx: {
   const fallback = globalThis.fetch
   const served = { items: [item('child', { parent: 'parent' }), item('parent'), item('second')], archived: [] as WorkItem[], backlogged: [] as WorkItem[] }
   const ok = (payload: unknown) => Promise.resolve(new Response(JSON.stringify(payload)))
-  globalThis.fetch = compatibilityWorkFixture(((url: RequestInfo | URL, init?: RequestInit) => {
+  const compatible = compatibilityWorkFixture(((url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url), one = /\/work-items\/([^/?]+)$/.exec(path)
     if (one) return ok({ item: [...served.items, ...served.archived, ...served.backlogged].find(it => it.slug === one[1]) })
     if (path.includes('/work-items')) return ok({ ...served, counts: { active: served.items.length, archived: served.archived.length, backlogged: served.backlogged.length } })
     return fallback(url, init)
   }) as typeof fetch)
+  // http/docket.rs::page interprets agent=<project> as its subtree. The
+  // compatibility adapter knows only agent identities; model that server rule.
+  globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) =>
+    compatible(String(url).replace('agent=project', 'team=project'), init)) as typeof fetch
   const org = (jumpTo?: string) => <DocketModal slug={slug} tree={tree} toast={noop} close={noop} jumpTo={jumpTo} />
   const direct = (mine: WorkItem[] | null, nid = 'worker', scope = slug, archived = false) => <AgentDocketView
     slug={scope} nid={nid} mine={mine} facts={facts} toast={noop} refs={refs} showArchived={archived} />
   let view: Awaited<ReturnType<typeof mountView>> | undefined
   const mount = async (element: ReactElement) => {
-    view = await mountView(<CurrentOrg.Provider value={slug}>{element}</CurrentOrg.Provider>, el => el)
+    view = await mountView(element, el => el)
     await inAct(async () => { await flush(20) })
     return view
   }
@@ -120,7 +123,7 @@ for (const group of ['none', 'status', 'agent']) test(`node docket initial order
     const list = [item('older', { at: '2026-10-20T00:00:00Z' }), ...served.items]
     const view = await mountDirect(list)
     assert.equal(selected(view.el), rowNames(view.el)[0])
-    assert.equal(selected(view.el), 'parent')
+    assert.equal(selected(view.el), 'second', 'created sort uses descending slug when stamps tie')
   })
 })
 
