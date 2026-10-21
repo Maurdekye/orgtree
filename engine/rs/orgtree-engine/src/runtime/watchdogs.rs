@@ -2768,8 +2768,11 @@ async fn resume_listener(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
 #[logged]
 pub async fn send(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, args: &Value) -> Result<Value> {
     let dog = resolve(engine, org_id, actor, id).await?;
-    if dog.kind == "mqtt" { mqtt::send(engine, &dog, actor, args).await }
-    else { websocket::send(engine, &dog, actor, &args["message"]).await }
+    match dog.kind.as_str() {
+        "mqtt" => mqtt::send(engine, &dog, actor, args).await,
+        "websocket" => websocket::send(engine, &dog, actor, &args["message"]).await,
+        _ => refuse!(BadRequest, "send writes on a websocket or MQTT watchdog's live connection; {} is a {} watchdog", dog.uid, dog.kind),
+    }
 }
 
 /// `orgtree_watchdog list`: the caller's dogs and its team's, with the

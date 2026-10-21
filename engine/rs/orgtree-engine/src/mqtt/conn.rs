@@ -503,7 +503,9 @@ fn connect_parts(key: &ConnKey, r: &creds::Resolved, own_id: &str, t: &Timing) -
     let mut o = MqttOptions::new(id, key.broker.host.clone(), key.broker.port);
     o.set_keep_alive(t.keep_alive.max(Duration::from_secs(1)));
     o.set_clean_session(true);
-    o.set_max_packet_size(MAX_PACKET, 64 * 1024);
+    // The RPC caps payloads at64 KiB, but MQTT packets also carry a topic
+    // (up to65535 bytes) and headers. A64 KiB packet cap rejects valid sends.
+    o.set_max_packet_size(MAX_PACKET, MAX_PACKET);
     o.set_request_channel_capacity(64);
     if let Some((user, pass)) = &r.login {
         o.set_credentials(user.expose(), pass.expose());

@@ -25,6 +25,7 @@ export default async function(rig){
  try{
   const made=await rig.tool('boss','orgtree_watchdog',{action:'create',kind:'mqtt',name:'publish',target:`mqtt://127.0.0.1:${server.address().port}`,pattern:'mqtt-send/#',interval_s:5,notice:true})
   p.check('control: local MQTT dog connected and subscribed',made.ok&&await until(()=>subscriptions.includes('mqtt-send/#')),made.text)
+  p.check('control: runner owns its connected attachment',await until(()=>rig.one("SELECT memo->'run'->'mqtt'->>'state' AS state FROM ot.watchdogs WHERE name='publish'")?.state==='connected'))
   const first=await send({topic:'mqtt-send/reply',message:{hello:'世界'},qos:1,retain:true})
   p.check('MQTT send succeeds with byte/topic/time receipt',first.ok&&first.json?.sent&&first.json?.topic==='mqtt-send/reply'&&first.json?.bytes===Buffer.byteLength('{"hello":"世界"}')&&!!first.json?.at,first.text)
   p.check('broker receives exact topic, compact JSON, qos and retain',first.ok&&await until(()=>got.some(x=>x.topic==='mqtt-send/reply'&&x.payload==='{"hello":"世界"}'&&x.qos===1&&x.retain)))

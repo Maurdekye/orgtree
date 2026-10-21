@@ -1001,7 +1001,7 @@ fn build_tool_watchdog() -> Value {
             "notify_on_connect": { "type": "boolean", "description": "websocket: Orgtree (re)connect fires, default false; server messages still follow pattern" },
             "heartbeat": { "type": "object", "properties": { "message": { "anyOf": [{ "type": "string" }, { "type": "object" }] }, "every_s": { "type": "integer", "minimum": 5 } },
                            "required": ["message", "every_s"], "description": "websocket: a fixed message sent every every_s seconds while connected" },
-            "message": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }],
+            "message": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }],
                          "description": "send: text or compact JSON on this websocket/MQTT dog's own live connection; at most 64 KB" },
             "payload": { "description": "MQTT send: alias for message; any JSON value, compactly encoded; message takes precedence" },
             "topic": { "type": "string", "description": "MQTT send: required publish topic, nonempty, no + or # wildcards" },

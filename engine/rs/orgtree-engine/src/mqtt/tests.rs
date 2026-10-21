@@ -50,8 +50,12 @@ async fn publish_uses_attached_connection_and_refuses_revoked_or_detached_subscr
     let packets = b.received();
     assert_eq!((&packets[0].topic, packets[0].payload.as_ref(), packets[0].qos, packets[0].retain),
         (&"send/reply".to_string(), "世界".as_bytes(), rumqttc::QoS::AtLeastOnce, true));
+    let boundary = "x".repeat(SEND_MAX);
+    assert_eq!(link.publish("send/boundary".into(), boundary.clone(), 0, false, Duration::from_secs(2)).await.unwrap().bytes, SEND_MAX);
+    assert!(b.until(3, |b| b.received().len() == 2).await);
+    assert_eq!(b.received()[1].payload.as_ref(), boundary.as_bytes());
     assert_eq!(b.connects(), 1, "another dog shares the original client");
-    assert_eq!(a.sent.count.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(a.sent.count.load(std::sync::atomic::Ordering::Relaxed), 2);
     assert_eq!(other.sent.count.load(std::sync::atomic::Ordering::Relaxed), 0, "counters belong to the publishing dog");
     a.authorized.store(false, std::sync::atomic::Ordering::Release);
     assert!(link.publish("send/denied".into(), "no".into(), 0, false, Duration::from_secs(2)).await.is_err(),
@@ -60,7 +64,7 @@ async fn publish_uses_attached_connection_and_refuses_revoked_or_detached_subscr
     assert!(link.publish("send/detached".into(), "no".into(), 0, false, Duration::from_secs(2)).await.is_err());
     drop(reg);
     assert!(hub.link(1).is_none());
-    assert_eq!(b.received().len(), 1);
+    assert_eq!(b.received().len(), 2);
     assert_eq!(b.connects(), 1);
     drop(other); cancel.cancel(); b.stop();
 }

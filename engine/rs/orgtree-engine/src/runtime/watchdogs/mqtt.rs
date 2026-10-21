@@ -23,7 +23,11 @@ pub(super) async fn send(engine: &Arc<Engine>, dog: &Dog, actor: Option<i64>, ar
         }
     }
     let (topic, text, qos, retain) = publish_options(args)?;
-    if dog.state != "armed" { refuse!(Conflict, "watchdog {} is {}; nothing was sent — resume it first", dog.uid, dog.state); }
+    match dog.state.as_str() {
+        "armed" => {},
+        "paused" => refuse!(Conflict, "watchdog {} is paused; nothing was sent — resume it first", dog.uid),
+        other => refuse!(Conflict, "watchdog {} is {other}; nothing was sent", dog.uid),
+    }
     let Some(link) = engine.dogs.mqtt.link(dog.row) else {
         refuse!(Conflict, "watchdog {} has no live connection right now; nothing was sent", dog.uid);
     };
