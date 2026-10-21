@@ -5,7 +5,8 @@ import type { TreeNode, TreePayload, UserMentionInfo } from '../types'
 import { markMentionSeen, req } from '../api'
 import { TierChip } from './identity'
 import { stripMarkdownCode } from './shared'
-import { useContextMenu } from './contextmenu'
+import { useContextMenu, copyToClipboard } from './contextmenu'
+import type { MenuEntry } from './contextmenu'
 import { orgMenuEntries, orgTitle } from './orgidentity'
 import { requestOpenOrg } from '../shell/openorg'
 
@@ -602,6 +603,18 @@ export function triggerHubAddress(address: string, extraLocalOrgs?: ReadonlySet<
   return false
 }
 
+/** One contact identity menu, including its local-org resolution. Mention is
+ * captured only from a real composer; Open never changes installation state. */
+export function hubAddressMenuEntries(anchor: Element, address: string): MenuEntry[] {
+  const action = resolveHubAddressAction(address)
+  if (action.kind === 'org') return orgMenuEntries(anchor, action.slug, () => { triggerHubAddress(address) })
+  const mention = captureDeskMentionAt(anchor, address)
+  return [...(mention ? [{ label: 'Mention', onSelect: mention }] : []),
+    { label: 'Open in Hubchat', disabled: action.kind === 'inert', title: action.kind === 'inert' ? action.title : undefined,
+      onSelect: () => { triggerHubAddress(address) } },
+    { label: 'Copy identity', title: address, onSelect: () => { void copyToClipboard(anchor, address) } }]
+}
+
 export function useHubAddressState(): number {
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -627,7 +640,7 @@ export function HubContactChip({ address, className }: { address: string; classN
     <><button
       type="button"
       className={cls}
-      onContextMenu={e => { if (action.kind === 'org') menu.open(e, orgMenuEntries(e.currentTarget, action.slug, () => triggerHubAddress(address))) }}
+      onContextMenu={e => menu.open(e, hubAddressMenuEntries(e.currentTarget, address))}
       data-hub-address={address}
       data-hub-ref={address}
       aria-disabled={inert ? 'true' : undefined}

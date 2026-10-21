@@ -94,6 +94,12 @@ callback add Delete. Remote addresses retain the Hubchat capability check rather
 than acquiring a local organization route. [decided: user 2026-10-21 06:53Z;
 verified: `orgidentity.ts`, `agentmentions.tsx`, `shell/orgrows.tsx`]
 
+Remote contact references and Sender submenus use `hubAddressMenuEntries`: a real
+composer may add Mention; Open in Hubchat is disabled with the existing install
+reason when unavailable; Copy identity remains possible. Hover text is the
+shared address resolver's text. This is the coordinator's 2026-10-21 07:16Z
+interpretation of the user's 06:53Z approval, not a separate user ruling.
+
 Mail links use `mailMenuEntries` for their common Open/copy-text/copy-reference
 menu. Inbox rows retain real Close, reply, read, retract and delete capabilities;
 reply frames retain their contextual menu, while the inner message link uses the

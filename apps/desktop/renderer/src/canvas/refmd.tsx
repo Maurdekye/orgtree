@@ -26,7 +26,7 @@
 //     destroy the reader's text selection every time an unrelated poll
 //     landed. `linkifyRefs` compares first and returns having touched no node.
 
-import { resolveHubAddressAction, triggerHubAddress, useHubAddressState } from './agentmentions'
+import { resolveHubAddressAction, triggerHubAddress, useHubAddressState, hubAddressMenuEntries } from './agentmentions'
 import { createNodeLinkEl } from './identity'
 import { objectNavProps } from './objectnav'
 import { mailLinkProps } from './mailidentity'
@@ -36,7 +36,6 @@ import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
 import { parseRef, scanRefs, splitRefs } from './workrefs'
 import type { MentionRef } from './workrefs'
 import { useContextMenu } from './contextmenu'
-import { orgMenuEntries } from './orgidentity'
 import { localFileLinkAt } from './localfile'
 
 /** the attribute that makes an injected chip findable again on the next pass.
@@ -608,8 +607,8 @@ export function RefMdBody({ html, world, onOpen, className, el, mentions }: {
       else {
         const hub = (e.target as Element)?.closest?.('[data-hub-address]')
         if (!hub || !e.currentTarget.contains(hub)) return
-        const address = hub.getAttribute('data-hub-address')!, action = resolveHubAddressAction(address)
-        if (action.kind === 'org') menu.open(e, orgMenuEntries(hub, action.slug, () => triggerHubAddress(address)), hub)
+        const address = hub.getAttribute('data-hub-address')!
+        menu.open(e, hubAddressMenuEntries(hub, address), hub)
       }
     }} dangerouslySetInnerHTML={html} />{menu.node}</>
 }
