@@ -87,3 +87,14 @@ fn slot_limit_measured_capacity_and_large_anchor_are_supported() {
     assert_eq!(crate::domain::slots::capacity(&json!({"slots_capacity":9_999_999})),9_999_999);
     assert_eq!(crate::domain::slots::requested(&json!({"slots":9_999_999})),9_999_999);
 }
+
+#[tokio::test]
+#[ignore="requires disposable slot_limit_fixture DB/role; never an ambient DB"]
+async fn slot_limit_large_capacity_is_persisted_without_capacity_sized_allocation() {
+    assert_eq!(crate::domain::slots::MAX_CAPACITY,9_999_999);
+    let (e,o,p,a)=fixture(9_999_999).await;hold(&e,&o,p,Some(a)).await;
+    let result=crate::runtime::watchdogs::create(&e,o.id,a,&json!({"kind":"slot","target":"resource","slots":9_999_996,"notice":true})).await.unwrap();
+    assert!(result["id"].is_string());
+    assert_eq!(crate::domain::slots::free_slots(9_999_999,&[1,3]).take(2).collect::<Vec<_>>(),vec![2,4]);
+    e.shutdown.cancel();
+}

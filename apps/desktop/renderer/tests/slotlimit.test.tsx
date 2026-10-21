@@ -9,7 +9,6 @@ import type {CanvasNode,OpResult} from '../src/canvas/shared'
 
 const node={id:'resource',kind:'project',tier:'project',state:'live',children:[]} as unknown as CanvasNode
 const empty={project:'resource',slots:10,held:0,holders:[],line:[],history:[]}
-const read=(resolve?:(v:unknown)=>void)=>empty
 const state=(held=0):ProjectSlotState=>({total:10,held:held?[{lease:'mine',project:'resource',agent:'user',slots:held,slot:1,since:'2026-10-21T00:00:00Z',reminders:0}]:[],line:[]})
 const input=(el:HTMLElement)=>el.querySelector<HTMLInputElement>('input[aria-label="Slots to hold"]')!
 
@@ -53,6 +52,6 @@ test('slot limit: holder rows are bounded before the user asks for more',async t
  const holders=Array.from({length:250},(_,i)=>({lease:'lease'+i,agent:'reader',slots:1,since:'2026-10-21T00:00:00Z'}))
  const v=await mountView(<SlotsView node={node} state={{total:300,held:[],line:[]}} map={new Map()} op={async()=>({...empty,slots:300,held:250,holders}) as unknown as OpResult} toast={()=>{}}/>,el=>el);t.after(()=>v.unmount())
  await inAct(async()=>{await flush(3)})
- assert.ok(v.el.querySelectorAll('.slots-table .holding').length<=100)
+ assert.ok(v.el.querySelectorAll('.slots-holding .slot-row').length<=100)
  assert.match(v.el.textContent??'',/more.*holds|holds.*more/i)
 })
