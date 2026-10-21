@@ -41,7 +41,7 @@ For build/test work, first follow [the concurrency-slot permit practice](../../w
 
 Read create-time smoke and confirm that the target is runnable and its output matches the intended signal. A successfully armed but broken watcher is not a plan for resumption. If watcher tools or required scope are unavailable, ask the responsible superior for a concrete completion message rather than silently falling back to an endless poll.
 
-Record the watched condition, owner and ID in the work item when it matters to handoff. On waking, inspect the event and actual result, act once, and remove any remaining spent-purpose watcher. Paused/exited dogs still occupy kept capacity; a stream's final diagnostic can leave it exited. Use the tool's list/management evidence to clean up intentionally.
+Record the watched condition, owner and ID in the work item when it matters to handoff. On waking, inspect the event and actual result, act once, and remove any remaining spent-purpose watcher. Paused/exited dogs still retain their IDs and appear in kept inventory; there is no per-agent or per-org watchdog number cap. A stream's final diagnostic can leave it exited. Use paged list/management evidence to clean up intentionally; the canvas's eight-row preview is not the full inventory.
 
 ## See also
 
