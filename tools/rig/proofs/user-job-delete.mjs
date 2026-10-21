@@ -74,6 +74,16 @@ export default async function (rig) {
   p.check('round-robin queue copies delete without changing their original', !!rr && rr.extra.via_project.ack === false
     && (await del(rr.uid)).ok && !mail(rr.uid)
     && JSON.stringify(mail(rr.extra.via_project.mail)) === JSON.stringify(rrOriginal))
+
+  await rig.op({ op: 'create_project', name: 'delete-waived', parent: 'boss' })
+  await rig.op({ op: 'set_mail_queue', node: 'delete-waived', mode: 'ack' })
+  await rig.op({ op: 'user_queue_join', node: 'delete-waived', batch: 1 })
+  await rig.userMail('delete-waived', 'ACK later waived', { notice: true })
+  const waived = copies('delete-waived')[0]
+  await rig.op({ op: 'set_mail_queue', node: 'delete-waived', mode: 'round_robin' })
+  p.check('ACK waiver allows deletion despite the inbox copy retaining ACK delivery metadata', !!waived
+    && waived.extra.via_project.ack === true && mail(waived.extra.via_project.mail)?.extra.claimed.ack === false
+    && (await del(waived.uid)).ok && !mail(waived.uid))
   p.keep(rig, { grep: /delete_user_mail|user_job_ack/ })
   return p.summary()
 }
