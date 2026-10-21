@@ -548,7 +548,8 @@ impl Turn {
 
     #[nolog]
     fn append_claude_thought(&mut self, row: &mut Value, block: &Value, mid: &str, now: Instant) {
-        let secs = self.claude_thinking.take(mid, now);
+        let measured = self.claude_thinking.take(mid, now);
+        let secs = super::claude_thinking::reported_seconds(block).or(measured);
         let before = row["content_blocks"].as_array().map_or(0, Vec::len);
         let prior_secs = row["content_blocks"].as_array().and_then(|b| b.last()).and_then(|b| b["think_secs"].as_f64());
         let mut appended = false;
@@ -9310,6 +9311,9 @@ mod claude_thinking_time_tests {
             let mut row=json!({"role":"assistant","text":"","content_blocks":[]});
             t.append_claude_thought(&mut row,&block,"m",at+Duration::from_secs(300));
             assert_eq!(row["content_blocks"][0]["think_secs"],expected,"provider timing is authoritative only when numeric, finite and nonnegative");
+            if expected == 42.0 {
+                if let Ok(path)=std::env::var("CLAUDE_REPORTED_FIXTURE") { std::fs::write(path,row.to_string()).unwrap(); }
+            }
         }
         let mut t=Turn::new(1,false);begin(&mut t,"m",at);
         stream(&mut t,json!({"type":"content_block_start","index":0,"content_block":{"type":"thinking","duration_ms":17000}}),at);

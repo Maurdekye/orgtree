@@ -12,6 +12,15 @@ starts/stops, another message and a replay cannot supply a different block's tim
 State is private to the turn, bounded to 1,024 pending blocks and reset at a new
 native message. No reasoning text enters timing state or logging.
 
+User 2026-10-21 20:58:40Z: a transmitted thinking duration takes precedence over
+computed time. Explicit nonnegative finite `think_secs`, `thinking_duration_ms`,
+or thinking-block `duration_ms` are used when supplied by the final block or its
+stream events. Otherwise the observed monotonic duration is retained. Whole-turn
+result `duration_ms` and message usage/token counts are never a thinking clock.
+Current repository Claude stream fixtures have no thinking-duration field; their
+result duration is for the whole turn. This is source/fixture evidence, not a
+live private-stream inspection. Reported-duration extensions have synthetic tests.
+
 The existing assistant write stores `think_secs` on each ordered thinking block.
 Adjacent native blocks keep their existing single disclosure: their durations
 sum only when every constituent block was measured; otherwise timing is unknown.

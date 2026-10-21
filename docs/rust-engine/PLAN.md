@@ -453,7 +453,8 @@ their established restoration rules. See [`popout-close.md`](popout-close.md).
 
 Claude timing fix (user 2026-10-21 20:48Z, 4.4.0): keep observed per-block
 thinking elapsed seconds through finalization and reload. Historical missing
-timing stays unknown. See [Claude thought timing](claude-thinking-time.md).
+timing stays unknown. The user's 20:58:40Z ruling gives transmitted thinking
+duration precedence over the computed fallback. See [Claude thought timing](claude-thinking-time.md).
 
 
 Antigravity thinking addition (user 2026-10-17, 4.4.0): after each completed

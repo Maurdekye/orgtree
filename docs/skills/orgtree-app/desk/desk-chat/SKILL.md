@@ -44,6 +44,8 @@ trusted HTML links, and a formula's macro definitions do not affect later math.
 
 Claude thoughts keep their measured duration when the live block finishes and
 when Chat is reopened. Each thought has its own clock, including sealed reasoning.
+When the harness supplies a thinking duration, that value takes precedence;
+otherwise the clock uses the engine's observed block start and stop.
 Old thoughts show a recorded time when available; without a real measurement they
 keep “a moment”. No historical time is invented from a message timestamp.
 

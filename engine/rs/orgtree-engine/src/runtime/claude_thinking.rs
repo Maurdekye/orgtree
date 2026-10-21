@@ -8,7 +8,17 @@ pub struct Timing {
     message: Option<String>,
     blocks: BTreeMap<u64, Block>,
 }
-struct Block { start: Instant, secs: Option<f64> }
+struct Block { start: Instant, secs: Option<f64>, reported: Option<f64> }
+
+/// Only explicit seconds/milliseconds on a thinking block are usable. A result's
+/// duration_ms measures a whole turn, so callers never pass the result/message.
+#[nolog]
+pub fn reported_seconds(block: &Value) -> Option<f64> {
+    let valid = |n: f64| n.is_finite() && n >= 0.0;
+    block["think_secs"].as_f64().filter(|n| valid(*n))
+        .or_else(|| block["thinking_duration_ms"].as_f64().filter(|n| valid(*n)).map(|n| n / 1000.0))
+        .or_else(|| block["duration_ms"].as_f64().filter(|n| valid(*n)).map(|n| n / 1000.0))
+}
 
 #[nolog]
 impl Timing {
@@ -25,13 +35,19 @@ impl Timing {
                 && matches!(event["content_block"]["type"].as_str(),Some("thinking"|"redacted_thinking")) => {
                 if let Some(index)=event["index"].as_u64() {
                     if self.blocks.len()<1024 {
-                        self.blocks.entry(index).or_insert(Block {start:now,secs:None});
+                        self.blocks.entry(index).or_insert(Block {start:now,secs:None,reported:reported_seconds(&event["content_block"])});
                     }
                 }
             }
             Some("content_block_stop") => {
                 if let Some(block)=event["index"].as_u64().and_then(|i| self.blocks.get_mut(&i)) {
                     block.secs.get_or_insert_with(|| now.saturating_duration_since(block.start).as_secs_f64());
+                    if let Some(secs)=reported_seconds(event) { block.reported=Some(secs); }
+                }
+            }
+            Some("content_block_delta") => {
+                if let Some(block)=event["index"].as_u64().and_then(|i| self.blocks.get_mut(&i)) {
+                    if let Some(secs)=reported_seconds(&event["delta"]) { block.reported=Some(secs); }
                 }
             }
             _ => {}
@@ -44,6 +60,6 @@ impl Timing {
     pub fn take(&mut self, message: &str, now: Instant) -> Option<f64> {
         if self.message.as_deref()!=Some(message) { return None; }
         let (_,block)=self.blocks.pop_first()?;
-        Some(block.secs.unwrap_or_else(|| now.saturating_duration_since(block.start).as_secs_f64()))
+        block.reported.or_else(|| Some(block.secs.unwrap_or_else(|| now.saturating_duration_since(block.start).as_secs_f64())))
     }
 }

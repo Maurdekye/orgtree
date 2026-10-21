@@ -1779,3 +1779,6 @@ All entries are dated 2026-10-06 unless stated otherwise.
 - 2026-10-21 20:48Z, USER: Claude's accurate live thinking count-up must remain
   on completed thoughts. Persist measured stream block start/end elapsed time;
   never fabricate missing historical timing. See [Claude thought timing](claude-thinking-time.md).
+- 2026-10-21 20:58:40Z, USER: use a transmitted thinking duration when supplied;
+  otherwise use the computed block duration. A whole-turn runtime is not a
+  thinking duration. See [Claude thought timing](claude-thinking-time.md).
