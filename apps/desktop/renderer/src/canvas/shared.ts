@@ -2367,7 +2367,7 @@ export function layout(root: CanvasNode, hidden: Map<string, string> = new Map()
 export const DOG_W = 50, DOG_H = 26
 /** The room the root's "N retired" badge takes under the eye card (its height and the gap below it): the user's
  *  watchdog chips start below it, so the two never overlap (USER 2026-10-21 22:34Z). */
-export const ROOT_BADGE_H = 26
+export const ROOT_BADGE_H = 22
 
 export function sizeOf(id: string): { w: number; h: number } {
   if (id === USER) return { w: USER_W, h: USER_H }

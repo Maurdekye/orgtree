@@ -152,11 +152,11 @@ test('§2 the user\'s watchdogs show as chips BELOW the switchboard, tethered to
 // USER 2026-10-21 22:34Z: "make sure the watchdogs dont interfere with the retired card under the switchboard".
 // Under the eye sit (at rest) the root's "N retired" badge and now the user's watchdog chips; the hire chips
 // are the card's own hover strip, drawn above both. The badge and the chips must not overlap at rest.
-const BADGE_H = 22
+const BADGE_H = 20   // measured: 13px at the 0.64 map scale
 const rectOf = (el: HTMLElement, w: number, h: number) => { const [x, y] = numbers(el.style.transform); return { x: x!, y: y!, w, h } }
 const overlap = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
-for (const dogs of [1, 3, 5, 9]) {
+for (const dogs of [1, 3, 5, 8, 9]) {
   test(`§3 ${dogs} user watchdog(s) and the root retired badge under the switchboard never overlap`, async t => {
     const view = await canvas(t, treeWith({
       roots: [retired(agent('old-boss')), ...bunchTree([agent('boss', [project('build', [agent('dev')])])]).roots],
@@ -168,9 +168,11 @@ for (const dogs of [1, 3, 5, 9]) {
     assert.ok(b.y >= eye.y + 124, 'fixture: the badge is below the eye card')
     const chips = [...view.el.querySelectorAll<HTMLElement>('.wd-chip')]
     assert.equal(chips.length, dogs > 8 ? 1 : dogs, dogs > 8 ? 'more than eight dogs share one group card' : 'one chip per dog')
+    const child = at(view.el, '.sq[data-copy-agent-name="boss"]')
     for (const chip of chips) {
       const c = rectOf(chip, dogs > 8 ? 104 : DOG_W, DOG_H)
       assert.equal(overlap(b, c), false, `a watchdog chip at ${c.x},${c.y} overlaps the retired badge at ${b.x},${b.y}`)
+      assert.ok(c.y + c.h <= child.y, `a watchdog chip at ${c.x},${c.y} reaches the card below the switchboard (${child.y})`)
     }
   })
 }

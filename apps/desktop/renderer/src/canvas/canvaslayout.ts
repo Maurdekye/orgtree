@@ -157,6 +157,9 @@ export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, Canvas
         if (t.has(canvasOwner(w.owner))) byOwner[canvasOwner(w.owner)] = (byOwner[canvasOwner(w.owner)] ?? 0) + 1
       const seen: Record<string, number> = {}
       const PER_ROW = 3, GX = 6, GY = 4
+      // the eye is the only card on its row, so its dogs never reach a neighbour: one row of up to eight, which keeps
+      // them clear of its retired badge above and of its first child below
+      const perRowOf = (owner: string) => owner === USER ? WATCHDOG_CARD_LIMIT : PER_ROW
       for (const w of tree.watchdogs ?? []) {
         const own = canvasOwner(w.owner)
         if (!t.has(own)) continue
@@ -168,8 +171,9 @@ export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, Canvas
         }
         const i = seen[own] ?? 0
         seen[own] = i + 1
-        const row = Math.floor(i / PER_ROW), col = i % PER_ROW
-        const inRow = Math.min(PER_ROW, byOwner[own]! - row * PER_ROW)
+        const perRow = perRowOf(own)
+        const row = Math.floor(i / perRow), col = i % perRow
+        const inRow = Math.min(perRow, byOwner[own]! - row * perRow)
         const rowW = inRow * DOG_W + (inRow - 1) * GX
         t.set('dog:' + w.id, {
           x: p.x + NODE_W / 2 - rowW / 2 + col * (DOG_W + GX),
