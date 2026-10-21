@@ -4,6 +4,21 @@
 
 Work records, questions, documents, attachments, viewers and attention.
 
+**Every docket selects its first shown ticket on open (user 2026-10-21
+16:50:46Z):** replaces the org-only, unarchived/non-backlogged default of
+2026-10-13 recorded below. `DocketModal` serves the org panel/pop-out;
+`AgentDocketView` serves agent/team/project modals and agent/project desk tabs.
+Both use their displayed section/nesting/fold order, including any enabled
+archive/backlog sections. Wait for initial data, consume even an empty first
+load, and reset only for a fresh open or a different org/node. Explicit item
+links keep their target through the existing org docket jump route. A user
+selection or clear consumes opening; polling, sorting and filtering never
+reselect. Project page fixtures must model `http/docket.rs::page`'s
+`agent=<project>` subtree interpretation, rather than treating the project as
+an item owner. [decided: user 2026-10-21; verified: `canvas/docket.tsx`,
+`canvas/agentdocket.tsx`, `canvas/desk.tsx`, `canvas/projectdesk.tsx`,
+`tests/docketopening-all.test.tsx`]
+
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
 <a id="e-5af536d67d272161"></a>

@@ -7,6 +7,16 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Every docket's opening selection (user 2026-10-21 16:50:46Z,
+m57e713abb4be):** on opening any docket, select the first shown ticket unless
+opening a specific ticket link. Applies to org panel/pop-out, agent/team/project
+modals and agent/project desk tabs. Display order includes current sort,
+grouping, nesting, folds and enabled sections. This supersedes the 2026-10-13
+org-only, unarchived/non-backlogged restriction. Initial load may be delayed;
+an empty initial list selects nothing. Explicit links, user selection/clear
+and later live updates retain their existing precedence. See
+[docket behavior](../agents/docket-and-presentations.md).
+
 **Slot holder room and card-digit limit, user 2026-10-21 06:56–06:59Z:**
 agents, like the user, may hold multiple whole leases, but cannot request more
 units than capacity minus their own held/pending units. Agents keep one armed

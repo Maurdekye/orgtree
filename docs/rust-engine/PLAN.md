@@ -282,6 +282,12 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Docket opening (user 2026-10-21 16:50:46Z): every org, agent, team and project
+docket surface selects the first shown ticket on open/initial load, unless a
+specific ticket link supplies the target. This replaces the org-only active-row
+default. Explicit selections/clears and later polls do not re-arm opening;
+empty lists stay empty. See [docket behavior](../agents/docket-and-presentations.md).
+
 Restart session notices (user 2026-10-20, 4.4.0): startup helper absence is
 unknown for up to 60 seconds, ending early on observed hosting. Previously
 signed-in agents wait before selecting placement; explicit Session 0 bypasses
