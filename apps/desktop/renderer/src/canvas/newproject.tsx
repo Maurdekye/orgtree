@@ -29,8 +29,9 @@ export function projectDraftSteps(draft: DraftState, typed: string, description:
     : [create]
 }
 
-export function ProjectDraftNode({ pos, onConfirm, onCancel }: {
+export function ProjectDraftNode({ pos, onConfirm, onCancel, pending = false }: {
   pos: Pt
+  pending?: boolean
   onConfirm: (name: string, description: string) => void
   onCancel: () => void
 }) {
@@ -41,7 +42,8 @@ export function ProjectDraftNode({ pos, onConfirm, onCancel }: {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onCancel])
-  const ok = name.trim().length > 0
+  const named = name.trim().length > 0
+  const ok = named && !pending
   const create = () => { if (ok) onConfirm(name.trim(), description.trim()) }
   return (
     <div className="sq draft project" style={{
@@ -78,7 +80,7 @@ export function ProjectDraftNode({ pos, onConfirm, onCancel }: {
             <span className="spacer" />
             <button onClick={onCancel}><CloseIcon fontSize="inherit" /> cancel</button>
             <button className="primary" disabled={!ok} onClick={create}
-              title={ok ? undefined : 'give the project a name first'}>
+              title={named ? undefined : 'give the project a name first'}>
               <CheckIcon fontSize="inherit" /> create</button>
           </div>
         </div>

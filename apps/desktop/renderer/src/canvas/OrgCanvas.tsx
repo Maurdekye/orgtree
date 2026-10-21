@@ -537,6 +537,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
   const [draft, setDraft] = useState<DraftState | null>(null)
+  const draftRef = useRef(draft); draftRef.current = draft
+  const draftOrgRef = useRef(slug); draftOrgRef.current = slug
+  const [pendingProject, setPendingProject] = useState<{ draft: DraftState; slug: string } | null>(null)
+  // This object is also the request token. Update the ref synchronously so
+  // repeated Enter/click events cannot submit twice before React renders.
+  const pendingProjectRef = useRef(pendingProject)
+  useEffect(() => {
+    pendingProjectRef.current = null
+    setPendingProject(null)
+    return () => { pendingProjectRef.current = null }
+  }, [slug])
   const [draftForm, setDraftForm] = useState<DraftForm | null>(null)
   // a hire on its way (user 2026-10-20 16:45Z): the placeholder stays where it
   // is, greyed, until the new card arrives and takes its exact place. `id` is
@@ -3713,6 +3724,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // hosts selected by `worldHidden`; the form fields stay here when a host unmounts.
   const openDraft = (next: DraftState) => {
     if (pendingHireRef.current) return
+    pendingProjectRef.current = null
+    setPendingProject(null)
     // Keep the original surface when replacing a draft's tier/placement.
     if (!draft) {
       const id = buttonAgentOf(slug) ?? focusRef.current
@@ -3732,6 +3745,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         grant: draftOpeningGrant(next, tree.default_top_grant ?? 50, map),
       })
     }
+    draftRef.current = next
     setDraft(next)
     draftTimer.current = setTimeout(() => {
       draftTimer.current = null
@@ -3740,6 +3754,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }
   const cancelDraft = useCallback(() => {
     if (pendingHireRef.current) return
+    pendingProjectRef.current = null
+    setPendingProject(null)
+    draftRef.current = null
     if (draftTimer.current !== null) clearTimeout(draftTimer.current)
     draftTimer.current = null
     draftReturn.current = draftOrigin.current
@@ -3851,25 +3868,41 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       : { parent, tier: PROJECT_DRAFT, project: true, beside: { anchor: n.id, side: ringSide(n, edge === 'l' ? 'left' : 'right') } })
   }
   const confirmProjectDraft = (name: string, description: string) => {
-    if (!draft) return
+    if (!draft?.project || pendingProjectRef.current) return
+    const request = { draft, slug }
+    pendingProjectRef.current = request
+    setPendingProject(request)
+    const ownsDraft = () => pendingProjectRef.current === request
+      && draftRef.current === request.draft && draftOrgRef.current === request.slug
     const [create, reorder] = projectDraftSteps(draft, name, description)
     op(create!)
       .then((r) => {
         const born = typeof r?.node === 'string' && r.node ? r.node : String(create!.name)
-        // the real card replaces the draft in place, as a hire's does
-        const ds = springs.current.get(DRAFT)
-        if (ds) seedRef.current.set(born, { x: ds.x, y: ds.y, at: performance.now() })
-        draftOrigin.current = null
-        draftReturn.current = null
-        if (draftTimer.current !== null) clearTimeout(draftTimer.current)
-        draftTimer.current = null
-        setDraftForm(null)
-        setDraft(null)
-        toast([`project ${born} created`])
+        // A cancelled/replaced draft or another org owns its own fields and
+        // camera. Only the submitting draft can hand its position to this card.
+        if (ownsDraft()) {
+          const ds = springs.current.get(DRAFT)
+          if (ds) seedRef.current.set(born, { x: ds.x, y: ds.y, at: performance.now() })
+          draftOrigin.current = null
+          draftReturn.current = null
+          if (draftTimer.current !== null) clearTimeout(draftTimer.current)
+          draftTimer.current = null
+          pendingProjectRef.current = null
+          setPendingProject(null)
+          draftRef.current = null
+          setDraftForm(null)
+          setDraft(null)
+        }
+        if (draftOrgRef.current === request.slug) toast([`project ${born} created`])
         // a side token's ordering, best-effort like a side hire's
         if (reorder) void op({ ...reorder, node: born }).catch(() => undefined)
       })
-      .catch(() => undefined)   // `op` toasts the refusal; the draft stays for a corrected name
+      .catch(() => {
+        // `op` toasts the refusal; only its still-current form can retry.
+        if (!ownsDraft()) return
+        pendingProjectRef.current = null
+        setPendingProject(null)
+      })
   }
   const confirmDraft = (name: string, grant: number, charter: string,
     scope: DraftScope | null) => {
@@ -4460,6 +4493,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           }
           if (n.id === DRAFT && draft?.project) {
             return <ProjectDraftNode key={DRAFT} pos={p}
+              pending={pendingProject?.draft === draft && pendingProject?.slug === slug}
               onConfirm={confirmProjectDraft} onCancel={cancelDraft} />
           }
           if (n.id === DRAFT && worldHidden) return null

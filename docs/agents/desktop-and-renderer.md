@@ -15,6 +15,17 @@ with no new user action or agent-tool mutation.
 [verified: `src/usemailhistory.ts`, `domain/mail_history.rs`,
 `http/{mailbox,nodes}.rs`; decided: coordinator 2026-10-21 hardening assignment]
 
+## Project draft response ownership
+
+Project creation owns a specific request, draft object and org. Only that owner
+may clear the form or seed the created card from its draft spring. Cancel,
+replacement and org changes invalidate ownership synchronously; a late success
+still completes its original server bookkeeping without touching the newer form.
+Create/Enter are disabled while pending, with a synchronous submission guard;
+Cancel remains available. A refusal re-enables only its still-current form.
+[verified: `canvas/OrgCanvas.tsx`, `canvas/newproject.tsx`,
+`tests/projectdraft-response.test.tsx`; coordinator 2026-10-21 23:31Z]
+
 ## Tray administrator setting
 
 The tray Run as admin checkbox and Settings share the protected admin-change
