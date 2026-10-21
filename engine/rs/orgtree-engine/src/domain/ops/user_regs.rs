@@ -426,6 +426,10 @@ pub(super) async fn job_ack(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &
 }
 
 #[cfg(test)]
+#[path = "user_regs/slot_limit_tests.rs"]
+mod slot_limit_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
