@@ -23,7 +23,10 @@ pub(super) async fn resolve(engine: &Arc<Engine>, org_id: i64, owner: i64, owner
         }
         "slot" => {
             let project = memo["target_id"].as_i64().unwrap();
-            let Some(grant) = crate::domain::slots::claim_once(engine, org_id, project, owner, memo).await? else { return Ok(None) };
+            // A registered claim uses its dog name when no reason is supplied.
+            let mut claim=memo.clone();
+            if claim["reason"].is_null(){claim["reason"]=json!(id);}
+            let Some(grant) = crate::domain::slots::claim_once(engine, org_id, project, owner, &claim).await? else { return Ok(None) };
             let lines = vec![grant["line"].as_str().unwrap().to_string()];
             out["lease"] = grant["lease"].clone(); out["slots"] = grant["slots"].clone();
             (lines, " SLOT GRANTED —")

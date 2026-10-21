@@ -110,7 +110,7 @@ struct Granted {
 
 /// The grant line a slot dog fires with.
 #[nolog]
-pub(crate) fn grant_line(project: &str, count: i32, lease: &str) -> String {
+fn grant_line(project: &str, count: i32, lease: &str) -> String {
     let held = quantity(count);
     format!("You now hold {held} of project {project} (lease {lease}). Release the whole lease as soon as the work \
              ends: orgtree_project action=release_slot lease={lease}. That frees all {count} reserved slot(s) together. \
@@ -140,10 +140,15 @@ pub async fn claim_once(engine: &Arc<Engine>, org_id: i64, project: i64, owner: 
     admit(&tx, project, Some(owner), i64::from(requested(memo)), None).await?;
     let (granted, _) = grant_in(&*tx, org_id, project, Some((owner, memo))).await?;
     let Some(own) = granted.iter().find(|g| g.dog == 0) else { return Ok(None) };
-    let result = json!({"lease":own.lease,"slots":own.count,"line":grant_line(&own.project,own.count,&own.lease)});
+    let mut result = json!({"lease":own.lease,"slots":own.count,"line":grant_line(&own.project,own.count,&own.lease)});
     tx.commit().await?;
     drop(client);
-    after_grants(engine, org_id, project, &granted).await?;
+    // Never hide an already-committed inline lease because another queued
+    // claimant's notification failed. Its existing recovery path retries it.
+    if let Err(e)=after_grants(engine, org_id, project, &granted).await {
+        tracing::warn!(project,error=%format!("{e:#}"),"queued grant notification failed after inline lease commit");
+        result["notification_warning"]=json!("The inline lease is committed. Another queued grant notification needs recovery.");
+    }
     Ok(Some(result))
 }
 
