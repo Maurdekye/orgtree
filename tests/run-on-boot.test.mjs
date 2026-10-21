@@ -60,20 +60,22 @@ test('the reading is the boot task and the sign-in helper, nothing else', () => 
   assert.equal(startup.startupOn({ boot: null, helper: null }), false)
 })
 
-test('the reading script reads the two tasks, never the old sign-in engine task, and changes nothing', () => {
+test('the reading script reads all owned automatic triggers and changes nothing', () => {
   const script = startup.readScript()
-  for (const name of ['Orgtree Background Engine', 'Orgtree Credential Helper']) assert.ok(script.includes(`(State '${name}')`), name)
+  for (const name of ['Orgtree Background Engine', 'Orgtree Credential Helper', 'Orgtree User Session Engine']) assert.ok(script.includes(`(State '${name}')`), name)
   assert.ok(!script.includes('Orgtree Sign-in Engine'), 'the removed sign-in engine task is still read')
   assert.doesNotMatch(script, /StartupMode/)
   assert.doesNotMatch(script, /SetValue|\.Enabled =|RegisterTask|DeleteTask/)
+  assert.match(script, /\$task\.Enabled -and .*\$task\.Definition\.Triggers/)
 })
 
 test('the elevated script verifies both tasks first, switches both and records only RunOnStartup', () => {
   for (const enabled of [true, false]) {
     const script = startup.elevatedStartupScript(enabled)
-    for (const marker of ['com.maurdekye.orgtree.boot.v1:', 'com.maurdekye.orgtree.credential-helper.v1:']) assert.ok(script.includes(marker), marker)
+    for (const marker of ['com.maurdekye.orgtree.boot.v1:', 'com.maurdekye.orgtree.credential-helper.v1:', 'com.maurdekye.orgtree.user-session.v1:']) assert.ok(script.includes(marker), marker)
     assert.ok(!script.includes('signin-engine'), 'the removed sign-in engine task is still switched')
-    assert.ok(script.includes(`$tasks[$name].Enabled = $${enabled}`), `both tasks ${enabled ? 'on' : 'off'}`)
+    assert.ok(script.includes('$definition.Settings.Enabled = $true'), 'manual demand launch remains available')
+    assert.ok(script.includes(`$trigger.Enabled = $${enabled}`), `automatic triggers ${enabled ? 'on' : 'off'}`)
     assert.ok(script.includes(`SetValue('RunOnStartup', ${enabled ? 1 : 0}, [Microsoft.Win32.RegistryValueKind]::DWord)`))
     assert.doesNotMatch(script, /StartupMode/)
     const refusal = script.indexOf('Refusing to change a task Orgtree did not install')
@@ -114,15 +116,21 @@ test('the engine starts through the boot task, without reading anything first', 
 test('"Run Orgtree as administrator" sets the sign-in helper\'s run level first, only on the installer\'s own task', () => {
   for (const enabled of [true, false]) {
     const script = admin.elevatedWriteScript(enabled)
-    assert.ok(script.includes("GetTask('Orgtree Credential Helper')"))
-    assert.ok(script.includes("'com.maurdekye.orgtree.credential-helper.v1:' + $id"))
+    assert.ok(script.includes("'Orgtree Credential Helper' = 'com.maurdekye.orgtree.credential-helper.v1:'"))
+    assert.ok(script.includes("'Orgtree User Session Engine' = 'com.maurdekye.orgtree.user-session.v1:'"))
     assert.ok(!script.includes('Orgtree Sign-in Engine'), 'the removed sign-in engine task is still changed')
     assert.ok(script.includes(`$definition.Principal.RunLevel = ${enabled ? 1 : 0}`))
-    assert.ok(script.includes("RegisterTaskDefinition('Orgtree Credential Helper', $definition, 20, $sid, $null, 3, \"O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)\")"))
+    assert.ok(script.includes('RegisterTaskDefinition($name, $definition, 20, $sid, $null, 3,'))
     const refusal = script.indexOf('Refusing to change a task Orgtree did not install')
     assert.ok(refusal > 0 && refusal < script.indexOf('RegisterTaskDefinition'), 'the task was changed before it was verified')
     assert.ok(script.indexOf('RegisterTaskDefinition') < script.indexOf("SetValue('RunAsAdministrator'"), 'the setting changed before the task did')
   }
+})
+
+test('readback refuses a still-enabled interactive trigger after disabling startup', async () => {
+  await assert.rejects(startup.writeRunOnStartup(false, fakeRunner(ok, {
+    code: 0, stdout: JSON.stringify({boot:false,helper:false,interactive:true}), stderr:''
+  }).runner), /reads back differently/)
 })
 
 test('every script parses in Windows PowerShell 5.1', { skip: !windows && 'UNEXECUTED: needs Windows PowerShell' }, () => {
