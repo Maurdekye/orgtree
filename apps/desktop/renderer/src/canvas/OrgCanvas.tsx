@@ -408,21 +408,11 @@ export function agentTooltipInfo(n: CanvasNode | undefined,
   projectTree?: Pick<TreePayload, 'slot_leases' | 'watchdogs'>): AgentTooltipInfo | null {
   if (!n || n.state === 'user') return null
   if (n.kind === 'project' || n.tier === 'project') {
-    const retired = n.state !== 'live' && n.state !== 'draft'
     // Same helpers and feed as the header badges. The shared native-title
     // host adds a name line only for identity-less links (USER 11:17:42Z).
-    const { slotBadge, listeners, listenerBadges, queue, hasChips } = projectHeaderFacts(n, projectTree)
-    if (!hasChips) return { title: n.id }
-    const charterFirstLine = n.charter?.split(/\r?\n/).find(l => l.trim().length > 0)?.trim()
-    const charterSummary = charterFirstLine
-      ? (charterFirstLine.length > 64 ? charterFirstLine.slice(0, 61) + '…' : charterFirstLine)
-      : undefined
-    const values = ['Project' + (retired ? ' (retired)' : ''), slotBadge ? `slots ${slotBadge}` : undefined,
-      ...listenerBadges.map(c => c.text),
-      listeners.armedWatches.length ? `${listeners.armedWatches.length} listener watch${listeners.armedWatches.length === 1 ? '' : 'es'}` : undefined,
-      queue ? `mail: ${queue.text}` : undefined, charterSummary]
-      .filter((value): value is string => !!value?.trim())
-    return { title: values.join(' · ') }
+    const { texts } = projectHeaderFacts(n, projectTree)
+    // USER 2026-10-21 15:59:29Z: the chip content itself, nothing extra.
+    return { title: texts.length ? texts.join(' · ') : n.id }
   }
   const draftTier = n.state === 'draft' && !!n.tier
   const provider = n.tier ? providerOf(n.tier) : null

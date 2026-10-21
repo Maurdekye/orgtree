@@ -54,12 +54,13 @@ settings.
   its content's own hover targets in charge. Normal identity-less folder
   marks still prefix the project name. [verified: `canvas/projectcard.tsx`;
   user link-consistency invariant 2026-10-21]
-- Project facts use the same live feed and helpers as their header badges:
-  `slots held/total` (and waiting line), event `listeners n` or each watch's
-  `listeners n/target`, the armed listener-watch count, and `mail:` followed by
-  the queue badge's listener/waiting/in-flight text. Paused/spent or unrelated
-  dogs follow the badge helpers' exclusions. The facts and existing Project,
-  retired marker and charter summary stay on one line. Identity-less links
+- Project facts use the same live feed and source as their header badges:
+  the exact slot chip, event-listener/watch chips, and queue chip text, in that
+  order, joined by ` · `. Multiple listener chips join with `; ` within the
+  listener section, giving at most three category sections while the header
+  stays unchanged (USER 2026-10-21 16:00:17Z: "Group in the tooltip"). No
+  Project/retired label, summary, prefixes or extra counts are added (USER
+  15:59:29Z). Paused/spent or unrelated dogs follow the badge exclusions. Identity-less links
   prefix the project name on its own first line; name-visible and far-zoom
   links omit that prefix. USER 2026-10-21 11:16:57Z asked for the name followed
   by slot/listener facts; 11:17:42Z (m044c37a6c76b) confirmed "okay, yes, leave

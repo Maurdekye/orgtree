@@ -15,6 +15,9 @@ export function projectHeaderFacts(node: CanvasNode,
   const listeners = projectListenerState(node.id, dogs)
   const listenerBadges = listenerCards(node.id, listeners)
   const queue = mailQueueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node), dogs)
-  return { slots, slotBadge, listeners, listenerBadges, queue,
-    hasChips: !!slotBadge || listenerBadges.length > 0 || !!queue }
+  // USER 16:00:17Z: group multiple cyan chips in the tooltip only.
+  // Keep their header rendering unchanged; at most three category sections.
+  const texts = [slotBadge, listenerBadges.map(c => c.text).join('; '), queue?.text]
+    .filter((text): text is string => !!text)
+  return { slots, slotBadge, listeners, listenerBadges, queue, texts, hasChips: texts.length > 0 }
 }

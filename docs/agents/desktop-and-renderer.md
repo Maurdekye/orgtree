@@ -12,12 +12,14 @@ Normal agent/project card faces scale uniformly only when their complete content
 would overflow; fixed card bounds stay unchanged and fitting content stays at scale 1.
 [decided: user 2026-10-21 11:21Z; verified: `canvas/cardface.tsx`]
 
-Project identity tooltips share live slot/listener/watch/mail-queue badge counts
-on one facts line; only identity-less targets prefix a separate name line.
+Project identity tooltips use the coloured header chips' exact text on one
+facts line, in slot/listener/queue order; multiple listener chip texts join
+with semicolons within their section. Only identity-less targets prefix a name line.
 With no coloured header fact chips, every class instead shows the project name
 alone, including near names and mini cards; both paths use projectHeaderFacts.
 See [identity tooltip](../rust-engine/agent-identity-tooltip.md).
-[decided: user 2026-10-21 11:16:57Z, 11:17:42Z and 15:56:49Z; verified: `canvas/{OrgCanvas,projectcard,projectheaderfacts}.tsx?`]
+[decided: user 2026-10-21 11:17:42Z, 15:56:49Z, 15:59:29Z and 16:00:17Z;
+verified: `canvas/OrgCanvas.tsx`, `canvas/projectcard.tsx`, `canvas/projectheaderfacts.ts`]
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 

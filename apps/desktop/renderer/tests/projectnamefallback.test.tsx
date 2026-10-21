@@ -28,6 +28,9 @@ const cases = [
   { label: 'mail listener', patch: {}, dogs: [dog('fair_queue')], chips: ['1 listener'], title: '1 listener' },
   { label: 'event listener', patch: {}, dogs: [dog('project_listener')], chips: ['listeners 1'], title: 'listeners 1' },
   { label: 'listener watch', patch: {}, dogs: [dog('listener_watch', { count: 3 })], chips: ['listeners 0/3'], title: 'listeners 0/3' },
+  { label: 'multiple watches group without changing header chips', patch: { configured_scope: { slots_capacity: 2 }, mail_pending: 2 },
+    dogs: [dog('listener_watch', { count: 3 }), dog('listener_watch', { id: 'worker/second-watch', count: 5 })],
+    chips: ['0/2 held', 'listeners 0/3', 'listeners 0/5', "2 q'd"], title: "0/2 held · listeners 0/3; listeners 0/5 · 2 q'd" },
 ]
 for (const c of cases) test(`project name-only hover matches rendered chips: ${c.label}`, async t => {
   const node = { ...project(id), configured_scope: {}, ...c.patch } as unknown as CanvasNode
@@ -50,7 +53,11 @@ for (const c of cases) test(`project name-only hover matches rendered chips: ${c
   const chips = [...card.querySelectorAll('.project-slots-badge,.project-listeners-badge,.project-queue-badge')].map(el => el.textContent)
   assert.deepEqual(chips, c.chips, 'observe the actual header, excluding its grey retired badge')
   assert.equal(info()?.title, c.title)
-  if (chips.length) assert.equal(info()?.title, chips.join(' · '), 'facts are exactly the rendered chip text')
+  const sections = [card.querySelector('.project-slots-badge')?.textContent,
+    [...card.querySelectorAll('.project-listeners-badge')].map(el => el.textContent).join('; '),
+    card.querySelector('.project-queue-badge')?.textContent].filter(Boolean)
+  assert.ok(sections.length <= 3)
+  if (chips.length) assert.equal(info()?.title, sections.join(' · '), 'facts are exactly the rendered chip texts grouped by category')
   assert.equal(info()?.title === id, chips.length === 0, 'fallback iff no coloured header chips')
   const targets = [card, card.querySelector<HTMLElement>('.name')!, card.querySelector<HTMLElement>('.project-mark')!,
     v.el.querySelector<HTMLElement>('.project-mini')!, v.el.querySelector<HTMLElement>('.ref-ready')!]

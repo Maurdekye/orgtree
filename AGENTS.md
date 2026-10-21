@@ -16,7 +16,10 @@ Read this file before working in this repository. It is the startup guide, not a
 - Project identity hover is the name alone when no coloured header fact chips
   render, even on named links and mini cards. Header and hover share
   `canvas/projectheaderfacts.ts`; projects with chips retain the name-class rule.
-  [decided: user 2026-10-21 15:56:49Z; verified: `canvas/OrgCanvas.tsx`, `canvas/projectcard.tsx`]
+  Their facts are the exact chip texts in slot/listener/queue order, joined by
+  ` · `; multiple listener chips join by `; ` within that category.
+  [decided: user 2026-10-21 15:56:49Z, 15:59:29Z and 16:00:17Z;
+  verified: `canvas/OrgCanvas.tsx`, `canvas/projectcard.tsx`]
 
 - MQTT/WebSocket watchdog `send` uses the dog's existing authorized connection;
   MQTT requires a publish topic and shares the 64 KiB encoded-payload cap.
