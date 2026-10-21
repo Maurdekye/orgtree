@@ -4,6 +4,21 @@
 use serde_json::{json, Value};
 
 #[cfg(test)]
+mod watchdog_configure_tests {
+    use super::*;
+
+    #[test]
+    fn watchdog_configure_is_available_for_existing_websocket_watchers() {
+        let card = build_tool_watchdog();
+        let properties = &card["inputSchema"]["properties"];
+        assert!(properties["action"]["enum"].as_array().unwrap().contains(&json!("configure")),
+            "agents must be able to change connection notifications without recreating the watcher");
+        assert_eq!(properties["notify_on_connect"]["type"], "boolean");
+        assert!(properties["id"]["description"].as_str().unwrap().contains("configure"));
+    }
+}
+
+#[cfg(test)]
 mod project_agent_tool_tests {
     use super::*;
 
