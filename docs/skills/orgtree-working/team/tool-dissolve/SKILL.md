@@ -6,7 +6,7 @@ Up: [orgtree-team](../SKILL.md)
 
 # orgtree_dissolve
 
-Requires `team`; `node` is the only parameter and is required. It must name a live descendant. This is the explicit whole-subtree operation; [retire](../tool-retire/SKILL.md) on a manager also archives its live subtree but warns about that expansion.
+Requires `team`; `node` is the only parameter and is required. It must name a live descendant agent or project. This is the explicit whole-subtree operation; [retire](../tool-retire/SKILL.md) on a manager also archives its live subtree but warns about that expansion. A project remains a container with retained policy and history, not a runtime seat.
 
 All live seats in the selected subtree become archived and their processes stop. Open request cards become moot; owned watchdogs are paused. The result returns the root `node`, the count of archived `nodes`, and `freed` equal to that root's seat plus grant. Do not sum every descendant's grant again: their allocations were already inside the root grant.
 

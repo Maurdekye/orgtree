@@ -6,11 +6,11 @@ Up: [orgtree-team](../SKILL.md)
 
 # orgtree_retire
 
-Requires `team`. The single required parameter is `node`, the name of the agent to retire. Use when finished expertise no longer needs live capacity; [halt](../../runtime/tool-halt/SKILL.md) instead keeps a live seat and its credits reserved.
+Requires `team`. The single required parameter is `node`, the name of the agent or project to retire. A project remains a container: retirement archives its live subtree, retains project identity/policy/history and does not create a runtime or model seat. Use when finished expertise no longer needs live capacity; [halt](../../runtime/tool-halt/SKILL.md) instead keeps an agent's live seat and credits reserved.
 
 **Retiring a descendant with live reports archives its whole live subtree.** It does not lift the reports to you. Transfer unfinished work and inspect the team before calling; use [dissolve](../tool-dissolve/SKILL.md) when the whole-team intent should be explicit.
 
-The normal target must be below you. Source also allows retiring yourself only when its descendant check is empty; that check includes non-deleted archived descendants, despite the refusal saying "you still have live reports". Do not depend on self-retirement while any descendants remain; ask your superior to retire you after leaving the handoff. An already archived authorized target returns `freed: 0` with a no-op warning; other non-live states are refused.
+The normal target must be below you. Self-retirement is permitted only when no live agent remains in your descendant subtree; intervening projects are transparent to that check. Archived descendants alone do not block it. Arrange unfinished work and leave the handoff before ending your own seat. An already archived authorized target returns `freed: 0` with a no-op warning; other non-live states are refused.
 
 Retirement archives the live target/team, stops their processes, makes open request cards moot and pauses their owned watchdogs. The parent's held credits drop by the target's seat plus grant; its grant itself does not shrink. This is capacity, not a cash refund or recovered tokens. The result returns `node`, `freed` and a warning if retirement became dissolution.
 

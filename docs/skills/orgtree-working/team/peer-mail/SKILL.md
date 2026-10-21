@@ -12,7 +12,9 @@ When OFF, two agents with the same actual, non-null parent cannot send each othe
 
 An audience still opens the granted direction. A peer may request one even while ordinary peer mail is blocked. Their nearest agent superior may grant `from=A target=B` when A and B share an actual parent, including agents directly under the same project. That lets A write to B; the reverse needs its own grant. Existing audience grant routes stay available.
 
-A project is transparent for reporting. Agents under different projects can therefore share a reporting superior, but this setting only gates pairs with the same actual parent. It does not restrict those cross-project pairs, superior/subordinate reach, the user, org inbox, external mail, chart visibility or docket reading.
+A project is transparent for reporting, but not for ordinary coworker mail. Agents under different actual parents need a directional audience even when they report to the same superior. A project-to-project audience connects the two projects' direct live members only while **both projects' peer-mail switches are ON**. Turning either OFF suspends that bridge; it does not revoke the grant. An explicit agent-to-agent, agent-to-project or project-to-agent grant keeps its ordinary directional override. Nested project members do not inherit a parent's bridge.
+
+Superior/subordinate reach, user and outside-mail audience requirements, chart visibility and docket reading keep their separate rules. Sharing a reporting superior does not itself authorize cross-project mail.
 
 OFF also hides ordinary neighbour connector lines between that node's direct children, in row/circular charts, at every zoom level and in both GL and SVG rendering. Hierarchy and audience lines keep their normal behavior. ON restores the neighbour links.
 

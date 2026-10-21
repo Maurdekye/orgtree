@@ -15,17 +15,17 @@ Native switches are bash (shell), web (web capability), edit (file editing), and
 | Orgtree group | Gated tools, omitting the orgtree_ prefix |
 | --- | --- |
 | docket | work; staff also needs team. |
-| team | hire, rehire, retire, dissolve, move, reorder, rename, reallocate, switch_model, cheap_compact, retool, swap, self_subjugate; staff also needs docket. |
+| team | hire, rehire, retire, dissolve, move, reorder, rename, reallocate, switch_model, cheap_compact, compact, retool, swap, self_subjugate, fast_defaults; staff also needs docket. |
 | messaging | message, send_notice, inbox, audience, transfers. |
 | inspection | chart, state_inspect, usage, list_tiers, list_orgs, read_transcript, read_scratch. |
 | watchdogs | watchdog. |
-| runtime | interrupt, halt, unhalt, unstick, continue_on, account_mark; optional usage refresh also needs runtime. |
+| runtime | Interrupt another agent, halt, unhalt, unstick, continue_on, account_mark; optional usage refresh also needs runtime. |
 | user | ask, withdraw_ask, present, send_file, request_credits, request_scope. |
 | logo | org_logo: set/remove this organization's Logo, logged and undoable. |
 
-`orgtree_project` slot release and status need **either team or watchdogs**. With watchdogs on and team off, its card exposes only `action=release_slot` (your own lease, optional note) and `action=slots` (your own holds, line entries and history, marked `own_only`; `held` counts your holds). Project reach and lease ownership still apply. All other project actions, full slot status and force release require team. With both groups off, the project tool is absent and calls are refused. Missing switches still default on; inherited denials still apply.
+`orgtree_project` is available with **either team or watchdogs**. With watchdogs on and team off, it exposes your own `release_slot`, full `slots` coordination status (other holders' lease IDs hidden), `fire_event`, `listeners`, and `dead_letters`, `retry_dead_letter`, `drop_dead_letter`. Project reach, lease ownership and action-specific checks still apply. Configuration, force release, removing another agent from the line and the other project administration actions require team. With both groups off, the project tool is absent and calls are refused. See [orgtree-tool-project](../tool-project/SKILL.md) for the exact fields. Missing switches still default on; inherited denials still apply.
 
-Status reporting is always available. Missing group switches default on; explicit ancestor denials remain effective. The scope API rejects unknown group names and non-boolean values.
+Status, next-turn inspection, session inspection/selection and self-interrupt remain available without a tool-group grant. Interrupting another agent still needs runtime authority. Missing group switches default on; explicit ancestor denials remain effective. The scope API rejects unknown group names and non-boolean values.
 
 Permission modes form the engine hierarchy plan < default < acceptEdits < bypassPermissions, bounded by ancestors. The staffing tool schema offers the latter three. Headless agents cannot answer an interactive plan/approval workflow merely because a guide names it. Each harness maps these modes differently; see `orgtree-harness-claude-code` (orgtree-app › providers), `orgtree-harness-codex` (orgtree-app › providers), `orgtree-harness-muse` (orgtree-app › providers), `orgtree-harness-opencode` (orgtree-app › providers) and `orgtree-harness-antigravity` (orgtree-app › providers).
 

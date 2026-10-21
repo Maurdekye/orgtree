@@ -36,7 +36,7 @@ The schema requires the complete ordinary-hire scope: `add_dirs`, `org_visibilit
 | `kickoff` | Optional nonblank first task message, sent after admission. Without kickoff or assignment/wake mail, a new hire stays idle. |
 | `kickoff_kind` | `message` default, or `question`. Use those offered kinds; legacy request/decision/status input normalizes to message. |
 
-Orgtree groups are `docket`, `team`, `messaging`, `inspection`, `watchdogs`, `runtime`, `user`; unknown names/non-boolean grants are refused. Status remains available. Folder and basic-tool grants cannot exceed the future parent's capabilities; a broader manager grant does not silently pass through an intermediate parent.
+Orgtree groups are `docket`, `team`, `messaging`, `inspection`, `watchdogs`, `runtime`, `user` and `logo`; unknown names/non-boolean grants are refused. Status remains available. Folder and basic-tool grants cannot exceed the future parent's capabilities; a broader manager grant does not silently pass through an intermediate parent.
 
 ## Credits and superior insertion
 

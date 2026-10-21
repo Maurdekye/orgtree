@@ -8,6 +8,11 @@ Up: [orgtree-team](../SKILL.md)
 
 Requires `team`. Use for an authorized descendant's configuration; only supplied fields change. The exception on yourself permits exactly `node` plus `team_charter`: your superior controls your own charter and scope. A top-level agent cannot self-grant other capabilities either.
 
+The target is an agent, not a project container. Configure a project's Summary,
+peer-mail, queue, slots and listeners with `orgtree_project`; projects have no
+model, account, launch or agent scope to retool. Project placement still affects
+which real agent supervises a member and which project charters it receives.
+
 ## Parameters
 
 | Parameter | Effect |
@@ -25,7 +30,7 @@ Requires `team`. Use for an authorized descendant's configuration; only supplied
 | `account_fallback` | Set opt-in/out for fallback within the same provider. |
 | `clear_account_fallback` | True removes the override and uses org default; takes precedence over account_fallback. |
 
-Orgtree group keys are `docket`, `team`, `messaging`, `inspection`, `watchdogs`, `runtime`, `user`; omitted keys remain, an ancestor denial is inherited, and unknown/non-boolean keys are refused. `orgtree_status` remains available. A granted tool switch does not override your assignment or authorize an unrelated action.
+Orgtree group keys are `docket`, `team`, `messaging`, `inspection`, `watchdogs`, `runtime`, `user` and `logo`; omitted keys remain, an ancestor denial is inherited, and unknown/non-boolean keys are refused. `orgtree_status` remains available. A granted tool switch does not override your assignment or authorize an unrelated action.
 
 ## Folder changes and propagation
 
