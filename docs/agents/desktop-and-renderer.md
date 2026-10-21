@@ -63,6 +63,12 @@ over a closed alias when migration produces the same key. No storage schema
 change is needed. [decided: user 2026-10-20, DECISIONS 92; verified:
 `windowlayout.ts`, `tests/windowretention.test.ts`; 2026-10-21]
 
+Pinned agent and team presentation readers report their current selected
+document to the canvas's marker owner. Selection changes and opening another
+reader preserve that document in the pinned open marker; reload restores it
+along with the same node generation and reader scope. [verified:
+`canvas/{OrgCanvas,gallery}.tsx`, `tests/readers.test.tsx`; 2026-10-21]
+
 ## Tray administrator setting
 
 The tray Run as admin checkbox and Settings share the protected admin-change

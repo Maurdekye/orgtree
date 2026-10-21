@@ -22,6 +22,10 @@ Readers are one per scope: the organization's Presented documents, one for each 
 
 Pin/window controls change the reading surface. Closing a reader leaves the presentation in its collection; Dismiss removes its displayed card through the document operation. These are different from retiring its author.
 
+Pinned agent and team readers remember the document currently selected, even
+after another reader opens. Restoring the saved window reopens that document
+for the same node generation and reader scope.
+
 Organization and agent presentation modals collapse the list into a menu-controlled overlay when their reading area is 896 CSS pixels wide or less. The breakpoint follows that area's width in a popout too, including snap-layout resizing; widening restores the list column. Resizing and moving the panel retain selection, filters and list position. Inline desk lists remain columns.
 
 ## Copy, download and reply

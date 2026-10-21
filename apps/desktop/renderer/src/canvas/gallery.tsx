@@ -699,7 +699,7 @@ export interface AgentGalleryViewProps {
  * reader remain AgentGalleryView's single implementation; this wrapper only
  * gives that view the same movable/pinnable shell as inbox and docket. */
 export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
-  onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind: pinKindProp, team, onTeam }: AgentGalleryViewProps & { close: () => void }) {
+  onReply, refs, onChanged, initialDocument, initialLoaded, selectedRow, pinKind: pinKindProp, team, onTeam, onShown }: AgentGalleryViewProps & { close: () => void }) {
   // ONE READER PER AGENT OR PROJECT, AND ONE PER TEAM (docket
   // several-instances-of-the-same-modal-team-slots-i, USER 2026-10-20
   // 19:03:28Z). The window is the scope's instance; the canvas passes it, and
@@ -727,6 +727,11 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
    *  `setShown` is a useState setter, so its identity is stable and the
    *  report-upward effect below does not re-run on the render it causes. */
   const [shown, setShown] = useState<string | null>(initialDocument ?? null)
+  // Keep the parent marker writer informed without changing the view's
+  // stable setShown callback or reporting again for unrelated parent renders.
+  const reportShown = useRef(onShown)
+  reportShown.current = onShown
+  useEffect(() => { reportShown.current?.(shown) }, [shown])
   const [localTeam, setLocalTeam] = useState(!!team)
   useEffect(() => { setLocalTeam(!!team) }, [team])
   const effectiveTeam = onTeam ? !!team : localTeam

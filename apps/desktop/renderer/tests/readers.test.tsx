@@ -227,5 +227,12 @@ for (const team of [false, true]) {
     await canvas(t)
     assert.equal(Object.fromEntries(readers())[first], 'Worker notes', 'the lifecycle restores the document on screen')
     assert.equal(marker?.restore?.document, 'w-2', 'opening the second reader did not erase the first selection')
+    const current = document.querySelector<HTMLElement>('[aria-label="presented documents for worker"] .mailrow.on')
+    assert.ok(current)
+    await inAct(async () => {
+      current.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+      await flush(10)
+    })
+    assert.equal(Object.fromEntries(readers())[first], null, 'reporting a deselection must not reopen a default document')
   })
 }

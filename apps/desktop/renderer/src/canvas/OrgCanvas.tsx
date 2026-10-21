@@ -962,10 +962,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // new one"). The org's global reader is App's Presented documents; these
   // are the agent / project readers and the team readers, each a gallery in
   // a window of its own. canvas/readers.ts picks which one a document goes to.
-  const agentReaders = useModalInstances('agent-gallery', slug, agentRestore)
-  const teamReaders = useModalInstances('team-gallery', slug, (id) => ({ ...agentRestore(id), team: true }))
-  // the document a reader opens on, by its window (instance kind)
+  // Opening requests stay separate from the live selection: reporting a
+  // deselection must not re-arm the view's default opening selection.
   const [readerDoc, setReaderDoc] = useState<Readonly<Record<string, { id: string; loaded?: LoadedDoc }>>>({})
+  const [readerShown, setReaderShown] = useState<Readonly<Record<string, string | null>>>({})
+  const readerRestore = (kind: string, id: string): WindowRestore => {
+    const own = instanceKind(kind, id)
+    const document = Object.hasOwn(readerShown, own) ? readerShown[own] : readerDoc[own]?.id
+    return { ...agentRestore(id), ...(document ? { document } : {}) }
+  }
+  const agentReaders = useModalInstances('agent-gallery', slug, id => readerRestore('agent-gallery', id))
+  const teamReaders = useModalInstances('team-gallery', slug, id => ({ ...readerRestore('team-gallery', id), team: true }))
+  const noteReaderShown = useCallback((own: string, document: string | null) => setReaderShown(previous =>
+    previous[own] === document ? previous : { ...previous, [own]: document }), [])
   const openAgentReader = agentReaders.open, openTeamReader = teamReaders.open
   const agentReaderIds = agentReaders.ids, teamReaderIds = teamReaders.ids
   const closeAgentReader = agentReaders.close, closeTeamReader = teamReaders.close
@@ -1115,6 +1124,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     for (const r of [...instances('agent-gallery'), ...instances('team-gallery')])
       if (r.restore?.document && restoredAgent(r, map)) readerDocs[r.kind] ??= { id: r.restore.document }
     setReaderDoc(readerDocs)
+    setReaderShown({})
     agentReaders.restore(targets('agent-gallery'))
     teamReaders.restore(targets('team-gallery'))
     // the single document readers of before (the canvas's, the docket's) come
@@ -4914,7 +4924,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           return <MaybePortal key={`${slug}/${own}`}><AgentGalleryModal key={`${slug}/${own}`} slug={slug} nid={id}
             node={map.get(id)} toast={toast} pinKind={own} team={team}
             onTeam={(next) => { if (next !== team) switchReaderScope(id, next) }}
-            initialDocument={readerDoc[own]?.id} initialLoaded={readerDoc[own]?.loaded}
+              initialDocument={readerDoc[own]?.id} initialLoaded={readerDoc[own]?.loaded}
+              onShown={document => noteReaderShown(own, document)}
             // a reference to anything but a document lives BEHIND the reader,
             // so a centred reader closes first
             refs={{ world: canvasRefs.world, onOpen: (r: ResolvedRef) => {
