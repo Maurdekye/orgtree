@@ -38,6 +38,11 @@ export default async function(rig){
   p.check('existing rumqttc QoS2 publish is supported',q2.ok&&await until(()=>got.some(x=>x.qos===2&&x.payload==='[1,true]')),q2.text)
   const empty=await send({topic:'mqtt-send/clear',message:'',retain:true})
   p.check('empty MQTT payload can clear a retained value',empty.ok&&await until(()=>got.some(x=>x.topic==='mqtt-send/clear'&&x.payload===''&&x.retain)),empty.text)
+  const boundary=await send({topic:'boundary/64k',message:'x'.repeat(65536)})
+  p.check('exact64KiB payload reaches the existing broker',boundary.ok&&await until(()=>got.some(x=>x.topic==='boundary/64k'&&x.payload.length===65536)),boundary.text)
+  p.check('per-dog publish counters and time reach list',await until(async()=>{
+   const r=await rig.tool('boss','orgtree_watchdog',{action:'list'}),dog=r.json?.watchdogs?.find(d=>d.name==='publish');return dog?.sent===5&&!!dog.last_sent_at
+  }))
   for(const topic of ['mqtt-send/+','mqtt-send/#','']){
    const r=await send({topic,message:'refused'});p.check('invalid publish topic refused: '+JSON.stringify(topic),!r.ok&&/topic/i.test(r.text),r.text)
   }
