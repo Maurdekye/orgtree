@@ -1,5 +1,17 @@
 # Project nodes (4.4.0)
 
+## Mail-queue documentation correction (2026-10-21)
+
+For current mail queue, ACK, reclaim, dead-letter notification, access and user
+participation rules, see the [source audit](../skills/orgtree-workflows/collaboration-patterns/work-queues/source-audit.md).
+It supersedes unqualified historical one-job or fixed-three-reminder wording:
+ACK uses batch 1–20 (default 1), reminders 1–10 (default 3), and max attempts
+1–100 (default 3). The terminal decision is on reclaim, with Runtime working
+checkups on; project Ack timeout only gates idle-timeout reclaim. Dead Letter
+Line is a subscriber preview, while the Dead letters tab lists open jobs.
+Source: `engine/rs/orgtree-engine/src/domain/projects.rs:43`, `:64`, `:90`,
+`:651`, `:702`, `:1462` and `domain/ops.rs:2724`.
+
 ## Placement and runtime capabilities
 
 Movement, sibling reorder, rename, superior insertion and retirement operate on

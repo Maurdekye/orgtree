@@ -139,7 +139,7 @@ For a FIFO work queue with completion records, configure ACK mode **before posti
 
 Only the worker actually handed that mail sends the second call, after doing the work. Use the ID from its handed mail wrapper, not an unrelated project/history ID. Each listener holds at most its batch size in unacked jobs (default 1); ack each mail separately. Each ACK frees one place. Abandonment returns only unacked mails, preserving completed ACKs. FIFO is pending eligible mail's handout order; parallel workers may finish out of order, and retries return to the front. The queue does not validate the result. Halt/retire or stopping the listener releases an unacked job; pausing/removing the dog is not an acknowledgement. Work can execute twice after reclaim or a failed acknowledgement: use a job ID and durable checkpoints, and inspect prior effects before retrying.
 
-With working checkups and ack timeout enabled, unacked jobs receive the configured reminder budget, then reclaim; exhausted attempts become dead letters. These are eligibility-based checkups, not a precise wall-clock timeout. A turn-end reminder is a separate nudge, not an ack or a forced successful completion. [work-queues](../work-queues/SKILL.md) owns those settings and delivery details. Diagnose and resolve a failed job separately:
+With working checkups and Ack timeout enabled, each outstanding agent job receives `ack_reminders` eligible checkup reminders (1–10, default 3), then is reclaimed at the next checkup. `max_attempts` is 1–100, default 3; dead-lettering occurs on reclaim after the bound, not on the last hand-out. Working checkups also gate dead-lettering on halt/retire/listener-loss release or manual take-back; Ack timeout only gates idle-timeout reclaim. These are eligibility-based checkups, not a precise wall-clock timeout. A turn-end reminder is a separate nudge, not an ack or a forced successful completion. [work-queues](../work-queues/SKILL.md) owns those settings and delivery details. Diagnose and resolve a failed job separately:
 
 ```json
 [
@@ -151,7 +151,15 @@ With working checkups and ack timeout enabled, unacked jobs receive the configur
 ]
 ```
 
-The event watcher sees permitted dead-letter events (possibly from other reachable projects). Inspect the record and attempt history, fix the cause, then choose **retry or drop**, not both. Retry resets attempts while retaining history; drop requires a reason. These actions do not undo previous effects. Use only an authorized resolution.
+The event watcher sees permitted dead-letter events (possibly from other reachable projects). Inspect the record and attempt history, fix the cause, then choose **retry or drop**, not both. Retry resets attempts while retaining history; drop requires a reason. These actions do not undo previous effects. Use only an authorized resolution. Dropped letters cannot be retried directly.
+
+Automatic system mail goes through parent project nodes to the first
+real-agent ancestor if live, else the user. It does not broadcast to members
+or the original sender. The desk's Dead Letter Line lists matching notification
+watchdogs (armed or paused, at most 200), not failed jobs; paused rows receive
+nothing. User-held jobs are not reclaimed on timeout, listener removal or
+take-back; only the user acknowledges them. Purge affects currently pending
+jobs, including returned jobs, not held/ACKed/dead-letter records.
 
 ## Broadcast, signal and a one-shot latch
 

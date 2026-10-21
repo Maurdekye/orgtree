@@ -59,12 +59,52 @@ Everything else uses the usual tools with the project's name: [orgtree-tool-move
 {"action":"fire_event","name":"sync","body":"go: start the build"}
 ```
 
-**Dead letters.** An ack-queue job handed out the project's **max attempts** times without an ack (the 20-minute checkup took it back from a listener that never acked, or from one that was halted, retired or stopped listening) stops going to listeners and becomes a **dead letter**: the project keeps the original mail, its sender, an attempt history (who held it, when, and how each hand-out ended: acked, released or timed_out, with the reason) and the final reason. Agents above or below the project, and the user, work with them: `action=dead_letters name=P` lists the open ones (id, sender, preview, attempts, last holder, reason; `include_dropped=true` adds dropped ones, `limit`/`offset` page); with `id=<mail id>` it reads one in full (whole mail, attachments, attempt history, retries). `action=retry_dead_letter name=P id=...` puts the job back in the queue with its attempts reset (the history stays, the retry is recorded) and hands it out as soon as a listener can take it. `action=drop_dead_letter name=P id=... reason=...` closes it: it leaves the list and the count but stays readable (`include_dropped`). An agent outside the project's reach is refused. These three actions need either team or watchdogs, as the slot actions do. The project desk shows a **dead letters** tab, with the count, while it holds open dead letters (details, retry, drop with a reason). To be alerted, attach an event watchdog: `orgtree_watchdog action=create kind=event target=project.dead_letter` (optionally `pattern=<project name>`); it fires only for agents above or below the project, with the project, mail id, sender, attempts, last holder and reason. The project's superior (the user for a top-level project) is also mailed when a job dies.
+**Dead letters.** An ACK job becomes a dead letter when an outstanding
+attempt is reclaimed after reaching `max_attempts` (1–100, default 3), with
+Runtime working checkups on. This includes halt/retire/stop-listening releases
+and manual take-back; project Ack timeout only gates idle-timeout reclaim.
+Reaching the limit on hand-out alone does not dead-letter a job. The original
+mail, sender, final reason and attempt history remain.
+
+User and agents above/below the project may resolve them; agents need team
+**or** watchdogs enabled. Reading does not claim or acknowledge a job; retry
+may trigger another assignment after commit:
+
+- `action=dead_letters name=P` lists open letters newest first, default 50,
+  `limit=1..100`, `offset=0`; `include_dropped=true` adds dropped letters.
+- Add `id=<project-mail-id>` to read a letter, including a dropped one, with
+  body, attachments, attempt history and retry records.
+- `action=retry_dead_letter name=P id=...` resets attempts, retains history
+  and records the retry; dispatch runs after commit when a listener can take it.
+- `action=drop_dead_letter name=P id=... reason=...` closes an open letter,
+  removes its open count and keeps it readable. A dropped letter cannot be
+  retried directly. Neither resolution undoes earlier work.
+
+The desk's **Dead letters** tab appears only while the open count is positive;
+after resolving the last open letter, use the tool for dropped history.
+`orgtree_inbox project=P folder=inbox status=dead-letter` is a separate,
+side-effect-free history filter that also includes dropped dead letters.
+
+Automatic system mail goes up through parent projects to the first real-agent
+ancestor if live, else the user. Members and original senders are not all
+notified automatically. Independently, an armed event watchdog
+`orgtree_watchdog action=create kind=event target=project.dead_letter`
+(optionally a regex `pattern` for the project) receives permitted events with
+project, mail ID, sender, attempts, last holder and reason. A matching prefix
+such as `project.*` works too. Reach, not general org visibility, controls
+access. This is different from a `project_listener` hearing a manual project
+event, and from `fair_queue` receiving a job.
+
+**Dead Letter Line** in Mail → listeners lists at most 200 matching armed or
+paused event watchdogs, not dead-letter jobs. Paused rows receive nothing.
+Its regex preview uses a synthetic event line with project name and empty job
+details; payload-specific filters can be absent from this preview. The
+automatic superior notice is separate from that subscriber list.
 
 ## Concurrency analogies in Project settings
 
 - Round-robin works like a load balancer: each job goes to the least recently woken listener.
-- ACK works like a FIFO work queue: jobs in order, one per listener until it acks, with retries and dead letters.
+- ACK works like a FIFO work queue: jobs in order, up to each listener's batch size unacked (default 1), with retries and dead letters.
 - One slot works like a shared lock (mutex); several slots work like a counting semaphore. 0 = no concurrency slots.
 
 These describe cooperative patterns: slot holders agree to claim and release permits; the engine does not enforce a limit on the work itself. FIFO describes job handout order, not completion order across listeners. Retry/dead-letter behavior follows the acknowledgement settings below.
@@ -81,21 +121,21 @@ These describe cooperative patterns: slot holders agree to claim and release per
 | mail_queue | round_robin (default) or ack |
 | exclude_sender | Boolean, false |
 | ack_timeout | Boolean, true; effective timeout needs Runtime working checkups |
-| max_attempts | Integer 1–100, default 3 |
+| max_attempts | Integer 1–100, default 3; terminal reclaim requires Runtime working checkups, including non-timeout release/take-back |
 | ack_reminders | Integer 1–10, default 3; reminders before reclaiming held un-acked mail or an idle concurrency slot |
-| turn_end_reminder | Boolean, true; ack mode: a listener that ends its turn still holding an un-acked job gets ONE reminder turn right away (not sent if it is blocked with a reason, halted, frozen or out of usage); the 20-minute ack timeout applies afterwards |
+| turn_end_reminder | Boolean, true; ACK mode: queue one immediate nudge per consumed outstanding assignment after a successful ordinary turn; a fresh nonempty blocked status suppresses it. Independent of the timeout switches and checkup budget; full gates below. |
 | slots | Integer 0–9,999,999, default 0 (no concurrency slots). Claims cannot exceed capacity minus that holder's held/pending units. |
 | event_listeners | Boolean, false; the project's event listeners and its desk's listeners tab. An agent's first armed listener or watch switches it on; false disables every listener and watch on the project, true re-arms them |
 
 Example: `{"action":"configure","name":"build-slot","settings":{"slots":1,"ack_timeout":true}}`. Existing create and describe calls remain valid.
 
-For example, `settings={"ack_reminders":5}` allows five 20-minute checkup reminders before reclaim at the next checkup, for both held mail and idle concurrency slots. Ack timeout and Runtime working checkups must be on. The desktop groups Ack timeout, Max attempts and Ack reminders in **Acknowledgement** at the bottom of Project settings, visible only in ack mode or with at least one concurrency slot. Hidden controls retain their saved values; tools can read/configure them regardless of whether the section is shown.
+For example, `settings={"ack_reminders":5}` allows five 20-minute checkup reminders before reclaim at the next checkup, for both held mail and idle concurrency slots. Ack timeout and Runtime working checkups must be on. The immediate turn-end nudge is independent of these timeout switches and does not consume the reminder budget. It requires a consumed copy and a successful ordinary turn; failed, interrupted, compacting or session-ended turns do not trigger it. The desktop groups Ack timeout, Max attempts and Ack reminders in **Acknowledgement** at the bottom of Project settings, visible only in ack mode or with at least one concurrency slot. Hidden controls retain their saved values; tools can read/configure them regardless of whether the section is shown.
 
 More actions:
 
 - `release_slot lease=L force=true`: **any ancestor agent** of the project may release another holder's concurrency slot; a holder releases its own without force. Members/peers cannot force another holder.
 - `unqueue_slot name=P agent=A`: any project ancestor (or the user) removes A's waiting claim. It does not release a held lease.
-- `purge_waiting name=P`: retract only mail nobody has claimed; delivered/acked/dead-letter records stay. Normal project-control reach applies.
+- `purge_waiting name=P`: retract currently pending/unassigned mail, including returned jobs with earlier attempts; delivered/acked/dead-letter records stay. Normal project-control reach applies.
 - `broadcast name=P body=...`, optional attachments (up to 10), notice, urgent/urgent_reason and reply_to/replies: sends to every live agent under the project, nested projects included. It also requires the messaging tool group. Each recipient goes through ordinary mail reach, peer-mail, attachment, DND and reply checks. Urgent requires a reason and a recipient currently in DND; the result can mix sends and refusals. Reply references accept legacy message IDs or identity-only document/presentation, docket-item and transcript-event targets. String IDs must be mail you sent or received; typed references carry identities only, quote text is resolved from the authorized source, and each recipient receives only references from its own conversation. When both are supplied, `reply_to` must match the first `replies` target. The result reports sent/refused/failed outcomes per recipient; no peer-mail bypass and no inherited authority to act for the user.
 - `presentations name=P`, optional team (false), limit (1–100, default 50), offset (0): list project gallery metadata; team includes descendants.
 - `read_presentation name=P document=ID`, optional team: read a card in that gallery. Body is read in Unicode-aligned windows of at most 16,384 characters (64 KiB UTF-8). Start at `chunk_index=0` (default), then repeat the same name/document/team with `documents[].next_chunk_index` and the returned `body_revision` until the next index is null. Concatenate each body in index order; `chunk_total`, `complete` and `truncated` describe the bounded window. Invalid indices refuse. A changed/replaced body or missing revision on continuation refuses: restart at index0 rather than mixing edits. Reading does not mark the user’s document viewed or dismissed. Both gallery actions require project reach, not a user audience.

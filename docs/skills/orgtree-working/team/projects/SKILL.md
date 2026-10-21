@@ -53,7 +53,52 @@ The queue has a mode, set in the project's settings ("Mail queue"):
 - **Round-robin** (the default): each mail goes out as soon as it arrives, as above. No ack is needed.
 - **Ack mode**: each watcher holds up to its `batch` size in unacked mails (1–20, default 1); ack every mail separately: `orgtree_message to=<project> reply_to=<the id of the mail you were handed>` with a short completion record. The ack is kept in the project's mailbox as a read record, and if mail is waiting the ack hands you the next one at once. Acking the same mail twice, or a mail already taken back, is refused. A halted watcher is handed nothing in ack mode.
 
-A post that waits tells its sender why (every listener holding an un-acked job, with its place in line; halted or paused listeners). A post to an inbox with **no listener at all** (no fair_queue dog on it, armed or paused) is still queued, but its result starts with a warning: the mail may not be read by anyone or delivered anywhere until a listener attaches. The warning says how to attach one and where the mail can be read, and a list send gives it per recipient. A paused listener counts as attached. An agent keeps only one fair_queue dog per project. In ack mode a listener whose turn ends holding an un-acked job is reminded once at once (project setting, on by default). Every handed mail's wrapper says whether it needs an ack and how, and every watcher gets a notice when the mode changes. In ack mode an un-acked mail goes back to the **front** of the queue when its holder is retired, halted or stops watching (its fair_queue dog paused or removed). With the ack timeout on (the default), an agent sitting on an un-acked mail gets the 20-minute working checkup up to its configured Ack reminders count (1–10, default 3), naming the mail and how to ack it; at the next one the mail is taken back. A mail handed out **max attempts** times (default 3) without an ack becomes a **dead letter** instead: the project keeps it with its attempt history, the project's superior (the user, for a top-level project) is told, agents above or below the project (and the user) list, read, retry or drop it (`orgtree_project action=dead_letters`/`retry_dead_letter`/`drop_dead_letter`, or the desk's **dead letters** tab), and an event watchdog on `project.dead_letter` alerts them when one lands. The timeout and max attempts need Runtime's 20-minute checkup to be on (it is by default). "Never hand an agent its own mail" (off by default) keeps a watcher's own mail to the project from being handed back to it. The project desk's Mail tab shows each mail's state (to whom, awaiting ack, acked, released, dead letter, purged) and can purge the mail still waiting. For running a project as a work queue, see `orgtree-work-queues` (orgtree-workflows › collaboration-patterns).
+A waiting post explains its position and why no eligible listener can take
+it. No armed or paused mail listener produces a warning; a paused listener
+counts as attached. Agents keep one fair-queue registration per project.
+Each ACK job uses one of the listener's batch places (1–20, default 1).
+
+With project Ack timeout and Runtime working checkups on, each outstanding
+agent job receives `ack_reminders` reminders (1–10, default 3); the next
+eligible checkup reclaims it. This is not an exact elapsed-time timer.
+`max_attempts` is 1–100, default 3: a job becomes a dead letter on reclaim
+after exhausting attempts, not on its final hand-out. Halt/retire or loss of
+the listener/reach also releases jobs. These releases and manual take-back
+can dead-letter an exhausted job even with Ack timeout off, provided Runtime
+working checkups are on. With checkups off, those releases requeue it instead.
+
+The separate default-on turn-end reminder is queued once per held assignment
+after its copy was consumed and a successful ordinary turn ends. A nonempty
+blocked status set since assignment suppresses that immediate nudge; later
+eligible timeout checks still apply. It does not depend on either timeout
+switch or use the checkup reminder budget. Failed, interrupted, compacting,
+session-ended, frozen or limited turns do not trigger it.
+
+User and agents above/below the project can list/read/retry/drop dead letters
+with `orgtree_project` (team or watchdogs enabled for agents). Retry resets
+attempts, preserves history and queues dispatch after commit; drop requires
+a reason and retains readable history outside the open count. Dropped letters
+cannot be retried directly. Automatic system mail goes through parent project
+nodes to the first real-agent ancestor if live, else the user; it is not a
+broadcast to members or the original sender. Reachable agents may separately
+arm an event watchdog on `project.dead_letter` or a matching prefix.
+
+The desk's **Dead letters** tab lists jobs and exists only while open letters
+remain. **Dead Letter Line** in Mail → listeners instead lists up to 200
+matching armed/paused event watchdogs on `project.dead_letter` or `project.*`.
+Paused rows are visible but receive no event. Its pattern preview has a
+project name and empty job details, so it is not a guarantee of actual
+payload-specific delivery.
+
+The user can join the queue from the desk; their jobs remain held until they
+acknowledge even after they leave it. No agent or user can take those jobs
+back. Exclude-sender also covers user self-posts. Purge retracts only currently
+pending/unassigned jobs, including returned jobs with earlier attempts;
+held, ACKed and dead-letter records stay.
+
+For settings, examples and limits see
+[work-queues](../../../orgtree-workflows/collaboration-patterns/work-queues/SKILL.md)
+and [the source audit](../../../orgtree-workflows/collaboration-patterns/work-queues/source-audit.md).
 
 ## Concurrency slots
 
@@ -101,7 +146,7 @@ The project desk's message box sends the user's mail to the project's own mailbo
 
 ## Complete project tool control
 
-orgtree_project settings/configure reads and patches every Project settings field (name, description (Summary), peer_mail, mail_queue, exclude_sender, ack_timeout, max_attempts and slots, the concurrency slot count). Changes are atomic and omitted fields retain their current values. Any ancestor agent has full concurrency slot administration: settings count, force release and removal from the line; below-project members may claim/release their own lease and read state. See orgtree-tool-project for fields, purge_waiting, one-call broadcast with per-recipient normal authority, bounded presentation list/read, and the existing lifecycle/audience/mail tools. Permanent deletion remains user-only; desktop navigation is outside agent state tools. New actions/kinds require a fresh CLI after an update, since running clients retain startup schemas.
+orgtree_project settings/configure reads and patches every Project settings field (name, description (Summary), peer_mail, mail_queue, exclude_sender, ack_timeout, max_attempts, ack_reminders, turn_end_reminder, event_listeners and slots, the concurrency slot count). Changes are atomic and omitted fields retain their current values. Any ancestor agent has full concurrency slot administration: settings count, force release and removal from the line; below-project members may claim/release their own lease and read state. See orgtree-tool-project for fields, purge_waiting, one-call broadcast with per-recipient normal authority, bounded presentation list/read, and the existing lifecycle/audience/mail tools. Permanent deletion remains user-only; desktop navigation is outside agent state tools. New actions/kinds require a fresh CLI after an update, since running clients retain startup schemas.
 
 ## See also
 

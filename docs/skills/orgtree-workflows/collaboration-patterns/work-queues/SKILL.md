@@ -12,7 +12,7 @@ Depending on how it is set up, a project can run as an autonomous work queue. Ma
 ## Concurrency analogies in Project settings
 
 - Round-robin works like a load balancer: each job goes to the least recently woken listener.
-- ACK works like a FIFO work queue: jobs in order, one per listener until it acks, with retries and dead letters.
+- ACK works like a FIFO work queue: jobs in order, up to each listener's batch size unacked (default 1), with retries and dead letters.
 - One slot works like a shared lock (mutex); several slots work like a counting semaphore. 0 = no concurrency slots.
 
 These describe cooperative patterns: slot holders agree to claim and release permits; the engine does not enforce a limit on the work itself. FIFO describes job handout order, not completion order across listeners. Retry/dead-letter behavior follows the acknowledgement settings below.
@@ -24,17 +24,26 @@ These describe cooperative patterns: slot holders agree to claim and release per
 - **Queue mode** (project settings, "Mail queue"):
   - **Round-robin** (the default, for throughput): each mail goes out as soon as it arrives, to the listener woken least recently. No ack is needed.
   - **Ack mode** (completion records): each listener holds up to its `batch` size in unacked mails (1–20, default 1). Ack each mail separately with `orgtree_message to=<project> reply_to=<the mail's id>` and a short completion record. The ack is kept in the project's mailbox as a read record and immediately hands the acker the next waiting mail. Every handed mail's wrapper says whether it needs an ack and how; listeners get a notice whenever the mode changes.
-- **Turn-end reminder** (ack mode, project setting "Remind an agent that ends its turn with an un-acked job", **on by default**): when a listener's turn ends while it still holds an un-acked job, the engine starts ONE new turn for it right away with a reminder naming the job (its mail id and first line): finish it and ack, or set your status to blocked with the reason. It fires once per held job; afterwards the 20-minute ack timeout applies unchanged. No immediate reminder if the listener's latest status, set after it took the job, is `blocked` with a reason (that job gets only the 20-minute reminders), if the listener is halted, frozen or out of usage, or if the turn was interrupted or failed. It is not forced to keep running; it just gets one turn. Turn it off in project settings (or `orgtree_project action=configure settings={"turn_end_reminder":false}`).
-- **Ack timeout** (ack mode, on by default): a listener sitting on an un-acked mail gets the 20-minute working checkup up to 3 times; after that the mail is taken back and goes to the front of the queue for another listener.
-- **Max attempts** (ack mode, default 3): a mail handed out that many times without an ack becomes a **dead letter** instead, and the project's superior (the user, for a top-level project) is told. A dead letter keeps the mail, its sender, the attempt history (who held it, when, how each hand-out ended) and the final reason. Anyone above or below the project can list and read them (`orgtree_project action=dead_letters name=<project>`, `id=` for one in full; the project desk's **dead letters** tab), retry one (`retry_dead_letter`: back in the queue with its attempts reset, history kept) or drop one with a reason (`drop_dead_letter`). To be alerted, arm `orgtree_watchdog action=create kind=event target=project.dead_letter` (agents above or below the project only). The ack timeout and max attempts only work while Runtime's "check on working agents after 20 minutes" is on, which it is by default.
-- **What the sender is told.** A post that waits in the queue says why: with listeners that are all holding an un-acked job, "N listeners, all holding an un-acked job; it is handed out as soon as one of them acks" with its place in line ("position k in line"); with halted listeners, how many are halted; with only paused listeners, that they are paused. The same wording is in the user's send reply and in `orgtree_inbox project=<name>` (`queue`).
-- **No listener at all** (no fair_queue watchdog on the project, armed or paused): the post is still queued, but the sender's result starts with a warning, per recipient in a list send: "Warning: project P's inbox has no listeners, so this mail may not be read by anyone or delivered anywhere until one attaches." An agent's result adds how to attach one and where to read the mail. The user's send reply leads with the same warning, and the project desk's message box shows it as a note before sending. `orgtree_inbox project=<name>` keeps its own `queue` line ("No agent watches the project ..."). A paused listener counts as attached.
-- **One listener per agent.** The listener's `batch` limits its unacked jobs per project in ack mode. Creating a second fair_queue watchdog on a project you already watch is refused, naming the one you have (resume it if it is paused).
-- **Released mail.** An un-acked mail goes back to the front of the queue when its holder is retired or halted, or stops listening.
-- **Never hand an agent its own mail** (off by default): when on, a listener that posts to the project is not handed its own mail; the mail waits for another listener.
-- **Purge.** The project desk's Mail tab can purge the mail still waiting (after a confirmation); handed, acked and dead-letter mail stays.
-- **The listener wake** (Runtime settings, "wake an agent to listen for project mail", on by default): when the user writes to a project nobody listens on, one agent directly under it (an idle one first) is woken and asked to arm a fair_queue watchdog.
-- **The megaphone** on the project desk's message box sends one message to every live agent under the project instead of to the queue: for announcements, not jobs.
+- **Turn-end reminder** (ack mode, project setting "Remind an agent that ends its turn with an un-acked job", **on by default**): when a listener's turn ends while it still holds an un-acked job, the engine queues ONE immediate reminder naming the job (its mail id and first line): finish it and ack, or set your status to blocked with the reason. It fires once per held job; afterwards the 20-minute ack timeout applies unchanged. No immediate reminder if the listener's latest status, set after it took the job, is `blocked` with a reason (that job gets only the 20-minute reminders), if the listener is halted, frozen or out of usage, or if the turn was interrupted or failed. It is not forced to keep running; it just gets one turn. Turn it off in project settings (or `orgtree_project action=configure settings={"turn_end_reminder":false}`).
+- **Ack timeout** (ack mode, on by default): with Runtime working checkups on, each outstanding agent job gets its configured **Ack reminders** budget (integer 1–10, default 3); the next eligible checkup reclaims it. Nonterminal jobs return to the front of the queue. Checkups depend on inactivity and runtime eligibility, so this is not a precise wall-clock deadline.
+
+The turn-end reminder is separate from both timeout switches and does not use
+the checkup reminder budget. It applies only after the handed copy was consumed
+and a successful ordinary turn ended; failed/interrupted/compacting/session-end
+turns do not trigger it. A fresh, nonempty blocked status suppresses the
+immediate reminder, not later eligible timeout checks.
+
+The user may join the same queue with batch 1–20 from the desk. Their held jobs
+remain until they acknowledge, even after leaving the queue; no timeout or
+take-back reclaims them. Exclude-sender also excludes the user's own posts.
+Purge retracts currently pending/unassigned jobs, including returned jobs with
+an earlier attempt, while held/acked/dead-letter records remain.
+
+**Dead Letter Line** in Mail → listeners lists notification watchdogs, not
+jobs: up to 200 matching armed/paused `event` dogs on `project.dead_letter` or
+`project.*`. Paused rows do not receive events. Its pattern preview uses a
+project-only synthetic event line, so payload-specific filters may be absent.
+See the [source audit](source-audit.md) for the exact implementation references.
 
 ## Project audiences
 

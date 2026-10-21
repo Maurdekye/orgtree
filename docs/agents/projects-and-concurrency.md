@@ -6,6 +6,33 @@ Project folders, policy, slots, listeners, watchdogs, queues and coordination.
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Current mail-queue and dead-letter rules (2026-10-21)
+
+The [source audit](../skills/orgtree-workflows/collaboration-patterns/work-queues/source-audit.md) supersedes older
+fixed-three-reminder and one-job-per-listener descriptions below; preserved
+attributed records remain historical evidence. ACK batch is 1–20, default 1;
+Ack reminders is 1–10, default 3, with reclaim at the next eligible checkup.
+Max attempts is 1–100, default 3, enforced on reclaim while Runtime working
+checkups are on. Project Ack timeout gates idle reclaim, not halt/retire,
+listener-loss or manual take-back dead-lettering. The once-per-assignment
+turn-end nudge is independent of those timeout switches and budgets.
+[verified: `engine/rs/orgtree-engine/src/domain/projects.rs:43`, `:64`, `:90`,
+`:651`, `:702`, `:834`, `:1312`; `runtime/actor.rs:7763`]
+
+Dead-letter system mail traverses parent projects to the first real-agent
+ancestor if live, else the user; members/senders are not all notified.
+Reachable agents can independently observe `project.dead_letter`. Dead Letter
+Line lists up to 200 matching armed/paused event watchdogs, not jobs; paused
+rows receive no event, and its synthetic pattern preview omits job details.
+The Dead letters tab needs a positive open count. Retry preserves history and
+resets attempts; drop remains readable but cannot be retried directly. Project
+inbox's dead-letter history filter includes dropped records. Purge affects
+currently pending mail, including returned jobs, not held/ACKed/dead letters.
+User-held jobs stay held until user ACK, including after queue departure.
+[verified: `engine/rs/orgtree-engine/src/domain/projects.rs:608`, `:748`, `:810`,
+`:875`, `:1462`; `domain/ops.rs:2627`, `:2724`; `domain/dead_letters.rs:170`;
+`tools/project_inbox.rs:12`; `apps/desktop/renderer/src/canvas/projectdesk.tsx:87`]
+
 ## Slot admission and measured capacity (2026-10-21)
 
 The user changed the old 64-unit limit to the seven-digit card-fit limit,
