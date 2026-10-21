@@ -22,6 +22,16 @@ Available native sign-in controls use the desktop bridge: Claude can request a p
 
 Do not paste secrets into chat or treat provider Refresh as a model inference test. Consult the actual discovery result when a tier is unavailable.
 
+An unavailable authentication probe is distinct from a confirmed signed-out
+reply. Keep its actual reason; repeated Refresh is not evidence that an account
+lost credentials. Known signed-out model choices can remain visible in a draft
+preview so the user can choose before signing in, but creating/running a seat
+still passes engine eligibility checks. Hire, desk and settings model menus
+share org account restrictions and installed-harness eligibility; an eligible
+profile can differ from the ambient account. Verified at `2ec8c0e`:
+`providers/mod.rs`, `providers/agy_auth.rs`, `canvas/staffingoptions.ts`,
+`canvas/shared.ts` and `canvas/modals.tsx`.
+
 ## Legacy models
 
 “show legacy models (Terra, Gemini Pro)” is a renderer localStorage preference `orgtree-show-legacy-models`, default off. It changes hire/model chooser and tier-list visibility. Existing agents on those models retain their model and remain visible either way. It does not buy entitlement, change runtime credentials, restart the app or alter a model's price.

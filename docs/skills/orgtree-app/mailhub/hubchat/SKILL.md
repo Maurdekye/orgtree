@@ -13,6 +13,16 @@ For a developer team, the repository recommends each person install Orgtree and 
 
 In Hubchat use **Settings > Hubs > Add a hub** with the operator's relay-only address. Use the directory to find people and Orgtree orgs. Each person has a person identity; each Orgtree org has its own organization identity. Sharing a hub does not merge identities or establish ownership of an org. To carry your identity to another device use **Settings > Devices > Link a device**, rather than sharing ownership secrets or creating another identity unintentionally.
 
+In Orgtree, a remote person/org address link opens the corresponding Hubchat
+conversation when the desktop client is installed. Installation is discovered
+independently of opening Connect your phone, with one shared cached check and
+stale refresh on focus. You do not have to link a phone to enable desktop
+Hubchat links. A missing client leaves the link inert with **Hubchat isn't
+installed**; discovery failure retains the last known state and is not proof
+of an uninstallation. Local org links open the local org instead. Verified
+at `2ec8c0e`: `canvas/agentmentions.tsx` (`hubchatDeepLink`,
+`refreshHubchatInstalled`), `phone.rs` and desktop hub protocol handling.
+
 ## How an organization receives and answers
 
 A person's conversation with an Orgtree org is outside mail to that org. The routing/holder rules live in `orgtree-org-inbox` (orgtree-working › mail), and sender authority lives in `orgtree-external-mail` (orgtree-working › mail). Human composition is in Hubchat; Orgtree's org inbox is a viewer of retained correspondence.

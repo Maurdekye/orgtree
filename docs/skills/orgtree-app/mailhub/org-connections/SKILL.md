@@ -25,7 +25,23 @@ Adding, enabling, disabling or removing a connection applies immediately; these 
 
 ## Add a mail hub
 
-Enter a hub address and choose **Add**. A bare host assumes HTTP and port 7370; preserve an explicit HTTPS tunnel address. Use the relay-only address supplied by a remote operator. **Test** is advisory: failure does not block adding the hub, because the client retries and queued mail can wait for it to become available. Clear typos and inspect the displayed stage/error rather than treating an unreachable test as a permanent identity failure.
+Enter a hub address and choose **Add**. A bare host probes HTTP ports 7370,
+7378 and 7371 plus HTTPS concurrently. An explicit URL, port or path stays
+explicit: use the operator's final relay-only endpoint. A successful **Test**
+replaces the field with its discovered endpoint so Add uses that same address;
+editing the field makes an older in-flight test result irrelevant. Test is
+advisory: a failed test does not block Add, and queued mail can wait for the
+hub. Clear typos and inspect its stage/error rather than treating an
+unreachable test as a permanent identity failure.
+
+Test and real mail use the same transport: direct first, then the system proxy
+only if the initial connection failed. A read timeout or response failure is
+not replayed through the proxy, because a write may already have arrived.
+Redirects are errors; enter the final URL instead of expecting the client to
+follow one. Newly saved hub rows receive stable registration IDs so the
+connection worker can pick them up. Verified 2026-10-21 at `2ec8c0e`:
+`canvas/connections.tsx::AddHub`, `net/discovery.rs`, `net/transport.rs`,
+and `net.rs`.
 
 Settings changes can establish connectivity; they do not grant a person user authority or give every agent outside-mail permission. For those rules see `orgtree-external-mail` and `orgtree-org-inbox` (orgtree-working › mail). For an agent's address discovery use `orgtree-tool-list-orgs` (orgtree-working › mail).
 

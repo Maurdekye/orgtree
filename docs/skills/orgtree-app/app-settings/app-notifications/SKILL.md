@@ -34,7 +34,7 @@ preferences. It follows unresolved questions, urgent mail, docket attention and
 plain user mentions; ordinary unread mail and standalone terminal failures do
 not add the dot. Focus does not clear it; resolving the underlying attention
 does. Mention-only activation opens the relevant place rather than inventing a
-question. Verified at `2ec8c0e`: `notifications.ts`, `attention.ts` in the
+question. Verified at `2ec8c0e`: `notifications.ts`, `taskbar-attention.ts` in the
 desktop main process and `docs/rust-engine/taskbar-dot.md`.
 
 Older preferences with routineNotifications enabled and no explicit notifyAllMail retain that routine-mail opt-in. Explicit current values take priority; absent current fields receive the defaults above. Read the saved preferences rather than assuming an older installation has every default value.

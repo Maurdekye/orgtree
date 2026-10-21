@@ -20,6 +20,15 @@ All keys are peers with IDs `openrouter-N`; none is the primary/original key. Ac
 
 The key's harness change reaches its unpinned agents at the next turn, on a fresh session seeded with a summary. That can change context/cache continuity. A missing harness refuses launch rather than silently changing it. The dialog has Save/Cancel and prevents submitting while busy. No app-wide restart/UAC is intrinsic to saving a key, but agent startup/session effects are real.
 
+Ordinary seats follow the key's harness. An explicit `harness` supplied when
+hiring an OpenRouter seat pins that seat; a rehire retains its pin. The key
+dialog reports how many pinned seats keep their chosen harness. The recorded
+serving harness and a future key choice can therefore differ until the next
+turn, and a pinned seat need not follow the key at all. Verify the seat's
+`harness`/`harness_pinned` state rather than assuming every key edit resets every
+seat. Verified at `2ec8c0e`: `domain/ops.rs::stamp_harness`,
+`openrouter.rs::seat_harness`, `tools/orgview.rs`, `canvas/openrouterkeys.tsx`.
+
 Spend caps and prepaid balance are read from OpenRouter's key/account standing, not editable budget fields in this dialog. Keys of one OpenRouter account can share its balance. Do not promise independent balances or a fabricated reset. For window interpretation see `orgtree-usage-windows` (orgtree-working › accounts).
 
 ## Model browser

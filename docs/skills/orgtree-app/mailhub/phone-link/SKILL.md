@@ -20,6 +20,14 @@ The panel separates **This PC** from **Your phone** and shows one QR code at a t
 
 The setup needs the org connected to the computer's hub. When code creation reports that local membership is missing, the panel attempts to turn it on. A person already in the local roster can instead be offered **Is this you?**; confirm only your actual identity. A desktop Hubchat user is guided to carry that identity to the phone rather than create another one accidentally.
 
+When Hubchat already runs on this PC, use the QR button at the bottom of its
+chat list. On the phone choose **I already use Hubchat > Scan the QR code from
+your other device**, then scan that code. For another PC the corresponding
+existing-identity choice is **Link through a hub**. Confirming **Is this you?**
+authorizes that actual identity for the selected org; it is not a new phone
+account. Desktop Hubchat-link availability is checked independently of this
+panel. Verified 2026-10-21: `canvas/phonelink.tsx`, `canvas/agentmentions.tsx`.
+
 ## Link, more devices and Unlink
 
 The PC keeps one phone-link record at a time in `<data>/phone.json`. Linking writes a marked note at the top of the selected org's `org.md`, naming the exact `@net:` address. The authority meaning belongs to `orgtree-external-mail` (orgtree-working › mail). That org's agents are reconfigured before their next turn; this does not rewrite instructions already in flight.

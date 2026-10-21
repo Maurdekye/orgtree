@@ -24,7 +24,19 @@ The dialog supplies independent paths rather than converting a subscription into
 | Import folder | Profile-folder path typed or chosen with Browse; uses that existing provider profile. Available for supported Claude/Codex paths, not Muse. |
 | Use API key | Required secret key; bills that provider's API credits. Offered independently of a working subscription. |
 
-Google's dialog states that secondary native subscriptions await upstream Antigravity profile support; it does not offer a functioning managed/imported subscription path. Muse manages separate config/data roots and refuses an imported-folder shortcut. Busy submissions prevent another create/close operation; errors stay in the dialog.
+Google's dialog explains the measured Antigravity CLI 1.3.5 limit: one Google
+sign-in per Windows user in Credential Manager, even with different profile
+folders. A second sign-in would replace the default for all agents. It offers
+an API key and links upstream account-profile support, with no second
+subscription terminal or managed/import path. Existing registered Google
+subscription rows run only when their silent identity check proves a distinct
+login; otherwise they fail closed rather than using the default credentials.
+Their usage and admission checks use their own quota reading. See
+[Antigravity accounts](../../harnesses/harness-antigravity/SKILL.md#registered-accounts-and-the-windows-sign-in-limit).
+Muse manages separate config/data roots and refuses an imported-folder shortcut.
+Busy submissions prevent another create/close operation; errors stay in the dialog.
+Verified 2026-10-21 at `2ec8c0e`: `canvas/accountsregistry.tsx`,
+`providers/agy_auth.rs`, `usage/agy_reading_tests.rs`.
 
 Keys belong in the password control, never in an agent prompt. Adding a key is not enabling automatic paid fallback. See the separate fallback control before advising on billing behavior.
 
