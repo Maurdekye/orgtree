@@ -1,4 +1,7 @@
-import { getDocument, getWorkItem, getWatchdog, watchdogAction } from '../api'
+import { mailIdentityAt, mailMenuEntries } from './mailidentity'
+import { refToken } from './reflinks'
+import { mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
+import { getMailById, getDocument, getWorkItem, getWatchdog, watchdogAction } from '../api'
 import { presentationMenu } from './docs'
 import type { ToastFn, Watchdog } from '../types'
 import { copyToClipboard } from './contextmenu'
@@ -12,15 +15,34 @@ import { useAgentNavRegistry } from './agentnav'
 import { useProvideObjectNav } from './objectnav'
 
 /** The current org's existing routes, shared by links and direct object menus. */
-export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, focusAgent, toast, isProject }:
+export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, openMail, focusAgent, toast, isProject }:
   { org: string; dogs: Watchdog[]; openDog: (id: string) => void;
-    openTicket?: (id: string) => void; openDocument?: (id: string) => void;
+    openTicket?: (id: string) => void; openDocument?: (id: string) => void; openMail?: (mail: { id: string; to: string }) => void;
     focusAgent?: (id: string) => void; toast: ToastFn; isProject?: (id:string)=>boolean }) {
   const agents = useAgentNavRegistry()
   useProvideObjectNav((kind, id, targetOrg, anchor) => {
     if (targetOrg !== org) return []
     if (!id || /[\\?#\u0000]/.test(id) || id === '.' || id === '..') return []
     const copy = (text: string) => { void copyToClipboard(anchor, text).then(ok => toast([ok ? 'Copied!' : 'Clipboard unavailable'])) }
+    if (kind === 'mail') {
+      const ref = mailIdentityAt(anchor, org, id)
+      if (!ref) return []
+      const fetchRow = (id: string, chunk?: number) => getMailById(org, ref.box, id, ref.node, chunk).then(r => r.found ? r.mail : null)
+      return fetchRow(id).then(row => {
+        if (!row) return []
+        const reference = refToken({ kind: 'mail', ...ref })
+        const immediate = mailRowCopyText(row), needsFetch = mailRowNeedsFullFetch(row)
+        return mailMenuEntries({ leading: openMail ? [{ label: 'Open', onSelect: () => openMail({ id,
+          to: ref.box === 'user' ? 'user_inbox' : ref.box === 'org' ? `@org:${org}` : ref.node! }) }] : [],
+          canCopy: Boolean(immediate.trim() || needsFetch), reference, copyReference: () => copy(reference),
+          copy: () => {
+            const done = (text: string) => text.trim() ? copy(text) : toast(['could not copy — message is empty'])
+            if (needsFetch) void resolveFullMailCopyText(row, fetchRow)
+              .then(full => done(full || immediate)).catch(() => done(immediate))
+            else done(immediate)
+          } })
+      })
+    }
     if (kind === 'document') {
       return getDocument(org, id).then(doc => presentationMenu(anchor, org, { ...doc, id }, {
         // A host without a reader route can still copy/download; never

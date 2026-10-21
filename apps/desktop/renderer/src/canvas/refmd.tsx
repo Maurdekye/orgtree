@@ -29,6 +29,7 @@
 import { resolveHubAddressAction, triggerHubAddress, useHubAddressState } from './agentmentions'
 import { createNodeLinkEl } from './identity'
 import { objectNavProps } from './objectnav'
+import { mailLinkProps } from './mailidentity'
 import { useEffect, useRef } from 'react'
 import { resolveRef, refToken, scanInlineMentions } from './reflinks'
 import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
@@ -147,6 +148,9 @@ function chipEl(doc: Document, r: ResolvedRef,
     if (value !== undefined) el.setAttribute(key, value)
   }
   if (live && r.ref.kind === 'doc') for (const [key, value] of Object.entries(objectNavProps('document', r.ref.id, r.ref.org))) {
+    if (value !== undefined) el.setAttribute(key, value)
+  }
+  if (live && r.ref.kind === 'mail' && r.ref.box) for (const [key, value] of Object.entries(mailLinkProps({ ...r.ref, box: r.ref.box }))) {
     if (value !== undefined) el.setAttribute(key, value)
   }
   if (r.copyTitle !== undefined) el.setAttribute('data-copy-ticket-title', r.copyTitle)

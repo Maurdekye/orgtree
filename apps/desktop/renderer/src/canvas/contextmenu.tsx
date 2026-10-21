@@ -388,7 +388,7 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     const objectOrg = objectEl?.getAttribute(OBJECT_ORG_ATTR) ?? objectNav?.org ?? null
     const objectId = objectEl?.getAttribute(OBJECT_ID_ATTR)
     const objectBuild = objectNav?.current
-    const objectEntries = objectEl && objectId && (objectKind === 'ticket' || objectKind === 'watchdog' || objectKind === 'document') && objectBuild
+    const objectEntries = objectEl && objectId && (objectKind === 'ticket' || objectKind === 'watchdog' || objectKind === 'document' || objectKind === 'mail') && objectBuild
       && objectOrg === objectNav?.org
       ? objectBuild(objectKind, objectId, objectOrg, objectEl) : []
     const objectPending = objectEntries instanceof Promise ? objectEntries : null

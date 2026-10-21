@@ -49,3 +49,30 @@ for (const box of ['user', 'org', 'node'] as const) test(`mail ${box} identity s
   assert.deepEqual(opened, [], 'hover/menu cannot route or change message state')
   assert.deepEqual(changed, [])
 })
+
+test('mail reference copy fetches every body chunk in its exact box; Open routes only on selection', async t => {
+  const saved = fetch, requests: string[] = [], writes: string[] = [], opened: unknown[] = []
+  const nav = window.navigator, descriptor = Object.getOwnPropertyDescriptor(nav, 'clipboard')
+  Object.defineProperty(nav, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { writes.push(text) } } })
+  t.after(() => { globalThis.fetch = saved; if (descriptor) Object.defineProperty(nav, 'clipboard', descriptor); else Reflect.deleteProperty(nav, 'clipboard') })
+  globalThis.fetch = (async input => {
+    const url = new URL(String(input), 'http://test'); requests.push(url.pathname + url.search)
+    const chunk = Number(url.searchParams.get('chunk') || 0)
+    return new Response(JSON.stringify({ found: true, mail: { id: 'chunk-mail', from: 'writer', at: '2026-10-21T00:00:00Z',
+      body: ['  first\n', '\nsecond  '][chunk], chunk_index: chunk, chunk_total: 2, complete: false } }), { status: 200 })
+  }) as typeof fetch
+  const v = await mountView(<ObjectNavProvider><ObjectNavHost org="org" dogs={[]} openDog={() => {}} toast={() => {}}
+    {...{ openMail: (m: unknown) => opened.push(m) }} /><ObjectMenuBoundary>
+    <RefChip r={resolveRef({ kind: 'mail', org: 'org', box: 'node', node: 'reader', id: 'chunk-mail' }, { org: 'org', agents: new Map([['reader', 'reader']]) })} onOpen={() => {}} />
+  </ObjectMenuBoundary></ObjectNavProvider>, el => el)
+  t.after(() => v.unmount())
+  const link = v.el.querySelector('.ref-mail')!
+  const right = async () => { await inAct(() => link.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))); await flush(3) }
+  const choose = async (label: string) => { const button = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')].find(el => el.textContent === label)!; assert.ok(button); await inAct(() => button.click()); await flush(3) }
+  await right(); assert.deepEqual(opened, []); await choose('Copy message text')
+  assert.deepEqual(writes, ['  first\n\nsecond  '], 'whole body preserves original whitespace')
+  assert.ok(requests.some(url => url.includes('chunk=1')))
+  assert.ok(requests.every(url => url.startsWith('/api/orgs/org/mail/node/chunk-mail?node=reader')))
+  await right(); await choose('Copy reference'); assert.equal(writes[1], '@mail:org/node/reader/chunk-mail')
+  await right(); await choose('Open'); assert.deepEqual(opened, [{ id: 'chunk-mail', to: 'reader' }])
+})

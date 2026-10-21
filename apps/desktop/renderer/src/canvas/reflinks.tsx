@@ -26,6 +26,7 @@ import type { ReactNode } from 'react'
 import { HubContactChip } from './agentmentions'
 import { NodeLink, nodeTierOf } from './identity'
 import { objectNavProps } from './objectnav'
+import { mailLinkProps } from './mailidentity'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
 import { splitInlineCodeSpans } from './shared'
 import { useHistoricalWorkReferences } from './workrefresolve'
@@ -581,7 +582,8 @@ export function RefChip({ r, onOpen }: {
     return (
       <button type="button" {...copy}
         {...(r.ref.kind === 'item' ? objectNavProps('ticket', r.ref.id, r.ref.org)
-          : r.ref.kind === 'doc' ? objectNavProps('document', r.ref.id, r.ref.org) : {})}
+          : r.ref.kind === 'doc' ? objectNavProps('document', r.ref.id, r.ref.org)
+          : r.ref.kind === 'mail' && r.ref.box ? mailLinkProps({ ...r.ref, box: r.ref.box }) : {})}
         className={cls} title={r.ref.kind === 'item' ? r.copyTitle : r.ref.kind === 'doc' ? r.label : r.why}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onOpen(r) }}>

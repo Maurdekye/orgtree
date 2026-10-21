@@ -38,6 +38,9 @@ import { AgentLink, AgentName } from './identity'
 import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
 import { RefMdBody } from './refmd'
 import { refToken } from './reflinks'
+import { parseRef } from './workrefs'
+import { mailMenuEntries, mailTooltipProps } from './mailidentity'
+import { mailTitle } from './mailtitle'
 import { JobAckPane, needsAck } from './jobackpane'
 import { UserMention, isUserName } from './usermention'
 import type { RefWorld, ResolvedRef } from './reflinks'
@@ -548,17 +551,13 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     if (!outgoing && onDeleteUserMail && m.id && !m._ask) {
       entries.push({ label: 'Delete', onSelect: () => onDeleteUserMail(m) })
     }
-    entries.push('sep')
     const el = rootRef.current
     const copied = (what: string) => (ok: boolean) => toast?.([ok ? `copied ${what}` : `could not copy ${what} — clipboard unavailable`])
     const copyRow = m as CopyableMailRow
     const immediateBody = mailRowCopyText(copyRow, profile)
     const needsFetch = mailRowNeedsFullFetch(copyRow)
     const canCopy = Boolean(immediateBody.trim() !== '' || needsFetch)
-    entries.push({
-      label: 'Copy message text',
-      disabled: !canCopy,
-      onSelect: () => {
+    const copyMessage = () => {
         const done = (fullText: string) => {
           if (!fullText.trim()) {
             toast?.(['could not copy — message is empty'])
@@ -587,16 +586,10 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           return
         }
         done(immediateBody)
-      },
-    })
-    const ref = refOf?.(m) ?? null
-    if (ref) {
-      entries.push({
-        label: 'Copy reference', title: ref,
-        onSelect: () => { void copyToClipboard(el, ref).then(copied('the reference ' + ref)) },
-      })
     }
-    return entries
+    const ref = refOf?.(m) ?? null
+    return mailMenuEntries({ leading: entries, copy: copyMessage, canCopy, reference: ref,
+      copyReference: () => { if (ref) void copyToClipboard(el, ref).then(copied('the reference ' + ref)) } })
   }
   const custom = cur ? renderBody?.(cur) ?? null : null
   const surface = cur && !(curPile && curPile.length > 1) ? eventSurface(cur, profile) : { className: '' }
@@ -677,7 +670,10 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           const view = typedView(m)
           return (
           <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view} hideMailReplyKind={hideMailReplyKind} projectMail={projectMail}
-            filterTags={tagFilter?.selected}
+            filterTags={tagFilter?.selected} identity={(() => {
+              const ref = parseRef(refOf?.(m) ?? '')
+              return ref?.kind === 'mail' && ref.box ? { ...ref, box: ref.box } : undefined
+            })()}
             onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
@@ -802,7 +798,7 @@ const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s
  *  `MailList` renders its rows through it; `pile` is the size of a folded run
  *  of system notices (1 = a single message). */
 export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, party, mark,
-  onRetract, onClick, onContextMenu, rowRef, onTag, hideMailReplyKind, onFocusAgent, hasAgent, tierOf, projectMail, filterTags }: {
+  onRetract, onClick, onContextMenu, rowRef, onTag, identity, hideMailReplyKind, onFocusAgent, hasAgent, tierOf, projectMail, filterTags }: {
   /** a project's own mailbox: chips always take the meta line (MailListProps) */
   projectMail?: boolean
   onFocusAgent?: (id: string) => void
@@ -811,6 +807,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
   tierOf?: (id: string) => string | null | undefined
   hideMailReplyKind?: boolean
   m: MailRow
+  identity?: import('./mailidentity').MailIdentity
   onTag?: (tag:string)=>void
   filterTags?: readonly string[]
   pile?: number
@@ -867,7 +864,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
         ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
   </>
   return (
-    <div ref={rowRef}
+    <div ref={rowRef} {...(identity && !m._ask ? mailTooltipProps(identity) : {})} title={!m._ask ? mailTitle(m) : undefined}
       className={'mailrow' + (view ? ' event-row event-' + view.family : '') + (selected ? ' on' : '') + (m._wait ? ' unread' : '')
         /* request mails wear the askcard's accent family in the list
            (user spec 2026-08-06); resolved asks keep a quiet edge */

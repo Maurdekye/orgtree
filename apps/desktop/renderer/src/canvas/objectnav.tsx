@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import type { MenuEntry } from './contextmenu'
 import { objectTooltipProps, registerObjectNativeTooltipDocument } from './objecttooltip'
 
-export type ObjectKind = 'ticket' | 'watchdog' | 'document'
+export type ObjectKind = 'ticket' | 'watchdog' | 'document' | 'mail'
 export const OBJECT_NAV_ATTR = 'data-object-nav'
 export const OBJECT_ID_ATTR = 'data-object-id'
 export const OBJECT_ORG_ATTR = 'data-object-org'

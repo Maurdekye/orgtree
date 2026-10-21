@@ -86,3 +86,14 @@ objectnav suite retains one independently reproduced base failure for its
 removed-watchdog fallback expectation; that watchdog path is outside this item.
 Raw evidence is retained by the author. Renderer proof uses synthetic data and
 one inspected offscreen 1000x700 capture, with no installed-app/live-data claim.
+# Mail identity links (2026-10-21)
+
+Mail links use `mailMenuEntries` for their common Open/copy-text/copy-reference
+menu. Inbox rows retain real Close, reply, read, retract and delete capabilities;
+reply frames retain their contextual menu, while the inner message link uses the
+message menu. The shared native tooltip resolves the exact mailbox/id and formats
+sender, full date and id through `mailTitle`. It never searches history or another
+mailbox. User-inbox identity (`@user`) is distinct from a message id. Full-message
+copy uses the existing chunk resolver and preserves body whitespace. [decided:
+user 2026-10-21 06:53Z; verified: `mailidentity.ts`, `objectnavhost.tsx`,
+`objecttooltip.ts`, `maillinkparity.test.tsx`]

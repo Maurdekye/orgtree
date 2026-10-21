@@ -29,6 +29,7 @@ import { centerTranscriptTarget } from './deskscroll'
 import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { objectNavProps } from './objectnav'
+import { mailLinkProps, mailTargetIdentity } from './mailidentity'
 import { dismissUserMention, hasUnseenUserMention, useAgentMentions, useDeskMentionScope, useMentionHighlight, useOrgMentionCandidates, useSeenMentions } from './agentmentions'
 import { useOrgView } from '../attention/mode'
 import { HaltControl, HaltStatus } from './haltcontrol'
@@ -5148,11 +5149,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
         {/* mail sends carry the inline "open in mailbox" link (user spec):
             straight to the exact mail in whichever box holds it */}
         {t.mail && onMailLink && (
-          <button className="maillink"
-            title={t.mail.to === 'user_inbox'
-              ? 'open this mail in your inbox'
-              : `open this mail in ${String(t.mail.to).startsWith('@')
-                ? 'the org inbox' : `${t.mail.to}'s inbox`}`}
+          <button className="maillink" {...mailLinkProps(mailTargetIdentity(slug, t.mail))}
             onClick={(e) => { e.stopPropagation(); onMailLink!(t.mail) }}>
             <MailIcon fontSize="inherit" /> open</button>)}
         {/* a DOCKET WRITE carries the same affordance (user 2026-09-05): the
