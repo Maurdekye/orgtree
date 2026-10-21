@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context, Result};
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use serde_json::json;
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio_postgres::NoTls;
 
 use crate::config::Config;
@@ -16,6 +16,14 @@ use crate::winproc;
 
 pub const ENGINE_DB: &str = "orgtree_engine";
 pub const ADMIN_ROLE: &str = "orgtree_admin";
+
+/// The postmaster: on Windows a native child started without administrator
+/// rights (`spawn_postmaster`), elsewhere a tokio child. Both answer `id`,
+/// `try_wait`, `start_kill` and `wait`.
+#[cfg(windows)]
+type PgChild = winproc::RestrictedChild;
+#[cfg(not(windows))]
+type PgChild = tokio::process::Child;
 
 /// How long a fast shutdown may take before the cluster is killed. A killed
 /// cluster's next start fsyncs its whole data folder before it replays WAL
@@ -30,7 +38,7 @@ pub struct Cluster {
     pub bin: PathBuf,
     pub port: u16,
     pub password: String,
-    child: Option<Child>,
+    child: Option<PgChild>,
 }
 
 #[logged]
@@ -90,7 +98,6 @@ impl Cluster {
             .append(true)
             .open(log_dir.join("postgres.log"))
             .context("could not open the PostgreSQL log")?;
-        let log2 = log.try_clone()?;
         let mut cmd = Command::new(bin.join(crate::util::exe_name("postgres")));
         cmd.arg("-D")
             .arg(&data_dir)
@@ -110,16 +117,8 @@ impl Cluster {
         // PostgreSQL's socket directory (or needs /var/run/postgresql).
         #[cfg(unix)]
         cmd.args(["-c", "unix_socket_directories="]);
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::from(log))
-            .stderr(Stdio::from(log2))
-            .kill_on_drop(false);
-        winproc::no_window(&mut cmd);
-        // start() runs inside run(), the future main() drives with block_on on
-        // the main thread, so the death signal is tied to the process.
-        winproc::die_with_engine(&mut cmd);
         progress("database-start");
-        let child = cmd.spawn().context("could not start postgres")?;
+        let child = spawn_postmaster(cmd, log).context("could not start postgres")?;
         let mut cluster = Cluster { data_dir, cluster_dir, bin, port, password, child: Some(child) };
         let ready = tokio::select! {
             biased;
@@ -254,6 +253,29 @@ impl Cluster {
     }
 }
 
+/// Start the postmaster, its stdout and stderr appending to `log`. Windows:
+/// postgres.exe refuses administrator rights ("Execution of PostgreSQL by a
+/// user with administrative permissions is not permitted"), so it always
+/// starts with a restricted copy of the engine's token, as pg_ctl starts it.
+/// An engine that runs as administrator (Run as admin, Run this session as
+/// admin) keeps its rights for its agents; the database never has them.
+#[cfg(windows)]
+#[logged]
+fn spawn_postmaster(cmd: Command, log: std::fs::File) -> std::io::Result<PgChild> {
+    winproc::spawn_restricted(cmd.as_std(), &log)
+}
+
+#[cfg(not(windows))]
+#[logged]
+fn spawn_postmaster(mut cmd: Command, log: std::fs::File) -> std::io::Result<PgChild> {
+    let log2 = log.try_clone()?;
+    cmd.stdin(Stdio::null()).stdout(Stdio::from(log)).stderr(Stdio::from(log2)).kill_on_drop(false);
+    // start() runs inside run(), the future main() drives with block_on on
+    // the main thread, so the death signal is tied to the process.
+    winproc::die_with_engine(&mut cmd);
+    cmd.spawn()
+}
+
 fn read_password(creds: &Path) -> Result<String> {
     let raw = std::fs::read_to_string(creds)
         .with_context(|| format!("could not read {}", creds.display()))?;
@@ -358,18 +380,7 @@ async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Pa
     let runtime_pw = hex::encode(raw);
     let pwfile = secrets.join(".initdb-pw.tmp");
     std::fs::write(&pwfile, &admin_pw)?;
-    let mut cmd = Command::new(bin.join(crate::util::exe_name("initdb")));
-    cmd.arg("-D")
-        .arg(data_dir)
-        .arg("-U")
-        .arg(ADMIN_ROLE)
-        .arg(format!("--pwfile={}", pwfile.display()))
-        .args(["-A", "scram-sha-256", "-E", "UTF8", "--locale=C", "--no-instructions"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    winproc::no_window(&mut cmd);
+    let mut cmd = initdb_command(bin, data_dir, &pwfile);
     let out = tokio::select! {
         biased;
         _ = cancelled.cancelled() => Err(anyhow!("core process exited during database initialization")),
@@ -387,6 +398,40 @@ async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Pa
         format!("127.0.0.1:*:*:{ADMIN_ROLE}:{admin_pw}\n127.0.0.1:*:*:orgtree_runtime:{runtime_pw}\n"),
     )?;
     Ok(())
+}
+
+/// initdb drops administrator rights itself on Windows: it starts itself
+/// again with a restricted token, which its bootstrap postgres inherits,
+/// unless PG_RESTRICT_EXEC=1 says it already did. An inherited marker would
+/// let an elevated engine's bootstrap postgres refuse to run.
+#[logged]
+fn initdb_command(bin: &Path, data_dir: &Path, pwfile: &Path) -> Command {
+    let mut cmd = Command::new(bin.join(crate::util::exe_name("initdb")));
+    cmd.arg("-D")
+        .arg(data_dir)
+        .arg("-U")
+        .arg(ADMIN_ROLE)
+        .arg(format!("--pwfile={}", pwfile.display()))
+        .args(["-A", "scram-sha-256", "-E", "UTF8", "--locale=C", "--no-instructions"])
+        .env_remove("PG_RESTRICT_EXEC")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    winproc::no_window(&mut cmd);
+    cmd
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initdb_never_inherits_the_restricted_marker() {
+        let cmd = initdb_command(Path::new("bin"), Path::new("data"), Path::new("pw"));
+        let removed = cmd.as_std().get_envs().any(|(k, v)| k == "PG_RESTRICT_EXEC" && v.is_none());
+        assert!(removed, "initdb may inherit PG_RESTRICT_EXEC and then skip dropping administrator rights");
+    }
 }
 
 #[cfg(all(test, windows))]

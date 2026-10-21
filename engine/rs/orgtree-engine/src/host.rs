@@ -707,7 +707,7 @@ mod win {
     use std::ffi::c_void;
     use std::fs::File;
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::io::FromRawHandle;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
     use std::path::Path;
     use std::time::Duration;
 
@@ -720,10 +720,9 @@ mod win {
         SDDL_REVISION_1, SE_FILE_OBJECT,
     };
     use windows_sys::Win32::Security::{
-        CheckTokenMembership, CreateRestrictedToken, GetAce, GetSecurityDescriptorDacl, GetSidSubAuthority, GetSidSubAuthorityCount,
-        GetTokenInformation, SetTokenInformation, TokenDefaultDacl, TokenIntegrityLevel, TokenUser, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL,
-        DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
-        SID_AND_ATTRIBUTES, TOKEN_ALL_ACCESS, TOKEN_DEFAULT_DACL, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+        CheckTokenMembership, GetAce, GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TokenIntegrityLevel, TokenUser,
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+        SECURITY_ATTRIBUTES, SID_AND_ATTRIBUTES, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
     };
     use windows_sys::Win32::Storage::FileSystem::{CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
     use windows_sys::Win32::System::Pipes::CreatePipe;
@@ -734,7 +733,6 @@ mod win {
         STARTF_USESTDHANDLES, STARTUPINFOW,
     };
 
-    const SE_GROUP_INTEGRITY: u32 = 0x20;
     const HIGH_RID: u32 = 0x3000;
 
     fn wide(s: &str) -> Vec<u16> {
@@ -853,51 +851,6 @@ mod win {
         }
     }
 
-    /// A restricted copy of this process's token for a normal-user child:
-    /// Administrators and Power Users deny-only, Medium label, a default DACL
-    /// for the user, SYSTEM and Administrators.
-    unsafe fn restricted_medium_token() -> Result<Owned, String> {
-        let own = own_token(TOKEN_ALL_ACCESS).ok_or("could not open this process's token")?;
-        let user = {
-            let buf = token_info(own.0, TokenUser).ok_or("could not read the token's user")?;
-            sid_string((*(buf.as_ptr() as *const SID_AND_ATTRIBUTES)).Sid).ok_or("could not read the token's user")?
-        };
-        let admins = string_sid("S-1-5-32-544").ok_or("could not build a SID")?;
-        let power = string_sid("S-1-5-32-547").ok_or("could not build a SID")?;
-        let deny = [SID_AND_ATTRIBUTES { Sid: admins, Attributes: 0 }, SID_AND_ATTRIBUTES { Sid: power, Attributes: 0 }];
-        let mut new: HANDLE = std::ptr::null_mut();
-        let ok = CreateRestrictedToken(own.0, DISABLE_MAX_PRIVILEGE, 2, deny.as_ptr(), 0, std::ptr::null(), 0, std::ptr::null(), &mut new);
-        LocalFree(admins as *mut c_void);
-        LocalFree(power as *mut c_void);
-        if ok == 0 {
-            return Err("could not create a restricted token".into());
-        }
-        let new = Owned(new);
-        let medium = string_sid("S-1-16-8192").ok_or("could not build a SID")?;
-        let label = TOKEN_MANDATORY_LABEL { Label: SID_AND_ATTRIBUTES { Sid: medium, Attributes: SE_GROUP_INTEGRITY } };
-        let ok = SetTokenInformation(new.0, TokenIntegrityLevel, &label as *const _ as *const c_void, std::mem::size_of::<TOKEN_MANDATORY_LABEL>() as u32);
-        LocalFree(medium as *mut c_void);
-        if ok == 0 {
-            return Err("could not lower the token to Medium integrity".into());
-        }
-        let sddl = wide(&format!("D:(A;;GA;;;{user})(A;;GA;;;SY)(A;;GA;;;BA)"));
-        let mut sd: *mut c_void = std::ptr::null_mut();
-        if ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, std::ptr::null_mut()) == 0 {
-            return Err("could not build the default DACL".into());
-        }
-        let mut present = 0i32;
-        let mut defaulted = 0i32;
-        let mut dacl = std::ptr::null_mut();
-        let got = GetSecurityDescriptorDacl(sd, &mut present, &mut dacl, &mut defaulted);
-        let dd = TOKEN_DEFAULT_DACL { DefaultDacl: dacl };
-        let set = got != 0 && SetTokenInformation(new.0, TokenDefaultDacl, &dd as *const _ as *const c_void, std::mem::size_of::<TOKEN_DEFAULT_DACL>() as u32) != 0;
-        LocalFree(sd);
-        if !set {
-            return Err("could not set the default DACL".into());
-        }
-        Ok(new)
-    }
-
     pub struct Child {
         pub pid: u32,
         process: Owned,
@@ -977,9 +930,9 @@ mod win {
             let flags = CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT;
             let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
             let ok = if restricted {
-                let token = restricted_medium_token()?;
+                let token = crate::winproc::restricted_medium_token()?;
                 CreateProcessAsUserW(
-                    token.0,
+                    token.as_raw_handle() as HANDLE,
                     std::ptr::null(),
                     cmd.as_mut_ptr(),
                     std::ptr::null(),

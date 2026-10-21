@@ -145,7 +145,7 @@ pub fn member(token: &Handle, sid: &str) -> bool {
     assert!(unsafe { ConvertStringSidToSidW(wide.as_ptr(), &mut psid) } != 0, "a malformed SID");
     let mut is = 0i32;
     let ok = unsafe { CheckTokenMembership(copy.0, psid, &mut is) };
-    unsafe { LocalFree(psid as *mut c_void) };
+    unsafe { LocalFree(psid) };
     assert!(ok != 0, "CheckTokenMembership failed: {}", std::io::Error::last_os_error());
     is != 0
 }

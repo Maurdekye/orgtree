@@ -1,19 +1,36 @@
 //! Windows process plumbing: the kill-on-close job that ties every child to
-//! this process, per-child jobs for killing one subtree, and the parent watch.
+//! this process, per-child jobs for killing one subtree, the parent watch,
+//! and children started without administrator rights.
 
 #[cfg(windows)]
 mod imp {
+    use std::ffi::{c_void, OsStr};
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
+    use std::os::windows::process::ExitStatusExt;
+    use std::process::ExitStatus;
     use std::sync::OnceLock;
 
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
+    use windows_sys::Win32::Foundation::{CloseHandle, DuplicateHandle, LocalFree, DUPLICATE_SAME_ACCESS, HANDLE, WAIT_OBJECT_0};
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, ConvertStringSidToSidW, SDDL_REVISION_1,
+    };
+    use windows_sys::Win32::Security::{
+        CreateRestrictedToken, GetSecurityDescriptorDacl, GetTokenInformation, SetTokenInformation, TokenDefaultDacl,
+        TokenIntegrityLevel, TokenUser, DISABLE_MAX_PRIVILEGE, PSID, SID_AND_ATTRIBUTES, TOKEN_ALL_ACCESS, TOKEN_DEFAULT_DACL,
+        TOKEN_MANDATORY_LABEL,
+    };
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
         SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows_sys::Win32::System::Threading::{
-        GetCurrentProcess, OpenProcess, WaitForSingleObject, INFINITE, PROCESS_QUERY_LIMITED_INFORMATION,
-        PROCESS_SYNCHRONIZE,
+        CreateProcessAsUserW, DeleteProcThreadAttributeList, GetCurrentProcess, GetExitCodeProcess,
+        InitializeProcThreadAttributeList, OpenProcess, OpenProcessToken, TerminateProcess, UpdateProcThreadAttribute,
+        WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, INFINITE, LPPROC_THREAD_ATTRIBUTE_LIST,
+        PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+        STARTF_USESTDHANDLES, STARTUPINFOEXW,
     };
 
     pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -147,6 +164,313 @@ mod imp {
             })
             .ok();
     }
+
+    // -------------------------------------------- without administrator rights
+
+    const SE_GROUP_INTEGRITY: u32 = 0x20;
+
+    fn wide(s: &str) -> Vec<u16> {
+        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    unsafe fn token_info(token: HANDLE, class: i32) -> Option<Vec<u64>> {
+        let mut size = 0u32;
+        GetTokenInformation(token, class, std::ptr::null_mut(), 0, &mut size);
+        if size == 0 {
+            return None;
+        }
+        let mut buf = vec![0u64; (size as usize).div_ceil(8)];
+        if GetTokenInformation(token, class, buf.as_mut_ptr() as *mut c_void, size, &mut size) == 0 {
+            return None;
+        }
+        Some(buf)
+    }
+
+    unsafe fn sid_string(sid: PSID) -> Option<String> {
+        let mut text: *mut u16 = std::ptr::null_mut();
+        if ConvertSidToStringSidW(sid, &mut text) == 0 {
+            return None;
+        }
+        let mut n = 0;
+        while *text.add(n) != 0 {
+            n += 1;
+        }
+        let s = String::from_utf16_lossy(std::slice::from_raw_parts(text, n));
+        LocalFree(text as *mut c_void);
+        Some(s)
+    }
+
+    unsafe fn string_sid(text: &str) -> Option<PSID> {
+        let w = wide(text);
+        let mut sid: PSID = std::ptr::null_mut();
+        if ConvertStringSidToSidW(w.as_ptr(), &mut sid) == 0 {
+            return None;
+        }
+        Some(sid)
+    }
+
+    /// A restricted copy of this process's token for a child that must not
+    /// have administrator rights: Administrators and Power Users deny-only,
+    /// every privilege but SeChangeNotify removed, a Medium label, and a
+    /// default DACL for the user, SYSTEM and Administrators (an elevated
+    /// token's names only Administrators and SYSTEM, which such a child could
+    /// not use for its own objects). The boot host's engine without "Run as
+    /// admin" and every postmaster start with it.
+    #[logged]
+    pub fn restricted_medium_token() -> Result<OwnedHandle, String> {
+        unsafe {
+            let mut own: HANDLE = std::ptr::null_mut();
+            if OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &mut own) == 0 {
+                return Err("could not open this process's token".into());
+            }
+            let own = OwnedHandle::from_raw_handle(own as RawHandle);
+            let user = {
+                let buf = token_info(own.as_raw_handle() as HANDLE, TokenUser).ok_or("could not read the token's user")?;
+                sid_string((*(buf.as_ptr() as *const SID_AND_ATTRIBUTES)).Sid).ok_or("could not read the token's user")?
+            };
+            let admins = string_sid("S-1-5-32-544").ok_or("could not build a SID")?;
+            let power = string_sid("S-1-5-32-547").ok_or("could not build a SID")?;
+            let deny = [SID_AND_ATTRIBUTES { Sid: admins, Attributes: 0 }, SID_AND_ATTRIBUTES { Sid: power, Attributes: 0 }];
+            let mut new: HANDLE = std::ptr::null_mut();
+            let ok = CreateRestrictedToken(
+                own.as_raw_handle() as HANDLE,
+                DISABLE_MAX_PRIVILEGE,
+                2,
+                deny.as_ptr(),
+                0,
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                &mut new,
+            );
+            LocalFree(admins);
+            LocalFree(power);
+            if ok == 0 {
+                return Err("could not create a restricted token".into());
+            }
+            let new = OwnedHandle::from_raw_handle(new as RawHandle);
+            let medium = string_sid("S-1-16-8192").ok_or("could not build a SID")?;
+            let label = TOKEN_MANDATORY_LABEL { Label: SID_AND_ATTRIBUTES { Sid: medium, Attributes: SE_GROUP_INTEGRITY } };
+            let ok = SetTokenInformation(
+                new.as_raw_handle() as HANDLE,
+                TokenIntegrityLevel,
+                &label as *const _ as *const c_void,
+                std::mem::size_of::<TOKEN_MANDATORY_LABEL>() as u32,
+            );
+            LocalFree(medium);
+            if ok == 0 {
+                return Err("could not lower the token to Medium integrity".into());
+            }
+            let sddl = wide(&format!("D:(A;;GA;;;{user})(A;;GA;;;SY)(A;;GA;;;BA)"));
+            let mut sd: *mut c_void = std::ptr::null_mut();
+            if ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, std::ptr::null_mut()) == 0 {
+                return Err("could not build the default DACL".into());
+            }
+            let mut present = 0i32;
+            let mut defaulted = 0i32;
+            let mut dacl = std::ptr::null_mut();
+            let got = GetSecurityDescriptorDacl(sd, &mut present, &mut dacl, &mut defaulted);
+            let dd = TOKEN_DEFAULT_DACL { DefaultDacl: dacl };
+            let set = got != 0
+                && SetTokenInformation(
+                    new.as_raw_handle() as HANDLE,
+                    TokenDefaultDacl,
+                    &dd as *const _ as *const c_void,
+                    std::mem::size_of::<TOKEN_DEFAULT_DACL>() as u32,
+                ) != 0;
+            LocalFree(sd);
+            if !set {
+                return Err("could not set the default DACL".into());
+            }
+            Ok(new)
+        }
+    }
+
+    /// A child `spawn_restricted` started: the calls the engine makes on a
+    /// tokio child, on its own process handle (std offers no child built
+    /// from one).
+    #[derive(Debug)]
+    pub struct RestrictedChild {
+        pid: u32,
+        process: OwnedHandle,
+    }
+
+    #[logged]
+    impl RestrictedChild {
+        #[nolog]
+        pub fn id(&self) -> Option<u32> {
+            Some(self.pid)
+        }
+
+        /// Its exit status once it has exited (polled while it starts up).
+        #[nolog]
+        pub fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+            let h = self.process.as_raw_handle() as HANDLE;
+            unsafe {
+                if WaitForSingleObject(h, 0) != WAIT_OBJECT_0 {
+                    return Ok(None);
+                }
+                let mut code = 0u32;
+                if GetExitCodeProcess(h, &mut code) == 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(Some(ExitStatus::from_raw(code)))
+            }
+        }
+
+        /// TerminateProcess, exit code 1, as tokio's.
+        pub fn start_kill(&mut self) -> std::io::Result<()> {
+            if unsafe { TerminateProcess(self.process.as_raw_handle() as HANDLE, 1) } != 0 {
+                return Ok(());
+            }
+            let error = std::io::Error::last_os_error();
+            // one that has exited already cannot be ended again: not an error
+            if self.try_wait()?.is_some() {
+                return Ok(());
+            }
+            Err(error)
+        }
+
+        /// Until it exits; cancelling the future (a timeout) leaves it running.
+        pub async fn wait(&mut self) -> std::io::Result<ExitStatus> {
+            loop {
+                if let Some(status) = self.try_wait()? {
+                    return Ok(status);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }
+    }
+
+    /// `program` and `args` as one command line, quoted as std quotes a
+    /// tokio or std spawn's, so the child reads the same argv: the program
+    /// in quotes, an argument in quotes when it is empty or holds a space or
+    /// tab, backslashes doubled before a quote they precede.
+    #[nolog]
+    pub fn command_line(program: &OsStr, args: &[&OsStr]) -> std::io::Result<Vec<u16>> {
+        let (quote, backslash) = (b'"' as u16, b'\\' as u16);
+        let has_nul = |s: &OsStr| s.encode_wide().any(|c| c == 0);
+        if has_nul(program) || args.iter().any(|a| has_nul(a)) {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "nul byte found in provided data"));
+        }
+        let mut line = vec![quote];
+        line.extend(program.encode_wide());
+        line.push(quote);
+        for arg in args {
+            line.push(b' ' as u16);
+            let units: Vec<u16> = arg.encode_wide().collect();
+            let quoted = units.is_empty() || units.iter().any(|&c| c == b' ' as u16 || c == b'\t' as u16);
+            if quoted {
+                line.push(quote);
+            }
+            let mut run = 0usize;
+            for c in units {
+                if c == backslash {
+                    run += 1;
+                } else {
+                    if c == quote {
+                        line.extend(std::iter::repeat_n(backslash, run + 1));
+                    }
+                    run = 0;
+                }
+                line.push(c);
+            }
+            if quoted {
+                line.extend(std::iter::repeat_n(backslash, run));
+                line.push(quote);
+            }
+        }
+        Ok(line)
+    }
+
+    /// An inheritable copy of `file`'s handle, closed with the result.
+    fn inheritable(file: &std::fs::File) -> std::io::Result<OwnedHandle> {
+        let me = unsafe { GetCurrentProcess() };
+        let mut copy: HANDLE = std::ptr::null_mut();
+        if unsafe { DuplicateHandle(me, file.as_raw_handle() as HANDLE, me, &mut copy, 0, 1, DUPLICATE_SAME_ACCESS) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(unsafe { OwnedHandle::from_raw_handle(copy as RawHandle) })
+    }
+
+    /// Start `cmd`'s program (an absolute path) and arguments with
+    /// `restricted_medium_token`, without a window: stdin on NUL, stdout and
+    /// stderr appending to `log`, those two its only inherited handles. It
+    /// keeps this process's environment, working folder (or `cmd`'s) and
+    /// job, and its pid is its own (no launcher in between). `cmd`'s stdio
+    /// and flags are not read; an environment change is refused, as a
+    /// Command cannot tell whether it was cleared.
+    #[logged]
+    pub fn spawn_restricted(cmd: &std::process::Command, log: &std::fs::File) -> std::io::Result<RestrictedChild> {
+        use std::io::{Error, ErrorKind};
+        if cmd.get_envs().next().is_some() {
+            return Err(Error::new(ErrorKind::InvalidInput, "a restricted child keeps this process's environment"));
+        }
+        let program = cmd.get_program();
+        let args: Vec<&OsStr> = cmd.get_args().collect();
+        let mut line = command_line(program, &args)?;
+        line.push(0);
+        let app: Vec<u16> = program.encode_wide().chain(std::iter::once(0)).collect();
+        let cwd: Option<Vec<u16>> = cmd.get_current_dir().map(|d| d.as_os_str().encode_wide().chain(std::iter::once(0)).collect());
+        let token = restricted_medium_token().map_err(Error::other)?;
+        let nul = std::fs::OpenOptions::new().read(true).write(true).open("NUL")?;
+        // inheritable only for this call, and the list below limits the
+        // child's inheritance to exactly these two
+        let stdin = inheritable(&nul)?;
+        let output = inheritable(log)?;
+        let handles = [stdin.as_raw_handle() as HANDLE, output.as_raw_handle() as HANDLE];
+        unsafe {
+            let mut size = 0usize;
+            InitializeProcThreadAttributeList(std::ptr::null_mut(), 1, 0, &mut size);
+            let mut buf = vec![0usize; size.div_ceil(std::mem::size_of::<usize>()).max(1)];
+            let attrs = buf.as_mut_ptr() as LPPROC_THREAD_ATTRIBUTE_LIST;
+            if InitializeProcThreadAttributeList(attrs, 1, 0, &mut size) == 0 {
+                return Err(Error::last_os_error());
+            }
+            let listed = UpdateProcThreadAttribute(
+                attrs,
+                0,
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                handles.as_ptr() as *const c_void,
+                std::mem::size_of_val(&handles),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            );
+            if listed == 0 {
+                let error = Error::last_os_error();
+                DeleteProcThreadAttributeList(attrs);
+                return Err(error);
+            }
+            let mut si: STARTUPINFOEXW = std::mem::zeroed();
+            si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
+            si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            si.StartupInfo.hStdInput = handles[0];
+            si.StartupInfo.hStdOutput = handles[1];
+            si.StartupInfo.hStdError = handles[1];
+            si.lpAttributeList = attrs;
+            let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+            let ok = CreateProcessAsUserW(
+                token.as_raw_handle() as HANDLE,
+                app.as_ptr(),
+                line.as_mut_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1,
+                CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT,
+                std::ptr::null(),
+                cwd.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+                &si.StartupInfo,
+                &mut pi,
+            );
+            let error = Error::last_os_error();
+            DeleteProcThreadAttributeList(attrs);
+            if ok == 0 {
+                return Err(error);
+            }
+            CloseHandle(pi.hThread);
+            Ok(RestrictedChild { pid: pi.dwProcessId, process: OwnedHandle::from_raw_handle(pi.hProcess as RawHandle) })
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -154,6 +478,135 @@ pub use imp::*;
 
 #[cfg(all(test, windows))]
 pub(crate) mod token_probe;
+
+#[cfg(all(test, windows))]
+mod restricted_tests {
+    use std::ffi::OsStr;
+    use std::path::PathBuf;
+
+    fn system32(exe: &str) -> PathBuf {
+        PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot")).join("System32").join(exe)
+    }
+
+    fn scratch_log(tag: &str) -> (PathBuf, std::fs::File) {
+        let path = std::env::temp_dir().join(format!("orgtree-restricted-{tag}-{}-{}.log", std::process::id(), crate::util::random_hex(4)));
+        let file = std::fs::OpenOptions::new().create(true).append(true).open(&path).unwrap();
+        (path, file)
+    }
+
+    /// The command line reads back, through Windows' own parser, as the
+    /// argv it was built from: spaces, empty arguments, quotes, backslashes.
+    #[test]
+    fn the_command_line_reads_back_as_its_arguments() {
+        use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
+        let program = r"C:\Program Files\Orgtree\resources\engine\postgresql\bin\postgres.exe";
+        let args = [
+            r"C:\Users\someone\AppData\Roaming\Orgtree v2\data\pg\cluster\data",
+            "-c",
+            "listen_addresses=127.0.0.1",
+            "",
+            "a\"b",
+            r"ends in a backslash\",
+            r"spaced and ends in one\",
+            r#"slash then quote\"x"#,
+            "tab\there",
+            r"\\server\share\x",
+        ];
+        let os: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
+        let mut line = super::command_line(OsStr::new(program), &os).unwrap();
+        line.push(0);
+        let mut n = 0i32;
+        let argv = unsafe { CommandLineToArgvW(line.as_ptr(), &mut n) };
+        assert!(!argv.is_null());
+        let parsed: Vec<String> = (0..n as usize)
+            .map(|i| unsafe {
+                let p = *argv.add(i);
+                let mut len = 0;
+                while *p.add(len) != 0 {
+                    len += 1;
+                }
+                String::from_utf16_lossy(std::slice::from_raw_parts(p, len))
+            })
+            .collect();
+        unsafe { windows_sys::Win32::Foundation::LocalFree(argv as *mut std::ffi::c_void) };
+        assert_eq!(parsed[0], program);
+        assert_eq!(&parsed[1..], &args[..]);
+        assert!(super::command_line(OsStr::new(program), &[OsStr::new("a\0b")]).is_err(), "a nul is refused");
+    }
+
+    /// The child's own view of its token: no privilege but SeChangeNotify,
+    /// Medium integrity or lower; and its stdout reaches the log.
+    #[tokio::test]
+    async fn a_restricted_child_holds_no_administrator_rights() {
+        let (path, log) = scratch_log("whoami");
+        let mut cmd = std::process::Command::new(system32("whoami.exe"));
+        cmd.args(["/groups", "/priv", "/fo", "csv"]);
+        let mut child = super::spawn_restricted(&cmd, &log).expect("whoami starts");
+        let status = child.wait().await.unwrap();
+        drop(log);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::remove_file(&path).ok();
+        assert!(status.success(), "{status}: {text}");
+        let privileges: Vec<&str> = text
+            .lines()
+            .filter_map(|l| l.split(',').next())
+            .map(|f| f.trim_matches('"'))
+            .filter(|f| f.starts_with("Se") && f.ends_with("Privilege"))
+            .collect();
+        assert_eq!(privileges, ["SeChangeNotifyPrivilege"], "{text}");
+        assert!(text.contains("\"S-1-16-"), "no integrity label listed: {text}");
+        assert!(!text.contains("\"S-1-16-12288\"") && !text.contains("\"S-1-16-16384\""), "above Medium: {text}");
+    }
+
+    /// A failing child's exit code comes back, and its stderr reaches the log.
+    #[tokio::test]
+    async fn a_restricted_child_reports_its_exit_code_and_stderr() {
+        let (path, log) = scratch_log("fails");
+        let mut cmd = std::process::Command::new(system32("whoami.exe"));
+        cmd.arg("/no-such-option");
+        let mut child = super::spawn_restricted(&cmd, &log).expect("whoami starts");
+        let status = child.wait().await.unwrap();
+        drop(log);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::remove_file(&path).ok();
+        assert!(!status.success() && status.code().is_some(), "{status}");
+        assert!(!text.trim().is_empty(), "stderr did not reach the log");
+    }
+
+    /// A running child is this process's own: it stays in our job (when we
+    /// are in one), try_wait sees it running, start_kill ends it with code 1.
+    #[tokio::test]
+    async fn a_restricted_child_can_be_watched_and_killed() {
+        use crate::winproc::token_probe as probe;
+        let (path, log) = scratch_log("ping");
+        let mut cmd = std::process::Command::new(system32("PING.EXE"));
+        cmd.args(["-n", "30", "127.0.0.1"]);
+        let mut child = super::spawn_restricted(&cmd, &log).expect("ping starts");
+        let pid = child.id().unwrap();
+        let jobs = (probe::in_job(&probe::process(std::process::id())), probe::in_job(&probe::process(pid)));
+        let running = child.try_wait().unwrap().is_none();
+        child.start_kill().unwrap();
+        let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait()).await.expect("ended").unwrap();
+        child.start_kill().expect("ending an exited child again is not an error");
+        drop(log);
+        std::fs::remove_file(&path).ok();
+        assert!(running, "the child was not running");
+        assert!(!jobs.0 || jobs.1, "the child left this process's job");
+        assert_eq!(status.code(), Some(1));
+        assert!(!crate::winproc::process_alive(pid));
+    }
+
+    #[test]
+    fn an_environment_change_is_refused() {
+        let (path, log) = scratch_log("env");
+        let mut cmd = std::process::Command::new(system32("whoami.exe"));
+        cmd.env("ORGTREE_X", "1");
+        let refused = super::spawn_restricted(&cmd, &log).is_err();
+        drop(log);
+        std::fs::remove_file(&path).ok();
+        assert!(refused);
+    }
+}
 
 // Unix: no job objects yet (children are not killed if the engine crashes);
 // liveness and the parent watch use kill(pid, 0) and getppid().
