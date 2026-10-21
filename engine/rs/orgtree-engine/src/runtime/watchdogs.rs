@@ -2766,9 +2766,10 @@ async fn resume_listener(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
 /// connection, for its owner or a superior (resolved as for pause/resume/
 /// remove), holding the web tool (docs/rust-engine/websocket-watchdogs.md).
 #[logged]
-pub async fn send(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, message: &Value) -> Result<Value> {
+pub async fn send(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, args: &Value) -> Result<Value> {
     let dog = resolve(engine, org_id, actor, id).await?;
-    websocket::send(engine, &dog, actor, message).await
+    if dog.kind == "mqtt" { mqtt::send(engine, &dog, actor, args).await }
+    else { websocket::send(engine, &dog, actor, &args["message"]).await }
 }
 
 /// `orgtree_watchdog list`: the caller's dogs and its team's, with the

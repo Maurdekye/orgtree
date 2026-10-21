@@ -32,6 +32,39 @@ impl Timing {
 
 const CANARY: &str = "PW-CANARY-48151623";
 
+#[tokio::test]
+async fn publish_uses_attached_connection_and_refuses_revoked_or_detached_subscription() {
+    let b = TestBroker::start(Opts::default()).await;
+    let hub = Hub::with_timing(Timing::fast());
+    let cancel = CancellationToken::new();
+    let src = creds::Source::None;
+    let k = key(&hub, 1, broker_of(&b, false), &src, None);
+    let mut a = attach(&hub, &k, &src, "send/#", 1, &cancel).await;
+    state(&mut a, "connected", 5).await;
+    let other = attach(&hub, &k, &src, "other/#", 2, &cancel).await;
+    let reg = hub.register(1, &a);
+    let link = hub.link(1).expect("registered attachment");
+    let sent = link.publish("send/reply".into(), "世界".into(), 1, true, Duration::from_secs(2)).await.unwrap();
+    assert_eq!(sent.bytes, 6);
+    assert!(b.until(3, |b| !b.received().is_empty()).await);
+    let packets = b.received();
+    assert_eq!((&packets[0].topic, packets[0].payload.as_ref(), packets[0].qos, packets[0].retain),
+        (&"send/reply".to_string(), "世界".as_bytes(), rumqttc::QoS::AtLeastOnce, true));
+    assert_eq!(b.connects(), 1, "another dog shares the original client");
+    assert_eq!(a.sent.count.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(other.sent.count.load(std::sync::atomic::Ordering::Relaxed), 0, "counters belong to the publishing dog");
+    a.authorized.store(false, std::sync::atomic::Ordering::Release);
+    assert!(link.publish("send/denied".into(), "no".into(), 0, false, Duration::from_secs(2)).await.is_err(),
+        "an authorized neighbor cannot lend this dog network authority");
+    drop(a);
+    assert!(link.publish("send/detached".into(), "no".into(), 0, false, Duration::from_secs(2)).await.is_err());
+    drop(reg);
+    assert!(hub.link(1).is_none());
+    assert_eq!(b.received().len(), 1);
+    assert_eq!(b.connects(), 1);
+    drop(other); cancel.cancel(); b.stop();
+}
+
 /// The test broker by IP (its certificate names 127.0.0.1 too), so no test
 /// depends on how this machine resolves localhost.
 fn broker_of(b: &TestBroker, tls: bool) -> Broker {

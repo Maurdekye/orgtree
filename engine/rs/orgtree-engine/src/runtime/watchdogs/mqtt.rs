@@ -14,6 +14,75 @@ use super::*;
 use crate::mqtt::{creds, render, seal, Attachment, Delivery, Parked, State, Tag};
 
 pub(super) const NO_WEB: &str = "its owner no longer holds the web tool — an mqtt watchdog reaches the network with its owner's hands";
+
+#[nolog]
+pub(super) async fn send(engine: &Arc<Engine>, dog: &Dog, actor: Option<i64>, args: &Value) -> Result<Value> {
+    if let Some(a) = actor {
+        if !holds_web(engine, a).await? {
+            refuse!(Forbidden, "send writes to the network with YOUR hands — it needs the web tool you do not hold; ask for it (orgtree_request_scope)");
+        }
+    }
+    let (topic, text, qos, retain) = publish_options(args)?;
+    if dog.state != "armed" { refuse!(Conflict, "watchdog {} is {}; nothing was sent — resume it first", dog.uid, dog.state); }
+    let Some(link) = engine.dogs.mqtt.link(dog.row) else {
+        refuse!(Conflict, "watchdog {} has no live connection right now; nothing was sent", dog.uid);
+    };
+    match link.publish(topic.clone(), text, qos, retain, Duration::from_secs(10)).await {
+        Ok(sent) => Ok(json!({"id":dog.uid,"name":dog.name,"sent":true,"bytes":sent.bytes,"topic":topic,"qos":qos,"retain":retain,"at":iso(sent.at),
+            "note":"published on this dog's existing broker connection; replies arrive as its fires if its subscription and payload filter match"})),
+        Err(error) => refuse!(Conflict, "publish on watchdog {} refused: {error}", dog.uid),
+    }
+}
+
+#[nolog]
+fn publish_options(args: &Value) -> Result<(String, String, u8, bool)> {
+    let Some(topic) = args.get("topic").and_then(Value::as_str).filter(|t| !t.is_empty()) else {
+        refuse!(BadRequest, "MQTT send needs a nonempty topic (no + or # wildcards)");
+    };
+    if topic.len() > 65535 || topic.contains(['+', '#', '\0']) {
+        refuse!(BadRequest, "publish topic must be at most65535 bytes, with no NUL or +/# wildcards");
+    }
+    let Some(message) = args.get("message").or_else(|| args.get("payload")) else {
+        refuse!(BadRequest, "MQTT send needs message (or payload): text or a JSON value");
+    };
+    // Empty payloads are meaningful in MQTT: retain=true clears a retained value.
+    let text = message.as_str().map(str::to_owned).unwrap_or_else(|| message.to_string());
+    if text.len() > crate::mqtt::SEND_MAX {
+        refuse!(BadRequest, "message is {} bytes; send publishes at most64 KB in one message", text.len());
+    }
+    let qos = match args.get("qos") { None => 0, Some(v) => match v.as_u64() {
+        Some(n @ 0..=2) => n as u8, _ => refuse!(BadRequest, "qos must be 0, 1 or 2"),
+    }};
+    let retain = match args.get("retain") { None => false, Some(Value::Bool(b)) => *b,
+        _ => refuse!(BadRequest, "retain must be true or false"),
+    };
+    Ok((topic.to_owned(), text, qos, retain))
+}
+
+#[cfg(test)]
+mod publish_tests {
+    use super::*;
+    #[test]
+    fn publish_validates_exact_utf8_size_topic_qos_and_retain() {
+        for args in [json!({"message":"x"}), json!({"topic":"","message":"x"}),
+            json!({"topic":"a/+","message":"x"}), json!({"topic":"a#","message":"x"}),
+            json!({"topic":"a\u{0000}","message":"x"}), json!({"topic":"a","message":"界".repeat(21846)}),
+            json!({"topic":"a","message":{"x":"x".repeat(65536)}}),
+            json!({"topic":"a","message":"x","qos":3}), json!({"topic":"a","message":"x","qos":0.5}),
+            json!({"topic":"a","message":"x","retain":"true"}), json!({"topic":"a"})] {
+            let error = publish_options(&args).unwrap_err();
+            assert!(matches!(error.downcast_ref::<crate::domain::UserError>(), Some(crate::domain::UserError::BadRequest(_))));
+        }
+        assert_eq!(publish_options(&json!({"topic":"a","message":"x".repeat(65536)})).unwrap().1.len(),65536);
+    }
+    #[test]
+    fn publish_serializes_json_and_supports_empty_retained_clear() {
+        assert_eq!(publish_options(&json!({"topic":"a","payload":{"x":true}})).unwrap(), ("a".into(),"{\"x\":true}".into(),0,false));
+        assert_eq!(publish_options(&json!({"topic":"a","message":"","retain":true,"qos":2})).unwrap(), ("a".into(),"".into(),2,true));
+        assert_eq!(publish_options(&json!({"topic":"a","payload":null})).unwrap().1,"null");
+        assert_eq!(publish_options(&json!({"topic":"a","message":false,"payload":"ignored"})).unwrap().1,"false");
+    }
+}
 /// The arguments only an mqtt dog takes.
 const FIELDS: &[&str] = &["payload_pattern", "retained"];
 /// An outage is reported once it has lasted this long; a blip is not.
@@ -290,6 +359,7 @@ pub(super) async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationTok
             (a, Vec::new())
         }
     };
+    let _registered = engine.dogs.mqtt.register(dog.row, &att);
     Listener::new(engine, dog, cfg, att).listen(early, cancel).await
 }
 
@@ -403,6 +473,7 @@ struct Listener<'a> {
     last_fire: Option<Instant>,
     /// Messages received (`checks_run`), and the last one's gist.
     seen: i64,
+    base_sent: i64,
     recent: String,
     dirty: bool,
     /// A match since the last save restarts a silence dog's clock.
@@ -426,6 +497,7 @@ impl<'a> Listener<'a> {
             engine,
             gap: Duration::from_secs(d.interval_s.max(STREAM_FLOOR_S) as u64),
             seen: d.run_i64("checks_run"),
+            base_sent: d.run_i64("sent"),
             recent: d.run["last_output"].as_str().unwrap_or("").to_string(),
             d,
             cfg,
@@ -513,6 +585,7 @@ impl<'a> Listener<'a> {
     /// Take one delivery; true when the dog is done.
     async fn delivery(&mut self, d: Delivery) -> Result<bool> {
         match d {
+            Delivery::Published => { self.dirty = true; Ok(false) }
             Delivery::Subscribed { .. } => Ok(false),
             Delivery::Refused { filter } => {
                 let why = format!("the broker refused the subscription to {filter} (SUBACK 0x80): its access rules may not allow it");
@@ -578,6 +651,9 @@ impl<'a> Listener<'a> {
 
     /// The timed work; true when the dog is done.
     async fn tick(&mut self) -> Result<bool> {
+        if self.base_sent + self.att.sent.count.load(std::sync::atomic::Ordering::Relaxed) as i64 != self.d.run_i64("sent") {
+            self.dirty = true;
+        }
         if !self.pending.is_empty() && self.last_fire.is_none_or(|t| t.elapsed() >= self.gap) {
             let msgs = std::mem::take(&mut self.pending);
             let total = std::mem::take(&mut self.total);
@@ -618,6 +694,8 @@ impl<'a> Listener<'a> {
 
     /// Persist the dog's progress (and restart a silence clock on a match).
     async fn save(&mut self) -> Result<()> {
+        self.d.run["sent"] = json!(self.base_sent + self.att.sent.count.load(std::sync::atomic::Ordering::Relaxed) as i64);
+        if let Some(at) = self.att.sent.at.lock().ok().and_then(|at| *at) { self.d.run["last_sent_at"] = json!(iso(at)); }
         self.d.run["checks_run"] = json!(self.seen);
         if !self.recent.is_empty() {
             self.d.run["last_output"] = json!(self.recent);

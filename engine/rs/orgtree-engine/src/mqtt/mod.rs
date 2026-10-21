@@ -38,6 +38,7 @@ use tokio_util::sync::CancellationToken;
 pub const MAX_PACKET: usize = 1 << 20;
 /// Messages buffered for one dog; past it they are counted as dropped.
 pub const DELIVERY_BUFFER: usize = 256;
+pub const SEND_MAX: usize = 64 * 1024;
 const USAGE: &str = "target must be an MQTT broker URL: mqtt://host[:port] (default port 1883) or mqtts://host[:port] (TLS, default 8883)";
 
 /// A broker as a dog names it, `mqtt://host:port` or `mqtts://host:port`.
@@ -156,6 +157,8 @@ pub struct Message {
 #[derive(Debug)]
 pub enum Delivery {
     Message(Message),
+    /// Wake the listener to persist its own publish counters; not a fire.
+    Published,
     /// The broker granted the subscription to the dog's filter (a SUBACK
     /// after a CONNACK, or after the dog joined a live connection).
     Subscribed { filter: String },
@@ -271,6 +274,7 @@ pub struct Hub {
     /// the dog's runner (keyed by the dog's row): the runner takes over the
     /// connection and any message that arrived in between.
     parked: papaya::HashMap<i64, Arc<std::sync::Mutex<Option<Parked>>>>,
+    live: papaya::HashMap<i64, (u64, Link)>,
 }
 
 /// A create's attachment and the deliveries its smoke check read.
@@ -292,7 +296,7 @@ impl Hub {
         let mut salt = [0u8; 16];
         rand::Rng::fill(&mut rand::thread_rng(), &mut salt);
         Hub { conns: Arc::new(papaya::HashMap::new()), timing, salt, key: OnceLock::new(), next: AtomicU64::new(1),
-              parked: papaya::HashMap::new() }
+              parked: papaya::HashMap::new(), live: papaya::HashMap::new() }
     }
 
     /// The key that seals this data root's inline credentials, made on
@@ -328,7 +332,7 @@ impl Hub {
             // forget it and open a fresh one
             if handle.send(conn::Cmd::Attach { id, sub, ack }) && acked.await.is_ok() {
                 let state = handle.state();
-                return Some(Attachment { id, key: key.clone(), rx, state, dropped, authorized, handle });
+                return Some(Attachment { id, key: key.clone(), rx, state, dropped, authorized, handle, sent: Arc::new(PublishStats::default()) });
             }
             self.conns.pin().remove_if(&key, |_, h| Arc::ptr_eq(h, &handle)).ok();
             tokio::task::yield_now().await;
@@ -388,6 +392,48 @@ impl Hub {
         let taken = slot.lock().ok()?.take();
         taken
     }
+
+    #[nolog]
+    pub fn register<'a>(&'a self, row: i64, att: &Attachment) -> Registered<'a> {
+        let id = self.next.fetch_add(1, Ordering::Relaxed);
+        self.live.pin().insert(row, (id, Link { handle: att.handle.clone(), subscription: att.id, stats: att.sent.clone() }));
+        Registered { hub: self, row, id }
+    }
+
+    #[nolog]
+    pub fn link(&self, row: i64) -> Option<Link> {
+        self.live.pin().get(&row).map(|(_, link)| link.clone())
+    }
+}
+
+pub struct Registered<'a> { hub: &'a Hub, row: i64, id: u64 }
+impl Drop for Registered<'_> {
+    fn drop(&mut self) { let _ = self.hub.live.pin().remove_if(&self.row, |_, (id, _)| *id == self.id); }
+}
+
+#[derive(Default)]
+pub struct PublishStats {
+    pub count: AtomicU64,
+    pub at: std::sync::Mutex<Option<DateTime<Utc>>>,
+}
+pub struct Sent { pub bytes: usize, pub at: DateTime<Utc> }
+
+#[derive(Clone)]
+pub struct Link { handle: Arc<conn::Handle>, subscription: u64, stats: Arc<PublishStats> }
+#[logged]
+impl Link {
+    #[nolog]
+    pub async fn publish(&self, topic: String, payload: String, qos: u8, retain: bool, wait: Duration) -> Result<Sent, String> {
+        let (ack, acked) = oneshot::channel();
+        if !self.handle.send(conn::Cmd::Publish { subscription: self.subscription, topic, payload, qos, retain,
+            deadline: tokio::time::Instant::now() + wait, stats: self.stats.clone(), ack }) {
+            return Err("its connection has closed; nothing was queued".into());
+        }
+        match tokio::time::timeout(wait, acked).await {
+            Ok(Ok(result)) => result,
+            _ => Err("publish was not confirmed before the connection closed or timed out; it may have been sent".into()),
+        }
+    }
 }
 
 /// One dog's place on a connection: its deliveries, the connection's state,
@@ -404,6 +450,7 @@ pub struct Attachment {
     /// with; a connection none of whose dogs is authorized makes no attempt.
     pub authorized: Arc<AtomicBool>,
     handle: Arc<conn::Handle>,
+    pub sent: Arc<PublishStats>,
 }
 
 #[logged]

@@ -37,6 +37,8 @@ pub(super) enum Cmd {
     Attach { id: u64, sub: Sub, ack: oneshot::Sender<()> },
     Detach { id: u64 },
     Kick,
+    Publish { subscription: u64, topic: String, payload: String, qos: u8, retain: bool,
+        deadline: Instant, stats: Arc<super::PublishStats>, ack: oneshot::Sender<Result<super::Sent, String>> },
 }
 
 /// What the hub keeps of a connection: the way to talk to its task.
@@ -147,6 +149,12 @@ struct Live {
     /// SUBSCRIBE batches sent, in order, until rumqttc names their packet id.
     queued: VecDeque<Vec<String>>,
     inflight: HashMap<u16, Vec<String>>,
+    publishing: VecDeque<PendingPublish>,
+}
+
+struct PendingPublish {
+    subscription: u64, bytes: usize, stats: Arc<super::PublishStats>,
+    ack: oneshot::Sender<Result<super::Sent, String>>,
 }
 
 #[logged]
@@ -290,6 +298,21 @@ impl Task {
                 }
             }
             Cmd::Kick => {}
+            Cmd::Publish { subscription, topic, payload, qos, retain, deadline, stats, ack } => {
+                if ack.is_closed() || Instant::now() >= deadline { return; }
+                let allowed = self.subs.get(&subscription).is_some_and(|s| s.authorized.load(Ordering::Acquire));
+                let Some(live) = live.filter(|l| l.connected && allowed) else {
+                    let _ = ack.send(Err("its own subscription is not connected or authorized; nothing was queued".into()));
+                    return;
+                };
+                let qos = match qos { 0 => QoS::AtMostOnce, 1 => QoS::AtLeastOnce, 2 => QoS::ExactlyOnce,
+                    _ => { let _ = ack.send(Err("qos must be 0, 1 or 2".into())); return; } };
+                let bytes = payload.len();
+                match live.client.try_publish(topic, qos, retain, payload.into_bytes()) {
+                    Ok(()) => live.publishing.push_back(PendingPublish { subscription, bytes, stats, ack }),
+                    Err(_) => { let _ = ack.send(Err("its outgoing buffer is full or closed; nothing was queued".into())); }
+                }
+            }
         }
     }
 
@@ -303,7 +326,7 @@ impl Task {
         drop(resolved);
         let (ev_tx, mut ev_rx) = mpsc::channel(64);
         let pumping = tokio::spawn(tracing::Instrument::instrument(pump(eventloop, ev_tx), tracing::Span::current()));
-        let mut live = Live { client, connected: false, subscribed: HashSet::new(), queued: VecDeque::new(), inflight: HashMap::new() };
+        let mut live = Live { client, connected: false, subscribed: HashSet::new(), queued: VecDeque::new(), inflight: HashMap::new(), publishing: VecDeque::new() };
         // set while no dog is left: the session stays open `linger` for one
         // that may come back, then ends
         let mut idle: Option<Instant> = None;
@@ -365,6 +388,15 @@ impl Task {
             Event::Outgoing(Outgoing::Subscribe(pkid)) => {
                 if let Some(batch) = live.queued.pop_front() {
                     live.inflight.insert(pkid, batch);
+                }
+            }
+            Event::Outgoing(Outgoing::Publish(_)) => {
+                if let Some(p) = live.publishing.pop_front() {
+                    let at = Utc::now();
+                    p.stats.count.fetch_add(1, Ordering::Relaxed);
+                    if let Ok(mut last) = p.stats.at.lock() { *last = Some(at); }
+                    if let Some(s) = self.subs.get(&p.subscription) { let _ = s.tx.try_send(Delivery::Published); }
+                    let _ = p.ack.send(Ok(super::Sent { bytes: p.bytes, at }));
                 }
             }
             Event::Incoming(Packet::SubAck(ack)) => {

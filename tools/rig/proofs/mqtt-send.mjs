@@ -14,9 +14,9 @@ export default async function(rig){
    if(head>>4===1){connects++;socket.write(Buffer.from([0x20,2,0,0]))}
    else if(head>>4===8){const topic=body.subarray(4,4+body.readUInt16BE(2)).toString();subscriptions.push(topic);socket.write(Buffer.from([0x90,3,body[0],body[1],0]))}
    else if(head>>4===3){const size=body.readUInt16BE(0),topic=body.subarray(2,2+size).toString(),qos=(head>>1)&3,off=2+size,payload=body.subarray(off+(qos?2:0));got.push({topic,payload:payload.toString(),qos,retain:!!(head&1)});
-    if(qos===1)socket.write(Buffer.from([0x40,2,body[off],body[off+1]]));
+    if(qos)socket.write(Buffer.from([qos===1?0x40:0x50,2,body[off],body[off+1]]));
     if(topic.startsWith('mqtt-send/'))socket.write(packet(0x30,Buffer.concat([str(topic),payload])))
-   }else if(head>>4===12)socket.write(Buffer.from([0xd0,0]));else if(head>>4===14)socket.end()
+   }else if(head>>4===6)socket.write(Buffer.from([0x70,2,body[0],body[1]]));else if(head>>4===12)socket.write(Buffer.from([0xd0,0]));else if(head>>4===14)socket.end()
   }})
  })
  await new Promise(r=>server.listen(0,'127.0.0.1',r))
@@ -32,6 +32,8 @@ export default async function(rig){
   p.check('matching reply becomes an untrusted dog fire',first.ok&&await until(()=>rig.sql("SELECT body FROM ot.mail WHERE body LIKE '%世界%' AND body LIKE '%untrusted%'").length>0))
   const second=await send({topic:'mqtt-send/plain',payload:'text'})
   p.check('payload alias defaults to qos0 and retainfalse',second.ok&&await until(()=>got.some(x=>x.topic==='mqtt-send/plain'&&x.payload==='text'&&x.qos===0&&!x.retain)),second.text)
+  const q2=await send({topic:'mqtt-send/exactly-once',message:[1,true],qos:2})
+  p.check('existing rumqttc QoS2 publish is supported',q2.ok&&await until(()=>got.some(x=>x.qos===2&&x.payload==='[1,true]')),q2.text)
   const empty=await send({topic:'mqtt-send/clear',message:'',retain:true})
   p.check('empty MQTT payload can clear a retained value',empty.ok&&await until(()=>got.some(x=>x.topic==='mqtt-send/clear'&&x.payload===''&&x.retain)),empty.text)
   for(const topic of ['mqtt-send/+','mqtt-send/#','']){
@@ -50,7 +52,7 @@ export default async function(rig){
   const before=got.length;for(const socket of sockets)socket.destroy();await new Promise(r=>server.close(r))
   await until(()=>rig.one("SELECT memo->'run'->'mqtt'->>'state' AS state FROM ot.watchdogs WHERE name='publish'")?.state!=='connected')
   const down=await send({topic:'mqtt-send/down',message:'not queued'})
-  p.check('disconnected connection refuses instead of buffering',!down.ok&&/connect|connection/i.test(down.text)&&got.length===before,down.text)
+  p.check('disconnected connection refuses instead of buffering',!down.ok&&/not connected|no live connection/i.test(down.text)&&got.length===before,down.text)
   p.check('refused payloads never reached broker',!got.some(x=>/foreign|paused|down|large|qos|retain/.test(x.topic)),got.map(({topic})=>topic))
   p.file('broker.json',{connects,subscriptions,got});return p.summary()
  }finally{for(const socket of sockets)socket.destroy();if(server.listening)await new Promise(r=>server.close(r))}

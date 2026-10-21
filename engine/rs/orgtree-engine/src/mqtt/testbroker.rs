@@ -54,6 +54,7 @@ struct Inner {
     sessions: Mutex<HashMap<u64, Session>>,
     retained: Mutex<BTreeMap<String, Bytes>>,
     logins: Mutex<Vec<Login>>,
+    received: Mutex<Vec<Publish>>,
     connects: AtomicU64,
     accepted: AtomicU64,
     subscribes: AtomicU64,
@@ -192,6 +193,7 @@ impl TestBroker {
     pub fn logins(&self) -> Vec<Login> {
         self.inner.logins.lock().unwrap().clone()
     }
+    pub fn received(&self) -> Vec<Publish> { self.inner.received.lock().unwrap().clone() }
 
     /// Wait (at most `secs`) until `cond` holds; false on timeout.
     pub async fn until(&self, secs: u64, cond: impl Fn(&TestBroker) -> bool) -> bool {
@@ -287,6 +289,12 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(inner: Arc<In
                 }
                 let _ = tx.send(Packet::UnsubAck(UnsubAck::new(u.pkid)));
             }
+            Some(Packet::Publish(p)) => {
+                if p.qos == QoS::AtLeastOnce { let _ = tx.send(Packet::PubAck(rumqttc::PubAck::new(p.pkid))); }
+                if p.qos == QoS::ExactlyOnce { let _ = tx.send(Packet::PubRec(rumqttc::PubRec::new(p.pkid))); }
+                inner.received.lock().unwrap().push(p);
+            }
+            Some(Packet::PubRel(p)) => { let _ = tx.send(Packet::PubComp(rumqttc::PubComp::new(p.pkid))); }
             Some(Packet::PingReq) => {
                 let _ = tx.send(Packet::PingResp);
             }
