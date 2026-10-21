@@ -72,7 +72,7 @@ requirements, including user-held assignments. Leaving the queue alone does not.
 | `count` | Create, `listener_watch` (required there) | Armed project listeners that fire it, 1–1024. Refused for every other kind. |
 | `batch` | Create, `fair_queue` only | Integer 1–20, default 1: maximum mails per assignment batch and unacked mails in ACK mode. |
 | `slots` | Create, `slot` only | Integer 1–9,999,999, default 1; at most capacity minus your held/pending units. Reserve all requested units as one lease in strict FIFO order. |
-| `fire_actions` | Create, any kind except `fair_queue` | Up to 4 `{tool, args}` orgtree_* tool calls run as you when the dog fires; results ride the fire mail. Credentials in them only as a file path. See Fire-time tool calls. |
+| `fire_actions` | Create, any kind except `fair_queue` | Up to 4 `{tool, args}` orgtree_* tool calls run as you when the dog fires; results return inline for a ready once result, otherwise in fire mail. Credentials in them only as a file path. See Fire-time tool calls. |
 | `target` | Create; required | Path, command, `pid:N`/`port:N`, activity agent name, event name/prefix, a project's name for `fair_queue`, `slot`, `project_listener` and `listener_watch`, a broker `mqtt://host[:port]`/`mqtts://host[:port]` for `mqtt`, or a `ws://`/`wss://` URL for `websocket`. |
 | `name` | Create | Optional short name; its normalized slug becomes the owner-local ID. |
 | `pattern` | Create | Regex. Required for `command`; optional otherwise. Process down edges do not use it. For `mqtt` it is required and is the MQTT topic filter (`+`/`#` wildcards), not a regex. For `websocket` it is an optional regex on text messages. |
@@ -138,7 +138,7 @@ The recurring command must exit. After 60 seconds it is stopped, and that timeou
 
 ### process
 
-`target` is `pid:N` or `port:N`; ports are probed on `127.0.0.1`. Fires only on an **observed UP → definitively DOWN** edge. A target already down at creation does not fire until it has been seen up and then down. An access-denied/indeterminate PID probe or a connection timeout is unknown, not evidence of death, and does not overwrite the baseline. The process branch does not apply `pattern` to the down edge.
+`target` is `pid:N` or `port:N`; ports are probed on `127.0.0.1`. A once event-mode target already definitively DOWN resolves inline at creation. Otherwise it fires on an **observed UP → definitively DOWN** edge; a repeating target already down must first be seen up and then down. An access-denied/indeterminate PID probe or a connection timeout is unknown, not evidence of death, and does not overwrite the baseline. The process branch does not apply `pattern` to the down edge.
 
 Use `once: true` for a particular PID finishing. A repeating port watch can observe later up/down cycles.
 
