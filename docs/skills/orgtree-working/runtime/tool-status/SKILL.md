@@ -26,7 +26,7 @@ Report a meaningful change in your own work. Call it when finished (`done`) or s
 
 This tool has no Orgtree tool-group prerequisite: status reporting stays available even when all groups are disabled. It still acts as your authenticated agent; it has no `node` argument for reporting somebody else's status.
 
-Only `done` and `blocked` send the summary to your direct superior, as a passive notice. `working` and `idle` update the record without that mail. A top-level agent has no superior, so its report updates its chip without sending a duplicate user digest. Communicate actual results through the appropriate mail channel when needed.
+Only `done` and `blocked` send the summary to your nearest agent superior, skipping intervening projects, as a passive notice. `working` and `idle` update the record without that mail. An agent with no agent superior is top-level for this purpose even inside a project, so its report updates its chip without sending a duplicate user digest. Communicate actual results through the appropriate mail channel when needed.
 
 A status never wakes the superior. If action is needed now, send a [message](../../mail/tool-message/SKILL.md) as well. Keep the [docket](../../docket/tool-work/SKILL.md) current separately.
 

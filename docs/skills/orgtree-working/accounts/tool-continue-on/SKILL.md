@@ -7,8 +7,8 @@ Up: [orgtree-accounts](../SKILL.md)
 # orgtree_continue_on
 
 Projects and other nodes without an agent runtime are refused before state changes.
-Name the actual agent members to control a project's team. A mixed halt/unhalt
-batch is validated in full before any target changes.
+Name the actual agent members to control a project's team. This call targets
+one agent, not a project-wide batch.
 
 Use this tool when authorized to move a frozen descendant to another eligible account of the same provider and continue its held work. It changes account/session configuration and can start a new provider-cache namespace. It does not grant accounts, clear account marks, change provider/model, or release a halt.
 

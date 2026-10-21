@@ -8,8 +8,8 @@ Up: [orgtree-runtime](../SKILL.md)
 # orgtree_cheap_compact
 
 Projects and other nodes without an agent runtime are refused before state changes.
-Name the actual agent members to control a project's team. A mixed halt/unhalt
-batch is validated in full before any target changes.
+Name the actual agent members to control a project's team. This call targets
+one agent, not a project-wide batch.
 
 Use this to replace a descendant's current conversation context with a fresh session when a handoff summary is enough. Prepare durable breadcrumbs and docket progress first. This operation loses the old session's full conversational context; it cannot transfer an in-flight external process by summarizing it.
 
@@ -25,7 +25,7 @@ The target must be live, idle and have a session. The operation clears that same
 
 At the next turn, the runtime leads the handoff with current docket scope, blocker reasons and declared dependencies, the last recorded shell working directory (or an explicit unknown), and the latest three messages from the current superior. Older status, correspondence hints, standing requests and the recent conversation follow. Current scope and directions take precedence over older tasks. The handoff still directs the fresh session to read `breadcrumbs.md` and recall conversations before replying.
 
-It also attempts to save up to the newest 5,000 desk rows, oldest first, as `earlier-conversation-<timestamp>.md` in the target's scratch folder. Saved history and the recent-conversation digest retain shell command inputs up to 8,192 UTF-8 bytes per command, with multiline text preserved and an explicit truncation marker. A retained native input takes precedence over provider details. Other tool arguments stay out of these exports. Older rows without retained input say so. This does not change the visible transcript UI or guarantee that a command completed. A save failure is logged and the handoff can proceed without that file; the file is not a guaranteed complete lifetime transcript.
+It also attempts to save up to the newest 5,000 desk rows, oldest first, as `earlier-conversation-<timestamp>.md` in the target's scratch folder. Batched mail is split into individually attributed entries in saved history and the recent-conversation digest, using each message's sender and timestamp; legacy rows without usable segments retain a whole-row fallback. Saved history and the digest retain shell command inputs up to 8,192 UTF-8 bytes per command, with multiline text preserved and an explicit truncation marker. A retained native input takes precedence over provider details. Other tool arguments stay out of these exports. Older rows without retained input say so. This does not change the visible transcript UI or guarantee that a command completed. A save failure is logged and the handoff can proceed without that file; the file is not a guaranteed complete lifetime transcript.
 
 Earlier stored history remains readable through [read transcript](../../inspection/tool-read-transcript/SKILL.md), and the scratch export through [read scratch](../../inspection/tool-read-scratch/SKILL.md). The session change creates a new cache namespace; do not promise a provider cache hit based on a previously warm process.
 

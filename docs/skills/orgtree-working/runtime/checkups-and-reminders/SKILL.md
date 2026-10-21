@@ -17,7 +17,7 @@ Candidates must be live, not halted/frozen/limit-locked, without an unfinished t
 
 The engine reserves a durable timestamp before sending and rechecks eligibility. If real work wins the race, the automatic wake is withdrawn when still pending; the timestamp remains as its cooldown. A restart therefore does not mean every old reminder is sent again immediately.
 
-## Two independent mechanisms
+## Reminder mechanisms
 
 1. A docket reminder names work whose next-action recipient is this agent. Ordinary candidates exclude blocked work, items flagged for user attention and items with an open attached question. It can wake an idle agent without requiring a `working` status. At most 20 item rows are shown, with an omitted count when needed.
 2. A working checkup requires current status `working` and elapsed inactivity time, regardless of docket ownership, blocked items or user-held docket decisions. Agents reporting `blocked`, `idle` or `done` do not receive working checkups. This replaces the old actionable-docket requirement (user 2026-10-16).
