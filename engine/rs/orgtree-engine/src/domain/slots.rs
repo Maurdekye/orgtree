@@ -124,7 +124,7 @@ pub(crate) fn grant_line(project: &str, count: i32, lease: &str) -> String {
 pub async fn grant(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<Vec<String>> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
-    let (granted, fresh) = grant_in(&tx, org_id, project, None).await?;
+    let (granted, fresh) = grant_in(&*tx, org_id, project, None).await?;
     tx.commit().await?;
     drop(client);
     after_grants(engine, org_id, project, &granted).await?;
@@ -138,7 +138,7 @@ pub async fn claim_once(engine: &Arc<Engine>, org_id: i64, project: i64, owner: 
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     admit(&tx, project, Some(owner), i64::from(requested(memo)), None).await?;
-    let (granted, _) = grant_in(&tx, org_id, project, Some((owner, memo))).await?;
+    let (granted, _) = grant_in(&*tx, org_id, project, Some((owner, memo))).await?;
     let Some(own) = granted.iter().find(|g| g.dog == 0) else { return Ok(None) };
     let result = json!({"lease":own.lease,"slots":own.count,"line":grant_line(&own.project,own.count,&own.lease)});
     tx.commit().await?;
