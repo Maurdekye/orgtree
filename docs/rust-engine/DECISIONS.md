@@ -7,6 +7,19 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Heavy dev shop and optional template notes (user 2026-10-21 18:40:32Z,
+maf10b255d511; 18:41:15Z, ma2ebac78cf61; 18:42:15Z, m173a65d0bc11;
+18:45:37Z, m1678b37fb750):** ship the large mixed-model layout mimicking the
+org used to develop Orgtree itself: Opus Liaison above Opus coordinator,
+developers across Opus/Sonnet/Astra/Sol/Argon, Sol rig and a three-slot project.
+The coordinator retains a user audience. Include all current development
+practices generified into inherited shared/team/project/personal AGENTS.md,
+with short role charters and a source-rule coverage receipt. Templates may
+optionally carry these note files; saving captures them only by opt-in,
+within bounded UTF-8 fixed paths and without importing credentials/other-org
+data. Existing files are never overwritten and old templates stay compatible.
+See [templates](../skills/orgtree-app/org-settings/org-templates/SKILL.md).
+
 **Liaison charter preset (user 2026-10-21 18:33:44Z, m1726260b9ebe;
 name confirmed 18:36:18Z, ma1c356c483a4):** add Liaison as a bundled charter
 for large orgs, above an existing coordinator. It owns user discussion,

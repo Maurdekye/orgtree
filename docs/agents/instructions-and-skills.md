@@ -4,6 +4,26 @@
 
 Identity prefixes, tool cards, notes, globals, shared skills and glossary delivery.
 
+## Template projects and standing-note snapshots (2026-10-21)
+
+Template slots with tier=project create real free containers through canonical
+create_project/configure_project operations; model availability and funding
+skip the container while retaining physical placement. Explicit user/extern
+agent audiences use the existing composite-hire authority path. Save preserves
+project structure and transparent spare-credit calculations, but does not
+capture audiences. Optional shared_agents_md/team_agents_md/scratch_agents_md
+carry text only, 16,000 UTF-8 bytes each and 128,000 combined. AGENTS.md capture
+is opt-in, scoped to fixed current-org files and rejects links, invalid bytes
+and recognizable credentials. Text debug output is redacted; raw template
+parsing/writing and notes I/O are unlogged. Unknown free-text secrets still
+require human review. Creation seeds create-new notes after commit, before
+warm/kickoff effects; failures are reported as warnings on the committed org.
+Heavy dev shop has nine agents and one three-slot project, with operational
+practice in inherited notes and short role-focused charters. See
+[templates](../skills/orgtree-app/org-settings/org-templates/SKILL.md).
+[decided: user 2026-10-21 18:40–18:45Z; verified: domain/templates.rs,
+domain/template_notes.rs, http/templates.rs, http/orgops.rs]
+
 ## Charter preset content and Liaison (2026-10-21)
 
 The hire form joins each selected preset's full content before manual text;

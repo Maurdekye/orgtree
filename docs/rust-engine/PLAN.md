@@ -282,6 +282,13 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Heavy dev shop (user 2026-10-21 18:40–18:45Z, 4.4.0): a large mixed-model
+template with Liaison, coordinator user audience, five developers, Sol rig,
+curator and three-slot project. Template project containers remain free and
+transparent to model funding. Optional shared/team/personal AGENTS.md copies
+are bounded and opt-in on save, seeded without overwrite on new-org creation.
+See [templates](../skills/orgtree-app/org-settings/org-templates/SKILL.md).
+
 Charter presets (user 2026-10-21 18:33Z/18:36Z, 4.4.0): Liaison is the sixth
 bundled role, for user conversation and decision memory above a large org's
 existing coordinator. Execution/staffing remain with the coordinator.

@@ -139,19 +139,33 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     // whole org back
     let mut fx = ops::Effects::default();
     let mut hired = Vec::new();
-    if let Some((_, planned)) = &planned {
+    let mut projects = Vec::new();
+    let mut pending_notes = Vec::new();
+    if let Some((template, planned)) = &planned {
         let pending = crate::orgs::provisional(id, uuid.to_string(), slug.clone(), name.clone());
         let kickoff = b.template.as_ref().is_some_and(|p| p.kickoff);
         for p in planned {
-            let req = crate::domain::templates::hire_request(p, kickoff);
-            let out = ops::run_in_tx(&e, &pending, &tx, &Actor::User, &req, &mut fx)
-                .await
-                .map_err(|err| ApiError::from(err.context(format!("could not hire {} from the template", p.name))))?;
-            hired.push(out["node"].clone());
+            for (index, req) in crate::domain::templates::creation_requests(p, kickoff).into_iter().enumerate() {
+                let out = ops::run_in_tx(&e, &pending, &tx, &Actor::User, &req, &mut fx)
+                    .await
+                    .map_err(|err| ApiError::from(err.context(format!("could not create {} from the template", p.name))))?;
+                if index == 0 {
+                    if p.slot.project() { projects.push(out["node"].clone()); }
+                    else { hired.push(out["node"].clone()); }
+                }
+            }
         }
+        let locations: Vec<_> = tx.query("SELECT id,name,tier,scratch_dir FROM ot.agents WHERE org_id=$1 AND state='live' ORDER BY id LIMIT 24", &[&id]).await?
+            .into_iter().map(|row| crate::domain::template_notes::Location {
+                id: row.get(0), name: row.get(1), project: row.get::<_,String>(2) == crate::domain::projects::TIER,
+                personal: row.get::<_,Option<String>>(3).map(PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&slug).join(row.get::<_,String>(1))),
+            }).collect();
+        pending_notes = crate::domain::template_notes::pending(&e.cfg.scratch_root(&slug), template, planned, &locations);
     }
     tx.commit().await?;
     drop(client);
+    // Seed before org open/warm/kickoff; no filesystem work extends the transaction.
+    let note_result = crate::domain::template_notes::seed(&e.cfg.scratch_root(&slug), &pending_notes);
     if let Some(md) = planned.as_ref().and_then(|(t, _)| t.org_md.clone()).filter(|m| !m.trim().is_empty()) {
         if let Err(err) = crate::phone::replace_file(&e.cfg.workspace_dir(&slug).join("org.md"), md.as_bytes()) {
             tracing::warn!(error = %err, "the template's org.md could not be written");
@@ -169,6 +183,8 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     let mut out = json!({ "slug": slug });
     if planned.is_some() {
         out["hired"] = json!(hired);
+        if !projects.is_empty() { out["projects"] = json!(projects); }
+        if !pending_notes.is_empty() { out["standing_notes"] = note_result; }
     }
     Ok(Json(out))
 }

@@ -19,6 +19,7 @@ const BUNDLED: &[(&str, &str)] = &[
     ("devteam-codex.json", include_str!("../../../../docs/templates/devteam-codex.json")),
     ("devteam-muse.json", include_str!("../../../../docs/templates/devteam-muse.json")),
     ("devteam-antigravity.json", include_str!("../../../../docs/templates/devteam-antigravity.json")),
+    ("heavy-dev-shop.json", include_str!("../../../../docs/templates/heavy-dev-shop.json")),
 ];
 const MAX_AGENTS: usize = 24;
 const MAX_DEPTH: usize = 4;
@@ -35,6 +36,9 @@ pub struct Template {
     pub org_md: Option<String>,
     #[serde(default)]
     pub agents: Vec<Slot>,
+    /// Optional org-wide scratch AGENTS.md, never a path.
+    #[serde(default)]
+    pub shared_agents_md: Option<super::template_notes::Text>,
     /// Quick chat's starting superior, model and effort in the new org
     /// (user 2026-10-10 19:31Z); the org's own picks win once made
     #[serde(default)]
@@ -59,6 +63,19 @@ pub const ORG_SETTINGS: &[&str] = &[
 pub struct Slot {
     pub name: String,
     pub tier: String,
+    /// tier=project denotes a structural container with no model or credits.
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub slots: Option<i64>,
+    #[serde(default)]
+    pub peer_mail: Option<bool>,
+    #[serde(default)]
+    pub audiences: Vec<String>,
+    #[serde(default)]
+    pub team_agents_md: Option<super::template_notes::Text>,
+    #[serde(default)]
+    pub scratch_agents_md: Option<super::template_notes::Text>,
     /// tried in order when `tier` cannot run on this machine
     #[serde(default)]
     pub fallback: Vec<String>,
@@ -91,6 +108,11 @@ pub struct Slot {
     pub kickoff: Option<String>,
     #[serde(default)]
     pub reports: Vec<Slot>,
+}
+
+#[nolog]
+impl Slot {
+    pub fn project(&self) -> bool { self.tier == super::projects::TIER }
 }
 
 /// A charter preset by name, plain text, or both (preset first).
@@ -283,7 +305,8 @@ fn list_in(dir: &Path) -> Vec<(Result<Template, String>, &'static str, String)> 
     out
 }
 
-#[logged]
+// Template text may contain private notes; never log the raw document.
+#[nolog]
 fn parse(s: &str) -> Result<Template, String> {
     serde_json::from_str::<Template>(s).map_err(|e| format!("not a valid template: {e}"))
 }
@@ -328,6 +351,7 @@ pub fn validate(t: &Template) -> Vec<String> {
     if all.len() > MAX_AGENTS {
         p.push(format!("at most {MAX_AGENTS} agents"));
     }
+    if !all.iter().any(|(s,_,_)| !s.project()) { p.push("a template needs at least one agent".into()); }
     let mut names = HashSet::new();
     for (s, depth, _) in &all {
         if *depth >= MAX_DEPTH {
@@ -338,7 +362,23 @@ pub fn validate(t: &Template) -> Vec<String> {
             Ok(_) => {}
             Err(e) => p.push(format!("{}: {e}", s.name)),
         }
-        for tier in std::iter::once(&s.tier).chain(&s.fallback) {
+        if s.project() {
+            if !s.fallback.is_empty() || s.spare != 0.0 || !s.audiences.is_empty() || s.kickoff.is_some()
+                || s.tools.is_some() || s.effort.is_some() || s.account.is_some() || s.add_dirs.is_some()
+                || s.org_visibility.is_some() || s.permission_mode.is_some() || s.account_fallback.is_some()
+                || s.charter.preset.is_some() || s.charter.text.is_some() || s.team_charter.is_some() || s.scratch_agents_md.is_some() {
+                p.push(format!("{}: project slots cannot carry agent settings; use description for Summary", s.name));
+            }
+            if s.slots.is_some_and(|n| !(0..=super::slots::MAX_CAPACITY).contains(&n)) {
+                p.push(format!("{}: invalid project slots capacity", s.name));
+            }
+        } else if s.description.is_some() || s.slots.is_some() || s.peer_mail.is_some() {
+            p.push(format!("{}: description, slots and peer_mail belong to project slots", s.name));
+        }
+        if s.audiences.len() > 64 || s.audiences.iter().any(|a| !matches!(a.as_str(), "user" | "extern")) {
+            p.push(format!("{}: template audiences must be user or extern (at most 64)", s.name));
+        }
+        for tier in std::iter::once(&s.tier).chain(&s.fallback).filter(|_| !s.project()) {
             if catalog::tier(tier).is_none() && !catalog::is_openrouter(tier) && !catalog::is_langserver(tier) {
                 p.push(format!("{}: unknown tier '{tier}'", s.name));
             }
@@ -354,6 +394,11 @@ pub fn validate(t: &Template) -> Vec<String> {
         if s.kickoff.is_some() && *depth > 0 {
             p.push(format!("{}: only a top-level agent may carry a first message", s.name));
         }
+    }
+    let note_bytes = t.shared_agents_md.iter().chain(all.iter().flat_map(|(s, _, _)|
+        s.team_agents_md.iter().chain(s.scratch_agents_md.iter()))).map(|n| n.0.len()).sum::<usize>();
+    if note_bytes > super::template_notes::TOTAL_MAX {
+        p.push(format!("standing notes exceed {} bytes in total", super::template_notes::TOTAL_MAX));
     }
     if let Some(q) = &t.quick_chat {
         if let Err(e) = quick_chat(q) {
@@ -497,6 +542,13 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
             return Err(format!("{r} is the top of the layout and cannot be removed; choose Empty instead"));
         }
     }
+    let mut all = Vec::new();
+    walk(&t.agents, 0, None, &mut all);
+    for (s,_,_) in all {
+        if s.project() && choices.overrides.get(&s.name).and_then(|c| c.tier.as_deref()).is_some_and(|tier| tier != super::projects::TIER) {
+            return Err(format!("{} is a project and cannot select a model", s.name));
+        }
+    }
     let mut out = Vec::new();
     let mut blocked = Vec::new();
     #[nolog]
@@ -509,6 +561,15 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
             }
             let ch = choices.overrides.get(&s.name).cloned().unwrap_or_default();
             let name = ch.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&s.name).to_string();
+            if s.project() {
+                let at = out.len();
+                out.push(Planned { slot: s.clone(), name: name.clone(), parent: parent.map(str::to_string), depth,
+                    tier: Some(super::projects::TIER.to_string()), note: None, account: None, seat: 0.0, grant: 0.0,
+                    add_dirs: None, dirs_dropped: Vec::new() });
+                cost += go(&s.reports, depth + 1, Some(&name), ceiling, choices, removed, av, out, blocked);
+                debug_assert_eq!(out[at].grant, 0.0);
+                continue;
+            }
             let (tier, note) = match ch.tier.as_deref().filter(|x| !x.is_empty()) {
                 Some(x) if av.tiers.contains_key(x) => (Some(x.to_string()), (x != s.tier).then(|| "chosen by you".to_string())),
                 Some(x) if checking(av, x) => (None, Some(checking_note(x))),
@@ -603,6 +664,12 @@ pub fn charter_of(s: &Slot) -> String {
 #[logged]
 pub fn hire_request(p: &Planned, kickoff: bool) -> Value {
     let s = &p.slot;
+    if s.project() {
+        let mut req = json!({ "op": "create_project", "name": p.name,
+            "parent": p.parent.clone().unwrap_or_else(|| "user".to_string()) });
+        if let Some(description) = &s.description { req["description"] = json!(description); }
+        return req;
+    }
     let mut req = json!({
         "op": "hire",
         "name": p.name,
@@ -611,6 +678,7 @@ pub fn hire_request(p: &Planned, kickoff: bool) -> Value {
         "parent": p.parent.clone().unwrap_or_else(|| "user".to_string()),
         "charter": charter_of(s),
     });
+    if !s.audiences.is_empty() { req["audiences"] = json!(s.audiences); }
     if let Some(a) = &p.account { req["account"] = json!(a); }
     if let Some(tc) = s.team_charter.as_ref().filter(|t| !t.trim().is_empty()) { req["team_charter"] = json!(tc); }
     match &s.tools {
@@ -631,13 +699,28 @@ pub fn hire_request(p: &Planned, kickoff: bool) -> Value {
     req
 }
 
+/// A project is created and configured through the same canonical operations as tools/UI.
+#[logged]
+pub fn creation_requests(p: &Planned, kickoff: bool) -> Vec<Value> {
+    let mut out = vec![hire_request(p, kickoff)];
+    if p.slot.project() {
+        let mut settings = json!({});
+        if let Some(n) = p.slot.slots { settings["slots"] = json!(n); }
+        if let Some(on) = p.slot.peer_mail { settings["peer_mail"] = json!(on); }
+        if !settings.as_object().unwrap().is_empty() {
+            out.push(json!({ "op": "configure_project", "node": p.name, "settings": settings }));
+        }
+    }
+    out
+}
+
 /// The preview the picker shows.
 #[logged]
 pub fn plan_json(t: &Template, planned: &[Planned], blocked: &[String]) -> Value {
     let rows: Vec<Value> = planned.iter().map(|p| json!({
         "slot": p.slot.name, "name": p.name, "parent": p.parent, "depth": p.depth,
         "tier": p.tier, "requested_tier": p.slot.tier, "note": p.note, "account": p.account,
-        "provider": p.tier.as_deref().map(catalog::provider_of),
+        "provider": p.tier.as_deref().filter(|_| !p.slot.project()).map(catalog::provider_of),
         "seat": p.seat, "grant": p.grant,
         "charter": match (&p.slot.charter.preset, &p.slot.charter.text) {
             (Some(n), _) => format!("preset: {n}"), (None, Some(_)) => "text".to_string(), _ => "none".to_string() },
@@ -645,13 +728,18 @@ pub fn plan_json(t: &Template, planned: &[Planned], blocked: &[String]) -> Value
         "blocked": p.tier.is_none(), "dirs_dropped": p.dirs_dropped,
     })).collect();
     let top: f64 = planned.iter().filter(|p| p.depth == 0).map(|p| p.grant).sum();
-    json!({ "id": t.id, "name": t.name, "agents": rows, "org_md": t.org_md.is_some(), "blocked": blocked, "ok": blocked.is_empty(), "top_grant": round2(top) })
+    let mut out = json!({ "id": t.id, "name": t.name, "agents": rows, "org_md": t.org_md.is_some(), "blocked": blocked, "ok": blocked.is_empty(), "top_grant": round2(top) });
+    let notes = usize::from(t.shared_agents_md.is_some()) + planned.iter().map(|p|
+        usize::from(p.slot.team_agents_md.is_some()) + usize::from(p.slot.scratch_agents_md.is_some())).sum::<usize>();
+    if notes > 0 { out["standing_notes"] = json!(notes); }
+    out
 }
 
 /// A nonempty preset is unavailable only after checking, with no offered slot.
 #[nolog]
 pub fn unusable_here(planned: &[Planned], checking: bool) -> bool {
-    !checking && !planned.is_empty() && planned.iter().all(|p| p.tier.is_none())
+    let agents: Vec<_> = planned.iter().filter(|p| !p.slot.project()).collect();
+    !checking && !agents.is_empty() && agents.iter().all(|p| p.tier.is_none())
 }
 
 /// Add machine availability without changing file validation or ordering.
@@ -662,7 +750,7 @@ pub fn summary_with_availability(t: &Result<Template, String>, source: &str, pat
         if validate(t).is_empty() {
             if let Ok((planned, _)) = plan(t, &Choices::default(), av, &[]) {
                 let unusable = unusable_here(&planned, av.checking);
-                let providers: BTreeMap<String, ()> = planned.iter().flat_map(|p|
+                let providers: BTreeMap<String, ()> = planned.iter().filter(|p| !p.slot.project()).flat_map(|p|
                     std::iter::once(&p.slot.tier).chain(&p.slot.fallback))
                     .map(|tier| (catalog::provider_label(catalog::provider_of(tier)).to_string(), ())).collect();
                 let reason = unusable.then(|| format!("needs {}", providers.keys().cloned().collect::<Vec<_>>().join(" or ")));
@@ -715,6 +803,9 @@ pub struct Include {
     /// the org-wide settings the org set itself (`ORG_SETTINGS` only)
     #[serde(default = "yes")]
     pub settings: bool,
+    /// Opt-in: only fixed scratch AGENTS.md files, with bounded credential checks.
+    #[serde(default)]
+    pub standing_notes: bool,
 }
 
 #[nolog]
@@ -724,7 +815,7 @@ fn yes() -> bool {
 
 impl Default for Include {
     fn default() -> Self {
-        Include { charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true, settings: true }
+        Include { charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true, settings: true, standing_notes: false }
     }
 }
 
@@ -755,7 +846,21 @@ pub fn from_rows(
     #[nolog]
     fn slot(r: &Row, rows: &[Row], inc: &Include) -> Value {
         let kids: Vec<&Row> = rows.iter().filter(|k| k.parent == Some(r.id)).collect();
-        let held: f64 = kids.iter().map(|k| k.seat + k.grant).sum();
+        if r.tier == super::projects::TIER {
+            let mut v = json!({ "name": r.name, "tier": super::projects::TIER,
+                "slots": super::slots::capacity(&r.scope), "peer_mail": super::peer_mail::enabled(&r.scope) });
+            if inc.charters { if let Some(description) = &r.charter { v["description"] = json!(description); } }
+            let reports: Vec<_> = kids.iter().map(|k| slot(k, rows, inc)).collect();
+            if !reports.is_empty() { v["reports"] = json!(reports); }
+            return v;
+        }
+        // Projects hold no credits; the nearest agent funds their descendants.
+        #[nolog]
+        fn stake(r: &Row, rows: &[Row]) -> f64 {
+            if r.tier == super::projects::TIER { rows.iter().filter(|k| k.parent == Some(r.id)).map(|k| stake(k, rows)).sum() }
+            else { r.seat + r.grant }
+        }
+        let held: f64 = kids.iter().map(|k| stake(k, rows)).sum();
         let mut v = json!({ "name": r.name, "tier": r.tier,
                             "spare": if inc.credits { round2((r.grant - held).max(0.0)) } else { 0.0 } });
         if inc.charters {
@@ -832,7 +937,8 @@ pub fn populate() -> Result<Value, String> {
 }
 
 /// Save a template file as `<id>.json` in the templates folder.
-#[logged]
+// Serialized templates may contain private standing notes.
+#[nolog]
 pub fn write(id: &str, body: &str, replace: bool) -> Result<PathBuf, (u16, String)> {
     let dir = user_dir();
     crate::http::settings::plain_path(&dir).map_err(|e| (409, e))?;
@@ -849,6 +955,75 @@ pub fn write(id: &str, body: &str, replace: bool) -> Result<PathBuf, (u16, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_slots_are_transparent_for_credits_and_model_availability() {
+        let t: Template = serde_json::from_value(json!({"id":"t","name":"T","agents":[
+            {"name":"liaison","tier":"opus","spare":2,"reports":[
+                {"name":"coordinator","tier":"opus","spare":3,"audiences":["user"],"reports":[
+                    {"name":"build-slot","tier":"project","description":"Build permit","slots":3,"peer_mail":true,"reports":[
+                        {"name":"developer","tier":"sonnet"}
+                    ]}
+                ]}
+            ]}
+        ]})).unwrap();
+        assert!(validate(&t).is_empty(), "{:?}",validate(&t));
+        let (planned, blocked) = plan(&t, &Choices::default(), &claude_only(), &[]).unwrap();
+        assert!(blocked.is_empty());
+        assert_eq!(planned.iter().map(|p| (p.name.as_str(),p.seat,p.grant)).collect::<Vec<_>>(),
+            [("liaison",4.0,11.0),("coordinator",4.0,5.0),("build-slot",0.0,0.0),("developer",2.0,0.0)]);
+        assert_eq!(hire_request(&planned[1],false)["audiences"],json!(["user"]));
+        assert_eq!(hire_request(&planned[2],false),
+            json!({"op":"create_project","name":"build-slot","parent":"coordinator","description":"Build permit"}));
+        let mut choices = Choices::default();
+        choices.overrides.insert("build-slot".into(), SlotChoice { name:Some("builds".into()),tier:None });
+        let (renamed,_) = plan(&t,&choices,&claude_only(),&[]).unwrap();
+        assert_eq!(renamed[3].parent.as_deref(),Some("builds"));
+        let (unavailable,blocked) = plan(&t,&Choices::default(),&Avail::default(),&[]).unwrap();
+        assert_eq!(blocked.len(),3);
+        assert!(unusable_here(&unavailable,false));
+        assert!(!plan_json(&t,&planned,&[])["agents"][2]["blocked"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn project_configuration_uses_canonical_steps() {
+        let t:Template=serde_json::from_value(json!({"id":"t","name":"T","agents":[{"name":"lead","tier":"opus","reports":[{"name":"build-slot","tier":"project","slots":3,"peer_mail":true}]}]})).unwrap();
+        let (p,_)=plan(&t,&Choices::default(),&claude_only(),&[]).unwrap();
+        assert_eq!(creation_requests(&p[1],false)[1],json!({"op":"configure_project","node":"build-slot","settings":{"slots":3,"peer_mail":true}}));
+    }
+
+    #[test]
+    fn saved_project_shape_keeps_transparent_funding_and_summary() {
+        let mut project=row(3,Some(2),"build-slot","project",0.0,0.0);
+        project.charter=Some("Build agreement".into());
+        project.scope=json!({"slots_capacity":3,"peer_mail":true});
+        let rows=vec![row(1,None,"liaison","opus",4.0,11.0),row(2,Some(1),"coordinator","opus",4.0,5.0),
+            project,row(4,Some(3),"developer","sonnet",2.0,0.0)];
+        let saved=from_rows("t","T",None,&rows,None,None,&Value::Null,&Include::default());
+        assert_eq!(saved["agents"][0]["spare"],2.0);
+        assert_eq!(saved["agents"][0]["reports"][0]["spare"],3.0);
+        assert_eq!(saved["agents"][0]["reports"][0]["reports"][0]["slots"],3);
+        let t:Template=serde_json::from_value(saved).unwrap();
+        assert!(validate(&t).is_empty(),"{:?}",validate(&t));
+        let (p,b)=plan(&t,&Choices::default(),&claude_only(),&[]).unwrap();
+        assert!(b.is_empty());
+        assert_eq!(p[0].grant,11.0);
+    }
+
+    #[test]
+    fn projects_cannot_smuggle_agent_fields_or_unbounded_notes() {
+        for extra in [json!({"effort":"max"}),json!({"spare":1}),json!({"slots":10000000}),json!({"audiences":["user"]}),json!({"scratch_agents_md":"personal"})] {
+            let mut slot=json!({"name":"builds","tier":"project"});
+            slot.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let t:Template=serde_json::from_value(json!({"id":"t","name":"T","agents":[slot]})).unwrap();
+            assert!(!validate(&t).is_empty());
+        }
+        let t:Template=serde_json::from_value(json!({"id":"t","name":"T","agents":[{"name":"lead","tier":"opus","audiences":["unknown"]}]})).unwrap();
+        assert!(!validate(&t).is_empty());
+        let oversized=json!({"id":"t","name":"T","shared_agents_md":"x".repeat(super::super::template_notes::FILE_MAX+1),"agents":[{"name":"lead","tier":"opus"}]});
+        assert!(serde_json::from_value::<Template>(oversized).is_err());
+        assert!(!Include::default().standing_notes);
+    }
 
     #[test]
     fn availability_summary_handles_none_partial_fallback_checking_and_empty() {
@@ -917,7 +1092,7 @@ mod tests {
 ", BUNDLED[0].0)).unwrap();
         std::fs::write(d.join(BUNDLED[1].0), "{}").unwrap();
         // only the later ones, which neither the note nor a file has, are written
-        assert_eq!(seed_into(&d).unwrap(), vec![BUNDLED[2].0.to_string(), BUNDLED[3].0.to_string()]);
+        assert_eq!(seed_into(&d).unwrap(), vec![BUNDLED[2].0.to_string(), BUNDLED[3].0.to_string(), BUNDLED[4].0.to_string()]);
         assert_eq!(std::fs::read_to_string(d.join(BUNDLED[1].0)).unwrap(), "{}");
         assert!(!d.join(BUNDLED[0].0).exists());
         let note = std::fs::read_to_string(d.join(SEEDED)).unwrap();
@@ -997,7 +1172,7 @@ mod tests {
     #[test]
     fn unticked_groups_are_left_out() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 10.0)];
-        let inc = Include { charters: false, credits: false, effort: false, tools: false, org_md: false, accounts: false, folders: false, quick_chat: false, settings: false };
+        let inc = Include { charters: false, credits: false, effort: false, tools: false, org_md: false, accounts: false, folders: false, quick_chat: false, settings: false, standing_notes: false };
         let v = from_rows("t", "T", None, &rows, Some("x".into()), None, &Value::Null, &inc);
         let a = &v["agents"][0];
         assert!(a["charter"].is_null() && a["effort"].is_null() && a["tools"].is_null() && v["org_md"].is_null());
@@ -1051,7 +1226,7 @@ mod tests {
         let d = scratch("agy-upgrade");
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join(SEEDED), format!("{}\n{}\n{}\n", BUNDLED[0].0, BUNDLED[1].0, BUNDLED[2].0)).unwrap();
-        assert_eq!(seed_into(&d).unwrap(), vec!["devteam-antigravity.json".to_string()]);
+        assert_eq!(seed_into(&d).unwrap(), vec!["devteam-antigravity.json".to_string(), "heavy-dev-shop.json".to_string()]);
         assert_eq!(std::fs::read_to_string(d.join("devteam-antigravity.json")).unwrap(), BUNDLED[3].1);
         assert!(seed_into(&d).unwrap().is_empty());
         std::fs::remove_file(d.join("devteam-antigravity.json")).unwrap();
@@ -1063,14 +1238,47 @@ mod tests {
     #[test]
     fn every_built_in_is_valid_and_named_after_its_file() {
         let ids: Vec<String> = BUNDLED.iter().map(|(_, b)| parse(b).unwrap().id).collect();
-        assert_eq!(ids, ["devteam-claude", "devteam-codex", "devteam-muse", "devteam-antigravity"]);
+        assert_eq!(ids, ["devteam-claude", "devteam-codex", "devteam-muse", "devteam-antigravity", "heavy-dev-shop"]);
         for (file, body) in BUNDLED {
             let t = parse(body).unwrap();
             assert_eq!(*file, format!("{}.json", t.id));
             assert!(validate(&t).is_empty(), "{file}: {:?}", validate(&t));
+            if t.id == "heavy-dev-shop" { continue; }
             let names: Vec<_> = std::iter::once(&t.agents[0]).chain(&t.agents[0].reports).map(|s| s.name.as_str()).collect();
             assert_eq!(names, ["coordinator", "implementer", "redteam", "curator"], "{file}");
         }
+    }
+
+    #[test]
+    fn heavy_dev_shop_has_all_ruled_seats_efforts_audience_and_notes() {
+        let t=bundled("heavy-dev-shop");
+        assert!(validate(&t).is_empty(),"{:?}",validate(&t));
+        let mut av=claude_only();
+        for (tier,cost,provider) in [("astra",10.0,"openai"),("sol",2.0,"openai"),("argon",2.0,"google")] {
+            av.tiers.insert(tier.into(),offer(cost,provider));
+        }
+        let (p,b)=plan(&t,&Choices::default(),&av,&[]).unwrap();
+        assert!(b.is_empty());
+        assert_eq!(p.iter().filter(|p| !p.slot.project()).count(),9);
+        assert_eq!(p.iter().map(|p|p.seat).sum::<f64>(),32.0);
+        assert_eq!(p[0].name,"liaison");
+        assert_eq!(p[0].grant,48.0);
+        assert_eq!(p[1].parent.as_deref(),Some("liaison"));
+        assert_eq!(hire_request(&p[1],false)["audiences"],json!(["user"]));
+        assert_eq!(p[2].name,"build-slot");
+        assert!(p[2].slot.project());
+        assert_eq!(p[2].slot.slots,Some(3));
+        assert_eq!(p[2].slot.peer_mail,Some(true));
+        assert!(p[3..].iter().all(|p|p.parent.as_deref()==Some("build-slot")));
+        for p in p.iter().filter(|p|!p.slot.project()) {
+            let expected=match p.slot.tier.as_str() {"opus"=>"max","astra"=>"xhigh",_=>"high"};
+            assert_eq!(p.slot.effort.as_deref(),Some(expected));
+            assert!(p.slot.charter.preset.is_none(),"role-only text keeps detailed practices in notes");
+            assert!(charter_of(&p.slot).len()<700);
+        }
+        assert_eq!(plan_json(&t,&p,&[])["standing_notes"],7);
+        assert!(t.description.contains("develop Orgtree itself"));
+        assert!(!Include::default().standing_notes);
     }
 
     #[test]

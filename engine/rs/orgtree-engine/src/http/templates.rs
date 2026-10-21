@@ -117,7 +117,8 @@ pub struct SaveBody {
 
 /// `POST /api/orgs/{slug}/template`: save the org's live layout as a template
 /// file in the templates folder. Reads the org; changes nothing in it.
-#[logged]
+// The response includes copied notes; never serialize it into diagnostic logs.
+#[nolog]
 pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b): Json<SaveBody>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let name = b.name.trim().to_string();
@@ -128,7 +129,7 @@ pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
     let client = e.db.get().await?;
     let rows = client
         .query(
-            "SELECT id, parent_id, name, tier, account, seat::float8, grant_credits::float8, charter, team_charter, scope
+            "SELECT id, parent_id, name, tier, account, seat::float8, grant_credits::float8, charter, team_charter, scope, scratch_dir
                FROM ot.agents WHERE org_id = $1 AND state = 'live' ORDER BY sibling_order, id LIMIT 200",
             &[&o.id],
         )
@@ -137,19 +138,28 @@ pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
     if rows.is_empty() {
         return Err(ApiError::unprocessable("this organization has no live agents to save"));
     }
+    let locations: Vec<_> = rows.iter().map(|r| crate::domain::template_notes::Location {
+        id: r.get(0), name: r.get(2), project: r.get::<_,String>(3) == crate::domain::projects::TIER,
+        personal: r.get::<_,Option<String>>(10).map(std::path::PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&slug).join(r.get::<_,String>(2))),
+    }).collect();
     let rows: Vec<templates::Row> = rows.iter().map(|r| templates::Row {
         id: r.get(0), parent: r.get(1), name: r.get(2), tier: r.get(3), account: r.get(4), seat: r.get(5), grant: r.get(6),
         charter: r.get(7), team_charter: r.get(8), scope: r.get(9),
     }).collect();
     let org_md = std::fs::read(e.cfg.workspace_dir(&o.slug).join("org.md")).ok().map(|b| String::from_utf8_lossy(&b).into_owned());
     let settings: Value = e.db.get().await?.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&o.id]).await?.get(0);
-    let t = templates::from_rows(&id, &name, b.description.as_deref(), &rows, org_md, b.quick_chat.as_ref(), &settings, &b.include);
+    let mut t = templates::from_rows(&id, &name, b.description.as_deref(), &rows, org_md, b.quick_chat.as_ref(), &settings, &b.include);
+    if b.include.standing_notes {
+        crate::domain::template_notes::capture_layout(&e.cfg.scratch_root(&slug), &locations, &mut t)
+            .map_err(ApiError::unprocessable)?;
+    }
     let parsed: templates::Template = serde_json::from_value(t.clone()).map_err(|x| ApiError::internal(x.to_string()))?;
     let problems = templates::validate(&parsed);
     let body = serde_json::to_string_pretty(&t).map_err(|x| ApiError::internal(x.to_string()))?;
+    if body.len() > 256 * 1024 { return Err(ApiError::unprocessable("template file exceeds 256 KiB; include fewer notes or charters")); }
     let path = templates::write(&id, &body, b.replace).map_err(|(code, msg)| {
         ApiError::new(StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), msg)
     })?;
     Ok(Json(json!({ "id": id, "file": format!("{id}.json"), "path": path.to_string_lossy(), "content": body,
-                    "agents": rows.len(), "problems": problems })))
+                    "agents": rows.iter().filter(|r| r.tier != crate::domain::projects::TIER).count(), "problems": problems })))
 }

@@ -42,7 +42,7 @@ export default async function (rig) {
   // 1. the list
   const list = await rig.api('GET', '/api/templates')
   const ids = list.templates.map((t) => t.id)
-  p.check('the four bundled templates are listed and usable', ['devteam-claude', 'devteam-codex', 'devteam-muse', 'devteam-antigravity'].every((id) => ids.includes(id))
+  p.check('the five bundled templates are listed and usable', ['devteam-claude', 'devteam-codex', 'devteam-muse', 'devteam-antigravity', 'heavy-dev-shop'].every((id) => ids.includes(id))
     && list.templates.every((t) => t.problems.length === 0), list.templates.map((t) => ({ id: t.id, source: t.source, problems: t.problems })))
 
   // 2. devteam (claude): preview, then create
@@ -148,7 +148,7 @@ export default async function (rig) {
     shotApp.ok && ['devteam-claude.json', 'devteam-codex.json'].every((f) => fs.existsSync(path.join(tpDir, f)))
       && /restored 2 templates/.test(shotApp.value?.snippet ?? ''), shotApp.value ?? shotApp.error)
   const pop = await rig.api('POST', '/api/templates/populate')
-  p.check('restoring again changes nothing (all four default files already present: Claude, Codex, Muse, Antigravity)', pop.created.length === 0
-    && pop.existing.length === 4 && pop.existing.includes('devteam-antigravity.json'), pop)
+  p.check('restoring again changes nothing (all five default files already present, including Heavy dev shop)', pop.created.length === 0
+    && pop.existing.length === 5 && pop.existing.includes('devteam-antigravity.json'), pop)
   return p.summary()
 }

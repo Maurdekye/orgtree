@@ -35,6 +35,7 @@ pub mod staffing;
 pub mod staging;
 pub mod teams;
 pub mod templates;
+pub mod template_notes;
 pub mod tree;
 pub mod undo;
 pub mod watchdogs;
