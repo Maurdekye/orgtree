@@ -36,7 +36,7 @@ export default async function(rig) {
   const copy=JSON.parse(saved.content)
   p.check('opt-in captures shared, project and personal notes and preserves the project tree',copy.shared_agents_md===source.shared_agents_md&&copy.agents[0].scratch_agents_md===source.agents[0].scratch_agents_md&&copy.agents[0].reports[0].reports[0].tier==='project'&&copy.agents[0].reports[0].reports[0].team_agents_md===source.agents[0].reports[0].reports[0].team_agents_md)
   const second=await rig.api('POST','/api/orgs',{name:'Heavy saved copy',dirs:[],net_autoconnect:false,template:{id:copy.id}})
-  p.check('saved project/notes template creates another isolated org',second.hired.length===9&&second.projects?.length===1&&second.standing_notes?.created===7,second)
+  p.check('saved project/notes template creates another isolated org',second.hired.length===9&&second.projects?.length===1&&second.standing_notes?.created===(saved.content.match(/"(?:shared|team|scratch)_agents_md"/g)??[]).length,second)
   // Recognizable secret controls are synthetic, never actual credentials.
   fs.writeFileSync(path.join(scratch,'_shared','AGENTS.md'),'password=synthetic-secret-value')
   const refused=await rig.api('POST',`/api/orgs/${slug}/template`,{name:'Never export credential',include:{standing_notes:true}}).then(()=>null,e=>e)

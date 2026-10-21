@@ -145,10 +145,10 @@ pub fn capture_layout(root: &Path, locations: &[Location], template: &mut Value)
     #[nolog]
     fn walk(root: &Path, slots: &mut [Value], locations: &[Location], total: &mut usize) -> Result<(), String> {
         for slot in slots {
-            let location = locations.iter().find(|l| slot["name"].as_str() == Some(&l.name)).ok_or("standing-notes slot was not found")?;
+            let location = locations.iter().find(|l| slot["name"].as_str() == Some(l.name.as_str())).ok_or("standing-notes slot was not found")?;
             attach(root, &root.join("_teams").join(location.id.to_string()).join("AGENTS.md"), slot, "team_agents_md", total)?;
             if !location.project { attach(root, &location.personal.join("AGENTS.md"), slot, "scratch_agents_md", total)?; }
-            if let Some(reports) = slot["reports"].as_array_mut() { walk(root, reports, locations, total)?; }
+            if let Some(reports) = slot.get_mut("reports").and_then(Value::as_array_mut) { walk(root, reports, locations, total)?; }
         }
         Ok(())
     }

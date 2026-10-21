@@ -1015,7 +1015,7 @@ mod tests {
         for extra in [json!({"effort":"max"}),json!({"spare":1}),json!({"slots":10000000}),json!({"audiences":["user"]}),json!({"scratch_agents_md":"personal"})] {
             let mut slot=json!({"name":"builds","tier":"project"});
             slot.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-            let t:Template=serde_json::from_value(json!({"id":"t","name":"T","agents":[slot]})).unwrap();
+            let t:Template=serde_json::from_value(json!({"id":"t","name":"T","agents":[{"name":"lead","tier":"opus","reports":[slot]}]})).unwrap();
             assert!(!validate(&t).is_empty());
         }
         let t:Template=serde_json::from_value(json!({"id":"t","name":"T","agents":[{"name":"lead","tier":"opus","audiences":["unknown"]}]})).unwrap();

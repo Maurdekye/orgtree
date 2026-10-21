@@ -206,6 +206,10 @@ pub fn reminder_pause() -> Option<std::time::Duration> {
 /// user's profile folder.
 #[logged]
 pub fn home_dir() -> Option<PathBuf> {
+    // Unit tests may isolate template/preset reads without initializing an engine.
+    // This override does not exist in normal debug or release binaries.
+    #[cfg(test)]
+    if let Some(home) = std::env::var_os("ORGTREE_TEST_HOME") { return Some(PathBuf::from(home)); }
     match RIG.get().cloned().flatten() {
         Some(home) => Some(home),
         None => dirs::home_dir(),
