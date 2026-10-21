@@ -76,7 +76,8 @@ async fn slot_limit_user_held_and_pending_share_remaining_limit() {
 async fn slot_limit_resume_rechecks_capacity_without_arming() {
     let (e,o,p,a)=fixture(10).await;hold(&e,&o,p,Some(a)).await;
     e.db.get().await.unwrap().execute("INSERT INTO ot.watchdogs(uid,org_id,owner_agent_id,name,kind,target,interval_s,once,state,memo) VALUES('paused-claim',$1,$2,'paused-claim','slot','resource',60,true,'paused',$3)",&[&o.id,&a,&json!({"target_id":p,"slots":7,"queued_at":1})]).await.unwrap();
-    e.db.get().await.unwrap().execute("UPDATE ot.agents SET scope=jsonb_build_object('slots_capacity',6) WHERE id=$1",&[&p]).await.unwrap();
+    // Seven still fits the total of eight, but not the five left to this holder.
+    e.db.get().await.unwrap().execute("UPDATE ot.agents SET scope=jsonb_build_object('slots_capacity',8) WHERE id=$1",&[&p]).await.unwrap();
     let error=crate::runtime::watchdogs::act(&e,o.id,Some(a),"paused-claim","resume",None).await.unwrap_err();
     conflict(error);
     assert_eq!(e.db.get().await.unwrap().query_one("SELECT state FROM ot.watchdogs WHERE uid='paused-claim'",&[]).await.unwrap().get::<_,String>(0),"paused");
