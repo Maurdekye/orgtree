@@ -152,8 +152,11 @@ pub(crate) enum Plan {
 /// runs; only an explicit restart replaces an engine already in place.
 #[nolog]
 pub(crate) fn plan(current: Option<Current>, session: u32, elevated: bool, restart: bool) -> Plan {
-    let _ = (current, session, elevated, restart);
-    Plan::Start
+    match current {
+        None => Plan::Start,
+        Some(c) if c.session == Some(session) && c.elevated == Some(elevated) && !restart => Plan::Nothing,
+        Some(_) => Plan::Replace,
+    }
 }
 
 #[cfg(test)]

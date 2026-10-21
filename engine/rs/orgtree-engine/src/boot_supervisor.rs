@@ -74,8 +74,27 @@ pub enum Step {
 
 #[nolog]
 pub fn decide(seen: &Seen) -> Step {
-    let _ = seen;
-    Step::Supervise { rollback: false }
+    use crate::session_handover::{Phase, Rollback};
+    if seen.stop || seen.blocked { return Step::Exit; }
+    if seen.attempt || seen.root_held { return Step::Wait; }
+    if let Some(record) = &seen.record {
+        if record.owes_rollback() { return Step::Supervise { rollback: true }; }
+        if record.rollback == Some(Rollback::Failed) && seen.epoch_matches { return Step::Exit; }
+    }
+    // Unknown WTS starts the engine as before: no delegation on a guess.
+    if seen.signed_in != Some(true) || !seen.console || !seen.task { return Step::Supervise { rollback: false }; }
+    if let Some(at) = seen.delegated_at {
+        let answered = seen.record.as_ref().is_some_and(|r| r.phase == Phase::Failed && r.at_ms >= at);
+        if answered || seen.now.saturating_sub(at) >= BACKSTOP_MS { return Step::Supervise { rollback: true }; }
+        return Step::Wait;
+    }
+    match &seen.lost {
+        None => Step::Delegate { claim: None },
+        Some(lost) if lost.ours => Step::Delegate { claim: lost.generation.clone() },
+        Some(lost) if seen.now.saturating_sub(lost.at) >= 2 * BACKSTOP_MS => Step::Supervise { rollback: true },
+        Some(lost) if seen.now.saturating_sub(lost.at) >= BACKSTOP_MS => Step::Delegate { claim: lost.generation.clone() },
+        Some(_) => Step::Wait,
+    }
 }
 
 /// Sign-out needs `SIGNED_OUT_MISSES` empty readings in a row; any sign-in
@@ -86,7 +105,14 @@ pub struct Debounce { misses: u32, last: Option<bool> }
 #[nolog]
 impl Debounce {
     pub fn note(&mut self, reading: Option<bool>) -> Option<bool> {
-        let _ = reading;
+        match reading {
+            Some(true) => { self.misses = 0; self.last = Some(true); }
+            Some(false) => {
+                self.misses = self.misses.saturating_add(1);
+                if self.misses >= SIGNED_OUT_MISSES { self.last = Some(false); }
+            }
+            None => {}
+        }
         self.last
     }
 }

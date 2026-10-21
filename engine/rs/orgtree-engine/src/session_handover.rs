@@ -172,8 +172,12 @@ pub fn lock_within(root: &Path, within: std::time::Duration) -> Option<Lock> {
 /// a failed move and its rollback. None when nothing went wrong.
 #[nolog]
 pub fn notice_line(record: &Record) -> Option<String> {
-    let _ = record;
-    None
+    if record.reported.is_some() || record.phase != Phase::Failed { return None; }
+    let why = record.error.as_deref().unwrap_or("the reason was not recorded");
+    match record.rollback? {
+        Rollback::Done => Some(format!("Orgtree could not start the engine in the signed-in session ({why}), so it started the engine in Session 0 instead.")),
+        Rollback::Failed => Some(format!("Orgtree could not start the engine in the signed-in session ({why}), and it did not start in Session 0 either, so it stayed stopped until it was started again.")),
+    }
 }
 
 #[cfg(test)]

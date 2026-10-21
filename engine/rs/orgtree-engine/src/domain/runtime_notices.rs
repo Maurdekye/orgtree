@@ -374,13 +374,12 @@ mod forwarding_tests {
 // provenance before any agent turn/hosting decision is available.
 #[nolog]
 fn restart_body(version: &str, commit: &str, pid: u32, started: &str, session: Option<u32>, note: Option<&str>) -> String {
-    let _ = note;
     let where_ = match session {
         Some(0) => "Session 0".into(),
         Some(id) => format!("Windows session {id}"),
         None => "unknown or not applicable".into(),
     };
-    format!("[ORGTREE RESTART NOTICE]\nOrgtree {version} restarted. Commit: {commit}. PID: {pid}. Started at: {started}.\nEngine session at start: {where_}.\nThis is an informational notice; it does not start a turn.")
+    format!("[ORGTREE RESTART NOTICE]\nOrgtree {version} restarted. Commit: {commit}. PID: {pid}. Started at: {started}.\nEngine session at start: {where_}.\n{}This is an informational notice; it does not start a turn.", note.map(|n| format!("{n}\n")).unwrap_or_default())
 }
 
 #[cfg(test)]
