@@ -35,6 +35,7 @@ import type { LoadedDoc } from './docs'
 import { dismissDoc, MockupBadge, MockupOpen, presentationMenu, useDoc } from './docs'
 import { docUnread, useDocViewedVersion } from './docviewed'
 import { useContextMenu } from './contextmenu'
+import { objectTooltipProps } from './objecttooltip'
 import { PinFrame, raisePinnedModal } from './modalpin'
 import { useReaderHandle } from './readers'
 import { instanceKind } from '../modalkinds'
@@ -518,13 +519,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                           + (r.id === selId ? ' on' : '')
                           + (r.evicted ? ' evicted' : '')
                           + (r.format === 'html' ? ' doc-mockup' : '')}
-                        title={[
-                          r.evicted
-                            ? 'content evicted — later presentations pushed '
-                              + 'this card off the list'
-                            : `read “${r.title}”`,
-                          STATE_WHY[r.node_state],
-                        ].filter(Boolean).join(' · ')}
+                        {...objectTooltipProps('document', r.id, slug)} title={r.title}
                         onClick={() => openDocument(r.id)}
                         onContextMenu={(e) => menu.open(e, () => rowMenu(e, r))}>
                         <div className="l1">
@@ -907,12 +902,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                   + (r.id === selId ? ' on' : '')
                   + (r.evicted ? ' evicted' : '')
                   + (r.format === 'html' ? ' doc-mockup' : '')}
-                title={[
-                  r.evicted
-                    ? 'content evicted — later presentations pushed this card off the list'
-                    : `read “${r.title}”`,
-                  STATE_WHY[r.node_state],
-                ].filter(Boolean).join(' · ')}
+                {...objectTooltipProps('document', r.id, slug)} title={r.title}
                 onClick={() => chooseDocument(r.id === selId ? null : r.id)}
                 onContextMenu={(e) => menu.open(e, () => rowMenu(e, r))}>
                 <div className="l1">

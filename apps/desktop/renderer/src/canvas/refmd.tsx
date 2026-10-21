@@ -135,7 +135,8 @@ function chipEl(doc: Document, r: ResolvedRef,
   const el: HTMLElement = doc.createElement(live ? 'button' : 'span')
   if (live) (el as HTMLButtonElement).type = 'button'
   el.className = cls
-  if (r.ref.kind !== 'item' || r.outcome !== 'ready') el.title = r.why
+  if (r.ref.kind === 'doc' && r.outcome === 'ready') el.title = r.label
+  else if (r.ref.kind !== 'item' || r.outcome !== 'ready') el.title = r.why
   else if (r.copyTitle) el.title = r.copyTitle
   el.setAttribute(TOK, r.token)
   el.setAttribute(OUT, r.outcome)
@@ -143,6 +144,9 @@ function chipEl(doc: Document, r: ResolvedRef,
   el.addEventListener('mousedown', (e) => { if (e.button !== 0) e.stopPropagation() })
   if (r.ref.kind === 'agent') el.setAttribute('data-copy-agent-name', r.ref.id)
   if (live && r.ref.kind === 'item') for (const [key, value] of Object.entries(objectNavProps('ticket', r.ref.id, r.ref.org))) {
+    if (value !== undefined) el.setAttribute(key, value)
+  }
+  if (live && r.ref.kind === 'doc') for (const [key, value] of Object.entries(objectNavProps('document', r.ref.id, r.ref.org))) {
     if (value !== undefined) el.setAttribute(key, value)
   }
   if (r.copyTitle !== undefined) el.setAttribute('data-copy-ticket-title', r.copyTitle)

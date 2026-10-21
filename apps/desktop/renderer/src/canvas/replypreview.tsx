@@ -8,6 +8,7 @@ import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { fetchMailRowForCopy, isMailByReferencePreview, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
 import type { CopyableMailRow } from './copytext'
 import { senderMenuAction } from './objectactions'
+import { objectNavProps } from './objectnav'
 import { ReplyIcon } from '../icons'
 import { usePresentationTitle } from './presentationtitle'
 import { replySourceCopyText, replySourceMailRow, replySourceSender } from './replysource'
@@ -145,6 +146,7 @@ export function ReplyPreview({ reply, available, onLocate, onRemove, presentatio
       : 'Original event unavailable here; quoted context is retained.') : undefined}
     action={
       <button className={'reply-preview-jump'+(reply.docId?' reply-presentation-link':'')} type="button" onClick={onLocate} disabled={!reachable}
+        {...(reply.docId && reachable ? objectNavProps('document', reply.docId, reply.org) : {})}
         aria-label={reply.docId?doc.label:'jump to message'} title={actionTitle}>
         <ReplyIcon className="reply-preview-jump-icon" aria-hidden="true" focusable="false" fontSize="inherit" />
         <span>{reply.docId?doc.label:'jump to message'}</span>

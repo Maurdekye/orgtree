@@ -1,4 +1,5 @@
-import { getWorkItem, getWatchdog, watchdogAction } from '../api'
+import { getDocument, getWorkItem, getWatchdog, watchdogAction } from '../api'
+import { presentationMenu } from './docs'
 import type { ToastFn, Watchdog } from '../types'
 import { copyToClipboard } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
@@ -11,14 +12,23 @@ import { useAgentNavRegistry } from './agentnav'
 import { useProvideObjectNav } from './objectnav'
 
 /** The current org's existing routes, shared by links and direct object menus. */
-export function ObjectNavHost({ org, dogs, openDog, openTicket, focusAgent, toast, isProject }:
+export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, focusAgent, toast, isProject }:
   { org: string; dogs: Watchdog[]; openDog: (id: string) => void;
-    openTicket?: (id: string) => void; focusAgent?: (id: string) => void; toast: ToastFn; isProject?: (id:string)=>boolean }) {
+    openTicket?: (id: string) => void; openDocument?: (id: string) => void;
+    focusAgent?: (id: string) => void; toast: ToastFn; isProject?: (id:string)=>boolean }) {
   const agents = useAgentNavRegistry()
   useProvideObjectNav((kind, id, targetOrg, anchor) => {
     if (targetOrg !== org) return []
     if (!id || /[\\?#\u0000]/.test(id) || id === '.' || id === '..') return []
     const copy = (text: string) => { void copyToClipboard(anchor, text).then(ok => toast([ok ? 'Copied!' : 'Clipboard unavailable'])) }
+    if (kind === 'document') {
+      return getDocument(org, id).then(doc => presentationMenu(anchor, org, { ...doc, id }, {
+        // A host without a reader route can still copy/download; never
+        // manufacture an operative Open action for a read-only embedding.
+        open: openDocument ? () => openDocument(id) : undefined,
+        nodeMenu: (name, el) => agents?.current?.(name, el) ?? [], toast,
+      }))
+    }
     if (kind === 'watchdog') {
       const dog = dogs.find(d => d.id === id)
       const menu = (dog:Watchdog|undefined): MenuEntry[] => {

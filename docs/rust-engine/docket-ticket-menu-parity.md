@@ -63,6 +63,16 @@ reply after the target changes, leaves, disconnects or its host is removed.
 Popout documents register the same host. Row-local fold/staff controls and
 their existing prefetch rules remain unchanged.
 
+Presentation identities use this same document-local tooltip mechanism with
+their full title (user 2026-10-21 06:53Z); cards, both galleries, tool cards,
+React/Markdown references and inner reply targets share `presentationMenu`.
+Gallery selection may still change Open to Close and add genuine reply/dismiss
+actions. A reply frame keeps its contents/sender actions while its inner
+document target wins with the document menu. Late presenter metadata replaces
+the complete canonical menu rather than appending identity actions out of order.
+Unread classes/read marks, dimmed retired rows and native download/HTML-preview
+controls keep their existing behavior; only identity hover text is unified.
+
 `ticketstaffmenu.test.tsx` compares complete row menus with real React,
 Markdown and bare ticket references for backlogged/open/done and archived items.
 It covers request submission, direct model/effort gates, denied previews, a

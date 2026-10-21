@@ -4251,7 +4251,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     <TeamListNavigation.Provider value={goToAgent}>
     <DeskDogsProvider value={deskDogs}>
     <ObjectNavHost org={slug} dogs={tree.watchdogs ?? []} isProject={id=>map.get(id)?.kind==='project'} openDog={(id) => toggleDog(id, true)}
-      openTicket={onWorkItem} focusAgent={goToAgent} toast={toast} />
+      openTicket={onWorkItem} openDocument={openDocView} focusAgent={goToAgent} toast={toast} />
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug} popoutDesk={node => ({
       node, map, op, slug, toast, compactAt: tree.compact_at,
       maxTop: tree.max_top_grant ?? 1000, pxc: pxPerCredit,

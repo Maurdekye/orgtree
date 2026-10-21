@@ -15,6 +15,7 @@ import { RefChip, resolveRef } from './reflinks'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { usePresentationTitle } from './presentationtitle'
+import { objectNavProps } from './objectnav'
 
 interface ReplyRow { reply_to?: unknown; replies?: unknown[]; ev?: unknown }
 
@@ -179,7 +180,7 @@ function PresentationReply({reply,target,world,onOpen}:{reply:NonNullable<Return
     unavailable={!title.ready?title.why:!activate?'Original unavailable here; quoted context is retained.':undefined} action={<>
       <ReplyIcon fontSize="inherit" aria-hidden="true"/>
       <span>In reply to{reply.from?` ${reply.from}`:''}{reply.at?` · ${fmtFull(reply.at)}`:''}</span>
-      {activate?<button type="button" className="reply-preview-jump reply-presentation-link" title={title.why}
+      {activate?<button type="button" {...objectNavProps('document', target.ref.id, target.ref.org)} className="reply-preview-jump reply-presentation-link" title={title.why}
         onClick={e=>{e.stopPropagation();activate()}}><span>{title.label}</span></button>
         :<span className="reply-presentation-link" title={title.why}>{title.label}</span>}
     </>}>

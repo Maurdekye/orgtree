@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import type { MenuEntry } from './contextmenu'
 import { objectTooltipProps, registerObjectNativeTooltipDocument } from './objecttooltip'
 
-export type ObjectKind = 'ticket' | 'watchdog'
+export type ObjectKind = 'ticket' | 'watchdog' | 'document'
 export const OBJECT_NAV_ATTR = 'data-object-nav'
 export const OBJECT_ID_ATTR = 'data-object-id'
 export const OBJECT_ORG_ATTR = 'data-object-org'
@@ -29,5 +29,5 @@ export function objectNavElementAt(target: EventTarget | null, within?: Element)
 }
 export function objectNavProps(kind: ObjectKind, id: string, org?: string) {
   return { [OBJECT_NAV_ATTR]: kind, [OBJECT_ID_ATTR]: id, [OBJECT_ORG_ATTR]: org,
-    ...(kind === 'ticket' ? objectTooltipProps(kind, id, org) : {}) }
+    ...(kind === 'ticket' || kind === 'document' ? objectTooltipProps(kind, id, org) : {}) }
 }

@@ -32,7 +32,7 @@ export function usePresentationTitle(org:string,id?:string,world?:RefWorld|null,
   if(removed)return {label:'presentation removed',ready:false,why:'Presentation removed; quoted context is retained.'}
   if(pending)return {label:recordedTitle||'loading presentation…',ready:false,why:'Loading presentation title'}
   const title=indexed?.trim()?indexed:answer?.key===key?answer.title:undefined
-  if(title)return {label:title,ready:true,why:`Open presentation: ${title}`}
+  if(title)return {label:title,ready:true,why:title}
   if(title===null)return {label:'presentation unavailable',ready:false,why:'Presentation unavailable; quoted context is retained.'}
   return {label:recordedTitle||'loading presentation…',ready:false,why:'Loading presentation title'}
 }

@@ -25,6 +25,7 @@ import { refToken } from './reflinks'
 import { nodeMenuAction } from './identity'
 import { useAgentNavRegistry } from './agentnav'
 import type { AgentNavMenu } from './agentnav'
+import { objectTooltipProps } from './objecttooltip'
 
 export interface DocMeta { id: string; title: string; at: string; viewed_at?: string | null; format?: 'markdown' | 'html'; bytes?: number; node?: string; presented_by?: string; presenter_tier?: string | null }
 
@@ -156,14 +157,15 @@ export function PresentationCard({ slug, doc, onOpen, onReply, replyLabel, class
   const onContextMenu = (e: ReactMouseEvent<HTMLElement>) => {
     const anchor = e.currentTarget
     const nodeMenu: AgentNavMenu = (id, el) => nodeNav?.current?.(id, el) ?? []
-    const opening = menu.open(e, () => presentationMenu(anchor, slug, doc, {
+    const actions = {
       open: () => onOpen(doc.id), reply: onReply, replyLabel, toast, nodeMenu,
-    }))
+    }
+    const opening = menu.open(e, () => presentationMenu(anchor, slug, doc, actions))
     // Old tree payloads and transcript cards carry only a document id. Resolve
     // their recorded attribution on demand; append is guarded by this opening.
     if (opening !== undefined && (!doc.node || !doc.presented_by)) {
       void getDocument(slug, doc.id).then(meta => {
-        for (const entry of presentationIdentityActions(anchor, meta, nodeMenu, toast)) menu.append(entry, opening)
+        menu.replace(presentationMenu(anchor, slug, { ...doc, ...meta }, actions), opening)
       }).catch(() => {}) // existing reader/copy/download actions remain available
     }
   }
@@ -171,7 +173,7 @@ export function PresentationCard({ slug, doc, onOpen, onReply, replyLabel, class
   const mark = unread ? ' doc-' + unread : ''
   if (inert) return <span className={className + ' inert' + mark} data-doc-id={doc.id} data-doc-unread={unread ?? undefined} aria-hidden="true">{body}</span>
   return <button className={className + mark} data-doc-id={doc.id} data-doc-unread={unread ?? undefined}
-    title={unread ? `${unread === 'new' ? 'new' : 'updated'}: read ${doc.title}` : `read ${doc.title}`}
+    {...objectTooltipProps('document', doc.id, slug)} title={doc.title}
     onPointerDown={(e) => e.stopPropagation()}
     onClick={(e) => { e.stopPropagation(); open(e) }}
     onContextMenu={onContextMenu}>{body}{menu.node}</button>
