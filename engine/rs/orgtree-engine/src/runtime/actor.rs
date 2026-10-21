@@ -550,6 +550,8 @@ impl Turn {
     fn append_claude_thought(&mut self, row: &mut Value, block: &Value, mid: &str, now: Instant) {
         let secs = self.claude_thinking.take(mid, now);
         let before = row["content_blocks"].as_array().map_or(0, Vec::len);
+        let prior_secs = row["content_blocks"].as_array().and_then(|b| b.last()).and_then(|b| b["think_secs"].as_f64());
+        let mut appended = false;
         match block["type"].as_str() {
             Some("thinking") => {
                 let cur = row.get("thinking").and_then(Value::as_str).unwrap_or("").to_string();
@@ -565,6 +567,7 @@ impl Turn {
                 if !shown.is_empty() || add.is_empty() {
                     let start = cur.encode_utf16().count() + if cur.is_empty() { 0 } else { 2 };
                     convo::append_display_block(row, json!({"kind":"thinking", "start":start, "end":start + shown.encode_utf16().count(), "sealed":add.is_empty()}));
+                    appended = true;
                 }
                 self.thinking.clear();
                 self.thinking_order = None;
@@ -572,14 +575,21 @@ impl Turn {
             Some("redacted_thinking") => {
                 row["thinking_sealed"] = json!(true);
                 convo::append_display_block(row, json!({"kind":"thinking", "sealed":true}));
+                appended = true;
                 self.thinking.clear();
                 self.thinking_order = None;
             }
             _ => {}
         }
         if let Some(blocks) = row["content_blocks"].as_array_mut() {
-            if blocks.len() > before {
-                if let Some(secs) = secs { blocks.last_mut().unwrap()["think_secs"] = json!(secs); }
+            if appended {
+                // Keep existing consecutive-thought grouping. Every native block
+                // in a merged disclosure must have a real measurement.
+                let measured = if blocks.len() > before { secs } else { prior_secs.zip(secs).map(|(a,b)| a+b) };
+                if let Some(last) = blocks.last_mut().and_then(Value::as_object_mut) {
+                    if let Some(secs) = measured { last.insert("think_secs".into(), json!(secs)); }
+                    else { last.remove("think_secs"); }
+                }
             }
             let mut thoughts = blocks.iter().filter(|b| b["kind"] == "thinking");
             let first = thoughts.next().and_then(|b| b.get("think_secs")).cloned();
@@ -9223,10 +9233,11 @@ mod claude_thinking_time_tests {
 
     #[test]
     fn completed_claude_block_keeps_stop_time_through_delayed_finalization_and_reload() {
-        let mut t=Turn::new(1,false); let at=Instant::now(); let mut row=json!({});
+        let mut t=Turn::new(1,false); let at=Instant::now(); let mut row=json!({"role":"assistant","text":"","content_blocks":[]});
         begin(&mut t,"m",at); start(&mut t,0,"thinking",at);
         stop(&mut t,0,at+Duration::from_secs(125));
         land(&mut t,&mut row,"m","thinking",at+Duration::from_secs(300));
+        assert_eq!(row["thinking"],"Synthetic reasoning","actual native thought assembly must execute");
         let loaded:Value=serde_json::from_str(&row.to_string()).unwrap();
         assert_eq!(loaded["content_blocks"][0]["think_secs"],125.0);
         assert_eq!(loaded["think_secs"],125.0);
@@ -9236,7 +9247,7 @@ mod claude_thinking_time_tests {
     }
     #[test]
     fn separate_blocks_and_sealed_thinking_keep_their_own_durations() {
-        let mut t=Turn::new(1,false); let at=Instant::now(); let mut row=json!({});
+        let mut t=Turn::new(1,false); let at=Instant::now(); let mut row=json!({"role":"assistant","text":"","content_blocks":[]});
         begin(&mut t,"m",at); start(&mut t,0,"thinking",at);
         start(&mut t,0,"thinking",at+Duration::from_secs(20)); // duplicate never resets
         start(&mut t,1,"text",at+Duration::from_secs(30));
@@ -9256,15 +9267,33 @@ mod claude_thinking_time_tests {
     fn unobserved_history_and_other_messages_never_borrow_a_clock() {
         let mut t=Turn::new(1,false); let at=Instant::now();
         begin(&mut t,"a",at); start(&mut t,0,"thinking",at);
-        let mut historic=json!({}); land(&mut t,&mut historic,"history","thinking",at+Duration::from_secs(300));
+        let mut historic=json!({"role":"assistant","text":"","content_blocks":[]}); land(&mut t,&mut historic,"history","thinking",at+Duration::from_secs(300));
         assert!(historic.get("think_secs").is_none());
         assert!(historic["content_blocks"][0].get("think_secs").is_none());
-        let mut current=json!({}); land(&mut t,&mut current,"a","thinking",at+Duration::from_secs(7));
+        let mut current=json!({"role":"assistant","text":"","content_blocks":[]}); land(&mut t,&mut current,"a","thinking",at+Duration::from_secs(7));
         assert_eq!(current["content_blocks"][0]["think_secs"],7.0,"final native block is an observed end if stop is absent");
-        let mut replay=json!({}); land(&mut t,&mut replay,"a","thinking",at+Duration::from_secs(20));
+        let mut replay=json!({"role":"assistant","text":"","content_blocks":[]}); land(&mut t,&mut replay,"a","thinking",at+Duration::from_secs(20));
         assert!(replay.get("think_secs").is_none(),"consumed timing cannot be replayed");
         begin(&mut t,"b",at+Duration::from_secs(30));
-        let mut next=json!({}); land(&mut t,&mut next,"b","thinking",at+Duration::from_secs(99));
+        let mut next=json!({"role":"assistant","text":"","content_blocks":[]}); land(&mut t,&mut next,"b","thinking",at+Duration::from_secs(99));
         assert!(next.get("think_secs").is_none());
+    }
+
+    #[test]
+    fn adjacent_grouping_sums_only_fully_measured_blocks() {
+        let mut t=Turn::new(1,false); let at=Instant::now();
+        let mut row=json!({"role":"assistant","text":"","content_blocks":[]});
+        begin(&mut t,"m",at); start(&mut t,0,"thinking",at);
+        stop(&mut t,0,at+Duration::from_secs(3));
+        land(&mut t,&mut row,"m","thinking",at+Duration::from_secs(5));
+        start(&mut t,1,"thinking",at+Duration::from_secs(10));
+        stop(&mut t,1,at+Duration::from_secs(14));
+        land(&mut t,&mut row,"m","thinking",at+Duration::from_secs(20));
+        assert_eq!(row["content_blocks"].as_array().unwrap().len(),1);
+        assert_eq!(row["content_blocks"][0]["think_secs"],7.0);
+        assert_eq!(row["think_secs"],7.0);
+        land(&mut t,&mut row,"m","thinking",at+Duration::from_secs(30));
+        assert!(row["content_blocks"][0].get("think_secs").is_none());
+        assert!(row.get("think_secs").is_none(),"partial timing must not be presented as the entire group");
     }
 }
