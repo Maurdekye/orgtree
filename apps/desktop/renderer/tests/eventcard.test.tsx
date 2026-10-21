@@ -159,3 +159,79 @@ test('watchdog quiet cards keep the stale watchdog identity link', async t => {
   assert.equal(gone!.getAttribute('data-object-id'), id)
   assert.match(gone!.textContent ?? '', /build-done.*no longer exists/i)
 })
+
+test('watchdog fire and quiet cards keep the live detail and menu route when the owner preview is partial', async t => {
+  const fireFixture = fixtures.find(f => f.variant === 'monitor.watchdog_fired')!
+  const quietFixture = fixtures.find(f => f.variant === 'monitor.watchdog_quiet')!
+  const id = 'owner/w9'
+  const dog9: Watchdog = {
+    id, owner: 'owner', name: 'dog9', kind: 'command', target: 'echo ok',
+    interval_s: 30, state: 'armed', at: '2026-10-18T00:00:00Z', fired: 1,
+    once: false, spent: false,
+  }
+  const fireEvent = {
+    ...fireFixture.private,
+    actor: { kind: 'watchdog', id },
+    object: { ...fireFixture.private.object, org: 'fixture', id, name: dog9.name, owner: dog9.owner },
+  }
+  const quietEvent = {
+    ...quietFixture.private,
+    object: { ...quietFixture.private.object, org: 'fixture', id, name: dog9.name, owner: dog9.owner },
+  }
+  const oldFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname.endsWith('/watchdogs') && url.searchParams.get('id') === id) {
+      return new Response(JSON.stringify({ watchdogs: [dog9], total: 1 }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    return new Response(JSON.stringify({ watchdogs: [], total: 0 }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = oldFetch })
+
+  const counts = { owner: { total: 9, kept: 8, one_shot: 0 } }
+  const opened: string[] = []
+  const view = await mountView(<ObjectNavProvider>
+    <ObjectNavHost org="fixture" dogs={[]} openDog={value => opened.push(value)} toast={() => {}} />
+    <DeskDogsProvider value={{ org: 'fixture', dogs: [], counts, open: value => opened.push(value) }}>
+      <ObjectMenuBoundary>
+        <div className="fire-case"><EventCard org="fixture" profile="operator" row={{ ev: fireEvent, body: fireFixture.body }} preview /></div>
+        <div className="quiet-case"><EventCard org="fixture" profile="operator" row={{ ev: quietEvent, body: quietFixture.body }} preview /></div>
+      </ObjectMenuBoundary>
+    </DeskDogsProvider>
+  </ObjectNavProvider>, h => h)
+  t.after(() => view.unmount())
+
+  for (const selector of ['.fire-case [data-object-nav="watchdog"]', '.quiet-case [data-object-nav="watchdog"]']) {
+    const link = view.el.querySelector<HTMLElement>(selector)
+    assert.ok(link, `${selector} renders a watchdog link`)
+    assert.equal(link!.tagName, 'BUTTON', `${selector} remains an interactive button when owner preview is partial`)
+    assert.equal(link!.getAttribute('aria-disabled'), null)
+    assert.equal(link!.classList.contains('event-watchdog-gone'), false)
+    assert.doesNotMatch(link!.textContent ?? '', /no longer exists/i)
+  }
+
+  const fireLink = view.el.querySelector<HTMLElement>('.fire-case [data-object-nav="watchdog"]')!
+  await inAct(async () => { fireLink.click() })
+  assert.deepEqual(opened, [id], 'clicking a partial-owner watchdog link opens its detail route')
+
+  assert.equal(await right(fireLink), true)
+  await inAct(async () => { await Promise.resolve(); await Promise.resolve() })
+  assert.ok(menuLabels().includes('Open details'), 'right-clicking fetches the live watchdog menu')
+  assert.ok(!menuLabels().includes('Watchdog no longer exists'))
+
+  const spentDog: Watchdog = { ...dog9, spent: true, state: 'spent' }
+  const spentView = await mountView(<ObjectNavProvider>
+    <ObjectNavHost org="fixture" dogs={[spentDog]} openDog={() => assert.fail('spent dog opened')} toast={() => {}} />
+    <DeskDogsProvider value={{ org: 'fixture', dogs: [spentDog], counts, open: () => assert.fail('spent dog opened') }}>
+      <ObjectMenuBoundary><EventCard org="fixture" profile="operator" row={{ ev: fireEvent, body: fireFixture.body }} preview /></ObjectMenuBoundary>
+    </DeskDogsProvider>
+  </ObjectNavProvider>, h => h)
+  t.after(() => spentView.unmount())
+  const spentLink = spentView.el.querySelector<HTMLElement>('[data-object-nav="watchdog"]')!
+  assert.equal(spentLink.getAttribute('aria-disabled'), 'true')
+  assert.match(spentLink.textContent ?? '', /dog9.*no longer exists/i)
+})
