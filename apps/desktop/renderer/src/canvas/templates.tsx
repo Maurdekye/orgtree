@@ -148,7 +148,7 @@ export function SaveTemplateModal({ slug, orgName, tree, close }: { slug: string
               <label className="row org-check" key={g.key}>
                 <input type="checkbox" checked={include[g.key]}
                   onChange={(e) => setInclude((i) => ({ ...i, [g.key]: e.target.checked }))} />
-                {g.label}{g.hint && <span className="dim"> · {g.hint}</span>}
+                <span className="save-template-label">{g.label}{g.hint && <span className="dim"> · {g.hint}</span>}</span>
               </label>
             ))}
           </div>
