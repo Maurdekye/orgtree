@@ -328,6 +328,13 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
             .map(|(_, rest)| rest == "template" || rest.starts_with("template/"))
             .unwrap_or(false)
+        // Agent chat includes transcript text and thinking. Keep the same
+        // outer omission boundary for reads, bad queries and child routes.
+        || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
+            .and_then(|(_, rest)| rest.strip_prefix("nodes/"))
+            .and_then(|rest| rest.split_once('/'))
+            .map(|(_, rest)| rest == "chat" || rest.starts_with("chat/"))
+            .unwrap_or(false)
         // Arbitrarily named MCP fields can contain private user input. Omit
         // before authentication too, including rejected/unrecognized children.
         || path.contains("/asks/elicitation-")
@@ -594,6 +601,23 @@ mod template_wire_tests {
         }
         for path in ["/api/templates-extra", "/api/orgs", "/api/orgs/fixture",
             "/api/orgs/template/nodes", "/api/orgs/fixture/templates", "/api/orgs/fixture/template-extra"] {
+            assert!(!quiet_body(path, &headers), "{path}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod chat_wire_tests {
+    use super::*;
+    #[test]
+    fn chat_wire_bodies_are_quiet_before_auth_and_on_unknown_routes() {
+        let headers = axum::http::HeaderMap::new();
+        for path in ["/api/orgs/fixture/nodes/worker/chat", "/api/orgs/fixture/nodes/12/chat",
+            "/api/orgs/fixture/nodes/worker/chat/unknown-child"] {
+            assert!(quiet_body(path, &headers), "{path}");
+        }
+        for path in ["/api/orgs/fixture/nodes/chat/detail", "/api/orgs/fixture/nodes/worker/chat-extra",
+            "/api/orgs/fixture/nodes/worker/message", "/api/orgs/fixture/history"] {
             assert!(!quiet_body(path, &headers), "{path}");
         }
     }

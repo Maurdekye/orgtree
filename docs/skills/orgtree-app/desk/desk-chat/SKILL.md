@@ -11,6 +11,8 @@ sits immediately left of speed where speed is available.
 
 # Desk Chat tab
 
+Chat HTTP request/response bodies, including transcript text and thinking, are omitted from wire diagnostics with verbose logging off or on. Chat paths, paging queries and status remain logged; normal client transcript delivery is unchanged. This also covers rejected requests and unknown children of the chat endpoint.
+
 Clicking empty space anywhere in the message box, including beside its lower controls, focuses the text field. Buttons and pickers keep their own behavior. The same focus rule applies to project desks, Quick chat and reply boxes. Speed, effort and send/interrupt controls use the same 24px height as the bell and attachment controls.
 
 The agent and project desk message boxes grow as text wraps or new lines are

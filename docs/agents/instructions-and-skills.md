@@ -4,6 +4,16 @@
 
 Identity prefixes, tool cards, notes, globals, shared skills and glossary delivery.
 
+## Chat wire-log privacy (2026-10-21)
+
+Agent /api/orgs/{slug}/nodes/{nid}/chat bodies are omitted by the same
+outer HTTP quiet-body guard as templates, before authentication/extraction.
+Query-based paging and request/status diagnostics remain; private text and
+thinking still reach the client. A nolog handler alone cannot establish
+this boundary.
+[verified: http/mod.rs, http/nodes.rs; real-engine fake-CLI proof
+chat-wire-privacy.mjs in both logging modes]
+
 ## Template wire-log privacy (2026-10-21)
 
 The HTTP guard omits entire request/response bodies for /api/templates and
