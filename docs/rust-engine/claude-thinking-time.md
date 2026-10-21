@@ -13,6 +13,8 @@ State is private to the turn, bounded to 1,024 pending blocks and reset at a new
 native message. No reasoning text enters timing state or logging.
 
 The existing assistant write stores `think_secs` on each ordered thinking block.
+Adjacent native blocks keep their existing single disclosure: their durations
+sum only when every constituent block was measured; otherwise timing is unknown.
 It also stores the existing row-level `think_secs` when there is only one thought,
 for compatible readers. The renderer prefers block timing and uses old row timing
 only for a single thought. The same collapsed disclosure and duration formatter
