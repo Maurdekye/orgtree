@@ -27,7 +27,11 @@ fresh reported percentage crosses 100%; it does not assert the account cannot
 spend extra credits. OpenRouter spend caps use their reported percentage;
 uncapped balances and metered API-key spend have no invented percentage.
 
-Current values seed a dog without firing, including an already high value.
+Creation evaluates cached levels (above/below, limit, stale, unreadable and
+visible current usage-limit freezes). Ready one-shots return inline without
+a row/mail/wake; repeating dogs deliver their first fire immediately and then
+follow edges. Reset/recovered/account lifecycle/refused remain edge-only.
+Existing dogs are not refired on upgrade; explicit resume still only seeds.
 An above edge re-arms when the value drops below the threshold or a new reset
 epoch starts. A used-value drop or reset timestamp moving later by over five
 minutes reports reset; passing a known reset deadline reports it once, with

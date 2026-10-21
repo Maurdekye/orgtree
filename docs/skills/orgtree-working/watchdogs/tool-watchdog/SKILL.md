@@ -11,9 +11,27 @@ For worked queue/slot/event/readiness/barrier protocols, open `orgtree-concurren
 
 ## Call contract
 
-Create/list/pause/resume/remove/send persistent watchers, with no per-agent or per-org number cap. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN. fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. project_listener receives a project's fired events; listener_watch fires at a count of armed listeners. fire_actions run orgtree tool calls as you at fire time. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. mqtt subscribes to a topic filter (pattern) on an mqtt:// or mqtts:// broker; it needs your web tool, takes credentials as a file in your folders or inline (stored encrypted, never shown), and its mail tags payloads `(untrusted · see EXTERNAL)`. websocket connects to a ws:// or wss:// server (pattern = optional regex on text messages; hello, protocols and heartbeat; credentials as for mqtt; your web tool), and send writes a message on its live connection; MQTT send publishes to a required topic on its own connection. Event/count/silence semantics and catalog are in the guide. No added authority.
+Create/list/pause/resume/remove/send persistent watchers, with no per-agent or per-org number cap. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN (a once dog already DOWN resolves inline). fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. project_listener receives a project's fired events; listener_watch fires at a count of armed listeners. fire_actions run orgtree tool calls as you at fire time. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. mqtt subscribes to a topic filter (pattern) on an mqtt:// or mqtts:// broker; it needs your web tool, takes credentials as a file in your folders or inline (stored encrypted, never shown), and its mail tags payloads `(untrusted · see EXTERNAL)`. websocket connects to a ws:// or wss:// server (pattern = optional regex on text messages; hello, protocols and heartbeat; credentials as for mqtt; your web tool), and send writes a message on its live connection; MQTT send publishes to a required topic on its own connection. Event/count/silence semantics and catalog are in the guide. No added authority.
 
 Use a watchdog to be told when an observable condition happens, instead of spending turns polling it. The watcher persists across engine restarts and costs no hiring credits. By default a fire mails and wakes its owner; `notice: true` makes that mail passive. A watchdog does not grant new filesystem or shell authority.
+
+## Already resolved one-shots
+
+For `once:true` in event mode, creation returns `resolved:true`,
+`registered:false` and the complete `fire` when a command smoke matches, a
+process is already DOWN, a cached usage level holds, a slot is granted, or a
+fair_queue batch is immediately available to you. No watchdog row, fire mail
+or holder wake is created. Fire actions run inline as you, with their usual
+limits and results. Their own explicitly requested effects still happen.
+Slot results include the durable `lease`: release it normally. Queue results
+include the full `messages`, already read and delivered through this tool
+result only; normal round-robin, batch caps, ACK duties and reclaim rules
+remain. ACK claims survive independently of any listener row.
+
+If not ready, creation arms the normal persistent watcher. Silence waits for
+its quiet period; file/stream/MQTT/WebSocket still require new content.
+Event/activity/project listener/listener-watch creation is unchanged.
+Read the returned state before yielding: an inline result needs no wake.
 
 ## Actions and parameters
 
@@ -25,8 +43,11 @@ label; account IDs are exact and subject to the org's current usage visibility.
 Events are `above`, `below`, `reset`, `limit`, `stale`, `unreadable`, `recovered`,
 `account_added`, `account_removed`, `refused`, `frozen`. Above means <N to >=N;
 below reverses it. Above/below need `threshold_percent` (0–100). Staying above
-does not repeat; falling below or a reset re-arms. Initial cache seeds without
-firing. Unknown/stale is never zero or a crossing. Reset clocks report unknown
+does not repeat; falling below or a reset re-arms. Creation checks current cached levels: above/below, limit, stale, unreadable
+and visible usage-limit frozen states. A ready once dog resolves inline; a
+repeating dog fires immediately once, then follows edges. Reset, recovered,
+account_added/removed and refused are edge-only. Existing dogs are not refired
+on upgrade. Unknown/stale is never zero or a crossing. Reset clocks report unknown
 new usage. Current reset/freshness/account changes are detected within 15s.
 OpenRouter spend caps use reported percent; uncapped balance has no percent.
 Mail names account/window, old/new percent, threshold, reset and observation

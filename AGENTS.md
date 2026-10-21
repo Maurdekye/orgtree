@@ -13,6 +13,16 @@ Read this file before working in this repository. It is the startup guide, not a
 
 ## Engine and desktop invariants
 
+- Ready once command/process/usage/slot/fair_queue creation returns its real
+  effects and fire actions inline, without a dog row/fire mail/holder wake.
+  Slots keep durable leases; inline queue copies are consumed once and ACK
+  custody persists without a listener. Pending, silence and event/new-content
+  behavior stays unchanged. Usage creation evaluates cached levels once;
+  repeating usage dogs first fire now then follow edges, existing dogs do not
+  refire on upgrade. [decided: user 2026-10-21 18:05:58Z, 18:13:24Z;
+  verified: `runtime/watchdogs/{immediate,usage,usage_eval}.rs`, `domain/{slots,projects}.rs`]
+
+
 - Card fit measures the resting layout, excluding transient full-name overlays;
   hovering/unhovering a long agent or project name cannot change its face scale.
   Real content changes still refit. The retired chip is last in both header rows.

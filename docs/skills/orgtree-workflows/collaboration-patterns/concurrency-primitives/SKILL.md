@@ -24,6 +24,14 @@ Choose the agreement first, then its primitive. These are cooperative protocols:
 | Release a ready group | Listener watch with a fire-event action | A cooperative barrier; mail delivery does not synchronize execution. |
 | Independent resources or topics | One project per resource/topic | Every participant must reach every project it uses. |
 
+A ready agent slot claim returns its durable lease inline with
+`resolved:true, registered:false`; there is no dog, grant mail or wake.
+Release the lease normally. A ready once fair_queue claim returns its full
+batch in `messages`, already consumed through the tool result; ACK, batch,
+round-robin and reclaim rules remain. An inline ACK claim keeps custody even
+without a listener row. Otherwise the watcher registers normally. Always
+inspect the create result before ending the turn to wait.
+
 ## Setup, reach and call notation
 
 For each recipe, an authorized supervisor first places the existing worker team below the named project. Only agents above or below a project reach its slots, queue or event; peers beside it cannot subscribe. A directional audience does not replace this tree relationship. For example, the supervisor may insert @resource-lock above its existing agent @workers (whose team stays underneath), then set its slot count:
