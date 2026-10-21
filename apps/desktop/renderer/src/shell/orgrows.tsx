@@ -4,6 +4,8 @@
 // them without importing App.tsx, which renders both. App.tsx re-exports the
 // component, so every existing importer is unaffected.
 import { useEffect, useRef, useState } from 'react'
+import { useContextMenu } from '../canvas/contextmenu'
+import { orgMenuEntries, orgTitle } from '../canvas/orgidentity'
 import { retryOrg } from '../api'
 import { useAppValue } from '../appfeed'
 import { AutorenewIcon, DeleteIcon } from '../icons'
@@ -33,6 +35,7 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
    *  the list, not to each row */
   nested?: boolean
 }) {
+  const menu = useContextMenu()
   const failures = useAppValue<ImportFailure[]>('import_failures') ?? []
   // ⚠ THE SPINNER AND THE COUNTS ARE THE STATUS, and status is the one thing
   // an unfresh snapshot may not assert. The spinner is the loudest claim in
@@ -46,6 +49,7 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
     ? 'checking current status…'
     : `active / hired agents — from ${Math.round(ageMs / 1000)}s ago, not refreshing`
   return <>
+    {menu.node}
     {orgs.map((o) => {
       if (o.state === 'unavailable') return <UnavailableOrgRow key={o.slug}
         org={o} onPick={onPick} onDelete={onDelete} />
@@ -55,7 +59,8 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
       // above 0 the row is lit and the number takes the spinner's place
       const attn = o.attention ?? 0
       return (
-      <div key={o.slug} role="button" tabIndex={0}
+      <div key={o.slug} role="button" tabIndex={0} title={orgTitle(o.slug)}
+        onContextMenu={e => menu.open(e, orgMenuEntries(e.currentTarget, o.slug, () => onPick(o.slug), () => onDelete(o)))}
         className={'org' + (o.slug === slug ? ' current' : '') + (attn > 0 ? ' attn' : '')}
         onClick={() => onPick(o.slug)}
         onKeyDown={(e) => { if (e.key === 'Enter') onPick(o.slug) }}>

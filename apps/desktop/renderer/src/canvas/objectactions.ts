@@ -1,3 +1,5 @@
+import { orgMenuEntries } from './orgidentity'
+import { resolveHubAddressAction, triggerHubAddress } from './agentmentions'
 import type { MenuEntry } from './contextmenu'
 import { agentLinkMenuEntries } from './contextmenu'
 import type { ToastFn, Watchdog } from '../types'
@@ -32,6 +34,12 @@ export function senderMenuAction(anchor: Element | null, sender: string | undefi
   if (!raw || raw === 'system' || raw === 'SYSTEM' || raw === '@system') return undefined
   const isUser = raw === 'user' || raw === '@user'
   const isExternal = raw.startsWith('@net:') || raw.startsWith('@org:')
+  if (isExternal) {
+    const action = resolveHubAddressAction(raw)
+    if (action.kind === 'org') return { label: 'Sender…', title: action.title,
+      children: orgMenuEntries(anchor ?? document.body, action.slug, () => triggerHubAddress(raw), undefined, toast),
+      onSelect: () => { triggerHubAddress(raw) } }
+  }
   const name = isUser ? '@user' : raw
   const focus = entries.find(entry => entry !== 'sep' && entry.label === 'Focus')
   const hasFocus = Boolean(focus && focus !== 'sep' && !focus.disabled && !focus.actionDisabled)

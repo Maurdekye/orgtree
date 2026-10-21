@@ -5,6 +5,8 @@ import type { TreeNode, TreePayload, UserMentionInfo } from '../types'
 import { markMentionSeen, req } from '../api'
 import { TierChip } from './identity'
 import { stripMarkdownCode } from './shared'
+import { useContextMenu } from './contextmenu'
+import { orgMenuEntries, orgTitle } from './orgidentity'
 import { requestOpenOrg } from '../shell/openorg'
 
 export interface MentionCandidate {
@@ -578,7 +580,7 @@ export function resolveHubAddressAction(
   if (address.startsWith('@org:')) {
     const slug = address.slice('@org:'.length).trim()
     if (slug && (knownOrgSlugs.has(slug) || extraLocalOrgs?.has(slug))) {
-      return { kind: 'org', slug, title: `Open organization ${slug} in a new window` }
+      return { kind: 'org', slug, title: orgTitle(slug) }
     }
   }
   if (hubchatPcInstalled) {
@@ -616,14 +618,16 @@ export function useHubAddressState(): number {
 }
 
 export function HubContactChip({ address, className }: { address: string; className?: string }) {
+  const menu = useContextMenu()
   useHubAddressState()
   const action = resolveHubAddressAction(address)
   const inert = action.kind === 'inert'
   const cls = ['ref-chip', 'ref-hub', inert ? 'inert' : 'live', className].filter(Boolean).join(' ')
   return (
-    <button
+    <><button
       type="button"
       className={cls}
+      onContextMenu={e => { if (action.kind === 'org') menu.open(e, orgMenuEntries(e.currentTarget, action.slug, () => triggerHubAddress(address))) }}
       data-hub-address={address}
       data-hub-ref={address}
       aria-disabled={inert ? 'true' : undefined}
@@ -634,7 +638,7 @@ export function HubContactChip({ address, className }: { address: string; classN
       }}
     >
       <span className="ref-id">{address}</span>
-    </button>
+    </button>{menu.node}</>
   )
 }
 

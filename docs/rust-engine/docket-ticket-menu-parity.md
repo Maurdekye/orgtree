@@ -88,6 +88,12 @@ Raw evidence is retained by the author. Renderer proof uses synthetic data and
 one inspected offscreen 1000x700 capture, with no installed-app/live-data claim.
 # Mail identity links (2026-10-21)
 
+Local organization rows, React/Markdown `@org:` links and Sender submenus share
+`orgMenuEntries` and `orgTitle`. Only rows with the real deletion-confirmation
+callback add Delete. Remote addresses retain the Hubchat capability check rather
+than acquiring a local organization route. [decided: user 2026-10-21 06:53Z;
+verified: `orgidentity.ts`, `agentmentions.tsx`, `shell/orgrows.tsx`]
+
 Mail links use `mailMenuEntries` for their common Open/copy-text/copy-reference
 menu. Inbox rows retain real Close, reply, read, retract and delete capabilities;
 reply frames retain their contextual menu, while the inner message link uses the
