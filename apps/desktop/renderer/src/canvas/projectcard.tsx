@@ -1,3 +1,4 @@
+import { CardFace } from './cardface'
 import { RetiredBadge } from './retiredbadge'
 // canvas/projectcard.tsx — the canvas card of a PROJECT NODE
 // (docs/rust-engine/PROJECT-NODES.md; user 2026-10-16): a node that stands
@@ -224,7 +225,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       {lod === 'mini' ? (
         <span className="project-mini" {...agentTooltipProps(node.id)}><FolderIcon fontSize="inherit" /></span>
       ) : (
-        <>
+        <CardFace fit={!deskOpen && !pinnedFocus}>
           <div className="sq-head project-head">
             <div className="sq-title">
               <span className="project-mark" {...agentTooltipProps(node.id, true)}>
@@ -303,7 +304,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
                 <ListenersIcon fontSize="inherit" />
               </button>}
           </div>}
-        </>
+        </CardFace>
       )}
       {node.state === 'live' && (
         <SpawnChips onSpawn={onHire} seats={seats}

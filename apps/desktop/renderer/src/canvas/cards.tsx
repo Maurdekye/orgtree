@@ -1,3 +1,4 @@
+import { CardFace } from './cardface'
 import { RetiredBadge } from './retiredbadge'
 import { grantLimits, hireGrantMax } from './creditgrant'
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge } from './nextturn'
@@ -1887,10 +1888,11 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       {!focused && lod === 'mini' && (
         <FarZoomStateIcon node={node} />
       )}
+      {!focused && lod !== 'mini' && <CardFace>
       {/* the whole world-scaled head disappears at focus — the desk renders its
           own compact chrome inside the counter-scaled panel (a world-scaled name
           and tier chip blow up to poster size at desk zoom) */}
-      {!focused && lod !== 'mini' && <div className="sq-head">
+      {!focused && <div className="sq-head">
         {/* Zoomed-out cards have three deliberate rows: model/name, live
             state plus CLI/context status, and actions. Keeping the title and
             status groups separate prevents long names and status controls from
@@ -1924,7 +1926,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           agent (their pointerdown stopPropagation starves the drag-end
           click→centerOn path), so at mini they are UNMOUNTED — no hit
           target at all — not merely faded (user report 2026-09-10) */}
-      {showShortcuts && !focused && lod !== 'mini' && <div className="sq-actions">
+      {showShortcuts && !focused && <div className="sq-actions">
         {onDocket && <button className="mailbtn docketbtn" aria-label={`Docket for ${node.id}`}
           title={`Docket for ${node.id}`}
           onPointerDown={e => e.stopPropagation()}
@@ -1987,7 +1989,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             <TeamIcon fontSize="inherit" />
           </button>}
       </div>}
-      {!focused && lod !== 'mini' && (
+      {!focused && (
         <div className="sq-badges">
           {onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
           {/* no seat/free badges — the credit bar carries all of that */}
@@ -2102,6 +2104,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <DndBadge active={node.dnd} />
         </div>
       )}
+      </CardFace>}
       {deskOpen && (
         <DeskChat node={node} map={map} op={op} slug={slug}
           eligible={deskEligible}

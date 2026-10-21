@@ -1710,6 +1710,9 @@ button.badge.audience-fold.alert {
 
 .sq-badges { display: flex; gap: 4px; flex-wrap: wrap; }
 .sq-badges .badge { font-size: 9.5px; padding: 1px 6px; }
+.card-face { position: absolute; inset: 7px; min-width: 0; min-height: 0; }
+.card-face-inner { width: 100%; display: flex; flex-direction: column; gap: 5px; transform-origin: top left; }
+.card-face-inner > * { flex-shrink: 0; }
 
 .zoomhud {
   /* bottom-LEFT beside the agents tray (user spec): every zoom target in

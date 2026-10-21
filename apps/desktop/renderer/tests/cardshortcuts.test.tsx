@@ -110,7 +110,9 @@ function projectCard(nd: CanvasNode, o: { focused?: boolean; pinnedFocus?: boole
 
 const card = (el: HTMLElement) => el.querySelector<HTMLElement>('.sq')!
 /** the card's own shortcut row (its direct child), not anything its desk draws */
-const row = (el: HTMLElement) => card(el).querySelector<HTMLElement>(':scope > .sq-actions')
+// Normal card chrome is uniformly fitted as one face (USER 2026-10-21 11:21Z).
+// Keep this scoped to its own row, excluding shortcuts inside an open desk.
+const row = (el: HTMLElement) => card(el).querySelector<HTMLElement>(':scope > .sq-actions, :scope > .card-face > .card-face-inner > .sq-actions')
 /** each shortcut by what it opens, in row order, read from its accessible name */
 const KINDS: [RegExp, string][] = [[/^Docket for /, 'docket'], [/^mailbox of /, 'mail'],
   [/^presented documents for /, 'presented'], [/^team of /, 'team'], [/^slots of /, 'slots'],
