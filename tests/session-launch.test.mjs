@@ -104,8 +104,8 @@ test('run this session as admin: the elevated launcher is checked, then its own 
       // the prompt: find the request the elevated launcher would read, answer as it would
       const script=Buffer.from(args[args.indexOf('-EncodedCommand')+1],'base64').toString('utf16le')
       assert.match(script,/session-launch prepare/)
-      const file=/prepare "([^"]+)"/.exec(script)[1], dir=path.dirname(file)
-      const request=JSON.parse(fs.readFileSync(file,'utf8'))
+      const requestFile=/prepare "([^"]+)"/.exec(script)[1], dir=path.dirname(requestFile)
+      const request=JSON.parse(fs.readFileSync(requestFile,'utf8'))
       assert.equal(request.admin,true); assert.equal(request.dataRoot,root)
       setTimeout(()=>{
         fs.writeFileSync(path.join(dir,'ready.json'),JSON.stringify({nonce:request.nonce,identity:{pid:4242},session:7,admin:true}))
