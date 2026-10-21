@@ -58,6 +58,7 @@ import { fmtFull } from '../timefmt'
 import { UserMention, isUserName } from './usermention'
 import { resolveRef } from './reflinks'
 import type { RefRoutes } from './reflinks'
+import { mailLinkProps } from './mailidentity'
 
 /** A stretch of time: open (`to` absent) while it is still going on. */
 export interface Stretch { from: string; to?: string }
@@ -282,7 +283,9 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const dogOf = (agent: string) => state.listeners.find((w) => w.owner === agent)
   const agentLink = (id: string) => isUserName(id) ? <UserMention refs={refs} /> : <AgentLink id={id} tier={nodeTierOf(map.get(id))} onFocus={onJump} />
   const mailLink = (id: string | null | undefined, text: string | null | undefined, title: string) => id
-    ? <button type="button" className="listener-mail-link" data-mail={id} title={text ? `“${text}” — ${title}` : title}
+    ? <button type="button" className="listener-mail-link" data-mail={id}
+        {...(refs && onOpenMail ? mailLinkProps({ org: refs.world.org, id, box: 'node', node: node.id }) : {})}
+        title={!refs || !onOpenMail ? (text ? `“${text}” — ${title}` : title) : undefined}
         onClick={() => onOpenMail?.(id)}>{text || id}</button>
     : null
   // the user's own dog has no detail panel or menu to open: its chip only says what it is
@@ -355,7 +358,8 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                     // the user's own job: they acknowledge it from their inbox; nobody takes it back
                     ? <span className="listener-user-actions"><button type="button" data-action="open-job" disabled={!j.copy}
                         className="iconbtn listener-action" aria-label="open mail"
-                        title="open mail — read this job in your inbox and acknowledge it there; reading does not acknowledge it"
+                        {...(j.copy && refs ? mailLinkProps({ org: refs.world.org, id: j.copy, box: 'user' }, 'open mail') : {})}
+                        title="open mail"
                         onClick={() => j.copy && openJob(j.copy)}><MailIcon fontSize="inherit" /></button>
                         {/* Full batches have no Line row: leave stays on the user's Working rows while joined. */}
                         {myDog && leaveButton()}</span>

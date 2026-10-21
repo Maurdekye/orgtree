@@ -28,7 +28,7 @@ test('listener fire and queue mail links use message identity hovers and menus',
   assert.equal(links.length, 3)
   for (const link of links) {
     await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(2)
-    assert.equal(link.title, `${mail.from} · ${fmtFull(mail.at)} · ${mail.id}`)
+    assert.equal(link.title, `${link.dataset.action === 'open-job' ? 'open mail\n' : ''}${mail.from} · ${fmtFull(mail.at)} · ${mail.id}`)
     await inAct(() => link.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))); await flush(2)
     assert.deepEqual([...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(el => el.textContent), ['Open', 'Copy message text', 'Copy reference'])
   }

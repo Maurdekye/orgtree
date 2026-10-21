@@ -40,6 +40,7 @@ import type { ReactNode, UIEvent } from 'react'
 import type { ToastFn, Watchdog } from '../types'
 import type { CanvasNode, OpFn } from './shared'
 import { AgentLink, nodeTierOf } from './identity'
+import { mailLinkProps } from './mailidentity'
 import { WatchdogRow } from './deskdogs'
 import { WatchdogLink } from './watchdoglink'
 import { ageClockNow, subscribeAgeClock } from './desk'
@@ -92,7 +93,7 @@ function FireMail({ agent, mail, gone, refs }: { agent: string; mail?: string; g
   const r = refs ? resolveRef({ kind: 'mail', org: refs.world.org, box: 'node', node: agent, id: mail }, refs.world) : null
   if (!gone && r && r.outcome === 'ready' && refs?.onOpen) {
     return <button type="button" className="listener-mail-link fire-mail" data-mail={mail}
-      title={`open the fire mail ${agent} got, in ${agent}'s Mail tab`}
+      {...mailLinkProps({ org: r.ref.org, id: mail, box: 'node', node: agent })}
       onClick={(e) => { e.stopPropagation(); refs.onOpen(r) }}>fire mail</button>
   }
   // its words lead the tooltip, since a narrow desk may shorten them (user 2026-10-20 09:00Z)

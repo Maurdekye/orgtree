@@ -201,6 +201,13 @@ test('§3 Working actions are compact named icons in one group and keep open/lea
   for (const [action, label] of [[open, 'open mail'], [leave, 'leave queue']] as const) {
     assert.equal(action.getAttribute('aria-label'), label)
     assert.ok(action.title.includes(label))
+    // Coordinator 2026-10-21 07:22Z: icon action label prefixes shared mail identity.
+    if (action === open) {
+      assert.equal(action.getAttribute('data-object-nav'), 'mail')
+      assert.equal(action.getAttribute('data-object-id'), 'c1')
+      assert.equal(action.getAttribute('data-mail-box'), 'user')
+      assert.equal(action.getAttribute('data-mail-action-label'), label)
+    }
     assert.ok(action.classList.contains('iconbtn'))
     assert.ok(action.querySelector('svg'))
     assert.equal(action.textContent, '')

@@ -108,6 +108,14 @@ route while its copy submenu remains usable. This is the coordinator's
 2026-10-21 07:16Z interpretation of the 06:53Z approval. No agent node or message
 metadata lookup is fabricated for the user.
 
+Listener fire-mail and queue original/copy links also carry the shared message
+markers. Icon-only mail controls pass their action label to `mailLinkProps`,
+which prefixes that label to the otherwise identical sender/date/id identity
+(coordinator clarification 2026-10-21 07:22Z). Unavailable fire-mail targets retain
+their leading "fire mail · unavailable" wording (documentary source comment:
+user 2026-10-20 09:00Z, "its words lead the tooltip, since a narrow desk may
+shorten them").
+
 Mail links use `mailMenuEntries` for their common Open/copy-text/copy-reference
 menu. Inbox rows retain real Close, reply, read, retract and delete capabilities;
 reply frames retain their contextual menu, while the inner message link uses the

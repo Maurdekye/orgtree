@@ -11,14 +11,14 @@ export function objectTooltipProps(kind: ObjectTooltipKind, id: string, org?: st
 // Only concurrent reads are coalesced. A later hover must see renames and
 // permission changes; there is no ever-growing retained identity catalog.
 const reading = new Map<string, Promise<string | null>>()
-async function titleOf(kind: string, org: string, id: string, box?: string | null, node?: string | null): Promise<string | null> {
+async function titleOf(kind: string, org: string, id: string, box?: string | null, node?: string | null, actionLabel?: string | null): Promise<string | null> {
   if (!org || !id || /[\\?#\u0000]/.test(id) || id === '.' || id === '..' || id.includes('/')) return null
   if (kind !== 'ticket' && kind !== 'document' && kind !== 'mail') return null
   if (kind === 'mail' && (id === '@user' || !(box === 'user' || box === 'org' || box === 'node' && node))) return null
-  const key = JSON.stringify([kind, org, id, box, node])
+  const key = JSON.stringify([kind, org, id, box, node, actionLabel])
   let request = reading.get(key)
   if (!request) {
-    request = (kind === 'mail' ? getMailById(org, box as 'user'|'org'|'node', id, node || undefined).then(r => r.found && r.mail ? mailTitle(r.mail) : null)
+    request = (kind === 'mail' ? getMailById(org, box as 'user'|'org'|'node', id, node || undefined).then(r => r.found && r.mail ? mailTitle(r.mail, actionLabel) : null)
       : kind === 'ticket' ? getWorkItem(org, id).then(({ item }) => item?.title || null)
       : getDocument(org, id).then(doc => doc?.title || null)).catch(() => null)
     reading.set(key, request)
@@ -41,9 +41,10 @@ export function registerObjectNativeTooltipDocument(owner: Document, orgNow: () 
     const kind = anchor.getAttribute(KIND)!, id = anchor.getAttribute(ID) ?? ''
     const org = anchor.getAttribute(ORG) || orgNow() || ''
     const box = anchor.getAttribute('data-mail-box'), node = anchor.getAttribute('data-mail-node')
-    void titleOf(kind, org, id, box, node).then(title => {
+    const actionLabel = anchor.getAttribute('data-mail-action-label')
+    void titleOf(kind, org, id, box, node, actionLabel).then(title => {
       if (live && title && active.get(anchor) === request && anchor.isConnected && anchor.ownerDocument === owner
-        && anchor.getAttribute(KIND) === kind && anchor.getAttribute('data-mail-box') === box && anchor.getAttribute('data-mail-node') === node
+        && anchor.getAttribute('data-mail-action-label') === actionLabel && anchor.getAttribute(KIND) === kind && anchor.getAttribute('data-mail-box') === box && anchor.getAttribute('data-mail-node') === node
         && anchor.getAttribute(ID) === id && (anchor.getAttribute(ORG) || orgNow() || '') === org) anchor.title = title
     })
   }

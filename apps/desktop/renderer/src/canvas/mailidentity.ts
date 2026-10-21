@@ -8,11 +8,12 @@ export function mailIdentityAt(anchor: Element, org: string, id: string): MailId
   return (box === 'user' || box === 'org' || box === 'node' && node) && id !== '@user'
     ? { org, id, box, node } : null
 }
-export function mailTooltipProps(ref: MailIdentity) {
-  return { ...objectTooltipProps('mail', ref.id, ref.org), 'data-mail-box': ref.box, 'data-mail-node': ref.node }
+export function mailTooltipProps(ref: MailIdentity, actionLabel?: string) {
+  return { ...objectTooltipProps('mail', ref.id, ref.org), 'data-mail-box': ref.box, 'data-mail-node': ref.node,
+    'data-mail-action-label': actionLabel }
 }
-export function mailLinkProps(ref: MailIdentity): Record<string, string | undefined> {
-  return ref.id === '@user' ? {} : { ...objectNavProps('mail', ref.id, ref.org), ...mailTooltipProps(ref) }
+export function mailLinkProps(ref: MailIdentity, actionLabel?: string): Record<string, string | undefined> {
+  return ref.id === '@user' ? {} : { ...objectNavProps('mail', ref.id, ref.org), ...mailTooltipProps(ref, actionLabel) }
 }
 export function mailTargetIdentity(org: string, mail: { id: string; to: string }): MailIdentity {
   return { org, id: mail.id, box: mail.to === 'user_inbox' ? 'user' : mail.to.startsWith('@') ? 'org' : 'node',
