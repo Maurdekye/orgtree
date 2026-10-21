@@ -56,6 +56,13 @@ do not receive this legacy fallback, nor do other window kinds.
 `canvas/{OrgCanvas,deskshell,projectdesk}.tsx`, `windowlayout.ts`,
 `tests/projectdeskrestore.test.tsx`]
 
+Native-window storage retains every open row and only the newest 20 closed
+placements per base kind and organization, using last-write order. Read-time
+trimming and legacy-name migration apply the same policy; an open alias wins
+over a closed alias when migration produces the same key. No storage schema
+change is needed. [decided: user 2026-10-20, DECISIONS 92; verified:
+`windowlayout.ts`, `tests/windowretention.test.ts`; 2026-10-21]
+
 ## Tray administrator setting
 
 The tray Run as admin checkbox and Settings share the protected admin-change

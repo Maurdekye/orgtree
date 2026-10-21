@@ -72,10 +72,30 @@ const valid = (v: unknown): v is SavedWindow => {
     && !!r.rect && [r.rect.x, r.rect.y, r.rect.width, r.rect.height].every(Number.isFinite)
     && r.rect.width >= 200 && r.rect.height >= 150 && r.rect.width <= 20000 && r.rect.height <= 20000
 }
+/** Open windows are never history. Closed placements keep the newest 20 per
+ * kind/org (DECISIONS 92), ordered by the store's last-write order. Apply after
+ * legacy names migrate, so aliases share one retention group and identity. */
+function retainWindows(rows: SavedWindow[]): SavedWindow[] {
+  const identities = new Map<string, SavedWindow>()
+  for (const row of rows) {
+    const previous = identities.get(row.key)
+    // Migration can merge a legacy key and its per-target successor. A closed
+    // alias must not replace an active window; otherwise prefer the latest.
+    if (!previous?.open || row.open) identities.set(row.key, row)
+  }
+  const closed = new Map<string, number>()
+  return rows.filter(row => identities.get(row.key) === row).reverse().filter(row => {
+    if (row.open) return true
+    const group = JSON.stringify([row.org, baseKind(row.kind)])
+    const count = (closed.get(group) ?? 0) + 1
+    closed.set(group, count)
+    return count <= 20
+  }).reverse()
+}
 export function savedWindows(): SavedWindow[] {
   try {
     const rows: unknown = JSON.parse(localStorage.getItem(WINDOW_LAYOUT_KEY) ?? '[]')
-    const kept = Array.isArray(rows) ? rows.filter(valid).slice(-100) : []
+    const kept = Array.isArray(rows) ? rows.filter(valid) : []
     // ONE-OFF (docket several-instances-of-the-same-modal-team-slots-i,
     // approved migration): a per-target surface's single window row becomes
     // the row of the target its restore names, so each target keeps its own
@@ -89,12 +109,10 @@ export function savedWindows(): SavedWindow[] {
       return { ...r, kind, key: windowLayoutKey(kind, r.org),
         ...(r.kind === 'team-docket' ? { restore: { ...r.restore, team: true } } : {}) }
     })
-    if (converted) {
-      const unique = out.filter((r, i) => out.findIndex(o => o.key === r.key) === i)
-      localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify(unique))
-      return unique
-    }
-    return out
+    const retained = retainWindows(out)
+    if (converted || retained.length !== kept.length)
+      localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify(retained))
+    return retained
   } catch { return [] }
 }
 /** A rename carries each per-target window row of `from` to `to`. */
@@ -158,7 +176,7 @@ export function saveWindow(row: SavedWindow) {
     if (JSON.stringify(previous.find(r => r.key === row.key)) === JSON.stringify(row)) return
     const rows = previous.filter(r => r.key !== row.key)
     rows.push(row)
-    const value = JSON.stringify(rows.slice(-100))
+    const value = JSON.stringify(retainWindows(rows))
     if (localStorage.getItem(WINDOW_LAYOUT_KEY) !== value) localStorage.setItem(WINDOW_LAYOUT_KEY, value)
   } catch { /* drafts and window operation still work when storage is full */ }
   // ⚠ AFTER THE WRITE, AND AFTER BOTH EARLY RETURNS. Those guards already

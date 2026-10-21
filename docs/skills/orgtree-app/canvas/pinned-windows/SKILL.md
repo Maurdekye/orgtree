@@ -22,6 +22,11 @@ Surfaces that belong to one agent, project or watchdog open one window per targe
 
 ## Separate windows and Close
 
+Open detached windows are never removed by placement-history limits, including
+when other organizations save their windows. Closed detached placements keep
+the newest 20 for each kind in each organization, just like modal pins. Older
+saved records are migrated to their target before applying that limit.
+
 A project's Open → Slots entry opens the canonical slot list as a modal, only
 while capacity is positive. The slots tab's shared pin, pop-out and modal
 shortcuts target that same panel. Its standard controls remember placement per
