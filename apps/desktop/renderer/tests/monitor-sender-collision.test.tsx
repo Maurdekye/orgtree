@@ -63,6 +63,7 @@ test('monitor missing from the live registry retains recorded identity without r
     assert.equal(sender.querySelectorAll('.tier, [data-copy-agent-name]').length, 0)
     assert.match(sender.textContent ?? '', /coordinator/)
     assert.match(sender.title, /worker\/watch/)
+    await inAct(() => v.el.querySelector<HTMLElement>('.mailrow')!.click())
     assert.equal(v.el.querySelectorAll('.mailer-read').length, 1, 'ordinary row selection still works')
   } finally { await v.unmount() }
 })
