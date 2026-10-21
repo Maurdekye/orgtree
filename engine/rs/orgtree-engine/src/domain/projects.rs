@@ -728,16 +728,28 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
             _ if !listening => "stopped watching the project",
             _ => continue,
         };
-        gone.push((row, holder, h.get::<_, Option<String>>(2).unwrap_or_default(), why));
+        gone.push((row, holder, h.get::<_, Option<String>>(2).unwrap_or_default(), why, h.get::<_,Option<String>>(3)));
     }
     drop(client);
     let mut released = Vec::new();
-    for (row, holder, by, why) in gone {
-        if reclaim(engine, org_id, project, row, holder, &by, why, "released").await?.is_some() {
+    for (row, holder, by, why, copy) in gone {
+        if reclaim(engine, org_id, project, row, holder, &by, why, "released", copy.as_deref()).await?.is_some() {
             released.push(by);
         }
     }
     Ok(released)
+}
+
+/// Revalidate abandonment using the CURRENT holder/claim under the job lock.
+#[nolog]
+async fn stale_claim_reason(tx:&impl GenericClient,org_id:i64,project:i64,holder:i64,claimed:&Value)->Result<Option<&'static str>> {
+    let Some(a)=tx.query_opt("SELECT state,halt IS NOT NULL FROM ot.agents WHERE id=$1",&[&holder]).await? else{return Ok(Some("is gone"))};
+    if a.get::<_,String>(0)!="live"{return Ok(Some("was retired"))}
+    if a.get::<_,bool>(1){return Ok(Some("was halted"))}
+    let dog=claimed["dog"].as_str().unwrap_or("");
+    let listening=claimed["inline"]==true || tx.query_opt("SELECT 1 FROM ot.watchdogs WHERE org_id=$1 AND kind='fair_queue' AND owner_agent_id=$2 AND (memo->>'target_id')::bigint=$3 AND (state='armed' OR (state='spent' AND uid=$4)) LIMIT 1",&[&org_id,&holder,&project,&dog]).await?.is_some();
+    if !listening || !reaches(tx,holder,project).await?{return Ok(Some("stopped watching the project"))}
+    Ok(None)
 }
 
 /// Take an un-acked mail back from its holder: to the front of the queue,
@@ -747,11 +759,11 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
 #[logged]
 #[allow(clippy::too_many_arguments)]
 async fn reclaim(engine: &Arc<Engine>, org_id: i64, project: i64, row: i64, holder: i64, by: &str,
-                 why: &str, how: &str) -> Result<Option<bool>> {
+                 why: &str, how: &str, expected_copy: Option<&str>) -> Result<Option<bool>> {
     let counted = crate::runtime::reminders::switches(engine).checkups;
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
-    let Some(taken) = reclaim_in(&*tx, org_id, project, row, holder, by, why, how, "failed", counted).await? else {
+    let Some(taken) = reclaim_in(&*tx, org_id, project, row, holder, by, why, how, "failed", counted, expected_copy).await? else {
         return Ok(None);
     };
     tx.commit().await?;
@@ -784,7 +796,7 @@ pub struct Reclaimed {
 #[logged]
 #[allow(clippy::too_many_arguments)]
 pub async fn reclaim_in(tx: &impl GenericClient, org_id: i64, project: i64, row: i64, holder: i64, by: &str, why: &str,
-                        how: &str, ending: &str, counted: bool) -> Result<Option<Reclaimed>> {
+                        how: &str, ending: &str, counted: bool, expected_copy: Option<&str>) -> Result<Option<Reclaimed>> {
     let Some(p) = tx.query_opt("SELECT name, scope FROM ot.agents WHERE id = $1 FOR NO KEY UPDATE", &[&project]).await? else {
         return Ok(None);
     };
@@ -798,6 +810,22 @@ pub async fn reclaim_in(tx: &impl GenericClient, org_id: i64, project: i64, row:
         return Ok(None);
     };
     let (uid, attempts, sender, claimed): (String, i64, String, Value) = (m.get(0), m.get(1), m.get(2), m.get(3));
+    // Holder + unique handed-copy identity also rejects same-holder ABA and
+    // transfers to the user. All callers bind their earlier observation.
+    if claimed["by_id"].as_i64()!=Some(holder) || claimed["copy"].as_str()!=expected_copy {
+        return Ok(None);
+    }
+    let current_why = if ending=="failed" {
+        if !ack_mode(&scope) {return Ok(None)}
+        if how=="timed_out" {
+            if !ack_reminders_exhausted(&scope,claimed["wakes"].as_i64().unwrap_or(0)){return Ok(None)}
+            Some(format!("did not ack it after {} reminders",ack_reminders(&scope)))
+        } else {
+            let Some(reason)=stale_claim_reason(tx,org_id,project,holder,&claimed).await? else{return Ok(None)};
+            Some(reason.to_string())
+        }
+    } else {None};
+    let why=current_why.as_deref().unwrap_or(why);
     let copy = claimed["copy"].as_str().map(str::to_string);
     let dead = counted && attempts >= max_attempts(&scope);
     let ended = closed_attempt("m.extra", "$6::text", "$4::text");
@@ -946,24 +974,29 @@ pub async fn ack_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &
     drop(client);
     let mut kept = Vec::new();
     for r in &rows {
-        let (row, project, pname, scope, copy, wakes): (i64, i64, String, Value, Option<String>, i64) =
-            (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
-        if ack_reminders_exhausted(&scope, wakes) {
-            let reminders = ack_reminders(&scope);
-            let why = format!("did not ack it after {reminders} reminders");
-            reclaim(engine, org_id, project, row, agent, name, &why, "timed_out").await?;
-            Box::pin(dispatch(engine, org_id, project)).await?;
+        let (row,project,pname,copy):(i64,i64,String,Option<String>)=(r.get(0),r.get(1),r.get(2),r.get(4));
+        let mut client=engine.db.get().await?;
+        let tx=client.transaction().await?;
+        let Some(p)=tx.query_opt("SELECT scope FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE",&[&project]).await? else{continue};
+        let scope:Value=p.get(0);
+        if !ack_mode(&scope){continue}
+        let Some(m)=tx.query_opt(&format!("SELECT m.extra->'claimed' FROM ot.mail m WHERE m.id=$1 AND {OUTSTANDING} FOR UPDATE"),&[&row]).await? else{continue};
+        let claim:Value=m.get(0);
+        if claim["by_id"].as_i64()!=Some(agent) || claim["copy"].as_str()!=copy.as_deref(){continue}
+        let wakes=claim["wakes"].as_i64().unwrap_or(0);
+        if ack_reminders_exhausted(&scope,wakes) {
+            let why=format!("did not ack it after {} reminders",ack_reminders(&scope));
+            let counted=crate::runtime::reminders::switches(engine).checkups;
+            let taken=reclaim_in(&*tx,org_id,project,row,agent,name,&why,"timed_out","failed",counted,copy.as_deref()).await?;
+            tx.commit().await?;drop(client);
+            if let Some(taken)=taken {after_reclaim(engine,org_id,project,&taken).await;Box::pin(dispatch(engine,org_id,project)).await?;}
             continue;
         }
         if ack_timeout(&scope) {
-            engine.db.get().await?
-                .execute("UPDATE ot.mail SET extra = jsonb_set(extra, '{claimed,wakes}', to_jsonb($2::bigint)) WHERE id = $1",
-                    &[&row, &(wakes + 1)])
-                .await?;
+            tx.execute("UPDATE ot.mail SET extra=jsonb_set(extra,'{claimed,wakes}',to_jsonb($2::bigint)) WHERE id=$1",&[&row,&(wakes+1)]).await?;
         }
-        if let Some(c) = copy {
-            kept.push((c, pname));
-        }
+        tx.commit().await?;
+        if let Some(copy)=copy {kept.push((copy,pname));}
     }
     Ok(kept)
 }

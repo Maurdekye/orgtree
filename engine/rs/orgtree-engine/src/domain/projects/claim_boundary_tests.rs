@@ -24,9 +24,10 @@ async fn claim_boundary_stale_reclaim() {
         let tx=b.transaction().await.unwrap();tx.query_one("SELECT id FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE",&[&project]).await.unwrap();
         let (mut a,conn)=cfg.connect(NoTls).await.unwrap();tokio::spawn(async move{let _=conn.await;});
         let (started,wait)=tokio::sync::oneshot::channel();
+        let observed=first.clone();
         let mut task=tokio::spawn(async move{
             let tx=a.transaction().await.unwrap();let _=started.send(());
-            let got=reclaim_in(&tx,org,project,row,holder,"fixture","was halted","released","failed",false).await.unwrap().is_some();
+            let got=reclaim_in(&tx,org,project,row,holder,"fixture","was halted","released","failed",false,Some(&observed)).await.unwrap().is_some();
             tx.rollback().await.unwrap();got
         });
         wait.await.unwrap();assert!(tokio::time::timeout(std::time::Duration::from_millis(50),&mut task).await.is_err(),"A must be blocked behind B's project lock");
