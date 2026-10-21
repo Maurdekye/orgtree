@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mountView, inAct } from './harness'
-import { DeskDogsProvider, DogChip } from '../src/canvas/deskdogs'
+import { DeskDogsProvider, DogChip, WatchdogRow } from '../src/canvas/deskdogs'
 import { ToolRefs } from '../src/canvas/toolrefs'
 import type { Watchdog } from '../src/types'
 import { WatchdogLink } from '../src/canvas/watchdoglink'
@@ -9,6 +9,38 @@ import { WatchdogSatellite } from '../src/canvas/watchdogchip'
 import { MailListenersView } from '../src/canvas/maillisteners'
 import { mailListenerState } from '../src/canvas/listeners'
 import type { CanvasNode } from '../src/canvas/shared'
+import { HistoryDog } from '../src/canvas/historydog'
+
+test('known watchdog hover text is identical on satellite, name, desk, tool, history, row and destination', async t => {
+  const clock = Date.now
+  const now = 1_800_000_000_000
+  Date.now = () => now
+  t.after(() => { Date.now = clock })
+  for (const state of ['armed', 'paused', 'spent']) {
+    const w: Watchdog = { ...dog, kind: 'command', state, spent: state === 'spent', interval_s: 60,
+      next_check_at: new Date(now + 60000).toISOString() }
+    const v = await mountView(<DeskDogsProvider value={{ org: 'demo', dogs: [w], open: () => {} }}>
+      <WatchdogSatellite dog={w} dogs={[w]} org="demo" onOpen={() => {}} />
+      <DogChip dog={w} onOpen={() => {}} />
+      <ToolRefs refs={[{ kind: 'watchdog', id: 'watch' }]} owner="worker" org="demo" agent={id => id} />
+      <HistoryDog dog={{ id: w.id, owner: w.owner, name: w.name, kind: w.kind, once: w.once, gone: w.spent }} />
+      <WatchdogLink dog={w} atDestination />
+      <WatchdogRow id={w.id}><span>watch</span></WatchdogRow>
+    </DeskDogsProvider>, el => el)
+    try {
+      const expected = v.el.querySelector<HTMLElement>('.watchdog-link')!.title
+      const identities = [...v.el.querySelectorAll<HTMLElement>('.wd-chip, .wd-name > span, .watchdog-link, [data-object-id]')]
+      assert.ok(identities.length >= 6)
+      for (const identity of identities) assert.equal(identity.title, expected, `${state}: ${identity.className}`)
+      assert.doesNotMatch(expected, /click for detail/)
+      assert.match(expected, /watch/)
+      assert.match(expected, /command/)
+      assert.match(expected, /fires once/)
+      if (state === 'armed') assert.match(expected, /next check in 1:00/)
+      else assert.doesNotMatch(expected, /next check/)
+    } finally { await v.unmount() }
+  }
+})
 
 const dog: Watchdog = {id:'worker/watch',owner:'worker',name:'watch',kind:'listener_watch',target:'build',count:2,
   once:true,state:'armed',at:'2026-10-19T00:00:00Z',fired:0,interval_s:30}
