@@ -109,15 +109,19 @@ export function DesktopSettings() {
   </SetGroup></>
 }
 
-/** "Run Orgtree as administrator" — whether the background engine and the
- *  agents it starts keep administrator rights. Off by default. The value
- *  lives in HKLM, so changing it asks Windows for permission; it applies
- *  when the background engine next starts, which "Restart now" does at once. */
+/** "Run as admin" — whether the Session 0 engine, the engine in the
+ *  signed-in session and the agents they start keep administrator rights
+ *  (the user, 2026-10-21 15:27Z: one toggle for both). Off by default. The
+ *  value lives in HKLM, so changing it asks Windows for permission; it
+ *  applies when the engine next starts, which "Restart now" does at once.
+ *  "Run this session as admin" elevates the current session once instead. */
 export function RunAsAdministratorSetting() {
   const bridge = desktop()
   const [state, setState] = useState<RunAsAdministratorState | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Changed in this session and not yet applied to the running engine.
+  const [pending, setPending] = useState(false)
   useEffect(() => {
     if (!bridge?.getRunAsAdministrator) return
     let alive = true
@@ -129,7 +133,7 @@ export function RunAsAdministratorSetting() {
   const set = bridge.setRunAsAdministrator
   const change = (enabled: boolean, restartNow: boolean) => {
     setBusy(true)
-    set(enabled, restartNow).then(s => { setState(s); setError('') })
+    set(enabled, restartNow).then(s => { setState(s); setError(''); setPending(!restartNow) })
       .catch((e: Error) => setError(e.message)).finally(() => setBusy(false))
   }
   return <SetGroup title="Administrator rights">
@@ -142,10 +146,16 @@ export function RunAsAdministratorSetting() {
         title="One permission prompt. Restarts the engine and its agents in this session; the stored setting stays unchanged."
         onClick={() => {
           setBusy(true)
-          bridge.runThisSessionAsAdmin!().then(s => { setState(s); setError('') })
+          // the engine restarted for it, so nothing is left to apply now
+          bridge.runThisSessionAsAdmin!().then(s => { setState(s); setError(''); setPending(false) })
             .catch((e: Error) => setError(e.message)).finally(() => setBusy(false))
         }}>Run this session as admin</button>}
       hint={state && !state.available ? state.reason
         : 'Every agent runs with full administrator rights on this PC. Windows asks once when enabled; boot, sign-in and restarts then need no further prompts.'} />
+    {pending && <SetRow label="apply the change" hint="Running agent turns are interrupted.">
+      <button type="button" disabled={busy || !state} onClick={() => state && change(state.enabled, true)}>
+        {busy ? 'Restarting…' : 'Restart the background engine now'}
+      </button>
+    </SetRow>}
   </SetGroup>
 }
