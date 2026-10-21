@@ -1521,6 +1521,7 @@ pub async fn helpertranscript(
                 "A helper transcript was not retained for this call. The initial implementation records new Claude Code helpers during their parent's turn."
             }})));
     };
+    crate::runtime::helper_transcript::redact_snapshot(&mut snapshot);
     snapshot["live"] = json!(live);
     Ok(Json(snapshot))
 }

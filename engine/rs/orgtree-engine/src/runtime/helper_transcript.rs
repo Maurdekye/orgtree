@@ -7,12 +7,23 @@ pub const MAX_CALLS: usize = 16;
 const MAX_ROWS: usize = 64;
 const MAX_BYTES: usize = 64 * 1024;
 const MAX_BLOCKS: usize = 64;
+const MAX_INPUT: usize = 8192;
+const INPUT_PENDING: &str = "Arguments withheld until complete JSON can be redacted.";
+
+struct InputDraft {
+    name: String,
+    text: String,
+    overflow: bool,
+}
 
 #[derive(Default)]
 pub struct Transcript {
     messages: Vec<Value>,
     current: String,
     blocks: BTreeMap<i64, (String, String, usize)>,
+    // Partial JSON can split a secret key/value or a wrapper's tool name at
+    // any byte. Keep it only in bounded, unlogged memory, never in a snapshot.
+    inputs: BTreeMap<i64, InputDraft>,
     truncated: bool,
     pub dirty: bool,
 }
@@ -42,6 +53,7 @@ impl Transcript {
                 // The completed message replaces its streamed draft; never
                 // duplicate text when both stream and assistant frames arrive.
                 self.replace(id, row);
+                if id == self.current { self.inputs.clear(); }
             }
             "user" => {
                 for block in event.pointer("/message/content").and_then(Value::as_array).into_iter().flatten() {
@@ -80,6 +92,7 @@ impl Transcript {
         if self.messages.is_empty() {
             self.current.clear();
             self.blocks.clear();
+            self.inputs.clear();
         }
         self.dirty = true;
     }
@@ -90,7 +103,7 @@ impl Transcript {
             "message_start" => {
                 let id = event.pointer("/message/id").and_then(Value::as_str).unwrap_or("");
                 if id.is_empty() { return; }
-                self.current = id.to_string(); self.blocks.clear();
+                self.current = id.to_string(); self.blocks.clear(); self.inputs.clear();
                 if !self.messages.iter().any(|r| r["id"] == id) {
                     self.messages.push(new_message(id));
                 }
@@ -108,7 +121,12 @@ impl Transcript {
                         "thinking" => content(row, "thinking", block["thinking"].as_str().unwrap_or(""), &mut self.truncated),
                         _ => None,
                     };
-                    if let Some(order) = order { self.blocks.insert(index, (kind, id, order)); }
+                    if let Some(order) = order {
+                        if matches!(kind.as_str(), "tool_use" | "server_tool_use") {
+                            self.inputs.insert(index, InputDraft { name: block["name"].as_str().unwrap_or("").to_string(), text: String::new(), overflow: false });
+                        }
+                        self.blocks.insert(index, (kind, id, order));
+                    }
                 }
             }
             "content_block_delta" => {
@@ -122,13 +140,28 @@ impl Transcript {
                     }
                     "tool_use" | "server_tool_use" => {
                         if let Some(chip) = row["tools"].as_array_mut().unwrap().iter_mut().find(|t| t["id"] == *id) {
-                            if chip["input_text"] == "{}" { chip["input_text"] = json!(""); }
-                            append(&mut chip["input_text"], delta["partial_json"].as_str().unwrap_or(""), &mut self.truncated);
+                            let Some(draft) = self.inputs.get_mut(&index) else { return };
+                            let Some(text) = delta["partial_json"].as_str() else { return };
+                            let mut end = text.len().min(MAX_INPUT.saturating_sub(draft.text.len()));
+                            while !text.is_char_boundary(end) { end -= 1; }
+                            draft.text.push_str(&text[..end]);
+                            draft.overflow |= end < text.len();
+                            self.truncated |= draft.overflow;
+                            chip["input_text"] = json!(INPUT_PENDING);
+                            if !draft.overflow {
+                                if let Ok(input) = serde_json::from_str::<Value>(&draft.text) {
+                                    let (name, input) = redacted_input(&draft.name, &input);
+                                    chip["name"] = json!(name);
+                                    chip["input_text"] = json!(bounded(&input.to_string(), MAX_INPUT, &mut self.truncated));
+                                }
+                            }
                         }
                     }
                     _ => {}
                 }
             }
+            "content_block_stop" => { self.inputs.remove(&index); }
+            "message_stop" => { self.inputs.clear(); }
             _ => {}
         }
     }
@@ -181,8 +214,44 @@ fn content_tool(row: &mut Value, block: &Value, truncated: &mut bool) -> Option<
 #[nolog]
 fn tool(block: &Value, truncated: &mut bool) -> Value {
     let input = block.get("input").cloned().unwrap_or(Value::Null);
+    let (name, input) = redacted_input(block["name"].as_str().unwrap_or(""), &input);
     let input = serde_json::to_string(&input).unwrap_or_default();
-    json!({"id":block["id"],"name":block["name"],"input_text":bounded(&input,2048,truncated)})
+    json!({"id":block["id"],"name":name,"input_text":bounded(&input,2048,truncated)})
+}
+
+#[nolog]
+fn redacted_input(name: &str, input: &Value) -> (String, Value) {
+    let (name, mut input) = super::convo::unwrap_tool_call(name, input);
+    // A wrapper without enough identity to unwrap (or non-object arguments)
+    // is not a completed native tool input. Do not expose an opaque JSON string.
+    if name.rsplit("__").next().unwrap_or(&name).eq_ignore_ascii_case("call_mcp_tool")
+        || (!input.is_object() && !input.is_null()) {
+        return (name, json!(INPUT_PENDING));
+    }
+    super::convo::redact_tool_input(&name, &mut input);
+    (name, input)
+}
+
+/// Old private rows may predate capture redaction. Sanitize on the read path
+/// as well; incomplete/clipped JSON cannot be safely shown verbatim.
+#[nolog]
+pub fn redact_snapshot(snapshot: &mut Value) {
+    let mut truncated = false;
+    for row in snapshot["messages"].as_array_mut().into_iter().flatten() {
+        for chip in row["tools"].as_array_mut().into_iter().flatten() {
+            let input = chip.get("input").cloned().or_else(|| chip["input_text"].as_str()
+                .and_then(|text| serde_json::from_str::<Value>(text).ok()));
+            if let Some(input) = input {
+                let (name, input) = redacted_input(chip["name"].as_str().unwrap_or(""), &input);
+                chip["name"] = json!(name);
+                if chip.get("input").is_some() { chip["input"] = input.clone(); }
+                chip["input_text"] = json!(bounded(&input.to_string(), MAX_INPUT, &mut truncated));
+            } else if chip.get("input_text").is_some() {
+                chip["input_text"] = json!(INPUT_PENDING);
+            }
+        }
+    }
+    if truncated { snapshot["truncated"] = json!(true); }
 }
 
 #[nolog]
@@ -266,6 +335,38 @@ mod tests {
             let args=json!({"action":"create","kind":"mqtt","target":"mqtt://localhost","pattern":"safe/#","credentials":"config/broker.json"});
             assert_eq!(input_of(&completed_tool(name,args.clone())),args);
         }
+    }
+    #[test]
+    fn older_helper_snapshots_are_redacted_before_publication() {
+        let mut snapshot=json!({"live":false,"messages":[{"tools":[
+            {"id":"direct","name":"orgtree_watchdog","input_text":private_args("mqtt").to_string()},
+            {"id":"wrapped","name":"default_api:call_mcp_tool","input":{"ToolName":"orgtree_watchdog","Arguments":private_args("websocket").to_string()}},
+            {"id":"partial","name":"orgtree_watchdog","input_text":"{\"credentials\":{\"password\":\"helper-canary-unfinished"},
+            {"id":"read","name":"Read","input_text":"{\"file_path\":\"safe.txt\"}"},
+            {"id":"file","name":"orgtree_watchdog","input_text":"{\"credentials\":\"config/broker.json\"}"}]}]});
+        redact_snapshot(&mut snapshot);
+        assert!(!snapshot.to_string().contains("helper-canary-"));
+        let tools=snapshot["messages"][0]["tools"].as_array().unwrap();
+        assert_eq!(tools[2]["input_text"],INPUT_PENDING);
+        assert!(tools[3]["input_text"].as_str().unwrap().contains("safe.txt"));
+        assert!(tools[4]["input_text"].as_str().unwrap().contains("config/broker.json"));
+        let once=snapshot.clone();redact_snapshot(&mut snapshot);assert_eq!(snapshot,once);
+    }
+    #[test]
+    fn helper_draft_bounds_cleanup_and_unidentified_wrappers_fail_closed() {
+        for input in [json!("helper-canary-opaque"),json!({"Arguments":private_args("mqtt")})] {
+            let t=completed_tool("default_api:call_mcp_tool",input);
+            assert!(!t.snapshot().to_string().contains("helper-canary-"));
+        }
+        let mut t=Transcript::default();let stream=|event|json!({"type":"stream_event","event":event});
+        t.observe(&stream(json!({"type":"message_start","message":{"id":"bounded"}})));
+        t.observe(&stream(json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"large","name":"orgtree_watchdog","input":{}}})));
+        t.observe(&stream(json!({"type":"content_block_delta","index":0,"delta":{"partial_json":format!("{{\"credentials\":\"{}", "界".repeat(MAX_INPUT))}})));
+        assert!(t.inputs[&0].text.len()<=MAX_INPUT);
+        assert_eq!(t.snapshot()["messages"][0]["tools"][0]["input_text"],INPUT_PENDING);
+        assert_eq!(t.snapshot()["truncated"],true);
+        t.observe(&stream(json!({"type":"content_block_stop","index":0})));assert!(t.inputs.is_empty());
+        t.observe(&stream(json!({"type":"message_start","message":{"id":"next"}})));assert!(t.inputs.is_empty());
     }
     #[test]
     fn ordered_fragments_remain_bounded_and_report_omitted_activity() {
