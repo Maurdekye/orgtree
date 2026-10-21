@@ -20,6 +20,8 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { Msg } from '../src/canvas/desk'
 import { DocketModal } from '../src/canvas/docket'
+import { ObjectNavProvider } from '../src/canvas/objectnav'
+import { ObjectNavHost } from '../src/canvas/objectnavhost'
 import type { ChatMessage, TreePayload, WorkItem } from '../src/types'
 
 // ------------------------------------------------------------- the chip
@@ -29,52 +31,73 @@ const msg = (tool: Record<string, unknown>, name = 'mcp__orgtree__orgtree_work')
   tools: [{ name, id: 't1', ...tool }],
 } as unknown as ChatMessage)
 
-async function chip(tool: Record<string, unknown>, onWorkLink?: (w: unknown) => void,
+const ticketTitles: Record<string, string> = {
+  'git-review-workspace': 'Review the complete workspace changes',
+  'staffed-item': 'Staff the full implementation plan',
+}
+async function chip(t: TestContext, tool: Record<string, unknown>, onWorkLink?: (w: unknown) => void,
   name?: string) {
+  const original = globalThis.fetch
+  globalThis.fetch = (async input => {
+    const slug = decodeURIComponent(String(input).split('/').pop()!)
+    return new Response(JSON.stringify({ item: { slug, title: ticketTitles[slug] } }), { status: 200 })
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = original })
   const view = await mountView(
-    <Msg m={msg(tool, name)} slug="org" nid="worker"
-      onWorkLink={onWorkLink as never} />,
+    <ObjectNavProvider>
+      <ObjectNavHost org="org" dogs={[]} openDog={() => {}} toast={() => {}}
+        openTicket={onWorkLink ? slug => onWorkLink({ slug }) : undefined} />
+      <Msg m={msg(tool, name)} slug="org" nid="worker"
+        onWorkLink={onWorkLink as never} />
+    </ObjectNavProvider>,
     (el) => el)
+  t.after(() => view.unmount())
   return view.el
 }
 
 const openButtons = (el: HTMLElement) =>
   [...el.querySelectorAll('.worklink')] as HTMLButtonElement[]
 
-test('§1 a docket write offers to open the item it wrote', async () => {
+test('§1 a docket write offers to open the item it wrote', async t => {
   const clicked: unknown[] = []
-  const el = await chip({ arg: 'update', work: { slug: 'git-review-workspace' } },
+  const el = await chip(t, { arg: 'update', work: { slug: 'git-review-workspace' } },
     (w) => clicked.push(w))
   const btns = openButtons(el)
   assert.equal(btns.length, 1, 'no open-in-docket button on a docket write')
-  assert.match(btns[0]!.getAttribute('title') ?? '', /git-review-workspace/)
+  assert.equal(btns[0]!.title, '', 'full ticket title is resolved lazily')
+  await inAct(() => btns[0]!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+  await flush()
+  assert.equal(btns[0]!.title, 'Review the complete workspace changes')
   await inAct(() => btns[0]!.click())
   assert.deepEqual(clicked, [{ slug: 'git-review-workspace' }])
 })
 
 test('§1b orgtree_staff has the same docket link affordance as orgtree_work',
-  async () => {
+  async t => {
     const clicked: unknown[] = []
-    const el = await chip({ arg: 'create', work: { slug: 'staffed-item' } },
+    const el = await chip(t, { arg: 'create', work: { slug: 'staffed-item' } },
       (w) => clicked.push(w), 'orgtree_staff')
     const btns = openButtons(el)
     assert.equal(btns.length, 1, 'staff result has no open-in-docket button')
-    assert.match(btns[0]!.getAttribute('title') ?? '', /staffed-item/)
+    assert.equal(btns[0]!.title, '', 'full ticket title is resolved lazily')
+    await inAct(() => btns[0]!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+    await flush()
+    assert.equal(btns[0]!.title, 'Staff the full implementation plan')
     await inAct(() => btns[0]!.click())
     assert.deepEqual(clicked, [{ slug: 'staffed-item' }])
   })
 
-test('§2 a chip with no item to open has no button', async () => {
+test('§2 a chip with no item to open has no button', async t => {
   // THE CONTROL. Without it, a button rendered unconditionally passes §1 and
   // offers a dead link on every read action and every failure — which is
   // exactly what the backend metadata is careful not to produce.
-  const el = await chip({ arg: 'list' }, () => {})
+  const el = await chip(t, { arg: 'list' }, () => {})
   assert.equal(openButtons(el).length, 0)
 })
 
-test('§3 without a handler the button is not offered at all', async () => {
+test('§3 without a handler the button is not offered at all', async t => {
   // a button whose click goes nowhere is worse than no button
-  const el = await chip({ arg: 'update', work: { slug: 'anything' } })
+  const el = await chip(t, { arg: 'update', work: { slug: 'anything' } })
   assert.equal(openButtons(el).length, 0)
 })
 
