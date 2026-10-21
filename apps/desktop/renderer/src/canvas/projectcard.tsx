@@ -233,7 +233,6 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               {node.state !== 'live' && <span className="badge dim">{node.state}</span>}
             </div>
             <div className="sq-badges project-header-badges">
-            {!deskOpen && onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
             {slotBadge && <span className={'project-slots-badge' + (slotsFull(slots) ? ' full' : '')}
               title={`${heldSlotCount(slots)} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
                 + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '')
@@ -241,6 +240,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
             {listenerBadges.map((c) => <span key={c.key} className={'project-listeners-badge' + (c.bright ? ' bright' : '')}
               title={c.title}>{c.text}</span>)}
             {queue && <span className={'project-queue-badge' + (queue.bright ? ' bright' : '')} title={queue.title}>{queue.text}</span>}
+            {!deskOpen && onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
             </div>
           </div>
           {/* no description preview here: it lives on the project desk (user 2026-10-18 08:50Z) */}

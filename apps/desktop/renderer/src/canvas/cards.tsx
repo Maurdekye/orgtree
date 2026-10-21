@@ -1991,7 +1991,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       </div>}
       {!focused && (
         <div className="sq-badges">
-          {onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
           {/* no seat/free badges — the credit bar carries all of that */}
           {/* the project slots it holds, in the chip row and not on the
               status row (user 2026-10-18 10:52Z); a waiting claim is its
@@ -2102,6 +2101,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null, node.account ?? null)
             : tierEffortLevels(slug, node.tier)} />
           <DndBadge active={node.dnd} />
+          {onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
         </div>
       )}
       </CardFace>}

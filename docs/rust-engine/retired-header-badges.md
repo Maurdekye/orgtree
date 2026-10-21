@@ -7,7 +7,10 @@ both, clickable to open the retired list."
 `RetiredBadge` is shared by the normal agent/project header badge lists and the
 desk's retired-list link. It owns one count tooltip, click and context-menu
 action, all opening the existing bounded retired picker. There is no separate
-world-positioned retired label on agent/project cards, no extra history read
+world-positioned retired label on agent/project cards. USER 2026-10-21
+17:36:18Z: "also make the retired card the last in the list, not the first";
+the grey retired chip follows all other agent/project header chips. There is no
+extra history read
 during layout, and no label drawn over an open project desk. The org root's
 retired list remains reachable through the same badge; the eye has no normal
 node-header badge list. The new specifically clickable retired badge supersedes
@@ -30,3 +33,12 @@ pre-transform sizes prevents camera zoom or the previous fit feeding back into
 the next scale. Mini cards and open/pinned desks retain their own layouts.
 Browser checks include overflowing agent slot chips and a project with wrapped
 watch, queue and retired badges, hit targets, native hover and opening the picker.
+
+USER 2026-10-21 17:35Z–17:37Z reported long-name hover pills changing the
+whole card magnification, on agents as well as projects. The fit measures only
+the resting layout: `CardName` marks its absolute full-name copy as a transient
+fit overlay; `CardFace` excludes that copy while reading scroll dimensions and
+restores it synchronously before paint. The truncated name stays in layout.
+Hover/focus and camera zoom do not change the fit; real content changes still
+refit. Browser regressions measure rest/hover/leave for agent/project cards,
+both zoom classes, crowded/unscaled faces, and fixed outer bounds.

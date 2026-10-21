@@ -13,6 +13,11 @@ Read this file before working in this repository. It is the startup guide, not a
 
 ## Engine and desktop invariants
 
+- Card fit measures the resting layout, excluding transient full-name overlays;
+  hovering/unhovering a long agent or project name cannot change its face scale.
+  Real content changes still refit. The retired chip is last in both header rows.
+  [decided: user 2026-10-21 17:35Z–17:37Z; verified: `canvas/{cardface,cardname,cards,projectcard}.tsx`]
+
 - Project identity hover is the name alone when no coloured header fact chips
   render, even on named links and mini cards. Header and hover share
   `canvas/projectheaderfacts.ts`; projects with chips retain the name-class rule.

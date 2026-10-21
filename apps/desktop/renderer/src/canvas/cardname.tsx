@@ -18,6 +18,6 @@ export function CardName({ text, hovered, layoutKey, ...props }: {
   }, [hovered, text, layoutKey])
   return <>
     <span {...props} ref={ref} className="name">{text}</span>
-    {at && <span className="name-full" aria-hidden="true" style={at}>{text}</span>}
+    {at && <span className="name-full" data-card-fit-overlay="true" aria-hidden="true" style={at}>{text}</span>}
   </>
 }

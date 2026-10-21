@@ -10,6 +10,8 @@ external/inset overlay label. See [retired header badges](../rust-engine/retired
 
 Normal agent/project card faces scale uniformly only when their complete content
 would overflow; fixed card bounds stay unchanged and fitting content stays at scale 1.
+Transient full-name hover overlays are excluded from fit measurement; real content
+changes still refit. Grey retired chips follow the other header chips.
 [decided: user 2026-10-21 11:21Z; verified: `canvas/cardface.tsx`]
 
 Project identity tooltips use the coloured header chips' exact text on one
