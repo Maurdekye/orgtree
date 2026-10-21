@@ -7,7 +7,7 @@ Up: [orgtree-mail](../SKILL.md)
 
 # Choosing a communication route
 
-Start with [ordinary recipient reach](../tool-message/SKILL.md): your direct superior, peers, and descendants are the normal routes. Being able to see an agent does not itself grant a communication audience. A more distant ancestor or an unrelated branch may need a grant before direct coordination.
+Start with [ordinary recipient reach](../tool-message/SKILL.md): your nearest agent superior, physical siblings, and descendants are the normal routes. Projects are transparent for reporting to that superior, but coworkers under different physical parents need an audience even when they share an agent superior. Being able to see an agent does not itself grant a communication audience. A more distant ancestor or an unrelated branch may need a grant before direct coordination.
 
 An audience opens a direction of communication; it does not move an agent or delegate folder, tool or decision authority. A granted route is useful when a specialist needs to talk directly to a reviewer outside its reporting line. Keep the task owner and superior informed according to the assignment rather than treating a new route as a change of responsibility.
 
@@ -36,7 +36,7 @@ grant that was removed while inherited access remained.
 
 A live project may hold an audience with the user, another agent or another project. Every live agent directly under it can use that audience exactly as if it held the grant itself: user mail, questions, presentations, file delivery and agent mail all accept effective inherited access. Tool groups and other independent permissions still apply. Only direct members inherit; a nested project never relays its parent's inherited grants to deeper agents. Moving out, retiring, pausing or revoking the source grant removes that inherited route. An agent's independent explicit grants remain.
 
-An audience is directional: a grant to project A from project B lets A's direct agents write to B and B's direct agents. It does not let B's agents write back. A reverse grant enables that reverse direction; with both grants, the two projects' direct agents may all correspond with one another. Members of nested projects, unrelated organizations and retired members are excluded. No personal audience rows are copied to members.
+An audience is directional: a grant to project A from project B lets A's direct agents write to B and B's direct agents. It does not let B's agents write back. A reverse grant enables that reverse direction; with both grants, the two projects' direct agents may all correspond with one another. The project-to-project coworker bridge requires both projects' peer-mail switches ON; an ordinary explicit agent audience keeps its override. Members of nested projects, unrelated organizations and retired members are excluded. No personal audience rows are copied to members.
 
 When the user sends to a project's mailbox or uses its megaphone broadcast, only the project receives an explicit user audience after successful delivery. The broadcast reaches live agents below it, including nested agents, but creates no personal user grants on any recipient. Fair-queue copies and system nudges likewise create no personal user grants. A post-delivery project grant failure is reported as delivered but audience grant failed.
 
