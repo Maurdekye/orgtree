@@ -25,7 +25,7 @@ async function right(el: Element) {
 for (const kind of ['agent', 'project'] as const) for (const composer of [false, true]) {
   test(`${kind} submenu links share direct menu items and icon-only tooltip (composer=${composer})`, async t => {
     const id = kind === 'project' ? 'website' : 'worker'
-    const title = kind === 'project' ? 'Project · 2 slots · Company site' : 'ChatGPT Sol 6 · high'
+    const title = kind === 'project' ? 'Project · slots 0/2 held · Company site' : 'ChatGPT Sol 6 · high'
     const called: string[] = []
     const actions: MenuEntry[] = [
       { label: 'Focus', onSelect: () => called.push('focus') },
