@@ -52,7 +52,7 @@ import { instanceKind } from '../modalkinds'
 import { CollapsibleMailer } from './narrowlist'
 import { CopyFeedback, copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
-import { fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
+import { MAIL_COPY_FAILED, fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
 import type { CopyableMailRow } from './copytext'
 import { fmtFull, fmtShort } from '../timefmt'
 import { decodeEventRow } from '../events/decode'
@@ -588,7 +588,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
               return fetchMailRowForCopy(slug, id, { node: nodeHint, chunk })
             },
             profile,
-          ).then(full => done(full || immediateBody)).catch(() => done(immediateBody))
+          ).then(done).catch(() => toast?.([MAIL_COPY_FAILED]))
           return
         }
         done(immediateBody)

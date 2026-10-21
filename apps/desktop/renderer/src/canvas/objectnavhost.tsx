@@ -1,6 +1,6 @@
 import { mailIdentityAt, mailMenuEntries } from './mailidentity'
 import { refToken } from './reflinks'
-import { mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
+import { MAIL_COPY_FAILED, mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
 import { getMailById, getDocument, getWorkItem, getWatchdog, watchdogAction } from '../api'
 import { presentationMenu } from './docs'
 import type { ToastFn, Watchdog } from '../types'
@@ -38,7 +38,7 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
           copy: () => {
             const done = (text: string) => text.trim() ? copy(text) : toast(['could not copy — message is empty'])
             if (needsFetch) void resolveFullMailCopyText(row, fetchRow)
-              .then(full => done(full || immediate)).catch(() => done(immediate))
+              .then(done).catch(() => toast([MAIL_COPY_FAILED]))
             else done(immediate)
           } })
       })

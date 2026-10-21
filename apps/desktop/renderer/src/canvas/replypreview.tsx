@@ -5,7 +5,7 @@ import type { ReplyContext } from '../eventReply'
 import { useAgentNavRegistry } from './agentnav'
 import { copyToClipboard, ObjectMenuBoundary, useContextMenu, useCopyFeedback } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
-import { fetchMailRowForCopy, isMailByReferencePreview, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
+import { MAIL_COPY_FAILED, fetchMailRowForCopy, isMailByReferencePreview, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
 import type { CopyableMailRow } from './copytext'
 import { senderMenuAction } from './objectactions'
 import { objectNavProps, useObjectNavRegistry } from './objectnav'
@@ -110,7 +110,7 @@ export function ReplyPreview({ reply, available, onLocate, onRemove, presentatio
         baseRow,
         (id, chunk) => fetchMailRowForCopy(reply.org, id, { box: 'node', node: reply.agent, chunk }),
         'operator',
-      ).then(full => done(full || immediateText)).catch(() => done(immediateText))
+      ).then(done).catch(() => toast?.([MAIL_COPY_FAILED]))
       return
     }
     done(immediateText)

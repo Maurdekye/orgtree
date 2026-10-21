@@ -8,7 +8,7 @@ import { ReplyIcon } from '../icons'
 import { useAgentNavRegistry } from './agentnav'
 import { copyToClipboard, useCopyFeedback } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
-import { fetchMailRowForCopy, resolveFullMailCopyText } from './copytext'
+import { MAIL_COPY_FAILED, fetchMailRowForCopy, resolveFullMailCopyText } from './copytext'
 import { senderMenuAction } from './objectactions'
 import { ReplyPreview, ReplyPreviewFrame } from './replypreview'
 import { RefChip, resolveRef } from './reflinks'
@@ -101,7 +101,7 @@ function buildMailReplyMenu(
         { id: mailId, body: fallbackText, truncated: true },
         (id, chunk) => fetchMailRowForCopy(mailOrg, id, { box, node, chunk }),
         'operator',
-      ).then(full => done(full || fallbackText)).catch(() => done(fallbackText))
+      ).then(done).catch(() => toast?.([MAIL_COPY_FAILED]))
       return
     }
     done(fallbackText)

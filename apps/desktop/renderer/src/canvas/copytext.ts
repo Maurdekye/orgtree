@@ -52,6 +52,7 @@ export interface CopyableMailRow {
 }
 
 const MAIL_BY_REF_RE = /^\[MAIL BY REFERENCE\b[^\]]*\]/
+export const MAIL_COPY_FAILED = 'could not copy — full message unavailable; clipboard unchanged'
 
 export function isMailByReferencePreview(text: string | null | undefined): boolean {
   return typeof text === 'string' && MAIL_BY_REF_RE.test(text.trimStart())
@@ -80,7 +81,7 @@ function utf8Bytes(s: string): number {
 /** True when a mail row holds only a preview, is truncated, or is chunked and
  *  can be fetched in full by id. */
 export function mailRowNeedsFullFetch(row: CopyableMailRow | null | undefined): boolean {
-  if (!row || typeof row.id !== 'string' || !row.id.trim()) return false
+  if (!row) return false
   const body = typeof row.body === 'string' ? row.body : typeof row.content === 'string' ? row.content : ''
   if (isMailByReferencePreview(body)) return true
   if (row.truncated === true) return true
@@ -91,54 +92,60 @@ export function mailRowNeedsFullFetch(row: CopyableMailRow | null | undefined): 
   return false
 }
 
-/** Resolve the full untruncated body of a mail row, fetching all chunks in
- *  order when chunked or preview-only. Falls back to the row's local text if
- *  the lookup is unavailable. */
+/** Resolve a complete body or reject. Preview text and partial chunk assemblies
+ *  must never reach a clipboard write or a success toast. */
 export async function resolveFullMailCopyText(
   row: CopyableMailRow,
   fetchChunk: (id: string, chunk?: number) => Promise<CopyableMailRow | null | undefined>,
   profile: EventProfile = 'operator',
 ): Promise<string> {
-  const fallback = () => {
-    const direct = mailRowCopyText(row, profile)
-    if (direct !== '') return direct
-    return typeof row.preview === 'string' && row.preview.trim() !== '' ? row.preview : ''
-  }
+  if (!mailRowNeedsFullFetch(row)) return mailRowCopyText(row, profile)
+  const unavailable = () => { throw new Error(MAIL_COPY_FAILED) }
   const id = typeof row.id === 'string' ? row.id.trim() : ''
-  if (!id || !mailRowNeedsFullFetch(row)) return fallback()
+  if (!id) return unavailable()
   const isChunkedHint = (typeof row.chunk_total === 'number' && row.chunk_total > 1) || row.complete === false
   try {
     const first = await fetchChunk(id, isChunkedHint ? 0 : undefined)
-    if (!first) return fallback()
+    if (!first) return unavailable()
+    const partText = (part: CopyableMailRow, index: number) => {
+      if (part.chunk_index !== undefined && part.chunk_index !== index) return unavailable()
+      const text = typeof part.body === 'string' ? part.body : part.content
+      if (typeof text !== 'string' || isMailByReferencePreview(text) || part.truncated === true) return unavailable()
+      return text
+    }
+    const completeText = (text: string) => {
+      const expected = Math.max(row.body_bytes ?? 0, first.body_bytes ?? 0)
+      if (!text.trim() || expected > utf8Bytes(text)) return unavailable()
+      return text
+    }
     const total = typeof first.chunk_total === 'number' && first.chunk_total > 1
       ? first.chunk_total
       : (typeof row.chunk_total === 'number' && row.chunk_total > 1 ? row.chunk_total : 1)
     if (total > 1) {
-      const parts: string[] = [typeof first.body === 'string' && first.body !== '' ? first.body : String(first.content ?? '')]
+      if (!Number.isSafeInteger(total)) return unavailable()
+      const parts: string[] = [partText(first, 0)]
       for (let idx = 1; idx < total; idx++) {
         const part = await fetchChunk(id, idx)
-        if (part) {
-          parts.push(typeof part.body === 'string' && part.body !== '' ? part.body : String(part.content ?? ''))
-        }
+        if (!part || (part.chunk_total !== undefined && part.chunk_total !== total)) return unavailable()
+        parts.push(partText(part, idx))
       }
-      const joined = parts.join('')
-      return joined.trim() !== '' ? joined : fallback()
+      return completeText(parts.join(''))
     }
     if (first.complete === false) {
-      const parts: string[] = [typeof first.body === 'string' && first.body !== '' ? first.body : String(first.content ?? '')]
-      for (let idx = (first.chunk_index ?? 0) + 1; idx < 128; idx++) {
+      const parts: string[] = [partText(first, 0)]
+      for (let idx = 1; idx < 128; idx++) {
         const part = await fetchChunk(id, idx)
-        if (!part) break
-        parts.push(typeof part.body === 'string' && part.body !== '' ? part.body : String(part.content ?? ''))
-        if (part.complete !== false) break
+        if (!part) return unavailable()
+        parts.push(partText(part, idx))
+        if (part.complete === true) return completeText(parts.join(''))
       }
-      const joined = parts.join('')
-      return joined.trim() !== '' ? joined : fallback()
+      return unavailable()
     }
+    if (mailRowNeedsFullFetch(first)) return unavailable()
     const resolved = mailRowCopyText(first, profile)
-    return resolved !== '' ? resolved : fallback()
+    return completeText(resolved)
   } catch {
-    return fallback()
+    return unavailable()
   }
 }
 

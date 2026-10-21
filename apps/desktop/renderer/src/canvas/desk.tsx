@@ -50,7 +50,7 @@ import { useAgyModelsRefresh } from './shared'
 import { downJumpTargets, upJumpTargets } from './shared'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
-import { fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, messageCopyText, resolveFullMailCopyText, segmentsCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
+import { MAIL_COPY_FAILED, fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, messageCopyText, resolveFullMailCopyText, segmentsCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
 import type { CopyableMailRow } from './copytext'
 import { firstUseSent } from './firstuse'
 import { FastModeButton } from './fastmodebutton'
@@ -2350,7 +2350,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             mailRow,
             (id, chunk) => fetchMailRowForCopy(slug, id, { box: 'node', node: node.id, chunk }),
             'operator',
-          ).then(full => finish(full || copy)).catch(() => finish(copy))
+          ).then(finish).catch(() => toast([MAIL_COPY_FAILED]))
           return
         }
         finish(copy)
