@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 const repo=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..')
 const [out,data,bin,port]=process.argv.slice(2)
@@ -75,7 +75,10 @@ try{
  sql('VACUUM ANALYZE ot.mail;');snapshot('10k')
  sql(`INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
  SELECT 'later-'||n,1,'@user','agent',1,'project','synthetic','read',CASE WHEN n%2=0 THEN '{"dead_letter":{},"dead_letter_dropped":{}}'::jsonb ELSE '{}'::jsonb END FROM generate_series(1,10000)n; VACUUM ANALYZE ot.mail;`)
- check('more inactive history leaves open count fixed',()=>assert.deepEqual(totals(),{open:3,dropped:10000}));snapshot('20k')
+  check('more inactive history leaves open count fixed',()=>assert.deepEqual(totals(),{open:3,dropped:10000}));snapshot('20k')
+ sql(`INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state)
+ SELECT 'answered-tail-'||n,1,'@user','agent',1,'project','synthetic','read' FROM generate_series(1,10000)n; VACUUM ANALYZE ot.mail;`)
+ check('answered tail preserves both totals',()=>assert.deepEqual(totals(),{open:3,dropped:10000}));snapshot('30k-answered-tail')
  // Membership transitions: pending -> read -> open -> dropped -> retry,
  // recipient changes, delete, and rolled-back writes must all stay exact.
  const equal=tag=>check(tag,()=>{
@@ -93,7 +96,22 @@ try{
   ['leave read',"UPDATE ot.mail SET state='retracted' WHERE uid='open-1'"],
  ]){sql(statement);equal(tag)}
  sql('DELETE FROM ot.mail WHERE recipient_agent_id=2;')
- check('empty recipient has zero counts',()=>assert.deepEqual({open:Number(sql(bind(counts[0],2))),dropped:Number(sql(bind(counts[1],2)))},{open:0,dropped:0}))
+  check('empty recipient has zero counts',()=>assert.deepEqual({open:Number(sql(bind(counts[0],2))),dropped:Number(sql(bind(counts[1],2)))},{open:0,dropped:0}))
+ // Two writers creating the same previously absent counter must not lose an
+ // increment. Await BOTH children even if one fails, before stopping the DB.
+ const writers=await Promise.all([1,2].map(n=>new Promise(resolve=>{
+  const f=path.join(out,`concurrent-${n}.sql`)
+  fs.writeFileSync(f,`BEGIN; INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
+    VALUES('concurrent-${n}',1,'@user','agent',2,'other','synthetic','read','{"dead_letter":{}}'); SELECT pg_sleep(0.05); COMMIT;`)
+  const p=spawn(path.join(bin,'psql.exe'),['-X','-qAt','-v','ON_ERROR_STOP=1','-h','127.0.0.1','-p',port,'-U','synthetic','-d','postgres','-f',f],{stdio:'ignore',windowsHide:true})
+  let spawnError=null;p.on('error',e=>{spawnError=e.message});p.on('close',(status,signal)=>resolve({exe:'concurrent psql',status,signal,error:spawnError}))
+ })))
+ calls.push(...writers);check('both concurrent writers commit',()=>assert.ok(writers.every(r=>r.status===0&&!r.error)))
+ check('concurrent first-counter creation retains both increments',()=>assert.equal(Number(sql(bind(counts[0],2))),2))
+ equal('concurrent writes keep other recipient exact')
+ sql('TRUNCATE ot.mail;')
+ check('truncate resets totals',()=>assert.deepEqual(totals(),{open:0,dropped:0}))
+ if(migrations.some(f=>f.startsWith('0051_')))check('truncate clears materialized membership',()=>assert.equal(Number(sql('SELECT count(*) FROM ot.project_dead_letter_counts')),0))
 }catch(e){error=e.stack}
 finally{
  if(started){const r=spawnSync(path.join(bin,'pg_ctl.exe'),['-D',data,'-m','fast','-w','stop'],{encoding:'utf8',windowsHide:true});calls.push({exe:'pg_ctl stop',status:r.status,signal:r.signal,error:r.error?.message??null});if(r.status!==0)error=(error??'')+' PG STOP FAILED '+r.stderr}
