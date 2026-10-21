@@ -7,8 +7,9 @@ import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 const repo=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..')
 const [out,data,bin,port]=process.argv.slice(2)
-assert.match(out??'',/^C:[\\/]orgtree-build[\\/]compaction-cmds-sol[\\/]/i)
-assert.match(data??'',/^D:[\\/]orgtree-work[\\/]rig[\\/]compaction-cmds-sol[\\/]/i)
+const scope=(out??'').match(/^C:[\\/]orgtree-build[\\/]([^\\/]+)[\\/]/i)
+const rigScope=(data??'').match(/^D:[\\/]orgtree-work[\\/]rig[\\/]([^\\/]+)[\\/]/i)
+assert.ok(scope&&rigScope&&scope[1]===rigScope[1],'output and fresh cluster must be in matching owned build/rig scopes')
 assert.match(port??'',/^\d{4,5}$/)
 assert.ok(!fs.existsSync(data),'fresh isolated cluster required')
 fs.mkdirSync(out,{recursive:true});fs.mkdirSync(data,{recursive:true})

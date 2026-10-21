@@ -4,6 +4,12 @@
 
 Actors, bounded reads, transactions, migrations, logging and data contracts.
 
+Dead-letter feed/list totals use transactionally maintained per-recipient
+open/dropped counts; partial recipient/id indexes serve the matching page
+predicates. Completed/dropped mail history is retained without slowing default
+refreshes. Migration0051 backfills once. See [reader contract and SQL proof](../rust-engine/dead-letter-readers.md).
+[verified: `migrations/0051_dead_letter_readers.sql`, `domain/dead_letters.rs`, `feed/compute.rs`; 2026-10-21]
+
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
 <a id="e-de18dabbab8e1f0f"></a>
