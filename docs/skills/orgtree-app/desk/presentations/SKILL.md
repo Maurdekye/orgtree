@@ -6,6 +6,8 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Presented documents and file cards
 
+Document-reader HTTP bodies and private handler returns are omitted from diagnostics in both logging modes. Request paths/status remain recorded, and document text still reaches the reader unchanged.
+
 Presented documents are reading surfaces. File-delivery cards provide downloadable files. The distinction is the delivery purpose, not whether the underlying content happens to be Markdown.
 
 ## Collections and reader

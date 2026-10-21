@@ -16,7 +16,8 @@ use crate::http::error::{ApiError, ApiResult};
 use crate::http::orgs::org;
 use crate::util::{iso, iso_opt};
 
-#[logged]
+// Private document text; the wire guard records route/status only.
+#[nolog]
 pub async fn get(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
