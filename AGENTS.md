@@ -15,6 +15,13 @@ Before renderer tests, visual captures or rig proofs, read the [test and capture
 
 ## Engine and desktop invariants
 
+- Claude completed thinking retains observed monotonic start/stop elapsed seconds
+  per native block; the renderer uses row-level legacy timing only for a single
+  thought. Missing historical timing stays unknown; never infer it from row
+  timestamps. See [Claude thought timing](docs/rust-engine/claude-thinking-time.md).
+  [decided: user 2026-10-21 20:48Z; verified: `runtime/claude_thinking.rs`, `actor.rs`, `canvas/desk.tsx`]
+
+
 - Ready once command/process/usage/slot/fair_queue creation returns its real
   effects and fire actions inline, without a dog row/fire mail/holder wake.
   Slots keep durable leases; inline queue copies are consumed once and ACK

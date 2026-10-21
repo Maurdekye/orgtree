@@ -451,6 +451,11 @@ their established restoration rules. See [`popout-close.md`](popout-close.md).
 
 ### C. Agent desk
 
+Claude timing fix (user 2026-10-21 20:48Z, 4.4.0): keep observed per-block
+thinking elapsed seconds through finalization and reload. Historical missing
+timing stays unknown. See [Claude thought timing](claude-thinking-time.md).
+
+
 Antigravity thinking addition (user 2026-10-17, 4.4.0): after each completed
 model step, read that exact session/step's native history thinking read-only and
 display it collapsed before the response. No live-thinking claim, backfill,

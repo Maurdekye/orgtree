@@ -410,6 +410,7 @@ struct Turn {
     draft_order: Option<u64>,
     thinking_order: Option<u64>,
     tool_writing: super::toolwriting::ToolWriting,
+    claude_thinking: super::claude_thinking::Timing,
     compact: bool,
     /// A successful native compaction this turn invalidates its earlier peak.
     cli_compacted: bool,
@@ -502,6 +503,7 @@ impl Turn {
             draft_order: None,
             thinking_order: None,
             tool_writing: super::toolwriting::ToolWriting::default(),
+            claude_thinking: Default::default(),
             compact,
             cli_compacted: false,
             cards: HashMap::new(),
@@ -535,7 +537,8 @@ impl Turn {
     }
     /// Shared by the live Claude stream and deterministic stream-path tests.
     #[nolog]
-    fn observe_claude_thought(&mut self, ev: &Value, _now: Instant) {
+    fn observe_claude_thought(&mut self, ev: &Value, now: Instant) {
+        self.claude_thinking.observe(ev, now);
         if ev["type"] == "content_block_start"
             && matches!(ev["content_block"]["type"].as_str(), Some("thinking" | "redacted_thinking")) {
             self.thinking.clear();
@@ -544,36 +547,48 @@ impl Turn {
     }
 
     #[nolog]
-    fn append_claude_thought(&mut self, row: &mut Value, block: &Value, _mid: &str, _now: Instant) {
+    fn append_claude_thought(&mut self, row: &mut Value, block: &Value, mid: &str, now: Instant) {
+        let secs = self.claude_thinking.take(mid, now);
+        let before = row["content_blocks"].as_array().map_or(0, Vec::len);
         match block["type"].as_str() {
             Some("thinking") => {
-                        let cur = row.get("thinking").and_then(Value::as_str).unwrap_or("").to_string();
-                        let add = block["thinking"].as_str().unwrap_or("");
-                        if add.is_empty() {
-                            row["thinking_sealed"] = json!(true);
-                        } else {
-                            let joined = if cur.is_empty() { add.to_string() } else { format!("{cur}\n\n{add}") };
-                            row["thinking"] = json!(convo::clip(&joined, 20_000).0);
-                        }
-                        let room = 20_000usize.saturating_sub(cur.chars().count() + if cur.is_empty() { 0 } else { 2 });
-                        let shown = convo::clip(add, room).0;
-                        if !shown.is_empty() || add.is_empty() {
-                            let start = cur.encode_utf16().count() + if cur.is_empty() { 0 } else { 2 };
-                            convo::append_display_block(row, json!({"kind":"thinking", "start":start, "end":start + shown.encode_utf16().count(), "sealed":add.is_empty()}));
-                        }
-                        self.thinking.clear();
-                        self.thinking_order = None;
-                    }
+                let cur = row.get("thinking").and_then(Value::as_str).unwrap_or("").to_string();
+                let add = block["thinking"].as_str().unwrap_or("");
+                if add.is_empty() {
+                    row["thinking_sealed"] = json!(true);
+                } else {
+                    let joined = if cur.is_empty() { add.to_string() } else { format!("{cur}\n\n{add}") };
+                    row["thinking"] = json!(convo::clip(&joined, 20_000).0);
+                }
+                let room = 20_000usize.saturating_sub(cur.chars().count() + if cur.is_empty() { 0 } else { 2 });
+                let shown = convo::clip(add, room).0;
+                if !shown.is_empty() || add.is_empty() {
+                    let start = cur.encode_utf16().count() + if cur.is_empty() { 0 } else { 2 };
+                    convo::append_display_block(row, json!({"kind":"thinking", "start":start, "end":start + shown.encode_utf16().count(), "sealed":add.is_empty()}));
+                }
+                self.thinking.clear();
+                self.thinking_order = None;
+            }
             Some("redacted_thinking") => {
-                        row["thinking_sealed"] = json!(true);
-                        convo::append_display_block(row, json!({"kind":"thinking", "sealed":true}));
-                        self.thinking.clear();
-                        self.thinking_order = None;
-                    }
+                row["thinking_sealed"] = json!(true);
+                convo::append_display_block(row, json!({"kind":"thinking", "sealed":true}));
+                self.thinking.clear();
+                self.thinking_order = None;
+            }
             _ => {}
         }
+        if let Some(blocks) = row["content_blocks"].as_array_mut() {
+            if blocks.len() > before {
+                if let Some(secs) = secs { blocks.last_mut().unwrap()["think_secs"] = json!(secs); }
+            }
+            let mut thoughts = blocks.iter().filter(|b| b["kind"] == "thinking");
+            let first = thoughts.next().and_then(|b| b.get("think_secs")).cloned();
+            // Legacy readers can use the row-level value only when unambiguous.
+            let single = thoughts.next().is_none();
+            if let Some(secs) = first.filter(|_| single) { row["think_secs"] = secs; }
+            else if let Some(row) = row.as_object_mut() { row.remove("think_secs"); }
+        }
     }
-
 }
 
 /// The agent's CLI process: Claude Code, the Codex app-server, Antigravity

@@ -5312,7 +5312,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
     if (block.kind === 'thinking') {
       const thought = block.sealed ? '' : (m.thinking ?? '').slice(block.start, block.end)
       return <div key={index} className="reply-event"
-        data-reply-quote={thought}><ThoughtLine text={thought} secs={m.think_secs}
+        data-reply-quote={thought}><ThoughtLine text={thought} secs={block.think_secs ?? (m.content_blocks?.filter(b => b.kind === 'thinking').length === 1 ? m.think_secs : undefined)}
           tokens={m.content_blocks?.filter(b => b.kind === 'thinking').length === 1 ? m.thinking_tokens : undefined}
           sealed={block.sealed} foldKey={thoughtFoldKey(`${m.row_id ?? m.assistant_id}:thought:${index}`)} /></div>
     }
@@ -5382,7 +5382,7 @@ function ThoughtBody({ text, live = false }: { text: string; live?: boolean }) {
 function ThoughtLine({ text, secs, sealed, foldKey, tokens }:
 { text?: string; secs?: number; sealed?: boolean; foldKey?: string; tokens?: number }) {
   const [open, toggleOpen] = useFold(foldKey)
-  const dur = secs ? formatSeconds(secs) : 'a moment'
+  const dur = typeof secs === 'number' && Number.isFinite(secs) && secs >= 0 ? formatSeconds(Math.floor(secs)) : 'a moment'
   if (sealed || !text) {
     return (
       <div className="thoughtwrap">

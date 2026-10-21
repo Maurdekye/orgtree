@@ -40,6 +40,13 @@ inner edges; plain amounts and bare uppercase identifiers stay literal. Use
 visible as its delimited source. Math commands cannot fetch images or create
 trusted HTML links, and a formula's macro definitions do not affect later math.
 
+## Finished thinking times
+
+Claude thoughts keep their measured duration when the live block finishes and
+when Chat is reopened. Each thought has its own clock, including sealed reasoning.
+Old thoughts show a recorded time when available; without a real measurement they
+keep “a moment”. No historical time is invented from a message timestamp.
+
 ## Read activity accurately
 
 A tool chip distinguishes call-writing from execution and can expand to show arguments/result. Completed tool behavior is not inferred from the spinner alone. Successful docket status-change chips can show captured old → new states; failure/no-op or missing historical before-state does not invent one. Thoughts can expose supplied reasoning or only elapsed duration; absence of text is not evidence the model did not think.
