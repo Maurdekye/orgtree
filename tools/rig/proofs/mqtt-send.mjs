@@ -41,9 +41,12 @@ export default async function(rig){
   p.check('empty MQTT payload can clear a retained value',empty.ok&&await until(()=>got.some(x=>x.topic==='mqtt-send/clear'&&x.payload===''&&x.retain)),empty.text)
   const boundary=await send({topic:'boundary/64k',message:'x'.repeat(65536)})
   p.check('exact64KiB payload reaches the existing broker',boundary.ok&&await until(()=>got.some(x=>x.topic==='boundary/64k'&&x.payload.length===65536)),boundary.text)
-  p.check('per-dog publish counters and time reach list',await until(async()=>{
-   const r=await rig.tool('boss','orgtree_watchdog',{action:'list'}),dog=r.json?.watchdogs?.find(d=>d.name==='publish');return dog?.sent===5&&!!dog.last_sent_at
-  }))
+  let counted=false,lastList
+  try{await rig.waitFor(async()=>{
+   lastList=await rig.tool('boss','orgtree_watchdog',{action:'list'});const dog=lastList.json?.watchdogs?.find(d=>d.name==='publish');return dog?.sent===5&&!!dog.last_sent_at
+  },{what:'listener persists all five publishes (10s save cadence)',timeout:15000});counted=true}catch{}
+  p.file('publish-list.json',lastList)
+  p.check('per-dog publish counters and time reach list',counted,lastList?.text)
   for(const topic of ['mqtt-send/+','mqtt-send/#','']){
    const r=await send({topic,message:'refused'});p.check('invalid publish topic refused: '+JSON.stringify(topic),!r.ok&&/topic/i.test(r.text),r.text)
   }
