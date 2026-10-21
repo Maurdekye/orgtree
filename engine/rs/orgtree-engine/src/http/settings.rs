@@ -792,6 +792,7 @@ const BUNDLED: &[(&str, &str)] = &[
     ("business.md", include_str!("../../../../docs/charters/business.md")),
     ("coordinator.md", include_str!("../../../../docs/charters/coordinator.md")),
     ("curator.md", include_str!("../../../../docs/charters/curator.md")),
+    ("developer.md", include_str!("../../../../docs/charters/developer.md")),
     ("implementer.md", include_str!("../../../../docs/charters/implementer.md")),
     ("liaison.md", include_str!("../../../../docs/charters/liaison.md")),
     ("redteam.md", include_str!("../../../../docs/charters/redteam.md")),

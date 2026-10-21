@@ -1060,10 +1060,10 @@ mod tests {
     fn a_fresh_folder_is_seeded_and_lists_only_its_files() {
         let d = scratch("fresh");
         let made = seed_into(&d).unwrap();
-        assert_eq!(made, vec!["devteam-claude.json", "devteam-codex.json", "devteam-muse.json", "devteam-antigravity.json"]);
+        assert_eq!(made, vec!["devteam-claude.json", "devteam-codex.json", "devteam-muse.json", "devteam-antigravity.json", "heavy-dev-shop.json"]);
         let mut ids: Vec<String> = list_in(&d).into_iter().filter_map(|(t, _, _)| t.ok().map(|t| t.id)).collect();
         ids.sort();
-        assert_eq!(ids, vec!["devteam-antigravity", "devteam-claude", "devteam-codex", "devteam-muse"]);
+        assert_eq!(ids, vec!["devteam-antigravity", "devteam-claude", "devteam-codex", "devteam-muse", "heavy-dev-shop"]);
         std::fs::write(d.join("mine.json"), r#"{"id":"mine","name":"Mine","agents":[{"name":"a","tier":"opus"}]}"#).unwrap();
         let mine = list_in(&d).into_iter().filter_map(|(t, _, _)| t.ok()).find(|t| t.id == "mine").unwrap();
         assert_eq!(mine.description, "");
@@ -1111,7 +1111,7 @@ mod tests {
 {}
 ", BUNDLED[0].0, BUNDLED[1].0)).unwrap();
         std::fs::write(d.join(BUNDLED[0].0), BUNDLED[0].1).unwrap();
-        assert_eq!(seed_into(&d).unwrap(), vec!["devteam-muse.json".to_string(), "devteam-antigravity.json".to_string()]);
+        assert_eq!(seed_into(&d).unwrap(), vec!["devteam-muse.json".to_string(), "devteam-antigravity.json".to_string(), "heavy-dev-shop.json".to_string()]);
         assert_eq!(std::fs::read_to_string(d.join("devteam-muse.json")).unwrap(), BUNDLED[2].1);
         assert!(!d.join(BUNDLED[1].0).exists());
         assert!(std::fs::read_to_string(d.join(SEEDED)).unwrap().contains("devteam-muse.json"));
@@ -1273,8 +1273,13 @@ mod tests {
         for p in p.iter().filter(|p|!p.slot.project()) {
             let expected=match p.slot.tier.as_str() {"opus"=>"max","astra"=>"xhigh",_=>"high"};
             assert_eq!(p.slot.effort.as_deref(),Some(expected));
-            assert!(p.slot.charter.preset.is_none(),"role-only text keeps detailed practices in notes");
-            assert!(charter_of(&p.slot).len()<700);
+            if p.name.starts_with("developer-") {
+                assert_eq!(p.slot.charter.preset.as_deref(),Some("developer"));
+                assert_eq!(charter_of(&p.slot),include_str!("../../../../docs/charters/developer.md"));
+            } else {
+                assert!(p.slot.charter.preset.is_none(),"other roles keep detailed practices in notes");
+                assert!(charter_of(&p.slot).len()<700);
+            }
         }
         assert_eq!(plan_json(&t,&p,&[])["standing_notes"],7);
         assert!(t.description.contains("develop Orgtree itself"));

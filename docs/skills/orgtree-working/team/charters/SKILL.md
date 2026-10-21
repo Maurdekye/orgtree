@@ -18,7 +18,9 @@ Keep reusable agent/team notes in the appropriate workspace instead of editing o
 
 ## Bundled role presets
 
-The bundled roles are business, coordinator, curator, implementer, liaison and redteam. A preset supplies charter text; it does not grant tools, audiences, folders or authority. The hire form prepends the full selected files, including introductions and separators, to any manual charter text. Agent hiring has no preset-name parameter: supply the complete intended text in the hire tool's charter field. A user's existing same-named charter file overrides its bundled counterpart; population adds missing files without replacing existing ones. The human controls are documented in orgtree-app › app-settings › orgtree-app-charters-and-templates and canvas › orgtree-draft-hires.
+The bundled roles are business, coordinator, curator, developer, implementer, liaison and redteam. A preset supplies charter text; it does not grant tools, audiences, folders or authority. The hire form prepends the full selected files, including introductions and separators, to any manual charter text. Agent hiring has no preset-name parameter: supply the complete intended text in the hire tool's charter field. A user's existing same-named charter file overrides its bundled counterpart; population adds missing files without replacing existing ones. The human controls are documented in orgtree-app › app-settings › orgtree-app-charters-and-templates and canvas › orgtree-draft-hires.
+
+**Developer** combines ownership of an assigned implementation with assigned peer review. It calls for a private worktree, focused red-first checks, exact-SHA hand-ins, independent checks of peers and findings or approval on the docket. The author owns fixes; a reviewer never edits the author's worktree or product code in place. Coordinate file overlaps by mail and update docs/glossary in the same landing. Detailed practices stay in inherited AGENTS.md; current phases and waivers decide when reviews run. Heavy dev shop uses this preset for all five developer seats. Implementer and Redteam remain separate choices for the smaller role-separated layout.
 
 ### Liaison above a coordinator
 

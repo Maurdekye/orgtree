@@ -55,7 +55,7 @@
                   "tier": "opus",
                   "effort": "max",
                   "charter": {
-                    "text": "You are a developer and implementer. Own the assigned software deliverable and its verification, coordinate through the coordinator, and work within the shared, development-team and build-project standing notes. The coordinator owns shared-branch integration and releases."
+                    "preset": "developer"
                   },
                   "spare": 0,
                   "tools": "all",
@@ -67,7 +67,7 @@
                   "tier": "sonnet",
                   "effort": "high",
                   "charter": {
-                    "text": "You are a developer and implementer. Own the assigned software deliverable and its verification, coordinate through the coordinator, and work within the shared, development-team and build-project standing notes. The coordinator owns shared-branch integration and releases."
+                    "preset": "developer"
                   },
                   "spare": 0,
                   "tools": "all",
@@ -79,7 +79,7 @@
                   "tier": "astra",
                   "effort": "xhigh",
                   "charter": {
-                    "text": "You are a developer and implementer. Own the assigned software deliverable and its verification, coordinate through the coordinator, and work within the shared, development-team and build-project standing notes. The coordinator owns shared-branch integration and releases."
+                    "preset": "developer"
                   },
                   "spare": 0,
                   "tools": "all",
@@ -91,7 +91,7 @@
                   "tier": "sol",
                   "effort": "high",
                   "charter": {
-                    "text": "You are a developer and implementer. Own the assigned software deliverable and its verification, coordinate through the coordinator, and work within the shared, development-team and build-project standing notes. The coordinator owns shared-branch integration and releases."
+                    "preset": "developer"
                   },
                   "spare": 0,
                   "tools": "all",
@@ -103,7 +103,7 @@
                   "tier": "argon",
                   "effort": "high",
                   "charter": {
-                    "text": "You are a developer and implementer. Own the assigned software deliverable and its verification, coordinate through the coordinator, and work within the shared, development-team and build-project standing notes. The coordinator owns shared-branch integration and releases."
+                    "preset": "developer"
                   },
                   "spare": 0,
                   "tools": "all",

@@ -1767,3 +1767,5 @@ All entries are dated 2026-10-06 unless stated otherwise.
       "...: Windows session <n>.", replacing decision 84's "Session access at start" line.
     Details, verification and limits: [`run-on-boot.md`](run-on-boot.md#restarts-and-updates-while-signed-in-decision-93);
     proof `tools/rig/proofs/session0-handover.mjs`.
+
+- 2026-10-21: USER adds a short Developer preset combining assigned implementation and assigned exact-SHA peer review; Heavy dev shop developer seats use it. Operational practices remain in AGENTS.md; author owns fixes, reviewer never edits the author's code in place.

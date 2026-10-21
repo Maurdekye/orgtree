@@ -19,7 +19,10 @@ parsing/writing and notes I/O are unlogged. Unknown free-text secrets still
 require human review. Creation seeds create-new notes after commit, before
 warm/kickoff effects; failures are reported as warnings on the committed org.
 Heavy dev shop has nine agents and one three-slot project, with operational
-practice in inherited notes and short role-focused charters. See
+practice in inherited notes and short role-focused charters. Its five developer
+seats resolve the bundled Developer preset, combining assigned author and
+reviewer roles; the author retains fixes and operational policy stays in notes.
+See
 [templates](../skills/orgtree-app/org-settings/org-templates/SKILL.md).
 [decided: user 2026-10-21 18:40–18:45Z; verified: domain/templates.rs,
 domain/template_notes.rs, http/templates.rs, http/orgops.rs]
