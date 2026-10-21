@@ -26,6 +26,12 @@ pub fn validate(st: &State, tier: &str, version: Option<&str>, value: &Value) ->
     Ok(enabled)
 }
 
+/// Validate a saved next-turn speed choice without changing serving evidence.
+#[nolog]
+pub fn validate_next_turn(st: &State, tier: &str, version: Option<&str>, _pending_tier: Option<&str>, value: &Value) -> anyhow::Result<bool> {
+    validate(st, tier, version, value)
+}
+
 /// Exact per-tier defaults; false remains valid when advertised support disappears.
 #[nolog]
 pub fn validate_defaults(st: &State, value: &Value) -> anyhow::Result<Value> {
@@ -115,5 +121,30 @@ mod tests {
         assert_eq!(child["fast_mode"],Value::Null);
         let child=crate::domain::scope::clamp(&json!({"fast_mode":false}),&json!({"fast_mode":true}));
         assert_eq!(child["fast_mode"],json!(false));
+    }
+
+    #[test]
+    fn queued_fast_mode_accepts_the_supported_target_not_the_serving_model() {
+        let st = State::default();
+        assert!(validate_next_turn(&st, "sonnet", None, Some("opus"), &json!(true)).is_ok());
+        assert!(validate_next_turn(&st, "sonnet", None, None, &json!(true)).is_err());
+    }
+
+    #[test]
+    fn queued_fast_mode_rejects_an_unsupported_target_even_when_serving_fast() {
+        let st = State::default();
+        assert!(validate_next_turn(&st, "opus", None, Some("sonnet"), &json!(true)).is_err());
+        assert!(!validate_next_turn(&st, "opus", None, Some("sonnet"), &json!(false)).unwrap());
+    }
+
+    #[test]
+    fn queued_fast_mode_keeps_exact_target_version_and_boolean_checks() {
+        let mut st = State::default();
+        st.codex_fast_modes.insert("gpt-6.1-sol".into(), "priority".into());
+        assert!(validate_next_turn(&st, "sonnet", Some("6.1"), Some("sol"), &json!(true)).is_ok());
+        assert!(validate_next_turn(&st, "opus", Some("6"), Some("sol"), &json!(true)).is_err());
+        for value in [json!("true"), json!(null), json!(1)] {
+            assert!(validate_next_turn(&st, "sonnet", None, Some("opus"), &value).is_err());
+        }
     }
 }

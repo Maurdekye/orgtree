@@ -3448,8 +3448,11 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     } else if !preauthorized {
         authorize(tx, actor, &n, "retool").await?;
     }
-    let fast = req.get("fast_mode").map(|value| crate::providers::fast_mode::validate(
-        &engine.providers.state.load(), &n.tier, pinned(&n.scope), value)).transpose()?;
+    let fast = if let Some(value) = req.get("fast_mode") {
+        let pending: Option<String> = tx.query_one("SELECT pending_switch->>'tier' FROM ot.agents WHERE id=$1", &[&n.id]).await?.get(0);
+        Some(crate::providers::fast_mode::validate_next_turn(
+            &engine.providers.state.load(), &n.tier, pinned(&n.scope), pending.as_deref(), value)?)
+    } else { None };
     // Speed is node-local and read at the next turn. A speed-only tool call
     // must not restart the CLI or walk/reconfigure its descendants.
     if let Some(enabled) = fast.filter(|_| req.as_object().is_some_and(|o|

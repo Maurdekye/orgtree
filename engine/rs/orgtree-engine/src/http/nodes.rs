@@ -812,7 +812,7 @@ pub(crate) async fn apply_user_scope_in_tx(
         }
     };
     let row = tx
-        .query_one("SELECT scope, charter, team_charter, tier, account, pending_account->>'account',kind FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
+        .query_one("SELECT scope, charter, team_charter, tier, account, pending_account->>'account',kind, pending_switch->>'tier' FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
         .await?;
     if row.get::<_,String>(6)=="project" && !b.as_object().is_some_and(|o|
         o.contains_key("peer_mail") && o.keys().all(|k|matches!(k.as_str(),"op"|"node"|"peer_mail"))) {
@@ -824,8 +824,8 @@ pub(crate) async fn apply_user_scope_in_tx(
     // A speed-only save is node-local and never reconfigures a warm process.
     if let Some(value) = b.get("fast_mode").filter(|_| b.as_object().is_some_and(|o|
         o.keys().all(|k| matches!(k.as_str(), "op" | "node" | "fast_mode")))) {
-        let enabled = crate::providers::fast_mode::validate(&e.providers.state.load(), &row.get::<_,String>(3),
-            before["model_version"].as_str(), value)?;
+        let enabled = crate::providers::fast_mode::validate_next_turn(&e.providers.state.load(), &row.get::<_,String>(3),
+            before["model_version"].as_str(), row.get::<_,Option<String>>(7).as_deref(), value)?;
         let mut next = before.clone();
         next["fast_mode"] = json!(enabled);
         tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&next]).await?;
@@ -883,7 +883,8 @@ pub(crate) async fn apply_user_scope_in_tx(
     let view = e.accounts.view();
     let seat_login = login.as_deref().and_then(|id| view.get(id)).filter(|a| a.provider == crate::providers::catalog::MUSE);
     if let Some(value) = b.get("fast_mode") {
-        let enabled = crate::providers::fast_mode::validate(&e.providers.state.load(), &tier, version.as_deref(), value)?;
+        let enabled = crate::providers::fast_mode::validate_next_turn(&e.providers.state.load(), &tier, version.as_deref(),
+            row.get::<_,Option<String>>(7).as_deref(), value)?;
         obj.insert("fast_mode".into(), json!(enabled));
     }
     if let Some(v) = b.get("effort") {
