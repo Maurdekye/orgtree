@@ -10,6 +10,8 @@ export async function setup() { return {name:'heavy-dev-shop',fixture:'none',pre
 export default async function(rig) {
   const p=new Proof('heavy-dev-shop')
   const source=JSON.parse(fs.readFileSync(fileURLToPath(new URL('../../../engine/docs/templates/heavy-dev-shop.json',import.meta.url)),'utf8'))
+  await rig.api('POST','/api/providers/agy-models/refresh')
+  await rig.waitFor(async()=>((await rig.api('GET','/api/providers')).providers??[]).find(p=>p.id==='google')?.tiers?.some(t=>t.tier==='argon'),{what:'synthetic conditional Argon discovery',timeout:60000})
   await rig.waitFor(async()=>!(await rig.api('GET','/api/templates')).loading,{what:'synthetic model availability',timeout:30000})
   const plan=await rig.api('POST','/api/templates/resolve',{id:source.id,name:'Heavy proof',dirs:[]})
   p.check('the shipped template resolves all nine seats and one free project',plan.ok&&plan.agents.length===10&&plan.top_grant===48&&plan.standing_notes===7,plan)
