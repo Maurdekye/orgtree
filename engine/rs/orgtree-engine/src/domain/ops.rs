@@ -3196,9 +3196,15 @@ mod project_settings_tests {
         assert_eq!(project_setting_ops("alpha",&json!({"description":""})).unwrap(),vec![json!({"op":"set_description","node":"alpha","description":""})]);
     }
     #[test]
+    fn slots_patch_accepts_current_capacity_boundary() {
+        let capacity = crate::domain::slots::MAX_CAPACITY;
+        assert_eq!(project_setting_ops("alpha", &json!({"slots":capacity})).unwrap(),
+            vec![json!({"op":"set_slots","node":"alpha","capacity":capacity})]);
+    }
+    #[test]
     fn invalid_patch_fails_before_any_canonical_write() {
         for bad in [json!(null),json!([]),json!({}),json!({"account":"secret"}),json!({"peer_mail":"false"}),
-            json!({"slots":-1}),json!({"slots":65}),json!({"slots":1.5}),json!({"max_attempts":0}),json!({"max_attempts":101}),
+            json!({"slots":-1}),json!({"slots":crate::domain::slots::MAX_CAPACITY+1}),json!({"slots":1.5}),json!({"max_attempts":0}),json!({"max_attempts":101}),
             json!({"mail_queue":"fifo"}),json!({"name":"bad/name"}),json!({"description":null})] {
             assert!(project_setting_ops("alpha",&bad).is_err(),"accepted invalid patch {bad}");
         }
