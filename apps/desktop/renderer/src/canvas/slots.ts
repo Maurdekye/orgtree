@@ -32,7 +32,8 @@ export interface SlotWaiter { agent: string; dog: string; name: string; since?: 
 export interface ProjectSlotState { total: number; held: SlotLease[]; line: SlotWaiter[] }
 
 /** The largest slot count a project may have (engine `slots::MAX_CAPACITY`). */
-export const MAX_SLOTS = 64
+// Seven digits fit the actual near-card held/total badge (2026-10-21).
+export const MAX_SLOTS = 9_999_999
 
 /** Legacy payloads reserved one slot. The private slot ordinal is unrelated. */
 export const slotUnits = (n?: number) => Number.isInteger(n) && n! >= 1 && n! <= MAX_SLOTS ? n! : 1
@@ -90,7 +91,13 @@ export const slotsFull = (s: ProjectSlotState) => s.total > 0 && heldSlotCount(s
 
 /** The slots `agent` holds: its card's "⬢ build" chips. */
 export function slotHoldsOf(agent: string, leases: SlotLease[]): SlotLease[] {
-  return leases.filter((l) => l.agent === agent)
+  const groups=new Map<string,SlotLease>()
+  for(const l of leases){
+    if(l.agent!==agent)continue
+    const old=groups.get(l.project)
+    groups.set(l.project,old?{...old,slots:slotUnits(old.slots)+slotUnits(l.slots),since:old.since<l.since?old.since:l.since}:{...l})
+  }
+  return [...groups.values()]
 }
 
 /** A waiting claim's place in its project's line, or null. */
@@ -123,9 +130,13 @@ export interface SlotLink { key: string; owner: string; project: string; holding
  *  claims draw nothing: a holder draws through its lease). */
 export function slotLinks(dogs: Watchdog[], leases: SlotLease[], isProject: (name: string) => boolean): SlotLink[] {
   const out: SlotLink[] = []
+  const heldPairs=new Set<string>()
   // the user draws no line: they are no node of the tree (their holds and waits are still counted)
   for (const l of leases) {
-    if (isProject(l.project) && !isUserName(l.agent)) out.push({ key: 'sl:' + l.lease, owner: l.agent, project: l.project, holding: true })
+    const pair=l.project+'\0'+l.agent
+    if (isProject(l.project) && !isUserName(l.agent)&&!heldPairs.has(pair)) {
+      heldPairs.add(pair);out.push({key:'sl:'+pair,owner:l.agent,project:l.project,holding:true})
+    }
   }
   for (const w of dogs) {
     if (waiting(w) && isProject(target(w)) && !isUserName(w.owner)) out.push({ key: 'sw:' + w.id, owner: w.owner, project: target(w), holding: false })

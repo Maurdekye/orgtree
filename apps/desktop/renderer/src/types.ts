@@ -2447,7 +2447,7 @@ export interface OpRequest {
   /** create_project — what the project is (its charter, shown on its card);
    *  `parent` or `above` places it (docs/rust-engine/PROJECT-NODES.md) */
   description?: string | null
-  /** set_slots — a project's slot count, 0 (none) to 64 */
+  /** set_slots — a project's slot count, 0 (none) to 9,999,999 */
   capacity?: number
   /** set_event_listeners — a project's event-listeners setting, on or off */
   enabled?: boolean

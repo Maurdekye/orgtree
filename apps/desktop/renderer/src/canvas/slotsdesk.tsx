@@ -90,12 +90,17 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
 }) {
   useSyncExternalStore(subscribeAgeClock, ageClockNow, ageClockNow)
   const [status, setStatus] = useState<SlotStatus | null>(null)
+  const [statusAt,setStatusAt]=useState('')
+  const [holdError,setHoldError]=useState<string|null>(null)
+  const [shownHolds,setShownHolds]=useState(100)
+  const [shownWaits,setShownWaits]=useState(100)
   const [asking, setAsking] = useState<Holder | null>(null)
   const [count, setCount] = useState('1')
   const [bump, setBump] = useState(0)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState(false)
   const generation = useRef(0), historyBusy = useRef(false)
+  useEffect(()=>{setShownHolds(100);setShownWaits(100);setHoldError(null)},[node.id])
   // re-read when the tree's holders or line change (a grant, release or claim)
   const sig = state.total + '|' + state.held.map((l) => l.lease).join(',') + '|' + state.line.map((w) => w.dog).join(',')
   useEffect(() => {
@@ -103,7 +108,7 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
     generation.current++; historyBusy.current = false
     setHistoryLoading(false); setHistoryError(false)
     op({ op: 'slot_status', node: node.id })
-      .then((r) => { if (live) setStatus(previous => {
+      .then((r) => { if (live) {setStatusAt(sig);setStatus(previous => {
         // a body without the lists (an error page, an older engine) shows the
         // empty sections rather than crash the desk (coordinator 2026-10-19)
         const next = (r ?? null) as unknown as SlotStatus | null
@@ -113,7 +118,7 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
         // Preserve pages under an overlapping live head update. If the whole
         // head moved past our window, restart at its cursor rather than leave a gap.
         return overlap ? {...next, history:uniqueHolds([...head,...older]), history_next:previous.history_next} : next
-      }) })
+      })} })
       .catch(() => {})   // `op` toasts the refusal
     return () => { live = false; generation.current++ }
   }, [node.id, sig, bump])
@@ -163,15 +168,16 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
   // what they hold and what they wait for (a waiting request counts, USER 16:36Z "yes, thats fine"; an agent's
   // hold is not theirs); the tree's rows stand in until the first read lands
   const mineOf = (rows: { agent: string; slots?: number }[]) => rows.filter((r) => isUserName(r.agent)).reduce((n, r) => n + slotUnits(r.slots), 0)
-  const mine = status ? mineOf(status.holders ?? []) + mineOf(status.line ?? []) : mineOf(state.held) + mineOf(state.line)
+  const mine = status&&status.project===node.id&&statusAt===sig ? mineOf(status.holders ?? []) + mineOf(status.line ?? []) : mineOf(state.held) + mineOf(state.line)
   const total = Math.min(state.total, MAX_SLOTS)
   const room = Math.max(0, total - mine)
   const shown = bringCount(count, 1, room)
   const slotsToHold = room >= 1 ? countOf(shown) : null
   const hold = (slots: number) => {
+    setHoldError(null)
     op({ op: 'user_slot_hold', node: node.id, slots })
       .then(() => { toast([`asked for ${slots === 1 ? 'a concurrency slot' : `${slots} concurrency slots`} of ${node.id}: held when all are free`]); reread() })
-      .catch(() => {})
+      .catch((error:unknown) => {setHoldError(error instanceof Error?error.message:String(error));reread()})
     setCount('1')
   }
   const slotWords = (n: number) => n === 1 ? 'a concurrency slot' : `${n} concurrency slots`
@@ -194,6 +200,7 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
   return (
     <div className="desk-tabpanel project-slots" onScroll={scrollHistory}>
       {(holdControl || actions) && <div className="team-tab-toolbar" role="toolbar" aria-label="Slots view controls">{holdControl}{actions}</div>}
+      {holdError&&<div className="hint" role="alert">{holdError}</div>}
       <div className="slots-table-scroll" role="region" aria-label="Concurrency slot records" tabIndex={0} onScroll={scrollHistory}>
       <table className="slots-table">
         <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/><col className="slot-col-time"/>
@@ -204,7 +211,7 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
         <tr className="slot-section"><th colSpan={9} scope="rowgroup"><h4>Holding</h4></th></tr>
         {holders.length === 0 && <tr><td colSpan={9} className="dim slot-empty">Nobody holds a concurrency slot. An agent above or below the project claims one
           with <code>orgtree_watchdog action=create kind=slot target={node.id}</code>; it is granted at once while a concurrency slot is free.</td></tr>}
-        {holders.map((h) => (
+        {holders.slice(0,shownHolds).map((h) => (
           <tr key={h.lease} className="slot-row">
             <td className="slot-position"/>
             <th scope="row" className="slot-agent">{agentLink(h.agent)}</th>
@@ -226,11 +233,12 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
                   onClick={() => setAsking(h)}>force release</button>}</td>
           </tr>
         ))}
+        {holders.length>shownHolds&&<tr><td colSpan={9}><button type="button" onClick={()=>setShownHolds(n=>n+100)}>Show more holds ({holders.length-shownHolds} remaining)</button></td></tr>}
       </tbody>
       <tbody className="slots-line">
         <tr className="slot-section"><th colSpan={9} scope="rowgroup"><h4>Line</h4></th></tr>
         {line.length === 0 && <tr><td colSpan={9} className="dim slot-empty">Nobody is waiting.</td></tr>}
-        {line.map((w) => {
+        {line.slice(0,shownWaits).map((w) => {
           const mine = isUserName(w.agent)
           const cells = <>
             <td className="slot-position"><span className="slot-no">{ordinal(w.position)}</span></td>
@@ -261,6 +269,7 @@ export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }
             ? <tr key={w.agent + w.dog} className="slot-row">{cells}</tr>
             : <WatchdogRow as="tr" key={w.agent + w.dog} id={treeDog(w)?.dog ?? w.dog} className="slot-row">{cells}</WatchdogRow>
         })}
+        {line.length>shownWaits&&<tr><td colSpan={9}><button type="button" onClick={()=>setShownWaits(n=>n+100)}>Show more waiting claims ({line.length-shownWaits} remaining)</button></td></tr>}
       </tbody>
       <tbody className="slots-history">
         <tr className="slot-section"><th colSpan={9} scope="rowgroup"><h4>Recently Held</h4></th></tr>
