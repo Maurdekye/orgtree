@@ -88,7 +88,9 @@ pub fn view(w: &Value, owner: &str) -> Value {
             if let Some(v) = w["memo"]["mqtt"].get(key).filter(|v| !v.is_null()) { o.insert(key.into(), v.clone()); }
         }
         if let Some(v) = w["memo"]["run"].get("mqtt").filter(|v| v.is_object()) { o.insert("connection".into(), v.clone()); }
-        if let Some(v) = w["memo"]["run"].get("dropped").filter(|v| !v.is_null()) { o.insert("dropped".into(), v.clone()); }
+        for key in ["dropped", "sent", "last_sent_at"] {
+            if let Some(v) = w["memo"]["run"].get(key).filter(|v| !v.is_null()) { o.insert(key.into(), v.clone()); }
+        }
     }
     // a websocket dog: how it authenticates (never with what), what it says
     // on each connect, its connection and what it has sent

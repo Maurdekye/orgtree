@@ -2762,7 +2762,7 @@ async fn resume_listener(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, 
     Ok(out)
 }
 
-/// `orgtree_watchdog action=send`: write `message` on a websocket dog's live
+/// `orgtree_watchdog action=send`: write `message` on a websocket/MQTT dog's live
 /// connection, for its owner or a superior (resolved as for pause/resume/
 /// remove), holding the web tool (docs/rust-engine/websocket-watchdogs.md).
 #[logged]
@@ -2879,7 +2879,7 @@ pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
                 put("payload_pattern", d.memo["mqtt"]["payload_pattern"].clone());
                 put("retained", d.memo["mqtt"]["retained"].clone());
                 put("connection", d.run["mqtt"].clone());
-                put("dropped", d.run["dropped"].clone());
+                for key in ["dropped", "sent", "last_sent_at"] { put(key, d.run[key].clone()); }
             }
             if d.kind == "websocket" {
                 put("notify_on_connect", json!(d.memo["websocket"]["notify_on_connect"].as_bool().unwrap_or(false)));

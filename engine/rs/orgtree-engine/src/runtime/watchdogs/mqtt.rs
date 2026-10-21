@@ -40,7 +40,7 @@ fn publish_options(args: &Value) -> Result<(String, String, u8, bool)> {
         refuse!(BadRequest, "MQTT send needs a nonempty topic (no + or # wildcards)");
     };
     if topic.len() > 65535 || topic.contains(['+', '#', '\0']) {
-        refuse!(BadRequest, "publish topic must be at most65535 bytes, with no NUL or +/# wildcards");
+        refuse!(BadRequest, "publish topic must be at most 65535 bytes, with no NUL or +/# wildcards");
     }
     let Some(message) = args.get("message").or_else(|| args.get("payload")) else {
         refuse!(BadRequest, "MQTT send needs message (or payload): text or a JSON value");
@@ -48,7 +48,7 @@ fn publish_options(args: &Value) -> Result<(String, String, u8, bool)> {
     // Empty payloads are meaningful in MQTT: retain=true clears a retained value.
     let text = message.as_str().map(str::to_owned).unwrap_or_else(|| message.to_string());
     if text.len() > crate::mqtt::SEND_MAX {
-        refuse!(BadRequest, "message is {} bytes; send publishes at most64 KB in one message", text.len());
+        refuse!(BadRequest, "message is {} bytes; send publishes at most 64 KB in one message", text.len());
     }
     let qos = match args.get("qos") { None => 0, Some(v) => match v.as_u64() {
         Some(n @ 0..=2) => n as u8, _ => refuse!(BadRequest, "qos must be 0, 1 or 2"),
