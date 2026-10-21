@@ -125,8 +125,9 @@ import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
 import { setAttentionLayout } from '../attention/mode'
 import type { CanvasShortcutRef } from '../shell/appshortcuts'
-import { projectLineLanes, projectSlotState, slotBadgeText, slotCount, slotLinks } from './slots'
-import { listenerCards, listenerLinks, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
+import { projectLineLanes, slotLinks } from './slots'
+import { listenerLinks } from './listeners'
+import { projectHeaderFacts } from './projectheaderfacts'
 import type { ProjectLine, SlotLease } from './slots'
 
 /** What the org host hands a view rendered in its slot. Every field is
@@ -410,16 +411,14 @@ export function agentTooltipInfo(n: CanvasNode | undefined,
     const retired = n.state !== 'live' && n.state !== 'draft'
     // Same helpers and feed as the header badges. The shared native-title
     // host adds a name line only for identity-less links (USER 11:17:42Z).
-    const dogs = projectTree?.watchdogs ?? []
-    const slotBadge = slotBadgeText(projectSlotState(n.id, slotCount(n), projectTree?.slot_leases ?? [], dogs))
-    const listeners = projectListenerState(n.id, dogs)
-    const queue = mailQueueCard(n.id, n.mail_pending ?? 0, n.mail_held ?? 0, queueAckMode(n), dogs)
+    const { slotBadge, listeners, listenerBadges, queue, hasChips } = projectHeaderFacts(n, projectTree)
+    if (!hasChips) return { title: n.id }
     const charterFirstLine = n.charter?.split(/\r?\n/).find(l => l.trim().length > 0)?.trim()
     const charterSummary = charterFirstLine
       ? (charterFirstLine.length > 64 ? charterFirstLine.slice(0, 61) + '…' : charterFirstLine)
       : undefined
     const values = ['Project' + (retired ? ' (retired)' : ''), slotBadge ? `slots ${slotBadge}` : undefined,
-      ...listenerCards(n.id, listeners).map(c => c.text),
+      ...listenerBadges.map(c => c.text),
       listeners.armedWatches.length ? `${listeners.armedWatches.length} listener watch${listeners.armedWatches.length === 1 ? '' : 'es'}` : undefined,
       queue ? `mail: ${queue.text}` : undefined, charterSummary]
       .filter((value): value is string => !!value?.trim())

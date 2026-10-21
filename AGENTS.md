@@ -13,6 +13,11 @@ Read this file before working in this repository. It is the startup guide, not a
 
 ## Engine and desktop invariants
 
+- Project identity hover is the name alone when no coloured header fact chips
+  render, even on named links and mini cards. Header and hover share
+  `canvas/projectheaderfacts.ts`; projects with chips retain the name-class rule.
+  [decided: user 2026-10-21 15:56:49Z; verified: `canvas/OrgCanvas.tsx`, `canvas/projectcard.tsx`]
+
 - MQTT/WebSocket watchdog `send` uses the dog's existing authorized connection;
   MQTT requires a publish topic and shares the 64 KiB encoded-payload cap.
   Disconnected sends do not queue for reconnect. See [MQTT watchdogs](docs/rust-engine/mqtt-watchdogs.md).

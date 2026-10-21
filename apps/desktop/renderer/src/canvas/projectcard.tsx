@@ -33,8 +33,8 @@ import { useContextMenu } from './contextmenu'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentRetireConfirm, projectMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
-import { projectSlotState, slotBadgeText, slotCount, slotsFull, heldSlotCount } from './slots'
-import { listenerCards, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
+import { slotsFull, heldSlotCount } from './slots'
+import { projectHeaderFacts } from './projectheaderfacts'
 import { readQuickChat } from '../quickchat'
 import { agentTooltipProps } from './agentnav'
 import { useAgentSurfaceRoutes } from './panelcorner'
@@ -130,13 +130,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const docs = node.documents_count ?? node.documents?.length ?? 0
   // its slots at a glance, while it has a count: filled when full, outlined
   // with a slot free (the approved slots mockup, user 2026-10-18)
-  const slots = projectSlotState(node.id, slotCount(node), tree?.slot_leases ?? [], tree?.watchdogs ?? [])
-  const slotBadge = slotBadgeText(slots)
-  // its event listeners at a glance (cyan) and its mail queue (the
-  // fair-queue rose), beside the slots badge (user 2026-10-19)
-  const listenerState = projectListenerState(node.id, tree?.watchdogs ?? [])
-  const listenerBadges = listenerCards(node.id, listenerState)
-  const queue = mailQueueCard(node.id, waiting, node.mail_held ?? 0, queueAckMode(node), tree?.watchdogs ?? [])
+  const { slots, slotBadge, listenerBadges, queue } = projectHeaderFacts(node, tree)
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
   // the shortcuts give way to the open desk and to the pinned desk's

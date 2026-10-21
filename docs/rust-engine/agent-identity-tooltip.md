@@ -67,6 +67,14 @@ settings.
   tree leases/watchdogs at hover time, so all classes share current facts.
   [verified: `canvas/OrgCanvas.tsx`, `canvas/{slots,listeners}.ts`;
   tests: `projecttooltip.test.tsx`]
+- Exception, USER 2026-10-21 15:56:03Z, 15:56:42Z and 15:56:49Z:
+  "basically if no colored chips would be in its header". With no coloured
+  slot/listener/watch/mail-queue chips, the tooltip is the project name alone
+  on every surface and zoom, even if the name is already visible. Summary
+  text, the grey retired badge, and enabled-but-empty ACK/listener settings
+  do not count as chips. The card and hover both use `projectHeaderFacts`;
+  projects with chips keep the preceding facts/name-class rule.
+  [verified: `canvas/projectheaderfacts.ts`; tests: `projectnamefallback.test.tsx`]
 - The renderer joins its existing `/api/providers` and `/api/accounts` reads;
   the tree projection does not grow. Static tier names and version names come
   from the Rust model catalog. Dynamic tiers retain their `name`/`label`; a
