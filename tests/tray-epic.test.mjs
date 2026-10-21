@@ -39,6 +39,7 @@ function fixture() {
     tray: { setImage() {}, setToolTip() {}, setContextMenu(menu) { current = menu } },
     preferences: { get: () => ({ ...saved }), set: patch => (saved = { ...saved, ...patch }) },
     effectiveTheme: undefined, trayMenu: undefined, trayMenuOpen: false, startupChanging: false,
+    adminState: null, adminChanging: false, refreshRunAsAdministrator: undefined, changeRunAsAdministrator: undefined,
     runtimeIcon: () => ({ isEmpty: () => true }), attentionTotal: 0, applyWindowIcon() {},
     startupKind: () => 'boot', updatesSupported: false, label: () => 'test',
     hubMenuItem: () => ({ id: 'mailhub-status' }), trayHarnesses: null,

@@ -20,6 +20,7 @@ While running, organizations are grouped into their own taskbar identities using
 | Mail hub status | Shows running/stopped/error state and opens the hub in the browser when available |
 | Connect your phone | Opens the phone panel in the last-used window, creating a homepage if needed |
 | Run on boot ("Run on sign-in" where Orgtree cannot start at boot) | Changes the native startup preference; a pending change disables the checkbox |
+| Run as admin | Same protected administrator setting as App settings: ON shows the full-admin warning then one Windows permission prompt; OFF asks permission once. Disabled while unavailable or changing; cancellation restores the saved checkmark. Applies at the next engine start. |
 | Exit on close | Changes the native last-window-close preference |
 | Notifications | Master checkbox and per-event notification switches; subordinate switches are disabled when the master is off |
 | Harness setup | Detected harness status and the corresponding installation destinations |

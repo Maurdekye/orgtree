@@ -38,6 +38,8 @@ Automatic updates are disabled when the installation cannot perform an unattende
 
 ## Administrator changes and engine restart
 
+Run as admin is also beside Run on boot in the tray context menu. Both controls use `bridge:setRunAsAdministrator` / `desktop:set-run-as-admin`'s shared change handler; they accept only one administrator change at a time. Switching OFF also asks for Windows permission once. Declining the warning or permission prompt leaves the setting unchanged, and the tray restores its saved checkmark. The tray changes the next-start preference without restarting the engine. These protected desktop controls are operated by the user; agents explain them rather than bypassing the permission prompt.
+
 Run as admin is available only on Windows while Orgtree uses its boot task. Otherwise its disabled explanation describes the actual limitation. One permission prompt sets the run level of all three Orgtree tasks: the boot engine, the sign-in helper and the user-session engine. A task's run level is what the engine or the agents' CLIs it starts get. Merely saving the rights preference does not change the current engine's token. After changing it, **Restart the background engine now** appears under apply the change.
 
 **Run this session as admin**, next to the switch, restarts the engine and its agents elevated in the user's current session, with one Windows permission prompt per click. It never changes the switch, and a later automatic restart or update follows the switch again. It is disabled while Run as admin is on and when nobody is signed in at the console. A declined prompt leaves the running engine untouched.

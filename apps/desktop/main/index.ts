@@ -849,6 +849,12 @@ else {
     }
     finally { rebuildTray() }
   }
+  // "RUN AS ADMIN": Settings and the tray share the same guarded change below.
+  // Until the protected setting/tasks have been read, the tray cannot offer it.
+  let adminState: RunAsAdministratorState | null = null
+  let adminChanging = false
+  let refreshRunAsAdministrator: (() => Promise<RunAsAdministratorState>) | undefined
+  let changeRunAsAdministrator: ((enabled: unknown, restartNow: unknown) => Promise<RunAsAdministratorState>) | undefined
   let trayHarnesses: HarnessSetup[] | null = null
   const rebuildTray = () => {
     const image = runtimeIcon()
@@ -864,6 +870,8 @@ else {
     // replacing an open native menu is deliberately avoided below.
     const startup = trayMenu?.getMenuItemById('run-on-startup')
     if (startup) { startup.checked = prefs.startAtLogin; startup.enabled = !startupChanging }
+    const admin = trayMenu?.getMenuItemById('run-as-admin')
+    if (admin) { admin.checked = adminState?.enabled ?? false; admin.enabled = !!adminState?.available && !adminChanging }
     refreshTrayEpic(trayMenu, prefs)
     if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); refreshTrayHub(); return }
     tray.setToolTip(`Orgtree - ${label()}` + (attentionTotal > 0 ? ` - ${attentionTotal} need${attentionTotal === 1 ? 's' : ''} your attention` : ''))
@@ -906,6 +914,14 @@ else {
           void dialog.showMessageBox({ type: 'warning', title: 'Orgtree', message: error.message })
         })
       } },
+      { id: 'run-as-admin', label: 'Run as admin' + (adminChanging ? ' (changing…)' : ''), type: 'checkbox',
+        checked: adminState?.enabled ?? false, enabled: !!adminState?.available && !adminChanging,
+        click: item => {
+          void changeRunAsAdministrator?.(item.checked, false).catch((error: Error) => {
+            rebuildTray()
+            void dialog.showMessageBox({ type: 'warning', title: 'Orgtree', message: error.message })
+          })
+        } },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
       epicMuteTrayItem(prefs, setPreferences),
       { label: 'Notifications', submenu: [
@@ -929,14 +945,18 @@ else {
         click: () => { void restartEngine() } },
       { label: 'Quit Orgtree', click: () => app.quit() },
     ])
-    trayMenu.on('menu-will-show', () => { trayMenuOpen = true; rebuildTray() })
+    trayMenu.on('menu-will-show', () => {
+      trayMenuOpen = true; rebuildTray()
+      if (!adminChanging) void refreshRunAsAdministrator?.().catch(() => {})
+    })
     // A built menu's labels are fixed. If a startup change began or ended
     // while this menu was open, build the next one once it has closed
     // (after the click that closed it has run).
     const builtChanging = startupChanging
+    const builtAdminChanging = adminChanging
     trayMenu.on('menu-will-close', () => {
       trayMenuOpen = false
-      if (builtChanging !== startupChanging) setTimeout(rebuildTray)
+      if (builtChanging !== startupChanging || builtAdminChanging !== adminChanging) setTimeout(rebuildTray)
     })
     refreshTrayUpdates()
     refreshTrayEngine()
@@ -2379,7 +2399,20 @@ else {
         return { available: tasks?.boot != null, enabled, canRunInSession,
           ...(!tasks || tasks.boot === null ? {reason:'The Session 0 boot task is not installed.'} : {}) }
       }
-      handleApp('desktop:run-as-admin', () => runAsAdministratorState())
+      let adminRead = 0
+      refreshRunAsAdministrator = async () => {
+        const read = ++adminRead
+        try {
+          const state = await runAsAdministratorState()
+          if (read === adminRead) { adminState = state; rebuildTray() }
+          return state
+        } catch (error) {
+          if (read === adminRead) { adminState = null; rebuildTray() }
+          throw error
+        }
+      }
+      void refreshRunAsAdministrator().catch(() => {})
+      handleApp('desktop:run-as-admin', () => refreshRunAsAdministrator!())
       handleApp('desktop:run-session-as-admin', async () => {
         if (!(await runAsAdministratorState()).canRunInSession) throw new Error('No signed-in console session is available.')
         await restartBackgroundEngine(true)
@@ -2392,24 +2425,33 @@ else {
         return addPhoneFirewallRule(scope)
       })
       handleApp('desktop:phone-firewall-remove', () => removePhoneFirewallRule())
-      handleApp('desktop:set-run-as-admin', async (enabled: unknown, restartNow: unknown) => {
+      changeRunAsAdministrator = async (enabled: unknown, restartNow: unknown) => {
         if (typeof enabled !== 'boolean' || typeof restartNow !== 'boolean') throw new Error('Invalid setting')
-        const state = await runAsAdministratorState()
-        if (!state.available) throw new Error(state.reason || 'This setting is not available.')
-        if (backgroundEngineRestart || engineRestartBlocked()) throw new Error('Orgtree is busy restarting or updating; try again in a moment.')
-        // "Restart now" after a change repeats the value already stored; only
-        // a real change needs Windows' permission. Switching it on first says
-        // plainly what it does (the user, 2026-10-21 15:25Z and 15:27Z).
-        if (enabled && !state.enabled) {
-          const { response } = await dialog.showMessageBox({ type: 'warning', buttons: ['Run as admin', 'Cancel'], defaultId: 1, cancelId: 1,
-            message: 'Run every agent as administrator?',
-            detail: 'Every agent then runs with full administrator rights on this PC: the engine in Session 0, and the engine and agents in your session, at boot, sign-in, restarts and updates, with no further prompts. Windows asks for permission once now.' })
-          if (response !== 0) throw new Error('Run as admin was not turned on.')
+        if (adminChanging) throw new Error('Orgtree is still changing administrator rights. Try again once that has finished.')
+        adminChanging = true
+        try {
+          rebuildTray()
+          const state = await refreshRunAsAdministrator!()
+          if (!state.available) throw new Error(state.reason || 'This setting is not available.')
+          if (backgroundEngineRestart || engineRestartBlocked()) throw new Error('Orgtree is busy restarting or updating; try again in a moment.')
+          // "Restart now" after a change repeats the value already stored; only
+          // a real change needs Windows' permission. Switching it on first says
+          // plainly what it does (the user, 2026-10-21 15:25Z and 15:27Z).
+          if (enabled && !state.enabled) {
+            const { response } = await dialog.showMessageBox({ type: 'warning', buttons: ['Run as admin', 'Cancel'], defaultId: 1, cancelId: 1,
+              message: 'Run every agent as administrator?',
+              detail: 'Every agent then runs with full administrator rights on this PC: the engine in Session 0, and the engine and agents in your session, at boot, sign-in, restarts and updates, with no further prompts. Windows asks for permission once now.' })
+            if (response !== 0) throw new Error('Run as admin was not turned on.')
+          }
+          if (state.enabled !== enabled) await writeRunAsAdministrator(enabled)
+          if (restartNow) await restartBackgroundEngine()
+          return await refreshRunAsAdministrator!()
+        } finally {
+          adminChanging = false
+          rebuildTray()
         }
-        if (state.enabled !== enabled) await writeRunAsAdministrator(enabled)
-        if (restartNow) await restartBackgroundEngine()
-        return runAsAdministratorState()
-      })
+      }
+      handleApp('desktop:set-run-as-admin', (enabled: unknown, restartNow: unknown) => changeRunAsAdministrator!(enabled, restartNow))
       /** "Run on boot", or "Run on sign-in" where there is no boot task
        *  (coordinator ruling A, 2026-10-16): what the renderer calls the
        *  switch. The tasks are read once if Orgtree has not read them yet. */

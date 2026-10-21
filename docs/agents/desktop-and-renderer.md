@@ -1,5 +1,14 @@
 # Desktop and renderer
 
+## Tray administrator setting
+
+The tray Run as admin checkbox and Settings share the protected admin-change
+handler and its guard, set before any asynchronous read or warning. The tray
+keeps the authoritative checkmark during prompts, refreshes it after Settings
+changes and on menu open, and never replaces an open native menu. Availability
+uses the same boot-task detection as Settings. See [runtime desktop](../skills/orgtree-app/app-settings/app-runtime-desktop/SKILL.md).
+[decided: user 2026-10-21 22:36Z; verified: `main/index.ts`, `tests/tray-admin.test.mjs`]
+
 ## Project jump activity
 
 The shared `NavChip` derives project activity from `subtreeAgents(node)` and
