@@ -281,20 +281,19 @@ mod taskbar_notice_tests {
 /// flag up, and unseen `@user` mentions on live agents.
 #[logged]
 pub async fn attention_count(client: &Client, org_id: i64) -> Result<i64> {
+    let mail = super::mail_attention::pending_summary(client,org_id,false).await?;
     let r = client
         .query_one(
             &format!("SELECT (SELECT count(*) FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
                       WHERE k.org_id = $1 AND k.status = 'open' AND a.state = 'live')
-                  + (SELECT count(*) FROM ot.mail WHERE org_id = $1 AND recipient_kind = 'user'
-                      AND state = 'pending' AND {})
                   + (SELECT count(*) FROM ot.work_items WHERE org_id = $1 AND manual_attention IS NOT NULL)
                   + (SELECT count(*) FROM ot.agents a WHERE a.org_id = $1 AND a.state = 'live'
                       AND a.extra->'user_mention' IS NOT NULL AND a.extra->>'user_mention' <> 'null'
-                      AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE m.org_id=$1 AND m.recipient_kind='user' AND m.state='pending' AND {}))",super::mail_attention::SQL,super::mail_attention::DUPLICATE_MENTION_SQL),
+                      AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE m.org_id=$1 AND m.recipient_kind='user' AND m.state='pending' AND {}))",super::mail_attention::DUPLICATE_MENTION_SQL),
             &[&org_id],
         )
         .await?;
-    Ok(r.get(0))
+    Ok(r.get::<_,i64>(0)+mail.attention)
 }
 
 /// Typed failures alert even when routine mail is disabled (3.x parity).

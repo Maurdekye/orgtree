@@ -1,5 +1,16 @@
 # Mail and hub
 
+## Active unread attention counts
+
+Inbox-summary and native attention aggregates use the existing Rust visible-prose
+eligibility function, including Markdown code exclusion and nested quoted prose.
+They iterate the complete pending user-mail set by ascending id in bounded
+pages, with no page-count cap and no read/delivered history. Inbox summary keeps
+its disabled-org-inbox exclusion; native attention keeps its broader existing
+mail scope. Urgency remains sufficient regardless of prose. This replaces the
+raw SQL token regex that counted code examples. [verified:
+`domain/mail_attention.rs`, `domain/notices.rs`, `feed/groups.rs`; 2026-10-21]
+
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
 Delivery, mentions, inboxes, outside authority, files, Hubchat and hub transport.

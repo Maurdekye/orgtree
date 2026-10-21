@@ -7,7 +7,41 @@ const FIELDS: &[&str]=&["body","text","title","subject","gist","quoted_context",
 // Same conservative 0..10 second window as the renderer and read-clear helper.
 // CASE protects the cast: malformed legacy metadata leaves its mention visible.
 pub const DUPLICATE_MENTION_SQL: &str = "m.sender=a.name AND CASE WHEN pg_input_is_valid(a.extra->'user_mention'->>'at', 'timestamp with time zone') THEN m.created_at >= (a.extra->'user_mention'->>'at')::timestamptz AND m.created_at <= (a.extra->'user_mention'->>'at')::timestamptz + interval '10 seconds' ELSE false END AND a.extra->'user_mention'->>'blurb' LIKE '%@user%' AND position(trim(both '…' from btrim(regexp_replace(a.extra->'user_mention'->>'blurb', '\\s+', ' ', 'g'))) in btrim(regexp_replace(m.body, '\\s+', ' ', 'g'))) > 0";
-pub const SQL: &str = "(urgent OR concat_ws(E'\\n', body, (SELECT string_agg(part, E'\\n') FROM jsonb_array_elements_text(jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.body') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.text') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.title') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.subject') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.gist') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.quoted_context') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.question') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.summary') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.excerpt') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.reason') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.err') || jsonb_path_query_array(jsonb_build_array(ev,reply_to,replies), '$.**.headline')) AS prose(part))) ~ '(^|[^A-Za-z0-9_@./:-])@user([^A-Za-z0-9_-]|$)')";
+
+#[derive(Debug, Default, serde::Serialize)]
+pub struct PendingSummary {
+    pub all: i64,
+    pub attention: i64,
+    pub newest: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Aggregate only active unread mail, in bounded pages with no page-count cap.
+/// Keep the inbox's external-mail visibility separate from native counts.
+/// Eligibility is the same parser used for rows and native mail notices.
+#[logged]
+pub async fn pending_summary(client:&(impl tokio_postgres::GenericClient + Sync),org:i64,visible_only:bool)->Result<PendingSummary> {
+    let mut summary=PendingSummary::default();
+    let mut after=0_i64;
+    loop {
+        let rows=client.query("SELECT id,body,urgent,ev,reply_to,replies,created_at FROM ot.mail
+            WHERE org_id=$1 AND recipient_kind='user' AND state='pending' AND id>$2
+              AND (NOT $3 OR ((sender NOT LIKE '@org:%' AND sender NOT LIKE '@net:%'
+                AND COALESCE(ev->>'variant','') <> 'runtime.external_unroutable' AND extra->>'transfer_failure' IS NULL)
+                OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)))
+            ORDER BY id LIMIT 200",&[&org,&after,&visible_only]).await?;
+        if rows.is_empty(){break;}
+        for row in &rows {
+            after=row.get(0);
+            summary.all+=1;
+            summary.newest=summary.newest.max(Some(row.get(6)));
+            if qualifies(&json!({"body":row.get::<_,String>(1),"urgent":row.get::<_,bool>(2),
+                "ev":row.get::<_,Option<Value>>(3),"reply_to":row.get::<_,Option<Value>>(4),"replies":row.get::<_,Option<Value>>(5)})) {
+                summary.attention+=1;
+            }
+        }
+    }
+    Ok(summary)
+}
 
 #[nolog]
 fn visible_mention(v:&Value)->bool {
@@ -62,9 +96,11 @@ mod tests {
         assert!(!qualifies(&json!({"body":"ordinary","ev":{"id":"@user","path":"@user"}})));
         assert!(qualifies(&json!({"urgent":true,"body":"plain"})));
     }
-    #[test] fn sql_and_projection_cover_the_same_visible_fields(){
-        for field in FIELDS {assert!(SQL.contains(&format!("$.**.{field}")));}
-        assert!(SQL.contains("(^|[^A-Za-z0-9_@./:-])@user([^A-Za-z0-9_-]|$)"));
+    #[test] fn every_supported_nested_prose_field_uses_code_aware_eligibility(){
+        for field in FIELDS {
+            assert!(qualifies(&json!({"ev":{"quote":{*field:"Real @user outside code"}}})));
+            assert!(!qualifies(&json!({"ev":{"quote":{*field:"Only `@user` inside code"}}})));
+        }
     }
     #[test] fn quote_arrays_qualify_without_metadata_matches(){
         assert!(qualifies(&json!({"replies":[{"gist":"See @user"}]})));
@@ -114,6 +150,27 @@ mod tests {
         client.batch_execute("DELETE FROM ot.mail; INSERT INTO ot.mail(id,body) SELECT i,'Ready @user.' FROM generate_series(1,405) i;
             INSERT INTO ot.mail(id,body,state) SELECT i,'Old @user.','read' FROM generate_series(406,810) i;").await.unwrap();
         assert_eq!(crate::domain::notices::attention_count(&client,1).await.unwrap(),405,"count must exhaust pending pages and ignore read history");
+        let visible=pending_summary(&client,1,true).await.unwrap();
+        assert_eq!((visible.all,visible.attention),(405,405));
+        client.batch_execute("UPDATE ot.orgs SET settings='{\"org_inbox_enabled\":false}';
+            INSERT INTO ot.mail(id,body,sender) VALUES(900,'External @user.','@org:outside');
+            INSERT INTO ot.mail(id,body) VALUES(901,'Ordinary mail');
+            INSERT INTO ot.mail(id,body,recipient_kind) VALUES(902,'Agent @user.','agent');
+            INSERT INTO ot.mail(id,body,org_id) VALUES(903,'Other org @user.',2);").await.unwrap();
+        let visible=pending_summary(&client,1,true).await.unwrap();
+        assert_eq!((visible.all,visible.attention),(406,405),"inbox keeps its disabled-external policy");
+        let native=pending_summary(&client,1,false).await.unwrap();
+        assert_eq!((native.all,native.attention),(407,406));
+        assert_eq!(crate::domain::notices::attention_count(&client,1).await.unwrap(),406,"native counts keep their existing broader mail scope");
+        for field in FIELDS {
+            client.execute("DELETE FROM ot.mail",&[]).await.unwrap();
+            let ev=json!({"quote":{*field:"Only `@user` in code"}});
+            client.execute("INSERT INTO ot.mail(id,body,ev) VALUES(1,'ordinary',$1)",&[&ev]).await.unwrap();
+            assert_eq!(crate::domain::notices::attention_count(&client,1).await.unwrap(),0,"{field}");
+            let ev=json!({"quote":{*field:"Real @user outside code"}});
+            client.execute("UPDATE ot.mail SET ev=$1",&[&ev]).await.unwrap();
+            assert_eq!(crate::domain::notices::attention_count(&client,1).await.unwrap(),1,"{field}");
+        }
         drop(client);connection.await.unwrap();
     }
     #[tokio::test]

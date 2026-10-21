@@ -247,17 +247,11 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             snapshot
         }
         "inbox_summary" => {
-            let r = client
-                .query_one(
-                    &format!("SELECT count(*), count(*) FILTER (WHERE {}), max(created_at)
-                       FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND recipient_kind = 'user' AND state = 'pending'", crate::domain::mail_attention::SQL),
-                    &[&org_id],
-                )
-                .await?;
+            let summary=crate::domain::mail_attention::pending_summary(client,org_id,true).await?;
             json!({
-                "user_inbox_count": r.get::<_, i64>(0),
-                "urgent_unread": r.get::<_, i64>(1),
-                "user_inbox_newest": iso_opt(r.get(2)),
+                "user_inbox_count": summary.all,
+                "urgent_unread": summary.attention,
+                "user_inbox_newest": iso_opt(summary.newest),
             })
         }
         "org_inbox" => {

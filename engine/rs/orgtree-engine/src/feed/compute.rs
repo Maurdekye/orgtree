@@ -45,7 +45,7 @@ mod mention_attention_tests {
     #[test]
     fn summaries_and_native_attention_share_the_mail_predicate() {
         for source in [include_str!("groups.rs"),include_str!("../domain/notices.rs")] {
-            assert!(source.contains("mail_attention::SQL"),"summary and native notice must use same eligibility");
+            assert!(source.contains("mail_attention::pending_summary"),"summary and native notice must use same eligibility");
         }
     }
 }
