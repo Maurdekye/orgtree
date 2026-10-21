@@ -1,6 +1,6 @@
 // Shared display projection for the canvas and reparent landing ghosts.
 import type { TreePayload } from '../types'
-import { DRAFT, DOG_W, DOG_H, NODE_W, NODE_H, INBOX, USER, canvasOwner, layout, placeOrgInbox, cardFurniture } from './shared'
+import { DRAFT, DOG_W, DOG_H, NODE_W, NODE_H, INBOX, ROOT_BADGE_H, USER, canvasOwner, layout, placeOrgInbox, cardFurniture } from './shared'
 import type { CanvasNode, Pile, ChartLayout } from './shared'
 import { WATCHDOG_CARD_LIMIT, WATCHDOG_GROUP_W } from './watchdoggroup'
 
@@ -127,7 +127,7 @@ export function viewHidden(vroot: CanvasNode, piles: ReadonlyMap<string, Pile>) 
     return out
 }
 
-export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, CanvasNode>, hidden: Map<string, string>, chartLayout: ChartLayout, tree: TreePayload, inboxPxc: number, draftCredits?: number, bunch = true, hideRetired = false) {
+export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, CanvasNode>, hidden: Map<string, string>, chartLayout: ChartLayout, tree: TreePayload, inboxPxc: number, draftCredits?: number, bunch = true, hideRetired = false, rootBadge = false) {
     const t = layout(vroot, hidden, chartLayout, bunch, map, hideRetired)
     for (const n of map.values()) {           // live bearers float ABOVE the successor
       // (clear of its card — overlap made both unclickable)
@@ -160,7 +160,8 @@ export function canvasTargets(vroot: CanvasNode, map: ReadonlyMap<string, Canvas
       for (const w of tree.watchdogs ?? []) {
         const own = canvasOwner(w.owner)
         if (!t.has(own)) continue
-        const p = t.get(own)!
+        // under the eye, the root's retired badge sits first; the dogs start below it
+        const p0 = t.get(own)!, p = own === USER && rootBadge ? { x: p0.x, y: p0.y + ROOT_BADGE_H } : p0
         if ((tree.watchdog_counts?.[w.owner]?.total ?? byOwner[own]!) > WATCHDOG_CARD_LIMIT) {
           t.set('dog:' + w.id, { x:p.x+NODE_W/2-WATCHDOG_GROUP_W/2, y:p.y+NODE_H+8 })
           continue

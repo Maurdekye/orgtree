@@ -1211,7 +1211,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       ?? draftOpeningGrant(draft, tree.default_top_grant ?? 50, map))
     : undefined
   const target = useMemo(() => {
-    const points = canvasTargets(vroot, map, hidden, chartLayout, tree, inboxPxc, draftCredits, bunchProjects, hideRetired)
+    const points = canvasTargets(vroot, map, hidden, chartLayout, tree, inboxPxc, draftCredits, bunchProjects, hideRetired, (retiredCounts.get(USER) ?? 0) > 0)
     if (pendingHire) {
       const id = hireArrived ? hireId! : DRAFT
       if (points.has(id)) points.set(id, pendingHire.pos)
@@ -1224,7 +1224,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       }
     }
     return points
-  }, [vroot, map, tree, hidden, chartLayout, inboxPxc, draftCredits, bunchProjects, hideRetired, pendingHire, hireArrived, hireId])
+  }, [vroot, map, tree, hidden, chartLayout, inboxPxc, draftCredits, bunchProjects, hideRetired, retiredCounts, pendingHire, hireArrived, hireId])
   const [view, setView] = useState<View>(() => {
     // fit-on-load: center the initial tree in a typical viewport (re-fit against
     // the REAL viewport once mounted — see the mount effect below)
