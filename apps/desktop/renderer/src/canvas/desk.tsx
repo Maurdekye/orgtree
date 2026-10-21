@@ -2463,8 +2463,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // id, and this is what finds it (coordinator-astra review, 2026-09-11 —
   // deduplicating must not cost a working reply link).
   const durableOf = new Map<string, string>()
+  const assistantOf = new Map<string, string>()
   for (const m of chat?.messages ?? []) {
     if (m.event_id && m.native_event_id) durableOf.set(m.event_id, m.native_event_id)
+    if (m.event_id && m.assistant_id) assistantOf.set(m.event_id, m.assistant_id)
   }
   const locateReplyNow = (r: ReplyContext) => {
     if (!sameReplyIdentity(r)) return
@@ -2493,6 +2495,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
   const locateReplyHandler = useRef(locateReplyNow)
   locateReplyHandler.current = r=>{
+    mentionCenterHoldRef.current = null
     if(replyLoaded(r)){
       growAnchor.current=null;stopSettle();setPendingReplyJump(null);locateReplyNow(r)
     }else if(canPageReply(r)){
@@ -2549,8 +2552,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // A mention jump targets transcript text even if this desk was on another tab.
   useEffect(() => {
     if (mentionHighlight) setView('chat')
-  }, [mentionHighlight?.mentionId])
+  }, [mentionHighlight?.mentionId, mentionHighlight?.seq])
   const scrolledMentionRef = useRef<string | null>(null)
+  const scrolledMentionSeqRef = useRef<number | null>(null)
+  const mentionCenterHoldRef = useRef<string | null>(null)
   useEffect(() => {
     if (!historyVisible || view !== 'chat') return
     if (orgView === 'attention') return
@@ -2654,10 +2659,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // sent message "jumps for one frame, then returns"); it only worked from a
   // view that had already been scrolled up. Follow resumes when the reader
   // scrolls back down to the tail or uses "jump to bottom".
-  const leaveBottom = () => { scrollIntent.current = null; setStuck(false) }
+  const leaveBottom = () => { loadedRef.current = true; scrollIntent.current = null; setStuck(false) }
   const noteScrollIntent = (direction: -1 | 1) => {
     // Cover asynchronous default scrolling and touch/trackpad momentum; this
     // timestamp does not schedule a timer or keep a closed desk alive.
+    mentionCenterHoldRef.current = null
     scrollIntent.current = { direction, until: performance.now() + 1000 }
     if (direction < 0) setStuck(false)
   }
@@ -2909,8 +2915,23 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // seq is the PRE-slice ordinal, so a non-zero first seq means older rows exist
   const hasOlder = chat?.has_older ?? ((chat?.messages[0]?.seq ?? 0) > 0)
   useLayoutEffect(() => {
+    if (!mentionHighlight) {
+      scrolledMentionRef.current = null
+      scrolledMentionSeqRef.current = null
+      mentionCenterHoldRef.current = null
+      return
+    }
     const host = scroller.current
-    if (!host || !mentionHighlight || view !== 'chat') return
+    if (!host || view !== 'chat') return
+    const scrollKey = `${mentionHighlight.mentionId}:${mentionHighlight.seq ?? 0}`
+    if (!convo.loaded || !chat) {
+      if (scrolledMentionRef.current !== scrollKey) {
+        leaveBottom()
+        growAnchor.current = null
+        stopSettle()
+      }
+      return
+    }
     const evId = mentionHighlight.eventId
     let target: HTMLElement | null = null
     if (evId) {
@@ -2921,10 +2942,23 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         ? [...host.querySelectorAll<HTMLElement>('[data-native-event]')]
             .find(el => el.dataset.nativeEvent === durable)
         : undefined
-      target = byReply ?? byNative ?? null
+      const assistant = assistantOf.get(evId)
+      const byAssistant = !byReply && !byNative && assistant
+        ? [...host.querySelectorAll<HTMLElement>('[data-assistant-id]')]
+            .find(el => el.dataset.assistantId === assistant)
+        : undefined
+      target = byReply ?? byNative ?? byAssistant ?? null
+    }
+    const canPageOlder = hasOlder && !convo.olderError && convo.win < MAX_WINDOW
+    if (evId && !target && canPageOlder && scrolledMentionRef.current !== scrollKey) {
+      leaveBottom()
+      if (!loadingOlder) loadOlder()
+      growAnchor.current = null
+      stopSettle()
+      return
     }
     if (!target) {
-      const candidates = [...host.querySelectorAll<HTMLElement>('[data-transcript-row], .reply-event, .msg.assistant')]
+      const candidates = [...host.querySelectorAll<HTMLElement>('.msg.assistant')]
       for (let i = candidates.length - 1; i >= 0; i--) {
         const c = candidates[i]!
         if (/(^|[^0-9A-Za-z._%+-])@user(?![0-9A-Za-z_@/-]|\.[0-9A-Za-z])/i.test(c.textContent ?? '')) {
@@ -2939,16 +2973,37 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     const blocks = [...rowEl.querySelectorAll<HTMLElement>('p, li, blockquote, pre')]
       .filter(el => /(^|[^0-9A-Za-z._%+-])@user(?![0-9A-Za-z_@/-]|\.[0-9A-Za-z])/i.test(el.textContent ?? ''))
     const lineEl = blocks[0] ?? rowEl.querySelector<HTMLElement>('.md') ?? msgEl
+    const firstSeq = chat.messages[0]?.seq ?? null
+    const prependedWhileHolding = mentionCenterHoldRef.current === scrollKey
+      && firstSeq !== null
+      && scrolledMentionSeqRef.current !== null
+      && firstSeq < scrolledMentionSeqRef.current
     // Attention selects the scroll destination only. Msg/live content owns
     // its permanent single-layer styling, independently of dismissal.
-    if (scrolledMentionRef.current !== mentionHighlight.mentionId) {
-      scrolledMentionRef.current = mentionHighlight.mentionId
+    if (scrolledMentionRef.current !== scrollKey || prependedWhileHolding) {
       revealPendingRun(rowEl)
       revealSystemRuns(rowEl)
       leaveBottom()
-      centerTranscriptTarget(host, lineEl)
+      growAnchor.current = null
+      stopSettle()
+      const hostRect = host.getBoundingClientRect()
+      const lineRect = lineEl.getBoundingClientRect()
+      const wantTop = host.scrollTop + (lineRect.top - hostRect.top) - Math.max(0, (host.clientHeight - lineRect.height) / 2)
+      if (centerTranscriptTarget(host, lineEl)) {
+        scrolledMentionRef.current = scrollKey
+        scrolledMentionSeqRef.current = firstSeq
+        mentionCenterHoldRef.current = scrollKey
+        knownTop.current = host.scrollTop
+        followTop.current = host.scrollTop
+        anchorEcho.current = host.scrollTop
+        if (wantTop < -1 && canPageOlder && !loadingOlder) {
+          loadOlder()
+          growAnchor.current = null
+          stopSettle()
+        }
+      }
     }
-  }, [mentionHighlight, view, chat?.messages, live_feed])
+  }, [mentionHighlight, view, convo.loaded, chat?.messages, chat?.before, chat?.has_older, loadingOlder, convo.olderError, live_feed])
   /** the rows this desk needs to fill itself — the floor a window collapse
    *  must never cut below, or it takes away what is on screen. A tall pinned
    *  desk needs many more than CHAT_WINDOW, which is the whole reason the
@@ -2958,6 +3013,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     return el ? transcriptViewport(el).page : CHAT_WINDOW
   }
   const toBottom = () => {
+    mentionCenterHoldRef.current = null
     scrollIntent.current = null
     scrollbarPointer.current = null
     followTop.current = null   // explicit jump wins over unreported movement
@@ -3353,7 +3409,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   useEffect(() => {
     // the FIRST payload this view sees lands it at the bottom, whether the
     // store fetched it for us or another view had already loaded it
-    if (convo.loaded && !loadedRef.current) { loadedRef.current = true; setStuck(true) }
+    if (convo.loaded && !loadedRef.current) {
+      loadedRef.current = true
+      if (!mentionHighlight && !pendingReplyJump) setStuck(true)
+    }
   }, [convo.loaded])   // eslint-disable-line react-hooks/exhaustive-deps
   // (the busy-gated poller that lived here is gone. Liveness is now driven by
   // SUBSCRIPTION inside convo.ts: if a view is watching a node, that node is
@@ -4061,6 +4120,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               && (direction === 0 || scrollIntent.current?.direction === 1)
             const manual = (direction !== null || returningToBottom) && !echo
             if (manual) {
+              mentionCenterHoldRef.current = null
               if (direction === 0 && top < previous) setStuck(false)
               else if (returningToBottom) setStuck(true)
             }

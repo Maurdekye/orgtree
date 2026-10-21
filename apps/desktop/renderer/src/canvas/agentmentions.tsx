@@ -655,8 +655,9 @@ export function HubContactChip({ address, className }: { address: string; classN
   )
 }
 
+let mentionHighlightSeq = 0
 const mentionSeenLocally = new Map<string, Set<string>>()
-const mentionHighlights = new Map<string, { mentionId: string; eventId?: string }>()
+const mentionHighlights = new Map<string, { mentionId: string; eventId?: string; seq?: number }>()
 const seenListeners = new Set<() => void>()
 
 function notifySeen() {
@@ -703,7 +704,8 @@ export function dismissUserMention(
   }
   set.add(`${nodeId}:${mentionId}`)
   if (opts?.highlight !== false) {
-    mentionHighlights.set(`${org}:${nodeId}`, { mentionId, eventId })
+    mentionHighlightSeq += 1
+    mentionHighlights.set(`${org}:${nodeId}`, { mentionId, eventId, seq: mentionHighlightSeq })
   }
   notifySeen()
   if (!org) return Promise.resolve({ ok: true })
@@ -717,14 +719,15 @@ export function requestMentionHighlight(
   eventId?: string,
 ): void {
   const org = slug || lastActiveOrg
-  mentionHighlights.set(`${org}:${nodeId}`, { mentionId, eventId })
+  mentionHighlightSeq += 1
+  mentionHighlights.set(`${org}:${nodeId}`, { mentionId, eventId, seq: mentionHighlightSeq })
   notifySeen()
 }
 
 export function useMentionHighlight(
   slug: string,
   nodeId: string,
-): { mentionId: string; eventId?: string } | null {
+): { mentionId: string; eventId?: string; seq?: number } | null {
   useSeenMentions()
   const org = slug || lastActiveOrg
   return mentionHighlights.get(`${org}:${nodeId}`) ?? null
@@ -740,6 +743,7 @@ export function clearMentionHighlight(slug: string, nodeId: string): void {
 export function resetSeenMentions(): void {
   mentionSeenLocally.clear()
   mentionHighlights.clear()
+  mentionHighlightSeq = 0
   notifySeen()
 }
 
