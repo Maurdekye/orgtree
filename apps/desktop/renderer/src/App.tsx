@@ -3005,7 +3005,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   refOf={(m) => m.id && !m._ask
                     ? refToken({ kind: 'mail', org: slug, box: 'user', id: m.id }) : null}
                   onRead={(m: MailEntry) => readNow(m)
-                    .catch((e: Error) => toast([`could not mark read: ${e.message}`]))}
+                    .catch((e: Error) => { toast([`could not mark read: ${e.message}`]); throw e })}
                   onDeleteUserMail={deleteMail}
                   onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean, targets?: MailEntry[]) => {
                     const originals = targets?.length ? targets : [m]

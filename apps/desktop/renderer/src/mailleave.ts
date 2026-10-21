@@ -5,15 +5,15 @@ type Reader = { owner: Window; flush: () => void }
 const readers = new Set<Reader>()
 const saving = new Set<{owner: Window; promise: Promise<unknown>}>()
 
-function save(owner: Window, read: () => void | Promise<unknown>) {
+function save(owner: Window, read: () => void | Promise<unknown>, failed: () => void) {
   // Invoke synchronously: the optimistic read belongs to the leave commit.
   // Keep the actual promise after unmount so a subsequent native close waits
   // for reads already sent by a filter/tab change too.
   let result: void | Promise<unknown>
-  try { result = read() } catch { return } // callers own their error UI
+  try { result = read() } catch { failed(); return } // callers own their error UI
   const entry = {owner, promise: Promise.resolve(result)}
   saving.add(entry)
-  void entry.promise.catch(() => {}).finally(() => saving.delete(entry))
+  void entry.promise.catch(failed).finally(() => saving.delete(entry))
 }
 
 /** Flush only committed reading panes, including reads already in flight.
@@ -50,7 +50,7 @@ export function useReadOnLeave<T extends ReadableMail>(scope: string, displayed:
   const leave = (item: {mail: T; read: NonNullable<typeof read>; attempted: boolean}) => {
     if (item.attempted || !item.mail._wait || item.mail._ask || !item.mail.id) return
     item.attempted = true
-    save(reader.current.owner, () => item.read(item.mail))
+    save(reader.current.owner, () => item.read(item.mail), () => { item.attempted = false })
   }
   reader.current.flush = () => { for (const item of committed.current.mails.values()) leave(item) }
   useLayoutEffect(() => {
@@ -59,7 +59,11 @@ export function useReadOnLeave<T extends ReadableMail>(scope: string, displayed:
     if (read) for (const mail of displayed) {
       if (!mail.id || mail._ask) continue
       const old = previous.scope === scope ? previous.mails.get(mail.id) : undefined
-      next.set(mail.id, {mail, read, attempted: old?.attempted ?? false})
+      // The in-flight rejection must reset the entry still used after a same-id
+      // refresh, rather than a discarded copy of its attempted boolean.
+      const item = old ?? {mail, read, attempted: false}
+      item.mail = mail; item.read = read
+      next.set(mail.id, item)
     }
     committed.current = {scope, mails: next}
     for (const [id, item] of previous.mails) if (previous.scope !== scope || !next.has(id)) leave(item)

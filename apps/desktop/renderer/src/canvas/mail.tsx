@@ -543,7 +543,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     const canReply = Boolean(onReply && !outgoing && !m._ask && answerable(m))
     if (canReply) entries.push({ label: 'Reply', onSelect: () => { if (collectReply(m)) { select(); setReplyFocus(keyOf(m)) } } })
     if (m._wait && m.id && !m._ask && onRead) {
-      entries.push({ label: 'Mark as read', onSelect: () => onRead(m) })
+      // The callback reports its own error; only lifecycle callers need the
+      // rejection to release their retry latch.
+      entries.push({ label: 'Mark as read', onSelect: () => { void Promise.resolve(onRead(m)).catch(() => {}) } })
     }
     if (m._wait && m.id && onRetract) {
       entries.push({ label: 'Retract (undelivered)', onSelect: () => onRetract(m) })

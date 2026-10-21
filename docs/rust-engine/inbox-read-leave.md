@@ -10,6 +10,14 @@ Folded system notices already have read state; opening their member bodies
 never acknowledges unrelated unread rows.
 Scrolling the list does not mark a still-displayed reading pane read.
 
+A pending or successful read save is coalesced across refreshes and repeated
+close attempts. A rejected or synchronously failed save releases that entry's
+attempt latch, so a later real leave or close can retry while the pane remains
+mounted. The user inbox reports its error and preserves the rejection for this
+lifecycle handling. A successful save remains once-only. [verified:
+`mailleave.ts`, `App.tsx`, `tests/{mailleaveretry,inboxretry}.test.tsx`;
+2026-10-21]
+
 `mailleave.ts` retains pending saves after a list unmount. Native main/pop-out
 close dispatches a promise-carrying flush event and waits before continuing the
 existing close policy. A repeated close joins the same drain. A renderer drain
