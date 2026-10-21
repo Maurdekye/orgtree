@@ -23,6 +23,7 @@ export default async function(rig) {
   }
   const q=await project('many-queue');members(q,66);dogs(q,'fair_queue',65);jobs(q,65)
   const trigger=await rig.tool('boss','orgtree_watchdog',{action:'create',kind:'fair_queue',target:'many-queue',name:'queue-trigger',notice:true})
+  await rig.tool('boss','orgtree_message',{metadata:{to:'many-queue',notice:true},body:'flush-service'})
   const served=rig.sql(`SELECT DISTINCT extra->'claimed'->>'by_id' AS owner FROM ot.mail WHERE recipient_agent_id=${q.id} AND state='read'`)
   p.check('all 65 continuous listeners enter service before any is served twice',trigger.ok&&served.length>=65,{trigger:trigger.ok,served:served.length})
   // ACK: the first 64 listeners are at capacity, listener 65 and a new inline
@@ -53,7 +54,7 @@ export default async function(rig) {
   const watches=rig.one(`SELECT count(*)::int AS n FROM ot.watchdogs WHERE kind='listener_watch' AND (memo->>'target_id')::bigint=${w.id} AND fired=1`).n
   p.check('all 201 continuous watches evaluate beyond the first page',watch.ok&&watches>=201,{watch:watch.ok,watches})
   const s=await project('sender-queue');members(s,1);dogs(s,'fair_queue',1)
-  rig.exec(`UPDATE ot.agents SET scope=scope||'{"exclude_sender":true}'::jsonb WHERE id=${s.id}`)
+  rig.exec(`UPDATE ot.agents SET scope=scope||'{"mail_queue_exclude_sender":true}'::jsonb WHERE id=${s.id}`)
   const a=rig.one(`SELECT id FROM ot.agents WHERE parent_id=${s.id}`).id
   jobs(s,64,'own-blocked',a);jobs(s,1,'deliverable')
   const kick=await rig.tool('boss','orgtree_message',{metadata:{to:'sender-queue',notice:true},body:'extra-deliverable'})
