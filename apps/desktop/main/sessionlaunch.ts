@@ -1,18 +1,35 @@
-import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { POWERSHELL, UAC_CANCELLED, run, type Runner } from './runasadmin'
-import { startEngineTask } from './runonstartup'
+import { INTERACTIVE_TASK, POWERSHELL, UAC_CANCELLED, run, startTask, type Runner } from './runasadmin'
+import { readStartupTasks, startEngineTask, startupOn, type StartupTasks } from './runonstartup'
 import { validateDataRoot } from './policy'
 import type { EngineOptions } from './engine'
+
+/** Where the background engine starts (docket
+ *  after-an-update-or-engine-restart-while-the-user; user and coordinator
+ *  rulings 2026-10-21). While the operator is signed in at the console, a
+ *  restart, a recovery or the first start runs the installer's "Orgtree User
+ *  Session Engine" task: Windows starts it in their session at the task's run
+ *  level (the highest while "Run as admin" is on, so no prompt), and its
+ *  launcher hands the running engine over itself (engine src/session_launch.rs).
+ *  Elsewhere the boot task starts it as before (its host decides, src/
+ *  boot_supervisor.rs), and an installation without owned tasks keeps the
+ *  desktop's own engine. */
+export type Route = 'session' | 'boot' | 'managed'
 
 export interface LaunchContext {
   session: number | null; console: number | null; ownsConsole: boolean; known: boolean
   operatorSid: string | null; elevated: boolean; parent?: {pid: number; created: string}
 }
 export const inConsole = (c: LaunchContext): boolean => c.known === true && Number.isInteger(c.session) && c.session! > 0 && c.session === c.console && c.ownsConsole && typeof c.operatorSid === 'string' && !!c.operatorSid
+
+export function route(tasks: StartupTasks | null, here: LaunchContext | null): Route {
+  if (tasks?.interactive != null && here && inConsole(here)) return 'session'
+  if (tasks && tasks.boot !== null && startupOn(tasks)) return 'boot'
+  return 'managed'
+}
 
 export async function launchContext(binary: string, runner: Runner = run): Promise<LaunchContext> {
   const r = await runner(binary, ['session-launch', 'inspect', String(process.pid)], 10000)
@@ -22,9 +39,87 @@ export async function launchContext(binary: string, runner: Runner = run): Promi
   return c
 }
 
+/** The launcher's durable record of its last attempt (core-handover.json),
+ *  as far as the app needs it: fixed words only. */
+export interface Attempt { id: string; phase: 'begun' | 'stopping' | 'starting' | 'ready' | 'failed'; by: string; atMs: number
+  stoppedOld: boolean; error: string | null; rollback: 'done' | 'failed' | null }
+
+export function parseAttempt(text: string): Attempt | null {
+  try {
+    const r = JSON.parse(text) as Record<string, unknown>
+    const phases = ['begun', 'stopping', 'starting', 'ready', 'failed']
+    if (typeof r.id !== 'string' || !phases.includes(r.phase as string) || typeof r.at_ms !== 'number') return null
+    return { id: r.id, phase: r.phase as Attempt['phase'], by: typeof r.by === 'string' ? r.by : '', atMs: r.at_ms,
+      stoppedOld: r.stopped_old === true, error: typeof r.error === 'string' ? r.error : null,
+      rollback: r.rollback === 'done' || r.rollback === 'failed' ? r.rollback : null }
+  } catch { return null }
+}
+
+export async function readAttempt(dataRoot: string): Promise<Attempt | null> {
+  try { return parseAttempt(await fs.readFile(path.join(dataRoot, 'core-handover.json'), 'utf8')) } catch { return null }
+}
+
+/** The failure message of an attempt that began at or after `since`, if one failed. */
+export async function lastFailure(dataRoot: string, since: number): Promise<string | null> {
+  const a = await readAttempt(dataRoot)
+  return a && a.phase === 'failed' && a.atMs >= since - 1000 ? failureMessage(a) : null
+}
+
+/** What the user is told about a failed attempt: the reason, and what runs now. */
+export function failureMessage(a: Attempt): string {
+  const why = a.error ?? 'the reason was not recorded'
+  if (a.rollback === 'done') return `Orgtree could not start the engine in your session (${why}), so it started the engine in Session 0 instead.`
+  if (a.rollback === 'failed') return `Orgtree could not start the engine in your session (${why}), and it did not start in Session 0 either. Use Start engine in the tray to try again.`
+  if (!a.stoppedOld) return `Orgtree could not start the engine in your session (${why}). The running engine is unchanged.`
+  return `Orgtree could not start the engine in your session (${why}). It is starting the engine in Session 0 instead.`
+}
+
+/** The ask the next `session-launch signin` reads once: who asks and whether
+ *  an engine already in place restarts. Fixed words; no path. */
+export async function writeAsk(dataRoot: string, restart: boolean, atMs = Date.now()): Promise<void> {
+  const file = path.join(dataRoot, 'session-launch-request.json')
+  const temp = `${file}.${randomBytes(6).toString('hex')}.tmp`
+  await fs.writeFile(temp, JSON.stringify({ by: 'desktop', restart, atMs }))
+  await fs.rename(temp, file)
+}
+
+const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+/** Run the user-session task. A restart then waits for its launcher's answer:
+ *  ready, or a failure (which throws its message); no answer within
+ *  `deadlineMs` leaves the caller to attach to whatever runs. */
+export async function startInSession(dataRoot: string, restart: boolean, deadlineMs = 300_000, runner: Runner = run): Promise<void> {
+  const askedAt = Date.now()
+  await writeAsk(dataRoot, restart, askedAt)
+  await startTask(INTERACTIVE_TASK, runner)
+  // A start or recovery is done once any engine attaches (the caller's wait):
+  // an attempt already running may serve it. Only a restart waits for its own.
+  if (!restart) return
+  const until = askedAt + deadlineMs
+  while (Date.now() < until) {
+    const a = await readAttempt(dataRoot)
+    if (a && a.atMs >= askedAt - 1000) {
+      if (a.phase === 'ready') return
+      if (a.phase === 'failed') throw new Error(failureMessage(a))
+    }
+    await delay(500)
+  }
+}
+
+/** Start (or restart) the background engine where it belongs; 'managed' when
+ *  this desktop is to start its own. The caller attaches afterwards. */
+export async function launchBackground(options: EngineOptions, restart = false, runner: Runner = run): Promise<Route> {
+  const tasks = await readStartupTasks(runner).catch(() => null)
+  const here = options.binary ? await launchContext(options.binary, runner).catch(() => null) : null
+  const where = route(tasks, here)
+  if (where === 'session') await startInSession(validateDataRoot(options.dataRoot, options.forbiddenRoot), restart, 300_000, runner)
+  else if (where === 'boot') await startEngineTask(runner)
+  return where
+}
+
 const quote = (s: string) => `'${s.replace(/'/g, "''")}'`
-/** No -Wait: the native host waits for a separate commit. The returned PID proves
- * ShellExecute accepted UAC, not that an engine has been stopped or started. */
+/** No -Wait: the elevated launcher hands the engine over itself. The returned
+ * PID proves ShellExecute accepted UAC, not that anything has changed. */
 export function elevationScript(binary: string, request: string): string {
   // PowerShell joins ArgumentList into a command line; quote the file explicitly.
   if (request.includes('"')) throw new Error('Invalid launch request path')
@@ -40,16 +135,17 @@ export function elevationScript(binary: string, request: string): string {
   ].join('\n')
 }
 
-export interface PreparedSessionLaunch { commit(): Promise<void>; cancel(): Promise<void> }
-type Receipt = {nonce?: string; identity?: {pid?: number}; session?: number; admin?: boolean; error?: string}
-const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+type Receipt = {nonce?: string; identity?: {pid?: number}; session?: number; admin?: boolean; error?: string; stoppedOld?: boolean; unchanged?: boolean; enginePid?: number}
 async function json(file: string): Promise<Receipt | null> {
   try { return JSON.parse(await fs.readFile(file, 'utf8')) as Receipt } catch { return null }
 }
 
-/** Readiness is checked before callers stop the old engine. Tests replace this
- * entire elevation seam, so no UAC prompt or real installed task can be invoked. */
-export async function prepareSessionLaunch(options: EngineOptions, admin: boolean, runner: Runner = run): Promise<PreparedSessionLaunch> {
+/** "Run this session as admin": ONE UAC prompt, then the elevated launcher
+ *  checks this desktop's session, operator and data folder and hands the
+ *  engine over itself. A declined prompt or a refusal before the stop leaves
+ *  the running engine untouched. The stored setting never changes. Tests
+ *  replace the runner, so no prompt or real task is reached. */
+export async function runSessionAsAdmin(options: EngineOptions, runner: Runner = run): Promise<void> {
   const binary = options.binary
   if (!binary || !path.isAbsolute(binary)) throw new Error('The native engine is required for a session launch.')
   const here = await launchContext(binary, runner)
@@ -57,76 +153,34 @@ export async function prepareSessionLaunch(options: EngineOptions, admin: boolea
   const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'orgtree-session-launch-'))
   const file = path.join(dir, 'request.json'), nonce = randomBytes(32).toString('hex')
-  let launched = false, committed = false, closed = false
-  const clean = async () => { if (!closed) { await fs.rm(dir, {recursive:true, force:true}); closed = true } }
-  const cancel = async () => {
-    if (closed || committed) return
-    if (!launched) { await clean(); return }
-    await fs.writeFile(path.join(dir, 'cancel'), nonce)
-    const until = Date.now() + 10000
-    while (Date.now() < until) {
-      if (await json(path.join(dir, 'done.json')) || await json(path.join(dir, 'error.json'))) { await clean(); return }
-      await delay(50)
-    }
-    // Keep the cancel marker if receipt inspection failed. Native timeout/parent
-    // death also closes the waiter; deleting early could erase its cancellation.
-  }
   try {
-    await fs.writeFile(file, JSON.stringify({nonce, session:here.session, operatorSid:here.operatorSid,
-      parent:here.parent, dataRoot:root, uiDirectory:options.uiDirectory, admin}), {flag:'wx'})
-    let pid: number
-    if (admin) {
-      const encoded = Buffer.from(elevationScript(binary, file), 'utf16le').toString('base64')
-      const r = await runner(POWERSHELL, ['-NoProfile','-NonInteractive','-EncodedCommand',encoded], 5 * 60000)
-      if (r.code === UAC_CANCELLED) throw new Error('Windows did not give permission; the running engine is unchanged.')
-      if (r.code !== 0 || !/^\d+$/.test(r.stdout.trim())) throw new Error('The elevated launcher did not start; the running engine is unchanged.')
-      pid = Number(r.stdout.trim()); launched = true
-    } else {
-      pid = await new Promise<number>((resolve,reject) => {
-        const child = spawn(binary, ['session-launch','prepare',file], {cwd:path.dirname(binary),windowsHide:true,detached:true,stdio:'ignore'})
-        child.once('error',reject)
-        child.once('spawn', () => { child.unref(); resolve(child.pid!) })
-      })
-      launched = true
-    }
-    const until = Date.now() + 15000
-    for (;;) {
+    await fs.writeFile(file, JSON.stringify({nonce, session: here.session, operatorSid: here.operatorSid,
+      parent: here.parent, dataRoot: root, uiDirectory: options.uiDirectory, admin: true}), {flag: 'wx'})
+    const encoded = Buffer.from(elevationScript(binary, file), 'utf16le').toString('base64')
+    const r = await runner(POWERSHELL, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], 5 * 60_000)
+    if (r.code === UAC_CANCELLED) throw new Error('Windows did not give permission; the running engine is unchanged.')
+    if (r.code !== 0 || !/^\d+$/.test(r.stdout.trim())) throw new Error('The elevated launcher did not start; the running engine is unchanged.')
+    const pid = Number(r.stdout.trim())
+    // validated first (ready), then the handover's own outcome (done or error)
+    let ready = false
+    const until = Date.now() + 300_000
+    while (Date.now() < until) {
       const failed = await json(path.join(dir, 'error.json'))
-      if (failed) throw new Error(`Session launcher refused: ${failed.error || 'unknown error'}`)
-      const ready = await json(path.join(dir, 'ready.json'))
-      if (ready) {
-        if (ready.nonce !== nonce || ready.identity?.pid !== pid || ready.session !== here.session || ready.admin !== admin) throw new Error('Session launcher identity did not match.')
-        break
+      if (failed) throw new Error(failed.stoppedOld
+        ? `The engine could not start in this session as administrator (${failed.error || 'unknown error'}); Orgtree starts it in Session 0 instead.`
+        : `The engine was not restarted as administrator: ${failed.error || 'unknown error'}. The running engine is unchanged.`)
+      if (!ready) {
+        const r2 = await json(path.join(dir, 'ready.json'))
+        if (r2) {
+          if (r2.nonce !== nonce || r2.identity?.pid !== pid || r2.session !== here.session || r2.admin !== true) throw new Error('Session launcher identity did not match.')
+          ready = true
+        } else if (Date.now() > until - 285_000) throw new Error('Session launcher did not become ready; the running engine is unchanged.')
       }
-      if (Date.now() >= until) throw new Error('Session launcher did not become ready; the running engine is unchanged.')
-      await delay(50)
+      if (ready && await json(path.join(dir, 'done.json'))) return
+      await delay(200)
     }
-    return { cancel, async commit() {
-      if (closed || committed) throw new Error('Session launch already settled')
-      await fs.writeFile(path.join(dir, 'commit'), nonce, {flag:'wx'})
-      committed = true
-      const until = Date.now() + 10000
-      while (Date.now() < until) {
-        const failed = await json(path.join(dir, 'error.json'))
-        if (failed) { await clean(); throw new Error(`Session launch refused: ${failed.error}`) }
-        if (await json(path.join(dir, 'done.json'))) { await clean(); return }
-        await delay(50)
-      }
-      throw new Error('Session launch commit could not be confirmed; reconnect before retrying.')
-    } }
-  } catch (error) { await cancel(); throw error }
-}
-
-export async function launchBackground(options: EngineOptions): Promise<void> {
-  const c = await launchContext(options.binary!)
-  if (!inConsole(c)) { await startEngineTask(); return }
-  const prepared = await prepareSessionLaunch(options, false)
-  try { await prepared.commit() } finally { await prepared.cancel() }
-}
-
-/** The ordering is load-bearing: prompt/prepare first, then graceful stop, then
- * commit. Cancelling permission or preparation cannot touch the old engine. */
-export async function replaceWithSessionAdmin(prepare: () => Promise<PreparedSessionLaunch>, stop: () => Promise<void>, attach: () => Promise<void>): Promise<void> {
-  const prepared = await prepare()
-  try { await stop(); await prepared.commit(); await attach() } finally { await prepared.cancel() }
+    throw new Error('The engine did not restart in this session in time.')
+  } finally {
+    await fs.rm(dir, {recursive: true, force: true}).catch(() => {})
+  }
 }

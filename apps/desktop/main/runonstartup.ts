@@ -1,4 +1,4 @@
-import { HELPER_TASK, INTERACTIVE_TASK, POWERSHELL, UAC_CANCELLED, elevatedArgs, run, startTask, type Runner } from './runasadmin'
+import { HELPER_TASK, INTERACTIVE_TASK, POWERSHELL, UAC_CANCELLED, elevatedArgs, readRunAsAdministrator, run, startTask, type Runner } from './runasadmin'
 
 /** "Run on boot" on an all-users Windows installation (docket
  *  option-to-run-the-background-engine-in-the-user-s; the user, 2026-10-16
@@ -104,6 +104,10 @@ export function elevatedStartupScript(enabled: boolean, target: StartupTarget = 
     "    $id = [string]$key.GetValue('Id')",
     "    $sid = [string]$key.GetValue('OperatorSid')",
     "    if (-not $id) { throw 'The installation record has no id.' }",
+    // "Run as admin" (HKLM, admin-writable only): the user-session engine's sign-in
+    // trigger follows both switches (coordinator Q1, 2026-10-21 16:27Z)
+    "    $runtime = $hive.OpenSubKey('SOFTWARE\\Orgtree\\Runtime'); $asAdmin = $false",
+    "    if ($null -ne $runtime) { try { $asAdmin = ([int]$runtime.GetValue('RunAsAdministrator') -eq 1) } finally { $runtime.Dispose() } }",
     '    $service = New-Object -ComObject Schedule.Service',
     '    $service.Connect()',
     "    $folder = $service.GetFolder('\\')",
@@ -123,7 +127,8 @@ export function elevatedStartupScript(enabled: boolean, target: StartupTarget = 
     '    foreach ($name in @($tasks.Keys)) {',
     '      $definition = $tasks[$name].Definition',
     '      $definition.Settings.Enabled = $true',
-    `      foreach ($trigger in $definition.Triggers) { $trigger.Enabled = ${flag} }`,
+    `      $want = ${flag}${target.interactive ? `; if ($name -ceq ${psQuote(target.interactive)}) { $want = (${flag} -and $asAdmin) }` : ''}`,
+    '      foreach ($trigger in $definition.Triggers) { $trigger.Enabled = $want }',
     '      $logon = $definition.Principal.LogonType',
     '      $null = $folder.RegisterTaskDefinition($name, $definition, 20, $sid, $null, $logon, "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)")',
     '      $updated += $name',
@@ -148,8 +153,10 @@ export async function writeRunOnStartup(enabled: boolean, runner: Runner = run, 
   if (result.code === UAC_CANCELLED) throw new Error(`Windows did not give permission, so ${unchanged}.`)
   if (result.code !== 0) throw new Error(`Changing "run on boot" failed (exit code ${result.code}).`)
   const after = await readStartupTasks(runner, target)
+  // the user-session task's trigger is on only while Run as admin is on too
+  const interactive = after?.interactive != null && enabled ? await readRunAsAdministrator(runner) : false
   if (!after || after.boot !== enabled || (after.helper !== null && after.helper !== enabled)
-      || (after.interactive != null && after.interactive !== enabled)) {
+      || (after.interactive != null && after.interactive !== interactive)) {
     throw new Error('The change was made but reads back differently; Orgtree may still start as before.')
   }
 }

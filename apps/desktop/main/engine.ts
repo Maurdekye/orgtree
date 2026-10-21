@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import {recordManagedExit} from './core-exit-log'
+import { lastFailure } from './sessionlaunch'
 import { exeName, postgresRuntimeEnvironment } from './postgres-runtime'
 import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner,
   CONVERSION_FAILED, CONVERSION_WINDOW_MS, conversionWait, isConversionPhase, parseConversionFailure, progressPhase, readConversionStatus } from './policy'
@@ -67,9 +68,11 @@ export interface EngineOptions { python: string; directory: string; dataRoot: st
   /** Orgtree 4: the Rust engine executable. When set it is started instead of
    *  the Python engine, with the same environment and launch handshake. */
   binary?: string
-  /** Windows desktop session-aware host launch. Tests and legacy runtimes may
-   * omit it; descriptor validation and root ownership remain in Engine. */
-  launchBackground?: () => Promise<void> }
+  /** Windows: start the background engine where it belongs (sessionlaunch.ts):
+   *  the user-session task or the boot task, after which this engine attaches,
+   *  or 'managed' when this desktop starts its own. Tests and legacy runtimes
+   *  may omit it; descriptor validation and root ownership remain in Engine. */
+  launchBackground?: () => Promise<'session' | 'boot' | 'managed'> }
 /** The bundled mail hub's live state, as /api/desktop/status reports it —
  *  feeds the tray's right-click status line (user requirement 2026-09-15). */
 export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
@@ -316,12 +319,14 @@ export class Engine extends EventEmitter {
     const realRoot = fs.realpathSync.native(root)
     validateDataRoot(realRoot, options.forbiddenRoot)
     this.state({ state: 'starting' })
-    if (binary && options.launchBackground) {
-      this.managed = false
-      this.attachedManaged = false
-      await options.launchBackground()
+    const launchedAt = Date.now()
+    if (binary && options.launchBackground && await options.launchBackground() !== 'managed') {
+      // attach() takes the slot only while it is still this desktop's to fill
       if (this.launchesCancelled) throw new Error('Engine launch cancelled by Quit')
-      if (!await this.attachWithRetry(options)) throw new Error('The session engine did not publish a verified attachment in time.')
+      if (!await this.attachWithRetry(options)) {
+        const failed = await lastFailure(realRoot, launchedAt)
+        throw new Error(failed ?? 'The background engine did not publish a verified attachment in time.')
+      }
       this.stopping = false
       return
     }
@@ -537,17 +542,12 @@ export class Engine extends EventEmitter {
     return false
   }
 
-  /** Session handoff also covers a desktop-owned engine from an older launch.
-   * Never force-kill here: permission cancellation and stop failures are inert. */
-  async stopForSessionRestart(options: EngineOptions): Promise<void> {
-    if (this.launchesCancelled) throw new Error('Engine launch cancelled by Quit')
-    if (!await this.stopGracefullyForInstaller()) throw new Error('The running engine did not stop safely; session launch was cancelled.')
-    if (!await this.rootReleased(options)) throw new Error('The engine data root is still held; session launch was cancelled.')
-    this.child = undefined
+  /** The engine is gone and nothing will bring it back by itself (a failed
+   *  move and a failed rollback): say so, so the tray offers Start engine. */
+  markUnavailable(message: string): void {
+    if (this.status.state === 'unavailable' && this.status.message === message) return
     this.endpoint = ''
-    this.managed = false
-    this.attachedManaged = false
-    this.stopping = false
+    this.state({ state: 'unavailable', message })
   }
 
   /** Can THIS process write byte 0 of the guardian's lock file? The
@@ -1062,16 +1062,16 @@ export class Engine extends EventEmitter {
  *  countdown, no live-agent count. Adding a guard here is not a fix; it is
  *  overturning a ruling the user made with the hazard in front of them.
  *
- *  ⚠ `status` IS NO LONGER READ, and the parameter is kept deliberately. The
- *  old rule turned on it; the new one does not, because what decides this row
- *  is whether a restart can be RUN, and that is `restarting` and `blocked`
- *  alone. It stays in the signature because it is the thing the row is about
- *  and because every caller already has it — and because a rule that wants it
- *  back (a confirmation step that only applies to a healthy engine, say) would
- *  otherwise have to thread it through three call sites again. */
-export function trayEngineState(_status: EngineStatus, restarting: boolean, blocked: boolean) {
+ *  ⚠ `status` decides ONLY THE LABEL. What decides whether the row can be
+ *  used is whether a restart can be RUN, and that is `restarting` and
+ *  `blocked` alone. With no engine running (stopped, or unavailable after a
+ *  failed start) the row reads "Start engine" (coordinator 2026-10-21 15:29Z:
+ *  a failed move and rollback leave "a stopped state plus tray Start engine";
+ *  docket after-an-update-or-engine-restart-while-the-user). */
+export function trayEngineState(status: EngineStatus, restarting: boolean, blocked: boolean) {
+  const down = status.state === 'stopped' || status.state === 'unavailable'
   return {
-    label: restarting ? 'Restarting engine...' : 'Restart engine',
+    label: restarting ? 'Restarting engine...' : down ? 'Start engine' : 'Restart engine',
     // No state hides it — not boot, not a healthy engine, not a restart in
     // flight, not a failed one.
     visible: true,

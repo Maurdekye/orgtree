@@ -54,14 +54,15 @@ test('a running engine shows an ENABLED restart entry', () => {
   assert.deepEqual(trayEngineState(READY, false, false), { label: 'Restart engine', visible: true, enabled: true })
 })
 
-test('a stopped engine shows an enabled restart entry', () => {
-  assert.deepEqual(trayEngineState(STOPPED, false, false), { label: 'Restart engine', visible: true, enabled: true })
+test('a stopped engine shows an enabled entry that starts it', () => {
+  // 2026-10-21 (coordinator 15:29Z): no engine running reads "Start engine".
+  assert.deepEqual(trayEngineState(STOPPED, false, false), { label: 'Start engine', visible: true, enabled: true })
 })
 
 test('a failed start or restart still offers the entry, so the user can retry', () => {
   // 'unavailable' is where a FAILED restart lands. If the row vanished there,
   // the one moment the user most needs it would be the moment it disappeared.
-  assert.deepEqual(trayEngineState(UNAVAILABLE, false, false), { label: 'Restart engine', visible: true, enabled: true })
+  assert.deepEqual(trayEngineState(UNAVAILABLE, false, false), { label: 'Start engine', visible: true, enabled: true })
 })
 
 test('boot startup shows the row, greyed: there is no engine to restart yet', () => {
@@ -124,7 +125,7 @@ const menuDouble = () => {
 test('refreshTrayEngineMenu writes label, visibility and enablement onto the live item', () => {
   const menu = menuDouble()
   refreshTrayEngineMenu(menu, STOPPED, false, false)
-  assert.deepEqual(menu.item, { label: 'Restart engine', enabled: true, visible: true })
+  assert.deepEqual(menu.item, { label: 'Start engine', enabled: true, visible: true })
   refreshTrayEngineMenu(menu, STARTING, true, false)
   assert.deepEqual(menu.item, { label: 'Restarting engine...', enabled: false, visible: true })
   refreshTrayEngineMenu(menu, READY, false, false)
@@ -330,7 +331,7 @@ test('a restart that cannot bring the engine up says so, and never reports succe
     assert.equal(engine.restartInProgress, false)
     const view = trayEngineState(engine.status, false, false)
     assert.equal(view.visible, true, 'and the entry is still there to try again')
-    assert.equal(view.label, 'Restart engine')
+    assert.equal(view.label, 'Start engine', 'with no engine running the entry starts one')
     assert.ok(launches(options).some(line => line.endsWith('exited-before-ready')), 'the failing engine really was launched')
   } finally { await teardown(engine, options) }
 })

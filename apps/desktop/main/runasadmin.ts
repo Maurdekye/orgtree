@@ -54,27 +54,35 @@ export async function readRunAsAdministrator(runner: Runner = run): Promise<bool
   return result.code === 0 && parseRegQuery(result.stdout)
 }
 
-/** The script the ELEVATED PowerShell runs: set the sign-in helper task's run
- *  level, then create (or re-protect) the key with the protected ACL and set
- *  the DWORD. The task comes first, so a refusal leaves the setting as it was.
- *  Only the installer's own task is changed: its description carries the
- *  installer record's id. */
+/** The script the ELEVATED PowerShell runs: set the run level of every task
+ *  the installer owns (the Session 0 boot engine, the sign-in helper and the
+ *  user-session engine, whose sign-in trigger also follows it), then create
+ *  (or re-protect) the key with the protected ACL and set the DWORD. The
+ *  tasks come first, so a refusal leaves the setting as it was, and a failed
+ *  write restores them. Only the installer's own tasks are changed: each
+ *  description carries the installer record's id. One UAC prompt per change
+ *  (docket after-an-update-or-engine-restart-while-the-user). */
 export function elevatedWriteScript(enabled: boolean): string {
   return [
     "$ErrorActionPreference = 'Stop'",
     "$hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')",
-    '$updated = @(); $originalXml = @{}',
+    '$updated = @(); $originalXml = @{}; $logons = @{}',
     'try {',
     "  $record = $hive.OpenSubKey('SOFTWARE\\Orgtree\\BootEngine')",
     '  if ($null -ne $record) {',
     '    try {',
     "      $id = [string]$record.GetValue('Id'); $sid = [string]$record.GetValue('OperatorSid')",
+    // "Run on boot" as the installer reads it: absent counts as on
+    "      $rv = $record.GetValue('RunOnStartup'); $runs = ($null -eq $rv -or [int]$rv -ne 0)",
     '      $service = New-Object -ComObject Schedule.Service',
     '      $service.Connect()',
     "      $folder = $service.GetFolder('\\')",
-    `      $markers = @{ '${HELPER_TASK}' = 'com.maurdekye.orgtree.credential-helper.v1:'; '${INTERACTIVE_TASK}' = 'com.maurdekye.orgtree.user-session.v1:' }`,
+    // One "Run as admin" for every owned task (the user, 2026-10-21 15:27Z; coordinator Q2):
+    // the Session 0 boot engine (S4U, logon 2) and the two interactive-token tasks (3).
+    `      $markers = @{ '${BOOT_TASK}' = 'com.maurdekye.orgtree.boot.v1:'; '${HELPER_TASK}' = 'com.maurdekye.orgtree.credential-helper.v1:'; '${INTERACTIVE_TASK}' = 'com.maurdekye.orgtree.user-session.v1:' }`,
+    `      $logonOf = @{ '${BOOT_TASK}' = 2; '${HELPER_TASK}' = 3; '${INTERACTIVE_TASK}' = 3 }`,
     '      $tasks = @{}',
-    // Validate both before changing either. Enabling with another administrator's
+    // Validate every task before changing any. Enabling with another administrator's
     // credentials cannot give a standard operator an elevated interactive token.
     ...(enabled ? ["      if ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne $sid) { throw 'Enable Run as admin using the installed operator administrator account.' }"] : []),
     '      foreach ($name in @($markers.Keys)) {',
@@ -82,9 +90,9 @@ export function elevatedWriteScript(enabled: boolean): string {
     '        try { $task = $folder.GetTask($name) } catch { if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw } }',
     '        if ($null -eq $task) { continue }',
     '        if (-not $id -or [string]([xml]$task.Xml).Task.RegistrationInfo.Description -cne ($markers[$name] + $id)) { throw "Refusing to change a task Orgtree did not install: $name" }',
-    '        if ([string]$task.Definition.Principal.UserId -cne $sid -or $task.Definition.Principal.LogonType -ne 3) { throw "Interactive task operator does not match the installation: $name" }',
+    '        if ([string]$task.Definition.Principal.UserId -cne $sid -or $task.Definition.Principal.LogonType -ne $logonOf[$name]) { throw "Task operator does not match the installation: $name" }',
     '        $tasks[$name] = $task',
-    '        $originalXml[$name] = [string]$task.Xml',
+    '        $originalXml[$name] = [string]$task.Xml; $logons[$name] = $task.Definition.Principal.LogonType',
     '      }',
     `      if (-not $tasks.ContainsKey('${INTERACTIVE_TASK}')) { throw 'Update Orgtree before changing Run as admin: the owned user-session task is missing.' }`,
     '      foreach ($name in @($tasks.Keys)) {',
@@ -92,8 +100,10 @@ export function elevatedWriteScript(enabled: boolean): string {
     '        $definition = $task.Definition',
     // 1 = TASK_RUNLEVEL_HIGHEST, 0 = least privilege
     `        $definition.Principal.RunLevel = ${enabled ? 1 : 0}`,
-    // 20 = TASK_UPDATE | TASK_DONT_ADD_PRINCIPAL_ACE, 3 = the operator's interactive token, the installer's ACL
-    '        $null = $folder.RegisterTaskDefinition($name, $definition, 20, $sid, $null, 3, "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)")',
+    // the user-session engine moves in at sign-in only while Run as admin is on (coordinator Q1)
+    `        if ($name -ceq '${INTERACTIVE_TASK}') { foreach ($trigger in $definition.Triggers) { $trigger.Enabled = ($${enabled} -and $runs) } }`,
+    // 20 = TASK_UPDATE | TASK_DONT_ADD_PRINCIPAL_ACE, the task's own logon type, the installer's ACL
+    '        $null = $folder.RegisterTaskDefinition($name, $definition, 20, $sid, $null, $logons[$name], "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)")',
     '        $updated += $name',
     '      }',
     '    } finally { $record.Dispose() }',
@@ -108,7 +118,7 @@ export function elevatedWriteScript(enabled: boolean): string {
     '  } finally { $key.Dispose() }',
     '} catch {',
     '  $failure = $_',
-    '  foreach ($name in $updated) { try { $null = $folder.RegisterTask($name, $originalXml[$name], 20, $sid, $null, 3, "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)") } catch { Write-Warning "Could not restore task $name after failed change: $_" } }',
+    '  foreach ($name in $updated) { try { $null = $folder.RegisterTask($name, $originalXml[$name], 20, $sid, $null, $logons[$name], "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)") } catch { Write-Warning "Could not restore task $name after failed change: $_" } }',
     '  throw $failure',
     '} finally { $hive.Dispose() }',
   ].join('\n')

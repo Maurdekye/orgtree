@@ -52,8 +52,8 @@ import { taskbarOrgs, taskbarTarget, taskbarTasks, taskbarAttentionItems, type T
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
-import { readStartupTasks, startupOn, writeRunOnStartup } from './runonstartup'
-import { launchBackground, launchContext, inConsole, prepareSessionLaunch, replaceWithSessionAdmin } from './sessionlaunch'
+import { readStartupTasks, startEngineTask, startupOn, writeRunOnStartup } from './runonstartup'
+import { failureMessage, inConsole, launchBackground, launchContext, readAttempt, route, runSessionAsAdmin, startInSession } from './sessionlaunch'
 import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, privateDataFolders, type BootInputs } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
@@ -288,6 +288,10 @@ else {
    *  Undefined until boot has composed them, and the entry stays disabled
    *  until then - there is nothing to restart before the first start. */
   let engineRestartOptions: EngineOptions | undefined
+  /** The background engine's own restart (docket after-an-update-or-engine-
+   *  restart-while-the-user): set once the engine session exists; the tray's
+   *  restart entry uses it for an engine a task's host runs. */
+  let restartBackground: ((adminOnce?: boolean) => Promise<void>) | undefined
   /** Keeps the main window's document loaded across an engine outage. Declared
    *  here because the engine's status listener is registered before the window
    *  exists, and 'ready' is the signal that makes a restart actually restore
@@ -800,7 +804,7 @@ else {
   // liveness watch (engine.ts), never while something else is taking it down.
   engine.hungRestartAllowed = () => !engineRestartBlocked()
   const refreshTrayEngine = () => {
-    if (trayMenu) refreshTrayEngineMenu(trayMenu, engine.status, engine.restartInProgress, engineRestartBlocked())
+    if (trayMenu) refreshTrayEngineMenu(trayMenu, engine.status, engine.restartInProgress || backgroundEngineRestart, engineRestartBlocked())
   }
   const hubMenuItem = () => mailhubTrayItem(() => stats?.mailhub,
     url => shell.openExternal(url),
@@ -831,7 +835,10 @@ else {
     if (!options || engineRestartBlocked() || engine.restartInProgress) return
     if (resumeEngineStartup) { resumeEngineStartup(); return }
     const attempt = (async () => {
-      if (coreLifecycle) await coreLifecycle.restart(() => engine.restart(options))
+      // An engine a task's host runs restarts where it belongs: in the
+      // operator's session while they are at the console (sessionlaunch.ts).
+      if (process.platform === 'win32' && options.binary && engine.usesBackgroundTask && restartBackground) await restartBackground(false)
+      else if (coreLifecycle) await coreLifecycle.restart(() => engine.restart(options))
       else await engine.restart(options)
     })()
     refreshTrayEngine()   // in flight from here: the row says so and stops accepting clicks
@@ -2322,25 +2329,33 @@ else {
       // The preload origin is fixed per window; session signing reads LIVE
       // engine values so a recovered attachment's new token keeps working.
       const initialOrigin = engine.origin
-      /** "Restart the background engine now" after a change to how it starts
-       *  ("Run Orgtree as administrator", where it starts): graceful and
-       *  authenticated, with proof of exit - the stop an update uses - so
-       *  PostgreSQL shuts down cleanly. Then the boot engine task, which the
-       *  operator may start without elevation. */
+      /** Restart the background engine (the tray's Restart engine, "Run this
+       *  session as admin"). While the operator is at the console the
+       *  user-session task's launcher hands the engine over itself: graceful,
+       *  with proof the data root is released, and nothing changes before its
+       *  checks pass (engine src/session_launch.rs). Otherwise, as before: the
+       *  authenticated stop an update uses, then the boot task. */
       const restartBackgroundEngine = async (adminOnce = false) => {
         if (backgroundEngineRestart || engineRestartBlocked()) throw new Error('Orgtree is busy restarting or updating; try again in a moment.')
         backgroundEngineRestart = true
         try {
-          const stop = async () => {
-            if (quitting || installerUpgradeShutdown) throw new Error('Session restart cancelled by Quit or update')
-            await coreLifecycle?.transition(true)
-            await engine.stopForSessionRestart(engineOptions)
-          }
           const attach = async () => {
             if (!await engine.reattachBackground(engineOptions, 120000)) throw new Error('The engine was restarted, but Orgtree has not reconnected to it yet. It keeps trying.')
           }
-          if (adminOnce) await replaceWithSessionAdmin(() => prepareSessionLaunch(engineOptions, true), stop, attach)
-          else { await stop(); await launchBackground(engineOptions); await attach() }
+          if (quitting || installerUpgradeShutdown) throw new Error('Session restart cancelled by Quit or update')
+          if (adminOnce) { await runSessionAsAdmin(engineOptions); await attach() }
+          else {
+            const tasks = await readStartupTasks().catch(() => null)
+            const here = engineOptions.binary ? await launchContext(engineOptions.binary).catch(() => null) : null
+            const where = route(tasks, here)
+            if (where === 'session') { await startInSession(engineOptions.dataRoot, true); await attach() }
+            else if (where === 'boot') {
+              await coreLifecycle?.transition(true)
+              await engine.stopAttachedForUpdate()
+              await startEngineTask()
+              await attach()
+            } else await engine.restart(engineOptions)
+          }
           if (engine.origin === initialOrigin) {
             await coreLifecycle?.complete()
             for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
@@ -2354,6 +2369,7 @@ else {
           }
         } finally { backgroundEngineRestart = false; rebuildTray() }
       }
+      restartBackground = restartBackgroundEngine
       const runAsAdministratorState = async (): Promise<RunAsAdministratorState> => {
         if (process.platform !== 'win32') return { available: false, enabled: false, reason: 'Only Windows has this setting.' }
         const enabled = await readRunAsAdministrator()
@@ -2381,7 +2397,14 @@ else {
         if (!state.available) throw new Error(state.reason || 'This setting is not available.')
         if (backgroundEngineRestart || engineRestartBlocked()) throw new Error('Orgtree is busy restarting or updating; try again in a moment.')
         // "Restart now" after a change repeats the value already stored; only
-        // a real change needs Windows' permission.
+        // a real change needs Windows' permission. Switching it on first says
+        // plainly what it does (the user, 2026-10-21 15:25Z and 15:27Z).
+        if (enabled && !state.enabled) {
+          const { response } = await dialog.showMessageBox({ type: 'warning', buttons: ['Run as admin', 'Cancel'], defaultId: 1, cancelId: 1,
+            message: 'Run every agent as administrator?',
+            detail: 'Every agent then runs with full administrator rights on this PC: the engine in Session 0, and the engine and agents in your session, at boot, sign-in, restarts and updates, with no further prompts. Windows asks for permission once now.' })
+          if (response !== 0) throw new Error('Run as admin was not turned on.')
+        }
         if (state.enabled !== enabled) await writeRunAsAdministrator(enabled)
         if (restartNow) await restartBackgroundEngine()
         return runAsAdministratorState()
@@ -2646,12 +2669,23 @@ else {
         return record
       }
       createMainWindow = openWindow
+      /** A move into the operator's session that failed, and its rollback into
+       *  Session 0, said once per attempt when this desktop adopts what runs
+       *  then (docket after-an-update-or-engine-restart-while-the-user). */
+      let shownAttempt = ''
+      const reportFailedMove = async () => {
+        const a = await readAttempt(engineOptions.dataRoot)
+        if (!a || a.phase !== 'failed' || a.rollback === null || a.id === shownAttempt || Date.now() - a.atMs > 30 * 60_000) return
+        shownAttempt = a.id
+        await dialog.showMessageBox({ type: 'warning', message: 'Orgtree could not start the engine in your session.', detail: failureMessage(a) })
+      }
       coreLifecycle?.configureRecovery(async allowSpawn => {
         if (quitting || installerUpgradeShutdown || backgroundEngineRestart || updateApplying) return
         const before = engine.origin || initialOrigin
         await engine.recoverUnexpected(engineOptions, allowSpawn, () => launchBackground(engineOptions))
         if (quitting || installerUpgradeShutdown || !engine.origin) return
         await coreLifecycle?.complete()
+        void reportFailedMove()
         if (engine.origin === before) {
           for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
         } else {
@@ -2809,6 +2843,15 @@ else {
         void credentialBridge.tick(engine.origin, engine.token)
         ;[stats, trayHarnesses] = await Promise.all([engine.stats(), engine.harnesses()]); rebuildTray()
         void updater.tick().catch(() => {})
+        // A failed move whose rollback failed too leaves no engine and nothing
+        // that brings one back by itself: say so, and the tray offers Start engine.
+        if (stats === null && coreLifecycle && !engine.managed && !backgroundEngineRestart && engine.status.state === 'ready') {
+          const a = await readAttempt(engineOptions.dataRoot)
+          if (a?.rollback === 'failed' && Date.now() - a.atMs < 30 * 60_000) {
+            engine.markUnavailable(failureMessage(a))
+            if (a.id !== shownAttempt) { shownAttempt = a.id; void dialog.showMessageBox({ type: 'error', message: 'Orgtree\'s engine is stopped.', detail: failureMessage(a) }) }
+          }
+        }
         if (stats === null && !engine.managed && !backgroundEngineRestart && !coreLifecycle) {
           await engine.verifyAttached()
           if (!engine.managed && engine.status.state === 'stopped' && !quitting) {

@@ -79,22 +79,40 @@ function execute(script, setup='') {
   assert.ok(line, r.stdout+'\n'+r.stderr)
   return JSON.parse(line)
 }
+const USER_SESSION = 'Orgtree User Session Engine'
 test('startup off removes automatic triggers from every owned task but preserves demand launch',()=>{
-  for (const on of [true,false]) {
-    const r=execute(startup.elevatedStartupScript(on), '$store.Values | ForEach-Object {$_.Enabled=$false;$_.Trigger=$true}')
+  for (const on of [true,false]) for (const asAdmin of [0,1]) {
+    const r=execute(startup.elevatedStartupScript(on), `$values.RunAsAdministrator=${asAdmin}; $store.Values | ForEach-Object {$_.Enabled=$false;$_.Trigger=$true}`)
     assert.equal(r.failure,null)
     assert.equal(Object.keys(r.tasks).length,3)
-    for(const task of Object.values(r.tasks)){assert.equal(task.Enabled,true);assert.equal(task.Trigger,on)}
+    for(const [name,task] of Object.entries(r.tasks)){
+      assert.equal(task.Enabled,true,`${name} keeps demand launch`)
+      // the user-session engine moves in at sign-in only while Run as admin is on too (coordinator Q1)
+      assert.equal(task.Trigger,name===USER_SESSION ? on && asAdmin===1 : on,`${name} trigger (startup ${on}, admin ${asAdmin})`)
+    }
     assert.equal(r.values.RunOnStartup,Number(on))
   }
 })
-test('admin on and off update both interactive tasks, never the S4U principal',()=>{
-  for(const on of [true,false]){
-    const r=execute(admin.elevatedWriteScript(on),'$store.Values | ForEach-Object {$_.Level=1}')
+test('admin on and off update all three owned tasks, keeping each logon type',()=>{
+  for(const on of [true,false]) for (const runs of [0,1]) {
+    const r=execute(admin.elevatedWriteScript(on),`$values.RunOnStartup=${runs}; $store.Values | ForEach-Object {$_.Level=1;$_.Trigger=${runs===1 ? '$true' : '$false'}}`)
     assert.equal(r.failure,null)
-    for(const name of [admin.HELPER_TASK, 'Orgtree User Session Engine']) assert.equal(r.tasks[name].Level,Number(on))
-    assert.equal(r.tasks['Orgtree Background Engine'].Logon,2)
+    // the Session 0 boot engine follows the one toggle too (coordinator Q2)
+    for(const name of [admin.BOOT_TASK, admin.HELPER_TASK, USER_SESSION]) assert.equal(r.tasks[name].Level,Number(on),name)
+    assert.equal(r.tasks[admin.BOOT_TASK].Logon,2,'the boot task stays S4U')
+    assert.equal(r.tasks[admin.HELPER_TASK].Logon,3)
+    assert.equal(r.tasks[USER_SESSION].Logon,3)
+    assert.equal(r.tasks[USER_SESSION].Trigger,on && runs===1,'the sign-in move follows Run as admin and Run on boot')
+    assert.equal(r.tasks[admin.BOOT_TASK].Trigger,runs===1,'Run as admin never changes the boot trigger')
+    assert.equal(r.tasks[admin.HELPER_TASK].Trigger,runs===1,'nor the helper trigger')
     assert.equal(r.values.RunAsAdministrator,Number(on))
+  }
+})
+test('an owned task with an unexpected logon type refuses before any change',()=>{
+  for (const [name,logon] of [[admin.BOOT_TASK,3],[USER_SESSION,2]]) {
+    const r=execute(admin.elevatedWriteScript(true),`$store['${name}'].Logon=${logon}`)
+    assert.match(r.failure,/operator does not match/)
+    assert.deepEqual(r.events,[])
   }
 })
 test('a foreign task refuses all writes before changing any task',()=>{
@@ -111,12 +129,12 @@ test('failed admin task update restores preceding task updates and preserves the
   for(const task of Object.values(r.tasks)) assert.equal(task.Level,0)
   assert.equal(r.events.filter(e=>e.startsWith('restore:')).length,1)
 })
-test('failed protected setting write rolls both tasks back',()=>{
+test('failed protected setting write rolls every task back',()=>{
   const r=execute(admin.elevatedWriteScript(true),'$failWrite=$true')
   assert.match(r.failure,/injected registry failure/)
   assert.equal(r.values.RunAsAdministrator,0)
   for(const task of Object.values(r.tasks)) assert.equal(task.Level,0)
-  assert.equal(r.events.filter(e=>e.startsWith('restore:')).length,2)
+  assert.equal(r.events.filter(e=>e.startsWith('restore:')).length,3)
 })
 test('failed startup changes restore prior triggers and never rewrite the stored choice',()=>{
   for(const failure of ['$failSecond=$true','$failWrite=$true']) {
