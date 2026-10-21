@@ -34,6 +34,8 @@ import { resolveRef, refToken, scanInlineMentions } from './reflinks'
 import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
 import { parseRef, scanRefs, splitRefs } from './workrefs'
 import type { MentionRef } from './workrefs'
+import { useContextMenu } from './contextmenu'
+import { localFileLinkAt } from './localfile'
 
 /** the attribute that makes an injected chip findable again on the next pass.
  *  It holds the ORIGINAL TOKEN, so undoing the injection is exact — the chip's
@@ -587,9 +589,13 @@ export function RefMdBody({ html, world, onOpen, className, el, mentions }: {
   el?: 'div' | 'span'
 }) {
   const host = useRefMd(world, onOpen, mentions)
+  const menu = useContextMenu()
   const Tag = (el ?? 'div') as 'div'
-  return <Tag ref={host} className={className}
-    dangerouslySetInnerHTML={html} />
+  return <><Tag ref={host} className={className}
+    onContextMenu={e => {
+      const file = localFileLinkAt(e.target, e.currentTarget)
+      if (file) menu.open(e, [], file)
+    }} dangerouslySetInnerHTML={html} />{menu.node}</>
 }
 
 export { refToken }

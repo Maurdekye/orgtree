@@ -5,7 +5,7 @@ import { flush, inAct, mountView } from './harness'
 import { ToolChip } from '../src/canvas/desk'
 import { RefMdBody } from '../src/canvas/refmd'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
-import { md, revealFileFromEvent } from '../src/canvas/shared'
+import { md } from '../src/canvas/shared'
 
 test('same local file in tool, Markdown and raw prose has one tooltip and context menu', async t => {
   const path = 'C:\\synthetic\\notes\\plan.md'
@@ -21,7 +21,7 @@ test('same local file in tool, Markdown and raw prose has one tooltip and contex
     else delete (window as unknown as { orgtreeDesktop?: unknown }).orgtreeDesktop
   })
   const html = md(`[Plan](<${path}>)`)
-  const v = await mountView(<div onClick={e => { revealFileFromEvent(e) }}>
+  const v = await mountView(<div>
     <ToolChip t={{ id: 'file-parity', name: 'Read', file_paths: [{ path, link: true }] }} slug="org" nid="agent" />
     <RefMdBody html={html} />
     <ObjectMenuBoundary><div dangerouslySetInnerHTML={html} /></ObjectMenuBoundary>

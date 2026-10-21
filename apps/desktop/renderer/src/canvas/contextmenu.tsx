@@ -102,6 +102,7 @@ import { captureDeskMentionAt } from './agentmentions'
 import { OBJECT_NAV_ATTR, OBJECT_ID_ATTR, OBJECT_ORG_ATTR, objectNavElementAt, useObjectNavRegistry } from './objectnav'
 import { useEsc } from './shared'
 import type { ToastFn } from '../types'
+import { localFileLinkAt, localFileMenu } from './localfile'
 
 export interface MenuItem {
   label: string
@@ -207,7 +208,7 @@ function objectCopyEntry(object: Element, toast?: ToastFn): MenuItem {
 export function openFallbackObjectMenu(e: ReactMouseEvent, menu: ContextMenuHandle): void {
   const object = copyObjectAt(e.target)
   const nav = objectNavElementAt(e.target) ?? agentNavElementAt(e.target)
-  const anchor = nav && (!object || nav.contains(object)) ? nav : object
+  const anchor = localFileLinkAt(e.target) ?? (nav && (!object || nav.contains(object)) ? nav : object)
   if (anchor) menu.open(e, [], anchor)
 }
 
@@ -368,7 +369,9 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   const reanchor = useCallback((el: Element | null) => { if (el) anchorRef.current = el }, [])
   const open = useCallback((e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => {
     if (e.defaultPrevented) return           // an inner object already took it
-    const el = anchor ?? e.currentTarget as HTMLElement
+    const owner = anchor ?? e.currentTarget as HTMLElement
+    const localFile = localFileLinkAt(e.target, owner)
+    const el = localFile ?? owner
     // WHICH WINDOW — asked of the element under the pointer, before anything
     // else reads a coordinate. A press whose window has already gone opens
     // nothing and is not prevented: there is no viewport left to place a menu
@@ -376,7 +379,9 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     const doc = el.ownerDocument ?? surfaceDocument
     if (!liveBody(doc)) return
     if (nativeMenuPreferred({ target: e.target, currentTarget: el })) return
-    const entriesList = (typeof entries === 'function' ? entries() : entries)
+    const entriesList: MenuEntry[] = localFile
+      ? [{ label: 'Checking file…', disabled: true, onSelect: () => {} }]
+      : (typeof entries === 'function' ? entries() : entries)
     const object = copyObjectAt(e.target, el)
     const objectEl = objectNavElementAt(e.target, el)
     const objectKind = objectEl?.getAttribute(OBJECT_NAV_ATTR)
@@ -465,6 +470,15 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       keyboard: !inside,
       doc,
     })
+    if (localFile) {
+      const path = localFile.getAttribute('data-local-path')!
+      void localFileMenu(localFile, path, copyToClipboard, feedback).then(entries => setState(s => {
+        if (!s || opening.current !== id) return s
+        if (!localFile.isConnected || localFile.getAttribute('data-local-path') !== path) return null
+        return { ...s, entries }
+      }))
+      return id
+    }
     // A later async capability result may already have replaced the entries.
     // The initial folder pass must not restore its stale pending list over it.
     void resolveFolderAgentsEntries(list).then(resolved => setState(s =>

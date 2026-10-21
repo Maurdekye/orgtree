@@ -19,6 +19,7 @@ import './lightbox'
 import { renderHtmlResponses } from './htmlresponse'
 // the native bridge, for revealing a local file link in the OS file manager
 import { desktop } from '../desktop'
+import { localFileTitle } from './localfile'
 import { THEME_ACCENTS } from '../../../../../packages/contracts/visual-theme'
 import { siblingOrder } from '../treeorder'
 import { refreshAgyModels } from '../api'
@@ -3238,6 +3239,7 @@ const wrapCodeBlocks = (html: string, imgBase?: string, agentHtmlResponse?: bool
     if (localPath) {
       fallback.classList.add('local-file')
       fallback.setAttribute('data-local-path', localPath)
+      fallback.setAttribute('title', localFileTitle(localPath))
       fallback.setAttribute('title', `Show in folder — ${localPath}`)
     } else if (/^https?:\/\//i.test(fallbackHref)) {
       fallback.setAttribute('target', '_blank')
@@ -3366,6 +3368,7 @@ export function markdownImageFailed(e: { target: EventTarget | null }): void {
     if (localPath) {
       parent.setAttribute('href', '#')
       parent.setAttribute('data-local-path', localPath)
+      parent.setAttribute('title', localFileTitle(localPath))
       parent.classList.add('local-file')
       parent.setAttribute('title', `Show in folder — ${localPath}`)
     } else if (/^https?:\/\//i.test(href)) {

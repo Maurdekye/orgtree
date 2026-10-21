@@ -136,6 +136,14 @@ their CLI emits the corresponding blocks.
 
 ## Menus
 
+Local-file identities share `canvas/localfile.ts` for tool links, Markdown
+links and failed local-image links (user link-consistency ruling 2026-10-21).
+The shared context-menu opener resolves the explicit path at the pressed
+anchor, uses that anchor's document, and rejects stale status replies after
+a different menu opens or its anchor disappears. Plain URLs and authenticated
+attachment downloads retain their existing controls. Ordinary local-file
+clicks remain reveal-only; opening requires the explicit menu action.
+
 Tool references read the primary JSON payload before the appended execution-time
 block (and accept a retained MCP envelope). A created ticket or watchdog ID must
 come from that payload; named agent/project refs still come from arguments.
