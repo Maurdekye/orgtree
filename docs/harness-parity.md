@@ -9,6 +9,30 @@ OpenCode mail was updated on 2026-10-20 at `181cb4914c5a2373fafc4ca1defe80c0919f
 [O-MAIL] and [O-MAIL-PROOF] cite that later contract and its offline measurement.
 Other source keys retain the original audit revision.
 
+## 4.4.0 follow-up audit, 2026-10-21
+
+The following deltas were rechecked against `2ec8c0e7d15b8810a7d957add335ac69472541c8`.
+They supplement the original matrices without changing the dates of native
+measurements. This pass reads source and existing evidence only: no live CLI,
+provider, account or installed-data probe was run.
+
+| Area | Current behavior and boundary | Current source |
+| --- | --- | --- |
+| AGY tool annotations | Normalize eager/default-api and lazy `call_mcp_tool` wrappers onto shared tool names/arguments. PascalCase native file arguments produce file links. Successful results carry shared object refs; ambiguous matches are omitted. Bounded transcript reads heal retained historical chips, not every stored row at startup. | [annotation pipeline][A-ANNOTATIONS-44], [actor][ACTOR-44], `tools/mod.rs`, `http/nodes.rs` |
+| AGY thinking | Read the exact completed conversation/step through a short read-only SQLite snapshot, including committed live WAL. Skip busy, malformed or unsafe data; prefer explicit native stream thinking, including redaction. No checkpoint/CLI close or old-transcript backfill is required. Recovery stays after DONE, not live reasoning streaming. | [reader][A-THINKING-44], [contract][A-THINKING-DOC-44] |
+| AGY accounts | Registered profiles get their own home, auth latch, usage and admission reading. Missing identity fails closed; a default-identical identity is `not_isolated`. The 1.3.5 shared-keyring limitation remains, so a profile folder does not provide a second subscription. Transient launch checks retry once; real refusals do not. | [auth guard][A-AUTH-44], `usage/agy_reading_tests.rs`, `docs/rust-engine/antigravity-accounts.md` |
+| Native context recovery | Claude/Codex context-window overflow receives one cheap fresh-session attempt, then terminal failure. Input-length, auth/quota and interruption policies remain separate. Original mail IDs/receipts survive; a recovery is not newly authored mail. | [actor][ACTOR-44], [recovery policy][RECOVERY-44], [contract][SIZE-DOC-44] |
+| Measured-size compaction | After-turn and admission checks can split at the org threshold independently of cache temperature. Missing/estimated occupancy and native-compaction invalidation prevent a false repeat; working status defers the after-turn path. Cold-policy Off does not disable this separate size check. | [actor][ACTOR-44], [contract][SIZE-DOC-44] |
+| OpenCode mail and startup | Exact 2.0.28 owned after-tool plugin remains enabled, with DND/urgent gates, stable custody and a single uncertain-recovery return. Discovery pending after restart does not by itself block resume of the known stored OpenCode lane. Other versions/missing hooks retain next-turn delivery. | [adapter][OPENCODE-44], [bridge][OPENCODE-MAIL-44], `docs/rust-engine/opencode-mail.md` |
+| OpenRouter harness identity | An explicit hire-time harness pins the seat; rehire keeps the pin. Unpinned seats follow their key at the next boundary with a fresh handoff when the driver changes. Registry installation and account eligibility remain separate gates. | `domain/ops.rs::stamp_harness`, `openrouter.rs::seat_harness` |
+| Muse identity versus quota | Metadata identity can recover after restart independently of a retained last-good usage observation. That never freshens quota or proves authentication; no on-demand fresh Muse usage query is added. | `providers/muse_models.rs`, `usage.rs`, `usage/muse_cache.rs`, `usage/muse_identity_tests.rs` |
+
+The corresponding glossary leaves now include these contracts and the route
+pages no longer call all OpenCode delivery next-turn-only. Other original
+source citations below remain historical, not a claim to have rerun their
+native proof. Model offers still come from the actual account's catalog;
+unknown effort, prices and TTL remain unknown.
+
 This describes what **Orgtree actually implements**, not everything an upstream
 CLI might support. Five harnesses are registered: Claude Code, Codex CLI,
 Antigravity, Muse Code and OpenCode. **Gemini is a model family inside the
@@ -473,3 +497,13 @@ does not mean the associated native operation was executed during this audit.
 
 [O-MAIL]: https://github.com/Maurdekye/orgtree/blob/181cb4914c5a2373fafc4ca1defe80c0919fbdfa/engine/rs/orgtree-engine/src/runtime/opencode_mail.rs#L1
 [O-MAIL-PROOF]: rust-engine/opencode-mail.md#measured-offline-proof-2026-10-20
+
+[A-ANNOTATIONS-44]: https://github.com/Maurdekye/orgtree/blob/2ec8c0e7d15b8810a7d957add335ac69472541c8/engine/rs/orgtree-engine/src/runtime/convo.rs
+[ACTOR-44]: https://github.com/Maurdekye/orgtree/blob/2ec8c0e7d15b8810a7d957add335ac69472541c8/engine/rs/orgtree-engine/src/runtime/actor.rs
+[A-THINKING-44]: https://github.com/Maurdekye/orgtree/blob/2ec8c0e7d15b8810a7d957add335ac69472541c8/engine/rs/orgtree-engine/src/runtime/agy_thinking.rs
+[A-THINKING-DOC-44]: rust-engine/antigravity-thinking.md
+[A-AUTH-44]: https://github.com/Maurdekye/orgtree/blob/2ec8c0e7d15b8810a7d957add335ac69472541c8/engine/rs/orgtree-engine/src/providers/agy_auth.rs
+[RECOVERY-44]: https://github.com/Maurdekye/orgtree/blob/2ec8c0e7d15b8810a7d957add335ac69472541c8/engine/rs/orgtree-engine/src/runtime/recovery.rs
+[SIZE-DOC-44]: rust-engine/context-full-recovery.md
+[OPENCODE-44]: https://github.com/Maurdekye/orgtree/blob/2ec8c0e7d15b8810a7d957add335ac69472541c8/engine/rs/orgtree-engine/src/runtime/opencode.rs
+[OPENCODE-MAIL-44]: https://github.com/Maurdekye/orgtree/blob/2ec8c0e7d15b8810a7d957add335ac69472541c8/engine/rs/orgtree-engine/src/runtime/opencode_mail.rs
