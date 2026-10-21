@@ -13,9 +13,9 @@ async fn fixture(cap: i64) -> (Arc<Engine>, Arc<OrgHandle>, i64, i64) {
     client.batch_execute("DROP SCHEMA IF EXISTS ot CASCADE; DROP TABLE IF EXISTS public.ot_migrations").await.unwrap();
     crate::migrate::run(&mut client,&|_|{}).await.unwrap();
     let id:i64=client.query_one("INSERT INTO ot.orgs(uuid,slug,name) VALUES(gen_random_uuid(),'slot-limit-fixture','fixture') RETURNING id",&[]).await.unwrap().get(0);
-    let project:i64=client.query_one("INSERT INTO ot.agents(org_id,name,kind,tier,state,scope) VALUES($1,'resource','project','project','live',$2) RETURNING id",&[&id,&json!({"slots_capacity":cap})]).await.unwrap().get(0);
-    let agent:i64=client.query_one("INSERT INTO ot.agents(org_id,name,parent_id,tier,state) VALUES($1,'reader',$2,'sol','live') RETURNING id",&[&id,&project]).await.unwrap().get(0);
-    let other:i64=client.query_one("INSERT INTO ot.agents(org_id,name,parent_id,tier,state) VALUES($1,'other',$2,'sol','live') RETURNING id",&[&id,&project]).await.unwrap().get(0);
+    let project:i64=client.query_one("INSERT INTO ot.agents(org_id,name,kind,tier,state,scope,born) VALUES($1,'resource','project','project','live',$2,'2026-10-21') RETURNING id",&[&id,&json!({"slots_capacity":cap})]).await.unwrap().get(0);
+    let agent:i64=client.query_one("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,'reader',$2,'sol','live','2026-10-21') RETURNING id",&[&id,&project]).await.unwrap().get(0);
+    let other:i64=client.query_one("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,'other',$2,'sol','live','2026-10-21') RETURNING id",&[&id,&project]).await.unwrap().get(0);
     let mut engine=Engine::for_tests(std::path::PathBuf::from(std::env::var("ORGTREE_SLOT_LIMIT_TEST_ROOT").unwrap()));
     let mgr=deadpool_postgres::Manager::from_config(cfg,NoTls,deadpool_postgres::ManagerConfig {recycling_method:deadpool_postgres::RecyclingMethod::Fast});
     Arc::get_mut(&mut engine).unwrap().db=deadpool_postgres::Pool::builder(mgr).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
