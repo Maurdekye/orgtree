@@ -152,6 +152,9 @@ mod imp {
 #[cfg(windows)]
 pub use imp::*;
 
+#[cfg(all(test, windows))]
+pub(crate) mod token_probe;
+
 // Unix: no job objects yet (children are not killed if the engine crashes);
 // liveness and the parent watch use kill(pid, 0) and getppid().
 #[cfg(unix)]

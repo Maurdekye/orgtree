@@ -388,3 +388,6 @@ async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Pa
     )?;
     Ok(())
 }
+
+#[cfg(all(test, windows))]
+mod rights_tests;
