@@ -22,7 +22,7 @@ export default async function(rig) {
   const rows=rig.sql(`SELECT a.id,a.name,a.tier,a.kind,a.scope,a.charter,a.scratch_dir,p.name AS parent,a.grant_credits::float8 AS grant,a.seat::float8 AS seat
     FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id LEFT JOIN ot.agents p ON p.id=a.parent_id
     WHERE o.slug='${slug}' AND a.state='live' ORDER BY a.id`)
-  p.check('creation makes the exact hierarchy with no project seat or grant',made.hired.length===9&&made.projects?.length===1&&rows.length===10&&rows[1].parent==='liaison'&&rows[2].kind==='project'&&rows[2].seat===0&&rows[2].grant===0&&rows.slice(3).every(r=>r.parent==='build-slot'),rows)
+  p.check('creation makes the exact hierarchy with a free project and its derived descendant funding',made.hired.length===9&&made.projects?.length===1&&rows.length===10&&rows[1].parent==='liaison'&&rows[2].kind==='project'&&rows[2].seat===0&&rows[2].grant===rows.slice(3).reduce((n,r)=>n+r.seat+r.grant,0)&&rows.slice(3).every(r=>r.parent==='build-slot'),rows.map(({name,parent,kind,seat,grant})=>({name,parent,kind,seat,grant})))
   p.check('coordinator has the explicit user audience',rig.one(`SELECT count(*)::int AS n FROM ot.audiences a JOIN ot.orgs o ON o.id=a.org_id WHERE o.slug='${slug}' AND a.grantee='coordinator' AND a.grantor='@user' AND a.revoked_at IS NULL`).n===1)
   p.check('project policy is three slots and coworker mail ON',rows[2].scope.slots_capacity===3&&rows[2].scope.peer_mail===true,rows[2].scope)
   const developer=fs.readFileSync(fileURLToPath(new URL('../../../engine/docs/charters/developer.md',import.meta.url)),'utf8')
