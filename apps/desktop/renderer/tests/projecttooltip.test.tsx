@@ -27,7 +27,7 @@ function fixture() {
     slot_leases: [{ project: node.id, agent: 'worker', slot: 1, slots: 1, lease: 'held', since: '' }] } as TreePayload
   return { node, tree }
 }
-const facts = 'Project · slots 1/2 held · listeners 3/5 · 1 listener watch · mail: 3 listeners · 4 q\'d · 1 in flight · # Test project'
+const facts = '1/2 held · listeners 3/5 · 3 listeners · 4 q\'d · 1 in flight'
 const info = (node: CanvasNode, tree: TreePayload) => Reflect.apply(agentTooltipInfo, null,
   [node, [], null, undefined, undefined, tree])
 
@@ -41,7 +41,7 @@ test('facts change with current leases and watches; projects without chips show 
   tree.slot_leases![0]!.slots = 2
   tree.watchdogs = tree.watchdogs!.filter(w => w.kind !== 'listener_watch')
   assert.equal(info(node, tree).title, facts.replace('1/2 held', '2/2 held')
-    .replace('listeners 3/5 · 1 listener watch', 'listeners 3'))
+    .replace('listeners 3/5', 'listeners 3'))
   assert.deepEqual(info({ ...node, configured_scope: {}, mail_pending: 0, mail_held: 0 },
     { ...tree, watchdogs: [], slot_leases: [] }), { title: 'test-project' })
 })
@@ -62,6 +62,7 @@ test('near card/name and icon hovers share facts matching the rendered badges', 
   const card = v.el.querySelector<HTMLElement>('.sq.project')!
   for (const text of ['1/2 held', 'listeners 3/5', "3 listeners · 4 q'd · 1 in flight"])
     assert.ok([...card.querySelectorAll('.project-header-badges > span')].some(b => b.textContent === text), text)
+  assert.equal(info(node, tree).title, [...card.querySelectorAll('.project-header-badges > span')].map(b => b.textContent).join(' · '))
   for (const target of [card, card.querySelector<HTMLElement>('.name')!, card.querySelector<HTMLElement>('.project-mark')!]) {
     await inAct(() => target.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
     assert.equal(target.title, target.classList.contains('project-mark') ? `test-project\n${facts}` : facts)
@@ -91,5 +92,5 @@ test('real canvas far-zoom hover omits the name and reads replacement feed facts
   tree.slot_leases = []; tree.watchdogs = []
   await v.render(render())
   await inAct(() => card.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
-  assert.equal(card.title, "Project · slots 0/2 held · mail: 4 q'd · 1 in flight · # Test project")
+  assert.equal(card.title, "0/2 held · 4 q'd · 1 in flight")
 })
