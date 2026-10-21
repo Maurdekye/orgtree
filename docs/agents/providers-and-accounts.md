@@ -8,6 +8,14 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 <a id="e-5ef50fb6f47c902d"></a>
 
+## Fast mode during a queued model switch (2026-10-22)
+
+User scope saves and agent retool validate the next-turn target in
+`pending_switch.tier`, falling back to the serving tier when none is queued.
+Exact-model capability checks still apply; speed-only saves preserve the switch
+and the running turn's speed evidence. See [fast mode](../rust-engine/fast-mode.md).
+[verified: `http/nodes.rs`, `domain/ops.rs`, `providers/fast_mode.rs`]
+
 ## Fast-mode hire/rehire/staff/retool fields share exact-model validation;
 
 Original section: Unsectioned integration notes. Source lines 262–269.

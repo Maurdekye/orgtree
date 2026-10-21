@@ -28,8 +28,8 @@ pub fn validate(st: &State, tier: &str, version: Option<&str>, value: &Value) ->
 
 /// Validate a saved next-turn speed choice without changing serving evidence.
 #[nolog]
-pub fn validate_next_turn(st: &State, tier: &str, version: Option<&str>, _pending_tier: Option<&str>, value: &Value) -> anyhow::Result<bool> {
-    validate(st, tier, version, value)
+pub fn validate_next_turn(st: &State, tier: &str, version: Option<&str>, pending_tier: Option<&str>, value: &Value) -> anyhow::Result<bool> {
+    validate(st, pending_tier.unwrap_or(tier), version, value)
 }
 
 /// Exact per-tier defaults; false remains valid when advertised support disappears.

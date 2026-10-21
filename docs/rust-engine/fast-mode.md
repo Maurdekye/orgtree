@@ -11,6 +11,14 @@ that field and publishes the agent; it never sends Reconfigured or cascades scop
 Model/account/session identity and startup fingerprint parts do not include speed.
 Mixed model/settings edits retain their existing admission and boundary behavior.
 
+Fast-mode saves validate the queued model when `pending_switch.tier` exists,
+otherwise the serving model. Both user scope-save branches (including history
+gestures) and agent retool use this next-turn validation, with the pinned version
+the save leaves in effect. Agent settings already displays the queued target;
+choosing its speed does not cancel or requeue that switch. Unsupported targets
+still refuse `true`, explicit `false` remains valid, and the running model and
+`fast_mode_current` evidence stay unchanged until their ordinary turn boundary.
+
 Codex's existing offline capability discovery preserves the exact model row's
 `serviceTiers`, accepting only advertised `fast` or `priority` IDs. The deprecated
 `additionalSpeedTiers` is used only if the newer field is absent. Unknown models

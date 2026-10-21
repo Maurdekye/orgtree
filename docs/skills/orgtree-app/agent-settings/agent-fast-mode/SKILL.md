@@ -13,7 +13,11 @@ separate from thinking effort. The user or an authorized superior can change it.
 - The lightning button above Send changes this agent's saved setting immediately.
   Its pressed state shows the saved choice. Agent settings > Model has the same
   **Fast mode** checkbox, applied with Save.
-- Both controls are hidden when the current harness and model lack support.
+- The desk control is hidden when the current harness and model lack support.
+  Agent settings uses the selected model, including an already queued switch,
+  and saves fast mode for that next-turn target. A speed-only save leaves the
+  queued switch in place. An unsupported target still refuses fast mode even
+  when the running model supports it; turning fast mode off remains valid.
   Codex requires an advertised fast or priority service tier for that exact model
   version. First-party Claude Code supports the verified Opus 4.8 and 5 family.
   Antigravity, OpenCode/OpenRouter, Muse and language model server routes have no verified
@@ -63,6 +67,7 @@ supported tier. All start OFF. They affect new hires and Quick chat, not existin
 agents or rehires. Explicit `fast_mode` on hire overrides the default, including
 false. Managers can set `fast_mode` on hire, rehire, staff and retool for agents
 in their ordinary scope; state_inspect shows the saved boolean.
+Retool validates fast mode against an already queued model when present.
 `orgtree_fast_defaults` reads defaults and lets only top-level agents whose
 superior is the user patch them. Speed-only changes apply next turn without
 changing model/account/session or restarting the warm CLI.
