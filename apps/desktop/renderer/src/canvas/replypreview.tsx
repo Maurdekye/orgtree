@@ -8,7 +8,7 @@ import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { fetchMailRowForCopy, isMailByReferencePreview, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
 import type { CopyableMailRow } from './copytext'
 import { senderMenuAction } from './objectactions'
-import { objectNavProps } from './objectnav'
+import { objectNavProps, useObjectNavRegistry } from './objectnav'
 import { mailLinkProps } from './mailidentity'
 import { ReplyIcon } from '../icons'
 import { usePresentationTitle } from './presentationtitle'
@@ -67,6 +67,7 @@ export function ReplyPreview({ reply, available, onLocate, onRemove, presentatio
   const sourceData = isValidElement<{ source?: ReplySource }>(source) ? source.props.source : undefined
   const toast = useCopyFeedback()
   const nodeNav = useAgentNavRegistry()
+  const objectNav = useObjectNavRegistry()
   const doc=usePresentationTitle(reply.org,reply.docId&&available?reply.docId:undefined,
     presentationTitle&&reply.docId?{org:reply.org,docs:new Map([[reply.docId,presentationTitle]])}:undefined)
   const reachable=available&&(!reply.docId||doc.ready)
@@ -119,7 +120,7 @@ export function ReplyPreview({ reply, available, onLocate, onRemove, presentatio
     const agentId = syncSender?.replace(/^@/, '')
     const navEntries = syncSender && !syncSender.startsWith('@') && syncSender !== 'user' && agentId
       ? (nodeNav?.current?.(agentId, anchor) ?? []) : []
-    const senderEntry = senderMenuAction(anchor, syncSender, navEntries, toast)
+    const senderEntry = senderMenuAction(anchor, syncSender, navEntries, toast, objectNav?.openUserInbox)
     return [
       { label: 'Copy contents', disabled: !canCopy, onSelect: () => copyContents(anchor) },
       ...(senderEntry ? [senderEntry] : []),
@@ -134,7 +135,7 @@ export function ReplyPreview({ reply, available, onLocate, onRemove, presentatio
         const agentId = m.from.replace(/^@/, '')
         const navEntries = !m.from.startsWith('@') && m.from !== 'user' && agentId
           ? (nodeNav?.current?.(agentId, anchor) ?? []) : []
-        const entry = senderMenuAction(anchor, m.from, navEntries, toast)
+        const entry = senderMenuAction(anchor, m.from, navEntries, toast, objectNav?.openUserInbox)
         if (entry) menu.append(entry, opening)
       }).catch(() => {})
     }

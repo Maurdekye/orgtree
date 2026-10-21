@@ -90,6 +90,6 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
       return ticketMenuEntries({ org, item, anchor, ownerEntries: entries,
         open: () => openTicket(item.slug), toast, staffing, staffError })
     })
-  }, org)
+  }, org, openMail ? () => openMail({ id: '@user', to: 'user_inbox' }) : undefined)
   return null
 }

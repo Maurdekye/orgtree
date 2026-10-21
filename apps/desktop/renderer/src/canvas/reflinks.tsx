@@ -25,6 +25,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { HubContactChip } from './agentmentions'
 import { NodeLink, nodeTierOf } from './identity'
+import { UserIdentityLink } from './useridentity'
 import { objectNavProps } from './objectnav'
 import { mailLinkProps } from './mailidentity'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
@@ -565,6 +566,7 @@ export function RefChip({ r, onOpen }: {
   }
   const cls = `ref-chip ref-${r.ref.kind} ref-${r.outcome}`
     + (r.atDestination ? ' ref-here' : '')
+  if (r.ref.kind === 'mail' && r.ref.id === '@user' && r.outcome === 'ready') return <UserIdentityLink className={cls} open={onOpen ? () => onOpen(r) : undefined} />
   if (r.ref.kind === 'agent' && r.outcome === 'ready') {
     return (
       <NodeLink

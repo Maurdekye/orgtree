@@ -100,6 +100,14 @@ reason when unavailable; Copy identity remains possible. Hover text is the
 shared address resolver's text. This is the coordinator's 2026-10-21 07:16Z
 interpretation of the user's 06:53Z approval, not a separate user ruling.
 
+`@user` is a separate inbox identity with `userMenuEntries`: Mention only for a
+real composer, Copy mention, and Open inbox only for a real route. Its shared
+hover stays "open the user's inbox". Sender submenus reuse that builder and the
+current object host's inbox capability; the parent is disabled without that
+route while its copy submenu remains usable. This is the coordinator's
+2026-10-21 07:16Z interpretation of the 06:53Z approval. No agent node or message
+metadata lookup is fabricated for the user.
+
 Mail links use `mailMenuEntries` for their common Open/copy-text/copy-reference
 menu. Inbox rows retain real Close, reply, read, retract and delete capabilities;
 reply frames retain their contextual menu, while the inner message link uses the

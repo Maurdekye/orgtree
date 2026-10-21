@@ -15,7 +15,7 @@ import { RefChip, resolveRef } from './reflinks'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { usePresentationTitle } from './presentationtitle'
-import { objectNavProps } from './objectnav'
+import { objectNavProps, useObjectNavRegistry } from './objectnav'
 
 interface ReplyRow { reply_to?: unknown; replies?: unknown[]; ev?: unknown }
 
@@ -66,6 +66,7 @@ function buildMailReplyMenu(
   activate: (() => void) | undefined,
   nodeNav: ReturnType<typeof useAgentNavRegistry>,
   toast: ReturnType<typeof useCopyFeedback>,
+  openUserInbox?: () => void,
 ): MenuEntry[] {
   const fallbackText = reply.body || reply.gist || ''
   const isDoc = target?.ref.kind === 'doc' || reply.ref?.kind === 'doc' || reply.kind === 'document'
@@ -110,7 +111,7 @@ function buildMailReplyMenu(
   const agentId = from.replace(/^@/, '')
   const navEntries = from && !from.startsWith('@') && from !== 'user' && agentId
     ? (nodeNav?.current?.(agentId, anchor) ?? []) : []
-  const senderEntry = senderMenuAction(anchor, from || undefined, navEntries, toast)
+  const senderEntry = senderMenuAction(anchor, from || undefined, navEntries, toast, openUserInbox)
   const openLabel = isDoc ? 'Open presentation' : isItem ? 'Open details' : 'Open mail'
   return [
     { label: 'Copy contents', disabled: !canCopy, onSelect: copyContents },
@@ -126,6 +127,7 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
 }) {
   const toast = useCopyFeedback()
   const nodeNav = useAgentNavRegistry()
+  const objectNav = useObjectNavRegistry()
   if (row.replies?.length) return <>{row.replies.slice(0, 50).map((reply, i) =>
     <MailReplyPreview key={i} row={{ reply_to: reply }} org={org} world={world} onOpen={onOpen}
       replyAvailable={replyAvailable} onLocateReply={onLocateReply} />)}</>
@@ -153,13 +155,13 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
         const agentId = m.from.replace(/^@/, '')
         const navEntries = !m.from.startsWith('@') && m.from !== 'user' && agentId
           ? (nodeNav?.current?.(agentId, anchor) ?? []) : []
-        const entry = senderMenuAction(anchor, m.from, navEntries, toast)
+        const entry = senderMenuAction(anchor, m.from, navEntries, toast, objectNav?.openUserInbox)
         if (entry) menu.append(entry, opening)
       }).catch(() => {})
     }
   }
   return <ReplyPreviewFrame label="Reply context" unavailable={unavailable} onActivate={activate} actionTitle={activate?target!.why:unavailable}
-    menuEntries={anchor => buildMailReplyMenu(anchor, org, reply, target, activate, nodeNav, toast)}
+    menuEntries={anchor => buildMailReplyMenu(anchor, org, reply, target, activate, nodeNav, toast, objectNav?.openUserInbox)}
     onOpenMenu={onOpenMenu}
     action={<>
     <ReplyIcon fontSize="inherit" aria-hidden="true" />
@@ -173,10 +175,11 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
 function PresentationReply({reply,target,world,onOpen}:{reply:NonNullable<ReturnType<typeof recordedMailReply>>;target:ResolvedRef;world:RefWorld;onOpen?: (ref:ResolvedRef)=>void}){
   const toast = useCopyFeedback()
   const nodeNav = useAgentNavRegistry()
+  const objectNav = useObjectNavRegistry()
   const title=usePresentationTitle(target.ref.org,target.ref.id,world,reply.title)
   const activate=title.ready&&target.outcome==='ready'&&onOpen?()=>onOpen({...target,label:title.label,why:title.why}):undefined
   return <ReplyPreviewFrame label="Reply context" onActivate={activate} actionTitle={title.why}
-    menuEntries={anchor => buildMailReplyMenu(anchor, world.org, reply, target, activate, nodeNav, toast)}
+    menuEntries={anchor => buildMailReplyMenu(anchor, world.org, reply, target, activate, nodeNav, toast, objectNav?.openUserInbox)}
     unavailable={!title.ready?title.why:!activate?'Original unavailable here; quoted context is retained.':undefined} action={<>
       <ReplyIcon fontSize="inherit" aria-hidden="true"/>
       <span>In reply to{reply.from?` ${reply.from}`:''}{reply.at?` · ${fmtFull(reply.at)}`:''}</span>

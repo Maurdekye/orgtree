@@ -36,6 +36,7 @@ import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
 import { parseRef, scanRefs, splitRefs } from './workrefs'
 import type { MentionRef } from './workrefs'
 import { useContextMenu } from './contextmenu'
+import { USER_IDENTITY_TITLE, userMenuEntries } from './useridentity'
 import { localFileLinkAt } from './localfile'
 
 /** the attribute that makes an injected chip findable again on the next pass.
@@ -143,6 +144,7 @@ function chipEl(doc: Document, r: ResolvedRef,
   el.setAttribute(OUT, r.outcome)
   el.setAttribute(SIG, chipSig(r, live))
   el.addEventListener('mousedown', (e) => { if (e.button !== 0) e.stopPropagation() })
+  if (r.ref.kind === 'mail' && r.ref.id === '@user' && r.outcome === 'ready') { el.setAttribute('data-user-identity', r.ref.org); el.title = USER_IDENTITY_TITLE }
   if (r.ref.kind === 'agent') el.setAttribute('data-copy-agent-name', r.ref.id)
   if (live && r.ref.kind === 'item') for (const [key, value] of Object.entries(objectNavProps('ticket', r.ref.id, r.ref.org))) {
     if (value !== undefined) el.setAttribute(key, value)
@@ -605,6 +607,12 @@ export function RefMdBody({ html, world, onOpen, className, el, mentions }: {
       const file = localFileLinkAt(e.target, e.currentTarget)
       if (file) menu.open(e, [], file)
       else {
+        const user = (e.target as Element)?.closest?.('[data-user-identity]')
+        if (user && e.currentTarget.contains(user)) {
+          const ref = world ? resolveRef({ kind: 'mail', org: world.org, box: 'user', id: '@user' }, world) : null
+          menu.open(e, userMenuEntries(user, user.tagName === 'BUTTON' && onOpen && ref ? () => onOpen(ref) : undefined), user)
+          return
+        }
         const hub = (e.target as Element)?.closest?.('[data-hub-address]')
         if (!hub || !e.currentTarget.contains(hub)) return
         const address = hub.getAttribute('data-hub-address')!

@@ -1,4 +1,5 @@
 import { resolveHubAddressAction, triggerHubAddress, hubAddressMenuEntries } from './agentmentions'
+import { USER_IDENTITY_TITLE, userMenuEntries } from './useridentity'
 import type { MenuEntry } from './contextmenu'
 import { agentLinkMenuEntries } from './contextmenu'
 import type { ToastFn, Watchdog } from '../types'
@@ -28,10 +29,12 @@ export function ticketOwnerAction(anchor: Element, name: string | undefined,
  * sending agent/project/user's normal context menu (including Mention when
  * inside a desk composer scope) and native link hover tooltip. */
 export function senderMenuAction(anchor: Element | null, sender: string | undefined,
-  entries: MenuEntry[], toast?: ToastFn): Exclude<MenuEntry, 'sep'> | undefined {
+  entries: MenuEntry[], toast?: ToastFn, openUserInbox?: () => void): Exclude<MenuEntry, 'sep'> | undefined {
   const raw = sender?.trim()
   if (!raw || raw === 'system' || raw === 'SYSTEM' || raw === '@system') return undefined
   const isUser = raw === 'user' || raw === '@user'
+  if (isUser) return { label: 'Sender…', title: USER_IDENTITY_TITLE, children: userMenuEntries(anchor ?? document.body, openUserInbox, toast),
+    actionDisabled: !openUserInbox, onSelect: () => openUserInbox?.() }
   const isExternal = raw.startsWith('@net:') || raw.startsWith('@org:')
   if (isExternal) {
     const action = resolveHubAddressAction(raw)
