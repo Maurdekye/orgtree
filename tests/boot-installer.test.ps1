@@ -82,6 +82,8 @@ function Register-SigninTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,[stri
 }
 function Remove-SigninTask($Folder) { $script:events.Add('signin-delete'); $script:signin=$null }
 function Get-RunAsAdministrator { return $script:runAsAdmin }
+$script:consoleSid=$null
+function Get-SignedInConsoleSid { return $script:consoleSid }
 # Asking the engine to stop is an I/O boundary too. By default it cannot be
 # asked (no descriptor), so the task is ended, as before; an engine that takes
 # the request stops by itself.
@@ -291,6 +293,21 @@ Assert ($script:events -contains 'register:20') 'Owned update must preserve the 
 # recovery script is needed or should be reused.
 Assert ($script:task.Enabled) 'Completing Register must restore boot-start after an earlier disabled state'
 Assert ($script:events -contains 'run') 'Registered task not started'
+
+# An update with the recorded operator already signed in lets the original-user
+# desktop relaunch start the engine in that session, regardless of the boot toggle.
+foreach ($admin in @($false,$true)) {
+    $script:runAsAdmin=$admin; $script:consoleSid=$sid; $script:events.Clear()
+    Invoke-BootLifecycle Register $dir
+    Assert (-not ($script:events -contains 'run')) 'Signed-in update must not start the S4U engine'
+}
+$script:runAsAdmin=$false
+foreach ($console in @($null,'S-1-5-21-111-222-333-9999')) {
+    $script:consoleSid=$console; $script:events.Clear()
+    Invoke-BootLifecycle Register $dir
+    Assert ($script:events -contains 'run') 'No operator console keeps the cold-boot task route'
+}
+$script:consoleSid=$null
 
 # The credential helper: registered only beside the native engine binary.
 Assert ($null -eq $script:helper -and -not ($script:events -match 'helper-register')) 'Helper registered without its binary'
