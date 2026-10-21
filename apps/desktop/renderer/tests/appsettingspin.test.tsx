@@ -101,7 +101,15 @@ async function app(t: After, at = '/') {
   const pinButton = () => document.querySelector('.acct-panel .modalpin-btn[aria-label="pin this to the window"]') !== null
   return {
     view, settle, press, panel, popout, pinButton,
-    enter: (org: string) => press(org, `the "${org}" row in the org list`, document),
+    enter: async (org: string) => {
+      // Organization identity hovers describe the action; the visible name
+      // identifies the row. Do not mistake its title for its display label.
+      const row = [...document.querySelectorAll<HTMLElement>('.org[role="button"]')]
+        .find(el => el.querySelector('.org-name-text')?.textContent === org)
+      assert.ok(row, `the harness could not find the "${org}" row in the org list`)
+      assert.equal(row.title, `Open organization ${org} in a new window`)
+      await inAct(() => { row.click() }); await settle()
+    },
     // at home the sidebar's gear opens it; inside an organization the sidebar is not drawn and it is
     // reached from the Orgtree menu, the F1 shortcut, or the turn-slot banner's ask (the route used here)
     openSettings: async () => {

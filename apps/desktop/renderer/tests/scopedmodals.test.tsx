@@ -104,7 +104,15 @@ async function app(t: { after: (fn: () => void | Promise<void>) => void }) {
   return {
     press,
     usage,
-    enter: (org: string) => press(org, `the "${org}" row in the org list`, document),
+    enter: async (org: string) => {
+      // Organization identity hovers describe the action; the visible name
+      // identifies the row. Do not mistake its title for its display label.
+      const row = [...document.querySelectorAll<HTMLElement>('.org[role="button"]')]
+        .find(el => el.querySelector('.org-name-text')?.textContent === org)
+      assert.ok(row, `the harness could not find the "${org}" row in the org list`)
+      assert.equal(row.title, `Open organization ${org} in a new window`)
+      await inAct(() => { row.click() }); await settle()
+    },
     toggleUsage: () => press('usage', 'the header usage button', document),
     /** How a reader closes a CENTRED panel: press the backdrop it sits in.
      *  ⚠ Not the header button again - for an unpinned modal
