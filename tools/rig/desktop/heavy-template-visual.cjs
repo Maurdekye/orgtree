@@ -1,0 +1,19 @@
+const {app,BrowserWindow}=require('electron')
+const fs=require('node:fs'),path=require('node:path')
+const out=process.argv[process.argv.indexOf('--probe-out')+1]
+if(!out||!path.isAbsolute(out))throw new Error('absolute output folder required')
+for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(out,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir)}
+app.disableHardwareAcceleration()
+app.whenReady().then(async()=>{
+ const win=new BrowserWindow({width:1580,height:1080,show:false,webPreferences:{contextIsolation:true,sandbox:true,nodeIntegration:false}})
+ win.webContents.setWindowOpenHandler(()=>({action:'deny'}))
+ win.webContents.session.webRequest.onBeforeRequest((details,done)=>done({cancel:!details.url.startsWith('file:')&&!details.url.startsWith('data:')}))
+ await win.loadFile(path.join(out,'index.html'))
+ await win.webContents.executeJavaScript(`new Promise((resolve,reject)=>{const check=()=>document.querySelectorAll('.tp-preview tbody tr').length===10&&document.body.textContent.includes('Scratch AGENTS.md');if(check())return resolve(true);const o=new MutationObserver(()=>{if(check()){o.disconnect();clearTimeout(t);resolve(true)}});o.observe(document.body,{childList:true,subtree:true});const t=setTimeout(()=>{o.disconnect();reject(Error('fixture did not mount'))},10000)})`)
+ await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+ const image=await win.webContents.capturePage()
+ const png=image.toPNG();if(png.length<10000)throw new Error('empty fixture capture')
+ fs.writeFileSync(path.join(out,'heavy-dev-shop.png'),png)
+ fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({rows:10,bytes:png.length,size:image.getSize(),fixture:'offline real components'},null,2))
+ win.destroy();app.quit()
+}).catch(error=>{console.error(error);app.exit(1)})
