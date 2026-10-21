@@ -3777,17 +3777,8 @@ impl Actor {
         let parsed=fallback.and_then(|(name,args,text)|super::manual_mail::output(name,args,text));
         if opened.is_empty()&&parsed.is_none() {return Ok(());}
         let client=self.engine.db.get().await?;
-        if let Some((_,args,_))=fallback {
-            if let Some(body)=parsed {
-                let project=args["project"].as_str().filter(|s|!s.trim().is_empty());
-                let recipient=if let Some(name)=project {
-                    crate::domain::projects::by_name(&**client,self.org_id,name).await?.map(|p|p.id)
-                } else {Some(self.id)};
-                if let Some(recipient)=recipient {
-                    let items=body["messages"].as_array().cloned().unwrap_or_else(||vec![body.clone()]);
-                    opened.extend(super::manual_mail::opened(&items,recipient,project.is_some()));
-                }
-            }
+        if let (Some((name,args,_)),Some(body))=(fallback,parsed) {
+            opened.extend(super::manual_mail::fallback_opened(&client,self.id,self.org_id,name,args,&body).await?);
         }
         let raw=super::manual_mail::unseen(&client,self.id,self.org_id,&opened).await?;
         if !raw.is_empty() {

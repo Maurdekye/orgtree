@@ -2,6 +2,10 @@
 //! containing tool completes. These receipts never claim project queue mail.
 use serde_json::{json, Value};
 
+#[cfg(test)]
+#[path = "manual_mail_security_tests.rs"]
+mod security_tests;
+
 /// The tool handler supplies only content actually returned, never previews,
 /// missing IDs or IDs deferred by its output budget.
 #[nolog]
@@ -18,6 +22,18 @@ pub fn opened(items: &[Value], recipient: i64, project: bool) -> Vec<Value> {
         }
     }
     out
+}
+
+/// Resolve a successful fallback's candidate receipts before the canonical read.
+#[nolog]
+pub async fn fallback_opened(client:&tokio_postgres::Client,agent:i64,org:i64,_name:&str,args:&Value,body:&Value) -> anyhow::Result<Vec<Value>> {
+    let project=args["project"].as_str().filter(|s|!s.trim().is_empty());
+    let recipient=if let Some(name)=project {
+        crate::domain::projects::by_name(client,org,name).await?.map(|p|p.id)
+    } else {Some(agent)};
+    let Some(recipient)=recipient else{return Ok(Vec::new());};
+    let items=body["messages"].as_array().cloned().unwrap_or_else(||vec![body.clone()]);
+    Ok(opened(&items,recipient,project.is_some()))
 }
 
 /// A single actor owns its transcript. The existing indexed mail_ids receipts
