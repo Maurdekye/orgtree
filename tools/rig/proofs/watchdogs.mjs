@@ -1,7 +1,7 @@
 // Proof: watchdogs, as an agent keeps them (orgtree_watchdog), in a run with
 // the engine's restart path on (dogs re-armed at start, their mail wakes).
 //   file:     new lines in a file in the owner's folder; only matching ones fire
-//   command:  a ONE-SHOT command dog fires once and removes itself
+//   command:  a ready ONE-SHOT returns its smoke fire without registering
 //   process:  pid:N fires when that process goes down
 //   stream:   a persistent command's matching lines fire; removing the dog
 //             ends its process (no stray process left)
@@ -60,14 +60,15 @@ export default async function (rig) {
 
     const fired = await rig.waitFor(() => {
       const f = Object.fromEntries(['log-dog', 'cmd-once', 'pid-dog', 'ping-dog', 'kid-dog'].map(n => [n, fires(n)]))
-      return Object.values(f).every(x => x.length) ? f : null
+      return Object.entries(f).filter(([n])=>n!=='cmd-once').every(([,x]) => x.length) ? f : null
     }, { what: 'every dog to fire', timeout: 90000, every: 1000 }).catch(() =>
       Object.fromEntries(['log-dog', 'cmd-once', 'pid-dog', 'ping-dog', 'kid-dog'].map(n => [n, fires(n)])))
     const body = n => (fired[n] ?? []).map(m => m.body).join('\n')
     p.check('file: the matching line fires, the other does not', /ALERT: disk full/.test(body('log-dog')) && !/nothing to see/.test(body('log-dog')),
       body('log-dog').slice(0, 300))
-    p.check('command (ONE-SHOT): fired once and removed itself', (fired['cmd-once'] ?? []).length === 1 && /READY/.test(body('cmd-once'))
-      && !['armed', 'paused'].includes(dogRow('cmd-once')?.state), { fires: (fired['cmd-once'] ?? []).length, state: dogRow('cmd-once')?.state })
+    p.check('command (ONE-SHOT): smoke resolves inline with no dog or fire mail', made.command.json?.resolved===true
+      && made.command.json?.registered===false && /READY/.test(made.command.json?.fire?.body??'')
+      && (fired['cmd-once']??[]).length===0 && !dogRow('cmd-once'), made.command.text)
     p.check('process: pid:N fires when the process goes down', (fired['pid-dog'] ?? []).length >= 1, body('pid-dog').slice(0, 200))
     p.check('stream: a matching line of the running command fires', /TTL=/.test(body('ping-dog')), body('ping-dog').slice(0, 200))
     p.check('activity: the report\'s turn_done fires', /turn_done/.test(body('kid-dog')), body('kid-dog').slice(0, 200))

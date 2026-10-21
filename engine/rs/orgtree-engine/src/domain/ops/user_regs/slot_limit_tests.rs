@@ -38,12 +38,14 @@ fn conflict(error:anyhow::Error) -> String {
 
 #[tokio::test]
 #[ignore="requires disposable slot_limit_fixture DB/role; never an ambient DB"]
-async fn slot_limit_agent_accepts_remaining_and_refuses_second_pending() {
+async fn slot_limit_agent_accepts_remaining_inline_and_refuses_over_capacity() {
     let (e,o,p,a)=fixture(10).await; hold(&e,&o,p,Some(a)).await;
     let result=crate::runtime::watchdogs::create(&e,o.id,a,&json!({"kind":"slot","target":"resource","slots":7,"notice":true})).await;
     assert!(result.is_ok(),"an existing holder may queue its remaining seven: {result:?}");
+    let result=result.unwrap();
+    assert_eq!(result["resolved"],true);assert_eq!(result["registered"],false);assert!(result["lease"].is_string());
     let error=crate::runtime::watchdogs::create(&e,o.id,a,&json!({"kind":"slot","target":"resource","slots":1,"notice":true})).await.unwrap_err();
-    assert!(conflict(error).contains("claim"));
+    assert!(conflict(error).contains("release"));
     e.shutdown.cancel();
 }
 
