@@ -6,6 +6,95 @@ Worktrees, build/resource rules, tests, evidence, platform traps and maintenance
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Renderer, capture and rig traps
+
+Relocated from team standing notes on 2026-10-21. The dates below identify the
+original observations; relocation is not a fresh test run. Current assignment,
+verification phase and build-project permits still govern what may be run.
+
+- **DOM assertions must report scalars.** The [existing assertion warning](docket-and-presentations.md#e-73f802e8ab8d258b)
+  also applies to focus and identity, not just absence. Use
+  `assert.equal(document.activeElement === box, true)` and
+  `assert.ok(!el.querySelector(selector))`; never hand React-managed elements
+  to an assertion. A failing reporter can exhaust memory before later tests
+  report anything. After a red run, verify every expected test name appeared;
+  the outer summary alone is insufficient. [decided: coordinator 2026-10-21;
+  measured: @rig-opus 2026-10-14 round 439; @desk-parity-opus 2026-10-19]
+- **Measure the intended text.** `textContent` joins adjacent elements without
+  separators, so word-boundary checks can miss a separate `to` span or match
+  across elements. Find that span and its `nextElementSibling` instead.
+  `range.selectNodeContents(el); range.getClientRects()` includes child
+  element border boxes as well as text boxes; its first rect may be a model
+  card, not a text line. Walk `NodeFilter.SHOW_TEXT` nodes and measure their
+  ranges, excluding a tier-card letter when appropriate. [decided: coordinator
+  2026-10-21; measured: @inbox-ui-opus 2026-10-18, projectrecipientcard §4 and
+  projectdelivery-visual]
+- **Capture after paint, and inspect the image.** Wait two
+  `requestAnimationFrame`s plus a short delay before every `capturePage()`.
+  Prefer that API to `invalidate()` plus the offscreen `paint` event; passing
+  DOM probes can accompany a PNG one state behind. Session 0 was measured at
+  1024×768: keep fixtures around 1000×700 unless the current session's actual
+  display permits more. A signed-in session has different limits.
+  [decided: coordinator 2026-10-21; measured: @rig-opus 2026-10-14 round 439]
+- **Mount the whole canvas through its flex stage.** Use
+  `.app > main.solo > .canvas-stage > OrgCanvas`, as in
+  `apps/desktop/renderer/tests/faroverview-fixture.tsx`. Direct mounting into
+  `#root` leaves `.viewport` zero-height and culls cards while overlays/pile
+  badges can still satisfy JSON probes. View the PNG.
+  [verified: `apps/desktop/renderer/tests/faroverview-fixture.tsx`,
+  `retiredpiles.visual.tsx`; measured: @desk-parity-opus 2026-10-20]
+- **Pins and surface requests identify the target too.** Per-target Mail,
+  Docket, Team, Slots, Listeners, settings, Watchdog, project desks and scoped
+  readers use `kind:target` in pins, open markers, window rows and surface
+  requests/claims. Tests must use `instanceKind(kind, id)` from
+  `apps/desktop/renderer/src/modalkinds.ts`; a bare kind no longer addresses
+  that window. Legacy records migrate on first read. The global reader keeps
+  its separate scope. [decided: user 2026-10-20, DECISIONS 92;
+  verified: `apps/desktop/renderer/src/modalkinds.ts`; 2026-10-21]
+- **Observe one engine's own log.** `rig.engineLog()` concatenates session
+  files in name order. Once a second engine creates a newer log, the first
+  engine's subsequent writes land in the middle: `.slice(offset)` can miss
+  real events or vacuously pass a negative check. Select the session file
+  whose header contains `engine starting pid=<pid> ` (including the trailing
+  space) and track a byte offset in that file.
+  [verified: `tools/rig/lib.mjs` engineLogFiles/engineLog;
+  measured: @rig-opus 2026-10-15, engine-start-signin proof C]
+- **Clear losing timers.** A bare `Promise.race([exited, sleep(ms)])` leaves
+  the timeout alive after exit and can retain the process and build permit.
+  Clear it in `finally`, following `within()` in
+  `tools/rig/proofs/boot-host-stop.mjs` (12-second proof held its permit for
+  72 seconds before this correction).
+  [verified: `tools/rig/proofs/boot-host-stop.mjs`;
+  measured: @rig-opus 2026-10-15]
+
+### Renderer tests from a worktree without node_modules
+
+The current `apps/desktop/renderer/tests/run.mjs` still imports esbuild as ESM;
+`NODE_PATH` alone cannot satisfy that import. The team's
+`renderer-tests-from-worktree/` adapters supply an explicit esbuild dependency
+root and leave source worktrees free of dependency copies/junctions:
+
+1. `node <adapters>/bundle-tests.mjs <worktree> <fresh-output-dir> <dependency-root> <filters...>`
+   bundles selected filename substrings with explicit `nodePaths`, matching
+   the runner's bundle options. Use an empty output directory in the assigned
+   build scope. The helper creates a dependency junction there, never in source.
+2. Set `NODE_PATH=<dependency-root>` for the runner's CommonJS `createRequire`
+   resolution, then run
+   `node --import <adapter-file-URL> <worktree>/apps/desktop/renderer/tests/run.mjs <filters...> --prebuilt <fresh-output-dir>`.
+   The URL names `register-loader.mjs`, beside `node-loader.mjs`. Both the
+   loader and NODE_PATH are required. On Windows an absolute `--import` needs
+   a file URL, such as `file:///C:/build/adapters/register-loader.mjs`, or
+   `pathToFileURL(path).href`; a bare drive path fails as protocol `c:`.
+
+Run bundling and tests inside the current build permit and assigned kernel
+Job. Preserve the output for evidence/authorized cleanup: never recursively
+delete a directory containing that dependency junction yourself. This recipe
+was source-checked, not rerun, during the documentation move.
+[verified: `apps/desktop/renderer/tests/run.mjs` and team adapters
+`bundle-tests.mjs`, `register-loader.mjs`, `node-loader.mjs`; 2026-10-21;
+original findings: @project-nodes-opus, @image-embed-luna, @taskbar-orgs-sol
+2026-10-16]
+
 <a id="e-43f61695c2e13155"></a>
 
 ## Engine tests that require a synthetic PostgreSQL cluster are explicitly

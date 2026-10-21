@@ -14,11 +14,11 @@ For the project desk, tabs, worker and event history, slots and remembered navig
 
 ## Who reaches a project
 
-The user, every agent **above** the project and every agent **below** it reach it; agents beside it (peers, cousins) do not. Reaching it means its folder, its mailbox, its presentations, and control over the project node as if it were your subordinate: rename, reorder, retire or move it, nest a project in it. Control covers the project itself, not the other agents inside it, and an agent cannot retire a project it is inside (its superiors can).
+The user, every agent **above** the project and every agent **below** it reach it; agents beside it (peers, cousins) do not. Operational reach includes its folder, mailbox, presentations, listeners, events, own slot leases and dead letters. Only the user or an agent **strictly above** the project may change its Summary, name, order, peer-mail switch, slot capacity, queue settings or purge waiting mail. Reading settings does not grant permission to change them. Other structural operations retain their own placement and authority checks; an agent cannot retire a project it is inside (its superiors can). Reaching a project does not grant control over the other agents inside it.
 
 ## Reporting and credits
 
-The agents under a project **report to the nearest agent above it**: that is "your superior" in their instructions, where their status notices go, and whom the superior/peer mail rules use. Agents under a top-level project are top-level agents. Credits are transparent too: the agent above the project pays for every agent under it, so only an agent above a project can hire under it. See [orgtree-credits](../credits/SKILL.md).
+The agents under a project **report to the nearest agent above it**: that is "your superior" in their instructions, where their status notices and command-chain mail go. Ordinary peer mail uses the physical parent and the audience rules below. Agents under a top-level project are top-level agents. Credits are transparent too: the agent above the project pays for every agent under it, so only an agent above a project can hire under it. See [orgtree-credits](../credits/SKILL.md).
 
 ## Peer mail among direct members
 
