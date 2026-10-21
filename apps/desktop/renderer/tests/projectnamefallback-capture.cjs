@@ -16,7 +16,7 @@ app.whenReady().then(async()=>{
   for(const theme of ['dark','light'])for(const [label,selector,nameFirst]of [['card','.sq.project:not(.mini)',false],['name','.sq.project:not(.mini) .name',false],['icon','.project-mark',true],['far','.project-mini',false],['inline','.ref-ready',false]]){
    const seen=await win.webContents.executeJavaScript(`(async()=>{document.documentElement.classList.toggle('contrast-light',${theme==='light'});const el=document.querySelector(${JSON.stringify(selector)});if(!el)throw Error('target absent');el.dispatchEvent(new MouseEvent('pointerover',{bubbles:true}));document.querySelector('#inspected-title').textContent=el.title;await ${settle};return{title:el.title,badges:[...document.querySelectorAll('.project-header-badges > span')].map(x=>x.textContent)}})()`)
    assert.equal(seen.title,(nameFirst?'test-project\n':'')+facts);assert.deepEqual(seen.badges,['0/2 held','listeners 3','3 listeners']);records.push({theme,label,...seen})
-   
+   if(label==='icon'){await win.webContents.executeJavaScript(settle);const frame=await win.webContents.capturePage();assert.equal(frame.isEmpty(),false);fs.writeFileSync(out+'/facts-'+theme+'.png',frame.toPNG())}
   }
 
   for(const theme of ['dark','light']){
