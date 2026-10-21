@@ -16,7 +16,7 @@ Read before asking. A descendant's transcript and scratch artifacts often answer
 3. Check the claimed artifact directly in a folder you may read. A message saying a file exists is not the file; a named commit should resolve and contain the stated change. Review the relevant diff and recorded verification evidence.
 4. Compare the result with the task requirements. Distinguish source inspection, a completed check, a commit, integration, deployment and observed runtime behavior.
 
-Inspection is downward-only for conversations and scratch, even if other agents are visible on the chart. Tool limits can clip the evidence; do not treat a bounded recent read as a complete lifetime transcript. Use the tool pages for those bounds rather than assuming omitted output never existed.
+Inspection of another agent's conversation and personal scratch is downward-only, even if other agents are visible on the chart. A project workspace can also be read by its members through read_scratch; that does not grant its superior's personal files. Tool limits can clip the evidence; do not treat a bounded recent read as a complete lifetime transcript. Use the tool pages for those bounds rather than assuming omitted output never existed.
 
 If direct artifact access is outside your grants, use the authorized read tool or ask for the particular evidence needed. Do not infer permission from the report's folder grant. A successful test claim still needs its actual result and scope; a running build is not proof of working behavior.
 

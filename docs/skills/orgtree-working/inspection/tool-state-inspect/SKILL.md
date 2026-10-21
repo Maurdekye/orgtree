@@ -21,7 +21,7 @@ Names are trimmed and a leading `@` is accepted. With no names, return all permi
 
 ## Read access
 
-You can inspect yourself and all descendants at every visibility, including `self`. With visibility other than `self`, you can also inspect your direct superior and peers. With `full`, all non-deleted org agents are eligible. Top-level callers' peers are other top-level agents; top-level position alone does not grant full visibility.
+You can inspect yourself and all descendants, including structural project rows, at every visibility, including `self`. With visibility other than `self`, you can also inspect your nearest agent superior and reporting peers, skipping projects, plus physical parent/sibling project context. With `full`, all non-deleted org nodes are eligible. Top-level callers have no agent superior; their reporting peers can sit in different projects. Top-level position alone does not grant full visibility or cross-project mail reach.
 
 Every explicitly requested name must be in the returned permitted set. An unknown, deleted, out-of-scope, or archived-without-opt-in name causes `state inspection is outside your visible scope: …`; it does not return a successful partial answer for the other names. Invalid structural ancestry can refuse with `invalid scope ancestry` or `missing scope ancestor`.
 
@@ -36,8 +36,11 @@ The response has `actor`, your effective `visibility`, and `nodes`. Agent record
 - last status name/time, safe pending-model-switch fields, occupancy/context window, and pending-mail count;
 - effective scope: visibility, permission mode, folders and modes in `add_dirs`, Bash/web/edit/subagents switches, Orgtree group switches and MCP grants;
 - OpenRouter session harness and pin flag when recorded.
+- `kind: project` for structural project rows; their presence is not an agent runtime or a new scope ceiling;
+- `audiences_held`, `audiences_explicit` and `audiences_inherited`, the last naming each `grantor` and source `project`;
+- each returned node's active actor `interrupt` record when available, including queued/applied/refused/cancelled/restart outcome, turn and harness boundary. This runtime snapshot is not restored across an engine restart.
 
-Folder grants are ancestor-clamped effective grants, not merely the target's configured request. The mail count is pending mail, not message bodies and not a guarantee that every counted row will wake a turn. Free credits are not populated as a live funding balance for archived rows. Prompt text, transcripts, mail bodies and account secrets are absent.
+Folder grants are ancestor-clamped effective grants, not merely the target's configured request. Structural projects pass agent scope through rather than imposing their old scope keys as a new ceiling. `parent` still names the physical parent, and sibling indices/counts use physical siblings, not reporting peers. The mail count is pending mail, not message bodies and not a guarantee that every counted row will wake a turn. Free credits are not populated as a live funding balance for archived rows. Prompt text, transcripts, mail bodies and account secrets are absent.
 
 ## Example
 

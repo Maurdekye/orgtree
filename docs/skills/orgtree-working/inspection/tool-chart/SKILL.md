@@ -29,7 +29,9 @@ Chart visibility is inherited and narrowed by ancestors:
 | `subtree` | The team view plus descendants at every depth. |
 | `full` | All agents in the org, subject to the archive option. |
 
-For top-level callers, peers are the other top-level agents. Top-level position alone does not grant full visibility. A shown agent is attached to its nearest shown ancestor, so the text tree can omit hidden intermediate rows.
+Superior, peer and direct-report relations here use the nearest agent superior, skipping intervening projects. Agents with no agent superior are top-level even when placed inside projects; their reporting peers are the other such agents. Top-level position alone does not grant full visibility. At `self`, the chart also retains directly owned project rows; at wider visibility it retains the caller's parent/sibling project context. A shown node is attached to its nearest shown ancestor, so the text tree can omit hidden intermediate rows. Reporting-peer visibility does not grant cross-project mail reach.
+
+Projects are marked `PROJECT node`, with waiting-mail counts instead of an agent tier/seat budget; they run no turns. Shown nodes include their subordinate peer-mail switch and effective audiences, naming any source project for inherited access. A project audience reaches live direct members only; chart visibility and communication permission remain separate.
 
 The tree emits at most 600 agent lines, followed by `… (more agents not shown)` when needed; it has no continuation cursor. Status summaries are shortened to a 140-character gist. Without archived rows, a footer counts the org's archived/unrecoverable agents; that count is not the same as a returned list of visible retired rows. An unrecoverable row should not be assumed rehirable merely because the generic footer mentions restoring context.
 

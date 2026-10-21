@@ -13,10 +13,10 @@ Use this to inspect a descendant's breadcrumbs, saved handoff or other scratch a
 
 | Parameter | Required/default | Meaning |
 |---|---|---|
-| `node` | Required | Your name or a descendant's name in this org; leading `@` accepted. |
+| `node` | Required | Your name, a descendant agent, or a project above/below you in this org; leading `@` accepted. |
 | `path` | Omitted or empty | A path inside that working folder; omission lists the root. Use a relative file or subdirectory path. |
 
-Requires effective `tools.orgtree.inspection`. Self is permitted; otherwise the target must be a strict descendant. Full chart visibility and top-level position do not permit reading peers' or superiors' folders. Existing non-deleted archived descendants can be read without an archive flag.
+Requires effective `tools.orgtree.inspection`. Self is permitted; another agent must be a strict descendant. A project target has a separate reach rule: an agent above or below that project can read its project workspace, including a member reading an ancestor project's folder. This does not expose the superior agent's personal scratch. Full chart visibility and top-level position do not permit reading peers' or superiors' personal folders. Existing non-deleted archived descendants can be read without an archive flag.
 
 The engine resolves the target's stored working-folder location. Existing paths are canonicalized before containment checking, so an existing link leading outside that root is refused. Do not pass an outside absolute path or use traversal to request unrelated files.
 
