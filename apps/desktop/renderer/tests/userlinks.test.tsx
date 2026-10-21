@@ -49,7 +49,7 @@ test('§1 the user\'s held slots count and the user waits in the same line', () 
   assert.deepEqual(state.line.map((w) => w.agent), ['user', 'qa'], 'first come first served, the user among the agents')
 })
 
-test('§2 the user's rows come through the line helpers', () => {
+test('§2 the user rows come through the line helpers', () => {
   const dogs = [dog('slot', 'user', 'uh', { queued_at: '2026-10-20T09:10:00Z' }), dog('slot', 'qa', 'w', { queued_at: '2026-10-20T09:11:00Z' }),
     dog('project_listener', 'user', 'u1'), dog('project_listener', 'sa', 'a'), dog('fair_queue', 'user', 'uq'), dog('fair_queue', 'sa', 'q')]
   const leases = [{ project: 'sync', agent: 'user', slot: 1, lease: 'sU', since: '2026-10-20T09:00:00Z' },
