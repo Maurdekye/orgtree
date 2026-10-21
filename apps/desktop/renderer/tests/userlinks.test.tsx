@@ -6,9 +6,10 @@
 //   §1 the count the cards and watches read includes the user's listeners
 //      and mail listeners (an armed user dog counts as one), and the cards
 //      name them
-//   §2 the user draws no canvas line (they are not a node of the tree to
-//      draw it from): the slot, listener and fair-queue lines skip them,
-//      but the held slots and listener counts they make stay in the cards
+//   §2 the user DOES draw canvas lines, from the switchboard (USER
+//      2026-10-21 22:18Z, replacing the earlier "no line" rule): the slot,
+//      listener and fair-queue helpers keep their rows, owner "user"
+//      (the mounted lines are held to userlines.test.tsx)
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs userlinks
 
@@ -48,12 +49,12 @@ test('§1 the user\'s held slots count and the user waits in the same line', () 
   assert.deepEqual(state.line.map((w) => w.agent), ['user', 'qa'], 'first come first served, the user among the agents')
 })
 
-test('§2 the user draws no canvas line', () => {
+test('§2 the user's rows come through the line helpers', () => {
   const dogs = [dog('slot', 'user', 'uh', { queued_at: '2026-10-20T09:10:00Z' }), dog('slot', 'qa', 'w', { queued_at: '2026-10-20T09:11:00Z' }),
     dog('project_listener', 'user', 'u1'), dog('project_listener', 'sa', 'a'), dog('fair_queue', 'user', 'uq'), dog('fair_queue', 'sa', 'q')]
   const leases = [{ project: 'sync', agent: 'user', slot: 1, lease: 'sU', since: '2026-10-20T09:00:00Z' },
     { project: 'sync', agent: 'dev', slot: 2, lease: 'sD', since: '2026-10-20T09:00:00Z' }]
-  assert.deepEqual(slotLinks(dogs, leases, isProject).map((l) => l.owner).sort(), ['dev', 'qa'])
-  assert.deepEqual(listenerLinks(dogs, isProject).map((l) => l.owner), ['sa'])
-  assert.deepEqual(fairQueueLinks(dogs, isProject).map((l) => l.owner), ['sa'])
+  assert.deepEqual(slotLinks(dogs, leases, isProject).map((l) => l.owner).sort(), ['dev', 'qa', 'user', 'user'])
+  assert.deepEqual(listenerLinks(dogs, isProject).map((l) => l.owner).sort(), ['sa', 'user'])
+  assert.deepEqual(fairQueueLinks(dogs, isProject).map((l) => l.owner).sort(), ['sa', 'user'])
 })
