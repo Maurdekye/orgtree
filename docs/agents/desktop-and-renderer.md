@@ -4,6 +4,20 @@
 
 Canvas, desks, links, menus, windows, geometry, rendering and visual behavior.
 
+### Ticket identity hover
+
+Every ticket link's native hover resolves the current exact ticket and shows
+`Status · full title`, replacing the title-only hover. It uses the docket's
+shared `docketstatus.tsx` labels, including their existing clarifications;
+`archived: true` shows `Archived`. Missing/unrecognized status shows the full
+title alone. Only concurrent identity reads coalesce; settled answers are not
+cached, so a later hover/focus sees state/title changes even if the transcript
+or row still holds an older snapshot. Adopted documents use the same reader
+and stale-response/cleanup guards. Menu labels, navigation and copied titles
+stay unchanged. [decided: user 2026-10-21 17:38:28Z; verified:
+`canvas/objecttooltip.ts`, `canvas/docketstatus.tsx`,
+`tests/tickethoverparity.test.tsx`]
+
 Agent and project retired counts share a clickable header badge, replacing the
 external/inset overlay label. See [retired header badges](../rust-engine/retired-header-badges.md).
 [decided: user 2026-10-21 11:16Z; verified: `canvas/retiredbadge.tsx`]

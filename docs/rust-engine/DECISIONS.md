@@ -7,6 +7,14 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Ticket identity status prefix (user 2026-10-21 17:38:28Z,
+m312db362c183):** every ticket link's shared native tooltip begins with its
+current docket status label and ` · ` before the full title. Unknown status
+leaves the title alone; archived tickets identify the archive. Exact reads on
+each new hover/focus retain live status/title updates and existing stale-reply
+guards, with no retained identity cache. See
+[ticket identity hover](../agents/desktop-and-renderer.md#ticket-identity-hover).
+
 **Every docket's opening selection (user 2026-10-21 16:50:46Z,
 m57e713abb4be):** on opening any docket, select the first shown ticket unless
 opening a specific ticket link. Applies to org panel/pop-out, agent/team/project
