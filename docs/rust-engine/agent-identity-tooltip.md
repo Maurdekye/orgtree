@@ -39,6 +39,11 @@ settings.
   agent menu. The shared context menu uses z-index 1600, above MUI popovers,
   dialogs and tooltips; the recipient regression checks it against the open
   popover layer.
+- The project card background uses the same lazy native-tooltip source as
+  its name, just as an agent card does. An open embedded project desk leaves
+  its content's own hover targets in charge. Normal identity-less folder
+  marks still prefix the project name. [verified: `canvas/projectcard.tsx`;
+  user link-consistency invariant 2026-10-21]
 - The renderer joins its existing `/api/providers` and `/api/accounts` reads;
   the tree projection does not grow. Static tier names and version names come
   from the Rust model catalog. Dynamic tiers retain their `name`/`label`; a

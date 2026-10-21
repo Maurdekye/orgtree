@@ -199,7 +199,8 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     onShowPin,
   }, { ...hire, pinned, quickChatTier: readQuickChat(slug, tree?.quick_chat).tier })
   return (
-    <div ref={cardRef} data-copy-agent-name={node.id} className={cls.join(' ')} style={style}
+    <div ref={cardRef} data-copy-agent-name={node.id}
+      {...agentTooltipProps(deskOpen ? undefined : node.id)} className={cls.join(' ')} style={style}
       aria-label={`project ${node.id}`}
       onFocus={(e) => { if (e.currentTarget.contains(e.target as Node)) setNameFocus(true) }}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setNameFocus(false) }}
