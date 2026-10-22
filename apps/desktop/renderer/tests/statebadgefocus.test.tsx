@@ -2,7 +2,7 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { NodeSquare } from '../src/canvas/cards'
-import { syncProviderRegistries } from '../src/canvas/shared'
+import { setAgentShortcutsOn, syncProviderRegistries } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 
 const noop=()=>{}
@@ -18,7 +18,7 @@ const makeNode=():CanvasNode=>({id:'worker',tier:'sol',state:'live',generation:1
 const selectors=['.serving-account','[data-next-turn="account"]','[data-next-turn="model"]',
   '[data-next-turn="effort"]','[data-next-turn="fast"]','.effort-level','.fast-mode','.frozen','.sq-halt-status','.dnd-badge','.session-0']
 
-test.beforeEach(()=>{localStorage.clear();installFetch(new FakeServer());
+test.beforeEach(()=>{localStorage.clear();setAgentShortcutsOn(true);installFetch(new FakeServer());
   syncProviderRegistries({providers:[{id:'openai',tiers:[{tier:'sol',fast_mode:true}]}]})})
 test('every state badge passes the card body focus gesture without an action or cancellation',async t=>{
   const n=makeNode(),received:string[]=[],clicks:string[]=[],configured:string[]=[]

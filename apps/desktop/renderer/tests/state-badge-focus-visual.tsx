@@ -2,10 +2,11 @@ import { createRoot } from 'react-dom/client'
 import { useState } from 'react'
 import { NodeSquare } from '../src/canvas/cards'
 import { ServingAccountBadge } from '../src/canvas/desk'
-import { syncProviderRegistries } from '../src/canvas/shared'
+import { setAgentShortcutsOn, syncProviderRegistries } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 
 syncProviderRegistries({providers:[{id:'openai',tiers:[{tier:'sol',fast_mode:true}]}]})
+setAgentShortcutsOn(true)
 const noop=()=>{}
 const base:CanvasNode={id:'worker',tier:'sol',state:'live',generation:1,children:[],busy:true,
   seat:2,grant:0,free:0,scope:{tools:{},add_dirs:[],effort:'high',fast_mode:false},
