@@ -30,7 +30,7 @@ With either, end your turn (or restart it with `orgtree_interrupt`) to apply it 
 
 | Field | Meaning |
 |---|---|
-| `signed_in` | `true` when the engine's Windows user has a signed-in session (at the console, remote, or disconnected but still signed in); `false` when signed out; `null` when Windows could not say, or this is not Windows. |
+| `signed_in` | `true` when the engine's Windows user has a signed-in session (at the console, remote, or disconnected but still signed in); `false` when signed out; `null` when Windows could not say, or this is not Windows. A session Windows is still tearing down after a sign-out counts for nobody, so it does not make the answer `null`. |
 | `this_turn`, `this_session` | Where your CLI runs now: `"session0"` or `"signed-in"`, and the Windows session id (0: Session 0). `null` while no CLI runs for you. |
 | `next_turn`, `next_session` | Where your next turn's CLI will run if that turn starts now. |
 | `next_turn_moves` | `true` when your next turn runs in another session than this one. |
@@ -45,6 +45,7 @@ The answers come from the engine itself: your own runtime says where your CLI ru
 
 - A move happens only when a turn starts. If the user signs in during your turn, that turn stays in Session 0.
 - A CLI that is still running background work when your next turn starts stays where it is and moves at a later turn.
+- A CLI warmed ahead of your next turn (App settings › Runtime › keep agent processes warm) starts where that turn would run, and after an engine restart it waits for the sign-in helper the same way. When a sign-in helper starts hosting, your idle CLI in Session 0 is closed and started again in the signed-in session, ready for your next turn there. It stays if it runs background work, or if Session 0 is your own choice (the `session0` preference or `use` 0).
 - If the user is signed in but no sign-in helper is connected, a turn start waits up to 60 seconds for one (counted from the engine's start, or from when a helper was last connected), then starts in Session 0; the engine logs that once. It starts the helper again by itself after 30 seconds, then less and less often, and at once after it turned away a helper with other administrator rights than its own. With your own Session 0 preference or `use` 0, or when the user is signed out, nothing waits.
 - A disconnected session counts as signed in; it runs apps, but nothing is shown there, so screenshots fail. An active session is chosen before a disconnected one.
 - When the engine itself runs in the user's session, every turn runs there: on a per-user install, or with an engine the desktop app started. On an all-users install the engine always runs in Session 0, also after a restart, an update or a recovery. Where it runs in the user's session, `use` can name only that session, and a preference that would pick another place is kept, and the answer says it is not followed.

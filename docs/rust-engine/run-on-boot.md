@@ -205,6 +205,29 @@ who="<agent>" reason="the user's Windows session ended" status="..."` line.
   once per stretch without a helper, `the sign-in helper did not connect in
   time while the user is signed in; turns start in Session 0 until it does`,
   and the agent moves down, told so.
+- **Warm CLIs** (docket `after-an-engine-restart-codex-clis-and-their-mcp`;
+  invariants 3 and 5): warming (App settings' "keep agent processes warm")
+  starts a CLI where the agent's next turn would run, and waits for the
+  helper exactly as a turn start does (`Actor::warm`, `session_settle`).
+  Before that, the warming that follows every engine start went straight to
+  Session 0: on alpha.35 (2026-10-22 14:03:56Z) it started 7 Codex and 5
+  Claude CLIs there in the 7.6 s before the helper came back. It keeps the
+  next turn's `use` pick for that turn. When a helper starts hosting, the
+  engine's own start included, every idle CLI parked in Session 0 closes
+  (Codex by its graceful exit) and is warmed again in the signed-in session,
+  3 at a time and only while warming is on and commit memory allows
+  (`runtime::rehost_all`; the user, 2026-10-22 14:21Z: "Move them at
+  sign-in"). Left alone: a CLI in a turn (it moves at its next turn), one
+  holding background work, and one whose agent's own choice is Session 0
+  (its preference, the next turn's `use` 0, or a preference no hosted
+  session matches). With warming off, a parked CLI closes on its own.
+- **A CLI is reused for a turn only where that turn runs it**, for every
+  harness: its reuse check compares the placement as well as the prompt.
+  Codex's compared the prompt only, on the reasoning that a move changes the
+  sandbox and so the prompt. A full-access seat's sandbox is
+  danger-full-access in both sessions, so on alpha.34 rig-sol-b's Codex,
+  warmed in Session 0 at 12:49:33Z, ran its 13:24:15Z turn there while the
+  helper hosted, and the agent was told it moved to Session 0.
 - **The session notices end** "orgtree_session tells you where you run at any
   time."
 
@@ -220,7 +243,7 @@ change)" (docket `let-agents-query-machine-sign-in-state-and-which`, decision
 
 | Field | From |
 |---|---|
-| `signed_in` | `core_state::sessions`, the core monitor's reading of the engine user's Windows sessions (console, remote or disconnected), so a debug rig engine's stand-in `<data>\core-rig-signed-out` applies; `null` when Windows cannot say, or not Windows |
+| `signed_in` | `core_state::sessions`, the core monitor's reading of the engine user's Windows sessions (console, remote or disconnected), so a debug rig engine's stand-in `<data>\core-rig-signed-out` applies; `null` when Windows cannot say, or not Windows. A session Windows lists as being torn down (WTSDown, WTSReset) is nobody's. On alpha.34 (2026-10-22 12:57:07Z) every reading was `null` for the 77 s a sign-out took, so the sign-out notice said the user was still signed in; most likely the departing session's queries failed (inferred: the failing call was not logged then). Any other failed query keeps the reading `null` (fail closed); the first failing call of a stretch is logged with its session and Windows error, as is the reading that ends it |
 | `this_turn` | the caller's actor (`AgentMsg::Session`, `session_view`): where its CLI runs (`signed-in` when hosted, or when the engine is not in Session 0; else `session0`); `null` with no CLI |
 | `next_turn` | the same actor, by the rule a turn's start applies: `session_host::wanted`, except that a CLI other than Codex that holds background work stays where it is |
 | `next_turn_moves` | `this_turn` and `next_turn` differ |

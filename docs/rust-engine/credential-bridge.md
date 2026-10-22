@@ -279,6 +279,10 @@ processes may carry the boot task's BATCH token, which the engine rightly
 refuses. Measured 2026-10-10: synthetic git credential through engine and
 broker, gh and github.com lookups reaching the user's store, git ls-remote,
 handover both ways, idle cost, `[no-desktop]` without a broker, task deleted.
+Since the memory cache (above, 2026-10-22) its last step checks that, with no
+broker, the gh token and Git credential a broker served earlier are answered
+from memory, logged once and never the credential, while a request no
+broker served (the failing host's) still gets `[no-desktop]`.
 
 ### Codex launches in the user's session (decision 68, phase 2, 2026-10-10)
 

@@ -1819,6 +1819,13 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **Turn start (3, 5):** every turn waits for the helper while the user is signed in (or that
       is unread) and none hosts, up to 60 s after the engine's start or a helper's last hosting;
       running out is logged once per stretch, also when it ran out before the first turn came.
+    - **Warm CLIs (3, 5; the user 2026-10-22 14:21Z m1928e6b64efc, "Move them at sign-in"; docket
+      `after-an-engine-restart-codex-clis-and-their-mcp`):** warming waits for the helper as a turn
+      start does. When a helper starts hosting, the idle CLIs parked in Session 0 (no turn, no
+      background work, no Session 0 choice of the agent's own) close and are warmed again in the
+      signed-in session, 3 at a time within warming's memory floor. A CLI is reused for a turn
+      only where that turn runs it, Codex's too. For the sign-in reading, a session Windows lists
+      as being torn down (WTSDown, WTSReset) is nobody's.
     - **Notices (6):** a helper that comes or goes within the engine's 60 s startup grace is part
       of its restart, with no notice; a helper that stops while the user is still signed in is
       told as such, not as a sign-out.

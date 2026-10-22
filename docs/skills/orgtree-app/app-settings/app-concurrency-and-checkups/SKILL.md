@@ -29,7 +29,7 @@ existing native Claude agents. Verify the selected account's offered model
 before hiring. Source at `2ec8c0e`: `canvas/accounts.tsx`, `settings.rs` and
 `providers/agy_models.rs`.
 
-Warming is bounded by memory checks and the machine-wide parked-process cap, currently 64 idle processes with the longest parked closed first. It is not a promise that every live seat always has a process. Turning warming On requests warming; turning it Off requests cooling. A warm local process is separate from provider prompt-cache compatibility, receipts and expiry.
+Warming is bounded by memory checks and the machine-wide parked-process cap, currently 64 idle processes with the longest parked closed first. It is not a promise that every live seat always has a process. Turning warming On requests warming; turning it Off requests cooling. When the engine runs in Windows Session 0, a warm process starts where the agent's next turn would run: after a restart, warming waits for the sign-in helper as a turn does, up to 60 seconds, rather than starting processes in Session 0. When a sign-in helper starts hosting, idle processes parked in Session 0 are closed and warmed again in the user's signed-in session, three at a time within the memory checks. A process stays if its turn is running, it holds background work, or the agent's own choice is Session 0. See `orgtree-tool-session` (orgtree-working › runtime). A warm local process is separate from provider prompt-cache compatibility, receipts and expiry.
 
 ## Automatic wakes
 
