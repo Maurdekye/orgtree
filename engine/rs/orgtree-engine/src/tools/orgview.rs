@@ -272,14 +272,10 @@ fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling:
     let mut seen = std::collections::HashSet::new();
     let (mut effective, mut depth) = (ceiling.clone(), 0);
     while let Some(at) = next {
-        if chain.len() >= 1024 || !seen.insert(at) {
+        if !seen.insert(at) {
             crate::refuse!(Conflict, "invalid scope ancestry");
         }
         if let Some((scope, cached_depth)) = cache.get(&at) {
-            // A cached ancestor must not bypass the original total-depth cap.
-            if chain.len() + cached_depth > 1024 {
-                crate::refuse!(Conflict, "invalid scope ancestry");
-            }
             effective = scope.clone();
             depth = *cached_depth;
             break;
@@ -315,8 +311,9 @@ fn inspection_visible(id: i64, caller: i64, visibility: &str, rows: &HashMap<i64
         }
     }
     let mut next = Some(id);
-    for _ in 0..=1024 {
-        let Some(at) = next else { return false; };
+    let mut seen = std::collections::HashSet::new();
+    while let Some(at) = next {
+        if !seen.insert(at) { return false; }
         if at == caller { return true; }
         next = rows.get(&at).and_then(|r| r.0);
     }

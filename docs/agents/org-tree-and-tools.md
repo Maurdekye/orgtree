@@ -8,6 +8,14 @@ its own descendant), and malformed cycles terminate. A project wrapper does
 not consume an authorization depth allowance.
 [verified: `tools/mod.rs::is_descendant`; 2026-10-22]
 
+Tool ceilings, effective visibility, subtree visibility and mail reach also
+read full ancestor chains. Scope intersections remain root-first, and an
+incomplete or cyclic scope chain is refused. Read-only scope inspection keeps
+its memoization across a coherent snapshot without a depth ceiling; missing
+ancestors and cycles still refuse, and cached results cannot broaden an outer
+restriction. Peer mail remains tied to physical siblings.
+[verified: `tools/{mod,orgview}.rs`, `domain/mail.rs`; 2026-10-22]
+
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
 Scope, authority, topology, credits, hiring, lifecycle and typed tool contracts.

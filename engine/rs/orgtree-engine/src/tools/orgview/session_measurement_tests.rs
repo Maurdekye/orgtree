@@ -73,16 +73,32 @@ fn session_scope_memoization_preserves_complete_scope_in_any_request_order() {
 }
 
 #[test]
-fn session_scope_memoization_keeps_missing_cycle_and_total_depth_refusals() {
+fn session_scope_memoization_keeps_missing_cycle_refusals_and_deep_ceilings() {
     let ceiling=crate::domain::scope::org_ceiling(&json!([]));
     for rows in [HashMap::from([(1,(Some(2),json!({})))]),HashMap::from([(1,(Some(2),json!({}))),(2,(Some(1),json!({})))])] {
         assert!(inspection_scope(1,&rows,&ceiling,&mut HashMap::new()).is_err());
     }
-    let rows:HashMap<_,_>=(1..=1025).map(|id|(id,((id>1).then_some(id-1),json!({})))).collect();
+    let mut rows:HashMap<_,_>=(1..=2050).map(|id|(id,((id>1).then_some(id-1),json!({"transparent":true})))).collect();
+    rows.get_mut(&1).unwrap().1=json!({"permission_mode":"plan","org_visibility":"self","tools":{"bash":false,"mcp":["one"]}});
+    rows.get_mut(&2050).unwrap().1=json!({"permission_mode":"bypassPermissions","org_visibility":"full","tools":{"bash":true,"mcp":["*"]}});
     let mut cache=HashMap::new();
-    assert!(inspection_scope(1024,&rows,&ceiling,&mut cache).is_ok(),"original1024-node bound remains allowed");
-    assert!(inspection_scope(1025,&rows,&ceiling,&mut cache).is_err(),"cached ancestor cannot hide excessive total depth");
-    assert!(inspection_scope(1025,&rows,&ceiling,&mut HashMap::new()).is_err());
+    inspection_scope(1024,&rows,&ceiling,&mut cache).unwrap();
+    let warm=inspection_scope(2050,&rows,&ceiling,&mut cache).unwrap();
+    let cold=inspection_scope(2050,&rows,&ceiling,&mut HashMap::new()).unwrap();
+    assert_eq!(warm,cold);
+    assert_eq!(warm["permission_mode"],"plan");
+    assert_eq!(warm["org_visibility"],"self");
+    assert_eq!(warm["tools"]["bash"],false);
+    assert_eq!(warm["tools"]["mcp"],json!(["one"]));
+}
+
+#[test]
+fn session_inspection_visibility_reaches_deep_reports_and_ends_cycles() {
+    let rows:HashMap<_,_>=(1..=2050).map(|id|(id,((id>1).then_some(id-1),json!({})))).collect();
+    assert!(inspection_visible(2050,1,"self",&rows,&HashMap::new()));
+    assert!(!inspection_visible(2050,9000,"self",&rows,&HashMap::new()));
+    let cyclic=HashMap::from([(2,(Some(3),json!({}))),(3,(Some(2),json!({})))]);
+    assert!(!inspection_visible(2,1,"self",&cyclic,&HashMap::new()));
 }
 
 #[test]

@@ -6,6 +6,10 @@ Up: [orgtree-team](../SKILL.md)
 
 # Subordinates may message each other
 
+Project nesting does not cut off mail to an agent superior or a descendant.
+The command chain is resolved at its full depth; the physical-sibling rule
+below still governs peer mail.
+
 This node setting is ON by default. In an agent's Settings it is on the Charter tab; a project's Settings is available from its card or list menu. Its saved ON/OFF state also appears in the chart/team view. It belongs to that node, is retained across restart or retirement, and is not inherited by its children.
 
 When OFF, two agents with the same actual, non-null parent cannot send each other messages, questions, requests or notices without an active audience in the sending direction. The refusal names the parent and **Subordinates may message each other**. The current parent's setting applies after a move. A child's own setting controls its own children, not its peers.

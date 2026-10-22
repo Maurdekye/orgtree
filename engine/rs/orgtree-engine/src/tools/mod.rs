@@ -290,11 +290,15 @@ async fn caller_tools(engine: &Engine, caller: &Caller) -> Result<Value> {
 #[logged]
 pub(super) async fn caller_tools_in<C: tokio_postgres::GenericClient + Sync>(client: &C, caller: &Caller) -> Result<Value> {
     let rows = client.query(
-        "WITH RECURSIVE chain(id,parent_id,scope,kind,depth) AS (
-           SELECT id,parent_id,scope,kind,0 FROM ot.agents WHERE id=$1 AND org_id=$2
-           UNION ALL SELECT a.id,a.parent_id,a.scope,a.kind,c.depth+1 FROM ot.agents a JOIN chain c ON a.id=c.parent_id
-             WHERE a.org_id=$2 AND c.depth<1024)
-         SELECT scope, parent_id, depth, kind FROM chain ORDER BY depth DESC", &[&caller.agent_id, &caller.org_id]).await?;
+        "WITH RECURSIVE chain(id,parent_id,scope,kind) AS (
+           SELECT id,parent_id,scope,kind FROM ot.agents WHERE id=$1 AND org_id=$2
+           UNION SELECT a.id,a.parent_id,a.scope,a.kind FROM ot.agents a JOIN chain c ON a.id=c.parent_id
+             WHERE a.org_id=$2),
+         root_first(id,depth) AS (
+           SELECT id,0 FROM chain WHERE parent_id IS NULL
+           UNION ALL SELECT c.id,r.depth+1 FROM chain c JOIN root_first r ON c.parent_id=r.id)
+         SELECT c.scope,c.parent_id,r.depth,c.kind FROM chain c JOIN root_first r ON c.id=r.id
+         ORDER BY r.depth", &[&caller.agent_id, &caller.org_id]).await?;
     let Some(top) = rows.first() else { crate::refuse!(Forbidden, "agent scope is unavailable"); };
     if top.get::<_, Option<i64>>(1).is_some() {
         crate::refuse!(Forbidden, "agent scope ancestry is incomplete");
@@ -335,16 +339,20 @@ pub async fn me(client: &Client, caller: &Caller) -> Result<Me> {
 pub async fn effective_visibility(client: &Client, agent_id: i64) -> Result<String> {
     let rows = client
         .query(
-            "WITH RECURSIVE up(id, parent_id, vis, kind, depth) AS (
-               SELECT id, parent_id, scope->>'org_visibility', kind, 0 FROM ot.agents WHERE id = $1
-               UNION ALL
-               SELECT a.id, a.parent_id, a.scope->>'org_visibility', a.kind, u.depth + 1
-                 FROM ot.agents a JOIN up u ON a.id = u.parent_id WHERE u.depth < 1024)
-             SELECT vis FROM up WHERE kind='agent'",
+            "WITH RECURSIVE up(id, parent_id, vis, kind, org_id) AS (
+               SELECT id, parent_id, scope->>'org_visibility', kind, org_id FROM ot.agents WHERE id = $1
+               UNION
+               SELECT a.id, a.parent_id, a.scope->>'org_visibility', a.kind, a.org_id
+                 FROM ot.agents a JOIN up u ON a.id = u.parent_id WHERE a.org_id=u.org_id)
+             SELECT vis,parent_id,kind FROM up",
             &[&agent_id],
         )
         .await?;
-    Ok(crate::domain::scope::narrowest_visibility(rows.iter().map(|r| r.get::<_, Option<&str>>(0))).to_string())
+    if !rows.iter().any(|r| r.get::<_, Option<i64>>(1).is_none()) {
+        crate::refuse!(Forbidden, "agent scope ancestry is incomplete");
+    }
+    Ok(crate::domain::scope::narrowest_visibility(rows.iter().filter(|r| r.get::<_, &str>(2)=="agent")
+        .map(|r| r.get::<_, Option<&str>>(0))).to_string())
 }
 
 /// An agent of the caller's org by name (any state but deleted).
@@ -437,10 +445,10 @@ pub async fn visible(client: &Client, me: &Me) -> Result<Option<std::collections
     if me.visibility == "subtree" {
         let rows = client
             .query(
-                "WITH RECURSIVE down(id, depth) AS (
-                   SELECT id, 0 FROM ot.agents WHERE id = $1
-                   UNION ALL SELECT a.id, d.depth + 1 FROM ot.agents a JOIN down d ON a.parent_id = d.id
-                    WHERE d.depth < 1024 AND a.state <> 'deleted')
+                "WITH RECURSIVE down(id, org_id) AS (
+                   SELECT id, org_id FROM ot.agents WHERE id = $1
+                   UNION SELECT a.id, a.org_id FROM ot.agents a JOIN down d ON a.parent_id = d.id
+                    WHERE a.org_id=d.org_id AND a.state <> 'deleted')
                  SELECT id FROM down",
                 &[&me.id],
             )

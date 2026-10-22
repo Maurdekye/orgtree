@@ -674,11 +674,12 @@ pub(crate) async fn authorize(
 ) -> Result<()> {
     if from_id == to_id { refuse!(BadRequest, "you cannot write to yourself"); }
     let rel = client.query_one(
-        "WITH RECURSIVE up(id,parent_id,depth) AS (
-           SELECT id,parent_id,0 FROM ot.agents WHERE id=$2
-           UNION ALL SELECT a.id,a.parent_id,up.depth+1 FROM ot.agents a JOIN up ON a.id=up.parent_id WHERE up.depth<1024)
+        "WITH RECURSIVE up(id,parent_id,org_id) AS (
+           SELECT id,parent_id,org_id FROM ot.agents WHERE id=$2
+           UNION SELECT a.id,a.parent_id,a.org_id FROM ot.agents a JOIN up ON a.id=up.parent_id
+             WHERE a.org_id=up.org_id AND a.id<>$2)
          SELECT ot.superior_of($1),ot.superior_of($2),
-           EXISTS(SELECT 1 FROM up WHERE id=$1 AND depth>0), f.parent_id,t.parent_id,p.name,p.scope
+           EXISTS(SELECT 1 FROM up WHERE id=$1 AND id<>$2), f.parent_id,t.parent_id,p.name,p.scope
          FROM ot.agents f JOIN ot.agents t ON t.id=$2
          LEFT JOIN ot.agents p ON p.id=f.parent_id WHERE f.id=$1", &[&from_id,&to_id]).await?;
     let from_superior: Option<i64> = rel.get(0);

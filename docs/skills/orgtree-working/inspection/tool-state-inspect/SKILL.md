@@ -7,6 +7,10 @@ Up: [orgtree-inspection](../SKILL.md)
 
 # orgtree_state_inspect
 
+Scope inspection follows the complete ancestor chain through nested projects.
+Outer restrictions still apply at every depth; a cycle or missing ancestor is
+refused rather than returning a partial effective scope.
+
 Use this to diagnose agent state, folder grants, tool permissions, visibility, sibling positions or remaining work gates. It reads persisted structured records; a snapshot does not establish that an agent's implementation works or that a queued operation has completed.
 
 ## Parameters
