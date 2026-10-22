@@ -6,6 +6,17 @@ Worktrees, build/resource rules, tests, evidence, platform traps and maintenance
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Native test homes
+
+- Built-in preset byte assertions run in a subprocess with an empty owned
+  `ORGTREE_TEST_HOME`; preset resolution deliberately prefers the user's
+  `.orgtree/charters` files. Never set a process-wide home while parallel tests
+  can read it, weaken the bundled-byte equality, or edit a real override. The
+  Heavy dev shop regression starts with a synthetic override, proves it wins
+  before and after the isolated assertion, and checks that its bytes survive.
+  This uses the existing cfg(test)-only home seam; product lookup is unchanged.
+  [verified: `domain/templates.rs` tests; 2026-10-22]
+
 ## Renderer, capture and rig traps
 
 - Work-status and next-turn-query share `tools/rig/native-tool-result.mjs`:

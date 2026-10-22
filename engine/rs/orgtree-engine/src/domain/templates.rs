@@ -1296,6 +1296,8 @@ mod tests {
 
     #[test]
     fn heavy_dev_shop_has_all_ruled_seats_efforts_audience_and_notes() {
+        const TEST: &str = "domain::templates::tests::heavy_dev_shop_has_all_ruled_seats_efforts_audience_and_notes";
+        if in_preset_test_home(TEST, None) { return; }
         let t=bundled("heavy-dev-shop");
         assert!(validate(&t).is_empty(),"{:?}",validate(&t));
         let mut av=claude_only();
