@@ -17,6 +17,7 @@ import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import { RefChip, resolveRef } from '../src/canvas/reflinks'
 import { ToolRefs } from '../src/canvas/toolrefs'
+import { IdleDocketCards } from '../src/events/idledocket'
 import { useAgentMentions, useDeskMentionScope } from '../src/canvas/agentmentions'
 import { QuickChat } from '../src/QuickChatBox'
 import { legacyAppBackend } from './appfeed-fixture'
@@ -118,11 +119,14 @@ function Composer({ children }: { children: ReactNode }) {
   </div>
 }
 
-/** Every ticket link surface the shared menu serves: a typed-reference chip, a slug in prose, a tool-call ticket chip
- *  and a docket row. */
+/** Every ticket link surface the shared menu serves: a typed-reference chip, a slug in prose, a tool-call ticket chip,
+ *  an idle-docket reminder's ticket card and a docket row. */
 function TicketSurfaces({ org, item }: { org: string; item: WorkItem }) {
+  const reminder = { v: 1, variant: 'reminder.idle_docket', engine_authored: true, more: 0,
+    items: [{ slug: item.slug, title: item.title, status: item.status, role: 'owner' }] } as never
   return <div className="surfaces">
     <RefChip r={resolveRef({ kind: 'item', org, id: item.slug }, { org })} onOpen={() => {}} />
+    <IdleDocketCards event={reminder} org={org} onOpen={() => {}} />
     <span className="prose"><WorkRefText text={`see ${item.slug} today`} index={buildMentionIndex([item])} onPick={() => {}} /></span>
     <ToolRefs refs={[{ kind: 'ticket', id: item.slug }]} owner="worker" org={org} onWorkLink={() => {}} agent={id => <span>{id}</span>} />
     <DocketRow org={org} item={item} selected={false} ageTick={0} facts={new Map()} toast={() => {}} onClick={() => {}}
@@ -154,7 +158,7 @@ async function surfaceFixture(t: TestContext, org: string, item: WorkItem) {
   const box = view.el.querySelector<HTMLTextAreaElement>('.fake-composer')!
   const surface = (where: 'inside' | 'outside', kind: string): HTMLElement => {
     const selector = kind === 'chip' ? '.ref-chip.ref-item' : kind === 'prose' ? '.docket-ref'
-      : kind === 'tool' ? '.tool-ticket' : '.docket-row'
+      : kind === 'tool' ? '.tool-ticket' : kind === 'card' ? 'button.idle-ticket-link' : '.docket-row'
     const el = view.el.querySelector<HTMLElement>(`.${where} ${selector}`)
     assert.ok(el, `${where} ${kind} surface rendered (${selector})`)
     return el!
@@ -162,7 +166,7 @@ async function surfaceFixture(t: TestContext, org: string, item: WorkItem) {
   return { view, box, surface, posts }
 }
 
-const SURFACES = ['chip', 'prose', 'tool', 'row'] as const
+const SURFACES = ['chip', 'prose', 'tool', 'card', 'row'] as const
 
 test('inside a desk, every ticket chip, card and docket row offers Mention first; it inserts @item:<org>/<slug> into the message box without sending', async t => {
   const org = 'tm-surfaces'
