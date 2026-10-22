@@ -46,6 +46,7 @@ async fn event_boundary_continues_same_event_after_page_commit() {
     let mut engine=Engine::for_tests(std::path::PathBuf::from("C:/orgtree-build/taskbar-orgs-sol/event-boundary-engine"));
     let mgr=deadpool_postgres::Manager::from_config(cfg,NoTls,deadpool_postgres::ManagerConfig{recycling_method:deadpool_postgres::RecyclingMethod::Fast});
     Arc::get_mut(&mut engine).unwrap().db=deadpool_postgres::Pool::builder(mgr).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
+    engine.orgs.insert(crate::orgs::provisional(org,uid("org"),uid("active-event-org"),"Boundary".into()));
     STOP_AFTER_EVENT_PAGE.scope(true,fire(&engine,org,project,"@user",Some("same-event-after-restart"))).await.unwrap();
     let fired:i64=c.query_one("SELECT count(*) FROM ot.watchdogs WHERE (memo->>'target_id')::bigint=$1 AND fired=1",&[&project]).await.unwrap().get(0);assert_eq!(fired,200);
     recover_pending(&engine).await.unwrap();recover_pending(&engine).await.unwrap();
@@ -77,6 +78,7 @@ async fn watch_boundary_restart_after_edge_commit() {
     let mut engine=Engine::for_tests(std::path::PathBuf::from("C:/orgtree-build/taskbar-orgs-sol/claim-watch-engine"));
     let mgr=deadpool_postgres::Manager::from_config(cfg,NoTls,deadpool_postgres::ManagerConfig{recycling_method:deadpool_postgres::RecyclingMethod::Fast});
     Arc::get_mut(&mut engine).unwrap().db=deadpool_postgres::Pool::builder(mgr).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
+    engine.orgs.insert(crate::orgs::provisional(org,uid("org"),uid("active-watch-org"),"Boundary".into()));
     STOP_AFTER_WATCH_EDGE.scope(true,evaluate_page(&engine,org,project,0)).await.unwrap();
     assert_eq!(c.query_one("SELECT count(*) FROM ot.watchdogs WHERE kind='listener_watch' AND (memo->>'target_id')::bigint=$1 AND memo->'run'->>'above'='true'",&[&project]).await.unwrap().get::<_,i64>(0),2);
     // The first worker is gone at the commit boundary. Recover only durable

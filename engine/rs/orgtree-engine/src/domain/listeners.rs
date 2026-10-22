@@ -54,6 +54,15 @@ const EVENTS_KEEP: i64 = 50;
 const FIRE_BATCH: i64 = 200;
 const EVENT_HIGH_WATER: &str = "SELECT coalesce(max(id),0) FROM ot.watchdogs WHERE org_id=$1 AND kind='project_listener' AND (memo->>'target_id')::bigint=$2";
 
+/// Lifecycle is checked from both the open directory and current database row.
+/// In a short write transaction the shared org lock serializes trash against
+/// delivery/spend/action-claim commits; no lifecycle lock spans tool execution.
+#[nolog]
+async fn recovery_org_open(engine:&Engine,c:&impl GenericClient,org_id:i64)->Result<bool> {
+    if engine.orgs.by_id(org_id).is_none() {return Ok(false)}
+    Ok(c.query_opt("SELECT id FROM ot.orgs WHERE id=$1 AND state='active' FOR SHARE",&[&org_id]).await?.is_some())
+}
+
 #[cfg(test)]
 tokio::task_local! { static STOP_AFTER_WATCH_EDGE: bool; }
 #[cfg(test)]
@@ -351,6 +360,7 @@ async fn evaluate_page(engine: &Arc<Engine>, org_id: i64, project: i64, after: i
         return Ok(None);
     };
     let pname: String = p.get(0);
+    if !recovery_org_open(engine,&*tx,org_id).await? {return Ok(None)}
     if p.get::<_, String>(1) != "live" {
         return Ok(None);
     }
@@ -517,6 +527,9 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
         crate::refuse!(NotFound, "no such project");
     };
     let pname: String = p.get(0);
+    if !recovery_org_open(engine,&*tx,org_id).await? {
+        crate::refuse!(Conflict, "the organization is not active and open");
+    }
     if p.get::<_, String>(1) != "live" {
         crate::refuse!(Conflict, "project {} is retired; its event cannot be fired", pname);
     }
@@ -558,7 +571,7 @@ pub async fn recover_pending(engine:&Arc<Engine>)->Result<()> {
     let mut after=0i64;
     loop {
         let c=engine.db.get().await?;
-        let rows=c.query("SELECT fire_id,org_id,project_id FROM ot.project_event_dispatch WHERE NOT done AND fire_id>$1 ORDER BY fire_id LIMIT 64",&[&after]).await?;
+        let rows=c.query("SELECT d.fire_id,d.org_id,d.project_id FROM ot.project_event_dispatch d JOIN ot.orgs o ON o.id=d.org_id WHERE NOT d.done AND o.state='active' AND d.fire_id>$1 ORDER BY d.fire_id LIMIT 64",&[&after]).await?;
         drop(c);
         if rows.is_empty(){break}
         for r in rows {after=r.get(0);Box::pin(drain_pending(engine,r.get(1),r.get(2))).await?;}
@@ -566,7 +579,7 @@ pub async fn recover_pending(engine:&Arc<Engine>)->Result<()> {
     let mut after=0i64;
     loop {
         let c=engine.db.get().await?;
-        let rows=c.query("SELECT id,org_id,project_id FROM ot.listener_fire_outbox WHERE NOT done AND id>$1 ORDER BY id LIMIT 64",&[&after]).await?;
+        let rows=c.query("SELECT f.id,f.org_id,f.project_id FROM ot.listener_fire_outbox f JOIN ot.orgs o ON o.id=f.org_id WHERE NOT f.done AND o.state='active' AND f.id>$1 ORDER BY f.id LIMIT 64",&[&after]).await?;
         drop(c);
         if rows.is_empty(){return Ok(())}
         for r in rows {after=r.get(0);Box::pin(drain_fires(engine,r.get(1),r.get(2))).await?;}
@@ -580,6 +593,7 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
     let mut client=engine.db.get().await?;
     let tx=client.transaction().await?;
     let Some(p)=tx.query_opt("SELECT name,state,scope FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE",&[&project]).await? else{return Ok(None)};
+    if !recovery_org_open(engine,&*tx,org_id).await? {return Ok(None)}
     let pname:String=p.get(0);
     let Some(job)=tx.query_opt("SELECT d.fire_id,d.after_id,d.high_water,f.fired_by,f.message FROM ot.project_event_dispatch d JOIN ot.project_fires f ON f.id=d.fire_id WHERE d.project_id=$1 AND NOT d.done ORDER BY d.fire_id LIMIT 1 FOR UPDATE OF d",&[&project]).await? else{return Ok(None)};
     let (fire_id,after,high):(i64,i64,i64)=(job.get(0),job.get(1),job.get(2));
@@ -664,6 +678,9 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
     // calls run and their results join the mail, then the owner wakes
     let mut ch: Vec<Change> = vec![Change::Watchdogs, Change::Agent(project), Change::Events];
     Box::pin(drain_fires(engine,org_id,project)).await?;
+    let c=engine.db.get().await?;
+    if !recovery_org_open(engine,&**c,org_id).await? {return Ok(Some(fire_id))}
+    drop(c);
     if done { ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event(
         crate::runtime::watchdogs::events::PROJECT_EVENT,
         crate::runtime::watchdogs::events::Scope::Agent(org_id, project),
@@ -684,6 +701,7 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
 async fn stage_fire(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option<(i64,Option<Delivery>)>> {
     let mut c=engine.db.get().await?;let tx=c.transaction().await?;
     if tx.query_opt("SELECT id FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE",&[&project]).await?.is_none(){return Ok(None)}
+    if !recovery_org_open(engine,&*tx,org_id).await? {return Ok(None)}
     let boot=&engine.boot.id;
     let Some(work)=tx.query_opt("SELECT id,watchdog_id,line,delivery FROM ot.listener_fire_outbox WHERE project_id=$1 AND NOT done AND (processing_boot IS NULL OR processing_boot<>$2) ORDER BY id LIMIT 1 FOR UPDATE",&[&project,&boot]).await? else{return Ok(None)};
     let (id,row,line,saved):(i64,i64,Option<String>,Option<Value>)=(work.get(0),work.get(1),work.get(2),work.get(3));
@@ -737,16 +755,25 @@ async fn drain_fires(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<()> {
 
 #[nolog]
 async fn finish_fire(engine:&Arc<Engine>,org_id:i64,project:i64,id:i64,d:&Delivery)->Result<()> {
+    let mut c=engine.db.get().await?;
+    let tx=c.transaction().await?;
+    if !recovery_org_open(engine,&*tx,org_id).await? {return Ok(())}
+    let first=tx.execute("UPDATE ot.listener_fire_outbox SET actions_claimed=true WHERE id=$1 AND NOT actions_claimed",&[&id]).await?==1;
+    tx.commit().await?;
     if d.spent {crate::runtime::watchdogs::disarm(engine,d.row);}
-    let c=engine.db.get().await?;
-    let first=c.execute("UPDATE ot.listener_fire_outbox SET actions_claimed=true WHERE id=$1 AND NOT actions_claimed",&[&id]).await?==1;
     drop(c);
     if first && !d.fire_actions.is_empty() {
         if let Some(owner)=d.owner {
+            let c=engine.db.get().await?;
+            if !recovery_org_open(engine,&**c,org_id).await? {return Ok(())}
+            drop(c);
             let text=crate::runtime::watchdogs::run_fire_actions(engine,org_id,owner,&d.owner_name,&d.uid,&d.name,&d.fire_actions).await;
             if !text.is_empty(){append_results(engine,org_id,d,&text).await;}
         }
     }
+    let mut c=engine.db.get().await?;
+    let tx=c.transaction().await?;
+    if !recovery_org_open(engine,&*tx,org_id).await? {return Ok(())}
     let mut ch=vec![Change::Watchdogs,Change::Agent(project)];
     if let Some(owner)=d.owner {
         ch.push(Change::Mailbox(owner));
@@ -755,8 +782,8 @@ async fn finish_fire(engine:&Arc<Engine>,org_id:i64,project:i64,id:i64,d:&Delive
         else if let Some(h)=engine.agents.get(owner){h.send(crate::runtime::AgentMsg::Wake);}
     }else{ch.push(Change::UserMail);}
     changes::notify_id(engine,org_id,ch);
-    let c=engine.db.get().await?;
-    c.execute("UPDATE ot.listener_fire_outbox SET done=true,processing_boot=NULL WHERE id=$1",&[&id]).await?;
+    tx.execute("UPDATE ot.listener_fire_outbox SET done=true,processing_boot=NULL WHERE id=$1",&[&id]).await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -767,6 +794,9 @@ async fn finish_fire(engine:&Arc<Engine>,org_id:i64,project:i64,id:i64,d:&Delive
 /// arrive as their own short watchdog mail instead of vanishing.
 #[logged]
 async fn append_results(engine: &Arc<Engine>, org_id: i64, d: &Delivery, text: &str) {
+    let Ok(c)=engine.db.get().await else {return};
+    if !recovery_org_open(engine,&**c,org_id).await.unwrap_or(false) {return}
+    drop(c);
     let appended = match engine.db.get().await {
         Ok(client) => client
             .execute("UPDATE ot.mail SET body = body || $2,

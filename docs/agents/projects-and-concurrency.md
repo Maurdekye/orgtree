@@ -15,6 +15,12 @@ one-shot changes, history and cursor together. Eligibility is checked when
 the page is processed; paused/removed listeners are skipped. New registrations
 after the high-water mark wait for the next event. Pending pages recover at
 engine startup without synthesizing a second event.
+Recovery requires both a current active organization row and an open engine
+handle. Trashed or closed organizations retain their pending event/watch work
+without allocating mail, spending registrations, claiming actions or waking
+actors. Saved post-commit deliveries obey the same checks. Short delivery and
+action-claim transactions hold a shared lifecycle row lock against trash;
+arbitrary fire actions run after that transaction and recheck current openness.
 
 Listener-watch edges enqueue durable fire obligations with their above marker.
 The watch's spent state and notification mail commit atomically, including

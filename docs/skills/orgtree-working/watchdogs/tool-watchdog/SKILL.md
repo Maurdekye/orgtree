@@ -170,6 +170,10 @@ Release with `orgtree_project action=release_slot lease=L` as soon as the work e
 
 ### project_listener
 
+Recovery only processes active organizations that are open in the engine.
+Trashed or closed organizations keep pending event/watch work without new mail,
+one-shot spending, action claims or wakes; saved deliveries follow the same rule.
+
 An event covers registrations through its creation-time high-water mark, using
 short committed pages rather than a listener-count cap. Each page checks current
 eligibility: a paused or removed listener is skipped. A listener registered
