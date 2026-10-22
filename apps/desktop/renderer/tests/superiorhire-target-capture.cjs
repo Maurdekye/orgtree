@@ -19,11 +19,13 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,150))))`)
     await win.webContents.executeJavaScript(`document.querySelector('.sq.draft .df-foot .primary').click()`)
     const state = await win.webContents.executeJavaScript(`new Promise(resolve=>setTimeout(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve({
-      requests:window.superiorHireRequests, names:[...document.querySelectorAll('.sq .name')].map(el=>el.textContent),
+      requests:window.superiorHireRequests, tree:window.superiorHireTree, text:document.body.innerText,
       draft:!!document.querySelector('.sq.draft'),background:getComputedStyle(document.body).backgroundColor
     }))),1500))`)
+    fs.writeFileSync(path.join(root,'state.json'),JSON.stringify(state,null,2))
     if(state.requests.length!==1||state.requests[0].steps.length!==1||state.requests[0].steps[0].above!=='coordinator'
-      ||state.requests[0].steps[0].target!=='coordinator'||!state.names.includes('liaison')||!state.names.includes('coordinator')||state.draft)
+      ||state.requests[0].steps[0].target!=='coordinator'||state.tree.roots[0].id!=='liaison'
+      ||state.tree.roots[0].children[0].id!=='coordinator'||!state.text.includes('liaison')||state.draft)
       throw Error('capture projection failed: '+JSON.stringify(state))
     const image=await win.webContents.capturePage(),bitmap=image.toBitmap()
     if(image.isEmpty())throw Error('empty capture')

@@ -32,6 +32,7 @@ window.fetch = (async (url: RequestInfo | URL, options?: RequestInit) => {
 }) as typeof fetch
 function Fixture() {
   const [tree, setTree] = useState(initial)
+  Object.assign(window, { superiorHireTree: tree })
   accept = () => setTree({ ...initial, roots: [agent('liaison', [agent('coordinator')])] } as unknown as TreePayload)
   return <CurrentOrg.Provider value={tree.slug}><div className="app"><main className="solo"><div className="canvas-stage">
     <OrgCanvas tree={tree} slug={tree.slug} mailEvt={null} toast={() => {}} op={async () => { throw Error('expected history request') }} />
