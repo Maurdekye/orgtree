@@ -484,33 +484,13 @@ function Find-InteractiveTask($Folder) {
     try { return $Folder.GetTask($script:InteractiveTaskName) }
     catch { if ($_.Exception.GetBaseException().HResult -eq -2147024894) { return $null }; throw }
 }
-function Register-InteractiveTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,[string]$Sddl) {
-    return $Folder.RegisterTask($script:InteractiveTaskName,$Xml,$Flags,$Sid,$null,3,$Sddl)
-}
 function Remove-InteractiveTask($Folder) { $Folder.DeleteTask($script:InteractiveTaskName,0) }
 function Get-InteractiveMarker($Record) { return "com.maurdekye.orgtree.user-session.v1:$($Record.Id)" }
-# Windows starts it in the operator's own session with their interactive token,
-# at the task's run level: the highest while "Run as admin" is on, so a restart
-# or update in that session needs no prompt. The engine is a console program;
-# the windowless broker's fixed `session-engine` starts its `session-launch
-# signin` without a window. Its logon trigger moves the engine into the
-# operator's session at sign-in only while Run on boot AND Run as admin are on
-# (coordinator Q1); otherwise only demand runs start it (the desktop, the boot
-# host).
-function New-InteractiveTaskXml($Record,[bool]$Highest) {
-    $doc=Read-BootXml (New-HelperTaskXml $Record $Highest)
-    $doc.Task.RegistrationInfo.Description=Get-InteractiveMarker $Record
-    $doc.Task.Triggers.LogonTrigger.Enabled=Get-EnabledText ((Test-RunOnStartup $Record) -and $Highest)
-    $doc.Task.Actions.Exec.Command=[string](Get-HelperPath $Record.InstallDir)
-    $argument=$doc.CreateElement('Arguments',$doc.DocumentElement.NamespaceURI)
-    $argument.InnerText='session-engine'
-    $null=$doc.Task.Actions.Exec.InsertAfter($argument,$doc.Task.Actions.Exec.SelectSingleNode('*[local-name()="Command"]'))
-    # A new demand restart may overlap the old host while it drains. Native
-    # admission serializes the handover; Task Scheduler must not discard it.
-    $doc.Task.Settings.MultipleInstancesPolicy='Parallel'
-    $null=$doc.Task.Settings.RemoveChild($doc.Task.Settings.RestartOnFailure)
-    return $doc.OuterXml
-}
+# The "Orgtree User Session Engine" task of 4.4.0 alphas 27 to 32 (decision
+# 93: it moved the engine into the operator's session). Decision 94 retires it:
+# the engine always runs in Session 0, so an update stops it with the boot tree
+# and deletes it, only when it is the installer's own (below), and never
+# registers it again; uninstall deletes a leftover.
 function Assert-OwnedInteractiveTask($Task,$Record,[string]$InstallDir) {
     Assert-BootRecord $Record $InstallDir
     Assert-BootProtectedAcl ($Task.GetSecurityDescriptor(7)) 0x500D0116
@@ -848,6 +828,14 @@ function Invoke-BootLifecycle {
                 Remove-SigninTask $folder
                 if ($null -ne (Find-SigninTask $folder)) { throw 'Sign-in engine task removal not confirmed.' }
             }
+            # The user-session engine of 4.4.0 alphas, stopped above with the boot
+            # tree, is deleted: the engine always runs in Session 0 (decision 94).
+            $interactive = Find-InteractiveTask $folder
+            if ($null -ne $interactive) {
+                Assert-OwnedInteractiveTask $interactive $record $InstallDir
+                Remove-InteractiveTask $folder
+                if ($null -ne (Find-InteractiveTask $folder)) { throw 'Interactive engine task removal not confirmed.' }
+            }
             $paths = Get-BootPaths $InstallDir
             foreach ($path in $paths.Files) { if (-not [IO.File]::Exists($path)) { throw "Missing installed engine file: $path" } }
             $task = Find-BootTask $folder
@@ -880,16 +868,9 @@ function Invoke-BootLifecycle {
                 Assert-OwnedHelperTask $helperTask $record $InstallDir
                 if (Test-RunOnStartup $record) { try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" } }
             }
-            if ([IO.File]::Exists((Join-Path $InstallDir 'resources\engine\orgtree-engine.exe'))) {
-                $interactiveFlags=18
-                $interactive=Find-InteractiveTask $folder
-                if ($null -ne $interactive) { Assert-OwnedInteractiveTask $interactive $record $InstallDir; $interactiveFlags=20 }
-                $interactive=Register-InteractiveTask $folder (New-InteractiveTaskXml $record (Get-RunAsAdministrator)) $interactiveFlags $record.OperatorSid $sddl
-                Assert-OwnedInteractiveTask $interactive $record $InstallDir
-            }
-            # Started last, once every task it may hand over to is registered: with
-            # the operator signed in at the console its host runs the user-session
-            # task and waits in Session 0 for the sign-out fallback.
+            # Started last, after the helper: the engine starts in Session 0, where
+            # it always runs (decision 94), and the helper, already waiting while
+            # the operator is signed in, attaches to it within one poll.
             if ($runs) { $null = $registered.Run($null) }
         }
     }

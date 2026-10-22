@@ -1,4 +1,4 @@
-import { HELPER_TASK, INTERACTIVE_TASK, POWERSHELL, UAC_CANCELLED, elevatedArgs, readRunAsAdministrator, run, startTask, type Runner } from './runasadmin'
+import { HELPER_TASK, POWERSHELL, UAC_CANCELLED, elevatedArgs, run, startTask, type Runner } from './runasadmin'
 
 /** "Run on boot" on an all-users Windows installation (docket
  *  option-to-run-the-background-engine-in-the-user-s; the user, 2026-10-16
@@ -36,11 +36,11 @@ export { HELPER_TASK }
 /** Where the tasks and the installer's record are. Only tests name another
  *  (throwaway tasks and an HKCU key), so the scripts can be measured without
  *  touching a real installation or needing administrator rights. */
-export interface StartupTarget { hive: 'LocalMachine' | 'CurrentUser'; key: string; boot: string; helper: string; interactive?: string }
-export const INSTALLED: StartupTarget = { hive: 'LocalMachine', key: 'SOFTWARE\\Orgtree\\BootEngine', boot: BOOT_TASK, helper: HELPER_TASK, interactive: INTERACTIVE_TASK }
+export interface StartupTarget { hive: 'LocalMachine' | 'CurrentUser'; key: string; boot: string; helper: string }
+export const INSTALLED: StartupTarget = { hive: 'LocalMachine', key: 'SOFTWARE\\Orgtree\\BootEngine', boot: BOOT_TASK, helper: HELPER_TASK }
 
 /** Each task's state: true enabled, false disabled, null not installed. */
-export interface StartupTasks { boot: boolean | null; helper: boolean | null; interactive?: boolean | null }
+export interface StartupTasks { boot: boolean | null; helper: boolean | null }
 
 /** Whether anything of Orgtree's starts by itself: the boot task enabled. */
 export const startupOn = (tasks: StartupTasks): boolean => tasks.boot === true
@@ -63,20 +63,18 @@ export function readScript(target: StartupTarget = INSTALLED): string {
     "  if ($task.Enabled -and @($task.Definition.Triggers | Where-Object { $_.Enabled }).Count -gt 0) { return 'true' }",
     "  return 'false'",
     '}',
-    `Write-Output ('{"boot":' + (State ${psQuote(target.boot)}) + ',"helper":' + (State ${psQuote(target.helper)})${target.interactive ? ` + ',"interactive":' + (State ${psQuote(target.interactive)})` : ''} + '}')`,
+    `Write-Output ('{"boot":' + (State ${psQuote(target.boot)}) + ',"helper":' + (State ${psQuote(target.helper)}) + '}')`,
   ].join('\n')
 }
 
 export function parseStartupTasks(stdout: string): StartupTasks | null {
   const line = stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean).pop() ?? ''
   try {
-    const value = JSON.parse(line) as { boot?: unknown; helper?: unknown; interactive?: unknown }
+    const value = JSON.parse(line) as { boot?: unknown; helper?: unknown }
     const state = (v: unknown) => (v === true || v === false || v === null ? v : undefined)
     const boot = state(value.boot), helper = state(value.helper)
     if (boot === undefined || helper === undefined) return null
-    const interactive = state(value.interactive)
-    if ('interactive' in value && interactive === undefined) return null
-    return interactive === undefined ? { boot, helper } : { boot, helper, interactive }
+    return { boot, helper }
   } catch { return null }
 }
 
@@ -104,14 +102,10 @@ export function elevatedStartupScript(enabled: boolean, target: StartupTarget = 
     "    $id = [string]$key.GetValue('Id')",
     "    $sid = [string]$key.GetValue('OperatorSid')",
     "    if (-not $id) { throw 'The installation record has no id.' }",
-    // "Run as admin" (HKLM, admin-writable only): the user-session engine's sign-in
-    // trigger follows both switches (coordinator Q1, 2026-10-21 16:27Z)
-    "    $runtime = $hive.OpenSubKey('SOFTWARE\\Orgtree\\Runtime'); $asAdmin = $false",
-    "    if ($null -ne $runtime) { try { $asAdmin = ([int]$runtime.GetValue('RunAsAdministrator') -eq 1) } finally { $runtime.Dispose() } }",
     '    $service = New-Object -ComObject Schedule.Service',
     '    $service.Connect()',
     "    $folder = $service.GetFolder('\\')",
-    `    $markers = @{ ${psQuote(target.boot)} = 'com.maurdekye.orgtree.boot.v1:'; ${psQuote(target.helper)} = 'com.maurdekye.orgtree.credential-helper.v1:'${target.interactive ? `; ${psQuote(target.interactive)} = 'com.maurdekye.orgtree.user-session.v1:'` : ''} }`,
+    `    $markers = @{ ${psQuote(target.boot)} = 'com.maurdekye.orgtree.boot.v1:'; ${psQuote(target.helper)} = 'com.maurdekye.orgtree.credential-helper.v1:' }`,
     // every task is verified before any is changed: a foreign one refuses all
     '    $tasks = @{}',
     '    foreach ($name in @($markers.Keys)) {',
@@ -127,8 +121,7 @@ export function elevatedStartupScript(enabled: boolean, target: StartupTarget = 
     '    foreach ($name in @($tasks.Keys)) {',
     '      $definition = $tasks[$name].Definition',
     '      $definition.Settings.Enabled = $true',
-    `      $want = ${flag}${target.interactive ? `; if ($name -ceq ${psQuote(target.interactive)}) { $want = (${flag} -and $asAdmin) }` : ''}`,
-    '      foreach ($trigger in $definition.Triggers) { $trigger.Enabled = $want }',
+    `      foreach ($trigger in $definition.Triggers) { $trigger.Enabled = ${flag} }`,
     '      $logon = $definition.Principal.LogonType',
     '      $null = $folder.RegisterTaskDefinition($name, $definition, 20, $sid, $null, $logon, "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)")',
     '      $updated += $name',
@@ -153,10 +146,7 @@ export async function writeRunOnStartup(enabled: boolean, runner: Runner = run, 
   if (result.code === UAC_CANCELLED) throw new Error(`Windows did not give permission, so ${unchanged}.`)
   if (result.code !== 0) throw new Error(`Changing "run on boot" failed (exit code ${result.code}).`)
   const after = await readStartupTasks(runner, target)
-  // the user-session task's trigger is on only while Run as admin is on too
-  const interactive = after?.interactive != null && enabled ? await readRunAsAdministrator(runner) : false
-  if (!after || after.boot !== enabled || (after.helper !== null && after.helper !== enabled)
-      || (after.interactive != null && after.interactive !== interactive)) {
+  if (!after || after.boot !== enabled || (after.helper !== null && after.helper !== enabled)) {
     throw new Error('The change was made but reads back differently; Orgtree may still start as before.')
   }
 }

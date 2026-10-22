@@ -4,7 +4,6 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import {recordManagedExit} from './core-exit-log'
-import { lastFailure } from './sessionlaunch'
 import { exeName, postgresRuntimeEnvironment } from './postgres-runtime'
 import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner,
   CONVERSION_FAILED, CONVERSION_WINDOW_MS, conversionWait, isConversionPhase, parseConversionFailure, progressPhase, readConversionStatus } from './policy'
@@ -69,10 +68,10 @@ export interface EngineOptions { python: string; directory: string; dataRoot: st
    *  the Python engine, with the same environment and launch handshake. */
   binary?: string
   /** Windows: start the background engine where it belongs (sessionlaunch.ts):
-   *  the user-session task or the boot task, after which this engine attaches,
+   *  the boot task, in Session 0 (decision 94), after which this engine attaches,
    *  or 'managed' when this desktop starts its own. Tests and legacy runtimes
    *  may omit it; descriptor validation and root ownership remain in Engine. */
-  launchBackground?: () => Promise<'session' | 'boot' | 'managed'> }
+  launchBackground?: () => Promise<'boot' | 'managed'> }
 /** The bundled mail hub's live state, as /api/desktop/status reports it —
  *  feeds the tray's right-click status line (user requirement 2026-09-15). */
 export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
@@ -319,14 +318,10 @@ export class Engine extends EventEmitter {
     const realRoot = fs.realpathSync.native(root)
     validateDataRoot(realRoot, options.forbiddenRoot)
     this.state({ state: 'starting' })
-    const launchedAt = Date.now()
     if (binary && options.launchBackground && await options.launchBackground() !== 'managed') {
       // attach() takes the slot only while it is still this desktop's to fill
       if (this.launchesCancelled) throw new Error('Engine launch cancelled by Quit')
-      if (!await this.attachWithRetry(options)) {
-        const failed = await lastFailure(realRoot, launchedAt)
-        throw new Error(failed ?? 'The background engine did not publish a verified attachment in time.')
-      }
+      if (!await this.attachWithRetry(options)) throw new Error('The background engine did not publish a verified attachment in time.')
       this.stopping = false
       return
     }
@@ -540,14 +535,6 @@ export class Engine extends EventEmitter {
     this.managed = false
     this.state({ state: 'stopped', message: 'Background engine stopped. Reconnecting…' })
     return false
-  }
-
-  /** The engine is gone and nothing will bring it back by itself (a failed
-   *  move and a failed rollback): say so, so the tray offers Start engine. */
-  markUnavailable(message: string): void {
-    if (this.status.state === 'unavailable' && this.status.message === message) return
-    this.endpoint = ''
-    this.state({ state: 'unavailable', message })
   }
 
   /** Can THIS process write byte 0 of the guardian's lock file? The

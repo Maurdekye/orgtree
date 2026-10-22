@@ -118,11 +118,12 @@ export interface UpdateStatus { state: UpdateState; version?: string; percent?: 
  *  restrictive ACL is indistinguishable from here, and the consequence is the
  *  same either way. */
 export interface UpdateCapability { unattendedInstall: boolean; installDirectory: string }
-/** "Run Orgtree as administrator": whether the background engine and its
- *  agents keep administrator rights. Stored in HKLM (admin-writable only), so
- *  changing it asks Windows for permission. `available` is false where there
- *  is no background engine for it to apply to. */
-export interface RunAsAdministratorState { available: boolean; enabled: boolean; reason?: string; canRunInSession?: boolean }
+/** "Run as admin": whether the Session 0 engine and the sign-in helper, and so
+ *  every agent, keep administrator rights, both or neither (invariant 7).
+ *  Stored in HKLM (admin-writable only), so changing it asks Windows for
+ *  permission once. `available` is false where there is no background engine
+ *  for it to apply to. */
+export interface RunAsAdministratorState { available: boolean; enabled: boolean; reason?: string }
 /** What the startup switch does here (docket
  *  option-to-run-the-background-engine-in-the-user-s, user 2026-10-16): `boot`
  *  on an installation for all users on Windows, "Run on boot" (the engine at
@@ -205,11 +206,9 @@ export interface DesktopBridge {
   getUpdateStatus(): Promise<UpdateStatus>
   getUpdateCapability?(): Promise<UpdateCapability>
   getRunAsAdministrator?(): Promise<RunAsAdministratorState>
-  runThisSessionAsAdmin?(): Promise<RunAsAdministratorState>
-  /** Change the setting (a UAC prompt). `restartNow` then restarts the
-   *  background engine so the change applies at once; otherwise it applies at
-   *  the engine's next start. */
-  setRunAsAdministrator?(enabled: boolean, restartNow: boolean): Promise<RunAsAdministratorState>
+  /** Change the setting: one UAC prompt, then it applies at once (the engine
+   *  restarts in Session 0 and the sign-in helper follows; coordinator Q1). */
+  setRunAsAdministrator?(enabled: boolean): Promise<RunAsAdministratorState>
   /** What the startup switch is called here: "run on boot" or "run on sign-in". */
   getStartupKind?(): Promise<StartupKind>
   /** "Chat from your phone" › Turn on phone access: add the Windows Firewall

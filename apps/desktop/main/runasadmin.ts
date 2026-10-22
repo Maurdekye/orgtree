@@ -26,7 +26,6 @@ export const BOOT_TASK = 'Orgtree Background Engine'
  *  the CLIs it starts; off, with least privilege (coordinator ruling C,
  *  2026-10-16). */
 export const HELPER_TASK = 'Orgtree Credential Helper'
-export const INTERACTIVE_TASK = 'Orgtree User Session Engine'
 /** ERROR_CANCELLED: the user declined the UAC prompt. */
 export const UAC_CANCELLED = 1223
 const PROTECTED_KEY_SDDL = 'O:BAG:BAD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KR;;;BU)'
@@ -54,14 +53,16 @@ export async function readRunAsAdministrator(runner: Runner = run): Promise<bool
   return result.code === 0 && parseRegQuery(result.stdout)
 }
 
-/** The script the ELEVATED PowerShell runs: set the run level of every task
- *  the installer owns (the Session 0 boot engine, the sign-in helper and the
- *  user-session engine, whose sign-in trigger also follows it), then create
- *  (or re-protect) the key with the protected ACL and set the DWORD. The
- *  tasks come first, so a refusal leaves the setting as it was, and a failed
- *  write restores them. Only the installer's own tasks are changed: each
+/** The script the ELEVATED PowerShell runs: set the run level of both tasks
+ *  the installer owns, the Session 0 boot engine and the sign-in helper, to
+ *  the same level (both elevated or neither: invariant 7), then create (or
+ *  re-protect) the key with the protected ACL and set the DWORD. The tasks
+ *  come first, so a refusal leaves the setting as it was, and a failed write
+ *  restores them. Only the installer's own tasks are changed: each
  *  description carries the installer record's id. One UAC prompt per change
- *  (docket after-an-update-or-engine-restart-while-the-user). */
+ *  (invariant 8); every later start runs a task at its stored level. A
+ *  user-session task an earlier 4.4.0 alpha left is not touched: the next
+ *  update deletes it (decision 94). */
 export function elevatedWriteScript(enabled: boolean): string {
   return [
     "$ErrorActionPreference = 'Stop'",
@@ -72,15 +73,14 @@ export function elevatedWriteScript(enabled: boolean): string {
     '  if ($null -ne $record) {',
     '    try {',
     "      $id = [string]$record.GetValue('Id'); $sid = [string]$record.GetValue('OperatorSid')",
-    // "Run on boot" as the installer reads it: absent counts as on
-    "      $rv = $record.GetValue('RunOnStartup'); $runs = ($null -eq $rv -or [int]$rv -ne 0)",
     '      $service = New-Object -ComObject Schedule.Service',
     '      $service.Connect()',
     "      $folder = $service.GetFolder('\\')",
-    // One "Run as admin" for every owned task (the user, 2026-10-21 15:27Z; coordinator Q2):
-    // the Session 0 boot engine (S4U, logon 2) and the two interactive-token tasks (3).
-    `      $markers = @{ '${BOOT_TASK}' = 'com.maurdekye.orgtree.boot.v1:'; '${HELPER_TASK}' = 'com.maurdekye.orgtree.credential-helper.v1:'; '${INTERACTIVE_TASK}' = 'com.maurdekye.orgtree.user-session.v1:' }`,
-    `      $logonOf = @{ '${BOOT_TASK}' = 2; '${HELPER_TASK}' = 3; '${INTERACTIVE_TASK}' = 3 }`,
+    // One "Run as admin" for both owned tasks (the user, 2026-10-21 15:27Z and
+    // 2026-10-22 07:29Z): the Session 0 boot engine (S4U, logon 2) and the
+    // sign-in helper (interactive token, 3).
+    `      $markers = @{ '${BOOT_TASK}' = 'com.maurdekye.orgtree.boot.v1:'; '${HELPER_TASK}' = 'com.maurdekye.orgtree.credential-helper.v1:' }`,
+    `      $logonOf = @{ '${BOOT_TASK}' = 2; '${HELPER_TASK}' = 3 }`,
     '      $tasks = @{}',
     // Validate every task before changing any. Enabling with another administrator's
     // credentials cannot give a standard operator an elevated interactive token.
@@ -94,14 +94,11 @@ export function elevatedWriteScript(enabled: boolean): string {
     '        $tasks[$name] = $task',
     '        $originalXml[$name] = [string]$task.Xml; $logons[$name] = $task.Definition.Principal.LogonType',
     '      }',
-    `      if (-not $tasks.ContainsKey('${INTERACTIVE_TASK}')) { throw 'Update Orgtree before changing Run as admin: the owned user-session task is missing.' }`,
     '      foreach ($name in @($tasks.Keys)) {',
     '        $task = $tasks[$name]',
     '        $definition = $task.Definition',
     // 1 = TASK_RUNLEVEL_HIGHEST, 0 = least privilege
     `        $definition.Principal.RunLevel = ${enabled ? 1 : 0}`,
-    // the user-session engine moves in at sign-in only while Run as admin is on (coordinator Q1)
-    `        if ($name -ceq '${INTERACTIVE_TASK}') { foreach ($trigger in $definition.Triggers) { $trigger.Enabled = ($${enabled} -and $runs) } }`,
     // 20 = TASK_UPDATE | TASK_DONT_ADD_PRINCIPAL_ACE, the task's own logon type, the installer's ACL
     '        $null = $folder.RegisterTaskDefinition($name, $definition, 20, $sid, $null, $logons[$name], "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)")',
     '        $updated += $name',
