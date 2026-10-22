@@ -88,3 +88,51 @@ test('the wake card body rides the collapsible preview', async () => {
     'the body is not foldable: a long reminder would out-shout its turn')
   await mounted.unmount()
 })
+
+// ---- docket-reminder-ticket-cards: the items are tickets, not a text list
+
+const ITEMS = [
+  { slug: 'alpha-ticket', title: 'Alpha ticket title', status: 'in_progress', role: 'owner' },
+  { slug: 'beta-ticket', title: 'Beta ticket title', status: 'review', role: 'reviewer' },
+  { slug: 'gamma-ticket', title: 'Gamma ticket title', status: 'approved', role: 'unassigned_review' },
+] as const
+const reminderWith = (more: number): Event => ({ ...(REMINDER.private as object), items: ITEMS, more }) as unknown as Event
+
+test('each reminder item is a ticket card that opens its ticket and carries the ticket menu', async () => {
+  const opened: string[] = []
+  const mounted = await mountView(
+    <SegmentList segments={wakeSegments(reminderWith(0), 'text')} profile="operator" slug="orgtree" nid="agent"
+      world={{ org: 'orgtree' }} onOpen={r => opened.push(r.ref.id)} />, el => el)
+  const cards = [...mounted.el.querySelectorAll('.idle-ticket')]
+  assert.equal(cards.length, 3, 'one card per listed item')
+  const first = cards[0]!
+  const link = first.querySelector('button[data-object-nav="ticket"]') as HTMLElement
+  assert.ok(link, 'the card is the shared ticket link: same attributes the ticket context menu keys on')
+  assert.equal(link.getAttribute('data-object-id'), 'alpha-ticket')
+  assert.equal(link.getAttribute('data-object-org'), 'orgtree')
+  assert.match(first.textContent ?? '', /Alpha ticket title/, 'the title is on the card')
+  assert.match(first.textContent ?? '', /In progress/, 'and the status, in the docket wording')
+  assert.ok(first.querySelector('.docket-status.status-in_progress'), 'in the docket status colour')
+  assert.match(cards[1]!.textContent ?? '', /awaiting your review/i, 'a reviewer role says so')
+  assert.match(cards[2]!.textContent ?? '', /no reviewer/i, 'an unassigned review says so')
+  link.click()
+  assert.deepEqual(opened, ['alpha-ticket'], 'clicking opens the ticket through the surface's own opener')
+  assert.equal(mounted.el.querySelector('.idle-more'), null, 'nothing omitted, so no omitted line')
+  await mounted.unmount()
+})
+
+test('omitted items are counted under the cards', async () => {
+  const mounted = await mountView(
+    <SegmentList segments={wakeSegments(reminderWith(4), 'text')} profile="operator" slug="orgtree" nid="agent" />, el => el)
+  assert.match(mounted.el.querySelector('.idle-more')?.textContent ?? '', /4 more/)
+  await mounted.unmount()
+})
+
+test('with no opener the card is inert text, not a dead link', async () => {
+  const mounted = await mountView(
+    <SegmentList segments={wakeSegments(reminderWith(0), 'text')} profile="operator" slug="orgtree" nid="agent" />, el => el)
+  const first = mounted.el.querySelector('.idle-ticket')!
+  assert.equal(first.querySelectorAll('button').length, 0)
+  assert.match(first.textContent ?? '', /alpha-ticket/)
+  await mounted.unmount()
+})
