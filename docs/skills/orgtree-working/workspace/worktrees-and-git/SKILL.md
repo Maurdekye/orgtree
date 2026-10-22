@@ -9,10 +9,10 @@ Up: [orgtree-workspace](../SKILL.md)
 
 These are developer working practices for a repository assignment, not permissions supplied by Orgtree. Read that repository's current `AGENTS.md`, handoff and task scope before making changes. Use the branch or exact base named by the integrator; a remembered default or stale local branch is not a substitute.
 
-For this project's Rust-engine development, `rust-engine` is local and is not a branch to fetch from or push to origin. The current team workspace rule places owned source worktrees under `D:/orgtree-work/worktrees`. Earlier repository-root examples in `docs/worktree-operations.md` predate that placement rule. Verify the target does not exist before creating your own branch/worktree:
+For this project's Rust-engine development, `rust-engine` is local and is not a branch to fetch from or push to origin. Read the current org shared source-placement policy for the owned worktree root. Earlier repository-root examples in `docs/worktree-operations.md` predate that policy; an inherited parent-checkout AGENTS.md can also describe the stopped 3.x line. Read the guide inside the exact assigned checkout. Verify the target does not exist before creating your own branch/worktree:
 
 ```powershell
-git worktree add -b <agent>/<topic> D:/orgtree-work/worktrees/<agent>-<topic> <assigned-base>
+git worktree add -b <agent>/<topic> <owned-source-root>/<agent>-<topic> <assigned-base>
 ```
 
 Never edit another agent's worktree. Git's stash is shared across worktrees: do not use a bare `git stash` to park your changes. Commit your own work before probing a base or mutating files for a control; `checkout --`, restore and reset can destroy an uncommitted fix.

@@ -149,7 +149,8 @@ Commit first, as described in [worktrees and git](../worktrees-and-git/SKILL.md)
 The historical P03 slot queue, `artifacts/machine-test-run`, its `-Small` two-slot
 mode, TTL/`-Dequeue` behavior and 15/10 GB commit-memory floors describe 3.x tooling.
 They do not replace the current Rust concurrency-slot permit, RAM floors or output rules;
-those have one home in [builds under the lock](../builds-under-the-lock/SKILL.md).
+the current project Summary owns permit/resource policy and org shared notes own output policy.
+[Builds under the lock](../builds-under-the-lock/SKILL.md) explains their use without copying the limits.
 Disposable PostgreSQL clusters must run unelevated; a skipped or empty test run
 is not a pass. Keep raw exit status, signal and spawn errors in the evidence.
 

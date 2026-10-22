@@ -22,6 +22,6 @@ Choose the child page for the task; tool pages hold call mechanics, workflow pag
 - [orgtree-suggestion-box](suggestion-box/SKILL.md): suggestion-box.md: notes on how Orgtree should better inform agents about its own functions.
 - [orgtree-worktrees-and-git](worktrees-and-git/SKILL.md): Working on a git repository from an org: your own worktree, never another's, never a bare stash, commit before probing.
 - [orgtree-builds-under-the-lock](builds-under-the-lock/SKILL.md): Heavy work through slot permits: current project Summary sets capacity/resource policy; prepare first, await grants and release immediately.
-- [orgtree-reviews-and-landing](reviews-and-landing/SKILL.md): Independent review and landing: reviewer approval of an exact commit, rebase, targeted checks, honest evidence.
+- [orgtree-reviews-and-landing](reviews-and-landing/SKILL.md): Phase-specific hand-in and landing: exact commits, assigned reviews, rebase, targeted checks and honest evidence.
 
 For screens and settings, use `orgtree-app`; cross-category references name the skill and breadcrumb rather than linking outside this bundle.

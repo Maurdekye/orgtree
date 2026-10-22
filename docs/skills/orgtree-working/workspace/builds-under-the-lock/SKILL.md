@@ -9,7 +9,7 @@ Up: [orgtree-workspace](../SKILL.md)
 
 This is a development-team practice, not an Orgtree runtime limit or build authorization. A documentation-only assignment may prohibit builds even when a permit is free.
 
-The **current @build-slot project Summary and coordinator assignment are the source of truth** for concurrent capacity, Cargo jobs, RAM floors, containment and how long a low-RAM holder may wait. Read those before each batch; this page deliberately does not repeat their changing numbers. The standing project charter carries its Summary; an authorized `orgtree_project action=settings name=build-slot` with no `settings` argument reads it as `settings.description`, while `action=slots name=build-slot` reports the actual configured capacity and current line. If the policy is missing, inconsistent or unreadable, ask the coordinator before starting. Other holders may run concurrently when current capacity permits; use only your assigned output/target scope.
+The **current @build-slot project Summary and coordinator assignment are the source of truth** for concurrent capacity, Cargo jobs, RAM floors, containment and how long a low-RAM holder may wait. Read those before each batch; this page deliberately does not repeat their changing numbers. The standing project charter carries its Summary; an authorized `orgtree_project action=settings name=build-slot` with no `settings` argument reads it as `settings.description`, while `action=slots name=build-slot` reports the actual configured capacity and current line. If the policy is missing, inconsistent or unreadable, ask the coordinator for its current text before starting. Full org visibility or a mail audience does not supply project ancestry reach; a sibling audit seat may need a timestamped Summary export. Other holders may run concurrently when current capacity permits; use only your assigned output/target scope.
 
 Read with `action=settings`, never `action=describe`: omitted-description `describe` clears the Summary in 4.4.0-alpha.12 and earlier. See the [project tool warning](../../team/tool-project/SKILL.md#read-the-summary-without-changing-it).
 
@@ -20,37 +20,28 @@ Use only the project's concurrency-slot permit. The filesystem `build.lock`/`bui
 1. Do light preparation first: source checkout, storage audit, test/fix commits and command/fixture preparation. Confirm this CLI exposes both [slot watchdog creation](../../watchdogs/tool-watchdog/SKILL.md) and the [project release action](../../team/tool-project/SKILL.md). Missing tools require coordinator help or a fresh CLI; documentation seats may intentionally lack them. There is no filesystem fallback and no authority to call a live API around the tools.
 2. Claim with `orgtree_watchdog action=create kind=slot target=build-slot name=<assigned work>`. A free permit returns its durable lease inline (`resolved:true`, `registered:false`), with no dog, grant mail or wake; use that result without yielding. Otherwise the one-shot dog holds your place; end the turn or do light work, and await its grant mail. Do not poll or treat queue position as a grant. Before running, verify the lease is still held.
 3. Batch the assigned red, green, typecheck and capture work into the grant. Check fresh free RAM before each phase against the **current Summary's floor**. Slot allocation does not check RAM or authorize a build. Follow the Summary's current low-RAM wait/release deadline using a once RAM watchdog; read its smoke result. A reclaimed/released lease needs a new grant before work resumes.
-4. Run the assigned batch in the foreground with the **current Summary's Cargo jobs and assigned kernel Job/resource limits**. Keep all generated artifacts under your exact assigned `C:/orgtree-build/<you>` scope; other holders use their own targets.
+4. Run the assigned batch in the foreground with the **current Summary's Cargo jobs and assigned kernel Job/resource limits**. Keep generated artifacts and cargo targets in the exact per-agent output scope assigned by current org storage policy.
 5. Release immediately when the batch ends, including on failure, before reports, mail or unrelated waits: `orgtree_project action=release_slot lease=<granted lease> note=<result and seconds>`. The next waiting claim is granted without a filesystem handover or handover message.
 
 A coordinator-declared priority build is an external team agreement: follow the current priority instructions, including prompt release by other holders. The engine's slot line itself has no priority mode. With watchdogs and no team group, `action=slots` shows the full holders/line status within project reach, but hides other holders' lease IDs. An ancestor with team authority can recover a stuck lease or remove a waiting claim; details are in the project tool guide. A release/reclaim does not stop a holder's process, so confirm its protected work has stopped before a replacement uses the resource.
 
 ## Storage, isolation and waiting
 
-For the root scratch-note, taskbar, tray-recent and native-tab test modules,
-ordinary `node --test tests/<name>.test.mjs` needs no author-specific output
-variables. They use fresh children of the platform temporary directory; team
-runners set `TEMP`/`TMP` inside their assigned output scope. Existing dependencies
-can be selected with `ORGTREE_TEST_DEPS=<dependency-checkout>/package.json`.
-Optional `ORGTREE_NOTE_TEST_ROOT`, `ORGTREE_BADGE_TEST_ROOT`,
-`ORGTREE_TRAY_TEST_ROOT` and `TAB_ORIGIN_NATIVE_OUT` are parent directories:
-each must be an absolute strict descendant of the current
-`C:/orgtree-build/<ORGTREE_AGENT>/` scope with no traversal or linked ancestors.
-Every run allocates a fresh leaf, preserving earlier receipts; cleanup rechecks
-canonical containment and directory identity. These variables do not grant
-permission to use another agent's folder.
+The org's current shared storage policy owns output roots, aggregate capacity,
+warm-cache protection, authorized cleanup and installer delivery. A permit never
+widens that policy or your folder/build scope. Prepare the storage audit before
+claiming; do not copy changing capacity numbers into this page or lower notes.
 
-Follow the current team storage cap. Cleanup needs authorization plus resolved-path/activity checks; protect source, live data, evidence and required deliverables. Source worktrees remain on D:, separate from generated output. A permit never widens build, storage or folder scope.
-
-Use only the assigned synthetic rig with fake CLI, scratch database and isolated data root. A bare SAFE_START engine can still read live sign-ins and run usage probes; it is not an isolated test environment. Never touch live data to obtain a test result.
-
-The rig captures original live-root paths at module import, before a fixture replaces its environment. Set any original `ORGTREE_V2_DATA` override before importing `tools/rig/lib.mjs`; fixture `APPDATA`/home changes do not remove protection of the original live folders. Fixture/keeper allowlists carry `RIG_PROTECTED_ROOTS` to fresh child imports, which adopt those original roots; onward transport may add paths but cannot narrow the captured set. Invalid metadata fails closed (nonempty JSON array of at most 64 absolute paths, at most 16 KiB of text). Its focused Windows guard check is `node --test tools/rig/tests/live-roots.test.mjs` (path comparisons and short-lived fictional-root Node children only; file/compiler seams mocked, no real keeper/engine).
+Code-specific test output variables and dependency resolution have one home in
+the repository's docs/agents/development-and-verification.md (Portable root test
+output and Renderer tests from a worktree without node_modules). Synthetic
+fixture/live-root guards and packaged-smoke isolation belong to
+docs/rust-engine/test-rig.md. Read the relevant recipe before the assigned check;
+those source contracts do not authorize a rig or build phase.
 
 Use [waiting for events](../../watchdogs/waiting-for-events/SKILL.md) instead of polling turns. Keep long work in the foreground, stop idle daemons you own, and never end the turn with your own background children running. Record failures and measured counts honestly after releasing the grant.
 
 For the generic build-machine application, open `orgtree-build-slots` (orgtree-workflows > collaboration-patterns). For the full mutex/semaphore, lease-recovery and other coordination recipes, open `orgtree-concurrency-primitives` in that same section. Those recipes supply mechanics; the live project Summary supplies this machine's policy.
-
-For an assigned native window-controls edge recheck, run `node --test tests/window-controls-edge.test.mjs` in a signed-in session under the current permit and containment, with `TEMP`/`TMP` in your output scope. Its fixture embeds the full stylesheet's fonts as data URLs; keep the native geometry and mutation assertions intact. A bundle setup failure is not a hit-test verdict. See the repository's `docs/agents/development-and-verification.md` for asset details.
 
 ## See also
 

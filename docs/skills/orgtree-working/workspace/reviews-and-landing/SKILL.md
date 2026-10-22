@@ -1,17 +1,28 @@
 ---
 name: orgtree-reviews-and-landing
-description: "Hand off an exact reviewed commit with reproducible checks and precise integration claims."
+description: "Hand off an exact commit with the current phase's checks and precise review/integration claims."
 ---
 
 Up: [orgtree-workspace](../SKILL.md)
 
-# Review a concrete result
+# Hand in a concrete result
 
 This is the development team's landing practice, separate from product-side docket permissions. When the project's current phase calls for independent review, finish the scoped change, commit it, and give the assigned reviewer the exact SHA, stated requirements, changed files, source anchors and relevant verification. Review of an earlier draft does not approve later edits automatically. Follow the project's review phase and bounded scope; do not invent extra review rounds after a user waiver or stop.
 
 Keep engine, desktop and visual changes in separate commits as required by this repository. Include documentation/`AGENTS.md` maintenance for a new invariant or ruling in the landing it describes. Do not put private machine/account details into public repository notes.
 
-## Integrate the reviewed change
+## Hand-in when no independent review is assigned
+
+Send the coordinator the exact committed SHA, branch/commit list, scoped author
+checks and limits directly. Do not appoint a reviewer or mark approved merely to
+fit an older pipeline. Keep the item in_progress while integration or other
+required work remains; use deploy_ready only when its scope is complete except
+deployment, and done only when the actual objective is complete. The
+[docket status meanings](../../docket/docket-statuses/SKILL.md) govern, not a
+mandatory review sequence. Report review findings using the
+[create-self and handoff sequence](../../docket/docket-items/SKILL.md#report-a-finding-to-your-superior).
+
+## Integration
 
 For current Rust-engine work the coordinator integrates; writers hand in branch and commit list. Do not push `rust-engine` or a branch based on it. Builds, installs, releases and live writes require the coordinator's explicit assignment. The older 3.x `approve_stage`/push workflow is not a current Rust tool protocol.
 

@@ -16,6 +16,21 @@ When collaborating, re-read the current revision before patching lists. Reconcil
 
 Close using the actual [status](../docket-statuses/SKILL.md), leave open threads explicit, and arrange ownership before planned retirement. A useful handoff points to the item and evidence, states what is complete and identifies the next concrete action without requiring the recipient to read your entire transcript.
 
+## Report a finding to your superior
+
+First list/read existing items to avoid duplicating a finding. For a new finding,
+create the item with yourself as owner (the default), with the problem, evidence
+and requested next action. You cannot create or assign an item owned by your
+superior: create/assign accept yourself or a live subordinate only.
+
+Use orgtree_work action=handoff with that slug and a reason to request transfer
+to your immediate superior. Handoff sends a request; it does not change ownership.
+The superior can then assign the item to itself or the chosen author. Keep your
+progress and next action accurate until that assignment. The [work contract](../tool-work/SKILL.md)
+owns these permissions; a brief saying "file findings to the coordinator" means
+this sequence, not an unsupported owner value. Participation grants item access,
+not another author's files or a mail route.
+
 ## See also
 
 - [orgtree-tool-work](../tool-work/SKILL.md)
