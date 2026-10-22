@@ -2227,11 +2227,14 @@ declare const __SRC_DIR__: string
 const DOCKET_CSS = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
 
 /** The shared palette token for a status; text and ticket edges consume it. */
-const paintOf = (status: string): string | null => {
-  const selector = String.raw`:is\(\s*\.docket-status\s*,\s*\.tool-ticket\s*\)\.status-${status}`
-  const m = new RegExp(selector + String.raw`\s*\{([^}]*)\}`).exec(DOCKET_CSS)
+const paintOf = (status: string, css = DOCKET_CSS): string | null => {
+  // Palette consumers may grow or reorder; the docket class must still be
+  // a member. An unrelated surface's status rule is not docket evidence.
+  const selector = String.raw`:is\(([^)]*)\)\.status-${status}\s*\{([^}]*)\}`
+  const m = [...css.matchAll(new RegExp(selector, 'g'))]
+    .find(([, classes]) => classes!.split(',').some(c => c.trim() === '.docket-status'))
   if (!m) return null
-  return /--docket-status-color:\s*var\((--[\w-]+)\)/.exec(m[1]!)?.[1] ?? null
+  return /--docket-status-color:\s*var\((--[\w-]+)\)/.exec(m[2]!)?.[1] ?? null
 }
 
 test('§37 Waiting is painted, and not with Open’s colour', () => {
@@ -2249,6 +2252,11 @@ test('§37 Waiting is painted, and not with Open’s colour', () => {
   assert.equal(paintOf('open'), '--ink', 'Open must resolve, not pass as a missing rule')
   assert.notEqual(paintOf('waiting'), paintOf('open'),
     'Waiting and Open declare the same colour again')
+  const declaration = '.status-waiting { --docket-status-color: var(--warn); }'
+  assert.equal(paintOf('waiting', ':is(.idle-ticket, .docket-status, .tool-ticket)' + declaration), '--warn',
+    'palette consumer order does not change the docket rule')
+  assert.equal(paintOf('waiting', ':is(.idle-ticket, .tool-ticket)' + declaration), null,
+    'a rule that omits the docket class cannot satisfy its colour check')
 })
 
 // ───────────────────────────────────────────────────────── §38 the sort selector
