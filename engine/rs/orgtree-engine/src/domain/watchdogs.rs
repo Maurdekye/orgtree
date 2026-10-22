@@ -5,9 +5,63 @@ use serde_json::{json, Map, Value};
 
 use crate::domain::tree::ts;
 
+/// Effective upgrade default, including old notify_on_connect values. Connection
+/// health mail is independent of the dog's data-fire notice flag (USER 2026-10-22).
+#[nolog]
+pub fn connection_messages(memo: &Value) -> &str {
+    match memo["connection_messages"].as_str() {
+        Some(mode @ ("notice" | "wake" | "off")) => mode,
+        _ => "notice",
+    }
+}
+
+/// May include inline credentials at create; never log the argument object.
+#[nolog]
+pub fn connection_messages_arg(args: &Value, required: bool) -> anyhow::Result<Option<&str>> {
+    let mode = match args.get("connection_messages") {
+        None => None,
+        Some(Value::String(mode)) if matches!(mode.as_str(), "notice" | "wake" | "off") => Some(mode.as_str()),
+        Some(_) => crate::refuse!(BadRequest, "connection_messages must be notice, wake or off"),
+    };
+    let alias = match args.get("notify_on_connect") {
+        None => None,
+        Some(Value::Bool(true)) => Some("notice"),
+        Some(Value::Bool(false)) => Some("off"),
+        Some(_) => crate::refuse!(BadRequest, "notify_on_connect must be true or false"),
+    };
+    if mode.is_some() && alias.is_some() && mode != alias {
+        crate::refuse!(BadRequest, "connection_messages conflicts with notify_on_connect (true means notice, false means off)");
+    }
+    let value = mode.or(alias);
+    if required && value.is_none() {
+        crate::refuse!(BadRequest, "configure requires connection_messages: notice, wake or off (or notify_on_connect)");
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod connection_messages_tests {
     use super::*;
+
+    #[test]
+    fn connection_messages_validate_aliases_conflicts_and_malformed_input() {
+        assert_eq!(connection_messages_arg(&json!({}),false).unwrap(),None);
+        assert!(connection_messages_arg(&json!({}),true).is_err());
+        for (flag, mode) in [(true,"notice"),(false,"off")] {
+            let args=json!({"notify_on_connect":flag});
+            assert_eq!(connection_messages_arg(&args,true).unwrap(),Some(mode));
+            assert!(connection_messages_arg(&json!({"notify_on_connect":flag,"connection_messages":mode}),true).is_ok());
+        }
+        for args in [json!({"connection_messages":"wake","notify_on_connect":true}),
+            json!({"connection_messages":"off","notify_on_connect":true}),
+            json!({"notify_on_connect":null}),json!({"notify_on_connect":"yes"}),
+            json!({"connection_messages":null}),json!({"connection_messages":false}),json!({"connection_messages":"NOTICE"})] {
+            assert!(connection_messages_arg(&args,false).is_err());
+        }
+        for mode in [json!(null),json!(false),json!("old")] {
+            assert_eq!(connection_messages(&json!({"connection_messages":mode})),"notice");
+        }
+    }
 
     #[test]
     fn legacy_network_dogs_default_to_passive_connection_messages() {
@@ -79,6 +133,9 @@ pub fn credentials_label(memo: &Value) -> String {
 /// A `watchdogs` row → the `Watchdog` the canvas and desk render.
 pub fn view(w: &Value, owner: &str) -> Value {
     let mut o = Map::new();
+    if matches!(w["kind"].as_str(), Some("mqtt" | "websocket")) {
+        o.insert("connection_messages".into(), json!(connection_messages(&w["memo"])));
+    }
     o.insert("id".into(), json!(handle(owner, w["uid"].as_str().unwrap_or_default())));
     o.insert("owner".into(), json!(owner));
     o.insert("name".into(), w["name"].clone());
@@ -120,7 +177,7 @@ pub fn view(w: &Value, owner: &str) -> Value {
     // a websocket dog: how it authenticates (never with what), what it says
     // on each connect, its connection and what it has sent
     if w["kind"] == "websocket" {
-        o.insert("notify_on_connect".into(), json!(w["memo"]["websocket"]["notify_on_connect"].as_bool().unwrap_or(false)));
+        o.insert("notify_on_connect".into(), json!(connection_messages(&w["memo"]) != "off"));
         o.insert("credentials".into(), json!(credentials_label(&w["memo"])));
         for key in ["hello", "protocols", "heartbeat"] {
             if let Some(v) = w["memo"]["websocket"].get(key).filter(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty())) { o.insert(key.into(), v.clone()); }

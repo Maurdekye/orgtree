@@ -14,6 +14,7 @@ mod watchdog_configure_tests {
         assert!(properties["action"]["enum"].as_array().unwrap().contains(&json!("configure")),
             "agents must be able to change connection notifications without recreating the watcher");
         assert_eq!(properties["notify_on_connect"]["type"], "boolean");
+        assert_eq!(properties["connection_messages"]["enum"], json!(["notice","wake","off"]));
         assert!(properties["id"]["description"].as_str().unwrap().contains("configure"));
     }
 }
@@ -996,7 +997,7 @@ fn build_tool_audience() -> Value {
 fn build_tool_watchdog() -> Value {
     tool(
         "orgtree_watchdog",
-        "Uncapped watchers; paged list. create: kind/target (usage defaults usage); command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue returns effects/actions inline; else registers. Silence/event/listeners unchanged. usage checks cached levels then edges, no probes. fair_queue routes mail; slot grants lease. project_listener hears events; listener_watch counts listeners; fire_actions run tools. mqtt/websocket send uses live connection (MQTT: topic). configure toggles websocket connect notices without reconnect. Limits: guide.",
+        "Uncapped watchers; paged list. create: kind/target (usage defaults usage); command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue returns effects/actions inline; else registers. Silence/event/listeners unchanged. usage checks cached levels then edges, no probes. fair_queue routes mail; slot grants lease. project_listener hears events; listener_watch counts listeners; fire_actions run tools. mqtt/websocket send uses live connection (MQTT: topic). configure sets connection health mail (default notice) without reconnect. Limits: guide.",
         json!({
             "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove", "send", "configure"] },
             "cursor": {"type":"string","description":"list: next_cursor from the preceding page"},
@@ -1013,7 +1014,8 @@ fn build_tool_watchdog() -> Value {
             "hello": { "type": "array", "maxItems": 16, "items": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }] },
                        "description": "websocket: messages sent in order after every (re)connect; a JSON value goes as compact JSON" },
             "protocols": { "type": "array", "maxItems": 8, "items": { "type": "string" }, "description": "websocket: Sec-WebSocket-Protocol subprotocols to offer" },
-            "notify_on_connect": { "type": "boolean", "description": "websocket: Orgtree (re)connect fires; create defaults false, configure requires a boolean and does not reconnect" },
+            "connection_messages": { "type":"string", "enum":["notice","wake","off"], "description":"mqtt/websocket health mail; default notice, configure without reconnect" },
+            "notify_on_connect": { "type": "boolean", "description": "Compatibility alias: true=notice, false=off; conflicts refused" },
             "heartbeat": { "type": "object", "properties": { "message": { "anyOf": [{ "type": "string" }, { "type": "object" }] }, "every_s": { "type": "integer", "minimum": 5 } },
                            "required": ["message", "every_s"], "description": "websocket: a fixed message sent every every_s seconds while connected" },
             "message": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }],
@@ -1591,7 +1593,8 @@ mod builder_stack_tests {
         for key in ["hello", "protocols", "heartbeat", "message", "payload", "topic", "qos", "retain"] {
             dschema["properties"][key] = actual_dog["inputSchema"]["properties"][key].clone();
         }
-        dschema["properties"]["notify_on_connect"] = serde_json::json!({"type":"boolean","description":"websocket: Orgtree (re)connect fires; create defaults false, configure requires a boolean and does not reconnect"});
+        dschema["properties"]["connection_messages"] = actual_dog["inputSchema"]["properties"]["connection_messages"].clone();
+        dschema["properties"]["notify_on_connect"] = serde_json::json!({"type":"boolean","description":"Compatibility alias: true=notice, false=off; conflicts refused"});
         dschema["properties"]["target"]["description"] = serde_json::json!(dschema["properties"]["target"]["description"].as_str().unwrap()
             .replace(", or (mqtt, needs your web tool) mqtt://host[:port] / mqtts://host[:port]",
                      ", (mqtt, needs your web tool) mqtt://host[:port] / mqtts://host[:port], or (websocket, needs your web tool) ws:// or wss:// URL"));
@@ -1657,7 +1660,7 @@ mod builder_stack_tests {
         for (name, description) in [
             ("orgtree_work", "Manage docket items by slug; read guide before writing. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply progress lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review is agent review; ask(work_item) for user questions. Delete is permanent and restricted; prefer archive/drop.\nGuide: orgtree-tool-work."),
             ("orgtree_project", "Read/use projects above/below you; only ancestors/user change settings, name, order or purge mail. create needs name/index (parent defaults you); above wraps a node. settings reads; configure patches atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunks. Claim via slot watchdog; slots lists holders/line; release_slot releases yours. Ancestors may force/unqueue. Dead letters: list/read/retry/drop; project.dead_letter alerts. fire_event fires; listeners lists listeners/watches. See guide for fields.\nGuide: orgtree-tool-project."),
-            ("orgtree_watchdog", "Uncapped watchers; paged list. create: kind/target (usage defaults usage); command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue returns effects/actions inline; else registers. Silence/event/listeners unchanged. usage checks cached levels then edges, no probes. fair_queue routes mail; slot grants lease. project_listener hears events; listener_watch counts listeners; fire_actions run tools. mqtt/websocket send uses live connection (MQTT: topic). configure toggles websocket connect notices without reconnect. Limits: guide.\nGuide: orgtree-tool-watchdog."),
+            ("orgtree_watchdog", "Uncapped watchers; paged list. create: kind/target (usage defaults usage); command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue returns effects/actions inline; else registers. Silence/event/listeners unchanged. usage checks cached levels then edges, no probes. fair_queue routes mail; slot grants lease. project_listener hears events; listener_watch counts listeners; fire_actions run tools. mqtt/websocket send uses live connection (MQTT: topic). configure sets connection health mail (default notice) without reconnect. Limits: guide.\nGuide: orgtree-tool-watchdog."),
             ("orgtree_inbox", "Read own mail: list previews; fetch<=20 IDs; chunk long bodies. Recall conversation after fresh session/compaction before replying. Returned pending received content is consumed, even outside DND; previews are not. Received/project opens enter transcript once; sent history does not. Project reads never claim/ack. folder selects full history; omitted list waits only. Keep project/folder/status with cursors. See guide for handles and filters.\nGuide: orgtree-tool-inbox."),
             ("orgtree_audience", "Manage directional audiences; requests grant nothing. request target/from managed project; grant from; deny requester; revoke grantee. Project grants reach direct live members, never nested; reverse needs its own grant. User contact does not add personal access while inherited; manual Acquire can. Project decisions go to nearest agent superior (user if none). External/org-inbox remains agent-only. Read guide for grant authority.\nGuide: orgtree-tool-audience."),
             ("orgtree_status", "Report working/done/blocked/idle; done does not end the turn. dnd=true holds this turn's non-urgent mail on every harness; only urgent bypasses. Turn end clears DND and delivers an ordered budgeted batch; false releases early. Inbox fetch/chunk consumes returned mail; previews do not.\nGuide: orgtree-tool-status."),

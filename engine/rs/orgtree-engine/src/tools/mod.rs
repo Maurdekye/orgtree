@@ -510,14 +510,12 @@ async fn doc_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
 /// Configure only the connection-notification flag; never coerce a missing
 /// or malformed value into false. Resolution/authority remain runtime-owned.
 #[nolog]
-fn watchdog_configure_args(args: &Value) -> Result<(&str, bool)> {
+fn watchdog_configure_args(args: &Value) -> Result<(&str, &str)> {
     let Some(id) = args["id"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
         crate::refuse!(BadRequest, "configure needs the watchdog id (see list)");
     };
-    let Some(enabled) = args["notify_on_connect"].as_bool() else {
-        crate::refuse!(BadRequest, "configure requires notify_on_connect: true or false");
-    };
-    Ok((id, enabled))
+    let mode = crate::domain::watchdogs::connection_messages_arg(args, true)?.unwrap();
+    Ok((id, mode))
 }
 
 #[cfg(test)]
@@ -539,7 +537,7 @@ mod watchdog_configure_tests {
     fn watchdog_configure_accepts_true_false_and_qualified_handles() {
         for enabled in [true, false] {
             let args = json!({"id":" owner/dog ", "notify_on_connect":enabled});
-            assert_eq!(watchdog_configure_args(&args).unwrap(), ("owner/dog", enabled));
+            assert_eq!(watchdog_configure_args(&args).unwrap(), ("owner/dog", if enabled { "notice" } else { "off" }));
         }
     }
 

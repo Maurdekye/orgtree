@@ -35,8 +35,11 @@ const HEARTBEAT_MAX_S: u64 = 86_400;
 /// `message` on create.
 #[logged]
 pub(super) fn foreign_fields(kind: &str, args: &Value) -> Result<()> {
-    if kind != "websocket" && FIELDS.iter().any(|k| args.get(*k).is_some_and(|v| !v.is_null())) {
+    if kind != "websocket" && FIELDS.iter().filter(|k| **k != "notify_on_connect").any(|k| args.get(*k).is_some_and(|v| !v.is_null())) {
         refuse!(BadRequest, "hello, protocols, heartbeat and notify_on_connect are for kind websocket only");
+    }
+    if !matches!(kind,"websocket"|"mqtt") && args.get("notify_on_connect").is_some() {
+        refuse!(BadRequest,"notify_on_connect is an alias for mqtt/websocket connection_messages only");
     }
     if args.get("message").is_some_and(|v| !v.is_null()) {
         refuse!(BadRequest, "message is for action=send (it writes on a websocket dog's live connection); messages sent after every connect go in hello");
@@ -647,21 +650,12 @@ impl<'a> Listener<'a> {
             changes::notify_id(self.engine, self.d.org_id, vec![Change::Watchdogs]);
         }
         if new_connection {
-            // Read just this flag at a handshake, not on the message hot path.
-            // A user can toggle it without closing/reopening the connection.
-            let client = self.engine.db.get().await?;
-            let enabled = client.query_opt("SELECT coalesce((memo #>> '{websocket,notify_on_connect}')::boolean,false) FROM ot.watchdogs WHERE id=$1",
-                &[&self.d.row]).await?.is_some_and(|row| row.get::<_, bool>(0));
-            drop(client);
             while self.connections_seen < connections {
                 self.connections_seen += 1;
                 let event = if self.ever_connected { "reconnected" } else { "connected" };
                 self.ever_connected = true;
-                if enabled {
-                    let line = format!("Orgtree connection event: WebSocket {event} to {} (not a server message).", self.cfg.endpoint.base());
-                    if fire_with(self.engine, &mut self.d, &[line], " ORGTREE CONNECTION —",
-                        Some(json!({"source":"orgtree", "connection_event":event}))).await? { return Ok(true); }
-                }
+                self.alert(format!("Orgtree connection event: WebSocket {event} to {} (not a server message)", self.cfg.endpoint.base()),
+                    "Connection messages are administrative; server data still follows the watchdog's pattern and delivery settings.").await?;
             }
         }
         let url = self.cfg.endpoint.base();
@@ -736,7 +730,6 @@ impl<'a> Listener<'a> {
         body.push('\n');
         let ev = org_slug(self.engine, &self.d)
             .map(|o| crate::events::watchdog_quiet(&o, &self.d.uid, &self.d.name, &self.d.owner_name, &headline, &facts, advice));
-        events::ALERT_DELIVERY.scope(true, deliver(self.engine, &self.d, body, ev)).await;
-        Ok(())
+        deliver_connection(self.engine, &self.d, body, ev).await
     }
 }

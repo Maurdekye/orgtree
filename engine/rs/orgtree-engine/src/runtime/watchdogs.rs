@@ -1633,6 +1633,29 @@ async fn deliver(engine: &Arc<Engine>, dog: &Dog, body: String, ev: Option<Value
     changes::notify_id(engine, dog.org_id, vec![Change::Watchdogs]);
 }
 
+/// Read only this row at a connection transition. Configuration takes effect
+/// without redial or a stale runner overwriting it while saving its progress.
+#[logged]
+async fn connection_dog(engine: &Arc<Engine>, dog: &Dog) -> Result<Option<Dog>> {
+    let client = engine.db.get().await?;
+    let Some(row) = client.query_opt("SELECT memo FROM ot.watchdogs WHERE id=$1 AND state NOT IN ('spent','removed')", &[&dog.row]).await? else { return Ok(None) };
+    let memo: Value = row.get(0);
+    let mode = crate::domain::watchdogs::connection_messages(&memo);
+    if mode == "off" { return Ok(None); }
+    let mut outgoing = dog.clone();
+    outgoing.memo["notice"] = json!(mode == "notice");
+    Ok(Some(outgoing))
+}
+
+/// Administrative mail: no fire count, once consumption, silence reset or actions.
+#[logged]
+async fn deliver_connection(engine: &Arc<Engine>, dog: &Dog, body: String, ev: Option<Value>) -> Result<()> {
+    if let Some(outgoing) = connection_dog(engine,dog).await? {
+        events::ALERT_DELIVERY.scope(true, deliver(engine,&outgoing,body,ev)).await;
+    }
+    Ok(())
+}
+
 /// The subject this dog watches stopped producing.
 #[derive(Debug)]
 struct Lost {
@@ -2111,6 +2134,12 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         }
     }
     let mut memo = json!({ "run": {} });
+    let connection_mode = crate::domain::watchdogs::connection_messages_arg(args,false)?;
+    if matches!(kind.as_str(), "mqtt" | "websocket") {
+        memo["connection_messages"] = json!(connection_mode.unwrap_or("notice"));
+    } else if connection_mode.is_some() {
+        refuse!(BadRequest, "connection_messages is for mqtt and websocket watchdogs only");
+    }
     if kind=="usage" {
         memo["usage"]=usage::validate(args)?;
         if target!="usage" {refuse!(BadRequest,"usage target is usage; select accounts/windows/events using their filters");}
@@ -2571,17 +2600,18 @@ async fn resolve(engine: &Engine, org_id: i64, actor: Option<i64>, id: &str) -> 
 
 /// pause / resume / remove, by the owner, a superior, or the user (`actor: None`).
 #[logged]
-pub async fn configure_connect(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, enabled: bool) -> Result<Value> {
+pub async fn configure_connect(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, mode: &str) -> Result<Value> {
+    if !matches!(mode,"notice"|"wake"|"off") { refuse!(BadRequest,"connection_messages must be notice, wake or off"); }
     let dog = resolve(engine, org_id, actor, id).await?;
-    if dog.kind != "websocket" { refuse!(BadRequest, "notify_on_connect is for websocket watchdogs only"); }
+    if !matches!(dog.kind.as_str(),"mqtt"|"websocket") { refuse!(BadRequest, "connection_messages is for mqtt and websocket watchdogs only"); }
     if dog.state == "spent" { refuse!(Conflict, "a spent watchdog cannot be configured"); }
     let client = engine.db.get().await?;
-    let changed = client.execute("UPDATE ot.watchdogs SET memo=jsonb_set(memo,'{websocket}',coalesce(memo->'websocket','{}'::jsonb)||jsonb_build_object('notify_on_connect',$2::boolean)) WHERE id=$1 AND state NOT IN ('spent','removed')",
-        &[&dog.row, &enabled]).await?;
+    let changed = client.execute("UPDATE ot.watchdogs SET memo=jsonb_set(memo,'{connection_messages}',to_jsonb($2::text)) WHERE id=$1 AND state NOT IN ('spent','removed')",
+        &[&dog.row, &mode]).await?;
     drop(client);
     if changed == 0 { refuse!(Conflict, "this watchdog has departed"); }
     changes::notify_id(engine, org_id, vec![Change::Watchdogs]);
-    Ok(json!({"id":dog.uid,"name":dog.name,"state":dog.state,"notify_on_connect":enabled}))
+    Ok(json!({"id":dog.uid,"name":dog.name,"state":dog.state,"connection_messages":mode,"notify_on_connect":mode!="off"}))
 }
 
 #[logged]
@@ -2907,8 +2937,11 @@ pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
                 put("connection", d.run["mqtt"].clone());
                 for key in ["dropped", "sent", "last_sent_at"] { put(key, d.run[key].clone()); }
             }
+            if matches!(d.kind.as_str(), "mqtt" | "websocket") {
+                put("connection_messages", json!(crate::domain::watchdogs::connection_messages(&d.memo)));
+            }
             if d.kind == "websocket" {
-                put("notify_on_connect", json!(d.memo["websocket"]["notify_on_connect"].as_bool().unwrap_or(false)));
+                put("notify_on_connect", json!(crate::domain::watchdogs::connection_messages(&d.memo) != "off"));
                 // how it authenticates, never with what; what it says on each connect
                 put("credentials", json!(mqtt::credentials_label(&d.memo)));
                 for key in ["hello", "protocols", "heartbeat"] {

@@ -776,7 +776,10 @@ impl<'a> Listener<'a> {
         if let Some(why) = pause_why {
             pause(self.engine, &self.d, why).await?;
         }
-        if !self.att.claim(self.d.owner, what) {
+        let Some(outgoing) = connection_dog(self.engine,&self.d).await? else { return Ok(()) };
+        // Off dogs never claim/suppress another dog's alert; notice and wake
+        // preferences sharing a broker are deduplicated independently.
+        if !self.att.claim(self.d.owner, &format!("{what}:notice={}", outgoing.notice())) {
             return Ok(());
         }
         let connection = connection_line(&self.att.state.borrow().state);
@@ -796,7 +799,7 @@ impl<'a> Listener<'a> {
         body.push('\n');
         let ev = org_slug(self.engine, &self.d)
             .map(|o| crate::events::watchdog_quiet(&o, &self.d.uid, &self.d.name, &self.d.owner_name, &headline, &facts, advice));
-        events::ALERT_DELIVERY.scope(true, deliver(self.engine, &self.d, body, ev)).await;
+        events::ALERT_DELIVERY.scope(true, deliver(self.engine, &outgoing, body, ev)).await;
         Ok(())
     }
 }
