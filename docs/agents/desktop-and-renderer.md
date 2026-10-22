@@ -12,6 +12,7 @@ This replaces fallback-to-preview copying. Clipboard actions are local UI
 operations; no engine mutation or agent tool was added.
 [verified: `canvas/copytext.ts`, `desk.tsx`, `mail.tsx`, `mailreply.tsx`,
 `replypreview.tsx`, `objectnavhost.tsx`; decided: coordinator 2026-10-21 hardening assignment]
+
 ## Transcript mention notification identity (2026-10-22)
 
 Both native-banner and taskbar/forced-desk App routes use the clicked notice's
