@@ -8,7 +8,8 @@ use tokio_postgres::{Client, Row};
 
 use crate::util::gist;
 
-#[logged]
+// Notification projections contain private mail/ask/document previews.
+#[nolog]
 pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Value>> {
     let mut out = Vec::new();
     let asks = all_rows(client,
@@ -297,7 +298,8 @@ pub async fn attention_count(client: &Client, org_id: i64) -> Result<i64> {
 }
 
 /// Typed failures alert even when routine mail is disabled (3.x parity).
-#[logged]
+// The event argument carries private message prose, not just its variant.
+#[nolog]
 fn mail_kind(urgent: bool, attention: bool, event: &Option<Value>) -> &'static str {
     let terminal = event.as_ref().is_some_and(|ev| {
         matches!(

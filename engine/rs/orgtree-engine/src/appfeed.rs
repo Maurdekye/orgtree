@@ -355,7 +355,8 @@ async fn read_registry(engine: &Engine) -> anyhow::Result<Vec<Value>> {
 }
 
 /// (org row, summary body, notices) for one active org.
-#[logged]
+// Private notification bodies must not bypass the quiet app-feed wire route.
+#[nolog]
 async fn read_org(engine: &Engine, org_id: i64) -> anyhow::Result<Option<(Value, Value, Value)>> {
     let client = engine.db.get().await?;
     let Some(org) = client

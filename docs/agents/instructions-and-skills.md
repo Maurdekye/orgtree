@@ -505,3 +505,14 @@ verbose function instrumentation cannot bypass the wire boundary. Client JSON
 and path/status metadata are unchanged.
 [verified: http/mod.rs; http/docs.rs;
 real-engine proof private-read-wire-privacy.mjs in both logging modes]
+
+## Private notification projection logging (2026-10-22)
+
+Quiet HTTP bodies do not protect a background producer. Notification event
+classification accepts private event prose; per-org notice and app-feed
+projections return private previews. Those three pure helpers are nolog.
+Retain metadata-only frame counts and normal client data. The reader proof
+forces a fresh notification projection and observes its client value before
+asserting the engine log contains no old private-mail canary.
+[verified: domain/notices.rs::mail_kind/for_org, appfeed.rs::read_org;
+real-engine synthetic regression private-read-wire-privacy.mjs]
