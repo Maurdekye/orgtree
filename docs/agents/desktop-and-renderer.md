@@ -1,10 +1,11 @@
 # Desktop and renderer
 
-Header and zoom-card state markers are **badges**, named by kind (next-turn,
-effort, fast mode, frozen, halted, DND, Session 0). See the
-[badge definition](../skills/orgtree-app/desk/agent-desk/SKILL.md#badges).
+**State badges** describe agent state on both the desk header and zoom card
+(next-turn, effort, fast mode, frozen, halted, DND, Session 0). **Header badges**
+are desk-only setup/context markers (MCP, cache, audience, cost and related
+metadata). See the [definitions and renderer member inventory](../skills/orgtree-app/desk/agent-desk/SKILL.md#badges).
 The containing agent/zoom card and other actual cards retain their names.
-[decided: user 2026-10-22 07:36Z]
+[decided: user 2026-10-22 07:36Z and 07:38Z]
 
 ## Full mail copy failures (2026-10-21)
 

@@ -6,7 +6,7 @@ Up: [orgtree-canvas](../SKILL.md)
 
 # Read an agent card
 
-The small header state markers are [badges](../../desk/agent-desk/SKILL.md#badges);
+The small shared state markers are [state badges](../../desk/agent-desk/SKILL.md#badges);
 the containing agent/zoom card remains a card.
 
 At ordinary overview zoom, a card has identity, state and shortcut rows. Its tier token names the model tier; the name tooltip can identify a bound account. The context wheel shows measured or estimated occupancy against capacity, not provider usage or a token spending budget. Its tooltip explains unavailable/empty values and the compaction threshold; an estimate carries an approximation mark. On the overview card the wheel is a passive indicator.

@@ -131,7 +131,7 @@ The token figure is an explicitly labeled characters/4 heuristic; byte and line 
 | [e-175d9a7c8a253f9e](desktop-and-renderer.md#e-175d9a7c8a253f9e) | AGENTS.md — working on Orgtree | Org window headers show the canonical cropped org logo immediately before |
 | [e-2971c40fc828cba4](projects-and-concurrency.md#e-2971c40fc828cba4) | AGENTS.md — working on Orgtree | Audience revocation removes the explicit grant only. Passive notices name |
 | [e-edb2b80c725c86af](projects-and-concurrency.md#e-edb2b80c725c86af) | AGENTS.md — working on Orgtree | Projects call their standing charter Summary in desks, settings, drafts |
-| [e-bcba00ddb0d9815f](projects-and-concurrency.md#e-bcba00ddb0d9815f) | AGENTS.md — working on Orgtree | DND is a header badge beside effort on agent cards/desks, outside status. |
+| [e-bcba00ddb0d9815f](projects-and-concurrency.md#e-bcba00ddb0d9815f) | AGENTS.md — working on Orgtree | DND is a state badge beside effort on agent cards/desks, outside status. |
 | [e-bb01cec316dad2ab](desktop-and-renderer.md#e-bb01cec316dad2ab) | AGENTS.md — working on Orgtree | Quick chat's empty Files paperclip keeps the compact hire-options dropdown |
 | [e-ff8b88dacd68cab6](providers-and-accounts.md#e-ff8b88dacd68cab6) | AGENTS.md — working on Orgtree | Quick chat shares the Agents-list switchboard mark for the selected top-level |
 | [e-208aaf23923f2257](providers-and-accounts.md#e-208aaf23923f2257) | AGENTS.md — working on Orgtree | Quick chat treats missing/non-array staffing tiers and malformed tier/account |

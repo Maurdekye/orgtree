@@ -7,7 +7,7 @@ Up: [orgtree-runtime](../SKILL.md)
 
 # Do Not Disturb
 
-Agent cards and desks show a DND badge in their header badge row, beside effort rather than status. The composer's round `!` urgency button sits beside Fast and turns orange-red (`#ff4500`) when armed; the message box outline uses the same color. It appears only for a current DND recipient. A project composer offers the same button while broadcast is on and at least one live recipient is in DND; only those recipients receive urgent mail, while other recipients receive ordinary mail. User-originated urgent sends do not require a reason.
+Agent cards and desks show a DND state badge in their badge row, beside effort rather than status. The composer's round `!` urgency button sits beside Fast and turns orange-red (`#ff4500`) when armed; the message box outline uses the same color. It appears only for a current DND recipient. A project composer offers the same button while broadcast is on and at least one live recipient is in DND; only those recipients receive urgent mail, while other recipients receive ordinary mail. User-originated urgent sends do not require a reason.
 
 Call `orgtree_status status=working summary="Focused work" dnd=true` during your own running turn. DND is available with status reporting, even with every tool group off. The card and desk show a small DND badge. It protects every harness, including Antigravity and other harnesses whose mid-turn mail handoff can interrupt work and lose prompt-cache reuse.
 

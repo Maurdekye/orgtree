@@ -18,13 +18,37 @@ Open an agent's desk from its name/card or desk navigation. A focused desk, a pi
 
 ## Badges
 
-A **badge** is a small state marker in an agent's desk header or zoom card,
-separate from the card itself and from composer controls. Use the kind in its
-name: **next-turn badge** (account, model, effort or fast mode), **effort badge**,
-**fast mode badge**, **frozen badge**, **halted badge**, **DND badge**, or
-**Session 0 badge** for the session marker. A badge reports its own state; it
+A **badge** is a small marker, separate from the containing agent/zoom card
+and from composer controls. There are two named groups:
+
+| Group | Meaning and members |
+| --- | --- |
+| **State badges** | Agent state shown on the desk header and zoom card: next-turn account, model, effort and fast mode; current effort; fast mode; frozen; halted; do-not-disturb (DND); Session 0. Name an individual marker by kind, such as **next-turn model badge** or **Session 0 badge**. |
+| **Header badges** | Desk-only setup and context: MCP tool count/readiness, cache forecast, held audiences, cost/spend (with rights/metadata in its tooltip), separately reported status and queued-message count. |
+
+The renderer also shares reserve-route, secondary serving-account, limit-lock,
+bearer-provenance and held-project-slot state badges between the desk and zoom
+card. A waiting project-slot claim is a desk header badge and a separate canvas
+watchdog satellite; it is not an extra shared zoom-card state badge. Audience
+header badges include inherited project access and folded retired grantors.
+
+Members are conditional, not guaranteed to appear together. At this documented
+base the desk shows current effort alongside a queued effort change; the zoom
+card can show a local effort override without one. The active fast mode bolt
+is on the zoom card, while the desk has its composer toggle and queued fast
+mode state badge. Halt state also appears in the shared status presentation.
+**Session 0 badge** is the signed name for the forthcoming marker; it is not
+rendered at the terminology change's base.
+
+Other card furniture keeps its specific name: lifecycle/pinned/remote markers
+can be zoom-only; retired-count badges open a list rather than report turn
+state. The unstick button is a recovery action. Agent cards, zoom cards, jump
+cards, presentation cards and document chips remain distinct objects. A badge
 does not by itself prove a process is running or a queued change has applied.
-Agent cards, zoom cards, jump cards and presentation cards remain cards.
+
+These memberships follow the agent desk metadata row and the zoom card badge
+row (canvas/desk.tsx, cards.tsx, nextturn.tsx, effort.tsx,
+slotchips.tsx); the two group names follow the user's 2026-10-22 07:38Z ruling.
 
 ## Header controls
 
@@ -41,7 +65,7 @@ Agent cards, zoom cards, jump cards and presentation cards remain cards.
 | Gear | Opens this agent's settings. |
 | Pin, pop-out/window controls | Change the viewing surface rather than starting a different agent. |
 
-The metadata row can show MCP count/readiness, cache forecast, last reported status, halt, freeze/limit, held-seat, cost, queued-mail and serving-account/route information when supplied. Queued account, model, effort and fast mode badges describe pending configuration separately. Distinguish current versus “last” route/account evidence.
+The metadata row mixes header badges (MCP readiness, cache forecast, audiences, cost, queued-message count and separately reported status) with state badges (halt, freeze/limit, held slots and serving-account/route information). Queued account, model, effort and fast mode state badges describe pending configuration separately. Distinguish current versus “last” route/account evidence.
 
 Idle age measures time since the last completed turn ended, including killed turns, across every harness. Open or legacy records without a completion time retain their start-time fallback. Active time measures the current turn's admission; ordinary Antigravity mid-turn hook mail keeps that original active clock. The card and tray use the same idle reference. Halted and usage-freeze clocks retain their own timestamps.
 
@@ -84,7 +108,7 @@ Counts appear for Mail, Docket and Presented when nonzero. For configuration fie
 
 With retired agents hidden, the report-jump row keeps a retired-count badge for both agent and project desks. Click it, or choose Open retired list from its own menu, to search the retained reports and reveal one. This is navigation, not rehire.
 
-Held-slot and waiting-claim chips name the project, show quantities for multi-slot claims and open that project's Slots panel when a route is available. Their hover gives held/waiting time; waiting chips also show line position. A grant notification and an active lease are separate facts: inspect the Slots panel to confirm what is still held.
+Held-slot state badges and waiting-claim header badges name the project, show quantities for multi-slot claims and open that project's Slots panel when a route is available. Their hover gives held/waiting time; waiting-claim header badges also show line position. A grant notification and an active lease are separate facts: inspect the Slots panel to confirm what is still held.
 
 ## See also
 

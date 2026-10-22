@@ -1,6 +1,6 @@
 # Queued next-turn badges
 
-For the shared term, see the [badge definition](../skills/orgtree-app/desk/agent-desk/SKILL.md#badges).
+Next-turn badges belong to the state badges group; see the [badge definitions](../skills/orgtree-app/desk/agent-desk/SKILL.md#badges).
 
 A queued account, model, effort or speed change keeps the current card and adds
 `next turn: <target>` in the badge rows below the status. The current model
@@ -18,7 +18,7 @@ the corresponding badge without leaving a duplicate in another surface.
 
 User 2026-10-19 13:46Z: a queued control shows the requested value in the
 pending shade. Its hover names the current value as well as the queued target.
-The shared header badge says `next turn: <value>`.
+The shared next-turn state badge says `next turn: <value>`.
 
 `canvas/nextturn.tsx` owns the badge and tooltip. Model badges use `tierLabel`,
 including the independent Antigravity labels. Account badges prefer the serving
