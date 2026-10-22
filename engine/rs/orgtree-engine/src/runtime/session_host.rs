@@ -257,8 +257,8 @@ pub fn turn_waits_for_helper(s: &Settle) -> bool {
 /// logged once per stretch without a helper; the agent's own Session 0
 /// choice, a sign-out and a hosting helper are no fallback.
 #[nolog]
-pub fn falls_back_for_want_of_helper(_s: &Settle) -> bool {
-    false
+pub fn falls_back_for_want_of_helper(s: &Settle) -> bool {
+    !s.skip && !s.hosting && s.signed_in != Some(false) && !turn_waits_for_helper(s)
 }
 
 /// Why a turn's CLI runs in Session 0, for the desk's Session 0 badge

@@ -3088,7 +3088,7 @@ impl Actor {
     /// Session 0 choice, the turn starts at once. A turn that waited the grace
     /// out starts in Session 0, logged once per stretch without a helper.
     async fn session_settle(&mut self, pref: &crate::runtime::session_host::Pref) {
-        use crate::runtime::session_host::{turn_waits_for_helper, Pref, Settle};
+        use crate::runtime::session_host::{falls_back_for_want_of_helper, turn_waits_for_helper, Pref, Settle};
         if !codexrt::session0() {
             return;
         }
@@ -3103,25 +3103,30 @@ impl Actor {
             start_ms,
             last_hosting_ms: bridge.last_hosting_ms(),
         };
-        if !turn_waits_for_helper(&reading()) {
-            return;
-        }
         let waited = Instant::now();
-        loop {
-            tokio::select! {
-                _ = self.engine.shutdown.cancelled() => return,
-                _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+        let mut last = reading();
+        if turn_waits_for_helper(&last) {
+            loop {
+                tokio::select! {
+                    _ = self.engine.shutdown.cancelled() => return,
+                    _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+                }
+                last = reading();
+                if !turn_waits_for_helper(&last) {
+                    break;
+                }
             }
-            if !turn_waits_for_helper(&reading()) {
-                break;
+            if last.hosting {
+                tracing::info!(agent = %self.name, waited_ms = waited.elapsed().as_millis() as u64,
+                    "the turn waited for the sign-in helper, which connected");
+                return;
             }
         }
-        let last = reading();
-        let waited_ms = waited.elapsed().as_millis() as u64;
-        if last.hosting {
-            tracing::info!(agent = %self.name, waited_ms, "the turn waited for the sign-in helper, which connected");
-        } else if last.signed_in != Some(false) && bridge.first_fallback() {
-            tracing::warn!(seconds = SESSION_SETTLE.as_secs(), waited_ms,
+        // Session 0 for want of a helper while the user is signed in: the
+        // grace ran out during this turn's wait or before the turn arrived
+        // (rig-sol-b's finding on a1f6c43). Logged once per stretch.
+        if falls_back_for_want_of_helper(&last) && bridge.first_fallback() {
+            tracing::warn!(seconds = SESSION_SETTLE.as_secs(), waited_ms = waited.elapsed().as_millis() as u64,
                 "the sign-in helper did not connect in time while the user is signed in; turns start in Session 0 until it does");
         }
     }
