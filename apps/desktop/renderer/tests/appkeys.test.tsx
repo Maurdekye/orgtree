@@ -39,6 +39,11 @@ test('app menu keeps labels and routes, ordered Settings / Usage / Usage History
   } finally { await view.unmount() }
 })
 
+test('Shift+F4 selects latest mention while plain F4 keeps its view action', () => {
+  assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: 'F4', shiftKey: true })), 'latestMention')
+  assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: 'F4' })), 'view')
+})
+
 test('matcher accepts assigned function-key rows, preserving other chords', () => {
   for (const row of APP_FKEYS) for (const key of row.keys) {
     const shiftKey = key.startsWith('Shift+')
