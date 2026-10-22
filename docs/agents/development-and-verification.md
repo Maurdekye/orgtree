@@ -8,6 +8,15 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- The nine-check team-workspaces proof expects an initialized own-team header
+  before the exact labelled lead/boss blocks. Match each block's own END and
+  exact path, label, body and order after the rules; never use the first global
+  END as an ancestor's boundary or drop the own-header block. Preserve the
+  other eight calls, including the two reproduced baseline prose failures.
+  Save the fresh prompt and replay retained prompts with missing/wrong/extra
+  block controls. [verified: `tools/rig/proofs/team-workspaces.mjs`; USER
+  2026-10-17 17:26Z initializer; 2026-10-22]
+
 - Shared-scratch folder proofs must preserve header-initialized workspaces:
   stage originals and test-created directories with reversible renames, snapshot
   exact original file bytes without following links, and verify their restore.

@@ -33,7 +33,11 @@ with Edit/Write deny rules on a read-only seat; Codex approvals; Muse and OpenCo
 Antigravity by path), see [the org's shared folder](org-shared-notes.md). The same folders count
 for `orgtree_present`, attachments and file watchdogs.
 
-The launch creates the folders (`ensure_proc`); the engine never writes inside them.
+The launch creates the folders (`ensure_proc`). Under the later initialization
+rule (user 2026-10-17 17:26Z), `shared_notes::ensure` exclusively creates a
+missing `AGENTS.md` with `# Shared standing notes for this team\n`; it never
+overwrites an existing file, even an empty one. This replaces the earlier
+no-engine-written-file rule; other workspace contents remain the agents'.
 
 ## What the agent is told
 
@@ -52,6 +56,12 @@ Each workspace's `AGENTS.md` is delivered at the end of the prompt as
 `[TEAM NOTES - <path>, the shared AGENTS.md of <team> …]` … `[END TEAM NOTES]`, nearest team
 first, then the org's `[ORG SHARED NOTES …]` block. Each file has the agent's own-notes cap
 (12,000 characters) and truncation notice. A missing or blank file adds nothing.
+
+The proof keeps the initialized own header before the exact labelled ancestor
+blocks, each bounded by its own `[END TEAM NOTES]`. It checks exact paths,
+labels, file text and nearest-first order after the workspace rules, and saves
+the fresh prompt. An own block's earlier END cannot close an ancestor block.
+[verified: `tools/rig/proofs/team-workspaces.mjs`; 2026-10-22]
 
 They are delivered exactly like the org's notes: the copy is read when a CLI starts, another
 agent's edit never respawns a warm CLI, and the team blocks share the org notes' digest

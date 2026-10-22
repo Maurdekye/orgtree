@@ -23,6 +23,25 @@ import { Proof } from '../proof.mjs'
 const norm = p => String(p ?? '').replace(/\//g, '\\').replace(/^\\\\\?\\/, '').replace(/\\+$/, '').toLowerCase()
 const read = f => { try { return fs.readFileSync(f, 'utf8') } catch { return null } }
 
+export function teamNotesBlockOrder(prompt, files) {
+  const text = prompt.replaceAll('\r\n', '\n')
+  const blocks = [...text.matchAll(/^\[TEAM NOTES - ([^\n]+)\]\n([\s\S]*?)^\[END TEAM NOTES\]$/gm)]
+  if (blocks.length !== 3 || [...text.matchAll(/^\[TEAM NOTES - /gm)].length !== 3
+    || [...text.matchAll(/^\[END TEAM NOTES\]$/gm)].length !== 3) return false
+  const expected = [
+    [files.own, 'your own team', '# Shared standing notes for this team\n'],
+    [files.lead, "lead's team", '- TEAM-LEAD-NOTES-V1\n'],
+    [files.boss, "boss's team", '- TEAM-BOSS-NOTES-V1\n'],
+  ]
+  const rules = text.indexOf('TEAM WORKSPACES:')
+  return rules >= 0 && rules < blocks[0].index && blocks.every((block, i) => {
+    const [file, label, body] = expected[i]
+    const header = `${file}, the shared AGENTS.md of ${label} as it was when your CLI started. Every agent in that subtree gets it and may edit it; the file itself is the current version.`
+    return block[1] === header && block[2] === body
+      && (i === 0 || blocks[i - 1].index + blocks[i - 1][0].length < block.index)
+  })
+}
+
 export default async function (rig) {
   const p = new Proof('team-workspaces')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
@@ -68,11 +87,10 @@ export default async function (rig) {
     holds('ivy', 'ivy') && holds('ivy', 'lead') && holds('ivy', 'boss') && !deny('ivy').some(d => norm(d).includes('_teams')),
     { add_dirs: dirsOf('ivy') })
   const ivy = prompt('ivy')
+  p.file('ivy-prompt.txt', ivy)
   const at = tag => ivy.indexOf(tag)
   p.check('ivy: her prompt carries lead\'s then boss\'s team notes, labelled, after the rules',
-    at(`[TEAM NOTES - ${path.join(team('lead'), 'AGENTS.md')}, the shared AGENTS.md of lead's team`) > 0 && at('TEAM-LEAD-NOTES-V1') > 0
-      && at('TEAM-BOSS-NOTES-V1') > at('TEAM-LEAD-NOTES-V1') && at('[END TEAM NOTES]') > at('TEAM-LEAD-NOTES-V1')
-      && at('TEAM-LEAD-NOTES-V1') > at('TEAM WORKSPACES:'),
+    teamNotesBlockOrder(ivy, { own: path.join(team('ivy'), 'AGENTS.md'), lead: path.join(team('lead'), 'AGENTS.md'), boss: path.join(team('boss'), 'AGENTS.md') }),
     { lead: at('TEAM-LEAD-NOTES-V1'), boss: at('TEAM-BOSS-NOTES-V1') })
   p.check('kim: gets boss\'s team notes, never lead\'s', prompt('kim').includes('TEAM-BOSS-NOTES-V1') && !prompt('kim').includes('TEAM-LEAD-NOTES-V1'))
   p.check('kim: holds boss\'s, never lead\'s', holds('kim', 'boss') && !holds('kim', 'lead'), { add_dirs: dirsOf('kim') })
