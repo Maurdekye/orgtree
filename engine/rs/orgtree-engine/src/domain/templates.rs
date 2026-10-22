@@ -55,9 +55,13 @@ pub struct Template {
 /// own part).
 pub const ORG_SETTINGS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "permission_mode",
-    "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact", "cascade_hire", "cascade_alloc",
+    "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact",
     "org_inbox_enabled", "org_inbox_multi_holder", "account_fallback_default",
 ];
+
+/// Org settings that moved to App settings > Runtime. An older template may still carry them: they are accepted
+/// and ignored, and never exported.
+pub use crate::feed::groups::RETIRED_SETTINGS;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Slot {
@@ -406,7 +410,7 @@ pub fn validate(t: &Template) -> Vec<String> {
         }
     }
     for k in t.settings.iter().flat_map(|s| s.keys()) {
-        if !ORG_SETTINGS.contains(&k.as_str()) {
+        if !ORG_SETTINGS.contains(&k.as_str()) && !RETIRED_SETTINGS.contains(&k.as_str()) {
             p.push(format!("a template cannot set the org setting '{k}'"));
         }
     }
@@ -1563,10 +1567,10 @@ mod tests {
         let rows = vec![row(1, None, "boss", "opus", 4.0, 10.0)];
         let settings = json!({ "dirs": [{ "path": "C:/work", "mode": "rw" }], "default_account": "claude-5",
             "disabled_accounts": ["openai-1"], "headless": false, "quick_chat": { "tier": "opus" },
-            "max_top_grant": 40, "default_effort": "high", "permission_mode": "default", "cascade_hire": false,
-            "default_top_grant": null });
+            "max_top_grant": 40, "default_effort": "high", "permission_mode": "default", "auto_resume": false,
+            "cascade_hire": false, "default_top_grant": null });
         let v = from_rows("t", "T", None, &rows, None, None, &settings, &Include::default());
-        assert_eq!(v["settings"], json!({ "max_top_grant": 40, "default_effort": "high", "permission_mode": "default", "cascade_hire": false }));
+        assert_eq!(v["settings"], json!({ "max_top_grant": 40, "default_effort": "high", "permission_mode": "default", "auto_resume": false }));
         let inc = Include { settings: false, ..Include::default() };
         assert!(from_rows("t", "T", None, &rows, None, None, &settings, &inc).get("settings").is_none());
         assert!(from_rows("t", "T", None, &rows, None, None, &json!({ "dirs": [] }), &Include::default()).get("settings").is_none());

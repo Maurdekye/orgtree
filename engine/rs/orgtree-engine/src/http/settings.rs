@@ -20,8 +20,8 @@ use crate::runtime::AgentMsg;
 /// Keys an org's settings document may hold (others are refused or inert).
 const ORG_KEYS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "default_account",
-    "permission_mode", "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact", "cascade_hire",
-    "cascade_alloc", "org_inbox_enabled", "org_inbox_multi_holder", "account_fallback_default", "headless", "disabled_accounts",
+    "permission_mode", "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact",
+    "org_inbox_enabled", "org_inbox_multi_holder", "account_fallback_default", "headless", "disabled_accounts",
     "quick_chat", "default_fast_mode",
 ];
 
@@ -29,6 +29,8 @@ const ORG_KEYS: &[&str] = &[
 const INERT_KEYS: &[&str] = &[
     "fable_limit_policy", "fable_filter_policy", "fable_filter_model", "clear_fable_lock", "prefer_reserve",
     "clear_prefer_reserve",
+    // moved to App settings > Runtime (credit_bubble_*): for the user's own actions only (USER 2026-10-22 14:30Z)
+    "cascade_hire", "cascade_alloc",
 ];
 
 #[logged]
@@ -181,7 +183,7 @@ fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Val
             Ok(scope::normalize_tools(v))
         },
         "default_tools" => bad("default_tools is an object of tool switches".into()),
-        "auto_resume" | "auto_resume_compact" | "cascade_hire" | "cascade_alloc" | "org_inbox_multi_holder"
+        "auto_resume" | "auto_resume_compact" | "org_inbox_multi_holder"
         | "org_inbox_enabled" | "account_fallback_default" | "headless" => {
             if v.is_boolean() {
                 Ok(v.clone())
@@ -202,6 +204,10 @@ fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Val
 pub fn template_settings(e: &Engine, m: &Map<String, Value>) -> Result<Map<String, Value>, String> {
     let mut out = Map::new();
     for (k, v) in m {
+        // an older template may still carry the retired credit-bubbling values: accepted, ignored
+        if crate::domain::templates::RETIRED_SETTINGS.contains(&k.as_str()) {
+            continue;
+        }
         if !crate::domain::templates::ORG_SETTINGS.contains(&k.as_str()) {
             return Err(format!("a template cannot set the org setting '{k}'"));
         }
@@ -562,6 +568,8 @@ async fn runtime_payload(engine: &Engine) -> Value {
         "working_checkups_enabled": sw.checkups,
         "wait_for_mcp_tools_enabled": engine.settings.wait_for_mcp_tools(),
         "project_listener_wake_enabled": engine.settings.project_listener_wake(),
+        "credit_bubble_hire_enabled": engine.settings.credit_bubble_hire(),
+        "credit_bubble_alloc_enabled": engine.settings.credit_bubble_alloc(),
         "suggest_agent_feedback_enabled": engine.settings.suggest_agent_feedback(),
         "idle_docket_reminders_enabled": sw.idle,
         "blocked_docket_reminders_enabled": sw.blocked,
@@ -609,7 +617,8 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
             "wait_for_mcp_tools_enabled" => {
                 rt.insert(k.clone(), json!(v.as_bool().unwrap_or(false)));
             }
-            "project_listener_wake_enabled" | "suggest_agent_feedback_enabled" => {
+            "project_listener_wake_enabled" | "suggest_agent_feedback_enabled" | "credit_bubble_hire_enabled"
+            | "credit_bubble_alloc_enabled" => {
                 let on = v.as_bool().ok_or_else(|| ApiError::bad_request(format!("{k} is true or false")))?;
                 rt.insert(k.clone(), json!(on));
             }
@@ -664,6 +673,12 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
         // gets a freshly planned prefix through the ordinary reconfigure path.
         for org in e.orgs.all() {
             reconfigure_org(&e, org.id).await?;
+        }
+    }
+    if b.contains_key("credit_bubble_hire_enabled") || b.contains_key("credit_bubble_alloc_enabled") {
+        // the org tree carries the app-wide values, which the desk's grant limits read
+        for org in e.orgs.all() {
+            changes::notify(&e, &org, vec![Change::Org]);
         }
     }
     if b.contains_key("enter_key_behavior") {

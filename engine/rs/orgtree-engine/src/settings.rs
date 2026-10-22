@@ -110,6 +110,17 @@ impl AppSettings {
     pub fn project_listener_wake(&self) -> bool {
         self.runtime().get("project_listener_wake_enabled").and_then(Value::as_bool).unwrap_or(true)
     }
+    /// Credit cost bubbling for the USER's own hires and re-hires (App settings > Runtime; default on, USER
+    /// 2026-10-22 14:30Z). Agents always bubble, whatever this says; the retired per-org values are never read.
+    #[nolog]
+    pub fn credit_bubble_hire(&self) -> bool {
+        self.runtime().get("credit_bubble_hire_enabled").and_then(Value::as_bool).unwrap_or(true)
+    }
+    /// The same for the USER's own allocations and model upgrades.
+    #[nolog]
+    pub fn credit_bubble_alloc(&self) -> bool {
+        self.runtime().get("credit_bubble_alloc_enabled").and_then(Value::as_bool).unwrap_or(true)
+    }
     /// Suggest public feedback only through the redacted, user-approved issue procedure.
     #[nolog]
     pub fn suggest_agent_feedback(&self) -> bool {

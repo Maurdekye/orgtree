@@ -42,8 +42,6 @@ pub fn setting_defaults() -> Value {
         "auto_resume_compact": false,
         "auto_cheap_compact": { "enabled": true, "occ": crate::settings::CHEAP_COMPACT_OCC },
         "account_fallback_default": false,
-        "cascade_hire": true,
-        "cascade_alloc": true,
         "fable_limit_policy": "wait",
         "fable_filter_policy": "off",
         "fable_filter_model": null,
@@ -52,6 +50,9 @@ pub fn setting_defaults() -> Value {
         "org_inbox_enabled": true, "org_inbox_multi_holder": false,
     })
 }
+
+/// Org settings that moved to App settings > Runtime: any stored value is ignored.
+pub const RETIRED_SETTINGS: &[&str] = &["cascade_hire", "cascade_alloc"];
 
 /// The org's settings with every default filled in.
 #[logged]
@@ -66,6 +67,11 @@ pub fn effective_settings(org_settings: &Value, app_defaults: &Map<String, Value
         for (k, v) in s {
             obj.insert(k.clone(), v.clone());
         }
+    }
+    // credit cost bubbling is an app-wide Runtime setting for the user's own actions (USER 2026-10-22 14:30Z):
+    // old per-org and default values are retired, never read
+    for k in RETIRED_SETTINGS {
+        obj.remove(*k);
     }
     out
 }
@@ -114,8 +120,9 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 "auto_resume_compact": settings["auto_resume_compact"],
                 "auto_cheap_compact": settings["auto_cheap_compact"],
                 "account_fallback_default": settings["account_fallback_default"],
-                "cascade_hire": settings["cascade_hire"],
-                "cascade_alloc": settings["cascade_alloc"],
+                // the user's app-wide Runtime switches: the desk's grant limits preview the user's actions
+                "cascade_hire": engine.settings.credit_bubble_hire(),
+                "cascade_alloc": engine.settings.credit_bubble_alloc(),
                 "fable_limit_policy": settings["fable_limit_policy"],
                 "fable_filter_policy": settings["fable_filter_policy"],
                 "fable_filter_model": settings["fable_filter_model"],

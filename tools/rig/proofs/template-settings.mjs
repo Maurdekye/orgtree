@@ -35,7 +35,7 @@ export default async function (rig) {
   const work = path.join(rig.data, 'qc-work')
   fs.mkdirSync(work, { recursive: true })
   const set = { max_top_grant: 60, default_top_grant: 30, compact_at: 70, default_effort: 'high', permission_mode: 'default',
-    default_visibility: 'team', cascade_hire: false, auto_resume: false, account_fallback_default: true,
+    default_visibility: 'team', org_inbox_multi_holder: true, auto_resume: false, account_fallback_default: true,
     default_tools: { bash: true, web: false, edit: true, subagents: false, mcp: [] } }
   const put = await attempt(rig.api('POST', `/api/orgs/${rig.org}/settings`, { ...set, org_dirs: [work], default_account: 'primary',
     quick_chat: { tier: 'opus' } }))

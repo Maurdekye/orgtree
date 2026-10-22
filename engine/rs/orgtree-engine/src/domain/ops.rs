@@ -268,14 +268,16 @@ async fn caps(engine: &Engine, tx: &Transaction<'_>, org_id: i64) -> Result<OrgC
         // 0 is uncapped, as in 3.x (D-014) and as the credit request's
         // headroom and the desk's credit bar read it
         max_top: eff["max_top_grant"].as_f64().map(|c| if c > 0.0 { c } else { f64::INFINITY }).unwrap_or(1000.0),
-        cascade_hire: eff["cascade_hire"].as_bool().unwrap_or(true),
-        cascade_alloc: eff["cascade_alloc"].as_bool().unwrap_or(true),
+        // the USER's switches, app-wide (USER 2026-10-22 14:30Z); `ensure_room` makes every agent cascade
+        cascade_hire: engine.settings.credit_bubble_hire(),
+        cascade_alloc: engine.settings.credit_bubble_alloc(),
         settings: eff,
     })
 }
 
 /// Make `need` credits free under `parent` (the user when `None`): raise
 /// descendant grants just enough, stopping at the acting agent's allocation.
+/// `cascade` is the user's app-wide switch; an agent always cascades.
 /// Plan before writing: a raised child must not be counted twice at its parent.
 #[logged]
 async fn ensure_room(
@@ -291,6 +293,9 @@ async fn ensure_room(
     if need <= 0.0 {
         return Ok(Vec::new());
     }
+    // Agents ALWAYS bubble their cost up the chain (up to their own allocation, the floor below); the two
+    // switches pass only the user's choice (USER 2026-10-22 14:30Z)
+    let cascade = cascade || matches!(actor, Actor::Agent { .. });
     let ch = chain(tx, pid).await?;
     let floor = match actor {
         Actor::User => None,

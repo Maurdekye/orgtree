@@ -92,13 +92,13 @@ export default async function (rig) {
     default_visibility: await tryApi('POST', `/api/orgs/${S}/defaults`, { default_visibility: 'everyone' }),
     default_account: await save({ default_account: 'no-such-account' }),
     default_effort: await save({ default_effort: 'turbo' }),
-    cascade_hire: await save({ cascade_hire: 'yes' }),
+    auto_resume: await save({ auto_resume: 'yes' }),
     app_permission_mode: await tryApi('POST', '/api/defaults', { permission_mode: 'banana' }),
   }
   const refused = Object.entries(bads).filter(([, r]) => !r.ok && r.status === 422).map(([k]) => k)
   p.check('a bad value is refused (422) on the org settings, the hire defaults and the app defaults, and nothing is stored', refused.length === 6
     && JSON.stringify(setting('permission_mode')) === JSON.stringify(pm0) && setting('default_visibility') !== 'everyone' && setting('default_account') !== 'no-such-account'
-    && setting('default_effort') !== 'turbo' && setting('cascade_hire') !== 'yes',
+    && setting('default_effort') !== 'turbo' && setting('auto_resume') !== 'yes',
   { refused, answers: Object.fromEntries(Object.entries(bads).map(([k, r]) => [k, r.ok ? 'stored' : `${r.status} ${r.detail}`])) })
   const c1 = await save({ auto_cheap_compact: { enabled: true, occ: 0.01 } })
   const acc1 = setting('auto_cheap_compact')

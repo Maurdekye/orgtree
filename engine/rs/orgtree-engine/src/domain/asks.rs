@@ -500,8 +500,6 @@ async fn credit_room(engine: &Engine, org_id: i64, agent_id: i64) -> Result<(f64
     let cap = settings["max_top_grant"].as_f64().unwrap_or(0.0).trunc();
     let room = if first.get::<_, Option<i64>>(1).is_none() {
         (cap != 0.0).then(|| cap - grant.ceil())
-    } else if settings["cascade_alloc"].as_bool() == Some(false) {
-        Some(rows[1].get::<_, f64>(2).floor())
     } else if cap == 0.0 {
         None
     } else {

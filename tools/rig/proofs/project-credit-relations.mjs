@@ -6,8 +6,8 @@ export default async function(rig) {
   const id=n=>rig.agentRow(n).id
   const project=(name,parent)=>rig.op({op:'create_project',name,...(parent?{parent}:{})})
   const hire=(name,parent,grant=0,tier='sol')=>rig.op({op:'hire',name,...(parent?{parent}:{}),grant,tier})
-  const op=body=>rig.op(body).then(value=>({ok:true,value}),e=>({ok:false,error:String(e.body?.detail??e.message)}))
   const settings=s=>rig.api('POST',`/api/orgs/${rig.org}/settings`,s)
+  const op=body=>rig.op(body).then(value=>({ok:true,value}),e=>({ok:false,error:String(e.body?.detail??e.message)}))
   const grant=n=>rig.one(`SELECT grant_credits::float8 AS g FROM ot.agents WHERE id=${id(n)}`).g
   const ledger=()=>rig.sql(`SELECT a.name,a.grant_credits::float8 AS grant,(a.grant_credits-coalesce((SELECT sum(c.seat+c.grant_credits) FROM ot.agents c WHERE c.id IN(SELECT ot.reports_of(a.org_id,a.id)) AND c.state='live'),0))::float8 AS free FROM ot.agents a WHERE a.kind='agent' AND a.state='live'`)
   for(const shape of ['direct','one','nested']) {
@@ -21,11 +21,9 @@ export default async function(rig) {
     p.check(`${shape}: rescind removes the freed stake from the real payer`,Math.abs(grant(payer)-(before-stake))<1e-6,{before,after:grant(payer),stake})
     await hire(`ask-${shape}`,parent,1)
     await rig.api('POST',`/api/orgs/${rig.org}/audiences`,{action:'grant',node:`ask-${shape}`,target:'user'})
-    await settings({cascade_alloc:false})
     const asked=await rig.tool(`ask-${shape}`,'orgtree_request_credits',{new_limit:3,reason:'Synthetic payer headroom'})
     p.check(`${shape}: credit request sees free credits of the nearest agent payer`,asked.ok,asked.text)
     if(asked.ok) await rig.tool(`ask-${shape}`,'orgtree_withdraw_ask',{})
-    await settings({cascade_alloc:true})
     // Different wrappers, one payer: the seat cost swap is budget-neutral.
     await project(`peer-wrapper-${shape}`,payer)
     await hire(`swap-a-${shape}`,parent,1,'sol')
