@@ -9,8 +9,40 @@ const quote = s => "'" + String(s).replaceAll("'", "''") + "'"
 const noTiming = obj => !Object.keys(obj ?? {}).some(k => /ttl|expiry|expires|receipt/i.test(k))
   && Object.values(obj ?? {}).every(v => !v || typeof v !== 'object' || noTiming(v))
 
+// fakecli's tool_result.text joins blocks for display. Recover the actual MCP
+// response by process + request id, never by trimming a guessed JSON suffix.
+export function nativeSelfCallJson(log, call) {
+  if (!Number.isInteger(call?.pid) || call.pid <= 0) throw Error('missing native fake CLI process identity')
+  const requests = log.filter(e => e.kind === 'send' && e.pid === call.pid
+    && e.line?.type === 'control_request' && e.line.request?.subtype === 'mcp_message'
+    && e.line.request.server_name === 'orgtree' && e.line.request.message?.method === 'tools/call'
+    && e.line.request.message.params?.name === 'orgtree_next_turn')
+  if (requests.length !== 1) throw Error('expected exactly one native self-tool MCP request')
+  const requestId = requests[0].line.request_id
+  if (typeof requestId !== 'string' || !requestId) throw Error('missing native MCP request id')
+  const responses = log.filter(e => e.kind === 'recv' && e.pid === call.pid
+    && e.line?.type === 'control_response' && e.line.response?.request_id === requestId)
+  if (responses.length !== 1) throw Error('expected exactly one correlated native MCP response')
+  const response = responses[0].line.response
+  const rpc = response.response?.mcp_response
+  if (response.subtype !== 'success' || rpc?.error != null
+    || rpc?.id !== requests[0].line.request.message.id) throw Error('invalid native MCP response envelope')
+  const result = rpc?.result
+  const content = result?.content
+  if (!Array.isArray(content) || content.length < 1 || content.length > 2
+    || content.some(c => c.type !== 'text' || typeof c.text !== 'string')) throw Error('invalid native MCP text blocks')
+  if (content.length === 2 && content[1].text.match(/^execution time: [0-9]+\.[0-9]{3}ms$/)?.[0] !== content[1].text) {
+    throw Error('unexpected native MCP trailing block')
+  }
+  if (call.text !== content.map(c => c.text).join('\n')
+    || call.is_error !== (result.isError ?? false)) throw Error('native MCP response differs from fake CLI result')
+  return JSON.parse(content[0].text)
+}
+
 export default async function (rig) {
   const p = new Proof('next-turn-query')
+  let phase = 'fixture setup'
+  try {
   rig.scenario({ default: { turns: [{ name: 'normal', steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
     { what: 'seed turns complete', timeout: 60000 })
@@ -146,9 +178,16 @@ export default async function (rig) {
     && liveOut.json.compaction.occupancy_source === 'current_turn' && liveOut.json.compaction.turn_running === true, liveOut.json)
   await rig.waitTurns('liveprobe', 1)
   const liveId = rig.agentRow('liveprobe').id
-  const cliCalls = rig.fakeLog('liveprobe').filter(e => e.kind === 'tool_result' && e.tool === 'orgtree_next_turn')
+  const nativeLog = rig.fakeLog('liveprobe')
+  const cliCalls = nativeLog.filter(e => e.kind === 'tool_result' && e.tool === 'orgtree_next_turn')
+  // Preserve the complete wire framing BEFORE any decoding, including failures.
+  p.file('native-self-tool.json', { cliCalls, log: nativeLog })
+  phase = 'native self-tool result parsing'
+  const nativeJson = cliCalls.length === 1 && cliCalls[0].is_error === false
+    ? nativeSelfCallJson(nativeLog, cliCalls[0]) : null
   p.check('native fake CLI self tool completed without an actor deadlock', cliCalls.length === 1 && cliCalls[0].is_error === false
-    && JSON.parse(cliCalls[0].text).compaction.occupancy === 71000, cliCalls)
+    && nativeJson.compaction.occupancy === 71000, cliCalls)
+  phase = 'aging and engine restart'
   const preRestart = await rig.tool('liveprobe', 'orgtree_next_turn', {})
   rig.exec(`UPDATE ot.agents SET extra=jsonb_set(extra,'{cache_receipt,at}','"2000-01-01T00:00:00Z"'::jsonb) WHERE id=${liveId}`)
   await rig.restart()
@@ -158,6 +197,7 @@ export default async function (rig) {
     && rows(aged).length > 0 && rows(aged).every(r => r.status === 'unchanged') && noTiming(aged.json), aged.json)
   // Synthetic persisted state only: query an unsupported native boundary,
   // without starting that harness or changing any real provider settings.
+  phase = 'unsupported harness boundary'
   rig.exec(`UPDATE ot.agents SET tier='argon',provider='google',occupancy_est=true WHERE id=${liveId}`)
   const unsupported = await rig.tool('liveprobe', 'orgtree_next_turn', {})
   p.check('unpredictable harness compaction remains unknown', unsupported.ok && unsupported.json?.compaction?.will_compact === null
@@ -165,4 +205,8 @@ export default async function (rig) {
   rig.exec(`UPDATE ot.agents SET tier='haiku',provider='claude',occupancy_est=false WHERE id=${liveId}`)
   p.file('live-and-restart.json', { liveOut, preRestart, aged, unsupported })
   return p.summary()
+  } catch (error) {
+    p.check(`${phase}: proof completed without setup or parse error`, false, String(error?.stack || error))
+    return p.summary()
+  }
 }

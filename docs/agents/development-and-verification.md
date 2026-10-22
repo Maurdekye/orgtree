@@ -8,6 +8,14 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- The next-turn-query proof saves the native fake CLI log before decoding.
+  Its display text joins MCP blocks, so correlate the original response by
+  process/request id and parse only its primary JSON block; permit only the
+  separate three-decimal execution-time block. Malformed JSON, unexpected
+  blocks and setup/parse errors must persist a named FAIL. Retain all 38
+  semantic checks, including live occupancy and actual restart controls.
+  [verified: `tools/rig/proofs/next-turn-query.mjs`; 2026-10-22]
+
 - The Muse visual proof uses the signed light-slice-2 partner `#005680`
   (user 2026-10-18 15:34Z/15:35Z) for light card and app-theme expectations;
   `#afe5ff` remains the dark accent. Retain all 24 controls and report the

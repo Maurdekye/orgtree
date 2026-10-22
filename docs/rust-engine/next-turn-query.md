@@ -55,6 +55,17 @@ No compaction policy or cache receipt lifetime is changed by this feature.
 
 ## Verification boundary
 
+The rig preserves all 38 semantic checks. Before native self-call parsing it
+saves `native-self-tool.json`, including the raw fake CLI log. The fake CLI
+joins MCP content blocks in its display text; the proof correlates the original
+response by process and request id, validates its envelope and joined display,
+then parses only the primary JSON block. A separate `execution time: N.NNNms`
+block is allowed; arbitrary extra blocks or malformed primary JSON fail.
+Setup and parsing errors persist a named failed check instead of leaving a
+partial all-pass result. Parser controls live in
+`tools/rig/tests/next-turn-query.test.mjs`. This is a synthetic oracle repair,
+with no product behavior change. [verified: 2026-10-22]
+
 Initial committed red `e855f8d` was executed by rig-sol-b against retained
 `ca9da88`, engine/rs tree identical to required base `705a12b`:
 two checks executed, existing-status/fake-session control passed, new-tool
