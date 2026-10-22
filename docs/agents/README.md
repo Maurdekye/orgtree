@@ -412,8 +412,8 @@ The token figure is an explicitly labeled characters/4 heuristic; byte and line 
 | [e-13b6405a255a9f2d](mail-and-hub.md#e-13b6405a255a9f2d) | Orgtree 4.0.0 (Rust engine): read this first | End-of-turn mail: pending waking mail follows through ordinary admission on |
 | [e-e8d05c22ccfb2742](projects-and-concurrency.md#e-e8d05c22ccfb2742) | Orgtree 4.0.0 (Rust engine): read this first | Attention's Swap panels exchanges the persisted split and visual order together. |
 | [e-29d2ba53942932f8](development-and-verification.md#e-29d2ba53942932f8) | Orgtree 4.0.0 (Rust engine): read this first | Where and how to work |
-| [e-9522900dfe5708ae](development-and-verification.md#e-9522900dfe5708ae) | Orgtree 4.0.0 (Rust engine): read this first | rust-engine is a local branch: it is not on origin. Never push it or anything |
-| [e-53dd75a0fc1e48e5](development-and-verification.md#e-53dd75a0fc1e48e5) | Orgtree 4.0.0 (Rust engine): read this first | Hand-in: rebase on the current rust-engine, then send the coordinator your branch name and |
+| [e-9522900dfe5708ae](legacy-and-superseded.md#e-9522900dfe5708ae) | Orgtree 4.0.0 (Rust engine): read this first | rust-engine is a local branch: it is not on origin. Never push it or anything |
+| [e-53dd75a0fc1e48e5](legacy-and-superseded.md#e-53dd75a0fc1e48e5) | Orgtree 4.0.0 (Rust engine): read this first | Hand-in: rebase on the current rust-engine, then send the coordinator your branch name and |
 | [e-c61bfdb1caeb6a53](startup-and-release.md#e-c61bfdb1caeb6a53) | Orgtree 4.0.0 (Rust engine): read this first | Three kinds of change never share a commit: the engine (engine/rs/); desktop changes the |
 | [e-7b670aa6ae107e6a](startup-and-release.md#e-7b670aa6ae107e6a) | Orgtree 4.0.0 (Rust engine): read this first | Prototype restarts. Every prototype install restarts Orgtree, which ends running turns and |
 | [e-df3cdea727e6f716](startup-and-release.md#e-df3cdea727e6f716) | Orgtree 4.0.0 (Rust engine): read this first | Builds and installs are the user's. Prototype builds are 4.0.0-alpha.N (N counts |
@@ -436,9 +436,9 @@ The token figure is an explicitly labeled characters/4 heuristic; byte and line 
 | [e-07d44cfe835e7ad2](desktop-and-renderer.md#e-07d44cfe835e7ad2) | Orgtree 4.0.0 (Rust engine): read this first | Transport: HTTP for loads and actions, the org and app sockets for pushed updates, with |
 | [e-5bd036aebe5b2d70](legacy-and-superseded.md#e-5bd036aebe5b2d70) | Orgtree 4.0.0 (Rust engine): read this first | Verification during the prototype |
 | [e-d950a8c4cc76e04f](legacy-and-superseded.md#e-d950a8c4cc76e04f) | Orgtree 4.0.0 (Rust engine): read this first | No unit-test suites and no review rounds while the prototype is built; brief smoke tests |
-| [e-ca02d79ca0ee8a7d](development-and-verification.md#e-ca02d79ca0ee8a7d) | Orgtree 4.0.0 (Rust engine): read this first | Smoke changes through the real path with the test rig, so a hand-in can say measured rather |
+| [e-ca02d79ca0ee8a7d](legacy-and-superseded.md#e-ca02d79ca0ee8a7d) | Orgtree 4.0.0 (Rust engine): read this first | Smoke changes through the real path with the test rig, so a hand-in can say measured rather |
 | [e-cd70dd295fff4d67](development-and-verification.md#e-cd70dd295fff4d67) | Orgtree 4.0.0 (Rust engine): read this first | Electron probes: pass URLs and options through the environment, not the command line: with |
-| [e-837c7011305e3f2e](development-and-verification.md#e-837c7011305e3f2e) | Orgtree 4.0.0 (Rust engine): read this first | So none of the 3.x test machinery below applies to 4.0.0 work: the P03 run lock, |
+| [e-837c7011305e3f2e](legacy-and-superseded.md#e-837c7011305e3f2e) | Orgtree 4.0.0 (Rust engine): read this first | So none of the 3.x test machinery below applies to 4.0.0 work: the P03 run lock, |
 | [e-79c3d6f6ce1ca992](startup-and-release.md#e-79c3d6f6ce1ca992) | Orgtree 4.0.0 (Rust engine): read this first | Custom native icon colors (2026-10-07, verified from source and Electron PNG smoke). |
 | [e-663e86618b46e12d](startup-and-release.md#e-663e86618b46e12d) | Orgtree 4.0.0 (Rust engine): read this first | Tray list status sizing (2026-10-07, verified from source and Electron smoke). |
 | [e-df30bae43ef1d6bb](development-and-verification.md#e-df30bae43ef1d6bb) | Orgtree 4.0.0 (Rust engine): read this first | Still valid from the 3.x sections: Machine traps (shell, CRLF, slow git on |

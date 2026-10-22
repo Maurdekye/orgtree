@@ -2730,3 +2730,95 @@ Original section: Where the detail lives. Source lines 5146–5146.
 <!-- preserved:e-68ad2d4511525f46 -->
 - 2026-10-07 (verified-from-source and mounted renderer): direct children of agent settings (.settings.cfg) must not flex-shrink. Different tab heights otherwise compress the shared Name/Agent actions rows and shift the tab strip; let the panel scroll instead.
 <!-- /preserved:e-68ad2d4511525f46 -->
+
+## Renderer adapter recipe, 2026-10-21
+
+Superseded 2026-10-22: the adapter creates a dependency junction. The org no-junction rule wins; this retained source report is not permission to run it. See [current dependency guidance](development-and-verification.md#renderer-tests-from-a-worktree-without-node_modules).
+
+### Renderer tests from a worktree without node_modules
+
+The current `apps/desktop/renderer/tests/run.mjs` still imports esbuild as ESM;
+`NODE_PATH` alone cannot satisfy that import. The team's
+`renderer-tests-from-worktree/` adapters supply an explicit esbuild dependency
+root and leave source worktrees free of dependency copies/junctions:
+
+1. `node <adapters>/bundle-tests.mjs <worktree> <fresh-output-dir> <dependency-root> <filters...>`
+   bundles selected filename substrings with explicit `nodePaths`, matching
+   the runner's bundle options. Use an empty output directory in the assigned
+   build scope. The helper creates a dependency junction there, never in source.
+2. Set `NODE_PATH=<dependency-root>` for the runner's CommonJS `createRequire`
+   resolution, then run
+   `node --import <adapter-file-URL> <worktree>/apps/desktop/renderer/tests/run.mjs <filters...> --prebuilt <fresh-output-dir>`.
+   The URL names `register-loader.mjs`, beside `node-loader.mjs`. Both the
+   loader and NODE_PATH are required. On Windows an absolute `--import` needs
+   a file URL, such as `file:///C:/build/adapters/register-loader.mjs`, or
+   `pathToFileURL(path).href`; a bare drive path fails as protocol `c:`.
+
+Run bundling and tests inside the current build permit and assigned kernel
+Job. Preserve the output for evidence/authorized cleanup: never recursively
+delete a directory containing that dependency junction yourself. This recipe
+was source-checked, not rerun, during the documentation move.
+[verified: `apps/desktop/renderer/tests/run.mjs` and team adapters
+`bundle-tests.mjs`, `register-loader.mjs`, `node-loader.mjs`; 2026-10-21;
+original findings: @project-nodes-opus, @image-embed-luna, @taskbar-orgs-sol
+2026-10-16]
+
+## Superseded early Rust operating procedures
+
+Relocated 2026-10-22 without changing attributed bodies. Current homes are in [development and verification](development-and-verification.md#current-operating-rule-homes). These early records do not set current worktree placement, review phase or test selection. In particular, broad rig proofs require an assignment; the stopped Python suite does not forbid the current release owner from using the Node/renderer baseline tool.
+
+<a id="e-9522900dfe5708ae"></a>
+
+## rust-engine is a local branch: it is not on origin. Never push it or anything
+
+Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 3829–3833.
+
+<!-- preserved:e-9522900dfe5708ae -->
+- `rust-engine` is a **local** branch: it is not on `origin`. **Never push** it or anything
+  based on it. Make your own worktree from it, e.g.
+  `git worktree add -b <you>/<topic> .worktrees/<you>-<topic> rust-engine`.
+  `.worktrees/rust-engine` is the branch's own checkout; since the rust-engine session was retired
+  (2026-10-07) it belongs to the coordinator, who merges there. [decided: user, DECISIONS 45]
+<!-- /preserved:e-9522900dfe5708ae -->
+
+<a id="e-53dd75a0fc1e48e5"></a>
+
+## Hand-in: rebase on the current rust-engine, then send the coordinator your branch name and
+
+Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 3834–3838.
+
+<!-- preserved:e-53dd75a0fc1e48e5 -->
+- **Hand-in:** rebase on the current `rust-engine`, then send the coordinator your branch name and
+  commit list; the coordinator reviews and merges it. Where 4.0 stands (open bugs, open user
+  decisions, how alphas were built): [`docs/rust-engine/HANDOFF.md`](../../docs/rust-engine/HANDOFF.md).
+  Bugs in 4.0.0 go the same way (agent, action, expected, actual, UTC time); check PLAN §10
+  first, since many differences are deliberate.
+<!-- /preserved:e-53dd75a0fc1e48e5 -->
+
+<a id="e-ca02d79ca0ee8a7d"></a>
+
+## Smoke changes through the real path with the test rig, so a hand-in can say measured rather
+
+Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 3998–4004.
+
+<!-- preserved:e-ca02d79ca0ee8a7d -->
+- **Smoke changes through the real path with the test rig**, so a hand-in can say measured rather
+  than inferred: `node tools/rig/rig.mjs up` runs your debug engine on a throwaway data root (rig
+  mode: fake home, fake CLI, no provider probes), with scripted CLI turns, any `orgtree_*` tool as
+  any agent, SQL on the scratch cluster and an offscreen desktop smoke. Prefer it to a bare
+  SAFE_START scratch engine, which still reads the real sign-ins and runs the real usage probes.
+  How-to: [`docs/rust-engine/test-rig.md`](../../docs/rust-engine/test-rig.md). [verified: 2026-10-07,
+  proofs under `tools/rig/proofs/`]
+<!-- /preserved:e-ca02d79ca0ee8a7d -->
+
+<a id="e-837c7011305e3f2e"></a>
+
+## So none of the 3.x test machinery below applies to 4.0.0 work: the P03 run lock,
+
+Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 4008–4010.
+
+<!-- preserved:e-837c7011305e3f2e -->
+- So none of the 3.x test machinery below applies to 4.0.0 work: the P03 run lock,
+  `test-baseline.mjs`, Python import provenance, `run-python-verification.py`,
+  `source-audits.py`.
+<!-- /preserved:e-837c7011305e3f2e -->

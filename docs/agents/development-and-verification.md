@@ -6,6 +6,28 @@ Worktrees, build/resource rules, tests, evidence, platform traps and maintenance
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Current operating-rule homes
+
+The assigned checkout and exact base determine which repository instructions apply.
+A parent checkout may still inject a 3.x guide; do not use that snapshot to choose
+a branch, test suite or build protocol for Rust work. Read the current assignment
+and signed decisions; preserve historical records without treating their commands
+as current permission. [decided: user 2026-10-22, operating-rule reconciliation]
+
+| Decision | Read its current home |
+| --- | --- |
+| Org model/account eligibility, source/output/storage and installer policy | Org shared AGENTS.md supplied in the session |
+| Active release line, phase, owner, review routing and exceptions | Current team notes and authoritative assignment |
+| Build capacity, RAM, Cargo jobs, kernel Job and low-RAM/priority policy | Current build-project Summary, read through authorized project tools or supplied by the coordinator |
+| Claim/release mechanics | [Build workflow](../skills/orgtree-working/workspace/builds-under-the-lock/SKILL.md) |
+| Exact-SHA hand-in and findings | [Landing workflow](../skills/orgtree-working/workspace/reviews-and-landing/SKILL.md) and [docket ownership](../skills/orgtree-working/docket/docket-items/SKILL.md) |
+| Code-specific tests, capture and fixture traps | This topic and [test rig](../rust-engine/test-rig.md) |
+
+Do not copy live machine limits or the current phase into repository recipes.
+Read them before each assigned phase; if a required source or tool is inaccessible,
+ask the coordinator for that input. Project visibility and mail audiences do not
+grant Summary-policy authority. A source-only/docs assignment stays source-only.
+
 ## Baseline-tool metadata fixtures
 
 The baseline tool's `show` filtering and concurrency-description tests use an
@@ -368,31 +390,20 @@ verification phase and build-project permits still govern what may be run.
 
 ### Renderer tests from a worktree without node_modules
 
-The current `apps/desktop/renderer/tests/run.mjs` still imports esbuild as ESM;
-`NODE_PATH` alone cannot satisfy that import. The team's
-`renderer-tests-from-worktree/` adapters supply an explicit esbuild dependency
-root and leave source worktrees free of dependency copies/junctions:
+The runner imports esbuild as ESM, so NODE_PATH alone does not satisfy its initial
+import. Resolve the actual dependencies in place through a coordinator-assigned
+runner; do not create dependency copies or junctions. The formerly recommended
+team bundle-tests.mjs adapter calls symlinkSync(..., 'junction') for its output
+node_modules. That violates the standing dependency rule even outside source;
+do not use it until a separately assigned code repair removes that behavior.
+This documentation change neither repairs nor executes the adapter.
+[verified: team adapter bundle-tests.mjs; 2026-10-22]
 
-1. `node <adapters>/bundle-tests.mjs <worktree> <fresh-output-dir> <dependency-root> <filters...>`
-   bundles selected filename substrings with explicit `nodePaths`, matching
-   the runner's bundle options. Use an empty output directory in the assigned
-   build scope. The helper creates a dependency junction there, never in source.
-2. Set `NODE_PATH=<dependency-root>` for the runner's CommonJS `createRequire`
-   resolution, then run
-   `node --import <adapter-file-URL> <worktree>/apps/desktop/renderer/tests/run.mjs <filters...> --prebuilt <fresh-output-dir>`.
-   The URL names `register-loader.mjs`, beside `node-loader.mjs`. Both the
-   loader and NODE_PATH are required. On Windows an absolute `--import` needs
-   a file URL, such as `file:///C:/build/adapters/register-loader.mjs`, or
-   `pathToFileURL(path).href`; a bare drive path fails as protocol `c:`.
-
-Run bundling and tests inside the current build permit and assigned kernel
-Job. Preserve the output for evidence/authorized cleanup: never recursively
-delete a directory containing that dependency junction yourself. This recipe
-was source-checked, not rerun, during the documentation move.
-[verified: `apps/desktop/renderer/tests/run.mjs` and team adapters
-`bundle-tests.mjs`, `register-loader.mjs`, `node-loader.mjs`; 2026-10-21;
-original findings: @project-nodes-opus, @image-embed-luna, @taskbar-orgs-sol
-2026-10-16]
+The earlier [source-checked recipe](legacy-and-superseded.md#renderer-adapter-recipe-2026-10-21)
+is retained as history, not an exemption. Windows --import paths still need a
+file URL (pathToFileURL(path).href); select the exact filename filters and prove
+the intended tests ran. Bundling/execution follows the current permit, output
+scope and containment in the rule-home table above.
 
 <a id="e-43f61695c2e13155"></a>
 
@@ -537,47 +548,15 @@ user, DECISIONS 39]
 
 <a id="e-9522900dfe5708ae"></a>
 
-## rust-engine is a local branch: it is not on origin. Never push it or anything
-
-Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 3829–3833.
-
-<!-- preserved:e-9522900dfe5708ae -->
-- `rust-engine` is a **local** branch: it is not on `origin`. **Never push** it or anything
-  based on it. Make your own worktree from it, e.g.
-  `git worktree add -b <you>/<topic> .worktrees/<you>-<topic> rust-engine`.
-  `.worktrees/rust-engine` is the branch's own checkout; since the rust-engine session was retired
-  (2026-10-07) it belongs to the coordinator, who merges there. [decided: user, DECISIONS 45]
-<!-- /preserved:e-9522900dfe5708ae -->
+Historical record moved to [legacy and superseded records](legacy-and-superseded.md#e-9522900dfe5708ae); use [current operating-rule homes](#current-operating-rule-homes).
 
 <a id="e-53dd75a0fc1e48e5"></a>
 
-## Hand-in: rebase on the current rust-engine, then send the coordinator your branch name and
-
-Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 3834–3838.
-
-<!-- preserved:e-53dd75a0fc1e48e5 -->
-- **Hand-in:** rebase on the current `rust-engine`, then send the coordinator your branch name and
-  commit list; the coordinator reviews and merges it. Where 4.0 stands (open bugs, open user
-  decisions, how alphas were built): [`docs/rust-engine/HANDOFF.md`](../../docs/rust-engine/HANDOFF.md).
-  Bugs in 4.0.0 go the same way (agent, action, expected, actual, UTC time); check PLAN §10
-  first, since many differences are deliberate.
-<!-- /preserved:e-53dd75a0fc1e48e5 -->
+Historical record moved to [legacy and superseded records](legacy-and-superseded.md#e-53dd75a0fc1e48e5); use [current operating-rule homes](#current-operating-rule-homes).
 
 <a id="e-ca02d79ca0ee8a7d"></a>
 
-## Smoke changes through the real path with the test rig, so a hand-in can say measured rather
-
-Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 3998–4004.
-
-<!-- preserved:e-ca02d79ca0ee8a7d -->
-- **Smoke changes through the real path with the test rig**, so a hand-in can say measured rather
-  than inferred: `node tools/rig/rig.mjs up` runs your debug engine on a throwaway data root (rig
-  mode: fake home, fake CLI, no provider probes), with scripted CLI turns, any `orgtree_*` tool as
-  any agent, SQL on the scratch cluster and an offscreen desktop smoke. Prefer it to a bare
-  SAFE_START scratch engine, which still reads the real sign-ins and runs the real usage probes.
-  How-to: [`docs/rust-engine/test-rig.md`](../../docs/rust-engine/test-rig.md). [verified: 2026-10-07,
-  proofs under `tools/rig/proofs/`]
-<!-- /preserved:e-ca02d79ca0ee8a7d -->
+Historical record moved to [legacy and superseded records](legacy-and-superseded.md#e-ca02d79ca0ee8a7d); use [current operating-rule homes](#current-operating-rule-homes).
 
 <a id="e-cd70dd295fff4d67"></a>
 
@@ -593,15 +572,7 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 400
 
 <a id="e-837c7011305e3f2e"></a>
 
-## So none of the 3.x test machinery below applies to 4.0.0 work: the P03 run lock,
-
-Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 4008–4010.
-
-<!-- preserved:e-837c7011305e3f2e -->
-- So none of the 3.x test machinery below applies to 4.0.0 work: the P03 run lock,
-  `test-baseline.mjs`, Python import provenance, `run-python-verification.py`,
-  `source-audits.py`.
-<!-- /preserved:e-837c7011305e3f2e -->
+Historical record moved to [legacy and superseded records](legacy-and-superseded.md#e-837c7011305e3f2e); use [current operating-rule homes](#current-operating-rule-homes).
 
 <a id="e-df30bae43ef1d6bb"></a>
 

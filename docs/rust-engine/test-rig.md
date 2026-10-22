@@ -2,15 +2,20 @@
 
 `tools/rig` runs the real Rust engine against a throwaway data root with its own PostgreSQL
 cluster, plays scripted CLI output through a fake Claude Code CLI, calls any `orgtree_*` tool as a
-chosen agent, and tears everything down. Use it to prove a change through the real path instead
-of labelling it "inferred". Node 24 built-ins only; no `npm install` needed (the desktop smoke
+chosen agent, and tears everything down. Use it for an explicitly assigned synthetic proof
+in the current verification phase. This page is a recipe, not permission to add rig/full-round
+testing to an author-only phase. Node 24 built-ins only; no `npm install` needed (the desktop smoke
 runs an existing `electron.exe` in place).
 
 ## Quick start
 
+First obtain the authorized debug engine/fake CLI through the coordinator-assigned
+build procedure under the current project permit/resource policy. The legacy
+rig build entry point described under What keeps it safe is not that procedure.
+
 ```bash
 export CARGO_TARGET_DIR='C:/orgtree-build/<you>'             # team rule: use your own C:/orgtree-build folder; E: is refused
-node tools/rig/rig.mjs build                          # debug engine + fake CLI, under the machine-wide build lock in queue order (see "The build lock"; needs >= 3 GB free RAM)
+# Debug engine + fake CLI must already be built by the assigned slot-governed procedure.
 node tools/rig/rig.mjs up                             # ~20 s: run + basic fixture; prints url, token, org
 node tools/rig/rig.mjs tool alice orgtree_chart '{}'  # any tool, as any live agent
 node tools/rig/rig.mjs mail user carol "hello"        # desk mail from the user (wakes carol)
@@ -137,7 +142,7 @@ the run.
 | `warm-placement.mjs` | where warm CLIs run around the sign-in helper's arrival (decision 94, invariants 3 and 5; the user 2026-10-22 14:21Z "Move them at sign-in"; fake CLIs, `--session0 1`, `warming`, one helper of the run's own as in `session-startup-grace.mjs`, signed out through `<data>\core-rig-signed-out`): (1) signed out, five agents' turns park their CLIs in Session 0; the helper comes up and the idle Claude, full-access Codex and sandboxed Codex CLIs are closed (the Codexes by their graceful exit) and warmed again by the helper, while one with a background command running and one preferring Session 0 keep theirs; (2) a full-access Codex whose turn ran in Session 0 while the helper came up keeps its CLI for that turn, and its next turn runs on a new Codex the helper starts; (3) with the helper down and the user signed in, a restart warms nothing in Session 0 before the helper is back 8 s later, every warm CLI after it is the helper's, the Session 0-preferring agent's starts in Session 0 at once and stays, and the next turn runs on the warm CLI |
 | `process-start-placement.mjs` | a CLI started by hand from the desk's process mark (`POST .../process {action: 'start'}`) starts where the next turn would run it (fake CLIs, `--session0 1`, one helper of the run's own, no warming): after a restart with the helper 6 s late, the start waits for it and the helper starts the CLI, with nothing in Session 0 first; with Session 0 picked for the next turn (`orgtree_session` `use` 0) and the CLI stopped, the start puts it in Session 0 and keeps the pick, so that turn runs there, on it |
 | `run-on-startup.mjs` | the "run on boot" switch (it was "run on startup") in the real renderer (`--ui <bundle>`, desktop script `desktop/run-on-startup.cjs`, decisions 70 and 83): App settings › Runtime › Desktop with a planted bridge standing in for main; the switch reads "run on boot" (nothing still says "run on startup" or "start at login", and there is no "engine starts" choice) with a hint saying what on and off mean; a change main reports as declined (a Windows permission prompt answered No) shows main's message and leaves it on; an accepted change turns it off. What main does with it is `tests/disruptive/run-on-startup.test.mjs` and `tests/unix-boot-engine.test.mjs` |
-| `build-lock.mjs` | the rig itself, no engine and no run (`node tools/rig/proofs/build-lock.mjs`): `rig build`'s lock against a temporary lock folder and queue with a fake build, never the real ones: a MOVED marker is refused and kept even when it looks stale; a free lock is taken only by the first queued name, whose line goes, and goes to the next name when the build ends, failed or not (the caller is told to mail them); a lock handed over to the caller, or claimed by its own watchdog, builds; a fresh lock of another agent is refused; a stale lock is left while a build process runs in the build folder, then cleared for a caller with nobody ahead or handed to the first queued name; a lock someone took during the build stays theirs; short of RAM a free lock is not taken and a held one is kept; blank lines and CR/LF in the queue; the D: defaults for the rig home (your own `D:\orgtree-work\rig\<agent>`), the lock, with `C:/orgtree-build/<agent>` as the cargo-target example; the shared `D:\orgtree-work\rig` and a home holding another rig home are refused |
+| `build-lock.mjs` | Historical filesystem-lock helper coverage only; not the current permit/build procedure. The rig itself, no engine and no run (`node tools/rig/proofs/build-lock.mjs`): `rig build`'s lock against a temporary lock folder and queue with a fake build, never the real ones: a MOVED marker is refused and kept even when it looks stale; a free lock is taken only by the first queued name, whose line goes, and goes to the next name when the build ends, failed or not (the caller is told to mail them); a lock handed over to the caller, or claimed by its own watchdog, builds; a fresh lock of another agent is refused; a stale lock is left while a build process runs in the build folder, then cleared for a caller with nobody ahead or handed to the first queued name; a lock someone took during the build stays theirs; short of RAM a free lock is not taken and a held one is kept; blank lines and CR/LF in the queue; the D: defaults for the rig home (your own `D:\orgtree-work\rig\<agent>`), the lock, with `C:/orgtree-build/<agent>` as the cargo-target example; the shared `D:\orgtree-work\rig` and a home holding another rig home are refused |
 
 ## What keeps it safe
 
@@ -177,19 +182,21 @@ never weaken shared ancestor ACLs to run it.
 - **Without rig mode a SAFE_START engine is not isolated**: it reads the real user's sign-ins and,
   every few minutes, runs the real usage probes (HTTPS with the real Claude token,
   `codex app-server`, `agy --print /usage`). Do not run scratch engines without the rig.
-- **The build lock** (team rules 2026-10-09 and 2026-10-10): `rig build` holds the machine-wide
-  lock folder `D:\orgtree-work\cargo-target\build.lock` (`ORGTREE_BUILD_LOCK` names another) for
-  its one build, in the order of `build.queue.txt` beside it. It takes a free lock only when the
-  queue is empty or names you (`ORGTREE_AGENT`) first, removing your line; it builds at once under
-  a lock whose owner.txt already names you (handed over, or your watchdog's claim). When the build
-  ends, failed or not, the lock goes to the first queued name (owner.txt "handed over by", their
-  line removed): the rig cannot send org mail, so it prints that you must mail them "build lock is
-  yours". With nobody queued the folder goes. An owner.txt older than 30 minutes is cleared only
-  when no build process runs in the build folder, and then goes by the queue the same way. A
-  folder whose owner.txt starts with MOVED (`E:\cargo-target\build.lock` since 2026-10-10) is a
-  marker, never a lock: the rig refuses it and never removes it. `CARGO_TARGET_DIR` on C: is
-  allowed only under `C:/orgtree-build/<agent>`; other C: paths are refused. E: remains refused
-  while `D:\orgtree-work` exists.
+- **Build preparation** (operating-rule audit 2026-10-22): the current build-project
+  Summary owns capacity, RAM, Cargo jobs and kernel Job limits; use the
+  [slot-permit workflow](../skills/orgtree-working/workspace/builds-under-the-lock/SKILL.md).
+  Source inspection still finds the retired filesystem-lock implementation in
+  tools/rig/lib.mjs and the rig build entry point. Do not invoke it or nest that
+  old lock inside a slot lease. Obtain the engine/fake CLI with a separately
+  assigned, slot-governed build procedure. Fixing the legacy helper needs a code
+  assignment; this docs correction does not change its behavior. The retained
+  build-lock.mjs proof describes that historical helper, not the current permit.
+  Target-path validation is an implementation guard, not permission to use any
+  location outside current org storage policy and your assigned scope.
+- **Packaged smokes** (measured 2026-10-18 02:41Z): fake HOME/APPDATA alone does
+  not isolate a packaged engine; Windows known folders can still discover real
+  provider CLIs. Isolate those paths too or skip provider discovery in the assigned
+  smoke. Never use real auth/data; release binaries do not acquire debug rig mode.
 - **The rig home** (`ORGTREE_RIG_HOME`; by default your own `D:\orgtree-work\rig\<agent>`, by
   `ORGTREE_AGENT`, when `D:\orgtree-work` exists, else `E:\orgtree-rig`; runs, evidence and
   "before" engines made earlier stay in `E:\orgtree-rig`) is refused inside the live data folder

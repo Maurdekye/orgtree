@@ -3425,7 +3425,7 @@
       "start": 3829,
       "end": 3833,
       "sha256": "9522900dfe5708ae9d4136f3e5b2164790b2a6c79f565107fca4d54e774bf2ef",
-      "file": "docs/agents/development-and-verification.md",
+      "file": "docs/agents/legacy-and-superseded.md",
       "section": "Orgtree 4.0.0 (Rust engine): read this first",
       "title": "rust-engine is a local branch: it is not on origin. Never push it or anything"
     },
@@ -3434,7 +3434,7 @@
       "start": 3834,
       "end": 3838,
       "sha256": "53dd75a0fc1e48e572bccbbe09dc4d1fc8a7b24c69045e40bdab9b97568fcfc5",
-      "file": "docs/agents/development-and-verification.md",
+      "file": "docs/agents/legacy-and-superseded.md",
       "section": "Orgtree 4.0.0 (Rust engine): read this first",
       "title": "Hand-in: rebase on the current rust-engine, then send the coordinator your branch name and"
     },
@@ -3641,7 +3641,7 @@
       "start": 3998,
       "end": 4004,
       "sha256": "ca02d79ca0ee8a7d11e463bdc530629a4f6c55c9e41663a0eb88e7c494a89aeb",
-      "file": "docs/agents/development-and-verification.md",
+      "file": "docs/agents/legacy-and-superseded.md",
       "section": "Orgtree 4.0.0 (Rust engine): read this first",
       "title": "Smoke changes through the real path with the test rig, so a hand-in can say measured rather"
     },
@@ -3659,7 +3659,7 @@
       "start": 4008,
       "end": 4010,
       "sha256": "837c7011305e3f2e4fb26a60b63dcf5b93f8f48249916d51cec317178c5f626d",
-      "file": "docs/agents/development-and-verification.md",
+      "file": "docs/agents/legacy-and-superseded.md",
       "section": "Orgtree 4.0.0 (Rust engine): read this first",
       "title": "So none of the 3.x test machinery below applies to 4.0.0 work: the P03 run lock,"
     },

@@ -3,9 +3,12 @@
 Written 2026-10-07 by the rust-engine session, which the user has retired: "hand off your work to
 the orgtree org, they'll take further development from here" (DECISIONS 45). Read
 [PLAN.md](PLAN.md) section 10 and [DECISIONS.md](DECISIONS.md) first; this file only says where
-things stand.
+things stood at that handoff. This is dated history, not the current release plan.
+For current work, read the assigned checkout's [startup guide](../../AGENTS.md),
+[operating-rule homes](../agents/development-and-verification.md#current-operating-rule-homes),
+and the current team notes/assignment.
 
-## Where things are
+## Where things were on 2026-10-07
 
 - **Branch:** `rust-engine` (local, never pushed). Its checkout is `.worktrees/rust-engine`; it is
   clean and now belongs to the orgtree coordinator, who reviews and merges hand-ins there. Its
@@ -16,7 +19,7 @@ things stand.
 - **Committed after alpha.5, not yet in a build:** `e12b3c0`, the PROVIDER USAGE board in every
   turn and Antigravity's sign-in email.
 
-## Work in flight in the org
+## Work in flight at the handoff
 
 | Item | Owner | Notes |
 | --- | --- | --- |
@@ -47,7 +50,7 @@ every 30 seconds, so enabling the setting does not require a restart.
 
 Current verification and its limits: [freeze recovery](freeze-recovery.md).
 
-## Decisions waiting on the user
+## Decisions recorded at the handoff
 
 1. Engine CPU priority for 4.0: High (3.x ruling 2026-10-04) or Normal (lowered on 2026-10-06
    because it starved the PC). The boot task asks for High; a desktop-started engine runs Normal.
@@ -69,42 +72,16 @@ mail through its invocation hooks), C5 (history for every provider from 3.x's tr
 I2 (a cheap compact saves the conversation as a file in the agent's folder), I5b (docket reminders
 and working checkups restored).
 
-## Building an alpha (how the rust-engine session did it)
+## Build and testing guidance
 
-Who builds from now on is the user's call (DECISIONS 37-38 gave it to the rust-engine session);
-ask before building. The steps were:
+The original session's [build/testing recipes are retained as history](handoff-build-history.md).
+They must not be run as a current procedure. Use the [build workflow](../skills/orgtree-working/workspace/builds-under-the-lock/SKILL.md),
+the current project Summary and explicit coordinator assignment. Installer placement
+comes from current org policy; the old Downloads instruction grants no exception.
 
-1. Bump the version in `engine/rs/orgtree-engine/Cargo.toml` (and `Cargo.lock`), then in
-   `package.json` and both top-level `version` fields of `package-lock.json`; commit the engine
-   bump and the app bump separately (`Rust engine: version X`, `Orgtree X`).
-2. Announce the build to the org before delivery, so agents commit and end their turns.
-3. `bash tools/alpha-build.sh X "Orgtree Setup X.exe"` does the rest on the D: SSD (since
-   2026-10-10; E: is slow). It waits for the machine-wide build lock in queue order, checks out
-   the committed tip in the detached build worktree `D:\orgtree-work\worktrees\coordinator-build`
-   (created when missing; `npm ci` when `package-lock.json` changed; `engine/runtime` and the
-   PostgreSQL payload are staged once from a provisioned checkout, each with its own checks),
-   and builds `--release --locked -j 2` into `D:\orgtree-work\cargo-target\<name>`: the engine
-   with `ORGTREE_RELEASE_BUILD=1` and `ORGTREE_BUILD_COMMIT=<short sha>`, then the mail hub from
-   the pinned `engine/mailhub`. It copies both to the fixed paths the packager reads
-   (`engine/rs/target/release`, `engine/mailhub/target/release`; emptied first), checks their
-   versions and the commit stamp, and runs `npm run package:win -- --publish never` with
-   `ELECTRON_RUN_AS_NODE` cleared. Then it checks that the package carries exactly those exes and
-   copies the installer to `E:\Libraries\Downloads`, comparing hashes. The log markers and the
-   settings are in the script's header; `DRY_RUN=1` stops after the package preflight.
-   By hand, do not skip the hub: `package:win` packages whatever exe sits in
-   `engine/mailhub/target/release`, and the preflight checks only that the hub's *source* is
-   pinned (alpha.4 shipped hub 2.0.0 while the pin was 2.0.3).
-4. Tell the user.
-
-## Testing notes
-
-- A scratch engine on a copy of live data runs with `ORGTREE_ENGINE_SAFE_START=1`: no auto-wake,
-  no hub hosting, no reading another data folder's sign-ins, no CLI warming. A fresh root needs
-  `ORGTREE_ENGINE_ALLOW_INITDB=1`. Copies of live data follow DECISIONS 40 (own scratch only,
-  deleted when done).
-- An engine started with an empty `ORGTREE_V2_TOKEN` serves the UI to a plain browser or an
-  Electron probe; AGENTS.md has the Electron probe trap (pass URLs through the environment).
-- Verbose logging is on by default in development builds and off in packaged ones.
+For authorized synthetic tests, use [test-rig isolation and build preparation](test-rig.md#what-keeps-it-safe).
+A bare SAFE_START engine is not isolated from real provider credentials. The
+current team phase determines whether a rig proof may run at all.
 
 ## What changed in the engine on 2026-10-07 (for orientation)
 
