@@ -554,7 +554,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // is, greyed, until the new card arrives and takes its exact place. `id` is
   // the response's; `name` is the hired name when no card had it at Hire, so a
   // feed that beats the response is recognised too
-  const [pendingHire, setPendingHire] = useState<{ id?: string; name?: string; pos: Pt } | null>(null)
+  const [pendingHire, setPendingHire] = useState<{ slug: string; id?: string; name?: string; pos: Pt } | null>(null)
   const pendingHireRef = useRef(pendingHire); pendingHireRef.current = pendingHire
   // the pending hires whose card arrived (through the feed, before or after
   // the response): a late response still does its bookkeeping
@@ -1390,6 +1390,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (!hireArrived || !hireId || !pendingHire) return
     const id = hireId, { pos } = pendingHire
     arrivedHires.current.add(pendingHire)
+    // A feed-first hire is already successful. Advance before clearing its
+    // draft, or the no-draft effect below mistakes replacement for Cancel.
+    // An org change cannot complete another org's guide with an old request.
+    if (pendingHire.slug === slug) firstUseHired(slug, id)
     springs.current.set(id, { ...pos, vx: 0, vy: 0 })
     hirePlacement.current = { id, pos }
     setPendingHire(null)
@@ -1399,7 +1403,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     draftTimer.current = null
     setDraftForm(null)
     setDraft(null)
-  }, [hireArrived, hireId, pendingHire])
+  }, [hireArrived, hireId, pendingHire, slug])
   // user feature 2026-08-26: initializing an agent opens ITS desk. The id of a
   // hire made HERE (this browser, from the draft form) that is still waiting
   // for its card to exist and settle; the spring tick below does the opening.
@@ -3923,7 +3927,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     if (!point) return
     // the hired name stands for the card until the response names it, unless
     // a card already has that name (then only the response can say which)
-    const pending = { pos: { x: point.x, y: point.y }, ...(map.has(name) ? {} : { name }) }
+    const pending = { slug, pos: { x: point.x, y: point.y }, ...(map.has(name) ? {} : { name }) }
     pendingHireRef.current = pending
     setPendingHire(pending)
     // a Muse tier the login a no-account hire lands on does not offer goes to
