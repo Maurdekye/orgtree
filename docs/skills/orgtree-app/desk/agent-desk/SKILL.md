@@ -61,7 +61,7 @@ slotchips.tsx); the two group names follow the user's 2026-10-22 07:38Z ruling.
 | Control/indicator | Meaning |
 | --- | --- |
 | Agent name | Identity/navigation target; available menus can copy the name. |
-| Model token | Opens Change agent model. Picking an eligible model saves immediately when idle or queues it while busy. Switching providers asks to reset the conversation; the current generation remains in lineage and scratch/mail survive. Selecting the current model cancels a queued model switch. |
+| Model token | Opens Change agent model. A model stays offered when an eligible managed account can serve it even if the default login is unavailable or spent. A pick uses the default login when eligible, otherwise the first eligible compatible account reported by the engine; the model tooltip names that secondary account, as does a cross-provider confirmation. Picking saves immediately when idle or queues it while busy. Switching providers asks to reset the conversation; the current generation remains in lineage and scratch/mail survive. Selecting the current model cancels a queued model switch without changing its account. |
 | Context wheel | Context occupancy/window and compact threshold; where available it opens Normal compact / Cheap compact / Cancel. Normal uses the harness; cheap starts a fresh session with a summary handoff on the same agent. Unsupported normal compaction is disabled with a reason. |
 | Process indicator | Current process lifecycle, warming/relaunch/pause information and an enabled process action when the engine provides one. |
 | Turn status | Engine turn activity/result and reported status summary; a self-reported status is not proof a process runs. |

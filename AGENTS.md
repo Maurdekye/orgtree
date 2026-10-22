@@ -17,6 +17,8 @@ Before renderer or desktop-main tests, visual captures or rig proofs, read the [
 
 ## Engine and desktop invariants
 
+- Desk model eligibility uses the staffing tier's eligible managed accounts as well as its native-login flags. A spent native login cannot hide a tier with another eligible account; the picker prefers native when usable, otherwise submits and discloses an eligible managed ID. Current-model queue cancellation leaves the account alone. [verified: `canvas/deskmodel.tsx`, `desk-model-instant.test.tsx`; 2026-10-22]
+
 - State badges pass card focus/select gestures through. The serving-account badge is a focusable informational span with native title = aria-label; it has no button role or pointer/click handler. Other state markers remain inert, with halt/unstick actions separate on the desk. [decided: user 2026-10-22 09:58Z; verified: `canvas/desk.tsx`, `statebadgefocus.test.tsx`]
 
 - Helper transcript tool inputs use the ordinary credential redactor before

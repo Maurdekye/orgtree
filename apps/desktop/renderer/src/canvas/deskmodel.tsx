@@ -14,7 +14,17 @@ import { staffingOptions, type StaffingOptions, type StaffingTier } from './staf
 import { ALL_TIER_SEAT, hireOf, providerOf, TIER_LETTER, tierLabel,
   type CanvasNode, type OpFn } from './shared'
 
-/** A chip applies default account/latest; detailed choices stay in agent settings. */
+/** Staffing supplies eligible managed accounts separately from the native login.
+ * Prefer native when usable; a spent native reading cannot hide a usable tier. */
+function modelAccount(row: StaffingTier): string | null {
+  const provider=providerOf(row.tier),primary=primaryAccount(provider)
+  if(row.default_ok===true&&row.native_ok!==false)return primary
+  return row.accounts.find(account=>account&&account.provider===provider
+    &&account.ambient!==true&&typeof account.value==='string'&&account.value.trim()
+    &&account.value!==primary)?.value??null
+}
+
+/** A chip applies latest with a usable account; detailed choices stay in settings. */
 export function DeskModelButton({node, slug, op, toast}: {
   node: CanvasNode; slug: string; op: OpFn; toast: ToastFn
 }) {
@@ -42,14 +52,21 @@ export function DeskModelButton({node, slug, op, toast}: {
   const snapshot=availability?.slug===slug?availability.value:null
   const rows:StaffingTier[]=Array.isArray(snapshot?.tiers)?snapshot.tiers.filter(row=>
     row&&typeof row.tier==='string'&&Array.isArray(row.accounts)
-    &&((row.default_ok===true&&row.native_ok!==false)||row.tier===node.tier)):[]
+    &&(modelAccount(row)!==null||row.tier===node.tier)):[]
+  const accountDetail=(tier:string)=>{
+    const row=rows.find(row=>row.tier===tier),account=row?modelAccount(row):null
+    return account&&account!==primaryAccount(providerOf(tier))?`account ${account}`:''
+  }
   const apply=async(tier:string)=>{
     const changedTier=tier!==node.tier
     const cancelModel=!changedTier&&!!node.pending_switch
-    if(saving||!rows.some(row=>row.tier===tier))return
+    const row=rows.find(row=>row.tier===tier)
+    if(saving||!row)return
     if(!changedTier&&!cancelModel){close();return}
+    const account=modelAccount(row)
+    if(changedTier&&account===null)return
     const switchStep={op:'switch_model',node:node.id,tier,
-      ...(changedTier?{account:primaryAccount(providerOf(tier))}:{})}
+      ...(changedTier?{account}:{})}
     const scope={model_version:''}
     setSaving(true)
     try{
@@ -87,13 +104,14 @@ export function DeskModelButton({node, slug, op, toast}: {
     {anchor&&!confirmTier&&<PickerPopover anchor={anchor} onClose={close} kind="model"
       label="Change agent model" className="desk-model-picker" focusFirst>
       <SpawnChips soleHire selected={node.pending_switch?.tier??node.tier} seats={{...ALL_TIER_SEAT,...Object.fromEntries(rows.map(row=>[row.tier,row.seat]))}}
-        tokenTitle={tier=>`Change model to ${tierLabel(tier)}`}
+        tokenTitle={tier=>`Change model to ${tierLabel(tier)}`+(accountDetail(tier)?` · ${accountDetail(tier)}`:'')}
         allowedTiers={rows.map(r=>r.tier)} onSpawn={pick} {...hires}/>
       {!rows.length&&<p role="status">{snapshot?.errors?.join('; ')||'No eligible models available'}</p>}
     </PickerPopover>}
     {confirmTier&&<ConfirmModal title={`switch ${node.id} to ${tierLabel(confirmTier)}?`}
       body={(node.busy?'The current turn keeps its model. This change is queued until the turn ends and applies from the next turn. ':'')
-        +'Switching providers resets the conversation. The current generation is archived in lineage; scratch files, breadcrumbs and mail survive.'}
+        +'Switching providers resets the conversation. The current generation is archived in lineage; scratch files, breadcrumbs and mail survive.'
+        +(accountDetail(confirmTier)?` This choice uses ${accountDetail(confirmTier)}.`:'')}
       confirmLabel={`switch to ${tierLabel(confirmTier)} and reset the conversation`}
       onConfirm={()=>apply(confirmTier)} confirmDisabled={saving} close={close}/>}
   </>
