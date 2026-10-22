@@ -39,3 +39,14 @@ fake CLIs and an isolated scratch database, saves before/picker/after PNGs,
 and checks that only the selected model is created by final Hire. Verification
 receipts and limitations are recorded on the docket item
 `change-the-model-of-an-uninitialized-manual-hire`.
+
+The proof accepts an already seeded organization: it snapshots persisted agent
+identities, generations, parents, tiers, charters, states and grants before
+opening the draft. Engine reads before and after model selection must match
+that snapshot exactly. Final Hire must leave every existing row unchanged and
+add exactly one new live top-level `selected-sol` with the selected tier and
+original charter. Its grant must equal the effective `default_top_grant` read
+from the engine before opening, unchanged through selection; neither an empty
+organization nor a fixed grant is implicit. All five check names and the three
+picker/draft positive checks remain unchanged. [verified: 2026-10-22,
+`tools/rig/proofs/uninit-model.mjs`, `tools/rig/desktop/uninit-model.cjs`]

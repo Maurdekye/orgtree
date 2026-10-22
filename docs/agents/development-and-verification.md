@@ -8,6 +8,15 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- The five-check draft-model proof snapshots the actual seed, including agent
+  identities and persisted hire fields. Compare exact +0 engine-state deltas
+  both before and after model selection, then exactly +1 newly identified Sol
+  hire with unchanged existing rows and the engine-read effective default grant.
+  Never assume an empty org or grant 12, accept a preexisting selected name, or
+  replace identity checks with a count alone. Preserve all five names, original
+  picker/draft positives and interactions; save snapshots and mutation controls.
+  [verified: `tools/rig/proofs/uninit-model.mjs`; 2026-10-22]
+
 - The nine-check team-workspaces proof expects an initialized own-team header
   before the exact labelled lead/boss blocks. Match each block's own END and
   exact path, label, body and order after the rules; never use the first global

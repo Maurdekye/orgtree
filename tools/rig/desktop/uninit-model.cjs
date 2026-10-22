@@ -30,7 +30,8 @@ module.exports = async (page, { args }) => {
     openai: document.querySelector('.sq.draft').classList.contains('prov-openai'),
   }))
   await frames(); await page.screenshot('03-selected-sol')
+  const selected = await page.api('GET', `/api/orgs/${args.org}`)
   await page.click('.df-foot button.primary')
   await page.waitFor('[data-copy-agent-name="selected-sol"]', { timeout: 15000 })
-  return { hasIcon, before, staged }
+  return { hasIcon, before, staged, selected }
 }
