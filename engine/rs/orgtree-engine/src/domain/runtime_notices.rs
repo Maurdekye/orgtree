@@ -77,13 +77,12 @@ pub fn build_ref(engine: &Engine) -> Value {
 }
 
 #[logged]
-pub async fn restarted(engine: &Arc<Engine>, org_id:i64, agent_id:i64, interrupted:bool) -> Result<()> {
+pub async fn restarted(engine: &Arc<Engine>, org_id:i64, agent_id:i64, interrupted:bool, rights:Option<&str>) -> Result<()> {
     let text="The engine restarted while you were working. Continue where you left off.";
-    let rights=if interrupted { None } else { engine_rights(engine).map(|r| admin_line(&r)) };
     let (variant,fields,body)=if interrupted {
         ("context.drive_restart_interrupted",json!({"text":text,"summary":"The engine stopped during the preceding turn."}),text.to_string())
     } else {
-        ("runtime.restart_notice",json!({"prev_pid":null,"started_at":crate::util::iso(engine.boot.started_at),"branch":option_env!("ORGTREE_BUILD_BRANCH"),"version":env!("CARGO_PKG_VERSION")}),restart_body(env!("CARGO_PKG_VERSION"), option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("unknown"), engine.boot.pid, &crate::util::iso(engine.boot.started_at), engine_session(engine), rights.as_deref()))
+        ("runtime.restart_notice",json!({"prev_pid":null,"started_at":crate::util::iso(engine.boot.started_at),"branch":option_env!("ORGTREE_BUILD_BRANCH"),"version":env!("CARGO_PKG_VERSION")}),restart_body(env!("CARGO_PKG_VERSION"), option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("unknown"), engine.boot.pid, &crate::util::iso(engine.boot.started_at), engine_session(engine), rights))
     };
     let ev=crate::events::typed(variant,"@system",build_ref(engine),fields);
     mail::system_event(engine,org_id,agent_id,&body,!interrupted,Some(ev)).await
@@ -405,23 +404,87 @@ pub(crate) enum HelperRights {
     Missing,
 }
 
-/// The restart notice's line about administrator rights.
+/// The restart notice's line about administrator rights: the setting, then
+/// what was measured, never the setting alone (the user 2026-10-22 11:22Z).
+/// "Elevated" is `token_rights`' reading, which counts Windows' own (Task
+/// Manager's "Elevated" column).
 #[nolog]
 pub(crate) fn admin_line(r: &Rights) -> String {
-    if r.engine {
-        "Administrator rights: on, for the engine in Session 0 and the sign-in helper alike."
-    } else {
-        "Administrator rights: off, for the engine in Session 0 and the sign-in helper alike."
-    }
-    .to_string()
+    let is = |on: bool| if on { "is elevated" } else { "is not elevated" };
+    let engine = format!("the engine in Session 0 {}", is(r.engine));
+    let measured = match r.helper {
+        HelperRights::Hosting(helper) if helper == r.engine => if r.engine {
+            "the engine in Session 0 and the sign-in helper are both elevated".to_string()
+        } else {
+            "neither the engine in Session 0 nor the sign-in helper is elevated".to_string()
+        },
+        HelperRights::Hosting(helper) => format!("{engine}, but the sign-in helper {}", is(helper)),
+        HelperRights::Refused(helper) => format!("{engine}; a sign-in helper that {} was refused, so none hosts", is(helper)),
+        HelperRights::SignedOut => format!("{engine}; no sign-in helper runs while the user is signed out"),
+        HelperRights::Missing => format!("{engine}; no sign-in helper had connected {} s after the engine started",
+            crate::runtime::session_host::SETTLE_MS / 1000),
+    };
+    let setting = if r.setting { "on" } else { "off" };
+    let mismatch = if r.engine != r.setting { " The engine's rights do not match the setting." } else { "" };
+    format!("Administrator rights (Run as admin: {setting}), measured: {measured}.{mismatch}")
 }
 
-/// The rights for `admin_line`: said by an engine in Session 0 on Windows
-/// only, where its sign-in helper shares them.
+/// The rights for `admin_line`, measured now: said by an engine in Session 0
+/// on Windows only, where it hosts agents through its sign-in helper.
 #[nolog]
 fn engine_rights(engine: &Engine) -> Option<Rights> {
-    (cfg!(windows) && engine_session(engine) == Some(0))
-        .then(|| Rights { setting: crate::host::run_as_administrator(), engine: crate::host::elevated(), helper: HelperRights::Missing })
+    (cfg!(windows) && engine_session(engine) == Some(0)).then(|| {
+        let bridge = &engine.credential_bridge;
+        let helper = if let Some(helper) = bridge.hosting_rights() {
+            HelperRights::Hosting(helper)
+        } else if bridge.user_signed_in() == Some(false) {
+            HelperRights::SignedOut
+        } else if let Some(helper) = bridge.refused_rights() {
+            HelperRights::Refused(helper)
+        } else {
+            HelperRights::Missing
+        };
+        Rights { setting: crate::host::run_as_administrator(), engine: crate::host::elevated(), helper }
+    })
+}
+
+/// The restart notice's rights line for this engine now (None: it says
+/// nothing about rights).
+#[nolog]
+pub(crate) fn rights_line(engine: &Engine) -> Option<String> {
+    engine_rights(engine).map(|r| admin_line(&r))
+}
+
+/// Until the restart notice can say what the sign-in helper measured: a
+/// helper hosts, the user is signed out, or the 60 s after the engine's start
+/// have passed. That is the wait a turn start makes for an agent without a
+/// Session 0 choice (`session_host::turn_waits_for_helper`). At once where the
+/// notice says nothing about rights. False: the engine is shutting down.
+#[nolog]
+pub(crate) async fn wait_for_rights(engine: &Arc<Engine>) -> bool {
+    use crate::runtime::session_host::{turn_waits_for_helper, Settle};
+    if !(cfg!(windows) && engine_session(engine) == Some(0)) {
+        return true;
+    }
+    let bridge = &engine.credential_bridge;
+    let start_ms = engine.boot.started_at.timestamp_millis();
+    loop {
+        let reading = Settle {
+            skip: false,
+            hosting: !bridge.placement_hosting().is_empty(),
+            signed_in: bridge.user_signed_in(),
+            now_ms: chrono::Utc::now().timestamp_millis(),
+            start_ms,
+            last_hosting_ms: bridge.last_hosting_ms(),
+        };
+        if !turn_waits_for_helper(&reading) {
+            return true;
+        }
+        tokio::select! {
+            _ = engine.shutdown.cancelled() => return false,
+            _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
+        }
+    }
 }
 
 // Extracted unchanged rendering; the regression below requires engine session

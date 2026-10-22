@@ -198,6 +198,11 @@ pub struct Bridge {
     /// A sign-in helper refused for other administrator rights: its pid and
     /// process stamp, until it has left (invariant 7).
     rights_refused: std::sync::Mutex<Option<(u32, u64)>>,
+    /// The administrator rights the last admitted helper and the last refused
+    /// one said they hold, for the restart notice: 0 none, 1 not elevated, 2
+    /// elevated.
+    admitted_rights: AtomicU8,
+    refused_reading: AtomicU8,
 }
 #[nolog]
 impl Bridge {
@@ -216,6 +221,8 @@ impl Bridge {
             last_hosting_ms: AtomicI64::new(0),
             fallback_logged: AtomicBool::new(false),
             rights_refused: std::sync::Mutex::new(None),
+            admitted_rights: AtomicU8::new(0),
+            refused_reading: AtomicU8::new(0),
         }
     }
     /// The session watch's reading at each check: whether the engine's user
@@ -245,8 +252,22 @@ impl Bridge {
     pub(crate) fn first_fallback(&self) -> bool {
         !self.fallback_logged.swap(true, Ordering::Relaxed)
     }
+    /// The rights a hosting sign-in helper said it holds (None: no helper
+    /// hosts), for the restart notice.
+    pub(crate) fn hosting_rights(&self) -> Option<bool> {
+        if self.placement_hosting().is_empty() {
+            return None;
+        }
+        rights_of(self.admitted_rights.load(Ordering::Relaxed))
+    }
+    /// The rights the last helper refused for them said it holds (None:
+    /// none was refused).
+    pub(crate) fn refused_rights(&self) -> Option<bool> {
+        rights_of(self.refused_reading.load(Ordering::Relaxed))
+    }
     /// A sign-in helper was refused for its administrator rights.
-    fn refused_for_rights(&self, pid: u32) {
+    fn refused_for_rights(&self, pid: u32, elevated: bool) {
+        self.refused_reading.store(if elevated { 2 } else { 1 }, Ordering::Relaxed);
         let mut refused = self.rights_refused.lock().unwrap_or_else(|p| p.into_inner());
         if refused.map(|(p, _)| p) != Some(pid) {
             tracing::warn!(pid, engine_elevated = crate::host::elevated(),
@@ -578,6 +599,16 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
             .into_response(),
     }
 }
+/// A stored rights reading: 0 none, 1 not elevated, 2 elevated.
+#[nolog]
+fn rights_of(stored: u8) -> Option<bool> {
+    match stored {
+        1 => Some(false),
+        2 => Some(true),
+        _ => None,
+    }
+}
+
 /// Whether a sign-in helper that says it runs with `helper_elevated` rights may
 /// host the agents of an engine with `engine_elevated` rights.
 /// A helper that does not say runs without them.
@@ -601,8 +632,9 @@ async fn register_host(engine: &Engine, value: &Value, pipe: &str, secret: &str,
     }
     // Both elevated or neither (decision 94, invariant 7): a helper with other
     // rights leaves, and its task starts one at the engine's.
-    if !same_rights(crate::host::elevated(), value["elevated"].as_bool()) {
-        engine.credential_bridge.refused_for_rights(pid);
+    let elevated = value["elevated"].as_bool();
+    if !same_rights(crate::host::elevated(), elevated) {
+        engine.credential_bridge.refused_for_rights(pid, elevated.unwrap_or(false));
         return Err(Fail::Rights);
     }
     let session = helper_session(value, pid).ok_or(Fail::Denied)?;
@@ -628,6 +660,7 @@ async fn register_host(engine: &Engine, value: &Value, pipe: &str, secret: &str,
     if hosts.admit(session, Arc::new(broker))? {
         tracing::info!(pid, session, "Sign-in helper took the Codex host slot");
     }
+    engine.credential_bridge.admitted_rights.store(if elevated.unwrap_or(false) { 2 } else { 1 }, Ordering::Relaxed);
     Ok(b"ready".to_vec())
 }
 /// The Windows session a helper runs in. A debug rig engine lets a proof's

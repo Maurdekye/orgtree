@@ -470,6 +470,40 @@ pub fn working_by_org(engine: &Engine) -> HashMap<i64, i64> {
     engine.orgs.all().into_iter().map(|o| (o.id, o.working.load(std::sync::atomic::Ordering::SeqCst))).collect()
 }
 
+/// The passive restart notice for every live agent, once it can say the
+/// rights measured for the engine and its sign-in helper.
+#[logged]
+async fn restart_notices(engine: &Arc<Engine>) {
+    #[cfg(windows)]
+    {
+        if let Some(r) = crate::token_rights::own() {
+            tracing::info!(windows = r.windows, administrators = r.administrators, label = format!("{:#x}", r.label), elevated = r.elevated(),
+                run_as_admin = crate::host::run_as_administrator(), "the engine's administrator rights, measured");
+        }
+    }
+    if !crate::domain::runtime_notices::wait_for_rights(engine).await {
+        return;
+    }
+    let rights=crate::domain::runtime_notices::rights_line(engine);
+    if let Some(line)=&rights {
+        tracing::info!(line=%line,"the restart notice's administrator rights");
+    }
+    let Ok(client) = engine.db.get().await else { return };
+    let mut after=0_i64;
+    loop {
+        let rows=match client.query("SELECT id,org_id FROM ot.agents WHERE state='live' AND kind='agent' AND id>$1 AND org_id IN (SELECT id FROM ot.orgs WHERE state='active') ORDER BY id LIMIT 200", &[&after]).await {
+            Ok(rows)=>rows, Err(e)=>{ tracing::warn!(error=%e,"restart notice page failed"); break; }
+        };
+        if rows.is_empty(){break;}
+        for row in rows {
+            after=row.get(0);
+            if let Err(e)=crate::domain::runtime_notices::restarted(engine,row.get(1),after,false,rights.as_deref()).await {
+                tracing::warn!(agent=after,error=%format!("{e:#}"),"restart notice could not be sent");
+            }
+        }
+    }
+}
+
 /// Resume agents that were mid-turn when the last engine stopped, and wake
 /// agents with waiting mail.
 #[logged]
@@ -504,24 +538,16 @@ pub async fn recover(engine: &Arc<Engine>) {
         .unwrap_or_default();
     for r in &interrupted {
         let (id, org): (i64, i64) = (r.get(0), r.get(1));
-        if let Err(e)=crate::domain::runtime_notices::restarted(engine,org,id,true).await {
+        if let Err(e)=crate::domain::runtime_notices::restarted(engine,org,id,true,None).await {
             tracing::warn!(agent=id,error=%format!("{e:#}"),"restart wake could not be sent");
         }
     }
-    // A passive build notice also reaches idle seats, without waking them.
-    let mut after=0_i64;
-    loop {
-        let rows=match client.query("SELECT id,org_id FROM ot.agents WHERE state='live' AND kind='agent' AND id>$1 AND org_id IN (SELECT id FROM ot.orgs WHERE state='active') ORDER BY id LIMIT 200", &[&after]).await {
-            Ok(rows)=>rows, Err(e)=>{ tracing::warn!(error=%e,"restart notice page failed"); break; }
-        };
-        if rows.is_empty(){break;}
-        for row in rows {
-            after=row.get(0);
-            if let Err(e)=crate::domain::runtime_notices::restarted(engine,row.get(1),after,false).await {
-                tracing::warn!(agent=after,error=%format!("{e:#}"),"restart notice could not be sent");
-            }
-        }
-    }
+    // A passive build notice also reaches idle seats, without waking them. On a
+    // Session 0 engine it says the rights measured for the engine and its
+    // sign-in helper, so it waits for the helper as a turn start does (the user
+    // 2026-10-22 11:22Z); a turn that starts first gets it at its next turn.
+    let notices=engine.clone();
+    tokio::spawn(async move { restart_notices(&notices).await });
     freeze::recover(engine).await;
     let waiting = client
         .query(
