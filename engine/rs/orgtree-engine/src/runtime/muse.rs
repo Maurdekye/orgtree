@@ -1091,6 +1091,41 @@ pub fn images(paths: &[String]) -> Vec<Value> {
 }
 
 #[cfg(test)]
+mod background_delivery_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unsolicited_delivery_turns_are_cancelled_while_the_actor_cannot_drain_its_mailbox() {
+        let (stdout, mut host) = tokio::io::duplex(4096);
+        let (actor, mut mailbox) = mpsc::unbounded_channel();
+        let (writer, mut commands) = mpsc::unbounded_channel();
+        let (_waiters, waiters_rx) = mpsc::unbounded_channel();
+        let policy = Policy { may_write: false, may_shell: false, write: vec![], read: vec![], servers: vec![] };
+        let reader = tokio::spawn(read_stdout(Box::new(stdout), actor, uuid::Uuid::new_v4(), writer, waiters_rx, policy));
+        // No actor consumes the notifications: admission/preparing its prompt
+        // may be waiting on the database while the host retries delivery.
+        for own in ["delivery-1", "delivery-2"] {
+            let notification = json!({"jsonrpc":"2.0","method":"turn/started",
+                "params":{"sessionId":"session","turnId":own,"commandId":own}});
+            host.write_all(format!("{notification}\n").as_bytes()).await.unwrap();
+            let command = tokio::time::timeout(Duration::from_millis(200), commands.recv()).await;
+            assert!(command.is_ok(), "unsolicited delivery waited for the busy actor");
+            let command: Value = serde_json::from_str(&command.unwrap().expect("writer open")).unwrap();
+            assert_eq!(command["method"], "turn/cancel");
+            assert_eq!(command["params"]["turnId"], own);
+            assert_eq!(command["params"]["sessionId"], "session");
+        }
+        drop(host);
+        reader.await.unwrap();
+        let mut notices = 0;
+        while let Ok(envelope) = mailbox.try_recv() {
+            if let AgentMsg::Muse(_, v) = envelope.msg { if v["method"] == "turn/started" { notices += 1; } }
+        }
+        assert_eq!(notices, 2, "actor still observes each cancellation for wake accounting");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
