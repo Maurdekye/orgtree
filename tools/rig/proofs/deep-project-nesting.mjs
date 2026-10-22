@@ -126,7 +126,7 @@ export default async function (rig) {
           OR ot.live_superior_of(${row('leaf').id}) IS DISTINCT FROM ${row('outsider').id}::bigint
         THEN RAISE EXCEPTION 'nearest structural/live superior mismatch'; END IF;
       END $$;
-      UPDATE ot.agents SET parent_id=id WHERE id=${row(last).id};
+      UPDATE ot.agents SET parent_id=${row(last).id} WHERE id=${row(`p-${depth - 2}`).id};
       DO $$ BEGIN
         IF ot.superior_of(${row('leaf').id}) IS NOT NULL OR ot.live_superior_of(${row('leaf').id}) IS NOT NULL
         THEN RAISE EXCEPTION 'project cycle returned a superior'; END IF;
