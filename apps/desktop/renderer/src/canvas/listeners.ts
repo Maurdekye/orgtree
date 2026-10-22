@@ -61,7 +61,7 @@ export function listenerCards(project: string, s: ProjectListenerState): Listene
       text: `listeners ${n}/${w.count ?? '?'}`,
       bright: true,
       title: `${w.owner}'s listener watch "${w.name}" fires when ${w.count ?? '?'} event listeners are armed on project ${project}; `
-        + `${n} ${n === 1 ? 'is' : 'are'} armed now${who}. Click for the listeners tab.`,
+        + `${n} ${n === 1 ? 'is' : 'are'} armed now${who}. Click for the events tab.`,
     }))
   }
   if (!n) return []
@@ -70,7 +70,7 @@ export function listenerCards(project: string, s: ProjectListenerState): Listene
     text: `listeners ${n}`,
     bright: false,
     title: `${n} event listener${n === 1 ? '' : 's'} armed on project ${project}${who}. `
-      + `Each receives every event fired on the project. Click for the listeners tab.`,
+      + `Each receives every event fired on the project. Click for the events tab.`,
   }]
 }
 

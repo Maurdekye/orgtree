@@ -151,7 +151,7 @@ export interface DeskTabDef {
 /** What a tab id says on both desks, where the words differ from the route.
  *  The mailbox tab is "mail" (user 2026-10-20 06:22Z): its folders are inbox,
  *  sent and a project's listeners, so the tab is not one of them. */
-const DESK_TAB_LABELS: Readonly<Record<string, string>> = { desk: 'summary', inbox: 'mail', dead: 'dead letters' }
+const DESK_TAB_LABELS: Readonly<Record<string, string>> = { desk: 'summary', inbox: 'mail', dead: 'dead letters', listeners: 'events' }
 export const deskTabLabel = (id: string): string => DESK_TAB_LABELS[id] ?? id
 
 /** The .cc-tabs strip, identical on both desks: one button per tab with an

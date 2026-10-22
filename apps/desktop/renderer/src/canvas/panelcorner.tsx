@@ -77,7 +77,7 @@ const PANELS: Record<AgentPanelKind, { noun: string; icon: ReactNode }> = {
   'project-slots': { noun: 'slots', icon: <ViewListIcon fontSize="inherit" /> },
   // a project's event listeners (docket slots-tab-header-hold-n-slots-button-with-number,
   // USER 2026-10-20 16:43Z: "add pin pop & modal buttons for this screen")
-  'project-listeners': { noun: 'listeners', icon: <ListenersIcon fontSize="inherit" /> },
+  'project-listeners': { noun: 'events', icon: <ListenersIcon fontSize="inherit" /> },
   'agent-team': { noun: 'team', icon: <ViewListIcon fontSize="inherit" /> },
   'agent-gallery': { noun: 'presented documents', icon: <DocIcon fontSize="inherit" /> },
   'agent-docket': { noun: 'docket', icon: <DocketIcon fontSize="inherit" /> },

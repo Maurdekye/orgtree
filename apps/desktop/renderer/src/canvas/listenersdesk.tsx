@@ -283,7 +283,7 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
   }
   return (
     <div className="desk-tabpanel project-listeners" onScroll={onScroll}>
-      {(live || actions) && <div className="team-tab-toolbar" role="toolbar" aria-label="Listeners view controls">
+      {(live || actions) && <div className="team-tab-toolbar" role="toolbar" aria-label="events view controls">
         {live && <RegisterMenu node={node} state={state} op={op} toast={toast} />}{actions}</div>}
       <div className="listener-fire">
         <input type="text" value={text} disabled={!live || busy}

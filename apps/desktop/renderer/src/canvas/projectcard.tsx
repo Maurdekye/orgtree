@@ -291,8 +291,8 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
                 <ViewListIcon fontSize="inherit" />
               </button>}
             {surfaceRoutes && deskTabs.includes('listeners') &&
-              <button className="mailbtn listenersbtn" aria-label={`listeners of project ${node.id}`}
-                title={`open the event listeners of project ${node.id}: the agents listening for its events`}
+              <button className="mailbtn listenersbtn" aria-label={`events of project ${node.id}`}
+                title={`open the events of project ${node.id}: the agents listening for its events`}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); surfaceRoutes.open('project-listeners', node.id) }}>
                 <ListenersIcon fontSize="inherit" />

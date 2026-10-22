@@ -116,7 +116,7 @@ const row = (el: HTMLElement) => card(el).querySelector<HTMLElement>(':scope > .
 /** each shortcut by what it opens, in row order, read from its accessible name */
 const KINDS: [RegExp, string][] = [[/^Docket for /, 'docket'], [/^mailbox of /, 'mail'],
   [/^presented documents for /, 'presented'], [/^team of /, 'team'], [/^slots of /, 'slots'],
-  [/^listeners of /, 'listeners']]
+  [/^events of /, 'listeners']]
 const shortcuts = (el: HTMLElement): string[] => [...(row(el)?.querySelectorAll('button') ?? [])]
   .map((b) => KINDS.find(([re]) => re.test(b.getAttribute('aria-label') ?? ''))?.[1]
     ?? `unnamed:${b.className}`)

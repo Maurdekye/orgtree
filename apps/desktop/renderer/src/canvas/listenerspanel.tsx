@@ -21,13 +21,13 @@ export function ProjectListenersModal({ slug, nid, map, tree, op, toast, close, 
 }) {
   const node = map.get(nid)
   const on = node?.kind === 'project' && eventListenersOn(node)
-  return <PinFrame kind={instanceKind('project-listeners', nid)} title={`${nid} · listeners`} panel="settings wide" close={close}
-    restore={{ agent: nid, generation: node?.generation }} dialogLabel={`${nid} · listeners`}>
-    <h3 data-copy-agent-name={nid}><ListenersIcon fontSize="inherit" /> {nid} <span className="dim">· listeners</span></h3>
+  return <PinFrame kind={instanceKind('project-listeners', nid)} title={`${nid} · events`} panel="settings wide" close={close}
+    restore={{ agent: nid, generation: node?.generation }} dialogLabel={`${nid} · events`}>
+    <h3 data-copy-agent-name={nid}><ListenersIcon fontSize="inherit" /> {nid} <span className="dim">· events</span></h3>
     {node && on
       ? <ListenersView node={node} dogs={tree.watchdogs ?? []} map={map} onJump={onJump} op={op} toast={toast} refs={refs} />
       : <div className="hint" role="status">{!node ? 'This project is no longer available.'
           : node.kind !== 'project' ? `${nid} is not a project.`
-          : `${nid}'s event listeners are off. An agent turns them on by registering a listener; the user or an agent above the project turns them on in its settings.`}</div>}
+          : `${nid}'s Project Events setting is off. An agent turns them on by registering a listener; the user or an agent above the project turns them on in its settings.`}</div>}
   </PinFrame>
 }

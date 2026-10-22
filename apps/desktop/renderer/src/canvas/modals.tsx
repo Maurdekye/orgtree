@@ -1268,8 +1268,8 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
         <input type="number" aria-label="Concurrency slots" min={0} max={MAX_SLOTS} value={slots} disabled={busy}
           onChange={(e) => setSlotsEdit(Math.max(0, Math.min(MAX_SLOTS, Math.floor(Number(e.target.value)) || 0)))} />
       </SetRow>
-      <SetToggle label="Event listeners" checked={listenersOn} disabled={busy} onChange={setListenersEdit}
-        hint="On: the desk shows the Listeners tab and the project's event can be fired. Any agent above or below the project switches it on by registering a listener; only you or an agent above the project switch it off. Off disables every event listener and listener watch on the project and tells their owners; switching it on again re-arms them." />
+      <SetToggle label="Project Events" checked={listenersOn} disabled={busy} onChange={setListenersEdit}
+        hint="On: the desk shows the events tab and the project's event can be fired. Any agent above or below the project switches it on by registering a listener; only you or an agent above the project switch it off. Off disables every event listener and listener watch on the project and tells their owners; switching it on again re-arms them." />
       {(mode === 'ack' || slots >= 1) && <section className="project-ack-settings" aria-label="Acknowledgement">
         <h4>Acknowledgement</h4>
         {mode === 'ack' && <SetToggle label="Remind an agent that ends its turn with an un-acked job" checked={turnEnd} disabled={busy}
