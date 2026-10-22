@@ -598,6 +598,12 @@ export const releaseKillswitch = (slug: string): Promise<{
   req(`/api/orgs/${slug}/killswitch/release`, { method: 'POST' })
 export const dissolveAll = (slug: string): Promise<{ freed: number; nodes: number }> =>
   req(`/api/orgs/${slug}/dissolve-all`, { method: 'POST' })
+export type DndState = { dnd: boolean; dnd_next_turn: boolean; turn: number | null }
+export const setNodeDnd = (slug: string, nid: string, dnd: boolean): Promise<DndState> =>
+  req(`/api/orgs/${slug}/nodes/${nid}/dnd`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dnd }),
+  })
+
 export const interruptNode = (
   slug: string, nid: string,
 ): Promise<{ interrupted: boolean; reason?: string }> => {

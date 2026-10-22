@@ -2100,7 +2100,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <EffortLevelBadge node={node} effortLevels={MUSE_TIERS.includes(node.tier ?? '')
             ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null, node.account ?? null)
             : tierEffortLevels(slug, node.tier)} />
-          <DndBadge active={node.dnd} />
+          <DndBadge active={node.dnd} nextTurn={node.dnd_next_turn} />
           <SessionZeroBadge node={node} />
           {onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
         </div>

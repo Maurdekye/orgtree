@@ -17,6 +17,7 @@ At ordinary overview zoom, a card has identity, state and shortcut rows. Its tie
 | Queued/waiting state | Waiting for a free turn slot, rather than currently generating. |
 | Compacting | Session compaction is in progress. |
 | Halting/halted badge | A deliberate stop/wake barrier; separate from a usage freeze. |
+| DND / DND next turn | Active Do Not Disturb, or an idle armed next-turn hold. The opening batch is admitted normally before an armed hold activates. Clear it from the desk header, or through self/authorized superior status.dnd; clearing triggers native delivery immediately. The badge itself is display-only. |
 | Frozen badge and countdown | Provider/limit interruption; an inferred marker qualifies the account/tier observation. Read the tooltip's reason. |
 | Done/blocked/idle summary and age | The recorded agent status and time since the last completed turn ended, not an independent verification of its task. See the [desk clock rules](../../desk/agent-desk/SKILL.md#header-controls) for legacy and active references. |
 | Error dot | Last recorded error; hover for the text. |

@@ -5,7 +5,7 @@ import { resizeComposer } from '../composerautosize'
 import { ShellOutputContext, LiveShellOutput } from '../shelloutput'
 import { DeskModelButton } from './deskmodel'
 import { creditSegments } from './creditsegments'
-import { DndBadge, UrgentAgentOptions, type UrgentAgentMail } from './dnd'
+import { DndBadge, DndControl, UrgentAgentOptions, type UrgentAgentMail } from './dnd'
 import { AgentCompactConfirm } from './agentcompact'
 import { historyEnabled, historyUndo } from '../historyregistry'
 import { SystemRuns, transcriptEntries, revealSystemRuns } from '../events/systemruns'
@@ -3863,6 +3863,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             tier={node.tier} />
         </>}
         actions={<>
+            {live && <DndControl key={`dnd:${node.id}:${node.generation}`} slug={slug} nid={node.id}
+              active={node.dnd} nextTurn={node.dnd_next_turn} toast={toast} />}
             {(live || node.halt) && <HaltControl key={node.id} slug={slug} nid={node.id}
               halt={node.halt} toast={toast} />}
             {live && !liveKids &&
@@ -3995,7 +3997,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null,
               node.pending_account?.account ?? node.account ?? null)
             : tierEffortLevels(slug, node.tier)} />}
-        <DndBadge active={node.dnd} />
+        <DndBadge active={node.dnd} nextTurn={node.dnd_next_turn} />
         <SessionZeroBadge node={node} />
         </DeskMetaRow>
         } />

@@ -395,6 +395,7 @@ export interface SessionPlacement {
 export interface TreeNode {
   session_placement?: SessionPlacement | null
   dnd?: boolean
+  dnd_next_turn?: boolean
   peer_mail?: boolean
   /** Foreground projection omits the lineage axis even for live agents. */
   lineage_loaded?: boolean
