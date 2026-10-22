@@ -67,6 +67,14 @@ slotchips.tsx); the two group names follow the user's 2026-10-22 07:38Z ruling.
 
 The metadata row mixes header badges (MCP readiness, cache forecast, audiences, cost, queued-message count and separately reported status) with state badges (halt, freeze/limit, held slots and serving-account/route information). Queued account, model, effort and fast mode state badges describe pending configuration separately. Distinguish current versus “last” route/account evidence.
 
+Audience header badges on agent and project desks show held access. For inherited
+access, the native hover tooltip starts with **Inherited from project <name>**,
+one line per source project, followed by the audience explanation. If the audience
+is also held explicitly, it says **Also held explicitly**. Keyboard focus exposes
+the identical text as an accessible label; it does not open a custom popup.
+Explicit-only header badges keep their existing tooltip. Only an explicit grant
+offers the personal Revoke button; inherited access is managed at its project.
+
 Idle age measures time since the last completed turn ended, including killed turns, across every harness. Open or legacy records without a completion time retain their start-time fallback. Active time measures the current turn's admission; ordinary Antigravity mid-turn hook mail keeps that original active clock. The card and tray use the same idle reference. Halted and usage-freeze clocks retain their own timestamps.
 
 Freeze badges show the recorded cause/deadline/provenance rather than promising a guaranteed wake. The user unstick control is an explicit recovery override. For freeze mechanics see `orgtree-usage-freezes` (orgtree-working › accounts). For cache evidence see `orgtree-cache-continuity` there.

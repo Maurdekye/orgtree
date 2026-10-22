@@ -1877,19 +1877,26 @@ export function HeldAudienceChips({ node, map, slug, toast }: {
   const held = node.audiences_held ?? []
   const heldRet = held.filter((g) => g !== USER && g !== EXTERN
     && map.get(g)?.state !== 'live')
-  const heldChip = (g: string, dim = false) => (
-    <span key={g} className={'badge ' + (g === USER ? 'free aud-user' : dim ? 'dim' : '')}
-      title={[audienceGrantTooltip(g, map.get(g)?.kind),
-        ...(node.audiences_inherited?.filter((a) => a.grantor === g)
-          .map((a) => `Inherited from project ${a.project}`) ?? [])].join('; ')}>
+  const heldChip = (g: string, dim = false) => {
+    const inherited = node.audiences_inherited?.filter((a) => a.grantor === g) ?? []
+    const explicit = (node.audiences_explicit ?? held).includes(g)
+    const title = [...inherited.map((a) => `Inherited from project ${a.project}`),
+      audienceGrantTooltip(g, map.get(g)?.kind),
+      ...(inherited.length && explicit ? ['Also held explicitly'] : [])].join('\n')
+    return <span key={g} className={'badge ' + (g === USER ? 'free aud-user' : dim ? 'dim' : '')}
+      title={title}
+      // Native hover text has no keyboard popup; expose the same first-line
+      // inheritance description on focus (ServingAccountBadge's pattern).
+      tabIndex={inherited.length ? 0 : undefined}
+      aria-label={inherited.length ? title : undefined}>
       <HearingIcon fontSize="inherit" />
       {g === USER ? 'user' : g === EXTERN ? 'org inbox' : g}
-      {(node.audiences_explicit ?? held).includes(g) && <button className="chip-x" title="Revoke"
+      {explicit && <button className="chip-x" title="Revoke"
         onClick={() => audienceAction(slug, 'revoke', node.id, g)
           .then(() => toast([`audience ${node.id}→${g} rescinded`]))
           .catch((e: Error) => toast([`error: ${e.message}`]))}><CloseIcon fontSize="inherit" /></button>}
     </span>
-  )
+  }
   return <>
     {held.filter((g) => !heldRet.includes(g)).map((g) => heldChip(g))}
     <RetiredFold ids={heldRet} render={(g) => heldChip(g, true)} />

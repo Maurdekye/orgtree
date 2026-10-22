@@ -7,6 +7,17 @@ metadata). See the [definitions and renderer member inventory](../skills/orgtree
 The containing agent/zoom card and other actual cards retain their names.
 [decided: user 2026-10-22 07:36Z and 07:38Z]
 
+## Audience header badge inheritance (2026-10-22)
+
+The shared agent/project desk audience header badge leads its native tooltip
+with each inherited project source, before the grant explanation. An additional
+explicit grant is identified below. Inherited badges are keyboard-focusable with
+the identical accessible label, following the serving-account native-tooltip
+pattern; explicit-only badges and revoke eligibility are unchanged. This is
+presentation of existing audience fields, with no new action or engine contract.
+[verified: `canvas/desk.tsx`; decided: user 2026-10-22 07:39Z,
+coordinator 2026-10-22 07:42Z accessibility clarification]
+
 ## Full mail copy failures (2026-10-21)
 
 `resolveFullMailCopyText` rejects unavailable/incomplete bodies and missing
