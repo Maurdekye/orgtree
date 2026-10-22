@@ -76,6 +76,9 @@ if (run.session0 != null) env.ORGTREE_RIG_SESSION0 = String(run.session0)
 if (run.steerLateS) env.ORGTREE_RIG_STEER_LATE_S = String(run.steerLateS)
 // a smaller cap on idle CLI processes (src/runtime/sched.rs `max_parked`)
 if (run.maxParked) env.ORGTREE_RIG_MAX_PARKED = String(run.maxParked)
+// warming, which a safe start holds back: the engine's start and a hire warm
+// CLIs ahead of turns as the product does (src/rig.rs `warms`)
+if (run.warming) env.ORGTREE_RIG_WARMING = '1'
 // the automatic wakes (checkups, idle docket reminders), swept every `reminders` seconds (true: 5)
 if (run.reminders) {
   env.ORGTREE_RIG_REMINDERS = '1'

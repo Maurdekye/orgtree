@@ -375,7 +375,7 @@ const WARM_AT_ONCE: usize = 3;
 
 #[logged]
 fn warming_allowed(engine: &Engine) -> bool {
-    engine.settings.keep_warm() && std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() != Ok("1")
+    engine.settings.keep_warm() && (std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() != Ok("1") || crate::rig::warms())
 }
 
 #[logged]

@@ -176,6 +176,16 @@ pub fn recovers() -> bool {
     active() && std::env::var("ORGTREE_RIG_RECOVER").as_deref() == Ok("1")
 }
 
+/// A rig run that asked for warming (`ORGTREE_RIG_WARMING=1`): the CLIs a
+/// safe start does not start ahead of a turn are warmed as the product warms
+/// them (`runtime::warm_all`, App settings' "keep agent processes warm"), so
+/// a proof can see where they start. Only fake CLIs run in rig mode. False
+/// outside rig mode.
+#[nolog]
+pub fn warms() -> bool {
+    active() && std::env::var("ORGTREE_RIG_WARMING").as_deref() == Ok("1")
+}
+
 /// A rig run that asked for the automatic wakes (`ORGTREE_RIG_REMINDERS=1`):
 /// the reminder sweep a safe start holds back (working checkups, idle docket
 /// reminders, abandoned docket recovery) runs, every

@@ -61,6 +61,7 @@ async function up(flags) {
     session0: flags.session0 == null ? null : String(flags.session0),
     steerLateS: flags.steerLateS && Number(flags.steerLateS),
     maxParked: flags.maxParked && Number(flags.maxParked),
+    warming: !!flags.warming,
     fsync: !!flags.fsync })
   let made = null
   if (flags.fixture !== 'none') {

@@ -804,6 +804,8 @@ export async function startRun(opts = {}) {
       steerLateS: opts.steerLateS || null,
       // the cap on idle CLI processes (the engine's is 64)
       maxParked: opts.maxParked || null,
+      // CLIs warmed ahead of turns as the product warms them, which a safe start does not (`up --warming`)
+      warming: !!opts.warming,
     })
     touch(dir)
     await launchKeeper(dir, opts.timeout)
