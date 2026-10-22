@@ -51,6 +51,15 @@ scratch behavior, not a live/deployment claim. Live data was not changed.
 
 ## Caller policy (2026-10-22)
 
+Project mirror settlement reads live org rows once, then aggregates projects
+bottom-up with an explicit ready stack. An actual agent stops that frontier;
+its seat plus grant is counted, never its descendants again. Stale project
+mirror values are ignored. Exact decimal totals update changed project rows
+in one batch within the existing operation transaction. Project cycles refuse
+before updates. There is no fixed nesting cutoff or per-project descendant
+scan. This changes neither cascade admission nor the acting agent's allocation
+boundary. [verified: `domain/projects{,/credit_settlement}.rs`, 2026-10-22]
+
 The cascade switch is no longer an org setting. `ops.rs::ensure_room` forces
 the cascade for `Actor::Agent` (the agent's own allocation stays the floor and
 the top-level cap, project transparency and plan-before-write are unchanged);

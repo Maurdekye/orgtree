@@ -31,6 +31,7 @@ use crate::domain::user_regs::USER;
 
 #[cfg(test)]
 mod claim_boundary_tests;
+mod credit_settlement;
 
 /// `ot.agents.kind` of a project node.
 pub const KIND: &str = "project";
@@ -622,31 +623,23 @@ pub async fn waiting(client: &impl GenericClient, project: i64, limit: i64) -> R
 /// stakes and the project never has credits of its own. Called at the end
 /// of every tree operation, inside its transaction. Sum the first live agent
 /// frontier through live projects, never their possibly stale mirror grants.
-/// This settles all supported depths in one statement. Returns the projects
+/// One active-row read, iterative aggregation and one batched update. Returns the projects
 /// whose grant moved and their parents (whose free credits moved with them).
 #[logged]
 pub async fn settle_credits(tx: &impl GenericClient, org_id: i64) -> Result<Vec<i64>> {
+    let live = tx.query(
+        "SELECT id,parent_id,kind='project',seat+grant_credits FROM ot.agents
+          WHERE org_id=$1 AND state='live' ORDER BY id", &[&org_id]).await?;
+    let totals = credit_settlement::totals(live.iter().map(|r| (r.get(0),r.get(1),r.get(2),r.get(3))).collect())?;
+    if totals.is_empty() { return Ok(Vec::new()); }
+    let (ids, stakes): (Vec<_>, Vec<_>) = totals.into_iter().unzip();
+    let rows = tx.query(
+        "UPDATE ot.agents a SET grant_credits=held.stake,seat=0,row_version=a.row_version+1
+           FROM unnest($1::bigint[],$2::numeric[]) AS held(id,stake)
+          WHERE a.id=held.id AND a.org_id=$3 AND a.state='live'
+            AND (a.grant_credits<>held.stake OR a.seat<>0)
+          RETURNING a.id,a.parent_id", &[&ids,&stakes,&org_id]).await?;
     let mut changed = Vec::new();
-    let rows = tx
-            .query(
-                "WITH RECURSIVE frontier(root,id,kind,stake,depth) AS (
-                   SELECT p.id,c.id,c.kind,c.seat+c.grant_credits,1 FROM ot.agents p
-                     JOIN ot.agents c ON c.parent_id=p.id AND c.org_id=$1 AND c.state='live'
-                    WHERE p.org_id=$1 AND p.kind='project' AND p.state='live'
-                   UNION ALL
-                   SELECT f.root,c.id,c.kind,c.seat+c.grant_credits,f.depth+1
-                     FROM frontier f JOIN ot.agents c ON c.parent_id=f.id
-                    WHERE f.kind='project' AND f.depth<1024 AND c.org_id=$1 AND c.state='live'),
-                 held AS (
-                   SELECT p.id,coalesce(sum(f.stake) FILTER (WHERE f.kind='agent'),0) AS stake
-                     FROM ot.agents p LEFT JOIN frontier f ON f.root=p.id
-                    WHERE p.org_id=$1 AND p.kind='project' AND p.state='live' GROUP BY p.id)
-                 UPDATE ot.agents a SET grant_credits = held.stake, seat = 0, row_version = a.row_version + 1
-                   FROM held WHERE a.id = held.id AND (a.grant_credits <> held.stake OR a.seat <> 0)
-                 RETURNING a.id, a.parent_id",
-                &[&org_id],
-            )
-            .await?;
     for r in &rows {
         changed.push(r.get::<_, i64>(0));
         changed.extend(r.get::<_, Option<i64>>(1));

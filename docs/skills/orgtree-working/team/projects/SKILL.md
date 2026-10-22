@@ -18,6 +18,11 @@ The user, every agent **above** the project and every agent **below** it reach i
 
 ## Reporting and credits
 
+Credit transparency follows every nested project level. Each project's mirror
+counts the first live agents below it through live projects, with exact credit
+amounts; an actual agent starts its own allocation boundary. Invalid project
+cycles refuse settlement rather than applying a partial ledger.
+
 The above/below reach check follows all nested project levels, without a fixed
 depth cutoff. Unrelated branches and the project itself do not gain reach.
 
