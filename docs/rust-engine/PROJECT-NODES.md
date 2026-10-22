@@ -52,6 +52,17 @@ quantities; the legacy private `slot_no` is only a lease anchor. Held/total
 badges sum quantities, and the Slots table shows each lease/claim's count.
 [user/coordinator 2026-10-19; proof: `project-multi-slots.mjs`]
 
+An immediately ready one-shot returns its structured quantity, durable lease
+and full fire inline, without a watchdog row, separate fire mail or holder
+wake (USER 2026-10-21 18:05:58Z). The multi-slot proof checks those effects
+against stored lease identity and watchdog/mail/turn snapshots, rather than
+the retired "claimed N" result prose. A separate blocked two-slot claim
+registers normally; releasing its blocker grants it once, with one spent dog
+and one notification naming both units and the lease. All 23 historical names
+and the main quantity/FIFO/restart/release/reclaim controls remain.
+[verified: `runtime/watchdogs/immediate.rs`, `tools/rig/proofs/project-multi-slots.mjs`;
+2026-10-22]
+
 Every node in the org hierarchy is an agent, so a project's shared files, mail and documents
 always belong to one particular agent. A **project node** is a non-agent node in the tree that
 stands for one project: it has its own folder, mailbox and presentations, it runs no turns, and

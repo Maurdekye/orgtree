@@ -34,10 +34,25 @@ export default async function (rig) {
   p.check('omitted slots keeps one-slot behavior and projects count one', one.ok && oneStatus?.held === 1 && oneStatus.holders[0]?.slots === 1 && held()[0]?.slots === 1, oneStatus)
   await release('v')
 
+  const activity = who => rig.one(`SELECT
+    (SELECT count(*) FROM ot.watchdogs WHERE owner_agent_id=a.id) AS dogs,
+    (SELECT count(*) FROM ot.mail WHERE recipient_agent_id=a.id) AS mails,
+    (SELECT count(*) FROM ot.turns WHERE agent_id=a.id) AS turns
+    FROM ot.agents a WHERE a.org_id=(SELECT id FROM ot.orgs WHERE slug='${rig.org}') AND a.name='${who}'`)
+  const inlineBefore = activity('a')
   const ca = await claim('a', 2)
   const first = await status()
   p.check('two slots are one lease and one holder', ca.ok && first?.held === 2 && first.holders.length === 1 && first.holders[0].slots === 2 && held().length === 1 && held()[0].slots === 2, { first, rows: held() })
-  p.check('grant result states the quantity', /claimed 2 concurrency slots/.test(ca.text), ca.text)
+  // USER 2026-10-21 18:05:58Z: ready one-shots return the full fire and
+  // durable lease inline, without a watchdog, separate mail or holder wake.
+  const inlineAfter = activity('a')
+  p.check('grant result states the quantity', ca.ok && ca.json?.slots === 2 && ca.json?.resolved === true
+    && ca.json?.registered === false && ca.json?.once === true && typeof ca.json?.lease === 'string'
+    && ca.json.lease === first?.holders?.[0]?.lease && ca.json.lease === held()[0]?.uid
+    && /You now hold 2 concurrency slots/.test(ca.json?.fire?.body ?? '')
+    && Array.isArray(ca.json.fire.events) && ca.json.fire.events.length === 1 && ca.json.fire.events[0].includes(ca.json.lease)
+    && JSON.stringify(inlineBefore) === JSON.stringify(inlineAfter),
+    { result: ca.json, inlineBefore, inlineAfter, holder: first?.holders?.[0] })
   const cb = await claim('b', 2)
   const cc = await claim('c', 1)
   const queued = await status()
@@ -47,7 +62,34 @@ export default async function (rig) {
   p.check('watchdog list preserves requested count and position', list.json?.watchdogs?.some(w => w.kind === 'slot' && w.slots === 2 && w.line_position === 1), list.json)
   await settle()
   const grantMails = rig.sql("SELECT body FROM ot.mail WHERE recipient_name='a' AND body LIKE '%SLOT GRANTED%'")
-  p.check('one grant notification names both slots', grantMails.length === 1 && /2 concurrency slots/.test(grantMails[0].body), grantMails)
+  // Keep the notification/once-delivery proof meaningful: this independent
+  // project has a real queued watchdog, unlike a's immediately ready claim.
+  await rig.op({ op: 'create_project', name: 'grant-proof', parent: 'v' })
+  await rig.op({ op: 'set_slots', node: 'grant-proof', capacity: 2 })
+  const blocker = await rig.tool('boss', 'orgtree_watchdog', { action: 'create', name: 'mail-blocker', kind: 'slot', target: 'grant-proof', slots: 2 })
+  const queuedGrant = await rig.tool('v', 'orgtree_watchdog', { action: 'create', name: 'mail-two', kind: 'slot', target: 'grant-proof', slots: 2 })
+  const queuedStatus = (await rig.tool('boss', 'orgtree_project', { action: 'slots', name: 'grant-proof' })).json
+  const unblocked = await rig.tool('boss', 'orgtree_project', { action: 'release_slot', lease: blocker.json?.lease })
+  await settle()
+  const grantedStatus = (await rig.tool('boss', 'orgtree_project', { action: 'slots', name: 'grant-proof' })).json
+  const grantMailRows = () => rig.sql("SELECT uid,body FROM ot.mail WHERE recipient_name='v' AND sender='mail-two' AND body LIKE '%SLOT GRANTED%'")
+  const queuedMails = grantMailRows()
+  const grantDog = rig.one("SELECT state,fired FROM ot.watchdogs WHERE name='mail-two' AND owner_agent_id=(SELECT id FROM ot.agents WHERE name='v' AND org_id=(SELECT id FROM ot.orgs WHERE slug='" + rig.org + "'))")
+  const queuedLease = grantedStatus?.holders?.[0]?.lease
+  const releasedNotification = await rig.tool('v', 'orgtree_project', { action: 'release_slot', lease: queuedLease })
+  await settle()
+  const onceMails = grantMailRows()
+  const inlineSettled = activity('a')
+  p.check('one grant notification names both slots', grantMails.length === 0
+    && JSON.stringify(inlineBefore) === JSON.stringify(inlineSettled)
+    && blocker.ok && blocker.json?.registered === false && queuedGrant.ok && unblocked.ok
+    && queuedStatus?.line?.length === 1 && queuedStatus.line[0].agent === 'v' && queuedStatus.line[0].slots === 2
+    && grantedStatus?.held === 2 && grantedStatus.holders.length === 1 && grantedStatus.holders[0].slots === 2
+    && grantDog?.state === 'spent' && grantDog.fired === 1 && queuedMails.length === 1
+    && /2 concurrency slots/.test(queuedMails[0].body) && typeof queuedLease === 'string' && queuedMails[0].body.includes(queuedLease)
+    && releasedNotification.ok && releasedNotification.json?.slots === 2
+    && onceMails.length === 1 && onceMails[0].uid === queuedMails[0].uid,
+    { grantMails, inlineBefore, inlineSettled, queuedStatus, grantedStatus, queuedMails, grantDog, released: releasedNotification.json, onceMails })
   await rig.restart()
   await settle()
   const restored = await status()

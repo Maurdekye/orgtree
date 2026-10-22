@@ -8,6 +8,17 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- Multi-slot proofs keep all 23 names and the 21 other controls. An inline
+  two-slot result must return `slots:2`, the stored lease identity and one
+  complete fire, with no watchdog/mail/turn-count increase, including after
+  settling. Test grant-mail quantity and once-delivery on a separate queued
+  two-slot claim: one registered/spent dog, one fire, one mail naming its
+  lease, still one after release. Keep the main FIFO, restart, concurrent
+  admission and whole-lease release/reclaim scenario unchanged. See
+  [multi-slot semantics](../rust-engine/PROJECT-NODES.md#placement-and-runtime-capabilities).
+  [verified: `tools/rig/proofs/project-multi-slots.mjs`; USER 2026-10-21
+  18:05:58Z inline contract; 2026-10-22]
+
 - Project-history keeps its 35 historical check names. Durable events capture
   history time before delivery; require exact wait starts from each dog's prior
   `last_fired`, with capture time no later than delivery. Listener watches still
