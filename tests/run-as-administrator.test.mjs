@@ -101,8 +101,11 @@ test('the launcher asks Windows (UAC) to run exactly that script and maps a decl
   assert.match(launcher, /NativeErrorCode -eq 1223\) \{ exit 1223 \}/)
 })
 
+const REPORT = { hive: 'LocalMachine', key: 'SOFTWARE\\Orgtree\\Runtime', nonce: '0123456789abcdef0123456789abcdef' }
+
 test('both PowerShell scripts parse', { skip: !windows && 'UNEXECUTED: needs Windows PowerShell' }, () => {
-  for (const script of [admin.elevatedWriteScript(true), admin.elevationArgs(false)[3]]) {
+  for (const script of [admin.elevatedWriteScript(true), admin.elevationArgs(false)[3],
+    admin.elevatedWriteScript(true, REPORT), admin.elevatedWriteScript(false, REPORT), admin.elevationArgs(true, REPORT)[3]]) {
     const check = `$e = $null; [void][Management.Automation.Language.Parser]::ParseInput([Console]::In.ReadToEnd(), [ref]$null, [ref]$e); if ($e) { $e | % { $_.Message }; exit 1 }`
     execFileSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', check], { input: script, windowsHide: true })
   }
@@ -119,6 +122,32 @@ test('writing: declined, failed and misread changes all throw; a confirmed one r
   const ok = fakeRunner({ code: 0, stdout: '', stderr: '' }, { code: 0, stdout: regOutput('REG_DWORD', '0x1'), stderr: '' })
   await admin.writeRunAsAdministrator(true, ok.runner)
   assert.equal(ok.calls[1].file, 'reg')
+})
+
+test('a failed change says what the elevated script said, else its exit code', async () => {
+  // alpha.34 said only "Changing the setting failed (exit code 1)." (the user, 2026-10-22 13:00Z)
+  const said = 'Task operator does not match the installation: Orgtree Background Engine'
+  const failed = fakeRunner({ code: 1, stdout: `noise\r\n${admin.FAILURE_MARKER}${Buffer.from(said, 'utf8').toString('base64')}\r\n`, stderr: '' })
+  await assert.rejects(admin.writeRunAsAdministrator(true, failed.runner), { message: `Changing the setting failed: ${said}.` })
+  assert.equal(failed.calls.length, 1, 'nothing is read back after a failed change')
+  await assert.rejects(admin.writeRunAsAdministrator(true, fakeRunner({ code: 1, stdout: '', stderr: '' }).runner),
+    { message: 'Changing the setting failed (exit code 1).' })
+  // every change reads its own report back: the protected Runtime key, under a
+  // fresh nonce that its elevated script reports with
+  const nonces = []
+  for (const enabled of [true, false]) {
+    const r = fakeRunner({ code: 1, stdout: '', stderr: '' })
+    await assert.rejects(admin.writeRunAsAdministrator(enabled, r.runner))
+    const launcher = r.calls[0].args[3]
+    assert.match(launcher, /OpenBaseKey\('LocalMachine', 'Registry64'\)/)
+    assert.ok(launcher.includes("OpenSubKey('SOFTWARE\\Orgtree\\Runtime')"), 'the launcher reads the protected Runtime key')
+    const nonce = /StartsWith\('([0-9a-f]{32}) '/.exec(launcher)?.[1]
+    assert.ok(nonce, 'the launcher looks for a nonce of its own')
+    const script = Buffer.from(/'-EncodedCommand','([^']+)'/.exec(launcher)[1], 'base64').toString('utf16le')
+    assert.ok(script.includes(`'${nonce} '`), 'the elevated script reports under the same nonce')
+    nonces.push(nonce)
+  }
+  assert.notEqual(nonces[0], nonces[1], 'every change has its own nonce')
 })
 
 test('the background engine restarts through its own task', async () => {

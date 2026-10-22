@@ -250,7 +250,9 @@ test('§8c the same stable version is up to date, not offered again', async () =
 
 test('§8d the app never switches downgrades on (no channel or allowDowngrade is set)', () => {
   const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
-  assert.doesNotMatch(main, /allowDowngrade/)
+  const setsDowngrade = /allowDowngrade/
+  assert.match('autoUpdater.allowDowngrade = true', setsDowngrade, 'the guard fires on the call it exists to catch')
+  assert.doesNotMatch(main, setsDowngrade)
   assert.doesNotMatch(main, /autoUpdater\.channel\s*=/)
   const { AppUpdater } = require_('electron-updater')
   assert.equal(Object.getOwnPropertyDescriptor(AppUpdater.prototype, 'channel')?.set !== undefined, true,

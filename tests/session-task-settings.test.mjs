@@ -25,14 +25,17 @@ $values=@{Id='fixture';OperatorSid=$sid;RunAsAdministrator=0;RunOnStartup=0}
 $store=@{}
 foreach($name in @('Orgtree Background Engine','Orgtree Credential Helper','Orgtree User Session Engine')) {
   $marker=switch($name) {'Orgtree Background Engine' {'boot'} 'Orgtree Credential Helper' {'credential-helper'} default {'user-session'}}
-  $store[$name]=@{Marker="com.maurdekye.orgtree.$marker.v1:fixture";Level=0;Trigger=$false;Enabled=$true;Logon=3}
+  $store[$name]=@{Marker="com.maurdekye.orgtree.$marker.v1:fixture";Level=0;Trigger=$false;Enabled=$true;Logon=3;User=$null;XmlUser=$null}
 }
 $store['Orgtree Background Engine'].Logon=2
+# User: the COM principal's UserId (the operator's SID unless set); XmlUser: a
+# <Principals> UserId in the task XML (none unless set)
 function Task([string]$Name) {
  $s=$store[$Name]
- $xml="<Task><RegistrationInfo><Description>$($s.Marker)</Description></RegistrationInfo><Level>$($s.Level)</Level><Trigger>$($s.Trigger)</Trigger><Enabled>$($s.Enabled)</Enabled><Logon>$($s.Logon)</Logon></Task>"
+ $principal=if($s.XmlUser){"<Principals><Principal><UserId>$($s.XmlUser)</UserId></Principal></Principals>"}else{''}
+ $xml="<Task><RegistrationInfo><Description>$($s.Marker)</Description></RegistrationInfo>$principal<Level>$($s.Level)</Level><Trigger>$($s.Trigger)</Trigger><Enabled>$($s.Enabled)</Enabled><Logon>$($s.Logon)</Logon></Task>"
  return [pscustomobject]@{Xml=$xml;Enabled=$s.Enabled;Definition=[pscustomobject]@{
-  Principal=[pscustomobject]@{UserId=$sid;LogonType=$s.Logon;RunLevel=$s.Level}
+  Principal=[pscustomobject]@{UserId=$(if($null -ne $s.User){$s.User}else{$sid});LogonType=$s.Logon;RunLevel=$s.Level}
   Settings=[pscustomobject]@{Enabled=$s.Enabled};Triggers=@([pscustomobject]@{Enabled=$s.Trigger})}}
 }
 $folder=[pscustomobject]@{}
@@ -49,7 +52,7 @@ $folder | Add-Member ScriptMethod RegisterTaskDefinition {
 }
 $folder | Add-Member ScriptMethod RegisterTask {
  param($name,$xml,$flags,$operator,$password,$logon,$acl)
- $events.Add("restore:$name");$d=([xml]$xml).Task
+ $events.Add("restore:$name");if($failRestore) {throw 'injected restore failure'};$d=([xml]$xml).Task
  $store[$name].Level=[int]$d.Level;$store[$name].Trigger=[bool]::Parse($d.Trigger)
  $store[$name].Enabled=[bool]::Parse($d.Enabled);$store[$name].Logon=[int]$d.Logon
 }
@@ -60,6 +63,7 @@ function New-Object {param([string]$ComObject) if($ComObject -cne 'Schedule.Serv
 $key=[pscustomobject]@{}
 $key | Add-Member ScriptMethod GetValue {param($name) return $values[$name]}
 $key | Add-Member ScriptMethod SetValue {param($name,$value,$kind) if($failWrite) {throw 'injected registry failure'};$events.Add("write:$name");$values[$name]=$value}
+$key | Add-Member ScriptMethod DeleteValue {param($name,$throwIfMissing) $events.Add("delete:$name");$values.Remove($name)}
 $key | Add-Member ScriptMethod SetAccessControl {param($acl)}
 $key | Add-Member ScriptMethod Dispose {}
 $fakeHive=[pscustomobject]@{}
@@ -78,6 +82,26 @@ function execute(script, setup='') {
   const line=r.stdout.split(/\r?\n/).findLast(l=>l.startsWith('{"failure"'))
   assert.ok(line, r.stdout+'\n'+r.stderr)
   return JSON.parse(line)
+}
+/** The NON-elevated launcher with its elevated start and its registry
+ *  replaced: the elevated script "exits" with `code`, having left `planted`
+ *  (or nothing) as the report value. */
+function launch(report, code, planted) {
+  const launcher = admin.elevatedArgs('Write-Output elevated', report)[3]
+  const safe = launcher.replace(/\$p = Start-Process [^\n]*/, `$p = [pscustomobject]@{ExitCode=${code}}`)
+    .replace(/\[Microsoft\.Win32\.RegistryKey\]::OpenBaseKey\('[^']+', 'Registry64'\)/g, '$fakeHive')
+  assert.doesNotMatch(safe, /Start-Process|::OpenBaseKey/)
+  const prelude = [
+    `$planted=${planted == null ? '$null' : `'${planted.replace(/'/g, "''")}'`}`,
+    '$reportKey=[pscustomobject]@{}',
+    "$reportKey | Add-Member ScriptMethod GetValue {param($name) if($name -ceq 'LastChangeFailure') {return $planted}}",
+    '$reportKey | Add-Member ScriptMethod Dispose {}',
+    '$fakeHive=[pscustomobject]@{}',
+    `$fakeHive | Add-Member ScriptMethod OpenSubKey {param($name) if($name -ceq '${report.key}') {return $reportKey}}`,
+    '$fakeHive | Add-Member ScriptMethod Dispose {}',
+  ].join('\n')
+  const r=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(prelude+'\n'+safe,'utf16le').toString('base64')],{encoding:'utf8',windowsHide:true})
+  return {status:r.status, reason:admin.elevatedFailure(r.stdout), output:r.stdout+r.stderr}
 }
 // Decision 94 retires the "Orgtree User Session Engine" task: the next update
 // deletes it. A leftover one (this fixture's third task) is never changed here.
@@ -149,5 +173,100 @@ test('failed startup changes restore prior triggers and never rewrite the stored
     assert.match(r.failure,/injected/)
     assert.equal(r.values.RunOnStartup,0)
     for(const name of [startup.BOOT_TASK, startup.HELPER_TASK]) assert.equal(r.tasks[name].Trigger,false,name)
+  }
+})
+// The installer registers its tasks by SID, and Task Scheduler's COM principal
+// can name the account instead: on alpha.34 both tasks read UserId '<account
+// name>' while their XML held the SID (measured read-only on the user's PC,
+// 2026-10-22 13:10Z), so the raw comparison refused the installer's own tasks
+// ("Changing the setting failed (exit code 1)"). These cases resolve the
+// account that runs the test, through Windows.
+const ACCOUNT='$me=[Security.Principal.WindowsIdentity]::GetCurrent();$sid=$me.User.Value;$values.OperatorSid=$sid'
+test('the installer\'s tasks match by SID when Task Scheduler gives their account name',()=>{
+  for(const user of ['$me.Name.Split([char]92)[-1]','$me.Name','$sid']) {
+    const setup=`${ACCOUNT};$store.Values | ForEach-Object {$_.User=${user}}`
+    for(const on of [true,false]) {
+      const r=execute(admin.elevatedWriteScript(on),setup)
+      assert.equal(r.failure,null,`Run as admin ${on}, principal ${user}`)
+      for(const name of [admin.BOOT_TASK, admin.HELPER_TASK]) assert.equal(r.tasks[name].Level,Number(on),name)
+      assert.equal(r.values.RunAsAdministrator,Number(on))
+      const s=execute(startup.elevatedStartupScript(on),setup)
+      assert.equal(s.failure,null,`Run on boot ${on}, principal ${user}`)
+      for(const name of [startup.BOOT_TASK, startup.HELPER_TASK]) assert.equal(s.tasks[name].Trigger,on,name)
+      assert.equal(s.values.RunOnStartup,Number(on))
+    }
+  }
+})
+test('a principal of another account or of none, or a record without an operator, refuses before any change',()=>{
+  const scripts=[admin.elevatedWriteScript(true),admin.elevatedWriteScript(false),startup.elevatedStartupScript(true)]
+  for(const user of ["'SYSTEM'","'S-1-5-18'","'no-such-account-7f3a9c'","''"]) for(const script of scripts) {
+    const r=execute(script,`$store.Values | ForEach-Object {$_.User=${user}}`)
+    assert.match(r.failure ?? '',/operator does not match/,user)
+    assert.deepEqual(r.events,[],`${user}: nothing changed`)
+  }
+  // an empty principal never matches a record that names no operator
+  for(const script of scripts) {
+    const r=execute(script,"$values.Remove('OperatorSid');$store.Values | ForEach-Object {$_.User=''}")
+    assert.match(r.failure ?? '',/operator does not match/)
+    assert.deepEqual(r.events,[])
+  }
+})
+test('the XML principal, which the installer registered and checks, comes before the COM name',()=>{
+  // its SID decides even when the COM side names no account Windows knows
+  const xmlSid="$store.Values | ForEach-Object {$_.XmlUser=$sid;$_.User='no-such-account-7f3a9c'}"
+  const r=execute(admin.elevatedWriteScript(true),xmlSid)
+  assert.equal(r.failure,null)
+  assert.equal(r.values.RunAsAdministrator,1)
+  assert.equal(execute(startup.elevatedStartupScript(false),xmlSid).failure,null)
+  // and an XML principal of another account refuses, whatever the COM side says
+  for(const script of [admin.elevatedWriteScript(true),startup.elevatedStartupScript(true)]) {
+    const other=execute(script,"$store.Values | ForEach-Object {$_.XmlUser='S-1-5-18'}")
+    assert.match(other.failure ?? '',/operator does not match/)
+    assert.deepEqual(other.events,[])
+  }
+})
+// A failure's own words (alpha.34 showed only "exit code 1"): the elevated
+// script leaves them in the protected Runtime key under this change's nonce,
+// and the launcher reads them back once the elevated PowerShell has exited.
+const REPORT={hive:'LocalMachine',key:'SOFTWARE\\Orgtree\\Runtime',nonce:'0123456789abcdef0123456789abcdef'}
+test('a refused change leaves its message under this change\'s nonce, and writes nothing else',()=>{
+  for(const script of [admin.elevatedWriteScript(true,REPORT),admin.elevatedWriteScript(false,REPORT),startup.elevatedStartupScript(true,startup.INSTALLED,REPORT)]) {
+    const r=execute(script,"$store['Orgtree Credential Helper'].Marker='foreign'")
+    assert.match(r.failure,/Refusing to change/)
+    assert.equal(r.values.LastChangeFailure,`${REPORT.nonce} Refusing to change a task Orgtree did not install: Orgtree Credential Helper`)
+    assert.deepEqual(r.events,['write:LastChangeFailure'],'the message is the only write')
+  }
+})
+test('a failed change also reports what its rollback could not restore',()=>{
+  const r=execute(admin.elevatedWriteScript(true,REPORT),'$failSecond=$true;$failRestore=$true')
+  assert.match(r.failure,/injected task failure/)
+  // PowerShell words a failing method as 'Exception calling "<method>" with
+  // "7" argument(s): "<its message>"', a real COM failure too
+  assert.match(r.values.LastChangeFailure ?? '',new RegExp(`^${REPORT.nonce} .*"injected task failure"; the task Orgtree (Background Engine|Credential Helper) could not be restored: .*"injected restore failure"$`))
+  assert.equal(r.values.RunAsAdministrator,0)
+})
+test('a change that succeeds clears an earlier failure message',()=>{
+  for(const script of [admin.elevatedWriteScript(true,REPORT),startup.elevatedStartupScript(true,startup.INSTALLED,REPORT)]) {
+    const r=execute(script,"$values.LastChangeFailure='fedcba earlier failure'")
+    assert.equal(r.failure,null)
+    assert.equal(r.values.LastChangeFailure,undefined)
+    assert.ok(r.events.includes('delete:LastChangeFailure'),r.events.join())
+  }
+})
+test('the launcher passes back only this change\'s message, and keeps the exit code',()=>{
+  const said='Zugriff verweigert — ü (0x80070005)'
+  const failed=launch(REPORT,1,`${REPORT.nonce} ${said}`)
+  assert.equal(failed.status,1)
+  assert.equal(failed.reason,said,failed.output)
+  assert.equal(launch(REPORT,1,`fedcba9876543210fedcba9876543210 ${said}`).reason,null,'an earlier change\'s message')
+  assert.equal(launch(REPORT,1,null).reason,null,'none left')
+  const done=launch(REPORT,0,`${REPORT.nonce} ${said}`)
+  assert.equal(done.status,0)
+  assert.equal(done.reason,null,'a change that succeeded shows no failure')
+})
+test('the elevated script and the launcher agree: a refused change shows its own reason',()=>{
+  for(const script of [admin.elevatedWriteScript(true,REPORT),startup.elevatedStartupScript(false,startup.INSTALLED,REPORT)]) {
+    const r=execute(script,"$store['Orgtree Background Engine'].Marker='foreign'")
+    assert.equal(launch(REPORT,1,r.values.LastChangeFailure).reason,'Refusing to change a task Orgtree did not install: Orgtree Background Engine')
   }
 })

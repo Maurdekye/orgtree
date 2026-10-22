@@ -1,4 +1,5 @@
-import { HELPER_TASK, POWERSHELL, UAC_CANCELLED, elevatedArgs, run, startTask, type Runner } from './runasadmin'
+import { HELPER_TASK, POWERSHELL, RUN_AS_ADMIN_KEY, UAC_CANCELLED, elevatedArgs, elevatedFailureMessage, failureReport, run, startTask,
+  type FailureReport, type Runner } from './runasadmin'
 
 /** "Run on boot" on an all-users Windows installation (docket
  *  option-to-run-the-background-engine-in-the-user-s; the user, 2026-10-16
@@ -35,9 +36,11 @@ export { HELPER_TASK }
 
 /** Where the tasks and the installer's record are. Only tests name another
  *  (throwaway tasks and an HKCU key), so the scripts can be measured without
- *  touching a real installation or needing administrator rights. */
-export interface StartupTarget { hive: 'LocalMachine' | 'CurrentUser'; key: string; boot: string; helper: string }
-export const INSTALLED: StartupTarget = { hive: 'LocalMachine', key: 'SOFTWARE\\Orgtree\\BootEngine', boot: BOOT_TASK, helper: HELPER_TASK }
+ *  touching a real installation or needing administrator rights. `report`
+ *  (in `hive`) is where the elevated script leaves a failure message for the
+ *  launcher; without it, a failure shows its exit code only. */
+export interface StartupTarget { hive: 'LocalMachine' | 'CurrentUser'; key: string; boot: string; helper: string; report?: string }
+export const INSTALLED: StartupTarget = { hive: 'LocalMachine', key: 'SOFTWARE\\Orgtree\\BootEngine', boot: BOOT_TASK, helper: HELPER_TASK, report: RUN_AS_ADMIN_KEY }
 
 /** Each task's state: true enabled, false disabled, null not installed. */
 export interface StartupTasks { boot: boolean | null; helper: boolean | null }
@@ -89,7 +92,7 @@ export async function readStartupTasks(runner: Runner = run, target: StartupTarg
  *  (their description carries the installer record's id) are switched, and
  *  the choice is recorded where the next update reads it. A task is never
  *  stopped or deleted here: one that is running keeps running. */
-export function elevatedStartupScript(enabled: boolean, target: StartupTarget = INSTALLED): string {
+export function elevatedStartupScript(enabled: boolean, target: StartupTarget = INSTALLED, report?: FailureReport): string {
   const flag = enabled ? '$true' : '$false'
   return [
     "$ErrorActionPreference = 'Stop'",
@@ -140,11 +143,12 @@ export function elevatedStartupScript(enabled: boolean, target: StartupTarget = 
  *  nothing changed, when permission is declined or the change does not read
  *  back. */
 export async function writeRunOnStartup(enabled: boolean, runner: Runner = run, target: StartupTarget = INSTALLED): Promise<void> {
+  const report = target.report ? failureReport(target.hive, target.report) : undefined
   // The user may take a while at the prompt.
-  const result = await runner(POWERSHELL, elevatedArgs(elevatedStartupScript(enabled, target)), 5 * 60_000)
+  const result = await runner(POWERSHELL, elevatedArgs(elevatedStartupScript(enabled, target, report), report), 5 * 60_000)
   const unchanged = enabled ? 'Orgtree still does not run on boot' : 'Orgtree still runs on boot'
   if (result.code === UAC_CANCELLED) throw new Error(`Windows did not give permission, so ${unchanged}.`)
-  if (result.code !== 0) throw new Error(`Changing "run on boot" failed (exit code ${result.code}).`)
+  if (result.code !== 0) throw new Error(elevatedFailureMessage('Changing "run on boot" failed', result))
   const after = await readStartupTasks(runner, target)
   if (!after || after.boot !== enabled || (after.helper !== null && after.helper !== enabled)) {
     throw new Error('The change was made but reads back differently; Orgtree may still start as before.')

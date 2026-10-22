@@ -122,6 +122,19 @@ test('a change asks Windows for permission, says what still holds when declined,
   }
 })
 
+test('a failed change says what the elevated script said, read back from the protected Runtime key', async () => {
+  const said = 'Refusing to change a task Orgtree did not install: Orgtree Credential Helper'
+  const failed = fakeRunner({ code: 1, stdout: admin.FAILURE_MARKER + Buffer.from(said, 'utf8').toString('base64') + '\r\n', stderr: '' })
+  await assert.rejects(startup.writeRunOnStartup(true, failed.runner), { message: `Changing "run on boot" failed: ${said}.` })
+  assert.equal(failed.calls.length, 1, 'nothing is read back after a failed change')
+  const launcher = failed.calls[0].args[3]
+  assert.ok(launcher.includes("OpenSubKey('SOFTWARE\\Orgtree\\Runtime')"), 'the report is the protected Runtime key, not the installer record')
+  const nonce = /StartsWith\('([0-9a-f]{32}) '/.exec(launcher)?.[1]
+  assert.ok(nonce)
+  const script = Buffer.from(/'-EncodedCommand','([^']+)'/.exec(launcher)[1], 'base64').toString('utf16le')
+  assert.ok(script.includes(`'${nonce} '`), 'the elevated script reports under the same nonce')
+})
+
 test('the engine starts through the boot task, without reading anything first', async () => {
   const r = fakeRunner(ok)
   await startup.startEngineTask(r.runner)
@@ -160,8 +173,11 @@ test('readback is the boot task and the helper only, with no Run as admin query 
 
 test('every script parses in Windows PowerShell 5.1', { skip: !windows && 'UNEXECUTED: needs Windows PowerShell' }, () => {
   const check = '$e = $null; [void][Management.Automation.Language.Parser]::ParseInput([Console]::In.ReadToEnd(), [ref]$null, [ref]$e); if ($e) { $e | % { $_.Message }; exit 1 }'
+  const report = { hive: 'LocalMachine', key: 'SOFTWARE\\Orgtree\\Runtime', nonce: '0123456789abcdef0123456789abcdef' }
   const scripts = [startup.readScript(), startup.elevatedStartupScript(true), startup.elevatedStartupScript(false),
-    admin.elevatedWriteScript(true), admin.elevatedWriteScript(false)]
+    admin.elevatedWriteScript(true), admin.elevatedWriteScript(false),
+    startup.elevatedStartupScript(true, startup.INSTALLED, report), startup.elevatedStartupScript(false, startup.INSTALLED, report),
+    admin.elevatedArgs(startup.elevatedStartupScript(true, startup.INSTALLED, report), report)[3]]
   for (const script of scripts) {
     const r = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', check], { input: script, encoding: 'utf8', windowsHide: true })
     assert.equal(r.status, 0, `parse errors: ${r.stdout}${r.stderr}`)

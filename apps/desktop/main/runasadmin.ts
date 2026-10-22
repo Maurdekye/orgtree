@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 
 /** "Run Orgtree as administrator" — whether the background engine and the
  *  agents it starts keep administrator rights.
@@ -30,6 +31,19 @@ export const HELPER_TASK = 'Orgtree Credential Helper'
 export const UAC_CANCELLED = 1223
 const PROTECTED_KEY_SDDL = 'O:BAG:BAD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KR;;;BU)'
 export const POWERSHELL = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+
+/** Where an elevated script leaves its failure message for the launcher: the
+ *  hidden elevated PowerShell's own output never reaches the launcher, which
+ *  gets only its exit code. `key` is in `hive`, and `nonce` is this change's. */
+export interface FailureReport { hive: 'LocalMachine' | 'CurrentUser'; key: string; nonce: string }
+export const FAILURE_VALUE = 'LastChangeFailure'
+/** The launcher's output line that carries the message, base64 UTF-8. */
+export const FAILURE_MARKER = 'ORGTREE-ELEVATED-FAILURE '
+
+/** The report place for one change, with a nonce of its own. */
+export function failureReport(hive: FailureReport['hive'] = 'LocalMachine', key: string = RUN_AS_ADMIN_KEY): FailureReport {
+  return { hive, key, nonce: randomBytes(16).toString('hex') }
+}
 
 export interface RunResult { code: number; stdout: string; stderr: string }
 export type Runner = (file: string, args: string[], timeoutMs: number) => Promise<RunResult>
@@ -63,7 +77,7 @@ export async function readRunAsAdministrator(runner: Runner = run): Promise<bool
  *  (invariant 8); every later start runs a task at its stored level. A
  *  user-session task an earlier 4.4.0 alpha left is not touched: the next
  *  update deletes it (decision 94). */
-export function elevatedWriteScript(enabled: boolean): string {
+export function elevatedWriteScript(enabled: boolean, report?: FailureReport): string {
   return [
     "$ErrorActionPreference = 'Stop'",
     "$hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')",
@@ -124,14 +138,14 @@ export function elevatedWriteScript(enabled: boolean): string {
 /** The NON-elevated command that asks Windows (UAC) to run the script above
  *  elevated, waits for it and returns its exit code; a declined prompt exits
  *  UAC_CANCELLED. */
-export function elevationArgs(enabled: boolean): string[] {
-  return elevatedArgs(elevatedWriteScript(enabled))
+export function elevationArgs(enabled: boolean, report?: FailureReport): string[] {
+  return elevatedArgs(elevatedWriteScript(enabled, report), report)
 }
 
 /** The NON-elevated command that asks Windows (UAC) to run `script` in an
  *  elevated, hidden PowerShell, waits for it and returns its exit code; a
  *  declined prompt exits UAC_CANCELLED. */
-export function elevatedArgs(script: string): string[] {
+export function elevatedArgs(script: string, report?: FailureReport): string[] {
   const encoded = Buffer.from(script, 'utf16le').toString('base64')
   const launcher = [
     'try {',
@@ -147,11 +161,24 @@ export function elevatedArgs(script: string): string[] {
   return ['-NoProfile', '-NonInteractive', '-Command', launcher]
 }
 
+/** The elevated script's own failure message, from the launcher's output, or
+ *  null when it left none for this change. */
+export function elevatedFailure(stdout: string): string | null {
+  return null
+}
+
+/** "<what> failed: <the elevated script's own message>.", or the exit code
+ *  when it left none. */
+export function elevatedFailureMessage(what: string, result: RunResult): string {
+  return `${what} (exit code ${result.code}).`
+}
+
 export async function writeRunAsAdministrator(enabled: boolean, runner: Runner = run): Promise<void> {
+  const report = failureReport()
   // The user may take a while at the UAC prompt.
-  const result = await runner(POWERSHELL, elevationArgs(enabled), 5 * 60_000)
+  const result = await runner(POWERSHELL, elevationArgs(enabled, report), 5 * 60_000)
   if (result.code === UAC_CANCELLED) throw new Error('Windows did not give permission, so the setting was not changed.')
-  if (result.code !== 0) throw new Error(`Changing the setting failed (exit code ${result.code}).`)
+  if (result.code !== 0) throw new Error(elevatedFailureMessage('Changing the setting failed', result))
   if (await readRunAsAdministrator(runner) !== enabled) throw new Error('The setting was written but reads back differently; it was not changed.')
 }
 
