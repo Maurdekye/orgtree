@@ -17,7 +17,7 @@ export default async function(rig,{flags}){
  const logFile=await rig.waitFor(()=>rig.engineLogFiles().find(file=>fs.readFileSync(file,'utf8').includes(`engine starting pid=${pid} `)),{what:'this engine session log',timeout:10000})
  const cases=[
   ['node-inbox',`/api/orgs/${rig.org}/nodes/worker/inbox`,nodeText,v=>Array.isArray(v.pending)&&JSON.stringify(v).includes(nodeText)],
-  ['node-history',`/api/orgs/${rig.org}/nodes/${node.id}/inbox?folder=inbox`,nodeText,v=>JSON.stringify(v).includes(nodeText)],
+  ['node-history',`/api/orgs/${rig.org}/nodes/worker/inbox?folder=inbox`,nodeText,v=>JSON.stringify(v).includes(nodeText)],
   ['org-inbox',`/api/orgs/${rig.org}/org_inbox`,orgText,v=>v.total===1&&v.unread===1&&v.entries?.[0]?.body===orgText]
  ]
  for(const [name,route,canary,clientOK]of cases){
