@@ -9,7 +9,7 @@ type Schema = { type?: string; title?: string; description?: string; default?: u
   properties?: Record<string, Schema>; required?: string[];
   minimum?: number; maximum?: number; minLength?: number; maxLength?: number;
   minItems?: number; maxItems?: number; format?: string }
-export type Elicitation = { server: string; message: string; mode: string;
+export type Elicitation = { server: string; message: string; mode: string; native_tool?: boolean;
   url?: string | null; schema?: Schema; expires_at: string }
 const options = (s: Schema) => s.enum?.map((value, i) => ({ value, label: s.enumNames?.[i] ?? value }))
   ?? (s.oneOf ?? s.anyOf)?.map(o => ({ value: o.const, label: o.title ?? o.const }))
@@ -46,7 +46,7 @@ export function ElicitationAsk({ ask, slug, toast }: { ask: AskInfo; slug: strin
   if (resolved) return null
   return <form ref={visibility} className="askcard elicitation-card" data-elicitation-id={ask.id}
     onSubmit={ev => { ev.preventDefault(); void submit('accept') }}>
-    <div className="ask-head"><strong>MCP permission · {e.server}</strong></div>
+    <div className="ask-head"><strong>{e.native_tool ? e.server : `MCP permission · ${e.server}`}</strong></div>
     <p className="ask-q">{e.message}</p>
     <div className="ask-rows elicitation-fields">{e.mode === 'url' ? <p><a href={e.url ?? undefined} target="_blank" rel="noopener noreferrer">{e.url}</a></p>
       : fields.map(([key, s], i) => {
@@ -74,7 +74,7 @@ export function ElicitationAsk({ ask, slug, toast }: { ask: AskInfo; slug: strin
     <p className="dim">This request expires in five minutes. {e.mode === 'url' ? 'Open the link yourself before accepting. ' : ''}Your decision applies to this request.</p>
     {error && <p role="alert">{error}</p>}
     <div className="row">
-      <button type="submit" disabled={sending}>Accept</button>
+      <button type="submit" disabled={sending}>{e.native_tool ? 'Submit answer' : 'Accept'}</button>
       <button type="button" disabled={sending} onClick={() => void submit('decline')}>Decline</button>
       <button type="button" disabled={sending} onClick={() => void submit('cancel')}>Cancel</button>
     </div>

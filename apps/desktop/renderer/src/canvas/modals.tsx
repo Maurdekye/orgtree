@@ -25,6 +25,7 @@ import { lineageCount } from '../archived'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { FAST_MODE_HELP, useFastMode } from './fastmode'
 import { FastHireDefaults } from './fastdefaults'
+import { NativeReplacementToggle } from './nativepermissions'
 import type { ReactNode } from 'react'
 import type {
   ChatInit, DirGrant, McpServerInfo, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog, OrgtreeToolGroup,
@@ -691,9 +692,10 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   const scopeSource = superior ? map.get(superior) : parent
   const inherited = (): DraftScope => ({
     add_dirs: (scopeSource ? scopeSource.scope?.add_dirs : tree.dirs) ?? [],
-    tools: scopeSource?.scope?.tools
+    tools: { ...(scopeSource?.scope?.tools
       ?? tree.default_tools
-      ?? { bash: true, web: true, edit: true, subagents: true, mcp: ['*'] },
+      ?? { bash: true, web: true, edit: true, subagents: true, mcp: ['*'] }),
+      orgtree_disabled: superior ? scopeSource?.scope?.tools.orgtree_disabled === true : false },
     org_visibility: scopeSource?.scope?.org_visibility
       ?? tree.default_visibility ?? 'full',
   })
@@ -868,6 +870,9 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
             onChange={next => setTools({ ...tools, [k]: next })} />
         ))}
+        <NativeReplacementToggle checked={tools.orgtree_disabled === true}
+          harness={providerOf(draft.tier)}
+          onChange={orgtree_disabled => setTools({ ...tools, orgtree_disabled })} />
         <div className="field-label">Orgtree Tools</div>
         <p className="set-hint">{ORGTREE_TOOLS_HINT}</p>
         <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
@@ -1016,7 +1021,7 @@ export function cascadePreview(
       }
     }
     if (want.tools) {
-      for (const k of ['bash', 'web', 'edit', 'subagents'] as const) {
+      for (const k of ['bash', 'web', 'edit', 'subagents', 'orgtree_disabled'] as const) {
         if (want.tools[k] && !(n.scope.tools as Record<string, unknown>)?.[k]) gains.push(k)
       }
       for (const [group, label] of ORGTREE_GROUPS) {
@@ -1921,6 +1926,10 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             disabled={!parentHolds(k)} hint={!parentHolds(k) ? `${hint} The superior does not have this permission.` : hint}
             onChange={checked => setTools({ ...tools, [k]: checked })} />
         ))}
+        <NativeReplacementToggle checked={tools.orgtree_disabled === true && (parentTools == null || parentTools.orgtree_disabled === true)}
+          disabled={parentTools != null && parentTools.orgtree_disabled !== true}
+          harness={node.native_tool_harness ?? providerOf(model)}
+          onChange={orgtree_disabled => setTools({ ...tools, orgtree_disabled })} />
         </SetGroup>
 
         <SetGroup title="Orgtree Tools">

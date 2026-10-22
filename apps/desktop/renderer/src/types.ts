@@ -75,6 +75,8 @@ export interface ToolGrant {
   web: boolean
   edit: boolean
   subagents: boolean
+  /** Explicit per-agent opt-in; missing/legacy values are off. */
+  orgtree_disabled?: boolean
   mcp: string[]
   /** Missing groups stay enabled, including scopes saved by older versions. */
   orgtree?: Partial<Record<OrgtreeToolGroup, boolean>>
@@ -615,6 +617,8 @@ export interface TreeNode {
    *  time with nothing else to show. FR-2's progress panel renders it. */
   bg_tasks?: number
   elicitations?: AskInfo[]
+  /** Backend-resolved current native harness, including custom-provider routes. */
+  native_tool_harness?: string | null
   last_error: string | null
   /** G4: what the agent is doing this instant, derived server-side from the
    *  live tail. The client used to build this itself from websocket events. */
