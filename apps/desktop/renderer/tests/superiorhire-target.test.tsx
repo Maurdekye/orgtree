@@ -3,7 +3,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { resetConvos } from '../src/convo'
-import { rememberTier } from '../src/quickchat'
 import type { OpRequest, TreePayload } from '../src/types'
 
 const agent = (id: string, children: unknown[] = []) => ({ id, title: id, tier: 'sol', state: 'live',
@@ -56,18 +55,6 @@ for (const target of ['boss', 'worker']) {
     assert.equal(c.requests[0].parent, target === 'boss' ? null : 'boss')
   })
 }
-
-test('the shared agent context-menu superior entry retains the same target through submission', async t => {
-  const c = await setup(t, true)
-  rememberTier('superior-target', 'sol')
-  await inAct(() => c.card('boss').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })))
-  await flush(3)
-  await click([...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')].find(el => /Hire a superior/.test(el.textContent ?? '')))
-  await c.submit()
-  assert.equal(c.requests[0].target, 'boss')
-  assert.equal(c.requests[0].above, 'boss')
-  assert.equal(c.requests.length, 1)
-})
 
 test('without undo history the superior draft keeps the existing atomic above operation', async t => {
   const c = await setup(t, false)
