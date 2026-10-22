@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // tools/rig/rig.mjs: the safe test rig (docs/rust-engine/test-rig.md).
 //
-//   node tools/rig/rig.mjs build              debug engine + fake CLI into $CARGO_TARGET_DIR (build lock in queue order, handed on after)
+//   node tools/rig/rig.mjs build              debug engine + fake CLI into $CARGO_TARGET_DIR (caller holds the build-slot permit)
 //   node tools/rig/rig.mjs up [--fixture basic|<file>|none] [--name n] [--ttl min] [--max min]
 //                                             [--ui dir] [--engine exe] [--legacy dir] [--initdb] [--hub [exe]] [--fsync]
 //                                             [--real-muse <muse-bin-*.exe>]   the real Muse Code for the Muse lane
@@ -78,8 +78,9 @@ async function up(flags) {
 
 function build() {
   const target = cargoTarget()
-  // the machine-wide build lock in queue order and its RAM floor (team rules), held for this one build;
-  // `lock` says where it went afterwards (to the next queued agent, who must be told)
+  // The agent holds and releases its build-slot lease outside the rig, and
+  // checks the current resource policy. This compatibility wrapper does no
+  // permit or file operations; `lock` only describes that caller responsibility.
   const { result, lock } = withBuildLock(`rig build into ${target}`, () => {
     const env = { ...process.env, CARGO_TARGET_DIR: target }
     for (const [what, cwd, args] of [

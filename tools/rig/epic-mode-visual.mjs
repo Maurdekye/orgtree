@@ -2,7 +2,7 @@
 // (apps/desktop/renderer/tests/epicmode-visual.tsx), loads it from file:// in
 // an offscreen Electron window (apps/desktop/renderer/tests/epicmode-capture.cjs)
 // and writes PNGs plus visual-result.json. One heavy phase under the machine
-// build lock (tools/rig/lib.mjs withBuildLock). No engine, no live data, no
+// caller-managed build-slot permit (withBuildLock is compatibility only). No engine, no live data, no
 // network; dependencies are read in place from an existing checkout.
 // Run it under the kernel memory cap:
 //   powershell -NoProfile -ExecutionPolicy Bypass -File apps/desktop/renderer/tests/joblimit.ps1 `
@@ -83,7 +83,7 @@ if (bundling) {
 }
 const electron = require('electron')
 
-// `--inside`: the caller already holds the build lock for this phase
+// `--inside`: the caller already holds the build-slot permit for this phase
 const locked = (what, fn) => flags.includes('--inside') ? { result: fn(), lock: 'held by the caller' } : withBuildLock(what, fn)
 const outcome = locked(`EPIC Mode final screenshots (${BEFORE ? `sources before ${BEFORE}` : 'tip'})`, () => {
   fs.mkdirSync(out, { recursive: true })

@@ -1,6 +1,6 @@
 // EPIC Mode (the final version, epic/final) source checks, one heavy phase
-// under the machine build lock (tools/rig/lib.mjs withBuildLock: queue order,
-// free-RAM floor, handover):
+// under a caller-managed build-slot permit and current resource policy
+// (tools/rig/lib.mjs withBuildLock is compatibility only, never a permit):
 //   1. the root typecheck (tsc -p tsconfig.json, as `npm run typecheck`);
 //   2. the strict renderer and test configurations (both enable
 //      noUncheckedIndexedAccess, which the root check does not), at the tip
@@ -311,7 +311,7 @@ function strict() {
   return result
 }
 
-// `--inside`: the caller already holds the build lock for this phase
+// `--inside`: the caller already holds the build-slot permit for this phase
 const locked = (what, fn) => flags.includes('--inside') ? { result: fn(), lock: 'held by the caller' } : withBuildLock(what, fn)
 const outcome = locked('EPIC Mode final: typecheck, strict, renderer suites green/red/opus', () => {
   const results = {}

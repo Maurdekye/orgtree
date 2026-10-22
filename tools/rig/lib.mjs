@@ -19,7 +19,7 @@ export const RIG_DIR = path.dirname(fileURLToPath(import.meta.url))
 export const REPO = path.resolve(RIG_DIR, '..', '..')
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const PG_VERSION = '18.6-4'
-/** Ephemeral work (build output, the build lock, rig runs) lives on the SSD
+/** Rig work lives on the SSD; assigned build output follows current org policy
  * (team rule 2026-10-10: E: is a slow disk holding only the repositories). */
 export const WORK_ROOT = 'D:\\orgtree-work'
 
@@ -136,156 +136,12 @@ export function freeRamGB() {
   return Number(out) / 1024 / 1024
 }
 
-/** One heavy build at a time machine-wide, in queue order (team rules
- * 2026-10-09 and 2026-10-10). The lock is a folder (mkdir is atomic) holding
- * owner.txt ("<name> <UTC> <what>"); agents waiting for it line up in
- * build.queue.txt beside it, one name per line.
- * - A free lock is taken only when the queue is empty or names the caller
- *   first, and the caller's line goes. A lock whose owner.txt already names
- *   the caller (handed over, or claimed by the caller's own watchdog) is the
- *   caller's: it builds under it.
- * - When the build ends, failed or not, the lock goes to the first queued
- *   name (owner.txt rewritten, its line dropped; the rig cannot send org
- *   mail, so the caller must tell that agent "build lock is yours") or, with
- *   nobody waiting, the folder goes. A lock someone else took meanwhile is
- *   left alone.
- * - An owner.txt older than 30 minutes with no build process alive in the
- *   build folder is stale: it is cleared and goes by the queue the same way.
- * - A lock folder whose owner.txt starts with MOVED marks where the lock used
- *   to live: it is never taken, cleared or written.
- * - A build needs BUILD_RAM_GB free, checked before a free lock is taken (a
- *   caller short of RAM stays first) and before building under a held one
- *   (which the caller keeps). */
-export const BUILD_RAM_GB = 3
-const BUILD_LOCK_STALE_MS = 30 * 60 * 1000
-
-/** The lock folder (ORGTREE_BUILD_LOCK names another) and the queue beside it. */
-export function buildLockPaths() {
-  const lock = path.resolve(process.env.ORGTREE_BUILD_LOCK || path.join(WORK_ROOT, 'cargo-target', 'build.lock'))
-  return { lock, owner: path.join(lock, 'owner.txt'), queue: path.join(path.dirname(lock), 'build.queue.txt') }
-}
-
-const sameName = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase()
-
-/** The queue's names, first first (blank lines and CR/LF endings tolerated). */
-export function buildQueue(queue = buildLockPaths().queue) {
-  let text = ''
-  try { text = fs.readFileSync(queue, 'utf8') } catch (e) { if (e.code !== 'ENOENT') throw e }
-  return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
-}
-
-/** Drops the first line naming `name`; every other line stays as it was. */
-function dropFromQueue(queue, name) {
-  let text
-  try { text = fs.readFileSync(queue, 'utf8') } catch (e) { if (e.code === 'ENOENT') return false; throw e }
-  const lines = text.split(/(?<=\n)/)
-  const i = lines.findIndex(l => sameName(l.trim(), name))
-  if (i < 0) return false
-  lines.splice(i, 1)
-  fs.writeFileSync(queue, lines.join(''))
-  return true
-}
-
-/** owner.txt's text and time (the folder's while owner.txt is not written yet); null when there is no lock. */
-function lockOwner({ lock, owner }) {
-  try { return { text: fs.readFileSync(owner, 'utf8').trim(), at: fs.statSync(owner).mtimeMs } } catch {}
-  try { return { text: '', at: fs.statSync(lock).mtimeMs } } catch { return null }
-}
-
-/** Build processes alive in `dir`: a cargo or rustc naming it on its command
- * line (rustc's --out-dir does), or anything running from under it (build
- * scripts, test binaries). */
-export function buildProcessesIn(dir) {
-  return processes(`($_.ExecutablePath -and $_.ExecutablePath.ToLower().StartsWith(${psQuote(lower(dir) + '\\')})) -or `
-    + `($_.Name -match '^(cargo|rustc)\\.exe$' -and $_.CommandLine -and $_.CommandLine.ToLower().Contains(${psQuote(lower(dir))}))`)
-}
-
-const handedLine = next => `HANDED THE BUILD LOCK TO ${next}: send ${next} an orgtree_message "build lock is yours" now (team rule)`
-
-/** Takes the lock for `name` in queue order: 'taken' or 'held' (already the caller's), else throws why not. */
-function acquireBuildLock(paths, name, ramShort) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const cur = lockOwner(paths)
-    if (!cur) {
-      const queue = buildQueue(paths.queue)
-      if (queue.length && !sameName(queue[0], name)) {
-        throw new Error(`the build lock is free but ${queue[0]} is first in ${paths.queue}: append ${name} to it once and wait your turn (team rule)`)
-      }
-      const short = ramShort()
-      if (short) throw new Error(`${short}; the lock was not taken`)
-      try { fs.mkdirSync(paths.lock) } catch (e) { if (e.code === 'EEXIST') continue; throw e }
-      fs.writeFileSync(paths.owner, `${name} ${new Date().toISOString()} taking the lock\n`)
-      if (queue.length) dropFromQueue(paths.queue, name)
-      return 'taken'
-    }
-    if (/^MOVED\b/.test(cur.text)) throw new Error(`${paths.lock} is a marker, not a lock (never take or remove it): ${cur.text}`)
-    if (sameName(cur.text.split(/\s+/)[0], name)) {
-      const short = ramShort()
-      if (short) throw new Error(`${short}; you still hold the build lock (${paths.lock}): build when RAM frees, or hand it over`)
-      return 'held'
-    }
-    const age = Date.now() - cur.at
-    if (age < BUILD_LOCK_STALE_MS) throw new Error(`the build lock is held (${cur.text || 'no owner.txt yet'}): wait for ${paths.lock} to go, in queue order`)
-    const dir = path.dirname(paths.lock)
-    const busy = buildProcessesIn(dir)
-    if (busy.length) {
-      throw new Error(`the build lock looks stale (owner.txt ${Math.round(age / 60000)} min old: ${cur.text}) but build processes are alive in ${dir}: `
-        + busy.map(p => `${p.Name} ${p.ProcessId}`).join(', ') + '; leave it')
-    }
-    const queue = buildQueue(paths.queue)
-    if (!queue.length || sameName(queue[0], name)) {
-      // the stale lock would come to the caller anyway: clear it and take it in queue order
-      fs.rmSync(paths.lock, { recursive: true, force: true })
-      console.error(`build lock: cleared a stale lock (${Math.round(age / 60000)} min old: ${cur.text})`)
-      continue
-    }
-    fs.writeFileSync(paths.owner, `${queue[0]} ${new Date().toISOString()} handed over by ${name} (stale lock of: ${cur.text})\n`)
-    dropFromQueue(paths.queue, queue[0])
-    console.error(`build lock: ${handedLine(queue[0])}`)
-    throw new Error(`the build lock was stale and went to ${queue[0]}, first in the queue (${handedLine(queue[0])}); append ${name} to the queue once and wait your turn`)
-  }
-  throw new Error(`the build lock kept changing hands: wait for ${paths.lock} to go, in queue order`)
-}
-
-/** Gives up the lock written as `mine`: to the first queued name, or removed when nobody waits. */
-function releaseBuildLock(paths, name, mine) {
-  const cur = lockOwner(paths)
-  if (!cur || cur.text !== mine) {
-    const left = `the build lock is no longer ${name}'s (${cur ? cur.text || 'no owner.txt' : 'gone'}): left as it is`
-    console.error(`build lock: ${left}`)
-    return left
-  }
-  const queue = buildQueue(paths.queue)
-  if (!queue.length) {
-    fs.rmSync(paths.lock, { recursive: true, force: true })
-    return 'released (nobody queued)'
-  }
-  const next = queue[0]
-  dropFromQueue(paths.queue, next)
-  if (sameName(next, name)) {
-    fs.writeFileSync(paths.owner, `${name} ${new Date().toISOString()} kept: first in the queue again\n`)
-    return `kept: ${name} was first in the queue again`
-  }
-  fs.writeFileSync(paths.owner, `${next} ${new Date().toISOString()} handed over by ${name}\n`)
-  console.error(`build lock: ${handedLine(next)}`)
-  return handedLine(next)
-}
-
-/** Runs `fn` holding the build lock (see above): { result, lock } where
- * `lock` says where the lock went afterwards. */
-export function withBuildLock(what, fn, { freeRam = freeRamGB } = {}) {
-  const paths = buildLockPaths()
-  const name = me()
-  const ramShort = () => {
-    const free = freeRam()
-    return free < BUILD_RAM_GB ? `only ${free.toFixed(1)} GB RAM free; team rule: build with the lock held and at least ${BUILD_RAM_GB} GB free` : null
-  }
-  const how = acquireBuildLock(paths, name, ramShort)
-  const mine = `${name} ${new Date().toISOString()} ${what}${how === 'held' ? ' (under a lock handed over or claimed earlier)' : ''}`.trim()
-  fs.writeFileSync(paths.owner, mine + '\n')
-  let result
-  try { result = fn() } catch (e) { releaseBuildLock(paths, name, mine); throw e }
-  return { result, lock: releaseBuildLock(paths, name, mine) }
+/** Compatibility for older proof runners. The caller owns the external
+ * build-slot permit and all resource checks; this wrapper never claims,
+ * inspects, hands over or releases a filesystem lock or a project lease.
+ * `lock` remains informational so existing result readers keep working. */
+export function withBuildLock(_what, fn) {
+  return { result: fn(), lock: 'caller-managed build-slot permit (no filesystem lock)' }
 }
 
 // ------------------------------------------------------------ binaries

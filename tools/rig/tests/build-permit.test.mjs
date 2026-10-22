@@ -5,7 +5,7 @@ import childProcess from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 import { syncBuiltinESMExports } from 'node:module'
-import { withBuildLock } from '../lib.mjs'
+import { withBuildLock, rigHome, cargoTarget, WORK_ROOT, RIG_HOMES } from '../lib.mjs'
 
 // Legacy callers retain their result shape, but may never probe, acquire,
 // release or recover the retired filesystem permit, even after failure.
@@ -83,5 +83,51 @@ test('rig build runs both original cargo steps under the caller permit without t
     else process.env.CARGO_TARGET_DIR = savedTarget
     ctx.mock.restoreAll()
     syncBuiltinESMExports()
+  }
+})
+
+// Keep the unrelated isolation/target controls from the retired protocol proof.
+test('rig home defaults to the caller and still refuses a shared or nested home', { skip: process.platform !== 'win32' }, ctx => {
+  const keys = ['ORGTREE_AGENT', 'ORGTREE_RIG_HOME']
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]))
+  let nested = false
+  ctx.mock.method(fs, 'existsSync', p => p === WORK_ROOT || (nested && path.basename(p) === 'pg'))
+  ctx.mock.method(fs, 'readdirSync', () => nested ? [{ name: 'someone', isDirectory: () => true }] : [])
+  try {
+    process.env.ORGTREE_AGENT = 'proof-agent'
+    delete process.env.ORGTREE_RIG_HOME
+    assert.equal(rigHome(), path.join(RIG_HOMES, 'proof-agent'))
+    process.env.ORGTREE_RIG_HOME = RIG_HOMES
+    assert.throws(rigHome, /every agent's rig home/)
+    process.env.ORGTREE_RIG_HOME = path.join(RIG_HOMES, 'synthetic-parent')
+    nested = true
+    assert.throws(rigHome, /other rig homes are inside it \(someone\)/)
+    nested = false
+    assert.equal(rigHome(), process.env.ORGTREE_RIG_HOME)
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key]
+      else process.env[key] = saved[key]
+    }
+  }
+})
+
+test('cargo target guards retain their existing defaults and refusals', { skip: process.platform !== 'win32' }, ctx => {
+  const saved = process.env.CARGO_TARGET_DIR
+  ctx.mock.method(fs, 'existsSync', p => p === WORK_ROOT)
+  try {
+    delete process.env.CARGO_TARGET_DIR
+    assert.throws(cargoTarget, /C:\/orgtree-build\/<agent>/)
+    for (const dir of ['C:/orgtree-build/synthetic-target', 'D:/orgtree-work/cargo-target/synthetic-target']) {
+      process.env.CARGO_TARGET_DIR = dir
+      assert.equal(cargoTarget(), path.resolve(dir))
+    }
+    for (const dir of ['C:/cargo-target/x', 'C:/orgtree-build-old/x', 'C:/orgtree-build/../cargo-target/x', 'E:/cargo-target/x']) {
+      process.env.CARGO_TARGET_DIR = dir
+      assert.throws(cargoTarget, /CARGO_TARGET_DIR/)
+    }
+  } finally {
+    if (saved === undefined) delete process.env.CARGO_TARGET_DIR
+    else process.env.CARGO_TARGET_DIR = saved
   }
 })
