@@ -18,6 +18,7 @@ export default async function(rig){
  const selected=filter==='all-boundaries'?'boundary_':filter.startsWith('watch_')?'::watch_boundary_restart_after_edge_commit':filter.startsWith('event_')?'::event_boundary_continues_same_event_after_page_commit':filter.startsWith('upgrade_')?'::upgrade_boundary_v433_to_0050':filter
  const result=spawnSync(exes[0],[selected,'--ignored','--nocapture','--test-threads=1'],{env,encoding:'utf8',windowsHide:true,timeout:60000,maxBuffer:2*1024**2})
  p.file('native.log',(result.stdout||'')+(result.stderr||''));p.file('exit.json',{status:result.status,signal:result.signal,error:result.error?.message})
- p.check(filter,result.status===0&&result.signal===null&&!result.error&&(filter!=='all-boundaries'||/5 passed; 0 failed; 0 ignored/.test(result.stdout)),{status:result.status,signal:result.signal})
+ const expected=filter==='all-boundaries'?7:filter==='recovery_boundary_'?2:null
+ p.check(filter,result.status===0&&result.signal===null&&!result.error&&(!expected||result.stdout.includes(`${expected} passed; 0 failed; 0 ignored`)),{status:result.status,signal:result.signal,expected})
  return p.summary()
 }
