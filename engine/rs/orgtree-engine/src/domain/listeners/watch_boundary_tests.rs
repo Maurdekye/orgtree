@@ -29,6 +29,7 @@ async fn upgrade_boundary_v433_to_0050() {
     assert_eq!(c.query_one("SELECT name FROM ot.agents WHERE org_id=$1",&[&org]).await.unwrap().get::<_,String>(0),"preserved-agent");
     assert!(c.query_opt("SELECT 1 FROM public.ot_migrations WHERE name='0050_project_event_dispatch'",&[]).await.unwrap().is_some());
     assert!(c.query_one("SELECT to_regclass('ot.project_event_dispatch') IS NOT NULL AND to_regclass('ot.listener_fire_outbox') IS NOT NULL",&[]).await.unwrap().get::<_,bool>(0));
+    assert!(c.query_one("SELECT to_regclass('ot.watchdog_project_listener_target_id') IS NOT NULL",&[]).await.unwrap().get::<_,bool>(0));
     crate::migrate::run(&mut c,&|_|{}).await.unwrap();
 }
 

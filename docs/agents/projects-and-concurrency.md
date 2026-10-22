@@ -10,6 +10,9 @@ and unique handed-copy id, then recheck custody and reclaim policy under the
 project/job locks, including same-holder reassignment and transfers to the user.
 
 Project events persist one history identity and registration high-water mark.
+The registration bound uses an org/project/id index over every listener state;
+paused registrations remain within the boundary while unrelated retained
+watchdog history cannot lengthen its lookup.
 Each transaction delivers at most 200 eligible rows and commits its mail,
 one-shot changes, history and cursor together. Eligibility is checked when
 the page is processed; paused/removed listeners are skipped. New registrations

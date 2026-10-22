@@ -52,7 +52,7 @@ pub const WATCH_KIND: &str = "listener_watch";
 const EVENTS_KEEP: i64 = 50;
 /// Maximum listener/watch rows processed in one committed transaction.
 const FIRE_BATCH: i64 = 200;
-const EVENT_HIGH_WATER: &str = "SELECT coalesce(max(id),0) FROM ot.watchdogs WHERE org_id=$1 AND kind='project_listener' AND (memo->>'target_id')::bigint=$2";
+const EVENT_HIGH_WATER: &str = "SELECT coalesce((SELECT id FROM ot.watchdogs WHERE org_id=$1 AND kind='project_listener' AND (memo->>'target_id')::bigint=$2 ORDER BY id DESC LIMIT 1),0)";
 
 /// Lifecycle is checked from both the open directory and current database row.
 /// In a short write transaction the shared org lock serializes trash against
