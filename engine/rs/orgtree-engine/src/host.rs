@@ -647,6 +647,24 @@ fn since_start() -> Duration {
     START.get_or_init(Instant::now).elapsed()
 }
 
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    /// The boot host is one process for the whole boot and starts engines
+    /// again (after a sign-out, for the one rollback, after a hung engine):
+    /// each spawn gets the whole readiness window, however long the host has
+    /// run (session0-handover, 2026-10-22: a rollback 149 s in was ended
+    /// within a second).
+    #[test]
+    fn each_spawn_gets_the_whole_readiness_window() {
+        let _ = since_start();
+        std::thread::sleep(Duration::from_millis(300));
+        let state = Handshake::default();
+        assert!(state.silent_for() < Duration::from_millis(200), "silent for {:?} at its spawn", state.silent_for());
+    }
+}
+
 /// HUNG needs both a long silence and several failed probes: one slow
 /// answer is contention, not a hang.
 struct Liveness {

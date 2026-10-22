@@ -117,6 +117,38 @@ impl Debounce {
     }
 }
 
+/// What the loop remembers between readings about the engine that served the
+/// data root. The loop does not read while its own engine runs (`host::once`
+/// blocks it), so that engine's end is noted on its own.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Memory {
+    /// An engine served the root and its loss is still to be read.
+    pub served: bool,
+    pub lost: Option<Lost>,
+    /// When this host last ran the task.
+    pub delegated_at: Option<i64>,
+}
+
+#[nolog]
+impl Memory {
+    /// One reading. An engine holding the root settles any loss and
+    /// delegation; one that stopped holding it outside an attempt is lost
+    /// from now, keyed by its generation (read only then).
+    pub fn read(&mut self, root_held: bool, attempt: bool, now: i64, generation: impl FnOnce() -> Option<String>) {
+        if root_held {
+            *self = Memory { served: true, lost: None, delegated_at: None };
+        } else if self.served && !attempt {
+            self.served = false;
+            if self.lost.is_none() { self.lost = Some(Lost { at: now, generation: generation(), ours: false }); }
+        }
+    }
+
+    /// This host's own engine ended (`host::once` returned).
+    pub fn own_engine_ended(&mut self, _became_ready: bool) {
+        self.served = false;
+    }
+}
+
 /// The boot task's host on Windows: `decide` in a loop, every 2 s while it
 /// waits, around the existing one-engine host (`host::once`).
 #[cfg(windows)]
@@ -140,9 +172,7 @@ pub fn run() -> std::process::ExitCode {
     let task = session_launch::task_installed(&root, session_launch::USER_SESSION_TASK, USER_TASK_RIG);
     let mut wts = core_process::Sessions::new();
     let mut debounce = Debounce::default();
-    let mut lost: Option<Lost> = None;
-    let mut delegated_at: Option<i64> = None;
-    let mut served = false;
+    let mut memory = Memory::default();
     let mut hangs: Vec<Instant> = Vec::new();
     let mut last: Option<String> = None;
     // Whether the operator owns the console, from the last reading that saw a
@@ -159,18 +189,13 @@ pub fn run() -> std::process::ExitCode {
         let attempt = handover::held(&root);
         let root_held = !host::root_released(&root, Duration::ZERO);
         let now = core_state::now();
-        if root_held {
-            served = true; lost = None; delegated_at = None;
-        } else if served && !attempt {
-            served = false;
-            if lost.is_none() { lost = Some(Lost { at: now, generation: core_state::read(&root).map(|s| s.generation), ours: false }); }
-        }
+        memory.read(root_held, attempt, now, || core_state::read(&root).map(|s| s.generation));
         let epoch_matches = record.as_ref().is_some_and(|r| active.as_ref().is_some_and(|a| r.epoch.iter().any(|s| a.contains(s))));
         let seen = Seen {
             stop: host::STOP.load(Ordering::SeqCst) || crate::install_stop::requested_since(started, rig),
             blocked: active.as_ref().is_some_and(|a| core_state::blocked(&root, a)),
             attempt, root_held, signed_in, console, task, record: record.clone(), epoch_matches,
-            lost: lost.clone(), delegated_at, now,
+            lost: memory.lost.clone(), delegated_at: memory.delegated_at, now,
         };
         let step = decide(&seen);
         // logged when the reason changes, not only the step: waiting for another
@@ -186,12 +211,12 @@ pub fn run() -> std::process::ExitCode {
                         // the desktop claimed this recovery: its outcome, or the
                         // backstop after it, decides (one owner per attempt)
                         host::say(Some(&root), "the desktop recovers the lost engine; waiting for its outcome");
-                        delegated_at = Some(now);
+                        memory.delegated_at = Some(now);
                         continue;
                     }
                 }
                 session_launch::write_ask(&root, "boot-host", false);
-                delegated_at = Some(now);
+                memory.delegated_at = Some(now);
                 if !session_launch::run_task(&root, session_launch::USER_SESSION_TASK, USER_TASK_RIG) {
                     failed_delegation(&root, active.as_deref().unwrap_or_default());
                 }
@@ -202,7 +227,7 @@ pub fn run() -> std::process::ExitCode {
                 let mut became_ready = false;
                 let code = host::once(None, &mut |_| { became_ready = true; });
                 if let (Some(id), false) = (&id, became_ready) { end_rollback(&root, id); }
-                served = false;
+                memory.own_engine_ended(became_ready);
                 if code == host::EXIT_ENGINE_HUNG {
                     let at = Instant::now();
                     hangs.retain(|t| at.duration_since(*t) < host::HUNG_RESTART_WINDOW);
@@ -212,7 +237,7 @@ pub fn run() -> std::process::ExitCode {
                         return ExitCode::from(code);
                     }
                     // the host ended it: its own to replace, at once
-                    lost = Some(Lost { at: core_state::now(), generation: core_state::read(&root).map(|s| s.generation), ours: true });
+                    memory.lost = Some(Lost { at: core_state::now(), generation: core_state::read(&root).map(|s| s.generation), ours: true });
                     continue;
                 }
                 if code == host::EXIT_ROOT_OWNED { continue; }
@@ -224,7 +249,7 @@ pub fn run() -> std::process::ExitCode {
                 let now_active = core_state::sessions(&root, &mut wts);
                 let at_console = match (&now_active, session_launch::console_session()) {
                     (Some(a), Some(c)) => a.iter().any(|s| s.id == c), _ => false };
-                if handover::held(&root) || (task && at_console) { served = true; continue; }
+                if handover::held(&root) || (task && at_console) { memory.served = true; continue; }
                 return ExitCode::from(code);
             }
         }
@@ -406,5 +431,56 @@ mod tests {
         assert_eq!(fresh.note(Some(false)), None);
         assert_eq!(fresh.note(Some(false)), None);
         assert_eq!(fresh.note(Some(false)), Some(false));
+    }
+
+    #[test]
+    fn a_reading_settles_or_times_the_loss() {
+        let mut m = Memory { served: true, ..Memory::default() };
+        m.read(false, true, 5, || unreachable!("a running attempt is no loss"));
+        assert_eq!(m.lost, None);
+        m.read(false, false, 7, || Some("a".repeat(32)));
+        assert_eq!(m.lost, Some(Lost { at: 7, generation: Some("a".repeat(32)), ours: false }));
+        m.read(false, false, 9, || unreachable!("a loss is timed once"));
+        m.delegated_at = Some(9);
+        m.read(true, false, 11, || unreachable!());
+        assert_eq!(m, Memory { served: true, lost: None, delegated_at: None }, "an engine seen holding the root settles both");
+    }
+
+    #[test]
+    fn this_hosts_own_engine_settles_an_earlier_loss() {
+        // the proof's D then E: the user-session engine ends with the sign-out
+        // (lost while the sign-out debounces), this host's own Session 0 engine
+        // runs, and dies later while the operator is signed in again
+        let mut m = Memory { served: true, ..Memory::default() };
+        m.read(false, false, 1_000, || Some("a".repeat(32)));
+        m.own_engine_ended(true);
+        m.served = true;
+        let at = 1_000 + 10 * BACKSTOP_MS;
+        m.read(false, false, at, || Some("b".repeat(32)));
+        assert_eq!(m.lost, Some(Lost { at, generation: Some("b".repeat(32)), ours: false }),
+            "timed and claimed from the engine that died, not the one lost before it");
+        assert_eq!(decide(&Seen { lost: m.lost.clone(), delegated_at: m.delegated_at, now: at + BACKSTOP_MS - 1, ..signed_in() }),
+            Step::Wait, "the desktop still gets its 120 s");
+    }
+
+    #[test]
+    fn this_hosts_own_engine_settles_an_earlier_delegation() {
+        // the task brought no engine, so the one rollback ran here; that
+        // engine dies later while the operator is signed in
+        let mut m = Memory { served: false, lost: Some(Lost { at: 0, generation: Some("a".repeat(32)), ours: false }), delegated_at: Some(BACKSTOP_MS) };
+        m.own_engine_ended(true);
+        m.served = true;
+        let at = 10 * BACKSTOP_MS;
+        m.read(false, false, at, || Some("c".repeat(32)));
+        assert_eq!(decide(&Seen { lost: m.lost.clone(), delegated_at: m.delegated_at, now: at + 1_000, ..signed_in() }),
+            Step::Wait, "a new loss: no second rollback at once");
+    }
+
+    #[test]
+    fn an_own_engine_that_never_got_ready_settles_nothing() {
+        let before = Memory { served: true, lost: Some(Lost { at: 3, generation: None, ours: false }), delegated_at: Some(4) };
+        let mut m = before.clone();
+        m.own_engine_ended(false);
+        assert_eq!(m, Memory { served: false, ..before });
     }
 }
