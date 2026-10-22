@@ -21,11 +21,10 @@ const BUNDLED: &[(&str, &str)] = &[
     ("devteam-antigravity.json", include_str!("../../../../docs/templates/devteam-antigravity.json")),
     ("heavy-dev-shop.json", include_str!("../../../../docs/templates/heavy-dev-shop.json")),
 ];
-const MAX_AGENTS: usize = 24;
-const MAX_DEPTH: usize = 4;
-pub(crate) const FILE_MAX: u64 = 256 * 1024;
+pub(crate) const FILE_MAX: u64 = 16 * 1024 * 1024;
 
 #[derive(Deserialize, Debug, Clone)]
+#[serde(try_from = "super::template_wire::Wire")]
 pub struct Template {
     pub id: String,
     pub name: String,
@@ -59,6 +58,8 @@ pub struct Template {
 /// this computer's own (folders `dirs`, `default_account`,
 /// `disabled_accounts`, hubs), the inert `headless`, and `quick_chat` (its
 /// own part).
+pub const PROJECT_SETTINGS: &[&str] = &["mail_queue", "exclude_sender", "ack_timeout", "max_attempts", "ack_reminders", "turn_end_reminder", "event_listeners"];
+
 pub const ORG_SETTINGS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "permission_mode",
     "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact",
@@ -80,6 +81,8 @@ pub struct Slot {
     pub slots: Option<i64>,
     #[serde(default)]
     pub peer_mail: Option<bool>,
+    #[serde(default)]
+    pub settings: Option<serde_json::Map<String, Value>>,
     #[serde(default)]
     pub audiences: Vec<String>,
     #[serde(default)]
@@ -105,6 +108,10 @@ pub struct Slot {
     #[serde(default)]
     pub effort: Option<String>,
     #[serde(default)]
+    pub fast_mode: Option<bool>,
+    #[serde(default)]
+    pub harness: Option<String>,
+    #[serde(default)]
     pub account_fallback: Option<bool>,
     /// a preferred account (saved templates only): used when it can run the
     /// slot's tier on this machine, else the normal choice applies
@@ -116,8 +123,9 @@ pub struct Slot {
     /// a first message, sent only when the user asks for it at creation
     #[serde(default)]
     pub kickoff: Option<String>,
-    #[serde(default)]
-    pub reports: Vec<Slot>,
+    /// Index of the preceding parent in Template.agents; never wire input.
+    #[serde(skip)]
+    pub parent: Option<usize>,
 }
 
 #[nolog]
@@ -148,11 +156,13 @@ pub struct Avail {
     /// the first sign-in check has not landed: a missing Claude or Codex
     /// tier is unchecked, not signed out
     pub checking: bool,
+    pub fast_tiers: HashSet<String>,
+    pub harnesses: Vec<String>,
 }
 
 impl Default for Avail {
     fn default() -> Self {
-        Avail { tiers: HashMap::new(), order: Vec::new(), default_account: None, now: chrono::Utc::now(), checking: false }
+        Avail { tiers: HashMap::new(), order: Vec::new(), default_account: None, now: chrono::Utc::now(), checking: false, fast_tiers: HashSet::new(), harnesses: Vec::new() }
     }
 }
 
@@ -229,6 +239,10 @@ pub struct SlotChoice {
     pub tier: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub fast_mode: Option<bool>,
+    #[serde(default)]
+    pub harness: Option<String>,
 }
 
 fn user_dir() -> PathBuf {
@@ -317,7 +331,8 @@ fn list_in(dir: &Path) -> Vec<(Result<Template, String>, &'static str, String)> 
 
 // Template text may contain private notes; never log the raw document.
 #[nolog]
-fn parse(s: &str) -> Result<Template, String> {
+pub fn parse(s: &str) -> Result<Template, String> {
+    if s.len() as u64 > FILE_MAX { return Err("template file exceeds 16 MiB".into()); }
     serde_json::from_str::<Template>(s).map_err(|e| format!("not a valid template: {e}"))
 }
 
@@ -340,9 +355,11 @@ pub fn find(id: &str) -> Result<Template, String> {
 
 #[nolog]
 fn walk<'a>(slots: &'a [Slot], depth: usize, parent: Option<&'a str>, out: &mut Vec<(&'a Slot, usize, Option<&'a str>)>) {
+    let mut depths = Vec::with_capacity(slots.len());
     for s in slots {
-        out.push((s, depth, parent));
-        walk(&s.reports, depth + 1, Some(&s.name), out);
+        let d = s.parent.map_or(depth, |p| depths[p] + 1);
+        let p = s.parent.map(|p| slots[p].name.as_str()).or(parent);
+        depths.push(d); out.push((s, d, p));
     }
 }
 
@@ -361,15 +378,11 @@ pub fn validate(t: &Template) -> Vec<String> {
     }
     let mut all = Vec::new();
     walk(&t.agents, 0, None, &mut all);
-    if all.len() > MAX_AGENTS {
-        p.push(format!("at most {MAX_AGENTS} agents"));
-    }
+
     if !all.iter().any(|(s,_,_)| !s.project()) { p.push("a template needs at least one agent".into()); }
     let mut names = HashSet::new();
     for (s, depth, _) in &all {
-        if *depth >= MAX_DEPTH {
-            p.push(format!("{}: at most {MAX_DEPTH} levels", s.name));
-        }
+
         match crate::domain::ops::valid_name(&s.name) {
             Ok(n) if !names.insert(n.to_lowercase()) => p.push(format!("{}: the name is used twice", s.name)),
             Ok(_) => {}
@@ -377,15 +390,19 @@ pub fn validate(t: &Template) -> Vec<String> {
         }
         if s.project() {
             if !s.fallback.is_empty() || s.spare != 0.0 || !s.audiences.is_empty() || s.kickoff.is_some()
-                || s.tools.is_some() || s.effort.is_some() || s.account.is_some() || s.add_dirs.is_some()
+                || s.tools.is_some() || s.effort.is_some() || s.fast_mode.is_some() || s.harness.is_some() || s.account.is_some() || s.add_dirs.is_some()
                 || s.org_visibility.is_some() || s.permission_mode.is_some() || s.account_fallback.is_some()
                 || s.charter.preset.is_some() || s.charter.text.is_some() || s.team_charter.is_some() || s.scratch_agents_md.is_some() {
                 p.push(format!("{}: project slots cannot carry agent settings; use description for Summary", s.name));
             }
+            if let Some(settings) = &s.settings {
+                if let Err(e) = super::ops::project_setting_ops(&s.name, &Value::Object(settings.clone())) { p.push(format!("{}: {e}", s.name)); }
+                if settings.keys().any(|k| !PROJECT_SETTINGS.contains(&k.as_str())) { p.push(format!("{}: only queue/event settings belong in project settings", s.name)); }
+            }
             if s.slots.is_some_and(|n| !(0..=super::slots::MAX_CAPACITY).contains(&n)) {
                 p.push(format!("{}: invalid project slots capacity", s.name));
             }
-        } else if s.description.is_some() || s.slots.is_some() || s.peer_mail.is_some() {
+        } else if s.description.is_some() || s.slots.is_some() || s.peer_mail.is_some() || s.settings.is_some() {
             p.push(format!("{}: description, slots and peer_mail belong to project slots", s.name));
         }
         if s.audiences.len() > 64 || s.audiences.iter().any(|a| !matches!(a.as_str(), "user" | "extern")) {
@@ -507,7 +524,10 @@ pub fn avail(engine: &Engine, org_slug: &str) -> Avail {
     }
     let defaults = engine.settings.defaults();
     let eff = crate::feed::groups::effective_settings(&json!({}), &defaults);
-    Avail { tiers, order, default_account: eff["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string), now: chrono::Utc::now(),
+    let st = engine.providers.state.load();
+    let fast_tiers = tiers.keys().filter(|t| crate::providers::fast_mode::supported(&st, t, None)).cloned().collect();
+    let harnesses = crate::harnesses::choices(engine, catalog::OPENROUTER).into_iter().map(|h| h.to_string()).collect();
+    Avail { tiers, order, fast_tiers, harnesses, default_account: eff["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string), now: chrono::Utc::now(),
             checking: opts["loading"].as_bool().unwrap_or(false) }
 }
 
@@ -551,7 +571,7 @@ fn checking_note(tier: &str) -> String {
 pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> Result<(Vec<Planned>, Vec<String>), String> {
     let removed: HashSet<&str> = choices.removed.iter().map(String::as_str).collect();
     for r in &removed {
-        if t.agents.iter().any(|a| a.name == *r) {
+        if t.agents.iter().any(|a| a.parent.is_none() && a.name == *r) {
             return Err(format!("{r} is the top of the layout and cannot be removed; choose Empty instead"));
         }
     }
@@ -562,25 +582,24 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
             return Err(format!("{} is a project and cannot select a model", s.name));
         }
     }
-    let mut out = Vec::new();
+    let mut out: Vec<Planned> = Vec::new();
     let mut blocked = Vec::new();
-    #[nolog]
-    fn go(slots: &[Slot], depth: usize, parent: Option<&str>, ceiling: &[Value], choices: &Choices, removed: &HashSet<&str>,
-          av: &Avail, out: &mut Vec<Planned>, blocked: &mut Vec<String>) -> f64 {
-        let mut cost = 0.0;
-        for s in slots {
-            if removed.contains(s.name.as_str()) {
-                continue;
-            }
+    let mut positions: Vec<Option<usize>> = vec![None; t.agents.len()];
+    let mut depths = vec![0; t.agents.len()];
+    let mut ceilings: Vec<Vec<Value>> = vec![Vec::new(); t.agents.len()];
+    for (index, s) in t.agents.iter().enumerate() {
+            if removed.contains(s.name.as_str()) || s.parent.is_some_and(|p| positions[p].is_none()) { continue; }
+            let depth = s.parent.map_or(0, |p| depths[p] + 1); depths[index] = depth;
+            let parent = s.parent.and_then(|p| positions[p]).map(|p: usize| out[p].name.clone());
+            let ceiling = s.parent.map_or(org_dirs, |p| ceilings[p].as_slice());
             let ch = choices.overrides.get(&s.name).cloned().unwrap_or_default();
             let name = ch.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&s.name).to_string();
             if s.project() {
                 let at = out.len();
-                out.push(Planned { slot: s.clone(), name: name.clone(), parent: parent.map(str::to_string), depth,
+                out.push(Planned { slot: s.clone(), name: name.clone(), parent: parent.clone(), depth,
                     tier: Some(super::projects::TIER.to_string()), note: None, account: None, seat: 0.0, grant: 0.0,
                     add_dirs: None, dirs_dropped: Vec::new() });
-                cost += go(&s.reports, depth + 1, Some(&name), ceiling, choices, removed, av, out, blocked);
-                debug_assert_eq!(out[at].grant, 0.0);
+                positions[index] = Some(at); ceilings[index] = ceiling.to_vec();
                 continue;
             }
             let (tier, note) = match ch.tier.as_deref().filter(|x| !x.is_empty()) {
@@ -635,19 +654,32 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
                     (Some(kept), dropped)
                 }
             };
-            let below_ceiling = add_dirs.clone().unwrap_or_else(|| ceiling.to_vec());
+            ceilings[index] = add_dirs.clone().unwrap_or_else(|| ceiling.to_vec());
             let seat = offer.map(|o| o.seat).unwrap_or(0.0);
             let at = out.len();
-            out.push(Planned { slot: s.clone(), name: name.clone(), parent: parent.map(str::to_string), depth, tier, note, account,
+            let mut slot = s.clone();
+            slot.fast_mode = ch.fast_mode.or(slot.fast_mode);
+            slot.harness = ch.harness.clone().or(slot.harness);
+            if slot.fast_mode == Some(true) && !tier.as_ref().is_some_and(|t| av.fast_tiers.contains(t)) {
+                blocked.push(name.clone()); note = Some("saved fast mode is unavailable for this model; turn it off or choose another model".into());
+            }
+            if let Some(pin) = &slot.harness {
+                if tier.as_deref().is_some_and(catalog::is_openrouter) {
+                    if !av.harnesses.contains(pin) { blocked.push(name.clone()); note = Some(format!("pinned harness {pin} is unavailable here; choose an installed harness")); }
+                } else { slot.harness = None; note = Some("saved OpenRouter harness pin does not apply to the selected provider".into()); }
+            }
+            out.push(Planned { slot, name: name.clone(), parent: parent.clone(), depth, tier, note, account,
                                seat, grant: 0.0, add_dirs, dirs_dropped });
-            let below = go(&s.reports, depth + 1, Some(&name), &below_ceiling, choices, removed, av, out, blocked);
-            let grant = round2(s.spare + below);
-            out[at].grant = grant;
-            cost += seat + grant;
-        }
-        cost
+            positions[index] = Some(at);
     }
-    go(&t.agents, 0, None, org_dirs, choices, &removed, av, &mut out, &mut blocked);
+    let mut costs = vec![0.0; out.len()];
+    for index in (0..t.agents.len()).rev() {
+        let Some(at) = positions[index] else { continue };
+        let grant = if out[at].slot.project() { 0.0 } else { round2(out[at].slot.spare + costs[at]) };
+        out[at].grant = grant;
+        let cost = if out[at].slot.project() { costs[at] } else { out[at].seat + grant };
+        if let Some(parent) = t.agents[index].parent.and_then(|p| positions[p]) { costs[parent] += cost; }
+    }
     let mut names = HashSet::new();
     for p in &out {
         match crate::domain::ops::valid_name(&p.name) {
@@ -704,6 +736,8 @@ pub fn hire_request(p: &Planned, kickoff: bool) -> Value {
     if let Some(v) = &s.org_visibility { req["org_visibility"] = json!(v); }
     if let Some(v) = &s.permission_mode { req["permission_mode"] = json!(v); }
     if let Some(v) = &s.effort { req["effort"] = json!(v); }
+    if let Some(v) = s.fast_mode { req["fast_mode"] = json!(v); }
+    if let Some(v) = &s.harness { req["harness"] = json!(v); }
     if let Some(b) = s.account_fallback { req["account_fallback"] = json!(b); }
     if let Some(d) = &p.add_dirs { req["add_dirs"] = json!(d); }
     if kickoff && p.depth == 0 {
@@ -717,7 +751,7 @@ pub fn hire_request(p: &Planned, kickoff: bool) -> Value {
 pub fn creation_requests(p: &Planned, kickoff: bool) -> Vec<Value> {
     let mut out = vec![hire_request(p, kickoff)];
     if p.slot.project() {
-        let mut settings = json!({});
+        let mut settings = json!(p.slot.settings.clone().unwrap_or_default());
         if let Some(n) = p.slot.slots { settings["slots"] = json!(n); }
         if let Some(on) = p.slot.peer_mail { settings["peer_mail"] = json!(on); }
         if !settings.as_object().unwrap().is_empty() {
@@ -735,7 +769,7 @@ pub fn plan_json(t: &Template, planned: &[Planned], blocked: &[String]) -> Value
         "slot": p.slot.name, "name": p.name, "parent": p.parent, "depth": p.depth,
         "tier": p.tier, "requested_tier": p.slot.tier, "note": p.note, "account": p.account,
         "provider": p.tier.as_deref().filter(|_| !p.slot.project()).map(catalog::provider_of),
-        "seat": p.seat, "grant": p.grant,
+        "seat": p.seat, "grant": p.grant, "fast_mode": p.slot.fast_mode, "harness": p.slot.harness,
         "charter": match (&p.slot.charter.preset, &p.slot.charter.text) {
             (Some(n), _) => format!("preset: {n}"), (None, Some(_)) => "text".to_string(), _ => "none".to_string() },
         "team_charter": p.slot.team_charter, "kickoff": p.slot.kickoff.is_some() && p.depth == 0,
@@ -855,6 +889,7 @@ pub struct Row {
     pub charter: Option<String>,
     pub team_charter: Option<String>,
     pub scope: Value,
+    pub extra: Value,
 }
 
 /// Build a template from an org's live agents (in sibling order). An agent
@@ -863,27 +898,33 @@ pub struct Row {
 pub fn from_rows(
     id: &str, name: &str, description: Option<&str>, rows: &[Row], org_md: Option<String>, quick: Option<&Value>, settings: &Value,
     inc: &Include,
-) -> Value {
-    let live: HashSet<i64> = rows.iter().map(|r| r.id).collect();
-    let top: Vec<&Row> = rows.iter().filter(|r| r.parent.is_none_or(|p| !live.contains(&p))).collect();
-    #[nolog]
-    fn slot(r: &Row, rows: &[Row], inc: &Include) -> Value {
-        let kids: Vec<&Row> = rows.iter().filter(|k| k.parent == Some(r.id)).collect();
+) -> Result<super::template_wire::Export, String> {
+    let ids: HashMap<_, _> = rows.iter().enumerate().map(|(i,r)| (r.id,i)).collect();
+    let mut children = vec![Vec::new(); rows.len()]; let mut roots = Vec::new();
+    for (i,r) in rows.iter().enumerate() { if let Some(p) = r.parent.and_then(|p| ids.get(&p)) { children[*p].push(i); } else { roots.push(i); } }
+    let mut order = Vec::new(); let mut todo: Vec<_> = roots.iter().rev().copied().collect();
+    while let Some(i) = todo.pop() { order.push(i); todo.extend(children[i].iter().rev()); }
+    if order.len() != rows.len() { return Err("layout contains a parent cycle".into()); }
+    let mut held = vec![0.0; rows.len()];
+    for &i in order.iter().rev() {
+        let cost = if rows[i].tier == super::projects::TIER { held[i] } else { rows[i].seat + rows[i].grant };
+        if let Some(p) = rows[i].parent.and_then(|p| ids.get(&p)) { held[*p] += cost; }
+    }
+    let mut nodes = Vec::with_capacity(rows.len());
+    for (index, r) in rows.iter().enumerate() {
         if r.tier == super::projects::TIER {
             let mut v = json!({ "name": r.name, "tier": super::projects::TIER,
                 "slots": super::slots::capacity(&r.scope), "peer_mail": super::peer_mail::enabled(&r.scope) });
             if inc.charters { if let Some(description) = &r.charter { v["description"] = json!(description); } }
-            let reports: Vec<_> = kids.iter().map(|k| slot(k, rows, inc)).collect();
-            if !reports.is_empty() { v["reports"] = json!(reports); }
-            return v;
+            if inc.settings { v["settings"] = json!({
+                "mail_queue": if super::projects::ack_mode(&r.scope) { "ack" } else { "round_robin" },
+                "exclude_sender": super::projects::exclude_sender(&r.scope), "ack_timeout": super::projects::ack_timeout(&r.scope),
+                "max_attempts": super::projects::max_attempts(&r.scope), "ack_reminders": super::projects::ack_reminders(&r.scope),
+                "turn_end_reminder": super::projects::turn_end_reminder(&r.scope), "event_listeners": super::listeners::enabled(&r.scope)
+            }); }
+            nodes.push(v); continue;
         }
-        // Projects hold no credits; the nearest agent funds their descendants.
-        #[nolog]
-        fn stake(r: &Row, rows: &[Row]) -> f64 {
-            if r.tier == super::projects::TIER { rows.iter().filter(|k| k.parent == Some(r.id)).map(|k| stake(k, rows)).sum() }
-            else { r.seat + r.grant }
-        }
-        let held: f64 = kids.iter().map(|k| stake(k, rows)).sum();
+        let held = held[index];
         let mut v = json!({ "name": r.name, "tier": r.tier,
                             "spare": if inc.credits { round2((r.grant - held).max(0.0)) } else { 0.0 } });
         if inc.charters {
@@ -891,6 +932,10 @@ pub fn from_rows(
             if let Some(c) = r.team_charter.as_ref().filter(|c| !c.trim().is_empty()) { v["team_charter"] = json!(c); }
         }
         if inc.effort {
+            if let Some(on) = r.scope["fast_mode"].as_bool() { v["fast_mode"] = json!(on); }
+            if catalog::is_openrouter(&r.tier) && r.extra["harness_pin"].as_bool() == Some(true) {
+                if let Some(h) = r.extra["harness"].as_str() { v["harness"] = json!(h); }
+            }
             if let Some(e) = r.scope["effort"].as_str().filter(|e| !e.is_empty()) { v["effort"] = json!(e); }
         }
         if inc.tools {
@@ -906,11 +951,9 @@ pub fn from_rows(
         if inc.folders {
             if let Some(d) = r.scope["add_dirs"].as_array() { v["add_dirs"] = json!(d); }
         }
-        let reports: Vec<Value> = kids.iter().map(|k| slot(k, rows, inc)).collect();
-        if !reports.is_empty() { v["reports"] = json!(reports); }
-        v
+        nodes.push(v);
     }
-    let mut t = json!({ "id": id, "name": name, "version": 1, "agents": top.iter().map(|r| slot(r, rows, inc)).collect::<Vec<_>>() });
+    let mut t = json!({ "id": id, "name": name, "version": 1 });
     // optional: a blank one is left out, and the picker shows no line for it
     if let Some(d) = description.map(str::trim).filter(|d| !d.is_empty()) {
         t["description"] = json!(d);
@@ -938,7 +981,7 @@ pub fn from_rows(
             t["settings"] = Value::Object(s);
         }
     }
-    t
+    Ok(super::template_wire::Export {root:t, nodes, children, roots})
 }
 
 /// "Restore default templates": write every built-in the folder lacks, also
@@ -978,6 +1021,9 @@ pub fn write(id: &str, body: &str, replace: bool) -> Result<PathBuf, (u16, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn from_rows(id:&str,name:&str,description:Option<&str>,rows:&[Row],md:Option<String>,quick:Option<&Value>,settings:&Value,inc:&Include)->Value {
+        serde_json::from_str(&super::from_rows(id,name,description,rows,md,quick,settings,inc).unwrap().body().unwrap()).unwrap()
+    }
 
     #[test]
     fn project_slots_are_transparent_for_credits_and_model_availability() {
@@ -999,7 +1045,7 @@ mod tests {
         assert_eq!(hire_request(&planned[2],false),
             json!({"op":"create_project","name":"build-slot","parent":"coordinator","description":"Build permit"}));
         let mut choices = Choices::default();
-        choices.overrides.insert("build-slot".into(), SlotChoice { name:Some("builds".into()),tier:None });
+        choices.overrides.insert("build-slot".into(), SlotChoice { name:Some("builds".into()),tier:None, ..Default::default() });
         let (renamed,_) = plan(&t,&choices,&claude_only(),&[]).unwrap();
         assert_eq!(renamed[3].parent.as_deref(),Some("builds"));
         let (unavailable,blocked) = plan(&t,&Choices::default(),&Avail::default(),&[]).unwrap();
@@ -1155,7 +1201,7 @@ mod tests {
     }
 
     fn row(id: i64, parent: Option<i64>, name: &str, tier: &str, seat: f64, grant: f64) -> Row {
-        Row { id, parent, name: name.into(), tier: tier.into(), account: Some("claude-5".into()), seat, grant,
+        Row { extra: Value::Null, id, parent, name: name.into(), tier: tier.into(), account: Some("claude-5".into()), seat, grant,
               charter: Some(format!("be {name}")), team_charter: None,
               scope: json!({ "effort": "high", "org_visibility": "subtree", "tools": { "bash": true },
                              "add_dirs": [{ "path": "E:\\x", "mode": "rw" }] }) }
@@ -1267,7 +1313,7 @@ mod tests {
             assert_eq!(*file, format!("{}.json", t.id));
             assert!(validate(&t).is_empty(), "{file}: {:?}", validate(&t));
             if t.id == "heavy-dev-shop" { continue; }
-            let names: Vec<_> = std::iter::once(&t.agents[0]).chain(&t.agents[0].reports).map(|s| s.name.as_str()).collect();
+            let names: Vec<_> = t.agents.iter().map(|s| s.name.as_str()).collect();
             assert_eq!(names, ["coordinator", "implementer", "redteam", "curator"], "{file}");
         }
     }
@@ -1366,22 +1412,22 @@ mod tests {
     #[test]
     fn bundled_templates_parse_and_carry_the_ruled_tiers() {
         let c = bundled("devteam-claude");
-        let tiers: Vec<_> = std::iter::once(&c.agents[0]).chain(&c.agents[0].reports).map(|s| (s.name.as_str(), s.tier.as_str())).collect();
+        let tiers: Vec<_> = c.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
         assert_eq!(tiers, [("coordinator", "opus"), ("implementer", "opus"), ("redteam", "opus"), ("curator", "sonnet")]);
         let x = bundled("devteam-codex");
-        let tiers: Vec<_> = std::iter::once(&x.agents[0]).chain(&x.agents[0].reports).map(|s| (s.name.as_str(), s.tier.as_str())).collect();
+        let tiers: Vec<_> = x.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
         assert_eq!(tiers, [("coordinator", "sol"), ("implementer", "astra"), ("redteam", "sol"), ("curator", "luna")]);
         let m = bundled("devteam-muse");
         assert_eq!(m.name, "devteam (muse)");
-        let tiers: Vec<_> = std::iter::once(&m.agents[0]).chain(&m.agents[0].reports).map(|s| (s.name.as_str(), s.tier.as_str())).collect();
+        let tiers: Vec<_> = m.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
         assert_eq!(tiers, [("coordinator", "wonder"), ("implementer", "wonder-full"), ("redteam", "wonder"), ("curator", "spark")]);
-        assert!(std::iter::once(&m.agents[0]).chain(&m.agents[0].reports).all(|s| catalog::is_muse(&s.tier) && s.fallback.is_empty()));
+        assert!(m.agents.iter().all(|s| catalog::is_muse(&s.tier) && s.fallback.is_empty()));
         // user 2026-10-14 17:55Z: Argon for everything except the curator, which runs Flash
         let g = bundled("devteam-antigravity");
         assert_eq!(g.name, "devteam (antigravity)");
-        let tiers: Vec<_> = std::iter::once(&g.agents[0]).chain(&g.agents[0].reports).map(|s| (s.name.as_str(), s.tier.as_str())).collect();
+        let tiers: Vec<_> = g.agents.iter().map(|s| (s.name.as_str(), s.tier.as_str())).collect();
         assert_eq!(tiers, [("coordinator", "argon"), ("implementer", "argon"), ("redteam", "argon"), ("curator", "flash")]);
-        assert!(std::iter::once(&g.agents[0]).chain(&g.agents[0].reports)
+        assert!(g.agents.iter()
             .all(|s| catalog::tier(&s.tier).is_some_and(|t| t.provider == catalog::GOOGLE) && s.fallback.is_empty()));
     }
 
@@ -1444,7 +1490,7 @@ mod tests {
         assert!(p[1].note.as_deref().unwrap().contains("wonder-full cannot run on this computer now (Muse is not signed in or turned off)"));
         assert!(p.iter().filter(|x| x.name != "implementer").all(|x| x.tier.is_some()));
         let mut ch = Choices::default();
-        ch.overrides.insert("implementer".into(), SlotChoice { tier: Some("wonder".into()), name: None });
+        ch.overrides.insert("implementer".into(), SlotChoice { tier: Some("wonder".into()), name: None, ..Default::default() });
         let (p, blocked) = plan(&bundled("devteam-muse"), &ch, &av, &[]).unwrap();
         assert!(blocked.is_empty());
         assert_eq!(p[1].tier.as_deref(), Some("wonder"));
@@ -1500,9 +1546,9 @@ mod tests {
     #[test]
     fn overrides_and_removals_recompute_the_grant() {
         let mut ch = Choices::default();
-        ch.overrides.insert("coordinator".into(), SlotChoice { tier: Some("opus".into()), name: None });
-        ch.overrides.insert("implementer".into(), SlotChoice { tier: Some("sonnet".into()), name: Some("builder".into()) });
-        ch.overrides.insert("redteam".into(), SlotChoice { tier: Some("opus".into()), name: None });
+        ch.overrides.insert("coordinator".into(), SlotChoice { tier: Some("opus".into()), name: None, ..Default::default() });
+        ch.overrides.insert("implementer".into(), SlotChoice { tier: Some("sonnet".into()), name: Some("builder".into()), ..Default::default() });
+        ch.overrides.insert("redteam".into(), SlotChoice { tier: Some("opus".into()), name: None, ..Default::default() });
         ch.removed.push("curator".into());
         let (p, blocked) = plan(&bundled("devteam-codex"), &ch, &claude_only(), &[]).unwrap();
         assert!(blocked.is_empty());
@@ -1593,7 +1639,7 @@ mod tests {
         let (p, _) = plan(&t, &Choices::default(), &claude_only(), &[]).unwrap();
         assert_eq!(quick_chat_for(&t, &p), Some(json!({ "superior": "coordinator", "tier": "opus" })));
         let mut ch = Choices::default();
-        ch.overrides.insert("coordinator".into(), SlotChoice { tier: None, name: Some("boss".into()) });
+        ch.overrides.insert("coordinator".into(), SlotChoice { tier: None, name: Some("boss".into()), ..Default::default() });
         let (p, _) = plan(&t, &ch, &claude_only(), &[]).unwrap();
         assert_eq!(quick_chat_for(&t, &p).unwrap()["superior"], json!("boss"));
         let mut t2 = t.clone();
@@ -1646,7 +1692,7 @@ mod tests {
     #[test]
     fn a_renamed_slot_may_not_collide() {
         let mut ch = Choices::default();
-        ch.overrides.insert("curator".into(), SlotChoice { tier: None, name: Some("redteam".into()) });
+        ch.overrides.insert("curator".into(), SlotChoice { tier: None, name: Some("redteam".into()), ..Default::default() });
         assert!(plan(&bundled("devteam-claude"), &ch, &claude_only(), &[]).is_err());
     }
 
@@ -1692,3 +1738,7 @@ mod tests {
         assert_eq!(p[3].account.as_deref(), Some("primary"));
     }
 }
+
+#[cfg(test)]
+#[path = "template_scale_tests.rs"]
+mod scale_tests;

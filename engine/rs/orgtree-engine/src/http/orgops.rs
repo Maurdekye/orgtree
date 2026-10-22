@@ -156,11 +156,16 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
                 }
             }
         }
-        let locations: Vec<_> = tx.query("SELECT id,name,tier,scratch_dir FROM ot.agents WHERE org_id=$1 AND state='live' ORDER BY id LIMIT 24", &[&id]).await?
-            .into_iter().map(|row| crate::domain::template_notes::Location {
+        let mut locations = Vec::new(); let mut after = 0_i64;
+        loop {
+            let page = tx.query("SELECT id,name,tier,scratch_dir FROM ot.agents WHERE org_id=$1 AND state='live' AND id>$2 ORDER BY id LIMIT 200", &[&id,&after]).await?;
+            if page.is_empty() { break; }
+            after = page.last().unwrap().get(0);
+            locations.extend(page.into_iter().map(|row| crate::domain::template_notes::Location {
                 id: row.get(0), name: row.get(1), project: row.get::<_,String>(2) == crate::domain::projects::TIER,
                 personal: row.get::<_,Option<String>>(3).map(PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&slug).join(row.get::<_,String>(1))),
-            }).collect();
+            }));
+        }
         pending_notes = crate::domain::template_notes::pending(&e.cfg.scratch_root(&slug), template, planned, &locations);
         template_links = crate::domain::template_links::plan(template, planned);
         for grant in &template_links.audiences {

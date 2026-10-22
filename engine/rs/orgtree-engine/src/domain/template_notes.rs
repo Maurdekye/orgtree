@@ -130,7 +130,7 @@ pub fn seed(root: &Path, pending: &[Pending]) -> Value {
 
 /// The save option captures only this org's known shared/team/personal files.
 #[nolog]
-pub fn capture_layout(root: &Path, locations: &[Location], template: &mut Value) -> Result<(), String> {
+pub fn capture_layout(root: &Path, locations: &[Location], template: &mut super::template_wire::Export) -> Result<(), String> {
     let mut total = 0;
     #[nolog]
     fn attach(root: &Path, file: &Path, object: &mut Value, key: &str, total: &mut usize) -> Result<(), String> {
@@ -141,18 +141,13 @@ pub fn capture_layout(root: &Path, locations: &[Location], template: &mut Value)
         }
         Ok(())
     }
-    attach(root, &root.join("_shared/AGENTS.md"), template, "shared_agents_md", &mut total)?;
-    #[nolog]
-    fn walk(root: &Path, slots: &mut [Value], locations: &[Location], total: &mut usize) -> Result<(), String> {
-        for slot in slots {
-            let location = locations.iter().find(|l| slot["name"].as_str() == Some(l.name.as_str())).ok_or("standing-notes slot was not found")?;
-            attach(root, &root.join("_teams").join(location.id.to_string()).join("AGENTS.md"), slot, "team_agents_md", total)?;
-            if !location.project { attach(root, &location.personal.join("AGENTS.md"), slot, "scratch_agents_md", total)?; }
-            if let Some(reports) = slot.get_mut("reports").and_then(Value::as_array_mut) { walk(root, reports, locations, total)?; }
-        }
-        Ok(())
+    attach(root, &root.join("_shared/AGENTS.md"), &mut template.root, "shared_agents_md", &mut total)?;
+    let by_name: std::collections::HashMap<_, _> = locations.iter().map(|l| (l.name.as_str(),l)).collect();
+    for slot in &mut template.nodes {
+        let location = by_name.get(slot["name"].as_str().unwrap_or("")).ok_or("standing-notes slot was not found")?;
+        attach(root, &root.join("_teams").join(location.id.to_string()).join("AGENTS.md"), slot, "team_agents_md", &mut total)?;
+        if !location.project { attach(root, &location.personal.join("AGENTS.md"), slot, "scratch_agents_md", &mut total)?; }
     }
-    if let Some(slots) = template["agents"].as_array_mut() { walk(root, slots, locations, &mut total)?; }
     Ok(())
 }
 

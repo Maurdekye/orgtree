@@ -40,6 +40,7 @@ pub mod templates;
 pub(crate) mod native_fixture;
 pub mod template_notes;
 pub mod template_links;
+pub(crate) mod template_wire;
 pub mod tree;
 pub mod undo;
 pub mod watchdogs;

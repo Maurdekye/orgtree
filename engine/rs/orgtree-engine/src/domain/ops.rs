@@ -2375,7 +2375,7 @@ async fn project_settings(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Ac
 
 /// Prepare an explicit patch; canonical operations retain value validation and effects.
 #[nolog]
-fn project_setting_ops(node:&str, settings:&Value) -> Result<Vec<Value>> {
+pub(crate) fn project_setting_ops(node:&str, settings:&Value) -> Result<Vec<Value>> {
     let Some(fields)=settings.as_object() else { refuse!(BadRequest,"settings must be an object"); };
     if fields.is_empty() { refuse!(BadRequest,"configure needs at least one setting"); }
     for (k,v) in fields {

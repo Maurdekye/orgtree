@@ -281,8 +281,8 @@ mod tests {
         t.audiences = vec![Grant { grantee:"worker".into(), grantor:"lead".into() }, Grant { grantee:"work".into(), grantor:"worker".into() },
             Grant { grantee:"worker".into(), grantor:"@user".into() }, Grant { grantee:"worker".into(), grantor:"@extern".into() }, Grant { grantee:"worker".into(), grantor:"outside".into() }];
         let mut ch = Choices::default();
-        ch.overrides.insert("worker".into(), SlotChoice { name:Some("builder".into()), tier:None });
-        ch.overrides.insert("work".into(), SlotChoice { name:Some("jobs".into()), tier:None });
+        ch.overrides.insert("worker".into(), SlotChoice { name:Some("builder".into()), tier:None, ..Default::default() });
+        ch.overrides.insert("work".into(), SlotChoice { name:Some("jobs".into()), tier:None, ..Default::default() });
         let p = plan(&t, &planned(&t, &ch));
         assert_eq!(p.dogs.len(), 7); assert!(p.dogs.iter().all(|d| d.owner == "builder"));
         assert_eq!(p.dogs[0].args["target"], "builder");

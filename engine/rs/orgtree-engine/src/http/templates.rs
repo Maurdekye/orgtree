@@ -96,6 +96,8 @@ pub async fn resolve(State(e): State<Arc<Engine>>, Json(b): Json<ResolveBody>) -
         .map(|(k, o)| json!({ "tier": k, "seat": o.seat, "provider": o.provider })).collect::<Vec<_>>());
     // the first sign-in check has not landed: the picker asks again shortly
     out["loading"] = json!(av.checking);
+    out["harnesses"] = json!(av.harnesses);
+    out["fast_tiers"] = json!(av.fast_tiers);
     out["unusable_here"] = json!(templates::unusable_here(&planned, av.checking));
     Ok(Json(out))
 }
@@ -127,13 +129,15 @@ pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
         return Err(ApiError::bad_request("a template needs a name with letters or digits"));
     }
     let client = e.db.get().await?;
-    let rows = client
-        .query(
-            "SELECT id, parent_id, name, tier, account, seat::float8, grant_credits::float8, charter, team_charter, scope, scratch_dir
-               FROM ot.agents WHERE org_id = $1 AND state = 'live' ORDER BY sibling_order, id LIMIT 200",
-            &[&o.id],
-        )
-        .await?;
+    let mut rows = Vec::new(); let mut after = 0_i64;
+    loop {
+        let page = client.query(
+            "SELECT id,parent_id,name,tier,account,seat::float8,grant_credits::float8,charter,team_charter,scope,scratch_dir,extra,sibling_order
+             FROM ot.agents WHERE org_id=$1 AND state='live' AND id>$2 ORDER BY id LIMIT 200", &[&o.id,&after]).await?;
+        if page.is_empty() { break; }
+        after = page.last().unwrap().get(0); rows.extend(page);
+    }
+    rows.sort_by(|a,b| a.get::<_,f64>(12).total_cmp(&b.get::<_,f64>(12)).then(a.get::<_,i64>(0).cmp(&b.get::<_,i64>(0))));
     drop(client);
     if rows.is_empty() {
         return Err(ApiError::unprocessable("this organization has no live agents to save"));
@@ -144,20 +148,19 @@ pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
     }).collect();
     let rows: Vec<templates::Row> = rows.iter().map(|r| templates::Row {
         id: r.get(0), parent: r.get(1), name: r.get(2), tier: r.get(3), account: r.get(4), seat: r.get(5), grant: r.get(6),
-        charter: r.get(7), team_charter: r.get(8), scope: r.get(9),
+        charter: r.get(7), team_charter: r.get(8), scope: r.get(9), extra: r.get(11),
     }).collect();
     let org_md = std::fs::read(e.cfg.workspace_dir(&o.slug).join("org.md")).ok().map(|b| String::from_utf8_lossy(&b).into_owned());
     let settings: Value = e.db.get().await?.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&o.id]).await?.get(0);
-    let mut t = templates::from_rows(&id, &name, b.description.as_deref(), &rows, org_md, b.quick_chat.as_ref(), &settings, &b.include);
-    crate::domain::template_links::capture(&e, o.id, &rows, &b.include, &mut t).await?;
+    let mut t = templates::from_rows(&id, &name, b.description.as_deref(), &rows, org_md, b.quick_chat.as_ref(), &settings, &b.include).map_err(ApiError::unprocessable)?;
+    crate::domain::template_links::capture(&e, o.id, &rows, &b.include, &mut t.root).await?;
     if b.include.standing_notes {
         crate::domain::template_notes::capture_layout(&e.cfg.scratch_root(&slug), &locations, &mut t)
             .map_err(ApiError::unprocessable)?;
     }
-    let parsed: templates::Template = serde_json::from_value(t.clone()).map_err(|x| ApiError::internal(x.to_string()))?;
+    let body = t.body().map_err(ApiError::unprocessable)?;
+    let parsed = templates::parse(&body).map_err(ApiError::unprocessable)?;
     let problems = templates::validate(&parsed);
-    let body = serde_json::to_string_pretty(&t).map_err(|x| ApiError::internal(x.to_string()))?;
-    if body.len() > 256 * 1024 { return Err(ApiError::unprocessable("template file exceeds 256 KiB; include fewer notes or charters")); }
     let path = templates::write(&id, &body, b.replace).map_err(|(code, msg)| {
         ApiError::new(StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), msg)
     })?;
