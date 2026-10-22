@@ -6,6 +6,7 @@ import {legacyAppBackend} from './appfeed-fixture'
 import {DeskModelButton} from '../src/canvas/deskmodel'
 import {QueuedModelBadge} from '../src/canvas/nextturn'
 import {resetStaffingOptionsForTests} from '../src/canvas/staffingoptions'
+import type {StaffingAccount} from '../src/canvas/staffingoptions'
 import {syncProviderRegistries, type CanvasNode} from '../src/canvas/shared'
 import {bindHistory} from '../src/historyregistry'
 import type {ToastFn} from '../src/types'
@@ -14,7 +15,7 @@ const base={id:'worker',tier:'sol',state:'live',generation:1,children:[],seat:2,
  account:'openai/backup',scope:{tools:{},add_dirs:[],model_version:'5.5'}} as CanvasNode
 const click=async(el:Element|null|undefined)=>inAct(async()=>{assert.ok(el);el.dispatchEvent(new window.MouseEvent('click',{bubbles:true}));await flush(12)})
 const escape=async()=>inAct(async()=>{document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await flush(4)})
-async function setup(history:boolean,extra:Partial<CanvasNode>={},refuse=false,defaultState:{default_ok?:boolean;native_ok?:boolean}={}){
+async function setup(history:boolean,extra:Partial<CanvasNode>={},refuse=false,defaultState:{default_ok?:boolean;native_ok?:boolean;accounts?:StaffingAccount[]}={}){
  localStorage.clear();resetStaffingOptionsForTests();installFetch(new FakeServer())
  const fallback=globalThis.fetch,acts:Record<string,unknown>[]=[],toasts:{text:string;undo:Parameters<ToastFn>[1]}[]=[]
  let update:(fn:(n:CanvasNode)=>CanvasNode)=>void=()=>{}
@@ -28,7 +29,7 @@ async function setup(history:boolean,extra:Partial<CanvasNode>={},refuse=false,d
    if(path.endsWith('/scope'))body=act({op:'scope',...b})
   }
   if(path==='/api/providers')body={providers:['openai','claude'].map(id=>({id,hire_enabled:true,status:{installed:true}}))}
-  if(path.endsWith('/staffing-options'))body={tiers:['sol','luna','opus'].map(tier=>({tier,seat:2,efforts:['high'],default_ok:true,...defaultState,accounts:[{value:tier==='opus'?'claude/backup':'openai/backup',id:'backup',provider:tier==='opus'?'claude':'openai',ambient:false}]})),errors:[],loading:false}
+  if(path.endsWith('/staffing-options'))body={tiers:['sol','luna','opus'].map(tier=>({tier,seat:2,efforts:['high'],default_ok:true,accounts:[{value:tier==='opus'?'claude/backup':'openai-1',id:tier==='opus'?'claude/backup':'openai-1',provider:tier==='opus'?'claude':'openai',ambient:false}],...defaultState})),errors:[],loading:false}
   return body!==null?new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}}):fallback(input,init)
  }) as typeof fetch)
  syncProviderRegistries({providers:[{id:'openai',tiers:[{tier:'sol'},{tier:'luna'}]}]})
@@ -39,9 +40,18 @@ async function setup(history:boolean,extra:Partial<CanvasNode>={},refuse=false,d
  const pick=async(tier:string)=>click(document.querySelector(`[aria-label="Change agent model"] .t-${tier}`))
  return{v,acts,toasts,open,pick,close:async()=>{await v.unmount();off()}}
 }
-for(const defaultState of [{default_ok:false},{native_ok:false}])test(`default-unavailable tiers cannot silently choose a managed account: ${JSON.stringify(defaultState)}`,async()=>{
- const s=await setup(false,{busy:true,pending_switch:{tier:'luna'}},false,defaultState)
- try{await s.open();assert.equal(!!document.querySelector('[aria-label="Change agent model"] .t-luna'),false);await s.pick('sol');assert.equal(s.acts[0]?.tier,'sol');assert.equal(s.acts.length,1)}finally{await s.close()}
+for(const history of [false,true])for(const defaultState of [{default_ok:false},{native_ok:false}])
+test(`eligible secondary preserves the model choice and receives the switch: history=${history} ${JSON.stringify(defaultState)}`,async()=>{
+ const s=await setup(history,{busy:true},false,defaultState)
+ try{await s.open();const token=document.querySelector('[aria-label="Change agent model"] .t-luna');assert.equal(!!token,true,'eligible managed account keeps its model offered');assert.equal(token?.getAttribute('title'),'Change model to luna · account openai-1');await s.pick('luna');assert.equal(s.acts[0]?.tier,'luna');assert.equal(s.acts[0]?.account,'openai-1');assert.equal(s.acts.some(b=>b.op==='scope'&&b.model_version===''),true);assert.match(s.toasts[0]?.text??'',/next turn/);if(history)assert.equal(s.toasts[0]?.undo?.label,'Undo')}finally{await s.close()}
+})
+test('no usable account hides another model but current-model queue cancellation stays available',async()=>{
+ const s=await setup(false,{busy:true,pending_switch:{tier:'luna'}},false,{default_ok:true,native_ok:false,accounts:[]})
+ try{await s.open();assert.equal(!!document.querySelector('[aria-label="Change agent model"] .t-luna'),false);await s.pick('sol');assert.deepEqual(s.acts,[{op:'switch_model',node:'worker',tier:'sol'}])}finally{await s.close()}
+})
+test('cross-provider fallback account is disclosed before confirmation and used only after approval',async()=>{
+ const s=await setup(false,{busy:true},false,{native_ok:false})
+ try{await s.open();await s.pick('opus');assert.equal(s.acts.length,0);assert.match(document.body.textContent??'',/account claude\/backup/);await click([...document.querySelectorAll('button')].find(b=>b.textContent==='switch to opus and reset the conversation'));assert.equal(s.acts[0]?.account,'claude/backup')}finally{await s.close()}
 })
 for(const history of [false,true]){
  const mode=history?'history':'legacy'
