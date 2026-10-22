@@ -2,6 +2,8 @@
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
+Ticket/presentation menu actions capture their owning composer before metadata reads; Quick chat owns only its canvas content. See [composer ownership](docs/agents/docket-and-presentations.md#object-actions-belong-to-a-composer-2026-10-22). [verified: `canvas/composerobjects.tsx`; 2026-10-22]
+
 Recursive project fires must construct nested futures with `util::boxed(|| ...)`: `Box::pin(f())` still grows debug poll frames at every level, even with the depth-four cutoff. See [fire-action stack verification](docs/rust-engine/tool-cards.md#fire-actions). [verified: `domain/listeners.rs`, 2026-10-22]
 
 ## Read this first

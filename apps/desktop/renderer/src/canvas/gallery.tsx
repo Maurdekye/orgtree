@@ -642,8 +642,8 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
             {!doc && !err && <div className="dim pad">loading…</div>}
             {replyable && (
               <MailReplyBox target={row.node} slug={slug} toast={toast} broadcast={projectBroadcast}
-                onSend={(text, attachments, notice, broadcast) => {
-                  const target: ReplyTarget = { kind: 'document', org: slug, id: row.id }
+                onSend={(text, attachments, notice, broadcast, objectTarget) => {
+                  const target: ReplyTarget = objectTarget ?? { kind: 'document', org: slug, id: row.id }
                   if (broadcast && onBroadcast) return onBroadcast(row.node, text, target, attachments, notice)
                   if (onReply) return onReply(row.node, text, target, attachments, notice)
                   return sendLinkedReply(slug, row.node, text, target, attachments, notice)

@@ -51,6 +51,7 @@ import { revealDetachedDocument } from '../windowlife'
 import { closeIfCentred, PinFrame } from './modalpin'
 import { AgentName, nodeTierOf } from './identity'
 import { MailReplyBox } from './mail'
+import { sendLinkedReply } from '../events/reply'
 import { ago, jumpKey, useEsc } from './shared'
 import { useWorkItems, useSelectedWork } from './useworkitems'
 import { fmtFull } from '../timefmt'
@@ -3108,10 +3109,11 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
             {recipient.node} is retired — the reply waits for rehire.
           </div>}
           <MailReplyBox target={replyTo || undefined} slug={slug} toast={toast} sendDisabled={unavailable}
-            onSend={(text, attachments, notice) => {
+            onSend={(text, attachments, notice, _broadcast, objectTarget) => {
               if (unavailable) return Promise.reject(new Error('Recipient unavailable'))
               setReplyBusy(true)
-              return replyWorkItem(slug, item.slug, text, replyTo, attachments, notice)
+              return (objectTarget ? sendLinkedReply(slug, replyTo, text, objectTarget, attachments, notice).then(r => ({ ...r, to: replyTo }))
+                : replyWorkItem(slug, item.slug, text, replyTo, attachments, notice))
                 .then((r) => {
                   const sentTo = r.to ?? replyTo
                   toast([r.deferred

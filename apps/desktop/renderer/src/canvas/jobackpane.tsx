@@ -17,6 +17,7 @@ import type { MailQueueState, ToastFn } from '../types'
 import { fmtFull } from '../timefmt'
 import { MailReplyBox } from './mail'
 import { jobWasSentByUser } from './jobacks'
+import type { ReplyTarget } from '../generated/events'
 
 export type QueueJob = NonNullable<MailQueueState['job']>
 
@@ -27,7 +28,7 @@ export const needsAck = (job: QueueJob | undefined): job is QueueJob => !!job &&
 export function JobAckPane({ job, onAck, target, slug, toast }: {
   job: QueueJob
   /** send the reply (when there is one) and acknowledge the job */
-  onAck: (reply?: string, opts?: { attachments?: string[]; notice?: boolean }) => Promise<unknown>
+  onAck: (reply?: string, opts?: { attachments?: string[]; notice?: boolean; objectTarget?: ReplyTarget }) => Promise<unknown>
   /** the job's sender, whom the reply goes to */
   target?: string
   slug?: string
@@ -56,9 +57,9 @@ export function JobAckPane({ job, onAck, target, slug, toast }: {
       <p className="dim">This job was sent by you. There is no reply recipient; acknowledging it sends no mail.</p>
       <button type="button" className="job-ack-skip" data-action="ack" disabled={busy}
         title="acknowledge this self-sent job without sending a reply" onClick={skip}>Acknowledge job</button>
-    </> : <MailReplyBox target={target} slug={slug} toast={toast}
+    </> : <MailReplyBox target={target} slug={slug} toast={toast} objectActions
       sendLabel="reply & acknowledge" sendTitle="send this reply to the sender, then acknowledge the job"
-      onSend={(text, attachments, notice) => onAck(text, { attachments, notice })}
+      onSend={(text, attachments, notice, _broadcast, objectTarget) => onAck(text, { attachments, notice, ...(objectTarget ? { objectTarget } : {}) })}
       below={<button type="button" className="job-ack-skip" data-action="ack" disabled={busy}
         title="acknowledge the job without replying to its sender" onClick={skip}>Acknowledge without reply</button>} />}
     {error && <div role="alert" className="job-ack-error">{error}</div>}

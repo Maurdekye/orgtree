@@ -25,7 +25,8 @@ import { broadcastMessage, fileUrl, retractMail, sendMessage, uploadFile } from 
 import { useComposerEnter } from '../enterkey'
 import { readHistory, recordSent, type HistoryEntry } from '../composerhistory'
 import { draftKey, readAttachments, storeAttachments, type DraftAttachment } from '../draftstore'
-import { appendReplyTarget, readReplies, replyFromRow, storeReplies, type ReplyContext } from '../eventReply'
+import { appendReplyTarget, objectReplyContext, readReplies, replyFromRow, storeReplies, type ReplyContext } from '../eventReply'
+import { useObjectComposer } from './composerobjects'
 import { isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed, toggleNoticeArmed, unregisterChat, useNoticeArmed } from '../noticestore'
 import { setButtonAgent } from '../buttoncolours'
 import { ago, md, subtreeDocCount, subtreeDocs, upJumpTargets, USER } from './shared'
@@ -365,6 +366,12 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
     org: slug,
   })
   onRegisterMention?.(can ? mentions.captureMention : null, mentions.noteRightClickDown)
+  useObjectComposer(textareaRef, { key: messageDraftKey, mention: mentions.captureMention, down: mentions.noteRightClickDown,
+    disabled: !can || busy, reply: target => {
+      try { onReplies(appendReplyTarget(replies, objectReplyContext(node.id, node.generation ?? 0, target))) }
+      catch (error) { toast([(error as Error).message]); return }
+      textareaRef.current?.focus({ preventScroll: true })
+    } }, 'desk')
   const attach = (file: File) => {
     uploadFile(slug, node.id, file)
       .then((r) => setAttached((a) => [...a, { name: file.name, path: r.path, bytes: r.bytes }]))
@@ -431,9 +438,10 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
     setBusy(true)
     const asNotice = isNoticeArmed(chatKey)
     const files = attached.map((a) => a.path)
-    // the replies' typed document targets: the engine resolves them for each
+    // Typed ticket/document targets: the engine resolves them for each
     // recipient (http/nodes.rs), so a broadcast keeps them too
-    const targets: ReplyTarget[] = replies.flatMap((r) => r.docId ? [{ kind: 'document' as const, org: r.org, id: r.docId }] : [])
+    const targets: ReplyTarget[] = replies.flatMap((r): ReplyTarget[] => r.docId ? [{ kind: 'document', org: r.org, id: r.docId }]
+      : r.workItemId ? [{ kind: 'work_item', org: r.org, slug: r.workItemId }] : [])
     // a failed audience grant leaves the mail delivered: say so (coordinator 09:43Z)
     const grant = (g?: { granted: boolean; error?: string } | null) => g && !g.granted
       ? [`sent, but the project's user audience couldn't be granted${g.error ? ` (${g.error})` : ''}`] : []
@@ -880,7 +888,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
         members={agents.length} recipients={agents} bare={bare} focusRequest={replyFocus}
         replies={replies} onReplies={setReplies}
-        replyAvailable={(r) => !!r.docId && (Boolean(onOpenDoc) || subtreeDocs(node).some((d) => d.id === r.docId))}
+        replyAvailable={(r) => !!r.workItemId || !!r.docId && (Boolean(onOpenDoc) || subtreeDocs(node).some((d) => d.id === r.docId))}
         onLocateReply={(r) => { if (r.docId) onOpenDoc?.(r.docId) }}
         docTitle={(id) => subtreeDocs(node).find((d) => d.id === id)?.title}
         onRegisterMention={(capture, noteRightDown) => { mentionRef.current = { capture, noteRightDown } }}

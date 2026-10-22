@@ -19,6 +19,9 @@ import { focusComposerBackground } from './composerfocus'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { PickerPopover as Pop } from './canvas/pickerpopover'
 import { useAgentMentions, useOrgMentionCandidates } from './canvas/agentmentions'
+import { composerTarget, ObjectReplyDraft, useObjectComposer } from './canvas/composerobjects'
+import type { ComposerObject } from './canvas/composerobjects'
+import { sendLinkedReply } from './events/reply'
 import { useAppFeed, useAppRead } from './appfeed'
 import { useOrgHireProviders } from './orghire'
 import { getProviders, sendMessage, uploadFile } from './api'
@@ -190,6 +193,10 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     disabled: busy,
     org: slug,
   })
+  const [objectReply, setObjectReply] = useState<ComposerObject | null>(null)
+  useEffect(() => { setObjectReply(null) }, [slug])
+  useObjectComposer(inputRef, { key: slug, mention: mentions.captureMention, down: mentions.noteRightClickDown,
+    disabled: busy || !tier, reply: value => { setObjectReply(value); inputRef.current?.focus({ preventScroll: true }) } }, 'quick')
   const open = (kind: PopKind) => (e: { currentTarget: HTMLElement }) => {
     const anchor = e.currentTarget
     setPop(p => p?.kind === kind ? null : { kind, anchor })
@@ -295,7 +302,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         try {
           const { kickoff, kickoff_kind, ...bare } = quickChatHire({ message, name, tier, effort: (() => { const lv = levelsFor(tier); return lv && !lv.includes(effort) ? '' : effort })(), superior, grant }, nodes)
           const account = chosen?.account ?? museHireAccount(slug, tier, tree.default_account)
-          const r = await op({ ...(carry.length ? bare : { ...bare, kickoff, kickoff_kind }), ...(account ? { account } : {}) }, { quiet: true })
+          const r = await op({ ...(carry.length || objectReply ? bare : { ...bare, kickoff, kickoff_kind }), ...(account ? { account } : {}) }, { quiet: true })
           born = typeof r?.node === 'string' && r.node ? r.node : name
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)
@@ -303,9 +310,9 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
           toast([`Quick chat: hire failed: ${msg}`])
           return
         }
-        if (carry.length) await sendWithFiles(born, message, carry)
+        if (carry.length || objectReply) await sendWithFiles(born, message, carry)
         remember(superior)
-        setText(''); setFiles([])
+        setText(''); setFiles([]); setObjectReply(null)
         onHired(born)
         return
       }
@@ -319,7 +326,10 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
       catch (e) { failed.push(`${f.name} (${e instanceof Error ? e.message : String(e)})`) }
     }
     if (failed.length) toast([`Quick chat: not attached: ${failed.join(', ')}`])
-    try { await sendMessage(slug, born, message, paths) }
+    try {
+      if (objectReply) await sendLinkedReply(slug, born, message, composerTarget(objectReply), paths)
+      else await sendMessage(slug, born, message, paths)
+    }
     catch (e) { toast([`Quick chat: ${born} was hired but the message failed: ${e instanceof Error ? e.message : String(e)}`]) }
   }
   // a Quick chat hire is a manual hire too: its model and superior become the
@@ -329,6 +339,8 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
   const row = hireOptions(null)
 
   return (
+    <div className="quickchat-compose">
+      {objectReply && <ObjectReplyDraft target={objectReply} onRemove={() => setObjectReply(null)} />}
     <div ref={rootRef} className={'quickchat' + (busy ? ' busy' : '')} data-testid="quickchat"
       onClick={focusComposerBackground}
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault() }}
@@ -344,6 +356,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         onPaste={(e) => { if (e.clipboardData?.files?.length) { e.preventDefault(); addFiles(e.clipboardData.files) } }}
         onKeyDown={(e) => {
           if (mentions.onKeyDown(e)) return
+          if (e.key === 'Escape' && objectReply) { e.preventDefault(); e.stopPropagation(); setObjectReply(null); return }
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault(); void send()
           }
@@ -415,6 +428,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
             add files…</button>
         </Pop>
       )}
+    </div>
     </div>
   )
 }

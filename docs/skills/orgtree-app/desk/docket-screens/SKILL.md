@@ -16,6 +16,13 @@ Rows show readable slug/title, status/attention, relevant actor identity and age
 
 ## Item pane
 
+Ticket links and rows in a live message-box context offer **Mention** then
+**Reply**: insert the ticket reference at the caret, or stage an answer about
+that exact ticket in the owning composer. Neither sends. This includes agent
+and project desks, mail readers and canvas content sharing Quick chat; the
+nearest enclosing composer wins. Standalone docket menus stay unchanged.
+See [composer routing](../desk-chat/SKILL.md#composer).
+
 Selecting an item opens its full pane. Read the description as authoritative scope, then current status/reason, owner/reviewer/participants, dependencies/parent references, current progress/next steps, evidence, attachments and history when supplied. The pane loads full detail on demand and can show retry/error.
 
 Manual attention is visibly separate from an open question. Dismiss attention clears that user flag; it does not answer a question or approve an agent's implementation by implication. Linked question cards retain their own answer flow.

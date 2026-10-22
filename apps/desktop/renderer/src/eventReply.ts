@@ -1,14 +1,24 @@
 /** Server-issued identity. Display positions and rendered text never identify a source. */
 export interface EventSourceRef { org: string; agent: string; generation: number; eventId: string }
-export interface ReplyContext extends EventSourceRef { quote: string; sender?: string; mailId?: string; docId?: string }
+export interface ReplyContext extends EventSourceRef { quote: string; sender?: string; mailId?: string; docId?: string; workItemId?: string }
 export interface EventReplyWire { source_event_ref: EventSourceRef; quoted_context: string; mail_id?: string; sender?: string }
 /** Mailbox/object replies retain a small source snapshot independently of delivery. */
 export interface MailReplySnapshot {
   id: string; kind: 'mail' | 'document' | 'work_item'; from: string; at: string; gist: string
   org?: string; box?: 'user' | 'org' | 'node'; node?: string
+  slug?: string
 }
 export type MailReplyWire = EventReplyWire | MailReplySnapshot
 export const MAX_REPLY_QUOTE = 4000
+
+/** Object references answer in the owning composer's conversation. The object
+ * identity, rather than its presenter/owner's current name, identifies the reply. */
+export function objectReplyContext(agent: string, generation: number,
+  target: { kind: 'document' | 'work_item'; org: string; id: string; title: string; sender?: string }): ReplyContext {
+  return { org: target.org, agent, generation, eventId: `${target.kind}:${target.id}`,
+    quote: target.title.slice(0, MAX_REPLY_QUOTE), ...(target.sender ? { sender: target.sender } : {}),
+    ...(target.kind === 'document' ? { docId: target.id } : { workItemId: target.id }) }
+}
 
 export function validReply(value: unknown): value is ReplyContext {
   if (!value || typeof value !== 'object') return false
@@ -20,13 +30,16 @@ export function validReply(value: unknown): value is ReplyContext {
     && (r.sender === undefined || (typeof r.sender === 'string' && !!r.sender))
     && (r.mailId === undefined || (typeof r.mailId === 'string' && !!r.mailId))
     && (r.docId === undefined || (typeof r.docId === 'string' && !!r.docId))
+    && (r.workItemId === undefined || (typeof r.workItemId === 'string' && !!r.workItemId))
+    && !(r.workItemId && (r.docId || r.mailId))
 }
 
 export function replyWire(r: ReplyContext): MailReplyWire {
-  if (r.docId) {
+  if (r.docId || r.workItemId) {
     return {
-      id: r.docId,
-      kind: 'document',
+      id: (r.docId || r.workItemId)!,
+      kind: r.workItemId ? 'work_item' : 'document',
+      ...(r.workItemId ? { slug: r.workItemId } : {}),
       org: r.org,
       from: r.sender ?? r.agent,
       at: '',
@@ -85,7 +98,7 @@ export function storeReplies(key: string, replies: ReplyContext[]): void {
 }
 export function appendReplyTarget(current: ReplyContext[], next: ReplyContext): ReplyContext[] {
   if (current.some(r => r.org !== next.org || r.agent !== next.agent || r.generation !== next.generation)) throw Error('A multi-reply can only answer events in this transcript.')
-  if (current.some(r => r.agent === next.agent && r.generation === next.generation && r.eventId === next.eventId && r.mailId === next.mailId && r.docId === next.docId)) return current
+  if (current.some(r => r.agent === next.agent && r.generation === next.generation && r.eventId === next.eventId && r.mailId === next.mailId && r.docId === next.docId && r.workItemId === next.workItemId)) return current
   if (current.length >= 50) throw Error('A multi-reply can answer at most 50 messages.')
   return [...current, next]
 }

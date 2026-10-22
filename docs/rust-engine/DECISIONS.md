@@ -19,6 +19,14 @@ Coordinator 22:18Z: release triggers native delivery at each harness's supported
 boundary now, with no interrupt/restart or count cap; size/chunking budgets and
 durable ordered follow-up remain. See [DnD](../skills/orgtree-working/runtime/do-not-disturb/SKILL.md).
 
+**Ticket/presentation composer actions (user 2026-10-22 21:47:56Z,
+21:48:13Z, 21:49:14Z; 4.4.2):** Mention and Reply are available in every
+live message-box context, including agent/project desks, mail reply and
+Quick chat. Reply stages the object's durable identity without sending.
+Coordinator routing clarification 21:51Z: nearest enclosing composer wins;
+Quick chat owns only canvas content sharing its footer. Standalone galleries
+and dockets retain their prior menus. See [composer ownership](../agents/docket-and-presentations.md#object-actions-belong-to-a-composer-2026-10-22).
+
 Tool paths (user 2026-10-22 18:39:30Z, staffed 19:35:49Z): an unresolved
 file in a tool row must retain its full attempted path. Show the directory
 dimmed inline, preserve the path in its tooltip, and keep Copy path available

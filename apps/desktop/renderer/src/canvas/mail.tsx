@@ -37,6 +37,9 @@ import type { CanvasNode, MailRow } from './shared'
 import { AgentLink, AgentName } from './identity'
 import { WatchdogLink } from './watchdoglink'
 import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
+import { composerTarget, ObjectReplyDraft, useObjectComposer } from './composerobjects'
+import type { ComposerObject } from './composerobjects'
+import type { ReplyTarget } from '../generated/events'
 import { RefMdBody } from './refmd'
 import { refToken } from './reflinks'
 import { parseRef } from './workrefs'
@@ -104,7 +107,7 @@ export interface MailListProps {
   onRead?: (m: MailRow) => void | Promise<unknown>
   /** `notice` is set only when the reply box's notice toggle was armed at
    *  send; the host forwards it to its own send call. */
-  onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean, targets?: MailRow[]) => void
+  onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean, targets?: MailRow[], objectTarget?: ReplyTarget) => void
   /** Fixed-transcript callers omit this. The global user inbox supplies the
    * recipient agent so a collected reply cannot span several transcripts. */
   replyConversation?: (m: MailRow) => string
@@ -115,7 +118,7 @@ export interface MailListProps {
    *  acknowledge a job the project's mail queue handed the user, with the reply
    *  to its sender when there is one. Present, a job of an ACK-mode queue shows
    *  the acknowledge pane in place of the reply box (`JobAckPane`). */
-  onAckJob?: (m: MailRow, reply?: string, opts?: { attachments?: string[]; notice?: boolean }) => Promise<unknown>
+  onAckJob?: (m: MailRow, reply?: string, opts?: { attachments?: string[]; notice?: boolean; objectTarget?: ReplyTarget }) => Promise<unknown>
   onRetract?: (m: MailRow) => void
   /** User-inbox-only permanent deletion. Other MailList surfaces omit it. */
   onDeleteUserMail?: (m: MailRow) => void
@@ -730,10 +733,10 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             customSender={customS} waitLabel={waitLabel} custom={custom}
             party={displayParty(cur)!}
             onReply={replyable
-              ? async (text, attachments, notice) => {
+              ? async (text, attachments, notice, objectTarget) => {
                 const targets = replyTargets.length ? replyTargets : [cur]
                 if (replyConversation && targets.some(m => replyConversation(m) !== replyConversation(cur))) { setReplyError('Open a message in the reply targets\' conversation before sending.'); throw Error('A multi-reply needs one conversation') }
-                await onReply!(targets[0]!, text, attachments, notice, targets)
+                await onReply!(targets[0]!, text, attachments, notice, targets, objectTarget)
                 setReplyTargets(current => current.filter(m => !targets.some(t => t.id === m.id)))
               }
               : undefined}
@@ -982,9 +985,9 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
   /** a caller-supplied body that replaces the message AND the reply box
    *  (asks: the response form IS the body) */
   custom?: ReactNode | null
-  onReply?: (text: string, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  onReply?: (text: string, attachments?: string[], notice?: boolean, objectTarget?: ReplyTarget) => Promise<unknown> | void
   /** acknowledge this mail as a job the project's queue handed the user (the user's inbox) */
-  onAckJob?: (reply?: string, opts?: { attachments?: string[]; notice?: boolean }) => Promise<unknown>
+  onAckJob?: (reply?: string, opts?: { attachments?: string[]; notice?: boolean; objectTarget?: ReplyTarget }) => Promise<unknown>
   toast?: ToastFn
 }) {
   const profile = 'operator'
@@ -1096,8 +1099,8 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
            so the user's paperclip was permanently grey (reported
            2026-09-17). NOT `?? ''` like the head: an absent org must stay
            ABSENT so the composer degrades the way its `slug?:` contract says. */
-        <MailReplyBox target={outgoing ? cur.to : cur.from} slug={org ?? refs?.world.org} toast={toast}
-          onSend={(text, attachments, notice) => onReply(text, attachments, notice)} />
+        <MailReplyBox target={outgoing ? cur.to : cur.from} slug={org ?? refs?.world.org} toast={toast} objectActions
+          onSend={(text, attachments, notice, _broadcast, objectTarget) => onReply(text, attachments, notice, objectTarget)} />
       )}
     </>
   )
@@ -1115,7 +1118,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
  *  the reply prose already says "reply to X…" about), so no new node-id
  *  prop is needed beyond `slug`, which callers did not previously have to
  *  pass because nothing here touched the API layer directly. */
-export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false,
+export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, objectActions = false,
   toast, broadcast, sendLabel = 'reply', sendTitle, below }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
@@ -1124,7 +1127,10 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   /** `notice` is true only for a send the user ARMED as a passive notice; the
    *  host decides what that means on its own wire and the server decides
    *  whether it is possible at all (see the toggle's comment below). */
-  onSend: (text: string, attachments?: string[], notice?: boolean, broadcast?: boolean) => void | Promise<unknown>
+  onSend: (text: string, attachments?: string[], notice?: boolean, broadcast?: boolean, objectTarget?: ReplyTarget) => void | Promise<unknown>
+  /** Enable a mail reader's actions outside a desk too. Contextual readers
+   * embedded in desks automatically own their nearer reply box. */
+  objectActions?: boolean
   placeholder?: string
   /** Keep the draft editable while its selected recipient is unavailable. */
   sendDisabled?: boolean
@@ -1148,6 +1154,10 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     disabled: sendDisabled,
     org: slug,
   })
+  const [objectReply, setObjectReply] = useState<ComposerObject | null>(null)
+  useEffect(() => { setObjectReply(null) }, [slug, target])
+  useObjectComposer(taRef, { key: `${slug}/${target}`, mention: mentions.captureMention, down: mentions.noteRightClickDown,
+    disabled: sendDisabled || !target || !slug, reply: value => { setObjectReply(value); taRef.current?.focus({ preventScroll: true }) } }, objectActions ? 'mail' : 'nested')
   const enterKey = useComposerEnter()
   // what happened to the last send, said in the box: `sending` from the click,
   // `sent` once the server accepted it, `failed` (with the reason) when it
@@ -1186,9 +1196,12 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     // user has typed more since, the refused text goes first.
     const sentDraft = draft
     const sentAttached = attached
+    const sentObjectReply = objectReply
+    setObjectReply(null)
     setDraft(''); setAttached([]); staging.newDraft()
     const sendingBroadcast = broadcastArmed
-    const res = onSend(t || '(file attached)', paths.length ? paths : undefined, armed, sendingBroadcast)
+    const res = Promise.resolve().then(() => onSend(t || '(file attached)', paths.length ? paths : undefined, armed, sendingBroadcast,
+      sentObjectReply ? composerTarget(sentObjectReply) : undefined))
     if (res && typeof (res as Promise<unknown>).then === 'function') {
       const mine = ++sendSeq.current
       setSendState({ state: 'sending' })
@@ -1200,6 +1213,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
           }
         })
         .catch((e: unknown) => {
+          setObjectReply(current => current ?? sentObjectReply)
           setDraft((cur) => (cur.trim() ? sentDraft + '\n\n' + cur : sentDraft))
           setAttached((cur) => [...sentAttached, ...cur])
           if (sendSeq.current === mine) {
@@ -1210,6 +1224,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   }
   return (
     <>
+      {objectReply && <ObjectReplyDraft target={objectReply} onRemove={() => setObjectReply(null)} />}
       {attached.length > 0 && (
         <div className="attach-row">
           {attached.map((a, i) => (isImg(a.name)
@@ -1287,6 +1302,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
           }}
           onKeyDown={(e) => {
             if (mentions.onKeyDown(e)) return
+            if (e.key === 'Escape' && objectReply) { e.preventDefault(); e.stopPropagation(); setObjectReply(null); return }
             // Alt+N, the desk composer's own shortcut. Checked BEFORE Enter so
             // the two can never race, and it returns rather than falling
             // through — Alt+N is not a send.

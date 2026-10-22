@@ -3,6 +3,7 @@ import { refToken } from './reflinks'
 import { MAIL_COPY_FAILED, mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
 import { getMailById, getDocument, getWorkItem, getWatchdog, watchdogAction } from '../api'
 import { presentationMenu } from './docs'
+import { captureObjectActions } from './composerobjects'
 import type { ToastFn, Watchdog } from '../types'
 import { copyToClipboard } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
@@ -44,7 +45,9 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
       })
     }
     if (kind === 'document') {
+      const composer = captureObjectActions(anchor, refToken({ kind: 'doc', org, id }))
       return getDocument(org, id).then(doc => presentationMenu(anchor, org, { ...doc, id }, {
+        composer,
         // A host without a reader route can still copy/download; never
         // manufacture an operative Open action for a read-only embedding.
         open: openDocument ? () => openDocument(id) : undefined,
@@ -77,6 +80,7 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
     if (!openTicket || id.includes('/')) return []
     // before the read: the caret it inserts at is the one the right-click found
     const mention = captureTicketMention(anchor, org, id)
+    const reply = captureObjectActions(anchor, '').reply
     return getWorkItem(org, id).then(async ({ item }) => {
       const name = item.owner?.node
       const entries = name ? agents?.current?.(name) ?? [] : []
@@ -90,7 +94,7 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
         }
       }
       return ticketMenuEntries({ org, item, anchor, ownerEntries: entries,
-        open: () => openTicket(item.slug), toast, staffing, staffError, mention })
+        open: () => openTicket(item.slug), toast, staffing, staffError, mention, reply })
     })
   }, org, openMail ? () => openMail({ id: '@user', to: 'user_inbox' }) : undefined)
   return null

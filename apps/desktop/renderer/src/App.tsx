@@ -3005,11 +3005,11 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   onRead={(m: MailEntry) => readNow(m)
                     .catch((e: Error) => { toast([`could not mark read: ${e.message}`]); throw e })}
                   onDeleteUserMail={deleteMail}
-                  onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean, targets?: MailEntry[]) => {
+                  onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean, targets?: MailEntry[], objectTarget?: import('./generated/events').ReplyTarget) => {
                     const originals = targets?.length ? targets : [m]
-                    return sendLinkedReply(slug, m.from, text, originals.length > 1
+                    return sendLinkedReply(slug, m.from, text, objectTarget ?? (originals.length > 1
                       ? originals.map(t => ({ kind: 'mail' as const, org: slug, box: 'user' as const, id: t.id }))
-                      : { kind: 'mail', org: slug, box: 'user', id: m.id }, attachments, notice)
+                      : { kind: 'mail', org: slug, box: 'user', id: m.id }), attachments, notice)
                       .then(async (receipt) => {
                         toast([`sent to ${m.from}`, ...(receipt.warnings ?? [])])
                         // Commands have no mail receipt. Read only after a
@@ -3030,9 +3030,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   }}
                   /* a job the project's queue handed the user: reply to its sender, then
                      acknowledge it (the reply's id is kept as the completion record) */
-                  onAckJob={(m: MailEntry, reply?: string, opts?: { attachments?: string[]; notice?: boolean }) => acknowledgeJob({
+                  onAckJob={(m: MailEntry, reply?: string, opts?: { attachments?: string[]; notice?: boolean; objectTarget?: import('./generated/events').ReplyTarget }) => acknowledgeJob({
                     row: m, reply, attachments: opts?.attachments, notice: opts?.notice,
-                    sendReply: (row, text, o) => sendLinkedReply(slug, row.from, text, { kind: 'mail', org: slug, box: 'user', id: row.id! }, o?.attachments, o?.notice),
+                    sendReply: (row, text, o) => sendLinkedReply(slug, row.from, text, opts?.objectTarget ?? { kind: 'mail', org: slug, box: 'user', id: row.id! }, o?.attachments, o?.notice),
                     ack: (copy, replyId) => runOp(slug, { op: 'user_job_ack', copy, ...(replyId ? { reply: replyId } : {}) }),
                   }).then(() => {
                     setAckedJobs((old) => ({ ...old, [m.id]: new Date().toISOString() }))

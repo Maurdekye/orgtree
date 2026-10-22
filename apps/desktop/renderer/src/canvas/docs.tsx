@@ -26,6 +26,7 @@ import { nodeMenuAction } from './identity'
 import { useAgentNavRegistry } from './agentnav'
 import type { AgentNavMenu } from './agentnav'
 import { objectTooltipProps } from './objecttooltip'
+import { captureObjectActions } from './composerobjects'
 
 export interface DocMeta { id: string; title: string; at: string; viewed_at?: string | null; format?: 'markdown' | 'html'; bytes?: number; node?: string; presented_by?: string; presenter_tier?: string | null }
 
@@ -79,10 +80,16 @@ export function presentationMenu(el: Element | null, slug: string,
     toast?: ToastFn
     dismiss?: () => void
     nodeMenu?: AgentNavMenu
+    composer?: ReturnType<typeof captureObjectActions>
   }): MenuEntry[] {
   const html = doc.format === 'html'
   const gone = Boolean(doc.evicted)
+  const composer = acts.composer ?? captureObjectActions(el, refToken({ kind: 'doc', org: slug, id: doc.id }))
   const entries: MenuEntry[] = []
+  if (composer.mention && !gone) entries.push({ label: 'Mention', onSelect: composer.mention })
+  if (composer.reply && !gone) entries.push({ label: 'Reply', onSelect: () => composer.reply!({
+    kind: 'document', org: slug, id: doc.id, title: doc.title, sender: doc.node,
+  }) })
   if (acts.open) entries.push({ label: acts.openLabel ?? 'Open reader', onSelect: acts.open })
   if (html && !gone) {
     entries.push({
@@ -93,7 +100,7 @@ export function presentationMenu(el: Element | null, slug: string,
       },
     })
   }
-  if (acts.reply && !gone) entries.push({ label: acts.replyLabel ?? 'Reply', onSelect: acts.reply })
+  if (!composer.reply && acts.reply && !gone) entries.push({ label: acts.replyLabel ?? 'Reply', onSelect: acts.reply })
   entries.push(...presentationIdentityActions(el, doc, acts.nodeMenu, acts.toast))
   const copied = (what: string) => (ok: boolean) =>
     acts.toast?.([ok ? `copied ${what}` : `could not copy ${what} — clipboard unavailable`])
@@ -158,6 +165,7 @@ export function PresentationCard({ slug, doc, onOpen, onReply, replyLabel, class
     const anchor = e.currentTarget
     const nodeMenu: AgentNavMenu = (id, el) => nodeNav?.current?.(id, el) ?? []
     const actions = {
+      composer: captureObjectActions(anchor, refToken({ kind: 'doc', org: slug, id: doc.id })),
       open: () => onOpen(doc.id), reply: onReply, replyLabel, toast, nodeMenu,
     }
     const opening = menu.open(e, () => presentationMenu(anchor, slug, doc, actions))

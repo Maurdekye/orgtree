@@ -6,7 +6,8 @@ import { quickStaffEntry, quickStaffPath } from './quickstaff'
 import type { QuickStaffPreview } from './quickstaff'
 import { peekQuickStaff } from './staffingoptions'
 import { refToken } from './reflinks'
-import { captureDeskMentionAt } from './agentmentions'
+import { captureObjectActions } from './composerobjects'
+import type { ComposerObject } from './composerobjects'
 
 /** The row's existing eligibility gate, shared by every ticket reference. The
  * preview and commit still decide current staffing authority/availability. */
@@ -24,26 +25,27 @@ export function ticketStaffEntry(org: string | undefined, item: WorkItem, feedba
 
 /** Mention for a ticket link, as an agent link has it (docket
  * mention-entry-on-ticket-cards-in-transcripts-ins, USER 2026-10-22 18:15:39Z):
- * only inside a desk with a live message box, and it inserts the ticket's
+ * only inside a live message-box context, and it inserts the ticket's
  * reference there. Capture it when the menu OPENS, while the right-click's
  * caret is fresh: a surface that reads the item first must capture before
  * that read. */
 export function captureTicketMention(anchor: Element, org: string | undefined, slug: string): (() => void) | null {
-  return org ? captureDeskMentionAt(anchor, refToken({ kind: 'item', org, id: slug })) : null
+  return org ? captureObjectActions(anchor, refToken({ kind: 'item', org, id: slug })).mention : null
 }
 
 /** The one complete item menu, used by docket rows and every ticket-link
  * surface. Only a real list can supply its local Show/Hide sub-items action. */
 export function ticketMenuEntries({ org, item, anchor, ownerEntries, open, toast, copySlug,
-  fold, staffing, staffError, mention, feedback = message => toast?.([message]) }: {
+  fold, staffing, staffError, mention, reply, feedback = message => toast?.([message]) }: {
   org?: string; item: WorkItem; anchor: Element; ownerEntries: MenuEntry[]; open: () => void;
   toast?: ToastFn; copySlug?: () => void; fold?: MenuEntry; staffing?: QuickStaffPreview;
-  staffError?: string; mention?: (() => void) | null; feedback?: (message: string) => void;
+  staffError?: string; mention?: (() => void) | null; reply?: ((target: ComposerObject) => void) | null; feedback?: (message: string) => void;
 }): MenuEntry[] {
   const copy = (text: string, message = 'Copied!') => {
     void copyToClipboard(anchor, text).then(ok => toast?.([ok ? message : 'Clipboard unavailable']))
   }
   const staff = ticketStaffEntry(org, item, feedback, staffing, staffError)
+  const capturedReply = reply === undefined ? captureObjectActions(anchor, '').reply : reply
   return ticketReferenceActions({ open,
     owner: ticketOwnerAction(anchor, item.owner?.node, ownerEntries, toast),
     copyTitle: () => copy(item.title), copySlug: copySlug ?? (() => copy(item.slug)),
@@ -52,6 +54,9 @@ export function ticketMenuEntries({ org, item, anchor, ownerEntries, open, toast
       copy(ref, `copied the reference ${ref}`)
     } : undefined,
     mention,
+    reply: org && capturedReply ? () => {
+      capturedReply({ kind: 'work_item', org: org!, id: item.slug, title: item.title, sender: item.owner?.node })
+    } : undefined,
     extras: [...(fold ? [fold] : []), ...(staff ? [staff] : [])],
   })
 }

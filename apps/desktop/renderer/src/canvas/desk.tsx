@@ -35,7 +35,8 @@ import { dismissUserMention, hasUnseenUserMention, useAgentMentions, useDeskMent
 import { useOrgView } from '../attention/mode'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
-import { appendReplyTarget, readReplies, replyContext, replyFromRow, replyWire, storeReplies } from '../eventReply'
+import { appendReplyTarget, objectReplyContext, readReplies, replyContext, replyFromRow, replyWire, storeReplies } from '../eventReply'
+import { useObjectComposer } from './composerobjects'
 import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
@@ -2471,9 +2472,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         isSegments(m.segments, 'operator') && m.segments.some(s => s.kind === 'mail' && s.rows.some(row => row.id === r.mailId)))))
       || sourceIds.has(r.eventId) || transient.some(row => row.event_id === r.eventId)
       || r.eventId === convo.draftEventId || r.eventId === convo.thinkingEventId)
-  const canPageReply=(r:ReplyContext)=>sameReplyIdentity(r)&&!r.docId
+  const canPageReply=(r:ReplyContext)=>sameReplyIdentity(r)&&!r.docId&&!r.workItemId
     &&(chat?.has_older??((chat?.messages[0]?.seq??0)>0))
-  const replyAvailable=(r:ReplyContext)=>replyLoaded(r)||canPageReply(r)
+  const replyAvailable=(r:ReplyContext)=>!!r.workItemId||replyLoaded(r)||canPageReply(r)
   const replySources = useMemo(() => indexReplySources({
     messages: chat?.messages, pending: chat?.pending_mail, live: live_feed, transient: chat?.transient,
     draft: convo.draft, draftId: convo.draftEventId, thinking: convo.thinking, thinkingId: convo.thinkingEventId,
@@ -2492,6 +2493,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
   const locateReplyNow = (r: ReplyContext) => {
     if (!sameReplyIdentity(r)) return
+    if (r.workItemId) { onWorkLink?.({ slug: r.workItemId }); return }
     const list = scroller.current
     if (r.docId) {
       onOpenDoc?.(r.docId)
@@ -3484,7 +3486,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     if (live && !node.halt && !armedNotice) markBusy(slug, node.id)
     flashMode('')   // the previous send's receipt must not outlive this one
     toBottom()
-    const pluralWire = sentReplies.length > 1 || sentReplies.some(r => !!r.mailId || !!r.docId)
+    const pluralWire = sentReplies.length > 1 || sentReplies.some(r => !!r.mailId || !!r.docId || !!r.workItemId)
     sendMessage(slug, node.id, t, paths, pluralWire ? undefined : sentReply ? replyWire(sentReply) : undefined, op, armedNotice,
       pluralWire ? sentReplies.map(replyWire) : undefined, undefined, node.dnd ? urgentMail : undefined)
       .then((r) => {
@@ -3662,6 +3664,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     org: slug,
   })
   const mentionScope = useDeskMentionScope(canMail ? mentions.captureMention : null, mentions.noteRightClickDown)
+  useObjectComposer(taRef, { key: draftKey, mention: mentions.captureMention, down: mentions.noteRightClickDown,
+    disabled: !canMail, reply: target => {
+      try { setReplyTargets(appendReplyTarget(replyTargets, objectReplyContext(node.id, node.generation ?? 0, target))) }
+      catch (error) { toast([(error as Error).message]); return }
+      taRef.current?.focus({ preventScroll: true })
+    } }, 'desk')
   // №6: dropping a file anywhere on the desk uploads it (and prevents the
   // browser's default navigate-away, which would also eat the draft)
   const dropProps = {

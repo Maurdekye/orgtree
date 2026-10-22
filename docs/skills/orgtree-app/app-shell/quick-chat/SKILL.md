@@ -25,4 +25,11 @@ App Display settings choose whether this control appears at the top or bottom. I
 
 ## See also
 
+Canvas ticket and presentation menus offer Mention/Reply while Quick chat is
+live, unless a nearer desk or mail reply box owns the link. Mention inserts
+the reference; Reply shows a removable target above the box. Sending a staged
+reply hires the new agent first, then sends the message with that object's
+identity as its first mail. Choosing Mention/Reply does not hire or send.
+Escape cancels the target. Standalone galleries/dockets do not use this footer.
+
 - [orgtree-app-display-input-and-startup](../../app-settings/app-display-input-and-startup/SKILL.md)

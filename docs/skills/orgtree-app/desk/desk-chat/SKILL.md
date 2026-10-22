@@ -119,6 +119,24 @@ did nothing. Opening this view never runs a helper or sends it a message.
 
 ## Composer
 
+Ticket and presentation context menus offer **Mention** and **Reply** wherever
+they belong to a live message box: agent desks, project desks, mail readers,
+and canvas content sharing Quick chat. Mention inserts the object's reference
+at the caret (or appends when unfocused) and focuses the box. Reply stages that
+exact object, keeps the draft text, and focuses the box. Neither sends. Remove
+the reply annotation or press Escape to cancel it.
+
+The nearest enclosing box wins. Canvas links use Quick chat only when no
+nearer desk/mail composer owns them and Quick chat is live. Standalone galleries
+and dockets keep their existing menus. A reply uses the owning box's recipient;
+it never switches to the ticket owner or presenter. Project broadcasts retain
+the selected object reference.
+
+Agents can insert these references in `orgtree_message.body`. Reply parity is
+`orgtree_message.metadata.reply_to` or `metadata.replies` with a work_item
+identity (`org`, `slug`) or document/presentation identity (`org`, `id`), within
+ordinary recipient and visibility permissions. Draft staging is local.
+
 Type a message, attach files or drop supported attachments, and send with the configured Enter behavior or send button. Attachment chips name files and allow removal before sending. Uploads land in the target's upload area; a selected file is not already a delivered message.
 
 The notice control arms the next send as passive; its visual state and Alt+N shortcut distinguish it from ordinary waking mail. A prepared reply shows its source and can be cleared; Escape can cancel that prepared reply. Text beginning with slash exposes available hints rather than making every possible CLI slash command valid. Typing `@` opens the mention menu of agents, projects and docket tickets (Tab or Enter completes `@<name> `, or a ticket's reference `@item:<org>/<slug> `); right-clicking any agent, project or ticket link inside an agent or project desk also offers **Mention** as the first context-menu item to insert `@<name> ` (a ticket's reference for a ticket) at the composer caret (or appended when unfocused) and focus the box without sending.

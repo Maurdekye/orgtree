@@ -36,6 +36,13 @@ Organization and agent presentation modals collapse the list into a menu-control
 
 ## Copy, download and reply
 
+In a live message-box context, presentation cards and reference links put
+**Mention** and **Reply** first. Mention inserts the same `@doc:` reference
+that Copy reference copies. Reply prepares an answer about that presentation
+in the nearest owning composer without sending. Canvas content can use its
+Quick chat footer; standalone galleries retain their existing actions. See
+[composer routing](../desk-chat/SKILL.md#composer).
+
 Document menus can copy title/reference, open/close, download Markdown or the HTML prototype bundle, stage a reply in the desk composer (`Reply` on presentation chips in an agent's desk header and rows in its Presented tab), and dismiss when the surface permits it. Contextual replies address the presentation's source and support attachments where available. A failed reply does not amend the document.
 
 Download saves a file; it is not proof the user read the card or that a file was sent through a different delivery route. File cards/images have their own view/download behavior and custody. Do not suggest that moving a scratch file into a folder will make it appear in Presented.

@@ -55,14 +55,14 @@ export function senderMenuAction(anchor: Element | null, sender: string | undefi
 }
 
 /** Transcript order is canonical; docket-only extras follow its own separator.
- *  Mention, offered only inside a desk with a live message box, comes first,
- *  as it does on every identity link. */
-export function ticketReferenceActions({ open, owner, copyTitle, copySlug, copyReference, mention, extras = [] }: {
+ *  Mention and Reply, supplied by the owning live composer, come first. */
+export function ticketReferenceActions({ open, owner, copyTitle, copySlug, copyReference, mention, reply, extras = [] }: {
   open: () => void; owner?: Exclude<MenuEntry, 'sep'>;
   copyTitle: () => void; copySlug: () => void; copyReference?: () => void; mention?: (() => void) | null;
-  extras?: MenuEntry[]
+  reply?: (() => void) | null; extras?: MenuEntry[]
 }): MenuEntry[] {
   return [...(mention ? [{ label: 'Mention', onSelect: mention }] : []),
+    ...(reply ? [{ label: 'Reply', onSelect: reply }] : []),
     { label: 'Open details', onSelect: open }, ...(owner ? [owner] : []), 'sep',
     { label: 'Copy ticket title', onSelect: copyTitle }, { label: 'Copy slug', onSelect: copySlug },
     ...(copyReference ? [{ label: 'Copy reference', onSelect: copyReference }] : []),

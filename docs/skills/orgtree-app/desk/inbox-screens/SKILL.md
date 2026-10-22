@@ -6,6 +6,14 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Inboxes and transfers
 
+Ticket and presentation links in a mail reading pane offer Mention and Reply
+while its reply box is live, including Reply & acknowledge for queue jobs.
+They insert a reference or stage that object as
+the reply context in this box, keeping its recipient and draft text. Sending
+uses the selected object context; remove it to return to the original mail
+reply. A failed send restores the draft and its selected object. See
+[composer routing](../desk-chat/SKILL.md#composer).
+
 Tag-filtered user Inbox pages have the same diagnostic privacy boundary as ordinary reads: the HTTP body and private handler return are omitted in both logging modes; filtering results and tag labels remain available to the client.
 
 The org inbox viewer omits retained outside-mail bodies from HTTP and handler-return diagnostics with verbose logging off or on. The viewer still receives complete entries and counts, and route/status metadata remains logged.

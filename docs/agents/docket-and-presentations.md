@@ -1,5 +1,22 @@
 # Docket and presentations
 
+## Object actions belong to a composer (2026-10-22)
+
+Ticket/presentation Mention and Reply capture the nearest owning message box
+before asynchronous metadata reads. `canvas/composerobjects.tsx` registers
+desk bodies and mail readers; Quick chat registers only the canvas-world in
+the main area sharing its footer. A nearer unavailable desk blocks fallback,
+and closed/replaced scopes invalidate captured callbacks. Standalone galleries
+and dockets keep their prior menus. Reading panes embedded in a desk use
+their own contextual reply box before the desk's box; ACK-job reply boxes use
+the same routing. Reply stages an identity without sending
+or changing recipient; ticket wires must include the canonical `slug` field.
+Project sends/broadcasts retain object targets; Quick chat defers kickoff until
+after hire when it must send a typed reply. See the [composer glossary](../skills/orgtree-app/desk/desk-chat/SKILL.md#composer).
+[decided: user 2026-10-22 21:49:14Z, coordinator routing 21:51Z;
+verified: `canvas/composerobjects.tsx`, `canvas/ticketmenu.ts`,
+`canvas/docs.tsx`, `eventReply.ts`]
+
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
 Work records, questions, documents, attachments, viewers and attention.

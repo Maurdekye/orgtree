@@ -14,6 +14,7 @@ import { ReplyIcon } from '../icons'
 import { usePresentationTitle } from './presentationtitle'
 import { replySourceCopyText, replySourceMailRow, replySourceSender } from './replysource'
 import type { ReplySource } from './replysource'
+import { ObjectReplyDraft } from './composerobjects'
 
 /** The loaded conversation resolves exact reply snapshots, never text or a
  * newer revision of the same assistant message. Other surfaces keep quotes. */
@@ -57,6 +58,14 @@ export function ReplyPreviewFrame({ label, action, onRemove, children, unavailab
 }
 
 export function ReplyPreview({ reply, available, onLocate, onRemove, presentationTitle, sender: senderProp }: {
+  reply: ReplyContext; available: boolean; onLocate: () => void; onRemove?: () => void
+  presentationTitle?: string; sender?: string
+}) {
+  if (reply.workItemId) return <ObjectReplyDraft target={{ kind: 'work_item', org: reply.org, id: reply.workItemId, title: reply.quote }} onRemove={onRemove} />
+  return <EventReplyPreview reply={reply} available={available} onLocate={onLocate} onRemove={onRemove} presentationTitle={presentationTitle} sender={senderProp} />
+}
+
+function EventReplyPreview({ reply, available, onLocate, onRemove, presentationTitle, sender: senderProp }: {
   reply: ReplyContext; available: boolean; onLocate: () => void; onRemove?: () => void
   presentationTitle?: string; sender?: string
 }) {
