@@ -39,7 +39,10 @@
 // A `recover` run: a safe-start engine otherwise holds back its restart path.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/session0-handover.mjs
 // SESSION0_PROOF_PART=1 runs A B C0 C D F G, =2 runs A B E H (each fits a
-// 10-minute command limit; E waits out the real 120 s backstop); unset, all.
+// 10-minute command limit; E waits out the real 120 s backstop); unset, all,
+// in one boot host (about 5 minutes). Only that run has E's loss follow D's
+// and F's rollback start more than 2 minutes into the host: run it for a
+// hand-in (both broke there until 2026-10-22).
 
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'

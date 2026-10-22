@@ -189,6 +189,15 @@ These attributed records were moved from the root guide at `22daffd`; they retai
   `disruptive-policy.test.mjs` with any new or changed test file.
   [verified: `tests/disruptive-policy.test.mjs`; measured: @rig-sol-b
   2026-10-22 at 5dd06ee]
+- **Run a long-lived host's proof unsplit.** The boot host is one process
+  for the whole boot; a proof split into parts, each with a fresh host,
+  cannot see what one engine leaves for the next. `session0-handover.mjs`
+  passed as two parts (`SESSION0_PROOF_PART=1` and `=2`) while its unsplit
+  run failed twice: a loss from D timed E's, and F's rollback, 149 s into
+  the host, met a readiness window counted from the host's start. For a
+  hand-in, run it with the variable unset (A to H, about 5 minutes).
+  [verified: `boot_supervisor.rs`, `host.rs`; measured: @rig-sol-b
+  2026-10-22 at 5dd06ee]
 
 Relocated from team standing notes on 2026-10-21. The dates below identify the
 original observations; relocation is not a fresh test run. Current assignment,

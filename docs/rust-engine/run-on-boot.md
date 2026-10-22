@@ -444,6 +444,13 @@ host`) now supervises instead of always starting an engine. Every 2 s a pure
   user's Start engine.
 - One boot host runs per data root (`<data>\boot-host.lock`), and the
   installer's stop request ends it.
+- It is one process for the whole boot, so what it knows belongs to each
+  engine. Every engine it starts gets the whole readiness window (120 s)
+  from its own spawn. When its own engine became ready, an earlier loss or
+  delegation is settled, so that engine's loss is timed from its own end
+  and claimed by its own generation. (Both were wrong until 2026-10-22:
+  the window counted from the host's first start, so the one rollback
+  failed at once, and a loss from a sign-out timed a later one.)
 
 The installer runs the boot task last at every Register (install, upgrade
 and repair). So after an update the boot host is running, and with the
