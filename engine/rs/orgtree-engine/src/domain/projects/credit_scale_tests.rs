@@ -57,7 +57,7 @@ async fn thousand_nodes_twenty_levels_canonical_creation() {
                         "exclude_sender":false,"ack_timeout":true,"max_attempts":3,"ack_reminders":3,
                         "turn_end_reminder":true,"event_listeners":false});
                 }
-                ops::run_in_tx(&e,&handle,&tx,&ops::Actor::User,&req,&mut effects).await?;
+                crate::util::boxed(|| ops::run_in_tx(&e,&handle,&tx,&ops::Actor::User,&req,&mut effects)).await?;
                 count+=1;
                 if count%100==0 {std::fs::write(output.join("progress.json"),json!({"operations":count,"seconds":clock.elapsed().as_secs_f64()}).to_string()).unwrap();}
             }
