@@ -210,7 +210,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
       <input type="checkbox" checked={choice.kickoff}
         onChange={(e) => onChange({ ...choice, kickoff: e.target.checked })} />
       Send the top-level agent its first message now
-      <span className="dim"> · off: nobody spends anything until you write to them</span>
+      <span className="dim"> · off: no first message is sent; armed watchdogs can still wake agents</span>
     </label>}
     {choice.id && plan?.loading && <div className="dim tp-checking" role="status">
       Checking the sign-ins on this computer…</div>}
