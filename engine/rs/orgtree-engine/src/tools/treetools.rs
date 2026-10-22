@@ -183,7 +183,7 @@ async fn project_fire_event(engine: &Arc<Engine>, caller: &Caller, args: &Value)
         crate::refuse!(Conflict, "project {} is retired; its event cannot be fired", project.name);
     }
     drop(client);
-    let fired = Box::pin(crate::domain::listeners::fire(engine, caller.org_id, project.id, &caller.name, arg_str(args, "body"))).await?;
+    let fired = crate::util::boxed(|| crate::domain::listeners::fire(engine, caller.org_id, project.id, &caller.name, arg_str(args, "body"))).await?;
     Done::json(&json!({ "project": fired.project, "delivered": fired.delivered.len(),
                          "delivered_to": fired.delivered, "dogs": fired.dogs }))
 }

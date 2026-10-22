@@ -342,7 +342,7 @@ pub async fn armed_count(client: &impl GenericClient, org_id: i64, project: i64)
 #[logged]
 pub async fn evaluate(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()> {
     let mut after = 0i64;
-    while let Some(last) = Box::pin(evaluate_page(engine, org_id, project, after)).await? {
+    while let Some(last) = crate::util::boxed(|| evaluate_page(engine, org_id, project, after)).await? {
         after = last;
         tokio::task::yield_now().await;
     }
@@ -443,7 +443,7 @@ async fn evaluate_page(engine: &Arc<Engine>, org_id: i64, project: i64, after: i
     drop(client);
     #[cfg(test)]
     if STOP_AFTER_WATCH_EDGE.try_with(|stop| *stop).unwrap_or(false) { return Ok(last); }
-    Box::pin(drain_fires(engine,org_id,project)).await?;
+    crate::util::boxed(|| drain_fires(engine,org_id,project)).await?;
     if !firing.is_empty() {
         changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Agent(project)]);
     }
@@ -544,7 +544,7 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
         &[&fire_id,&org_id,&project,&high]).await?;
     tx.commit().await?;
     drop(client);
-    Box::pin(drain_pending(engine,org_id,project)).await?;
+    crate::util::boxed(|| drain_pending(engine,org_id,project)).await?;
     let c=engine.db.get().await?;
     let heard: Value=c.query_one("SELECT listeners FROM ot.project_fires WHERE id=$1",&[&fire_id]).await?.get(0);
     let heard=heard.as_array().cloned().unwrap_or_default();
@@ -556,7 +556,7 @@ pub async fn fire(engine: &Arc<Engine>, org_id: i64, project: i64, by: &str, mes
 /// mail, one-shot state and history are atomic, so restart cannot duplicate it.
 #[logged]
 async fn drain_pending(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<()> {
-    while Box::pin(deliver_page(engine,org_id,project)).await?.is_some() {
+    while crate::util::boxed(|| deliver_page(engine,org_id,project)).await?.is_some() {
         #[cfg(test)]
         if STOP_AFTER_EVENT_PAGE.try_with(|stop|*stop).unwrap_or(false) {return Ok(())}
         tokio::task::yield_now().await;
@@ -677,7 +677,7 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
     // after commit, in delivery order: a spent dog stops, fire-time tool
     // calls run and their results join the mail, then the owner wakes
     let mut ch: Vec<Change> = vec![Change::Watchdogs, Change::Agent(project), Change::Events];
-    Box::pin(drain_fires(engine,org_id,project)).await?;
+    crate::util::boxed(|| drain_fires(engine,org_id,project)).await?;
     let c=engine.db.get().await?;
     if !recovery_org_open(engine,&**c,org_id).await? {return Ok(Some(fire_id))}
     drop(c);
@@ -690,7 +690,7 @@ async fn deliver_page(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option
     }
     changes::notify_id(engine, org_id, ch);
     // spent one-shot listeners changed the count the watches read
-    Box::pin(evaluate(engine, org_id, project)).await?;
+    crate::util::boxed(|| evaluate(engine, org_id, project)).await?;
     Ok(Some(fire_id))
 }
 
@@ -741,9 +741,12 @@ async fn stage_fire(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<Option<(
 
 #[nolog]
 async fn drain_fires(engine:&Arc<Engine>,org_id:i64,project:i64)->Result<()> {
-    while let Some((id,delivery))=Box::pin(stage_fire(engine,org_id,project)).await? {
+    // Construct recursive chain futures in boxed's separate frame. Box::pin(f())
+    // still reserves f() in this poll frame at every depth, overflowing debug
+    // workers even when fire_actions correctly stops at depth four.
+    while let Some((id,delivery))=crate::util::boxed(|| stage_fire(engine,org_id,project)).await? {
         let Some(d)=delivery else {continue};
-        let result=Box::pin(finish_fire(engine,org_id,project,id,&d)).await;
+        let result=crate::util::boxed(|| finish_fire(engine,org_id,project,id,&d)).await;
         if let Err(error)=result {
             let c=engine.db.get().await?;
             c.execute("UPDATE ot.listener_fire_outbox SET processing_boot=NULL WHERE id=$1 AND NOT done",&[&id]).await?;
@@ -767,8 +770,8 @@ async fn finish_fire(engine:&Arc<Engine>,org_id:i64,project:i64,id:i64,d:&Delive
             let c=engine.db.get().await?;
             if !recovery_org_open(engine,&**c,org_id).await? {return Ok(())}
             drop(c);
-            let text=crate::runtime::watchdogs::run_fire_actions(engine,org_id,owner,&d.owner_name,&d.uid,&d.name,&d.fire_actions).await;
-            if !text.is_empty(){append_results(engine,org_id,d,&text).await;}
+            let text=crate::util::boxed(|| crate::runtime::watchdogs::run_fire_actions(engine,org_id,owner,&d.owner_name,&d.uid,&d.name,&d.fire_actions)).await;
+            if !text.is_empty(){crate::util::boxed(|| append_results(engine,org_id,d,&text)).await;}
         }
     }
     let mut c=engine.db.get().await?;
