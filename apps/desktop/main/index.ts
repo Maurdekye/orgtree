@@ -53,7 +53,7 @@ import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, writeRunAsAdministrator } from './runasadmin'
 import { readStartupTasks, startEngineTask, startupOn, writeRunOnStartup } from './runonstartup'
-import { launchBackground, route } from './sessionlaunch'
+import { UNREADABLE_TASKS, launchBackground, route } from './sessionlaunch'
 import { disableBootEngine, enableBootEngine, ensureBootEngine, loginShellPath, privateDataFolders, type BootInputs } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
@@ -2302,7 +2302,7 @@ else {
         return engine.attachWithRetry(engineOptions)
       }
       if (process.platform === 'win32' && engineOptions.binary) {
-        engineOptions.launchBackground = () => launchBackground(engineOptions)
+        engineOptions.launchBackground = () => launchBackground(engineOptions, app.isPackaged)
       }
       const initialEngine = async () => {
       if (!await bootAttached() && !await engine.attach(engineOptions)) {
@@ -2361,7 +2361,11 @@ else {
         backgroundEngineRestart = true
         try {
           if (quitting || installerUpgradeShutdown) throw new Error('Restart cancelled by Quit or update')
-          if (route(await readStartupTasks().catch(() => null)) === 'boot') {
+          // an installed build that cannot read its tasks refuses before
+          // anything stops (invariant 1, fail closed)
+          const where = route(await readStartupTasks().catch(() => null), app.isPackaged)
+          if (where === 'unknown') throw new Error(UNREADABLE_TASKS)
+          if (where === 'boot') {
             await coreLifecycle?.transition(true)
             await engine.stopAttachedForUpdate()
             await startEngineTask()
@@ -2702,7 +2706,7 @@ else {
       coreLifecycle?.configureRecovery(async allowSpawn => {
         if (quitting || installerUpgradeShutdown || backgroundEngineRestart || updateApplying) return
         const before = engine.origin || initialOrigin
-        await engine.recoverUnexpected(engineOptions, allowSpawn, () => launchBackground(engineOptions))
+        await engine.recoverUnexpected(engineOptions, allowSpawn, () => launchBackground(engineOptions, app.isPackaged))
         if (quitting || installerUpgradeShutdown || !engine.origin) return
         await coreLifecycle?.complete()
         if (engine.origin === before) {

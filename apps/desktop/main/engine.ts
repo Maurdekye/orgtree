@@ -318,7 +318,18 @@ export class Engine extends EventEmitter {
     const realRoot = fs.realpathSync.native(root)
     validateDataRoot(realRoot, options.forbiddenRoot)
     this.state({ state: 'starting' })
-    if (binary && options.launchBackground && await options.launchBackground() !== 'managed') {
+    // An installed build that cannot read its tasks refuses (sessionlaunch.ts
+    // UNREADABLE_TASKS): no engine of this desktop's own, the reason shown,
+    // and Start engine in the tray (invariant 1).
+    let launched: 'boot' | 'managed' = 'managed'
+    if (binary && options.launchBackground) {
+      try { launched = await options.launchBackground() }
+      catch (error) {
+        this.state({ state: 'unavailable', message: error instanceof Error ? error.message : 'The background engine could not be started.' })
+        throw error
+      }
+    }
+    if (launched !== 'managed') {
       // attach() takes the slot only while it is still this desktop's to fill
       if (this.launchesCancelled) throw new Error('Engine launch cancelled by Quit')
       if (!await this.attachWithRetry(options)) throw new Error('The background engine did not publish a verified attachment in time.')
