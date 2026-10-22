@@ -33,6 +33,8 @@ pub mod opencode_mail;
 pub mod prompt;
 #[cfg(test)]
 mod mail_overflow_tests;
+#[cfg(test)]
+mod message_log_tests;
 pub mod recovery;
 pub mod reminders;
 pub mod sched;
