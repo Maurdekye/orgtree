@@ -174,7 +174,8 @@ export default async function (rig) {
   const treeNode = async (s, name) => {
     const find = v => {
       if (!v || typeof v !== 'object') return null
-      if (v.name === name && 'session_placement' in v) return v
+      // a tree record's id is the agent's name
+      if ((v.id === name || v.name === name) && 'session_placement' in v) return v
       for (const x of Object.values(v)) { const r = find(x); if (r) return r }
       return null
     }
@@ -335,7 +336,8 @@ export default async function (rig) {
     const fakeFrom = rig.fakeLog(AGENT).length
     await at(s).userMail(AGENT, 'SIGNOUT-HANG while signed in')
     await rig.waitFor(() => rig.fakeLog(AGENT).slice(fakeFrom).some(e => e.kind === 'hang') || null, { what: `${AGENT} mid-turn`, timeout: 90000 })
-    p.check('I: the turn runs hosted', launched(from, AGENT).hosted)
+    // its CLI may be the warm one an earlier turn started: the last launch counts
+    p.check('I: the turn runs hosted', placed(AGENT).session === 'signed-in' && launched(0, AGENT).hosted, launched(0, AGENT).line)
     fs.writeFileSync(marker, 'proof')
     const signedOut = Date.now()
     kill(helper.pid, true)
