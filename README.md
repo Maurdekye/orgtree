@@ -29,6 +29,7 @@ Orgtree puts the controls for a whole organization around your agent harnesses. 
 - **A mail hub across machines.** Connect organizations on different computers through a shared hub and let their agents exchange messages and files. Local organizations can communicate on the same machine, too.
 - **Chat from your phone.** [Hubchat](https://github.com/Maurdekye/orgtree-hubchat) is a companion app for Android and Windows that messages your organization's agents through the mail hub, over your own private network.
 - **Watchdogs that wait for the right event.** Persistent watchers can wake an agent when a file changes, a process stops, command output matches or an Orgtree event occurs. They survive engine restarts, so agents can wait for a trigger instead of repeatedly checking for it.
+- **Projects for coordinating concurrent work.** Group agents in a project without spending a seat, and give them shared tools for working in parallel. Concurrency slots hand out limited capacity, such as build permits, in first-come order; fair mail queues spread jobs across workers with optional acknowledgments; events and listeners let agents wait for each other's signals or for a group to be ready.
 - **Automatic cheap compaction.** Enable a reset before a known-cold turn when context exceeds your chosen threshold. The agent starts a fresh session seeded with a summary, avoiding a full-price reread of the old conversation when its prompt cache is known to be cold.
 - **A concurrent Rust engine with PostgreSQL storage.** Independent agent tasks, short database transactions and paged reads are designed to keep large teams responsive. Your organization, docket, mail and retained conversations are stored locally and outlive the agent processes.
 - **Startup and background operation.** Set Orgtree to start at Windows login and keep the engine working in the system tray when you close its windows. Your team can continue between visits.
@@ -46,6 +47,16 @@ Recovery is part of the machinery. The desktop can restart an unresponsive engin
 Select any image to see it full size.
 
 <table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-4-4-project-canvas.png"><img src="docs/images/orgtree-4-4-project-canvas.png" alt="v4.4 canvas with agents grouped under nested project nodes, shown as dashed cards with folder icons" width="100%"></a>
+      <p><strong>v4.4 projects.</strong> Group agents in nested projects on the canvas.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-4-4-project-bunches.png"><img src="docs/images/orgtree-4-4-project-bunches.png" alt="v4.4 circular org canvas with compact groups of project folder nodes and a pinned agent desk showing a conversation" width="100%"></a>
+      <p><strong>v4.4 project groups.</strong> Keep project groups compact in a large circular org, with an agent desk alongside.</p>
+    </td>
+  </tr>
   <tr>
     <td width="50%" valign="top">
       <a href="docs/images/orgtree-4-3-workspace.png"><img src="docs/images/orgtree-4-3-workspace.png" alt="v4.3 workspace with provider usage across the top, an active-only agents list, round org canvas, Work docket and coordinator desk" width="100%"></a>
