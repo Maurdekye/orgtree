@@ -81,11 +81,21 @@ export default async function (rig) {
   const present = desc('orgtree_present')
   const sendFile = desc('orgtree_send_file')
   p.check('nova is served orgtree_present as ALWAYS for anything the user reads (report, plan, any .md), never a download card',
-    present.includes('Present anything the user is meant to read themselves') && present.includes('ALWAYS this, never a download card')
-    && present.includes('send the document to your superior'), { present })
+    /Present documents the user should READ \(reports, plans, Markdown\)/.test(present)
+    && present.includes('project places it under a reachable project')
+    && present.includes('members (nested included) need no user audience for their own project')
+    && present.includes('Otherwise requires user audience/top-level authority')
+    && present.includes('Otherwise send to your superior') && present.endsWith('\nGuide: orgtree-tool-present.')
+    && served.find(t => t.name === 'orgtree_present')?.inputSchema?.required?.includes('title')
+    && served.find(t => t.name === 'orgtree_present')?.inputSchema?.properties?.project?.type === 'string', { present })
   p.check('nova is served orgtree_send_file as only for a file wanted AS A FILE, never for a document to read',
-    sendFile.includes('a file the user wants AS A FILE') && sendFile.includes('Never for a document they are meant to read')
-    && !sendFile.includes('whenever the user asks for a file'), { sendFile })
+    /Deliver a wanted FILE \(installer, log, export, image, archive\)/.test(sendFile)
+    && sendFile.includes('Documents to READ, including Markdown, use orgtree_present')
+    && sendFile.includes('relative paths from your working folder')
+    && sendFile.includes('Reuse delivery_id for the same delivery after a lost response')
+    && sendFile.endsWith('\nGuide: orgtree-tool-send-file.') && !sendFile.includes('whenever the user asks for a file')
+    && served.find(t => t.name === 'orgtree_send_file')?.inputSchema?.required?.includes('path')
+    && served.find(t => t.name === 'orgtree_send_file')?.inputSchema?.properties?.delivery_id?.type === 'string', { sendFile })
 
   const big = await rig.tool('boss', 'orgtree_present', { title: 'Long report', body: 'x'.repeat(64 * 1024 + 1) })
   p.check('a markdown body over 64 KB is refused with "shorter or split", not "send it as a file"',
@@ -95,7 +105,10 @@ export default async function (rig) {
   p.check('nova: her instructions say a .md file goes to orgtree_present as `path`',
     nova.includes('(non-blocking; pass a .md file as `path`, or the markdown as `body`)'), { at: around(nova, '(non-blocking') })
   p.check('nova is served orgtree_present with `path` taking a .md file (read as the markdown, 64 KB max) or an .html mockup',
-    present.includes('or `path` a .md file (read as the markdown, 64 KB max) or a self-contained .html mockup'), { present })
+    present.includes('body or .md path≤64KiB') && present.includes('self-contained HTML path≤4MiB')
+    && present.includes('sandboxed without network') && present.includes('replaces updates a card')
+    && present.endsWith('\nGuide: orgtree-tool-present.')
+    && ['body', 'path', 'replaces'].every(field => served.find(t => t.name === 'orgtree_present')?.inputSchema?.properties?.[field]?.type === 'string'), { present })
   const scratch = name => path.join(rig.data, 'scratch', rig.org, name)
   const put = (name, file, content) => {
     fs.mkdirSync(scratch(name), { recursive: true })

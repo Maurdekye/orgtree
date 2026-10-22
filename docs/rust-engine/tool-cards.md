@@ -24,6 +24,15 @@ does not prove the client deferred a schema or that the model can find it.
 
 ## Focused evidence
 
+The `present-documents.mjs` rig validates the compact presentation/file
+contracts rather than the former verbose sentences: read versus wanted file,
+project/user-audience authority and superior routing, Markdown 64 KiB and
+self-contained sandboxed HTML 4 MiB, Guide pointers and served schema fields.
+Only its three description predicates change; all 16 names and the other
+13 check calls stay intact. The seven identity/refusal baseline failures
+remain failures, independently of these description checks.
+[verified: `tools/rig/proofs/present-documents.mjs`, 2026-10-22]
+
 Before implementation, exact `d53ddd5` produced ten canonical JSON measurements
 (five harnesses, all groups and all groups off). Split mail: 45 cards, 55,285
 bytes, including 21,598 description bytes. Flat mail: 45 cards, 54,658 bytes,
