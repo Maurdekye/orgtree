@@ -63,6 +63,17 @@ and the main quantity/FIFO/restart/release/reclaim controls remain.
 [verified: `runtime/watchdogs/immediate.rs`, `tools/rig/proofs/project-multi-slots.mjs`;
 2026-10-22]
 
+The 16-check single-slot proof tests both capacity exhaustion by a held lease
+and duplicate pending claims without changing rows. A real queued claim keeps
+spent-dog/grant-mail coverage; inline creation checks no extra row/mail/turn.
+The 20-check queue-batch proof registers its full-batch listener while empty
+before supplying mail, preserving one real wake and one fakeCLI prompt. Its
+ready short ACK batch validates unique inline message ids, read/delivered
+provenance and retained unacked custody without a listener or redelivery.
+Both persist setup/timeout failures instead of leaving a partial passing file.
+[verified: `tools/rig/proofs/project-slots.mjs`, `tools/rig/proofs/project-queue-batch.mjs`;
+2026-10-22]
+
 Every node in the org hierarchy is an agent, so a project's shared files, mail and documents
 always belong to one particular agent. A **project node** is a non-agent node in the tree that
 stands for one project: it has its own folder, mailbox and presentations, it runs no turns, and

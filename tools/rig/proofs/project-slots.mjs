@@ -20,9 +20,11 @@ export async function setup() {
 
 export default async function (rig) {
   const p = new Proof('project-slots')
+  let phase = 'setup'
+  try {
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
   const settle = what => rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0,
-    { what, timeout: 60000 }).catch(() => {})
+    { what, timeout: 60000 })
   await settle('seed turns to settle')
   const said = r => (r?.ok ? JSON.stringify(r.json ?? r.text) : String(r?.text)).slice(0, 300)
   const opTry = body => rig.op(body).then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
@@ -47,19 +49,48 @@ export default async function (rig) {
     && node('build').scope?.slots_capacity === 1, on.ok ? on.v : on.error)
 
   // ------------------------------------------------------------ claim and the line
+  phase = 'inline and queued grants'
+  const activity = who => rig.one(`SELECT
+    (SELECT count(*) FROM ot.watchdogs WHERE owner_agent_id=${node(who).id}) AS dogs,
+    (SELECT count(*) FROM ot.mail WHERE recipient_agent_id=${node(who).id}) AS mails,
+    (SELECT count(*) FROM ot.turns WHERE agent_id=${node(who).id}) AS turns`)
+  const beforeInline = activity('sa')
   const ca = await claim('sa')
-  p.check('a claim with a slot free is granted at once, and says so', ca.ok && /claimed a concurrency slot of project build/.test(ca.text) && /lease/.test(ca.text)
-    && JSON.stringify(holding()) === JSON.stringify(['sa']), { said: said(ca), holding: holding() })
-  await rig.waitFor(() => granted('sa').length === 1, { what: 'sa\'s grant mail', timeout: 20000 }).catch(() => {})
-  p.check('the slot dog fires with the grant', granted('sa').length === 1 && /release_slot/.test(granted('sa')[0]?.body ?? ''), granted('sa'))
+  await settle('inline did not wake sa')
+  const afterInline = activity('sa')
+  p.check('a claim with a slot free is granted at once, and says so', ca.ok && ca.json?.resolved === true && ca.json?.registered === false
+    && ca.json?.slots === 1 && typeof ca.json?.lease === 'string' && ca.json.lease === leaseOf('sa')?.uid
+    && ca.json?.fire?.events?.length === 1 && ca.json.fire.events[0].includes(ca.json.lease)
+    && JSON.stringify(beforeInline) === JSON.stringify(afterInline)
+    && JSON.stringify(holding()) === JSON.stringify(['sa']), { result: ca.json, holding: holding(), beforeInline, afterInline })
+  // Force a registered claim without changing the later FIFO scenario. Ready
+  // one-shots have no dog/mail/wake (USER 2026-10-21 18:05:58Z).
+  const queuedGrant = await claim('boss', 'queued-grant')
+  const firstRelease = await rig.tool('sa', 'orgtree_project', { action: 'release_slot', lease: ca.json?.lease })
+  await rig.waitFor(() => granted('boss').length === 1, { what: 'queued boss grant mail', timeout: 20000 })
+  const bossLease = leaseOf('boss')?.uid
+  const bossMail = granted('boss')
+  const bossDog = rig.one(`SELECT state,fired FROM ot.watchdogs WHERE name='queued-grant' AND owner_agent_id=${node('boss').id}`)
+  const bossRelease = await rig.tool('boss', 'orgtree_project', { action: 'release_slot', lease: bossLease })
+  const restoredSa = await claim('sa')
+  await settle('registered grant completed')
+  p.check('the slot dog fires with the grant', queuedGrant.ok && firstRelease.ok && bossDog?.state === 'spent' && bossDog.fired === 1
+    && bossMail.length === 1 && typeof bossLease === 'string' && bossMail[0].body.includes(bossLease) && /release_slot/.test(bossMail[0].body)
+    && granted('boss').length === 1 && granted('sa').length === 0 && bossRelease.ok && restoredSa.ok && holding().join() === 'sa',
+    { bossMail, bossDog, bossLease, restored: restoredSa.json })
   const cb = await claim('sb')
   const cc = await claim('sc')
   p.check('with no slot free the dog is the agent\'s place in a first-come line', cb.ok && /1st in line/.test(cb.text)
     && cc.ok && /2nd in line/.test(cc.text), { sb: said(cb), sc: said(cc) })
   const outsider = await claim('carol')
   p.check('only agents above or below the project may claim', !outsider.ok && /above or below/.test(outsider.text), said(outsider))
+  const beforeRefusal = { activity: activity('sa'), leases: leases(), sb: activity('sb') }
   const again = await claim('sa', 'build-slot-2')
-  p.check('one claim per agent', !again.ok && /already/.test(again.text), said(again))
+  const pendingAgain = await claim('sb', 'pending-again')
+  const afterRefusal = { activity: activity('sa'), leases: leases(), sb: activity('sb') }
+  p.check('one claim per agent', !again.ok && /requested 1 slots but only 0 remain.*1 held, 0 pending, capacity 1/.test(again.text)
+    && !pendingAgain.ok && /already have.*one armed or paused claim per agent/.test(pendingAgain.text)
+    && JSON.stringify(beforeRefusal) === JSON.stringify(afterRefusal), { held: said(again), pending: said(pendingAgain), beforeRefusal, afterRefusal })
 
   // pausing leaves the line; resuming rejoins at the back
   await rig.tool('sb', 'orgtree_watchdog', { action: 'pause', id: 'build-slot' })
@@ -70,18 +101,20 @@ export default async function (rig) {
     && (status.json?.holders ?? []).map(h => h.agent).join() === 'sa', said(status))
 
   // ------------------------------------------------------------ release and force-release
+  phase = 'release and force-release'
   const rel = await rig.tool('sa', 'orgtree_project', { action: 'release_slot', lease: leaseOf('sa')?.uid, note: 'build ok' })
-  await rig.waitFor(() => granted('sc').length === 1, { what: 'sc granted', timeout: 20000 }).catch(() => {})
+  await rig.waitFor(() => granted('sc').length === 1, { what: 'sc granted', timeout: 20000 })
   p.check('release grants the next in line at once', rel.ok && JSON.stringify(holding()) === JSON.stringify(['sc'])
     && granted('sc').length === 1 && leases().find(l => l.holder === 'sa')?.end_reason === 'released', { said: said(rel), leases: leases() })
   const notMine = await rig.tool('sb', 'orgtree_project', { action: 'release_slot', lease: leaseOf('sc')?.uid })
   p.check('only the holder releases its own slot', !notMine.ok, said(notMine))
   const force = await opTry({ op: 'slot_release', lease: leaseOf('sc')?.uid, force: true })
-  await rig.waitFor(() => granted('sb').length === 1, { what: 'sb granted', timeout: 20000 }).catch(() => {})
+  await rig.waitFor(() => granted('sb').length === 1, { what: 'sb granted', timeout: 20000 })
   p.check('the user can force-release; the next in line is granted', force.ok && JSON.stringify(holding()) === JSON.stringify(['sb'])
     && /forced/.test(leases().find(l => l.holder === 'sc')?.end_reason ?? ''), { force: force.ok ? force.v : force.error, leases: leases() })
 
   // ------------------------------------------------------------ restart, halt, capacity, retire
+  phase = 'restart, halt, capacity and retirement'
   await claim('sa', 'build-slot-3')
   await rig.restart()
   await settle('after restart')
@@ -89,16 +122,16 @@ export default async function (rig) {
     && rig.sql(`SELECT 1 FROM ot.watchdogs WHERE kind = 'slot' AND state = 'armed' AND owner_agent_id = ${node('sa').id}`).length === 1,
     { holding: holding() })
   await opTry({ op: 'halt', nodes: ['sb'] })
-  await rig.waitFor(() => leases().find(l => l.holder === 'sb')?.ended_at, { what: 'sb\'s lease to end', timeout: 20000 }).catch(() => {})
-  await rig.waitFor(() => holding().includes('sa'), { what: 'sa granted again', timeout: 20000 }).catch(() => {})
+  await rig.waitFor(() => leases().find(l => l.holder === 'sb')?.ended_at, { what: 'sb\'s lease to end', timeout: 20000 })
+  await rig.waitFor(() => holding().includes('sa'), { what: 'sa granted again', timeout: 20000 })
   p.check('a halted holder loses its slot, and the next in line gets it', leases().find(l => l.holder === 'sb')?.end_reason === 'halted'
     && JSON.stringify(holding()) === JSON.stringify(['sa']), leases())
   await claim('sc', 'build-slot-4')
   const two = await opTry({ op: 'set_slots', node: 'build', capacity: 2 })
-  await rig.waitFor(() => holding().length === 2, { what: 'the second slot granted', timeout: 20000 }).catch(() => {})
+  await rig.waitFor(() => holding().length === 2, { what: 'the second slot granted', timeout: 20000 })
   p.check('raising the capacity grants the waiting at once', two.ok && JSON.stringify(holding()) === JSON.stringify(['sa', 'sc']), leases())
   const ret = await opTry({ op: 'retire', node: 'sc' })
-  await rig.waitFor(() => leases().filter(l => l.holder === 'sc').every(l => l.ended_at), { what: 'sc\'s lease to end', timeout: 20000 }).catch(() => {})
+  await rig.waitFor(() => leases().filter(l => l.holder === 'sc').every(l => l.ended_at), { what: 'sc\'s lease to end', timeout: 20000 })
   p.check('a retired holder loses its slot', ret.ok && leases().filter(l => l.holder === 'sc').every(l => l.ended_at)
     && leases().filter(l => l.holder === 'sc').some(l => l.end_reason === 'retired'), leases())
   await opTry({ op: 'unhalt', nodes: ['sb'] })
@@ -116,4 +149,8 @@ export default async function (rig) {
   p.file('leases.json', leases())
   p.keep(rig, { agents: ['sa', 'sb', 'sc', 'boss'], grep: /slot|lease/i })
   return p.summary()
+  } catch (error) {
+    p.check(`project-slots failed during ${phase}`, false, { error: error.message, stack: error.stack })
+    return p.summary()
+  }
 }

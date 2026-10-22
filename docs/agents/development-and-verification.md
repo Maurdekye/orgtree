@@ -8,6 +8,18 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- The single-slot proof preserves its 16 names: immediate grants use structured
+  lease/quantity and no watchdog/mail/turn changes; a blocked registered claim
+  proves one spent dog and grant mail. Distinguish held-capacity refusal from
+  the one-pending-claim refusal, and require both refusals to leave rows alone.
+  The queue-batch proof preserves all 20 names: register the full-batch listener
+  before seeding to retain spent-row/count/one-wake/fakeCLI-prompt coverage.
+  The ready short ACK batch instead returns unique consumed message identities
+  inline, with read/delivery provenance, no row/fire mail/wake, no second copy
+  on dispatch and durable unacked custody. Setup/timeout errors save named FAILs,
+  so partial progress is never a completed pass. [verified: `tools/rig/proofs/project-slots.mjs`,
+  `tools/rig/proofs/project-queue-batch.mjs`; USER 2026-10-21 18:05:58Z; 2026-10-22]
+
 - Multi-slot proofs keep all 23 names and the 21 other controls. An inline
   two-slot result must return `slots:2`, the stored lease identity and one
   complete fire, with no watchdog/mail/turn-count increase, including after

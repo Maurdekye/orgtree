@@ -5,12 +5,14 @@ export async function setup() {
 }
 export default async function (rig) {
   const p = new Proof('project-queue-batch')
+  let phase = 'setup'
+  try {
   rig.scenario({ default: { turns: [{ steps: [{ text: 'Batch received.' }] }] } })
   const settle = () => rig.waitFor(() => rig.sql('SELECT id FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'fixture turns', timeout: 60000 })
   const create = (who, project, extra = {}) => rig.tool(who, 'orgtree_watchdog', { action: 'create', kind: 'fair_queue', target: project, name: `take-${project}`, notice: true, ...extra })
   const remove = (who, project) => rig.tool(who, 'orgtree_watchdog', { action: 'remove', id: `take-${project}` })
   const originals = project => rig.sql(`SELECT uid,body,state,extra FROM ot.mail WHERE recipient_name='${project}' AND body LIKE 'job-%' ORDER BY id`)
-  const copies = (who, project) => rig.sql(`SELECT uid,body,extra,xmin::text AS tx FROM ot.mail WHERE recipient_name='${who}' AND extra->'via_project'->>'name'='${project}' ORDER BY id`)
+  const copies = (who, project) => rig.sql(`SELECT uid,body,state,read_at,delivered_at,extra,xmin::text AS tx FROM ot.mail WHERE recipient_name='${who}' AND extra->'via_project'->>'name'='${project}' ORDER BY id`)
   const dog = (who, project) => rig.one(`SELECT state,fired,memo FROM ot.watchdogs WHERE owner_agent_id=(SELECT id FROM ot.agents WHERE name='${who}') AND target='${project}' ORDER BY id DESC LIMIT 1`)
   const seed = (project, count, notice = true) => rig.exec(`INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,notice)
     SELECT 'm-batch-${project}-'||g,p.org_id,'@user','agent',p.id,p.name,'job-'||g,'pending',${notice}
@@ -58,23 +60,47 @@ export default async function (rig) {
   p.check('partial abandonment preserves the one ACK and returns every other mail', !!abandoned[0]?.extra?.claimed?.acked_at && abandoned.slice(1).every(m => m.state === 'pending'), abandoned)
 
   await project('one', ['one-worker'])
-  seed('one', 5, false)
+  phase = 'registered one-shot batch and prompt'
   const before = rig.turns('one-worker').filter(t => t.ended_at).length
+  // Register while empty, then supply a backlog. A ready one-shot instead
+  // consumes inline and cannot exercise a spent row or wake/prompt coverage.
   const once = await create('one-worker', 'one', { batch: 3, once: true, notice: false })
+  seed('one', 5, false)
+  await rig.userMail('one', 'dispatch trigger', { notice: true })
   await rig.waitFor(() => dog('one-worker', 'one')?.state === 'spent', { what: 'one batch spends the listener', timeout: 20000 })
   await rig.waitTurns('one-worker', before + 1)
   const prompt = rig.fakeLog('one-worker').filter(x => x.kind === 'turn').at(-1)?.prompt ?? ''
-  p.check('a one-shot takes its full available batch then leaves the rest', once.ok && copies('one-worker', 'one').length === 3 && originals('one').filter(m => m.state === 'pending').length === 2, originals('one'))
-  p.check('one wake delivers all three original mails in one real fakeCLI prompt', ['job-1', 'job-2', 'job-3'].every(s => prompt.includes(s)) && !prompt.includes('job-4'), prompt)
+  p.check('a one-shot takes its full available batch then leaves the rest', once.ok && dog('one-worker', 'one')?.state === 'spent'
+    && copies('one-worker', 'one').length === 3 && originals('one').filter(m => m.state === 'pending').length === 2, originals('one'))
+  p.check('one wake delivers all three original mails in one real fakeCLI prompt', ['job-1', 'job-2', 'job-3'].every(s => prompt.includes(s)) && !prompt.includes('job-4')
+    && rig.turns('one-worker').filter(t => t.ended_at).length === before + 1, prompt)
   p.check('handed count remains a message count', dog('one-worker', 'one')?.fired === 3, dog('one-worker', 'one'))
 
   await project('short', ['short-worker'], true)
+  phase = 'inline short ACK batch'
   seed('short', 2)
-  await create('short-worker', 'short', { batch: 20, once: true })
-  await rig.waitFor(() => dog('short-worker', 'short')?.state === 'spent', { what: 'partial batch', timeout: 20000 })
-  p.check('a short batch is delivered immediately, without waiting for twenty', copies('short-worker', 'short').length === 2, originals('short'))
+  const shortTurns = rig.turns('short-worker').length
+  const short = await create('short-worker', 'short', { batch: 20, once: true })
+  await settle()
+  const shortCopies = copies('short-worker', 'short'), messages = short.json?.messages
+  const shortFireMails = rig.sql("SELECT uid FROM ot.mail WHERE recipient_name='short-worker' AND kind='watchdog'")
+  p.check('a short batch is delivered immediately, without waiting for twenty', short.ok && short.json?.resolved === true && short.json?.registered === false
+    && !dog('short-worker', 'short') && shortFireMails.length === 0 && rig.turns('short-worker').length === shortTurns
+    && Array.isArray(messages) && messages.length === 2 && new Set(messages.map(m => m.id)).size === 2
+    && JSON.stringify(messages.map(m => m.id)) === JSON.stringify(shortCopies.map(m => m.uid))
+    && messages.every(m => m.state === 'read' && m.will_redeliver === false && m.content.includes(m.body))
+    && shortCopies.length === 2 && shortCopies.every(m => m.state === 'read' && m.read_at && m.delivered_at && m.extra.manual_read === true
+      && m.extra.via_project.inline === true && m.extra.via_project.dog === null), { result: short.json, shortCopies, shortTurns })
   await rig.userMail('short', 'dispatch again', { notice: true })
-  p.check('spent one-shot still owns its unacked batch', originals('short').every(m => m.extra?.claimed?.by === 'short-worker'), originals('short'))
+  await settle()
+  p.check('spent one-shot still owns its unacked batch', originals('short').every(m => m.extra?.claimed?.by === 'short-worker'
+    && m.extra.claimed.inline === true && m.extra.claimed.dog === null && !m.extra.claimed.acked_at)
+    && JSON.stringify(copies('short-worker', 'short').map(m => m.uid)) === JSON.stringify(shortCopies.map(m => m.uid))
+    && rig.turns('short-worker').length === shortTurns && !dog('short-worker', 'short'), originals('short'))
   p.keep(rig, { agents: ['one-worker', 'a'], grep: /batch|dispatch|error/ })
   return p.summary()
+  } catch (error) {
+    p.check(`project-queue-batch failed during ${phase}`, false, { error: error.message, stack: error.stack })
+    return p.summary()
+  }
 }
