@@ -20,6 +20,16 @@ These attributed records were moved from the root guide at `22daffd`; they retai
   so partial progress is never a completed pass. [verified: `tools/rig/proofs/project-slots.mjs`,
   `tools/rig/proofs/project-queue-batch.mjs`; USER 2026-10-21 18:05:58Z; 2026-10-22]
 
+  Check no-wake at inline creation, before any later explicit mail to an
+  unlistened project can legitimately warn/wake its manager and trigger ACK
+  reminders. After that mail, require the same unacked custody and copy ids.
+  This follows [wake an agent to listen for project mail](../skills/orgtree-app/app-settings/app-concurrency-and-checkups/SKILL.md)
+  and the [consumed-copy turn-end reminder](../skills/orgtree-working/team/projects/SKILL.md)
+  (`domain/mail.rs`, `domain/projects.rs`), not an exception to inline no-wake.
+  The 17-check user-slot proof uses the same structured inline lease and the
+  exact capacity-409 refusal with unchanged lease/watchdog rows; retain all
+  other user-owned lease, protection, line and restart guards.
+
 - Multi-slot proofs keep all 23 names and the 21 other controls. An inline
   two-slot result must return `slots:2`, the stored lease identity and one
   complete fire, with no watchdog/mail/turn-count increase, including after

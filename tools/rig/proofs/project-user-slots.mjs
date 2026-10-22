@@ -78,14 +78,21 @@ export default async function (rig) {
   await settleHold(['sa', 'user'], 'sa granted beside the user')
   const s2 = await status('sa')
   p.check('the user\'s hold counts against the capacity: an agent takes the second slot and the next waits (an agent sees it too)',
-    ca.ok && /claimed a concurrency slot/.test(ca.text) && cb.ok && /1st in line/.test(cb.text) && holdersOf(s2).join() === 'sa,user' && s2.held === 2
+    ca.ok && ca.json?.resolved === true && ca.json?.registered === false && ca.json?.slots === 1
+    && typeof ca.json?.lease === 'string' && ca.json.lease === leaseOf('sa')
+    && ca.json?.fire?.events?.length === 1 && ca.json.fire.events[0].includes(ca.json.lease)
+    && cb.ok && /1st in line/.test(cb.text) && holdersOf(s2).join() === 'sa,user' && s2.held === 2
     && lineOf(s2).join() === 'sb', { ca: said(ca), cb: said(cb), s2 })
   const h2 = await opTry({ op: 'user_slot_hold', node: 'build', slots: 1, reason: 'then a second pass' })
   const s3 = await status('boss')
   p.check('the user\'s request waits in the SAME first-come line, behind the agent that came first', h2.ok
     && lineOf(s3).join() === 'sb,user' && (s3.line ?? []).map(w => w.position).join() === '1,2', s3.line)
+  const beforeOver = { leases: leases(), dogs: dogs() }
   const over = await opTry({ op: 'user_slot_hold', node: 'build', slots: 2 })
-  p.check('the user\'s holds and waits together stay within the slot count', !over.ok && /already hold or wait/.test(over.error ?? ''), over)
+  const afterOver = { leases: leases(), dogs: dogs() }
+  p.check('the user\'s holds and waits together stay within the slot count', !over.ok
+    && /409: requested 2 slots but only 0 remain.*\(1 held, 1 pending, capacity 2\)/.test(over.error ?? '')
+    && JSON.stringify(beforeOver) === JSON.stringify(afterOver), { over, beforeOver, afterOver })
 
   // ------------------------------------------------------------ only the user ends it
   const lease1 = userActive()[0]?.uid

@@ -71,6 +71,12 @@ before supplying mail, preserving one real wake and one fakeCLI prompt. Its
 ready short ACK batch validates unique inline message ids, read/delivered
 provenance and retained unacked custody without a listener or redelivery.
 Both persist setup/timeout failures instead of leaving a partial passing file.
+No-wake is tested at inline creation; a later explicit mail to a project with
+no queue listener may legitimately warn/wake its manager and lead to ordinary
+ACK nudges. The custody check after that action requires unchanged copy ids
+and unacked ownership. The user-slot proof keeps all 17 guards, including its
+protected user holds and FIFO/restart cases, while checking an agent's inline
+lease structure and the exact unchanged-row capacity refusal.
 [verified: `tools/rig/proofs/project-slots.mjs`, `tools/rig/proofs/project-queue-batch.mjs`;
 2026-10-22]
 

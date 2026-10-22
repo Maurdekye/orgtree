@@ -93,10 +93,14 @@ export default async function (rig) {
       && m.extra.via_project.inline === true && m.extra.via_project.dog === null), { result: short.json, shortCopies, shortTurns })
   await rig.userMail('short', 'dispatch again', { notice: true })
   await settle()
-  p.check('spent one-shot still owns its unacked batch', originals('short').every(m => m.extra?.claimed?.by === 'short-worker'
-    && m.extra.claimed.inline === true && m.extra.claimed.dog === null && !m.extra.claimed.acked_at)
+  // A later mail to an unlistened queue can legitimately warn/wake its
+  // manager and cause ACK reminders. No-wake belongs to inline creation;
+  // custody and absence of duplicate copies must survive that later action.
+  p.check('spent one-shot still owns its unacked batch', originals('short').length === 2 && originals('short').every(m => m.extra?.claimed?.by === 'short-worker'
+    && m.extra.claimed.inline === true && m.extra.claimed.dog === null && !m.extra.claimed.acked_at
+    && m.extra.claimed.copy === shortCopies.find(c => c.extra.via_project.mail === m.uid)?.uid)
     && JSON.stringify(copies('short-worker', 'short').map(m => m.uid)) === JSON.stringify(shortCopies.map(m => m.uid))
-    && rig.turns('short-worker').length === shortTurns && !dog('short-worker', 'short'), originals('short'))
+    && !dog('short-worker', 'short'), { originals: originals('short'), copies: copies('short-worker', 'short'), turns: rig.turns('short-worker').length })
   p.keep(rig, { agents: ['one-worker', 'a'], grep: /batch|dispatch|error/ })
   return p.summary()
   } catch (error) {
